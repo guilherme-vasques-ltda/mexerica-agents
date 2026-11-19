@@ -352,10 +352,26 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
     as_hub(hub, &[], || {
         items.iter().try_for_each(|item| {
             safe(&item.source)?;
-            hashes(&item.source).map(drop)
+            hashes(&item.source)?;
+            if matches!(item.kind, Kind::Profile) {
+                owned_by(&item.source, hub.uid)?;
+            }
+            Ok(())
         })
     })?;
     Ok(items)
+}
+
+/// Mesma regra de dono de `copy_profile`, conferida antes de parar o Hub.
+fn owned_by(path: &Path, uid: u32) -> Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    ensure!(meta.uid() == uid, "perfil com item de outro dono recusado: {}", path.display());
+    if meta.is_dir() {
+        for entry in fs::read_dir(path)? {
+            owned_by(&entry?.path(), uid)?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, backup: &Path, port: u16) -> Result<()> {
@@ -368,6 +384,12 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
     ensure!(!Path::new(CONFIG).exists(), "instalação já separada; use reinstalação, não migração");
     inside(&hub.home, data)?;
     as_hub(hub, &[], || {
+        // A cópia é gravada com a identidade do Hub: /var/backups precisa ser atravessável por ela.
+        match fs::symlink_metadata(backup) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => bail!("o Hub não alcança /var/backups: {error}"),
+            Ok(_) => bail!("backup já existe; não será recriado"),
+        }
         safe(data)?;
         ensure!(data.is_dir() && fs::metadata(data)?.uid() == hub.uid, "data_dir deve pertencer ao Hub");
         Ok(())
@@ -641,9 +663,8 @@ fn verify_backup(hub_uid: u32, backup: &Path, manifest: &Manifest) -> Result<()>
 
 fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<PathBuf> {
     let stable = hub.home.join(".local/bin/donnabot-host");
-    if manifest.binary == stable {
-        safe(stable.parent().context("link sem pai")?)?;
-    } else {
+    safe(stable.parent().context("link sem pai")?)?;
+    if manifest.binary != stable {
         safe(&manifest.binary)?;
     }
     safe(&manifest.data)?;
@@ -681,6 +702,11 @@ fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<P
             fs::remove_file(&stable)?;
         }
         std::os::unix::fs::symlink(target, &stable)?;
+        ensure!(
+            stable.canonicalize()? == manifest.binary,
+            "link do app restaurado não leva ao binário conferido: {}",
+            manifest.binary.display()
+        );
     } else {
         if stable.is_symlink() {
             fs::remove_file(&stable)?;

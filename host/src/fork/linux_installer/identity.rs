@@ -4,6 +4,9 @@
 //! O trabalho passado não cria processos nem threads: exec devolveria as credenciais de root.
 use anyhow::{Context, Result, ensure};
 
+#[cfg(not(target_pointer_width = "64"))]
+compile_error!("identidade de arquivos exige Linux 64 bits: SYS_setgroups e c_long com IDs de 32 bits");
+
 const FS_CAPABILITIES: u64 = 0b1_1111 | 1 << 32;
 
 /// Grupos da conta como o login os inicializa; o grupo root é recusado por `as_user`.
@@ -34,8 +37,8 @@ pub(super) fn as_user<T: Send>(
 ) -> Result<T> {
     ensure!(uid != 0 && gid != 0, "identidade de arquivos não pode ser root");
     std::thread::scope(|scope| {
-        scope
-            .spawn(|| {
+        std::thread::Builder::new()
+            .spawn_scoped(scope, || {
                 let mut all = vec![gid];
                 all.extend(groups.iter().copied().filter(|g| *g != gid));
                 all[1..].sort_unstable();
@@ -49,7 +52,7 @@ pub(super) fn as_user<T: Send>(
                 let (group_now, user_now) = unsafe {
                     libc::syscall(libc::SYS_setfsgid, libc::c_long::from(gid));
                     libc::syscall(libc::SYS_setfsuid, libc::c_long::from(uid));
-                    let query = libc::c_long::from(u32::MAX);
+                    let query: libc::c_long = -1;
                     (libc::syscall(libc::SYS_setfsgid, query), libc::syscall(libc::SYS_setfsuid, query))
                 };
                 ensure!(
@@ -62,7 +65,7 @@ pub(super) fn as_user<T: Send>(
                 let effective = u64::from_str_radix(effective, 16)?;
                 ensure!(effective & FS_CAPABILITIES == 0, "capacidades de arquivo continuam ativas");
                 work()
-            })
+            })?
             .join()
             .map_err(|_| anyhow::anyhow!("thread de identidade de arquivos falhou"))?
     })
