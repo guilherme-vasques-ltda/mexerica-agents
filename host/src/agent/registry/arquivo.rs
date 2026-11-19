@@ -1,9 +1,12 @@
 use anyhow::{Context, Result, bail, ensure};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Cursor, ErrorKind, Read, Write as _};
 use std::path::{Component, Path, PathBuf};
 
 const MARCADOR: &str = ".installed";
+const LIMITE_EXTRAIDO: u64 = 512 * 1024 * 1024;
+const LIMITE_ENTRADAS: usize = 4096;
 
 pub(super) fn caminho_relativo(caminho: &Path) -> Result<PathBuf> {
     let mut relativo = PathBuf::new();
@@ -36,15 +39,53 @@ pub(super) fn pasta_instalacao(raiz: &Path, id: &str, versao: &str) -> Result<Pa
     let mut pasta = raiz.canonicalize().context("Pasta de dados do agente indisponível.")?;
     for parte in ["agents", id, versao] {
         pasta.push(caminho_relativo(Path::new(parte))?);
-        match fs::symlink_metadata(&pasta) {
-            Ok(meta) => {
-                ensure!(meta.is_dir() && pasta.canonicalize()? == pasta, "Pasta de instalação do agente inválida.");
-            }
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
+        diretorio_real(&pasta)?;
     }
     Ok(pasta)
+}
+
+fn diretorio_real(pasta: &Path) -> Result<bool> {
+    match fs::symlink_metadata(pasta) {
+        Ok(meta) => {
+            ensure!(meta.is_dir() && pasta.canonicalize()? == pasta, "Pasta de instalação do agente inválida.");
+            Ok(true)
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn criar_diretorios(pasta: &Path) -> Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        builder.mode(0o700);
+    }
+    builder.create(pasta)?;
+    Ok(())
+}
+
+fn preparar_pai(pasta: &Path) -> Result<()> {
+    if diretorio_real(pasta)? {
+        return Ok(());
+    }
+    preparar_pai(pasta.parent().context("Pasta de instalação do agente indisponível.")?)?;
+    criar_diretorios(pasta)?;
+    ensure!(diretorio_real(pasta)?, "Pasta de instalação do agente indisponível.");
+    Ok(())
+}
+
+fn pasta_privada(pai: &Path, prefixo: &str) -> Result<tempfile::TempDir> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(prefixo);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    Ok(builder.tempdir_in(pai)?)
 }
 
 pub(super) fn cache_verificado(destino: &Path, hash: &str, cmd: &Path) -> Result<bool> {
@@ -54,39 +95,88 @@ pub(super) fn cache_verificado(destino: &Path, hash: &str, cmd: &Path) -> Result
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e.into()),
     };
-    if !meta.is_file() || meta.len() != 64 || !fs::read(marcador)?.eq_ignore_ascii_case(hash.as_bytes()) {
+    if !meta.is_file() || meta.len() != 128 {
+        return Ok(false);
+    }
+    let mut recibo = Vec::with_capacity(128);
+    File::open(marcador)?.take(129).read_to_end(&mut recibo)?;
+    let Some((compactado, executavel)) = recibo.split_at_checked(64) else { return Ok(false) };
+    if !compactado.eq_ignore_ascii_case(hash.as_bytes()) {
         return Ok(false);
     }
     let exe = executavel_regular(destino, cmd)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        ensure!(fs::metadata(exe)?.permissions().mode() & 0o111 != 0, "O arquivo do agente não é executável.");
+        if fs::metadata(&exe)?.permissions().mode() & 0o100 == 0 {
+            return Ok(false);
+        }
     }
-    #[cfg(not(unix))]
-    drop(exe);
-    Ok(true)
+    // Este recibo detecta mudanças no executável, mas não autentica alguém que também possa reescrevê-lo.
+    Ok(hash_executavel(&exe)?.is_some_and(|hash| hash.as_bytes() == executavel))
+}
+
+fn hash_executavel(exe: &Path) -> Result<Option<String>> {
+    let mut arquivo = File::open(exe)?;
+    if arquivo.metadata()?.len() > LIMITE_EXTRAIDO {
+        return Ok(None);
+    }
+    let mut sha = Sha256::new();
+    let mut total = 0;
+    let mut buffer = [0; 8192];
+    loop {
+        let n = arquivo.read(&mut buffer)?;
+        if n == 0 {
+            return Ok(Some(super::digest_hex(&sha.finalize())));
+        }
+        total += n as u64;
+        if total > LIMITE_EXTRAIDO {
+            return Ok(None);
+        }
+        sha.update(&buffer[..n]);
+    }
 }
 
 pub(super) fn publicar(destino: &Path, nome: &str, bytes: &[u8], hash: &str, cmd: &Path) -> Result<()> {
     ensure!(super::sha256_hex(bytes).eq_ignore_ascii_case(hash), "O SHA-256 do download do agente não confere.");
     let pai = destino.parent().context("Pasta de instalação do agente inválida.")?;
-    fs::create_dir_all(pai)?;
-    let temporaria = tempfile::Builder::new().prefix(".agente-").tempdir_in(pai)?;
+    preparar_pai(pai)?;
+    let temporaria = pasta_privada(pai, ".agente-")?;
     let pasta = temporaria.path();
-    extrair(nome, bytes, pasta, cmd)?;
+    extrair(nome, bytes, pasta, LIMITE_EXTRAIDO, LIMITE_ENTRADAS, cmd)?;
     let exe = executavel_regular(pasta, cmd)?;
     #[cfg(unix)]
-    super::chmod_x(&exe)?;
-    #[cfg(not(unix))]
-    drop(exe);
-    File::create_new(pasta.join(MARCADOR))?.write_all(hash.as_bytes())?;
-    match fs::remove_dir_all(destino) {
-        Ok(()) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mut permissoes = fs::metadata(&exe)?.permissions();
+        permissoes.set_mode(permissoes.mode() | 0o100);
+        fs::set_permissions(&exe, permissoes)?;
     }
-    fs::rename(pasta, destino)?;
+    let hash_exe = hash_executavel(&exe)?.context("O executável do agente excede o limite de tamanho.")?;
+    let mut marcador = File::create_new(pasta.join(MARCADOR))?;
+    write!(marcador, "{hash}{hash_exe}")?;
+    drop(marcador);
+    substituir(pasta, destino, pai)
+}
+
+fn substituir(pasta: &Path, destino: &Path, pai: &Path) -> Result<()> {
+    ensure!(diretorio_real(pai)?, "Pasta de instalação do agente indisponível.");
+    if !diretorio_real(destino)? {
+        fs::rename(pasta, destino)?;
+        return Ok(());
+    }
+    let copia = pasta_privada(pai, ".agente-anterior-")?;
+    let anterior = copia.path().join("instalacao");
+    fs::rename(destino, &anterior)?;
+    if let Err(erro) = fs::rename(pasta, destino) {
+        if let Err(restaurar) = fs::rename(&anterior, destino) {
+            let _ = copia.keep();
+            bail!(
+                "Falha ao publicar o agente ({erro}) e restaurar a instalação anterior ({restaurar}); a cópia anterior foi preservada."
+            );
+        }
+        return Err(erro).context("Não foi possível publicar a instalação do agente. A anterior foi restaurada.");
+    }
     Ok(())
 }
 
@@ -110,10 +200,12 @@ fn executavel_regular(pasta: &Path, cmd: &Path) -> Result<PathBuf> {
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
-fn extrair(nome: &str, bytes: &[u8], pasta: &Path, cmd: &Path) -> Result<()> {
+fn extrair(nome: &str, bytes: &[u8], pasta: &Path, limite: u64, entradas: usize, cmd: &Path) -> Result<()> {
     let nome = nome.to_ascii_lowercase();
     if nome.ends_with(".zip") {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).context("Arquivo ZIP do agente inválido.")?;
+        ensure!(zip.len() <= entradas, "O pacote do agente excede o limite de entradas.");
+        let mut restantes = limite;
         for indice in 0..zip.len() {
             let mut entrada = zip.by_index(indice)?;
             let relativo = caminho_relativo(Path::new::<str>(&entrada.name()?))?;
@@ -125,57 +217,81 @@ fn extrair(nome: &str, bytes: &[u8], pasta: &Path, cmd: &Path) -> Result<()> {
                         || entrada.is_file() && matches!(tipo, 0 | 0o100_000)),
                 "O pacote do agente contém link ou arquivo especial."
             );
-            gravar(pasta, &relativo, entrada.is_dir(), modo, cmd, &mut entrada)?;
+            ensure!(entrada.size() <= restantes, "O pacote do agente excede o limite descomprimido.");
+            let diretorio = entrada.is_dir();
+            let mut leitor = LeitorLimitado { leitor: &mut entrada, restantes };
+            gravar(pasta, &relativo, diretorio, if relativo == cmd { 0 } else { modo }, &mut leitor)?;
+            restantes = leitor.restantes;
         }
     } else if nome.ends_with(".tar.gz") || nome.ends_with(".tgz") {
-        extrair_tar(flate2::read::MultiGzDecoder::new(bytes), pasta, cmd)?;
+        extrair_tar(flate2::read::MultiGzDecoder::new(bytes), pasta, limite, entradas, cmd)?;
     } else if nome.ends_with(".tar.bz2") || nome.ends_with(".tbz2") {
-        extrair_tar(bzip2::read::MultiBzDecoder::new(bytes), pasta, cmd)?;
+        extrair_tar(bzip2::read::MultiBzDecoder::new(bytes), pasta, limite, entradas, cmd)?;
     } else if nome.ends_with(".tar.xz") {
-        extrair_tar(lzma_rust2::XzReader::new(bytes, true), pasta, cmd)?;
+        extrair_tar(lzma_rust2::XzReader::new_mem_limit(bytes, true, 128 * 1024), pasta, limite, entradas, cmd)?;
     } else if nome.ends_with(".tar") {
-        extrair_tar(bytes, pasta, cmd)?;
+        extrair_tar(bytes, pasta, limite, entradas, cmd)?;
     } else {
-        gravar(pasta, &caminho_relativo(cmd)?, false, 0, cmd, &mut Cursor::new(bytes))?;
+        ensure!(bytes.len() as u64 <= limite, "O pacote do agente excede o limite descomprimido.");
+        gravar(pasta, &caminho_relativo(cmd)?, false, 0, &mut Cursor::new(bytes))?;
     }
     Ok(())
 }
 
-fn extrair_tar(leitor: impl Read, pasta: &Path, cmd: &Path) -> Result<()> {
-    for entrada in tar::Archive::new(leitor).entries()? {
+struct LeitorLimitado<R> {
+    leitor: R,
+    restantes: u64,
+}
+
+impl<R: Read> Read for LeitorLimitado<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let maximo = buf.len().min(usize::try_from(self.restantes.saturating_add(1)).unwrap_or(usize::MAX));
+        let n = self.leitor.read(&mut buf[..maximo])?;
+        self.restantes = self
+            .restantes
+            .checked_sub(n as u64)
+            .ok_or_else(|| io::Error::other("O pacote do agente excede o limite descomprimido."))?;
+        Ok(n)
+    }
+}
+
+fn extrair_tar(leitor: impl Read, pasta: &Path, limite: u64, entradas: usize, cmd: &Path) -> Result<()> {
+    let mut tar = tar::Archive::new(LeitorLimitado { leitor, restantes: limite });
+    for (indice, entrada) in tar.entries()?.enumerate() {
+        ensure!(indice < entradas, "O pacote do agente excede o limite de entradas.");
         let mut entrada = entrada?;
         let tipo = entrada.header().entry_type();
+        if tipo.is_pax_global_extensions() {
+            continue;
+        }
         ensure!(tipo.is_dir() || tipo.is_file(), "O pacote do agente contém link ou arquivo especial.");
         let relativo = caminho_relativo(&entrada.path()?)?;
         let modo = entrada.header().mode()?;
-        gravar(pasta, &relativo, tipo.is_dir(), modo, cmd, &mut entrada)?;
+        gravar(pasta, &relativo, tipo.is_dir(), if relativo == cmd { 0 } else { modo }, &mut entrada)?;
     }
+    io::copy(&mut tar.into_inner(), &mut io::sink())?;
     Ok(())
 }
 
-fn gravar(
-    pasta: &Path,
-    relativo: &Path,
-    diretorio: bool,
-    modo: u32,
-    cmd: &Path,
-    conteudo: &mut impl Read,
-) -> Result<()> {
+fn gravar(pasta: &Path, relativo: &Path, diretorio: bool, modo: u32, conteudo: &mut impl Read) -> Result<()> {
     let destino = pasta.join(relativo);
     if diretorio {
-        fs::create_dir_all(destino)?;
+        criar_diretorios(&destino)?;
+        io::copy(conteudo, &mut io::sink())?;
     } else {
         ensure!(!relativo.as_os_str().is_empty(), "Falta o nome de um arquivo no pacote do agente.");
-        fs::create_dir_all(destino.parent().context("Caminho inválido no pacote do agente.")?)?;
-        let mut arquivo = File::create_new(destino)?;
-        io::copy(conteudo, &mut arquivo)?;
+        criar_diretorios(destino.parent().context("Caminho inválido no pacote do agente.")?)?;
+        let mut opcoes = fs::OpenOptions::new();
+        opcoes.write(true).create_new(true);
         #[cfg(unix)]
-        if relativo != cmd && modo & 0o111 != 0 {
-            use std::os::unix::fs::PermissionsExt as _;
-            arquivo.set_permissions(fs::Permissions::from_mode(0o755))?;
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            opcoes.mode(0o600 | (modo & 0o111));
         }
         #[cfg(not(unix))]
-        let _ = (modo, cmd);
+        let _ = modo;
+        let mut arquivo = opcoes.open(destino)?;
+        io::copy(conteudo, &mut arquivo)?;
     }
     Ok(())
 }

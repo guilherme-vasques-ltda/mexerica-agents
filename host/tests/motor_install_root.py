@@ -111,8 +111,8 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:msg.id,result}));
             else:
                 self.send_error(404)
 
-    registro = ThreadingHTTPServer(('localhost', 0), RegistroLocal)
-    url = f'http://localhost:{registro.server_port}'
+    registro = ThreadingHTTPServer(('127.0.0.1', 0), RegistroLocal)
+    url = f'http://127.0.0.1:{registro.server_port}'
     pacote['dist'] = {'tarball': url + '/fixture.tgz', 'integrity': 'sha512-' + b64encode(sha512(conteudo).digest()).decode()}
     ficha = json.dumps({'name': nome, 'versions': {versao: pacote}}).encode()
     npmrc = home / 'npm-globalrc'

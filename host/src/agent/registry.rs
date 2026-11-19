@@ -9,7 +9,7 @@ use crate::LockExt;
 use crate::fork::activity_code::ActivityKind;
 use crate::fork::motor_install::{self, Reply, Request};
 use crate::shell;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
@@ -19,6 +19,7 @@ use std::time::Duration;
 mod arquivo;
 
 const URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+const MAX_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 /// Upstream updates hourly; once a day is plenty for picking agents.
 const REFRESH_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -319,8 +320,12 @@ fn npx_hash(package: &str) -> String {
 }
 
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    digest_hex(&Sha256::digest(bytes))
+}
+
+fn digest_hex(digest: &[u8]) -> String {
     use std::fmt::Write as _;
-    Sha256::digest(bytes).iter().fold(String::with_capacity(64), |mut s, b| {
+    digest.iter().fold(String::with_capacity(64), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
     })
@@ -330,7 +335,18 @@ fn hash_obrigatorio(alvo: &Value) -> Result<&str> {
     alvo["sha256"]
         .as_str()
         .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
-        .context("O registro deve informar um SHA-256 válido (64 dígitos hexadecimais) para instalar o agente.")
+        .context("O catálogo não trouxe um SHA-256 válido (64 dígitos hexadecimais) para este agente. A instalação foi recusada.")
+}
+
+async fn ler_download(mut resposta: reqwest::Response, limite: usize) -> Result<Vec<u8>> {
+    const ERRO: &str = "O download do agente excede o limite de tamanho.";
+    ensure!(resposta.content_length().is_none_or(|n| n <= limite as u64), ERRO);
+    let mut bytes = Vec::new();
+    while let Some(parte) = resposta.chunk().await? {
+        ensure!(parte.len() <= limite - bytes.len(), ERRO);
+        bytes.extend_from_slice(&parte);
+    }
+    Ok(bytes)
 }
 
 /// Downloads + extracts a binary distribution into `~/.codync/agents/<id>/<version>`.
@@ -360,15 +376,8 @@ async fn install_binary(
         url.path_segments().and_then(Iterator::last).and_then(safe_component).unwrap_or("download").to_owned();
     let item = agent["name"].as_str().unwrap_or(id).to_owned();
     progress(&format!("Downloading {item}…"), Some(ActivityKind::Downloading { item: item.clone() }));
-    let bytes = crate::http()
-        .get(url)
-        .timeout(Duration::from_secs(600))
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await
-        .with_context(|| format!("downloading {id}"))?;
+    let resposta = crate::http().get(url).timeout(Duration::from_secs(600)).send().await?.error_for_status()?;
+    let bytes = ler_download(resposta, MAX_ARCHIVE_BYTES).await?;
     progress("Installing…", Some(ActivityKind::Installing { item }));
     let (dir2, hash, cmd) = (dir.clone(), hash.to_owned(), cmd.to_owned());
     tokio::task::spawn_blocking(move || -> Result<()> {
@@ -386,7 +395,7 @@ fn remove_other_versions(installed: &Path) {
     let Ok(entries) = std::fs::read_dir(parent) else { return };
     for e in entries.flatten() {
         let p = e.path();
-        if p != installed && p.is_dir() {
+        if p != installed && !e.file_name().to_string_lossy().starts_with(".agente-") && p.is_dir() {
             let _ = std::fs::remove_dir_all(p);
         }
     }
@@ -445,11 +454,35 @@ mod tests {
 
     #[test]
     fn exige_sha256_com_64_hexadecimais_antes_de_baixar() {
-        assert!(hash_obrigatorio(&json!({"sha256": null})).is_err());
+        let erro = hash_obrigatorio(&json!({"sha256": null})).unwrap_err();
+        assert!(erro.to_string().contains("O catálogo não trouxe um SHA-256"));
         assert!(hash_obrigatorio(&json!({"sha256": "abc"})).is_err());
         assert!(hash_obrigatorio(&json!({"sha256": "g".repeat(64)})).is_err());
         let alvo = json!({"sha256": "A".repeat(64)});
         assert_eq!(hash_obrigatorio(&alvo).unwrap(), "A".repeat(64));
+    }
+
+    #[tokio::test]
+    async fn limita_download_sem_precisar_do_tamanho_informado_pelo_servidor() {
+        use axum::{Router, body::Body, routing::get};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/pacote", listener.local_addr().unwrap());
+        let app = Router::new().route(
+            "/pacote",
+            get(|| async {
+                let partes = [Ok::<_, std::io::Error>("abc"), Ok("def"), Ok("ghi")];
+                Body::from_stream(futures::stream::iter(partes))
+            }),
+        );
+        let servidor = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let cliente = reqwest::Client::builder().no_proxy().build().unwrap();
+        let resposta = cliente.get(&url).send().await.unwrap();
+        assert_eq!(resposta.content_length(), None);
+        let erro = ler_download(resposta, 8).await.unwrap_err();
+        assert!(erro.to_string().contains("excede o limite de tamanho"));
+        let resposta = cliente.get(url).send().await.unwrap();
+        assert_eq!(ler_download(resposta, 9).await.unwrap(), b"abcdefghi");
+        servidor.abort();
     }
 
     #[test]
