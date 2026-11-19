@@ -21,7 +21,7 @@ O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mos
 ## O que não está aqui
 
 - Código de nuvem e relay hospedados (`cloud/`, `relay/`), versão web, demo web e helper Linux.
-- Logos de serviços e de agentes de terceiros: o app mostra um globo neutro.
+- Logos de agentes de terceiros e o logotipo da Apple: o app mostra ícones genéricos. As logos dos serviços do catálogo de conectores estão incluídas, só para identificar cada serviço, e continuam sendo marcas de seus titulares (ver [TRADEMARK.md](TRADEMARK.md) e [THIRD_PARTY.md](THIRD_PARTY.md)).
 - A arte própria (mascotes, ícones do app, avatares, fundos): no lugar há **imagens neutras geradas por código**, só para o app compilar e os testes de estrutura rodarem. A arte original só volta com decisão do titular.
 - Histórico, issues, pull requests, automações de CI e configuração de serviços.
 
