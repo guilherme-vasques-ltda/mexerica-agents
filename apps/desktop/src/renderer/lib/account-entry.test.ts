@@ -257,8 +257,7 @@ test('ChatWindow is only the gate around the app; the gate and the sign-in metho
   const valueImports = (path: string) => parse(path).statements.filter(ts.isImportDeclaration)
     .filter(d => !d.importClause?.isTypeOnly)
     .map(d => (d.moduleSpecifier as ts.StringLiteral).text).sort()
-  // D443: o catálogo de textos é só dado (sem preferência, armazenamento nem analytics).
-  assert.deepEqual(valueImports('../views/AccountEntryGate.tsx'), ['../components/Overlay', '../lib/fork-i18n/index.ts', '../store/account', './AccountWelcomeView', './fork/account/ConfirmarSairWeb', '@shared/fork-features', 'react'])
+  assert.deepEqual(valueImports('../views/AccountEntryGate.tsx'), ['../store/account', './AccountWelcomeView', './fork/account/ConfirmarSairWeb', '@shared/fork-features', 'react'])
   // The password stays in its field: the methods module reads no store, preference, storage or analytics.
   assert.deepEqual(valueImports('../views/welcome/SignInMethods.tsx'), ['../../assets/google.svg', '../../components/Controls', '../../components/Icon', 'react'])
   assert.doesNotMatch(parse('../views/welcome/SignInMethods.tsx').getFullText(), /localStorage|sessionStorage|console\.|useState<string>/)
