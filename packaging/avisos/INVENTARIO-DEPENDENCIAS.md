@@ -1,10 +1,18 @@
 # Inventário de dependências de produção
 
-Gerado a partir dos arquivos de bloqueio do repositório (`package-lock.json` e `host/Cargo.lock`). Lista nome, versão e a
-licença **declarada** pelo pacote (identificador SPDX). **Limitações:** não traz o texto integral de cada licença nem os avisos de
-copyright de cada pacote; para isso vale o texto distribuído dentro de cada pacote npm ou crate. A licença declarada é a informada
-pelo autor do pacote e não foi verificada arquivo a arquivo. Dependências de desenvolvimento e de teste não entram, nem os pacotes do próprio repositório (o Pi vendorizado está em `THIRD_PARTY.md`). O Chromium e
-suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`).
+**Cobertura.** As seções npm, extraídas de `package-lock.json`, listam as dependências de produção
+do app (instaladas em `node_modules` no `app.asar`, conforme a seleção do empacotador e da
+plataforma) e do Motor. A seção de código embutido vem de um build Electron medido e inclui
+bibliotecas incorporadas em `out/` mesmo quando o lock as marca como de desenvolvimento.
+A seção do Hub lista os crates externos de produção e de compilação no grafo de `cargo metadata`
+fixado por `host/Cargo.lock`. Dependências só de teste/desenvolvimento ficam fora, salvo código
+emitido pelo bundler. Pacotes internos não são listados; o Pi vendorizado está em `THIRD_PARTY.md`.
+
+**Limites.** O inventário tem o escopo acima. Não cobre Electron e Chromium (lista própria;
+ver `THIRD_PARTY.md`), binários e bibliotecas nativas de macOS/Windows, o helper nativo do Mac,
+fontes e ícones próprios nem outros assets não-npm. As licenças abaixo são as declarações dos
+autores nos metadados; não foram conferidas arquivo por arquivo. O inventário não inclui os
+textos integrais de licença nem os avisos de copyright de cada pacote e não os substitui.
 
 ## App Electron (`apps/desktop`) — pacotes npm (72)
 
@@ -142,7 +150,27 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | web-streams-polyfill | 3.3.3 | MIT |
 | ws | 8.23.0 | MIT |
 
-## Hub (`host`) — crates de produção e de compilação (471)
+## Código de bibliotecas embutido no app pelo empacotador (build do renderer, main e preload)
+
+10 entradas do lock no build medido (`linux`, electron-vite 5.0.0).
+Foram cruzados os mapas de origem, os módulos renderizados pelo Rollup e a origem de CSS/assets.
+A linha do Vite identifica seu código de suporte no bundle do renderer.
+`dev` e `devOptional` são marcações do lock; não indicam ausência do código no app distribuído.
+
+| Pacote | Versão | Licença declarada | Saída | Marcação no lock | Inventário anterior |
+| --- | --- | --- | --- | --- | --- |
+| @xterm/addon-fit | 0.11.0 | MIT | `renderer` | dev | não |
+| @xterm/addon-web-links | 0.12.0 | MIT | `renderer` | dev | não |
+| @xterm/xterm | 6.0.0 | MIT | `renderer` | dev | não |
+| dijkstrajs | 1.0.3 | MIT | `renderer` | dev | não |
+| lucide | 1.52.0 | ISC | `renderer` | dev | não |
+| qrcode | 1.5.4 | MIT | `renderer` | dev | não |
+| react | 19.3.0 | MIT | `renderer` | devOptional | não |
+| react-dom | 19.3.0 | MIT | `renderer` | devOptional | não |
+| scheduler | 0.28.0 | MIT | `renderer` | devOptional | não |
+| vite | 7.3.7 | MIT | `renderer` | dev | não |
+
+## Hub (`host`) — crates de produção e de compilação (464)
 
 | Crate | Versão | Licença declarada |
 | --- | --- | --- |
@@ -186,7 +214,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | by_address | 1.2.1 | MIT OR Apache-2.0 |
 | byteorder | 1.5.0 | Unlicense OR MIT |
 | bytes | 1.12.1 | MIT |
-| bzip2 | 0.6.1 | MIT OR Apache-2.0 |
 | castaway | 0.2.4 | MIT |
 | cbc | 0.1.2 | MIT OR Apache-2.0 |
 | cc | 1.4.7 | MIT OR Apache-2.0 |
@@ -210,7 +237,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | compact_str | 0.9.1 | MIT |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT |
 | const-oid | 0.10.2 | Apache-2.0 OR MIT |
-| constant_time_eq | 0.6.1 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | convert_case | 0.10.0 | MIT |
 | core-foundation | 0.10.1 | MIT OR Apache-2.0 |
 | core-foundation | 0.9.4 | MIT OR Apache-2.0 |
@@ -340,7 +366,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | kasuari | 0.4.12 | MIT OR Apache-2.0 |
 | keyring | 3.6.3 | MIT OR Apache-2.0 |
 | lazy_static | 1.5.0 | MIT OR Apache-2.0 |
-| libbz2-rs-sys | 0.2.7 | bzip2-1.0.6 |
 | libc | 0.2.189 | MIT OR Apache-2.0 |
 | libdbus-sys | 0.2.7 | Apache-2.0/MIT |
 | libm | 0.2.16 | MIT |
@@ -354,7 +379,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | log | 0.4.34 | MIT OR Apache-2.0 |
 | lru | 0.18.5 | MIT |
 | lru-slab | 0.1.3 | MIT OR Apache-2.0 OR Zlib |
-| lzma-rust2 | 0.25.0 | Apache-2.0 |
 | matchers | 0.2.0 | MIT |
 | matchit | 0.8.4 | MIT AND BSD-3-Clause |
 | memchr | 2.8.3 | Unlicense OR MIT |
@@ -364,7 +388,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | mio | 1.2.3 | MIT |
 | nix | 0.28.0 | MIT |
 | nix | 0.29.0 | MIT |
-| nix | 0.32.0 | MIT |
 | nu-ansi-term | 0.50.3 | MIT |
 | num | 0.4.3 | MIT OR Apache-2.0 |
 | num-bigint | 0.4.8 | MIT OR Apache-2.0 |
@@ -524,7 +547,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | tracing-subscriber | 0.3.23 | MIT |
 | try-lock | 0.2.5 | MIT |
 | tungstenite | 0.29.0 | MIT OR Apache-2.0 |
-| typed-path | 0.13.0 | MIT OR Apache-2.0 |
 | typenum | 1.20.1 | MIT OR Apache-2.0 |
 | uds_windows | 1.2.1 | MIT |
 | unicode-general-category | 1.1.0 | Apache-2.0 |
@@ -611,7 +633,6 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | zerotrie | 0.2.5 | Unicode-3.0 |
 | zerovec | 0.11.8 | Unicode-3.0 |
 | zerovec-derive | 0.11.6 | Unicode-3.0 |
-| zip | 9.7.3 | MIT |
 | zlib-rs | 0.6.8 | Zlib |
 | zmij | 1.0.23 | MIT |
 | zvariant | 4.2.0 | MIT |

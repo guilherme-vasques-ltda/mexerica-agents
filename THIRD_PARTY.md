@@ -13,6 +13,37 @@ no README principal. A exclusão do CODE_OF_CONDUCT retira o documento Contribut
 Covenant 3.0 (CC BY-SA 4.0); nenhum trecho dele foi incorporado aos textos novos.
 O relato de segurança e a confidencialidade permanecem em SECURITY.md/AGENTS.md.
 
+## Escopo desta cópia
+
+Este arquivo veio do projeto de origem (o repositório maior de onde esta cópia foi extraída) e foi mantido como registro de
+procedência. **Ele descreve também material que não está nesta cópia.** O texto de cada seção diz o que o projeto de origem
+fez; para saber o que esta cópia contém, vale a lista abaixo, conferida em 19/11/2026 comparando os destinos citados com a
+árvore deste repositório (só conferência de caminhos; não é parecer jurídico).
+
+**Está nesta cópia** (os avisos e licenças valem para estes arquivos):
+
+- Código adaptado de OpenMausBot (Apache-2.0) no calendário de rotinas do desktop (`apps/desktop/src/renderer/lib/routine-calendar.ts` e `apps/desktop/src/renderer/views/rotinas-central/`).
+- Trechos adaptados de ai-memory (MIT) em `host/crates/memory/src/`.
+- Fixture de teste derivada do esquema do wacli (MIT) em `host/src/fork/whatsapp/wacli_fixture.sql`.
+- Skills adaptadas de Exa e de Supabase (MIT) em `host/catalogo/skills/`.
+- pi-mono (MIT) vendorizado em `motor/vendor/pi-mono/`, com as dependências npm do motor (Anthropic, OpenAI, Google).
+- Fontes da interface (SIL OFL 1.1, texto ao lado de cada arquivo) em `apps/desktop/src/renderer/assets/fonts/`.
+- Pacote npm `lucide` (ISC), dependência do desktop.
+- Biblioteca própria de avatares em `apps/desktop/src/renderer/lib/donnabot-avatars/` (sem o diretório `demo/`).
+- Registro e manifesto do catálogo de skills em `host/src/fork/skill_catalog/` (sem os pacotes de texto das skills de marketing).
+- Código derivado do Codync v2.20.3 e as modificações listadas em `MODIFICACOES.md`.
+
+**Não está nesta cópia** (os registros abaixo ficam apenas como histórico da origem e não indicam que o material seja distribuído aqui):
+
+- A pasta `.claude/` inteira: as skills do projeto de origem (tstack `pr-wait` e as skills `abrir-pr`, `acompanhar-pr` e `full-stop`; security-audit-skill da Cloudflare; as 13 skills de emilkowalski/skills com `LICENSE-MIT-emilkowalski.txt`; `product-launch-film` e as fontes Geist do seu `template/assets/fonts/`) e `skills-lock.json`. O `AGENTS.md` do projeto de origem também não está aqui.
+- O bundle `apps/desktop/src/renderer/lib/donnabot-avatars/demo/demo.js` (React 18.3.1 minificado) e o diretório `demo/`.
+- Os documentos `redesenho/` e `docs/propostas/` e as propostas de design geradas (`gerar.mjs`, HTML, PNGs derivados).
+- Os pacotes de texto das skills de marketing (`copywriting`, `stop-slop`, `copy-review-panel` e referências) e a evidência de revisão do módulo Spaces (`research/reports/evidencias/`).
+- Documentos e arquivos citados só por nome (por exemplo `docs/plans/`, `web/content/docs/` e a maior parte de `docs/features/`) e arquivos do projeto de origem que não foram copiados.
+
+Se uma linha abaixo citar um destino que não existe nesta cópia, vale o que está dito aqui. Quem redistribuir esta cópia
+deve conferir os componentes contra a árvore realmente distribuída.
+
 Registre abaixo cada nova cópia de código de referência, inclusive adaptações,
 conforme D75.
 
@@ -834,11 +865,11 @@ revisão); quem gerar o primeiro instalador deve conferir que `resources/avisos/
 
 ### Electron e Chromium
 
-O app desktop roda sobre o Electron 44.11.4 (MIT, copyright da OpenJS Foundation e dos contribuidores do Electron). O texto da licença
+O app desktop roda sobre o Electron 44.11.4 (MIT; copyright dos contribuidores do Electron e da GitHub Inc., como no texto da licença). O texto da licença
 está em `packaging/avisos/electron-LICENSE.txt` (cópia do arquivo `LICENSE` do pacote npm `electron`). O Electron embute o Chromium e
 dezenas de bibliotecas de terceiros, cujos avisos o projeto publica no arquivo `LICENSES.chromium.html`, que acompanha o
 binário do Electron baixado no empacotamento. **Não há prova nesta etapa de que esse arquivo entre no `.app` do Mac**; essa
-conferência fica pendente para a etapa de geração de instaladores e atualização (GUI-105) e deve ser feita antes de distribuir um
+conferência fica pendente para a etapa de geração de instaladores e atualização e deve ser feita antes de distribuir um
 instalador.
 
 ### WebRTC (helper de tela do Mac)
@@ -851,9 +882,14 @@ com os avisos do WebRTC do Google) está em `packaging/avisos/webrtc-stasel-LICE
 
 ### Dependências de produção
 
-`packaging/avisos/INVENTARIO-DEPENDENCIAS.md` lista as dependências de produção do app Electron, do motor e do Hub (nome, versão e
-licença declarada, a partir dos arquivos de bloqueio). **Limitação:** o inventário traz só o identificador SPDX declarado por cada
-pacote, sem o texto integral de cada licença nem os avisos de copyright de cada autor. Licenças permissivas (MIT, Apache-2.0,
+`packaging/avisos/INVENTARIO-DEPENDENCIAS.md` lista as dependências de produção do app Electron e do Motor (a partir do `package-lock.json`),
+os crates de produção e de compilação do Hub (a partir do `Cargo.lock`) e as bibliotecas que o empacotador do app embute no código do
+renderer mesmo quando o lock as marca como de desenvolvimento (React, React DOM, Scheduler, Lucide, QRCode, dijkstrajs, xterm e o código de
+suporte do Vite; medido num build Linux, não num instalador). **Cobertura e limites estão no começo do inventário.** Ele não lista tudo
+o que um instalador leva: não cobre o Electron e o Chromium, as bibliotecas nativas de macOS e Windows, o helper do Mac nem
+os assets que não vêm do npm, e traz só o identificador SPDX declarado por cada pacote, sem o texto integral de cada licença nem os avisos
+de copyright de cada autor. Para distribuir um instalador, esses textos e avisos ainda precisam ser reunidos e conferidos contra o pacote
+real, antes de distribuir. Licenças permissivas (MIT, Apache-2.0,
 BSD, ISC, Zlib, Unicode) são a grande maioria. Pontos de atenção: o crate `option-ext` (MPL-2.0, licença de arquivo: os arquivos do
 crate são usados sem modificação e seu código-fonte está público em crates.io) e o pacote `argparse` 2.0.1 (Python-2.0, licença permissiva da Python Software Foundation,
 dependência de produção do app Electron). Os crates `r-efi` oferecem MIT ou Apache-2.0 além de LGPL; vale a opção permissiva.
