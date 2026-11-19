@@ -6,7 +6,7 @@ use anyhow::{Context, Result, ensure};
 
 const FS_CAPABILITIES: u64 = 0b1_1111 | 1 << 32;
 
-/// Grupos da conta como o login os inicializa, sem o grupo root.
+/// Grupos da conta como o login os inicializa; o grupo root é recusado por `as_user`.
 pub(super) fn user_groups(name: &std::ffi::OsStr, gid: u32) -> Result<Vec<u32>> {
     use std::os::unix::ffi::OsStrExt;
     let name = std::ffi::CString::new(name.as_bytes())?;
@@ -17,8 +17,8 @@ pub(super) fn user_groups(name: &std::ffi::OsStr, gid: u32) -> Result<Vec<u32>> 
         let rc = unsafe { libc::getgrouplist(name.as_ptr(), gid, groups.as_mut_ptr(), &raw mut count) };
         let count = usize::try_from(count)?;
         if rc >= 0 {
+            ensure!(count <= groups.len(), "getgrouplist devolveu tamanho inválido");
             groups.truncate(count);
-            groups.retain(|g| *g != 0);
             return Ok(groups);
         }
         ensure!(count > groups.len() && count <= 65536, "getgrouplist falhou");
@@ -38,6 +38,8 @@ pub(super) fn as_user<T: Send>(
             .spawn(|| {
                 let mut all = vec![gid];
                 all.extend(groups.iter().copied().filter(|g| *g != gid));
+                all[1..].sort_unstable();
+                all.dedup();
                 ensure!(!all.contains(&0), "grupo root recusado na identidade de arquivos");
                 // SAFETY: syscalls diretas afetam só esta thread; buffer vivo com o tamanho informado.
                 let rc =

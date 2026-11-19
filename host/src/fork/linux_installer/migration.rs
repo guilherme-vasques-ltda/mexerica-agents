@@ -917,11 +917,14 @@ mod tests {
     }
 
     #[test]
-    fn identidade_do_hub_mantem_grupos_suplementares_sem_root() -> Result<()> {
+    fn identidade_do_hub_mantem_grupos_suplementares_e_recusa_root() -> Result<()> {
         // SAFETY: getter da identidade corrente, sem efeitos colaterais.
         let hub = user(unsafe { libc::geteuid() })?;
         let groups = user_groups(&hub.name, hub.gid)?;
-        assert!(groups.contains(&hub.gid) && !groups.contains(&0));
+        assert!(groups.contains(&hub.gid));
+        let root = user(0)?;
+        assert!(user_groups(&root.name, root.gid)?.contains(&0));
+        assert!(as_user(hub.uid.max(1), hub.gid.max(1), &[0], || Ok(())).is_err(), "grupo root nunca entra");
         Ok(())
     }
 
