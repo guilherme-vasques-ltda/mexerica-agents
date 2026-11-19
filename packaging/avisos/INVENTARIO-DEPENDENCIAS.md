@@ -1,10 +1,18 @@
 # Inventário de dependências de produção
 
-Gerado a partir dos arquivos de bloqueio do repositório (`package-lock.json` e `host/Cargo.lock`). Lista nome, versão e a
-licença **declarada** pelo pacote (identificador SPDX). **Limitações:** não traz o texto integral de cada licença nem os avisos de
-copyright de cada pacote; para isso vale o texto distribuído dentro de cada pacote npm ou crate. A licença declarada é a informada
-pelo autor do pacote e não foi verificada arquivo a arquivo. Dependências de desenvolvimento e de teste não entram, nem os pacotes do próprio repositório (o Pi vendorizado está em `THIRD_PARTY.md`). O Chromium e
-suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`).
+**Cobertura.** As seções npm, extraídas de `package-lock.json`, listam as dependências de produção
+do app (instaladas em `node_modules` no `app.asar`, conforme a seleção do empacotador e da
+plataforma) e do Motor. A seção de código embutido vem de um build Electron medido e inclui
+bibliotecas incorporadas em `out/` mesmo quando o lock as marca como de desenvolvimento.
+A seção do Hub lista os crates externos de produção e de compilação no grafo de `cargo metadata`
+fixado por `host/Cargo.lock`. Dependências só de teste/desenvolvimento ficam fora, salvo código
+emitido pelo bundler. Pacotes internos não são listados; o Pi vendorizado está em `THIRD_PARTY.md`.
+
+**Limites.** O inventário tem o escopo acima. Não cobre Electron e Chromium (lista própria;
+ver `THIRD_PARTY.md`), binários e bibliotecas nativas de macOS/Windows, o helper nativo do Mac,
+fontes e ícones próprios nem outros assets não-npm. As licenças abaixo são as declarações dos
+autores nos metadados; não foram conferidas arquivo por arquivo. O inventário não inclui os
+textos integrais de licença nem os avisos de copyright de cada pacote e não os substitui.
 
 ## App Electron (`apps/desktop`) — pacotes npm (72)
 
@@ -141,6 +149,26 @@ suas bibliotecas embutidas no Electron têm lista própria (ver `THIRD_PARTY.md`
 | undici-types | 7.16.0 | MIT |
 | web-streams-polyfill | 3.3.3 | MIT |
 | ws | 8.23.0 | MIT |
+
+## Código de bibliotecas embutido no app pelo empacotador (build do renderer, main e preload)
+
+10 entradas do lock no build medido (`linux`, electron-vite 5.0.0).
+Foram cruzados os mapas de origem, os módulos renderizados pelo Rollup e a origem de CSS/assets.
+A linha do Vite identifica seu código de suporte no bundle do renderer.
+`dev` e `devOptional` são marcações do lock; não indicam ausência do código no app distribuído.
+
+| Pacote | Versão | Licença declarada | Saída | Marcação no lock | Inventário anterior |
+| --- | --- | --- | --- | --- | --- |
+| @xterm/addon-fit | 0.11.0 | MIT | `renderer` | dev | não |
+| @xterm/addon-web-links | 0.12.0 | MIT | `renderer` | dev | não |
+| @xterm/xterm | 6.0.0 | MIT | `renderer` | dev | não |
+| dijkstrajs | 1.0.3 | MIT | `renderer` | dev | não |
+| lucide | 1.52.0 | ISC | `renderer` | dev | não |
+| qrcode | 1.5.4 | MIT | `renderer` | dev | não |
+| react | 19.3.0 | MIT | `renderer` | devOptional | não |
+| react-dom | 19.3.0 | MIT | `renderer` | devOptional | não |
+| scheduler | 0.28.0 | MIT | `renderer` | devOptional | não |
+| vite | 7.3.7 | MIT | `renderer` | dev | não |
 
 ## Hub (`host`) — crates de produção e de compilação (464)
 
