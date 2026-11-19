@@ -14,16 +14,17 @@ e só vale dentro da Mexerica como distribuída.
 Os nomes e serviços do projeto de origem citados abaixo identificam a base
 e suas condições; não são serviços operados ou oferecidos pela Mexerica.
 
-Componentes de terceiros principais incorporados ao repositório, com
-licença, titular e aviso por arquivo registrados em THIRD_PARTY.md:
-código adaptado de OpenMausBot (Apache-2.0); trechos e fixtures de
-ai-memory, tstack, security-audit-skill (Cloudflare) e wacli (MIT);
-13 skills de emilkowalski/skills em .claude/skills/ (MIT, cópia da
-licença em .claude/skills/LICENSE-MIT-emilkowalski.txt); fontes DM Sans,
-Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto
-ao lado de cada arquivo) e ícones Lucide (ISC). A skill
-product-launch-film herdada da base publica fontes Geist sob OFL 1.1 e
-não distribui arquivos de som.
+Componentes de terceiros presentes nesta cópia, com licença, titular e aviso
+por arquivo registrados em THIRD_PARTY.md: código adaptado de OpenMausBot
+(Apache-2.0); trechos e fixtures de ai-memory e wacli (MIT); skills adaptadas
+de Exa e Supabase (MIT); pi-mono (MIT), vendorizado no motor; fontes DM Sans,
+Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto ao
+lado de cada arquivo); e o pacote npm lucide (ISC). THIRD_PARTY.md também
+registra material do projeto de origem que não faz parte desta cópia (por
+exemplo, a pasta .claude/ com skills de tstack, security-audit-skill, de
+emilkowalski/skills e a product-launch-film); a seção "Escopo desta cópia"
+separa uma coisa da outra. O inventário de dependências, com a cobertura e os
+limites que ele declara, está em packaging/avisos/INVENTARIO-DEPENDENCIAS.md.
 
 --- Aviso original preservado integralmente ---
 

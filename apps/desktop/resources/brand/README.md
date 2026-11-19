@@ -5,7 +5,7 @@ Ativos que o app usa. **Ícone do app (D457/D464):** o ícone do pacote oficial 
 byte; é o único ícone do app, sem variações nem seletor. Origem e SHA-256 de cada arquivo:
 [`brand/assets/icon/app/README.md`](../../../../brand/assets/icon/app/README.md).
 **Barra de menus (D452):** a mexerica de rostinho. A assinatura e a logo horizontal da Donna Bot foram
-aposentadas com a arte nova; o pacote antigo vive em `docs/assets/brand/` como arquivo. Guia:
+aposentadas com a arte nova; o pacote antigo vive em `docs/assets/brand/` do projeto de origem (fora desta cópia). Guia:
 docs/guides/marca.md (não faz parte desta cópia).
 
 Nomes de arquivo, pacotes e o certificado ("Donnabot Local") são técnicos e não mudam com a marca.

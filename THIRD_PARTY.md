@@ -13,6 +13,37 @@ no README principal. A exclusão do CODE_OF_CONDUCT retira o documento Contribut
 Covenant 3.0 (CC BY-SA 4.0); nenhum trecho dele foi incorporado aos textos novos.
 O relato de segurança e a confidencialidade permanecem em SECURITY.md/AGENTS.md.
 
+## Escopo desta cópia
+
+Este arquivo veio do projeto de origem (o repositório maior de onde esta cópia foi extraída) e foi mantido como registro de
+procedência. **Ele descreve também material que não está nesta cópia.** O texto de cada seção diz o que o projeto de origem
+fez; para saber o que esta cópia contém, vale a lista abaixo, conferida em 19/11/2026 comparando os destinos citados com a
+árvore deste repositório (só conferência de caminhos; não é parecer jurídico).
+
+**Está nesta cópia** (os avisos e licenças valem para estes arquivos):
+
+- Código adaptado de OpenMausBot (Apache-2.0) no calendário de rotinas do desktop (`apps/desktop/src/renderer/lib/routine-calendar.ts` e `apps/desktop/src/renderer/views/rotinas-central/`).
+- Trechos adaptados de ai-memory (MIT) em `host/crates/memory/src/`.
+- Fixture de teste derivada do esquema do wacli (MIT) em `host/src/fork/whatsapp/wacli_fixture.sql`.
+- Skills adaptadas de Exa e de Supabase (MIT) em `host/catalogo/skills/`.
+- pi-mono (MIT) vendorizado em `motor/vendor/pi-mono/`, com as dependências npm do motor (Anthropic, OpenAI, Google).
+- Fontes da interface (SIL OFL 1.1, texto ao lado de cada arquivo) em `apps/desktop/src/renderer/assets/fonts/`.
+- Pacote npm `lucide` (ISC), dependência do desktop.
+- Biblioteca própria de avatares em `apps/desktop/src/renderer/lib/donnabot-avatars/` (sem o diretório `demo/`).
+- Registro e manifesto do catálogo de skills em `host/src/fork/skill_catalog/` (sem os pacotes de texto das skills de marketing).
+- Código derivado do Codync v2.20.3 e as modificações listadas em `MODIFICACOES.md`.
+
+**Não está nesta cópia** (os registros abaixo ficam apenas como histórico da origem e não indicam que o material seja distribuído aqui):
+
+- A pasta `.claude/` inteira: as skills do projeto de origem (tstack `pr-wait` e as skills `abrir-pr`, `acompanhar-pr` e `full-stop`; security-audit-skill da Cloudflare; as 13 skills de emilkowalski/skills com `LICENSE-MIT-emilkowalski.txt`; `product-launch-film` e as fontes Geist do seu `template/assets/fonts/`) e `skills-lock.json`. O `AGENTS.md` do projeto de origem também não está aqui.
+- O bundle `apps/desktop/src/renderer/lib/donnabot-avatars/demo/demo.js` (React 18.3.1 minificado) e o diretório `demo/`.
+- Os documentos `redesenho/` e `docs/propostas/` e as propostas de design geradas (`gerar.mjs`, HTML, PNGs derivados).
+- Os pacotes de texto das skills de marketing (`copywriting`, `stop-slop`, `copy-review-panel` e referências) e a evidência de revisão do módulo Spaces (`research/reports/evidencias/`).
+- Documentos e arquivos citados só por nome (por exemplo `docs/plans/`, `web/content/docs/` e a maior parte de `docs/features/`) e arquivos do projeto de origem que não foram copiados.
+
+Se uma linha abaixo citar um destino que não existe nesta cópia, vale o que está dito aqui. Quem redistribuir esta cópia
+deve conferir os componentes contra a árvore realmente distribuída.
+
 Registre abaixo cada nova cópia de código de referência, inclusive adaptações,
 conforme D75.
 
@@ -331,12 +362,12 @@ conteúdo" abaixo) e 4 textos descritivos com uma nota e os novos hashes. `brand
 da origem, SHA-256 e tamanho do arquivo atual, e o identificador do blob Git de origem). Os 1.075 arquivos foram conferidos e não trazem metadados embutidos que identifiquem
 pessoa ou máquina (nenhum campo EXIF/XMP, nenhum texto de PNG ou de WebP); os PDF de logo têm só `Creator: Chromium`, `Producer: Skia/PDF` e a data de exportação (07/11/2026).
 
-**Credenciais de conteúdo nos próprios arquivos.** 34 PNGs trazem credenciais C2PA embutidas (bloco `caBX`), assinadas por "OpenAI Media Service /
-OpenAI OpCo, LLC" e datadas de 07/11/2026. Elas registram o agente de software "ChatGPT", versão "gpt-image", e a origem digital "mídia gerada por
+**Credenciais de conteúdo nos próprios arquivos.** Os originais de 34 PNGs traziam credenciais C2PA embutidas (bloco `caBX`), assinadas por "OpenAI Media Service /
+OpenAI OpCo, LLC" e datadas de 07/11/2026. Elas registravam o agente de software "ChatGPT", versão "gpt-image", e a origem digital "mídia gerada por
 algoritmo treinado" (IPTC `trainedAlgorithmicMedia`). São os 20 fundos de chat (`brand/assets/fundos-chat/`), os 10 personagens por papel
 (`brand/assets/personagens/`) e as 4 fontes originais do ícone (`brand/assets/icon/00_fontes_originais/`). A coluna `c2pa_no_original` de
-`brand/ARTE-HASHES.tsv` marca cada um. Os demais arquivos não trazem essa marca, o que não prova como foram feitos. O dono do projeto não informou a ferramenta
-de geração; este registro só repete o que as credenciais afirmam. Ele não conferiu os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens
+`brand/ARTE-HASHES.tsv` marca cada um. Os demais arquivos não traziam essa marca, o que não prova como foram feitos. O dono do projeto não informou a ferramenta
+de geração; este registro só repete o que as credenciais afirmavam. Ele não conferiu os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens
 geradas nem a cadeia de direitos sobre os insumos. Nada aqui é parecer jurídico.
 
 **Recompressão desses 34 PNGs (decisão do dono, 19/11/2026).** Para reduzir o peso do repositório, o dono decidiu em 19/11/2026 recomprimir esses 34 PNGs
@@ -873,13 +904,13 @@ A cópia íntegra permanece em `motor/vendor/pi-mono/LICENSE` e a origem exata e
 
 Os arquivos abaixo são copiados para dentro de cada instalador (pasta `resources/avisos/` do app) pela configuração
 `extraResources` de `apps/desktop/electron-builder.yml`: `LICENSE`, `NOTICE`, `THIRD_PARTY.md`, `TRADEMARK.md`,
-`MODIFICACOES.md`, `MODIFICACOES-ARQUIVOS.md`, os textos OFL das fontes, e os arquivos de `packaging/avisos/` descritos aqui.
+`MODIFICACOES.md`, `MODIFICACOES-ARQUIVOS.md`, `brand/LICENCA-DA-ARTE.md` (como `avisos/LICENCA-DA-ARTE.md`), os textos OFL das fontes, e os arquivos de `packaging/avisos/` descritos aqui.
 **Esta configuração não foi exercitada num empacotamento real** nesta etapa (o binário do Electron não é baixado no ambiente de
 revisão); quem gerar o primeiro instalador deve conferir que `resources/avisos/` aparece no pacote de cada sistema.
 
 ### Electron e Chromium
 
-O app desktop roda sobre o Electron 44.11.4 (MIT, copyright da OpenJS Foundation e dos contribuidores do Electron). O texto da licença
+O app desktop roda sobre o Electron 44.11.4 (MIT; copyright dos contribuidores do Electron e da GitHub Inc., como no texto da licença). O texto da licença
 está em `packaging/avisos/electron-LICENSE.txt` (cópia do arquivo `LICENSE` do pacote npm `electron`). O Electron embute o Chromium e
 dezenas de bibliotecas de terceiros, cujos avisos o projeto publica no arquivo `LICENSES.chromium.html`, que acompanha o
 binário do Electron baixado no empacotamento. **Não há prova nesta etapa de que esse arquivo entre no `.app` do Mac**; essa

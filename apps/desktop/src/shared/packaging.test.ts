@@ -1,7 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 const require = createRequire(import.meta.url)
 const dev = require('../../tools/dev-builder.cjs')
@@ -76,5 +76,19 @@ test('o app local do Mac sai sem host, helper de tela, notarização ou identida
   assert.equal(prod.mac.notarize, false)
   for (const text of [JSON.stringify(local), JSON.stringify(metadata.scripts)]) {
     for (const upstream of ['6KFK5J2LB4', '7FUM8A8H72', 'Pokai Lee', 'CSC_NAME']) assert.ok(!text.includes(upstream), upstream)
+  }
+})
+
+test('every packaging variant carries the notice files, including the art-use rule, from files that exist', () => {
+  const local = require('../../tools/local-builder.cjs')
+  const devLocal = require('../../tools/dev-local-builder.cjs')
+  const expected = ['LICENSE', 'NOTICE', 'THIRD_PARTY.md', 'TRADEMARK.md', 'MODIFICACOES.md', 'MODIFICACOES-ARQUIVOS.md', 'LICENCA-DA-ARTE.md']
+  for (const [name, config] of Object.entries({ prod, dev, local, devLocal })) {
+    const notices = (config as { extraResources: { from: string; to: string }[] }).extraResources.filter((f) => f.to.startsWith('avisos/'))
+    for (const file of expected) {
+      const entry = notices.find((f) => f.to === `avisos/${file}`)
+      assert.ok(entry, `${name} lacks avisos/${file}`)
+      assert.ok(existsSync(new URL(`../../${entry.from}`, import.meta.url)), `${name}: ${entry.from} does not exist`)
+    }
   }
 })

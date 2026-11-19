@@ -17,7 +17,10 @@ A origem declara Apache-2.0 para estes grupos, e a declaração foi mantida.
 | Grupo | Caminhos | Arquivos |
 | --- | --- | ---: |
 | Mexeriquinhas (pelúcia 3D, imagens e atlas) | `apps/desktop/src/renderer/lib/mexeriquinhas/assets/` | 595 |
-| Ícones opcionais do app, as 19 opções das rodadas 2 e 3 | `apps/desktop/resources/app-icons/icone-01-*.png` a `icone-19-*.png` (texto da licença em `apps/desktop/resources/app-icons/LICENSE`) | 19 |
+| Ícones opcionais do app, as 19 opções das rodadas 2 e 3 (**não** inclui `padrao.png`, que é regra B) | `apps/desktop/resources/app-icons/icone-01-*.png` a `icone-19-*.png` (texto da licença em `apps/desktop/resources/app-icons/LICENSE`) | 19 |
+
+A pasta `apps/desktop/resources/app-icons/` tem 20 PNGs e a licença Apache-2.0 ao lado deles (`LICENSE`), mas essa licença vale só para os 19
+`icone-NN-*.png`. O vigésimo, `padrao.png` (o ícone oficial reduzido), segue a regra B abaixo.
 
 ## Regra B: direitos reservados, uso só dentro da Mexerica
 
@@ -32,11 +35,11 @@ permissão pode ser ampliada depois, sem voltar atrás; o contrário não vale.
 | --- | --- | ---: |
 | Fundos de chat e papéis de parede | `brand/assets/fundos-chat/`, `apps/desktop/src/renderer/assets/wallpapers/` | 128 |
 | Personagens por papel | `brand/assets/personagens/` | 11 |
-| Logo, mascote, símbolo, ícone do app, favicons e ícone da barra de menus | `brand/assets/logo/`, `apps/desktop/resources/icon.png`, `apps/desktop/resources/icon.svg`, `apps/desktop/resources/icon-tray.png`, `apps/desktop/resources/Donnabot.icns`, `apps/desktop/resources/AppIcon.icon/`, `apps/desktop/resources/brand/`, `apps/desktop/resources/tray/`, `apps/desktop/src/renderer/assets/brand/` | 136 |
+| Logo, mascote, símbolo, ícone do app, favicons e ícone da barra de menus | `brand/assets/logo/`, `apps/desktop/resources/icon.png`, `apps/desktop/resources/icon.svg`, `apps/desktop/resources/icon-tray.png`, `apps/desktop/resources/brand/Donnabot.icns`, `apps/desktop/resources/AppIcon.icon/`, `apps/desktop/resources/brand/`, `apps/desktop/resources/tray/`, `apps/desktop/src/renderer/assets/brand/` | 136 |
 | Variantes e fontes do ícone do app | `brand/assets/icon/` | 185 |
 | Ícone padrão da grade de Ajustes (é o ícone oficial reduzido) | `apps/desktop/resources/app-icons/padrao.png` | 1 |
 
-Os textos que descrevem os arquivos dentro dessas pastas (`LEIA-ME`, tabelas de medidas) seguem a regra da pasta em que estão.
+Os textos que descrevem os arquivos dentro dessas pastas (`LEIA-ME`, tabelas de medidas) seguem a regra da pasta em que estão. Alguns desses textos vêm do projeto de origem e citam caminhos que não estão nesta cópia (por exemplo `web/`, `docs/assets/brand/`, `docs/guides/marca.md`, `brand/propostas-icone-app/` e um branch de trabalho); são referências históricas, não arquivos distribuídos aqui.
 
 ## O que não entra em nenhuma regra
 
