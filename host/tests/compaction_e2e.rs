@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Compaction and rollover on a real host with disposable data: the host compacting a full conversation at the
 //! end of a turn, its loop guard turning to a rollover, and the handoff card the user edits or turns down.
 

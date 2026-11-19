@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Phone/host compatibility: each side names the oldest version of the other it still works
 //! with (docs/reference/compatibility.md). The host sends `MIN_APP` in `hello`; clients keep
 //! their own oldest-host floor (`MIN_HOST` here for the terminal client).

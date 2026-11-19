@@ -1,3 +1,4 @@
+/* Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md. */
 .computer-access { overflow: auto; width: 100%; animation: computer-access-appear 180ms ease-out; }
 @keyframes computer-access-appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .computer-access.onboarding { height: 100%; padding: clamp(24px, 6vh, 56px) 24px 24px; }

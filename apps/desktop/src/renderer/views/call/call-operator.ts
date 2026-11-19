@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { OperadorVoz, type OrigemEncerramento, type OrigemGemini, type AcompanhamentoEnvioVoz } from '../fork/voz/operador-voz.ts'
 import { isChat, isGroup, type Entry } from '../../../shared/models.ts'
 import type { BotStore } from '../../store/bot-store'

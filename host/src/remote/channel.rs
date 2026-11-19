@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The end-to-end encrypted channel between a device and this host (spec §6.1–§6.6,
 //! §9.5), independent of how it travels: a direct WebSocket (`GET /channel`, served
 //! here) or a relay link (the relay client feeds a [`Transport`] per link).

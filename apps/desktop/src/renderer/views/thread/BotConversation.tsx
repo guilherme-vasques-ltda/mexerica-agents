@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useEffect, useRef, useState } from 'react'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'

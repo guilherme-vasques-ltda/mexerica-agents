@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // Routines (kit Routine.swift, RoutineScheduleDraft.swift). The host hydrates, compiles,
 // validates and describes schedules; the app only keeps form values.
 import type { RunOutcome } from './run-outcome'

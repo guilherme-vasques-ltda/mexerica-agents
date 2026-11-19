@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! This computer's long-term keys (spec §3.1): an Ed25519 signing key (its
 //! identity; the computer id is derived from it) and an X25519 box key (mailbox).
 //!

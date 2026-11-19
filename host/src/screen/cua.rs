@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The computer-use driver bots act through: cua-driver (MIT, <https://github.com/trycua/cua>),
 //! pinned in `packaging/cua-driver/driver.json` and shipped beside the host (macOS: inside
 //! Codync Screen). It works on apps in the background, by accessibility element where it can.

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Todos os gatilhos (turno, Flush, compactação e retomada) consomem a fila com prova durável.
 use crate::{LockExt, chat::naming, hub::Hub, store::Store};
 use anyhow::Result;

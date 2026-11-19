@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The crate's own tables and their migrations, versioned apart from the caller's schema.
 
 use rusqlite::{Connection, OptionalExtension};

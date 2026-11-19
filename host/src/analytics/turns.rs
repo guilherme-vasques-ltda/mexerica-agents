@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! `turn_finished`: how each agent turn ended, never its text or the error's.
 
 use super::{Event, capture};

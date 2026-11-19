@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The harnesses' own memory, turned off wherever Codync can, so a bot has one memory and the user sees all of it:
 //! Claude e Codex sempre desligados no Donnabot (D60), e os jobs internos também.
 //! ([design](docs/reference/memoria/bot-memory.md#instructions-in-every-harness)). Claude Code also gets its settings

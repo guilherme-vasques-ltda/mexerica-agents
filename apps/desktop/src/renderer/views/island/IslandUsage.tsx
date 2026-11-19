@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { UsageProvider, UsageWindow } from '@shared/models'
 import { useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { prefs, usePref } from '../../lib/prefs'

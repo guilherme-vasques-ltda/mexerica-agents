@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // The website demo: the real renderer on a fake host. The bridge must load first.
 import './bridge'
 import '../main'

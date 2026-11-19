@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { drawAvatarIcon } from '../../fork/avatars/native-icon'
 import { placeholderConfig } from '../../fork/avatars/Avatar'
 import type { UsageProvider } from '@shared/models'

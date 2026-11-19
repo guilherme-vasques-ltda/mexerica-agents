@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Emoji reactions on chat messages: the user's (`data.reactions`, toggled from any client) and
 //! the bots' (`data.botReactions`, one `{bot, emoji}` per bot, set with the `react` tool).
 

@@ -1,3 +1,4 @@
+# Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 """ACP fixture recording how a bot's instructions and compactions reach it.
 
 `standard` advertises ACP `systemPrompt`; `reporting` reports compactions with `compaction_update`; `silent` only

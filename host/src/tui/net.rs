@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Host API over HTTP: JSON commands and the SSE event stream (same wire as the apps).
 
 pub mod files;

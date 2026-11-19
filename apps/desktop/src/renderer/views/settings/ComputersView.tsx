@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useCallback, useState } from 'react'
 import { forkFeatures } from '@shared/fork-features'
 import type { AccountApproval, PairingInfo } from '@shared/models'

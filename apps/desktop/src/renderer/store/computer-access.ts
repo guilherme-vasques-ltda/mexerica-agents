@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { computerAccessStep, computerPermissionSettings, type ComputerPermission, type ScreenAgentState } from '@shared/computer-access'
 import { normalizeScreen, screenWithoutAgent, type ScreenState } from '@shared/models'
 import { Observable } from '../lib/observable'

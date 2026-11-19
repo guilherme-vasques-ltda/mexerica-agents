@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useSpaceShortcuts } from './fork/spaces/use-space-shortcuts'
 import { useAtalhoBerga } from './fork/atalho-berga/use-atalho'
 import { focoBerga } from './fork/atalho-berga/foco'

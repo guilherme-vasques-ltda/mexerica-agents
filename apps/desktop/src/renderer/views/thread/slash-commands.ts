@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { isAppLanguage } from '../../../shared/fork-idioma.ts'
 import { traduzir, tradutor, type Tradutor } from '../../lib/fork-i18n/index.ts'
 // The composer's `/` commands, listed while the draft is just `/partial`: Fast mode runs here
