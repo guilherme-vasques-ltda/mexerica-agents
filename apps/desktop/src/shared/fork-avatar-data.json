@@ -1,0 +1,201 @@
+{
+  "defaultConfig": {
+    "shape": "cubo",
+    "color": "#3B82F6",
+    "eye": "auto",
+    "head": "none",
+    "face": "none",
+    "ears": "none",
+    "chin": "none",
+    "neck": "none",
+    "cheeks": "none",
+    "badge": "none",
+    "badgeStyle": "light"
+  },
+  "legacyColors": {
+    "black": {
+      "hex": "#2B2B2B",
+      "avatarHex": "#4A4F5A"
+    },
+    "brown": {
+      "hex": "#936439",
+      "avatarHex": "#B8794A"
+    },
+    "red": {
+      "hex": "#FF263C",
+      "avatarHex": "#F2414F"
+    },
+    "orange": {
+      "hex": "#FF6700",
+      "avatarHex": "#FF7A1A"
+    },
+    "yellow": {
+      "hex": "#FF9800",
+      "avatarHex": "#FFB020"
+    },
+    "green": {
+      "hex": "#00C972",
+      "avatarHex": "#22C55E"
+    },
+    "cyan": {
+      "hex": "#00BCA6",
+      "avatarHex": "#14B8A6"
+    },
+    "blue": {
+      "hex": "#1084FE",
+      "avatarHex": "#3B82F6"
+    },
+    "violet": {
+      "hex": "#9159FE",
+      "avatarHex": "#A855F7"
+    },
+    "magenta": {
+      "hex": "#FF309B",
+      "avatarHex": "#EC4899"
+    },
+    "gray": {
+      "hex": "#777777",
+      "avatarHex": "#94A3B8"
+    }
+  },
+  "legacyShapes": {
+    "blob": "oval",
+    "pebble": "pilula",
+    "squircle": "cubo",
+    "tablet": "tela",
+    "wedge": "losango",
+    "hex": "hexa",
+    "cloud": "nuvem",
+    "teardrop": "gota"
+  },
+  "mobileShapes": {
+    "oval": "blob",
+    "pilula": "pebble",
+    "cubo": "squircle",
+    "tela": "tablet",
+    "losango": "wedge",
+    "hexa": "hex",
+    "nuvem": "cloud",
+    "gota": "teardrop",
+    "ciclope": "blob",
+    "urso": "blob",
+    "cupula": "pebble",
+    "gato": "squircle",
+    "totem": "tablet"
+  },
+  "roleAliases": {
+    "donna": [
+      "assistente geral",
+      "general assistant"
+    ],
+    "chief": [
+      "chefe de gabinete",
+      "chefe de equipe"
+    ],
+    "pm": [
+      "gerente de projetos",
+      "gestor de projetos"
+    ],
+    "calendar": [
+      "calendário",
+      "agendamento"
+    ],
+    "notes": [
+      "atas",
+      "anotações",
+      "notas de reunião"
+    ],
+    "research": [
+      "pesquisador",
+      "pesquisadora",
+      "pesquisa",
+      "researcher"
+    ],
+    "travel": [
+      "viagens",
+      "planejador de viagens"
+    ],
+    "translator": [
+      "tradutora",
+      "translator"
+    ],
+    "dev": [
+      "desenvolvedora",
+      "developer",
+      "programador",
+      "programadora"
+    ],
+    "qa": [
+      "qualidade",
+      "quality assurance"
+    ],
+    "ecommerce": [
+      "comércio eletrônico",
+      "ecommerce"
+    ],
+    "amazon": [],
+    "importacao": [
+      "importação",
+      "imports",
+      "importer"
+    ],
+    "compras": [
+      "purchasing",
+      "procurement"
+    ],
+    "estoque": [
+      "inventory",
+      "stock"
+    ],
+    "suporte": [
+      "customer support",
+      "atendimento"
+    ],
+    "marketing": [],
+    "metaads": [
+      "meta ads"
+    ],
+    "social": [
+      "social media"
+    ],
+    "escritor": [
+      "escritora",
+      "writer",
+      "copywriter"
+    ],
+    "seo": [
+      "seo",
+      "aeo"
+    ],
+    "youtuber": [
+      "youtube"
+    ],
+    "designer": [
+      "design"
+    ],
+    "vendas": [
+      "sales"
+    ],
+    "sdr": [],
+    "financeiro": [
+      "finanças",
+      "finance"
+    ],
+    "contabil": [
+      "contador",
+      "contadora",
+      "accounting"
+    ],
+    "bookkeeper": [
+      "escrituração"
+    ],
+    "rh": [
+      "recursos humanos",
+      "human resources"
+    ],
+    "psicologa": [
+      "psicólogo",
+      "psychologist"
+    ]
+  }
+}

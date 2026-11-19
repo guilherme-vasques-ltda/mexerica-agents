@@ -1,0 +1,49 @@
+/* Ritmo das mensagens (D169): MessageBubble em docs/reference/redesenho/components/MessageBubble.
+   A pilha `.markdown` põe 10px entre blocos e cada bloco de texto devolve 2px × escala de cada lado
+   (`.md-spaced`). Aqui só a margem de cima do bloco seguinte muda; depois de um bloco de texto, vão = margem + 10px − 2px × escala.
+   Itens da mesma lista, título → conteúdo e parágrafo → lista ficam como antes; tabela e linha mantêm as suas. */
+.markdown {
+  --md-vao-paragrafo: calc(10px * var(--md-scale));
+  --md-vao-fim-lista: calc(14px * var(--md-scale));
+  --md-vao-subsecao: calc(16px * var(--md-scale));
+  --md-vao-secao: calc(20px * var(--md-scale));
+}
+
+/* Parágrafo → parágrafo (citação não entra). */
+.markdown > .md-text.md-body:not(.md-quote) + .md-text.md-body:not(.md-quote) {
+  margin-top: calc(var(--md-vao-paragrafo) - 10px + 2px * var(--md-scale));
+}
+
+/* Fim de lista → texto ou código: a lista termina antes do que vem depois. */
+.markdown > .md-bullet + :is(.md-text, .md-code) {
+  margin-top: calc(var(--md-vao-fim-lista) - 10px + 2px * var(--md-scale));
+}
+
+/* Antes de um título (nunca no primeiro bloco: sem anterior, nada casa), contado da borda do bloco anterior.
+   Texto devolve 2px × escala embaixo (`.md-spaced`); código não tem margem; tabela (`--sp-8`, data-table.css) e
+   linha (4px, markdown.css) mantêm as suas e o título desconta. Vem depois da regra acima, com a mesma
+   especificidade: o título vence. */
+.markdown > .md-heading-3 {
+  --md-vao-titulo: var(--md-vao-subsecao);
+}
+.markdown > :is(.md-heading-1, .md-heading-2) {
+  --md-vao-titulo: var(--md-vao-secao);
+}
+.markdown > .md-spaced + :is(.md-heading-1, .md-heading-2, .md-heading-3) {
+  margin-top: calc(var(--md-vao-titulo) - 10px + 2px * var(--md-scale));
+}
+.markdown > .md-code + :is(.md-heading-1, .md-heading-2, .md-heading-3) {
+  margin-top: calc(var(--md-vao-titulo) - 10px);
+}
+.markdown > .data-table + :is(.md-heading-1, .md-heading-2, .md-heading-3) {
+  margin-top: calc(var(--md-vao-titulo) - 10px - var(--sp-8));
+}
+.markdown > .md-rule + :is(.md-heading-1, .md-heading-2, .md-heading-3) {
+  margin-top: calc(var(--md-vao-titulo) - 14px);
+}
+
+/* ### e abaixo: nunca menor que o corpo, nem mais forte que o ## do mesmo tamanho. */
+.markdown > .md-heading-3 {
+  font-size: max(calc(11px * var(--md-scale)), var(--conversation));
+  font-weight: 600;
+}

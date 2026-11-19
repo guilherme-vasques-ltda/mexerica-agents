@@ -1,0 +1,627 @@
+//! Setup terminals: installing an agent's CLI or signing in to it runs in a
+//! real PTY on this computer, streamed to the client that started it. The
+//! host picks the command (from `backends::HARNESSES`); clients only type.
+
+#[path = "../fork/terminal_login/pty.rs"]
+mod login_pty;
+
+use crate::agent::backends;
+use crate::{LockExt, api::devices::Caller};
+use anyhow::{Result, anyhow, bail};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64;
+use portable_pty::{Child, MasterPty, PtyPair, PtySize, native_pty_system};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::io::{Read as _, Write as _};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::sync::{broadcast, mpsc};
+
+/// Output kept for a client that (re)attaches mid-run.
+const SCROLLBACK: usize = 256 * 1024;
+/// A finished terminal stays readable this long.
+const LINGER: Duration = Duration::from_secs(10 * 60);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Step {
+    Install,
+    /// Codync's Node.js, for agents that run on it (one terminal for every agent).
+    Node,
+    Login,
+}
+
+enum Input {
+    Data(Vec<u8>),
+    Resize(u16, u16),
+    Kill,
+}
+
+struct Output {
+    scrollback: Vec<u8>,
+    exit: Option<i32>,
+}
+
+pub struct Term {
+    key: (String, Step),
+    owner: Option<String>,
+    pub(crate) login: Option<Arc<crate::fork::terminal_login::Login>>,
+    input: mpsc::UnboundedSender<Input>,
+    output: Mutex<Output>,
+    /// `{"type":"output","data":<base64>}` and `{"type":"exit","code":n}`.
+    events: broadcast::Sender<Value>,
+}
+
+impl Term {
+    pub(crate) fn require_access(&self, caller: &Caller) -> Result<()> {
+        if let Some(login) = &self.login {
+            return login.require(caller);
+        }
+        crate::fork::engine_setup::require_legacy_setup(caller, &self.key.0)?;
+        match caller {
+            Caller::Local => Ok(()),
+            Caller::Device { key, scopes, .. }
+                if self.owner.as_deref() == Some(key) && scopes.contains(&crate::store::Scope::Control) =>
+            {
+                Ok(())
+            }
+            _ => bail!("not_allowed: este terminal pertence a outro chamador."),
+        }
+    }
+
+    /// The scrollback so far plus a live feed, taken atomically so nothing is lost or doubled.
+    pub fn attach(&self) -> (Vec<Value>, broadcast::Receiver<Value>) {
+        let out = self.output.locked();
+        let rx = self.events.subscribe();
+        let mut head = vec![];
+        if let Some(login) = &self.login {
+            login.ready.notify_one();
+        }
+        if !out.scrollback.is_empty() {
+            head.push(json!({"type": "output", "data": B64.encode(&out.scrollback)}));
+        }
+        if let Some(code) = out.exit {
+            head.push(json!({"type": "exit", "code": code}));
+        }
+        (head, rx)
+    }
+
+    fn push(&self, bytes: &[u8]) {
+        if let Some(login) = &self.login {
+            let Ok(bytes) = login.output(bytes) else {
+                login.stop();
+                let _ = self.input.send(Input::Kill);
+                return;
+            };
+            if login.take_rejection_notice()
+                && login.deliver(|| self.events.send(json!({"type":"notice","code":"login_code_rejected"}))).is_err()
+            {
+                let _ = self.input.send(Input::Kill);
+            }
+            if !bytes.is_empty()
+                && login.deliver(|| self.events.send(json!({"type":"output","data":B64.encode(&bytes)}))).is_err()
+            {
+                let _ = self.input.send(Input::Kill);
+            }
+            return;
+        }
+        let mut out = self.output.locked();
+        out.scrollback.extend_from_slice(bytes);
+        if out.scrollback.len() > SCROLLBACK {
+            let cut = out.scrollback.len() - SCROLLBACK;
+            out.scrollback.drain(..cut);
+        }
+        let _ = self.events.send(json!({"type":"output","data":B64.encode(bytes)}));
+    }
+    pub(crate) fn disconnect_login(&self) {
+        if let Some(login) = &self.login {
+            login.stop();
+            let _ = self.input.send(Input::Kill);
+        }
+    }
+    fn finish(&self, code: i32) {
+        self.output.locked().exit = Some(code);
+        let _ = self.events.send(json!({"type": "exit", "code": code}));
+    }
+}
+
+#[derive(Default)]
+pub struct Terms(Mutex<HashMap<String, Arc<Term>>>);
+
+impl Terms {
+    pub fn busy(&self) -> bool {
+        self.0.locked().values().any(|term| term.login.is_none() && term.output.locked().exit.is_none())
+    }
+
+    pub fn get(&self, id: &str) -> Option<Arc<Term>> {
+        self.0.locked().get(id).cloned()
+    }
+
+    pub(crate) fn authorized(&self, id: &str, caller: &Caller) -> Result<Option<Arc<Term>>> {
+        let term = self.get(id);
+        if let Some(term) = &term {
+            term.require_access(caller)?;
+        }
+        Ok(term)
+    }
+
+    /// Starts `step` for `backend` (a sign-in `method` the agent advertised, or
+    /// Codync's own command for it), or returns the one already running.
+    pub async fn start(
+        self: &Arc<Self>,
+        caller: &Caller,
+        backend: &str,
+        step: Step,
+        method: Option<&str>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<String> {
+        anyhow::ensure!(step != Step::Login || matches!(caller, Caller::Local), "Use o terminal de login autorizado.");
+        crate::fork::engine_setup::require_legacy_setup(caller, backend)?;
+        let owner = match caller {
+            Caller::Local => None,
+            Caller::Device { key, scopes, .. } if scopes.contains(&crate::store::Scope::Control) => Some(key.clone()),
+            _ => bail!("not_allowed: terminal exige autoridade de controle."),
+        };
+        let h = backends::harness(backend);
+        let name = h.map_or(backend, |h| h.name);
+        let command = match step {
+            Step::Node => format!("{} node", crate::shell::quote(&crate::service::current_exe()?.to_string_lossy())),
+            Step::Install => {
+                let h = h.ok_or_else(|| anyhow!("Mexerica downloads {name} by itself"))?;
+                h.install.and_then(backends::Install::command).ok_or_else(|| anyhow!("{}", h.setup))?
+            }
+            // Some CLIs (codex) delete the current credentials the moment a new sign-in starts.
+            Step::Login if backends::signed_in(backend) == Some(true) => bail!("{name} is already signed in"),
+            Step::Login => match method {
+                Some(m) => crate::agent::auth::terminal_command(backend, m)
+                    .ok_or_else(|| anyhow!("That sign-in option is gone; check {name} again"))?,
+                None => backends::login_command(backend).await?,
+            },
+        };
+        self.spawn((backend.to_owned(), step), owner, &command, cols, rows)
+    }
+
+    fn spawn(
+        self: &Arc<Self>,
+        key: (String, Step),
+        owner: Option<String>,
+        command: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<String> {
+        self.spawn_with(key, owner, command, cols, rows, None)
+    }
+    fn spawn_with(
+        self: &Arc<Self>,
+        key: (String, Step),
+        owner: Option<String>,
+        command: &str,
+        cols: u16,
+        rows: u16,
+        login: Option<Arc<crate::fork::terminal_login::Login>>,
+    ) -> Result<String> {
+        let mut map = self.0.locked();
+        if let Some((id, _)) = map.iter().find(|(_, t)| {
+            t.key == key
+                && t.owner == owner
+                && t.output.locked().exit.is_none()
+                && match (&t.login, &login) {
+                    (Some(a), Some(b)) => a.authority == b.authority && a.space == b.space,
+                    (None, None) => true,
+                    _ => false,
+                }
+        }) {
+            return Ok(id.clone());
+        }
+        let PtyPair { master, slave } = native_pty_system().openpty(size(cols, rows))?;
+        let builder = if let Some(login) = &login {
+            let hub = login.hub.upgrade().ok_or_else(|| anyhow!("Login encerrado."))?;
+            login.authority.require_current(&hub)?;
+            let mut builder = crate::fork::motor_exec::pty(&login.executable, &login.home);
+            builder.env_clear();
+            builder.args(&login.args);
+            for (k, v) in &login.env {
+                builder.env(k, v);
+            }
+            builder.cwd(crate::fork::motor_exec::hub_cwd(&login.home));
+            #[cfg(unix)]
+            builder.umask(Some(0o077));
+            builder
+        } else {
+            let shell = crate::shell::line(command);
+            let cwd = dirs::home_dir().unwrap_or_else(|| "/".into());
+            let mut builder = crate::fork::motor_exec::pty(shell.program, &cwd);
+            if crate::fork::motor_exec::configured() {
+                builder.env_clear();
+                for (key, value) in super::environment::inherited(std::env::vars_os()) {
+                    builder.env(key, value);
+                }
+            }
+            builder.args(&shell.args);
+            for (k, v) in &shell.env {
+                builder.env(k, v);
+            }
+            builder.env("TERM", "xterm-256color");
+            builder.env("COLORTERM", "truecolor");
+            builder.cwd(crate::fork::motor_exec::hub_cwd(&cwd));
+            builder
+        };
+        let child = if let Some(login) = &login {
+            login.deliver(|| slave.spawn_command(builder))??
+        } else {
+            slave.spawn_command(builder)?
+        };
+        // Only the child may hold the terminal side, or the output never ends.
+        drop(slave);
+        let (tx, rx) = mpsc::unbounded_channel();
+        let term = Arc::new(Term {
+            key,
+            owner,
+            login,
+            input: tx,
+            output: Mutex::new(Output { scrollback: vec![], exit: None }),
+            events: broadcast::channel(256).0,
+        });
+        if term.login.is_none() {
+            term.push(format!("\x1b[2m$ {command}\x1b[0m\r\n").as_bytes());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        map.insert(id.clone(), term.clone());
+        tracing::info!(backend = term.key.0, step = ?term.key.1, term = %id, "setup terminal started");
+        if term.login.is_some() {
+            tokio::spawn(login_pty::run(self.clone(), id.clone(), term, master, child, rx));
+        } else {
+            tokio::spawn(run(self.clone(), id.clone(), term, master, child, rx));
+        }
+        Ok(id)
+    }
+
+    pub fn write(&self, id: &str, data: &str) -> Result<()> {
+        let bytes = B64.decode(data).map_err(|_| anyhow!("Entrada de terminal inválida."))?;
+        let term = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
+        if let Some(login) = &term.login {
+            return login.enqueue(&bytes, |bytes| {
+                term.input.send(Input::Data(bytes)).map_err(|_| anyhow!("that terminal is gone"))
+            });
+        }
+        self.send(id, Input::Data(bytes))
+    }
+
+    pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<()> {
+        if self.get(id).is_some_and(|t| t.login.is_some()) {
+            anyhow::ensure!((20..=240).contains(&cols) && (4..=100).contains(&rows), "Dimensões de login inválidas.");
+        }
+        self.send(id, Input::Resize(cols, rows))
+    }
+
+    pub fn close(&self, id: &str) {
+        if let Some(t) = self.0.locked().remove(id) {
+            if let Some(login) = &t.login {
+                login.stop();
+            }
+            let _ = t.input.send(Input::Kill);
+        }
+    }
+
+    fn send(&self, id: &str, input: Input) -> Result<()> {
+        let t = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
+        // Input after exit has nowhere to go; not an error for the typist.
+        let _ = t.input.send(input);
+        Ok(())
+    }
+}
+
+/// Windows' pseudo console asks where the cursor is (`ESC[6n`) before the program starts,
+/// and waits for the answer. The host answers it (the line under the `$ command` header) and
+/// keeps the question from clients, which would answer it a second time into the program.
+const CURSOR_QUERY: &[u8] = b"\x1b[6n";
+const CURSOR_REPLY: &[u8] = b"\x1b[2;1R";
+
+/// `chunk` without its cursor query, if it has one.
+fn without_cursor_query(chunk: &[u8]) -> Option<Vec<u8>> {
+    let at = chunk.windows(CURSOR_QUERY.len()).position(|w| w == CURSOR_QUERY)?;
+    Some([&chunk[..at], &chunk[at + CURSOR_QUERY.len()..]].concat())
+}
+
+fn size(cols: u16, rows: u16) -> PtySize {
+    PtySize { rows: rows.max(4), cols: cols.max(20), pixel_width: 0, pixel_height: 0 }
+}
+
+async fn run(
+    terms: Arc<Terms>,
+    id: String,
+    term: Arc<Term>,
+    master: Box<dyn MasterPty + Send>,
+    mut child: Box<dyn Child + Send + Sync>,
+    mut rx: mpsc::UnboundedReceiver<Input>,
+) {
+    let mut killer = child.clone_killer();
+    let group = crate::fork::motor_exec::Group::pty(child.process_id());
+    let streams = master.try_clone_reader().and_then(|reader| Ok((reader, master.take_writer()?)));
+    let (mut reader, mut writer) = match streams {
+        Ok(streams) => streams,
+        Err(error) => {
+            tracing::warn!(error = format!("{error:#}"), "setup terminal has no streams");
+            if group.is_none() {
+                let _ = killer.kill();
+            }
+            term.finish(-1);
+            return;
+        }
+    };
+    let mut pump = {
+        let term = term.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut buf = vec![0u8; 16 * 1024];
+            let mut answered = !cfg!(windows);
+            // EOF or an error once the child and its children are gone.
+            while let Ok(n @ 1..) = reader.read(&mut buf) {
+                match without_cursor_query(&buf[..n]).filter(|_| !answered) {
+                    Some(rest) => {
+                        answered = true;
+                        let _ = term.input.send(Input::Data(CURSOR_REPLY.to_vec()));
+                        term.push(&rest);
+                    }
+                    None => term.push(&buf[..n]),
+                }
+            }
+        })
+    };
+    let mut wait = tokio::task::spawn_blocking(move || child.wait());
+    let status = loop {
+        tokio::select! {
+            status = &mut wait => break status,
+            input = rx.recv() => match input {
+                // Keystrokes are small; a PTY takes them without blocking.
+                Some(Input::Data(bytes)) => {
+                    if let Err(error) = writer.write_all(&bytes) {
+                        tracing::info!(%error, "setup terminal write failed");
+                    }
+                }
+                Some(Input::Resize(cols, rows)) => {
+                    let _ = master.resize(size(cols, rows));
+                }
+                Some(Input::Kill) | None => {
+                    if let Some(group) = &group { group.terminate(); } else { let _ = killer.kill(); }
+                }
+            },
+        }
+    };
+    drop(group);
+    // Let the last output drain; a background grandchild can hold the PTY open forever, and
+    // Windows' pseudo console keeps it open until the master side closes.
+    let _ = tokio::time::timeout(Duration::from_secs(1), &mut pump).await;
+    drop((writer, master));
+    let code = match status {
+        Ok(Ok(status)) => i32::try_from(status.exit_code()).unwrap_or(-1),
+        _ => -1,
+    };
+    tracing::info!(term = %id, code, "setup terminal finished");
+    term.finish(code);
+    tokio::time::sleep(LINGER).await;
+    terms.0.locked().remove(&id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn takes_out_the_cursor_query() {
+        assert_eq!(without_cursor_query(b"a\x1b[6nb").as_deref(), Some(&b"ab"[..]));
+        assert_eq!(without_cursor_query(b"plain"), None);
+    }
+
+    #[tokio::test]
+    async fn runs_in_a_pty_and_takes_input() {
+        let terms = Arc::new(Terms::default());
+        // `call` expands `%x%` again once `set /p` has read it.
+        let (command, enter) = if cfg!(windows) {
+            ("echo tty& set /p x=& call echo got-%x%", "\r")
+        } else {
+            ("[ -t 0 ] && echo tty; read x; echo got-$x", "\n")
+        };
+        let id = terms.spawn(("test".into(), Step::Login), None, command, 80, 24).unwrap();
+        let term = terms.get(&id).unwrap();
+        let (_, mut rx) = term.attach();
+        terms.write(&id, &B64.encode(format!("hi{enter}"))).unwrap();
+        let code = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let v = rx.recv().await.unwrap();
+                if v["type"] == "exit" {
+                    return v["code"].as_i64().unwrap();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(code, 0);
+        let (head, _) = term.attach();
+        let text = String::from_utf8(B64.decode(head[0]["data"].as_str().unwrap()).unwrap()).unwrap();
+        assert!(text.contains("tty") && text.contains("got-hi"), "{text}");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod authority_tests {
+    use super::*;
+    use crate::{
+        api::{dispatch, term_events},
+        hub::Hub,
+        remote::identity::Identity,
+        store::{Scope, Store},
+    };
+
+    fn device(key: &str) -> Caller {
+        Caller::Device { key: key.into(), scopes: vec![Scope::Control], autoridade: None }
+    }
+    fn terminal(hub: &Hub, id: &str, backend: &str, owner: Option<&str>) -> mpsc::UnboundedReceiver<Input> {
+        let (input, rx) = mpsc::unbounded_channel();
+        hub.terms.0.locked().insert(
+            id.into(),
+            Arc::new(Term {
+                key: (backend.into(), Step::Login),
+                owner: owner.map(str::to_owned),
+                login: None,
+                input,
+                output: Mutex::new(Output { scrollback: b"fixture-private-output".to_vec(), exit: None }),
+                events: broadcast::channel(4).0,
+            }),
+        );
+        rx
+    }
+    #[tokio::test]
+    async fn provedores_legados_exigem_local_em_setup_controles_e_saida() {
+        let root = std::env::temp_dir().join(format!("d164-term-auth-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let hub = Hub::new(
+            Store::open(std::path::Path::new(":memory:")).unwrap(),
+            "fixture".into(),
+            Identity::load_or_create(&root).unwrap(),
+            "fixture".into(),
+            0,
+        );
+        for backend in ["claude", "codex", "claude-acp", "claude-agent-acp", "codex-acp"] {
+            let id = format!("term-{backend}");
+            let mut input = terminal(&hub, &id, backend, None);
+            for caller in [device("alice"), Caller::Pairing { key: "pairing".into() }] {
+                for step in ["install", "login"] {
+                    assert!(
+                        dispatch(&hub, &caller, "agentSetup", json!({"backend":backend,"step":step}))
+                            .await
+                            .unwrap_err()
+                            .to_string()
+                            .starts_with("remote_setup_unavailable")
+                    );
+                }
+                assert!(
+                    dispatch(&hub, &caller, "agentAuthenticate", json!({"backend":backend,"method":"fixture"}))
+                        .await
+                        .unwrap_err()
+                        .to_string()
+                        .starts_with("remote_setup_unavailable")
+                );
+                assert!(term_events(&hub, &id, &caller).is_err());
+                for method in ["termInput", "termResize", "termClose"] {
+                    assert!(
+                        dispatch(&hub, &caller, method, json!({"term":id,"data":"ZmFrZQ==","cols":100,"rows":24}))
+                            .await
+                            .is_err()
+                    );
+                }
+            }
+            assert!(term_events(&hub, &id, &Caller::Local).unwrap().is_some());
+            dispatch(&hub, &Caller::Local, "termInput", json!({"term":id,"data":B64.encode("fixture-input")}))
+                .await
+                .unwrap();
+            assert!(matches!(input.try_recv().unwrap(),Input::Data(bytes) if bytes == b"fixture-input"));
+            dispatch(&hub, &Caller::Local, "termResize", json!({"term":id,"cols":100,"rows":24})).await.unwrap();
+            assert!(matches!(input.try_recv().unwrap(), Input::Resize(100, 24)));
+            dispatch(&hub, &Caller::Local, "termClose", json!({"term":id})).await.unwrap();
+            assert!(matches!(input.try_recv().unwrap(), Input::Kill));
+        }
+        let mut input = terminal(&hub, "other", "other-backend", Some("alice"));
+        let alice = device("alice");
+        let bob = device("bob");
+        assert!(term_events(&hub, "other", &alice).unwrap().is_some());
+        assert!(term_events(&hub, "other", &bob).is_err());
+        for method in ["termInput", "termResize", "termClose"] {
+            assert!(
+                dispatch(&hub, &bob, method, json!({"term":"other","data":"ZmFrZQ==","cols":100,"rows":24}))
+                    .await
+                    .is_err()
+            );
+        }
+        dispatch(&hub, &alice, "termInput", json!({"term":"other","data":B64.encode("allowed")})).await.unwrap();
+        assert!(matches!(input.try_recv().unwrap(),Input::Data(bytes) if bytes == b"allowed"));
+        dispatch(&hub, &alice, "termResize", json!({"term":"other","cols":100,"rows":24})).await.unwrap();
+        assert!(matches!(input.try_recv().unwrap(), Input::Resize(100, 24)));
+        dispatch(&hub, &alice, "termClose", json!({"term":"other"})).await.unwrap();
+        assert!(matches!(input.try_recv().unwrap(), Input::Kill));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod cancellation_tests {
+    use super::*;
+    #[tokio::test]
+    async fn motor_fechar_pty_legado_encerra_filho_e_neto() {
+        let Some(case) = crate::fork::motor_exec::test_support::case(
+            "agent::term::cancellation_tests::motor_fechar_pty_legado_encerra_filho_e_neto",
+        ) else {
+            return;
+        };
+        let fixture = case.fixture("terminal-auth", true);
+        let terms = Arc::new(Terms::default());
+        let id = terms
+            .spawn(
+                ("terminal-auth".into(), Step::Login),
+                None,
+                &crate::shell::quote(&fixture.to_string_lossy()),
+                80,
+                24,
+            )
+            .unwrap();
+        let term = terms.get(&id).unwrap();
+        let (_, mut rx) = term.attach();
+        case.started(&fixture).await;
+        terms.close(&id);
+        tokio::time::timeout(Duration::from_secs(8), async {
+            while let Ok(value) = rx.recv().await {
+                if value["type"] == "exit" {
+                    return;
+                }
+            }
+            panic!("PTY fechou sem encerrar a tarefa");
+        })
+        .await
+        .unwrap();
+        case.stopped(&fixture).await;
+    }
+}
+
+#[cfg(all(test, unix))]
+mod linger_tests {
+    use super::*;
+    #[tokio::test]
+    async fn motor_linger_nao_repete_kill_group() {
+        let Some(case) = crate::fork::motor_exec::test_support::case(
+            "agent::term::linger_tests::motor_linger_nao_repete_kill_group",
+        ) else {
+            return;
+        };
+        let fixture = case.fixture("linger", true);
+        let terms = Arc::new(Terms::default());
+        let id = terms
+            .spawn(("linger".into(), Step::Login), None, &crate::shell::quote(&fixture.to_string_lossy()), 80, 24)
+            .unwrap();
+        let term = terms.get(&id).unwrap();
+        let (_, mut rx) = term.attach();
+        case.started(&fixture).await;
+        terms.close(&id);
+        tokio::time::timeout(Duration::from_secs(8), async {
+            while let Ok(value) = rx.recv().await {
+                if value["type"] == "exit" {
+                    return;
+                }
+            }
+            panic!("PTY não anunciou saída");
+        })
+        .await
+        .unwrap();
+        case.stopped(&fixture).await;
+        let helper = std::env::var_os("DONNABOT_MOTOR_TEST_HELPER").unwrap();
+        let calls = format!("{}.calls", std::path::PathBuf::from(helper).display());
+        let before = std::fs::read_to_string(&calls).unwrap();
+        tokio::time::pause();
+        tokio::time::advance(LINGER + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(terms.get(&id).is_none(), "retenção terminou");
+        assert_eq!(std::fs::read_to_string(calls).unwrap(), before, "nenhum kill após retenção");
+    }
+}

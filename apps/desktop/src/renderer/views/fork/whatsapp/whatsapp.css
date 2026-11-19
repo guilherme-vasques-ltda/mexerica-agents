@@ -1,0 +1,180 @@
+/* whatsapp R5: Ajustes → Plugins e a seção do editor. Só tokens do sistema visual (styles/tokens.css). */
+.wa-aviso { display: flex; gap: 10px; align-items: flex-start; padding: 12px 16px; border-radius: var(--radius-lg, 12px); border: 1px solid color-mix(in srgb, var(--attention) 35%, transparent); background: var(--attention-soft); color: var(--text-primary, var(--ink)); font-size: var(--text-callout, 13px); line-height: 1.45; }
+.wa-aviso > svg, .wa-aviso > span:first-child { color: var(--attention); flex: none; margin-top: 2px; }
+.wa-aviso p { margin: 0; }
+.wa-aviso b { color: var(--attention); }
+
+.wa-plugin { display: flex; flex-direction: column; gap: 16px; padding: 18px; border-radius: var(--radius-xl, 16px); background: var(--raised); border: 1px solid var(--line); }
+.wa-plugin-cabeca, .wa-numero { display: flex; gap: 14px; align-items: flex-start; }
+.wa-numero { align-items: center; padding: 14px 16px; border-radius: var(--radius-lg, 12px); background: var(--raised); border: 1px solid var(--line); }
+.wa-plugin-cabeca > .switch { width: auto; flex: none; margin-top: 4px; }
+.wa-plugin-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.wa-plugin-texto h3 { margin: 0; font-size: var(--text-title3, 15px); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wa-plugin-texto p { margin: 0; color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout, 13px); line-height: 1.45; }
+.wa-marca { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); font-weight: 700; font-size: 15px; color: var(--text-primary, var(--ink)); }
+.wa-selo { font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); }
+.wa-selo.on { color: var(--success); }
+
+.wa-modo { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--radius-lg, 12px); background: var(--group); font-size: var(--text-callout, 13px); }
+.wa-modo > span { color: var(--context-ink-2, var(--ink-2)); flex: 1; min-width: 200px; }
+.wa-sem-borda { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.wa-estados-bloco { display: flex; flex-direction: column; gap: 10px; }
+.wa-estados { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.wa-estados li { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius-md, 10px); border: 1px solid var(--line); background: var(--raised); font-size: var(--text-callout, 13px); min-width: 0; }
+.wa-estado-titulo { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.wa-estado-n { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--field); font-size: 11px; flex: none; }
+.wa-estado-valor { display: flex; align-items: center; gap: 6px; color: var(--context-ink-2, var(--ink-2)); overflow-wrap: anywhere; }
+.wa-frase { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--text-callout, 13px); font-weight: 600; }
+.wa-frase > svg, .wa-frase > span:first-child { color: var(--accent); flex: none; }
+
+.wa-nota { color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-caption, 12px); line-height: 1.4; }
+.wa-bot { display: flex; gap: 12px; align-items: center; width: 100%; }
+.wa-bot.pausado { opacity: .5; }
+.wa-bot-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wa-bot-nome { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.wa-bot-nome .pill { font-weight: 400; font-size: var(--text-caption); }
+.wa-bot-linha { display: flex; align-items: center; gap: 6px; font-size: var(--text-callout, 13px); }
+.wa-ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }
+.wa-bot-acoes { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.wa-bot-acoes:has(> :nth-child(3)) { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; max-width: 300px; }
+.wa-bot-acoes:has(> :nth-child(3)) > .wa-nota { flex-basis: 100%; text-align: right; }
+
+.wa-voz { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--text-callout, 13px); color: var(--context-ink-2, var(--ink-2)); }
+.wa-link { color: var(--accent); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; font-size: inherit; cursor: pointer; }
+.wa-desligar { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wa-desligar p { margin: 0; padding: 14px 16px; border-radius: var(--radius-lg, 12px); background: var(--raised); border: 1px solid var(--line); font-size: var(--text-callout, 13px); line-height: 1.45; color: var(--context-ink-2, var(--ink-2)); }
+.wa-desligar b { display: block; color: var(--text-primary, var(--ink)); margin-bottom: 4px; }
+
+.wa-erro { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--radius-lg, 12px); background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); font-size: var(--text-callout, 13px); line-height: 1.45; }
+.wa-erro span { flex: 1; min-width: 200px; color: var(--text-primary, var(--ink)); }
+.wa-erro button { color: var(--accent); text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; font-size: inherit; }
+.wa-carregando { color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout, 13px); }
+
+.wa-secao { display: flex; flex-direction: column; gap: 14px; color: var(--text-primary, var(--ink)); }
+.wa-14 { margin: 0; display: flex; align-items: center; gap: 6px; }
+.wa-bloqueio { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--radius-md, 10px); background: var(--group); font-size: var(--text-callout, 13px); line-height: 1.45; }
+.wa-bloqueio span { flex: 1; min-width: 200px; }
+.wa-opcoes { display: flex; flex-direction: column; gap: 22px; }
+.wa-opcoes.esmaecido { opacity: .5; }
+.wa-opcoes .switch:disabled { opacity: .55; }
+.wa-passo { display: inline-flex; align-items: center; gap: 10px; padding: 3px 6px; border-radius: 16px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text-primary, var(--ink)); }
+.wa-passo button { width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--field); color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.wa-passo button:disabled { opacity: .4; cursor: default; }
+.wa-passo b { font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; }
+.wa-espera { width: 100%; }
+.wa-rodape { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.wa-rodape .wa-perigo { color: var(--danger); }
+.wa-rodape .wa-nota { flex-basis: 100%; }
+
+@container (max-width: 700px) {
+  .wa-estados { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wa-desligar { grid-template-columns: 1fr; }
+}
+.wa-opcoes .pill { display: inline-flex; align-items: center; gap: 4px; }
+
+/* whatsapp R5b: estado do número e a folha de pareamento (proposta whatsapp-20261105, cenas parear-*). */
+.wa-bot-linha.tom-ok .wa-ponto { background: var(--presence); }
+.wa-bot-linha.tom-atencao { color: var(--attention); }
+.wa-bot-linha.tom-atencao .wa-ponto { background: var(--warning); }
+.wa-aviso-logout { flex-basis: 100%; margin: 0; padding: 10px 14px; border-radius: var(--radius-md, 10px); background: var(--attention-soft); color: var(--text-primary, var(--ink)); font-size: var(--text-callout, 13px); line-height: 1.45; }
+
+.wa-parear { display: flex; flex-direction: column; min-height: 0; color: var(--text-primary, var(--ink)); }
+.wa-passos { list-style: none; margin: 4px 20px 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: var(--text-callout, 13px); color: var(--context-ink-2, var(--ink-2)); }
+.wa-passos li { display: flex; flex-direction: column; gap: 6px; }
+.wa-passos li::after { content: ''; height: 3px; border-radius: 2px; background: var(--line-strong); }
+.wa-passos li.feito::after { background: var(--accent); }
+.wa-passos li[aria-current] { color: var(--text-primary, var(--ink)); font-weight: 600; }
+.wa-parear-corpo { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; overflow-y: auto; }
+.wa-parear-rodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.wa-parear-botoes { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wa-parear-titulo { margin: 0; font-size: var(--text-body, 14px); font-weight: 600; }
+.wa-riscos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: var(--text-callout, 13px); line-height: 1.45; }
+.wa-riscos li { display: flex; gap: 10px; align-items: flex-start; }
+.wa-riscos li > svg, .wa-riscos li > span:first-child { flex: none; margin-top: 2px; color: var(--context-ink-2, var(--ink-2)); }
+.wa-entendi { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--radius-md, 10px); border: 1px solid var(--line-strong); cursor: pointer; }
+.wa-entendi input { width: 18px; height: 18px; accent-color: var(--accent); }
+.wa-qr-bloco { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.wa-qr-coluna { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.wa-qr { width: 216px; height: 216px; display: grid; place-items: center; border-radius: var(--radius-lg, 12px); background: #ffffff; border: 1px solid var(--line); }
+.wa-qr img { width: 200px; height: 200px; image-rendering: pixelated; }
+.wa-selo-tempo { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-pill); background: var(--field); font-size: var(--text-caption, 12px); color: var(--context-ink-2, var(--ink-2)); font-variant-numeric: tabular-nums; }
+.wa-instrucoes { margin: 10px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: var(--text-callout, 13px); line-height: 1.45; }
+.wa-codigo-bloco { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.wa-campo { display: flex; flex-direction: column; gap: 6px; width: 100%; font-size: var(--text-callout, 13px); }
+.wa-campo input { width: 100%; box-sizing: border-box; font-size: 15px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-md, 10px); background: var(--field); color: var(--text-primary, var(--ink)); }
+.wa-codigo { align-self: stretch; text-align: center; padding: 16px; border-radius: var(--radius-lg, 12px); background: var(--group); font: 600 34px/1.2 var(--font-mono, ui-monospace, monospace); letter-spacing: .18em; user-select: text; }
+.wa-resultado { display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-radius: var(--radius-lg, 12px); background: var(--group); }
+.wa-resultado > div { display: flex; flex-direction: column; gap: 3px; }
+.wa-resultado-icone { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--attention-soft); color: var(--attention); }
+.wa-resultado.ok .wa-resultado-icone { background: var(--success); color: #ffffff; }
+.wa-desligadas { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg, 12px); }
+.wa-desligadas li { display: flex; justify-content: space-between; padding: 10px 14px; font-size: var(--text-callout, 13px); }
+.wa-desligadas li + li { border-top: 1px solid var(--line); }
+@container (max-width: 560px) { .wa-qr-bloco { grid-template-columns: 1fr; } }
+/* R7: o download do wacli em Ajustes → Plugins. */
+.wa-wacli { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--radius-md, 10px); background: var(--group); font-size: var(--text-callout, 13px); }
+.wa-wacli-texto { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 2px; }
+.wa-wacli.tom-ok .wa-ponto { background: var(--presence); }
+.wa-wacli.tom-atencao { background: var(--attention-soft); }
+.wa-wacli.tom-atencao .wa-ponto { background: var(--warning); }
+.wa-wacli.tom-neutro .wa-ponto { background: var(--accent); animation: wa-pulso 1.2s ease-in-out infinite; }
+@keyframes wa-pulso { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .wa-wacli .wa-ponto { animation: none; } }
+.wa-bot-linha .wa-nota { margin-left: 6px; display: inline-flex; align-items: center; gap: 4px; }
+
+/* MX-18: dois modos, limite por dia, horário de silêncio, conversas marcadas e a fila de saída. */
+.wa-silencio { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wa-silencio input[type="time"] { font: inherit; font-size: var(--text-callout, 13px); padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-md, 10px); background: var(--field); color: var(--text-primary, var(--ink)); }
+.wa-silencio input[type="time"]:disabled { opacity: .5; }
+.wa-marcas { display: flex; flex-wrap: wrap; gap: 6px; }
+.wa-marca-chip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 10px; border-radius: var(--radius-pill); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--text-callout, 13px); font-weight: 500; }
+.wa-marca-chip button { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 0; background: none; color: var(--context-ink-2, var(--ink-2)); cursor: pointer; }
+.wa-marca-chip button:hover { background: var(--hover); color: var(--text-primary, var(--ink)); }
+.wa-marca-chip button:disabled { opacity: .5; cursor: default; }
+
+.wa-fila { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wa-fila-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.wa-fila-item:first-child { border-top: 0; padding-top: 2px; }
+.wa-fila-item.atencao { margin: 0 -10px; padding: 10px; border-radius: var(--radius-md, 10px); background: var(--attention-soft); border-top-color: transparent; }
+.wa-fila-icone { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; margin-top: 1px; background: var(--field); color: var(--context-ink-2, var(--ink-2)); }
+.wa-fila-icone.sent { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.wa-fila-icone.uncertain { background: var(--attention-soft); color: var(--attention); }
+.wa-fila-icone.cancelled, .wa-fila-icone.expired { opacity: .55; }
+.wa-fila-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wa-fila-destino { font-weight: 600; }
+.wa-fila-texto small { color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-caption, 12px); }
+.wa-fila-corpo { font-size: var(--text-callout, 13px); line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.wa-fila-acoes { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+/* Auditoria da proposta (2ª rodada): o plugin aberto, refeito. Cabeçalho compacto, os 4 passos numa linha fina e
+   os bots em lista compacta. Vale só dentro de .wa-plugin (a seção do editor do bot não muda). */
+.wa-plugin { gap: 12px; padding: 0; background: none; border: 0; }
+.wa-plugin .wa-plugin-cabeca { align-items: center; gap: 12px; }
+.wa-plugin .wa-plugin-cabeca > .switch { margin-top: 0; }
+.wa-plugin .wa-plugin-texto { gap: 2px; }
+.wa-plugin .wa-selo { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.wa-plugin .wa-selo::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.wa-plugin .wa-aviso { padding: 8px 12px; border-radius: var(--radius-md, 10px); font-size: var(--text-caption, 12px); }
+.wa-plugin .wa-aviso > svg, .wa-plugin .wa-aviso > span:first-child { margin-top: 1px; }
+.wa-plugin .wa-modo { padding: 8px 12px; border-radius: var(--radius-md, 10px); }
+.wa-plugin .wa-estados-bloco { gap: 6px; }
+.wa-estados.fino { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--radius-md, 10px); overflow: hidden; }
+.wa-estados.fino li { flex: 1 1 auto; flex-direction: row; align-items: center; gap: 8px; padding: 7px 12px; border: 0; border-radius: 0; background: none; box-shadow: -1px 0 0 var(--line); }
+.wa-estados.fino .wa-estado-titulo, .wa-estados.fino .wa-estado-valor { white-space: nowrap; }
+.wa-plugin .wa-frase { font-size: var(--text-caption, 12px); font-weight: 500; color: var(--context-ink-2, var(--ink-2)); }
+.wa-plugin .wa-wacli { padding: 7px 12px; }
+.wa-plugin .wa-wacli-texto { flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.wa-plugin .wa-bot { gap: 10px; }
+.wa-plugin .wa-bot-texto { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.wa-plugin .wa-bot.pausado { opacity: 1; }
+.wa-outros { width: 100%; }
+.wa-outros > summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; list-style: none; cursor: pointer; font-size: var(--text-callout, 13px); border-radius: var(--radius-s, 6px); }
+.wa-outros > summary::-webkit-details-marker { display: none; }
+.wa-outros-seta { flex: none; color: var(--context-ink-2, var(--ink-2)); transition: transform var(--motion-hover); }
+.wa-outros[open] .wa-outros-seta { transform: rotate(90deg); }
+[dir='rtl'] .wa-outros:not([open]) .wa-outros-seta { transform: scaleX(-1); }
+.wa-outros-lista { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 2px 18px; color: var(--context-ink-2, var(--ink-2)); }
+[dir='rtl'] .wa-outros-lista { padding: 12px 18px 2px 0; }
+.wa-plugin .wa-desligar { gap: 4px 24px; }
+.wa-plugin .wa-desligar p { padding: 0; border: 0; background: none; font-size: var(--text-caption, 12px); }
+.wa-plugin .wa-desligar b { display: inline; margin: 0; }

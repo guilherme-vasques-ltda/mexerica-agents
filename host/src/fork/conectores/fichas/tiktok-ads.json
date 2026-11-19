@@ -1,0 +1,49 @@
+{
+  "id": "tiktok-ads",
+  "nome": "TikTok Ads (TikTok for Business)",
+  "categoria": "Marketing",
+  "descricao": "Plataforma de anúncios do TikTok. O MCP oficial expõe ~400 ferramentas de campanhas, ad groups, criativos, audiência e relatórios.",
+  "exemplos": [
+    "Como foram minhas campanhas do TikTok Ads esta semana?",
+    "Qual anúncio teve o menor custo por clique?"
+  ],
+  "site": "https://ads.tiktok.com/",
+  "docs": "https://business-api.tiktok.com/portal/docs/how-to-connect-a-custom-agent-to-tiktok-for-business-mcp-server/v1.3",
+  "links": {
+    "privacidade": "https://www.tiktok.com/legal/page/us/tiktok-privacy-policy/en",
+    "termos": "https://ads.tiktok.com/i18n/official/policy/terms-of-service/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://business-api.tiktok.com/portal/docs/how-to-connect-a-custom-agent-to-tiktok-for-business-mcp-server/v1.3",
+    "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth/register",
+    "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer/oauth/.well-known/openid-configuration"
+  ],
+  "tipos": [
+    {
+      "id": "tiktok-ads.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "TikTok Ads (TikTok for Business)",
+      "url": "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-layer",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O TikTok Ads (TikTok for Business) não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": []
+}

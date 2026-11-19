@@ -1,0 +1,159 @@
+/* MX-264 (docs/reference/redesenho/components/ExtensoesEmTodos): "Ligar em todos os bots" e o interruptor dos bots novos.
+   Só tokens do sistema; o bloco da prévia tem o desenho do bloco de passos (ToolSteps): `group`, radius-m, linhas de 32px. */
+.eet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  min-width: 0;
+  padding: 0 var(--sp-8) var(--sp-8);
+}
+.eet-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-8) var(--sp-16);
+}
+.eet-botao {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  min-height: 28px;
+  padding: 0 var(--sp-10);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+  transition: background-color var(--motion-hover), color var(--motion-hover);
+}
+.eet-botao:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+}
+.eet-botao:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.eet-botao:disabled {
+  opacity: 0.6;
+}
+.eet-novos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.eet-nota {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* A prévia: um bloco `group` embaixo da linha, no mesmo lugar. */
+.eet-painel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  min-width: 0;
+  padding: var(--sp-10) var(--sp-12);
+  border-radius: var(--radius-m);
+  background: var(--group);
+}
+.eet-painel:focus {
+  outline: none;
+}
+.eet-titulo {
+  margin: 0;
+  font-size: var(--text-callout);
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+.eet-titulo-fora {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.eet-aviso {
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--attention, var(--text-primary, var(--ink)));
+}
+.eet-estado {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  margin: 0;
+  min-height: 32px;
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.eet-lista {
+  display: flex;
+  flex-direction: column;
+  max-height: 192px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+.eet-linha {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  min-width: 0;
+  font-size: var(--text-body);
+  color: var(--text-primary, var(--ink));
+}
+.eet-linha bdi {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eet-fora {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  padding-top: var(--sp-8);
+  border-top: 1px solid var(--line);
+}
+.eet-motivos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  margin: 0;
+}
+.eet-motivo dt {
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.eet-motivo dd {
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--text-primary, var(--ink));
+  overflow-wrap: anywhere;
+}
+.eet-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+}
+.eet-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+.eet-feito {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--success);
+}
+.eet-erro {
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--danger);
+}
+[dir='rtl'] .eet-botao,
+[dir='rtl'] .eet-motivo { text-align: right; }
+/* Na lista de conectores (grade de duas colunas) a linha e a faixa dela andam juntas. */
+.eet-item {
+  min-width: 0;
+}

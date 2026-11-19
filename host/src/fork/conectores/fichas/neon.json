@@ -1,0 +1,77 @@
+{
+  "id": "neon",
+  "nome": "Neon",
+  "categoria": "Dados",
+  "descricao": "Projetos, branches e bancos Postgres da Neon, só para leitura (o endereço só de leitura barra qualquer escrita).",
+  "exemplos": [
+    "Liste os projetos e branches da minha conta Neon",
+    "Mostre as tabelas do banco do projeto loja-dev",
+    "Quantos pedidos foram criados na última semana?"
+  ],
+  "site": "https://neon.com",
+  "docs": "https://neon.com/docs/ai/neon-mcp-server",
+  "links": {
+    "privacidade": "https://neon.com/privacy-policy",
+    "termos": "https://neon.com/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://neon.com/docs/ai/neon-mcp-server",
+    "https://mcp.neon.tech/.well-known/oauth-protected-resource/mcp?readonly=true",
+    "https://mcp.neon.tech/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "A Neon recomenda usar este conector em bancos de desenvolvimento: as consultas leem os dados reais do banco.",
+  "tipos": [
+    {
+      "id": "neon.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Neon",
+      "url": "https://mcp.neon.tech/mcp?readonly=true",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "read"
+          ],
+          "url": "https://mcp.neon.tech/mcp?readonly=true",
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "url"
+        },
+        {
+          "id": "criar_editar",
+          "rotulo": "Criar e editar",
+          "escopos": [
+            "read",
+            "write"
+          ],
+          "url": "https://mcp.neon.tech/mcp",
+          "padrao": false,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/neondatabase/agent-skills",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    },
+    {
+      "url": "https://github.com/neondatabase/postgres-skills",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    }
+  ]
+}

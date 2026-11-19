@@ -1,0 +1,49 @@
+/* D165 fase G, D169 (components/AvatarEditor): the library's editor themed by the design system's
+   tokens, as in the reference: tabs like the SegmentedControl (`field` track, chosen tab in `chip-on`
+   with `ink` text), chosen tile in `field` with the `accent` ring, `line-strong` edges. */
+.donnabot-avatar-editor {
+  width: 100%;
+  --dbe-surface: var(--raised);
+  --dbe-tile: var(--group);
+  --dbe-tile-active: var(--field);
+  --dbe-border: var(--line-strong);
+  --dbe-text: var(--ink);
+  --dbe-muted: var(--ink-2);
+  --dbe-ring: var(--accent);
+  --dbe-seg-bg: var(--field);
+  --dbe-seg-active: var(--chip-on);
+  --dbe-seg-active-text: var(--ink);
+}
+.donnabot-avatar-profile { width: min(560px, calc(100vw - 48px)); }
+.donnabot-avatar-save { color: var(--context-ink-2, var(--ink-2)); font-size: 12px; margin-top: 12px; }
+
+.donnabot-avatar[data-paused="true"] .dbf-root,
+.donnabot-avatar[data-paused="true"] .dbf-root *,
+.donnabot-avatar-editor .dbf-root,
+.donnabot-avatar-editor .dbf-root * {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .donnabot-avatar .dbf-root, .donnabot-avatar .dbf-root * { animation: none !important; }
+}
+
+/* A pausa do app inclui hover; o CSS aprovado da biblioteca permanece intacto. */
+.donnabot-avatar.mxq-pausado .mxq .mxq-salto { transform: none; transition: none; }
+.donnabot-avatar.mxq-pausado .mxq * { animation: none !important; }
+
+/* D478: editor de rosto, frutinhas primeiro; o robô da biblioteca fica em "Montar robô (avançado)". */
+.editor-rosto { display: flex; flex-direction: column; gap: var(--sp-8); inline-size: 100%; }
+.editor-rosto-titulo { font-weight: 600; color: var(--ink); }
+.editor-rosto-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: var(--sp-6); }
+.editor-rosto-fruta {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-8) var(--sp-4); border-radius: var(--radius-m);
+  background: var(--group); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-size: var(--text-caption);
+}
+.editor-rosto-fruta:hover { background: var(--field); color: var(--ink); }
+.editor-rosto-fruta[aria-pressed='true'] { background: var(--field); color: var(--ink); box-shadow: inset 0 0 0 2px var(--accent); }
+.editor-rosto-fruta:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; }
+.editor-rosto-robo { border-block-start: 1px solid var(--line); padding-block-start: var(--sp-8); }
+.editor-rosto-robo > summary { cursor: pointer; color: var(--ink-2); font-weight: 500; }
+.editor-rosto-robo > summary:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; border-radius: var(--radius-s); }
+.editor-rosto-nota { margin: var(--sp-6) 0 var(--sp-8); color: var(--ink-2); font-size: var(--text-caption); }

@@ -1,0 +1,133 @@
+/* D165 fase E (components/ChatTimeline), D436 e pedido do dono (07/11, "como no T3": "ao passar o mouse ele vai
+   crescendo, sem bordas, pequeno"): traços de 2 px no gutter de 36 px, todos começando no mesmo x (6 px da borda),
+   sem contorno nem sombra (sobre wallpaper, só o contorno nítido de 1 px abaixo), passo de 8 px como no T3. Repouso: 9 px os seus, 7 px os do bot, em `ink-3` (a 80% sem
+   wallpaper); as da tela em `ink-2`; a da posição atual 1,5× e em `ink`. No hover crescem só no comprimento, com a
+   escala medida no T3 (3× / 2× / 1,25×, duas vizinhas de cada lado), e a marca sob o ponteiro fica em `ink`. A maior
+   (27 px) termina a 33 px, antes da prévia (34 px). */
+.chat-timeline {
+  position: absolute;
+  z-index: 4;
+  left: 6px;
+  top: calc(var(--chat-header-height, 96px) + var(--sp-12));
+  bottom: calc(var(--composer-height, 70px) + var(--sp-12));
+  width: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  pointer-events: none;
+}
+.chat-timeline-track {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-height: 100%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.chat-tick {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 9px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink-3);
+  transform: scaleX(var(--k, 1));
+  transform-origin: left center;
+  transition: transform 130ms ease-out, background-color 130ms ease-out;
+}
+.chat-tick.is-bot {
+  width: 7px;
+}
+/* Sem wallpaper o fundo é o `canvas`: o `ink-3` a 80% já dá 3,44:1 (claro) e 4,09:1 (escuro), mais leve que o cheio. */
+html:not([data-wallpaper]) .chat-tick:not(.is-view):not(.is-current):not(.is-hover):not(.is-unread) {
+  background: color-mix(in srgb, var(--ink-3) 80%, transparent);
+}
+/* Share the real gap evenly: neighbours must never cover each other's visual mark. */
+.chat-tick::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -8px;
+  top: calc(var(--chat-tick-gap, 6px) / -2);
+  bottom: calc(var(--chat-tick-gap, 6px) / -2);
+}
+.chat-tick.is-view {
+  background: var(--ink-2);
+}
+.chat-tick.is-current,
+.chat-tick.is-hover,
+.chat-tick:focus-visible {
+  background: var(--ink);
+  outline: none;
+}
+.chat-tick.is-unread {
+  /* R1-2 (#524): sobre wallpaper, o accent adaptado a 3:1 contra a pior cor sob o vidro (lib/appearance.ts); sem
+     wallpaper, o accent do tema (7,11:1 no claro, 9,60:1 no escuro). */
+  background: var(--accent-marca, var(--accent));
+}
+/* The focused tick shows the focus ring as a small accent bar beside it. */
+.chat-tick:focus-visible::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent-marca, var(--accent));
+}
+/* Pedido do dono (16/11): sem véu, painel nem blur atrás da régua; os tracinhos ficam direto sobre a conversa.
+   Sobre um wallpaper cada marca leva só um contorno nítido de 1 px (sem blur, sem sombra difusa) na cor `glass-raised`,
+   o mesmo chão contra o qual `--ink-2`/`--ink-3`/`--accent-marca` são adaptados (lib/appearance.ts), então o 3:1 se
+   mantém em qualquer foto. A barrinha de foco (`::after`) leva o mesmo contorno e o accent adaptado, para não sumir quando a foto tem a cor do destaque. Sem wallpaper não há contorno. A área de clique (`::before`) segue existindo, invisível. */
+html[data-wallpaper] .chat-tick,
+html[data-wallpaper] .chat-tick:focus-visible::after {
+  box-shadow: 0 0 0 1px var(--glass-raised);
+}
+.chat-tick-tip {
+  position: absolute;
+  left: 34px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: max-content;
+  max-width: 280px;
+  padding: var(--sp-6) var(--sp-10);
+  border-radius: var(--radius-m);
+  background: var(--raised);
+  box-shadow: var(--shadow-l), 0 0 0 1px var(--line);
+  font-size: var(--text-callout);
+  line-height: 1.35;
+  text-align: left;
+  transform: translateY(-50%);
+  pointer-events: none;
+  animation: chat-tick-tip-in var(--fade) both;
+}
+.chat-tick-tip .q {
+  overflow: hidden;
+  color: var(--text-primary, var(--ink));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tick-tip time {
+  margin-right: 6px;
+  color: var(--context-ink-2, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+.chat-tick-tip .ans {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--context-ink-2, var(--ink-2));
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+@keyframes chat-tick-tip-in {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-tick { transition: none; }
+  .chat-tick-tip { animation: none; }
+}

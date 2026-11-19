@@ -1,0 +1,60 @@
+{
+  "id": "sentry",
+  "nome": "Sentry",
+  "categoria": "Infraestrutura",
+  "descricao": "Monitoramento de erros e performance: consulta issues, traces, releases e projetos do Sentry para diagnosticar falhas.",
+  "exemplos": [
+    "Quais erros novos apareceram no Sentry hoje?",
+    "Qual erro afeta mais usuários neste projeto?"
+  ],
+  "site": "https://sentry.io",
+  "docs": "https://docs.sentry.io/product/sentry-mcp/",
+  "links": {
+    "privacidade": "https://sentry.io/privacy/",
+    "termos": "https://sentry.io/terms/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.sentry.io/product/sentry-mcp/",
+    "https://mcp.sentry.dev/oauth/register",
+    "https://mcp.sentry.dev/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "sentry.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Sentry",
+      "url": "https://mcp.sentry.dev/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "org:read",
+            "project:read",
+            "team:read"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Sentry não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/getsentry/toolkit/tree/main/plugins/sentry-mcp",
+      "origem": "fornecedor",
+      "licenca": "FSL-1.1-Apache-2.0",
+      "aproveitavel": false
+    }
+  ]
+}

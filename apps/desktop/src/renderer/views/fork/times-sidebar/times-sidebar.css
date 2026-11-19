@@ -1,0 +1,132 @@
+/* Barra04/05 (dono, 05/11/2026; docs/reference/redesenho/components/TeamGroup, times-lider-20261105/prototipo.html):
+   Equipes em árvore. A linha da equipe é o chefe; a seta fica na calha de 16px da borda (fora do fluxo); cada nível
+   entra 14px e encolhe (rosto 36/32/28, linha 48/44/40); a ramificação de 1,5px desce sob a seta do pai, com
+   conector de 10px (4px na linha de subequipe) no centro de cada linha. Movimento só em transform/opacity, salvo a
+   altura das dobras (lib/fold.ts). */
+.times-sidebar { display: flex; flex-direction: column; }
+.times-team { position: relative; margin-left: var(--gutter, 16px); }
+.times-members .times-team { margin-left: 0; }
+.times-lead { position: relative; display: flex; align-items: center; border-radius: 8px; transition: background-color var(--motion-hover); }
+.sidebar .times-lead > .roster-row { flex: 1; min-width: 0; margin-left: 0; width: auto; padding-right: 2px; }
+/* A linha inteira acende e marca a seleção (seta e ação incluídas). */
+.times-lead:has(> .roster-row.hovered), .times-lead:has(> .times-teamrow:hover) { background: var(--hover); }
+.times-lead:has(> .roster-row.selected) { background: var(--selected); }
+.sidebar .times-lead > .roster-row.hovered, .sidebar .times-lead > .roster-row.selected { background: none; }
+
+/* Seta: 16px na calha, antes do rosto; recolhida aponta para o lado. */
+.times-exp { position: absolute; left: -16px; top: 0; bottom: 0; width: 16px; display: grid; place-items: center; border-radius: 6px; color: var(--context-ink-2, var(--ink-2)); }
+.times-exp:hover { color: var(--text-primary, var(--ink)); }
+.times-exp > * { transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1); }
+.times-exp[aria-expanded="false"] > * { transform: rotate(-90deg); }
+
+/* Equipe sem chefe: ícone de equipe na cor do nível e o nome como etiqueta; o clique abre ou fecha. */
+.times-teamrow { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; height: calc(48px * var(--scale)); padding: 0 6px 0 4px; border-radius: 8px; text-align: left; }
+.times-members .times-teamrow { height: calc(44px * var(--scale)); }
+.times-members .times-members .times-teamrow { height: calc(40px * var(--scale)); }
+.times-team-tile { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 10px; }
+.times-members .times-team-tile { width: 32px; height: 32px; border-radius: 9px; }
+.times-members .times-members .times-team-tile { width: 28px; height: 28px; border-radius: 8px; }
+.times-team-tile.tag-l1 { color: var(--tag-l1-ink); background: var(--tag-l1-bg); }
+.times-team-tile.tag-l2 { color: var(--tag-l2-ink); background: var(--tag-l2-bg); }
+.times-team-tile.tag-l3 { color: var(--tag-l3-ink); background: var(--tag-l3-bg); }
+.bot-row-tag.is-team { max-width: none; font-size: 10px; }
+.times-teamrow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Chefe gravado que é membro de outra equipe: a linha de referência, mais leve que a de um chefe-membro (rosto de 24px
+   no lugar do ícone da equipe, nome em ink-2 e "Chefe · em <equipe dele>"). Abre a conversa dele; não é membro. */
+.times-ref-face { background: none; }
+.times-ref-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.times-ref-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.times-ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(13px * var(--scale)); font-weight: 500; color: var(--context-ink-2, var(--ink-2)); }
+.times-ref-home { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: max(11px, calc(11.5px * var(--scale))); color: var(--context-ink-2, var(--ink-2)); opacity: 0.8; }
+.team-room .times-ref { width: calc(100% - var(--gutter, 16px)); margin-left: var(--gutter, 16px); }
+.team-room .times-ref:hover { background: var(--hover); }
+.times-ref:hover .times-ref-name { color: var(--text-primary, var(--ink)); }
+
+/* "Entrar na equipe ›": depois de 0,3s parado na linha (ou com foco pelo teclado), no lugar da última mensagem; nome,
+   etiqueta e hora não se mexem. O atraso evita que um clique duplo rápido caia na ação; ao sair, a mensagem volta na
+   hora. O foco que um clique deixa na linha não acende o botão (DON-865): vale o foco dentro da linha, menos o foco sem
+   `:focus-visible`. `:focus-within` (e não `:has(:focus-visible)`) segura o botão na tela quando o foco passa da linha
+   para ele (por código ou leitor de tela); escondido, ele perderia o foco para o BODY (revisão A366-1). */
+.times-enter {
+  position: absolute; z-index: 1;
+  display: inline-flex; align-items: center; gap: 2px;
+  height: calc(14px * var(--scale));
+  font-size: calc(11.5px * var(--scale)); line-height: calc(14px * var(--scale)); font-weight: 500;
+  color: var(--context-ink-2, var(--ink-2)); border-radius: 4px; white-space: nowrap;
+  visibility: hidden; opacity: 0; transition: opacity var(--fade), visibility 0s;
+}
+.times-enter > * { opacity: 0.7; }
+.times-enter:hover { color: var(--text-accent, var(--accent)); }
+.times-lead.has-chief > .times-enter { top: calc(50% + 1px); left: calc(4px + 36px + 9px); }
+.times-members .times-lead.has-chief > .times-enter { left: calc(4px + 32px + 9px); }
+.times-members .times-members .times-lead.has-chief > .times-enter { left: calc(4px + 28px + 9px); }
+.times-lead.no-chief > .times-enter { top: 50%; right: 8px; transform: translateY(-50%); }
+.times-lead:hover > .times-enter, .times-lead:focus-within:not(:has(:focus:not(:focus-visible))) > .times-enter { visibility: visible; opacity: 1; transition-delay: 0.3s; }
+.times-lead.has-chief:hover .bot-row-message, .times-lead.has-chief:focus-within:not(:has(:focus:not(:focus-visible))) .bot-row-message { visibility: hidden; opacity: 0; transition-delay: 0.3s; }
+.times-enter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Ramificação: cada filho desenha o seu pedaço; o último para no conector. Na busca, a ramificação aberta só para
+   mostrar o resultado fica no destaque. */
+.times-members { position: relative; margin-left: 14px; }
+.times-members > * { position: relative; }
+.sidebar .times-members > .roster-row { margin-left: 0; width: 100%; }
+.times-members > *::after { content: ''; position: absolute; left: -8px; top: 0; bottom: 0; width: 1.5px; background: var(--branch, var(--line-strong)); }
+.times-members > *:last-child::after { bottom: auto; height: calc(22px * var(--scale)); }
+.times-members .times-members > *:last-child::after { height: calc(20px * var(--scale)); }
+.times-members > .roster-row::before { content: ''; position: absolute; left: -8px; top: calc(21.25px * var(--scale)); width: 10px; height: 1.5px; background: var(--branch, var(--line-strong)); }
+.times-members .times-members > .roster-row::before { top: calc(19.25px * var(--scale)); }
+.times-members > .times-team::before { content: ''; position: absolute; left: -8px; top: calc(21.25px * var(--scale)); width: 4px; height: 1.5px; background: var(--branch, var(--line-strong)); }
+.times-members .times-members > .times-team::before { top: calc(19.25px * var(--scale)); }
+/* Aberta só pela busca (sem seta), a subequipe ganha o conector inteiro, como uma linha de membro. */
+.times-members > .times-team.is-search-open::before { width: 10px; }
+.times-members > .times-chief-hint::before { display: none; }
+.times-team.is-search-open > .times-members-keys > .times-members { --branch: var(--accent); }
+/* As linhas da ramificação passam sobre a seta da subequipe: não podem roubar o clique dela. */
+.times-members > *::before, .times-members > *::after { pointer-events: none; }
+
+.times-roster-notice, .times-chief-hint { font-size: max(11px, var(--text-caption)); line-height: 1.4; color: var(--context-ink-2, var(--ink-2)); }
+.times-roster-notice { margin: 4px 4px 4px var(--gutter, 16px); padding: 8px; background: var(--field); border-radius: 10px; }
+.times-roster-notice button, .times-chief-hint button { color: var(--text-accent, var(--accent)); text-align: left; font-weight: 600; }
+.times-roster-notice button { margin-left: 4px; }
+.times-chief-hint { margin: 0; padding: 3px 6px 5px; }
+
+/* Agentes: os grupos da D114 só como separadores (nome, contagem e uma linha fina até a borda). */
+.agent-drop { min-height: 6px; border-radius: 8px; transition: background-color var(--motion-hover), box-shadow var(--motion-hover); }
+.agent-group { border-radius: 8px; transition: background-color var(--motion-hover), box-shadow var(--motion-hover); }
+.agent-drop.is-over, .agent-group.is-over { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.agent-group-head { display: flex; align-items: center; height: 24px; margin: 6px 0 0 var(--gutter, 16px); }
+.agent-group-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; border-radius: 6px; font-size: max(11px, calc(12px * var(--scale))); font-weight: 600; color: var(--context-ink-2, var(--ink-2)); text-align: left; }
+.agent-group-label:hover:not(:disabled) { color: var(--text-primary, var(--ink)); }
+.agent-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-group-count { font-weight: 500; opacity: 0; transition: opacity var(--fade); }
+.agent-group-rule { flex: 1; height: 1px; background: var(--line); }
+.agent-group-chevron { opacity: 0; transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity var(--fade); }
+.agent-group-label:hover .agent-group-count, .agent-group-label[aria-expanded="false"] .agent-group-count { opacity: 0.8; }
+.agent-group-label:hover .agent-group-chevron, .agent-group-label:focus-visible .agent-group-chevron, .agent-group-label[aria-expanded="false"] .agent-group-chevron { opacity: 1; }
+.agent-group-label[aria-expanded="false"] .agent-group-chevron { transform: rotate(-90deg); }
+.agent-group-input { width: 100%; height: 24px; padding: 0 6px; border: 0; border-radius: 6px; outline: 2px solid var(--accent); outline-offset: -2px; background: var(--raised); color: var(--ink); font: inherit; font-size: 12px; font-weight: 600; }
+.agent-group-empty { margin: 0 0 0 var(--gutter, 16px); padding: 2px 8px 6px; font-size: 11px; color: var(--context-ink-2, var(--ink-2)); }
+
+/* Sala da equipe: a barra de voltar com a etiqueta da equipe, todos em linhas grandes, subequipes como separadores. */
+.room-bar { display: flex; align-items: center; gap: 6px; height: 30px; margin: 2px 0 6px var(--gutter, 16px); }
+.room-back { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 8px 0 4px; border-radius: 8px; font-size: max(11px, calc(12px * var(--scale))); font-weight: 600; color: var(--context-ink-2, var(--ink-2)); }
+.room-back:hover { background: var(--hover); color: var(--text-primary, var(--ink)); }
+.room-tag { font-size: 12px; line-height: 20px; padding: 0 9px; border-radius: 999px; font-weight: 600; }
+.room-tag.tag-l1 { color: var(--tag-l1-ink); background: var(--tag-l1-bg); }
+.room-tag.tag-l2 { color: var(--tag-l2-ink); background: var(--tag-l2-bg); }
+.room-tag.tag-l3 { color: var(--tag-l3-ink); background: var(--tag-l3-bg); }
+.room-sub { display: flex; align-items: center; gap: 6px; height: 24px; margin: 8px 0 0 var(--gutter, 16px); padding: 0 6px; }
+.room-sub::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.room-sub-name { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px; margin: 0 -4px; border-radius: 6px; font-size: max(11px, calc(12px * var(--scale))); font-weight: 600; color: var(--context-ink-2, var(--ink-2)); }
+.room-sub-name:hover { color: var(--text-primary, var(--ink)); background: var(--hover); }
+.room-sub-path { font-weight: 500; opacity: 0.8; }
+.room-sub-go { opacity: 0; transition: opacity var(--fade); }
+.room-sub:hover .room-sub-go, .room-sub:focus-within .room-sub-go { opacity: 1; }
+/* Entrar e sair da sala: a lista chega com um deslize curto, sem atrasar o clique. */
+.team-room { animation: room-in 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes room-in { from { opacity: 0; transform: translateX(10px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .times-exp > *, .agent-group-chevron { transition: none; }
+  .team-room { animation: none; }
+}

@@ -1,0 +1,25 @@
+/* Falha de conta/motor: o aviso vermelho da conversa, o "Não foi enviada" e a linha "Conta:" do cabeçalho. */
+.falha-conta { display: flex; flex-direction: column; gap: var(--sp-4); min-inline-size: 0; flex: 1; }
+.falha-conta-info { color: var(--ink-2); }
+.falha-conta-botoes { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin-block-start: var(--sp-4); }
+.falha-conta-link { font-size: var(--text-caption); font-weight: 600; text-decoration: underline; color: var(--danger); white-space: nowrap; }
+.conta-linha {
+  display: inline-flex; align-items: center; gap: var(--sp-4); min-inline-size: 0; max-inline-size: 100%;
+  font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2));
+}
+.conta-linha > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* F6-A: o resumo de uso não encolhe (o "volta …" fica à vista); o resto da linha cede primeiro. */
+.conta-linha > .conta-uso { flex: none; overflow: visible; }
+.conta-linha.atencao { color: var(--danger); }
+.conta-linha::before { content: ''; inline-size: 6px; block-size: 6px; border-radius: 50%; background: var(--ok, currentColor); flex: none; }
+.conta-linha.atencao::before { background: var(--danger); }
+/* F6-A: perto do limite é aviso, não erro: tom de atenção (o texto "Perto do limite" também está na frase). */
+.conta-linha.limite { color: var(--text-attention, var(--attention)); }
+.conta-linha.limite::before { background: var(--warning); }
+button.conta-linha { background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
+button.conta-linha:hover > span { text-decoration: underline; }
+
+.contas-glossario { font-size: var(--text-footnote); color: var(--ink-2); padding-inline: var(--sp-4); }
+.contas-glossario > summary { cursor: pointer; font-weight: 600; color: var(--ink); width: fit-content; }
+.contas-glossario > summary::before { content: '?'; display: inline-grid; place-items: center; inline-size: 16px; block-size: 16px; margin-inline-end: var(--sp-8); border-radius: 50%; border: 1px solid currentColor; font-size: 11px; }
+.contas-glossario > ul { margin: var(--sp-8) 0 0; padding-inline-start: var(--sp-16); display: flex; flex-direction: column; gap: var(--sp-4); }

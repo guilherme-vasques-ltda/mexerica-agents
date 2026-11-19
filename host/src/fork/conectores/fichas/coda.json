@@ -1,0 +1,56 @@
+{
+  "id": "coda",
+  "nome": "Coda (Superhuman Docs)",
+  "categoria": "Produtividade",
+  "descricao": "Docs colaborativos com tabelas, fórmulas e automações. O MCP (renomeado Superhuman Docs) conecta agentes ao workspace de documentos.",
+  "exemplos": [
+    "Resuma o documento de planejamento no Coda",
+    "Quais tabelas existem no meu documento de metas?"
+  ],
+  "site": "https://coda.io/",
+  "docs": "https://help.superhuman.com/hc/en-us/articles/46210076980365-Connect-to-the-Superhuman-Docs-MCP",
+  "links": {
+    "privacidade": "https://superhuman.com/privacy",
+    "termos": "https://superhuman.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://help.superhuman.com/hc/en-us/articles/46210076980365-Connect-to-the-Superhuman-Docs-MCP",
+    "https://id.superhuman.com/tokens/v4/api/oauth2/register",
+    "https://id.superhuman.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "coda.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Coda (Superhuman Docs)",
+      "url": "https://docs.superhuman.com/apis/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O registro devolve um segredo por instalação, que o Hub ainda não guarda com segurança."
+    }
+  ],
+  "emBreve": "O fornecedor exige um segredo por instalação do aplicativo; fica fora das conexões por enquanto.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/coda/packs-sdk",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+# Packaging for macOS (DMG + zip for updates), Linux (AppImage, deb, tar.gz) and Windows (NSIS).
+# CI puts the native pieces in place first (see .github/workflows/release-desktop.yml):
+#   build/native/donnabot-host      the host for this platform (macOS: universal)
+#   build/native/donnabot-host.exe  Windows: the host, and donnabot-hostw.exe that runs it at sign-in
+#   build/native/codync-speech      macOS on-device speech helper
+#   build/native/DonnabotScreen.app macOS screen helper (Xcode `Screen` target, with cua-driver inside)
+#   build/native/cua-driver.exe     Windows: the computer-use driver and its UI Automation helper
+beforePack: tools/verify-build.cjs
+appId: app.donnabot.mac
+# D443 (PR d): o nome do pacote instalado (Mexerica.app). appId, esquemas, pasta de dados (app.setName('Donnabot'),
+# main/environment.ts) e o item do Chaveiro ("Donnabot Safe Storage") não mudam.
+productName: Mexerica
+copyright: ""
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/account-config.json
+    to: account-config.json
+  - from: resources/tray
+    to: tray
+  # MX-9: os PNGs das opções de Ajustes › Ícone do app (o main resolve por id; o renderer nunca manda caminho).
+  - from: resources/app-icons
+    to: app-icons
+  # MX-9: o ícone real do pacote em resources/, para o main restaurar o padrão depois de uma escolha (e a bandeja no Windows).
+  - from: resources/icon.png
+    to: icon.png
+protocols:
+  - name: Mexerica
+    schemes: [donnabot, app.donnabot.mac]
+publish: null
+
+mac:
+  category: public.app-category.developer-tools
+  # The Mac app's Icon Composer icon: Assets.car for macOS 26 (no gray icon frame) plus an icns.
+  icon: resources/AppIcon.icon
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  # The zip (update feed) takes this name; the DMG sets its own.
+  artifactName: mexerica-macos.${ext}
+  hardenedRuntime: true
+  # The computer-use driver keeps its maker's Developer ID signature (packaging/cua-driver).
+  signIgnore:
+    - DonnabotScreen\.app/Contents/Helpers/cua-driver$
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    LSUIElement: true
+    NSMicrophoneUsageDescription: Talk to your bots in a voice call.
+    NSSpeechRecognitionUsageDescription: Your words are transcribed on this Mac and sent to your bot as a message.
+  # The host ships inside the Mac app; Linux uses the installed donnabot-host (an AppImage's
+  # mount path changes every launch, so a service can't point into it).
+  extraResources:
+    - from: build/native/donnabot-host
+      to: donnabot-host
+    - from: build/native/codync-speech
+      to: codync-speech
+  extraFiles:
+    # Registered with SMAppService.agent when Remote screen is turned on.
+    - from: build/native/DonnabotScreen.app
+      to: Library/LoginItems/DonnabotScreen.app
+    - from: resources/mac/app.donnabot.screen.plist
+      to: Library/LaunchAgents/app.donnabot.screen.plist
+  # D48: sem Apple Developer, sem notarização. O app deste Mac sai de `npm run dist:mac:local`.
+  notarize: false
+dmg:
+  artifactName: mexerica-macos.dmg
+  background: build/dmg-background.tiff
+  window: { width: 660, height: 400 }
+  iconSize: 128
+  iconTextSize: 13
+  contents:
+    - { x: 170, y: 200, type: file }
+    - { x: 490, y: 200, type: link, path: /Applications }
+
+linux:
+  category: Development
+  icon: resources/icon.png
+  executableName: donnabot
+  synopsis: Your coding agents as teammates
+  target: [AppImage, deb, tar.gz]
+  artifactName: donnabot-linux-${arch}.${ext}
+  desktop:
+    entry:
+      StartupWMClass: Donnabot
+
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch: x64
+  artifactName: donnabot-windows-x64.${ext}
+  # The host ships inside the app, as on macOS: a per-user install keeps its path stable for
+  # the sign-in entry that starts it.
+  extraResources:
+    - from: build/native/donnabot-host.exe
+      to: donnabot-host.exe
+    - from: build/native/donnabot-hostw.exe
+      to: donnabot-hostw.exe
+    # The computer-use driver bots act through; the host starts it from beside itself.
+    - from: build/native/cua-driver.exe
+      to: cua-driver.exe
+    - from: build/native/cua-driver-uia.exe
+      to: cua-driver-uia.exe
+    - from: build/native/cua-driver.LICENSE
+      to: cua-driver.LICENSE
+    # The Windows tray icon (#691); template glyphs are for macOS. icon.png itself ships via top-level extraResources.
+    - from: resources/icon-tray.png
+      to: icon-tray.png
+nsis:
+  oneClick: true
+  perMachine: false

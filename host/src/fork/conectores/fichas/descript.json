@@ -1,0 +1,56 @@
+{
+  "id": "descript",
+  "nome": "Descript",
+  "categoria": "Design e mídia",
+  "descricao": "Editor de vídeo e podcast baseado em transcrição: o MCP importa e transcreve mídia, edita com Underlord e publica links.",
+  "exemplos": [
+    "Transcreva a gravação da reunião de ontem",
+    "Resuma os pontos principais do projeto de vídeo"
+  ],
+  "site": "https://www.descript.com",
+  "docs": "https://help.descript.com/developers/mcp/overview",
+  "links": {
+    "privacidade": "https://www.descript.com/privacy",
+    "termos": "https://www.descript.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://help.descript.com/developers/mcp/overview",
+    "https://auth.descript.com/v1/oauth2/register",
+    "https://auth.descript.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "descript.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Descript",
+      "url": "https://api.descript.com/v2/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Descript não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://docs.cursor.com/marketplace/plugins/descript",
+      "origem": "fornecedor",
+      "licenca": "sem licença",
+      "aproveitavel": false
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "vidiq",
+  "nome": "vidIQ",
+  "categoria": "Marketing",
+  "descricao": "Pesquisa e produção para YouTube e redes: palavras-chave, concorrentes, análise de canal e geração de títulos, thumbnails e clipes.",
+  "exemplos": [
+    "Quais ideias de vídeo têm mais chance de crescer no meu canal?",
+    "Como foi o desempenho dos meus últimos vídeos?"
+  ],
+  "site": "https://vidiq.com",
+  "docs": "https://support.vidiq.com/en/articles/15082430-vidiq-mcp",
+  "links": {
+    "privacidade": "https://vidiq.com/privacy/",
+    "termos": "https://vidiq.com/terms/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://support.vidiq.com/en/articles/15082430-vidiq-mcp",
+    "https://mcp.vidiq.com/mcp/register",
+    "https://mcp.vidiq.com/.well-known/oauth-authorization-server/mcp"
+  ],
+  "aviso": "Gasta créditos do seu plano do vidIQ.",
+  "tipos": [
+    {
+      "id": "vidiq.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "vidIQ",
+      "url": "https://mcp.vidiq.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O vidIQ não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/vid-io/vidiq-mcp",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    }
+  ]
+}

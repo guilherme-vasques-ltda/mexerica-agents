@@ -1,0 +1,882 @@
+/* whatsapp R5c (DON-861/DON-867): o mini WhatsApp do bot, pequeno no painel direito (332 px, "como um celular") e
+   grande no centro (Expandir). Medidas da proposta aprovada (docs/reference/redesenho/propostas/whatsapp-mini-20261106,
+   d5e9916c + ajustes do redesenho). O verde é o `--success` que já existe e vale só aqui dentro. */
+.wa-body,
+.wa-tela {
+  --wa: var(--success);
+  --wa-on: #ffffff;
+  --wa-soft: color-mix(in srgb, var(--success) 14%, transparent);
+}
+[data-theme='dark'] .wa-body,
+[data-theme='dark'] .wa-tela {
+  --wa-on: #0f1f10;
+}
+
+/* A aba: a lista rola por dentro; a conversa abre por cima dela. */
+.rp-body.wa-body {
+  position: relative;
+  gap: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+.wa-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.wa-mini {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.wa-over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  animation: wa-in var(--fade) both;
+}
+/* Com a conversa aberta por cima, a lista sai de vista (o vidro do painel solto deixaria ela aparecer). */
+.wa-mini[inert] {
+  visibility: hidden;
+}
+@keyframes wa-in {
+  from { opacity: 0; }
+}
+
+.wa-top {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 0 0 6px;
+  font-size: 11.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-top .d,
+.wa-chip .d {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--presence);
+}
+.wa-top.bad .d,
+.wa-chip.bad .d {
+  background: var(--danger);
+}
+.wa-top-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-top .sp,
+.wa-x-top .sp {
+  flex: 1;
+}
+
+/* Pesquisar alinhado com o resto do painel: 14 px da borda (8 do corpo + 6), como Ligar, Agora e as abas. */
+.wa-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  margin: 4px 6px 8px;
+  padding: 0 11px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-x-list .wa-search {
+  margin: 4px 0 8px;
+}
+.wa-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.wa-search input::placeholder {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-search input::-webkit-search-cancel-button {
+  display: none;
+}
+.wa-search:focus-within {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.wa-pills {
+  display: flex;
+  flex: none;
+  gap: 5px;
+  margin: 0 0 6px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.wa-x-list .wa-pills {
+  padding: 0 2px;
+}
+.wa-pills button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.wa-pills button:hover {
+  color: var(--ink);
+}
+.wa-pills button.on {
+  background: var(--wa-soft);
+  color: var(--wa);
+  font-weight: 600;
+}
+.wa-pills button i {
+  margin-left: 3px;
+  font-style: normal;
+  opacity: 0.85;
+}
+.wa-pills button:focus-visible,
+.wa-cv:focus-visible,
+.wa-cvh .back:focus-visible,
+.wa-cvh .wa-mais:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A lista, igual à do WhatsApp: círculo, nome, prévia, hora; não lidas em verde; alfinete na fixada. */
+.wa-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.wa-list:hover {
+  scrollbar-color: var(--line-strong) transparent;
+}
+.wa-list.dim .wa-cv {
+  opacity: 0.55;
+}
+.wa-cv {
+  display: grid;
+  flex: none;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  align-items: center;
+  column-gap: 11px;
+  row-gap: 2px;
+  height: 60px;
+  padding: 0 8px 0 6px;
+  border-radius: 10px;
+  text-align: left;
+  color: var(--ink);
+}
+.wa-cv:hover {
+  background: var(--hover);
+}
+.wa-cv.sel {
+  background: var(--selected);
+}
+.wa-av {
+  display: grid;
+  flex: none;
+  grid-row: 1 / span 2;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+}
+.wa-av.g {
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-av.sm {
+  grid-row: auto;
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+.wa-cv .nm {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-cv .tm {
+  justify-self: end;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-cv .tm.u {
+  color: var(--wa);
+  font-weight: 600;
+}
+.wa-cv .ms {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--context-ink-2, var(--ink-2));
+  white-space: nowrap;
+}
+.wa-cv .ms > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wa-cv .end {
+  display: flex;
+  grid-column: 3;
+  justify-self: end;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-cv .n {
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--wa);
+  color: var(--wa-on);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.wa-nada {
+  margin: 18px 0;
+  font-size: 12px;
+  color: var(--context-ink-2, var(--ink-2));
+  text-align: center;
+}
+.wa-loading {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  font-size: 12px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+.wa-banner {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--attention-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 30%, transparent);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+.wa-banner > :first-child {
+  flex: none;
+  margin-top: 1px;
+  color: var(--attention);
+}
+.wa-banner b {
+  font-weight: 600;
+}
+
+/* Vazio, Ver desligado e erro do Hub (com Tentar de novo; nunca uma lista vazia falsa). */
+.wa-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 0 18px;
+  text-align: center;
+}
+.wa-empty .box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  max-width: 340px;
+}
+.wa-empty .big {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-empty.err .big {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.wa-empty h3 {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.wa-empty p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-empty .btn {
+  height: 30px;
+  margin-top: 6px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* A conversa. */
+.wa-conv {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.wa-cvh {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 2px;
+}
+.wa-cvh .back {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-cvh .back:hover {
+  color: var(--ink);
+}
+/* R8: "…" da conversa (Apagar esta conversa deste computador), no mesmo tamanho do "‹". */
+.wa-cvh .wa-mais {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-cvh .wa-mais:hover,
+.wa-cvh .wa-mais[aria-expanded='true'] {
+  background: var(--field);
+  color: var(--ink);
+}
+.wa-cvh .who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.wa-cvh .who b {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-cvh-t:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wa-cvh .who span {
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--context-ink-2, var(--ink-2));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-fora {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--tag-grafite-bg);
+  color: var(--tag-grafite-ink);
+  font-size: 10px;
+  font-weight: 600;
+}
+.wa-guard {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 4px 0 2px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--field);
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-guard > :first-child {
+  flex: none;
+  margin-top: 2px;
+}
+.wa-guard b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.wa-msgs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 0;
+  padding: 8px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.wa-msgs:hover {
+  scrollbar-color: var(--line-strong) transparent;
+}
+.wa-day {
+  align-self: center;
+  margin: 2px 0;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  font-size: 10.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-gap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--attention);
+  white-space: nowrap;
+}
+.wa-gap::before,
+.wa-gap::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--attention) 40%, transparent);
+}
+.wa-m {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  gap: 2px;
+  max-width: 86%;
+}
+.wa-m .who {
+  margin-left: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.wa-bub {
+  padding: 6px 10px 5px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 12.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+html[data-wallpaper] .wa-bub {
+  background: var(--glass-raised);
+}
+.wa-text {
+  white-space: pre-wrap;
+}
+.wa-bub .t {
+  float: right;
+  margin: 5px 0 -2px 10px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-bub .late {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--attention);
+}
+.wa-quote {
+  margin: 0 0 4px;
+  padding: 3px 7px;
+  border-left: 2.5px solid var(--accent);
+  border-radius: 4px;
+  background: var(--field);
+  font-size: 10.5px;
+  line-height: 14px;
+}
+.wa-quote b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.wa-media {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-media .i {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--ink);
+}
+.wa-media b {
+  color: var(--ink);
+  font-weight: 500;
+}
+/* R3b: o texto da mensagem de voz e, embaixo, quem transcreveu ou o estado. */
+.wa-voz-texto {
+  display: block;
+  margin-top: 6px;
+}
+.wa-voz-nota {
+  display: block;
+  margin-top: 4px;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: 11px;
+}
+.wa-voz-nota.err {
+  color: var(--danger);
+}
+.wa-older {
+  align-self: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  font-size: 11px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-erro-curto {
+  margin: 4px 0;
+  font-size: 11.5px;
+  color: var(--danger);
+  text-align: center;
+}
+.wa-erro-curto button {
+  text-decoration: underline;
+  color: inherit;
+}
+/* MX-18/D379: o dono escreve no mini WhatsApp — sai na hora, fora da fila do bot, do silêncio e dos limites. */
+.wa-write {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 8px;
+}
+.wa-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 6px 0 12px;
+  border-radius: 999px;
+  background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.wa-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  outline: none;
+}
+.wa-input input::placeholder {
+  color: var(--ink-2);
+}
+.wa-input .send {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.wa-input .send:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.wa-write-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 4px 0;
+  font-size: 10.5px;
+  line-height: 14px;
+  color: var(--ink-2);
+}
+
+/* A tela grande no centro: por cima da conversa do bot, que fica montada e escondida (volta igual no Recolher). */
+.conversation.wa-x > :not(.wa-tela) {
+  visibility: hidden;
+}
+.wa-tela {
+  position: absolute;
+  inset: 0;
+  /* Abaixo do botão da barra lateral (z 6, chat-window.css), que fica no cartão de 44 px como no chat. */
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--content-ground, var(--canvas));
+  animation: wa-in var(--fade) both;
+}
+/* Enquanto a moldura voa, o conteúdo novo espera invisível; a conversa do bot segue à vista por baixo. */
+.wa-tela.voando {
+  visibility: hidden;
+  animation: none;
+}
+.wa-x-chrome {
+  flex: none;
+  padding: 8px 8px 0;
+  -webkit-app-region: drag;
+}
+.wa-x-top {
+  gap: 8px;
+  padding-right: 8px;
+}
+.wa-x-top button {
+  -webkit-app-region: no-drag;
+}
+.wa-x-who {
+  flex: none;
+}
+.wa-x-who .c {
+  margin: 0 -2px;
+  color: var(--context-ink-2, var(--ink-2));
+  font-weight: 400;
+}
+.wa-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.wa-ibtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--field);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+button.wa-chip:hover,
+.wa-ibtn:hover {
+  background: var(--hover);
+}
+.wa-x-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  margin: 8px;
+}
+.wa-x-list {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 340px;
+  padding: 4px 10px 8px 0;
+  border-right: 1px solid var(--line);
+}
+.wa-x-conv {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 12px 0 20px;
+}
+.wa-x-conv .wa-bub {
+  padding: 8px 12px 6px;
+  font-size: 13px;
+  line-height: 19px;
+}
+.wa-x-conv .wa-m {
+  max-width: 68%;
+}
+.wa-x-conv .wa-msgs {
+  gap: 7px;
+  padding: 12px 6px;
+}
+.wa-x-conv .wa-guard {
+  font-size: 12px;
+}
+.wa-x-none {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+/* A moldura do Expandir/Recolher: o material do painel fixo, sem conteúdo (só transform, nada estica). */
+.wa-moldura {
+  position: fixed;
+  z-index: 40;
+  box-sizing: border-box;
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-l);
+  transform-origin: 0 0;
+  pointer-events: none;
+  will-change: transform;
+}
+/* A2: ela guarda o foco só durante o voo (0,3 s); o rótulo diz o que está acontecendo, sem anel sobre a moldura. */
+.wa-moldura:focus {
+  outline: none;
+}
+[data-theme='light']:not([data-wallpaper]) .wa-moldura {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-s);
+}
+html[data-wallpaper] .wa-moldura {
+  background: var(--glass-sidebar);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), var(--shadow-glass);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wa-over,
+  .wa-tela {
+    animation: none;
+  }
+}
+
+/* D374: o número do bot escondido ("+55 •• ••••-••50") e o olhinho ao lado. Máscara, nunca desfoque. */
+.wa-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
+}
+.wa-num-t {
+  font-variant-numeric: tabular-nums;
+}
+.wa-num-t.escondido {
+  letter-spacing: 0.02em;
+}
+.wa-num-olho {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.wa-num-olho:hover,
+.wa-num-olho[aria-pressed='true'] {
+  background: var(--field);
+  color: var(--ink);
+}
+.wa-num-olho:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* D387-SOL-02: no cabeçalho da conversa o olhinho tem espaço próprio (nunca cortado) e só o número encolhe, cortado
+   no começo para os últimos dígitos ficarem à vista ("…••••-••07"). */
+.wa-cvh .who b.wa-cvh-t:has(.wa-num) {
+  overflow: visible;
+}
+.wa-cvh-t .wa-num {
+  display: flex;
+  max-width: 100%;
+}
+.wa-cvh-t .wa-num-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+/* R1-01 do #587: o número já vem num <bdi dir="ltr"> (NumeroBot), em qualquer lugar; aqui só a regra do corte. */
+.wa-cvh-t .wa-num-t > bdi {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* D401 (dono, pergunta 47, A): revelado, o número aparece INTEIRO no cabeçalho, sem corte. Para caber no painel
+   estreito, o selo "conteúdo de fora" encolhe para só o escudo (o title continua explicando) enquanto o número está
+   à mostra; escondido, volta ao normal. */
+.wa-cvh-t .wa-num-t:not(.escondido) {
+  overflow: visible;
+  text-overflow: clip;
+  direction: ltr;
+  flex: none;
+}
+.wa-cvh:has(.wa-cvh-t .wa-num-olho[aria-pressed='true']) .wa-fora {
+  gap: 0;
+  padding: 0 5px;
+  font-size: 0;
+}

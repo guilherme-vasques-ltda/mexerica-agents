@@ -1,0 +1,53 @@
+/* Direção da cena 1 aprovada; superfícies e cores herdadas dos tokens do app. */
+.lugares { color: var(--text-primary, var(--ink)); }
+.lugares p { margin: 6px 0 12px; color: var(--text-secondary, var(--ink-2)); font-size: var(--text-caption); line-height: 1.5; }
+.lugares h3 { margin: 0 0 12px; font-size: var(--text-body); font-weight: 600; }
+.lugares h4 { margin: 0 0 4px; font-size: var(--text-body); }
+.lugares-layout { display: grid; grid-template-columns: minmax(145px, 190px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.lugares-lista { display: flex; flex-direction: column; gap: 10px; }
+.lugares-lista > button:not(.styled-button), .lugares-padrao { text-align: left; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); color: inherit; }
+.lugares-lista .selected { box-shadow: inset 0 0 0 1px var(--accent); }
+.lugares-lista span { display: block; font-size: var(--text-caption); color: var(--text-secondary, var(--ink-2)); margin-top: 5px; }
+.lugares-conteudo { min-width: 0; container-type: inline-size; }
+.lugares-passos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.lugares-passo, .lugares-publicas, .lugares-aviso { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--content-ground, var(--canvas)); min-width: 0; }
+.lugares-publicas { display: flex; flex-direction: column; gap: 12px; }
+.lugares-publicas code { display: block; overflow-wrap: anywhere; font-size: 11px; padding: 7px 0; user-select: text; }
+.lugares-publicas label { font-size: var(--text-caption); }
+.lugares-form { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
+.lugares-form label { display: flex; flex-direction: column; gap: 5px; font-size: var(--text-caption); }
+.lugares-form input, .lugares-form textarea { background: var(--field); color: var(--text-primary, var(--ink)); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 9px 10px; width: 100%; min-width: 0; user-select: text; font: inherit; }
+.lugares-form textarea { resize: vertical; }
+.lugares button:focus-visible, .lugares input:focus-visible, .lugares textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.lugares-eixos { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: var(--text-caption); }
+.lugares-eixos > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.lugares-eixos dd { margin: 0; font-weight: 500; }
+.lugares-aviso { color: var(--text-secondary, var(--ink-2)); font-size: var(--text-caption); line-height: 1.6; }
+.lugares ol { padding-left: 18px; font-size: var(--text-caption); line-height: 1.6; }
+.lugares-erro { color: var(--text-danger, var(--danger)) !important; }
+.lugares-guia { height: 100%; min-height: 0; }
+.lugares-guia-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 20px; }
+.lugares-guia-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; user-select: text; }
+.lugares-fixar { grid-column: span 2; }
+.lugares-fixacoes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.lugares-fixacoes > div { min-width: 0; }
+.lugares-editor > summary { display: inline-flex; align-items: center; cursor: pointer; list-style: none; max-width: 100%; }
+.lugares-editor > summary::-webkit-details-marker { display: none; }
+.lugares-editor > summary:focus-visible, .lugares [role="status"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.lugares-editor-body { padding-top: 12px; }
+.lugares-editor-body > .styled-button { margin-top: 12px; }
+.lugares-publicas-abertas { margin-top: 12px; }
+.lugares-publicas-abertas > .styled-button { margin-top: 10px; }
+.lugares-manutencao { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.lugares .styled-button { max-width: 100%; height: auto; min-height: 30px; white-space: normal; overflow-wrap: anywhere; }
+.lugares-conteudo header, .lugares-lista button, .lugares-eixos dd { overflow-wrap: anywhere; }
+.lugares-aviso { padding: 10px 12px; }
+@container (max-width: 760px) {
+  .lugares-passos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lugares-preparo, .lugares-verificar { grid-column: 1 / -1; }
+}
+@container (max-width: 520px) {
+  .lugares-passos, .lugares-fixacoes { grid-template-columns: 1fr; }
+  .lugares-fixar { grid-column: auto; }
+}
+@media (max-width: 1100px) { .lugares-layout { grid-template-columns: 1fr; } }

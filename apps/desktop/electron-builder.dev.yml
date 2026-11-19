@@ -1,0 +1,50 @@
+# Overrides applied by tools/dev-builder.cjs (arrays replace, never merge).
+appId: app.donnabot.mac.dev
+productName: Mexerica Dev
+# Linux package managers and Windows installer caches also key on package.json's name.
+extraMetadata:
+  name: donnabot-desktop-dev
+  productName: Mexerica Dev
+  desktopName: donnabot-dev.desktop
+protocols:
+  - name: Mexerica Dev
+    schemes: [donnabot-dev, app.donnabot.mac.dev]
+publish: null
+mac:
+  # Mexerica Dev only runs on the Mac that built it: an app folder for its architecture, signed
+  # without Apple's timestamp server (one round trip per file, about 5 minutes a build; only
+  # notarized builds need it).
+  target: [dir]
+  timestamp: none
+  signIgnore:
+    - DonnabotDevScreen\.app/Contents/Helpers/cua-driver$
+  artifactName: mexerica-dev-macos.${ext}
+  notarize: false
+  extraFiles:
+    - from: build/native/DonnabotDevScreen.app
+      to: Library/LoginItems/DonnabotDevScreen.app
+    - from: resources/mac/app.donnabot.dev.screen.plist
+      to: Library/LaunchAgents/app.donnabot.dev.screen.plist
+dmg:
+  artifactName: mexerica-dev-macos.dmg
+linux:
+  executableName: donnabot-dev
+  artifactName: donnabot-dev-linux-${arch}.${ext}
+  desktop:
+    entry:
+      StartupWMClass: Donnabot Dev
+win:
+  artifactName: donnabot-dev-windows-x64.${ext}
+  extraResources:
+    - from: build/native/donnabot-host.exe
+      to: donnabot-host.exe
+    - from: build/native/donnabot-dev-hostw.exe
+      to: donnabot-dev-hostw.exe
+    - from: build/native/cua-driver.exe
+      to: cua-driver.exe
+    - from: build/native/cua-driver-uia.exe
+      to: cua-driver-uia.exe
+    - from: build/native/cua-driver.LICENSE
+      to: cua-driver.LICENSE
+    - from: resources/icon.png
+      to: icon.png

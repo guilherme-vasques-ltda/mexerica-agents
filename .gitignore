@@ -1,0 +1,36 @@
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+# Xcode Cloud resolves packages only from the checked-in pins
+!apps/Mexerica.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Secrets
+*.p8
+.dev.vars
+.wrangler/
+.claude/worktrees/
+
+# /brag launch video renders
+brag-output*/
+
+# Launch video projects
+videos/
+
+# Python bytecode
+__pycache__/
+
+# Playwright E2E web (MX-205)
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+
+# Pesquisa de concorrentes: vive nas Notes privadas do dono, nunca versionada
+# (só a pasta da raiz; docs/propostas/*/pesquisa/ segue valendo)
+/pesquisa/

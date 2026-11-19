@@ -1,0 +1,27 @@
+// Grupos de bots (registro.ts). Chaves completas; docs/guides/idiomas.md.
+// Textos escritos do zero; procedência em docs/propostas/grupos-de-bots-20261116/.
+export const textos = {
+  'grupos.menu.novo': "Criar grupo",
+  'grupos.nomePadrao': "Novo grupo",
+  'grupos.nome.rotulo': "Nome do grupo",
+  'grupos.menu.renomear': "Renomear grupo",
+  'grupos.menu.apagar': "Apagar grupo",
+  'grupos.menu.recolher': "Recolher grupo",
+  'grupos.menu.mostrar': "Mostrar grupo",
+  'grupos.bot.mover': "Colocar em {grupo}",
+  'grupos.bot.tirar': "Tirar do grupo",
+  'grupos.bot.novoGrupo': "Começar grupo com {bot}",
+  'grupos.foraDeGrupo': "(fora de grupo)",
+  'grupos.vazio': "Nenhum bot neste grupo.",
+  'grupos.dica': "Arraste um bot até um grupo ou use o menu dele.",
+  'grupos.filtro.todos': "Todos os grupos",
+  'grupos.erro.nomeInvalido': "O nome não pode ficar vazio, ter mais de 40 caracteres nem conter caracteres invisíveis ou de controle.",
+  'grupos.erro.nomeUsado': "Já existe outro grupo com esse nome neste Space.",
+  'grupos.erro.grupoSumiu': "Este grupo não existe mais.",
+  'grupos.erro.botSumiu': "Este bot não existe mais.",
+  'grupos.erro.atualizando': "Os grupos estão sendo atualizados. Tente de novo em instantes.",
+  'grupos.erro.generico': "Não deu para atualizar os grupos. Tente de novo.",
+  'grupos.contagem.one': "{n} bot",
+  'grupos.contagem.many': "{n} bots",
+  'grupos.contagem.other': "{n} bots",
+} as const

@@ -1,0 +1,29 @@
+title = "Mexerica: regras padrão; exceções escopadas só a manifestos públicos de hashes"
+[extend]
+useDefault = true
+# Sem allowlist ampla: fixtures anteriores ficam apenas nos fingerprints históricos.
+# APNs: baseline por fingerprint recomendado pela Segurança.
+# Credencial do upstream, pública, sem uso pela Mexerica; sem allowlist.
+
+# DON-904: falso positivo comprovado no PR #489. Escopo mínimo: só a regra
+# generic-api-key, só o arquivo de política e só segredos que sejam inteiramente
+# SHA Git (40 hex) ou digest SHA-256 (64 hex). Qualquer outro valor no mesmo
+# arquivo, ou hex em outro arquivo, continua bloqueando.
+[[allowlists]]
+description = "Política pública de runtime do Electron: digests SHA-256 e SHAs Git (não são segredos)"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^apps/desktop/resources/personal-runtime-policy-v1\.json$''']
+regexTarget = "secret"
+regexes = ['''^[0-9a-f]{40}$''', '''^[0-9a-f]{64}$''']
+
+# D529: tokensSha256 é o SHA-256 do JSON público de cores, não uma credencial.
+# Só a linha dessa chave nos três manifestos atuais; outras chaves, caminhos,
+# formatos ou regras do detector continuam bloqueando.
+[[allowlists]]
+description = "Manifestos de fundos: SHA-256 público dos tokens de cores"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^apps/desktop/design/fundos(-donna|-mexerica)?/medidas\.json$''']
+regexTarget = "line"
+regexes = ['''^\n?[\t ]*"tokensSha256"[\t ]*:[\t ]*"[0-9a-f]{64}"[\t ]*,?[\t ]*\n?$''']

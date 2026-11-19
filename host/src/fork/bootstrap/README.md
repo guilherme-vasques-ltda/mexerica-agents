@@ -1,0 +1,35 @@
+# ACS4: primitivas de primeira posse
+
+Os arrays e envelopes canônicos seguem wire 2; a chave de verificação do grant é fornecida pela configuração de provisionamento confiável, não pelo documento recebido. O store usa o SQLite existente e separa o pending de `devices`. A geração instalada é imutável; A1 e ACS4 disputam a mesma posse e `ever_claimed` não é reaberto por remoção de aparelho. O recibo é persistido na mesma transação antes de ser retornado.
+
+Este módulo não liga rede, CLI ou canal. O consumidor deve obter configuração e referência de relógio qualificadas pelo provisionamento, fornecer a identidade real correta, controlar concorrência/tempo monotônico e só promover com estado de nuvem autenticado e sincronizado. Uma chamada ou JSON local não é autoridade. A instalação de geração aqui exige store sem dispositivos; migração de Hub existente fica fora deste recorte. Tombstone não é um ACK remoto. Ausência de H2 significa que estas primitivas não tornam o bootstrap disponível.
+
+H3 prepara canal E2EE exclusivo de bootstrap e ingresso `bootstrap install-grant --stdin` pelo transporte local, com verificação no store e sem instalar raiz. O relay recebe propósito explícito e a ACL é assinada apenas para slot válido e identidade coincidente. O relógio usa somente uma referência qualificada fornecida internamente; como o provisionador ainda não está ligado a esse seam, sua ausência mantém o recurso indisponível. Canal e comando não substituem publicação do recibo, pull, cercas nem a revisão e validação do conjunto.
+
+A wire 3 acrescenta notificação autenticada com os quatro envelopes originais persistidos e revogação assinada persistida junto da lápide. A promoção depende da publicação e do grant correspondentes em uma resposta autenticada, e o lease continua sujeito a `cloud_synced`. Uma aprovação `owner.devices` deriva do aparelho atual e não transfere o próprio escopo nem cria Screen quando o aprovador não o tem. Os mecanismos de cloud, a origem de tempo qualificada e a interoperabilidade ainda exigem integração, testes e revisão antes de uso.
+
+
+A configuração pública de geração é lida apenas de /etc/donnabot/bootstrap-v1.json, protegida por root e vinculada à identidade exata deste Hub. O leitor não instala esse arquivo nem produz atestado: E, custódia, manifesto e deployment continuam gates externos. Uma referência liga epoch e boottime do mesmo boot, vence em até 300 segundos e não ganha prazo ao reiniciar. Ausência mantém o legado; erro deixa o bootstrap indisponível. O modo SQLite FULL vale para geração instalada, sem limpar everClaimed em reabertura idêntica. Depois do commit, promoção e revogação usam a prova durável e o lease normal; a referência inicial não é autorização para manter uma permissão retirada.
+
+
+A publicação D1 (`published`) não comprova ativação no Hub. O Hub só produz o envelope fechado `donna/bootstrap-activation/v1` após ler o Device efetivamente promovido da mesma geração, grant, conta e chave, com lease válido e snapshot de revisão/ACL; persiste os bytes originais antes da notificação. A rota autenticada do Worker valida essa assinatura, revalida a publicação e ausência de cercas, grava o snapshot e então muda a intenção para `hubActive`. A consulta da mesma conta só retorna esse envelope enquanto o grant e o lease seguem válidos. O app precisa verificar a cadeia e esse recibo antes de publicar pin ACS4; nem `published`, nem HTTP200, nem um booleano substituem essa prova. Pin não substitui lease, revogação ou o hello de cada conexão. Isso ainda é código candidato, sem configuração real M/E/App, ativação ou QA instalada.
+
+Fase B candidata acrescenta `bootstrap control-health`/RPC local `controlHealth`,
+corpo vazio. O arquivo root protegido `/etc/donnabot/cloud-control-v1.json` tem
+schema1, machineId, artifactSHA256 e generation. O produtor calcula SHA256 do ELF
+em execução e assina o array fechado de8campos documentado no controle, com a
+chave real do Hub. Healthy depende de geração/ativação/lease e cloud_synced, além
+do pin; divergência/ausência de ativação é failed. Configuração sem proteção ou de
+outra geração é recusada. Não retorna tokeninfo, chave ou parâmetro do chamador.
+É produtor de diagnóstico interno, não atestado de origem, API de bot ou nova
+autoridade administrativa. O serviço privilegiado e sua implantação são separados.
+
+O hash de saúde lê `/proc/self/exe` diretamente no Linux. Substituição atômica do
+caminho durante atualização não troca o inode ainda executado nem deve suprimir
+o diagnóstico; se o pin já mudou, o Hub assina failed com o hash antigo real.
+Não reabrir o caminho retornado por current_exe(), que pode terminar em (deleted).
+
+A renovação normal do lease do Device publica uma nova ativação assinada com o horário atual, sem repetir prova, criar grant ou reabrir a geração. Se ACL, revisão e lease não mudaram, reutiliza os bytes originais. A comparação interna que ignora apenas o horário não valida um prazo renovado contra o horário anterior: somente o snapshot real pode ser validado, assinado e persistido. Um erro de ativação impede a sincronização positiva dessa conexão; não trate o socket aberto ou o vínculo publicado como admissão concluída. Após reconexão, confirme o estado atual; nunca apague recibos ou renove a janela inicial para contornar a falha.
+
+Depois de verificar e persistir a prova, o evento local `bootstrapCommitted` acorda uma sincronização na conexão do Hub. Ela publica somente os envelopes originais já gravados. Após o CAS de publicação, o Worker notifica o relay qualificado com `cloud.changed`; o Hub consome a publicação e envia a ativação sem esperar o ciclo periódico. Uma reconciliação explícita de publicação já confirmada pode repetir somente essa notificação. Falha da notificação não desfaz a publicação nem autoriza repetir prova/grant: as leituras continuam conferindo os mesmos originais, e o pull de início/reconexão e o ciclo periódico permanecem como recuperação. O evento não concede acesso, não substitui cercas/lease/ativação assinada e não grava pin no Mac.
+O Hub consolida avisos repetidos e o ciclo periódico em um pull em voo e um sinal pendente por conexão. Um evento durante a leitura preserva uma leitura posterior; há intervalo mínimo de 1 segundo e backoff de falha de 1, 2, 4, 8 e até 16 segundos. Enquanto a publicação do recibo durável não foi confirmada, o GET bem-sucedido sozinho não marca `cloud_synced`. O Hub repete somente os quatro envelopes originais, com requisição limitada pelo prazo original do grant (no máximo 300 segundos e nunca além do pedido qualificado). Ao vencer esse prazo ainda sem confirmação, para de reenviar o recibo pendente e conserva os originais e o estado pendente para reconciliar uma publicação já aplicada por leitura autenticada; não cria prova/grant nem amplia a validade. Reconexão e ciclo periódico continuam disponíveis para essa leitura. Esses limites não garantem conclusão durante indisponibilidade da nuvem e não dispensam o aceite explícito do fluxo no app.

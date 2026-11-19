@@ -1,0 +1,88 @@
+/* D169 (components/ApprovalModeMenu): the reference's rich menu (`.db-menu.is-rich`), opaque `raised`
+   with the 1px `line` edge from `.anchored-panel`. */
+.approval-mode-menu {
+  width: min(340px, calc(100vw - 16px));
+  padding: var(--sp-8);
+}
+.approval-mode-title {
+  margin: var(--sp-4) var(--sp-8) var(--sp-8);
+  font-size: var(--text-body);
+  line-height: 1.38;
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+.approval-mode-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-12);
+  width: 100%;
+  padding: var(--sp-10);
+  border-radius: var(--radius-s);
+  text-align: left;
+  color: var(--text-primary, var(--ink));
+  transition: background-color var(--motion-hover);
+}
+.approval-mode-item:hover:not([aria-disabled='true']),
+.approval-mode-item:focus-visible {
+  background: var(--hover);
+}
+.approval-mode-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.approval-mode-item[aria-disabled='true'] {
+  cursor: default;
+}
+.approval-mode-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.approval-mode-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.approval-mode-text b {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  font-size: var(--text-body);
+  line-height: 1.38;
+  font-weight: 500;
+}
+.approval-mode-text small {
+  font-size: var(--text-callout);
+  line-height: 1.34;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.approval-mode-item[aria-disabled='true'] .approval-mode-text b,
+.approval-mode-item[aria-disabled='true'] .approval-mode-icon {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.approval-mode-tag {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  line-height: 18px;
+  font-weight: 500;
+}
+.approval-mode-trail {
+  flex: none;
+  align-self: center;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.approval-mode-item[aria-checked='true'] .approval-mode-trail {
+  color: var(--text-accent, var(--accent));
+}
+.approval-mode-sep {
+  height: 1px;
+  margin: var(--sp-4) var(--sp-10);
+  background: var(--line);
+}

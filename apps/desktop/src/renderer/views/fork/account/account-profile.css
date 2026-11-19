@@ -1,0 +1,154 @@
+/*
+ * E6b (DON-864): Ajustes → Conta. Linhas no ritmo das demais linhas de Ajustes (ícone, título,
+ * nota e botões do sistema); formulários em coluna, campos como `field-box`, tokens do sistema.
+ */
+.account-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.account-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.account-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+}
+.account-profile-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.account-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-caption, 11px);
+  color: var(--text-secondary, var(--ink-2));
+}
+.account-profile-input {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: var(--content-ground, var(--canvas));
+  border-radius: var(--radius-m);
+  color: var(--text-primary, var(--ink));
+  font: inherit;
+  font-size: var(--text-body, 13px);
+  user-select: text;
+}
+.account-profile-input:focus {
+  outline: 2px solid var(--context-ink-2, var(--ink-2));
+}
+.account-profile-code {
+  max-width: 160px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.15em;
+}
+.account-profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.account-profile-actions.start {
+  justify-content: flex-start;
+}
+.account-profile-note,
+.account-profile-problem {
+  font-size: var(--text-caption, 11px);
+  color: var(--text-secondary, var(--ink-2));
+}
+.account-profile-actions > .account-profile-note {
+  margin-right: auto;
+}
+.account-profile-problem,
+.account-profile-error {
+  color: var(--text-attention, var(--attention));
+}
+.account-profile-error {
+  margin: 0 0 4px;
+  font-size: var(--text-callout, 12px);
+}
+.account-profile-mark {
+  display: inline-flex;
+  justify-content: center;
+  width: 20px;
+  font-size: 17px;
+}
+.account-profile-steps {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-primary, var(--ink));
+  font-size: var(--text-callout, 12px);
+  line-height: 1.5;
+}
+.account-profile-qr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.account-profile-qr img,
+.account-profile-qr-wait {
+  flex: none;
+  width: 160px;
+  height: 160px;
+  border-radius: var(--radius-m);
+  background: #fff;
+}
+.account-profile-qr-wait {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.account-profile-secret {
+  font-family: var(--font-mono);
+  font-size: var(--text-callout, 12px);
+  color: var(--text-primary, var(--ink));
+  word-break: break-all;
+  user-select: all;
+}
+.account-profile-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  list-style: none;
+  background: var(--content-ground, var(--canvas));
+  border-radius: var(--radius-m);
+}
+.account-profile-codes code {
+  font-family: var(--font-mono);
+  font-size: var(--text-body, 13px);
+  color: var(--text-primary, var(--ink));
+  user-select: all;
+}
+.account-profile-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary, var(--ink));
+}
+.account-profile-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-callout, 12px);
+  cursor: pointer;
+}

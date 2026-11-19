@@ -1,0 +1,50 @@
+{
+  "id": "camtasia",
+  "nome": "Camtasia (TechSmith)",
+  "categoria": "Design e mídia",
+  "descricao": "Geração de vídeos tutoriais a partir de screenshots via Generative Screencast. O MCP da TechSmith conecta esse serviço a agentes de IA.",
+  "exemplos": [
+    "Crie um vídeo curto a partir do roteiro que escrevi",
+    "Resuma o que o vídeo gravado mostra"
+  ],
+  "site": "https://www.techsmith.com/camtasia/",
+  "docs": "https://support.techsmith.com/hc/en-us/articles/45974433690637-Camtasia-Plugin-for-ChatGPT",
+  "links": {
+    "privacidade": "https://www.techsmith.com/trust-center/privacy-policy/",
+    "termos": "https://www.techsmith.com/trust-center/camtasia-snagit-tos/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://support.techsmith.com/hc/en-us/articles/45974433690637-Camtasia-Plugin-for-ChatGPT",
+    "https://api.techsmith.com/auth-connection/api/v1/auth/register",
+    "https://generativescreencast.cloud.techsmith.com/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "Gasta créditos do seu plano da TechSmith.",
+  "tipos": [
+    {
+      "id": "camtasia.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Camtasia (TechSmith)",
+      "url": "https://generativescreencast.cloud.techsmith.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Camtasia (TechSmith) não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": []
+}

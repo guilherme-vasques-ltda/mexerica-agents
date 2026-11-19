@@ -1,0 +1,275 @@
+/* D165 fase C: the space's sidebar (components/SidebarHeader, SidebarRow, ChannelList, BotRow).
+   A floating panel beside the rail: `surface` without a wallpaper, glass over one. */
+.sidebar:not(.floating) {
+  height: auto;
+  margin: var(--sp-8) 0 var(--sp-8) var(--sp-6);
+  border-radius: var(--radius-l);
+  box-shadow: 0 0 0 1px var(--line);
+}
+html[data-wallpaper] .sidebar:not(.floating) {
+  box-shadow: var(--shadow-glass);
+}
+
+/* Barra05: sem o cabeçalho "Pessoal +". Uma faixa de 10px no alto move a janela e dá a folga da Donna. */
+.sidebar-drag {
+  flex: none;
+  height: 10px;
+}
+
+/* Barra05 (TeamGroup): sem fundo, no tema claro, a barra é um cartão `raised` (branco) com `line` e `shadow-s`. */
+html[data-theme="light"]:not([data-wallpaper]) .sidebar:not(.floating) {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-s);
+}
+
+/* Barra04/05 (TeamGroup; times-lider-20261105/prototipo.html): Canais, Equipes e Agentes. A lista não tem recuo:
+   uma calha de 16px na borda esquerda guarda as setas das equipes, e rostos, `#` e títulos começam depois dela. */
+.sidebar .roster {
+  --gutter: 16px;
+  padding: 0 4px var(--sp-24) 0;
+  gap: 0;
+  /* Barra fina só com ponteiro ou foco na lista. */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+  transition: scrollbar-color var(--motion-hover);
+}
+.sidebar .roster:hover,
+.sidebar .roster:focus-within {
+  scrollbar-color: var(--line-strong) transparent;
+}
+.sidebar-section {
+  margin-top: 6px;
+}
+.sidebar-section-head {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  margin-left: var(--gutter);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.sidebar-section-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: max(11px, calc(12px * var(--scale)));
+  font-weight: 600;
+  text-align: left;
+}
+.sidebar-section-label:disabled {
+  cursor: default;
+}
+.sidebar-section-icon {
+  opacity: 0.85;
+}
+/* A seta do título só aparece com o ponteiro, o foco ou recolhida; gira junto com a dobra. */
+.sidebar-section-chevron {
+  opacity: 0;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity var(--motion-hover);
+}
+.sidebar-section-head:hover .sidebar-section-chevron,
+.sidebar-section-label:focus-visible .sidebar-section-chevron,
+.sidebar-section-label[aria-expanded="false"] .sidebar-section-chevron {
+  opacity: 1;
+}
+.sidebar-section-label[aria-expanded="false"] .sidebar-section-chevron {
+  transform: rotate(-90deg);
+}
+.sidebar-section-add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  /* Auditoria D249, F3: 24 px target. */
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  color: var(--context-ink-2, var(--ink-2));
+  opacity: 0.85;
+}
+.sidebar-section-label:hover:not(:disabled),
+.sidebar-section-add:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+  opacity: 1;
+}
+.sidebar-section-empty {
+  margin: 0 0 0 var(--gutter);
+  padding: 6px 8px;
+  font-size: max(11px, calc(12px * var(--scale)));
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+/* Linhas. Canais: uma linha de 30px com `#` num quadro de 36px. Bots: duas linhas em grade (rosto | nome e etiqueta |
+   hora; a última mensagem embaixo, por baixo da hora). Aberta, `selected`; sem anel. */
+.sidebar .roster-row {
+  position: relative;
+  margin-left: var(--gutter);
+  width: calc(100% - var(--gutter));
+  padding: 0 6px 0 4px;
+  border-radius: 8px;
+}
+.sidebar .roster-row + .roster-row {
+  margin-top: 0;
+}
+.sidebar .roster-row.hovered {
+  background: var(--hover);
+}
+.sidebar .roster-row.selected {
+  background: var(--selected);
+}
+.sidebar .bot-row {
+  padding: 0;
+  gap: 0;
+  min-height: 0;
+  font-size: calc(13px * var(--scale));
+  white-space: nowrap;
+}
+.bot-row.is-channel {
+  display: flex;
+  align-items: center;
+  height: calc(30px * var(--scale));
+}
+.bot-row-hash {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 30px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.sidebar .roster-row.selected .bot-row-hash {
+  color: var(--text-accent, var(--accent));
+}
+.bot-row.is-channel .bot-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bot-row.is-channel .bot-row-time {
+  margin-left: 6px;
+}
+.bot-row.is-two {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 9px;
+  align-content: center;
+  align-items: center;
+  height: calc(48px * var(--scale));
+}
+.bot-row.is-two.l2 { height: calc(44px * var(--scale)); }
+.bot-row.is-two.l3 { height: calc(40px * var(--scale)); }
+.bot-row-face {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  line-height: 0;
+}
+.bot-row-line {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.bot-row.is-two .bot-row-name {
+  flex: 0 0 auto;
+  max-width: 62%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(13px * var(--scale));
+  line-height: calc(16px * var(--scale));
+  font-weight: 400;
+  color: var(--text-primary, var(--ink));
+}
+.bot-row.is-two.is-lead .bot-row-name { font-weight: 500; }
+.bot-row.is-two.l3 .bot-row-name { font-size: calc(12.5px * var(--scale)); }
+.bot-row-end {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bot-row-time {
+  font-size: max(10.5px, calc(10.5px * var(--scale)));
+  color: var(--context-ink-2, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+/* Não lidas: sem contador nem ponto; a hora fica na cor de destaque (canais também, decisão do dono 05/11/2026). */
+.bot-row.is-unread .bot-row-time {
+  color: var(--text-accent, var(--accent));
+  font-weight: 600;
+}
+.bot-row-message {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(11.5px * var(--scale));
+  line-height: calc(14px * var(--scale));
+  color: var(--context-ink-2, var(--ink-2));
+  transition: opacity var(--fade), visibility 0s;
+}
+.bot-row.is-two.l3 .bot-row-message { font-size: calc(11px * var(--scale)); }
+/* Agentes (e a sala da equipe): nome 13,5px 500, mensagem 12px, hora 11px. */
+.is-agents .bot-row.is-two .bot-row-name,
+.team-room .bot-row.is-two .bot-row-name {
+  font-size: calc(13.5px * var(--scale));
+  line-height: calc(17px * var(--scale));
+  font-weight: 500;
+}
+.is-agents .bot-row-message,
+.team-room .bot-row-message {
+  font-size: calc(12px * var(--scale));
+  line-height: calc(15px * var(--scale));
+}
+.is-agents .bot-row-time,
+.team-room .bot-row-time {
+  font-size: 11px;
+}
+/* runtime-audiencia-01: Estado indisponível, o mesmo anel vazado da Donna (sem cor de estado). */
+.bot-row-end .state-unknown { width: 6px; height: 6px; margin-right: 3px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--context-ink-2, var(--ink-2)); }
+
+/* Etiqueta em pílula a 4px do nome: 10px, altura 13 (exceção ao piso de 11px, decisão do dono). Encurta antes do nome.
+   A cor segue a altura da linha (`--tag-l1`…`--tag-l3`; Agentes `--tag-l0`), escolhida em Ajustes → Barra lateral. */
+.bot-row-tag {
+  flex: 0 10 auto;
+  min-width: 3em;
+  max-width: 110px;
+  margin-left: -1px;
+  padding: 0 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 13px;
+  font-weight: 500;
+  color: var(--tag-l0-ink);
+  background: var(--tag-l0-bg);
+}
+.bot-row-tag.tag-l1 { color: var(--tag-l1-ink); background: var(--tag-l1-bg); font-weight: 600; }
+.bot-row-tag.tag-l2 { color: var(--tag-l2-ink); background: var(--tag-l2-bg); font-weight: 600; }
+.bot-row-tag.tag-l3 { color: var(--tag-l3-ink); background: var(--tag-l3-bg); font-weight: 600; }
+html[data-theme="light"]:not([data-wallpaper]) .bot-row-tag.tag-l0 { background: var(--surface); }
+/* Padrão até lib/appearance.ts aplicar a escolha (e na prévia do site): tudo Grafite. */
+:root {
+  --tag-l0-bg: var(--tag-grafite-bg); --tag-l0-ink: var(--tag-grafite-ink);
+  --tag-l1-bg: var(--tag-grafite-bg); --tag-l1-ink: var(--tag-grafite-ink);
+  --tag-l2-bg: var(--tag-grafite-bg); --tag-l2-ink: var(--tag-grafite-ink);
+  --tag-l3-bg: var(--tag-grafite-bg); --tag-l3-ink: var(--tag-grafite-ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-section-chevron { transition: none; }
+}

@@ -1,0 +1,99 @@
+/* Character avatars: a group's cluster and the roster's status badge (Avatar.tsx); sizes follow
+   the avatar's size inline. */
+.avatar-frame {
+  position: relative;
+  flex: none;
+}
+.avatar-slot {
+  position: absolute;
+}
+.avatar-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.avatar-more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  font-family: ui-rounded, var(--font-sans);
+  font-weight: 700;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.avatar-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--content-ground, var(--canvas));
+}
+.avatar-badge.needs-you {
+  display: grid;
+  place-items: center;
+  background: var(--warning);
+  color: var(--on-warning);
+}
+.avatar-badge.unread {
+  background: var(--action-fill, var(--accent));
+}
+
+/* Barra05 (TeamGroup): o estado do bot no quadro do rosto, sem pontinhos. A biblioteca muda a pose (dormindo fecha os
+   olhos); o quadro acrescenta só transform/opacity: Trabalhando balança 2px em 1,4s; Aguardando resposta sacode ±7°
+   a cada 3,2s, com o pivô embaixo; Dormindo fica a 55%, dessaturado, respira em 4s e solta um "z" de 10px.
+   Com movimento reduzido, só a pose e o "z" parado. */
+.face-state {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  line-height: 0;
+}
+.face-state > .donnabot-avatar {
+  will-change: transform;
+}
+.face-state[data-state="idle"] > .donnabot-avatar {
+  will-change: auto;
+}
+.face-state[data-state="work"] > .donnabot-avatar {
+  animation: face-bob 1.4s ease-in-out infinite;
+}
+.face-state[data-state="listen"] > .donnabot-avatar {
+  transform-origin: 50% 80%;
+  animation: face-nudge 3.2s ease-in-out infinite;
+}
+.face-state[data-state="sleep"] > .donnabot-avatar {
+  opacity: 0.55;
+  filter: saturate(0.6);
+  animation: face-breathe 4s ease-in-out infinite;
+}
+.face-state[data-state="sleep"]::after {
+  content: 'z';
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  font: 700 10px/1 var(--font-sans);
+  color: var(--context-ink-2, var(--ink-2));
+  pointer-events: none;
+  animation: face-z 2.6s ease-in-out infinite;
+}
+@keyframes face-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes face-nudge { 0%, 78%, 100% { transform: rotate(0); } 82% { transform: rotate(-7deg); } 86% { transform: rotate(6deg); } 90% { transform: rotate(-4deg); } 94% { transform: rotate(2deg); } }
+@keyframes face-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+@keyframes face-z { 0% { opacity: 0; transform: translateY(2px) scale(0.8); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px) scale(1.15); } }
+/* Revisão #355 (A355-2): as regras abaixo vencem as dos estados (mesma especificidade, vêm depois). Com movimento
+   reduzido, só a pose; fora da vista ou com a janela escondida (`data-paused`, DonnabotAvatar), pausado e sem
+   camada extra. */
+@media (prefers-reduced-motion: reduce) {
+  .face-state[data-state] > .donnabot-avatar,
+  .face-state[data-state="sleep"]::after { animation: none; will-change: auto; }
+  .face-state[data-state="sleep"]::after { opacity: 0.8; }
+}
+.face-state[data-state] > .donnabot-avatar[data-paused="true"] { animation-play-state: paused; will-change: auto; }
+.face-state[data-state]:has(> .donnabot-avatar[data-paused="true"])::after { animation-play-state: paused; }
+/* Ocioso (60 s sem interação, lib/glow-visibility.ts): o bot dormindo para de respirar e o "z" fica parado, como no
+   movimento reduzido. Trabalhando e aguardando resposta seguem: são o estado real, não enfeite. */
+html[data-janela-ociosa] .face-state[data-state="sleep"] > .donnabot-avatar { animation: none; will-change: auto; }
+html[data-janela-ociosa] .face-state[data-state="sleep"]::after { animation: none; opacity: 0.8; }

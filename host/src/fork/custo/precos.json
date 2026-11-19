@@ -1,0 +1,1010 @@
+{
+  "unidade": "USD por 1.000.000 de tokens",
+  "politica": "Preço de API público por token, plano padrão (standard/pay-as-you-go), faixa de contexto curto. Ver PRECOS.md.",
+  "politicaCache": {
+    "claude": {
+      "versao": "0.106.0",
+      "read": "sempre",
+      "write": "sempre",
+      "fonte": "@agentclientprotocol/claude-agent-acp 0.106.0: dist/v1/acp-agent.js:8299-8330; session-usage.js:146-147 (medido na thread thr_p2e28pdris)"
+    },
+    "codex": {
+      "versao": "2.6.0",
+      "read": "sempre",
+      "write": "sem prova",
+      "fonte": "@agentclientprotocol/codex-acp 2.6.0: dist/index.js:33774-33782, toPromptUsage (medido na thread thr_p2e28pdris)"
+    },
+    "gemini": {
+      "versao": "0.68.0",
+      "read": "omite",
+      "write": "sem prova",
+      "fonte": "@google/gemini-cli 0.68.0: totalCachedTokens || void 0 omite quando 0; cachedWriteTokens nunca emitido (ausência não prova escrita zero → sem preço; medido na thread thr_p2e28pdris)"
+    },
+    "opencode": {
+      "versao": "2.2.7",
+      "read": "omite",
+      "write": "sem prova",
+      "fonte": "opencode acp 2.2.7: translate.ts:157-160 omite cachedReadTokens quando 0; cachedWriteTokens não provado (medido na thread thr_p2e28pdris)"
+    },
+    "grok": {
+      "versao": "1.0.82",
+      "read": "sem prova",
+      "write": "sem prova",
+      "fonte": "@xai-official/grok 1.0.82: categoria C, sem evidência sobre omissão (medido na thread thr_p2e28pdris)"
+    }
+  },
+  "modelos": {
+    "claude-fable-5-2": {
+      "input": 8,
+      "output": 40,
+      "cache_read": 0.2,
+      "cache_write": 10,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-mythos-5-2": {
+      "input": 8,
+      "output": 40,
+      "cache_read": 0.2,
+      "cache_write": 10,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-fable-5-1": {
+      "input": 10,
+      "output": 50,
+      "cache_read": 0.25,
+      "cache_write": 12.5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-mythos-5-1": {
+      "input": 10,
+      "output": 50,
+      "cache_read": 0.25,
+      "cache_write": 12.5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-fable-5": {
+      "input": 10,
+      "output": 50,
+      "cache_read": 1,
+      "cache_write": 12.5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-mythos-5": {
+      "input": 10,
+      "output": 50,
+      "cache_read": 1,
+      "cache_write": 12.5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "output": 20,
+      "cache_read": 0.2,
+      "cache_write": 5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-5": {
+      "input": 5,
+      "output": 25,
+      "cache_read": 0.5,
+      "cache_write": 6.25,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-4-8": {
+      "input": 5,
+      "output": 25,
+      "cache_read": 0.5,
+      "cache_write": 6.25,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-4-7": {
+      "input": 5,
+      "output": 25,
+      "cache_read": 0.5,
+      "cache_write": 6.25,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-4-6": {
+      "input": 5,
+      "output": 25,
+      "cache_read": 0.5,
+      "cache_write": 6.25,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-4-5": {
+      "input": 5,
+      "output": 25,
+      "cache_read": 0.5,
+      "cache_write": 6.25,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-4-1": {
+      "input": 15,
+      "output": 75,
+      "cache_read": 1.5,
+      "cache_write": 18.75,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-opus-4": {
+      "input": 15,
+      "output": 75,
+      "cache_read": 1.5,
+      "cache_write": 18.75,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-sonnet-5-5": {
+      "input": 2,
+      "output": 10,
+      "cache_read": 0.1,
+      "cache_write": 2.5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "output": 10,
+      "cache_read": 0.2,
+      "cache_write": 2.5,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-sonnet-4-6": {
+      "input": 3,
+      "output": 15,
+      "cache_read": 0.3,
+      "cache_write": 3.75,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-sonnet-4-5": {
+      "input": 3,
+      "output": 15,
+      "cache_read": 0.3,
+      "cache_write": 3.75,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-sonnet-4": {
+      "input": 3,
+      "output": 15,
+      "cache_read": 0.3,
+      "cache_write": 3.75,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-haiku-5-5": {
+      "faixas": [
+        {
+          "ate": 100000,
+          "input": 0.1,
+          "output": 0.5,
+          "cache_read": 0.01,
+          "cache_write": 0.125
+        },
+        {
+          "input": 0.5,
+          "output": 2.5,
+          "cache_read": 0.05,
+          "cache_write": 0.625
+        }
+      ],
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "claude-haiku-4-5": {
+      "input": 1,
+      "output": 5,
+      "cache_read": 0.1,
+      "cache_write": 1.25,
+      "fonte": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-6-astra": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 25
+        },
+        {
+          "input": 20,
+          "output": 75,
+          "cache_read": 2,
+          "cache_write": 50
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-6.1-sol": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.1,
+          "cache_write": 5
+        },
+        {
+          "input": 4,
+          "output": 15,
+          "cache_read": 0.2,
+          "cache_write": 10
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-6.1-terra": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 1,
+          "output": 5,
+          "cache_read": 0.05,
+          "cache_write": 2.5
+        },
+        {
+          "input": 2,
+          "output": 7.5,
+          "cache_read": 0.1,
+          "cache_write": 5
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-6-sol": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.2,
+          "cache_write": 5
+        },
+        {
+          "input": 4,
+          "output": 15,
+          "cache_read": 0.4,
+          "cache_write": 10
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-6-luna": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 0.1,
+          "output": 0.5,
+          "cache_read": 0.01,
+          "cache_write": 0.25
+        },
+        {
+          "input": 0.2,
+          "output": 0.75,
+          "cache_read": 0.02,
+          "cache_write": 0.5
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.6-sol": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.4,
+          "cache_write": 10
+        },
+        {
+          "input": 8,
+          "output": 30,
+          "cache_read": 0.8,
+          "cache_write": 20
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.6-terra": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "cache_write": 5
+        },
+        {
+          "input": 4,
+          "output": 18,
+          "cache_read": 0.4,
+          "cache_write": 10
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.6-luna": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 0.2,
+          "output": 1.2,
+          "cache_read": 0.02,
+          "cache_write": 0.5
+        },
+        {
+          "input": 0.4,
+          "output": 1.8,
+          "cache_read": 0.04,
+          "cache_write": 1
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.5": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 5,
+          "output": 30,
+          "cache_read": 0.5
+        },
+        {
+          "input": 10,
+          "output": 45,
+          "cache_read": 1
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.5-pro": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 30,
+          "output": 180
+        },
+        {
+          "input": 60,
+          "output": 270
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.4": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 2.5,
+          "output": 15,
+          "cache_read": 0.25
+        },
+        {
+          "input": 5,
+          "output": 22.5,
+          "cache_read": 0.5
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.4-pro": {
+      "faixas": [
+        {
+          "ate": 272000,
+          "input": 30,
+          "output": 180
+        },
+        {
+          "input": 60,
+          "output": 270
+        }
+      ],
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.4-mini": {
+      "input": 0.75,
+      "output": 4.5,
+      "cache_read": 0.075,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.4-nano": {
+      "input": 0.2,
+      "output": 1.25,
+      "cache_read": 0.02,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.2": {
+      "input": 1.75,
+      "output": 14,
+      "cache_read": 0.175,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.2-pro": {
+      "input": 21,
+      "output": 168,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5.1": {
+      "input": 1.25,
+      "output": 10,
+      "cache_read": 0.125,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5": {
+      "input": 1.25,
+      "output": 10,
+      "cache_read": 0.125,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5-mini": {
+      "input": 0.25,
+      "output": 2,
+      "cache_read": 0.025,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5-nano": {
+      "input": 0.05,
+      "output": 0.4,
+      "cache_read": 0.005,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-5-pro": {
+      "input": 15,
+      "output": 120,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-4.1": {
+      "input": 2,
+      "output": 8,
+      "cache_read": 0.5,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-4.1-mini": {
+      "input": 0.4,
+      "output": 1.6,
+      "cache_read": 0.1,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-4o": {
+      "input": 2.5,
+      "output": 10,
+      "cache_read": 1.25,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gpt-4o-mini": {
+      "input": 0.15,
+      "output": 0.6,
+      "cache_read": 0.075,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "o3": {
+      "input": 2,
+      "output": 8,
+      "cache_read": 0.5,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "o3-pro": {
+      "input": 20,
+      "output": 80,
+      "fonte": "https://platform.openai.com/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-4-carbon": {
+      "input": 2,
+      "output": 10,
+      "cache_read": 0.1,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-4-argon": {
+      "input": 2,
+      "output": 10,
+      "cache_read": 0.1,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-3.8-flash": {
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-3.6-flash": {
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-3.5-flash-lite": {
+      "input": 0.3,
+      "output": 2.5,
+      "cache_read": 0.03,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-3.1-flash-lite": {
+      "input": 0.25,
+      "output": 1.5,
+      "cache_read": 0.025,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-3.1-pro-preview": {
+      "faixas": [
+        {
+          "ate": 200000,
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2
+        },
+        {
+          "input": 4,
+          "output": 18,
+          "cache_read": 0.4
+        }
+      ],
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-3-flash-preview": {
+      "input": 0.5,
+      "output": 3,
+      "cache_read": 0.05,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-2.5-pro": {
+      "faixas": [
+        {
+          "ate": 200000,
+          "input": 1.25,
+          "output": 10,
+          "cache_read": 0.125
+        },
+        {
+          "input": 2.5,
+          "output": 15,
+          "cache_read": 0.25
+        }
+      ],
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-2.5-flash": {
+      "input": 0.3,
+      "output": 2.5,
+      "cache_read": 0.03,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "gemini-2.5-flash-lite": {
+      "input": 0.1,
+      "output": 0.4,
+      "cache_read": 0.01,
+      "fonte": "https://ai.google.dev/gemini-api/docs/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.7": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.5
+        },
+        {
+          "input": 4,
+          "output": 12,
+          "cache_read": 1
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.6": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.5
+        },
+        {
+          "input": 4,
+          "output": 12,
+          "cache_read": 1
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.5": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.3
+        },
+        {
+          "input": 4,
+          "output": 12,
+          "cache_read": 0.6
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.3": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 1.25,
+          "output": 2.5,
+          "cache_read": 0.2
+        },
+        {
+          "input": 2.5,
+          "output": 5,
+          "cache_read": 0.4
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.20-0309-reasoning": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 1.25,
+          "output": 2.5,
+          "cache_read": 0.2
+        },
+        {
+          "input": 2.5,
+          "output": 5,
+          "cache_read": 0.4
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.20-0309-non-reasoning": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 1.25,
+          "output": 2.5,
+          "cache_read": 0.2
+        },
+        {
+          "input": 2.5,
+          "output": 5,
+          "cache_read": 0.4
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-4.20-multi-agent-0309": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 1.25,
+          "output": 2.5,
+          "cache_read": 0.2
+        },
+        {
+          "input": 2.5,
+          "output": 5,
+          "cache_read": 0.4
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "grok-build-0.1": {
+      "faixas": [
+        {
+          "ate": 199999,
+          "input": 1,
+          "output": 2,
+          "cache_read": 0.2
+        },
+        {
+          "input": 2,
+          "output": 4,
+          "cache_read": 0.4
+        }
+      ],
+      "fonte": "https://docs.x.ai/developers/pricing",
+      "data": "2026-11-11"
+    },
+    "deepseek-flash": {
+      "input": 0.3,
+      "output": 1.2,
+      "cache_read": 0.006,
+      "fonte": "https://api-docs.deepseek.com/quick_start/pricing",
+      "data": "2026-11-11"
+    },
+    "deepseek-v4-pro": {
+      "input": 1.32,
+      "output": 3.96,
+      "cache_read": 0.044,
+      "fonte": "https://api-docs.deepseek.com/quick_start/pricing",
+      "data": "2026-11-11"
+    },
+    "MiniMax-M3.1-Flash": {
+      "input": 0.15,
+      "output": 0.6,
+      "cache_read": 0.015,
+      "fonte": "https://platform.minimax.io/docs/guides/pricing",
+      "data": "2026-11-11"
+    },
+    "MiniMax-M3": {
+      "faixas": [
+        {
+          "ate": 512000,
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.06
+        },
+        {
+          "input": 0.6,
+          "output": 2.4,
+          "cache_read": 0.12
+        }
+      ],
+      "fonte": "https://platform.minimax.io/docs/guides/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5.3": {
+      "input": 1.4,
+      "output": 4.4,
+      "cache_read": 0.26,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5.3-Flash": {
+      "input": 0.15,
+      "output": 0.5,
+      "cache_read": 0.03,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5.3-FlashX": {
+      "input": 0.37,
+      "output": 1.25,
+      "cache_read": 0.075,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5.3-FlashX-Legal": {
+      "input": 0.37,
+      "output": 1.25,
+      "cache_read": 0.075,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5.2": {
+      "input": 1.4,
+      "output": 4.4,
+      "cache_read": 0.26,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5.1": {
+      "input": 1.4,
+      "output": 4.4,
+      "cache_read": 0.26,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-5": {
+      "input": 1,
+      "output": 3.2,
+      "cache_read": 0.2,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.7": {
+      "input": 0.6,
+      "output": 2.2,
+      "cache_read": 0.11,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.6": {
+      "input": 0.6,
+      "output": 2.2,
+      "cache_read": 0.11,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.7-FlashX": {
+      "input": 0.07,
+      "output": 0.4,
+      "cache_read": 0.01,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.7-Flash": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.6V": {
+      "input": 0.3,
+      "output": 0.9,
+      "cache_read": 0.05,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.6V-FlashX": {
+      "input": 0.04,
+      "output": 0.4,
+      "cache_read": 0.004,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.6V-Flash": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.5": {
+      "input": 0.6,
+      "output": 2.2,
+      "cache_read": 0.11,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.5-X": {
+      "input": 2.2,
+      "output": 8.9,
+      "cache_read": 0.45,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.5-Air": {
+      "input": 0.2,
+      "output": 1.1,
+      "cache_read": 0.03,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.5-AirX": {
+      "input": 1.1,
+      "output": 4.5,
+      "cache_read": 0.22,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.5V": {
+      "input": 0.6,
+      "output": 1.8,
+      "cache_read": 0.11,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4.5-Flash": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "GLM-4-32B-0414-128K": {
+      "input": 0.1,
+      "output": 0.1,
+      "fonte": "https://docs.z.ai/guides/overview/pricing",
+      "data": "2026-11-11"
+    },
+    "qwen3.8-max": {
+      "input": 2,
+      "output": 6,
+      "fonte": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "data": "2026-11-11"
+    },
+    "qwen3.8-max-0902": {
+      "input": 2,
+      "output": 6,
+      "fonte": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "data": "2026-11-11"
+    },
+    "qwen3.7-max": {
+      "input": 2.5,
+      "output": 7.5,
+      "fonte": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "data": "2026-11-11"
+    },
+    "qwen3.7-max-preview": {
+      "input": 2.5,
+      "output": 7.5,
+      "fonte": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "data": "2026-11-11"
+    },
+    "qwen3-coder-flash": {
+      "faixas": [
+        {
+          "ate": 32000,
+          "input": 0.3,
+          "output": 1.5
+        },
+        {
+          "ate": 128000,
+          "input": 0.5,
+          "output": 2.5
+        },
+        {
+          "ate": 256000,
+          "input": 0.8,
+          "output": 4
+        },
+        {
+          "ate": 1000000,
+          "input": 1.6,
+          "output": 9.6
+        }
+      ],
+      "fonte": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "data": "2026-11-11"
+    }
+  },
+  "aliases": {
+    "deepseek-v4-flash": "deepseek-flash",
+    "deepseek-v4-flash-vision-exp": "deepseek-flash",
+    "gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview",
+    "qwen3.7-max-2026-05-20": "qwen3.7-max",
+    "qwen3.7-max-2026-06-08": "qwen3.7-max",
+    "qwen3-coder-flash-2025-07-28": "qwen3-coder-flash"
+  }
+}

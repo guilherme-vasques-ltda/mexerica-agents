@@ -1,0 +1,331 @@
+//! Fichas que moram em arquivo JSON (`fichas/*.json`), lidas em tempo de compilação com `include_str!`.
+//! O arquivo tem o mesmo formato do que o catálogo entrega ao app. Ficha malformada nunca entra no catálogo: o
+//! erro é registrado e o serviço fica de fora (fail-closed); o teste do catálogo reprova esse caso.
+use super::catalogo_servicos::{
+    Auth, CATEGORIAS, Grupo, Imposicao, Links, Perigosa, Servico, SkillOficial, SkillRef, Tipo, TipoConexao,
+};
+use serde::Deserialize;
+
+/// Ficha do dono A (decisão do dono, 17/11/2026). O nome do produto só pode aparecer dentro deste arquivo.
+pub(super) const FICHA_DONO_A: &str = include_str!("fichas/ficha-dono-a.json");
+
+/// Todas as fichas, na ordem em que o catálogo as mostra (a do dono A vai primeiro). Cada arquivo novo de `fichas/`
+/// entra aqui; o teste `todo_arquivo_de_fichas_esta_na_lista` reprova o esquecimento.
+pub(super) const FICHAS: &[&str] = &[
+    FICHA_DONO_A,
+    include_str!("fichas/linear.json"),
+    include_str!("fichas/context7.json"),
+    include_str!("fichas/exa.json"),
+    include_str!("fichas/neon.json"),
+    include_str!("fichas/wispr-flow.json"),
+    include_str!("fichas/github.json"),
+    include_str!("fichas/supabase.json"),
+    include_str!("fichas/todoist.json"),
+    include_str!("fichas/clickup.json"),
+    include_str!("fichas/metricool.json"),
+    include_str!("fichas/lovable.json"),
+    include_str!("fichas/firecrawl.json"),
+    include_str!("fichas/render.json"),
+    include_str!("fichas/short-io.json"),
+    include_str!("fichas/composio.json"),
+    include_str!("fichas/outlook.json"),
+    include_str!("fichas/slack.json"),
+    include_str!("fichas/instagram.json"),
+    include_str!("fichas/airtable.json"),
+    include_str!("fichas/atlassian.json"),
+    include_str!("fichas/attio.json"),
+    include_str!("fichas/brevo.json"),
+    include_str!("fichas/browser-use.json"),
+    include_str!("fichas/cal-com.json"),
+    include_str!("fichas/calendly.json"),
+    include_str!("fichas/camtasia.json"),
+    include_str!("fichas/cloudflare.json"),
+    include_str!("fichas/coda.json"),
+    include_str!("fichas/descript.json"),
+    include_str!("fichas/expo.json"),
+    include_str!("fichas/fal.json"),
+    include_str!("fichas/granola.json"),
+    include_str!("fichas/higgsfield.json"),
+    include_str!("fichas/jungle-scout.json"),
+    include_str!("fichas/mem0.json"),
+    include_str!("fichas/monday.json"),
+    include_str!("fichas/notion.json"),
+    include_str!("fichas/openrouter.json"),
+    include_str!("fichas/paypal.json"),
+    include_str!("fichas/pipedrive.json"),
+    include_str!("fichas/plaud.json"),
+    include_str!("fichas/railway.json"),
+    include_str!("fichas/resend.json"),
+    include_str!("fichas/semrush.json"),
+    include_str!("fichas/sentry.json"),
+    include_str!("fichas/stripe.json"),
+    include_str!("fichas/tally.json"),
+    include_str!("fichas/tiktok-ads.json"),
+    include_str!("fichas/tinyfish.json"),
+    include_str!("fichas/vidiq.json"),
+    include_str!("fichas/wix.json"),
+];
+
+/// Cada string é vazada uma única vez na partida: o catálogo inteiro vive até o fim do processo.
+fn fixa(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
+}
+fn fixos(v: Vec<String>) -> &'static [&'static str] {
+    Box::leak(v.into_iter().map(fixa).collect::<Vec<_>>().into_boxed_slice())
+}
+fn lista<T>(v: Vec<T>) -> &'static [T] {
+    Box::leak(v.into_boxed_slice())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ServicoJson {
+    id: String,
+    nome: String,
+    categoria: String,
+    descricao: String,
+    exemplos: Vec<String>,
+    site: String,
+    #[serde(default)]
+    docs: Option<String>,
+    links: LinksJson,
+    conferida_em: String,
+    fontes: Vec<String>,
+    #[serde(default)]
+    aviso: Option<String>,
+    tipos: Vec<TipoJson>,
+    #[serde(default)]
+    skills: Vec<SkillJson>,
+    #[serde(default)]
+    skills_oficiais: Vec<SkillOficialJson>,
+    #[serde(default)]
+    em_breve: Option<String>,
+}
+
+/// Skill do catálogo curado que a ficha sugere depois de conectar (`id` é o da skill, conferido contra o catálogo).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkillJson {
+    id: String,
+    titulo: String,
+    resumo: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SkillOficialJson {
+    url: String,
+    origem: String,
+    licenca: String,
+    aproveitavel: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LinksJson {
+    privacidade: String,
+    termos: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TipoJson {
+    id: String,
+    tipo: Tipo,
+    rotulo: String,
+    mantido_por: String,
+    url: String,
+    auth: AuthJson,
+    grupos: Vec<GrupoJson>,
+    #[serde(default)]
+    perigosas: Vec<PerigosaJson>,
+    recomendado: bool,
+    disponivel: bool,
+    #[serde(default)]
+    motivo_indisponivel: Option<String>,
+}
+
+/// O bloco de login, como está no arquivo: recusa campo desconhecido como o resto da ficha, e cada `modo` só aceita os
+/// seus campos (um segredo de app colado por engano em `auth` tira a ficha do catálogo).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AuthBruto {
+    modo: String,
+    registro: Option<String>,
+    destino: Option<String>,
+    nome: Option<String>,
+    prefixo: Option<String>,
+    como_criar_leitura: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(try_from = "AuthBruto")]
+enum AuthJson {
+    Oauth { registro: String },
+    Chave { destino: String, nome: String, prefixo: Option<String>, como_criar_leitura: String },
+}
+
+impl TryFrom<AuthBruto> for AuthJson {
+    type Error = String;
+    fn try_from(b: AuthBruto) -> Result<Self, String> {
+        match (b.modo.as_str(), b.registro, b.destino, b.nome, b.prefixo, b.como_criar_leitura) {
+            ("oauth", Some(registro), None, None, None, None) => Ok(Self::Oauth { registro }),
+            ("chave", None, Some(destino), Some(nome), prefixo, Some(como_criar_leitura)) => {
+                Ok(Self::Chave { destino, nome, prefixo, como_criar_leitura })
+            }
+            _ => Err("auth inválido: o modo não combina com os campos".to_owned()),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GrupoJson {
+    id: String,
+    rotulo: String,
+    escopos: Vec<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    ferramentas: Vec<String>,
+    padrao: bool,
+    disponivel: bool,
+    #[serde(default)]
+    imposicao: Option<Imposicao>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PerigosaJson {
+    ferramenta: String,
+    rotulo: String,
+}
+
+impl ServicoJson {
+    /// As regras que a ficha cumpre antes de entrar no catálogo (fail-closed: o motivo vai no erro, sem eco do arquivo).
+    fn conferir(&self) -> Result<(), String> {
+        if !CATEGORIAS.contains(&self.categoria.as_str()) {
+            return Err(format!("categoria fora da lista fechada em `{}`", self.id));
+        }
+        let https = |url: &str| url.starts_with("https://");
+        let links = [&self.site, &self.links.privacidade, &self.links.termos];
+        let docs = self.docs.iter();
+        let skills = self.skills_oficiais.iter().map(|s| &s.url);
+        let tipos = self.tipos.iter().map(|t| &t.url);
+        if !links.into_iter().chain(docs).chain(skills).chain(tipos).all(|url| https(url)) {
+            return Err(format!("endereço sem https em `{}`", self.id));
+        }
+        if self.descricao.chars().count() > 140 {
+            return Err(format!("descrição acima de 140 caracteres em `{}`", self.id));
+        }
+        let ids_das_skills: Vec<&str> = self.skills.iter().map(|s| s.id.as_str()).collect();
+        let skills_ok =
+            self.skills.iter().all(|s| !s.titulo.is_empty() && !s.resumo.is_empty() && s.resumo.chars().count() <= 160);
+        let id_ok =
+            |id: &&str| !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !skills_ok
+            || !ids_das_skills.iter().all(id_ok)
+            || ids_das_skills.iter().enumerate().any(|(i, id)| ids_das_skills[..i].contains(id))
+        {
+            return Err(format!("skill sugerida inválida em `{}`", self.id));
+        }
+        for tipo in &self.tipos {
+            if !tipo.id.starts_with(&self.id) {
+                return Err(format!("tipo `{}` não pertence à ficha `{}`", tipo.id, self.id));
+            }
+            if tipo.disponivel && tipo.grupos.iter().any(|g| g.disponivel && g.imposicao.is_none()) {
+                return Err(format!("grupo disponível sem leitura imposta pelo fornecedor em `{}`", tipo.id));
+            }
+        }
+        Ok(())
+    }
+
+    fn fixar(self) -> Servico {
+        let id = fixa(self.id);
+        Servico {
+            id,
+            marca: id,
+            nome: fixa(self.nome),
+            categoria: fixa(self.categoria),
+            descricao: fixa(self.descricao),
+            exemplos: fixos(self.exemplos),
+            site: fixa(self.site),
+            docs: self.docs.map(fixa),
+            links: Links { privacidade: fixa(self.links.privacidade), termos: fixa(self.links.termos) },
+            conferida_em: fixa(self.conferida_em),
+            fontes: fixos(self.fontes),
+            aviso: self.aviso.map(fixa),
+            tipos: lista(self.tipos.into_iter().map(TipoJson::fixar).collect()),
+            skills: lista(
+                self.skills
+                    .into_iter()
+                    .map(|s| SkillRef { id: fixa(s.id), titulo: fixa(s.titulo), resumo: fixa(s.resumo) })
+                    .collect(),
+            ),
+            skills_oficiais: lista(
+                self.skills_oficiais
+                    .into_iter()
+                    .map(|s| SkillOficial {
+                        url: fixa(s.url),
+                        origem: fixa(s.origem),
+                        licenca: fixa(s.licenca),
+                        aproveitavel: s.aproveitavel,
+                    })
+                    .collect(),
+            ),
+            em_breve: self.em_breve.map(fixa),
+        }
+    }
+}
+
+impl TipoJson {
+    fn fixar(self) -> TipoConexao {
+        TipoConexao {
+            id: fixa(self.id),
+            tipo: self.tipo,
+            rotulo: fixa(self.rotulo),
+            mantido_por: fixa(self.mantido_por),
+            url: fixa(self.url),
+            auth: match self.auth {
+                AuthJson::Oauth { registro } => Auth::Oauth { registro: fixa(registro) },
+                AuthJson::Chave { destino, nome, prefixo, como_criar_leitura } => Auth::Chave {
+                    destino: fixa(destino),
+                    nome: fixa(nome),
+                    prefixo: prefixo.map(fixa),
+                    como_criar_leitura: fixa(como_criar_leitura),
+                },
+            },
+            grupos: lista(
+                self.grupos
+                    .into_iter()
+                    .map(|g| Grupo {
+                        id: fixa(g.id),
+                        rotulo: fixa(g.rotulo),
+                        escopos: fixos(g.escopos),
+                        url: g.url.map(fixa),
+                        ferramentas: fixos(g.ferramentas),
+                        padrao: g.padrao,
+                        disponivel: g.disponivel,
+                        imposicao: g.imposicao,
+                    })
+                    .collect(),
+            ),
+            perigosas: lista(
+                self.perigosas
+                    .into_iter()
+                    .map(|p| Perigosa { ferramenta: fixa(p.ferramenta), rotulo: fixa(p.rotulo) })
+                    .collect(),
+            ),
+            recomendado: self.recomendado,
+            disponivel: self.disponivel,
+            motivo_indisponivel: self.motivo_indisponivel.map(fixa),
+        }
+    }
+}
+
+/// `Err` com o motivo (sem eco do arquivo) se o JSON não for uma ficha válida.
+pub(super) fn ler(json: &str) -> Result<Servico, serde_json::Error> {
+    let ficha = serde_json::from_str::<ServicoJson>(json)?;
+    ficha.conferir().map_err(<serde_json::Error as serde::de::Error>::custom)?;
+    Ok(ficha.fixar())
+}

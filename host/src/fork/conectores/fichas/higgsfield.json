@@ -1,0 +1,56 @@
+{
+  "id": "higgsfield",
+  "nome": "Higgsfield",
+  "categoria": "Design e mídia",
+  "descricao": "Plataforma de geração por IA (imagem, vídeo, áudio, dublagem, personagens Soul): o MCP roda as mesmas gerações do site.",
+  "exemplos": [
+    "Crie um vídeo curto a partir desta imagem",
+    "Mostre as últimas criações da minha conta"
+  ],
+  "site": "https://higgsfield.ai",
+  "docs": "https://higgsfield.ai/creator-hub/help-center/integrations/what-is-higgsfield-mcp",
+  "links": {
+    "privacidade": "https://higgsfield.ai/privacy-policy",
+    "termos": "https://higgsfield.ai/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://higgsfield.ai/creator-hub/help-center/integrations/what-is-higgsfield-mcp",
+    "https://mcp.higgsfield.ai/.well-known/oauth-protected-resource"
+  ],
+  "aviso": "Gasta créditos da sua conta do Higgsfield a cada criação.",
+  "tipos": [
+    {
+      "id": "higgsfield.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Higgsfield",
+      "url": "https://mcp.higgsfield.ai/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Higgsfield não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/higgsfield-ai/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "decisao": "D528",
+  "ferramenta": "image_gen integrado",
+  "motivo": "A primeira saída tinha fundo residual sem alpha zero. Foi feita edição de remoção de fundo pela ferramenta, sem redesenhar por código.",
+  "correcoes": [
+    {
+      "id": "rh",
+      "prompt": "Edit the supplied animation atlas ONLY to remove its beige/cream background. Preserve every pixel of all NINE plush fruit dolls: SAME identities, colors, clothing, expressions, positions and grid. This is a background removal / transparent cutout task, not a redesign. Remove the ground and ALL ground/cast shadows too. The entire area outside each doll must have alpha EXACTLY ZERO. Keep soft antialiased felt silhouette edges. No white, gray, beige, checkerboard, gradient or studio backdrop may remain. Do not add anything. Output PNG with REAL TRANSPARENT alpha, preserving the 3x3 nine-frame grid and exact framing."
+    },
+    {
+      "id": "suporte",
+      "prompt": "Edit the supplied animation atlas ONLY to remove its beige/cream background. Preserve every pixel of all NINE plush fruit dolls: SAME identities, colors, clothing, expressions, positions and grid. This is a background removal / transparent cutout task, not a redesign. Remove the ground and ALL ground/cast shadows too. The entire area outside each doll must have alpha EXACTLY ZERO. Keep soft antialiased felt silhouette edges. No white, gray, beige, checkerboard, gradient or studio backdrop may remain. Do not add anything. Output PNG with REAL TRANSPARENT alpha, preserving the 3x3 nine-frame grid and exact framing."
+    }
+  ]
+}

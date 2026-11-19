@@ -1,0 +1,42 @@
+/* Times R3a / MB-2: seção "Pedidos entre bots" do Mission Board. Só tokens do redesenho (styles/tokens.css);
+   reaproveita .torre-group, .torre-pill e .torre-button sem alterar torre.css. */
+
+.pedidos-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.pedidos-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: var(--text-callout);
+}
+.pedidos-row + .pedidos-row { border-top: 1px solid var(--line); }
+.pedidos-faces { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.pedidos-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.pedidos-who b { color: var(--ink); font-weight: 600; }
+.pedidos-when { flex: none; color: var(--ink-2); min-width: 170px; }
+.pedidos-more {
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+}
+.pedidos-empty {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+}
+.torre-pill.pedidos-tone-uncertain { background: var(--attention-soft); color: var(--text-attention, var(--attention)); }
+.torre-pill.pedidos-tone-error { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--text-danger, var(--danger)); }
+.torre-pill.pedidos-tone-neutral { background: var(--group); color: var(--ink-2); }

@@ -1,0 +1,50 @@
+{
+  "id": "paypal",
+  "nome": "PayPal",
+  "categoria": "Finanças e pagamentos",
+  "descricao": "Pagamentos e faturamento: cria e envia faturas, consulta transações e disputas e processa cobranças, reembolsos e assinaturas.",
+  "exemplos": [
+    "Quais pagamentos recebi no PayPal esta semana?",
+    "Liste as transações da última semana"
+  ],
+  "site": "https://www.paypal.com",
+  "docs": "https://developer.paypal.com/ai-tools/mcp-server",
+  "links": {
+    "privacidade": "https://www.paypal.com/legalhub/privacy-full",
+    "termos": "https://www.paypal.com/legalhub/useragreement-full"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developer.paypal.com/ai-tools/mcp-server",
+    "https://mcp.paypal.com/register",
+    "https://mcp.paypal.com/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "Mexe com dinheiro (cobranças, reembolsos e transferências); só entra com o filtro de ações perigosas.",
+  "tipos": [
+    {
+      "id": "paypal.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "PayPal",
+      "url": "https://mcp.paypal.com/http",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O PayPal não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": []
+}

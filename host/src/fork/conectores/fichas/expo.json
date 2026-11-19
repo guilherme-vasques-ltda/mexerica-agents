@@ -1,0 +1,62 @@
+{
+  "id": "expo",
+  "nome": "Expo",
+  "categoria": "Código",
+  "descricao": "Ferramentas Expo/React Native: o MCP busca a documentação oficial, gerencia builds EAS e controla simuladores do app.",
+  "exemplos": [
+    "Como está o último build do meu app no Expo?",
+    "Liste as atualizações publicadas esta semana"
+  ],
+  "site": "https://expo.dev",
+  "docs": "https://docs.expo.dev/mcp/",
+  "links": {
+    "privacidade": "https://expo.dev/privacy",
+    "termos": "https://expo.dev/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.expo.dev/mcp/",
+    "https://mcp.expo.dev/oauth/register",
+    "https://mcp.expo.dev/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "expo.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Expo",
+      "url": "https://mcp.expo.dev/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Expo não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/expo/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    },
+    {
+      "url": "https://github.com/expo/expo-mcp",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

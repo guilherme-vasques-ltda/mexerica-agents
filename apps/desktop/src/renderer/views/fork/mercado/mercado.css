@@ -1,0 +1,187 @@
+/* Marketplace de conectores (fatia 1b): só o que é dele. Cores, raios, tipos e movimento vêm dos tokens; nada de
+   cor ou tamanho solto. A casca (lista lateral, cabeçalho, página) é a de Extensões. */
+.mercado { display: flex; flex-direction: column; gap: var(--sp-20); padding-bottom: var(--sp-24); min-width: 0; }
+.mercado-topo { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); flex-wrap: wrap; }
+/* As abas Catálogo | Minhas contas ficam fixas no topo ao rolar (não o topo do fluxo Conectar). */
+.mercado-topo.mercado-abas { position: sticky; top: 0; z-index: 2; padding-block: var(--sp-8); background: var(--content-ground, var(--canvas)); border-bottom: 1px solid var(--line); }
+.mercado-contador { margin-inline-start: var(--sp-6); color: var(--text-tertiary, var(--ink-3)); }
+.mercado-secao { display: flex; flex-direction: column; gap: var(--sp-10); min-width: 0; }
+.mercado-secao-topo { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-12); }
+.mercado-sub { color: var(--context-ink-2, var(--ink-2)); }
+.mercado-aviso { display: flex; gap: var(--sp-8); align-items: flex-start; padding: var(--sp-10) var(--sp-12); border-radius: var(--radius-s); background: var(--group); color: var(--context-ink-2, var(--ink-2)); }
+.mercado-aviso.alerta { background: var(--accent-soft); color: var(--text-primary, var(--ink)); }
+.mercado-link { color: var(--accent); background: none; border: 0; padding: 0; text-align: start; font: inherit; }
+.mercado-link:hover { text-decoration: underline; }
+.mercado-link.discreto { color: var(--context-ink-2, var(--ink-2)); text-decoration: underline; }
+.mercado-voltar { display: inline-flex; align-items: center; gap: var(--sp-6); color: var(--context-ink-2, var(--ink-2)); background: none; border: 0; padding: 0; font: inherit; align-self: flex-start; }
+.mercado-voltar:hover { color: var(--text-primary, var(--ink)); }
+
+/* Categorias */
+.mercado-categorias { display: flex; flex-wrap: wrap; gap: var(--sp-8); }
+.mercado-categoria { display: inline-flex; align-items: baseline; gap: var(--sp-6); padding: var(--sp-6) var(--sp-12); border-radius: var(--radius-pill); border: 1px solid var(--line); background: none; color: var(--context-ink-2, var(--ink-2)); font: inherit; transition: background-color var(--motion-hover), color var(--motion-hover); }
+.mercado-categoria-n { opacity: 0.6; }
+.mercado-categoria:hover { background: var(--hover); }
+.mercado-categoria[aria-pressed='true'] { background: var(--text-primary, var(--ink)); border-color: transparent; color: var(--content-ground, var(--canvas)); }
+
+/* Linhas do catálogo */
+.mercado-categoria-bloco { display: flex; flex-direction: column; gap: var(--sp-6); margin-top: var(--sp-8); }
+.mercado-categoria-titulo { display: flex; align-items: baseline; gap: var(--sp-8); }
+.mercado-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4) var(--sp-24); }
+.mercado-card { display: flex; align-items: center; gap: var(--sp-14); padding: var(--sp-12) var(--sp-14); border-radius: var(--radius-m); border: 1px solid transparent; background: none; text-align: start; font: inherit; min-width: 0; transition: background-color var(--motion-hover); }
+.mercado-card:hover { background: var(--hover); }
+.mercado-card-texto { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
+.mercado-selos { display: inline-flex; align-items: center; gap: var(--sp-6); color: var(--text-tertiary, var(--ink-3)); }
+.mercado-selos.alerta { color: var(--warning); }
+.mercado-card-fim { display: inline-flex; align-items: center; gap: var(--sp-6); flex: none; color: var(--context-ink-2, var(--ink-2)); }
+.mercado-ponto { width: var(--sp-6); height: var(--sp-6); border-radius: var(--radius-pill); background: var(--success); flex: none; }
+.mercado-ponto.alerta { background: var(--warning); }
+.mercado-capsula { padding: var(--sp-6) var(--sp-14); border-radius: var(--radius-pill); border: 1px solid var(--line); background: var(--raised); font: inherit; color: var(--text-primary, var(--ink)); transition: background-color var(--motion-hover); }
+.mercado-capsula:hover { background: var(--hover); }
+.mercado-embreve { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--sp-8); }
+.mercado-embreve-item { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-10) var(--sp-12); border-radius: var(--radius-m); border: 1px solid var(--line); background: none; text-align: start; font: inherit; color: var(--context-ink-2, var(--ink-2)); min-width: 0; }
+.mercado-embreve-item:hover { background: var(--hover); }
+
+/* Ficha */
+.mercado-ficha { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: var(--sp-32); align-items: start; }
+.mercado-ficha-principal, .mercado-ficha-lateral { display: flex; flex-direction: column; gap: var(--sp-20); min-width: 0; }
+.mercado-cabeca { display: flex; gap: var(--sp-16); align-items: flex-start; }
+.mercado-balao { align-self: flex-start; max-width: 100%; padding: var(--sp-8) var(--sp-14); border-radius: var(--radius-m); background: var(--group); }
+.mercado-exemplos { display: flex; flex-direction: column; gap: var(--sp-8); align-items: flex-start; }
+.mercado-jeitos { display: flex; flex-direction: column; gap: var(--sp-8); }
+.mercado-jeito { display: flex; gap: var(--sp-12); align-items: flex-start; padding: var(--sp-12) var(--sp-14); border-radius: var(--radius-m); border: 1px solid var(--line); background: none; text-align: start; font: inherit; color: inherit; transition: background-color var(--motion-hover), border-color var(--motion-hover); }
+.mercado-jeito:hover { background: var(--hover); }
+.mercado-jeito[aria-checked='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.mercado-jeito:disabled { opacity: 0.6; }
+.mercado-marca { flex: none; width: var(--sp-16); height: var(--sp-16); margin-top: var(--sp-2); border-radius: var(--radius-pill); border: 1.5px solid var(--line-strong); }
+.mercado-jeito[aria-checked='true'] .mercado-marca { border: 5px solid var(--accent); }
+.mercado-etiqueta { padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent); }
+.mercado-etiqueta.neutra { background: var(--selected); color: var(--context-ink-2, var(--ink-2)); }
+.mercado-lista-fina { display: flex; flex-direction: column; }
+.mercado-lista-fina > * { padding: var(--sp-10) 0; border-bottom: 1px solid var(--line); }
+.mercado-lista-fina > *:last-child { border-bottom: 0; }
+.mercado-linha { display: flex; align-items: center; gap: var(--sp-10); min-width: 0; }
+.mercado-detalhes { display: flex; flex-direction: column; gap: var(--sp-6); padding: var(--sp-10) var(--sp-12); border-radius: var(--radius-s); background: var(--group); }
+.mercado-mono { font-family: var(--font-mono); overflow-wrap: anywhere; }
+
+/* Conectar */
+.mercado-passos { display: flex; align-items: center; gap: var(--sp-10); color: var(--text-tertiary, var(--ink-3)); }
+.mercado-passo { display: inline-flex; align-items: center; gap: var(--sp-6); }
+.mercado-passo[aria-current='step'] { color: var(--text-primary, var(--ink)); }
+.mercado-passo-numero { display: inline-grid; place-items: center; width: var(--sp-16); height: var(--sp-16); border-radius: var(--radius-pill); border: 1px solid var(--line-strong); }
+.mercado-passo[aria-current='step'] .mercado-passo-numero { background: var(--text-primary, var(--ink)); color: var(--content-ground, var(--canvas)); border-color: transparent; }
+.mercado-passo.feito .mercado-passo-numero { background: var(--success); color: var(--on-accent); border-color: transparent; }
+.mercado-conectar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: var(--sp-32); align-items: start; }
+.mercado-bloco { display: flex; flex-direction: column; gap: var(--sp-10); padding: var(--sp-12) var(--sp-14); border-radius: var(--radius-m); background: var(--group); }
+.mercado-campo-linha { display: grid; grid-template-columns: minmax(120px, 200px) minmax(0, 1fr); gap: var(--sp-12); align-items: start; }
+.mercado-campo { width: 100%; min-height: 36px; padding: var(--sp-8) var(--sp-12); border-radius: var(--radius-s); border: 1px solid var(--line); background: var(--raised); color: var(--text-primary, var(--ink)); font: inherit; }
+.mercado-campo:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.mercado-campo[aria-invalid='true'] { border-color: var(--danger-fill); }
+.mercado-erro { display: flex; gap: var(--sp-6); align-items: flex-start; color: var(--danger-fill); }
+.mercado-liberacoes { display: flex; flex-direction: column; border-radius: var(--radius-m); background: var(--group); overflow: hidden; }
+.mercado-liberacao { display: flex; align-items: flex-start; gap: var(--sp-12); padding: var(--sp-12) var(--sp-14); border-bottom: 1px solid var(--line); cursor: pointer; }
+.mercado-liberacao:last-child { border-bottom: 0; }
+.mercado-liberacao[aria-disabled='true'] { opacity: 0.6; cursor: default; }
+.mercado-liberacao input { margin-top: var(--sp-2); width: var(--sp-16); height: var(--sp-16); accent-color: var(--accent); flex: none; }
+.mercado-personalizar { display: flex; align-items: center; gap: var(--sp-12); width: 100%; padding: var(--sp-12) var(--sp-14); background: none; border: 0; border-top: 1px solid var(--line); text-align: start; font: inherit; color: inherit; }
+.mercado-personalizar:hover { background: var(--hover); }
+.mercado-perigosas { display: flex; flex-direction: column; border-radius: var(--radius-l); border: 1px solid var(--line); background: var(--raised); }
+.mercado-perigosas > * { padding: var(--sp-12) var(--sp-14); border-bottom: 1px solid var(--line); }
+.mercado-perigosas > *:last-child { border-bottom: 0; }
+.mercado-perigosa { display: flex; justify-content: space-between; gap: var(--sp-12); }
+.mercado-rodape { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); padding-top: var(--sp-14); border-top: 1px solid var(--line); flex-wrap: wrap; }
+.mercado-acoes { display: flex; align-items: center; gap: var(--sp-12); flex-wrap: wrap; }
+.mercado-botao-texto { background: none; border: 0; padding: var(--sp-8) var(--sp-12); font: inherit; color: var(--context-ink-2, var(--ink-2)); }
+.mercado-botao-texto:hover { color: var(--text-primary, var(--ink)); }
+.mercado-estado { display: flex; flex-direction: column; gap: var(--sp-12); padding: var(--sp-16); border-radius: var(--radius-l); border: 1px solid var(--line); background: var(--raised); max-width: 560px; }
+.mercado-estado-topo { display: flex; gap: var(--sp-12); align-items: flex-start; }
+.mercado-etapas { display: flex; flex-direction: column; gap: var(--sp-8); }
+.mercado-etapa { display: flex; align-items: center; gap: var(--sp-10); color: var(--text-tertiary, var(--ink-3)); }
+.mercado-etapa.feita { color: var(--text-primary, var(--ink)); }
+.mercado-etapa.agora { color: var(--text-primary, var(--ink)); font-weight: 600; }
+.mercado-pronta { display: flex; align-items: center; gap: var(--sp-14); padding: var(--sp-16); border-radius: var(--radius-l); background: var(--group); }
+.mercado-bots { display: flex; flex-direction: column; border-radius: var(--radius-m); background: var(--group); }
+.mercado-bots-rolagem { display: flex; flex-direction: column; gap: var(--sp-12); max-height: 60vh; overflow-y: auto; }
+.mercado-bots-bloco { display: flex; flex-direction: column; gap: var(--sp-4); }
+.mercado-bots-cabeca { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-8); padding-inline: var(--sp-4); }
+.mercado-bots-cabeca .mercado-link:disabled { opacity: 0.5; text-decoration: none; }
+.mercado-bot { display: flex; align-items: center; gap: var(--sp-10); padding: var(--sp-8) var(--sp-14); border-bottom: 1px solid var(--line); cursor: pointer; }
+.mercado-bot[aria-disabled='true'] { cursor: default; }
+.mercado-bot[aria-disabled='true'] .mercado-bot-rosto { opacity: 0.55; }
+.mercado-bot-rosto { display: inline-flex; flex: none; width: calc(var(--sp-24) + var(--sp-4)); height: calc(var(--sp-24) + var(--sp-4)); }
+.mercado-bot:last-child { border-bottom: 0; }
+.mercado-bot input { width: var(--sp-16); height: var(--sp-16); accent-color: var(--accent); }
+.mercado-skills-sugeridas { gap: var(--sp-8); }
+.mercado-porque { gap: var(--sp-6); padding: var(--sp-12) var(--sp-14); border-radius: var(--radius-m); background: var(--group); }
+
+/* Minhas contas */
+.mercado-grupo { display: flex; flex-direction: column; gap: var(--sp-8); }
+.mercado-grupo-nome { display: flex; align-items: center; gap: var(--sp-10); }
+.mercado-grupo-adicionar { margin-inline-start: auto; }
+.mercado-conta { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto; gap: var(--sp-12); align-items: center; padding: var(--sp-12) var(--sp-16); border-radius: var(--radius-m); background: var(--group); }
+.mercado-conta + .mercado-conta { margin-top: var(--sp-4); }
+.mercado-conta-nome { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.mercado-conta-fim { display: flex; align-items: center; gap: var(--sp-8); justify-content: flex-end; }
+.mercado-renomear { display: flex; align-items: center; gap: var(--sp-8); }
+.mercado-chips { display: flex; flex-wrap: wrap; gap: var(--sp-6); }
+.mercado-chip { display: inline-flex; align-items: center; gap: var(--sp-6); padding: var(--sp-4) var(--sp-10); border-radius: var(--radius-pill); background: var(--group); }
+.mercado-vazio { display: flex; flex-direction: column; align-items: center; gap: var(--sp-8); padding: var(--sp-32) var(--sp-16); text-align: center; }
+.mercado-esqueleto { display: flex; flex-direction: column; gap: var(--sp-12); }
+.mercado-esqueleto > div { height: var(--sp-32); border-radius: var(--radius-s); background: var(--group); }
+
+/* Contas no bot (tela 05): uma tabela de leitura única */
+.mercado-tabela { display: flex; flex-direction: column; border-radius: var(--radius-l); border: 1px solid var(--line); background: var(--raised); overflow: hidden; }
+.mercado-linha-bot { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr); gap: var(--sp-12); align-items: center; padding: var(--sp-14) var(--sp-16); width: 100%; background: none; border: 0; border-top: 1px solid var(--line); text-align: start; font: inherit; color: inherit; }
+.mercado-tabela.com-perigosas .mercado-linha-bot, .mercado-tabela.com-perigosas .mercado-tabela-cab { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1fr) var(--sp-16); }
+.mercado-tabela:not(.com-perigosas) .mercado-linha-bot, .mercado-tabela:not(.com-perigosas) .mercado-tabela-cab { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) var(--sp-16); }
+.mercado-tabela-cab { display: grid; gap: var(--sp-12); padding: var(--sp-10) var(--sp-16); background: var(--group); color: var(--context-ink-2, var(--ink-2)); }
+.mercado-linha-bot:hover { background: var(--hover); }
+.mercado-linha-bot[aria-expanded='true'] { background: var(--group); }
+.mercado-detalhe-bot { display: grid; gap: var(--sp-12); padding: var(--sp-12) var(--sp-16) var(--sp-16); background: var(--group); }
+.mercado-tabela.com-perigosas .mercado-detalhe-bot { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1fr); }
+.mercado-tabela:not(.com-perigosas) .mercado-detalhe-bot { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr); }
+.mercado-opcao { display: flex; align-items: center; gap: var(--sp-8); cursor: pointer; }
+.mercado-opcao input { width: var(--sp-16); height: var(--sp-16); accent-color: var(--accent); }
+.mercado-opcao-coluna { display: flex; flex-direction: column; gap: var(--sp-10); border: 0; padding: 0; margin: 0; min-width: 0; }
+.mercado-chevron { transition: transform var(--motion-hover); }
+.mercado-linha-bot[aria-expanded='true'] .mercado-chevron { transform: rotate(90deg); }
+.mercado-ambar { color: var(--warning); }
+@media (max-width: 900px) {
+  .mercado-ficha, .mercado-conectar { grid-template-columns: minmax(0, 1fr); }
+  .mercado-grade { grid-template-columns: minmax(0, 1fr); }
+  .mercado-conta { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+.mercado-edicao { grid-column: span 2; }
+.mercado .mercado { padding-bottom: 0; }
+
+/* A tabela fica acima das abas de Ferramentas, com o mesmo respiro entre blocos. */
+.mercado-no-bot { margin-block-end: var(--sp-24); }
+
+/* Google direto: o grupo no catálogo, o guia com o cartão seguro e a escolha dos serviços */
+.mercado-google { background: var(--group); }
+.mercado-google-logos { display: inline-flex; flex: none; }
+.mercado-google-logos > * + * { margin-inline-start: calc(var(--sp-8) * -1); }
+.mercado-guia { display: flex; flex-direction: column; }
+.mercado-guia-passo { display: flex; align-items: flex-start; gap: var(--sp-14); padding: var(--sp-14) 0; border-bottom: 1px solid var(--line); }
+.mercado-guia-passo:last-child { border-bottom: 0; }
+.mercado-guia-passo > .mercado-passo-numero { width: var(--sp-24); height: var(--sp-24); flex: none; }
+.mercado-passo-numero.destaque { width: var(--sp-24); height: var(--sp-24); background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.mercado-etiqueta.aviso { background: var(--selected); color: var(--warning); }
+.mercado-cartao { display: flex; flex-direction: column; gap: var(--sp-12); padding: var(--sp-14); border-radius: var(--radius-l); border: 2px solid var(--accent); background: var(--accent-soft); }
+.mercado-cartao-miolo { display: flex; flex-direction: column; gap: var(--sp-10); padding: var(--sp-14); border-radius: var(--radius-m); background: var(--raised); }
+.mercado-cartao-campo { display: flex; flex-direction: column; gap: var(--sp-6); }
+.mercado-google-servico { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+.mercado-google-servico:last-child { border-bottom: 0; }
+.mercado-google-servico > .mercado-liberacao { align-items: center; border-bottom: 0; }
+.mercado-google-grupos { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-24); padding: 0 var(--sp-14) var(--sp-12) calc(var(--sp-14) + var(--sp-16) + var(--sp-12) + var(--sp-32)); }
+.mercado-google-servico[aria-disabled='true'] .mercado-liberacao { opacity: 0.6; }
+.mercado-google-nome { flex-basis: 100%; display: flex; flex-direction: column; gap: var(--sp-4); }
+.mercado-opcao[aria-disabled='true'] { cursor: default; opacity: 0.7; }
+.mercado-ponto.neutro { background: var(--line-strong); }
+
+/* Conector personalizado (tela v3 02) */
+.mercado-tile { display: inline-grid; place-items: center; flex: none; width: calc(var(--sp-32) + var(--sp-16)); height: calc(var(--sp-32) + var(--sp-16)); border-radius: var(--radius-l); border: 1px solid var(--line); background: var(--group); }
+.mercado-segmentos { display: inline-flex; padding: var(--sp-4); border-radius: var(--radius-pill); background: var(--group); }
+.mercado-segmento { padding: var(--sp-6) var(--sp-16); border-radius: var(--radius-pill); border: 0; background: none; font: inherit; color: var(--context-ink-2, var(--ink-2)); }
+.mercado-segmento[aria-checked='true'] { background: var(--raised); color: var(--text-primary, var(--ink)); box-shadow: var(--shadow-s, none); }
+.mercado-nao-verificado { background: var(--selected); border: 1px solid var(--line); }

@@ -1,0 +1,150 @@
+/* Revisão do app (Entrega 2): o que é só da tela de Extensões. A casca (lista lateral, cabeçalho, página) é a de
+   Ajustes (settings.css). */
+.ext-subtitulo {
+  margin: -6px 0 0;
+  max-width: 62ch;
+  font-size: var(--text-callout);
+  line-height: 1.45;
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* Credenciais fica separada das quatro páginas de coisas instaladas: é o cofre, não um tipo de extensão. */
+.ext-lateral-divisor {
+  height: 1px;
+  flex: none;
+  margin: 8px 10px;
+  background: var(--line);
+}
+
+/* Plugins: a lista fechada. Uma linha por plugin, no cartão de sempre (--raised sobre o chão da página). */
+.ext-plugins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.ext-plugin-linha {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-xl, 16px);
+  border: 1px solid var(--line);
+  background: var(--group);
+  text-align: start;
+  transition: background-color var(--motion-hover), border-color var(--motion-hover);
+}
+.ext-plugin-linha:hover {
+  background: var(--field);
+  border-color: var(--line-strong);
+}
+.ext-plugin-texto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ext-plugin-nome {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+.ext-plugin-detalhe {
+  font-size: var(--text-callout);
+  line-height: 1.4;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.ext-plugin-selo {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.ext-plugin-ponto {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary, var(--ink-3));
+}
+.ext-plugin-selo.on { color: var(--success); }
+.ext-plugin-selo.on .ext-plugin-ponto { background: var(--success); }
+.ext-plugin-seta {
+  flex: none;
+  color: var(--text-tertiary, var(--ink-3));
+}
+[dir='rtl'] .ext-plugin-seta, [dir='rtl'] .ext-plugin-voltar svg { transform: scaleX(-1); }
+
+/* Plugin aberto: a linha de Voltar fica fixa; a tela do plugin rola por baixo. */
+.ext-plugin-aberto {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.ext-plugin-volta {
+  flex: none;
+  padding: 16px 28px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.ext-plugin-voltar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  margin-inline-start: -8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.ext-plugin-voltar:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.06);
+  color: var(--text-primary, var(--ink));
+}
+.ext-plugin-corpo {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Credenciais como página: o mesmo formulário, alinhado ao título da página em vez de centrado na folha. */
+.credentials-page.credentials-embedded .card-form-content {
+  max-width: 660px;
+  margin: 0;
+  padding: 18px 14px 32px;
+}
+.credentials-embedded .plain-row-button { gap: 12px; }
+
+/* Auditoria (2ª rodada): Skills usa o cabeçalho da tela, como as outras quatro páginas; o título e a frase da
+   própria página de Skills somem aqui (seguem dando nome à seção), e busca, atualizar e Adicionar ficam na linha de baixo. */
+.market-embedded .cs-cabeca-textos {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.market-embedded .cs-cabeca { justify-content: flex-end; padding-top: 10px; }
+.ext-plugins-rodape {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-xl, 16px);
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.credential-adicionar { display: flex; gap: 8px; }
+
+/* Conectores: o botão de adicionar conector personalizado fica no canto superior direito, ao lado do título. */
+.ext-titulo-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-12);
+  align-self: stretch;
+}

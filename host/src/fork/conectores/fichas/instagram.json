@@ -1,0 +1,21 @@
+{
+  "id": "instagram",
+  "nome": "Instagram",
+  "categoria": "Marketing",
+  "descricao": "Acompanhe as publicações e os comentários do seu Instagram.",
+  "exemplos": [
+    "Como foram as últimas publicações?",
+    "Quais comentários ainda não respondi?"
+  ],
+  "site": "https://www.instagram.com",
+  "links": {
+    "privacidade": "https://privacycenter.instagram.com/policy",
+    "termos": "https://help.instagram.com/581066165581870"
+  },
+  "conferidaEm": "2026-11-16",
+  "fontes": [
+    "docs/propostas/marketplace-20261113/servicos-do-dono.md"
+  ],
+  "tipos": [],
+  "emBreve": "Sem caminho oficial: a Meta não publica um conector do Instagram."
+}

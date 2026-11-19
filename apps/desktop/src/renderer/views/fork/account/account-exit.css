@@ -1,0 +1,141 @@
+/*
+ * D171 (Clerk 6): a saída não confirmada nas entradas de conta (AccountExitPanel). Em Ajustes segue
+ * a linha da conta (ícone de 26px, título, nota e botões do sistema); nas boas-vindas, sempre
+ * escuras, usa as cores e os botões fantasma da própria tela (account-welcome.css).
+ */
+.account-card {
+  width: 100%;
+  min-width: 0;
+}
+
+.account-exit {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 10px;
+  align-items: start;
+  width: 100%;
+}
+.account-exit :where(p) {
+  margin: 0;
+}
+.account-exit-mark {
+  display: inline-flex;
+  justify-content: center;
+  padding-top: 1px;
+  color: var(--text-attention, var(--attention));
+}
+.account-exit-text {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.account-exit-title {
+  font-weight: 600;
+  color: inherit;
+}
+.account-exit-body,
+.account-exit-hint,
+.account-exit-waiting {
+  font-size: var(--text-caption);
+  line-height: 1.4;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.account-exit-hint {
+  margin-top: 2px;
+}
+/* Clerk 11: as confirmações antigas ficam abaixo da linha da conta, separadas por um respiro e um fio;
+   tom neutro (não é saída pendente), atenção só no resultado incerto ou recusado. */
+.account-exit.is-confirmations {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.account-exit.is-confirmations .account-exit-mark {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.account-exit-position {
+  color: var(--text-primary, var(--ink));
+  font-weight: 600;
+}
+.account-exit-hint.is-attention {
+  color: var(--text-attention, var(--attention));
+}
+.account-exit-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.account-exit-waiting {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.account-exit-spin {
+  display: inline-flex;
+}
+/* Só para leitores de tela: a espera e cada estado novo (AccountExitLive). */
+.account-exit-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Boas-vindas: uma coluna centrada sob "ou entre com", no lugar do login. */
+.account-exit.is-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.account-exit.is-welcome .account-exit-text {
+  align-items: center;
+  gap: 4px;
+}
+.account-exit.is-welcome .account-exit-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 13px/1.3 var(--font-sans);
+  color: var(--welcome-ink);
+}
+.account-exit.is-welcome .account-exit-mark {
+  padding-top: 0;
+  color: var(--attention);
+}
+.account-exit.is-welcome .account-exit-body {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--welcome-ink-2);
+}
+.account-exit.is-welcome .account-exit-hint,
+.account-exit.is-welcome .account-exit-waiting {
+  font-size: 12px;
+  color: var(--welcome-ink-3);
+}
+.account-exit.is-welcome .account-exit-actions,
+.account-exit.is-welcome .account-exit-waiting {
+  justify-content: center;
+}
+
+/* Aviso do Sair na web (ConfirmarSairWeb): parágrafos curtos; o que NÃO se perde vem separado, em tinta normal. */
+.sair-aviso {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8, 8px);
+}
+.sair-aviso p {
+  margin: 0;
+}
+.sair-aviso-fica {
+  color: var(--text-primary, var(--ink));
+}

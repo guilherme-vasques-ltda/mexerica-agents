@@ -1,0 +1,9 @@
+# Ícones opcionais do app
+
+PNGs prontos para Ajustes › Ícone do app. O app nunca aceita caminho nem bytes do renderer: o main resolve o arquivo por `id` no manifesto (`src/shared/app-icons.ts`) e aplica com `app.dock.setIcon` (macOS) ou `BrowserWindow.setIcon` (Windows/Linux).
+
+- `padrao.png`: miniatura da grade apenas — `resources/icon.png` (o ícone oficial do pacote) reduzido a 256×256 RGBA por média de blocos 4×4 (pngjs), sem quantizar. O main **não** aplica este arquivo: voltar ao padrão depois de uma escolha chama `setIcon` com imagem vazia no macOS (o ícone do bundle/Assets.car volta, igual a `NSApp.applicationIconImage = nil`) e com `resources/icon.png` no Windows/Linux; sem escolha salva ou com `padrao` gravado, nenhum `setIcon` roda.
+- As 19 opções `icone-NN-*.png`: os `icon_256x256.png` (`previa256` do manifesto) do pacote final `brand/propostas-icone-app/pacote-opcoes-r2-r3-20261110` (branch `room/propostas-icone-app-20261110`, commit `e91caed5`; `manifesto.json` v1, ids estáveis `icone-01` a `icone-19`), **byte a byte** — o teste `fork-app-icon.test.ts` confere o SHA256 de cada arquivo contra o `SHA256SUMS` do pacote. Cada escolha leva UM PNG 256×256, usado na grade e na aplicação — sem mestres 1024, iconsets nem PNGs de outros tamanhos, sem quantizar nem recomprimir. Margem e cantos já vêm aplicados na arte; o app não acrescenta máscara.
+- Tirar ou pôr uma opção é só dados: uma linha em `APP_ICON_OPTIONS`, o PNG e a chave `aparencia.icone.opcoes.*` nos seis idiomas.
+
+Licença da arte das rodadas 2 e 3: Apache-2.0 (o texto completo está em `LICENSE`, o mesmo do pacote). O ícone padrão é o ativo oficial do produto descrito em `docs/guides/marca.md`.

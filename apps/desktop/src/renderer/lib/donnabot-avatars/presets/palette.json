@@ -1,0 +1,98 @@
+[
+  {
+    "name": "Grafite",
+    "hex": "#4A4F5A"
+  },
+  {
+    "name": "Prata",
+    "hex": "#94A3B8"
+  },
+  {
+    "name": "Caramelo",
+    "hex": "#B8794A"
+  },
+  {
+    "name": "Areia",
+    "hex": "#D4B483"
+  },
+  {
+    "name": "Terracota",
+    "hex": "#C2410C"
+  },
+  {
+    "name": "Laranja",
+    "hex": "#FF7A1A"
+  },
+  {
+    "name": "Âmbar",
+    "hex": "#FFB020"
+  },
+  {
+    "name": "Mostarda",
+    "hex": "#CA8A04"
+  },
+  {
+    "name": "Lima",
+    "hex": "#9BD13A"
+  },
+  {
+    "name": "Verde",
+    "hex": "#22C55E"
+  },
+  {
+    "name": "Menta",
+    "hex": "#6EE7B7"
+  },
+  {
+    "name": "Turquesa",
+    "hex": "#14B8A6"
+  },
+  {
+    "name": "Petróleo",
+    "hex": "#0F766E"
+  },
+  {
+    "name": "Céu",
+    "hex": "#38BDF8"
+  },
+  {
+    "name": "Azul",
+    "hex": "#3B82F6"
+  },
+  {
+    "name": "Marinho",
+    "hex": "#1E40AF"
+  },
+  {
+    "name": "Índigo",
+    "hex": "#6366F1"
+  },
+  {
+    "name": "Ameixa",
+    "hex": "#6D28D9"
+  },
+  {
+    "name": "Roxo",
+    "hex": "#A855F7"
+  },
+  {
+    "name": "Lavanda",
+    "hex": "#A78BFA"
+  },
+  {
+    "name": "Rosa",
+    "hex": "#EC4899"
+  },
+  {
+    "name": "Coral",
+    "hex": "#FB7185"
+  },
+  {
+    "name": "Vermelho",
+    "hex": "#F2414F"
+  },
+  {
+    "name": "Vinho",
+    "hex": "#9F1239"
+  }
+]

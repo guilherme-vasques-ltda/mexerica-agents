@@ -1,0 +1,214 @@
+# Desktop app (macOS, Linux and Windows)
+
+Codync's computer-side app is one Electron app in `apps/desktop/` for macOS, Linux and Windows. It
+replaced the SwiftUI Mac app (`apps/macos/`) and the GTK 4 Linux app (`apps/linux/`) in 2.7.0.
+Os clientes móveis são mantidos separadamente deste repositório.
+
+The desktop, iPhone and terminal clients page a conversation's history on their own;
+reaching the end of a history response determines when there are no earlier messages.
+
+## Why
+
+- **The chat was too slow.** Long transcripts with Markdown, variable-height rows and
+  streaming replies are where SwiftUI's lazy stacks struggle: scrolling and following a reply
+  as it streams needed an AppKit scroll view with hand-managed row hosting to stay usable. A
+  browser engine lays out and scrolls long text natively.
+- **Two desktop apps were too much to keep in step.** Every UI change had to land in SwiftUI
+  and in GTK. One TypeScript app now covers macOS, Linux and Windows.
+- The iPhone app has no such alternative and keeps SwiftUI, so `kit/` lost its second
+  platform and became the iPhone app's own package.
+
+## Layout
+
+| Path | |
+|---|---|
+| `src/main/` | Main process: host service (`host-controller.ts`), loopback HTTP/SSE proxy (`host-proxy.ts`), menu bar/tray, windows, account sign-in (Clerk Frontend API, `account.ts`), cloud API and device key (`cloud.ts`), updates (`updates.ts`), SSH tunnels (`ssh.ts`), Codync Screen agent (`screen.ts`), on-device speech (`speech.ts`), browser sign-in callbacks (`auth.ts`), the notch island window (`island.ts`), error tracking (`error-reports.ts`) |
+| `src/preload/` | The `window.codync` bridge (types in `src/shared/ipc.ts`) |
+| `src/renderer/store/` | `BotStore` (port of kit's; `bot-store.ts` actions over `bot-sync.ts` events stream and `bot-mirror.ts` state), `AppModel` (window state, approvals), `CloudModel` (claims, cloud default), `AccountSession` |
+| `src/renderer/components/` | Design system: controls, overlays (sheets, dialogs, menus), SF Symbol icons, character avatars, thinking orbs |
+| `src/renderer/views/` | Screens, mirroring kit's folders (`thread/`, `bots/`, `marketplace/`, `settings/`, `routines/`, `call/`) |
+| `native/speech-macos/` | `codync-speech`, a Swift helper running SFSpeechRecognizer for on-device calls |
+| `tools/export-symbols.swift` | Renders the SF Symbols the app uses into masks at build time (macOS) |
+
+The renderer owns all state; closing the window hides it, so the menu bar keeps its data.
+HTTP to the host leaves from the main process (the loopback API has no CORS).
+
+### Partes sob demanda (D249 E2)
+
+Todas as janelas abrem a mesma página (`renderer/index.html?window=…`), sem mudança no processo
+principal nem no preload. `main.tsx` só faz o que é comum (tema, tamanho do texto, captura de erros)
+e importa sob demanda a janela pedida: `views/fork/sob-demanda/janela-ilha.tsx` para a ilha,
+`janela-app.tsx` para a conversa e o pareamento. A ilha não chega ao código da conversa.
+Dentro da conversa, `views/fork/sob-demanda/telas.tsx` carrega com `React.lazy` Rotinas, Times,
+Ajustes, Extensões, os dois terminais de configuração (`@xterm/xterm`) e o QR code de pareamento;
+a camada que monta cada tela (`rotinas-central/camada.tsx`, `fork/times/camada.tsx`) e a regra de
+um lugar atual por vez (`fork/ajustes/lugar-atual.ts`, `fork/extensoes/lugar-atual.ts`) continuam
+carregadas desde a abertura. O CSS continua num arquivo só (`cssCodeSplit: false` em
+`electron.vite.config.ts`), carregado por todas as janelas, como antes. O JS segue sem minificar.
+Um import novo de uma dessas telas fora de `sob-demanda/` traz o código de volta para a abertura:
+confira o tamanho dos arquivos em `out/renderer/assets/` depois do build.
+
+Unsent composer text is kept per computer, separately for every bot, and saved to
+`localStorage`, so switching conversations or restarting the app restores the exact text. Submitting clears only that conversation's draft. Drafts are
+cleared when the host identity changes or the bot is deleted. iOS and the TUI keep drafts the
+same way; the shared desktop behavior covers macOS and Linux.
+
+When several computers are selected, the sidebar groups bots by computer, with connection
+status and update notices in each section. Drag a heading or press Alt+Up/Down on the
+heading to reorder sections. Click a heading to fold its bots.
+Order and folded sections stay on this device; the iPhone and other computers keep
+independent orders even when signed in to the same account. Filtering a computer out
+does not discard its position. One selected computer keeps a flat roster. Bots stay within
+their computer's section; drag a bot row or press Alt+Up/Down on the selected bot to reorder
+it (bot order, synced through the host), and
+arrow-key navigation skips folded sections.
+Search still includes their bots. The compact sidebar uses computer badges for the same
+section controls. Ordering is saved locally immediately and survives restart, with separate
+preferences per account and cloud environment. See computer ordering.
+The TUI connects to one host at a time, so it keeps its single roster.
+
+## Links e navegação na Mexerica
+
+Todas as janelas (chat, ilha, pareamento e futuras janelas filhas) recebem a mesma
+proteção de navegação no processo principal, antes de carregar a interface.
+`will-navigate` e `will-redirect` só mantêm dentro da janela a entrada do renderer:
+o arquivo `renderer/index.html` do pacote, ou a mesma origem e caminho do servidor
+de desenvolvimento, com query e fragmento livres para o estado da interface.
+`ELECTRON_RENDERER_URL` só vale em desenvolvimento, nunca no app empacotado.
+
+Links são validados com `new URL`. Apenas `http:`, `https:` e `mailto:` abrem fora
+do app, no navegador ou cliente de e-mail padrão; qualquer outro esquema ou URL
+inválida é bloqueado. Popups do renderer são negados por `setWindowOpenHandler`;
+`did-create-window` também fecha uma janela filha inesperada e aplica a política
+de abertura externa. O login no navegador continua exigindo HTTPS. Os deep links
+próprios de retorno do login são recebidos pelo app, sem abertura externa.
+
+A única exceção é `x-apple.systempreferences:` pelo IPC `app:openSettings`, restrito
+aos três endereços fixos já usados nos botões de captura de tela, acessibilidade
+e itens de início de sessão (`shared/computer-access.ts`). Links do chat não têm
+essa exceção. Bloqueios e falhas de abertura registram somente o esquema, sem
+endereço, credenciais, caminho, query ou fragmento.
+
+Essa proteção controla navegações da página e redirecionamentos. Chamadas futuras
+a `loadURL`/`loadFile` no processo principal devem continuar usando somente a
+entrada confiável do app; `will-navigate` não intercepta essas APIs do Electron
+([referência](https://www.electronjs.org/docs/latest/api/web-contents#event-will-navigate)).
+
+## Platform notes
+
+- **SSH startup** in the shared desktop UI keeps the workspace open whenever saved profiles
+  exist. With no online computer, the detail pane shows each profile's connection
+  progress, failures, reconnect and host-key confirmation controls, plus local host
+  install/retry actions. Manage computers stays reachable throughout. The computer
+  filter distinguishes connecting, attention, disconnected and opening states and
+  keeps local recovery actions reachable when a remote computer is already online.
+  iOS uses direct/encrypted host connections, and the TUI connects to one host;
+  neither manages desktop SSH profiles. Windows exposes the same profile UI, but
+  the tunnel backend still uses `/usr/bin/ssh*` and Unix socket ownership checks;
+  Windows tunnel support has not been implemented.
+- **Icons**: SF Symbols may only ship in apps for Apple platforms, so the masks are generated
+  on macOS at build time and never committed; Linux draws the closest Lucide icons.
+- **On-device speech** is macOS only; Linux calls use OpenAI or Gemini on the user's key.
+- **Host**: the Mac app bundles `codync-host` in `Contents/Resources`; Linux uses the installed
+  host (an AppImage's mount path changes on every launch, so a service can't point into it).
+- **Windows** (x64, per-user NSIS install, unsigned for now so SmartScreen warns once) bundles
+  `codync-host.exe` and `codync-hostw.exe` in `resources/`. `codync-host install` writes the
+  per-user Run key (`HKCU\…\Run\CodyncHost`), which starts `codync-hostw.exe` at sign-in: a
+  windowless launcher that runs the host with a hidden console (the agents share it, so none
+  opens a window) and restarts it when it exits. One launcher runs per data folder (a second one,
+  say from the Run key and the app at once, exits). App updates stop the host first, as on macOS.
+  Agents start through `cmd /c` (`host/src/shell.rs`), setup terminals use ConPTY
+  (`portable-pty`), and the vault key lives in Credential Manager. Not on Windows yet: Remote
+  screen and the `computer` MCP (no screen helper), on-device speech, the Claude Code status
+  line hook (usage still comes from `claude -p /usage` and ACP), SSH tunnels to other
+  computers, and `curl | bash` installers (npm installs and Claude Code's PowerShell installer
+  work). The tray icon is the app icon; left-click opens the chat, right-click the menu.
+- **Remote screen** on macOS registers `CodyncScreen.app` (built from the Xcode `Screen` target)
+  as an SMAppService agent; Linux starts its helper from the host, as before.
+- **Other computers in the account** are reached through this computer's own host and SSH
+  tunnels only. The encrypted channel to account computers (`ChannelTransport`) wasn't ported:
+  the product targets one computer, so "Ask for access" rows show status only. An older copy of a
+  computer the app uses shows *Older copy · last seen …* with *Remove from account* (confirmed first).
+- **Updates**: a distribuição e o pipeline de publicação herdados foram removidos;
+  atualização por release exige configuração e validação próprias da Mexerica.
+  On macOS the app removes an idle installer job (`<appId>.ShipIt`) whose update request is gone:
+  launchd would otherwise restart it every 2 seconds, forever.
+
+## Development
+
+SSH host discovery preserves the remote login shell's `PATH`, then searches
+`/opt/homebrew/bin`, `/usr/local/bin`, `/home/linuxbrew/.linuxbrew/bin`,
+`~/.local/bin`, and `/Applications/Codync.app/Contents/Resources` (Electron) or
+`Contents/MacOS` (older native apps). Custom prefixes or relocated app bundles
+must expose `codync-host` through the remote login shell's `PATH`.
+Managed tunnels use `ssh -S none` to bypass connection sharing: the app's SSH
+child must own the listening socket and stay alive until disconnect. This keeps
+`ControlMaster` / `ControlPersist` in the user's config from transferring the
+forward to a shared master that outlives the app.
+
+For a read-only macOS integration check against an already trusted SSH computer,
+run `node --experimental-strip-types tools/ssh-e2e.mjs <ssh-alias>` from
+`apps/desktop`. It checks discovery, listener ownership, host identity, API
+authentication and sync, SSE, disconnect/reconnect, and an occupied local port.
+It uses port 19222 on the remote computer and leaves bots and settings unchanged.
+
+```sh
+cd apps/desktop
+npm ci
+npm run icons                       # macOS: SF Symbol masks
+npm run dev                         # main checkout: Codync Dev, separate host on 19223
+                                    # linked worktree: a sandbox beside it (docs/guides/dev-app.md)
+DONNABOT_PORT=19433 MEXERICA_HOME=/caminho/sintetico npm run dev   # against a manually run host
+npm run typecheck && npm test
+```
+
+UI checks: `CODYNC_SHOW_INACTIVE=1` opens the window without taking focus,
+`CODYNC_DEBUG_OPEN=newBot|newGroup|plugins|computers|<bot name>` opens a screen, and
+`CODYNC_REMOTE_DEBUG=<port>` lets a script drive the renderer over the DevTools protocol.
+Each packaging script names its environment:
+
+```sh
+npm run dist:mac:dev      # dev cloud, Clerk development
+npm run dist:mac:main     # main: what the release workflow ships
+npm run dist:linux:dev    # / dist:linux:main
+npm run dist:win:dev      # / dist:win:main, on Windows (builds the bundled host with rustup)
+```
+
+They write `resources/account-config.json` for that environment, and the Mac ones build the
+bundled host (`tools/native-host.mjs`, universal, through rustup's pinned toolchain) for the same
+one, so app and host always match, plus the Codync Screen helper (`tools/native-screen.mjs`).
+`dist:mac:dev` builds only what this Mac runs: the app folder for its architecture
+(`dist/mac-arm64/Codync Dev.app` on Apple silicon), the host for that architecture in the faster
+`dev-app` profile, and signatures without Apple's timestamp server (only notarized builds need it;
+asking it for every file adds about 5 minutes). Extra electron-builder flags go after `--`. The speech
+helper at the top of `electron-builder.yml` doesn't depend on the environment; place it first
+(the release workflow, `.github/workflows/release-desktop.yml`, shows how).
+Mexerica: os scripts não trazem mais o certificado nem a notarização do upstream (D48). O app
+instalado no Mac sai de `npm run dist:mac:local` (`tools/local-builder.cjs`): só o cliente do
+Hub, sem host nem helper de tela, assinado ad-hoc ou com `DONNABOT_MAC_IDENTITY`. Veja
+[App da Mexerica no Mac](../guides/app-mac-local.md).
+Codync and Codync Dev can run side by side: separate app identities, host services, ports, data and login callbacks. See Dev app isolation for the resource map and external signing/account setup.
+
+For a local signed Mac build, explicitly select a development identity from the project's
+team with `-c.mac.identity="Apple Development: …"`; use `--dir --arm64` and
+`-c.mac.notarize=false` only for local development. Automatic identity discovery can select
+an old certificate from another team. `security find-identity` alone does not establish that
+a certificate is still trusted: verify its exported public certificate with
+`security verify-cert -c certificate.pem -p codeSign -R ocsp -R require` before signing.
+If Gatekeeper reports `CSSMERR_TP_CERT_REVOKED`, fix the signing identity rather than
+disabling security checks. Distributed builds still require Developer ID signing and notarization.
+
+Keychain acceptance also depends on the item's partition ACL. A stable designated
+requirement from a self-signed local certificate does not prevent a per-build
+`cdhash:` partition from changing. Qualify distributed updates using two versions
+signed by the same valid Apple team, preserving app identity and installation path;
+the second version must reopen without a new prompt caused only by its update.
+The local build's authorization is not that proof. See the
+[Keychain update procedure](../guides/app-mac-local.md#chaveiro-depois-de-atualizar)
+for metadata-only diagnosis and the human authorization boundary. Do not weaken
+Safe Storage or rewrite a user's ACL to make an update appear accepted.
+
+## Composer checks
+
+Composer keyboard behavior, animation and durable draft storage, with a host-free
+regression fixture: composer checks.

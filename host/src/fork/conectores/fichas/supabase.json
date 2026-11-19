@@ -1,0 +1,74 @@
+{
+  "id": "supabase",
+  "nome": "Supabase",
+  "categoria": "Dados",
+  "descricao": "Banco Postgres, logs, tipos e documentação dos projetos Supabase, com modo de leitura por parâmetro na URL.",
+  "exemplos": [
+    "Liste as tabelas do meu projeto Supabase",
+    "Mostre os últimos erros nos logs da API",
+    "Que tipos TypeScript o banco gera?"
+  ],
+  "site": "https://supabase.com",
+  "docs": "https://supabase.com/docs/guides/ai-tools/mcp",
+  "links": {
+    "privacidade": "https://supabase.com/privacy",
+    "termos": "https://supabase.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://supabase.com/docs/guides/ai-tools/mcp",
+    "https://mcp.supabase.com/.well-known/oauth-protected-resource/mcp",
+    "https://api.supabase.com/.well-known/oauth-authorization-server"
+  ],
+  "skills": [
+    {
+      "id": "supabase-revisar-seguranca",
+      "titulo": "Revisar a segurança",
+      "resumo": "Examina tabelas, RLS e políticas do projeto e relata riscos, sem alterar nada."
+    }
+  ],
+  "tipos": [
+    {
+      "id": "supabase.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Supabase",
+      "url": "https://mcp.supabase.com/mcp?read_only=true",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "organizations:read",
+            "projects:read",
+            "database:read",
+            "analytics:read",
+            "edge_functions:read",
+            "storage:read",
+            "environment:read"
+          ],
+          "url": "https://mcp.supabase.com/mcp?read_only=true",
+          "padrao": true,
+          "disponivel": false,
+          "imposicao": "url"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O login do Supabase exige um cadastro com segredo, que a Mexerica ainda não faz sem revisão de Segurança."
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/supabase/agent-skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ],
+  "emBreve": "O login do Supabase exige um cadastro com segredo; entra depois da revisão de Segurança."
+}

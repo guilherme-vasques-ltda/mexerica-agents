@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://app.example.invalid/schemas/avatar-config.json",
+  "title": "Mexerica AvatarConfig",
+  "description": "Aparência de um bot. Salve este objeto por bot (ex.: coluna JSON avatar_config).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["shape", "color", "eye", "head", "face", "ears", "chin", "neck", "cheeks", "badge", "badgeStyle"],
+  "properties": {
+    "shape": { "enum": ["oval", "pilula", "cubo", "gota", "ciclope", "tela", "urso", "cupula", "losango", "nuvem", "hexa", "gato", "totem"] },
+    "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+    "eye": { "enum": ["auto", "pill", "round", "pixel", "bar", "cat", "cyc"] },
+    "head": { "enum": ["none", "cap", "helmet", "phones", "headset", "beret", "eyeshade", "bucket", "beanie", "flower", "pencil"] },
+    "face": { "enum": ["none", "glasses", "shades"] },
+    "ears": { "enum": ["none", "hoops", "pearls"] },
+    "chin": { "enum": ["none", "beard", "stache"] },
+    "neck": { "enum": ["none", "bowtie", "tie", "scarf", "lanyard", "necklace"] },
+    "cheeks": { "enum": ["none", "blush"] },
+    "badge": {
+      "enum": [
+        "none", "sparkle", "clipboard", "briefcase", "kanban", "calendar", "notes", "search", "globe", "translate", "code", "bug", "bag",
+        "box", "ship", "cart", "warehouse", "lifebuoy", "megaphone", "target", "chat", "pen", "seo", "video", "palette",
+        "chart", "phone", "coin", "calc", "ledger", "people", "heart", "mail", "bolt", "rocket", "bulb", "mic"
+      ]
+    },
+    "badgeStyle": { "enum": ["light", "dark", "color"] }
+  },
+  "examples": [
+    { "shape": "oval", "color": "#9F1239", "eye": "cat", "head": "none", "face": "none", "ears": "hoops", "chin": "none", "neck": "necklace", "cheeks": "none", "badge": "sparkle", "badgeStyle": "light" }
+  ]
+}

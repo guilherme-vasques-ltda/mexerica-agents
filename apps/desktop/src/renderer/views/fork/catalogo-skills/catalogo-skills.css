@@ -1,0 +1,768 @@
+/* Página Skills (D166): SkillCatalog em docs/reference/redesenho/components/SkillCatalog. */
+
+/* Cabeçalho: título e descrição à esquerda; busca, atualizar e Adicionar à direita (quebram no estreito). */
+.cs-pagina {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.cs-cabeca {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.cs-cabeca-textos {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.cs-cabeca-acoes {
+  flex: 1 1 340px;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cs-busca {
+  flex: 1;
+  min-width: 140px;
+  height: calc(32px * var(--scale));
+}
+.cs-atualizar {
+  width: calc(32px * var(--scale));
+  height: calc(32px * var(--scale));
+  border-radius: var(--radius-pill);
+}
+.cs-adicionar-ancora {
+  display: contents;
+}
+.cs-adicionar {
+  flex: none;
+  white-space: nowrap;
+}
+.cs-abas {
+  justify-content: flex-start;
+  margin-top: 2px;
+}
+/* O painel recebe Tab (abas WAI-ARIA); o anel fica por fora, sobre o chão. */
+.cs-painel {
+  min-width: 0;
+  border-radius: var(--radius-m);
+}
+.cs-painel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.cs-aba {
+  min-width: 0;
+}
+
+.cs-categorias {
+  margin: -2px 0 2px;
+}
+.cs-chip-total {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+.cs-categoria {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cs-categoria + .cs-categoria {
+  margin-top: 8px;
+}
+.cs-categoria-titulo {
+  padding-left: 4px;
+}
+
+/* Catálogo: uma coluna de ponta a ponta, contorno e divisórias; nunca vira grade. */
+.cs-lista-catalogo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
+  min-width: 0;
+}
+.cs-cat-item {
+  min-width: 0;
+  transition: background-color var(--motion-hover);
+}
+.cs-cat-item + .cs-cat-item {
+  border-top: 1px solid var(--line);
+}
+.cs-cat-item:first-child {
+  border-top-left-radius: calc(var(--radius-l) - 1px);
+  border-top-right-radius: calc(var(--radius-l) - 1px);
+}
+.cs-cat-item:last-child {
+  border-bottom-left-radius: calc(var(--radius-l) - 1px);
+  border-bottom-right-radius: calc(var(--radius-l) - 1px);
+}
+.cs-cat-item:not(.cs-esqueleto):hover {
+  background: color-mix(in srgb, var(--control-fill-muted, var(--field)) 55%, transparent);
+}
+.cs-cat-linha {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 14px;
+  min-width: 0;
+}
+/* O texto da linha abre os detalhes: um botão de verdade, com o anel do sistema por dentro. */
+.cs-cat-abrir {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 12px 0 12px 16px;
+  border-radius: inherit;
+  text-align: left;
+  color: inherit;
+}
+.cs-cat-item:first-child .cs-cat-abrir {
+  border-top-left-radius: calc(var(--radius-l) - 1px);
+}
+.cs-cat-item:last-child .cs-cat-abrir {
+  border-bottom-left-radius: calc(var(--radius-l) - 1px);
+}
+.cs-cat-titulo {
+  min-width: 0;
+  row-gap: 3px;
+}
+.cs-cat-nome {
+  max-width: 100%;
+}
+.cs-cat-falha {
+  padding: 0 16px 10px;
+}
+.cs-esqueleto {
+  padding: 14px 14px 14px 16px;
+}
+.cs-esqueleto-desc {
+  width: min(360px, 70%);
+}
+.cs-esqueleto-acao {
+  flex: none;
+  width: 92px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--control-fill-muted, var(--field));
+}
+
+/* Instaladas: lista leve em duas colunas quando cabem, uma no estreito. */
+.cs-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cs-grupo + .cs-grupo {
+  margin-top: 14px;
+}
+.cs-grupo-cabeca {
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.cs-grupo-titulo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cs-grade-instaladas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  column-gap: 12px;
+  row-gap: 2px;
+}
+.cs-item {
+  min-width: 0;
+}
+.cs-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 6px;
+  border-radius: var(--radius-l);
+  min-width: 0;
+  transition: background-color var(--motion-hover);
+}
+.cs-linha:hover {
+  background: color-mix(in srgb, var(--control-fill-muted, var(--field)) 60%, transparent);
+}
+/* A linha abre os detalhes; é um botão de verdade, com o anel de foco do sistema por dentro. */
+.cs-linha-abrir {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 0 8px 8px;
+  border-radius: var(--radius-l);
+  text-align: left;
+  color: inherit;
+}
+.cs-linha .cs-tile {
+  width: calc(36px * var(--scale));
+  height: calc(36px * var(--scale));
+}
+.cs-linha-textos {
+  min-width: 0;
+}
+.cs-linha-falha {
+  padding: 0 12px 6px 56px;
+}
+.cs-remover-linha {
+  flex: none;
+}
+/* Lixeira sem ação (conteúdo que não confere, ou pedido incerto ainda não conferido): o motivo está no
+   selo/aviso da linha e no `title`. Removendo… (aria-busy) mantém a aparência normal. */
+.cs-remover-linha[aria-disabled='true']:not([aria-busy='true']) {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cs-selo {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--control-fill-muted, var(--field));
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.cs-selo.ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+.cs-selo.aviso {
+  color: var(--text-primary, var(--ink));
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+/* A ação da linha: largura estável entre Instalar, Instalando… e Instalada. */
+.cs-acao {
+  flex: none;
+  min-width: 92px;
+  white-space: nowrap;
+}
+.cs-acao.inerte {
+  cursor: default;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.cs-acao.inerte:active {
+  transform: none;
+  opacity: 1;
+}
+.cs-acao.instalada {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+.cs-acao-texto {
+  flex: none;
+  min-width: 92px;
+  display: inline-flex;
+  justify-content: center;
+}
+.cs-acao-texto.folha {
+  min-width: 0;
+}
+.cs-acao-folha.inerte {
+  cursor: default;
+  opacity: 0.72;
+}
+.cs-acao-folha.instalada {
+  opacity: 1;
+  background: color-mix(in srgb, var(--success) 16%, var(--field));
+  color: var(--success);
+}
+
+.cs-faixa {
+  align-items: center;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-m);
+  background: var(--control-fill-muted, var(--field));
+  color: var(--success);
+}
+.cs-faixa.erro {
+  color: var(--danger);
+}
+.cs-faixa-texto {
+  flex: 1;
+  min-width: 0;
+}
+
+.cs-folha-acoes {
+  align-items: center;
+  row-gap: 8px;
+}
+.cs-espaco {
+  flex: 1;
+}
+.cs-lista {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cs-arquivos {
+  padding: 0 4px 4px;
+}
+
+/* Texto passivo: link vira texto sublinhado pontilhado, sem mão nem ação. */
+.cs-texto-passivo .cs-link-passivo {
+  color: inherit;
+  cursor: text;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/* Só para leitor de tela. */
+.cs-anuncio,
+.cs-titulo-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skills c2 (D288): Base central, matriz Skill × Bot compacta (ajustes do dono, PR #288). Contrato em
+   docs/reference/redesenho/components/SkillCatalog/README.md#base-central--c2--d288. */
+/* Aba escolhida da página Skills mais clara (só nesta página). */
+.cs-abas .tab-choice-option.on {
+  background: var(--chip-on);
+  box-shadow: var(--shadow-chip);
+  font-weight: 600;
+}
+.bc-aba {
+  min-width: 0;
+}
+.bc-escopo {
+  font-size: var(--text-footnote);
+}
+.bc-pilula {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--text-primary, var(--ink));
+}
+.bc-filtro {
+  width: 180px;
+}
+.bc-rolar {
+  display: none;
+  color: var(--text-accent, var(--accent));
+}
+.bc-faixa {
+  padding: 8px 12px;
+  border-radius: var(--radius-m);
+  background: var(--attention-soft);
+  color: var(--text-primary, var(--ink));
+  font-size: 12px;
+  line-height: 18px;
+}
+.bc-faixa.vazia {
+  display: none;
+}
+.bc-matriz {
+  overflow: auto;
+  max-height: max(360px, calc(100vh - 340px));
+  border-radius: var(--radius-l);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.bc-matriz:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.bc-matriz {
+  --bc-skill: 220px;
+  --bc-bot: 64px;
+}
+.bc-matriz table {
+  border-spacing: 0;
+  table-layout: fixed;
+  width: calc(var(--bc-skill) + var(--bc-n, 1) * var(--bc-bot));
+  min-width: 100%;
+}
+.bc-col-skill {
+  width: var(--bc-skill);
+}
+.bc-col-bot {
+  width: var(--bc-bot);
+}
+.bc-matriz th,
+.bc-matriz td {
+  text-align: center;
+  vertical-align: middle;
+  padding: 4px;
+  border-bottom: 1px solid var(--line);
+  /* Opaco: o que rola por baixo das partes fixas não aparece. */
+  background: var(--raised);
+  background-clip: padding-box;
+}
+.bc-matriz tbody th {
+  text-align: left;
+  padding: 5px 10px;
+}
+/* Linhas baixas (D304): nome + aviso + contagem numa linha, descrição na outra; nada faz a linha crescer. */
+.bc-linha1 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.bc-linha1 .bc-nome {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-conta {
+  position: relative;
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bc-conta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.bc-conta-ponto {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--attention);
+}
+.bc-dica {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  /* Quebra dentro da coluna Skill: não passa da borda da matriz. */
+  width: max-content;
+  max-width: 180px;
+  white-space: normal;
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  background: var(--raised);
+  box-shadow: var(--shadow-m), 0 0 0 1px var(--line-strong);
+  color: var(--text-primary, var(--ink));
+  font-size: 11px;
+  font-weight: 500;
+}
+.bc-conta:hover .bc-dica,
+.bc-conta:focus-visible .bc-dica {
+  display: block;
+}
+/* A linha com a dica aberta fica por cima das linhas fixas de baixo. */
+.bc-matriz tbody th:has(.bc-conta:hover, .bc-conta:focus-visible) {
+  z-index: 3;
+}
+/* Cabeçalho fixo ao rolar para baixo; coluna Skill fixa ao rolar para o lado; o canto fica por cima dos dois. */
+.bc-matriz thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(var(--group), var(--group)), var(--raised);
+  font-weight: 600;
+  vertical-align: bottom;
+  padding: 8px 4px 6px;
+}
+.bc-matriz tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  font-weight: 400;
+}
+.bc-matriz thead th.bc-canto {
+  left: 0;
+  z-index: 4;
+  text-align: left;
+  padding: 8px 12px 6px;
+}
+.bc-matriz thead th.bc-canto,
+.bc-matriz tbody th {
+  box-shadow: 1px 0 0 var(--line-strong);
+}
+.bc-matriz tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.bc-matriz td.atencao {
+  background: linear-gradient(var(--attention-soft), var(--attention-soft)), var(--raised);
+}
+.bc-bot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  border-radius: var(--radius-s);
+  padding: 2px;
+}
+.bc-bot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.bc-bot-nome {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+}
+.bc-rosto {
+  position: relative;
+  display: inline-flex;
+}
+.bc-ponto {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--attention);
+}
+/* Nome inteiro: no ponteiro e no foco do teclado. */
+.bc-bot-dica {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  background: var(--raised);
+  box-shadow: var(--shadow-m), 0 0 0 1px var(--line-strong);
+  color: var(--text-primary, var(--ink));
+  font-size: 11px;
+  font-weight: 500;
+}
+.bc-bot:hover .bc-bot-dica,
+.bc-bot:focus-visible .bc-bot-dica {
+  display: block;
+}
+.bc-nome {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.bc-nome:is(button):hover {
+  text-decoration: underline;
+}
+.bc-sub {
+  display: block;
+  font-size: 11px;
+  line-height: 15px;
+  font-weight: 400;
+  color: var(--context-ink-2, var(--ink-2));
+  margin-top: 1px;
+}
+.bc-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-cel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 28px;
+}
+/* Sim/Não: Sim cheio em accent, Não com contorno; desligado (aria-disabled) apagado, mas focável. */
+.bc-sn {
+  min-width: 36px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.bc-sn.sim {
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--on-accent);
+}
+.bc-sn[aria-disabled='true'] {
+  cursor: default;
+  opacity: var(--opacity-disabled, 0.45);
+}
+.bc-sn:focus-visible,
+.bc-icone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.bc-valor {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.bc-valor.sim {
+  color: var(--text-primary, var(--ink));
+  font-weight: 600;
+}
+.bc-icone {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.bc-icone.atencao {
+  color: var(--text-attention, var(--attention));
+}
+button.bc-icone:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.08);
+}
+.bc-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--raised);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l), 0 0 0 1px var(--line);
+}
+.bc-legenda b {
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+@media (max-width: 900px) {
+  .bc-matriz {
+    --bc-skill: 168px;
+  }
+  .bc-rolar {
+    display: inline;
+  }
+}
+
+/* d2a / DON-855: Comparar rascunho (sem efeito). Só tokens; diff integral, sem dobrar nem cortar. */
+.cs-rev-voltar {
+  display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px 0 6px; flex: none;
+  border-radius: var(--radius-pill); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-2); font-size: 12px;
+}
+.cs-rev-voltar:hover { background: var(--hover); }
+.cs-rev-voltar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cs-rev-selo {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 500; background: var(--field); color: var(--ink-2);
+}
+.cs-rev-selo.aviso { background: var(--attention-soft); color: var(--attention); }
+.cs-rev-selo.ok { background: var(--accent-soft); color: var(--accent); }
+.cs-rev-doc {
+  width: 100%; min-height: 220px; resize: vertical; display: block; border: 0; border-radius: var(--radius-s);
+  padding: 10px 12px; background: var(--field); color: var(--ink); font: 12px/18px var(--font-mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: inset 0 0 0 1px var(--line);
+}
+.cs-rev-doc:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.cs-rev-aviso { display: flex; gap: 10px; align-items: flex-start; }
+.cs-rev-aviso-icone { margin-top: 3px; color: var(--ink-2); flex: none; }
+.cs-rev-aviso.danger .cs-rev-aviso-icone { color: var(--danger); }
+.cs-rev-aviso.attention .cs-rev-aviso-icone { color: var(--attention); }
+.cs-rev-aviso-acao { margin-top: 8px; }
+.cs-rev-abas { width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.cs-rev-diff {
+  border-radius: var(--radius-s); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line);
+  font: 12px/18px var(--font-mono); padding: 4px 0;
+}
+.cs-rev-ln { display: grid; grid-template-columns: 30px 30px 16px minmax(0, 1fr); }
+.cs-rev-ln > span { padding: 0 4px; }
+.cs-rev-n { text-align: right; color: var(--ink-3); user-select: none; font-size: 11px; }
+.cs-rev-s { text-align: center; user-select: none; color: var(--ink-3); }
+.cs-rev-t { white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 10px; }
+.cs-rev-ln.adicionada { background: color-mix(in srgb, var(--success) 13%, transparent); }
+.cs-rev-ln.adicionada .cs-rev-s { color: var(--success); font-weight: 700; }
+.cs-rev-ln.removida { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.cs-rev-ln.removida .cs-rev-s { color: var(--danger); font-weight: 700; }
+.cs-rev-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cs-rev-inteiro {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/18px var(--font-mono);
+  background: var(--field); border-radius: var(--radius-s); padding: 10px 12px;
+}
+#cs-rev-painel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-s); }
+.cs-rev-bots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cs-rev-bots li { display: flex; align-items: center; gap: 10px; min-height: 32px; min-width: 0; }
+.cs-rev-bots li + li { border-top: 1px solid var(--line); }
+.cs-rev-rosto { color: var(--ink-2); flex: none; }
+.cs-rev-rodape {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 12px 20px;
+  background: var(--raised); border-top: 1px solid var(--line);
+}
+.cs-rev-rodape button { flex: none; white-space: nowrap; }
+
+/* Skills: acabamento. A confirmação de remover lista quem perde a skill; a linha instalada ganha o último uso. */
+.cs-remocao {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cs-remocao-bots {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 168px;
+  overflow-y: auto;
+  border-radius: var(--radius-m);
+  background: var(--control-fill-muted, var(--field));
+  color: var(--text-primary, var(--ink));
+  text-align: start;
+}
+.cs-remocao-bots li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+.cs-uso {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Resumo informativo: somente a folha, sem alterar a matriz ou suas linhas compactas. */
+.cs-info-endereco { overflow-wrap: anywhere; white-space: normal; }
+.cs-info-medidas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.cs-info-medida { display: flex; flex-direction: column; gap: 3px; min-width: 0; }

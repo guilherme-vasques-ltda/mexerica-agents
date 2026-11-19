@@ -1,0 +1,176 @@
+/* D165 fase F, D169 (components/ApprovalCard): the approval request in the bubble glass. */
+.approval-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 520px;
+  padding: var(--sp-20) var(--sp-20) var(--sp-16);
+  border-radius: var(--radius-l);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+html[data-wallpaper] .approval-card {
+  -webkit-backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .approval-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.approval-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  height: 26px;
+  padding: 0 var(--sp-10);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.approval-badge.waiting {
+  background: var(--attention-soft);
+  color: var(--text-attention, var(--attention));
+}
+.approval-badge.allowed {
+  color: var(--text-success, var(--success));
+}
+.approval-title {
+  margin: var(--sp-12) 0 var(--sp-4);
+  font-size: var(--text-title3);
+  line-height: 1.34;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, var(--ink));
+}
+.approval-card .permission-card-title {
+  font-size: var(--text-callout);
+  line-height: 1.5;
+}
+.approval-card .permission-card-title.permission-card-technical {
+  font-size: var(--text-caption);
+}
+.approval-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-6) var(--sp-20);
+  margin: var(--sp-14) 0 var(--sp-12);
+  padding: var(--sp-12) var(--sp-14);
+  border-radius: var(--radius-m);
+  background: var(--group);
+  font-size: var(--text-body);
+  line-height: 1.38;
+}
+.approval-facts dt {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.approval-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Auditoria D249, F3: Detalhes is a 28 px target, not the 13 px line of its text. */
+.approval-card .disclosure-label {
+  min-height: 28px;
+}
+.approval-card .disclosure,
+.approval-card .permission-card-details {
+  margin-bottom: var(--sp-4);
+}
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-8);
+  margin-top: var(--sp-4);
+}
+/* Refusing is a ghost button in `ink`: one click, never the loud choice. */
+.approval-deny {
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: background-color var(--motion-hover);
+}
+.approval-deny:hover:not(:disabled) {
+  background: var(--hover);
+}
+.approval-deny:disabled {
+  opacity: var(--opacity-disabled);
+}
+.approval-note {
+  display: flex;
+  /* Top-aligned: at large text sizes the line wraps and the icon stays with its first line. */
+  align-items: flex-start;
+  gap: var(--sp-6);
+  margin: var(--sp-12) 0 0;
+  font-size: var(--text-callout);
+  line-height: 1.34;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.approval-note > :first-child {
+  flex: none;
+}
+/* Hold to approve: the prominent one is an `ink` button (36px, with a check) that fills with the accent
+   while held (0.9 s); a broader allow is a secondary `field` one (30px) that fills with a soft accent
+   tint under the same `ink` text, so the label reads on the filled and the empty part through the whole
+   gesture and the broader allow stays quieter (D169 R6). Letting go empties it. */
+.hold-button {
+  position: relative;
+  overflow: hidden;
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+  font-size: var(--text-body);
+  font-weight: 600;
+  touch-action: none;
+  user-select: none;
+}
+.hold-button.primary {
+  min-height: 36px;
+  padding: 0 var(--sp-16);
+  /* `canvas` text reads on both the `ink` button and the accent fill, in both themes. */
+  background: var(--ink);
+  color: var(--canvas);
+}
+.hold-button:disabled {
+  opacity: var(--opacity-disabled);
+}
+.hold-button-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.15s var(--ease);
+}
+.hold-button.holding .hold-button-fill {
+  transform: scaleX(1);
+  transition: transform var(--hold-ms) linear;
+}
+.hold-button:not(.primary) .hold-button-fill {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.hold-button-label {
+  position: relative;
+}
+.hold-button:focus-visible,
+.approval-deny:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hold-button-fill,
+  .hold-button.holding .hold-button-fill {
+    transition: none;
+  }
+}

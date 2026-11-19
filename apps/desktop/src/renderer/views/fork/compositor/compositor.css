@@ -1,0 +1,195 @@
+/* D533: aparência do Composer existente. Não muda atalhos, estados ou operações. */
+.composer.idioma-superficie {
+  container: message-composer / inline-size;
+  --d533-action: calc(32px * var(--scale));
+  --d533-pad: var(--sp-4);
+  --d533-text-scale: 1;
+  --d533-icon-scale: 1;
+  --d533-button-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 14%, transparent);
+  padding-block-end: 0;
+}
+/* A largura só organiza o espaço; tamanhos seguem os tokens e a preferência de texto. */
+.composer .composer-surface {
+  --d533-warm: 0 10px 28px color-mix(in srgb, var(--accent) 6%, transparent);
+  min-block-size: calc(var(--d533-action) + 2 * var(--d533-pad));
+  margin-block-end: max(12px, var(--d533-pad));
+  border-radius: calc(var(--d533-action) / 2 + var(--d533-pad));
+  box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line), var(--d533-warm);
+}
+.composer .composer-surface:focus-within {
+  box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line-strong), var(--d533-warm);
+}
+/* A bandeja da fila (pedido do dono 10/11) é uma aba do compositor: mais estreita que o campo,
+   com a base atrás do cartão. O `.composer` vira bloco para empilhar os dois; o recuo lateral é
+   o mesmo nos dois lados (inline, então o RTL espelha sozinho). */
+.composer.idioma-superficie { display: block; }
+.composer .fila-bandeja { margin-inline: var(--sp-32); }
+.composer:has(> .fila-bandeja) .composer-surface { margin-block-start: -4px; }
+.composer .composer-surface:has(.composer-reveal.shown) { border-radius: var(--radius-xl); }
+.composer .composer-box {
+  min-block-size: calc(var(--d533-action) + 2 * var(--d533-pad));
+  padding: var(--d533-pad);
+  gap: var(--sp-8);
+}
+.composer .composer-box textarea,
+.composer .composer-measure {
+  font-size: calc(var(--conversation) * var(--d533-text-scale));
+  line-height: round(up, calc(var(--conversation) * var(--d533-text-scale) * 1.5), 1px);
+  padding-block: max(0px, calc((var(--d533-action) - round(up, calc(var(--conversation) * var(--d533-text-scale) * 1.5), 1px)) / 2));
+  padding-inline: var(--sp-4);
+}
+.composer .composer-box textarea { min-block-size: var(--d533-action); max-block-size: max(var(--d533-action), 35dvh); }
+.composer .composer-add,
+.composer .composer-send {
+  inline-size: var(--d533-action);
+  block-size: var(--d533-action);
+  margin-block-end: 0;
+}
+.composer .composer-send.is-call:not(:disabled) { background: var(--action-fill, var(--accent)); color: var(--on-accent); }
+.composer .composer-send:is(.is-call, .is-send):not(:disabled):not(:focus-visible) { box-shadow: var(--d533-button-shadow); }
+.composer .composer-send.is-salvar { inline-size: auto; min-inline-size: var(--d533-action); padding-inline: var(--sp-16); }
+.composer .composer-mic {
+  inline-size: calc(var(--d533-action) - 8px);
+  block-size: calc(var(--d533-action) - 8px);
+  margin-block-end: 4px;
+}
+.composer .composer-symbol > :is(svg, span),
+.composer .composer-add > :is(svg, span),
+.composer .composer-mic > :is(svg, span) { transform: scale(var(--d533-icon-scale)); }
+.composer .composer-send:focus-visible,
+.composer .composer-add:focus-visible,
+.composer .composer-mic:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.composer .composer-reply { padding-inline: var(--sp-16); }
+
+.ctx-barra.idioma-superficie {
+  container: context-strip / inline-size;
+  --d533-footer-scale: 1;
+  --d533-footer-icon-scale: 1;
+  --d533-chip-height: calc(var(--conversation) + var(--sp-12));
+  margin-block-start: 0;
+  padding-inline: calc(14px + var(--sp-8));
+  gap: var(--sp-12);
+  align-items: center;
+}
+.ctx-barra .ctx-inicio { gap: var(--sp-8); flex: 1; }
+.ctx-barra .ctx-inicio :is(.composer-mode, .chip-modelo) {
+  block-size: max(var(--d533-chip-height), calc(var(--conversation) * var(--d533-footer-scale) + 12px));
+  background: var(--glass-raised);
+  border-radius: var(--radius-pill);
+}
+.ctx-barra .ctx-inicio :is(.composer-mode, .chip-modelo):not(:focus-visible) { box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line); }
+.ctx-barra .ctx-inicio .composer-mode { inline-size: calc(var(--d533-chip-height) + 8px); }
+.ctx-barra .ctx-inicio .composer-mode > :is(svg, span) { transform: scale(var(--d533-footer-icon-scale)); }
+/* O nome do modelo tem direção própria: 6.1 Sol não vira Sol 6.1 em árabe. */
+.ctx-barra .chip-modelo-nome { unicode-bidi: plaintext; }
+.ctx-barra .ctx-inicio .chip-modelo { flex-shrink: 1; max-inline-size: 100%; padding-inline: var(--sp-12); font-size: calc(var(--conversation) * var(--d533-footer-scale)); }
+.ctx-barra .ctx-inicio :is(.composer-mode, .chip-modelo):hover:not(:disabled),
+.ctx-barra .ctx-inicio :is(.composer-mode, .chip-modelo)[aria-expanded="true"] { background: var(--field); }
+/* Não substituir o box-shadow canônico do chip no foco. */
+.ctx-barra .ctx-inicio :is(.composer-mode, .chip-modelo):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.ctx-barra .ctx-anel { block-size: calc(var(--d533-chip-height) + 8px); padding-inline: var(--sp-4); gap: var(--sp-8); background: transparent; box-shadow: none; }
+html[data-wallpaper] .ctx-barra .ctx-anel { background: var(--glass-raised); box-shadow: var(--shadow-glass); }
+.ctx-barra .ctx-anel:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.ctx-barra .ctx-pct { font-size: calc(var(--conversation) * var(--d533-footer-scale)); }
+.ctx-barra .ctx-gomos { inline-size: var(--d533-chip-height); block-size: var(--d533-chip-height); }
+.ctx-barra .ctx-gomos :is(.ctx-trilho, .ctx-arco) { stroke-width: 7; stroke-linecap: butt; }
+.ctx-barra .ctx-gomos .ctx-trilho { stroke: color-mix(in srgb, var(--accent-marca, var(--accent)) 24%, transparent); }
+.ctx-barra .ctx-gomos .ctx-arco { stroke: var(--accent-marca, var(--accent)); }
+/* appearance.ts escreve --legible-danger em todos os caminhos, com/sem wallpaper. */
+.ctx-barra .ctx-medidor.is-alto .ctx-anel { color: var(--legible-danger, var(--danger)); }
+.ctx-barra .ctx-medidor.is-alto .ctx-gomos .ctx-arco { stroke: currentColor; }
+
+:root[data-toques-mexerica="off"] .composer { --d533-button-shadow: 0 0 0 transparent; }
+:root[data-toques-mexerica="off"] .composer .composer-surface { --d533-warm: 0 0 0 transparent; }
+@media (prefers-contrast: more), (forced-colors: active) {
+  .composer.idioma-superficie { --d533-button-shadow: 0 0 0 transparent; }
+  .composer .composer-surface { --d533-warm: 0 0 0 transparent; }
+  .ctx-barra .ctx-gomos .ctx-trilho { stroke: var(--line-strong); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer :is(textarea, .composer-symbol), .ctx-barra .ctx-arco { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .ctx-barra .ctx-gomos .ctx-trilho { forced-color-adjust: none; stroke: GrayText; }
+  .ctx-barra .ctx-gomos .ctx-arco { forced-color-adjust: none; stroke: CanvasText; }
+}
+
+/* Decisão do dono: exceção local de contraste para a ação grande no claro.
+   Hue/saturação vêm do accent escolhido; nenhum laranja fixo ou token duplicado. */
+@media (prefers-contrast: no-preference) and (forced-colors: none) {
+  :root[data-theme="light"] .composer { --d533-vivid: hsl(from var(--accent) h s max(l, 54)); }
+  :root[data-theme="light"] .composer .composer-send:is(.is-call, .is-send):not(:disabled) { background: var(--d533-vivid); color: var(--on-accent); }
+  :root[data-theme="light"]:not([data-toques-mexerica="off"]) .composer .composer-surface {
+    --d533-warm: 0 10px 28px color-mix(in srgb, var(--d533-vivid) 12%, transparent);
+    box-shadow: inset 0 0 0 1px var(--line), 0 2px 6px color-mix(in srgb, var(--d533-vivid) 6%, transparent), var(--d533-warm);
+  }
+  :root[data-theme="light"]:not([data-toques-mexerica="off"]) .composer .composer-surface:focus-within {
+    box-shadow: inset 0 0 0 1px var(--line-strong), 0 2px 6px color-mix(in srgb, var(--d533-vivid) 6%, transparent), var(--d533-warm), var(--mx-halo, 0 0 0 transparent);
+  }
+}
+
+/* Hover só acrescenta profundidade; não substitui o foco. */
+@media (hover: hover) and (prefers-contrast: no-preference) and (forced-colors: none) {
+  .composer .composer-surface:hover {
+    filter: drop-shadow(0 3px 4px color-mix(in srgb, var(--accent) 8%, transparent));
+  }
+}
+
+/* MX-214 (proposta Cofre seguro, tela 4): o aviso de senha colada acima da caixa e o trecho escondido no campo. */
+/* Mesma coluna e mesmas margens laterais da caixa de mensagem (.composer: --column e 14px de cada lado). */
+.aviso-senha-faixa {
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: var(--column);
+  margin-inline: auto;
+  padding-inline: var(--sp-14);
+}
+.aviso-senha {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-12);
+  margin-block-end: var(--sp-8);
+  padding: var(--sp-14) var(--sp-16);
+  background: var(--glass-raised);
+  border-radius: var(--radius-l);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+html[data-wallpaper] .aviso-senha {
+  -webkit-backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .aviso-senha { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+.aviso-senha-selo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: var(--radius-s);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.aviso-senha-acoes { margin-block: var(--sp-4); }
+.composer .composer-escondida {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  gap: var(--sp-6);
+  padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--radius-s);
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+.composer .composer-escondida-pontos { letter-spacing: 0.08em; }
+/* MX-277: o cartão "Guardado no cofre" usa o verde de sucesso do tema no selo. */
+.aviso-senha.is-guardado .aviso-senha-selo {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}

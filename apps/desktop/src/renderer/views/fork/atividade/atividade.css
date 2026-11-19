@@ -1,0 +1,65 @@
+/* Entrega 4 (MX-7): Ajustes → Atividade. Linhas de 36px agrupadas por dia, 10 por página (decisão do dono, 11/11). */
+.atividade-page { height: 100%; container-type: inline-size; }
+.atividade-sobre { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.atividade-acoes { display: flex; align-items: center; gap: 8px; margin-inline-start: auto; }
+.atividade-acoes .tab-choice { padding: 2px; background: var(--field); border-radius: var(--radius-pill); }
+.atividade-acoes .tab-choice-option { font-size: var(--text-caption); padding: 3px 10px; }
+.atividade-acoes .tab-choice-option.on { background: var(--chip-on); box-shadow: var(--shadow-chip); }
+.atividade-caixa { overflow: clip; }
+.atividade-dia {
+  padding: 6px 16px; font-size: var(--text-caption); font-weight: 600; color: var(--ink-2);
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.atividade-item + .atividade-item { border-top: 1px solid var(--line); }
+.atividade-linha {
+  display: grid; grid-template-columns: 8px var(--atividade-hora, 44px) minmax(0, 1fr) auto minmax(76px, auto) 10px; align-items: center; gap: 10px;
+  width: 100%; min-height: 36px; padding: 6px 16px; text-align: start; color: var(--ink); font-size: var(--text-callout);
+}
+.atividade-linha:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.atividade-linha:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.atividade-ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3, var(--ink-2)); opacity: .55; }
+.atividade-ponto.ok { background: var(--accent-verde, var(--accent)); opacity: 1; }
+.atividade-ponto.falha { background: var(--danger); opacity: 1; }
+.atividade-hora { white-space: nowrap; }
+.atividade-hora, .atividade-tokens { color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: var(--text-caption); }
+.atividade-tokens { text-align: end; white-space: nowrap; }
+.atividade-nome { display: flex; gap: 8px; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; }
+.atividade-nome strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.atividade-nome > span { color: var(--ink-2); font-size: var(--text-caption); overflow: hidden; text-overflow: ellipsis; }
+.atividade-status { font-size: var(--text-caption); color: var(--ink-2); white-space: nowrap; }
+.atividade-status.falha { color: var(--danger); font-weight: 600; }
+.atividade-seta { color: var(--ink-3, var(--ink-2)); transition: transform var(--motion-hover); }
+.atividade-item.aberta .atividade-seta { transform: rotate(90deg); }
+[dir="rtl"] .atividade-seta { transform: scaleX(-1); }
+[dir="rtl"] .atividade-item.aberta .atividade-seta { transform: rotate(90deg); }
+.atividade-detalhe {
+  display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 0; padding: 2px 16px 12px 78px;
+  font-size: var(--text-caption); line-height: 1.5;
+}
+[dir="rtl"] .atividade-detalhe { padding: 2px 78px 12px 16px; }
+.atividade-detalhe dt { color: var(--ink-2); }
+.atividade-detalhe dd { margin: 0; overflow-wrap: anywhere; }
+.atividade-vazio { display: flex; align-items: center; gap: 10px; padding: 18px 16px; color: var(--ink-2); line-height: 1.45; }
+/* Janela estreita: some a coluna de tokens (fica no detalhe). */
+@container (max-width: 520px) {
+  .atividade-linha { grid-template-columns: 8px var(--atividade-hora, 40px) minmax(0, 1fr) auto 10px; }
+  .atividade-tokens { display: none; }
+  .atividade-detalhe { padding-inline-start: 16px; }
+}
+.atividade-dia::first-letter { text-transform: uppercase; }
+.atividade-nota { color: var(--ink-2); }
+/* Paginador: "X–Y de N" e ‹ 1 2 3 4 5 ›. Os chevrons espelham no RTL. */
+.atividade-paginas { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 0 2px; }
+.atividade-intervalo { color: var(--ink-2); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
+.atividade-paginas nav { display: flex; align-items: center; gap: 2px; }
+.atividade-pagina {
+  min-width: 28px; height: 28px; padding: 0 6px; border-radius: var(--radius-s); color: var(--ink-2);
+  font-size: var(--text-callout); font-variant-numeric: tabular-nums; display: inline-grid; place-items: center;
+}
+.atividade-pagina:hover:not(:disabled) { background: var(--field); color: var(--ink); }
+.atividade-pagina.atual { background: var(--chip-on, var(--field)); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-chip); }
+.atividade-pagina:disabled { opacity: var(--opacity-disabled, .4); }
+.atividade-pagina:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+[dir="rtl"] .atividade-pagina.seta svg, [dir="rtl"] .atividade-pagina.seta > * { transform: scaleX(-1); }
+/* Releitura que falhou: aviso discreto em cima das linhas que continuam na tela. */
+.atividade-aviso { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 16px; color: var(--ink); font-size: var(--text-caption); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--danger) 8%, transparent); }

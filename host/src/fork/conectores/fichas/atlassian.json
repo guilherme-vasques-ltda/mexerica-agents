@@ -1,0 +1,64 @@
+{
+  "id": "atlassian",
+  "nome": "Atlassian (Jira e Confluence)",
+  "categoria": "Projetos",
+  "descricao": "Jira e Confluence: lê issues, espaços e páginas e cria, edita, transiciona e apaga itens de trabalho e conteúdo.",
+  "exemplos": [
+    "Quais tarefas do Jira estão atrasadas neste sprint?",
+    "Resuma a página do Confluence sobre o lançamento"
+  ],
+  "site": "https://www.atlassian.com",
+  "docs": "https://support.atlassian.com/atlassian-ai-gateway/docs/use-atlassian-mcp-server/",
+  "links": {
+    "privacidade": "https://www.atlassian.com/legal/privacy-policy",
+    "termos": "https://www.atlassian.com/legal/cloud-terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://support.atlassian.com/atlassian-ai-gateway/docs/use-atlassian-mcp-server/",
+    "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3/dcr/register",
+    "https://auth.atlassian.com/.well-known/oauth-authorization-server/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3"
+  ],
+  "tipos": [
+    {
+      "id": "atlassian.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Atlassian (Jira e Confluence)",
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "read:me",
+            "read:account",
+            "read:jira:agent-interface",
+            "search:jira:agent-interface",
+            "read:confluence:agent-interface",
+            "search:confluence:agent-interface",
+            "read:jsm:agent-interface"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Atlassian (Jira e Confluence) não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/atlassian/forge-skills",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    }
+  ]
+}

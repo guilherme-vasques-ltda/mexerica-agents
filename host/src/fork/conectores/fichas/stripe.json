@@ -1,0 +1,57 @@
+{
+  "id": "stripe",
+  "nome": "Stripe",
+  "categoria": "Finanças e pagamentos",
+  "descricao": "Acessa a API do Stripe para consultar pagamentos, assinaturas e clientes e executar ações de cobrança e movimentação de dinheiro.",
+  "exemplos": [
+    "Quanto recebi no Stripe esta semana?",
+    "Liste as assinaturas que cancelaram este mês"
+  ],
+  "site": "https://stripe.com",
+  "docs": "https://docs.stripe.com/mcp",
+  "links": {
+    "privacidade": "https://stripe.com/privacy",
+    "termos": "https://stripe.com/legal"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.stripe.com/mcp",
+    "https://access.stripe.com/mcp/oauth2/register",
+    "https://access.stripe.com/.well-known/oauth-authorization-server/mcp"
+  ],
+  "aviso": "Mexe com dinheiro (cobranças, reembolsos e transferências); só entra com o filtro de ações perigosas.",
+  "tipos": [
+    {
+      "id": "stripe.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Stripe",
+      "url": "https://mcp.stripe.com",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Stripe não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/stripe/ai/tree/main/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

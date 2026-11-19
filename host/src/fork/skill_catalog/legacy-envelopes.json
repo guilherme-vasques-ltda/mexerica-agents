@@ -1,0 +1,1306 @@
+[
+  {
+    "metadata": {
+      "id": "security-audit",
+      "source": "security-audit",
+      "name": "Auditar segurança de código",
+      "description": "Orientação parcial para revisar fronteiras de segurança e registrar provas em código autorizado.",
+      "category": "Segurança",
+      "aliases": [],
+      "origin": {
+        "repo": "cloudflare/security-audit-skill",
+        "revision": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+        "path": "skills/security-audit",
+        "sourceDigest": "076209aadfb634843a247edf7c4e0c1176872603dae49753b446184d0ab0cc0a"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "Guia e referências cabem no pacote passivo; auditoria completa exige delegações independentes, sandbox e dois validadores Node. O texto não concede execução nem cria auditoria por ter sido carregado.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Orientação parcial: sem workflow completo, referências temáticas upstream, validadores Node, scanners, sandbox ou delegações automáticas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1431,
+          "sha256": "9adb4a26888816e1780c129b2babfb6ea0ca8499d13ab684abcb60b6b551dfc2",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1078,
+          "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 854,
+          "sha256": "e455c781d9b8519e214df7c2d90aed970d32fca6bb969dea2bed1eee82685991",
+          "mode": "100644"
+        }
+      ],
+      "digest": "3650f495de49a09f4d0881eb034980cb1df9fd27933819a68645df05a6cb33dc"
+    },
+    "installId": "security-audit-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "hallmark",
+      "source": "hallmark",
+      "name": "Hallmark — criar páginas com identidade",
+      "description": "Guia parcial para planejar páginas e direção visual, sem temas, fotos ou geradores.",
+      "category": "Design",
+      "aliases": [],
+      "origin": {
+        "repo": "Nutlope/hallmark",
+        "revision": "7ec868225c6caa040558c321ee0fefa0e73f83a8",
+        "path": "skills/hallmark",
+        "sourceDigest": "0bf88176a88b76efeb3f2a22f2bf94a674d9e72248e9b93a6c05351dabce7480"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "Pacote completo excede 5 MiB/100 arquivos; frontmatter tem argument-hint e version rejeitados pelo parser Donna atual. Scripts, capturas e assets têm funções essenciais; removê-los produz recorte parcial.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Sem temas, fotografias, fontes, assets, scripts, geração e captura; pacote completo excede tamanho/quantidade e tem direitos de mídia pendentes."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1044,
+          "sha256": "c8d1c1653668454a1004a466f7a09bfa55adb41510ea1365a1e8f0f41684a489",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1078,
+          "sha256": "06088a8b94598626f27612dea42300154bf7be967c85d9d3eee4490cb056af7d",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 836,
+          "sha256": "1315791536e32648581f59aff0f710a3caba20613a01864d7636aef61ab49da5",
+          "mode": "100644"
+        }
+      ],
+      "digest": "d20edd71b9f84b1aee09c3c2b6089ac283626eec7402bd2a29c7437c730e98a9"
+    },
+    "installId": "hallmark-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "impeccable",
+      "source": "impeccable",
+      "name": "Impeccable — revisar e refinar interfaces",
+      "description": "Guia parcial de crítica e refinamento visual, sem detector, CLI ou captura automática.",
+      "category": "Design",
+      "aliases": [],
+      "origin": {
+        "repo": "pbakaus/impeccable",
+        "revision": "936867543ac2576920d663cc9803597f6044f3ac",
+        "path": ".agents/skills/impeccable",
+        "sourceDigest": "4cff78a9a962c2395f1ede385df332fa67617c08b09a477ff5d04e26fca95abd"
+      },
+      "license": "Apache-2.0",
+      "availability": "adapted",
+      "reason": "skills.sh e link de repo foram resolvidos a uma única entrada .agents; variantes por harness têm hashes diferentes. Pacote completo contém arquivo de 1.100.013 bytes, launcher com download/execução de engine e definições de agentes. Leitura textual tem fallback explícito, mas perde detector/live/CLI.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Sem engine/CLI, detector live, agentes, screenshot bundle, índice de fontes e referências de plataformas; não equivale ao pacote completo."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1068,
+          "sha256": "076ae3f12c05c0a3ced0ec0b0a86eb79102c1290208b72bedac1300a61cb7ce4",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 10766,
+          "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812",
+          "mode": "100644"
+        },
+        {
+          "path": "NOTICE.md",
+          "bytes": 503,
+          "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 842,
+          "sha256": "d416e219882bc68993ec4d17474d745bd040e6f5790ae33fb2b3973c17370456",
+          "mode": "100644"
+        }
+      ],
+      "digest": "6a6cf2350d23c51efc7c7c094fce6914b09c85fe2079d8edb5597645e9499b0d"
+    },
+    "installId": "impeccable-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "skill-creator",
+      "source": "skill-creator",
+      "name": "Criar habilidades — avançado",
+      "description": "Roteiro parcial para escrever habilidades textuais com escopo e exemplos claros.",
+      "category": "Desenvolvimento",
+      "aliases": [],
+      "origin": {
+        "repo": "anthropics/skills",
+        "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+        "path": "skills/skill-creator",
+        "sourceDigest": "7a98da8f68379f70c484d6d6e153976cbe4c023bd147e039a8cec8c2f9821277"
+      },
+      "license": "Apache-2.0",
+      "availability": "adapted",
+      "reason": "SKILL.md tem 33.168 bytes: excede 32 KiB em 400 bytes. Fluxo integral inclui subagentes, scripts Python, viewer e avaliações com claude -p, sem equivalência automática ao modelo atual ou à conta D164.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Sem scripts Python, viewer, evals/benchmarks/otimização, agentes avaliadores e chamadas de modelo; somente autoria textual."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1373,
+          "sha256": "d9a6eea6a61f0474fe1efa9808bcf8186c39eff10d711b9f3d3f42829d3bee50",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 11345,
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 820,
+          "sha256": "fd4c255f04e4439012732b07febff5e0902a0a92b26ec248300922fbf1b7a27b",
+          "mode": "100644"
+        }
+      ],
+      "digest": "726e504df73770b14fb453d8a4dac2095231e1fdbb20c8b7ad2f846a7e56dc85"
+    },
+    "installId": "skill-creator-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "frontend-design",
+      "source": "frontend-design",
+      "name": "Design de interfaces",
+      "description": "Guia textual de direção visual e interfaces do pacote original fixado.",
+      "category": "Design",
+      "aliases": [],
+      "origin": {
+        "repo": "anthropics/skills",
+        "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+        "path": "skills/frontend-design",
+        "sourceDigest": "821525fce28c2636f8c25be00b057ee94fafee2938dc0cd7050e602a04604b9e"
+      },
+      "license": "Apache-2.0",
+      "availability": "text",
+      "reason": "Dois arquivos passivos; nome/descrição/frontmatter e limites cabem. LICENSE.txt específico é Apache-2.0 no SHA auditado, divergindo da hipótese MIT. Nenhum script ou asset binário integra este pacote.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 9390,
+          "sha256": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 10174,
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "mode": "100644"
+        }
+      ],
+      "digest": "91b5d5d5afe8870b45babf2cd886ef9a4a570f12d16f1b99a5e532ebbd35d3a1"
+    },
+    "installId": "frontend-design",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "pdf",
+      "source": "pdf",
+      "name": "Trabalhar com PDF",
+      "description": "Referência de trabalho com PDF indisponível para cópia por licença específica.",
+      "category": "Documentos",
+      "aliases": [],
+      "origin": {
+        "repo": "anthropics/skills",
+        "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+        "path": "skills/pdf",
+        "sourceDigest": "17df884aa690219324516441034568fe209da506ea0df7a250bb215ab0382a25"
+      },
+      "license": "LicenseRef-Anthropic-Proprietary",
+      "availability": "licenseUnavailable",
+      "reason": "Licença específica proprietária restringe retenção, cópia, derivados e distribuição fora dos serviços Anthropic; metadados/evidência mínima preservados, sem empacotar os corpos. SKILL.md aponta REFERENCE.md/FORMS.md, mas arquivos reais são reference.md/forms.md; em Linux os caminhos literais não resolvem.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [],
+      "digest": "ac216ebd53d0ce77b89b1c0644d7d51e31ce3403f257bc6de0a6e6741f14a732"
+    },
+    "installId": "pdf-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "xlsx",
+      "source": "xlsx",
+      "name": "Criar e editar planilhas",
+      "description": "Referência de planilhas indisponível para cópia por licença específica.",
+      "category": "Documentos",
+      "aliases": [],
+      "origin": {
+        "repo": "anthropics/skills",
+        "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+        "path": "skills/xlsx",
+        "sourceDigest": "1375fba3a93f1259fac653642da6ee9e59e44a8cc9c93e56d9beb4f25327e8cd"
+      },
+      "license": "LicenseRef-Anthropic-Proprietary",
+      "availability": "licenseUnavailable",
+      "reason": "Licença específica proprietária restringe retenção, cópia, derivados e distribuição fora dos serviços Anthropic; metadados/evidência mínima preservados, sem empacotar os corpos. Pacote traz schemas com profundidade 5, acima do limite 4; runtime assume bibliotecas instaladas, LibreOffice, macro e shim compilado opcional.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [],
+      "digest": "a8365cdf1412e5914298fbc774ef7058f66800f1d24d504a838f0d9c66f5fd25"
+    },
+    "installId": "xlsx-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "find-skills",
+      "source": "find-skills",
+      "name": "Encontrar habilidades",
+      "description": "Encontrar habilidades no catálogo curado do Hub e preparar uma escolha humana.",
+      "category": "Bases",
+      "aliases": [],
+      "origin": {
+        "repo": "vercel-labs/skills",
+        "revision": "a80e4c9d12d607631249d4d7d059f835d4b2f13a",
+        "path": "skills/find-skills",
+        "sourceDigest": "3238b48960f655dea86f852867f5072602c4aafc85d01a4cf6823bb9b250aea6"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "O pacote tem apenas texto, mas o procedimento depende de npx skills find/add/update/init e instalação global -g -y. Pré-instalação funcional exige versão adaptada ao catálogo/controle do Hub; não alegar suporte completo do CLI.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "CLI skills/npx, instalação global, atualização automática e delegação removidos; descoberta limitada ao catálogo do Hub."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1373,
+          "sha256": "d84dc2286afa5438d2bceb565e1dbf6c1fc9697b02ad0469937d36d309cce9ab",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1069,
+          "sha256": "661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 822,
+          "sha256": "a8c3f401e6d526eef4d14a6779908ae6a9af3a5abdd790ccd74bd7537705c4a1",
+          "mode": "100644"
+        }
+      ],
+      "digest": "fd51c40ce240b69a20608360836eb6e87e8cd851f1e9f340df0117fa8e3ac0cb"
+    },
+    "installId": "find-skills-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "grilling",
+      "source": "grilling",
+      "name": "Entrevista para refinar um plano",
+      "description": "Entrevista opcional para esclarecer um plano, respeitando decisões já tomadas.",
+      "category": "Planejamento",
+      "aliases": [
+        "grill-me"
+      ],
+      "origin": {
+        "repo": "mattpocock/skills",
+        "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
+        "path": "skills/productivity/grilling",
+        "sourceDigest": "fd23008df60775a10735bfd0cb62e2c8ba3077134077fc7893a19760b42e422f"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "grill-me é um alias de 7 linhas que chama Skill(\"grilling\"); a implementação ativa é skills/productivity/grilling. O parser atual recusa disable-model-invocation e a Donna não ganha Skill tool por importar texto.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Alias resolvido para grilling; sem Skill tool, agents/openai.yaml, subagentes ou aprovação universal."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1004,
+          "sha256": "82c31de9f84ec3d4a42b52b424d439f4a976ea9cde1d26fcbec1cd4d41238bb7",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1068,
+          "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 806,
+          "sha256": "611dc3a46c8148f525db2209b5e77f56540655ed4b1c20ad4803184c78a6be6a",
+          "mode": "100644"
+        }
+      ],
+      "digest": "cabdc2e6c78cc3d72354d952e38e89e7fb44fd7501eaf8c99bc9ca3f99249db2"
+    },
+    "installId": "grilling-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "handoff",
+      "source": "handoff",
+      "name": "Preparar passagem de contexto",
+      "description": "Preparar um resumo com fontes, pendências e próximos passos para passagem de contexto.",
+      "category": "Pesquisa",
+      "aliases": [],
+      "origin": {
+        "repo": "mattpocock/skills",
+        "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
+        "path": "skills/productivity/handoff",
+        "sourceDigest": "f07de8560413d83fea1be9bc486fa5448c54d45cbe86c59220fb72670fb71929"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "Texto portátil, porém argument-hint/disable-model-invocation são recusados pelo parser atual. Documento temporário perde durabilidade/ACL/revisões; manter links a fontes e sugerir skills sem invocá-las automaticamente.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Formato Donna e rascunho opt-in; sem configuração de agente, escrita temporária automática ou nova durabilidade/ACL."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1085,
+          "sha256": "37476a36c07cb975168739cf3cd56303358b534a64bb9baefe1683d35b697b80",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1068,
+          "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 822,
+          "sha256": "65df89eaee060bae3c6edf13378edaae12c252ce0b1c623b98a925002b9c95b7",
+          "mode": "100644"
+        }
+      ],
+      "digest": "a2df310dc73d115bf8134312ce428b74f31ea84b321e3853d50887d0c0508c35"
+    },
+    "installId": "handoff-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "research",
+      "source": "research",
+      "name": "Pesquisar fontes primárias",
+      "description": "Planejar pesquisa por fontes primárias; delegação só quando autorizada e disponível.",
+      "category": "Pesquisa",
+      "aliases": [],
+      "origin": {
+        "repo": "mattpocock/skills",
+        "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
+        "path": "skills/engineering/research",
+        "sourceDigest": "7397edfe61c24d4325c7ab6df6d3423ba898a619bbd2762b4c11a6c3cd6ccfa7"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "Pacote passivo com SKILL.md e agents/openai.yaml. Requer agente em background; pode orientar pesquisa por fontes primárias, mas delegação real precisa capacidade/grant e ownership fornecidos pelo Hub.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Sem configuração de agente e delegação automática; pesquisa depende das ferramentas e autorização efetivas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1080,
+          "sha256": "d8856c4e6439a949eb2c18623558ce491b29698b33c3231ac9c7bbb6c421f0f1",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1068,
+          "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 816,
+          "sha256": "491e9e70e9633f58208b02e0a54c58ac6b6a1ffc46825df45893f789a8e04ead",
+          "mode": "100644"
+        }
+      ],
+      "digest": "01cd377ac473c74623a7fbd346d8eee29b3082941536a26cfdb7cae87e7a7205"
+    },
+    "installId": "research-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "brainstorming",
+      "source": "brainstorming",
+      "name": "Explorar ideias e desenho",
+      "description": "Explorar alternativas e critérios como texto, sem companion, servidor ou cadeia de execução.",
+      "category": "Planejamento",
+      "aliases": [],
+      "origin": {
+        "repo": "obra/superpowers",
+        "revision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+        "path": "skills/brainstorming",
+        "sourceDigest": "a42acf9825b967e9523a386828c53e40f8708f5f43a6d54e46a6ba2d142a21f6"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "O frontmatter simples passa na leitura estática, mas o pacote inclui scripts Bash/Node, servidor HTTP/WebSocket, HTML/JS e visual-companion; também força writing-plans. Parte textual deve ser adaptada e opt-in. Sem scripts e cadeia obrigatória, a instalação é parcial.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Sem companion/servidor/scripts/HTML ativo e cadeia obrigatória de planos ou execução."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1003,
+          "sha256": "aed0f514cbd009c1fcfddc291018c024a9902639bee613bf0c32629e7149bed0",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1070,
+          "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 782,
+          "sha256": "ee8cbda60bea62966cb0b24723b9207a94fe560d3f043e6470925ecd1774696f",
+          "mode": "100644"
+        }
+      ],
+      "digest": "394a1e4f92b941cc00db05b0343f8b66a63b483f610f92879a7b562b5b267b3d"
+    },
+    "installId": "brainstorming-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "copywriting",
+      "source": "copywriting",
+      "name": "Escrever textos de marketing",
+      "description": "Referência de redação de marketing com licença auxiliar ainda não encerrada.",
+      "category": "Marketing",
+      "aliases": [],
+      "origin": {
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "path": "skills/copywriting",
+        "sourceDigest": "b3784366f7e35e9358a2274ffe44905b0fb9bf3148b483f3745f030da7d139b7"
+      },
+      "license": "MIT",
+      "availability": "licenseUnavailable",
+      "reason": "Texto e referências passivas, sem scripts no pacote; inclui evals/evals.json como dado, não executor. Preservar avisos/atribuições e revisar natural-transitions antes de distribuição/adaptação como MIT integral.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [],
+      "digest": "9609f19aa0dd7ca2eb1402ba0fd3ba7826d0967df04ae15078ed3134ed6e7f4b"
+    },
+    "installId": "copywriting-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "content-strategy",
+      "source": "content-strategy",
+      "name": "Planejar conteúdo",
+      "description": "Planejar estratégia e distribuição de conteúdo como rascunho, com referências textuais.",
+      "category": "Marketing",
+      "aliases": [],
+      "origin": {
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "path": "skills/content-strategy",
+        "sourceDigest": "794eecca3e2ec1fd6c65e5d9c202b252ec621ad405bf67e58da0a9bba8a92ea7"
+      },
+      "license": "MIT",
+      "availability": "text",
+      "reason": "Pacote passivo completo com duas referências e evals JSON. Dados de keywords, transcrições, CMS e ferramentas externas são opcionais e dependem de autorização própria; não instalar integrações citadas.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 19387,
+          "sha256": "5097ae8c11c27e2846be307b30f09ac17333fd1ffab1bae19728c81444767001",
+          "mode": "100644"
+        },
+        {
+          "path": "evals/evals.json",
+          "bytes": 10190,
+          "sha256": "10167e7125ee77cbabe4f03953750dd99ea147f7461027fdbb0cf8e089e5506d",
+          "mode": "100644"
+        },
+        {
+          "path": "references/content-distribution.md",
+          "bytes": 5576,
+          "sha256": "1861a1aab0627ab29c279000879a9889242da1ba85e677acdc759c66a6241778",
+          "mode": "100644"
+        },
+        {
+          "path": "references/headless-cms.md",
+          "bytes": 8583,
+          "sha256": "efc796ae9596d1efcb876683db2d9b7c10c83e76e1cb69e527097907d5b4fc3f",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 1069,
+          "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+          "mode": "100644"
+        }
+      ],
+      "digest": "0e6ffe48742da74725088f4cde63254f50b2856c221317ba78abc029e55f0e2c"
+    },
+    "installId": "content-strategy",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "marketing-psychology",
+      "source": "marketing-psychology",
+      "name": "Aplicar psicologia ao marketing",
+      "description": "Referência editorial de modelos mentais aplicados ao marketing, sem promessas de resultado.",
+      "category": "Marketing",
+      "aliases": [],
+      "origin": {
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "path": "skills/marketing-psychology",
+        "sourceDigest": "a44ad415576a1847384447ceda163894625b17f738b448ed654c8ec5ac950fea"
+      },
+      "license": "MIT",
+      "availability": "text",
+      "reason": "Pacote passivo SKILL.md + evals JSON. Referência editorial de modelos mentais; não é comprovação científica, promessa de conversão ou permissão para alterar preços, consentimento ou assinaturas.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 21884,
+          "sha256": "573bbe4f6e300e7fb75299e314f56e26382d284782caa2ae0e0f33eb2e646548",
+          "mode": "100644"
+        },
+        {
+          "path": "evals/evals.json",
+          "bytes": 6036,
+          "sha256": "c3b7d15b3008eeb493796e21affd6a0c6e7ce312f9cfeffcdef467857903c733",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 1069,
+          "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+          "mode": "100644"
+        }
+      ],
+      "digest": "a4533adc3b97cf70f02e207a8dd69eecc942b75370f37f6b21a633e83869bdf6"
+    },
+    "installId": "marketing-psychology",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "orca-reference",
+      "source": "orca-reference",
+      "name": "Coordenação Orca — referência técnica",
+      "description": "Ideias de coordenação para Donna; referência técnica, sem instalação de Orca ou stub.",
+      "category": "Bases",
+      "aliases": [
+        "orchestration",
+        "orca"
+      ],
+      "origin": {
+        "repo": "stablyai/orca",
+        "revision": "c90d0f93c0f2f2c3ec243046c36059a1f4ec5cd2",
+        "path": "skills/orchestration",
+        "sourceDigest": "347ca514f39e2c077784abd2912df0ce383ce292def409c7c1f0e3df3e90bd4d"
+      },
+      "license": "MIT",
+      "availability": "dependencyUnavailable",
+      "reason": "Referência de ideias para Donna. Não é habilidade instalável: o stub upstream depende de Orca; esta rodada não adota esse runtime nem implementa nova orquestração nativa.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [],
+      "adaptation": null,
+      "readiness": null,
+      "files": [],
+      "digest": "4faa362713062d6a2adb49702c62b93154a5889afe12321eade96ae24aa53330"
+    },
+    "installId": "orca-reference-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "browser-use",
+      "source": "browser-use",
+      "name": "Navegação com Browser Use — depende de ferramenta",
+      "description": "Apoio textual para usar a ferramenta de navegação autorizada quando ela estiver disponível.",
+      "category": "Navegação",
+      "aliases": [],
+      "origin": {
+        "repo": "browser-use/browser-use",
+        "revision": "3df5806a0d097a1546d92c49bcf1b28c9972c3bd",
+        "path": "skills/browser-use",
+        "sourceDigest": "30d5684d420b2164bb478577f3ba02d1094449c5740118b391813379d2dbb50e"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "Pacote de origem é só SKILL.md, duplicado em browser_use/skills; aponta para browser-harness. homepage e metadata aninhado são recusados pelo parser atual. Não comprova nem concede noko-browser, CDP, contas, Chrome ou Cloud.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Sem runtime browser-harness/CDP/Python, cookies/perfis, proxy, cloud ou transporte novo. Ferramenta real continua pré-requisito."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1310,
+          "sha256": "d45785905169250be32c8c554cf5e1c7c1da2b974115d58c56b3784754bf1166",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 1069,
+          "sha256": "135c57671b0ee957669b05a0ca00cc06f645496d351e2e732832c6e276da9a5e",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 828,
+          "sha256": "76ba22e4d1b7a46e18c18e5b5bb3e1a576408bfa9d207d0f8bc1d09ccbf2887f",
+          "mode": "100644"
+        }
+      ],
+      "digest": "cf4881a869e2b0ba69b77e45450bc7b59683c1a982dde9bea8f58e2d71fdc3b7"
+    },
+    "installId": "browser-use-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "hyperframes",
+      "source": "hyperframes",
+      "name": "Vídeo com HyperFrames — receita passiva",
+      "description": "Planejar roteiro, cenas e critérios de vídeo como texto. Runtime não preparado e desligado.",
+      "category": "Vídeo",
+      "aliases": [
+        "hyperframes-video"
+      ],
+      "origin": {
+        "repo": "heygen-com/hyperframes",
+        "revision": "9aadc0b9b99d92afd25215228878cee23ea47a0f",
+        "path": "skills/hyperframes",
+        "sourceDigest": "e0851598b925c9ee422ebc2d82d5b7f118b59820ac620179930583e95454a0eb"
+      },
+      "license": "Apache-2.0",
+      "availability": "adapted",
+      "reason": "Somente receita textual parcial. Runtime não preparado; desligado. A versão npm auditada não corresponde ao SHA estudado.",
+      "requirements": [
+        "Runtime e artefato reproduzível não preparados.",
+        "Render/preview/Studio, browser/FFmpeg/fontes, API e modelos exigem entrega e autorização próprias."
+      ],
+      "losses": [
+        "Sem CLI, runtime, scripts, renderer, preview/Studio, importação de registry, assets, fontes ou modelos."
+      ],
+      "adaptation": "donna-recipe-v1",
+      "readiness": {
+        "enabled": false,
+        "runtime": "unavailable",
+        "reason": "Runtime HyperFrames não preparado; capacidade desligada. Importar texto não prepara nem testa o runtime.",
+        "unavailableActions": [
+          "render",
+          "preview",
+          "studio",
+          "hosted",
+          "registryImport",
+          "probe",
+          "download"
+        ]
+      },
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1074,
+          "sha256": "4cc260788de486507815365cfef741089f540efb4b794a64da1c58a82a5d901a",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE.txt",
+          "bytes": 10763,
+          "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8",
+          "mode": "100644"
+        },
+        {
+          "path": "CREDITS.md",
+          "bytes": 4351,
+          "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 382,
+          "sha256": "2c4a5421da39e977b2cbe9e7f3cf1ebc8f88793724dedeacb88c8b122fc2ffaa",
+          "mode": "100644"
+        }
+      ],
+      "digest": "425f4e9bc103044a6276c172cd215c0ff314accadb635d750a6c341833094948"
+    },
+    "installId": "hyperframes-receita-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl-build-scrape",
+      "source": "firecrawl-build-scrape",
+      "name": "Integrar extração de páginas com Firecrawl",
+      "description": "Integrar extração de páginas com Firecrawl — apoio textual condicional, sem operação externa.",
+      "category": "Automação Web",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/skills",
+        "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+        "path": "skills/build/firecrawl-build-scrape",
+        "sourceDigest": "bb27251d7a415c6866f786df7b7acf18d83fdf3afa01cb7ed9c47340d123dc64"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "Guia para desenvolvedor: /scrape no código, sem ferramenta pronta para o bot. Versão Donna parcial e condicional; texto não prepara a ferramenta.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1268,
+          "sha256": "3a021361fd63c5a1ac04f27f5653b44c177075267db2ddf28df114faa9cceb74",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 735,
+          "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 827,
+          "sha256": "72a78d60428d6cc22c99ef938a2dfa9c244fd81c6ea71b2478aa6cd3e28e6d31",
+          "mode": "100644"
+        }
+      ],
+      "digest": "b2d3744760b994a4a18cedaed16f95e05c61a7bcbc228a971d66fa17eefdf656"
+    },
+    "installId": "firecrawl-build-scrape-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl-build-search",
+      "source": "firecrawl-build-search",
+      "name": "Integrar busca com Firecrawl",
+      "description": "Integrar busca com Firecrawl — apoio textual condicional, sem operação externa.",
+      "category": "Pesquisa",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/skills",
+        "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+        "path": "skills/build/firecrawl-build-search",
+        "sourceDigest": "b887479dfe3d49c68c83323d2c6fc4a51ca6f216bc2dcff3549c6d251da79093"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "Guia para desenvolvedor: /search para descoberta, extração seletiva depois; links de índices quebrados no SHA. Versão Donna parcial e condicional; texto não prepara a ferramenta.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1213,
+          "sha256": "c5c0cf41b4d58377dd2d6caecc41a238db686fa4b1a8a84ee8d7fa2a9cbde899",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 735,
+          "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 827,
+          "sha256": "1eb0f3c47fc89dc8468c5e406ab375221a74129d31e271ad0b3c2656a7169c28",
+          "mode": "100644"
+        }
+      ],
+      "digest": "b1a1e143c06d88e8218140dff38a4b1330df34036455b09920bb5df8e1a760cc"
+    },
+    "installId": "firecrawl-build-search-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl-build-interact",
+      "source": "firecrawl-build-interact",
+      "name": "Integrar interação web com Firecrawl",
+      "description": "Integrar interação web com Firecrawl — apoio textual condicional, sem operação externa.",
+      "category": "Automação Web",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/skills",
+        "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+        "path": "skills/build/firecrawl-build-interact",
+        "sourceDigest": "b00100e9326f16e7ab0e1aa5aa6a97f7dfd3b7b97247fe351e1ee5eb3dbebc82"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "Guia para desenvolvedor: cliques, formulários, login e estado persistente podem produzir efeitos. Versão Donna parcial e condicional; texto não prepara a ferramenta.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1187,
+          "sha256": "58eec4e14b6510097ba29bc955475b03795d7190b6154c608289c9ec9cc2f158",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 735,
+          "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 829,
+          "sha256": "0300a1df6e8cc7505becd714e3e38aa3d3966dbbce3bbe0d35aa0333667d9b5e",
+          "mode": "100644"
+        }
+      ],
+      "digest": "64a025769d055573452773fd647b93967d86ba50d03291e62a44517268ff7898"
+    },
+    "installId": "firecrawl-build-interact-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl-deep-research",
+      "source": "firecrawl-deep-research",
+      "name": "Pesquisa aprofundada com fontes",
+      "description": "Pesquisa aprofundada com fontes — apoio textual condicional, sem operação externa.",
+      "category": "Pesquisa",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/firecrawl-workflows",
+        "revision": "d2a986240f9d786ae54fc33fcfd9ad37308e9cc3",
+        "path": "skills/firecrawl-deep-research",
+        "sourceDigest": "3689d22a3ccf5c7792c32f98a81536aac17187ffa54e6a400a836b6fcccf8b24"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "Workflow textual sobre search/scrape e síntese; não entrega motor, índice de papers nem orquestrador. Versão Donna parcial e condicional; texto não prepara a ferramenta.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1338,
+          "sha256": "cab5c0df3c8c265214bd8a16ec22462544699f3c6259daec96f9a3d0d15c5f08",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 740,
+          "sha256": "7bb9acac4ebb53a0fda17dd8a764ae184ff8ebf2563a9dd7915a023f73d55c3a",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 835,
+          "sha256": "b375efa44a5eea8b5aa8449c79bec94842c75855dbeda077c365da0fe132fe11",
+          "mode": "100644"
+        }
+      ],
+      "digest": "b95e6878b41e270da07b437191331a718f387558c2759e25467f237f7379e561"
+    },
+    "installId": "firecrawl-deep-research-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl",
+      "source": "firecrawl",
+      "name": "Firecrawl: guia de uso autorizado",
+      "description": "Firecrawl: guia de uso autorizado — apoio textual condicional, sem operação externa.",
+      "category": "Automação Web",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/skills",
+        "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+        "path": "skills/core/firecrawl",
+        "sourceDigest": "69f1d69452fccf1ac8a7af6d394271d0707f87e1e5d9a321e58ff5ecb22b2ef6"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "Texto operacional amplo, com roteamento padrão e setup globais incompatíveis com adoção direta. Versão Donna parcial e condicional; texto não prepara a ferramenta. Procedência textual explícita pelo mirror ISC fixado; licença do runtime CLI não foi encerrada.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1227,
+          "sha256": "e0ee0b405beadad9610c3c04d566848af786a70e7a2ef335de3b554aa22eaef5",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 735,
+          "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 1145,
+          "sha256": "c18a80e5d9827e4e6b0a1dc8115a9a5fd81010cc9005ba6680676b8df6997e9b",
+          "mode": "100644"
+        }
+      ],
+      "digest": "c943a45303123116615379e1c729b0680e34625c4d4c79b2483ea6a17956272a"
+    },
+    "installId": "firecrawl-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl-search",
+      "source": "firecrawl-search",
+      "name": "Pesquisar com Firecrawl autorizado",
+      "description": "Pesquisar com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
+      "category": "Pesquisa",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/skills",
+        "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+        "path": "skills/core/firecrawl-search",
+        "sourceDigest": "12e63948da95fec4e47e341ffef230be4fc5c98b244b12a43d62ef21831d2529"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "Busca + descoberta Alexandria; descoberta não é grant nem execução. Feedback é envio externo separado. Versão Donna parcial e condicional; texto não prepara a ferramenta. Procedência textual explícita pelo mirror ISC fixado; licença do runtime CLI não foi encerrada.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1258,
+          "sha256": "13d2fa0a87069f6bdbc62d87741c2bee17913e83d99f2d0906583743050da013",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 735,
+          "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 1159,
+          "sha256": "27d5e1639aaf9a6bbf32aec475e9da9b9c56a771c7b21cc01b981d4102720ebc",
+          "mode": "100644"
+        }
+      ],
+      "digest": "c88a9db105928fba701ab95eb7a870e9b898393e32f036135b07a98c08a7da3e"
+    },
+    "installId": "firecrawl-search-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "firecrawl-scrape",
+      "source": "firecrawl-scrape",
+      "name": "Ler páginas com Firecrawl autorizado",
+      "description": "Ler páginas com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
+      "category": "Automação Web",
+      "aliases": [],
+      "origin": {
+        "repo": "firecrawl/skills",
+        "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+        "path": "skills/core/firecrawl-scrape",
+        "sourceDigest": "abce694a393452720e54e831731033b6c7049fb4db62415365a9414dd717bd18"
+      },
+      "license": "ISC",
+      "availability": "adapted",
+      "reason": "URL scrape difere de provider/capability, extração com modelo, batch/webhook e Bash remoto. Versão Donna parcial e condicional; texto não prepara a ferramenta. Procedência textual explícita pelo mirror ISC fixado; licença do runtime CLI não foi encerrada.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1254,
+          "sha256": "4fc955b710b4daeef70c4ff93a9e8de943279abc297ddf3e44ff0e7e2e44d161",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 735,
+          "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 1159,
+          "sha256": "042ccc1ec261fb74e690406718f3ec8a0cd5641ab8bbc5db5ca18c00c4392838",
+          "mode": "100644"
+        }
+      ],
+      "digest": "483fea5582378050575c00b98b3f181de1914dd89d930e4fe45be9902ad48dc5"
+    },
+    "installId": "firecrawl-scrape-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "boat",
+      "source": "boat",
+      "name": "Boat: referência de operações autorizadas",
+      "description": "Boat: referência de operações autorizadas — apoio textual condicional, sem operação externa.",
+      "category": "Infra",
+      "aliases": [],
+      "origin": {
+        "repo": "davidondrej/skills",
+        "revision": "8605863f211961c96208fe625d4024609cd7dbd5",
+        "path": "skills/ops-and-setup/boat",
+        "sourceDigest": "c17d15d2feafa0a613dc198d4777010a94c5aede39f38dd30e936f09aae93ae0"
+      },
+      "license": "MIT",
+      "availability": "adapted",
+      "reason": "Skill textual + referência; API/CLI/SSH opcionais não são instalados e nenhuma máquina é criada pelo texto. Versão Donna parcial e condicional; texto não prepara a ferramenta.",
+      "requirements": [
+        "Ferramenta e capacidade reais disponíveis e autorizadas para a ação.",
+        "Conta/grant, isolamento, limites de custo/dados e política do Hub revalidados antes de qualquer efeito."
+      ],
+      "losses": [
+        "Derivado textual parcial: sem CLI/SDK/MCP, scripts, setup/auth, integração API, serviços, modelos, sessões/perfis/cookies ou provisionamento.",
+        "Sem alteração de busca nativa/harness, instalação global npx, telemetria/feedback, monitor/webhook, rotinas ou egress automático.",
+        "Frontmatter e procedimento reescritos para Donna; referências operacionais upstream não são distribuídas nem chamadas."
+      ],
+      "adaptation": "donna-passive-v1",
+      "readiness": null,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1380,
+          "sha256": "affc1f870357af3bd1cc882a939f5818ddbaef76a442a453e2e3f4d0eba512cf",
+          "mode": "100644"
+        },
+        {
+          "path": "LICENSE",
+          "bytes": 1069,
+          "sha256": "1bd321a3b9cfa8d4af2105e20edd69d830df0b28e83a1b0255558f888e493981",
+          "mode": "100644"
+        },
+        {
+          "path": "ADAPTATION.md",
+          "bytes": 819,
+          "sha256": "e24e069f4ff35c5bf8f8e132f13bf6b92baff1ddc5a5b0997df8cb3fe5b0993b",
+          "mode": "100644"
+        }
+      ],
+      "digest": "c18cb3e3a8e850ca9c3f4a4c08ec3d91ffabc8b151d25937909ce2b07d982b1e"
+    },
+    "installId": "boat-donna",
+    "assets": []
+  },
+  {
+    "metadata": {
+      "id": "copywriting",
+      "source": "copywriting",
+      "name": "copywriting",
+      "description": "When the user wants to write, rewrite, or improve marketing copy for any page, including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"hero section copy,\" \"this copy is weak,\" \"this sounds like AI,\" \"AI slop,\" \"make it sound human,\" or \"help me describe my product.\" Drafts never use AI tells like \"it's not X, it's Y\" reveals, \"no X, no Y, no Z\" lists, or sentences that trail into extra comma clauses. For email copy, see emails. For popup copy, see popups. For editing existing copy, see copy-editing. For the offer underneath the copy (bonuses, guarantees, value framing), see offers. Claims must be supportable, and a declined claim names the evidence that would unlock it. Diagnoses the input first (blank brief, real voice, or point edit) and changes only what it calls for.",
+      "category": "Marketing",
+      "aliases": [],
+      "origin": {
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "path": "skills/copywriting",
+        "sourceDigest": "b3784366f7e35e9358a2274ffe44905b0fb9bf3148b483f3745f030da7d139b7"
+      },
+      "license": "MIT",
+      "availability": "licenseUnavailable",
+      "reason": "Texto e referências passivas, sem scripts no pacote; inclui evals/evals.json como dado, não executor. Preservar avisos/atribuições e revisar natural-transitions antes de distribuição/adaptação como MIT integral.",
+      "requirements": [
+        "Ferramentas, dados e efeitos exigem autorização e capacidade próprias."
+      ],
+      "losses": [
+        "Corpo original não embarcado: indisponível no importador/condições atuais; sem substituto traduzido."
+      ],
+      "adaptation": null,
+      "readiness": null,
+      "files": [],
+      "digest": "3af73142e83d299c914b51e5b6075e41a35a8ad9ea1e72cf23a27a8be7ad40a0"
+    },
+    "installId": "copywriting",
+    "assets": []
+  }
+]

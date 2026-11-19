@@ -1,0 +1,52 @@
+/* Rota-03b (D354): recibo do turno. Só tokens do redesenho (docs/reference/redesenho/propostas/roteamento-recibo-20261106). */
+.receipt-trigger {
+  align-self: center;
+  height: 20px;
+  min-width: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--context-ink-2, var(--ink-2));
+  font: inherit;
+  cursor: pointer;
+}
+.receipt-trigger:hover,
+.receipt-trigger[aria-expanded='true'] { background: var(--hover); color: var(--ink) }
+.receipt-trigger:focus-visible { outline: none; box-shadow: var(--focus-ring) }
+.receipt-trigger svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round }
+.receipt-changed { font-size: 11px; line-height: 16px }
+
+/* Opaco (`raised`): texto nunca pousa no vidro. */
+.anchored-panel.receipt-pop {
+  padding: var(--sp-14) var(--sp-16);
+  border-radius: var(--radius-m);
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink);
+}
+.receipt-pop:focus { outline: none }
+.receipt-pop:focus-visible { box-shadow: var(--focus-ring) }
+.receipt-pop h2 { margin: var(--sp-2) 0 var(--sp-10); font-size: 15px; line-height: 20px; font-weight: 600 }
+.receipt-pop p { margin: var(--sp-6) 0 0 }
+.receipt-pop h2 + p { margin-top: 0 }
+.receipt-eyebrow { font-size: 12px; color: var(--ink-2) }
+.receipt-pop dl { display: grid; grid-template-columns: 72px 1fr; gap: var(--sp-4) var(--sp-8); margin: 0 }
+.receipt-pop dt { color: var(--ink-2) }
+.receipt-pop dd { margin: 0 }
+.receipt-pop dd.gone { color: var(--ink-2); font-style: italic }
+.receipt-pop hr { border: 0; border-top: 1px solid var(--line); margin: var(--sp-12) 0 }
+.receipt-tag { display: inline-block; font-size: 11px; line-height: 16px; font-weight: 600; padding: 0 var(--sp-6); border-radius: var(--radius-pill) }
+.receipt-tag.fixo { background: var(--tag-violeta-bg); color: var(--tag-violeta-ink) }
+.receipt-tag.sessao { background: var(--tag-jade-bg); color: var(--tag-jade-ink) }
+.receipt-tag.conversa { background: var(--tag-azul-bg); color: var(--tag-azul-ink) }
+.receipt-pop .receipt-note { margin-top: var(--sp-10); font-size: 12px; line-height: 16px; color: var(--ink-2) }
+.receipt-link { display: inline-block; margin-top: var(--sp-10); padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent); text-decoration: underline; cursor: pointer; border-radius: var(--radius-xs) }
+.receipt-link:focus-visible, .receipt-retry:focus-visible { outline: none; box-shadow: var(--focus-ring) }
+.receipt-retry { margin-top: var(--sp-12); height: 28px; padding: 0 var(--sp-12); border: 0; border-radius: var(--radius-pill); background: var(--field); color: var(--ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer }
+.receipt-warn { display: flex; gap: var(--sp-8); align-items: flex-start }
+.receipt-warn i { font-style: normal; width: 18px; height: 18px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--attention-soft); color: var(--attention) }
+.receipt-loading { display: flex; align-items: center; gap: var(--sp-8); color: var(--ink-2) }

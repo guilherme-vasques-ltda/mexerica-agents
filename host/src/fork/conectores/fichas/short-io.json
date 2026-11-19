@@ -1,0 +1,49 @@
+{
+  "id": "short-io",
+  "nome": "Short.io",
+  "categoria": "Marketing",
+  "descricao": "Encurta links e consulta estatísticas de cliques por domínio na conta Short.io. Entra com chave de API.",
+  "exemplos": [
+    "Quantos cliques teve o link da campanha de novembro?",
+    "Liste os links curtos do domínio go.minhaloja.com"
+  ],
+  "site": "https://short.io",
+  "docs": "https://docs.short.io/articles/integrations-and-extensions/direct-integrations/how-to-integrate-and-use-short.io-with-your-mcp-enabled-service",
+  "links": {
+    "privacidade": "https://short.io/privacy",
+    "termos": "https://short.io/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.short.io/articles/integrations-and-extensions/direct-integrations/how-to-integrate-and-use-short.io-with-your-mcp-enabled-service"
+  ],
+  "tipos": [
+    {
+      "id": "short-io.oficial_chave",
+      "tipo": "oficial_chave",
+      "rotulo": "Oficial — chave de acesso",
+      "mantidoPor": "Short.io",
+      "url": "https://ai-assistant.short.io/mcp",
+      "auth": {
+        "modo": "chave",
+        "destino": "header",
+        "nome": "Authorization",
+        "comoCriarLeitura": "Crie uma chave de API no painel do Short.io."
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Falta confirmar se o Short.io oferece chave só de leitura; o conector cria links."
+    }
+  ],
+  "skillsOficiais": [],
+  "emBreve": "Falta confirmar chave só de leitura; o conector cria links."
+}

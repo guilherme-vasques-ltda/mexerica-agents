@@ -1,0 +1,13 @@
+.roteamento-control { display: flex; flex-direction: column; gap: 12px; }
+.roteamento-control p { color: var(--ink-2); font-size: 13px; line-height: 1.5; margin: 0; }
+.roteamento-control h3, .roteamento-control h4 { margin: 0; }
+.roteamento-control fieldset { border: 1px solid var(--line); border-radius: var(--radius-m); padding: 12px; display: flex; flex-wrap: wrap; gap: 12px; }
+.roteamento-control label { display: flex; flex-direction: column; gap: 6px; color: var(--ink); font-size: 13px; }
+.roteamento-control fieldset > label:has(input) { flex-direction: row; align-items: center; }
+.roteamento-control textarea, .roteamento-control select { background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px; font: inherit; }
+.roteamento-control textarea { resize: vertical; min-height: 70px; }
+.roteamento-control :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.roteamento-control ol { margin: 0; padding-left: 24px; }
+.roteamento-control li { margin-bottom: 12px; }
+.roteamento-control li > span { display: block; margin-bottom: 6px; }
+.roteamento-actions { display: flex; flex-wrap: wrap; gap: 8px; }

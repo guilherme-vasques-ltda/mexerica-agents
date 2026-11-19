@@ -1,0 +1,98 @@
+# Generate the Xcode project with: xcodegen generate (in apps/)
+name: Mexerica
+options:
+  bundleIdPrefix: com.pokai
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  fileTypes:
+    icon:
+      file: true
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: 153.0.0
+configs:
+  Debug: debug
+  Release: release
+  DevDebug: debug
+  DevRelease: release
+settings:
+  base:
+    MARKETING_VERSION: 2.20.3
+    CURRENT_PROJECT_VERSION: 24
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CODYNC_ENV: main
+    CODYNC_SCREEN_NAME: DonnabotScreen
+    CODYNC_SCREEN_DISPLAY_NAME: Donnabot Screen
+    CODYNC_SCREEN_BUNDLE_ID: app.donnabot.screen
+    CODYNC_DATA_FOLDER: .donnabot
+  configs:
+    DevDebug:
+      CODYNC_ENV: dev
+      CODYNC_SCREEN_NAME: DonnabotDevScreen
+      CODYNC_SCREEN_DISPLAY_NAME: Donnabot Dev Screen
+      CODYNC_SCREEN_BUNDLE_ID: app.donnabot.dev.screen
+      CODYNC_DATA_FOLDER: .donnabot-dev
+    DevRelease:
+      CODYNC_ENV: dev
+      CODYNC_SCREEN_NAME: DonnabotDevScreen
+      CODYNC_SCREEN_DISPLAY_NAME: Donnabot Dev Screen
+      CODYNC_SCREEN_BUNDLE_ID: app.donnabot.dev.screen
+      CODYNC_DATA_FOLDER: .donnabot-dev
+schemes:
+  Screen:
+    build:
+      targets:
+        Screen: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  Screen Dev:
+    build:
+      targets:
+        Screen: all
+    run:
+      config: DevDebug
+    archive:
+      config: DevRelease
+targets:
+  # Screen capture, input and WebRTC for Remote screen. A separate signed bundle so
+  # macOS's Screen Recording / Accessibility grants belong to it (see host/src/screen/).
+  Screen:
+    type: application
+    platform: macOS
+    sources:
+      - screen-macos
+      - path: desktop/resources/AppIcon.icon
+        buildPhase: resources
+    dependencies:
+      - package: WebRTC
+    settings:
+      base:
+        INFOPLIST_FILE: screen-macos/Info.plist
+        PRODUCT_NAME: $(CODYNC_SCREEN_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_SCREEN_BUNDLE_ID)
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_SCREEN_DISPLAY_NAME)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleIconName: AppIcon
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        SKIP_INSTALL: YES
+    postBuildScripts:
+      # The computer-use driver bots act through (host/src/screen/cua.rs), pinned and checked
+      # by packaging/cua-driver. Its own Developer ID signature stays: it is never re-signed.
+      - name: Embed cua-driver
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          node "$SRCROOT/../packaging/cua-driver/fetch.mjs" darwin "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"

@@ -1,0 +1,52 @@
+{
+  "id": "calendly",
+  "nome": "Calendly",
+  "categoria": "Produtividade",
+  "descricao": "Agendamento de reuniões: consulta tipos de evento, disponibilidade e reuniões e permite marcar ou cancelar compromissos.",
+  "exemplos": [
+    "Quais reuniões do Calendly estão marcadas para hoje?",
+    "Quem agendou comigo esta semana?"
+  ],
+  "site": "https://calendly.com",
+  "docs": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
+  "links": {
+    "privacidade": "https://calendly.com/privacy",
+    "termos": "https://calendly.com/legal"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
+    "https://calendly.com/oauth/register",
+    "https://calendly.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "calendly.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Calendly",
+      "url": "https://mcp.calendly.com",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "mcp:scheduling:read",
+            "mcp:notetaker:read"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Calendly não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": []
+}

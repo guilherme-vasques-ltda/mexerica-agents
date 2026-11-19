@@ -1,0 +1,3 @@
+/* Cabe no espaço de 64 px já reservado ao topo, inclusive com aviso de conexão. */
+.title-pill.donna-title { padding-top: 2px; padding-bottom: 2px; max-width: min(60%, calc(100% - 96px)); }
+.donna-title > .hstack { min-width: 0; max-width: 100%; }

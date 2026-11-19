@@ -1,0 +1,19 @@
+/* D133 + D165 (`db-tag`): a função logo depois do nome, em `field` e `ink-2`; encolhe antes do nome
+   e corta com reticências. Neutra, como o sistema pede: a cor fica com o rosto do bot. */
+.funcao-etiqueta {
+  flex: 0 1000 auto;
+  align-self: center;
+  min-width: 3.5em;
+  max-width: 96px;
+  overflow: hidden;
+  height: calc(18px * var(--scale));
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: calc(18px * var(--scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

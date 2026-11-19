@@ -1,0 +1,10 @@
+{
+  "_doc": "MX-199/MX-212: valor exato que o browserSocket (apps/desktop/src/shared/relay-protocol/relay-socket.ts) passa a new WebSocket(url, protocols) e que o servidor (cloud/src/auth.ts sigFromSubprotocol, PR #742) aceita. value = requestSig.header de remote-relay-vectors.json sem o prefixo; protocols = [codync-sig.v1, base64url(utf8(value))]; secWebSocketProtocol = o cabeçalho Sec-WebSocket-Protocol que o navegador envia (itens separados por vírgula e espaço). Limite do item decodificado: 512 bytes.",
+  "value": "v=1,kid=7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E,ts=1790000000000,nonce=CQkJCQkJCQkJCQkJCQkJCQ,sig=mVB9S1-w-cbCdvnhUlKSE2BDPL1nhlAsk5nTZWcVNEb9_-czaBck0eDSJvLLh25YgG11I1zqA0CHKUoGEKu2DA",
+  "protocols": [
+    "codync-sig.v1",
+    "dj0xLGtpZD03VWtveGlqUndzYnE2UU00a0ZtVllTbFpKenBjWV9rMk5zRkdGS3lITjlFLHRzPTE3OTAwMDAwMDAwMDAsbm9uY2U9Q1FrSkNRa0pDUWtKQ1FrSkNRa0pDUSxzaWc9bVZCOVMxLXctY2JDZHZuaFVsS1NFMkJEUEwxbmhsQXNrNW5UWldjVk5FYjlfLWN6YUJjazBlRFNKdkxMaDI1WWdHMTFJMXpxQTBDSEtVb0dFS3UyREE"
+  ],
+  "secWebSocketProtocol": "codync-sig.v1, dj0xLGtpZD03VWtveGlqUndzYnE2UU00a0ZtVllTbFpKenBjWV9rMk5zRkdGS3lITjlFLHRzPTE3OTAwMDAwMDAwMDAsbm9uY2U9Q1FrSkNRa0pDUWtKQ1FrSkNRa0pDUSxzaWc9bVZCOVMxLXctY2JDZHZuaFVsS1NFMkJEUEwxbmhsQXNrNW5UWldjVk5FYjlfLWN6YUJjazBlRFNKdkxMaDI1WWdHMTFJMXpxQTBDSEtVb0dFS3UyREE",
+  "maxDecodedBytes": 512
+}

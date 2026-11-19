@@ -1,0 +1,151 @@
+/* Barra05 (passo 15): o painel direito. Solto, fica por cima do chat com vidro (glass-sidebar + blur-glass +
+   glass-edge + shadow-l) e entra deslizando 28 px e crescendo de 98,5% (320 ms, curva de folha do iOS); a saída
+   é mais curta (180 ms). Fixo, entra no fluxo e empurra o chat, com o material da barra esquerda. */
+.rpanel {
+  position: absolute;
+  z-index: 7;
+  contain: layout paint;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  width: var(--rp-width, 332px);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-l);
+  background: var(--glass-sidebar);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), var(--shadow-l);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(28px) scale(0.985);
+  transform-origin: right center;
+  transition: transform 0.18s cubic-bezier(0.4, 0, 1, 1), opacity 0.14s ease-in, visibility 0s 0.18s;
+  /* Solto, o painel fica sobre a faixa de arrasto do chat (.top-chrome, .ctabs). No macOS, o Electron só tira do
+     arrasto quem declara no-drag; sem isto, engrenagem e alfinete viravam arrasto da janela e o painel fechava
+     (dono, 07/11). Fora do painel, a janela continua arrastável. */
+  -webkit-app-region: no-drag;
+}
+.rpanel.peek {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease-out, visibility 0s;
+}
+.rpanel.pinned {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  flex: none;
+  margin: 8px 8px 8px 0;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: none;
+  background: var(--surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-theme='light']:not([data-wallpaper]) .rpanel.pinned {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-s);
+}
+html[data-wallpaper] .rpanel.pinned {
+  background: var(--glass-sidebar);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), var(--shadow-glass);
+}
+/* O conteúdo tem largura fixa: fixar e soltar só revelam e escondem (a largura do painel anima). */
+.rp-inner {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--rp-width, 332px);
+  height: 100%;
+  min-height: 0;
+}
+.rpanel.enter .rp-inner > * {
+  animation: rp-in 0.36s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+.rpanel.enter .rp-inner > :nth-child(2) { animation-delay: 30ms; }
+.rpanel.enter .rp-inner > :nth-child(3) { animation-delay: 60ms; }
+.rpanel.enter .rp-inner > :nth-child(4) { animation-delay: 90ms; }
+.rpanel.enter .rp-inner > :nth-child(n + 5) { animation-delay: 120ms; }
+@keyframes rp-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+/* Fechado: a alça de 4×40 px numa faixa sensível de 18 px na borda direita; âmbar quando alguém pede você. */
+.rp-edge {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 18px;
+  padding-right: 4px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.rp-edge .handle {
+  width: 4px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: transform 0.15s, background-color 0.15s, opacity 0.15s;
+}
+.rp-edge:hover .handle {
+  transform: scaleY(1.6);
+  background: var(--ink-2);
+}
+.rp-edge.need .handle {
+  background: var(--warning);
+}
+/* Com o painel aberto por cima, a alça some para não aparecer pelo vidro. */
+.rp-edge.covered .handle {
+  opacity: 0;
+}
+/* WhatsApp R5c: com a tela grande no centro, o painel sai de vista na hora (a moldura que voa é a do Expandir) e a
+   alça não abre o painel; `veil` o esconde enquanto a moldura do Recolher chega até ele. */
+.rpanel.away,
+.rpanel.veil {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+.rp-edge.away {
+  pointer-events: none;
+}
+/* Saindo do véu (a moldura do Recolher assentou), o conteúdo aparece no fade curto; com movimento reduzido, --fade = 0. */
+.rp-inner {
+  transition: opacity var(--fade);
+}
+.rpanel.veil .rp-inner {
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rpanel,
+  .rpanel.peek {
+    transform: none;
+    transition: none;
+  }
+  .rpanel.enter .rp-inner > * {
+    animation: none;
+  }
+  .rp-edge .handle {
+    transition: none;
+  }
+}

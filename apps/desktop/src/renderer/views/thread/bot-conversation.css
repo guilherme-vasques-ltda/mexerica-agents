@@ -1,0 +1,37 @@
+.bot-message-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* D249: never wider than the conversation; the name truncates (BotConversation.tsx). */
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 10px 0;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.bot-message-row.failed {
+  color: var(--text-danger, var(--danger));
+}
+.bot-conversation {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--content-ground, var(--canvas));
+}
+.bot-conversation-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* So `.message.agent` sizes against the sheet, not the window. */
+  container-type: inline-size;
+}
+.bot-conversation-rows {
+  padding: 0 16px 8px;
+}
+.bot-conversation-note {
+  text-align: center;
+  padding-top: 24px;
+}
+.bot-conversation-status {
+  padding: 6px 12px;
+}

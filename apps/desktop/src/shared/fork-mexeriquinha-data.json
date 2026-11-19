@@ -1,0 +1,1451 @@
+{
+  "versao": 2,
+  "cores": {
+    "laranja": "#f28a1e",
+    "lima": "#94c630",
+    "limao": "#f2c41e",
+    "toranja": "#ec5a5e",
+    "roxo": "#8d56d8",
+    "celeste": "#2f9cf0"
+  },
+  "conjuntos": {
+    "base": {
+      "cor": "laranja",
+      "olhos": "ponto",
+      "roupa": "nenhuma",
+      "acessorio": "nenhum",
+      "objeto": "nenhum"
+    },
+    "ceo": {
+      "cor": "laranja",
+      "olhos": "ponto",
+      "roupa": "blazer",
+      "acessorio": "coroa",
+      "objeto": "gravata"
+    },
+    "assistente": {
+      "cor": "laranja",
+      "olhos": "ponto",
+      "roupa": "jaleco",
+      "acessorio": "fone",
+      "objeto": "nenhum"
+    },
+    "financeiro": {
+      "cor": "lima",
+      "olhos": "oculos-redondos",
+      "roupa": "colete",
+      "acessorio": "nenhum",
+      "objeto": "moeda"
+    },
+    "marketing": {
+      "cor": "toranja",
+      "olhos": "oculos-escuros",
+      "roupa": "moletom",
+      "acessorio": "nenhum",
+      "objeto": "nenhum"
+    },
+    "developer": {
+      "cor": "roxo",
+      "olhos": "ponto",
+      "roupa": "moletom",
+      "acessorio": "fone",
+      "objeto": "notebook"
+    },
+    "pesquisa": {
+      "cor": "limao",
+      "olhos": "ponto",
+      "roupa": "jaleco",
+      "acessorio": "nenhum",
+      "objeto": "lupa"
+    },
+    "vendas": {
+      "cor": "celeste",
+      "olhos": "piscando",
+      "roupa": "blazer",
+      "acessorio": "nenhum",
+      "objeto": "nenhum"
+    },
+    "compras": {
+      "cor": "lima",
+      "olhos": "ponto",
+      "roupa": "avental",
+      "acessorio": "bone",
+      "objeto": "carrinho"
+    },
+    "rh": {
+      "cor": "toranja",
+      "olhos": "brilhantes",
+      "roupa": "polo",
+      "acessorio": "flor",
+      "objeto": "coracao"
+    },
+    "suporte": {
+      "cor": "limao",
+      "olhos": "ponto",
+      "roupa": "blazer",
+      "acessorio": "fone",
+      "objeto": "ferramenta"
+    },
+    "designer": {
+      "cor": "roxo",
+      "olhos": "ponto",
+      "roupa": "avental",
+      "acessorio": "boina",
+      "objeto": "pincel"
+    },
+    "amazon": {
+      "cor": "celeste",
+      "olhos": "ponto",
+      "roupa": "polo",
+      "acessorio": "capacete",
+      "objeto": "caixa"
+    },
+    "dono": {
+      "cor": "laranja",
+      "olhos": "ponto",
+      "roupa": "blazer",
+      "acessorio": "cartola",
+      "objeto": "chave"
+    },
+    "chefe": {
+      "cor": "toranja",
+      "olhos": "ponto",
+      "roupa": "colete",
+      "acessorio": "fone",
+      "objeto": "megafone"
+    },
+    "hacker": {
+      "cor": "laranja",
+      "olhos": "oculos-verdes",
+      "roupa": "moletom",
+      "acessorio": "capuz",
+      "objeto": "nenhum"
+    },
+    "berga": {
+      "cor": "laranja",
+      "olhos": "ponto",
+      "roupa": "blazer",
+      "acessorio": "cartola",
+      "objeto": "chave"
+    },
+    "pomarca": {
+      "cor": "laranja",
+      "olhos": "ponto",
+      "roupa": "blazer",
+      "acessorio": "coroa",
+      "objeto": "gravata"
+    },
+    "colheitor": {
+      "cor": "lima",
+      "olhos": "ponto",
+      "roupa": "avental",
+      "acessorio": "capacete",
+      "objeto": "caixa"
+    },
+    "tesourango": {
+      "cor": "limao",
+      "olhos": "oculos-redondos",
+      "roupa": "colete",
+      "acessorio": "nenhum",
+      "objeto": "moeda"
+    },
+    "holofruta": {
+      "cor": "toranja",
+      "olhos": "oculos-escuros",
+      "roupa": "moletom",
+      "acessorio": "nenhum",
+      "objeto": "nenhum"
+    },
+    "chiperica": {
+      "cor": "celeste",
+      "olhos": "ponto",
+      "roupa": "moletom",
+      "acessorio": "fone",
+      "objeto": "notebook"
+    }
+  },
+  "modelos": {
+    "berga": {
+      "nome": "Berga",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "pomarca": {
+      "nome": "Pomarca",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "coroa",
+        "objeto": "gravata"
+      }
+    },
+    "colheitor": {
+      "nome": "Colheitor",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "capacete",
+        "objeto": "caixa"
+      }
+    },
+    "tesourango": {
+      "nome": "Tesourango",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "holofruta": {
+      "nome": "Holofruta",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "chiperica": {
+      "nome": "Chiperica",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "futurango": {
+      "nome": "Futurango",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "coroa",
+        "objeto": "gravata"
+      }
+    },
+    "maracuja-lunar": {
+      "nome": "Maracujá Lunar",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "jabuticlausula": {
+      "nome": "Jabuticláusula",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "leiranja": {
+      "nome": "Leiranja",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "licitacai": {
+      "nome": "Licitaçaí",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "feirante": {
+      "nome": "Feirante",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "datamelao": {
+      "nome": "Datamelão",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "planilhaca": {
+      "nome": "Planilhaca",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "sabioliva": {
+      "nome": "Sábioliva",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "coroa",
+        "objeto": "gravata"
+      }
+    },
+    "pitchaya": {
+      "nome": "Pitchaya",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "feirometro": {
+      "nome": "Feirômetro",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "espiaranja": {
+      "nome": "Espiaranja",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "lancafruta": {
+      "nome": "Lançafruta",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "feirinha": {
+      "nome": "Feirinha",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "colete",
+        "acessorio": "fone",
+        "objeto": "megafone"
+      }
+    },
+    "amazoja": {
+      "nome": "Amazoja",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "polo",
+        "acessorio": "capacete",
+        "objeto": "caixa"
+      }
+    },
+    "mercaju": {
+      "nome": "Mercaju",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "shopequi": {
+      "nome": "Shopequi",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "baiacu": {
+      "nome": "Baiaçu",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "estocado": {
+      "nome": "Estocado",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "polo",
+        "acessorio": "capacete",
+        "objeto": "caixa"
+      }
+    },
+    "caquifrete": {
+      "nome": "Caquifrete",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "polo",
+        "acessorio": "capacete",
+        "objeto": "caixa"
+      }
+    },
+    "lichia-boy": {
+      "nome": "Lichia Boy",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "etiquetamara": {
+      "nome": "Etiquetâmara",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "carambolinha": {
+      "nome": "Carambolinha",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "fone",
+        "objeto": "ferramenta"
+      }
+    },
+    "trocaja": {
+      "nome": "Trocajá",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "fone",
+        "objeto": "ferramenta"
+      }
+    },
+    "vendoca": {
+      "nome": "Vendoca",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "prospecaqui": {
+      "nome": "Prospecaqui",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "alogoiaba": {
+      "nome": "Alôgoiaba",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "gentileza": {
+      "nome": "Gentileza",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "fone",
+        "objeto": "ferramenta"
+      }
+    },
+    "zapim": {
+      "nome": "Zapim",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "discoco": {
+      "nome": "Discoco",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "fone",
+        "objeto": "ferramenta"
+      }
+    },
+    "cifrao-azedo": {
+      "nome": "Cifrão Azedo",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "contamora": {
+      "nome": "Contamora",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "livrinho": {
+      "nome": "Livrinho",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "lupima": {
+      "nome": "Lupima",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "notinha": {
+      "nome": "Notinha",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "leaoranja": {
+      "nome": "Leãoranja",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "carimbacaxi": {
+      "nome": "Carimbacaxi",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "cartangerina": {
+      "nome": "Cartangerina",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "boletinho": {
+      "nome": "Boletinho",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "pixtache": {
+      "nome": "Pixtache",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "gentarina": {
+      "nome": "Gentarina",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    },
+    "cacapera": {
+      "nome": "Caçapera",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "tradoiaba": {
+      "nome": "Tradoiaba",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "bolsaranja": {
+      "nome": "Bolsaranja",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "macahattan": {
+      "nome": "Maçãhattan",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "gritamelo": {
+      "nome": "Gritamelo",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "anuncia": {
+      "nome": "Anunciá",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "colete",
+        "acessorio": "fone",
+        "objeto": "megafone"
+      }
+    },
+    "metuva": {
+      "nome": "Metuva",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "googaba": {
+      "nome": "Googaba",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "polpinha": {
+      "nome": "Polpinha",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "colete",
+        "acessorio": "fone",
+        "objeto": "megafone"
+      }
+    },
+    "instapera": {
+      "nome": "Instapera",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "tiktomate": {
+      "nome": "Tiktomate",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "tubacate": {
+      "nome": "Tubacate",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "xuxu": {
+      "nome": "Xuxu",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "famora": {
+      "nome": "Famora",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "comissao": {
+      "nome": "Comissão",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "fofoquiwi": {
+      "nome": "Fofoquiwi",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "fucaranja": {
+      "nome": "Fuçaranja",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "pitanguel": {
+      "nome": "Pitanguel",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "palavrango": {
+      "nome": "Palavrango",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "humanana": {
+      "nome": "Humanana",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    },
+    "rankiwi": {
+      "nome": "Rankiwi",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "cortelao": {
+      "nome": "Cortelão",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "roteiruva": {
+      "nome": "Roteiruva",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "papaia": {
+      "nome": "Papaia",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "figuinho": {
+      "nome": "Figuinho",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "imaginanas": {
+      "nome": "Imaginanás",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "clicacau": {
+      "nome": "Clicacau",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "brandamora": {
+      "nome": "Brandamora",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "pincelima": {
+      "nome": "Pincelima",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "figmigo": {
+      "nome": "Figmigo",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "liquidifruta": {
+      "nome": "Liquidifruta",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "retoquinho": {
+      "nome": "Retoquinho",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "molduraca": {
+      "nome": "Molduraca",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "codaba": {
+      "nome": "Codaba",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "bugerica": {
+      "nome": "Bugerica",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "limao-sombrio": {
+      "nome": "Limão Sombrio",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "oculos-verdes",
+        "roupa": "moletom",
+        "acessorio": "capuz",
+        "objeto": "nenhum"
+      }
+    },
+    "cachopo": {
+      "nome": "Cachopo",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "automango": {
+      "nome": "Automango",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "sitiozinho": {
+      "nome": "Sitiozinho",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "guardacoco": {
+      "nome": "Guardacoco",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-verdes",
+        "roupa": "moletom",
+        "acessorio": "capuz",
+        "objeto": "nenhum"
+      }
+    },
+    "jamelao": {
+      "nome": "Jamelão",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "fone",
+        "objeto": "ferramenta"
+      }
+    },
+    "dutoranja": {
+      "nome": "Dutoranja",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "cajuca": {
+      "nome": "Cajuca",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "colete",
+        "acessorio": "fone",
+        "objeto": "megafone"
+      }
+    },
+    "pomita": {
+      "nome": "Pomita",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "brotinho": {
+      "nome": "Brotinho",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "agendrica": {
+      "nome": "Agendrica",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "rabisco": {
+      "nome": "Rabisco",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "boina",
+        "objeto": "pincel"
+      }
+    },
+    "pautinha": {
+      "nome": "Pautinha",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "prontopera": {
+      "nome": "Prontopera",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "colete",
+        "acessorio": "fone",
+        "objeto": "megafone"
+      }
+    },
+    "mangueira": {
+      "nome": "Mangueira",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "linguim": {
+      "nome": "Linguim",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "bananafit": {
+      "nome": "Bananafit",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "saladinha": {
+      "nome": "Saladinha",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    },
+    "mestre-jaca": {
+      "nome": "Mestre Jaca",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "carreirola": {
+      "nome": "Carreirola",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    },
+    "gavetinha": {
+      "nome": "Gavetinha",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "cofrinha": {
+      "nome": "Cofrinha",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "cripitanga": {
+      "nome": "Cripitanga",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-redondos",
+        "roupa": "colete",
+        "acessorio": "nenhum",
+        "objeto": "moeda"
+      }
+    },
+    "provinha": {
+      "nome": "Provinha",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "nenhum",
+        "objeto": "lupa"
+      }
+    },
+    "lancheira": {
+      "nome": "Lancheira",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    },
+    "chacarinha": {
+      "nome": "Chacarinha",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "piscando",
+        "roupa": "blazer",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "doutora-acerola": {
+      "nome": "Doutora Acerola",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "cardapinha": {
+      "nome": "Cardapinha",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "avental",
+        "acessorio": "bone",
+        "objeto": "carrinho"
+      }
+    },
+    "togaca": {
+      "nome": "Togaçá",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "cartola",
+        "objeto": "chave"
+      }
+    },
+    "pomarzao": {
+      "nome": "Pomarzão",
+      "aparencia": {
+        "cor": "roxo",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "avulsa": {
+      "nome": "Avulsa",
+      "aparencia": {
+        "cor": "celeste",
+        "olhos": "ponto",
+        "roupa": "moletom",
+        "acessorio": "fone",
+        "objeto": "notebook"
+      }
+    },
+    "telegoiaba": {
+      "nome": "Telegoiaba",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "ponto",
+        "roupa": "jaleco",
+        "acessorio": "fone",
+        "objeto": "nenhum"
+      }
+    },
+    "gravatanga": {
+      "nome": "Gravatanga",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "ponto",
+        "roupa": "blazer",
+        "acessorio": "coroa",
+        "objeto": "gravata"
+      }
+    },
+    "xerifruta": {
+      "nome": "Xerifruta",
+      "aparencia": {
+        "cor": "limao",
+        "olhos": "ponto",
+        "roupa": "colete",
+        "acessorio": "fone",
+        "objeto": "megafone"
+      }
+    },
+    "quermesse": {
+      "nome": "Quermesse",
+      "aparencia": {
+        "cor": "toranja",
+        "olhos": "oculos-escuros",
+        "roupa": "moletom",
+        "acessorio": "nenhum",
+        "objeto": "nenhum"
+      }
+    },
+    "calmaca": {
+      "nome": "Calmaçã",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    },
+    "abracai": {
+      "nome": "Abraçaí",
+      "aparencia": {
+        "cor": "lima",
+        "olhos": "brilhantes",
+        "roupa": "polo",
+        "acessorio": "flor",
+        "objeto": "coracao"
+      }
+    }
+  },
+  "padrao": {
+    "cor": "laranja",
+    "olhos": "ponto",
+    "roupa": "nenhuma",
+    "acessorio": "nenhum",
+    "objeto": "nenhum"
+  },
+  "olhosLegados": {
+    "bar": "sonolentos",
+    "round": "brilhantes",
+    "cat": "piscando"
+  },
+  "acessoriosLegados": {
+    "cap": "bone",
+    "helmet": "capacete",
+    "phones": "fone",
+    "headset": "fone",
+    "beret": "boina",
+    "bucket": "bone",
+    "beanie": "capuz",
+    "flower": "flor"
+  },
+  "badgesLegados": {
+    "code": {
+      "roupa": "moletom",
+      "objeto": "notebook"
+    },
+    "bug": {
+      "roupa": "moletom",
+      "objeto": "ferramenta"
+    },
+    "search": {
+      "roupa": "jaleco",
+      "objeto": "lupa"
+    },
+    "coin": {
+      "roupa": "colete",
+      "objeto": "moeda"
+    },
+    "calc": {
+      "roupa": "colete",
+      "objeto": "moeda"
+    },
+    "ledger": {
+      "roupa": "colete",
+      "objeto": "moeda"
+    },
+    "palette": {
+      "roupa": "avental",
+      "objeto": "pincel"
+    },
+    "pen": {
+      "roupa": "avental",
+      "objeto": "pincel"
+    },
+    "box": {
+      "roupa": "polo",
+      "objeto": "caixa"
+    },
+    "warehouse": {
+      "roupa": "polo",
+      "objeto": "caixa"
+    },
+    "cart": {
+      "roupa": "avental",
+      "objeto": "carrinho"
+    },
+    "bag": {
+      "roupa": "blazer",
+      "objeto": "carrinho"
+    },
+    "people": {
+      "roupa": "polo",
+      "objeto": "coracao"
+    },
+    "heart": {
+      "roupa": "polo",
+      "objeto": "coracao"
+    },
+    "lifebuoy": {
+      "roupa": "blazer",
+      "objeto": "ferramenta"
+    },
+    "megaphone": {
+      "roupa": "colete",
+      "objeto": "megafone"
+    },
+    "briefcase": {
+      "roupa": "blazer",
+      "objeto": "gravata"
+    }
+  }
+}

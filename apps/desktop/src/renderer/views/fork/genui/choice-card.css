@@ -1,0 +1,321 @@
+/* UI generativa no chat, D273/111A: cartão de pergunta (ChoiceCard real). Proposta aprovada em
+   (arquivo de design privado do projeto de origem, fora deste repositório) Só tokens do sistema; nenhum estilo
+   vem do payload. Não é aprovação: sem escudo, sem segurar, sem Permitir. */
+
+/* Dentro do balão do bot, largo: até 536px de conteúdo (560 com o balão), menor na janela mínima. */
+.genui-choice {
+  display: flex;
+  flex-direction: column;
+  width: min(536px, 100%);
+  min-width: 0;
+  color: var(--text-primary, var(--ink));
+  overflow-wrap: anywhere;
+}
+
+/* Nome, hora e a pílula de estado (ícone + texto; nunca só cor). */
+.genui-choice-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  margin-bottom: var(--sp-6);
+}
+.genui-choice-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 var(--sp-8);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.genui-choice-state .genui-choice-state-mark {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.genui-choice-state.is-pending {
+  background: var(--accent-soft);
+}
+.genui-choice-state.is-pending .genui-choice-state-mark {
+  color: var(--text-accent, var(--accent));
+}
+.genui-choice-state.is-answered .genui-choice-state-mark {
+  color: var(--text-success, var(--success));
+}
+.genui-choice-state.is-error .genui-choice-state-mark {
+  color: var(--text-danger, var(--danger));
+}
+
+/* Título (rótulo curto do bot), pergunta 14/600 e ajuda em ink-2. */
+.genui-choice-title {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.genui-choice-question {
+  margin: 2px 0 0;
+  font-size: calc(14px * var(--scale));
+  font-weight: 600;
+  line-height: 1.43;
+  white-space: pre-wrap;
+}
+.genui-choice-help {
+  margin: 2px 0 var(--sp-8);
+  font-size: var(--text-callout);
+  line-height: 1.42;
+  color: var(--context-ink-2, var(--ink-2));
+  white-space: pre-wrap;
+}
+
+/* Opções: linhas de 40px, letra em `field`, rádio com anel ink-3 (3:1). */
+.genui-choice-options,
+.genui-choice-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 calc(var(--sp-8) * -1);
+  padding: 0;
+  list-style: none;
+}
+.genui-choice-row,
+.genui-choice-list li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-12);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--sp-8);
+  border-radius: var(--radius-m);
+  font-size: var(--text-body);
+  line-height: 1.46;
+  text-align: left;
+  color: var(--text-primary, var(--ink));
+}
+.genui-choice-row {
+  transition: background-color var(--motion-hover);
+  /* O anel de foco não fica sob o topo esmaecido da conversa. */
+  scroll-margin-block: var(--sp-16);
+}
+.genui-choice-row:hover {
+  background: var(--hover);
+}
+.genui-choice-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  position: relative;
+  z-index: 1;
+}
+.genui-choice-key {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.is-none > .genui-choice-key,
+.is-free > .genui-choice-key {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.genui-choice-label {
+  min-width: 0;
+  white-space: pre-wrap;
+  /* D249: a conversa deixa botões com overflow-wrap normal; o rótulo da opção (dentro do botão-rádio)
+     quebra mesmo sem espaços, sem alargar o balão. */
+  overflow-wrap: anywhere;
+}
+.genui-choice-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+  transition: box-shadow var(--morph);
+}
+.genui-choice-row[aria-checked='true'] .genui-choice-radio {
+  box-shadow: inset 0 0 0 5.5px var(--accent);
+}
+.genui-choice-row[aria-checked='true'] .genui-choice-key {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+/* Filete reto entre linhas, recuado das bordas arredondadas; some junto da linha escolhida. */
+.genui-choice-row-wrap + .genui-choice-row-wrap > .genui-choice-row:not(.is-none)::before,
+.genui-choice-list li + li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--sp-8);
+  right: var(--sp-8);
+  height: 1px;
+  background: var(--line);
+}
+.genui-choice-list li.is-picked::before,
+.genui-choice-list li.is-picked + li::before,
+.genui-choice-row:focus-visible::before {
+  display: none;
+}
+.genui-choice-sep {
+  height: 1px;
+  margin: var(--sp-4) var(--sp-8);
+  background: var(--line-strong);
+}
+
+/* Resposta escrita: campo rotulado, multilinha, sem redimensionar a conversa. */
+.genui-choice-free {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--sp-10);
+}
+.genui-choice-free label {
+  font-size: var(--text-callout);
+  line-height: 1.33;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.genui-choice-free textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  max-height: calc(160px * var(--scale));
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-primary, var(--ink));
+  font: inherit;
+  font-size: var(--text-body);
+  line-height: 1.46;
+  resize: none;
+  overflow-y: auto;
+  scroll-margin-block: var(--sp-16);
+}
+.genui-choice-free textarea::placeholder {
+  color: var(--ink-3);
+}
+.genui-choice-free textarea:focus-visible,
+.genui-choice-free textarea:focus {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Enviar resposta explícito e a nota do que vai sair. */
+.genui-choice-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-8) var(--sp-12);
+  margin-top: var(--sp-12);
+}
+.genui-choice-actions .styled-button {
+  scroll-margin-block: var(--sp-16);
+}
+.genui-choice-actions .styled-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.genui-choice-note {
+  flex: 1;
+  min-width: 180px;
+  font-size: var(--text-callout);
+  line-height: 1.33;
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+/* Estados sem controle: opções em texto legível em `ink`, a resposta em `accent-soft` + "Sua resposta". */
+.genui-choice-list li.is-picked {
+  background: var(--accent-soft);
+}
+.genui-choice-list li.is-picked > .genui-choice-key {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.genui-choice-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--text-primary, var(--ink));
+  font-size: var(--text-caption);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.genui-choice-tag .genui-choice-tag-mark {
+  color: var(--text-success, var(--success));
+}
+.genui-choice-free-label {
+  display: block;
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.genui-choice-free-text {
+  display: block;
+  margin-top: 2px;
+}
+.genui-choice-free-text::before {
+  content: '“';
+}
+.genui-choice-free-text::after {
+  content: '”';
+}
+
+/* A linha de estado no rodapé; recebe o foco quando o controle focado some. */
+.genui-choice-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: var(--sp-12) 0 0;
+  font-size: var(--text-callout);
+  line-height: 1.33;
+  color: var(--context-ink-2, var(--ink-2));
+  border-radius: var(--radius-xs);
+}
+.genui-choice-line > :first-child {
+  flex: none;
+  margin-top: 1px;
+}
+.genui-choice-line:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.genui-choice-line.is-error .genui-choice-line-mark {
+  color: var(--text-danger, var(--danger));
+}
+.genui-choice-line.is-answered .genui-choice-line-mark {
+  color: var(--text-success, var(--success));
+}
+
+/* Só para leitor de tela (a região educada e o prefixo das opções em texto). */
+.genui-choice-live,
+.genui-choice-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Movimento reduzido: o anel de Enviando fica parado (controls.css) e nada transiciona aqui. */
+@media (prefers-reduced-motion: reduce) {
+  .genui-choice-row,
+  .genui-choice-radio {
+    transition: none;
+  }
+}

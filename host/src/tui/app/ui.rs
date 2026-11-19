@@ -1,0 +1,337 @@
+//! The screen's state: panes, overlays and their forms, and where clicks land.
+
+use ratatui::layout::Rect;
+use std::collections::BTreeMap;
+use std::time::Instant;
+
+use super::super::manage::{
+    AgentSetup, AnalyticsSheet, BotChatSheet, Fields, Market, MemorySheet, RoutineForm, RoutineList, SkillSheet,
+};
+use super::{Editor, Mark};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Focus {
+    Roster,
+    Chat,
+    Trace,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TraceMode {
+    Off,
+    Pane,
+    Full,
+}
+
+/// Width class, set by the last draw.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Width {
+    /// < 80 columns: roster and chat are separate pages.
+    Narrow,
+    /// 80–99: compact roster.
+    Mid,
+    /// 100–149.
+    Wide,
+    /// ≥ 150.
+    Huge,
+}
+
+pub const FILTERS: [(&str, Option<Mark>); 5] = [
+    ("all", None),
+    ("needs you", Some(Mark::Need)),
+    ("working", Some(Mark::Work)),
+    ("unread", Some(Mark::Unread)),
+    ("error", Some(Mark::Error)),
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Action {
+    NewBot,
+    NewGroup,
+    Market,
+    Memory,
+    Details,
+    RefreshAgents,
+    Pair,
+    Usage,
+    CheckUpdate,
+    Analytics,
+    AboutAnalytics,
+    Keys,
+}
+
+pub const ACTIONS: [(&str, &str, Action); 12] = [
+    ("New bot…", "n", Action::NewBot),
+    ("New group chat…", "m", Action::NewGroup),
+    ("Extensions: agents, connectors, skills…", "A", Action::Market),
+    ("Memory of this bot…", "M", Action::Memory),
+    ("Details of this bot…", "R", Action::Details),
+    ("Refresh agents", "", Action::RefreshAgents),
+    ("Pair a phone…", "P", Action::Pair),
+    ("Usage", "U", Action::Usage),
+    ("Check for updates", "", Action::CheckUpdate),
+    ("Share usage analytics", "", Action::Analytics),
+    ("About usage analytics…", "", Action::AboutAnalytics),
+    ("Keys", "?", Action::Keys),
+];
+
+pub enum GotoItem {
+    Bot(String),
+    Action(Action),
+}
+
+pub struct Goto {
+    pub query: Editor,
+    pub filter: usize,
+    pub cursor: usize,
+}
+
+pub enum ConfirmAct {
+    Delete(String),
+    NewSession(String),
+    /// A bot's own memory, or (`true`) the one all bots share.
+    ClearMemory(String, bool),
+    /// Keeps a bot's harness's own memory on beside Codync's.
+    KeepHarnessMemory(String),
+    DeleteRoutine(String, String),
+    RotateRoutineKey(String, String),
+    RemoveConnector(String),
+    RemoveSkill(String),
+    /// A long-form memory note, over the content with hash `base`.
+    DeleteMemoryFile {
+        bot: String,
+        shared: bool,
+        name: String,
+        base: Option<String>,
+    },
+}
+
+pub struct Confirm {
+    pub title: String,
+    pub detail: String,
+    pub note: String,
+    pub button: &'static str,
+    pub act: ConfirmAct,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NewBotField {
+    Name,
+    Color,
+    Shape,
+    Permission,
+}
+
+/// A new bot: a name (optional: the host names it after its first conversations) and its looks.
+/// Everything else takes the defaults and is changed afterwards in Settings.
+pub struct NewBot {
+    pub name: Editor,
+    pub permission: Option<crate::store::Permission>,
+    pub permission_selected: bool,
+    pub color: usize,
+    pub shape: usize,
+    pub field: NewBotField,
+    pub error: Option<String>,
+    pub saving: bool,
+}
+
+#[derive(Clone)]
+pub struct Dir {
+    pub name: String,
+    pub path: String,
+    pub git: bool,
+}
+
+pub struct FolderPicker {
+    pub path: String,
+    pub parent: Option<String>,
+    pub dirs: Vec<Dir>,
+    pub query: Editor,
+    pub cursor: usize,
+    pub error: Option<String>,
+}
+
+pub use crate::store::{AVATAR_COLORS as COLORS, AVATAR_SHAPES as SHAPES};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Field {
+    Name,
+    Instructions,
+    Agent,
+    Model,
+    ModelOptions,
+    Fast,
+    Folder,
+    Approvals,
+    Notify,
+    Computer,
+    Team,
+    Color,
+    Shape,
+    Connectors,
+    Skills,
+}
+
+pub const FIELDS: [Field; 15] = [
+    Field::Name,
+    Field::Instructions,
+    Field::Agent,
+    Field::Model,
+    Field::ModelOptions,
+    Field::Fast,
+    Field::Folder,
+    Field::Approvals,
+    Field::Notify,
+    Field::Computer,
+    Field::Team,
+    Field::Color,
+    Field::Shape,
+    Field::Connectors,
+    Field::Skills,
+];
+
+pub struct Toggle {
+    pub id: String,
+    pub name: String,
+    pub on: bool,
+}
+
+#[allow(clippy::struct_excessive_bools, reason = "independent bot settings and save state")]
+pub struct Form {
+    pub bot_id: String,
+    pub name: Editor,
+    pub instructions: Editor,
+    pub backend: String,
+    pub model: Editor,
+    /// Model settings (effort, fast…) and the model they were picked for.
+    pub model_options: (String, BTreeMap<String, String>),
+    pub fast: bool,
+    pub cwd: String,
+    pub auto: bool,
+    /// O usuário tocou na autonomia, mesmo que termine no valor herdado.
+    pub permission_selected: bool,
+    pub notify: bool,
+    pub computer: bool,
+    /// `None` enquanto a escolha explícita de principal não foi carregada.
+    pub primary_bot: Option<bool>,
+    pub color: usize,
+    pub shape: usize,
+    pub connectors: Vec<Toggle>,
+    pub skills: Vec<Toggle>,
+    pub field: usize,
+    /// Cursor inside the connector / skill toggles.
+    pub sub: usize,
+    pub error: Option<String>,
+    pub saving: bool,
+    /// The settings as opened, to tell edits apart.
+    pub opened: serde_json::Value,
+}
+
+impl Form {
+    pub fn current(&self) -> Field {
+        FIELDS[self.field]
+    }
+
+    /// The settings picked for the model now in the field; another model has none yet.
+    pub fn model_options(&self) -> Option<&BTreeMap<String, String>> {
+        (self.model_options.0 == self.model.text.trim()).then_some(&self.model_options.1)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GroupField {
+    Name,
+    About,
+    Bots,
+}
+
+impl GroupField {
+    /// The field after this one; a new group has no About (it is written afterwards, in the editor).
+    pub(super) fn next(self, about: bool) -> Self {
+        match self {
+            Self::Name if about => Self::About,
+            Self::Name | Self::About => Self::Bots,
+            Self::Bots => Self::Name,
+        }
+    }
+
+    pub(super) fn prev(self, about: bool) -> Self {
+        match self {
+            Self::Name => Self::Bots,
+            Self::Bots if about => Self::About,
+            Self::About | Self::Bots => Self::Name,
+        }
+    }
+}
+
+/// Create a group chat, or rename one and change who's in it.
+pub struct GroupForm {
+    /// The group being edited; `None` creates one.
+    pub group_id: Option<String>,
+    pub name: Editor,
+    /// What the group is for; sent as `description`, shown to its members. Edited only:
+    /// a new group starts without one.
+    pub about: Editor,
+    /// Picked bot ids, in the order they were picked.
+    pub members: Vec<String>,
+    pub field: GroupField,
+    pub cursor: usize,
+    pub error: Option<String>,
+    pub saving: bool,
+}
+
+/// The pair-a-phone sheet's code: on its way, shown (its pairing link), or why none came.
+pub enum PairCode {
+    Loading,
+    Ready(String),
+    Failed(String),
+}
+
+pub enum Overlay {
+    Goto(Goto),
+    Help(Editor),
+    Confirm(Confirm),
+    NewBot(NewBot),
+    Folder(FolderPicker),
+    Form(Box<Form>),
+    Group(GroupForm),
+    Usage,
+    Pair(PairCode),
+    Memory(MemorySheet),
+    /// A read-only conversation between two bots.
+    BotChat(BotChatSheet),
+    Routines(RoutineList),
+    Routine(Box<RoutineForm>),
+    Market(Box<Market>),
+    Agent(AgentSetup),
+    Fields(Box<Fields>),
+    Skill(SkillSheet),
+    Analytics(AnalyticsSheet),
+}
+
+pub struct Toast {
+    pub text: String,
+    pub need: bool,
+    pub until: Instant,
+}
+
+#[derive(Clone)]
+pub enum Click {
+    Bot(String),
+    Option {
+        entry: String,
+        option: String,
+    },
+    Filter(usize),
+    Composer,
+    /// A bot-message row (entry id): opens the conversation.
+    BotChat(String),
+}
+
+#[derive(Default)]
+pub struct Hits {
+    pub roster: Rect,
+    pub chat: Rect,
+    pub trace: Rect,
+    pub clicks: Vec<(Rect, Click)>,
+}

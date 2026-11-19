@@ -1,0 +1,126 @@
+/* voz-03: Ajustes → Voz (docs/reference/redesenho/propostas/voz, quadro 01). */
+.voz-topo {
+  align-items: flex-start;
+  padding: 0 2px 4px;
+}
+.voz-fonte,
+.voz-aviso {
+  padding: 2px 0;
+}
+.voz-limites {
+  max-width: 62%;
+  align-items: flex-start;
+}
+/* A chave do Hub: marcador de servidor e selo neutro, para não se confundir com chave do aparelho (voz-04). */
+.voz-marca {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--group);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.voz-tag {
+  font-size: var(--text-caption);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--group);
+  color: var(--context-ink-2, var(--ink-2));
+  white-space: nowrap;
+}
+.voz-tag.tem {
+  color: var(--context-ink, var(--ink));
+}
+.settings-quiet-button.voz-perigo {
+  color: var(--danger);
+}
+/* Barra da chamada: aviso de limite com a ação ao lado (Continuar, Ligar de novo). */
+.call-line.call-line-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.call-line-button {
+  font-weight: 600;
+  color: var(--context-ink, var(--ink));
+  text-decoration: underline;
+}
+/* voz-04: chaves deste aparelho. Selo verde com escudo (guardada), âmbar (não abriu); marcador de chave, não de servidor. */
+.voz-marca.aparelho {
+  color: var(--context-ink, var(--ink));
+}
+.voz-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.voz-tag.segura {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.voz-tag.alerta {
+  color: var(--attention);
+  background: var(--attention-soft);
+}
+.voz-confirmar {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: var(--raised, var(--group));
+}
+.styled-button.voz-limpar {
+  background: var(--danger-fill, var(--danger));
+  color: #fff;
+}
+.voz-acoes {
+  padding-left: 34px;
+  justify-content: flex-start;
+}
+/* MX-8: linhas de escolha mais baixas e uma só coluna de controle, da mesma largura em Modelo, Voz, Jeito,
+   Idioma, Velocidade e Pausa. Janela estreita: o controle desce para baixo do rótulo, inteiro, sem corte. */
+.voz-pagina .card-section-rows {
+  container-type: inline-size;
+}
+.voz-pagina .card-row {
+  min-height: 44px;
+  padding-block: 8px;
+}
+.voz-pagina .value-row {
+  gap: 12px;
+}
+.voz-pagina .value-row > .spacer {
+  display: none;
+}
+.voz-pagina .value-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.voz-pagina .value-row-value {
+  flex: none;
+  inline-size: 200px;
+  justify-content: flex-end;
+}
+.voz-pagina .value-row-value > .choice-picker,
+.voz-pagina .value-row-value > .segmented {
+  inline-size: 100%;
+}
+.voz-pagina .value-row-value .segmented-option {
+  padding-inline: 8px;
+}
+@container (max-width: 440px) {
+  .voz-pagina .value-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .voz-pagina .value-row > :first-child {
+    flex-basis: 100%;
+  }
+  .voz-pagina .value-row-value {
+    inline-size: 100%;
+  }
+}

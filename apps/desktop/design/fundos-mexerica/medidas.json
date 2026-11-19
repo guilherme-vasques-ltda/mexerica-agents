@@ -1,0 +1,572 @@
+{
+  "resolution": [
+    1672,
+    941
+  ],
+  "renderer": "Pillow 9.4.0 (libwebp) decode sRGB; extremos por canal e pisos pela mesma receita de legibility.ts; arquivos finais WebP q80 (MX-79, tools/otimizar-imagens.py)",
+  "veil": 0,
+  "saturation": 1.4,
+  "tokensSha256": "d9d1e0fef4e66661a9ecf7f50a3fc4b82d20e772e0c04bc03aa3aa7a7be1dec9",
+  "images": [
+    {
+      "id": "aurora-suave",
+      "dark": false,
+      "file": "aurora-suave.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 10566,
+      "sha256": "e39dfd58854ff4f887040e6cd58bc3471814bd4a61c3aeb5ea31ed1198b6896c",
+      "bounds": {
+        "lo": [
+          166,
+          175,
+          133
+        ],
+        "hi": [
+          255,
+          241,
+          224
+        ]
+      },
+      "mean": [
+        245.25,
+        226.25,
+        198.1
+      ],
+      "floor": 0.96,
+      "primaryFloor": 0
+    },
+    {
+      "id": "aurora-suave",
+      "dark": true,
+      "file": "aurora-suave-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 11818,
+      "sha256": "31a12a5607bec4cad3527bb5a428ad6e4a8888d473707da9e25241bca3a3e14c",
+      "bounds": {
+        "lo": [
+          14,
+          28,
+          21
+        ],
+        "hi": [
+          190,
+          100,
+          76
+        ]
+      },
+      "mean": [
+        42.04,
+        42.39,
+        49.37
+      ],
+      "floor": 0.95,
+      "primaryFloor": 0.48
+    },
+    {
+      "id": "janela-da-cidade",
+      "dark": false,
+      "file": "janela-da-cidade.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 16940,
+      "sha256": "cee9fb5cd4590acc12c81580b5022b7302814e8d0044cd9e61e5ae99ce45df7e",
+      "bounds": {
+        "lo": [
+          148,
+          159,
+          133
+        ],
+        "hi": [
+          255,
+          255,
+          255
+        ]
+      },
+      "mean": [
+        214.5,
+        224.38,
+        233.23
+      ],
+      "floor": 0.97,
+      "primaryFloor": 0.04
+    },
+    {
+      "id": "janela-da-cidade",
+      "dark": true,
+      "file": "janela-da-cidade-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 12034,
+      "sha256": "c450ddf57c21106f6f856f0387f4a1327903b28dbc21db74c71b34b65baa966f",
+      "bounds": {
+        "lo": [
+          4,
+          20,
+          27
+        ],
+        "hi": [
+          155,
+          125,
+          117
+        ]
+      },
+      "mean": [
+        25.49,
+        33.98,
+        51.48
+      ],
+      "floor": 0.96,
+      "primaryFloor": 0.51
+    },
+    {
+      "id": "jardim-citrico",
+      "dark": false,
+      "file": "jardim-citrico.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 21682,
+      "sha256": "9d3f4894cfeb8dbe5c318bae8695c96f75b36c17f7da0dbab9ecef7ae745d6cc",
+      "bounds": {
+        "lo": [
+          131,
+          142,
+          59
+        ],
+        "hi": [
+          255,
+          255,
+          237
+        ]
+      },
+      "mean": [
+        234.11,
+        236.55,
+        206.23
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.21
+    },
+    {
+      "id": "jardim-citrico",
+      "dark": true,
+      "file": "jardim-citrico-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 24502,
+      "sha256": "448ff667c5f697ab144b0fd5b2d84986cc4b67c791b75ed9de8cdbc555463131",
+      "bounds": {
+        "lo": [
+          0,
+          4,
+          0
+        ],
+        "hi": [
+          227,
+          144,
+          107
+        ]
+      },
+      "mean": [
+        10.01,
+        41.41,
+        38.47
+      ],
+      "floor": 0.96,
+      "primaryFloor": 0.6
+    },
+    {
+      "id": "ondas-pastel",
+      "dark": false,
+      "file": "ondas-pastel.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 12640,
+      "sha256": "1cfdf9653ae0f26f10678145fff97b8163eb734a9a1173704e60ee2b9e159eab",
+      "bounds": {
+        "lo": [
+          188,
+          188,
+          181
+        ],
+        "hi": [
+          255,
+          255,
+          255
+        ]
+      },
+      "mean": [
+        249.44,
+        240.24,
+        235.24
+      ],
+      "floor": 0.95,
+      "primaryFloor": 0
+    },
+    {
+      "id": "ondas-pastel",
+      "dark": true,
+      "file": "ondas-pastel-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 16970,
+      "sha256": "3b779362c7edd8b0a30f6bc137636e49593018bdc959da33a722c1cb44f8bd45",
+      "bounds": {
+        "lo": [
+          0,
+          3,
+          15
+        ],
+        "hi": [
+          148,
+          114,
+          143
+        ]
+      },
+      "mean": [
+        28.94,
+        29.46,
+        51.83
+      ],
+      "floor": 0.95,
+      "primaryFloor": 0.49
+    },
+    {
+      "id": "montanhas-suaves",
+      "dark": false,
+      "file": "montanhas-suaves.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 17942,
+      "sha256": "c1043a323e69c99dbbcacec6a362372d66dfa2af2975fd293b9643136d34a504",
+      "bounds": {
+        "lo": [
+          143,
+          178,
+          198
+        ],
+        "hi": [
+          255,
+          255,
+          255
+        ]
+      },
+      "mean": [
+        228.53,
+        237.65,
+        245.04
+      ],
+      "floor": 0.96,
+      "primaryFloor": 0
+    },
+    {
+      "id": "montanhas-suaves",
+      "dark": true,
+      "file": "montanhas-suaves-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 14698,
+      "sha256": "902027cc897b8df3ecc5d67848d1602a367df3c574d7ed37c7ffdb044a2b40f3",
+      "bounds": {
+        "lo": [
+          34,
+          56,
+          75
+        ],
+        "hi": [
+          123,
+          112,
+          140
+        ]
+      },
+      "mean": [
+        68.32,
+        83.34,
+        112.71
+      ],
+      "floor": 0.94,
+      "primaryFloor": 0.4
+    },
+    {
+      "id": "linho-fino",
+      "dark": false,
+      "file": "linho-fino.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 20510,
+      "sha256": "b18fd3f637aa24682d4469900d22c7816d9cd856262bdc34831f135d9b55b62d",
+      "bounds": {
+        "lo": [
+          218,
+          197,
+          172
+        ],
+        "hi": [
+          255,
+          236,
+          215
+        ]
+      },
+      "mean": [
+        240.93,
+        222.15,
+        198.21
+      ],
+      "floor": 0.93,
+      "primaryFloor": 0
+    },
+    {
+      "id": "linho-fino",
+      "dark": true,
+      "file": "linho-fino-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 18648,
+      "sha256": "95c329b8649e4d0ce49cbc72ee0bb6cc4f0a31ac23ddeb6b634473aea92f6281",
+      "bounds": {
+        "lo": [
+          30,
+          30,
+          28
+        ],
+        "hi": [
+          87,
+          79,
+          72
+        ]
+      },
+      "mean": [
+        50.39,
+        47.3,
+        45.96
+      ],
+      "floor": 0.91,
+      "primaryFloor": 0.06
+    },
+    {
+      "id": "folhas-botanicas",
+      "dark": false,
+      "file": "folhas-botanicas.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 30072,
+      "sha256": "7aa8b3e3e44ec1ed9d8ebb0a12aeef3f212c0e8e28a5bcd57202a0baa9addd0e",
+      "bounds": {
+        "lo": [
+          51,
+          59,
+          8
+        ],
+        "hi": [
+          255,
+          255,
+          243
+        ]
+      },
+      "mean": [
+        233.27,
+        236.93,
+        208.17
+      ],
+      "floor": 0.99,
+      "primaryFloor": 0.54
+    },
+    {
+      "id": "folhas-botanicas",
+      "dark": true,
+      "file": "folhas-botanicas-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 29106,
+      "sha256": "0abc87fff1ab8890d9bfe09dcbe60dc13e74bbb78addb634d4732bb578daab39",
+      "bounds": {
+        "lo": [
+          0,
+          16,
+          1
+        ],
+        "hi": [
+          158,
+          161,
+          124
+        ]
+      },
+      "mean": [
+        22.86,
+        53.83,
+        43.62
+      ],
+      "floor": 0.96,
+      "primaryFloor": 0.6
+    },
+    {
+      "id": "nuvens-suaves",
+      "dark": false,
+      "file": "nuvens-suaves.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 18476,
+      "sha256": "db8eb4755b6417f50277743185b27711b6289be0f9255a9606e904aad8fe20c0",
+      "bounds": {
+        "lo": [
+          176,
+          202,
+          192
+        ],
+        "hi": [
+          255,
+          245,
+          254
+        ]
+      },
+      "mean": [
+        193.86,
+        217.04,
+        243.61
+      ],
+      "floor": 0.94,
+      "primaryFloor": 0
+    },
+    {
+      "id": "nuvens-suaves",
+      "dark": true,
+      "file": "nuvens-suaves-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 19054,
+      "sha256": "bef1462d386d45d98f0ec856bcf38fb5f093702467373ded009293174a508a1d",
+      "bounds": {
+        "lo": [
+          44,
+          56,
+          80
+        ],
+        "hi": [
+          185,
+          136,
+          140
+        ]
+      },
+      "mean": [
+        60.54,
+        67.82,
+        93.79
+      ],
+      "floor": 0.96,
+      "primaryFloor": 0.56
+    },
+    {
+      "id": "canto-aconchegante",
+      "dark": false,
+      "file": "canto-aconchegante.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 13172,
+      "sha256": "3c2024414d7bd5fad36698652fa7c863a0776645bbdfd6dca10226348f264794",
+      "bounds": {
+        "lo": [
+          130,
+          135,
+          45
+        ],
+        "hi": [
+          255,
+          255,
+          242
+        ]
+      },
+      "mean": [
+        252.9,
+        234.2,
+        219.77
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.25
+    },
+    {
+      "id": "canto-aconchegante",
+      "dark": true,
+      "file": "canto-aconchegante-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 16782,
+      "sha256": "eddc3e54cecd8c0d2f293f290eaa050bd77b06573f6abf1051e6817e8c06e41d",
+      "bounds": {
+        "lo": [
+          3,
+          14,
+          13
+        ],
+        "hi": [
+          255,
+          201,
+          160
+        ]
+      },
+      "mean": [
+        29.91,
+        41.55,
+        58.82
+      ],
+      "floor": 0.97,
+      "primaryFloor": 0.69
+    },
+    {
+      "id": "vidro-citrico",
+      "dark": false,
+      "file": "vidro-citrico.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 12984,
+      "sha256": "8fe3e88997cd0fa243046a37e6e307f4031b6bb96827ee2553a39a19f51c926b",
+      "bounds": {
+        "lo": [
+          211,
+          190,
+          142
+        ],
+        "hi": [
+          255,
+          250,
+          233
+        ]
+      },
+      "mean": [
+        247.84,
+        233.45,
+        210.34
+      ],
+      "floor": 0.95,
+      "primaryFloor": 0
+    },
+    {
+      "id": "vidro-citrico",
+      "dark": true,
+      "file": "vidro-citrico-escuro.webp",
+      "width": 1672,
+      "height": 941,
+      "bytes": 14394,
+      "sha256": "436b345ac9bda8ce486b59607fe0bee7a089500e064c3f37b31604af3cef56d2",
+      "bounds": {
+        "lo": [
+          7,
+          26,
+          6
+        ],
+        "hi": [
+          124,
+          91,
+          75
+        ]
+      },
+      "mean": [
+        29.52,
+        45.03,
+        38.9
+      ],
+      "floor": 0.93,
+      "primaryFloor": 0.3
+    }
+  ]
+}

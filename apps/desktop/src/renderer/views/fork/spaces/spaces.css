@@ -1,0 +1,282 @@
+/* D169 (components/SpaceRail, SpaceIconPicker): the space tile and its editor. */
+.space-tile {
+  --size: var(--tile-size);
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--size);
+  height: var(--size);
+  border-radius: var(--radius-s);
+  background: var(--tile, var(--tile-violeta));
+  color: var(--on-tile);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px var(--tile-edge);
+  font-weight: 600;
+  overflow: hidden;
+}
+/* Suave: a light tint of the color, the symbol in it. */
+.space-tile.is-soft {
+  background: color-mix(in srgb, var(--tile) 15%, var(--raised));
+  color: var(--tile);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tile) 18%, transparent);
+}
+[data-theme='dark'] .space-tile.is-soft {
+  background: color-mix(in srgb, var(--tile) 30%, var(--raised));
+  color: color-mix(in srgb, var(--tile) 45%, #fff);
+}
+.space-tile.is-letters {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+/* The company's logo always on white, whatever the theme. */
+.space-tile.is-logo {
+  background: #fff;
+  color: #111;
+}
+.space-tile.is-logo img {
+  object-fit: contain;
+}
+/* Pessoal: round, the owner's initials or photo. */
+.space-tile.is-person {
+  border-radius: 50%;
+  background: var(--tile-musgo);
+  letter-spacing: 0.02em;
+}
+.space-tile.is-person img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The editor (a sheet, `raised`): the tile big, name, Cheio/Suave and the rail on the left; the rest on the right. */
+.space-picker {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--sp-20);
+  padding: var(--sp-20);
+  color: var(--text-primary, var(--ink));
+}
+.space-picker-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-12);
+  padding-top: var(--sp-8);
+}
+.space-picker-side > .space-tile:first-child {
+  border-radius: 24px;
+}
+.space-picker-hidden-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.space-picker-name {
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--sp-12);
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--text-primary, var(--ink));
+  text-align: center;
+  outline: none;
+}
+.space-picker-name:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.space-picker-rail {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-l);
+  background: var(--group);
+}
+.space-picker-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-12);
+  min-width: 0;
+}
+.space-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-12);
+}
+.space-picker-label {
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+.space-picker-seg {
+  align-self: flex-start;
+}
+.space-picker-side .space-picker-seg {
+  align-self: center;
+}
+.space-picker-seg.is-disabled {
+  opacity: var(--opacity-disabled);
+}
+.space-picker-colors {
+  display: flex;
+  gap: var(--sp-8);
+}
+.space-picker-colors button {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.space-picker-colors button[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  background: #fdfbf7;
+}
+.space-picker-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.space-picker-packs {
+  display: flex;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+}
+.space-picker-packs button {
+  height: 28px;
+  padding: 0 var(--sp-12);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--context-ink-2, var(--ink-2));
+  background: var(--field);
+}
+.space-picker-packs button[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--canvas);
+}
+.space-picker-search {
+  flex: 0 1 180px;
+  min-width: 140px;
+  display: flex;
+}
+.space-picker-search .search-field {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-s);
+  background: var(--field);
+}
+.space-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: var(--sp-8);
+}
+.space-picker-grid button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: var(--radius-m);
+  color: var(--text-primary, var(--ink));
+  background: var(--group);
+  transition: background-color var(--motion-hover);
+}
+.space-picker-grid button:hover:not(:disabled) {
+  background: var(--selected);
+}
+.space-picker-grid button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.space-picker-letters {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+.space-picker-letters input {
+  width: 80px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  text-align: center;
+  font: inherit;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--text-primary, var(--ink));
+}
+.space-picker-drop {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 120px;
+  padding: var(--sp-12);
+  border-radius: var(--radius-l);
+  border: 1.5px dashed var(--line-strong);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  text-align: center;
+}
+.space-picker-drop img {
+  padding: 6px;
+  border-radius: var(--radius-m);
+  background: #fff;
+  object-fit: contain;
+}
+.space-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-8);
+  margin-top: auto;
+  padding-top: var(--sp-8);
+}
+.space-picker-problem {
+  flex: 1;
+  min-width: 0;
+}
+
+/* D543: segundo passo da criação, com a conta sempre visível. */
+.space-birth { padding: var(--sp-24); display: flex; flex-direction: column; gap: var(--sp-16); max-height: calc(100vh - 100px); overflow: auto; color: var(--text-primary); }
+.space-birth-heading { display: flex; gap: var(--sp-12); align-items: center; }
+.space-birth h2, .space-birth p { margin: 0; }
+.space-birth p { color: var(--text-secondary); }
+.space-birth fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: var(--sp-12); }
+.space-birth label { display: grid; gap: var(--sp-8); }
+.space-birth input:not([type=checkbox]), .space-birth select { padding: var(--sp-8) var(--sp-12); border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--field); color: inherit; font: inherit; }
+.space-birth .space-birth-confirm { display: flex; align-items: center; gap: var(--sp-8); }
+.space-birth footer { display: flex; justify-content: flex-end; gap: var(--sp-8); }
+.space-birth [role=alert] { color: var(--danger); }
+
+/* D543 E1: ciclo de vida do Space na folha de edição, figuras do Berga e exclusão. */
+.space-zone { display: grid; gap: var(--sp-8); padding: var(--sp-12) 0; border-top: 1px solid var(--line); }
+.space-zone-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); }
+.space-zone-danger { justify-content: flex-end; }
+.space-zone-delete { color: var(--danger); }
+.space-berga-figuras, .space-berga-cores { display: grid; gap: var(--sp-8); }
+.space-berga-figuras { grid-template-columns: repeat(3, 1fr); }
+.space-berga-figuras > .space-picker-label { grid-column: 1 / -1; }
+.space-view-berga-acoes { display: flex; flex-wrap: wrap; gap: var(--sp-16); }
+.space-berga-figura { display: grid; gap: var(--sp-4); justify-items: center; padding: var(--sp-8); border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--field); color: inherit; font: inherit; font-size: var(--text-caption); cursor: pointer; }
+.space-berga-figura[aria-pressed='true'] { border-color: var(--accent); }
+.space-berga-cores { display: flex; gap: var(--sp-8); }
+.space-berga-cores button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; background: var(--c); cursor: pointer; }
+.space-berga-cores button[aria-pressed='true'] { border-color: var(--text-primary); }
+.space-berga-preview { display: inline-flex; }
+.space-delete-busy { color: var(--danger); }
+.space-delete .styled-button.space-delete-confirm,
+.space-delete .styled-button.space-delete-confirm:not(:disabled):hover { background: var(--danger-fill); color: var(--on-danger); }

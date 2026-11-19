@@ -1,0 +1,63 @@
+{
+  "id": "composio",
+  "nome": "Composio",
+  "categoria": "Agregadores",
+  "descricao": "Use, por uma só conta do Composio, os apps que você já conectou lá.",
+  "exemplos": [
+    "Liste os apps conectados na minha conta do Composio",
+    "Busque a ferramenta certa para mandar um e-mail"
+  ],
+  "site": "https://composio.dev",
+  "docs": "https://docs.composio.dev/docs/composio-connect",
+  "links": {
+    "privacidade": "https://composio.dev/privacy",
+    "termos": "https://composio.dev/terms"
+  },
+  "conferidaEm": "2026-11-16",
+  "fontes": [
+    "https://docs.composio.dev/docs/sessions-via-mcp",
+    "https://connect.composio.dev/.well-known/oauth-protected-resource",
+    "https://connect.composio.dev/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "Os dados passam pelo Composio, e a conta dele alcança todos os apps conectados nela. A conta e o custo são seus.",
+  "tipos": [
+    {
+      "id": "composio.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Composio",
+      "url": "https://connect.composio.dev/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar os apps conectados",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Composio não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "Sem modo só de leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/composiohq/composio",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    },
+    {
+      "url": "https://github.com/ComposioHQ/composio-mcp-plugin",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

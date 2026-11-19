@@ -1,0 +1,67 @@
+/* MB-3: coluna "O que aconteceu" do Mission Board. Só tokens do redesenho (styles/tokens.css); reaproveita
+   .torre-pill e .torre-button sem alterar torre.css. */
+
+.oqa-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.oqa {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--raised, var(--surface));
+}
+.oqa-title { margin: 0; font-size: var(--text-title3); font-weight: 600; }
+.oqa-sub { margin: -6px 0 2px; color: var(--ink-2); font-size: var(--text-caption); }
+.oqa-empty { margin: 0; color: var(--ink-2); font-size: var(--text-callout); }
+.oqa-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--group);
+}
+.oqa-block h3 { margin: 0; display: flex; gap: 6px; align-items: center; font-size: var(--text-callout); font-weight: 600; }
+.oqa-team-line { margin: 0 0 2px 19px; color: var(--ink-2); font-size: var(--text-callout); }
+.oqa-block ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.oqa-bot { display: flex; gap: 8px; align-items: flex-start; }
+.oqa-bot p, .oqa-out p { margin: 0; font-size: var(--text-callout); line-height: 1.35; min-width: 0; }
+.oqa-bot b, .oqa-out b { font-weight: 600; }
+.oqa-joined { color: var(--ink-3); }
+.oqa-out {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-2);
+}
+.oqa-foot {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.oqa-foot p { margin: 0; display: flex; gap: 6px; align-items: flex-start; color: var(--ink-2); font-size: var(--text-caption); }
+.oqa-link {
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-accent, var(--accent));
+  font: inherit;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+.oqa-link:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 4px; }
+.oqa-edit { display: flex; flex-direction: column; gap: 8px; font-size: var(--text-callout); }
+.oqa-edit label { display: flex; gap: 8px; align-items: center; }
+.oqa-edit select { font: inherit; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--field); color: var(--ink); }
+.oqa-edit small { color: var(--ink-2); font-size: var(--text-caption); }
+.oqa-edit .oqa-error { color: var(--danger); }
+.oqa-actions { display: flex; gap: 8px; justify-content: flex-end; }

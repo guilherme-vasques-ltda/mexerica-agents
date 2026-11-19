@@ -1,0 +1,589 @@
+.thread-view {
+  position: relative;
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+.conversation {
+  /* Chat text follows the selected size without an extra platform offset. */
+  --conversation: var(--chat);
+  --md-scale: var(--chat-scale);
+  /* Messages and the composer share one readable column that grows with the text size. */
+  --column: calc(820px * var(--scale));
+  /* D165 fase E: the header (face over a name pill) the transcript starts under. */
+  --chat-header-height: 108px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--content-ground, var(--canvas));
+}
+
+/* Grok's desktop chat: no title bar. The chat blurs and fades as it scrolls up, with the bot in
+   a floating solid pill and the actions as frosted buttons on the right. */
+.top-chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding: 8px 16px 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  -webkit-app-region: drag;
+}
+.top-chrome > * {
+  grid-area: 1 / 1;
+}
+.top-chrome-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+}
+.top-chrome-row > *,
+.title-pill-subtitle {
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* The chrome is a drag region that lets the pointer through; its buttons take it back (D169: the
+   details button was unreachable by pointer, the transcript under it took the click). */
+.top-chrome-row > button {
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+/* D165 fase E (components/ChatHeader): the face of whom you talk to, the name under it in a glass pill. */
+.chat-header-who {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-6);
+  max-width: 60%;
+  padding: 2px 6px 4px;
+  border-radius: var(--radius-l);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  transition: opacity var(--layout), transform var(--layout);
+}
+.chat-header-who.hidden-by-call {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+.chat-header-face {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.chat-header-star {
+  position: absolute;
+  right: -3px;
+  bottom: -1px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--principal);
+  color: var(--on-tile);
+  box-shadow: 0 0 0 2px var(--canvas);
+}
+html[data-wallpaper] .chat-header-star {
+  box-shadow: none;
+}
+.chat-header-name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  max-width: 100%;
+  padding: 3px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+.chat-header-who:hover .chat-header-name {
+  box-shadow: var(--shadow-glass), 0 0 0 1px var(--line-strong);
+}
+
+.transcript-frame {
+  position: absolute;
+  inset: 0;
+}
+.transcript {
+  height: 100%;
+  overflow-y: auto;
+  overflow-anchor: none;
+  /* The conversation fades under the header and the message box by a mask, not a painted band: the
+     same in light, dark and over any wallpaper (D165 fase E). */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.35) calc(var(--chat-header-height) - 36px), #000 calc(var(--chat-header-height) + 8px), #000 calc(100% - var(--composer-height, 70px) + 4px), transparent calc(100% - var(--composer-height, 70px) + 40px));
+  mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.35) calc(var(--chat-header-height) - 36px), #000 calc(var(--chat-header-height) + 8px), #000 calc(100% - var(--composer-height, 70px) + 4px), transparent calc(100% - var(--composer-height, 70px) + 40px));
+}
+/* The scrolling body of the trace sheet, under its header. */
+.thread-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+/* Half a point at every resolution (the shared hairline is 1 px at 1x). */
+.thread-hairline {
+  height: 0.5px;
+  background: var(--line);
+  flex: none;
+}
+.transcript-content {
+  container-type: inline-size;
+  max-width: var(--column);
+  margin: 0 auto;
+  /* The header and composer sit over the list; messages pass underneath. The left gutter is the
+     timeline's own (ChatTimeline): no face or bubble crosses it. */
+  padding: var(--chat-header-height) 14px var(--composer-height, 70px) 36px;
+}
+.load-earlier {
+  display: block;
+  margin: 8px auto;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  text-align: center;
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* D249: no text widens the conversation. A URL, path or command without spaces wraps anywhere: messages,
+   notices, memory and approval cards, statuses. Buttons keep their labels whole (a routine's notice is a
+   button that is all text, so it wraps too), and one-line rows (`truncate`, like a bot's name in the
+   bot-to-bot row) keep their ellipsis. */
+.transcript-content,
+.bot-conversation-rows {
+  overflow-wrap: anywhere;
+}
+:is(.transcript-content, .bot-conversation-rows) button:not(.chat-routine-notice) {
+  overflow-wrap: normal;
+}
+.transcript-intro {
+  padding-top: 40px;
+}
+.intro-card {
+  /* A glass card over the wallpaper; plain canvas without one. */
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 0 24px;
+  text-align: center;
+}
+.intro-card-path {
+  overflow-wrap: anywhere;
+}
+.intro-card-hint {
+  padding-top: 4px;
+  line-height: 1.5;
+}
+.intro-card-hint.balanced {
+  max-width: 360px;
+  text-wrap: balance;
+}
+/* Room under the last row. */
+.chat-end {
+  height: 8px;
+}
+
+.composer-dock {
+  flex: none;
+}
+.composer-update-needed {
+  padding: 0 16px 8px;
+}
+
+/* Messages */
+/* Space above a row: more where a new speaker's run (or a card) starts. */
+.chat-row {
+  padding-top: 4px;
+}
+.chat-row.group-start {
+  padding-top: 12px;
+}
+.chat-row.notice {
+  padding-top: 10px;
+}
+/* A bot message's reactions and thread line up past its author's face. */
+.chat-row-indent {
+  padding-left: 36px;
+}
+.time-separator {
+  text-align: center;
+  padding: 18px 0 6px;
+}
+.chat-notice {
+  text-align: center;
+}
+/* Small glass pills for the text between messages (day separators, notices, statuses): nothing
+   reads straight off the wallpaper (D165 fase E, sistema.md "Leitura primeiro"). */
+.chat-pill {
+  display: inline-block;
+  max-width: 100%;
+  /* D249: a path or URL without spaces wraps inside the pill instead of running off the row. */
+  overflow-wrap: anywhere;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+.chat-pill-center {
+  width: fit-content;
+  margin: 0 auto;
+}
+.chat-notice-error {
+  padding: 12px;
+  border-radius: var(--radius-m);
+  /* Opaque: a tint over glass could fall under the legibility floor. */
+  background: color-mix(in srgb, var(--danger) 12%, var(--raised));
+}
+/* D249: the error's text wraps (rule above, on the transcript); its buttons keep their labels on one line. */
+.chat-notice-error > button {
+  flex: none;
+  white-space: nowrap;
+}
+.chat-routine-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* D249: a long URL or path in a routine's notice wraps inside the pill instead of widening the chat. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+  padding: 4px 12px;
+  margin: 8px auto;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+html[data-wallpaper] .chat-status,
+html[data-wallpaper] .chat-author {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+.message {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.message.user {
+  align-items: flex-end;
+  padding-left: 56px;
+}
+.message.agent {
+  align-items: flex-start;
+}
+.message-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+/* The reserved 88 pt beside a bubble holds its actions. */
+.message.user .message-body {
+  align-items: flex-end;
+  margin-left: 88px;
+  max-width: calc(100% - 88px);
+}
+.message.agent .message-body {
+  align-items: flex-start;
+  max-width: max(80px, min((100cqw + 32px) * 0.8 - 32px, 100cqw - 88px));
+  margin-right: 88px;
+}
+.bubble {
+  padding: 8px 12px;
+  border-radius: var(--radius-l);
+  max-width: 100%;
+  min-width: 0;
+  box-shadow: var(--shadow-glass);
+}
+/* The speaker's corner is the small one (components/MessageBubble). */
+.message.agent .bubble {
+  border-top-left-radius: var(--radius-xs);
+}
+.bubble.user {
+  border-top-right-radius: var(--radius-xs);
+  background: var(--glass-strong);
+  color: var(--text-primary, var(--ink));
+  font-size: var(--conversation);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble.agent {
+  background: var(--glass-raised);
+}
+/* D249 E1 (dono, 04/11): the bubbles keep their glass color and the area's transparency (D169), without a blur of
+   their own. Each blurred bubble was a layer redrawn on every scroll frame (60 → 19 fps measured with a
+   wallpaper); the legibility floor already holds for any blur of the picture (lib/legibility.ts). */
+html[data-wallpaper] .chat-pill,
+html[data-wallpaper] .chat-header-name {
+  -webkit-backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .chat-pill,
+  html[data-wallpaper] .chat-header-name {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+/* Name and time inside the bot's bubble, at the start of its run. */
+.bubble-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-6);
+  margin-bottom: 2px;
+}
+.bubble-meta-name {
+  font-size: var(--text-callout);
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+.bubble-meta-time {
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+/* The bot's face (avatar-chat, 28px) beside its bubble, in every conversation (D169). */
+.message.agent.with-face {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--sp-8);
+}
+.message-face {
+  flex: none;
+  width: var(--avatar-chat);
+}
+/* D249: a file's message never outgrows the message column; a long name truncates in its card. */
+.file-message {
+  min-width: 0;
+  max-width: 100%;
+}
+.file-message-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.user-status-error {
+  margin-right: 4px;
+}
+.user-status-time {
+  opacity: 0;
+  transition: opacity var(--motion-hover);
+}
+.user-status-time.shown {
+  opacity: 1;
+}
+.message-actions {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-hover);
+}
+.message-actions.shown,
+.message-actions:has(:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.message-actions.leading {
+  right: calc(100% + 6px);
+}
+.message-actions.trailing {
+  left: calc(100% + 6px);
+}
+.message-action {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.message-action:hover {
+  color: var(--text-primary, var(--ink));
+}
+.reaction-chip {
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+html[data-wallpaper] .message-actions {
+  padding: 0 2px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+.reaction-chip-bots > * + * {
+  margin-left: -5px;
+}
+/* The message a reply quotes, at the top of its bubble: one line, no wider than a short message. */
+.bubble-quote {
+  max-width: 320px;
+  margin-bottom: 4px;
+  user-select: none;
+}
+/* Agent-side cards (working, approvals) stop short of the far edge. */
+.agent-inset {
+  padding-right: 40px;
+}
+.chat-working {
+  padding-top: 6px;
+}
+/* D169: the working bubble is a bot bubble; the activity line sits in it without its own glass. */
+.working-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 200px;
+}
+.working {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0;
+  border-radius: var(--radius-s);
+  text-align: left;
+  min-width: 0;
+  max-width: 100%;
+}
+.tool-steps + .working {
+  margin-top: var(--sp-6);
+}
+/* Uma autorização só: the bubble's short status about the approval card. Plain text, never a button. */
+.working-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  margin: 0;
+  padding: 2px 0;
+}
+.tool-steps + .working-status {
+  margin-top: var(--sp-6);
+}
+.working-status:empty {
+  display: none;
+}
+/* One live bubble per author of pending steps (revisão R1, F4). */
+.working-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.working-chevron {
+  transition: transform var(--layout);
+}
+.working-chevron.expanded {
+  transform: rotate(180deg);
+}
+.thinking {
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  /* D249: wraps long unbroken words instead of scrolling sideways. */
+  overflow-wrap: anywhere;
+  text-align: left;
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+.call-overlay {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  animation: call-in var(--layout) both;
+}
+@keyframes call-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+/* The conversation's room for the panel changes in one step; the panel itself slides over it, out
+   of the flow, so a long chat is laid out once per open or close, not on every frame. */
+.side-panel-slot {
+  flex: none;
+}
+.side-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 7;
+  display: flex;
+  background: var(--content-ground, var(--canvas));
+  transition: right var(--layout);
+  /* The margin lets the edge's drag area reach into the conversation. */
+  overflow: clip;
+  overflow-clip-margin: 4px;
+}
+.side-panel-content {
+  height: 100%;
+  flex: none;
+}
+
+/* A message arriving while the list follows the newest pops in from its bubble's side (Grok Bot's). */
+.row-in {
+  animation: row-in 0.24s var(--ease-out) both;
+  transform-origin: bottom left;
+}
+.row-in.mine {
+  transform-origin: bottom right;
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.94);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-in {
+    animation: fade-in 0.12s both;
+  }
+}
+
+/* D165 fase E: over a wallpaper the conversation has no plate: every text is in a bubble, a pill or a card. */
+html[data-wallpaper] .conversation {
+  background: transparent;
+}
+/* `ink-3` is for opaque ground only (personalizacao.md): on the conversation's glass the tertiary
+   text (statuses, the card's computer, times) takes `ink-2`, which the legibility floor covers. */
+html[data-wallpaper] .thread-view {
+  --text-tertiary: var(--ink-2);
+}
+/* aparencia-01 (P1): the conversation is no glass panel either. The `.glass-panel` blur (theme.css, 28px)
+   over the whole area hid Aparência → Desfoque: 0 and 40 px looked the same. The wallpaper shows with
+   its own blur (`--wp-blur`); bubbles, pills and the message box keep their glass. The legibility floor
+   doesn't depend on blur (lib/appearance.ts `floorKey`), so text stays as legible. */
+html[data-wallpaper] .detail:has(> .thread-view) {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-wallpaper] .intro-card {
+  padding: 24px;
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}

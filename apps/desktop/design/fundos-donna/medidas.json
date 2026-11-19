@@ -1,0 +1,292 @@
+{
+  "resolution": [
+    1920,
+    1200
+  ],
+  "renderer": "Pillow 9.4.0 (libwebp) decode sRGB; extremos por canal e pisos pela mesma receita de legibility.ts; arquivos finais WebP q80 (MX-79, tools/otimizar-imagens.py)",
+  "veil": 0,
+  "saturation": 1.4,
+  "tokensSha256": "1bb6a73fd80049c1756cec59d39b858e53dd166407763f3ad01140ba5d2d18ae",
+  "images": [
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          6,
+          8
+        ],
+        "hi": [
+          255,
+          253,
+          255
+        ]
+      },
+      "mean": [
+        122.49,
+        149.66,
+        183.56
+      ],
+      "floor": 0.99,
+      "primaryFloor": 0.59,
+      "id": "donna-azul",
+      "dark": false,
+      "file": "donna-azul.webp",
+      "bytes": 46304,
+      "sha256": "de436c624f5b09c351085634046210b238d01e4ecfa8e0574f62f07e517c9e28"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          255,
+          255
+        ]
+      },
+      "mean": [
+        11.71,
+        39.97,
+        76.21
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.73,
+      "id": "donna-azul",
+      "dark": true,
+      "file": "donna-azul-escuro.webp",
+      "bytes": 79346,
+      "sha256": "798c079e6192e01fa120fd76b6c1b70540a583b24232663d6ec6bce89ac1bcc4"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          7,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          246,
+          239
+        ]
+      },
+      "mean": [
+        157.27,
+        117.15,
+        98.42
+      ],
+      "floor": 0.99,
+      "primaryFloor": 0.59,
+      "id": "donna-vinho",
+      "dark": false,
+      "file": "donna-vinho.webp",
+      "bytes": 66606,
+      "sha256": "a1e9d82fef889d986f7bdc349919e0a01aec9b642baf70410f8b8614497b7683"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          255,
+          255
+        ]
+      },
+      "mean": [
+        47.99,
+        10.91,
+        10.61
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.73,
+      "id": "donna-vinho",
+      "dark": true,
+      "file": "donna-vinho-escuro.webp",
+      "bytes": 55256,
+      "sha256": "6b2f8272fca841c60d1cb8c009a292c33d862fc1340c28607be681dcea04dcc2"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          255,
+          246
+        ]
+      },
+      "mean": [
+        180.21,
+        141.45,
+        111.97
+      ],
+      "floor": 0.99,
+      "primaryFloor": 0.59,
+      "id": "donna-cafe",
+      "dark": false,
+      "file": "donna-cafe.webp",
+      "bytes": 105126,
+      "sha256": "ccf0bd04ed54204ea820f929cc489ed08168019918b3ecf01aa77eaf24a14b6a"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          255,
+          240
+        ]
+      },
+      "mean": [
+        51.73,
+        30.02,
+        20.89
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.73,
+      "id": "donna-cafe",
+      "dark": true,
+      "file": "donna-cafe-escuro.webp",
+      "bytes": 48710,
+      "sha256": "f014228006ece0d8d544c4e2c3bd33e3eca0c7bcd5e5430b042004969c1ff7d2"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          255,
+          255
+        ]
+      },
+      "mean": [
+        188.14,
+        163.22,
+        137.75
+      ],
+      "floor": 0.99,
+      "primaryFloor": 0.59,
+      "id": "donna-vinil",
+      "dark": false,
+      "file": "donna-vinil.webp",
+      "bytes": 56636,
+      "sha256": "a5d2840d78e22bea277bdc194f234e0851f736122426a382e81be8e9a2505339"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          0,
+          0
+        ],
+        "hi": [
+          255,
+          255,
+          253
+        ]
+      },
+      "mean": [
+        41.26,
+        31.01,
+        23.78
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.73,
+      "id": "donna-vinil",
+      "dark": true,
+      "file": "donna-vinil-escuro.webp",
+      "bytes": 38582,
+      "sha256": "b55b61e5cff5c8e92ae30590a468ffa8a67349a2519e182224284d6f29dc458f"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          8,
+          35,
+          31
+        ],
+        "hi": [
+          232,
+          251,
+          236
+        ]
+      },
+      "mean": [
+        128.33,
+        153.51,
+        143.76
+      ],
+      "floor": 0.99,
+      "primaryFloor": 0.58,
+      "id": "donna-gravata",
+      "dark": false,
+      "file": "donna-gravata.webp",
+      "bytes": 184258,
+      "sha256": "c57d17924e628da346ecc51598606899685c213585a459388fd233555cd4c72c"
+    },
+    {
+      "width": 1920,
+      "height": 1200,
+      "bounds": {
+        "lo": [
+          0,
+          4,
+          0
+        ],
+        "hi": [
+          222,
+          233,
+          218
+        ]
+      },
+      "mean": [
+        7.31,
+        29.85,
+        26.99
+      ],
+      "floor": 0.98,
+      "primaryFloor": 0.73,
+      "id": "donna-gravata",
+      "dark": true,
+      "file": "donna-gravata-escuro.webp",
+      "bytes": 56950,
+      "sha256": "427def2e866f4e8670121f616e3b021b4dd9c15fa37c4d47bae4fe5763984e0a"
+    }
+  ]
+}

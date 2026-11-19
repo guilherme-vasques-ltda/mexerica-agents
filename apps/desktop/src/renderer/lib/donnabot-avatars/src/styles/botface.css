@@ -1,0 +1,14 @@
+/* Donnabot avatars: animações. O componente injeta isso sozinho; importe este
+   arquivo só se preferir carregar o CSS pelo seu bundler (ex.: CSP sem inline). */
+@keyframes dbfBob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-0.22em) } }
+@keyframes dbfBreath { 0%, 100% { transform: translateY(0.1em) scale(1, 1) } 50% { transform: translateY(0.1em) scale(1.035, 1.02) } }
+@keyframes dbfHop { 0%, 100% { transform: translateY(0) scale(1, 1) } 35% { transform: translateY(-0.75em) scale(0.97, 1.04) } 70% { transform: translateY(0) scale(1.05, 0.94) } }
+@keyframes dbfNod { 0%, 100% { transform: rotate(0deg) translateY(0) } 50% { transform: rotate(2.5deg) translateY(0.12em) } }
+@keyframes dbfWave { 0%, 100% { opacity: 0.15 } 50% { opacity: 0.9 } }
+/* A barra fica em left: 6% e viaja 82% da largura da viseira (de 6% a 88%): transform em vez de left, sem layout por quadro. */
+@keyframes dbfScan { from { transform: translateX(0) } to { transform: translateX(var(--dbf-scan-dx, 0px)) } }
+@keyframes dbfZ { 0% { transform: translate(0, 0.6em) scale(0.6); opacity: 0 } 25% { opacity: 1 } 100% { transform: translate(1.1em, -1.6em) scale(1.1); opacity: 0 } }
+@keyframes dbfDot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.35 } 40% { transform: translateY(-0.35em); opacity: 1 } }
+@media (prefers-reduced-motion: reduce) {
+  .dbf-root, .dbf-root * { animation: none !important; transition: none !important; }
+}

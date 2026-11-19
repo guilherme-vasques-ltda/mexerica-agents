@@ -1,0 +1,54 @@
+/* Ajustes → Barra lateral (D165 fase C, components/SidebarSettings). */
+.sidebar-order-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  width: 100%;
+  border-radius: var(--radius-s);
+}
+.sidebar-order-row.dragging {
+  background: var(--selected);
+}
+.sidebar-order-handle,
+.sidebar-order-move {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.sidebar-order-handle {
+  cursor: grab;
+}
+.sidebar-order-handle:hover,
+.sidebar-order-move:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+}
+.sidebar-order-move:disabled {
+  opacity: var(--opacity-disabled);
+}
+.sidebar-order-hidden {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.sidebar-order-switch {
+  width: auto;
+  margin-left: var(--sp-8);
+}
+
+/* Barra04: Cores das etiquetas, cada opção escrita na própria cor (tokens tag-<cor>-bg/ink). */
+.sidebar-tag-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; }
+.sidebar-tag-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sidebar-tag-swatches { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 300px; }
+.sidebar-tag-swatch { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; box-shadow: inset 0 0 0 1px transparent; transition: box-shadow var(--motion-hover), transform var(--press); }
+.sidebar-tag-swatch:active { transform: scale(0.96); }
+.sidebar-tag-swatch[aria-checked="true"] { box-shadow: inset 0 0 0 1.5px currentColor; }
+.sidebar-tag-swatch.tag-azul { color: var(--tag-azul-ink); background: var(--tag-azul-bg); }
+.sidebar-tag-swatch.tag-jade { color: var(--tag-jade-ink); background: var(--tag-jade-bg); }
+.sidebar-tag-swatch.tag-ambar { color: var(--tag-ambar-ink); background: var(--tag-ambar-bg); }
+.sidebar-tag-swatch.tag-rosa { color: var(--tag-rosa-ink); background: var(--tag-rosa-bg); }
+.sidebar-tag-swatch.tag-violeta { color: var(--tag-violeta-ink); background: var(--tag-violeta-bg); }
+.sidebar-tag-swatch.tag-grafite { color: var(--tag-grafite-ink); background: var(--tag-grafite-bg); }
+@media (prefers-reduced-motion: reduce) { .sidebar-tag-swatch:active { transform: none; } }

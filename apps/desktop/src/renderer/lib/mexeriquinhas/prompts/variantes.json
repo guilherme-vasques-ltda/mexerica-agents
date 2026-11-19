@@ -1,0 +1,7 @@
+{
+  "versao": 1,
+  "cor": {"laranja":"casca laranja natural", "lima":"casca verde lima", "toranja":"casca rosa toranja", "roxo":"casca violeta", "limao":"casca amarelo limão", "celeste":"casca azul celeste"},
+  "olhos": {"ponto":"olhos pequenos escuros", "sonolentos":"olhos sonolentos", "brilhantes":"olhos brilhantes", "piscando":"olhar brincalhão", "oculos-redondos":"óculos redondos", "oculos-escuros":"óculos escuros", "oculos-verdes":"óculos com lentes verdes"},
+  "roupa": {"nenhuma":"sem roupa adicional", "blazer":"blazer elegante", "colete":"colete", "moletom":"moletom confortável", "avental":"avental", "jaleco":"jaleco", "polo":"camisa polo"},
+  "acessorio": {"nenhum":"sem acessório adicional", "coroa":"pequena coroa", "fone":"fone de ouvido", "capacete":"capacete", "boina":"boina", "bone":"boné", "flor":"flor", "cartola":"cartola", "capuz":"capuz"}
+}

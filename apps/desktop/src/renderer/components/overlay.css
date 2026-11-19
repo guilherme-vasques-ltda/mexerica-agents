@@ -1,0 +1,334 @@
+/* Sheets: a centered card over a dim, scaling in with the layout spring. */
+.modal-card {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+}
+.modal-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  opacity: 0;
+  transition: opacity var(--layout);
+}
+.modal-content {
+  /* Inside a sheet the page's fills step up to the sheet's: the ground is the card, grouped
+     rows and tiles are tints over it, text fields and secondary buttons a step stronger. */
+  --content-ground: var(--raised);
+  --control-fill-muted: var(--group);
+  --control-fill-selected: var(--field);
+  --surface: var(--group);
+  position: relative;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  background: var(--raised);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity var(--layout), transform var(--layout);
+  display: flex;
+  flex-direction: column;
+}
+/* A card that fits its content lets its page shrink to the card and scroll inside. */
+.modal-content > * {
+  min-height: 0;
+}
+.modal-card.shown .modal-dim {
+  opacity: 1;
+}
+.modal-card.shown .modal-content {
+  opacity: 1;
+  transform: none;
+}
+/* A layer fading away stays mounted until its exit timer fires (late in a background window):
+   it must never take the clicks meant for what's under it. */
+.modal-card:not(.shown),
+.dialog:not(.shown) {
+  pointer-events: none;
+}
+
+/* A sheet's title row: an optional icon tile, the title over a quiet line, trailing actions. */
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 12px 12px 4px 20px;
+  flex: none;
+}
+.modal-title {
+  flex: 1;
+  min-width: 0;
+}
+/* A title too long for one line wraps into even lines, so a name in it stays whole. */
+.modal-title h2 {
+  text-wrap: balance;
+}
+.modal-header-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+
+/* Sheets, dialogs and menus: one subtle outline over the fill. */
+.modal-content::after,
+.dialog-card::after,
+.anchored-panel::after,
+.account-panel::after,
+.action-menu::after,
+.command-menu::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Dialogs */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity var(--fade);
+}
+.dialog.shown {
+  opacity: 1;
+}
+.dialog.shown .dialog-card {
+  transform: none;
+}
+.dialog-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+/* A question with its answers on the right, Cancel first (macOS alerts' order). */
+.dialog-card {
+  position: relative;
+  transform: scale(0.98);
+  transition: transform var(--fade);
+  width: min(340px, calc(100vw - 48px));
+  padding: 20px;
+  background: var(--raised);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.dialog-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-primary, var(--ink));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.dialog-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dialog-button {
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-align: center;
+  min-height: calc(30px * var(--scale));
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+  transition: transform var(--press), opacity var(--press);
+}
+.dialog-button.prominent {
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+}
+/* A sheet's content: a full-height column on the sheet's color (SheetPage). */
+.sheet-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--content-ground, var(--canvas));
+}
+/* Forms in a sheet line up with its title. */
+.modal-content .card-form-content {
+  padding: 8px 20px 20px;
+}
+
+[data-modal-card]:focus {
+  outline: none;
+}
+.dialog-button.destructive {
+  background: var(--danger-fill);
+  color: var(--on-danger);
+}
+.dialog-button:active {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+/* Floating layers cover the title bar's drag regions (sidebar header, thread chrome), which
+   would turn clicks on them into window drags. A menu takes the whole window, so a click
+   anywhere closes it; sheets and dialogs only their card, so the window still moves. */
+.anchored,
+.modal-content,
+.dialog-card {
+  -webkit-app-region: no-drag;
+}
+
+/* Menus */
+.anchored {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  opacity: 0;
+  transition: opacity var(--fade);
+}
+.anchored.shown {
+  opacity: 1;
+}
+.anchored-panel {
+  position: absolute;
+  /* Menus are opaque (D165: glass over glass turns to mud): `raised` with the 1px edge. */
+  background: var(--raised);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-l), 0 0 0 1px var(--line);
+  overflow: hidden;
+  transform: scale(0.98);
+  transition: transform var(--layout);
+}
+.anchored.shown .anchored-panel {
+  transform: none;
+}
+/* Quick reactions above a message's menu rows. */
+.menu-reactions {
+  padding-bottom: 4px;
+}
+/* D169 (sistema.md, CreateMenu `.db-menu`): rows of 32px at 13px, line icons of 15px in `ink-2`,
+   1px `line` dividers. */
+.menu-panel {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.menu-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 10px;
+}
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  font-size: var(--text-body);
+  line-height: 1.23;
+  text-align: left;
+  color: var(--text-primary, var(--ink));
+  transition: background-color var(--motion-hover);
+}
+.menu-detail {
+  flex: none;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.menu-row.destructive {
+  color: var(--danger);
+}
+.menu-row.highlight {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.07);
+}
+.menu-row:disabled,
+.menu-row[aria-disabled="true"] {
+  color: var(--text-tertiary, var(--ink-3));
+  cursor: default;
+}
+.menu-row.highlight:disabled {
+  background: none;
+}
+.menu-icon {
+  width: 18px;
+  display: flex;
+  justify-content: center;
+  flex: none;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.menu-row.destructive .menu-icon {
+  color: inherit;
+}
+.menu-title {
+  flex: 1;
+  margin-right: 16px;
+}
+
+.reaction-button {
+  display: grid;
+  place-items: center;
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+.reaction-button span {
+  transition: transform var(--motion-hover);
+}
+.reaction-button:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.06);
+}
+.reaction-button:hover span {
+  transform: scale(1.15);
+}
+.reaction-button:active span {
+  transform: scale(0.85);
+}
+.reaction-button.chosen {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.12);
+}
+
+/* Icon buttons */
+.icon-button {
+  display: grid;
+  place-items: center;
+  color: var(--context-ink-2, var(--ink-2));
+  flex: none;
+  transition: background-color var(--motion-hover), color var(--motion-hover), transform var(--press);
+}
+.icon-button:hover:not(:disabled) {
+  color: var(--text-primary, var(--ink));
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.08);
+}
+.icon-button:active:not(:disabled) {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.14);
+  transform: scale(0.98);
+}
+.icon-button.selected {
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+}
+.icon-button:disabled {
+  opacity: 0.35;
+}
+
+/* Modals center below the hidden title bar (28 pt on macOS). */
+html[data-platform="darwin"] .modal-card,
+html[data-platform="darwin"] .dialog {
+  padding-top: 28px;
+}

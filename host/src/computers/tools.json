@@ -1,0 +1,252 @@
+[
+  {
+    "name": "list_computers",
+    "description": "Computadores do dono, estado e capacidades. Não executa nada. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "run_command",
+    "description": "Roda um comando no terminal do computador do dono ($SHELL -lc no macOS; PowerShell no Windows). Sempre pede aprovação no computador. Sem stdin, até 120 s, sem processos em segundo plano. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "command",
+        "reason"
+      ],
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Nome ou id de list_computers. Omitido: computador de onde o dono escreveu; com vários e nenhum indicado, falha."
+        },
+        "command": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Caminho absoluto no computador; padrão: pasta pessoal."
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 60
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Por que, em uma frase; aparece na janela."
+        }
+      }
+    }
+  },
+  {
+    "name": "read_file",
+    "description": "Lê um arquivo (16 KiB por padrão, até 32 KiB por chamada; para mais, repita com offset). Livre só em pastas liberadas, com o bot em Liberar e logo depois de o dono escrever deste computador; senão, pede aprovação. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Nome ou id de list_computers. Omitido: computador de onde o dono escreveu; com vários e nenhum indicado, falha."
+        },
+        "path": {
+          "type": "string",
+          "description": "Caminho absoluto ou ~/…; o executor expande a pasta pessoal."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32768,
+          "default": 16384,
+          "description": "Em base64, no máximo 24576."
+        },
+        "encoding": {
+          "enum": [
+            "text",
+            "base64"
+          ],
+          "default": "text"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 300
+        }
+      }
+    }
+  },
+  {
+    "name": "list_dir",
+    "description": "Lista uma pasta (nome, tipo, tamanho, data). Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Nome ou id de list_computers. Omitido: computador de onde o dono escreveu; com vários e nenhum indicado, falha."
+        },
+        "path": {
+          "type": "string",
+          "description": "Caminho absoluto ou ~/…; o executor expande a pasta pessoal."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 200
+        },
+        "showHidden": {
+          "type": "boolean",
+          "default": false
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 300
+        }
+      }
+    }
+  },
+  {
+    "name": "write_file",
+    "description": "Grava um arquivo de até 128 KiB. Sempre pede aprovação. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "path",
+        "mode",
+        "reason"
+      ],
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Nome ou id de list_computers. Omitido: computador de onde o dono escreveu; com vários e nenhum indicado, falha."
+        },
+        "path": {
+          "type": "string",
+          "description": "Caminho absoluto ou ~/…; o executor expande a pasta pessoal."
+        },
+        "content": {
+          "type": "string"
+        },
+        "contentBase64": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "create",
+            "overwrite",
+            "append"
+          ]
+        },
+        "expectedSha256": {
+          "type": "string",
+          "description": "Opcional em overwrite: falha se o arquivo mudou."
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 300
+        }
+      }
+    }
+  },
+  {
+    "name": "run_program",
+    "description": "Roda um programa da lista do computador (spark, op) com argumentos separados, sem shell. A classe do subcomando decide se pergunta. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "program",
+        "args"
+      ],
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Nome ou id de list_computers. Omitido: computador de onde o dono escreveu; com vários e nenhum indicado, falha."
+        },
+        "program": {
+          "type": "string",
+          "enum": [
+            "spark",
+            "op"
+          ]
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxItems": 64
+        },
+        "secretEnv": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^op://"
+          },
+          "description": "Só com op run: variáveis que recebem referências op://; o valor nunca volta."
+        },
+        "template": {
+          "type": "string",
+          "maxLength": 16384,
+          "description": "Só com op inject: o modelo com referências op://; aparece inteiro na janela."
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 30
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 300
+        }
+      }
+    }
+  },
+  {
+    "name": "computer_job_status",
+    "description": "Estado e resultado de um trabalho. Em awaiting_approval ou running, continue consultando até receber o resultado; em unknown, confira antes de repetir. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "jobId"
+      ],
+      "properties": {
+        "jobId": {
+          "type": "string"
+        },
+        "waitSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 240,
+          "default": 0,
+          "description": "Espera até o resultado ou até este prazo; se voltar running, consulte de novo."
+        }
+      }
+    }
+  }
+]

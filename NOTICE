@@ -1,0 +1,40 @@
+Mexerica (antes DONNA Bot)
+Projeto de código aberto sob Apache-2.0, derivado do Codync, com modificações de produto,
+identidade e documentação. A revisão documental de 2026-10-28 adapta os
+READMEs e as instruções do repositório, remove instruções duplicadas e a
+apresentação promocional herdada. Não transfere titularidade da base.
+
+O texto Apache-2.0 aplicável permanece integral em LICENSE. Materiais
+específicos conservam as condições e os avisos de THIRD_PARTY.md e dos
+respectivos arquivos. Este aviso não muda essas licenças.
+
+Os nomes e serviços do projeto de origem citados abaixo identificam a base
+e suas condições; não são serviços operados ou oferecidos pela Mexerica.
+
+Componentes de terceiros principais incorporados ao repositório, com
+licença, titular e aviso por arquivo registrados em THIRD_PARTY.md:
+código adaptado de OpenMausBot (Apache-2.0); trechos e fixtures de
+ai-memory, tstack, security-audit-skill (Cloudflare) e wacli (MIT);
+13 skills de emilkowalski/skills em .claude/skills/ (MIT, cópia da
+licença em .claude/skills/LICENSE-MIT-emilkowalski.txt); fontes DM Sans,
+Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto
+ao lado de cada arquivo) e ícones Lucide (ISC). A skill
+product-launch-film herdada da base publica fontes Geist sob OFL 1.1 e
+não distribui arquivos de som.
+
+--- Aviso original preservado integralmente ---
+
+Codync
+Copyright 2026 Po Kai Lee
+
+This product includes software developed by Po Kai Lee and the Codync
+contributors (https://github.com/leepokai/Codync).
+
+Services built on Codync are operated by third parties, not by the Codync
+project. Codync Cloud (accounts, the relay at api.codync.dev, push and the
+remote-screen relay) is for personal use only: hosted, resold or
+multi-tenant services must run their own relay and accounts. See
+https://github.com/leepokai/Codync/blob/main/TRADEMARK.md and
+https://codync.dev/terms.
+
+Codync 2.11.0 and earlier were released under the MIT License.

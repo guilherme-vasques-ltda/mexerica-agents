@@ -1,0 +1,109 @@
+/* D165 fase F + D169 (components/ToolSteps): inside the bot's bubble glass, under its name and time. */
+.tool-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-8);
+  /* D249: never wider than the bubble. In the live bubble (a `flex-start` column) a long step would
+     otherwise size the block to its whole unbroken line and push past the bubble's edge. */
+  min-width: 0;
+  max-width: 100%;
+  margin: var(--sp-2) 0 var(--sp-6);
+}
+.bubble-meta + .tool-steps {
+  margin-top: 0;
+}
+.tool-steps:last-child {
+  margin-bottom: 0;
+}
+/* The summary: a 28px pill with a `line-strong` outline, 12px in `ink-2`. */
+.tool-steps-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 var(--sp-10) 0 var(--sp-8);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+  text-align: left;
+  transition: background-color var(--motion-hover), color var(--motion-hover);
+}
+.tool-steps-toggle:hover {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+}
+.tool-steps-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-steps-chevron {
+  flex: none;
+  transition: transform var(--morph);
+}
+.tool-steps-toggle[aria-expanded='false'] .tool-steps-chevron {
+  transform: rotate(-90deg);
+}
+.tool-steps-flag {
+  display: flex;
+  flex: none;
+}
+/* The list: a `group` block, 32px rows in 13px `ink`, an 18px mark. */
+.tool-steps-list {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--sp-6) var(--sp-12);
+  list-style: none;
+  border-radius: var(--radius-m);
+  background: var(--group);
+}
+.tool-step {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  min-width: 0;
+  min-height: 32px;
+}
+/* Done: a check in `success` on `field`; running: an `accent` ring that turns (still with reduced motion); failed: danger. */
+.tool-step-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--success);
+}
+.tool-step[data-state='running'] .tool-step-mark {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--line-strong);
+  border-top: 2px solid var(--accent);
+  animation: tool-step-spin 0.8s linear infinite;
+}
+.tool-step[data-state='failed'] .tool-step-mark {
+  color: var(--danger);
+}
+.tool-step[data-state='waiting'] .tool-step-mark {
+  background: none;
+  border: 1.5px dashed var(--line-strong);
+}
+@keyframes tool-step-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-step[data-state='running'] .tool-step-mark {
+    animation: none;
+  }
+}
+.tool-steps-list[hidden] {
+  display: none;
+}

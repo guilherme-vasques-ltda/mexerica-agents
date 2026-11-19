@@ -1,0 +1,83 @@
+{
+  "id": "linear",
+  "nome": "Linear",
+  "categoria": "Projetos",
+  "descricao": "Veja as tarefas, os projetos e os ciclos do seu time no Linear.",
+  "exemplos": [
+    "Liste as tarefas que estão comigo",
+    "Resuma o que mudou no ciclo desta semana",
+    "Quais tarefas do projeto Site novo estão sem responsável?"
+  ],
+  "site": "https://linear.app",
+  "docs": "https://linear.app/docs/mcp",
+  "links": {
+    "privacidade": "https://linear.app/privacy",
+    "termos": "https://linear.app/terms"
+  },
+  "conferidaEm": "2026-11-16",
+  "fontes": [
+    "https://linear.app/docs/mcp",
+    "https://mcp.linear.app/.well-known/oauth-protected-resource/mcp/readonly",
+    "https://mcp.linear.app/.well-known/oauth-authorization-server"
+  ],
+  "skills": [
+    {
+      "id": "linear-triar-issues-novas",
+      "titulo": "Triar issues novas",
+      "resumo": "Lista as issues novas do Linear e sugere os próximos passos, sem alterar nada."
+    }
+  ],
+  "tipos": [
+    {
+      "id": "linear.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Linear",
+      "url": "https://mcp.linear.app/mcp/readonly",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "read"
+          ],
+          "url": "https://mcp.linear.app/mcp/readonly",
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "url"
+        },
+        {
+          "id": "criar_editar",
+          "rotulo": "Criar e editar",
+          "escopos": [
+            "read",
+            "write"
+          ],
+          "url": "https://mcp.linear.app/mcp",
+          "padrao": false,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/linear/linear-release",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    },
+    {
+      "url": "https://github.com/linear/gemini-plugin",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

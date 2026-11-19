@@ -1,0 +1,59 @@
+{
+  "id": "semrush",
+  "nome": "Semrush",
+  "categoria": "Marketing",
+  "descricao": "Suíte de SEO e marketing digital. O MCP dá acesso a dados de Trends, SEO API e Projects (só leitura) para agentes de IA.",
+  "exemplos": [
+    "Quais palavras-chave levam mais tráfego ao meu site?",
+    "Compare meu site com o de um concorrente"
+  ],
+  "site": "https://www.semrush.com/",
+  "docs": "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
+  "links": {
+    "privacidade": "https://www.semrush.com/company/legal/privacy-policy/",
+    "termos": "https://www.semrush.com/company/legal/terms-of-service/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
+    "https://api.semrush.com/apis/v4-raw/auth/v1/oauth2/register",
+    "https://oauth.semrush.com/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "Gasta unidades do seu plano do Semrush a cada consulta.",
+  "tipos": [
+    {
+      "id": "semrush.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Semrush",
+      "url": "https://mcp.semrush.com/v2/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "mcp.access"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Ainda não tem um jeito seguro de conectar por aqui; entra numa próxima etapa."
+    }
+  ],
+  "emBreve": "Ainda não tem um jeito seguro de conectar por aqui; entra numa próxima etapa.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/semrush/skills",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    }
+  ]
+}

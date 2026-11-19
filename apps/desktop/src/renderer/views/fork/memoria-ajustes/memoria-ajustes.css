@@ -1,0 +1,51 @@
+/* D389: Ajustes → Memória, com os tokens do app (docs/reference/redesenho/README.md). Só propriedades lógicas. */
+.memoria-ajustes { height: 100%; overflow: auto; container-type: inline-size; padding-block: 12px 24px; color: var(--ink); font-size: var(--text-body); }
+.memoria-computador { display: flex; align-items: center; gap: 12px; margin-block-end: 12px; }
+.memoria-cartao { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--raised); }
+.memoria-titulo { margin: 0 0 4px; font-size: var(--text-body); font-weight: 600; color: var(--ink); }
+.memoria-nota { margin: 6px 0 0; color: var(--ink-2); font-size: var(--text-caption); line-height: 1.45; }
+.memoria-aviso { margin: 8px 0 0; color: var(--ink-2); font-size: var(--text-caption); line-height: 1.45; }
+.memoria-colunas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-block-start: 16px; }
+@container (max-width: 560px) { .memoria-colunas { grid-template-columns: minmax(0, 1fr); } }
+.memoria-coluna { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px; border-radius: var(--radius-s); background: var(--field); }
+.memoria-coluna h4 { margin: 0; font-size: var(--text-caption); font-weight: 600; color: var(--ink-2); text-transform: none; }
+.memoria-campo { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.memoria-campo > span { color: var(--ink); }
+/* MX-8: o nome longo da conta encolhe com reticências em vez de vazar da coluna. */
+.memoria-campo > .choice-picker { min-width: 0; max-width: 100%; }
+.memoria-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
+.memoria-fixa { padding-block-start: 8px; border-block-start: 1px solid var(--line); }
+.memoria-contador { margin: 0; color: var(--accent); font-size: var(--text-caption); font-weight: 600; }
+/* O que ele aprende: o rádio das Permissões do criar bot (criar-bot.css, .nb-modo), sobre a coluna em --field. */
+.memoria-modos { display: flex; flex-direction: column; gap: 8px; }
+.memoria-modo { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius-s); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); text-align: start; transition: box-shadow var(--motion-hover), background var(--motion-hover); }
+.memoria-modo:hover:not(:disabled):not([aria-checked='true']) { background: var(--selected); }
+.memoria-modo[aria-checked='true'] { background: color-mix(in srgb, var(--accent) 9%, var(--raised)); box-shadow: inset 0 0 0 2px var(--accent); }
+.memoria-modo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.memoria-modo:disabled { opacity: 0.6; }
+.memoria-radio { flex: none; width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: box-shadow var(--motion-hover); }
+.memoria-modo[aria-checked='true'] > .memoria-radio { box-shadow: inset 0 0 0 5px var(--accent); }
+.memoria-modo-texto { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.memoria-modo-texto strong { font-size: var(--text-body); font-weight: 600; color: var(--text-primary, var(--ink)); }
+.memoria-modo-texto small { color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-caption); line-height: 1.35; }
+@media (prefers-reduced-motion: reduce) { .memoria-modo, .memoria-radio { transition: none; } }
+/* MX-8: Sobre você. Cinco campos em duas colunas ("O que não fazer" na linha toda); uma coluna na janela estreita. */
+.sv-cartao { margin-block-end: 16px; }
+.sv-regra { display: flex; align-items: center; gap: 6px; }
+.sv-campos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 16px; margin-block-start: 14px; }
+.sv-evitar { grid-column: 1 / -1; }
+@container (max-width: 560px) { .sv-campos { grid-template-columns: minmax(0, 1fr); } }
+.sv-campo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sv-rotulo { font-size: var(--text-caption); font-weight: 600; color: var(--ink); }
+.sv-campo textarea { padding: 8px 10px; border: 0; border-radius: var(--radius-s); background: var(--field); color: var(--ink); font: inherit; line-height: 1.4; resize: none; field-sizing: content; min-height: calc(2lh + 16px); max-height: calc(8lh + 16px); }
+.sv-campo textarea::placeholder { color: var(--ink-3, var(--ink-2)); }
+.sv-campo textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sv-campo textarea:disabled { opacity: 0.6; }
+.sv-rodape { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-start: 12px; min-height: 28px; }
+.sv-status { flex: 1; min-width: 0; margin: 0; }
+.memoria-sem-conexao { margin: 0 0 12px; padding: 10px 14px; border-radius: var(--radius-s); background: var(--attention-soft, var(--field)); color: var(--ink); }
+.sv-problema { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-start: 8px; } .sv-problema .memoria-aviso { margin: 0; }
+.sv-nota { margin: 0; }
+/* secret_detected (#698): o aviso em âmbar e o campo marcado; o texto fica para o dono tirar o trecho. */
+.sv-segredo { color: var(--attention, var(--ink)); font-weight: 500; }
+.sv-campo textarea[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--attention, var(--accent)); }

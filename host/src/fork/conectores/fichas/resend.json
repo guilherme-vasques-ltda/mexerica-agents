@@ -1,0 +1,56 @@
+{
+  "id": "resend",
+  "nome": "Resend",
+  "categoria": "Marketing",
+  "descricao": "Plataforma de e-mail para desenvolvedores: o MCP envia e-mails, gerencia templates, contatos, domínios, broadcasts e chaves de API.",
+  "exemplos": [
+    "Quais e-mails enviei pelo Resend hoje e como foram entregues?",
+    "Quantos e-mails voltaram esta semana?"
+  ],
+  "site": "https://resend.com",
+  "docs": "https://resend.com/docs/mcp-server",
+  "links": {
+    "privacidade": "https://resend.com/legal/privacy-policy",
+    "termos": "https://resend.com/legal/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://resend.com/docs/mcp-server",
+    "https://api.resend.com/oauth/register",
+    "https://api.resend.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "resend.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Resend",
+      "url": "https://mcp.resend.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Resend não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/resend/resend-skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

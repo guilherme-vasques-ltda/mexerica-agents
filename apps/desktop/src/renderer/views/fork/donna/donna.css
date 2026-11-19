@@ -1,0 +1,99 @@
+/* D121 + D165 (SidebarHeader): a Donna no meio do topo da barra lateral, sem caixa: rosto de 52 px com a
+   estrela da principal, nome com o ponto de estado e o contador do que aconteceu enquanto você esteve fora.
+   Fica fora do scroll das seções; alvos de 44 px. */
+.donna-cards { flex: none; padding: 0 var(--sp-8) var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-6); }
+.sidebar:not(.compact) .donna-cards + .roster { padding-top: 0; }
+.donna-card {
+  position: relative; border-radius: var(--radius-l);
+  /* The selected card and hovered inner button stack two tints; appearance bounds this layer apart. */
+  --text-secondary: var(--donna-text-secondary);
+  --text-accent: var(--donna-text-accent);
+  --text-attention: var(--donna-text-attention);
+  --text-danger: var(--donna-text-danger);
+  --text-success: var(--donna-text-success);
+}
+/* D169: open, she gets a 1.5px `ink` ring inside instead of the `selected` tint (components/SidebarHeader). */
+.donna-card.selected .donna-open { box-shadow: inset 0 0 0 1.5px var(--text-primary, var(--ink)); }
+/* D169: a centred block as wide as its content (≥ 96px), not the whole row; the ⋯ stays at the row's end. */
+.donna-card:not(.compact) { display: flex; justify-content: center; }
+.donna-open { display: flex; flex-direction: column; align-items: center; gap: var(--sp-6); width: auto; min-width: 96px; max-width: calc(100% - 88px); padding: var(--sp-2) var(--sp-14) var(--sp-6); border-radius: inherit; text-align: center; }
+.donna-open:hover, .donna-menu-button:hover { background: var(--hover); }
+.donna-avatar { position: relative; display: block; margin-bottom: var(--sp-2); }
+.donna-star { position: absolute; right: -3px; bottom: -1px; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; background: var(--principal); color: var(--on-tile); box-shadow: 0 0 0 2px var(--surface); }
+html[data-wallpaper] .donna-star { box-shadow: none; }
+.donna-name { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: var(--text-body); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; color: var(--text-primary, var(--ink)); }
+.donna-computer, .donna-secondary { color: var(--text-secondary, var(--context-ink-2, var(--ink-2))); font-size: var(--text-caption); overflow-wrap: anywhere; }
+.donna-status { color: var(--text-secondary, var(--context-ink-2, var(--ink-2))); font-size: var(--text-caption); }
+/* Livre/Ocupada live in the dot; VoiceOver still reads the line. */
+.donna-status.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.donna-status-light { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--context-ink-2, var(--ink-2)); }
+.donna-status-light[data-state='free'] { background: var(--presence); }
+.donna-status-light[data-state='busy'] { background: var(--warning); }
+.donna-status-light[data-state='error'] { background: var(--danger); }
+/* runtime-audiencia-01: Estado indisponível é um anel vazado, sem cor de estado; offline segue cheio em ink-2. */
+.donna-status-light[data-state='unknown'] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--context-ink-2, var(--ink-2)); }
+.donna-status.attention { color: var(--text-attention, var(--attention)); }
+.donna-status.danger { color: var(--text-danger, var(--danger)); }
+.donna-status.unknown { white-space: nowrap; }
+.donna-unread { position: absolute; left: calc(100% - 6px); top: -3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--accent); color: var(--on-accent); font-size: var(--text-caption); line-height: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.donna-menu-button { position: absolute; top: 0; right: 0; width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius-m); color: var(--context-ink-2, var(--ink-2)); opacity: 0; transition: opacity var(--motion-hover); }
+/* D169: no button on show; it comes with the pointer, the keyboard focus or its open menu, and stays in Tab order. */
+.donna-card:hover .donna-menu-button, .donna-menu-button:focus-visible, .donna-menu-button[aria-expanded='true'] { opacity: 1; }
+.donna-menu-dismiss { position: fixed; inset: 0; z-index: 89; }
+.donna-menu { position: fixed; z-index: 90; width: 260px; max-width: calc(100vw - 24px); padding: var(--sp-6); background: var(--raised); box-shadow: var(--shadow-l), 0 0 0 1px var(--line); border-radius: var(--radius-l); }
+.donna-menu .menu-row { min-height: 32px; }
+.donna-menu .menu-row:disabled { opacity: 0.6; cursor: default; flex-direction: column; align-items: flex-start; gap: 3px; }
+.donna-menu-detail { font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); }
+.donna-empty { padding: var(--sp-12) var(--sp-8); text-align: center; color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout); }
+.donna-empty p { margin: 4px 0 10px; }
+.donna-choose { min-height: 44px; padding: 8px; color: var(--text-accent, var(--accent)); border-radius: var(--radius-s); }
+.donna-picker { display: flex; flex-direction: column; gap: 8px; padding: 22px; }
+.donna-picker h2 { font-size: var(--text-title2); font-weight: 600; }
+.donna-picker > button { min-height: 44px; border-radius: var(--radius-m); background: var(--field); padding: 8px; }
+.donna-picker > p { font-size: var(--text-callout); color: var(--context-ink-2, var(--ink-2)); }
+.donna-empty.compact { min-height: 44px; padding: 0; display: grid; place-items: center; }
+
+/* Barra05 (dono, 05/11/2026; SidebarHeader, "Donna, central"): a linha de 60px da Donna no alto da barra, na largura
+   dela, com 10px de folga do alto (a faixa `.sidebar-drag`). Saem a estrela, o número e o ponto ao lado do nome. */
+.donna-cards { padding: 0 6px 6px; }
+.donna-card.is-central { display: block; }
+.donna-card.is-central .donna-open {
+  flex-direction: row; align-items: center; gap: 10px;
+  width: 100%; max-width: none; min-width: 0; min-height: 60px;
+  padding: 6px 8px; border-radius: 12px; text-align: left;
+  transition: background-color var(--motion-hover);
+}
+/* Aberta: fundo `selected` arredondado, sem o anel da D169. */
+.donna-card.is-central.selected .donna-open { box-shadow: none; background: var(--selected); }
+.donna-card.is-central .donna-avatar { position: relative; flex: none; width: 48px; height: 48px; margin: 0; }
+.donna-card.is-central.compact .donna-avatar { width: 36px; height: 36px; }
+/* Trabalhando: um halo de 2px no destaque que respira devagar em volta do rosto (não é "carregando"). */
+.donna-card.is-working .donna-avatar::before {
+  content: ''; position: absolute; inset: -4px; border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--accent); opacity: 0.55; pointer-events: none;
+  animation: donna-breathe 2.6s ease-in-out infinite;
+}
+@keyframes donna-breathe { 0%, 100% { transform: scale(1); opacity: 0.35; } 50% { transform: scale(1.06); opacity: 0.8; } }
+@media (prefers-reduced-motion: reduce) { .donna-card.is-working .donna-avatar::before { animation: none; opacity: 0.6; } }
+.donna-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.donna-card.is-central .donna-name {
+  display: flex; align-items: baseline; justify-content: flex-start; gap: 6px; min-width: 0;
+  font-size: calc(14px * var(--scale)); line-height: calc(17px * var(--scale)); font-weight: 600; overflow-wrap: normal;
+}
+.donna-space { font-size: 11px; font-weight: 500; color: var(--text-secondary, var(--context-ink-2, var(--ink-2))); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.donna-card.is-central .donna-status {
+  display: inline-flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: calc(11.5px * var(--scale)); line-height: calc(14px * var(--scale));
+}
+.donna-card.is-central .donna-status::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--presence); }
+.donna-card.is-central .donna-status[data-state="work"]::before { background: var(--accent); }
+.donna-card.is-central .donna-status[data-state="listen"]::before { background: var(--warning); }
+.donna-card.is-central .donna-status[data-state="sleep"]::before,
+.donna-card.is-central .donna-status[data-state="offline"]::before { background: var(--context-ink-2, var(--ink-2)); opacity: 0.6; }
+.donna-card.is-central .donna-status[data-state="error"]::before { background: var(--danger); }
+/* runtime-audiencia-01: Estado indisponível é um anel vazado, sem cor de estado. */
+.donna-card.is-central .donna-status[data-state="unknown"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--context-ink-2, var(--ink-2)); }
+.donna-support { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(12px * var(--scale)); line-height: calc(15px * var(--scale)); color: var(--text-secondary, var(--context-ink-2, var(--ink-2))); }
+.donna-support.is-new { color: var(--text-accent, var(--accent)); font-weight: 500; }
+.donna-card.is-central .donna-menu-button { top: 8px; right: 4px; width: 32px; height: 44px; }
+.donna-card.is-central:hover .donna-menu-button:not(:focus-visible):not([aria-expanded='true']) { opacity: 0; }

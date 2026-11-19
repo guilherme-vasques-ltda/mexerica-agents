@@ -1,0 +1,11 @@
+# Tests may unwrap: a panic there is the failure report.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+doc-valid-idents = ["SQLite", "OpenCode", "JSON-RPC", ".."]
+
+# O guard observado contém MutexGuard; preserve a checagem de banco durante await.
+# O #[expect(clippy::await_holding_invalid_type)] no teste
+# seg_a_r1_02_canal_fechado_durante_captura_bloqueada_nao_grava
+# (src/fork/personal_link/initial_tests.rs) é o portão: se o lint não disparar,
+# o Clippy com -D warnings falha pela expectativa não cumprida.
+await-holding-invalid-types = [{ path = "donnabot_host::store::mutex_observado::Guard", reason = "não segurar o banco durante await" }]

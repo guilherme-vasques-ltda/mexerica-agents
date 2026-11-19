@@ -1,0 +1,90 @@
+/* E6c: composição calma aprovada. As ações continuam sendo as da E6a. */
+.welcome-calm .welcome-column {
+  padding: 32px 24px;
+  gap: clamp(32px, 5vh, 40px);
+}
+.welcome-calm .welcome-brand {
+  padding: 0;
+  margin-top: auto;
+  animation: none;
+}
+.welcome-calm .welcome-brand svg {
+  width: clamp(240px, 30vw, 280px);
+  height: auto;
+}
+.welcome-calm .welcome-cta {
+  flex: none;
+  width: min(520px, 100%);
+  margin: 0 0 auto;
+  animation: none;
+}
+.welcome-calm .welcome-cloud {
+  width: 100%;
+  max-width: none;
+  gap: 12px;
+}
+.welcome-calm .welcome-password {
+  width: 100%;
+  height: 52px;
+}
+.welcome-calm .welcome-field,
+.welcome-calm .welcome-password .welcome-primary,
+.welcome-calm .welcome-mode-option,
+.welcome-calm .welcome-providers .welcome-ghost {
+  height: 44px;
+  font-size: 15px;
+}
+.welcome-calm .welcome-mode-option { padding: 0 24px; }
+.welcome-calm .welcome-link { min-height: 32px; font-size: 14px; }
+.welcome-calm .welcome-providers { gap: 12px; font-size: 14px; }
+.welcome-calm .welcome-cloud-note { font-size: 14px; }
+
+/* D471: a conta segue o tema, sobre o chão Creme/Noite do pacote, com cartões `entrada-cartao`. Só esta tela
+   (e o passo de idioma); a restauração continua no palco escuro. Tintas, destaque e linhas
+   são os tokens do tema; o contraste medido está em docs/reference/redesenho/entrada.md#marca-mexerica-d471. */
+.welcome.welcome-calm {
+  --welcome-bg: var(--entrada-chao);
+  --welcome-ink: var(--ink);
+  --welcome-ink-2: var(--ink-2);
+  --welcome-ink-3: var(--ink-2);
+  --welcome-link: var(--ink);
+  --welcome-focus: var(--entrada-foco);
+  --context-ink-2: var(--ink-2);
+  --attention: #8a5a00; /* o `attention` claro do tema; .welcome fixa o escuro */
+  --welcome-cartao: var(--entrada-cartao);
+  --welcome-borda: var(--line-strong);
+  color-scheme: light;
+}
+[data-theme='dark'] .welcome.welcome-calm { --attention: #ecaf52; color-scheme: dark; }
+.welcome-calm .welcome-backdrop,
+.welcome-calm .welcome-backdrop::after { background: none; }
+.welcome-calm .welcome-brand { color: var(--welcome-ink); }
+.welcome-calm .welcome-logo { display: block; width: clamp(240px, 30vw, 280px); height: auto; }
+.welcome-calm .welcome-logo.is-escuro,
+[data-theme='dark'] .welcome-calm .welcome-logo.is-claro { display: none; }
+[data-theme='dark'] .welcome-calm .welcome-logo.is-escuro { display: block; }
+.welcome-calm .welcome-primary,
+.welcome-calm .account-exit.is-welcome .account-exit-actions .welcome-ghost:first-child {
+  color: var(--entrada-acao-tinta);
+  background: var(--entrada-acao);
+  box-shadow: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .welcome-calm .welcome-primary:hover:not(:disabled) { box-shadow: none; background: var(--entrada-acao-hover); }
+}
+.welcome-calm .welcome-primary:active:not(:disabled) { background: var(--entrada-acao-pressionado); }
+.welcome-calm .welcome-password,
+.welcome-calm .welcome-mode,
+.welcome-calm .welcome-ghost {
+  color: var(--welcome-ink);
+  background: var(--welcome-cartao);
+  box-shadow: inset 0 0 0 1px var(--welcome-borda);
+}
+.welcome-calm .welcome-password:has(.welcome-field:focus-visible) {
+  box-shadow: inset 0 0 0 1px var(--welcome-borda), 0 0 0 2px var(--welcome-focus);
+}
+.welcome-calm .welcome-ghost:hover:not(:disabled),
+.welcome-calm .welcome-field:focus { background: color-mix(in srgb, var(--welcome-cartao), var(--ink) 6%); }
+.welcome-calm .welcome-field-divider { background: var(--welcome-borda); }
+.welcome-calm .welcome-mode-option[aria-pressed='true'] { background: color-mix(in srgb, var(--welcome-cartao), var(--ink) 10%); color: var(--welcome-ink); }
+.welcome-calm .welcome-link { text-decoration-color: var(--line-strong); }

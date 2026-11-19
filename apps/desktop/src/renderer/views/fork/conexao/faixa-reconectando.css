@@ -1,0 +1,55 @@
+/* MX-217: a faixa de uma queda curta, no lugar do selo de conexão sob o cartão de abas (chat-tabs.css). Mesma pílula
+   de vidro do selo; só ganha o texto e o "Tentar agora". A conversa reserva a altura da faixa no topo, para ela não
+   cobrir a primeira linha nem o "Carregar mensagens anteriores". */
+.conversation:has(.ctabs):has(.faixa-reconectando) {
+  --chat-header-height: 96px;
+}
+.top-chrome > .faixa-reconectando {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 3px 12px;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 500;
+}
+.top-chrome > .faixa-reconectando:has(> .faixa-reconectando-tentar) {
+  padding-inline-end: 4px;
+}
+.faixa-reconectando-texto {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.faixa-reconectando-detalhe {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.faixa-reconectando-tentar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  background: var(--field);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  -webkit-app-region: no-drag;
+  transition: background var(--motion-hover);
+}
+.faixa-reconectando-tentar:hover:not(:disabled) {
+  background: var(--selected);
+}
+.faixa-reconectando-tentar:disabled {
+  opacity: 0.7;
+  cursor: default;
+}

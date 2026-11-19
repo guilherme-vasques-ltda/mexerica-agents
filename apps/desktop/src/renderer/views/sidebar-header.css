@@ -1,0 +1,23 @@
+/* The roster's computer summary and filter (ComputerFilterHeader). */
+.computer-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 0;
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.computer-filter-action {
+  height: 32px;
+  padding: 0 9px;
+  justify-content: center;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  transition: background-color var(--motion-hover);
+}
+.computer-filter-action:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.05);
+}

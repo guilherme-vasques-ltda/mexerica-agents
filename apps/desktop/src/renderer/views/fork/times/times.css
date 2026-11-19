@@ -1,0 +1,1001 @@
+/* Times (docs/reference/redesenho/components/TimesView). Só tokens do sistema (styles/tokens.css): claro e escuro,
+   com e sem fundo. Página como Rotinas: a faixa continua, o resto da janela fica inerte por trás. */
+
+.times-host {
+  position: relative;
+}
+.times-layer {
+  position: absolute;
+  z-index: 40;
+  /* MX-122 v3: embaixo da faixa do topo da janela. */
+  top: var(--janela-header-h);
+  bottom: 0;
+  left: var(--rail-width);
+  right: 0;
+  animation: fade-in var(--fade) both;
+}
+.times-host[data-coberto] .split > :not(.space-rail, .janela-header, .app-wallpaper, .app-veil) {
+  visibility: hidden;
+}
+
+.times-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--content-ground, var(--canvas));
+  color: var(--ink);
+}
+html[data-wallpaper] .times-layer .times-page {
+  background: var(--glass-plate);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .times-layer .times-page {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Barra: Voltar, título, frase central, Quadro | Lista e Novo time. Quebra numa janela estreita. */
+.times-header {
+  flex: none;
+  min-height: 54px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 16px 0 18px;
+}
+.times-back {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+.times-back:hover {
+  background: var(--hover);
+}
+.times-back:active {
+  transform: scale(0.96);
+}
+.times-title {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-title2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.times-lead {
+  flex: 1 1 260px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--ink-2);
+}
+.times-header-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.times-banner {
+  flex: none;
+  margin: 0 16px 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-m);
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+}
+.times-banner.is-alert,
+.times-banner.is-warn {
+  color: var(--ink);
+}
+/* D249 R4: the alert says what it is with its icon and role, not with a colored edge. */
+.times-banner > svg {
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: var(--text-attention, var(--attention));
+}
+.times-link {
+  margin-left: 8px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.times-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+/* Corpo: o Quadro (ou a Lista) e o painel de detalhes, cartões opacos sobre a página. */
+.times-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+  padding: 4px 16px 12px;
+}
+.times-main,
+.times-side {
+  background: var(--raised);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-glass);
+}
+.times-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.times-side {
+  flex: none;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.times-side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+@media (max-width: 920px) {
+  .times-body {
+    flex-direction: column;
+  }
+  .times-side {
+    width: auto;
+    max-height: 45%;
+  }
+}
+/* Auditoria D249, E4: below 600 px of height the panel doesn't go under the board; it is a drawer over
+   the board's right side, below its (i) button, opened and closed by it. Same query as lib/janela-baixa.ts. */
+@media (height < 600px) {
+  .times-body {
+    position: relative;
+    flex-direction: row;
+  }
+  .times-side.is-drawer {
+    position: absolute;
+    z-index: 4;
+    top: 56px;
+    right: 28px;
+    bottom: 24px;
+    width: min(300px, calc(100% - 56px));
+    max-height: none;
+    box-shadow: var(--shadow-xl);
+  }
+  .times-side.is-drawer[hidden] {
+    display: none;
+  }
+}
+.mac-chat-button.times-drawer-toggle {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+}
+
+.times-empty {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  font-size: var(--text-callout);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.times-empty p {
+  margin: 0;
+}
+
+/* MARK: Quadro */
+
+.times-board {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.times-tools {
+  position: absolute;
+  z-index: 2;
+  left: 12px;
+  top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.times-zoom,
+.times-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--ink);
+}
+.times-zoom {
+  padding: 0 4px;
+}
+.times-zoom span {
+  min-width: 40px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.times-zoom button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+}
+.times-zoom button:hover:not(:disabled),
+.times-tool:hover:not(:disabled) {
+  background: var(--selected);
+}
+.times-tool[aria-pressed='true'] {
+  background: var(--chip-on);
+  box-shadow: var(--shadow-chip);
+}
+.times-zoom button:disabled,
+.times-tool:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+
+.times-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.times-viewport.is-locked {
+  cursor: default;
+}
+.times-viewport.is-linking {
+  cursor: crosshair;
+}
+.times-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.times-lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.times-line-structure {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+.times-line-report {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+}
+.times-line-report.is-draft {
+  stroke: var(--ink-2);
+  stroke-width: 2;
+}
+.times-line-report.is-on {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.times-arrow {
+  fill: var(--ink-3);
+}
+.times-arrow.is-draft {
+  fill: var(--ink-2);
+}
+.times-arrow.is-on {
+  fill: var(--accent);
+}
+.times-line-route {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.25;
+  stroke-dasharray: 5 4;
+}
+.is-on > .times-line-route {
+  stroke: var(--ink-2);
+}
+.times-line-label {
+  fill: var(--ink-2);
+  font-size: 11px;
+}
+.times-line-ghost path,
+.times-line-drawing {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+.times-line-ghost path {
+  animation: times-dash 0.8s linear infinite;
+}
+@keyframes times-dash {
+  to { stroke-dashoffset: -16; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .times-line-ghost path { animation: none; }
+}
+
+/* Cartão do bot (176 × 56): rosto, nome, papel e função. A porta fica no topo. */
+.times-card {
+  position: absolute;
+}
+.times-card-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 26px 0 10px;
+  border-radius: var(--radius-m);
+  background: var(--surface-opaque, var(--raised));
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-s);
+  cursor: pointer;
+  transition: box-shadow var(--motion-hover);
+}
+.times-viewport:not(.is-locked) .times-card-body {
+  cursor: grab;
+}
+.times-card-body:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ink), var(--shadow-s);
+}
+.times-card-body.is-selected {
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow-s);
+}
+.times-card-body.is-target {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow-s);
+}
+.times-card.is-hidden-bot .times-card-body {
+  opacity: 0.75;
+}
+.times-card-owner .times-card-body {
+  padding: 0 14px 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  box-shadow: none;
+}
+.times-owner-face {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+}
+.times-owner-face > * {
+  width: 100%;
+  height: 100%;
+}
+.times-face-missing {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  background: var(--field);
+}
+.times-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Linha 2: selos fixos, função encolhe (D249). */
+.times-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.times-card-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.times-card-fn {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+}
+.times-tag {
+  flex: none;
+  max-width: 96px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: var(--text-caption);
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.times-tag.is-primary {
+  color: var(--ink);
+}
+.times-port {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--raised);
+  box-shadow: 0 0 0 2px var(--ink-3);
+  cursor: crosshair;
+}
+.times-port::after {
+  /* Alvo de toque maior que o ponto. */
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.times-port.is-off {
+  cursor: default;
+  box-shadow: 0 0 0 2px var(--line-strong);
+}
+.times-card-body.is-selected ~ .times-port,
+.times-card:has(.is-selected) .times-port {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.times-card-menu {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  color: var(--ink-2);
+  opacity: 0;
+  transition: opacity var(--motion-hover);
+}
+.times-card:hover .times-card-menu,
+.times-card:focus-within .times-card-menu,
+.times-card:has(.is-selected) .times-card-menu {
+  opacity: 1;
+}
+.times-card-menu:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.times-fold {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  font-size: var(--text-caption);
+  line-height: 18px;
+  color: var(--ink-2);
+}
+.times-fold:hover {
+  color: var(--ink);
+}
+
+/* Área: contorno com o nome no topo; Sem time tracejado. */
+.times-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
+}
+.times-frame.is-loose {
+  border-style: dashed;
+}
+.times-frame.is-selected {
+  border-color: var(--accent);
+}
+.times-frame-head {
+  position: absolute;
+  left: 10px;
+  top: -10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  background: var(--raised);
+  border-radius: var(--radius-xs);
+}
+.times-frame-name {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--ink-2);
+  line-height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.times-frame-name:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+.times-frame-toggle {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  color: var(--ink-2);
+}
+.times-frame-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.times-frame-more {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  height: 32px;
+  border-radius: var(--radius-m);
+  background: var(--field);
+  font-size: var(--text-callout);
+  color: var(--ink-2);
+}
+
+/* Conversa do time: prévia indisponível, só uma dica no (i) do cabeçalho (auditoria D249, E6). */
+.times-info {
+  position: relative;
+  display: inline-flex;
+}
+.times-info-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
+  transition: background-color var(--motion-hover), color var(--motion-hover);
+}
+.times-info-button:hover,
+.times-info-button:focus-visible {
+  background: var(--field);
+  color: var(--ink);
+}
+.times-info-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  visibility: hidden;
+  right: 0;
+  z-index: 20;
+  width: 280px;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  background: var(--raised);
+  box-shadow: var(--shadow-xl);
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--fade);
+}
+.times-info-tip.is-open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+/* The 6px between the button and the tip still counts as the tip: the pointer can go down to read it. */
+.times-info-tip::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 6px;
+}
+
+/* MARK: Lista */
+
+.times-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 8px;
+}
+.times-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding-inline-end: 8px;
+  border-radius: var(--radius-s);
+  font-size: var(--text-body);
+  cursor: default;
+}
+.times-row:hover {
+  background: var(--hover);
+}
+.times-row.is-selected {
+  background: var(--selected);
+}
+.times-row:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+.times-row-toggle {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+}
+.times-row-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--ink-2);
+}
+.times-row-name {
+  flex: none;
+  font-weight: 600;
+}
+.times-row-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+}
+.times-row-menu {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  color: var(--ink-2);
+  opacity: 0;
+}
+.times-row:hover .times-row-menu,
+.times-row.is-selected .times-row-menu {
+  opacity: 1;
+}
+
+/* MARK: Detalhes */
+
+.times-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.times-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.times-detail-title {
+  margin: 0;
+  font-size: var(--text-title3);
+  font-weight: 600;
+}
+.times-detail-sub {
+  margin: 2px 0 0;
+  font-size: var(--text-callout);
+  color: var(--ink-2);
+}
+.times-detail-label {
+  margin: 4px 0 0;
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.times-facts,
+.times-legend {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  gap: 6px 10px;
+  margin: 0;
+  font-size: var(--text-callout);
+}
+.times-facts dt,
+.times-legend dt {
+  color: var(--ink-2);
+}
+.times-facts dd,
+.times-legend dd {
+  margin: 0;
+}
+.times-legend {
+  grid-template-columns: 1fr;
+}
+.times-legend dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.times-legend dd {
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+.times-key {
+  width: 22px;
+  height: 0;
+  border-top: 1px solid var(--line-strong);
+}
+.times-key.is-report {
+  border-top: 2px solid var(--ink-3);
+}
+.times-key.is-route {
+  border-top: 1.5px dashed var(--ink-3);
+}
+.times-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.times-note {
+  margin: 0;
+  font-size: var(--text-callout);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.times-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  align-self: flex-start;
+}
+.times-options button {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.times-options button:hover:not([aria-disabled='true']) {
+  color: var(--ink);
+}
+.times-options button.on {
+  color: var(--ink);
+  background: var(--chip-on);
+  box-shadow: var(--shadow-chip);
+}
+.times-options button[aria-disabled='true']:not(.on) {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+
+/* Faixa de conferir e salvar, no pé do painel. */
+.times-edit-slot {
+  flex: none;
+}
+.times-edit-slot:empty {
+  display: none;
+}
+.times-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  background: var(--field);
+  font-size: var(--text-callout);
+}
+.times-edit.is-draft {
+  background: var(--accent-soft);
+}
+.times-edit.is-alert {
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+.times-edit-text {
+  flex-basis: 100%;
+}
+
+/* MARK: Folhas (seletores e área) */
+
+.times-sheet {
+  gap: 12px;
+  /* As seções da folha alinham com o título (padding 20 px do ModalHeader); o cabeçalho mantém o próprio. */
+  padding: 0 20px 16px;
+}
+.times-sheet > .modal-header {
+  margin: 0 -20px;
+}
+.times-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 2px;
+}
+.times-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+.times-choice:hover:not(.is-off) {
+  background: var(--hover);
+}
+.times-choice:has(input:checked) {
+  background: var(--selected);
+}
+.times-choice.is-off {
+  cursor: default;
+  color: var(--ink-2);
+}
+.times-choice-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.times-choice-detail {
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+}
+.times-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-body);
+}
+.times-check.is-off {
+  color: var(--ink-2);
+}
+.times-form {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 10px 12px;
+  font-size: var(--text-body);
+}
+.times-input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  border: none;
+}
+.times-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.times-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+.times-fieldset legend {
+  padding: 0 4px;
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.times-inline-error {
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--warning);
+  padding-left: 10px;
+}
+.times-sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* MARK: Modelo Equipe Marketing (D353) */
+
+.times-modelo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  font-size: var(--text-body);
+}
+.times-modelo-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.times-modelo-pick {
+  width: 140px;
+}
+.times-modelo-rules {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--text-callout);
+  line-height: 1.5;
+}
+.times-empty-actions {
+  display: flex;
+  gap: 8px;
+}
+.times-novo {
+  display: inline-flex;
+}

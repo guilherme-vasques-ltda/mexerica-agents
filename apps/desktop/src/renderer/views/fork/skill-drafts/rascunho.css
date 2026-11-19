@@ -1,0 +1,27 @@
+.skill-draft {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--context-line, var(--line));
+  overflow-wrap: anywhere;
+}
+
+.skill-recommendation {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--context-line, var(--line));
+  border-radius: var(--radius-l);
+  background: var(--content-ground, var(--canvas));
+  overflow-wrap: anywhere;
+}
+
+.skill-recommendation-body {
+  padding: 12px;
+  border-radius: var(--radius-m);
+  background: var(--field);
+}
+
+.skill-recommendation h3 { margin: 0; }
+.skill-recommendation-text { white-space: pre-wrap; }
+
+/* A página normal recebe seu recuo do marketplace; na folha, alinha ao ModalHeader. */
+.skill-reference-page { padding: 0 20px 20px; }

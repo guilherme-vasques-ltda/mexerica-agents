@@ -1,0 +1,334 @@
+/* DON-907 C9: o seletor de modelo, compacto (pedido do dono 06/11, no estilo do t3code), com os tokens do app.
+   Entrega 3 da revisão do app (proposta): trilho com nome, conta do motor à vista, o visto marca o escolhido e o fundo
+   marca só a linha sob o cursor ou o foco; o esforço saiu da coluna e virou uma faixa embaixo. */
+.seletor-modelo {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  width: min(580px, calc(100vw - 24px));
+  /* Altura fixa (pedido do dono 10/11): não cresce nem encolhe por motor, busca, favoritos, vazio ou falha.
+     418 = 8 linhas de 32 na lista + busca, vaga da conta, ajustes e rodapé (ALTURA_SELETOR em posicao.ts). */
+  height: min(418px, calc(100vh - 140px));
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-xl);
+  color: var(--ink);
+  overflow: hidden;
+}
+.seletor-colunas {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.seletor-trilho {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-inline-end: 1px solid var(--line);
+  overflow-y: auto;
+}
+.seletor-traco { height: 1px; margin: 4px 8px; background: var(--line); flex: none; }
+.seletor-trilho-item,
+.seletor-modelo-nome,
+.seletor-estrela,
+.seletor-seg,
+.seletor-conta-opcao,
+.seletor-acesso {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+.seletor-trilho-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px;
+  flex: none;
+  color: var(--ink-2);
+  text-align: start;
+}
+.seletor-trilho-icone { width: 16px; height: 16px; display: grid; place-items: center; flex: none; }
+.seletor-trilho-nome { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seletor-trilho-item.on { background: var(--field); color: var(--ink); font-weight: 600; }
+.seletor-trilho-item:first-child svg { fill: currentColor; }
+/* Janela estreita: o trilho volta a ser só de ícones (o nome fica na dica). */
+@container (max-width: 440px) {
+  .seletor-colunas { grid-template-columns: 48px minmax(0, 1fr); }
+  .seletor-trilho-item { justify-content: center; padding: 0; }
+  .seletor-trilho-nome { display: none; }
+}
+.seletor-meio {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.seletor-busca {
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+  height: 30px;
+  flex: none;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  outline: none;
+}
+.seletor-busca:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.seletor-lista {
+  display: flex;
+  flex-direction: column;
+  /* No máximo 8 linhas de 32px à vista; o resto rola por dentro, com a barra à mostra. */
+  flex: 0 1 256px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: auto;
+  scrollbar-gutter: stable;
+  /* O bloco virtualizado mede a própria posição a partir daqui (offsetTop). */
+  position: relative;
+}
+/* theme.css esconde as barras do app inteiro; aqui a barra volta, fina e sempre visível (no RTL ela vai para o outro lado sozinha). */
+.seletor-lista::-webkit-scrollbar { display: block; width: 10px; }
+.seletor-lista::-webkit-scrollbar-track { background: transparent; }
+.seletor-lista::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ink) 34%, transparent);
+  background-clip: content-box;
+  min-height: 28px;
+}
+.seletor-lista::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink) 52%, transparent); background-clip: content-box; }
+/* Lista virtualizada: o bloco tem a altura de todas as linhas (32px cada) e só as que estão à vista existem, cada uma
+   no seu lugar (`top` vem do índice, em SeletorModelo.tsx). */
+.seletor-janela { position: relative; flex: none; }
+.seletor-janela > * { position: absolute; inset-inline: 0; }
+.seletor-grupo-nome {
+  box-sizing: border-box;
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 8px 5px;
+  color: var(--ink-3);
+  font-size: 0.82em;
+  font-weight: 600;
+}
+.seletor-linha {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-s);
+}
+.seletor-modelo-nome {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  padding: 0 4px;
+  text-align: start;
+}
+/* O lugar do visto: sempre reservado, para os nomes ficarem na mesma coluna. */
+.seletor-marca { width: 14px; display: grid; place-items: center; flex: none; color: var(--accent); }
+.seletor-nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seletor-linha.on .seletor-nome { font-weight: 600; }
+.seletor-meta {
+  display: flex;
+  gap: 6px;
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
+  flex: none;
+  color: var(--ink-3);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.seletor-meta > span + span::before { content: '·'; margin-inline-end: 6px; }
+.seletor-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: 0.8em;
+  font-weight: 600;
+}
+.seletor-linha-nota { margin: 2px 0 0; padding: 6px 8px 6px 26px; color: var(--ink-2); font-size: 0.86em; }
+.seletor-estrela {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--ink-3);
+}
+.seletor-estrela[aria-pressed='true'] { color: var(--accent-ambar); }
+/* Favorito = estrela cheia; fora do Mac o ícone é um contorno (Lucide), preenchido aqui. */
+.seletor-estrela[aria-pressed='true'] svg { fill: currentColor; }
+.seletor-atalho {
+  width: 30px;
+  flex: none;
+  font: inherit;
+  font-size: 0.8em;
+  color: var(--ink-3);
+  text-align: end;
+  padding-inline-end: 6px;
+}
+.seletor-vazio { color: var(--ink-3); font-size: 0.9em; padding: 6px 8px; margin: 0; }
+.seletor-falha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-s);
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: 0.92em;
+}
+.seletor-falha > span:nth-child(2) { flex: 1; min-width: 160px; }
+/* D372 (R8) + Entrega 3: a conta do motor, uma linha entre a busca e a lista. */
+.seletor-conta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 26px;
+  flex: none;
+  white-space: nowrap;
+  overflow-x: auto;
+  margin: 0;
+  padding: 0 2px 0 8px;
+  color: var(--ink-2);
+  font-size: 0.9em;
+}
+/* O aviso em texto corrido (sem conta, falhou, carregando) nunca corta: quebra em até duas linhas. O painel não muda de
+   altura; quem cede os poucos pixels é a lista (que encolhe e rola), só enquanto o aviso tem duas linhas. */
+p.seletor-conta { display: block; height: auto; min-height: 26px; padding-block: 5px; line-height: 16px; white-space: normal; overflow: visible; text-wrap: pretty; }
+.seletor-conta-rotulo { margin-inline-end: 6px; color: var(--ink-3); }
+.seletor-conta-unica { color: var(--ink); }
+.seletor-conta-opcao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-2);
+}
+.seletor-conta-opcao.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); color: var(--ink); font-weight: 600; }
+.seletor-conta-uso { color: var(--ink-3); font-size: 0.86em; font-weight: 400; }
+.seletor-nota-troca { color: var(--ink-2); }
+/* Função de fundo (Ajustes → Bot de fundo): o motor que a função não aceita fica no trilho, apagado, com o motivo curto. */
+.seletor-trilho-item.fora { align-items: flex-start; padding-block: 6px; }
+.seletor-trilho-item.fora .seletor-trilho-icone,
+.seletor-trilho-item.fora .seletor-trilho-nome { opacity: 0.55; }
+.seletor-trilho-quem { display: flex; flex-direction: column; min-width: 0; }
+.seletor-trilho-quem small { font-size: 0.82em; line-height: 14px; color: var(--ink-2); white-space: normal; }
+/* A linha Conta com contas que não servem agora: cada uma na própria linha, com o estado em palavras e a ação ao lado. */
+div.seletor-conta.seletor-conta-funcao { height: auto; flex-direction: column; align-items: stretch; gap: 4px; padding-block: 2px; white-space: normal; overflow: visible; }
+.seletor-conta-grupo { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.seletor-conta-inativa { display: flex; align-items: center; gap: 6px; padding-inline-start: 10px; color: var(--ink-2); }
+.seletor-conta-ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); flex: none; }
+.seletor-conta-nome { opacity: 0.7; }
+.seletor-conta-estado { font-weight: 500; }
+.seletor-conta-acao { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; border-radius: var(--radius-s); cursor: pointer; padding: 2px 6px; }
+.seletor-conta-acao:hover { background: var(--field); }
+.seletor-conta-acao:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+.seletor-etiqueta.recomendado { background: var(--accent-soft); color: var(--accent); }
+.seletor-modelo-nome:disabled { opacity: 0.45; cursor: default; }
+.seletor-aviso { margin: 0; padding: 6px 12px; color: var(--danger); font-size: 0.9em; }
+/* Os ajustes do modelo escolhido: só aparecem quando o modelo tem esforço ou o motor tem o rápido. */
+.seletor-ajustes {
+  display: flex;
+  align-items: center;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  box-sizing: border-box;
+  min-height: 42px;
+  flex: none;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+}
+.seletor-ajustes-modelo {
+  flex: 1 1 96px;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seletor-par { display: flex; align-items: center; gap: 6px; flex: none; }
+.seletor-par-rotulo { color: var(--ink-3); font-size: 0.85em; }
+.seletor-segs { display: flex; gap: 1px; padding: 2px; border-radius: var(--radius-s); background: var(--field); }
+.seletor-seg { padding: 3px 8px; color: var(--ink-2); white-space: nowrap; }
+.seletor-seg.on { background: var(--raised); box-shadow: 0 1px 2px rgb(0 0 0 / 0.14); color: var(--ink); font-weight: 600; }
+.seletor-rodape {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 34px;
+  flex: none;
+  padding: 0 8px 0 12px;
+  border-top: 1px solid var(--line);
+}
+.seletor-nota { flex: 1; color: var(--ink-3); font-size: 0.82em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seletor-acesso { display: inline-flex; align-items: center; gap: 5px; margin-inline-start: auto; padding: 4px 8px; color: var(--ink-2); }
+.seletor-trilho-item:focus-visible,
+.seletor-estrela:focus-visible,
+.seletor-seg:focus-visible,
+.seletor-conta-opcao:focus-visible,
+.seletor-acesso:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+/* A linha em foco: o mesmo fundo do cursor e um contorno por dentro; o escolhido é o visto, nunca o fundo. */
+.seletor-modelo-nome:focus-visible { outline: none; }
+.seletor-linha:has(.seletor-modelo-nome:focus-visible) { background: var(--field); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.seletor-trilho-item:hover:not(.on),
+.seletor-seg:hover:not(.on),
+.seletor-conta-opcao:hover:not(.on),
+.seletor-acesso:hover,
+.seletor-linha:hover:has(.seletor-modelo-nome:not(:disabled)) { background: var(--field); }
+
+/* O chip do compositor. */
+.chip-modelo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 220px;
+  padding: 0 10px;
+  flex: none;
+  font: inherit;
+  font-size: 0.92em;
+  color: var(--context-ink-2, var(--ink-2));
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.chip-modelo:disabled { cursor: default; }
+.chip-modelo:hover:not(:disabled),
+.chip-modelo[aria-expanded='true'] { background: var(--field); color: var(--text-primary, var(--ink)); }
+.chip-modelo:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+.chip-modelo-nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-modelo-esforco { color: var(--ink-3); white-space: nowrap; }
+.chip-modelo-painel { position: fixed; z-index: 60; }
+/* D473: a largura e a altura que cabem na janela (posicao.ts); o seletor rola por dentro. */
+.chip-modelo-painel .seletor-modelo { width: var(--seletor-largura); height: var(--seletor-altura); }

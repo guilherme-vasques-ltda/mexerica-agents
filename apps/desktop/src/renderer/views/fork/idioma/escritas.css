@@ -1,0 +1,17 @@
+/* DON-903 (D363): superfícies já traduzidas. A fonte escolhida em Aparência (`--font-sans`) vem primeiro; para
+   escrita que ela não cobre, fontes do sistema, sem baixar nada: no Mac, PingFang SC/Hiragino Sans GB (chinês)
+   e Geeza Pro/Al Nile (árabe), da lista de fontes do macOS (podem estar instaladas ou sob demanda); no Linux, Noto.
+   `sans-serif` no fim é a reserva genérica do sistema. A ordem por idioma escolhe o desenho certo dos ideogramas. */
+.idioma-superficie {
+  --escrita: 'Geeza Pro', 'Al Nile', 'Noto Sans Arabic', 'Noto Naskh Arabic', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Noto Sans SC', sans-serif;
+}
+/* Também em cada trecho com `lang` próprio (as opções da roda), mesmo com a tela num idioma latino. */
+.idioma-superficie, .idioma-superficie [lang] { font-family: var(--font-sans), var(--escrita); }
+.idioma-superficie:lang(zh-CN), .idioma-superficie :lang(zh-CN) { --escrita: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Noto Sans SC', sans-serif; }
+.idioma-superficie:lang(ar-AE), .idioma-superficie :lang(ar-AE) { --escrita: 'Geeza Pro', 'Al Nile', 'Noto Sans Arabic', 'Noto Naskh Arabic', sans-serif; }
+
+/* Só ícones de direção (setas, chevrons de navegação) espelham; logo, check, play e texto do usuário não. */
+[dir='rtl'] .espelhar-rtl { transform: scaleX(-1); }
+
+/* Nome, código ou número do usuário dentro de texto traduzido: use <bdi> ou esta classe com dir="auto". */
+.bidi-isolado { unicode-bidi: isolate; }

@@ -1,0 +1,118 @@
+/* MX-122 v3 (dono, 11/11): a faixa do topo da janela (JanelaHeader). Largura inteira, 29 px, na cor da faixa de
+   ícones: as duas formam a moldura da janela. O conteúdo da janela começa embaixo dela (.split, chat-window.css),
+   e o fundo de tela continua passando por baixo dela. */
+.janela-header {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 31;
+  height: var(--janela-header-h);
+  display: flex;
+  align-items: center;
+  /* Windows/Linux e tela cheia: 12 px da borda. Os controles do sistema (Windows/Linux) ficam à direita. */
+  padding-left: 12px;
+  /* A casca não espelha em árabe: seletor à esquerda, logo no centro (proposta logo-header, v3). */
+  direction: ltr;
+  background: var(--rail);
+  color: var(--ink);
+  user-select: none;
+}
+html[data-wallpaper] .janela-header {
+  background: var(--glass-rail);
+}
+/* Mac: depois dos botões da janela (12 px da borda + ~54 px de botões + 12 px). */
+html[data-platform='darwin'] .janela-header:not(.tela-cheia) {
+  padding-left: 78px;
+}
+.janela-header-inicio {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+/* A logo: decoração no centro da janela, sem clique, dentro da área de arrastar. */
+.janela-header-marca {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: 23px;
+  /* A caixa inteira centrada, 1 px acima: a fruta respira e as letras não descem demais. */
+  transform: translate(-50%, calc(-50% - 1px));
+  pointer-events: none;
+}
+.janela-header-marca.fruta {
+  height: 20px;
+  transform: translate(-50%, -50%);
+}
+.janela-header-marca img {
+  display: block;
+  height: 100%;
+  width: auto;
+  -webkit-user-drag: none;
+}
+[data-theme='dark'] .janela-header-marca .so-claro,
+:root:not([data-theme='dark']) .janela-header-marca .so-escuro {
+  display: none;
+}
+
+/* MX-1287 (dono, 15/11), D2: linha fina na cor de destaque no pé da faixa e, SÓ abaixo dela, um halo central (mais
+   forte sob a logo, some para os lados e para baixo em --glow-altura) com respiração lenta (--glow-respira). A
+   faixa não muda: nada acima da linha nem atrás da logo. Só opacity anima; valores dos tokens (tokens.json).
+   Montado no <body> (portal em JanelaHeader.tsx), nunca dentro da área de arrastar; sem clique.
+   Custo com o app parado: a respiração anda em degraus (--glow-quadros, ~7 quadros/s; o halo varia só 6 a 31 níveis
+   de 8 bits, então 60 fps repintava a janela sem mudar um pixel) e para sozinha em segundo plano e após 60 s sem
+   interação (lib/glow-visibility.ts). Camada própria e contida: o halo nunca invalida o que está em volta. */
+.janela-glow {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--janela-header-h);
+  height: calc(var(--glow-linha) + var(--glow-altura));
+  /* Acima das telas em camada (z-index 40) e abaixo de popovers/modais (50+). */
+  z-index: 45;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  contain: layout paint style;
+}
+.janela-glow-linha {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--glow-linha);
+  background: var(--accent);
+}
+.janela-glow-halo {
+  position: absolute;
+  inset: var(--glow-linha) 0 0 0;
+  /* Alfa relativo na elipse; a força de verdade é a opacity (token por tema). */
+  background: radial-gradient(
+    ellipse var(--glow-largura) 100% at 50% 0,
+    color-mix(in srgb, var(--accent) 100%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 55%, transparent) 30%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 62%,
+    color-mix(in srgb, var(--accent) 0%, transparent) 100%
+  );
+  opacity: var(--glow-halo-parado);
+  /* Camada própria só do halo (textura de ~40 px de altura): a animação de opacity vira trabalho do compositor. */
+  will-change: opacity;
+  animation: janela-glow-respira var(--glow-respira) var(--glow-quadros) infinite;
+}
+@keyframes janela-glow-respira {
+  0%,
+  100% {
+    opacity: var(--glow-halo-vale);
+  }
+  50% {
+    opacity: var(--glow-halo-pico);
+  }
+}
+/* Janela em segundo plano (oculta ou sem foco) ou ociosa (60 s sem mouse, teclado, rolagem ou toque): pausa onde está
+   (lib/glow-visibility.ts escreve os atributos; qualquer interação retoma). */
+html[data-janela-oculta] .janela-glow-halo,
+html[data-janela-ociosa] .janela-glow-halo {
+  animation-play-state: paused;
+}
+/* Movimento reduzido: parado, sem animação. */
+@media (prefers-reduced-motion: reduce) {
+  .janela-glow-halo {
+    animation: none;
+    will-change: auto;
+  }
+}

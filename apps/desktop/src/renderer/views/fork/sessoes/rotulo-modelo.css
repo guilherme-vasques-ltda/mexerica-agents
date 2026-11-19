@@ -1,0 +1,40 @@
+/* UI01b / D372: o modelo da conversa aberta, numa segunda linha do topo, abaixo das abas. Só leitura. */
+.top-chrome > .rotulo-modelo {
+  grid-area: 2 / 1;
+  justify-self: center;
+  inline-size: max-content;
+}
+.rotulo-modelo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-inline-size: min(520px, 100%);
+  margin-block-start: 6px;
+  padding-block: 2px;
+  padding-inline: 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--context-ink-2, var(--ink-2));
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.rotulo-modelo .rm-modelo {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-weight: 600;
+}
+.rotulo-modelo .rm-origem {
+  flex: none;
+}
+.rotulo-modelo .rm-origem::before {
+  content: '·';
+  margin-inline-end: 6px;
+}
+.rotulo-modelo[data-state='unavailable'] {
+  color: var(--ink-2);
+}

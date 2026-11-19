@@ -1,0 +1,55 @@
+/* O aviso no lugar do compositor numa aba de sessão: o mesmo cartão do compositor, sem campo. */
+.session-composer-notice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: var(--column);
+  margin-block: 0 12px;
+  margin-inline: auto;
+  padding: 12px 14px;
+  border-radius: var(--radius-l);
+  font-size: 13px;
+  color: var(--context-ink-2, var(--ink-2));
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+}
+.session-composer-notice span {
+  flex: 1;
+  min-width: 0;
+}
+.session-composer-notice button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--field);
+}
+.session-composer-notice button:hover {
+  background: var(--hover);
+}
+.session-composer-notice kbd {
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+/* UI-01: a falha de criar ou enviar numa sessão, no mesmo cartão, acima do compositor e com a tinta de perigo. */
+.session-composer-notice.is-error {
+  margin-block-end: 8px;
+  color: var(--ink);
+  box-shadow: var(--shadow-glass), inset 3px 0 0 var(--danger);
+}
+/* A barra de perigo fica no início da linha também em RTL. */
+.session-composer-notice.is-error:dir(rtl) {
+  box-shadow: var(--shadow-glass), inset -3px 0 0 var(--danger);
+}
+.session-composer-notice.is-error strong {
+  font-weight: 600;
+  color: var(--danger);
+}

@@ -1,0 +1,53 @@
+{
+  "id": "metricool",
+  "nome": "Metricool",
+  "categoria": "Marketing",
+  "descricao": "Marcas, estatísticas e agenda de posts nas redes sociais pelo Metricool.",
+  "exemplos": [
+    "Como foram as estatísticas do Instagram no mês?",
+    "Quais posts estão agendados para esta semana?",
+    "Compare o alcance das redes na última semana"
+  ],
+  "site": "https://metricool.com",
+  "docs": "https://help.metricool.com/how-to-connect-metricools-mcp-eqp9h",
+  "links": {
+    "privacidade": "https://metricool.com/privacy-policy/",
+    "termos": "https://metricool.com/legal-terms/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://help.metricool.com/how-to-connect-metricools-mcp-eqp9h",
+    "https://ai.metricool.com/.well-known/oauth-protected-resource/mcp",
+    "https://ai.metricool.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "metricool.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Metricool",
+      "url": "https://ai.metricool.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "mcp:read"
+          ],
+          "padrao": true,
+          "disponivel": false,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Falta confirmar, num login real, que o acesso só de leitura não libera agendar posts."
+    }
+  ],
+  "skillsOficiais": [],
+  "emBreve": "Falta confirmar, num login real, que o acesso só de leitura não libera agendar posts."
+}

@@ -1,0 +1,377 @@
+/* D165: colors, glass, sizes and shadows come from tokens.json via tokens.css.
+   Views consume canonical tokens and scoped semantic roles (docs/reference/redesenho/migracao.md).
+   appearance.ts writes data-theme/data-accent before the first paint. */
+:root {
+  color-scheme: light;
+  /* `ink` as a triplet, for `rgba(var(--foreground-rgb, var(--ink-rgb)), a)` tints. */
+  /* Resolve the opaque surface here, before a sheet changes surface to the group tint. */
+  --surface-opaque: var(--surface);
+  /* Diff removal stays the root danger, independently of a local error tint (the island). */
+  --diff-removal-ink: var(--danger);
+  /* Under the conversation while it still has text outside bubbles: the canvas at the glass's
+     effective opacity (lib/appearance.ts), so nothing reads straight off a wallpaper. */
+  --glass-plate: var(--canvas);
+
+  /* The Mac text preference: conversation size / 12 pt scales the chrome too. */
+  --scale: 1;
+  --conversation: 12px;
+  /* Markdown headings and code follow the conversation's own text size. */
+  --md-scale: var(--scale);
+
+  /* Grok Bot's motion. `--motion-hover` was `--hover` before the redesign: that name is now the
+     design system's hover fill. */
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  /* Arrivals: fast out, a long settle, no overshoot. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-hover: 0.12s var(--ease);
+  --fade: 0.12s var(--ease);
+  --press: 0.05s var(--ease);
+  --morph: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  /* Critically damped 0.3 s spring. */
+  --spring: linear(0, 0.0712, 0.2244, 0.3992, 0.5638, 0.7018, 0.8077, 0.8834, 0.9342, 0.9663, 0.9853, 0.9958, 1.0009, 1.0028, 1.0029, 1);
+  --layout: 0.3s var(--spring);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Foregrounds only, bounded by ink-2 in appearance.ts. The same selected rows exist without a
+   wallpaper and with reduced transparency, so the text variants apply in all three cases. Original
+   tokens still paint accents, status lights, badges and focus; sheets/menus outside these scopes keep
+   their original foregrounds. New layers/tints must be proved before joining these scopes. */
+:where(.sidebar, .detail) {
+  --text-accent: var(--legible-accent);
+  --text-attention: var(--legible-attention);
+  --text-danger: var(--legible-danger);
+  --text-success: var(--legible-success);
+}
+
+/* The accent the person chose (Aparência → Destaque). The base tokens hold Violeta; the default is Mexerica (D529),
+   written on <html> before the first paint. `accent-soft` keeps the token's alpha (10% light, 16% dark) over the chosen color. */
+[data-accent="mexerica"] { --accent: var(--accent-mexerica); }
+[data-accent="folha"] { --accent: var(--accent-folha); }
+[data-accent="verde"] { --accent: var(--accent-verde); }
+[data-accent="azul"] { --accent: var(--accent-azul); }
+[data-accent="jade"] { --accent: var(--accent-jade); }
+[data-accent="ambar"] { --accent: var(--accent-ambar); }
+[data-accent="rosa"] { --accent: var(--accent-rosa); }
+[data-accent="grafite"] { --accent: var(--accent-grafite); }
+[data-accent="laranja-claro"] { --accent: var(--accent-laranja-claro); }
+[data-accent="verde-claro"] { --accent: var(--accent-verde-claro); }
+:root[data-accent]:not([data-accent="violeta"]) {
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme="dark"][data-accent]:not([data-accent="violeta"]) {
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+/* The focus ring follows the accent: 2px of the ground, then 2px of the chosen accent (contrast defined by the palette). */
+:root[data-theme] {
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent);
+}
+
+/* More contrast asked by the system: strokes step up to the strong line. */
+@media (prefers-contrast: more) {
+  :root {
+    --line: var(--line-strong);
+  }
+}
+
+/* The type ramp (lib/fonts.ts maps the macOS style names onto it). It is declared again wherever
+   --scale is reset (the island stays at the default size), so it resolves against that scale.
+   11 px is the floor: nothing readable goes below caption. */
+:root,
+.island {
+  --text-large-title: calc(26px * var(--scale));
+  --text-title: calc(22px * var(--scale));
+  --text-title2: calc(17px * var(--scale));
+  --text-title3: calc(15px * var(--scale));
+  --text-body: calc(13px * var(--scale));
+  --text-callout: calc(12px * var(--scale));
+  --text-caption: calc(11px * var(--scale));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-hover: 0s;
+    --fade: 0s;
+    --press: 0s;
+    --morph: 0s;
+    --layout: 0s;
+  }
+}
+
+/* The space's wallpaper (Aparência → Fundo) under everything, then the veil that softens it.
+   Rendered only with a wallpaper chosen: the default, Nenhum, keeps the opaque app. The blur runs
+   on a layer larger than the window (2× the radius) so its edge never shows. */
+.app-wallpaper,
+.app-veil {
+  position: absolute;
+  pointer-events: none;
+}
+.app-wallpaper {
+  inset: calc(var(--wp-blur, 0px) * -2);
+  background: var(--wp-image, none) center / cover no-repeat var(--canvas);
+  filter: blur(var(--wp-blur, 0px));
+  transition: filter var(--morph);
+}
+/* Fork (Barra05, PR 2): o fundo desfocado numa camada própria. Sem isso, ele é pintado na camada raiz e cada
+   quadro de uma animação de largura (fixar o painel, a barra) repinta o desfoque da janela inteira; medido por
+   trace no fixar/soltar o painel, o raster cai ~43%. Custa uma textura do tamanho da janela, só com fundo. */
+html[data-wallpaper] .app-wallpaper {
+  will-change: transform;
+}
+.app-veil {
+  inset: 0;
+  background: var(--wallpaper-veil);
+}
+/* Glass: what floats on the wallpaper blurs and saturates it. Off without a wallpaper (nothing to
+   see through) and with reduced transparency, where every glass token is opaque. */
+html[data-wallpaper] .glass-panel {
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+}
+html[data-wallpaper] .glass-raised {
+  -webkit-backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .glass-panel,
+  html[data-wallpaper] .glass-raised {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* D169 (personalizacao.md, Transparência por área): with a wallpaper, the message box, the details panel
+   beside the conversation and the plate behind the messages take their area's glass from lib/appearance.ts
+   (the sidebar and rail already read theme glass). Only backgrounds change, never `opacity`, so text, icons,
+   controls, borders and focus stay as they are. Without a wallpaper none of this applies. `:root` keeps these
+   above the views' own rules without touching their files. */
+:root[data-wallpaper] .composer-surface {
+  background: var(--glass-composer, var(--glass-raised));
+}
+/* The wide window's details card; the compact one is a sheet and stays opaque, like every sheet. */
+:root[data-wallpaper] .bot-details-side-panel .bot-details-card {
+  background: var(--glass-details, var(--raised));
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+}
+/* Its corner buttons' band is no opaque plate over that glass: what scrolls fades out under it, as the
+   conversation does under its top. With keyboard focus on the scroll, the band takes the glass so the ring
+   shows whole. */
+:root[data-wallpaper] .bot-details-side-panel .bot-details-card > .details-actions {
+  background: transparent;
+}
+:root[data-wallpaper] .bot-details-side-panel .bot-details-card > .details-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 40px, #000 54px);
+  mask-image: linear-gradient(to bottom, transparent 40px, #000 54px);
+}
+:root[data-wallpaper] .bot-details-side-panel .bot-details-card > .details-scroll:focus-visible {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+:root[data-wallpaper] .bot-details-side-panel .bot-details-card:has(> .details-scroll:focus-visible) > .details-actions {
+  background: var(--glass-details, var(--raised));
+}
+/* Fundo da conversa: a canvas plate behind the messages, none at 100% (the conversation on the wallpaper).
+   It is the message column's own ground (the transcript frame), never the window's: the details panel
+   beside it and the message box under it keep only their own glass over the wallpaper (D169 R1-F1). It
+   fades in under the header like the messages do and ends at the top edge of the message box's dock. */
+:root[data-wallpaper] .conversation > .transcript-frame {
+  background: linear-gradient(to bottom,
+    transparent 0,
+    var(--glass-conversation, transparent) var(--chat-header-height, 108px),
+    var(--glass-conversation, transparent) calc(100% - var(--composer-height, 70px) - 24px),
+    transparent calc(100% - var(--composer-height, 70px)));
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-wallpaper] .bot-details-side-panel .bot-details-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+/* D169 (fundo contínuo): one picture under the whole window (`.app-wallpaper` is a single layer under
+   `.split`). With a wallpaper the docked sidebar is glass on it with no edge of its own: no ring or drop
+   shadow, and its resize edge draws no hairline. It takes no width either, so no 1px sliver of the bare
+   picture replaces the line. The grab area (`::after`) stays, and the keyboard ring shows at width 0, as on
+   the details panel's edge. The floating sidebar keeps its shadow over the conversation; without a wallpaper
+   nothing changes. */
+:root[data-wallpaper] .sidebar:not(.floating) {
+  box-shadow: none;
+}
+:root[data-wallpaper] .split > .resize-handle {
+  width: 0;
+  background: transparent;
+}
+:root[data-wallpaper] .split > .resize-handle:focus-visible {
+  outline-offset: 0;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  /* A janela não é um scroller, nem para focus()/scrollIntoView(). */
+  overflow: clip;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  /* macOS .body */
+  font-size: calc(13px * var(--scale));
+  line-height: normal;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+/* No scroll bars anywhere. */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: inherit;
+}
+/* Anything clickable shows the pointing hand; :where keeps it below each view's own cursor. */
+:where(button:not(:disabled), a[href], [role='button'], [role='tab'], [role='switch'], [role='menuitem'], [role='menuitemradio'], [role='option'], select, summary) {
+  cursor: pointer;
+}
+/* A drag in progress (lib/pointer-drag.ts, ResizeHandle) keeps its cursor wherever the pointer goes. */
+.pointer-dragging,
+.pointer-dragging *,
+.pointer-dragging *::after {
+  cursor: grabbing !important;
+}
+.col-resizing,
+.col-resizing *,
+.col-resizing *::after {
+  cursor: col-resize !important;
+}
+/* Focus: a 2px ring in the accent, drawn inside the element so a scrolling list never clips it;
+   the outline follows each element's own corners (rows, pills and cards stay round). */
+button:focus-visible,
+[role="separator"]:focus-visible,
+[role="radio"]:focus-visible,
+[role="option"]:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Filled controls (primary and destructive buttons, send, a selected icon): an inside ring would be the
+   fill's own color, so theirs stands 2px off, over the ground around them (D165 revisão A, F3). */
+:is(.styled-button, .dialog-button, .icon-button.selected, .composer-send, .composer-mic.on, .call-round, .nb-estado-botao, .nb-aba, .bot-template-copy, .update-badge):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button:disabled {
+  cursor: default;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  resize: none;
+}
+/* Placeholders sit on glass too (the message box): `ink-2`, since `ink-3` is for opaque ground only. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+::selection {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.2);
+}
+
+a {
+  color: inherit;
+}
+
+/* Layout and text primitives (components/Stack.tsx, Text.tsx). */
+.hstack {
+  display: flex;
+}
+.vstack {
+  display: flex;
+  flex-direction: column;
+}
+.spacer {
+  flex: 1;
+}
+.icon-slot {
+  flex: none;
+}
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Headings carry structure; each sets its own type with Text. */
+h1,
+h2,
+h3 {
+  margin: 0;
+  font: inherit;
+}
+
+/* The shared fade for views and rows that appear. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.fade-in {
+  animation: fade-in var(--fade) both;
+}
+
+/* Hover/press feedback shared by plain buttons (PressScale). */
+.press {
+  transition: transform var(--press);
+}
+.press:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

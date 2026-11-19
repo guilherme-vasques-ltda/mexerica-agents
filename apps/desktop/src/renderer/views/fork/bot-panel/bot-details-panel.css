@@ -1,0 +1,715 @@
+/* Barra05 (passo 15): o conteúdo da mesa no painel direito. Valores do protótipo
+   (docs/reference/design/times-lider-20261105/prototipo.html, .rp-*). */
+.rp-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 11px;
+  padding: 14px 12px 10px 14px;
+}
+.rp-face {
+  display: inline-flex;
+  line-height: 0;
+}
+.rp-who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.rp-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-role,
+.rp-meta {
+  font-size: 11.5px;
+  color: var(--context-ink-2, var(--ink-2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--presence);
+}
+.rp-state.s-running::before { background: var(--accent); }
+.rp-state.s-needsYou::before { background: var(--warning); }
+.rp-state.s-offline::before { background: var(--ink-2); opacity: 0.6; }
+.rp-acts {
+  display: flex;
+  gap: 2px;
+  align-self: start;
+}
+.rp-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-icon:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.rp-icon[aria-pressed='true'] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rp-call {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  margin: 0 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rp-call:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.rp-call:disabled {
+  opacity: 0.5;
+}
+.rp-head :focus-visible,
+.rp-call:focus-visible,
+.rpanel button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Agora, em destaque: cartão com o tom de destaque. */
+.rp-now {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 14px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.rp-now.shut {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.rp-now .now-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: left;
+}
+.rp-now .now-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.rp-now .now-sum {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-now .now-sum .ldot:not(:first-child) {
+  margin-left: 6px;
+}
+.chev {
+  display: inline-flex;
+  color: var(--context-ink-2, var(--ink-2));
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.rp-now .now-head .chev {
+  margin-left: auto;
+}
+[aria-expanded='false'] > .chev {
+  transform: rotate(-90deg);
+}
+.rp-now .now-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+.rp-now .now-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 6px;
+  width: 100%;
+  font-size: 12.5px;
+  line-height: 17px;
+  color: var(--ink);
+  text-align: left;
+}
+.rp-now .now-item .ldot.big {
+  margin: 5px 4px 0;
+}
+.rp-now .now-item > svg,
+.rp-now .now-item > span:first-child:not(.ldot) {
+  margin-top: 1px;
+  color: var(--warning);
+}
+.rp-now .now-item .now-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.rp-now .now-item .now-text b {
+  font-weight: 600;
+}
+.rp-now button.now-item:hover .now-text b {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rp-now .now-item .now-actions {
+  grid-column: 2;
+  display: flex;
+  gap: 6px;
+}
+.rp-now .now-free {
+  font-size: 12.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-mini {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--field);
+}
+.rp-mini:hover {
+  background: var(--hover);
+}
+
+/* Abas Sessões · Rotinas (· Membros · Configurações no canal). */
+.rp-seg {
+  display: flex;
+  gap: 2px;
+  margin: 14px 14px 6px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--field);
+}
+/* Barra cheia, abas iguais (dono, 07/11): a barra ocupa a largura útil do painel, alinhada a 14 px como Ligar e Agora,
+   e as abas dividem o espaço por igual. Faltando lugar (fonte maior, "Sessões 12"), o rótulo corta com reticências;
+   o número fica junto do rótulo e o ponto de não lidas fica sempre à vista. */
+.rp-seg button {
+  display: inline-flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px;
+  border-radius: 8px;
+  /* Dono, 07/11: texto menor (11 px, cresce com o tamanho do texto do sistema) para "Sessões 12" e "WhatsApp"
+     caberem inteiros em três abas iguais; as reticências ficam só de reserva. */
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-seg button .tx {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+}
+.rp-seg button .tx .l {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rp-seg button .n {
+  flex: none;
+  margin-left: 4px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-seg button[aria-selected='true'] {
+  background: var(--chip-on);
+  box-shadow: var(--shadow-chip);
+  color: var(--ink);
+  font-weight: 600;
+}
+/* Não lidas do WhatsApp: ponto de 6 px em accent (o número de "Sessões 2" é total, não novidade). */
+.rp-seg .wdot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.rp-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  padding: 2px 8px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.rp-body:hover,
+.rp-body:focus-within {
+  scrollbar-color: var(--line-strong) transparent;
+}
+.rp-body > .routines {
+  padding: 6px 6px 0;
+}
+.rp-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-new:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.rp-new .pl {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--field);
+}
+
+/* A árvore de sessões: o bot em cima e, presas pela linha guia de 1,5 px, as sessões em linhas de 30 px. */
+.stree {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+.srow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px 0 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  text-align: left;
+}
+.srow:hover {
+  background: var(--hover);
+}
+.srow.on {
+  background: var(--selected);
+  font-weight: 500;
+}
+.srow.root {
+  gap: 8px;
+  padding-left: 6px;
+}
+.srow.root .sn {
+  font-weight: 600;
+}
+.srow .sn {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srow .st {
+  flex: none;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.srow .sarch {
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -3px;
+  border-radius: 6px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* No hover, a hora vira Arquivar. */
+.srow:hover .st:has(+ .sarch) {
+  display: none;
+}
+.srow:hover .sarch {
+  display: grid;
+}
+.srow .sarch:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+.srow.done {
+  opacity: 0.62;
+}
+/* Proposta do dono, 07/11 (docs/reference/design/painel-recente-20261107): cada sessão em duas linhas; título e hora em cima,
+   estado e o que pede você (ou a última interação) embaixo. Pede você: fundo e texto no tom de aviso, como o Agora. */
+.srow.rich {
+  align-items: flex-start;
+  height: auto;
+  min-height: 44px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.srow.rich > .ldot {
+  margin-top: 5px;
+}
+.srow .sbody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.srow .sl1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.srow .sd {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.srow .sdst {
+  flex: none;
+  font-weight: 600;
+}
+.srow .sdst::after {
+  content: '·';
+  margin-left: 5px;
+  font-weight: 400;
+}
+.srow .sdtx {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srow.need {
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+.srow.need:hover {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+.srow.need .sd {
+  color: var(--warning);
+}
+.skids {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-left: 20px;
+}
+.skids::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: -4px;
+  bottom: 15px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+.skids.flat {
+  padding-left: 0;
+}
+.skids.flat::before {
+  display: none;
+}
+.ch-hash.sm {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+.rp-fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin-top: 8px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rp-fold:hover {
+  color: var(--ink);
+}
+
+/* Canal: cabeçalho com o # num quadrado de 44 px; Membros e Configurações. */
+.ch-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--ink-2);
+}
+.mb-head {
+  margin: 12px 8px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.mb-item {
+  position: relative;
+}
+.mb-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 9px;
+  text-align: left;
+}
+button.mb-row:hover {
+  background: var(--hover);
+}
+.mt2 {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.n2 {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.r2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--context-ink-2, var(--ink-2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.r2-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mb-av {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.mb-pill {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.mb-pill.lead {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+/* No hover, o "×" tira do canal no lugar da pílula; o do líder fica desligado, com a dica. */
+.mb-x {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--context-ink-2, var(--ink-2));
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  opacity: 0;
+  transform: translateY(-50%);
+}
+.mb-item:hover .mb-x,
+.mb-x:focus-visible {
+  opacity: 1;
+}
+.mb-item:hover .mb-pill {
+  visibility: hidden;
+}
+.mb-x:hover:not(:disabled) {
+  color: var(--ink);
+}
+.mb-x:disabled {
+  cursor: not-allowed;
+  color: var(--ink-3);
+}
+.mb-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.mb-add:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.mb-add .pl {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 8px 0;
+}
+.fld > span {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.fld input,
+.fld textarea {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--line);
+  outline: 0;
+  resize: vertical;
+}
+.fld input:focus,
+.fld textarea:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.fld-hint {
+  margin: -2px 0 4px;
+  font-size: 11.5px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.fld-error {
+  margin: 10px 8px 0;
+  font-size: 12px;
+  color: var(--danger, var(--warning));
+}
+.ld-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 9px;
+  text-align: left;
+}
+.ld-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.ld-row.on {
+  background: var(--selected);
+}
+.ld-none {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--ink-2);
+}
+.ld-row .rd {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  transition: box-shadow 0.15s;
+}
+.ld-row.on .rd {
+  box-shadow: inset 0 0 0 5px var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chev,
+  .ld-row .rd {
+    transition: none;
+  }
+}
+.rp-now .hold-button,
+.rp-now .hold-button.primary {
+  min-height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}

@@ -1,0 +1,1139 @@
+{
+  "about": "Codync relay protocol v1 (spec rev 2) test vectors. All binary values are base64url without padding. Private keys are 32-byte seeds/scalars.",
+  "keys": {
+    "hostSignSeed": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+    "hostSignPub": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+    "hostBoxPriv": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+    "hostBoxPub": "zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+    "deviceSignSeed": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+    "deviceSignPub": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E",
+    "computerId": "NHUPmL1Z_PyUbaRaqr6TOw"
+  },
+  "handshake": {
+    "deviceEphPriv": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+    "deviceEphPub": "rAGyIJ6GNU-4UyN7XeD0-rE8f8v0M6YcAZNpYX_s8Qs",
+    "hostEphPriv": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+    "hostEphPub": "UKYUCbHd0DJemxa3AOcZ6XcsBwALG9d4bpB8ZT0gSV0",
+    "n": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+    "hs1SignInput": "Y29keW5jL2hzMS92MTR1D5i9Wfz8lG2kWqq-kzvtSSjGKNHCxurpAziQWZVhKVknOlxj-TY2wUYUrIc30awBsiCehjVPuFMje13g9PqxPH_L9DOmHAGTaWF_7PELBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+    "hs1Sig": "7F0tTLaOB5xiRkBtZ5qnqVitvXGT4TJh6WVmAxhX9zfN3M_HCZEKcaOcDrwFUhAQVlbqrIW2EKlEC-pSmnC9Bw",
+    "transcriptHash": "Izf0n0agxBlQtGgceW_Kg92x36o7eECmXx1gq6akjEQ",
+    "hs2Sig": "uuLbU1qoC5QVTFiUshIAgvfqfsiG1L8By0JLFKdvUHbtIcZI3C0FQ-gAK-dcoVnR04kpcVts4cqYyGhLN-aGCw",
+    "sharedSecret": "WFV1gOHNAQ2R6bm_vIrq8ARYNa0kD15AN6i6DRpQJQ4",
+    "prk": "2dhjsdsI1b_jaotlvs-J5EbUJguOrqmdIfXw6x_DdnY",
+    "kD2H": "1HJ_53qNQs1iYvYSgA6TICF9PXYnWqTttX50iKDak6g",
+    "kH2D": "ufkpFHql7P2nGlgxMnLUkfj2rndwSyYkV6qBXQYaBwk"
+  },
+  "frames": [
+    {
+      "dir": "d2h",
+      "c": 0,
+      "final": true,
+      "message": "{\"id\":1,\"m\":\"hello\",\"b\":{}}",
+      "plaintext": "AHsiaWQiOjEsIm0iOiJoZWxsbyIsImIiOnt9fQ",
+      "d": "msFbawc5vuzGzQ2jEFqHufWb4Sd_psneSeURptNDkZlg_QdiJ4xQrmkmKv4"
+    },
+    {
+      "dir": "h2d",
+      "c": 0,
+      "final": true,
+      "message": "{\"id\":1,\"ok\":{\"name\":\"Mac\"}}",
+      "plaintext": "AHsiaWQiOjEsIm9rIjp7Im5hbWUiOiJNYWMifX0",
+      "d": "aRQzFj9U3b0gaEI0BPe9aIN_ZrYg7z-9vxCYxaNWh0mO88lc3ui4z77mh9ad"
+    },
+    {
+      "dir": "d2h",
+      "c": 1,
+      "final": false,
+      "message": "{\"id\":2,\"m\":\"se",
+      "plaintext": "AXsiaWQiOjIsIm0iOiJzZQ",
+      "d": "T_ah29RGkMAVrbIAaAskC_TRqsk2cZ4_9R_UZPdxNmk"
+    }
+  ],
+  "sas": {
+    "deviceNonce": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo",
+    "hostNonce": "CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+    "commit": "DYyvV-_e0NX_aq9NHh9_hexs6X7Q9zozrrV_4XgaDmk",
+    "code": "919055"
+  },
+  "accessConfirm": {
+    "about": "MX-149: code the computer shows after saving an approval; uses keys.hostSignPub, keys.deviceSignPub and the sas nonces. wrongKeyCode uses deviceSignPub in place of hostSignPub.",
+    "requestId": "req_vector_1",
+    "code": "244257",
+    "otherRequestId": "req_vector_2",
+    "otherCode": "729851",
+    "wrongKeyCode": "050343"
+  },
+  "claim": {
+    "claimId": "clm_AAAAAAAAAAAAAAAAAAAAAA",
+    "nonce": "DAwMDAwMDAwMDAwMDAwMDA",
+    "userId": "user_2abc",
+    "computerId": "NHUPmL1Z_PyUbaRaqr6TOw",
+    "boxKey": "zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+    "canonical": "codync/claim/v1\nclm_AAAAAAAAAAAAAAAAAAAAAA\nDAwMDAwMDAwMDAwMDAwMDA\nuser_2abc\nNHUPmL1Z_PyUbaRaqr6TOw\nzo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+    "sig": "PcyiODIPeoD-QQMPInP1cyeutGpZa5gx9v5ako5VUpiGqVpjNZ_rbVygjnFEk71Qccu6E1Pp7jByp1b7FgZqAg"
+  },
+  "push": {
+    "pushPriv": "DAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+    "pushPub": "l8OxC01sEzp46l3MHPZCHT-Brjex9ijOFMpvzncw8zM",
+    "ephPriv": "DQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0",
+    "ephPub": "sweuhmDvrtTWpl9mQIlokupKHwB1VVxInRMSouFnfCg",
+    "sharedSecret": "st-FN3PPuxd81A7OMYloqcdkTOQVUxVLKXbvq9X4gy4",
+    "key": "L-Qewn801bLGsFMtGGhRzSeO_3rvf9iE7gvfZYdItbc",
+    "plaintext": "{\"title\":\"Reviewer\",\"body\":\"Run cargo test --all?\"}",
+    "sealed": "sweuhmDvrtTWpl9mQIlokupKHwB1VVxInRMSouFnfCgCZ8_grq-NNgg0Hluwk_c4tGIEcdY8N9JFqwH1LSn_rrQ3WjWwJoA70jCx_CLV8uIkxfDuP_Y0KBoFuqHRciLzJGga"
+  },
+  "pairing": {
+    "code": "CAgICAgICAgICAgICAgICA",
+    "offerId": "kO-TaDO8k1QnECGLj3N78A"
+  },
+  "mailbox": {
+    "ephPriv": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+    "ephPub": "E75P6uryBMf9M1j8nAByGIHRdCeBKCJ-xnTzf3_pe20",
+    "clientNonce": "3F2504E0-4F89-11D3-9A0C-0305E82C3301",
+    "sharedSecret": "WG952knp7uq_wxJyfAEyBevU2AAPUHJajs56QBlVmik",
+    "key": "qlg6JHw_7N4scGwdrFWnUHmtiPvzFiXKxnXGbTmUnEE",
+    "plaintext": "{\"m\":\"send\",\"b\":{\"botId\":\"b1\",\"text\":\"hi\",\"clientNonce\":\"3F2504E0-4F89-11D3-9A0C-0305E82C3301\"},\"ts\":1790000000000}",
+    "ciphertext": "A6jcZA_zeme5U7SVSHdZeDGyFxiQsGXSWnCqc4BVS6gmyCqNpP8z3YbI6rRwMduLloB97ouQMs6Ffkj8b76Rxvmj3IdJOhUBrmYYDxCQLgTaeWbQ-huBE0oT8mmnJvN_cwJLrnnlZRB35h2EjZJjYbz82sFLQ8sATZg_umR5YxYAwog",
+    "sig": "c1pqDRq0IiuUlnP7rhRTrvh0WGPGTGGKqYprLZoVFLHYyRh7QeGqqz0xdI52a0ssY7rY-RHodfxtEVgwwcR4Dw",
+    "blob": "E75P6uryBMf9M1j8nAByGIHRdCeBKCJ-xnTzf3_pe21zWmoNGrQiK5SWc_uuFFOu-HRYY8ZMYYqpimstmhUUsdjJGHtB4aqrPTF0jnZrSyxjutj5Eeh1_G0RWDDBxHgPA6jcZA_zeme5U7SVSHdZeDGyFxiQsGXSWnCqc4BVS6gmyCqNpP8z3YbI6rRwMduLloB97ouQMs6Ffkj8b76Rxvmj3IdJOhUBrmYYDxCQLgTaeWbQ-huBE0oT8mmnJvN_cwJLrnnlZRB35h2EjZJjYbz82sFLQ8sATZg_umR5YxYAwog"
+  },
+  "requestSig": {
+    "method": "GET",
+    "authority": "codync-cloud-staging.example.workers.dev",
+    "pathAndQuery": "/v1/relay/device/NHUPmL1Z_PyUbaRaqr6TOw?v=1",
+    "ts": 1790000000000,
+    "nonce": "CQkJCQkJCQkJCQkJCQkJCQ",
+    "bodySha256": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+    "canonical": "codync-sig-v1\nGET\ncodync-cloud-staging.example.workers.dev\n/v1/relay/device/NHUPmL1Z_PyUbaRaqr6TOw?v=1\n1790000000000\nCQkJCQkJCQkJCQkJCQkJCQ\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+    "sig": "mVB9S1-w-cbCdvnhUlKSE2BDPL1nhlAsk5nTZWcVNEb9_-czaBck0eDSJvLLh25YgG11I1zqA0CHKUoGEKu2DA",
+    "header": "Codync-Sig: v=1,kid=7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E,ts=1790000000000,nonce=CQkJCQkJCQkJCQkJCQkJCQ,sig=mVB9S1-w-cbCdvnhUlKSE2BDPL1nhlAsk5nTZWcVNEb9_-czaBck0eDSJvLLh25YgG11I1zqA0CHKUoGEKu2DA"
+  },
+  "acl": {
+    "json": "{\"v\":1,\"computerId\":\"NHUPmL1Z_PyUbaRaqr6TOw\",\"ver\":1,\"devices\":[{\"dk\":\"7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E\",\"grant\":null}],\"offers\":[{\"id\":\"kO-TaDO8k1QnECGLj3N78A\",\"exp\":1790000600000}]}",
+    "d": "eyJ2IjoxLCJjb21wdXRlcklkIjoiTkhVUG1MMVpfUHlVYmFSYXFyNlRPdyIsInZlciI6MSwiZGV2aWNlcyI6W3siZGsiOiI3VWtveGlqUndzYnE2UU00a0ZtVllTbFpKenBjWV9rMk5zRkdGS3lITjlFIiwiZ3JhbnQiOm51bGx9XSwib2ZmZXJzIjpbeyJpZCI6ImtPLVRhRE84azFRbkVDR0xqM043OEEiLCJleHAiOjE3OTAwMDA2MDAwMDB9XX0",
+    "sig": "y0Nxt8C-i61TVgZwiLIId70FrkMkMdsLXHiEvPpPfXZFP443QGbAUfrD0HESW93Dmje-N8Rk1nDA3yK3fM5vCQ"
+  },
+  "webhookSealedV1": {
+    "fields": [
+      "fixture-deployment",
+      "fixture-hub",
+      "fixture-hook",
+      "fixture-delivery"
+    ],
+    "hubSecret": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+    "hubPublic": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+    "ephemeral": "zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk",
+    "nonce": "AwMDAwMDAwMDAwMD",
+    "plaintext": "Zml4dHVyZSB3ZWJob29rIGJvZHk",
+    "ciphertext": "1TFuuOs-c32NZetnQvYAel7J3uSiEFtpVYSoUOcw6VvOqEdL"
+  },
+  "personalBootstrap": {
+    "about": "PL1 C1: somente manifesto/contexto públicos sintéticos; não é artefato admitido ou instalação real.",
+    "manifest": {
+      "schema": 3,
+      "deploymentId": "fixture_personal_c1",
+      "env": "dev",
+      "issuer": "https://clerk.example.invalid",
+      "origin": "https://cloud.example.invalid",
+      "accountId": "00000000000000000000000000000000",
+      "workerScript": "personal-vector",
+      "d1DatabaseId": "00000000-0000-4000-8000-000000000001",
+      "relayNamespaceId": "11111111111111111111111111111111",
+      "relayClass": "ComputerRelay",
+      "relayScript": "personal-vector",
+      "relayEnvironment": "dev",
+      "relayWitnessName": "donna/deployment/v4/fixture_personal_c1",
+      "relayWitnessId": "2222222222222222222222222222222222222222222222222222222222222222",
+      "schemaVersion": 7,
+      "bootstrap": {
+        "issuerKeyId": "operator_vector",
+        "issuerPublicKey": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w"
+      },
+      "personalBootstrap": {
+        "profile": "personal-linux-v1",
+        "wire": 1,
+        "issuerKeyId": "personal_vector",
+        "issuerPublicKey": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E"
+      }
+    },
+    "manifestCanonical": "{\"schema\":3,\"deploymentId\":\"fixture_personal_c1\",\"env\":\"dev\",\"issuer\":\"https://clerk.example.invalid\",\"origin\":\"https://cloud.example.invalid\",\"accountId\":\"00000000000000000000000000000000\",\"workerScript\":\"personal-vector\",\"d1DatabaseId\":\"00000000-0000-4000-8000-000000000001\",\"relayNamespaceId\":\"11111111111111111111111111111111\",\"relayClass\":\"ComputerRelay\",\"relayScript\":\"personal-vector\",\"relayEnvironment\":\"dev\",\"relayWitnessName\":\"donna/deployment/v4/fixture_personal_c1\",\"relayWitnessId\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"schemaVersion\":7,\"bootstrap\":{\"issuerKeyId\":\"operator_vector\",\"issuerPublicKey\":\"iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\"},\"personalBootstrap\":{\"profile\":\"personal-linux-v1\",\"wire\":1,\"issuerKeyId\":\"personal_vector\",\"issuerPublicKey\":\"7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E\"}}",
+    "manifestHash": "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+    "context": [
+      "personal-linux-v1",
+      1,
+      "dev",
+      "https://cloud.example.invalid",
+      "https://clerk.example.invalid",
+      "fixture_personal_c1",
+      "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+      "personal_vector"
+    ],
+    "contextCanonical": "[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"]",
+    "contextHash": "6e047595176d868d148c55a2825ee390d5006c98079fd6896f7867275f267f84",
+    "wireVectors": {
+      "about": "Artefato público sintético C2, gerado offline só com node:crypto; sementes repetidas descartáveis, jamais admissão real.",
+      "now": 1800000000100,
+      "keys": {
+        "issuer": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E",
+        "app": "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+        "hub": "kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo",
+        "box": "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM"
+      },
+      "seeds": {
+        "issuer": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+        "app": "CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+        "hub": "DQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0",
+        "box": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "ephemeral": "ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM"
+      },
+      "tuple": [
+        [
+          "personal-linux-v1",
+          1,
+          "dev",
+          "https://cloud.example.invalid",
+          "https://clerk.example.invalid",
+          "fixture_personal_c1",
+          "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+          "personal_vector"
+        ],
+        "intent_c2",
+        "command",
+        "d3882a9cc26873875d637f01037e975503a71be36fa0930e663aaa202a3259ae",
+        "8c88cd1c988ff4299492945d3509408c231f8395772b92dfb83187da44e1b4ed",
+        "owner_c2",
+        "device_c2",
+        "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+        "FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU",
+        "candidate_c2",
+        "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY",
+        "3v5jMPePzBHv0PsoYU8NKQ",
+        "kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo",
+        "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+        "FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc",
+        "first-owner",
+        1,
+        1800000000000,
+        1800000500000
+      ],
+      "tupleHash": "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+      "packet": {
+        "intent": [
+          [
+            "donna/personal-linux/intent/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "command",
+            "owner_c2",
+            "device_c2",
+            "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+            "FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU",
+            1800000000000,
+            1800000500000,
+            1
+          ],
+          "xINWEAu3pmwn4TcVCr64IwLdFfz1YGY-HTB77KXcWroY4GwYDC50KsdKdgZioaPS0PjvVVAAHhDQ3U-dt4e_Bw"
+        ],
+        "local-ticket": [
+          [
+            "donna/personal-linux/local-ticket/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "command",
+            "candidate_c2",
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY",
+            "3v5jMPePzBHv0PsoYU8NKQ",
+            "kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo",
+            "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+            "FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc",
+            "first-owner",
+            1800000000000,
+            1800000500000
+          ],
+          "vIAmSbdj6yx-mOt46c15IDIfNQo6VEPtcLxPPktJgo4QazPA87C_47-dLIaDh-hv4II5-3wWd8dbDUpvgsuPAw"
+        ],
+        "create": [
+          [
+            "donna/personal-linux/create/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU",
+            "command",
+            1800000000000,
+            1800000500000
+          ],
+          "efWZ-oftPWaOJRe_vleNpeWQIVrPuRCmL2VmYbVW40XRLMWz_8zd5Xt8AhUbqoE0ANiMZ6-aySe-0VVmZWNeDw"
+        ],
+        "app-consent": [
+          [
+            "donna/personal-linux/app-consent/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "independent-identity-v1",
+            "approve",
+            1800000000001,
+            1800000500000
+          ],
+          "SemKzxB3_3A4v5yNjCUgxy5swE03XTILOzpboJQwo9akcfz0g-jwyHKAgyWqc6sLDHReQxQLpgDME1uxZlliDA"
+        ],
+        "local-consent": [
+          [
+            "donna/personal-linux/local-consent/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "51b81b446de3fe62e649691f5a93fc7eb0e1c2e917e6fbb667446f7c77b99244",
+            "approve",
+            "GBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBg",
+            1800000000002,
+            1800000500000
+          ],
+          "SdXo8OxfiDuO5Tj939Wxec-oOWa9NiKLDSypTJ3Gaba-A5rUQ65W50-ygKJTKSZvPvrAUY-BR6T2qptnVaFFCA"
+        ],
+        "box-challenge": [
+          [
+            "donna/personal-linux/box-challenge/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "51b81b446de3fe62e649691f5a93fc7eb0e1c2e917e6fbb667446f7c77b99244",
+            "47fd131d673765b6789beb179b73754d30560e5dd371d80a765bf00c54aba036",
+            "GhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGho",
+            "GX_CxWfcA-4qrfDthmgdrCTap26DylVYdd075zduUwY",
+            "918bffd1511b20905289f73552a9a592b645da211514b15c2bec112cb351b12f",
+            "z2WniansfJWrHoGPgDJrEN5IFyaDeXRIwQ9Qniz88RxYe-gMQVI8Y_s3D-vhcfCKAnVIQ7-cpLT7ZZTXbz0HLg6Q3NxL_Ok0Lt1Fsnxdx6ynD8ZpPZiwxxNNuLS4oXqNThlFCkhSWrMg4CYJX-_BllEZus8m0h5KYWO1KgjOnE7Zz-o3eJbQ-qvlmZmHaDWzcWLAAMcQBBjtf9-l1fcQGGpCIsuMyvAcWaUIqjm80zGY",
+            1800000000003,
+            1800000050000
+          ],
+          "y2LhZ8gQ9w_3udWMMAgMDFM-3dnwWJsvsbH4Zh2ndPtIg_3LXHOw696h17LUizcLPacXCbS11ivWocCzFchiCw"
+        ],
+        "box-proof": [
+          [
+            "donna/personal-linux/box-proof/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1",
+            "GRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRk",
+            "GxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxs",
+            1800000000004,
+            1800000050000
+          ],
+          "H8XkV_pKzrMlnbdXGxVoVHHG5vyOtXlAW1aJ5mteN_Sare9Sg2h7MO0XNzVmUE0B_4BtPFUo0bKbNMHEGmLBBA"
+        ],
+        "approve": [
+          [
+            "donna/personal-linux/approve/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1",
+            "3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880",
+            "independent-identity-v1",
+            "approve",
+            1800000000005,
+            1800000050000
+          ],
+          "eKtqWqghhN2ER7KV4d4VYUwSbAnxTUAxsBmMuwyD7jvJ4_cMAIdB3GoAW3uPVj1VyOZeuXG4Cu8f_sDw4p7bCg"
+        ],
+        "local-confirm": [
+          [
+            "donna/personal-linux/local-confirm/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec",
+            "3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880",
+            "approve",
+            "HBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw",
+            1800000000006,
+            1800000050000
+          ],
+          "hCjTPJLce0ODI8XxQ-zxXRMfBLRpjzlW1LxzB6zfcQ2YZxCu0ixMQAEABmPT2gUbVyhRUwzix164mtUbUVqTBQ"
+        ],
+        "consume": [
+          [
+            "donna/personal-linux/consume/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec",
+            "7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71",
+            1,
+            "consume_c2",
+            1800000000007,
+            1800000050000
+          ],
+          "t9PdLx6nWaPA4lBE-TdvAIefq_zWp0fQ8XTcik3xGYWBzmwD87O8pAf3p65H6dAvlEMeNDXqz1Us2J6UPq18Bw"
+        ],
+        "grant": [
+          [
+            "donna/personal-linux/grant/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            [
+              [
+                "personal-linux-v1",
+                1,
+                "dev",
+                "https://cloud.example.invalid",
+                "https://clerk.example.invalid",
+                "fixture_personal_c1",
+                "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+                "personal_vector"
+              ],
+              "intent_c2",
+              "command",
+              "d3882a9cc26873875d637f01037e975503a71be36fa0930e663aaa202a3259ae",
+              "8c88cd1c988ff4299492945d3509408c231f8395772b92dfb83187da44e1b4ed",
+              "owner_c2",
+              "device_c2",
+              "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+              "FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU",
+              "candidate_c2",
+              "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY",
+              "3v5jMPePzBHv0PsoYU8NKQ",
+              "kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo",
+              "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+              "FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc",
+              "first-owner",
+              1,
+              1800000000000,
+              1800000500000
+            ],
+            "01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1",
+            "3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880",
+            "43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec",
+            "7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71",
+            "4f8c9930ad78fa4ead5f1099705e3310b20cdea33ce759affa08f0dae697bef6",
+            "HR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0",
+            1800000000010,
+            1800000250000,
+            [
+              "control",
+              "owner.devices"
+            ]
+          ],
+          "JJ4_gH1Yavaohn9QDoKJ62TbfHP80a1x2iTnr4JFc9-utz0AX5Ay0_hrMh7rfZg9cBChvPmPPIyvjxqBXbpHDA"
+        ],
+        "challenge": [
+          [
+            "donna/personal-linux/challenge/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4",
+            1800000000011,
+            1800000040000
+          ],
+          "yRUJDYR7Nwp66hZeYQTumHA2tHOzrwzWLhu0QcvAZ4Rhe_JQUHqFbSqIw7zReNOohe4OFFIfBdhKtekA-lZfDg"
+        ],
+        "proof": [
+          [
+            "donna/personal-linux/proof/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "40d44554b28ab467f1146191504ef85c4b777d324f8b1f24039cb3046e49a18b",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec",
+            "7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71",
+            1800000000012,
+            1800000040000
+          ],
+          "kXj_KAeoiOHD_6mfTEEh9Raq0y-1eb7u1SKceMe_MIhFMVBb0Go_aQG_My-9sP7LL3LLGUlp-IoTN3GJ72m2Aw"
+        ],
+        "receipt": [
+          [
+            "donna/personal-linux/receipt/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "40d44554b28ab467f1146191504ef85c4b777d324f8b1f24039cb3046e49a18b",
+            "d8e82597bacf6cbc6a400df7ad145437c98bed4e6700e51bef460e1be56997ad",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            1800000000013,
+            2,
+            1,
+            "2367fa9902ebdef7f532d1e74cd284d678031761aa9a8162e7c5a473b2eab07c",
+            "d8763fe0c7d000615be9ef2f18981363ce1679a8e6b4f2fe4192da8676f4f8ad"
+          ],
+          "rQ3GuZQrL0u8FsE34mdQECUgb1hdD5GOeiz-EMVcF_PpqcUPE0h6ovY77h2NVXkVMQa8PMhbP0CEmSx2D6bQAg"
+        ],
+        "publish": [
+          [
+            "donna/personal-linux/publish/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            3,
+            "publish_c2",
+            1800000000014,
+            1800000020000
+          ],
+          "SLp_n30MU4RHmzp3fXF-_k1Nwjqee6qgZt-E9UL7uInQK_EBOlMl_xNzhkNOada2-_oYuUBOfNe5g5aGftdsDQ"
+        ],
+        "host-state-request": [
+          [
+            "donna/personal-linux/host-state-request/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            "Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8",
+            1800000000015,
+            1800000025000
+          ],
+          "Qly1K4y9n7jpdjLGkxk3eY9t-yT-CynDD6sVu7VC3F3g0KO7Xd6WIDxkXFfLesxcBRVsPgn1_3CyvQoOpItrAQ"
+        ],
+        "host-state": [
+          [
+            "donna/personal-linux/host-state/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            "65e9717b7486b56bf862f179da96800e593eb8bcf42acb440538722c092269f5",
+            "owner_c2",
+            "device_c2",
+            "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+            "3v5jMPePzBHv0PsoYU8NKQ",
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY",
+            [
+              "control",
+              "owner.devices"
+            ],
+            1,
+            0,
+            "Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8",
+            1800000000016,
+            1800000200000
+          ],
+          "ahIn8IyYpQ8CFEoUcXvcHQ0KeLaVWJZrhpR1PJqfTfRbsF-n90sP_iPOO-14ieuR2xPvCgyZ07rocJDUk2F8Ag"
+        ],
+        "activation": [
+          [
+            "donna/personal-linux/activation/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            "owner_c2",
+            "device_c2",
+            "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+            "3v5jMPePzBHv0PsoYU8NKQ",
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY",
+            3,
+            2,
+            "47c73050afe33ebf821228ea9e80357c4395d14ed9dd5f968987c1fb5b43bbd5",
+            1800000000017,
+            1800000200000,
+            [
+              "control",
+              "owner.devices"
+            ]
+          ],
+          "XFDWDSVSJuxR-HgRsS_SWSgbI0rPv3kPWQ786yOgDkm73eCqB5v0QTDsW2eOYqQ8Zj7gUONUi2MX5Mk69L0uBA"
+        ],
+        "channel-open": [
+          [
+            "donna/personal-linux/channel-open/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "device",
+            "use",
+            "3v5jMPePzBHv0PsoYU8NKQ",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+            "ICAgICAgICAgICAgICAgIA",
+            "/v1/personal-relay/device",
+            "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISE",
+            1800000000018,
+            1800000020000
+          ],
+          "0qYIj-wBAXhYo_Bb9HicHNZn358dlcIOcoqZzAeLScTg8rTcqAeWP1tfIm2m0-nG3M7oDvu1lHe8RGuYbY3bBw"
+        ],
+        "revoke": [
+          [
+            "donna/personal-linux/revoke/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "revoke_c2",
+            "ownerRevoked",
+            1800000000024,
+            1800000020000
+          ],
+          "ENAa3UGp3OTUmS8pE70fY878SQDzkj1VqawhTmj9_8L6oMZ3CBSsizEuNpzHBpwQee-jMtTG6etui5LZTP1bDQ"
+        ],
+        "fence": [
+          [
+            "donna/personal-linux/fence/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            1,
+            "ownerRevoked",
+            1800000000025
+          ],
+          "MrGWkfCuA98bUEu2fK5-JCWxFvcU1hx6wc0RtKjPFlIZZh1aojZjXOc5jfTQLeVmgMb3bhvvf0gK_NUC-ZAsCg"
+        ],
+        "revocation": [
+          [
+            "donna/personal-linux/revocation/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            4,
+            3,
+            "e6e483a34e46e2a7fa8c1784b12a41677884f70631c263506c44460f011ad85a",
+            1800000000026,
+            "ownerRevoked"
+          ],
+          "y97oo6GjffNu89Q9EGAQbIKqzxtIZr2LLv-qKnRbMAz25hhQjESZi_O3EIAmQDVkkvO-mkZrx5p9TdCyiSVtCQ"
+        ],
+        "fence-ack": [
+          [
+            "donna/personal-linux/fence-ack/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "2aa7976a0da39d4136c07e1d97d210ba931725d625e4cbbca48fba02c58f6bcd",
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            4,
+            3,
+            "e6e483a34e46e2a7fa8c1784b12a41677884f70631c263506c44460f011ad85a",
+            1800000000027
+          ],
+          "lfubSpMbT4LcJPPatGu3mX-qQOFG4qR469FWf_SmnRQeqpYDN0zxsEBzWZ7pkKBP-F3rvLYRnGM0ggnGJ9zmCw"
+        ],
+        "cancel": [
+          [
+            "donna/personal-linux/cancel/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            1,
+            "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+            1800000000028,
+            1800000020000
+          ],
+          "TEsM4bRejuOHnPEN0U6WidTujFrwm8YEI8l6_2-X9FP9zkkBbtdZbOhklg0Y9FEe6G2t0v34T--J7eDP8VVsAA"
+        ],
+        "read": [
+          [
+            "donna/personal-linux/read/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "candidate_c2",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "IyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyM",
+            1800000000029,
+            1800000020000
+          ],
+          "9yt2jLKyc4fXWjBg_0l8wJ9WeCYvWhEiyE8-I27rFJoOBr4PJC9yyGsaW60oImq0OJFhTmSo1WwHmGK8tFzyAg"
+        ],
+        "state": [
+          [
+            "donna/personal-linux/state/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_c2",
+            "candidate_c2",
+            "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+            "revoked",
+            6,
+            "grt_FBQUFBQUFBQUFBQUFBQUFA",
+            "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+            "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+            null,
+            "1d58db7b92bd783a851e6584d995f161b04595569881f807154876a8b9f524ef",
+            "2aa7976a0da39d4136c07e1d97d210ba931725d625e4cbbca48fba02c58f6bcd",
+            "e15ff175638033478d0ddd3158f6b47c01ad4761cf0b7fa6229ec000258c671b",
+            "IyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyM",
+            1800000000030,
+            1800000250000
+          ],
+          "FkRlG4yrvzO3HkHDbi9nqmIo9ffbi9cG5AdZ9hLZzNEu1rFznXu8wme_6n6UlDVXolAYzcCEAoDKxaS6KJsUBQ"
+        ],
+        "time-request": [
+          [
+            "donna/personal-linux/time-request/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ",
+            "3v5jMPePzBHv0PsoYU8NKQ"
+          ],
+          "eoYYPCDZCZtxORg2uJcEcnCTk-8qZln1cZLwtYjLm63CFvoqbBiV0Oiros33-EIA3KBNYouL953uQHrL4TFQAg"
+        ],
+        "time": [
+          [
+            "donna/personal-linux/time/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ",
+            "3v5jMPePzBHv0PsoYU8NKQ",
+            1800000000031,
+            300000
+          ],
+          "LEhJuJx2bSb4PH8Tee0hVhDfOZss7pJoMwh9vd8bjP_R8eJ9MglnNHorFJmU_nXaLOptgWlioTgYz9NFajljAQ"
+        ]
+      },
+      "packetCanonical": "{\"intent\":[[\"donna/personal-linux/intent/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"command\",\"owner_c2\",\"device_c2\",\"Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo\",\"FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU\",1800000000000,1800000500000,1],\"xINWEAu3pmwn4TcVCr64IwLdFfz1YGY-HTB77KXcWroY4GwYDC50KsdKdgZioaPS0PjvVVAAHhDQ3U-dt4e_Bw\"],\"local-ticket\":[[\"donna/personal-linux/local-ticket/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"command\",\"candidate_c2\",\"FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY\",\"3v5jMPePzBHv0PsoYU8NKQ\",\"kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo\",\"e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM\",\"FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc\",\"first-owner\",1800000000000,1800000500000],\"vIAmSbdj6yx-mOt46c15IDIfNQo6VEPtcLxPPktJgo4QazPA87C_47-dLIaDh-hv4II5-3wWd8dbDUpvgsuPAw\"],\"create\":[[\"donna/personal-linux/create/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU\",\"command\",1800000000000,1800000500000],\"efWZ-oftPWaOJRe_vleNpeWQIVrPuRCmL2VmYbVW40XRLMWz_8zd5Xt8AhUbqoE0ANiMZ6-aySe-0VVmZWNeDw\"],\"app-consent\":[[\"donna/personal-linux/app-consent/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"independent-identity-v1\",\"approve\",1800000000001,1800000500000],\"SemKzxB3_3A4v5yNjCUgxy5swE03XTILOzpboJQwo9akcfz0g-jwyHKAgyWqc6sLDHReQxQLpgDME1uxZlliDA\"],\"local-consent\":[[\"donna/personal-linux/local-consent/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"51b81b446de3fe62e649691f5a93fc7eb0e1c2e917e6fbb667446f7c77b99244\",\"approve\",\"GBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBg\",1800000000002,1800000500000],\"SdXo8OxfiDuO5Tj939Wxec-oOWa9NiKLDSypTJ3Gaba-A5rUQ65W50-ygKJTKSZvPvrAUY-BR6T2qptnVaFFCA\"],\"box-challenge\":[[\"donna/personal-linux/box-challenge/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"51b81b446de3fe62e649691f5a93fc7eb0e1c2e917e6fbb667446f7c77b99244\",\"47fd131d673765b6789beb179b73754d30560e5dd371d80a765bf00c54aba036\",\"GhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGho\",\"GX_CxWfcA-4qrfDthmgdrCTap26DylVYdd075zduUwY\",\"918bffd1511b20905289f73552a9a592b645da211514b15c2bec112cb351b12f\",\"z2WniansfJWrHoGPgDJrEN5IFyaDeXRIwQ9Qniz88RxYe-gMQVI8Y_s3D-vhcfCKAnVIQ7-cpLT7ZZTXbz0HLg6Q3NxL_Ok0Lt1Fsnxdx6ynD8ZpPZiwxxNNuLS4oXqNThlFCkhSWrMg4CYJX-_BllEZus8m0h5KYWO1KgjOnE7Zz-o3eJbQ-qvlmZmHaDWzcWLAAMcQBBjtf9-l1fcQGGpCIsuMyvAcWaUIqjm80zGY\",1800000000003,1800000050000],\"y2LhZ8gQ9w_3udWMMAgMDFM-3dnwWJsvsbH4Zh2ndPtIg_3LXHOw696h17LUizcLPacXCbS11ivWocCzFchiCw\"],\"box-proof\":[[\"donna/personal-linux/box-proof/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1\",\"GRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRk\",\"GxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxs\",1800000000004,1800000050000],\"H8XkV_pKzrMlnbdXGxVoVHHG5vyOtXlAW1aJ5mteN_Sare9Sg2h7MO0XNzVmUE0B_4BtPFUo0bKbNMHEGmLBBA\"],\"approve\":[[\"donna/personal-linux/approve/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1\",\"3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880\",\"independent-identity-v1\",\"approve\",1800000000005,1800000050000],\"eKtqWqghhN2ER7KV4d4VYUwSbAnxTUAxsBmMuwyD7jvJ4_cMAIdB3GoAW3uPVj1VyOZeuXG4Cu8f_sDw4p7bCg\"],\"local-confirm\":[[\"donna/personal-linux/local-confirm/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec\",\"3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880\",\"approve\",\"HBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw\",1800000000006,1800000050000],\"hCjTPJLce0ODI8XxQ-zxXRMfBLRpjzlW1LxzB6zfcQ2YZxCu0ixMQAEABmPT2gUbVyhRUwzix164mtUbUVqTBQ\"],\"consume\":[[\"donna/personal-linux/consume/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec\",\"7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71\",1,\"consume_c2\",1800000000007,1800000050000],\"t9PdLx6nWaPA4lBE-TdvAIefq_zWp0fQ8XTcik3xGYWBzmwD87O8pAf3p65H6dAvlEMeNDXqz1Us2J6UPq18Bw\"],\"grant\":[[\"donna/personal-linux/grant/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],[[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"command\",\"d3882a9cc26873875d637f01037e975503a71be36fa0930e663aaa202a3259ae\",\"8c88cd1c988ff4299492945d3509408c231f8395772b92dfb83187da44e1b4ed\",\"owner_c2\",\"device_c2\",\"Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo\",\"FRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRU\",\"candidate_c2\",\"FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY\",\"3v5jMPePzBHv0PsoYU8NKQ\",\"kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo\",\"e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM\",\"FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc\",\"first-owner\",1,1800000000000,1800000500000],\"01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1\",\"3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880\",\"43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec\",\"7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71\",\"4f8c9930ad78fa4ead5f1099705e3310b20cdea33ce759affa08f0dae697bef6\",\"HR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0\",1800000000010,1800000250000,[\"control\",\"owner.devices\"]],\"JJ4_gH1Yavaohn9QDoKJ62TbfHP80a1x2iTnr4JFc9-utz0AX5Ay0_hrMh7rfZg9cBChvPmPPIyvjxqBXbpHDA\"],\"challenge\":[[\"donna/personal-linux/challenge/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\",1800000000011,1800000040000],\"yRUJDYR7Nwp66hZeYQTumHA2tHOzrwzWLhu0QcvAZ4Rhe_JQUHqFbSqIw7zReNOohe4OFFIfBdhKtekA-lZfDg\"],\"proof\":[[\"donna/personal-linux/proof/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"40d44554b28ab467f1146191504ef85c4b777d324f8b1f24039cb3046e49a18b\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec\",\"7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71\",1800000000012,1800000040000],\"kXj_KAeoiOHD_6mfTEEh9Raq0y-1eb7u1SKceMe_MIhFMVBb0Go_aQG_My-9sP7LL3LLGUlp-IoTN3GJ72m2Aw\"],\"receipt\":[[\"donna/personal-linux/receipt/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"40d44554b28ab467f1146191504ef85c4b777d324f8b1f24039cb3046e49a18b\",\"d8e82597bacf6cbc6a400df7ad145437c98bed4e6700e51bef460e1be56997ad\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",1800000000013,2,1,\"2367fa9902ebdef7f532d1e74cd284d678031761aa9a8162e7c5a473b2eab07c\",\"d8763fe0c7d000615be9ef2f18981363ce1679a8e6b4f2fe4192da8676f4f8ad\"],\"rQ3GuZQrL0u8FsE34mdQECUgb1hdD5GOeiz-EMVcF_PpqcUPE0h6ovY77h2NVXkVMQa8PMhbP0CEmSx2D6bQAg\"],\"publish\":[[\"donna/personal-linux/publish/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",3,\"publish_c2\",1800000000014,1800000020000],\"SLp_n30MU4RHmzp3fXF-_k1Nwjqee6qgZt-E9UL7uInQK_EBOlMl_xNzhkNOada2-_oYuUBOfNe5g5aGftdsDQ\"],\"host-state-request\":[[\"donna/personal-linux/host-state-request/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",\"Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8\",1800000000015,1800000025000],\"Qly1K4y9n7jpdjLGkxk3eY9t-yT-CynDD6sVu7VC3F3g0KO7Xd6WIDxkXFfLesxcBRVsPgn1_3CyvQoOpItrAQ\"],\"host-state\":[[\"donna/personal-linux/host-state/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",\"65e9717b7486b56bf862f179da96800e593eb8bcf42acb440538722c092269f5\",\"owner_c2\",\"device_c2\",\"Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo\",\"3v5jMPePzBHv0PsoYU8NKQ\",\"FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY\",[\"control\",\"owner.devices\"],1,0,\"Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8\",1800000000016,1800000200000],\"ahIn8IyYpQ8CFEoUcXvcHQ0KeLaVWJZrhpR1PJqfTfRbsF-n90sP_iPOO-14ieuR2xPvCgyZ07rocJDUk2F8Ag\"],\"activation\":[[\"donna/personal-linux/activation/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",\"owner_c2\",\"device_c2\",\"Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo\",\"3v5jMPePzBHv0PsoYU8NKQ\",\"FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY\",3,2,\"47c73050afe33ebf821228ea9e80357c4395d14ed9dd5f968987c1fb5b43bbd5\",1800000000017,1800000200000,[\"control\",\"owner.devices\"]],\"XFDWDSVSJuxR-HgRsS_SWSgbI0rPv3kPWQ786yOgDkm73eCqB5v0QTDsW2eOYqQ8Zj7gUONUi2MX5Mk69L0uBA\"],\"channel-open\":[[\"donna/personal-linux/channel-open/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"device\",\"use\",\"3v5jMPePzBHv0PsoYU8NKQ\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo\",\"ICAgICAgICAgICAgICAgIA\",\"/v1/personal-relay/device\",\"ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISE\",1800000000018,1800000020000],\"0qYIj-wBAXhYo_Bb9HicHNZn358dlcIOcoqZzAeLScTg8rTcqAeWP1tfIm2m0-nG3M7oDvu1lHe8RGuYbY3bBw\"],\"revoke\":[[\"donna/personal-linux/revoke/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"revoke_c2\",\"ownerRevoked\",1800000000024,1800000020000],\"ENAa3UGp3OTUmS8pE70fY878SQDzkj1VqawhTmj9_8L6oMZ3CBSsizEuNpzHBpwQee-jMtTG6etui5LZTP1bDQ\"],\"fence\":[[\"donna/personal-linux/fence/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",1,\"ownerRevoked\",1800000000025],\"MrGWkfCuA98bUEu2fK5-JCWxFvcU1hx6wc0RtKjPFlIZZh1aojZjXOc5jfTQLeVmgMb3bhvvf0gK_NUC-ZAsCg\"],\"revocation\":[[\"donna/personal-linux/revocation/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",4,3,\"e6e483a34e46e2a7fa8c1784b12a41677884f70631c263506c44460f011ad85a\",1800000000026,\"ownerRevoked\"],\"y97oo6GjffNu89Q9EGAQbIKqzxtIZr2LLv-qKnRbMAz25hhQjESZi_O3EIAmQDVkkvO-mkZrx5p9TdCyiSVtCQ\"],\"fence-ack\":[[\"donna/personal-linux/fence-ack/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"2aa7976a0da39d4136c07e1d97d210ba931725d625e4cbbca48fba02c58f6bcd\",\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",4,3,\"e6e483a34e46e2a7fa8c1784b12a41677884f70631c263506c44460f011ad85a\",1800000000027],\"lfubSpMbT4LcJPPatGu3mX-qQOFG4qR469FWf_SmnRQeqpYDN0zxsEBzWZ7pkKBP-F3rvLYRnGM0ggnGJ9zmCw\"],\"cancel\":[[\"donna/personal-linux/cancel/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",1,\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI\",1800000000028,1800000020000],\"TEsM4bRejuOHnPEN0U6WidTujFrwm8YEI8l6_2-X9FP9zkkBbtdZbOhklg0Y9FEe6G2t0v34T--J7eDP8VVsAA\"],\"read\":[[\"donna/personal-linux/read/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"candidate_c2\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"IyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyM\",1800000000029,1800000020000],\"9yt2jLKyc4fXWjBg_0l8wJ9WeCYvWhEiyE8-I27rFJoOBr4PJC9yyGsaW60oImq0OJFhTmSo1WwHmGK8tFzyAg\"],\"state\":[[\"donna/personal-linux/state/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"intent_c2\",\"candidate_c2\",\"dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd\",\"revoked\",6,\"grt_FBQUFBQUFBQUFBQUFBQUFA\",\"2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f\",\"7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8\",null,\"1d58db7b92bd783a851e6584d995f161b04595569881f807154876a8b9f524ef\",\"2aa7976a0da39d4136c07e1d97d210ba931725d625e4cbbca48fba02c58f6bcd\",\"e15ff175638033478d0ddd3158f6b47c01ad4761cf0b7fa6229ec000258c671b\",\"IyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyM\",1800000000030,1800000250000],\"FkRlG4yrvzO3HkHDbi9nqmIo9ffbi9cG5AdZ9hLZzNEu1rFznXu8wme_6n6UlDVXolAYzcCEAoDKxaS6KJsUBQ\"],\"time-request\":[[\"donna/personal-linux/time-request/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ\",\"3v5jMPePzBHv0PsoYU8NKQ\"],\"eoYYPCDZCZtxORg2uJcEcnCTk-8qZln1cZLwtYjLm63CFvoqbBiV0Oiros33-EIA3KBNYouL953uQHrL4TFQAg\"],\"time\":[[\"donna/personal-linux/time/v1\",[\"personal-linux-v1\",1,\"dev\",\"https://cloud.example.invalid\",\"https://clerk.example.invalid\",\"fixture_personal_c1\",\"16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496\",\"personal_vector\"],\"JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ\",\"3v5jMPePzBHv0PsoYU8NKQ\",1800000000031,300000],\"LEhJuJx2bSb4PH8Tee0hVhDfOZss7pJoMwh9vd8bjP_R8eJ9MglnNHorFJmU_nXaLOptgWlioTgYz9NFajljAQ\"]}",
+      "alternative": {
+        "intent": [
+          [
+            "donna/personal-linux/intent/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_device",
+            "device",
+            "owner_c2",
+            "device_c2",
+            "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+            "JycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJyc",
+            1800000000000,
+            1800000500000,
+            1
+          ],
+          "pC-8ta3hSy7UeLdDsYWNsMxToHkB0WEMU0sQDVk72NZX0Sc9cY6571WLp6G8gLKjexzYdKBg8A4h_qR_gsjaAA"
+        ],
+        "local-ticket": [
+          [
+            "donna/personal-linux/local-ticket/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_device",
+            "device",
+            "candidate_device",
+            "JSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSU",
+            "3v5jMPePzBHv0PsoYU8NKQ",
+            "kaKKC3Q4FZOk2UaVeSCJJq_IrYLIg5t2RDWbnrqaSzo",
+            "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+            "JiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiY",
+            "first-owner",
+            1800000000000,
+            1800000500000
+          ],
+          "zFQaWjd0V9w__fVUMIQBNtlqyHvBC-mMZ8Bijwy6x8N9SIZyBwAkqVjTkuF4Esfo9AkKZJv_HdoLbiRIkwpiCQ"
+        ],
+        "begin": [
+          [
+            "donna/personal-linux/begin/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_device",
+            "candidate_device",
+            "3caf04a474d512ce7c815b77f8185bed5dbfabc6307e6256b096827a4127fad3",
+            "JiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiY",
+            1800000000000,
+            1800000500000
+          ],
+          "-A--fIpKRlnqLf4XGWvWNGVnd_I76rWG-pkiwYrUVz5_dXGkOa7jCbjSt_kB81lHh4rrcyYHGHFe-aNoeB8IDw"
+        ],
+        "attach": [
+          [
+            "donna/personal-linux/attach/v1",
+            [
+              "personal-linux-v1",
+              1,
+              "dev",
+              "https://cloud.example.invalid",
+              "https://clerk.example.invalid",
+              "fixture_personal_c1",
+              "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+              "personal_vector"
+            ],
+            "intent_device",
+            "3caf04a474d512ce7c815b77f8185bed5dbfabc6307e6256b096827a4127fad3",
+            "JycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJyc",
+            1800000000000,
+            1800000500000
+          ],
+          "C4i_7jGVIHcQWLOG9S64TwYlLkVqc94Gq51YwLqvEF1h6Md1NdvnX9TCQN6u1qNoX5sblgmHBoEcQS7gbPmeDw"
+        ]
+      },
+      "hostOpen": [
+        [
+          "donna/personal-linux/channel-open/v1",
+          [
+            "personal-linux-v1",
+            1,
+            "dev",
+            "https://cloud.example.invalid",
+            "https://clerk.example.invalid",
+            "fixture_personal_c1",
+            "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+            "personal_vector"
+          ],
+          "host",
+          "use",
+          "3v5jMPePzBHv0PsoYU8NKQ",
+          "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+          "grt_FBQUFBQUFBQUFBQUFBQUFA",
+          "Zr5-Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzo",
+          "KCgoKCgoKCgoKCgoKCgoKA",
+          "/v1/personal-relay/host",
+          "KSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSk",
+          1800000000018,
+          1800000020000
+        ],
+        "hALNKluwEwafaKWRKUmVbHq500zBRwvUzOWT1UDU-KDH0n6xbpSkCk8iDJnZhGRcXcMZfpbaCWoSsCMoq8GpCA"
+      ],
+      "readHub": [
+        [
+          "donna/personal-linux/read/v1",
+          [
+            "personal-linux-v1",
+            1,
+            "dev",
+            "https://cloud.example.invalid",
+            "https://clerk.example.invalid",
+            "fixture_personal_c1",
+            "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+            "personal_vector"
+          ],
+          "intent_c2",
+          "candidate_c2",
+          "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+          "IyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyM",
+          1800000000029,
+          1800000020000
+        ],
+        "_Za6MrMdVbyes-yDOgZObZ3EfoiTdBbQiDarPqD-qRTG6s5iuALbV3bxKQYUl36K3trpw3l9YOFRos-IaTTyDw"
+      ],
+      "pop": {
+        "aad": [
+          "donna/personal-linux/box-aad/v1",
+          [
+            "personal-linux-v1",
+            1,
+            "dev",
+            "https://cloud.example.invalid",
+            "https://clerk.example.invalid",
+            "fixture_personal_c1",
+            "16526f152ea9755cccf21a48dbc3f9a66a3f51d9aa3caff916f82ac6580a0496",
+            "personal_vector"
+          ],
+          "dda97b42fd447d66cc3b76c4dbf9f0cec787c5d2f01fe4dbd0384a75ee9b58bd",
+          "51b81b446de3fe62e649691f5a93fc7eb0e1c2e917e6fbb667446f7c77b99244",
+          "47fd131d673765b6789beb179b73754d30560e5dd371d80a765bf00c54aba036",
+          "GhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGho",
+          "GX_CxWfcA-4qrfDthmgdrCTap26DylVYdd075zduUwY",
+          "918bffd1511b20905289f73552a9a592b645da211514b15c2bec112cb351b12f",
+          1800000000003,
+          1800000050000
+        ],
+        "secret": "GRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRk",
+        "ciphertext": "z2WniansfJWrHoGPgDJrEN5IFyaDeXRIwQ9Qniz88RxYe-gMQVI8Y_s3D-vhcfCKAnVIQ7-cpLT7ZZTXbz0HLg6Q3NxL_Ok0Lt1Fsnxdx6ynD8ZpPZiwxxNNuLS4oXqNThlFCkhSWrMg4CYJX-_BllEZus8m0h5KYWO1KgjOnE7Zz-o3eJbQ-qvlmZmHaDWzcWLAAMcQBBjtf9-l1fcQGGpCIsuMyvAcWaUIqjm80zGY",
+        "ephemeralPublic": "GX_CxWfcA-4qrfDthmgdrCTap26DylVYdd075zduUwY"
+      },
+      "payloadHashes": {
+        "intent": "d3882a9cc26873875d637f01037e975503a71be36fa0930e663aaa202a3259ae",
+        "local-ticket": "8c88cd1c988ff4299492945d3509408c231f8395772b92dfb83187da44e1b4ed",
+        "create": "21bd17a69751c6dc7e8844878b81d735ce9862de7473cf0cf7d11361033f8aaa",
+        "app-consent": "51b81b446de3fe62e649691f5a93fc7eb0e1c2e917e6fbb667446f7c77b99244",
+        "local-consent": "47fd131d673765b6789beb179b73754d30560e5dd371d80a765bf00c54aba036",
+        "box-challenge": "01f38714f1c70198ed36055d08be3dc3e2cca23d66713056105edf2263b871d1",
+        "box-proof": "3b707c63bde7a1a43fb87dfaafd083294102e08fbe8604aa3300cf2966827880",
+        "approve": "43d367b757af5349411fb5d38e1886809dfacaef2cd8ca2eecc4aa7ecdccc5ec",
+        "local-confirm": "7b51102bcb8b6e78fa87d19630a7022b2b1d08279814d879712d3d19919c7e71",
+        "consume": "4f8c9930ad78fa4ead5f1099705e3310b20cdea33ce759affa08f0dae697bef6",
+        "grant": "2001fdd2ad3de1bb4091863939e2b7c397cdcd2832772d224ca54e8f740cfa1f",
+        "challenge": "40d44554b28ab467f1146191504ef85c4b777d324f8b1f24039cb3046e49a18b",
+        "proof": "d8e82597bacf6cbc6a400df7ad145437c98bed4e6700e51bef460e1be56997ad",
+        "receipt": "7081d986d1c5038b07b83fd4528f8b7223886e35b34d9953427163ac41d469c8",
+        "publish": "65e9717b7486b56bf862f179da96800e593eb8bcf42acb440538722c092269f5",
+        "host-state-request": "93dfb6b747a0e36c75f9c51e51b5307c2ed6586c1f8ae4a487b4cf152d7095a5",
+        "host-state": "9518b26fecda8fd3171dc86f20849d29ff885c16d216d9d6f538a19a6e744ddf",
+        "activation": "28ae48cc4e5cedee6b8ff4b7837eedc019b983c5b4a3472d1eb888ad990f490b",
+        "channel-open": "27d811a646f2fc5c897924f720bab8bd8a664493d1fcedbd833ad93c52d44c4c",
+        "revoke": "a36811ff68f395171904a5ea5fb97bc4622cd255aa187035c5659911a4956b68",
+        "fence": "2aa7976a0da39d4136c07e1d97d210ba931725d625e4cbbca48fba02c58f6bcd",
+        "revocation": "1d58db7b92bd783a851e6584d995f161b04595569881f807154876a8b9f524ef",
+        "fence-ack": "e15ff175638033478d0ddd3158f6b47c01ad4761cf0b7fa6229ec000258c671b",
+        "cancel": "e7446827b0778b5641f0b766e4f934446b4b9ccefe332f28a994c3f3507e0321",
+        "read": "613c52c6821ddc006cc6a69a798f700df0eab6e60e9e2af4903832be8cd94b8e",
+        "state": "f19b9be3ba7d935f2e1b373e60dbb023bccd91848a32ebcfc8bf603a914332e1",
+        "time-request": "524999420896e4684d79976d7c0f82a33074881a282add54aa0c4bf7936884b0",
+        "time": "7fdccfe6a4a5a7b6c3ce09af286303cac65cd071eabde9a25d4e860afc5dfb25",
+        "begin": "cc842f5119bd9cd6f6091d15f5ad0b25ac6f74304ce842a8b2c3c0baa2d57d51",
+        "attach": "9767455f1918fea23553d143c0d7650329eb8cc4d2920f000c5ecd424bb52ccb"
+      }
+    }
+  }
+}

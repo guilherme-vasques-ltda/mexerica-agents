@@ -1,0 +1,341 @@
+/* D169 (components/SpaceView): an open space other than Pessoal. Pessoal's sidebar and conversation stay mounted but
+   hidden while it shows, so their draft, scroll and focus come back as they were. */
+.split.is-space > .sidebar,
+.split.is-space > .resize-handle,
+.split.is-space > .detail,
+.split.is-space > .sidebar-peek-edge {
+  display: none;
+}
+
+.space-view {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  height: 100%;
+}
+
+/* The conversations column: the sidebar's own ruler and glass (surface without a wallpaper). */
+.space-view-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: var(--sp-8) 0 var(--sp-8) var(--sp-6);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+html[data-wallpaper] .space-view-side {
+  background: var(--glass-sidebar);
+  box-shadow: none;
+}
+.space-view-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  height: 40px;
+  padding: var(--sp-4) var(--sp-8) 0 var(--sp-14);
+  flex: none;
+}
+.space-view-name {
+  flex: 1;
+  min-width: 0;
+}
+/* R1: uso do computador lido do stream deste space; leitura, fora das conversas. */
+.space-view-use {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  margin: var(--sp-4) var(--sp-16) 0;
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.space-view-list {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: var(--sp-8) var(--sp-8) var(--sp-12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Only where opening a space puts the keyboard before the rows arrive; the rows keep the app's ring. */
+.space-view-list:focus {
+  outline: none;
+}
+.space-view-section {
+  padding: var(--sp-4) var(--sp-8);
+}
+.space-view-row,
+.space-view-fold {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--radius-s);
+  text-align: left;
+  color: var(--text-primary, var(--ink));
+}
+.space-view-row:hover,
+.space-view-fold:hover {
+  background: var(--hover);
+}
+.space-view-row[aria-current='true'] {
+  background: var(--selected);
+}
+.space-view-row-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.space-view-row-detail,
+.space-view-fold {
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.space-view-fold {
+  min-height: 32px;
+  margin-top: var(--sp-8);
+}
+
+/* The chosen conversation, on the space's ground like a conversation. As in Pessoal, nothing reads straight off a
+   wallpaper (sistema.md "Leitura primeiro"): the title, notes and links sit in small glass pills, the messages in
+   glass bubbles, and the history on the conversation's own plate (Aparência → Fundo da conversa). */
+.space-view-main {
+  /* Pessoal's conversation (thread.css): the chosen text size, and one readable column for messages and bar. */
+  --conversation: var(--chat);
+  --md-scale: var(--chat-scale);
+  --column: calc(820px * var(--scale));
+  --gutter: max(var(--sp-20), calc((100% - var(--column)) / 2));
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.space-view-top {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: var(--sp-8) var(--gutter) 0;
+  flex: none;
+}
+.space-view-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  min-width: 0;
+  padding: 3px 4px 3px var(--sp-12);
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised, var(--raised));
+  box-shadow: var(--shadow-glass);
+}
+.space-view-title {
+  min-width: 0;
+}
+.space-view-running,
+.space-view-link {
+  flex: none;
+  font-size: var(--text-caption);
+  color: var(--text-accent, var(--accent));
+}
+.space-view-running {
+  padding: 3px var(--sp-8);
+  border-radius: var(--radius-pill);
+}
+.space-view-running:hover {
+  background: var(--hover);
+}
+.space-view-running[aria-expanded='true'] {
+  color: var(--text-primary, var(--ink));
+}
+.space-view-runinfo,
+.space-view-banner {
+  margin: 0 var(--gutter) var(--sp-8);
+  padding: var(--sp-8) var(--sp-12);
+  border-radius: var(--radius-m);
+  background: var(--glass-raised, var(--raised));
+  box-shadow: var(--shadow-glass);
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-4) var(--sp-12);
+}
+.space-view-history {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: var(--sp-12) var(--gutter);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+html[data-wallpaper] .space-view-history {
+  background: linear-gradient(to bottom, transparent 0, var(--glass-conversation, transparent) var(--sp-20));
+}
+.space-view-older {
+  margin-bottom: var(--sp-8);
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* The text between messages: small glass pills, centered. */
+.space-view-older,
+.space-view-note,
+.space-view-history .space-view-empty {
+  align-self: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised, var(--raised));
+  box-shadow: var(--shadow-glass);
+}
+.space-view-history .space-view-problem {
+  align-self: center;
+  border-radius: var(--radius-m);
+  background: var(--glass-raised, var(--raised));
+  box-shadow: var(--shadow-glass);
+}
+.space-view-msg {
+  display: flex;
+  max-width: 100%;
+}
+.space-view-msg.is-user {
+  justify-content: flex-end;
+}
+/* Pessoal's bubbles (components/MessageBubble): the speaker's top corner is the small one. */
+.space-view-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-width: min(640px, 82%);
+  padding: var(--sp-8) var(--sp-12);
+  border-radius: var(--radius-l);
+  border-top-left-radius: var(--radius-xs);
+  background: var(--glass-raised, var(--raised));
+  box-shadow: var(--shadow-glass);
+  color: var(--text-primary, var(--ink));
+}
+.space-view-msg.is-user .space-view-bubble {
+  border-radius: var(--radius-l);
+  border-top-right-radius: var(--radius-xs);
+  background: var(--glass-strong, var(--raised));
+}
+.space-view-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--conversation, var(--text-body));
+  line-height: 1.5;
+}
+.space-view-files,
+.space-view-note,
+.space-view-empty {
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.space-view-note {
+  margin: var(--sp-4) 0;
+  text-align: center;
+}
+.space-view-empty {
+  margin: var(--sp-12) var(--sp-8);
+}
+.space-view-problem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  padding: var(--sp-8);
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* Where the composer would be: a calm line on the message box's glass, never a disabled field or button. */
+.space-view-bar {
+  flex: none;
+  margin: 0 var(--gutter) var(--sp-12);
+  padding: var(--sp-12) var(--sp-14);
+  border-radius: var(--radius-l);
+  background: var(--glass-composer, var(--glass-raised, var(--raised)));
+  box-shadow: var(--shadow-glass);
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+html[data-wallpaper] :is(.space-view-heading, .space-view-runinfo, .space-view-banner, .space-view-bubble, .space-view-older, .space-view-note,
+  .space-view-history .space-view-empty, .space-view-history .space-view-problem, .space-view-bar) {
+  -webkit-backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] :is(.space-view-heading, .space-view-runinfo, .space-view-banner, .space-view-bubble, .space-view-older, .space-view-note,
+    .space-view-history .space-view-empty, .space-view-history .space-view-problem, .space-view-bar) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.space-view-reserve {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding: var(--sp-8);
+}
+.space-view-reserve span {
+  height: 28px;
+  border-radius: var(--radius-s);
+  background: var(--hover);
+}
+
+/* D543: o compositor pertence à seleção atual e usa os mesmos tokens da conversa pessoal. */
+.space-composer-wrap {
+  flex: none;
+  margin: 0 var(--gutter) var(--sp-12);
+}
+.space-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-8);
+  padding: var(--sp-12);
+  border-radius: var(--radius-l);
+  background: var(--glass-composer, var(--raised));
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-raised));
+}
+.space-composer textarea {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  max-height: 200px;
+  background: transparent;
+  color: var(--text-primary, var(--ink));
+  font: inherit;
+  line-height: 1.5;
+  border: 0;
+  outline-offset: 3px;
+}
+.space-composer-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent, white);
+}
+.space-composer-send:disabled { opacity: .4; }
+.space-composer-error {
+  padding: var(--sp-8) var(--sp-12);
+  margin-bottom: var(--sp-8);
+  border-radius: var(--radius-m);
+  background: var(--glass-raised, var(--raised));
+  color: var(--text-primary, var(--ink));
+  font-size: var(--text-caption);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .space-composer { backdrop-filter: none; }
+}

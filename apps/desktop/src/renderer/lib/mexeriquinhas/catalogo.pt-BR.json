@@ -1,0 +1,1576 @@
+{
+  "fonte": {
+    "decisao": "D526",
+    "repositorio": "example-org/donnabot-pesquisa",
+    "commit": "221deef8",
+    "arquivo": "research/design/mexeriquinhas-catalogo-20261108/CATALOGO-BOTS.md"
+  },
+  "categorias": [
+    {
+      "id": "diretoria",
+      "nome": "Diretoria"
+    },
+    {
+      "id": "produtividade",
+      "nome": "Produtividade"
+    },
+    {
+      "id": "conteudo",
+      "nome": "Conteúdo"
+    },
+    {
+      "id": "tech",
+      "nome": "Tech"
+    },
+    {
+      "id": "e-commerce",
+      "nome": "E-commerce"
+    },
+    {
+      "id": "operacao",
+      "nome": "Operação"
+    },
+    {
+      "id": "marketing-ads",
+      "nome": "Marketing & Ads"
+    },
+    {
+      "id": "criadores",
+      "nome": "Criadores"
+    },
+    {
+      "id": "atendimento-vendas",
+      "nome": "Atendimento & Vendas"
+    },
+    {
+      "id": "financas-pessoas",
+      "nome": "Finanças & Pessoas"
+    },
+    {
+      "id": "mercado-financeiro",
+      "nome": "Mercado Financeiro"
+    },
+    {
+      "id": "design-3d",
+      "nome": "Design & 3D"
+    },
+    {
+      "id": "negocio-gestao",
+      "nome": "Negócio & Gestão"
+    },
+    {
+      "id": "vida-pessoal",
+      "nome": "Vida Pessoal"
+    },
+    {
+      "id": "profissoes",
+      "nome": "Profissões"
+    },
+    {
+      "id": "comunidade",
+      "nome": "Comunidade"
+    },
+    {
+      "id": "bem-estar",
+      "nome": "Bem-estar",
+      "nota": "Não substitui profissional."
+    }
+  ],
+  "grupos": [
+    {
+      "id": "pomarca",
+      "nome": "Pomarca · CEO"
+    },
+    {
+      "id": "colheitor",
+      "nome": "Colheitor · COO"
+    },
+    {
+      "id": "tesourango",
+      "nome": "Tesourango · CFO"
+    },
+    {
+      "id": "holofruta",
+      "nome": "Holofruta · CMO"
+    },
+    {
+      "id": "chiperica",
+      "nome": "Chiperica · CIO"
+    },
+    {
+      "id": "direto-com-berga",
+      "nome": "Direto com o Berga"
+    }
+  ],
+  "modelos": [
+    {
+      "id": "berga",
+      "nome": "Berga",
+      "papel": "Orquestrador",
+      "categoriaId": "diretoria",
+      "grupoId": "direto-com-berga",
+      "reportaA": null,
+      "baseId": "dono",
+      "aliases": [
+        "orquestrador",
+        "dono"
+      ]
+    },
+    {
+      "id": "pomarca",
+      "nome": "Pomarca",
+      "papel": "CEO",
+      "categoriaId": "diretoria",
+      "grupoId": "pomarca",
+      "reportaA": "berga",
+      "baseId": "ceo",
+      "aliases": [
+        "ceo"
+      ]
+    },
+    {
+      "id": "colheitor",
+      "nome": "Colheitor",
+      "papel": "COO",
+      "categoriaId": "diretoria",
+      "grupoId": "colheitor",
+      "reportaA": "berga",
+      "baseId": "compras",
+      "aliases": [
+        "coo",
+        "chefe"
+      ],
+      "config": {
+        "acessorio": "capacete",
+        "objeto": "caixa"
+      }
+    },
+    {
+      "id": "tesourango",
+      "nome": "Tesourango",
+      "papel": "CFO",
+      "categoriaId": "diretoria",
+      "grupoId": "tesourango",
+      "reportaA": "berga",
+      "baseId": "financeiro",
+      "aliases": [
+        "cfo",
+        "financeiro"
+      ],
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "holofruta",
+      "nome": "Holofruta",
+      "papel": "CMO",
+      "categoriaId": "diretoria",
+      "grupoId": "holofruta",
+      "reportaA": "berga",
+      "baseId": "marketing",
+      "aliases": [
+        "cmo",
+        "marketing"
+      ]
+    },
+    {
+      "id": "chiperica",
+      "nome": "Chiperica",
+      "papel": "CIO",
+      "categoriaId": "diretoria",
+      "grupoId": "chiperica",
+      "reportaA": "berga",
+      "baseId": "developer",
+      "aliases": [
+        "cio"
+      ],
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "futurango",
+      "nome": "Futurango",
+      "papel": "Visionário",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "ceo",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "maracuja-lunar",
+      "nome": "Maracujá Lunar",
+      "papel": "Lunático",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "jabuticlausula",
+      "nome": "Jabuticláusula",
+      "papel": "Advogado/Contratos",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "dono",
+      "destaque": true,
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "leiranja",
+      "nome": "Leiranja",
+      "papel": "Jurídico/LGPD",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "dono",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "licitacai",
+      "nome": "Licitaçaí",
+      "papel": "Licitações",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "compras",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "feirante",
+      "nome": "Feirante",
+      "papel": "Compras/Fornecedores",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "compras",
+      "aliases": [
+        "compras"
+      ],
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "datamelao",
+      "nome": "Datamelão",
+      "papel": "Analista de Dados/BI",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "pesquisa",
+      "destaque": true,
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "planilhaca",
+      "nome": "Planilhaca",
+      "papel": "Planilheiro",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "sabioliva",
+      "nome": "Sábioliva",
+      "papel": "Consultor de Negócios",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "ceo",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "pitchaya",
+      "nome": "Pitchaya",
+      "papel": "Pitch/Captação",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "vendas",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "feirometro",
+      "nome": "Feirômetro",
+      "papel": "Pesquisa de Mercado",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "espiaranja",
+      "nome": "Espiaranja",
+      "papel": "Análise de Concorrência",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "lancafruta",
+      "nome": "Lançafruta",
+      "papel": "GTM",
+      "categoriaId": "negocio-gestao",
+      "grupoId": "pomarca",
+      "reportaA": "pomarca",
+      "baseId": "marketing",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "feirinha",
+      "nome": "Feirinha",
+      "papel": "Chefe de E-commerce",
+      "categoriaId": "e-commerce",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "chefe"
+    },
+    {
+      "id": "amazoja",
+      "nome": "Amazoja",
+      "papel": "Amazon",
+      "categoriaId": "e-commerce",
+      "grupoId": "colheitor",
+      "reportaA": "feirinha",
+      "baseId": "amazon",
+      "aliases": [
+        "amazon"
+      ],
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "mercaju",
+      "nome": "Mercaju",
+      "papel": "Mercado Livre",
+      "categoriaId": "e-commerce",
+      "grupoId": "colheitor",
+      "reportaA": "feirinha",
+      "baseId": "compras",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "shopequi",
+      "nome": "Shopequi",
+      "papel": "Shopee",
+      "categoriaId": "e-commerce",
+      "grupoId": "colheitor",
+      "reportaA": "feirinha",
+      "baseId": "compras",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "baiacu",
+      "nome": "Baiaçu",
+      "papel": "eBay",
+      "categoriaId": "e-commerce",
+      "grupoId": "colheitor",
+      "reportaA": "feirinha",
+      "baseId": "compras",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "estocado",
+      "nome": "Estocado",
+      "papel": "Gerente de Estoque",
+      "categoriaId": "e-commerce",
+      "grupoId": "colheitor",
+      "reportaA": "feirinha",
+      "baseId": "amazon",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "caquifrete",
+      "nome": "Caquifrete",
+      "papel": "Logística/Frete",
+      "categoriaId": "operacao",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "amazon",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "lichia-boy",
+      "nome": "Lichia Boy",
+      "papel": "Importação",
+      "categoriaId": "operacao",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "compras",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "etiquetamara",
+      "nome": "Etiquetâmara",
+      "papel": "Precificação",
+      "categoriaId": "operacao",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "carambolinha",
+      "nome": "Carambolinha",
+      "papel": "Reviews/Reputação",
+      "categoriaId": "operacao",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "suporte",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "trocaja",
+      "nome": "Trocajá",
+      "papel": "Pós-venda/Devoluções",
+      "categoriaId": "operacao",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "suporte",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "vendoca",
+      "nome": "Vendoca",
+      "papel": "Vendas",
+      "categoriaId": "atendimento-vendas",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "vendas",
+      "aliases": [
+        "vendas"
+      ],
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "prospecaqui",
+      "nome": "Prospecaqui",
+      "papel": "SDR",
+      "categoriaId": "atendimento-vendas",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "vendas",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "alogoiaba",
+      "nome": "Alôgoiaba",
+      "papel": "Sales Call",
+      "categoriaId": "atendimento-vendas",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "assistente",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "gentileza",
+      "nome": "Gentileza",
+      "papel": "Suporte ao Cliente",
+      "categoriaId": "atendimento-vendas",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "suporte",
+      "aliases": [
+        "suporte"
+      ],
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "zapim",
+      "nome": "Zapim",
+      "papel": "WhatsApper",
+      "categoriaId": "atendimento-vendas",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "assistente",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "discoco",
+      "nome": "Discoco",
+      "papel": "Discord",
+      "categoriaId": "atendimento-vendas",
+      "grupoId": "colheitor",
+      "reportaA": "colheitor",
+      "baseId": "suporte",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "cifrao-azedo",
+      "nome": "Cifrão Azedo",
+      "papel": "Financeiro, Brabo",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "contamora",
+      "nome": "Contamora",
+      "papel": "Contabilidade",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "livrinho",
+      "nome": "Livrinho",
+      "papel": "Bookkeeper",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "lupima",
+      "nome": "Lupima",
+      "papel": "Auditor",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "notinha",
+      "nome": "Notinha",
+      "papel": "Fiscal",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "leaoranja",
+      "nome": "Leãoranja",
+      "papel": "Impostos",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "carimbacaxi",
+      "nome": "Carimbacaxi",
+      "papel": "Governo",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "dono",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "cartangerina",
+      "nome": "Cartangerina",
+      "papel": "Cartão de Crédito",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "boletinho",
+      "nome": "Boletinho",
+      "papel": "Contas a Pagar",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "pixtache",
+      "nome": "Pixtache",
+      "papel": "Contas a Receber",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "gentarina",
+      "nome": "Gentarina",
+      "papel": "RH",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "rh",
+      "aliases": [
+        "rh"
+      ],
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "cacapera",
+      "nome": "Caçapera",
+      "papel": "Talent Hunter",
+      "categoriaId": "financas-pessoas",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "tradoiaba",
+      "nome": "Tradoiaba",
+      "papel": "Trade Bot",
+      "categoriaId": "mercado-financeiro",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "bolsaranja",
+      "nome": "Bolsaranja",
+      "papel": "Faria Lima/B3",
+      "categoriaId": "mercado-financeiro",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "dono",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "macahattan",
+      "nome": "Maçãhattan",
+      "papel": "Wall Street",
+      "categoriaId": "mercado-financeiro",
+      "grupoId": "tesourango",
+      "reportaA": "tesourango",
+      "baseId": "dono",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "gritamelo",
+      "nome": "Gritamelo",
+      "papel": "Marketing",
+      "categoriaId": "marketing-ads",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "marketing"
+    },
+    {
+      "id": "anuncia",
+      "nome": "Anunciá",
+      "papel": "Chefe de Ads",
+      "categoriaId": "marketing-ads",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "chefe"
+    },
+    {
+      "id": "metuva",
+      "nome": "Metuva",
+      "papel": "Meta Ads",
+      "categoriaId": "marketing-ads",
+      "grupoId": "holofruta",
+      "reportaA": "anuncia",
+      "baseId": "marketing",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "googaba",
+      "nome": "Googaba",
+      "papel": "Google Ads",
+      "categoriaId": "marketing-ads",
+      "grupoId": "holofruta",
+      "reportaA": "anuncia",
+      "baseId": "marketing",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "polpinha",
+      "nome": "Polpinha",
+      "papel": "Chefe de Redes Sociais",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "chefe"
+    },
+    {
+      "id": "instapera",
+      "nome": "Instapera",
+      "papel": "Instagramer",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "marketing",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "tiktomate",
+      "nome": "Tiktomate",
+      "papel": "TikToker",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "marketing",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "tubacate",
+      "nome": "Tubacate",
+      "papel": "YouTuber",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "marketing",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "xuxu",
+      "nome": "Xuxu",
+      "papel": "X Boy",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "marketing",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "famora",
+      "nome": "Famora",
+      "papel": "Influencer",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "vendas",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "comissao",
+      "nome": "Comissão",
+      "papel": "Afiliado",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "vendas",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "fofoquiwi",
+      "nome": "Fofoquiwi",
+      "papel": "Radar de Fofoca",
+      "categoriaId": "criadores",
+      "grupoId": "holofruta",
+      "reportaA": "polpinha",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "fucaranja",
+      "nome": "Fuçaranja",
+      "papel": "Researcher",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "pesquisa",
+      "aliases": [
+        "pesquisa"
+      ],
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "pitanguel",
+      "nome": "Pitanguel",
+      "papel": "Escritor",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "palavrango",
+      "nome": "Palavrango",
+      "papel": "Copywriter",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "marketing",
+      "destaque": true,
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "humanana",
+      "nome": "Humanana",
+      "papel": "Copy Humanizer",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "rh",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "rankiwi",
+      "nome": "Rankiwi",
+      "papel": "SEO/AEO",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "cortelao",
+      "nome": "Cortelão",
+      "papel": "Editor de Vídeo/Cortes",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "destaque": true,
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "roteiruva",
+      "nome": "Roteiruva",
+      "papel": "Roteirista",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "papaia",
+      "nome": "Papaia",
+      "papel": "Podcaster",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "assistente",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "figuinho",
+      "nome": "Figuinho",
+      "papel": "Newsletter",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "imaginanas",
+      "nome": "Imaginanás",
+      "papel": "Gerador de Imagens",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "clicacau",
+      "nome": "Clicacau",
+      "papel": "Fotógrafo de Produto",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "brandamora",
+      "nome": "Brandamora",
+      "papel": "Branding",
+      "categoriaId": "conteudo",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "marketing",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "pincelima",
+      "nome": "Pincelima",
+      "papel": "Designer",
+      "categoriaId": "design-3d",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "aliases": [
+        "designer"
+      ],
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "figmigo",
+      "nome": "Figmigo",
+      "papel": "Figma Bro",
+      "categoriaId": "design-3d",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "liquidifruta",
+      "nome": "Liquidifruta",
+      "papel": "Blender",
+      "categoriaId": "design-3d",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "developer",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "retoquinho",
+      "nome": "Retoquinho",
+      "papel": "Photoshop",
+      "categoriaId": "design-3d",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "molduraca",
+      "nome": "Molduraca",
+      "papel": "Canva",
+      "categoriaId": "design-3d",
+      "grupoId": "holofruta",
+      "reportaA": "holofruta",
+      "baseId": "designer",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "codaba",
+      "nome": "Codaba",
+      "papel": "Desenvolvedor",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "developer",
+      "aliases": [
+        "dev",
+        "developer"
+      ],
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "bugerica",
+      "nome": "Bugerica",
+      "papel": "QA",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "limao-sombrio",
+      "nome": "Limão Sombrio",
+      "papel": "Hacker",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "hacker",
+      "aliases": [
+        "hacker"
+      ],
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "cachopo",
+      "nome": "Cachopo",
+      "papel": "DevOps/Infra",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "developer",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "automango",
+      "nome": "Automango",
+      "papel": "Automação",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "developer",
+      "destaque": true,
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "sitiozinho",
+      "nome": "Sitiozinho",
+      "papel": "No-code/Sites",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "developer",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "guardacoco",
+      "nome": "Guardacoco",
+      "papel": "Analista de Segurança",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "hacker",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "jamelao",
+      "nome": "Jamelão",
+      "papel": "Suporte de TI",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "suporte",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "dutoranja",
+      "nome": "Dutoranja",
+      "papel": "Data Engineer",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "developer",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "cajuca",
+      "nome": "Cajuca",
+      "papel": "Project Manager",
+      "categoriaId": "tech",
+      "grupoId": "chiperica",
+      "reportaA": "chiperica",
+      "baseId": "chefe",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "pomita",
+      "nome": "Pomita",
+      "papel": "Assistente Geral",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "aliases": [
+        "assistente"
+      ],
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "brotinho",
+      "nome": "Brotinho",
+      "papel": "Estagiário",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "agendrica",
+      "nome": "Agendrica",
+      "papel": "Calendar",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "rabisco",
+      "nome": "Rabisco",
+      "papel": "Notes Taker",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "designer",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "pautinha",
+      "nome": "Pautinha",
+      "papel": "Meeting",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "prontopera",
+      "nome": "Prontopera",
+      "papel": "GTD",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "chefe",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "mangueira",
+      "nome": "Mangueira",
+      "papel": "Travel Planner",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "linguim",
+      "nome": "Linguim",
+      "papel": "Tradutor",
+      "categoriaId": "produtividade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "bananafit",
+      "nome": "Bananafit",
+      "papel": "Personal Trainer",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "vendas",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "saladinha",
+      "nome": "Saladinha",
+      "papel": "Nutricionista",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "rh",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "mestre-jaca",
+      "nome": "Mestre Jaca",
+      "papel": "Professor/Tutor",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "carreirola",
+      "nome": "Carreirola",
+      "papel": "Coach de Carreira",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "rh",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "gavetinha",
+      "nome": "Gavetinha",
+      "papel": "Organizador da Casa",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "compras",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "cofrinha",
+      "nome": "Cofrinha",
+      "papel": "Finanças Pessoais",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "financeiro",
+      "destaque": true,
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "cripitanga",
+      "nome": "Cripitanga",
+      "papel": "Investidor/Cripto",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "financeiro",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "provinha",
+      "nome": "Provinha",
+      "papel": "Concursos/Estudos",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "pesquisa",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "lancheira",
+      "nome": "Lancheira",
+      "papel": "Mãe/Pai Organizado",
+      "categoriaId": "vida-pessoal",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "rh",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "chacarinha",
+      "nome": "Chacarinha",
+      "papel": "Imobiliário",
+      "categoriaId": "profissoes",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "vendas",
+      "destaque": true,
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "doutora-acerola",
+      "nome": "Doutora Acerola",
+      "papel": "Clínica/Médico",
+      "categoriaId": "profissoes",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "cardapinha",
+      "nome": "Cardapinha",
+      "papel": "Restaurante",
+      "categoriaId": "profissoes",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "compras",
+      "config": {
+        "roupa": "avental",
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "togaca",
+      "nome": "Togaçá",
+      "papel": "Advocacia",
+      "categoriaId": "profissoes",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "dono",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "pomarzao",
+      "nome": "Pomarzão",
+      "papel": "Agência",
+      "categoriaId": "profissoes",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "marketing",
+      "config": {
+        "cor": "roxo"
+      }
+    },
+    {
+      "id": "avulsa",
+      "nome": "Avulsa",
+      "papel": "Freelancer",
+      "categoriaId": "profissoes",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "developer",
+      "config": {
+        "cor": "celeste"
+      }
+    },
+    {
+      "id": "telegoiaba",
+      "nome": "Telegoiaba",
+      "papel": "Telegram",
+      "categoriaId": "comunidade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "assistente",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "gravatanga",
+      "nome": "Gravatanga",
+      "papel": "LinkedIn",
+      "categoriaId": "comunidade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "ceo",
+      "config": {
+        "cor": "lima"
+      }
+    },
+    {
+      "id": "xerifruta",
+      "nome": "Xerifruta",
+      "papel": "Moderador de Comunidade",
+      "categoriaId": "comunidade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "chefe",
+      "config": {
+        "cor": "limao"
+      }
+    },
+    {
+      "id": "quermesse",
+      "nome": "Quermesse",
+      "papel": "Eventos",
+      "categoriaId": "comunidade",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "marketing",
+      "config": {
+        "cor": "toranja"
+      }
+    },
+    {
+      "id": "calmaca",
+      "nome": "Calmaçã",
+      "papel": "Psicóloga",
+      "categoriaId": "bem-estar",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "rh",
+      "config": {
+        "cor": "laranja"
+      }
+    },
+    {
+      "id": "abracai",
+      "nome": "Abraçaí",
+      "papel": "Terapeuta",
+      "categoriaId": "bem-estar",
+      "grupoId": "direto-com-berga",
+      "reportaA": "berga",
+      "baseId": "rh",
+      "config": {
+        "cor": "lima"
+      }
+    }
+  ]
+}

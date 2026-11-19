@@ -1,0 +1,208 @@
+/* MX-209 (fase 1 da MX-146): pedido seguro na conversa e cartão seguro em janela própria. Só tokens. */
+.pedido-seguro {
+  width: 100%;
+  max-width: 420px;
+  box-sizing: border-box;
+  align-self: flex-start;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  background: var(--raised);
+  box-shadow: var(--shadow-s);
+}
+.pedido-seguro-selo {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-mexerica, var(--accent));
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.pedido-seguro-selo.guardado {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+.pedido-seguro-selo.cancelado {
+  background: var(--selected);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.pedido-seguro-linhas {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-m);
+  background: var(--control-fill-muted, var(--group));
+  font-size: var(--text-callout);
+}
+.pedido-seguro-linhas dt {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.pedido-seguro-linhas dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pedido-seguro-nome {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--control-fill-muted, var(--group));
+  color: var(--accent-mexerica, var(--accent));
+}
+.pedido-seguro-rodape {
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+}
+.pedido-seguro-rodape .icone-ok {
+  color: var(--success);
+}
+.pedido-seguro .link-cofre {
+  margin-inline-start: auto;
+  color: var(--accent-mexerica, var(--accent));
+  font-weight: 600;
+  font-size: var(--text-callout);
+}
+.cofre-ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* A janela segura (BrowserWindow própria): sem chrome do app, só o cartão. */
+html[data-window='cofre-seguro'] body {
+  background: var(--raised);
+}
+.cofre-janela {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 22px 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--raised);
+  color: var(--ink);
+}
+.cofre-janela-cadeado {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-m);
+  background: var(--accent-soft);
+  color: var(--accent-mexerica, var(--accent));
+}
+.cofre-janela-selo {
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--selected);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.cofre-janela label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.cofre-campo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  min-height: calc(40px * var(--scale));
+  border-radius: var(--radius-m);
+  background: var(--field);
+  border: 1px solid transparent;
+  font-weight: 400;
+}
+.cofre-campo:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cofre-campo input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  font-size: var(--text-body);
+}
+.cofre-campo input:focus {
+  outline: none;
+}
+.cofre-olho {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  font-weight: 500;
+}
+.cofre-olho:hover {
+  background: var(--hover);
+}
+.cofre-caixa {
+  padding: 10px 14px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  font-size: var(--text-callout);
+}
+.cofre-caixa .icone-ok {
+  color: var(--success);
+}
+.cofre-janela-acoes {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.cofre-janela-rodape {
+  text-align: center;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cofre-olho,
+  .cofre-campo {
+    transition: background var(--motion-hover), border-color var(--motion-hover);
+  }
+}
+
+/* MX-286: as caixinhas do código de login. Um <input> transparente cobre as caixas (digitar, apagar e colar são dele). */
+.cofre-digitos {
+  position: relative;
+  display: block;
+  margin-block-start: var(--sp-6);
+}
+.cofre-digitos-entrada {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  opacity: 0;
+  font-size: var(--text-title2);
+  cursor: text;
+}
+.cofre-digitos-caixas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+}
+.cofre-digito {
+  display: grid;
+  place-items: center;
+  inline-size: calc(44px * var(--scale));
+  min-block-size: calc(52px * var(--scale));
+  border-radius: var(--radius-m);
+  background: var(--field);
+  border: 1px solid transparent;
+  font-size: var(--text-title2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cofre-digitos:focus-within .cofre-digito.atual {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

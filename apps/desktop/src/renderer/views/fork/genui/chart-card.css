@@ -1,0 +1,125 @@
+/* D273: the chart card, following the approved #196
+   renders. Same surface as the DataTable (raised + line, radius-m). The --chart-* variables are this
+   component's tokens, light and dark; they never follow the Aparência accent and never color text. */
+.chart-card {
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #8a63d2;
+  --chart-5: #b8860b;
+  margin: var(--sp-8) 0 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 19px;
+}
+[data-theme="dark"] .chart-card {
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #9a78e0;
+  --chart-5: #c9971c;
+}
+
+.chart-head { display: flex; align-items: flex-start; gap: var(--sp-8); padding: var(--sp-12) var(--sp-14) 0; }
+.chart-title { flex: 1; min-width: 0; }
+.chart-title-text { font-size: 14px; line-height: 19px; font-weight: 600; overflow-wrap: anywhere; }
+.chart-context { margin-top: 1px; font-size: 11px; line-height: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
+.chart-kind { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--radius-xs); background: var(--field); color: var(--ink-2); font-size: 11px; font-weight: 500; }
+/* The bot's text stays text: line breaks it sent are kept, nothing is parsed. */
+.chart-summary, .chart-title-text, .chart-context, .chart-note, .chart-origin, .chart-readout, .chart-legend-label, .chart-pie-name { white-space: pre-wrap; }
+.chart-summary { margin: var(--sp-8) var(--sp-14) 0; overflow-wrap: anywhere; }
+.chart-note { margin: var(--sp-6) var(--sp-14) 0; font-size: 12px; line-height: 17px; color: var(--ink-2); }
+
+/* The value line: a hint at rest, the focused label and values otherwise. It never covers the plot. */
+.chart-readout { margin: var(--sp-8) var(--sp-14) 0; min-height: 17px; font-size: 12px; line-height: 17px; color: var(--ink-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chart-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.chart-plot { margin: var(--sp-6) var(--sp-10) 0; padding: var(--sp-4); border-radius: var(--radius-s); outline: none; }
+.chart-plot:focus-visible { box-shadow: var(--focus-ring); }
+.chart-svg-box { min-width: 0; }
+.chart-plot svg { display: block; overflow: visible; }
+.chart-plot text, .chart-axis text { font-family: inherit; font-size: 11px; fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-base { stroke: var(--line-strong); stroke-width: 1; }
+.chart-guide { stroke: var(--line-strong); stroke-width: 1; }
+.chart-empty { fill: var(--ink-2); font-size: 12px; }
+.chart-end { fill: var(--ink) !important; font-weight: 600; }
+
+.chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-line.s0, .chart-mark.s0 { stroke: var(--chart-1); }
+.chart-line.s1, .chart-mark.s1 { stroke: var(--chart-2); }
+.chart-line.s2, .chart-mark.s2 { stroke: var(--chart-3); }
+.chart-mark { stroke-width: 0; }
+.chart-mark.s0 { fill: var(--chart-1); }
+.chart-mark.s1 { fill: var(--chart-2); }
+.chart-mark.s2 { fill: var(--chart-3); }
+.chart-mark.focus { stroke: var(--raised); stroke-width: 2; }
+
+/* Bars: series 1 solid, 2 striped, 3 dotted (patterns in ChartDefs). */
+.chart-defs { position: absolute; }
+.chart-bar.s0 { fill: var(--chart-1); }
+.chart-defs .s1 { fill: var(--chart-2); }
+.chart-defs .s2 { fill: var(--chart-3); }
+.chart-defs .gap { fill: var(--raised); opacity: 0.55; }
+.chart-bars-width { overflow-x: auto; }
+.chart-bars-scroll { max-height: 320px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.chart-row-focus { fill: var(--selected); }
+.chart-plot .chart-cat { fill: var(--ink); }
+.chart-plot .is-focus .chart-cat, .chart-plot .is-focus .chart-value { font-weight: 600; fill: var(--ink); }
+.chart-plot .chart-value { fill: var(--ink); }
+.chart-plot .chart-na { fill: var(--ink-3); font-style: italic; }
+.chart-axis { display: block; margin-top: 2px; overflow: visible; }
+
+/* Pie: the list beside it carries name, value and %, so identity never rests on color. */
+.chart-pie { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-16); padding: var(--sp-4) 0; }
+.chart-pie svg { flex: none; }
+.chart-slice { stroke: var(--raised); stroke-width: 2; }
+.chart-card .c0 { fill: var(--chart-1); background: var(--chart-1); }
+.chart-card .c1 { fill: var(--chart-2); background: var(--chart-2); }
+.chart-card .c2 { fill: var(--chart-3); background: var(--chart-3); }
+.chart-card .c3 { fill: var(--chart-4); background: var(--chart-4); }
+.chart-card .c4 { fill: var(--chart-5); background: var(--chart-5); }
+.chart-pie-wide .chart-pie-list { flex-basis: 100%; }
+.chart-pie-list { flex: 1; min-width: 200px; }
+.chart-pie-row { display: grid; grid-template-columns: 10px minmax(70px, 1fr) minmax(0, auto) 52px; align-items: center; gap: var(--sp-8); min-height: 30px; padding: 0 var(--sp-8); border-radius: var(--radius-s); }
+.chart-pie-row + .chart-pie-row { box-shadow: 0 -1px 0 var(--line); }
+.chart-pie-row.is-focus { background: var(--selected); font-weight: 600; box-shadow: none; }
+.chart-pie-row.is-focus + .chart-pie-row { box-shadow: none; }
+.chart-pie-row.total { font-weight: 600; box-shadow: 0 -1px 0 var(--line-strong); }
+.chart-pie-name { min-width: 0; overflow-wrap: anywhere; }
+.chart-pie-num { min-width: 0; overflow-wrap: anywhere; text-align: right; font-variant-numeric: tabular-nums; }
+.chart-pie-num + .chart-pie-num { color: var(--ink-2); }
+.chart-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+.chart-legend { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin: var(--sp-6) var(--sp-10) 0; }
+.chart-legend-item { display: inline-flex; align-items: center; gap: 7px; min-height: 26px; max-width: 100%; padding: 0 var(--sp-8); border: 0; border-radius: var(--radius-pill); background: none; color: var(--ink); font: inherit; font-size: 12px; cursor: default; }
+.chart-legend-item:hover { background: var(--hover); }
+.chart-legend-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.chart-legend-item[aria-pressed="false"] { color: var(--ink-2); }
+.chart-legend-item[aria-pressed="false"] .chart-legend-label { text-decoration: line-through; }
+.chart-legend-item[aria-pressed="false"] .chart-swatch { opacity: 0.4; }
+.chart-legend-label { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.chart-swatch { flex: none; }
+
+.chart-data { padding: 0 var(--sp-10); }
+.chart-data .data-table { margin: var(--sp-10) 0 0; }
+.chart-data .data-table:not(.fill) .data-table-scroll { max-height: 220px; }
+.chart-data-note { margin: var(--sp-6) var(--sp-4) 0; font-size: 11px; line-height: 15px; color: var(--ink-2); }
+
+.chart-foot { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin-top: var(--sp-10); padding: var(--sp-8) var(--sp-10) var(--sp-8) var(--sp-14); border-top: 1px solid var(--line); }
+.chart-origin { flex: 1; min-width: 200px; display: inline-flex; align-items: flex-start; gap: 6px; font-size: 11px; line-height: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
+.chart-origin > :first-child { margin-top: 1px; }
+.chart-origin b { font-weight: 600; color: var(--ink); }
+.chart-toggle { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--sp-10); border: 0; border-radius: var(--radius-pill); background: var(--field); color: var(--ink); font: inherit; font-size: 12px; font-weight: 600; cursor: default; }
+.chart-toggle:hover { background: var(--hover); }
+.chart-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chart-slice { transition: transform 0.12s var(--ease); }
+}

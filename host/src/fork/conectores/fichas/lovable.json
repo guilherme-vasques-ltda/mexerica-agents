@@ -1,0 +1,54 @@
+{
+  "id": "lovable",
+  "nome": "Lovable",
+  "categoria": "IA e automação",
+  "descricao": "Projetos e workspaces do Lovable. Os escopos de leitura vêm separados dos de criação e publicação.",
+  "exemplos": [
+    "Liste os meus projetos no Lovable",
+    "Qual o estado do projeto Loja Nova?"
+  ],
+  "site": "https://lovable.dev",
+  "docs": "https://docs.lovable.dev/integrations/lovable-mcp-server",
+  "links": {
+    "privacidade": "https://lovable.dev/privacy",
+    "termos": "https://lovable.dev/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.lovable.dev/integrations/lovable-mcp-server",
+    "https://mcp.lovable.dev/.well-known/oauth-protected-resource",
+    "https://lovable.dev/oauth/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "lovable.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Lovable",
+      "url": "https://mcp.lovable.dev",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "projects:read",
+            "workspaces:read",
+            "offline"
+          ],
+          "padrao": true,
+          "disponivel": false,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Exige workspace Business ou Enterprise, e o login precisa ser confirmado."
+    }
+  ],
+  "skillsOficiais": [],
+  "emBreve": "Exige workspace Business ou Enterprise e confirmação do login; entra depois."
+}

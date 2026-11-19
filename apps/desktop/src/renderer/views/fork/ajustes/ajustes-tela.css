@@ -1,0 +1,26 @@
+/* ajustes-tela-01: a tela de Ajustes usa a camada, a placa e o cabeçalho de Rotinas (.rc-layer, .rc-page, .rc-header;
+   vidro só na placa, sem desfoque com a transparência reduzida, em routines-central.css). Aqui, só o que é dela. */
+.aj-page {
+  color: var(--text-primary, var(--ink));
+}
+.aj-page :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Auditoria D249, F10 (RodapeCurto): "Saiba mais" no rodapé de um cartão, no destaque como em Rotinas. */
+.rodape-curto-mais {
+  color: var(--text-accent, var(--accent));
+  font-weight: 600;
+}
+.rodape-curto-mais:hover {
+  text-decoration: underline;
+}
+
+/* Entrega 4 (MX-7): link entre páginas (Bot de fundo ↔ Atividade), no destaque como "Saiba mais". */
+.ajustes-link {
+  color: var(--text-accent, var(--accent));
+  font-weight: 600;
+  font-size: var(--text-callout);
+}
+.ajustes-link:hover { text-decoration: underline; }

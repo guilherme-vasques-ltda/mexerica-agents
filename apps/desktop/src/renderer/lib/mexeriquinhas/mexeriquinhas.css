@@ -1,0 +1,122 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Mexeriquinhas: animações. Só seletores com prefixo mxq-, sem efeito global. */
+
+.mxq { overflow: visible; --mxq-anel: #17120e; }
+.mxq .mxq-anel { stroke: var(--mxq-anel); }
+.mxq .mxq-salto,
+.mxq .mxq-fig,
+.mxq .mxq-olhos,
+.mxq .mxq-selo {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.mxq .mxq-olhos,
+.mxq .mxq-selo { transform-origin: 50% 50%; }
+
+/* Hover e foco: pulinho curto. */
+.mxq .mxq-salto { transition: transform 220ms cubic-bezier(0.34, 1.4, 0.64, 1); }
+.mxq:hover .mxq-salto,
+:focus-visible > .mxq .mxq-salto { transform: translateY(-4%) scale(1.04); }
+
+/* Livre: flutua devagar e pisca. */
+.mxq--livre .mxq-fig { animation: mxq-flutua 4.8s ease-in-out infinite; }
+.mxq--livre .mxq-olhos,
+.mxq--trabalhando .mxq-olhos { animation: mxq-pisca 5.2s ease-in-out infinite; }
+
+/* Trabalhando: balanço curto e concentrado. */
+.mxq--trabalhando .mxq-fig { animation: mxq-trabalha 1.2s ease-in-out infinite; }
+
+/* Dormindo: respira; o zzz sobe e some. */
+.mxq--dormindo .mxq-fig { animation: mxq-respira 4.4s ease-in-out infinite; }
+.mxq--dormindo .mxq-selo { animation: mxq-zzz 3.2s ease-in-out infinite; }
+
+/* Precisa de sua resposta: selo pulsa. Erro: selo treme de tempos em tempos. */
+.mxq--precisa-resposta .mxq-selo { animation: mxq-pulso 1.6s ease-in-out infinite; }
+.mxq--erro .mxq-selo { animation: mxq-treme 2.6s ease-in-out infinite; }
+
+@keyframes mxq-flutua { 50% { transform: translateY(-2%); } }
+@keyframes mxq-pisca { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.12); } }
+@keyframes mxq-trabalha {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  25% { transform: translateY(-2.5%) rotate(-2deg); }
+  75% { transform: translateY(-1%) rotate(2deg); }
+}
+@keyframes mxq-respira { 50% { transform: scale(1.03, 0.97); } }
+@keyframes mxq-zzz {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(-14%); opacity: 0.7; }
+}
+@keyframes mxq-pulso { 50% { transform: scale(1.14); } }
+@keyframes mxq-treme {
+  0%, 30%, 100% { transform: rotate(0); }
+  6% { transform: rotate(-14deg); }
+  12% { transform: rotate(12deg); }
+  18% { transform: rotate(-8deg); }
+  24% { transform: rotate(5deg); }
+}
+
+/* Pausa manual (ex.: prévia): aplique a classe num ancestral. */
+.mxq-pausado .mxq * { animation-play-state: paused !important; }
+
+/* Movimento reduzido: nada anima, nem o hover. */
+@media (prefers-reduced-motion: reduce) {
+  .mxq *,
+  .mxq-pausado .mxq * { animation: none !important; transition: none !important; }
+  .mxq:hover .mxq-salto,
+  :focus-visible > .mxq .mxq-salto { transform: none; }
+}
+
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Camadas: .mxp (hover, via `translate`) > .mxp-fig (corpo: repouso, balanço, respiração, via `transform`) > quadros.
+   O quadro 0 fica sempre opaco por baixo; o quadro 1 entra e sai com fade curto por cima (sem "furo" no meio da troca);
+   o piscar é um corte rápido. Pausa e movimento reduzido desligam tudo e deixam só o quadro 0. */
+.mxp { display:inline-block; position:relative; vertical-align:middle; flex-shrink:0; translate:0 0; transition:translate 220ms cubic-bezier(.23,1,.32,1); }
+.mxp-fig { display:block; width:100%; height:100%; transform-origin:50% 92%; }
+.mxp-quadro { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+.mxp-quadro:not(.mxp-quadro--0) { opacity:0; }
+.mxp:hover { translate:0 -4%; }
+
+/* Corpo por estado */
+.mxp--livre .mxp-fig,.mxp--precisa-resposta .mxp-fig { animation:mxp-repouso 3.6s ease-in-out infinite; }
+.mxp--trabalhando .mxp-fig { animation:mxp-balanco 1.4s ease-in-out infinite; }
+.mxp--dormindo .mxp-fig { animation:mxp-respira 4s ease-in-out infinite; }
+
+/* Quadros: fade curto do quadro 1; piscar seco */
+.mxp--livre .mxp-quadro--1 { animation:mxp-livre-b 5s linear infinite; }
+.mxp--livre .mxp-quadro--2 { animation:mxp-piscar 5s step-end infinite; }
+.mxp--trabalhando .mxp-quadro--1 { animation:mxp-troca 1.4s linear infinite; }
+.mxp--dormindo .mxp-quadro--1 { animation:mxp-troca 4s linear infinite; }
+
+.mxp-selo { position:absolute; right:0; top:0; display:grid; place-items:center; min-width:1.15em; height:1.15em; padding:0 .1em; border-radius:50%; background:#ffc93c; color:#2a1a12; font:bold clamp(10px, .75em, 14px)/1 sans-serif; }
+.mxp--erro .mxp-selo { background:#e5484d; color:white; }
+.mxp--dormindo .mxp-selo { background:#3d4b8f; color:white; font-size:10px; }
+.mxp--precisa-resposta .mxp-selo { animation:mxp-pulso 1.6s ease-in-out infinite; }
+
+@keyframes mxp-repouso { 0%,100% { transform:translateY(0) scale(1,1); } 50% { transform:translateY(-1.5%) scale(.99,1.012); } }
+@keyframes mxp-balanco { 0%,100% { transform:rotate(-2.2deg); } 50% { transform:rotate(2.2deg); } }
+@keyframes mxp-respira { 0%,100% { transform:scale(1,1); } 50% { transform:scale(1.015,1.03); } }
+/* Quadro 1 visível na segunda metade, com entrada e saída de ~10% do ciclo. */
+@keyframes mxp-troca { 0%,40% { opacity:0; } 50%,90% { opacity:1; } 100% { opacity:0; } }
+@keyframes mxp-livre-b { 0%,40% { opacity:0; } 46%,84% { opacity:1; } 90%,100% { opacity:0; } }
+@keyframes mxp-piscar { 0% { opacity:0; } 93% { opacity:1; } 96% { opacity:0; } }
+@keyframes mxp-pulso { 50% { transform:scale(1.12); } }
+
+.mxp--pausado,.mxp-pausado .mxp { transition:none; }
+.mxp--pausado:hover,.mxp-pausado .mxp:hover { translate:0 0; }
+.mxp--pausado .mxp-fig,.mxp--pausado .mxp-quadro,.mxp--pausado .mxp-selo,
+.mxp-pausado .mxp .mxp-fig,.mxp-pausado .mxp .mxp-quadro,.mxp-pausado .mxp .mxp-selo { animation:none; transform:none; }
+@media (prefers-reduced-motion:reduce) {
+  .mxp,.mxp:hover { transition:none; translate:0 0; }
+  .mxp .mxp-fig,.mxp .mxp-quadro,.mxp .mxp-selo { animation:none; transform:none; }
+}
+
+/* Ocioso (60 s sem interação, lib/glow-visibility.ts): quem está livre ou dormindo fica na pose de repouso, sem
+   flutuar, respirar nem piscar. Trabalhando, precisa de resposta e erro seguem animando: são o estado real. */
+html[data-janela-ociosa] .mxq--livre .mxq-fig,
+html[data-janela-ociosa] .mxq--livre .mxq-olhos,
+html[data-janela-ociosa] .mxq--dormindo .mxq-fig,
+html[data-janela-ociosa] .mxq--dormindo .mxq-selo { animation: none; }
+html[data-janela-ociosa] .mxp--livre .mxp-fig,
+html[data-janela-ociosa] .mxp--livre .mxp-quadro,
+html[data-janela-ociosa] .mxp--dormindo .mxp-fig,
+html[data-janela-ociosa] .mxp--dormindo .mxp-quadro { animation: none; transform: none; }

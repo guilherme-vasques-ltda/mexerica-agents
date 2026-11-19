@@ -1,0 +1,21 @@
+/* DON-865, fatia 4: aviso "Vale para conversas novas" e o botão da conversa principal, na seção Motor. */
+.motor-principal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 0 2px;
+}
+.motor-principal-aviso {
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-caption, 12px);
+}
+.motor-principal-nota {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-caption, 12px);
+}
+.motor-principal-nota.erro { color: var(--danger); }

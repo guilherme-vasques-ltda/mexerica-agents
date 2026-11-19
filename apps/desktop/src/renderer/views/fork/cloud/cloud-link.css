@@ -1,0 +1,29 @@
+/* D171: o vínculo pela nuvem (views/fork/cloud), dentro dos cartões de Ajustes › Computadores. */
+
+/* O código deste aparelho: grande, sem seleção nem cópia (a conferência é com o outro aparelho). */
+.cloud-link-code {
+  padding: var(--sp-8) 0 var(--sp-4);
+  user-select: none;
+}
+
+/* Os seis dígitos lidos no aparelho do dono, digitados aqui. */
+.cloud-link-digits {
+  flex: none;
+  width: 8.5em;
+  padding: var(--sp-6) var(--sp-10);
+  background: var(--content-ground, var(--canvas));
+  border-radius: var(--radius-m);
+  color: var(--text-primary, var(--ink));
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  letter-spacing: 0.12em;
+  text-align: center;
+  user-select: text;
+  cursor: text;
+}
+.cloud-link-digits:focus {
+  outline: 2px solid var(--context-ink-2, var(--ink-2));
+}
+.cloud-link-digits::placeholder {
+  letter-spacing: normal;
+}

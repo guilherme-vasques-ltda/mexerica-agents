@@ -1,0 +1,38 @@
+/* DON-907 C9a: o balão da linha de troca de modelo, como o de Times (times-info-tip). */
+.troca-modelo {
+  position: relative;
+  display: inline-flex;
+  border-radius: var(--radius-m);
+  outline: none;
+}
+.troca-modelo:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.troca-modelo-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 300px;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  background: var(--raised);
+  box-shadow: var(--shadow-xl);
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+  line-height: 1.4;
+  text-align: left;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.troca-modelo:hover .troca-modelo-tip,
+.troca-modelo:focus-visible .troca-modelo-tip {
+  visibility: visible;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .troca-modelo-tip { transition: none; }
+}

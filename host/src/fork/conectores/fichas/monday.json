@@ -1,0 +1,56 @@
+{
+  "id": "monday",
+  "nome": "monday.com",
+  "categoria": "Projetos",
+  "descricao": "Gestão de trabalho: lê quadros e itens e cria, atualiza e organiza quadros, docs, formulários, automações e agentes.",
+  "exemplos": [
+    "Quais itens do quadro do monday.com estão atrasados?",
+    "Resuma o andamento do projeto de lançamento"
+  ],
+  "site": "https://monday.com",
+  "docs": "https://developer.monday.com/api-reference/docs/mondaycom-mcp",
+  "links": {
+    "privacidade": "https://monday.com/privacy",
+    "termos": "https://monday.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developer.monday.com/api-reference/docs/mondaycom-mcp",
+    "https://auth.monday.com/oauth_ms/oauth/register",
+    "https://auth.monday.com/.well-known/oauth-authorization-server/mcp"
+  ],
+  "tipos": [
+    {
+      "id": "monday.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "monday.com",
+      "url": "https://mcp.monday.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O monday.com não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://developer.monday.com/api-reference/docs/portfolio-agent-skills",
+      "origem": "fornecedor",
+      "licenca": "sem licença",
+      "aproveitavel": false
+    }
+  ]
+}

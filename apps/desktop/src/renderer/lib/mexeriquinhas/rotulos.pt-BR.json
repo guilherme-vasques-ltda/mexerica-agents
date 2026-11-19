@@ -1,0 +1,123 @@
+{
+  "cores": {
+    "laranja": "Laranja",
+    "lima": "Verde lima",
+    "limao": "Amarelo limão",
+    "toranja": "Toranja",
+    "roxo": "Roxo",
+    "celeste": "Azul celeste"
+  },
+  "olhos": {
+    "ponto": "Ponto",
+    "sonolentos": "Sonolentos",
+    "brilhantes": "Brilhantes",
+    "oculos-redondos": "Óculos redondos",
+    "oculos-escuros": "Óculos escuros",
+    "piscando": "Piscando",
+    "oculos-verdes": "Óculos verdes"
+  },
+  "roupas": {
+    "nenhuma": "Nenhuma",
+    "blazer": "Blazer",
+    "colete": "Colete",
+    "moletom": "Moletom",
+    "avental": "Avental",
+    "jaleco": "Jaleco",
+    "polo": "Polo"
+  },
+  "acessorios": {
+    "nenhum": "Nenhum",
+    "coroa": "Coroa",
+    "fone": "Fone",
+    "capacete": "Capacete",
+    "boina": "Boina",
+    "bone": "Boné",
+    "flor": "Flor",
+    "cartola": "Cartola",
+    "capuz": "Capuz"
+  },
+  "objetos": {
+    "nenhum": "Nenhum",
+    "gravata": "Gravata",
+    "moeda": "Moeda",
+    "chave": "Chave",
+    "megafone": "Megafone",
+    "notebook": "Notebook",
+    "lupa": "Lupa",
+    "pincel": "Pincel",
+    "caixa": "Caixa",
+    "carrinho": "Carrinho",
+    "coracao": "Coração",
+    "ferramenta": "Ferramenta"
+  },
+  "estados": {
+    "dormindo": "Dormindo",
+    "livre": "Livre",
+    "trabalhando": "Trabalhando",
+    "precisa-resposta": "Precisa de você",
+    "erro": "Erro"
+  },
+  "ocupado": "Ocupado",
+  "modelos": {
+    "ceo": {
+      "nome": "CEO",
+      "papel": "Presidente"
+    },
+    "assistente": {
+      "nome": "Assistente",
+      "papel": "Ajuda geral"
+    },
+    "financeiro": {
+      "nome": "Financeiro",
+      "papel": "Finanças"
+    },
+    "marketing": {
+      "nome": "Marketing",
+      "papel": "Campanhas"
+    },
+    "developer": {
+      "nome": "Developer",
+      "papel": "Desenvolvimento"
+    },
+    "pesquisa": {
+      "nome": "Pesquisa",
+      "papel": "Investigação"
+    },
+    "vendas": {
+      "nome": "Vendas",
+      "papel": "Relacionamento"
+    },
+    "compras": {
+      "nome": "Compras",
+      "papel": "Suprimentos"
+    },
+    "rh": {
+      "nome": "RH",
+      "papel": "Pessoas"
+    },
+    "suporte": {
+      "nome": "Suporte",
+      "papel": "Atendimento"
+    },
+    "designer": {
+      "nome": "Designer",
+      "papel": "Criação"
+    },
+    "amazon": {
+      "nome": "Amazon",
+      "papel": "Loja e pedidos"
+    },
+    "dono": {
+      "nome": "Dono",
+      "papel": "Proprietário"
+    },
+    "chefe": {
+      "nome": "Chefe",
+      "papel": "Liderança"
+    },
+    "hacker": {
+      "nome": "Hacker",
+      "papel": "Segurança"
+    }
+  }
+}

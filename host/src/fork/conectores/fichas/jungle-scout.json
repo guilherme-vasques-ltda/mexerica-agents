@@ -1,0 +1,57 @@
+{
+  "id": "jungle-scout",
+  "nome": "Jungle Scout",
+  "categoria": "Vendas e CRM",
+  "descricao": "Inteligência de mercado Amazon. O MCP conecta dados do Cobalt (keywords, produtos, estimativas de vendas) a agentes de IA.",
+  "exemplos": [
+    "Quais produtos estão em alta na categoria de cozinha?",
+    "Estime as vendas mensais deste produto na Amazon"
+  ],
+  "site": "https://www.junglescout.com/",
+  "docs": "https://www.junglescout.com/products/jungle-scout-mcp/",
+  "links": {
+    "privacidade": "https://www.junglescout.com/privacy/",
+    "termos": "https://www.junglescout.com/terms-of-use/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://www.junglescout.com/products/jungle-scout-mcp/",
+    "https://ai.junglescout.com/register",
+    "https://ai.junglescout.com/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "O acesso só abre com aprovação comercial do Jungle Scout.",
+  "tipos": [
+    {
+      "id": "jungle-scout.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Jungle Scout",
+      "url": "https://ai.junglescout.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Ainda não tem um jeito seguro de conectar por aqui; entra numa próxima etapa."
+    }
+  ],
+  "emBreve": "Ainda não tem um jeito seguro de conectar por aqui; entra numa próxima etapa.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/junglescout/ai-skills",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    }
+  ]
+}

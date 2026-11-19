@@ -1,0 +1,328 @@
+/* Settings (ChatGPT's desktop settings): a sidebar of pages and B&W cards. ajustes-tela-01: the body of the
+   Ajustes screen (fork/ajustes/ajustes-tela.css), as two opaque panels like Rotinas' (text never on glass over
+   glass); only the page scrolls, so nothing is cut at its top and nothing behind shows through. */
+.settings {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px 12px;
+}
+.settings-sidebar,
+.settings-main {
+  /* The same fills as inside a sheet (overlay.css, .modal-content), which the pages were drawn for: the
+     ground is the panel, grouped rows and tiles are tints over it. */
+  --content-ground: var(--raised);
+  --control-fill-muted: var(--group);
+  --control-fill-selected: var(--field);
+  --surface: var(--group);
+  background: var(--raised);
+  border-radius: var(--radius-l);
+  box-shadow: var(--rc-panel-edge, 0 0 0 1px var(--line));
+}
+.settings-sidebar {
+  width: 196px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 8px 10px;
+  overflow-y: auto;
+}
+.settings-group {
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--text-tertiary, var(--ink-3));
+  padding: 0 10px 4px;
+}
+.settings-group:not(:first-child) {
+  padding-top: 16px;
+}
+.settings-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  flex: none;
+  padding: 0 10px;
+  border-radius: var(--radius-s);
+  font-size: var(--text-body);
+  color: var(--text-primary, var(--ink));
+  transition: background-color var(--motion-hover);
+}
+.settings-item:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.05);
+}
+.settings-item.selected {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.08);
+}
+.settings-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 22px 28px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-title {
+  margin: 0;
+  font-size: calc(20px * var(--scale, 1));
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+/* The tabs of a long page, as the system's segmented control (redesenho, `db-seg`). */
+.settings-head .tab-choice {
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+}
+.settings-head .tab-choice-option.on {
+  background: var(--chip-on, var(--raised));
+  box-shadow: var(--shadow-chip, none);
+}
+.settings-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 14px 0;
+  animation: fade-in var(--fade) both;
+}
+/* One filled group, like a CardSection's. */
+.settings-card {
+  padding: 16px;
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--radius-l);
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 0 10px 2px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.settings-field {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+}
+.settings-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  padding: 6px;
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-opaque);
+  border-radius: var(--radius-xs);
+}
+.settings-mono {
+  font-family: var(--font-mono);
+}
+.settings-centered {
+  text-align: center;
+}
+/* Underlined text buttons (links out) and the quieter Cancel beside them. */
+.settings-link {
+  color: var(--text-primary, var(--ink));
+  text-decoration: underline;
+}
+.settings-quiet-button {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.settings-off {
+  opacity: 0.4;
+}
+
+/* General: the analytics switch sits at the row's end, after its label and info button. */
+.switch.settings-privacy-switch {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+/* Usage: a computer's label over its limits, then one row per limit. */
+.settings-usage-computer {
+  font-size: var(--text-body);
+  font-weight: 700;
+}
+.settings-usage-row {
+  font-size: var(--text-callout);
+  font-weight: 400;
+  white-space: nowrap;
+  row-gap: 2px;
+}
+.settings-usage-title {
+  width: 64px;
+  flex: none;
+}
+.settings-usage-percent {
+  width: 36px;
+  flex: none;
+  text-align: right;
+}
+/* MX-245: a hora de retorno nunca fica escondida atrás de reticências. A coluna cresce com o conteúdo; quando não
+   cabe ao lado da barra, ela quebra para sua própria linha (a fileira já quebra, `UsageWindows`) e o texto normal
+   quebra dentro da janela em vez de cortar. */
+.settings-usage-reset {
+  flex: 1 1 100%;
+  min-width: 0;
+  text-align: end;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* Computers & devices. */
+.settings-computers {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--content-ground, var(--canvas));
+}
+.settings-computers-content {
+  padding: 14px 14px 20px;
+}
+.settings-ssh-editor {
+  width: 460px;
+}
+.settings-ssh-editor-body {
+  padding: 4px 20px 20px;
+}
+.settings-approval {
+  width: 420px;
+}
+.settings-approval-body {
+  padding: 0 24px 24px;
+}
+.settings-approval-input {
+  width: 100%;
+  max-width: 240px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--text-primary, var(--ink));
+  background: var(--surface-opaque);
+  border: 1px solid var(--separator, rgba(128, 128, 128, 0.35));
+  border-radius: var(--radius-xs);
+}
+.settings-approval-confirm {
+  display: block;
+  padding: 12px 20px;
+  font-family: var(--font-mono);
+  font-size: 44px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--text-primary, var(--ink));
+  background: var(--surface-opaque);
+  border: 1px solid var(--separator, rgba(128, 128, 128, 0.35));
+  border-radius: var(--radius-s);
+}
+.settings-analytics-icon {
+  padding-top: 2px;
+}
+
+/* Voice chat: its own sheet outside Settings; rows that need a key dim until there is one. */
+.sheet-page.settings-voice-sheet {
+  width: 440px;
+  height: 600px;
+}
+.settings-voice-body {
+  flex: 1;
+  min-height: 0;
+}
+.settings-dimmable {
+  transition: opacity var(--layout);
+}
+.settings-dimmable.dimmed {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.settings-key-input {
+  flex: 1;
+  min-width: 0;
+}
+.settings-key-result {
+  font-size: var(--text-caption);
+  font-weight: 400;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.settings-key-result.failed {
+  color: var(--danger);
+}
+
+/* A row that appears fades in. */
+.settings-appear {
+  animation: fade-in var(--layout) both;
+}
+
+/* Show/hide: fade with a short drop from the top (`.opacity.combined(with: .move(edge: .top))`). */
+.settings-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: grid-template-rows var(--layout), opacity var(--layout), transform var(--layout);
+}
+.settings-reveal.shown {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: none;
+}
+.settings-reveal > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Celular e janelas estreitas: a lateral de páginas vira uma faixa rolável no topo e a página ocupa a largura
+   toda. Lado a lado (196px + página) a página ficava com ~120px e o cartão de Conta era coberto pela lateral. */
+@media (max-width: 640px) {
+  .settings {
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+  }
+  .settings-sidebar {
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .settings-sidebar::-webkit-scrollbar { display: none; }
+  /* Os cabeçalhos de grupo não cabem numa faixa; as páginas seguem em ordem. */
+  .settings-group { display: none; }
+  .settings-item { white-space: nowrap; }
+  .settings-main { flex: 1; min-height: 0; width: 100%; }
+  .settings-head { padding: 16px 16px 10px; }
+  .settings-page { padding: 4px 10px 0; }
+}

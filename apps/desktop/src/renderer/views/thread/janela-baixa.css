@@ -1,0 +1,30 @@
+/* Auditoria D249, E4: below 600 px of window height the header is one line (a 28 px face beside the
+   name) and the transcript starts under 56 px instead of 108. In the approval card the facts are behind
+   Detalhes (PermissionCard): Detalhes keeps the room the facts gave it, and the facts inside it sit flush
+   with the command and the diffs. Same query as lib/janela-baixa.ts. */
+@media (height < 600px) {
+  .conversation {
+    --chat-header-height: 56px;
+  }
+  .chat-header-who {
+    flex-direction: row;
+    gap: var(--sp-6);
+    padding: 2px 4px;
+  }
+  .chat-header-star {
+    right: -3px;
+    bottom: -2px;
+    width: 13px;
+    height: 13px;
+  }
+  .chat-header-star svg {
+    width: 7px;
+    height: 7px;
+  }
+  .approval-card .disclosure-label {
+    margin-top: var(--sp-10);
+  }
+  .approval-card .permission-card-details .approval-facts {
+    margin: 0;
+  }
+}

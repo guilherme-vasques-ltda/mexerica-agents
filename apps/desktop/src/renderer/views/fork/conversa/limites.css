@@ -1,0 +1,26 @@
+/* DON-907 C4: o aviso de espera do limite, a mesma pílula de vidro dos avisos (thread.css .chat-pill), com botões.
+   Superfície traduzida (docs/guides/idiomas.md): só propriedades lógicas, para espelhar em árabe. */
+.espera-limite {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  margin-block: 0;
+  margin-inline: auto;
+  padding-block: 4px;
+  padding-inline: 12px 4px;
+  border-radius: var(--radius-m);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.espera-limite > button {
+  flex: none;
+  white-space: nowrap;
+}
+.espera-limite-nota {
+  margin-block-start: 4px;
+}
+/* Pausada (estilo `error` do Hub): o mesmo fundo opaco do aviso de erro (thread.css .chat-notice-error). */
+.espera-limite-pausada {
+  background: color-mix(in srgb, var(--danger) 12%, var(--raised));
+}

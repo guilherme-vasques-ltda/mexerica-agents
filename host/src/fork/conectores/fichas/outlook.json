@@ -1,0 +1,23 @@
+{
+  "id": "outlook",
+  "nome": "Outlook",
+  "categoria": "Comunicação",
+  "descricao": "Leia e organize os e-mails da sua conta do Outlook.",
+  "exemplos": [
+    "Resuma os e-mails de hoje",
+    "Quais e-mails ainda não respondi?"
+  ],
+  "site": "https://www.microsoft.com/microsoft-365/outlook",
+  "docs": "https://learn.microsoft.com/graph/mcp-server/overview",
+  "links": {
+    "privacidade": "https://privacy.microsoft.com/privacystatement",
+    "termos": "https://www.microsoft.com/servicesagreement"
+  },
+  "conferidaEm": "2026-11-16",
+  "fontes": [
+    "docs/propostas/marketplace-20261113/servicos-do-dono.md",
+    "https://learn.microsoft.com/graph/mcp-server/overview"
+  ],
+  "tipos": [],
+  "emBreve": "Sem conector oficial para conta pessoal da Microsoft."
+}

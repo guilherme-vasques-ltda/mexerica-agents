@@ -1,0 +1,17 @@
+export const textos = {
+  "conversa.pagina.titulo": "Conversa",
+  "conversa.envio.titulo": "Envio",
+  "conversa.envio.atalho": "Atalho de envio",
+  "conversa.envio.atalhoDetalhe": "Escolha quando o Enter envia ou quebra a linha",
+  "conversa.envio.modoEnter": "Enter",
+  "conversa.envio.modoVariasLinhas": "{mod}+Enter para várias linhas",
+  "conversa.envio.modoSempre": "{mod}+Enter sempre",
+  "conversa.envio.rodapeEnter": "Enter envia. Shift+Enter quebra a linha.",
+  "conversa.envio.rodapeVariasLinhas": "Enter envia uma linha. Com mais de uma linha, Enter quebra e {mod}+Enter envia.",
+  "conversa.envio.rodapeSempre": "Enter quebra a linha. {mod}+Enter envia.",
+  "conversa.avancado.titulo": "Avançado",
+  "conversa.avancado.skillsMenu": "Skills no menu /",
+  "conversa.avancado.skillsMenuDetalhe": "Mostra as skills do bot no menu de comandos /",
+  "conversa.fastMode": "Modo rápido",
+  "conversa.fechar": "Fechar",
+} as const

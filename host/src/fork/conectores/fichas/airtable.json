@@ -1,0 +1,60 @@
+{
+  "id": "airtable",
+  "nome": "Airtable",
+  "categoria": "Produtividade",
+  "descricao": "Plataforma de bancos de dados relacionais e apps colaborativos. O MCP expõe bases, tabelas, registros, views e automações a agentes.",
+  "exemplos": [
+    "Quais registros novos entraram na minha base de clientes?",
+    "Resuma a tabela de tarefas do Airtable por responsável"
+  ],
+  "site": "https://airtable.com/",
+  "docs": "https://airtable.com/developers/agents/mcp/getting-started",
+  "links": {
+    "privacidade": "https://airtable.com/privacy",
+    "termos": "https://airtable.com/tos"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://airtable.com/developers/agents/mcp/getting-started",
+    "https://airtable.com/oauth2/v1/register",
+    "https://airtable.com/.well-known/oauth-authorization-server/oauth2/v1"
+  ],
+  "tipos": [
+    {
+      "id": "airtable.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Airtable",
+      "url": "https://mcp.airtable.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "data.records:read",
+            "schema.bases:read",
+            "workspacesAndBases:read"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Airtable não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/airtable/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

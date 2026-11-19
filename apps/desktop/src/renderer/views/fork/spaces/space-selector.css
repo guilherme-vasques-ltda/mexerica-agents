@@ -1,0 +1,18 @@
+/* MX-122 v3: o seletor mora na faixa do topo da janela (29 px). Alvo de 22 px de altura, largo na horizontal. */
+.space-selector { display:flex;align-items:center;gap:2px;min-height:22px;max-width:200px;font-size:13px; }
+.space-selector button { font:inherit;color:var(--text-primary);border:0;cursor:pointer;background:transparent; }
+.space-selector-current { display:flex;align-items:center;gap:6px;min-width:72px;flex:1;height:22px;padding:0 10px 0 8px;border-radius:7px;background:transparent; }
+.space-selector-current:hover, .space-selector-current[aria-expanded="true"] { background:var(--hover)!important; }
+.space-selector-current > span:not(.space-tile) { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:start;font-weight:600; }
+.space-selector-create { display:grid;place-items:center;width:26px;height:22px;padding:0;border-radius:7px;color:var(--context-ink-2, var(--ink-2))!important; }
+.space-selector-create:hover:not(:disabled) { background:var(--hover)!important; }
+.space-selector button:disabled { opacity:.4;cursor:default; }
+.space-selector button:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+.space-scope-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-16);height:100%;padding:var(--sp-24);text-align:center; }
+.space-scope-banner { position:absolute;top:96px;inset-inline-start:var(--sp-24);inset-inline-end:150px;z-index:4;border-radius:var(--radius-s);padding:var(--sp-8);background:var(--field);color:var(--text-secondary);text-align:center; }
+.space-legacy-open { position:absolute;inset-inline-end:var(--sp-16);top:60px;z-index:3;font:inherit;font-size:var(--text-caption);color:var(--text-secondary);border:1px solid var(--line);background:var(--field);border-radius:var(--radius-s);padding:var(--sp-8);cursor:pointer; }
+.space-legacy-history { padding:var(--sp-24);max-height:75vh;overflow:auto; }
+.space-legacy-history nav { display:flex;gap:var(--sp-8);flex-wrap:wrap; }
+.space-legacy-history p { white-space:pre-wrap; }
+
+.space-selector-current > .space-tile { flex:0 0 var(--size); }

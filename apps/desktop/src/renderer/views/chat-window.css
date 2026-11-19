@@ -1,0 +1,400 @@
+.chat-window {
+  height: 100%;
+  min-width: 760px;
+  min-height: 0;
+  background: var(--content-ground, var(--canvas));
+  position: relative;
+}
+
+.rc-host,
+.times-host,
+.torre-host {
+  height: 100%;
+}
+
+.empty-state {
+  height: 100%;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.empty-state-message {
+  max-width: 360px;
+  text-align: center;
+}
+.empty-state.local-recovery .empty-state-message {
+  text-align: left;
+}
+.empty-state-action {
+  margin-top: 4px;
+}
+
+.split {
+  position: relative;
+  display: flex;
+  height: 100%;
+  /* MX-122 v3: a faixa do topo da janela (JanelaHeader) fica no alto; o fundo de tela passa por baixo dela. */
+  padding-top: var(--janela-header-h);
+  overflow: hidden;
+  /* The wallpaper and veil (theme.css) paint under the sidebar and the conversation. */
+  isolation: isolate;
+}
+.split > .app-wallpaper,
+.split > .app-veil {
+  z-index: -1;
+}
+/* D165: with a wallpaper, the sidebar is glass over it and the conversation sits on a plate of the
+   canvas at the same effective opacity (lib/appearance.ts keeps both above the legibility floor).
+   Without one, both stay opaque, as before. */
+html[data-wallpaper] .sidebar {
+  background: var(--glass-sidebar);
+  box-shadow: inset -1px 0 0 var(--line);
+}
+html[data-wallpaper] .detail {
+  background: var(--glass-plate);
+}
+/* An open account panel or action menu takes the clicks. */
+.split.covered {
+  pointer-events: none;
+}
+
+.sidebar {
+  position: relative;
+  flex: none;
+  height: 100%;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width var(--layout);
+}
+.sidebar.resizing {
+  transition: none;
+}
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 54px;
+  padding-left: 18px;
+  padding-right: 14px;
+  flex: none;
+  transition: opacity var(--layout), padding var(--layout);
+}
+
+.roster {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  outline: none;
+  position: relative;
+}
+.roster:focus-visible {
+  outline: 2px solid var(--context-ink-2, var(--ink-2));
+  outline-offset: -2px;
+}
+.roster-row {
+  width: 100%;
+  padding: 0 8px;
+  border-radius: var(--radius-m);
+  display: flex;
+  transition: background-color var(--motion-hover);
+  flex: none;
+}
+.roster-row.compact {
+  padding: 0;
+}
+/* Hover is tracked in JS, so rows passed over during a drag don't light up. */
+.roster-row.hovered {
+  background: var(--hover);
+}
+.roster-row.selected {
+  background: var(--selected);
+}
+/* Rows the pointer passes over while dragging don't light up. */
+.pointer-dragging .roster-row.hovered:not(.selected) {
+  background: none;
+}
+/* Dragging (iOS's lifted cell): the row's slot stays open while a smaller, translucent copy
+   follows the pointer, then settles into the slot. */
+.roster-row.lifted {
+  opacity: 0;
+}
+.roster-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 400;
+  pointer-events: none;
+}
+.roster-ghost.settling {
+  transition: translate var(--morph);
+}
+.roster-ghost-card {
+  background: var(--raised);
+  box-shadow: var(--shadow-l);
+  scale: 0.94;
+  opacity: 0.85;
+  animation: roster-lift var(--morph) both;
+  transition: scale var(--morph), opacity var(--morph);
+}
+.roster-ghost.settling .roster-ghost-card {
+  scale: 1;
+  opacity: 1;
+  box-shadow: none;
+}
+@keyframes roster-lift {
+  from {
+    scale: 1;
+    opacity: 1;
+  }
+}
+.bot-row {
+  padding: 9px 0;
+  width: 100%;
+}
+.bot-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  line-height: calc(16px * var(--scale));
+  transition: opacity var(--layout);
+}
+.bot-row-text.collapsed {
+  flex: none;
+  width: 0;
+  opacity: 0;
+}
+.unread-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+/* A selected row's fill doesn't touch its hovered neighbour's. */
+.roster-row + .roster-row {
+  margin-top: 4px;
+}
+.roster-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.profile-avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--control-fill-selected, var(--selected));
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+}
+.profile-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-avatar-busy {
+  position: absolute;
+  inset: 0;
+}
+
+
+
+.detail {
+  flex: 1;
+  min-width: 420px;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+/* The title bar strip of detail views that draw no top chrome of their own, so the window
+   still moves from there. */
+.detail-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 54px;
+}
+.empty-detail {
+  height: 100%;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.empty-detail-crew > :not(:first-child) {
+  margin-left: -10px;
+}
+.empty-detail-message {
+  max-width: 420px;
+  text-align: center;
+}
+
+.context-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.account-panel,
+.action-menu {
+  position: absolute;
+  padding: 6px;
+  background: var(--raised);
+  /* D169 (BotRow, CreateMenu): the same opaque menu as the others, with its 1px `line` edge. */
+  box-shadow: var(--shadow-l), 0 0 0 1px var(--line);
+  animation: panel-in var(--fade) both;
+}
+.account-panel {
+  /* Beside the rail's foot: it opens from "Conta e suporte" in the gear's menu (D169, 28/10). */
+  left: calc(var(--rail-width) + var(--sp-4));
+  bottom: var(--sp-12);
+  border-radius: var(--radius-l);
+  transform-origin: bottom left;
+}
+.action-menu {
+  width: 260px;
+  border-radius: var(--radius-l);
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-s);
+  color: var(--text-primary, var(--ink));
+}
+.panel-row.destructive {
+  color: var(--text-danger, var(--danger));
+}
+.panel-row.highlight {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.08);
+}
+.panel-row:disabled {
+  opacity: 0.4;
+}
+.panel-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 10px;
+}
+/* Line icons in `ink-2`; a destructive row keeps its red (sistema.md). */
+.panel-row-icon {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.panel-row.destructive .panel-row-icon {
+  color: inherit;
+}
+.panel-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.panel-error {
+  padding: 8px 10px;
+}
+
+/* Welcome, computer access and host state fill the window with no chrome: their top edge moves it. */
+.window-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+}
+
+/* D165 fase B (LayoutVariants): collapsed, only the rail shows; pointing at its edge floats the
+   sidebar back over the conversation without pushing it. */
+.sidebar.floating {
+  position: absolute;
+  z-index: 30;
+  top: calc(var(--janela-header-h) + var(--sp-8));
+  bottom: var(--sp-8);
+  left: calc(var(--rail-width) + var(--sp-6));
+  height: auto;
+  border-radius: var(--radius-l);
+  background: var(--raised);
+  box-shadow: var(--shadow-l), 0 0 0 1px var(--line);
+  animation: fade-in var(--fade) both;
+}
+html[data-wallpaper] .sidebar.floating {
+  background: var(--glass-sidebar);
+  box-shadow: var(--shadow-glass), var(--shadow-l);
+}
+.sidebar-peek-edge {
+  position: absolute;
+  z-index: 20;
+  top: var(--janela-header-h);
+  bottom: 0;
+  left: var(--rail-width);
+  width: 8px;
+}
+/* No footer in the sidebar any more: the account and Extensions moved to the rail. */
+.sidebar .roster {
+  padding-bottom: var(--sp-24);
+  scroll-padding-bottom: var(--sp-24);
+}
+
+/* D169 (AppShell, ChatHeader): the sidebar button, a 32px glass circle at the conversation's top left,
+   level with the details button on the right (top-chrome: 8px + half of its 72px row). */
+.detail-sidebar-toggle {
+  position: absolute;
+  z-index: 6;
+  top: 28px;
+  left: 16px;
+}
+.detail-sidebar-toggle .mac-chat-button {
+  width: 32px;
+  height: 32px;
+}
+/* The button's square in the window's drag regions (see ChatWindow): nothing to see or to point at. */
+.detail-sidebar-toggle.is-hole {
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+}
+/* Over the conversation the floating sidebar starts 6px past the rail; the button sits 10px past its edge. */
+.detail-sidebar-toggle.beside-floating {
+  left: calc(var(--sp-6) + var(--floating-width) + var(--sp-10));
+}
+/* The detail takes focus only as the place Escape returns to in the bot editor: no ring around the whole page. */
+.detail:focus {
+  outline: none;
+}

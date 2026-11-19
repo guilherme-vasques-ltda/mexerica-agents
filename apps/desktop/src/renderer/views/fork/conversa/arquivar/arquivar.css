@@ -1,0 +1,25 @@
+/* DON-907 C5: a conversa encerrada no lugar do compositor. O mesmo cartão do aviso de sessão (sessoes/ganchos.css),
+   com o "Continuar em nova conversa" em destaque ao lado do aviso. Só propriedades lógicas (superfície traduzida). */
+.arquivar-encerrada {
+  display: flex;
+  flex-direction: column;
+}
+.arquivar-aviso > svg,
+.arquivar-aviso > .icon {
+  flex: none;
+}
+.arquivar-aviso strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+.session-composer-notice button.arquivar-continuar {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.session-composer-notice button.arquivar-continuar:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+.session-composer-notice button.arquivar-continuar:disabled {
+  opacity: 0.7;
+  cursor: default;
+}

@@ -1,0 +1,275 @@
+/* Barra05 (passo 14): o topo do chat é um cartão flutuante de 44 px, como as barras laterais (margem de 8 px,
+   radius-l, surface com borda interna line; claro sem fundo: raised + shadow-s; com fundo de space: vidro).
+   Sem linha de ponta a ponta. Valores do protótipo (docs/reference/design/times-lider-20261105/prototipo.html). */
+.conversation:has(.ctabs) {
+  --chat-header-height: 64px;
+}
+.top-chrome:has(> .ctabs) {
+  padding: 8px 8px 0;
+  place-items: start stretch;
+  /* Coluna presa ao espaço: com `auto`, a coluna cresceria com a largura animada do cartão e o max-width: 100%
+     dele não seguraria (A352-6). */
+  grid-template-columns: minmax(0, 1fr);
+}
+/* MX-122 v3: os botões da janela do Mac moram na faixa do topo da janela; o cartão não reserva mais lugar para eles
+   com a barra esquerda recolhida. */
+/* Sem conexão: o estado vai numa pílula embaixo do cartão. */
+.top-chrome > .ctabs-connection {
+  grid-area: 2 / 1;
+  justify-self: center;
+  margin-top: 6px;
+  padding: 3px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  pointer-events: auto;
+}
+/* D169 (AppShell): o botão da barra lateral fica no topo esquerdo da conversa. Com o cartão de abas, ele entra no
+   cartão, à esquerda da aba do bot, com o mesmo alvo dos botões do cartão e o divisor da aba do bot. O botão e o
+   buraco da região de arrasto continuam do ChatWindow; aqui só a posição e o visual. */
+.detail:has(> .detail-sidebar-toggle:not(.beside-floating)):has(.ctabs) > .detail-sidebar-toggle {
+  top: 15px;
+  left: 15px;
+}
+.detail:has(.ctabs) > .detail-sidebar-toggle .mac-chat-button,
+.detail:has(.ctabs) > .detail-sidebar-toggle.is-hole {
+  width: 30px;
+  height: 30px;
+}
+.detail:has(.ctabs) > .detail-sidebar-toggle .mac-chat-button {
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+}
+.detail:has(.ctabs) > .detail-sidebar-toggle .mac-chat-button::after {
+  border-radius: 9px;
+}
+.detail:has(> .detail-sidebar-toggle:not(.beside-floating)) .ctabs {
+  padding-left: 53px;
+}
+.detail:has(> .detail-sidebar-toggle:not(.beside-floating)) .ctabs::before {
+  content: '';
+  position: absolute;
+  left: 44px;
+  top: 11px;
+  width: 1.5px;
+  height: 22px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+.ctabs {
+  position: relative;
+  contain: layout paint;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  /* Nunca maior que o contêiner, mesmo no meio de uma animação de largura (o painel fixando encolhe o espaço). */
+  max-width: 100%;
+  height: 44px;
+  min-width: 0;
+  padding: 0 44px 0 5px;
+  overflow: hidden;
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  pointer-events: auto;
+  transition: opacity var(--layout), transform var(--layout);
+}
+[data-theme='light']:not([data-wallpaper]) .ctabs {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-s);
+}
+html[data-wallpaper] .ctabs {
+  background: var(--glass-sidebar);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), var(--shadow-glass);
+}
+.ctabs.hidden-by-call {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+.ctabs button {
+  -webkit-app-region: no-drag;
+}
+/* Recolhida: uma pílula do tamanho do bot (e da sessão aberta), alinhada à esquerda. */
+.ctabs.collapsed {
+  width: max-content;
+  max-width: 100%;
+}
+
+
+.ctab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  min-width: 0;
+  max-width: 200px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--context-ink-2, var(--ink-2));
+  white-space: nowrap;
+}
+/* A aba cortada ocupa a sobra e encolhe com o espaço (barra esquerda abrindo ou fechando) sem medir de novo. */
+.ctab[data-cut] {
+  flex: 0 1 auto;
+}
+.ctab .tn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctab:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ctab.on {
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-chip);
+  color: var(--ink);
+  font-weight: 600;
+}
+.ctab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* A aba do bot: rosto de 24 px, nome 13,5 px 600, fundo suave; fixa à esquerda. */
+.ctab.main {
+  max-width: none;
+  height: 34px;
+  gap: 8px;
+  padding: 0 12px 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--hover);
+}
+.ctab.main.on {
+  background: var(--glass-raised);
+}
+.ch-hash {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--ink-2);
+}
+/* O "×" não ocupa lugar: fica por cima do fim do nome, que esmaece, para o hover não empurrar as outras abas.
+   Só a aba ativa reserva o espaço dele (30 px), porque o mostra sempre. */
+.ctab .tx {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.1s;
+}
+.ctab.on:not(.main) {
+  padding-right: 30px;
+}
+.ctab:hover:not(.on) .tn {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent calc(100% - 8px));
+  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent calc(100% - 8px));
+}
+.ctab:hover .tx,
+.ctab.on .tx {
+  opacity: 0.6;
+}
+.ctab .tx:hover {
+  opacity: 1;
+  background: var(--hover);
+}
+/* Divisor alto entre o bot e as sessões; traços curtos entre as sessões, que somem ao lado da ativa ou do ponteiro. */
+.csep {
+  flex: none;
+  width: 1.5px;
+  height: 22px;
+  margin: 0 8px 0 6px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+.tsep {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  background: var(--line);
+  transition: opacity 0.12s;
+}
+.ctab.on + .tsep,
+.tsep:has(+ .ctab.on),
+.ctab:hover + .tsep,
+.tsep:has(+ .ctab:hover) {
+  opacity: 0;
+}
+.ctab-add,
+.ctab-more {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  border-radius: 8px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+/* D527: o "+" colado à aba do bot tem o alvo do botão da barra lateral no cartão (30 px, raio 9; chat-tabs.css acima). */
+.ctab-add {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+/* D527 (exceção aprovada na revisão do #603): com a barra esquerda flutuando por cima (peek), o cartão fica onde está,
+   embaixo dela, e só o "+" sai; volta quando a barra sai. O ChatTabs não conta o "+" escondido na largura. */
+.detail:has(> .detail-sidebar-toggle.beside-floating) .ctab-add {
+  display: none;
+}
+.ctab-toggle {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: var(--context-ink-2, var(--ink-2));
+  transform: translateY(-50%);
+}
+.ctab-add:hover,
+.ctab-more:hover,
+.ctab-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ctab-more:focus-visible,
+.ctab-add:focus-visible,
+.ctab-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Mostrar e ocultar (largura do cartão, abas em sequência) são animações do ChatTabs (Web Animations), sempre a
+   partir do ponto atual; com movimento reduzido, nada anima. A barra esquerda anima a própria largura e o cartão
+   acompanha a conversa (shell/sidebar-slide.ts). */
+.ctabs-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+

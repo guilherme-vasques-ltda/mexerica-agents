@@ -1,0 +1,68 @@
+{
+  "id": "exa",
+  "nome": "Exa",
+  "categoria": "Pesquisa e web",
+  "descricao": "Busca na web e leitura de páginas pela Exa, com os créditos da sua conta Exa.",
+  "exemplos": [
+    "Pesquise artigos recentes sobre agentes de IA para atendimento",
+    "Leia esta página e resuma os pontos principais",
+    "Ache empresas parecidas com a Acme no Brasil"
+  ],
+  "site": "https://exa.ai",
+  "docs": "https://docs.exa.ai/reference/exa-mcp",
+  "links": {
+    "privacidade": "https://exa.ai/privacy-policy",
+    "termos": "https://exa.ai/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.exa.ai/reference/exa-mcp",
+    "https://mcp.exa.ai/.well-known/oauth-protected-resource/mcp",
+    "https://auth.exa.ai/.well-known/oauth-authorization-server",
+    "https://exa.ai/docs/get-started/exa-mcp.md"
+  ],
+  "aviso": "A busca gasta créditos da sua conta Exa.",
+  "skills": [
+    {
+      "id": "exa-pesquisar-na-web",
+      "titulo": "Pesquisar na web",
+      "resumo": "Pesquisa um tema com fontes, links e datas, só com busca e leitura de página."
+    }
+  ],
+  "tipos": [
+    {
+      "id": "exa.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Exa",
+      "url": "https://mcp.exa.ai/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "mcp:tools"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Com o login, o Exa também libera uma ferramenta que inicia trabalho cobrado e que continua no Exa; sem como limitar só à busca, fica para depois do filtro de ações perigosas."
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/exa-labs/agent-skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ],
+  "emBreve": "A conta do Exa também libera execuções cobradas; entra depois do filtro de ações perigosas."
+}

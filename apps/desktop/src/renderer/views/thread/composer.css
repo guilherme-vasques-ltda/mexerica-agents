@@ -1,0 +1,285 @@
+/* The box, its mentions row and its attachments. */
+.mentions {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 6px;
+  overflow-x: auto;
+}
+.mention,
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  flex: none;
+}
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 14px 14px;
+  max-width: var(--column);
+  margin: 0 auto;
+  width: 100%;
+}
+/* The message being replied to, above the field. */
+.composer-reply {
+  padding: 8px 8px 0 14px;
+}
+.composer-reply-quote {
+  flex: 1;
+  min-width: 0;
+}
+.file-chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 0;
+  overflow-x: auto;
+}
+.file-chips:has(.attachment-tile) {
+  align-items: flex-start;
+}
+.attachment-tile {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  flex: none;
+  border-radius: var(--radius-l);
+  overflow: hidden;
+  background: var(--surface);
+}
+.attachment-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+}
+.file-chip-name {
+  max-width: 160px;
+}
+/* The remove glyph is small; its target is 24 pt. */
+.file-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px -8px -6px -4px;
+}
+
+/* D169 (components/Composer): attach is a plain 28px icon button, as in the preview; the others are 32px. */
+.composer-add {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-bottom: 2px;
+  transition: background-color var(--motion-hover);
+}
+.composer-add:hover {
+  background: var(--hover);
+}
+.composer-surface {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: var(--composer-min);
+  background: var(--glass-raised);
+  border-radius: var(--radius-xl);
+  /* D165 fase E: glass like the bubbles, the 1px edge inside; a stronger edge while typing. */
+  box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+}
+.composer-box {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-6);
+  min-height: var(--composer-min);
+  padding: var(--sp-8);
+}
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.composer-box textarea,
+.composer-measure {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--conversation);
+  /* D169: the preview's 13/20 rhythm at the app's text size (1.5, like the bubbles). */
+  line-height: calc(round(up, calc(var(--conversation) * 1.5), 1px));
+  padding: calc((32px - round(up, calc(var(--conversation) * 1.5), 1px)) / 2) 4px;
+  color: var(--text-primary, var(--ink));
+  user-select: text;
+  cursor: text;
+}
+.composer-box textarea {
+  display: block;
+  width: 100%;
+  height: 32px;
+  transition: height var(--layout);
+}
+.composer-measure {
+  position: absolute;
+  inset: 0 0 auto;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.composer-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--layout), opacity var(--morph);
+}
+.composer-reveal.shown { grid-template-rows: 1fr; opacity: 1; }
+.composer-reveal > div { min-height: 0; overflow: hidden; }
+.composer-symbol {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(0.55) rotate(-35deg);
+  transition: opacity var(--morph), transform var(--morph);
+}
+.composer-symbol.active { opacity: 1; transform: scale(1) rotate(0); }
+/* Dictation, beside send / call (Grok Bot's): a light circle; filled while it listens. */
+.composer-mic {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--context-ink-2, var(--ink-2));
+  background: var(--field);
+  transition: background-color var(--morph), color var(--morph), transform var(--press);
+}
+.composer-mic:hover {
+  color: var(--text-primary, var(--ink));
+}
+.composer-mic.on {
+  background: var(--danger-fill);
+  color: var(--on-danger);
+}
+.composer-send {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+  transition: background-color var(--morph), color var(--morph), transform var(--press);
+}
+.composer-surface:focus-within {
+  box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line-strong);
+}
+html[data-wallpaper] .composer-surface {
+  -webkit-backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-raised)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .composer-surface {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+/* Ao vivo (the box is empty): an ink circle with the canvas's wave; with text it turns to Enviar in the accent. */
+.composer-send.is-call {
+  background: var(--ink);
+  color: var(--canvas);
+}
+/* The approval shield (ApprovalModeMenu): the bot's level, opening its settings. */
+.composer-mode {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--context-ink-2, var(--ink-2));
+  transition: background-color var(--morph), color var(--morph);
+}
+.composer-mode:hover:not(:disabled) {
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+/* Open menu: the reference's `is-mode[aria-expanded]` in `field` with `ink` (D169). */
+.composer-mode[aria-expanded='true'] {
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+/* D249 R3: Parar while the bot waits for an approval on screen: neutral, the card is the main action. */
+.composer-send.is-stop.is-waiting {
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+.composer-send.is-interrupt {
+  background: var(--danger-fill);
+  color: var(--on-danger);
+}
+/* Disabled only as Send with nothing sendable. */
+.composer-send:disabled {
+  background: var(--line-strong);
+  /* On glass: `ink-2`, never `ink-3`. */
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+/* The `/` command list, floating over the transcript above the box. */
+.command-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  /* Opaque like every menu (D165). */
+  background: var(--raised);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-m), 0 0 0 1px var(--line);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--fade), transform var(--layout);
+}
+.command-menu.shown {
+  opacity: 1;
+  transform: none;
+}
+.command-menu .menu-panel {
+  max-height: 300px;
+}
+.command-title {
+  flex: none;
+}
+.command-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.command-detail.warning {
+  color: var(--text-attention, var(--attention));
+}

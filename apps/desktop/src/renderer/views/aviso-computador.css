@@ -1,0 +1,49 @@
+/* O aviso de versão de um computador (AvisoComputador): cartão calmo e informativo, sem vermelho. Fica no lugar do
+   computador (acima dos bots dele, ou no lugar do compositor), nunca cobre a tela. Cores só por token: ink e ink-2
+   sobre surface passam de 4,5:1 nos dois temas (tokens.json). */
+.aviso-computador {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  animation: aviso-computador-entra var(--fade) var(--ease-out);
+}
+.aviso-computador-voltou {
+  padding: 10px 14px;
+}
+.aviso-computador-itens {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.aviso-computador-itens dt {
+  color: var(--ink);
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.aviso-computador-itens dd {
+  margin: 1px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+  overflow-wrap: anywhere;
+}
+.aviso-computador-acao {
+  align-self: flex-start;
+}
+.aviso-computador-rodape {
+  color: var(--ink-2);
+  font-size: var(--text-caption);
+}
+.aviso-computador-reconecta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@keyframes aviso-computador-entra {
+  from { opacity: 0; }
+}

@@ -1,0 +1,66 @@
+{
+  "id": "firecrawl",
+  "nome": "Firecrawl",
+  "categoria": "Pesquisa e web",
+  "descricao": "Busca, raspagem e leitura de páginas web pelo Firecrawl. Gasta créditos da conta.",
+  "exemplos": [
+    "Leia esta página e resuma",
+    "Pesquise notícias recentes sobre o setor de logística"
+  ],
+  "site": "https://www.firecrawl.dev",
+  "docs": "https://docs.firecrawl.dev/mcp-server",
+  "links": {
+    "privacidade": "https://www.firecrawl.dev/privacy-policy",
+    "termos": "https://www.firecrawl.dev/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.firecrawl.dev/mcp-server",
+    "https://mcp.firecrawl.dev/.well-known/oauth-protected-resource/v2/mcp-oauth",
+    "https://www.firecrawl.dev/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "O uso gasta créditos da sua conta Firecrawl.",
+  "tipos": [
+    {
+      "id": "firecrawl.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Firecrawl",
+      "url": "https://mcp.firecrawl.dev/v2/mcp-oauth",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "firecrawl:global"
+          ],
+          "padrao": true,
+          "disponivel": false,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O escopo único do Firecrawl não separa leitura de ação, e uma ferramenta dele navega e clica em sites."
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/firecrawl/skills",
+      "origem": "fornecedor",
+      "licenca": "ISC",
+      "aproveitavel": false
+    },
+    {
+      "url": "https://github.com/firecrawl/cli",
+      "origem": "fornecedor",
+      "licenca": "sem licença",
+      "aproveitavel": false
+    }
+  ],
+  "emBreve": "Uma ferramenta do Firecrawl age em sites; entra depois do filtro de ações perigosas."
+}

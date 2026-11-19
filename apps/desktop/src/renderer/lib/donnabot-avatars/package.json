@@ -1,0 +1,26 @@
+{
+  "name": "@donnabot/avatars",
+  "version": "1.0.0",
+  "description": "Avatares animados dos bots Mexerica: 13 formatos, 7 olhos, 22 acessórios, 36 selos, 12 estados e 30 funções prontas.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "files": ["src", "presets", "schema"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "demo": "esbuild demo/demo.tsx --bundle --minify --format=iife --outfile=demo/demo.js --define:process.env.NODE_ENV=\\\"production\\\"",
+    "presets": "node --experimental-strip-types scripts/export-presets.ts"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.28.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.0"
+  }
+}

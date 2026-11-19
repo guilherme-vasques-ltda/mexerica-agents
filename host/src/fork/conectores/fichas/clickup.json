@@ -1,0 +1,60 @@
+{
+  "id": "clickup",
+  "nome": "ClickUp",
+  "categoria": "Projetos",
+  "descricao": "Tarefas, documentos e chat do ClickUp. O login separa os escopos de leitura e de escrita.",
+  "exemplos": [
+    "Liste as tarefas que estão comigo no ClickUp",
+    "Resuma o documento de planejamento do trimestre",
+    "Quais tarefas do sprint estão atrasadas?"
+  ],
+  "site": "https://clickup.com",
+  "docs": "https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server",
+  "links": {
+    "privacidade": "https://clickup.com/privacy",
+    "termos": "https://clickup.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server",
+    "https://mcp.clickup.com/.well-known/oauth-protected-resource/mcp",
+    "https://mcp.clickup.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "clickup.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "ClickUp",
+      "url": "https://mcp.clickup.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "read"
+          ],
+          "padrao": true,
+          "disponivel": false,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Falta confirmar, num login real, que o acesso só de leitura não libera escrita."
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/clickup/clickup-plugin",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ],
+  "emBreve": "Falta confirmar, num login real, que o acesso só de leitura não libera escrita."
+}

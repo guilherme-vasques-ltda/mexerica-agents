@@ -1,0 +1,56 @@
+{
+  "id": "cal-com",
+  "nome": "Cal.com",
+  "categoria": "Produtividade",
+  "descricao": "Agendamento open-source de reuniões e eventos. O MCP expõe bookings, event types, schedules, equipes e calendários a agentes.",
+  "exemplos": [
+    "Quais reuniões tenho agendadas no Cal.com esta semana?",
+    "Que horários livres tenho amanhã?"
+  ],
+  "site": "https://cal.com/",
+  "docs": "https://cal.com/docs/mcp-server",
+  "links": {
+    "privacidade": "https://cal.com/privacy",
+    "termos": "https://cal.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://cal.com/docs/mcp-server",
+    "https://mcp.cal.com/oauth/register",
+    "https://mcp.cal.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "cal-com.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Cal.com",
+      "url": "https://mcp.cal.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Cal.com não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/calcom/cursor-plugin",
+      "origem": "fornecedor",
+      "licenca": "sem licença",
+      "aproveitavel": false
+    }
+  ]
+}

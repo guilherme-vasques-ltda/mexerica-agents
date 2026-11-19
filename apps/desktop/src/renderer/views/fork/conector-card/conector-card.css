@@ -1,0 +1,90 @@
+/* R6a: o cartão comum de conector, sobre o approval-card (components/ApprovalCard). */
+.conector-card-topo {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.conector-card-quem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.conector-card-quem strong {
+  color: var(--text-primary, var(--ink));
+  font-weight: 600;
+}
+.approval-badge.conector-tom-espera {
+  background: var(--attention-soft);
+  color: var(--text-attention, var(--attention));
+}
+.approval-badge.conector-tom-ok {
+  color: var(--text-success, var(--success));
+}
+.approval-badge.conector-tom-alerta {
+  background: var(--attention-soft);
+  color: var(--text-attention, var(--attention));
+}
+.conector-card-fatos dd {
+  white-space: pre-wrap;
+}
+.conector-card-conta {
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+.conector-card-conta-rotulo {
+  display: block;
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.conector-card-conta-ausente {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  color: var(--text-attention, var(--attention));
+  font-weight: 600;
+}
+.conector-card-campo {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--sp-6) var(--sp-8);
+  border-radius: var(--radius-s, 6px);
+  border: none;
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+  font: inherit;
+  resize: vertical;
+}
+.conector-card-campo:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.conector-card-nota.alerta {
+  color: var(--text-primary, var(--ink));
+}
+.conector-card-erro {
+  color: var(--text-danger, var(--danger));
+}
+.conector-card-editar {
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+  transition: background-color var(--motion-hover);
+}
+.conector-card-editar:hover:not(:disabled) {
+  background: var(--hover);
+}
+.conector-card-editar:disabled {
+  opacity: var(--opacity-disabled);
+}
+.conector-card-editar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.conector-card-espaco {
+  flex: 1;
+}

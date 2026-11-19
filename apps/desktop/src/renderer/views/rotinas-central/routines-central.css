@@ -1,0 +1,1331 @@
+/* Tela central "Rotinas" (D85). Só tokens do tema (styles/theme.css): claro e escuro, acento da
+   marca (D80). `--bot` é a cor do avatar do bot (parts.tsx).
+
+   Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc),
+   src/components/RoutineCalendarPage.tsx (as classes Tailwind de `CalendarGrid` e
+   `CalendarEventCard`: grade de horas, coluna do fuso, linha da hora atual, cartões na cor do bot)
+   e src/components/routines/MiniMonth.tsx / CalendarSidebar.tsx. Alterado para o Donnabot:
+   reescrito em CSS com os tokens do tema, visão Mês, faixa "Sob demanda", barra lateral que
+   recolhe e a grade num cartão. Copyright 2026 Milind Soni and OpenMausBot contributors. */
+
+.rc-page {
+  --rc-panel-edge: 0 0 0 1px var(--line);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--content-ground, var(--canvas));
+  min-width: 0;
+  /* Nada passa da janela: cada área rola por dentro (a grade de horas, a Lista, "Meus bots"). */
+  overflow: hidden;
+}
+
+/* Cabeçalho: Voltar, título, busca, filtros, Lista/Calendário e + Nova. Arrasta a janela. Numa
+   janela estreita, os controles quebram em mais uma linha em vez de passar da borda. */
+.rc-header {
+  flex: none;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* D169 R5 (RoutinesCalendar, referência do dono): a barra fica em uma linha, sem divisória, sobre a
+     página; os dois painéis começam logo abaixo. */
+  padding: 8px 16px 0 18px;
+}
+.rc-back {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+.rc-back:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.05);
+}
+.rc-back:active {
+  transform: scale(0.96);
+}
+.rc-title {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-title2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.rc-header-end {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* D169 R5 (referência): busca e filtros logo depois do título; Lista/Calendário e Nova à direita. */
+  justify-content: flex-start;
+  gap: 8px 10px;
+  padding: 10px 0;
+}
+/* "Buscar rotinas": cresce até 280 px e encolhe até 140 px antes de quebrar a linha. */
+.rc-search {
+  flex: 1 1 220px;
+  min-width: 140px;
+  max-width: 280px;
+}
+.rc-search .search-field {
+  height: 32px;
+  padding: 0 12px;
+  background: var(--raised);
+  box-shadow: var(--rc-panel-edge);
+}
+.rc-filters {
+  flex: 0 1 auto;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.rc-filters .choice-picker {
+  min-width: 0;
+  max-width: 170px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  box-shadow: var(--rc-panel-edge);
+  font-weight: 500;
+}
+.rc-new {
+  flex: none;
+  padding: 0 14px 0 11px;
+}
+
+/* Lista/Calendário e Dia/Semana/Mês: o SegmentedChoice do app (o de Populares/A–Z em Extensões)
+   divide a largura por igual, então cada um tem largura fixa, com folga para "Calendário" e
+   "Semana" caberem no seu pedaço e o destaque ficar centrado. Foco só pelo teclado, na pílula. */
+.rc-mode {
+  flex: none;
+  width: 224px;
+  margin-left: auto;
+}
+.rc-period {
+  flex: none;
+  width: 246px;
+  margin-left: auto;
+}
+.rc-mode .segmented-option,
+.rc-period .segmented-option {
+  padding-inline: 10px;
+  border-radius: var(--radius-pill);
+}
+.rc-mode .segmented-option:focus:not(:focus-visible),
+.rc-period .segmented-option:focus:not(:focus-visible) {
+  outline: none;
+}
+.rc-mode .segmented-option:focus-visible,
+.rc-period .segmented-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rc-action-error {
+  margin: 8px 16px 0;
+  color: var(--danger);
+  font-size: var(--text-callout);
+}
+
+/* Estados: carregando, erro, Hub antigo, sem Hub. */
+.rc-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+}
+.rc-state strong {
+  max-width: 440px;
+  color: var(--text-primary, var(--ink));
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.rc-state-detail {
+  max-width: 440px;
+  font-size: var(--text-caption);
+  color: var(--text-tertiary, var(--ink-3));
+}
+.rc-main > .rc-state {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--content-ground, var(--canvas)) 82%, transparent);
+}
+
+.rc-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+}
+.rc-empty {
+  max-width: 420px;
+  margin: 12vh auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.rc-empty h2 {
+  margin: 4px 0 0;
+  font-size: var(--text-title2);
+  font-weight: 600;
+}
+.rc-empty p {
+  margin: 0 0 6px;
+  color: var(--context-ink-2, var(--ink-2));
+  line-height: 1.5;
+}
+.rc-empty-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Contagens e selos. */
+.rc-count {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.rc-runs-on-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  opacity: 0.8;
+}
+.rc-pill,
+.rc-runs-on {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 500;
+}
+.rc-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Lista. */
+.rc-list-wrap {
+  max-width: 820px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+/* D169: sentence case everywhere (sistema.md, Conteúdo e voz); the weekday initials stay as in the preview. */
+.rc-list-heading {
+  margin: 0 0 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-callout);
+  font-weight: 600;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  overflow: hidden;
+}
+.rc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.rc-row + .rc-row {
+  border-top: 1px solid var(--line);
+}
+.rc-row-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--field);
+}
+.rc-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+  text-align: left;
+  border-radius: var(--radius-xs);
+}
+.rc-row-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.rc-row-main:hover .rc-row-name {
+  color: var(--accent);
+}
+.rc-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.rc-row-name,
+.rc-row-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-row-name {
+  font-size: var(--text-body);
+  font-weight: 600;
+  transition: color var(--motion-hover);
+}
+.rc-row-summary {
+  font-size: var(--text-callout);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-row-status {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary, var(--ink-3));
+}
+.rc-row-status.tone-danger {
+  color: var(--danger);
+}
+/* I-023: âmbar só no marcador; o texto fica em tinta legível nos dois temas. */
+.rc-row-status.tone-warning {
+  color: var(--context-ink, var(--ink));
+  font-weight: 500;
+}
+.rc-row-status.tone-warning::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+  vertical-align: 1px;
+}
+.rc-row-status.tone-accent {
+  color: var(--accent);
+  font-weight: 500;
+}
+.rc-row.paused .rc-row-name {
+  color: var(--context-ink-2, var(--ink-2));
+}
+
+/* Calendário: barra de ferramentas, barra lateral (largura fixa) e a grade num cartão com
+   margem, como as outras telas. Abaixo de 920 px de largura, a barra lateral recolhe num botão
+   que a abre por cima da grade. */
+.rc-calendar {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container: rc-calendar / inline-size;
+}
+.rc-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+.rc-sidebar-toggle {
+  display: none;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  color: var(--context-ink-2, var(--ink-2));
+  transition: background-color var(--motion-hover), color var(--motion-hover);
+}
+.rc-sidebar-toggle:hover,
+.rc-sidebar-toggle[aria-expanded="true"] {
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+.rc-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rc-today {
+  flex: none;
+  height: 28px;
+  margin-left: 4px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  font-size: var(--text-callout);
+  font-weight: 600;
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+.rc-today:hover {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.05);
+}
+.rc-today:active {
+  transform: scale(0.97);
+}
+.rc-today:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rc-range {
+  flex: 1 1 auto;
+  margin: 0 0 0 10px;
+  min-width: 0;
+  font-size: var(--text-title3);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-calendar-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+  padding: 2px 16px 12px 12px;
+}
+/* D169 R5: o minimês e os bots num painel de 232px ao lado do calendário, como na prévia. */
+.rc-sidebar {
+  flex: 0 0 232px;
+  width: 232px;
+  min-width: 232px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: 2px;
+  border-radius: var(--radius-l);
+  background: var(--raised);
+  box-shadow: var(--rc-panel-edge);
+}
+.rc-scrim {
+  display: none;
+}
+.rc-main {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-l);
+  background: var(--content-ground, var(--canvas));
+  box-shadow: var(--rc-panel-edge);
+}
+@container rc-calendar (max-width: 920px) {
+  .rc-sidebar-toggle {
+    display: grid;
+  }
+  .rc-calendar-body {
+    padding-left: 16px;
+  }
+  .rc-sidebar {
+    display: none;
+  }
+  .rc-calendar.sidebar-open .rc-sidebar {
+    position: absolute;
+    z-index: 20;
+    top: 50px;
+    bottom: 12px;
+    left: 16px;
+    display: flex;
+    width: 248px;
+    border-radius: var(--radius-l);
+    background: var(--content-ground, var(--canvas));
+    box-shadow: var(--shadow-m), 0 0 0 1px var(--line);
+  }
+  .rc-scrim {
+    position: absolute;
+    z-index: 19;
+    inset: 0;
+    display: block;
+  }
+}
+.rc-link {
+  color: var(--accent);
+  font-weight: 600;
+}
+.rc-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.rc-banner {
+  flex: none;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  background: var(--group);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+}
+.rc-banner + .rc-banner {
+  margin-top: 6px;
+}
+
+/* Minicalendário. */
+.rc-mini {
+  padding: 12px 12px 8px;
+  user-select: none;
+}
+.rc-mini-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 6px 6px;
+}
+.rc-mini-title {
+  flex: 1;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.rc-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.rc-mini-weekday {
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--text-tertiary, var(--ink-3));
+}
+.rc-mini-day {
+  height: 30px;
+  display: grid;
+  place-items: center;
+}
+.rc-mini-day > span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  transition: background-color var(--motion-hover);
+}
+.rc-mini-day.in-range > span {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.rc-mini-day:hover > span {
+  background: var(--field);
+}
+.rc-mini-day.outside > span {
+  color: var(--text-tertiary, var(--ink-3));
+}
+.rc-mini-day.today > span {
+  color: var(--accent);
+  font-weight: 700;
+}
+.rc-mini-day.selected > span {
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.rc-mini-day:focus-visible {
+  outline: none;
+}
+.rc-mini-day:focus-visible > span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Meus bots. */
+.rc-bots {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 12px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.rc-bots-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: var(--text-callout);
+  font-weight: 600;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-bots-heading .rc-count {
+  margin-left: auto;
+}
+.rc-bot-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+.rc-bot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 2px;
+  border-radius: var(--radius-s);
+  cursor: grab;
+  transition: background-color var(--motion-hover);
+}
+.rc-bot:active {
+  cursor: grabbing;
+}
+.rc-bot:hover {
+  background: var(--field);
+}
+.rc-bot.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.rc-grip {
+  flex: none;
+  width: 8px;
+  height: 14px;
+  color: var(--text-tertiary, var(--ink-3));
+  opacity: 0.45;
+  background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  transition: opacity var(--motion-hover);
+}
+.rc-bot:hover .rc-grip {
+  opacity: 0.9;
+}
+.rc-bot-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px;
+  border-radius: var(--radius-xs);
+  text-align: left;
+  cursor: inherit;
+}
+.rc-bot-main:focus-visible,
+.rc-bot-schedule:focus-visible,
+.rc-pick-bot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* D169 (RoutinesCalendar, SidebarRow): one line — face, name and the function as a tag. */
+.rc-bot-text {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+.rc-bot-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+}
+/* Fora do fluxo: o nome e a função usam a linha toda; o botão aparece por cima, no fim dela,
+   ao passar o mouse ou com o foco na linha (a alternativa de teclado ao arrastar). */
+.rc-bot-schedule {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--content-ground, var(--canvas));
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  font-weight: 500;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-hover), color var(--motion-hover);
+}
+.rc-bot:hover .rc-bot-schedule,
+.rc-bot:focus-within .rc-bot-schedule {
+  opacity: 1;
+  pointer-events: auto;
+}
+.rc-bot-schedule:hover {
+  color: var(--text-primary, var(--ink));
+}
+.rc-bots-empty {
+  margin: 0;
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+}
+.rc-hint {
+  margin: 0;
+  padding: 0 4px 14px;
+  font-size: var(--text-caption);
+  line-height: 1.4;
+  color: var(--text-tertiary, var(--ink-3));
+}
+
+/* Faixa "Sob demanda" / "Frequentes". */
+.rc-band {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.rc-band-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.rc-band-label {
+  flex: none;
+  width: 92px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-band-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rc-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  max-width: 340px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bot) 14%, var(--content-ground, var(--canvas)));
+  border: 1px solid color-mix(in srgb, var(--bot) 38%, transparent);
+  color: color-mix(in srgb, var(--bot) 45%, var(--text-primary, var(--ink)));
+  font-size: 11px;
+  white-space: nowrap;
+}
+.rc-chip-name {
+  font-weight: 600;
+}
+.rc-chip-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+.rc-chip.paused {
+  border-style: dashed;
+  opacity: 0.7;
+}
+.rc-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Grade de horas (Dia e Semana). */
+.rc-timegrid {
+  /* D165 (RoutinesCalendar): 44 px per hour. */
+  --rc-hour: 44px;
+  --rc-gutter: 56px;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+/* Só a grade de horas rola, e só na vertical: os 7 dias dividem a largura que houver. */
+.rc-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.rc-columns {
+  display: grid;
+  grid-template-columns: var(--rc-gutter) repeat(var(--rc-days), minmax(0, 1fr));
+}
+.rc-days-header {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: color-mix(in srgb, var(--content-ground, var(--canvas)) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.rc-gmt {
+  align-self: end;
+  padding: 0 0 8px;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--text-tertiary, var(--ink-3));
+}
+.rc-day-head {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 7px;
+  border-left: 1px solid var(--line);
+}
+.rc-day-weekday {
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-day-number {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  transition: background-color var(--motion-hover);
+}
+.rc-day-head:hover .rc-day-number {
+  background: var(--field);
+}
+.rc-day-head:focus-visible {
+  outline: none;
+}
+.rc-day-head:focus-visible .rc-day-number {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rc-day-head.today .rc-day-weekday {
+  color: var(--accent);
+}
+.rc-day-head.today .rc-day-number {
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.rc-hours-body {
+  position: relative;
+  height: calc(24 * var(--rc-hour));
+  outline: none;
+}
+.rc-hours-body:focus-visible .rc-day-col {
+  background-color: color-mix(in srgb, var(--accent) 2%, transparent);
+}
+.rc-hour-labels {
+  position: relative;
+}
+.rc-hour-labels > span {
+  position: absolute;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary, var(--ink-3));
+  font-variant-numeric: tabular-nums;
+}
+.rc-day-col {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background-image:
+    linear-gradient(var(--line) 0 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--line) 45%, transparent) 0 1px, transparent 1px);
+  background-size: 100% var(--rc-hour), 100% var(--rc-hour);
+  background-position: 0 0, 0 calc(var(--rc-hour) / 2);
+}
+.rc-day-col.today {
+  background-color: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.rc-now {
+  position: absolute;
+  z-index: 4;
+  left: -1px;
+  right: 0;
+  border-top: 2px solid var(--danger);
+  pointer-events: none;
+}
+.rc-now::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.rc-ghost,
+.rc-cursor {
+  position: absolute;
+  z-index: 5;
+  left: 2px;
+  right: 2px;
+  height: calc(var(--rc-hour) / 2 - 2px);
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1.5px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--content-ground, var(--canvas)));
+  color: var(--accent);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  pointer-events: none;
+}
+.rc-cursor {
+  border-style: solid;
+}
+.rc-ghost.with-bot {
+  border-color: var(--bot);
+  background: color-mix(in srgb, var(--bot) 18%, var(--content-ground, var(--canvas)));
+  color: color-mix(in srgb, var(--bot) 45%, var(--text-primary, var(--ink)));
+}
+.rc-card {
+  position: absolute;
+  z-index: 1;
+  height: calc(var(--rc-hour) / 2 - 2px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 6px 0 7px;
+  border-radius: 6px;
+  text-align: left;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bot) 16%, var(--content-ground, var(--canvas)));
+  border: 1px solid color-mix(in srgb, var(--bot) 40%, transparent);
+  border-left: 3px solid var(--bot);
+  color: color-mix(in srgb, var(--bot) 45%, var(--text-primary, var(--ink)));
+  transition: box-shadow var(--motion-hover), transform var(--press);
+}
+.rc-card:hover {
+  z-index: 2;
+  box-shadow: var(--shadow-s);
+}
+.rc-card:active {
+  transform: scale(0.98);
+}
+.rc-card:focus-visible {
+  z-index: 3;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rc-card-title,
+.rc-card-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+.rc-card-name {
+  min-width: 0;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.rc-card-meta {
+  font-size: var(--text-caption);
+  opacity: 0.85;
+}
+/* Lado a lado com outras no mesmo horário: só o nome, em duas linhas se precisar. */
+.rc-card.narrow {
+  padding: 0 4px 0 5px;
+}
+.rc-card.narrow .rc-card-meta {
+  display: none;
+}
+.rc-card.narrow .rc-card-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--text-caption);
+  line-height: 1.1;
+}
+.rc-card.ran {
+  background: color-mix(in srgb, var(--bot) 9%, var(--content-ground, var(--canvas)));
+}
+.rc-card.paused {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--bot) 6%, var(--content-ground, var(--canvas)));
+  opacity: 0.75;
+}
+.rc-card.failed {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  border-left-color: var(--danger);
+}
+.rc-card.failed .rc-card-meta {
+  color: var(--danger);
+  opacity: 1;
+}
+/* I-023: "Precisa de você" tem o tom de atenção (âmbar), como as Pendências. */
+.rc-card.attention {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  border-left-color: var(--warning);
+}
+.rc-card.attention .rc-card-meta {
+  color: var(--context-ink, var(--ink));
+  opacity: 1;
+}
+.rc-card.cancelled {
+  opacity: 0.55;
+}
+.rc-card.active {
+  box-shadow: 0 0 0 1px var(--bot);
+}
+
+/* Mês. */
+.rc-month {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.rc-month-weekdays {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+.rc-month-weekdays > span {
+  padding: 7px 0;
+  text-align: center;
+  font-size: var(--text-caption);
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-month-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(84px, 1fr));
+}
+.rc-month-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 4px 6px;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transition: background-color var(--motion-hover);
+}
+.rc-month-cell:nth-child(7n) {
+  border-right: none;
+}
+.rc-month-cell.outside {
+  background: var(--group);
+}
+.rc-month-cell.today {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.rc-month-cell.drop {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.rc-month-day {
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  transition: background-color var(--motion-hover);
+}
+.rc-month-day:hover {
+  background: var(--field);
+}
+.rc-month-day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rc-month-cell.outside .rc-month-day {
+  color: var(--text-tertiary, var(--ink-3));
+}
+.rc-month-cell.today .rc-month-day {
+  background: var(--action-fill, var(--accent));
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.rc-month-entry,
+.rc-month-more {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  text-align: left;
+  transition: background-color var(--motion-hover);
+}
+.rc-month-entry:hover {
+  background: color-mix(in srgb, var(--bot) 14%, transparent);
+}
+.rc-month-entry:focus-visible,
+.rc-month-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.rc-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bot);
+}
+.rc-month-entry.paused .rc-dot {
+  background: transparent;
+  border: 1px dashed var(--bot);
+}
+.rc-month-entry.failed .rc-dot {
+  background: var(--danger);
+}
+.rc-month-entry.attention .rc-dot {
+  background: var(--warning);
+}
+.rc-month-entry.paused,
+.rc-month-entry.cancelled {
+  opacity: 0.7;
+}
+.rc-month-time {
+  flex: none;
+  color: var(--context-ink-2, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+.rc-month-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-month-more {
+  color: var(--context-ink-2, var(--ink-2));
+  font-weight: 600;
+}
+.rc-month-more:hover {
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+
+/* Escolha do bot de uma rotina nova. */
+.rc-pick {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.rc-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0 14px 16px;
+}
+.rc-pick-bot {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  text-align: left;
+  transition: background-color var(--motion-hover);
+}
+.rc-pick-bot:hover {
+  background: var(--field);
+}
+.rc-pick-empty {
+  margin: 0;
+  padding: 4px 22px 22px;
+  color: var(--context-ink-2, var(--ink-2));
+}
+.rc-row .rc-row-switch {
+  flex: none;
+  width: auto;
+}
+
+/* D165 fase G (components/RoutinesCalendar): Rotinas over the shell, right of the rail, in the same glass. */
+.rc-host {
+  position: relative;
+}
+.rc-layer {
+  position: absolute;
+  z-index: 40;
+  /* MX-122 v3: embaixo da faixa do topo da janela. */
+  top: var(--janela-header-h);
+  bottom: 0;
+  left: var(--rail-width);
+  right: 0;
+  animation: fade-in var(--fade) both;
+}
+html[data-wallpaper] .rc-layer .rc-page {
+  --rc-panel-edge: var(--shadow-glass);
+  background: var(--glass-plate);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-wallpaper] .rc-layer .rc-page {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+/* The grid and the side panel are opaque cards (`raised`): text-heavy, never glass over glass (D169 R5). */
+.rc-main,
+.rc-sidebar,
+.rc-calendar.sidebar-open .rc-sidebar {
+  background: var(--raised);
+}
+.rc-days-header {
+  background: var(--raised);
+}
+/* Now: the accent line (the design's), today's column in `accent-soft`. */
+.rc-now {
+  border-top-color: var(--accent);
+}
+.rc-now::before {
+  background: var(--accent);
+}
+.rc-day-col.today {
+  background-color: var(--accent-soft);
+}
+/* A routine: the bot's color at 26% over `raised`, with its face; text in `ink` for contrast. */
+.rc-card {
+  background: color-mix(in srgb, var(--bot) 26%, var(--raised));
+  color: var(--text-primary, var(--ink));
+}
+.rc-card-face {
+  display: inline-flex;
+  flex: none;
+  margin-right: 2px;
+}
+/* What stays mounted behind Rotinas is hidden, not only inert: the glass never shows text under text. */
+.rc-host[data-coberto] .split > :not(.space-rail, .janela-header, .app-wallpaper, .app-veil) {
+  visibility: hidden;
+}
+/* Half an hour is 22px: every card, including a running one, uses one title line. Time, bot and
+   status stay in the complete tooltip/accessible label and in the List presentation. */
+.rc-timegrid .rc-card .rc-card-meta {
+  display: none;
+}
+/* Side by side, too: two lines no longer fit in 20px, so the shared slot keeps one ellipsized line. */
+.rc-timegrid .rc-card.narrow .rc-card-title {
+  display: block;
+  white-space: nowrap;
+  -webkit-line-clamp: none;
+  line-height: 1.15;
+}
+/* `ink-3` is for opaque ground only: on the page's glass (with a wallpaper) Rotinas' quiet text uses `ink-2`. */
+html[data-wallpaper] .rc-layer .rc-page {
+  --text-tertiary: var(--ink-2);
+}
+
+.rc-global-pause {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  color: var(--ink-2);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+/* Auditoria D249, E4: below 600 px of height the pause notice is one line (button, state, "Saiba mais");
+   "Saiba mais" shows the whole explanation. Errors stay in view on their own line. Same query as
+   lib/janela-baixa.ts. */
+@media (height < 600px) {
+  .rc-global-pause {
+    gap: 4px 10px;
+    padding: 4px 12px;
+  }
+  .rc-global-pause > [role='alert'] {
+    flex-basis: 100%;
+  }
+}
+.rc-global-pause-line {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rc-global-pause-line > :first-child {
+  flex: none;
+}
+.rc-global-pause-state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-global-pause-line.is-open .rc-global-pause-state {
+  white-space: normal;
+}
+.rc-global-pause-more {
+  flex: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+.rc-global-pause-more:hover {
+  text-decoration: underline;
+}
+
+/* I-023 R2: a frase do desfecho para o leitor de tela; a dica visível é o `title`. */
+.rc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

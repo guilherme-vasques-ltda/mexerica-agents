@@ -1,0 +1,40 @@
+.background-page{height:100%;container-type:inline-size;color:var(--ink);font-size:var(--text-body)}.background-help{color:var(--ink-2);font-size:var(--text-caption);line-height:1.45;margin:7px 0}
+/* Entrega 4 (MX-7): o que é, no topo; funções em linhas de lista (CardSection) que abrem a escolha embaixo. */
+.background-sobre{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.background-sobre p{margin:0;color:var(--ink-2);line-height:1.5;max-width:68ch}
+.background-status{margin:0;color:var(--ink-2);display:flex;align-items:center;gap:8px}.background-status[role=alert]{color:var(--ink)}
+.background-row-wrap{display:flex;flex-direction:column;width:100%}.background-row{display:flex;align-items:center;gap:12px;width:100%;text-align:start;color:var(--ink);min-height:28px}
+button.background-row:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:var(--radius-s)}
+.background-row-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}.background-row-text strong{font-weight:500}.background-row-text span{color:var(--ink-2);font-size:var(--text-caption);line-height:1.4}
+.background-row-choice{flex:none;max-width:40%;color:var(--ink-2);font-size:var(--text-caption);text-align:end;overflow-wrap:anywhere}
+.background-row-chevron{flex:none;color:var(--ink-3,var(--ink-2));transition:transform var(--motion-hover)}[dir=rtl] .background-row-chevron{transform:scaleX(-1)}button.background-row[aria-expanded=true] .background-row-chevron{transform:rotate(90deg)}
+.background-editor{min-width:0;margin-top:12px;padding:14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--radius-m)}
+.background-editor label{display:flex;flex-direction:column;gap:4px;font-size:var(--text-callout)}.background-editor label+label,.background-editor label+.background-help{margin-top:12px}
+.background-editor .choice-picker{width:100%;min-width:0;justify-content:space-between;min-height:30px}.background-editor .choice-label{overflow-wrap:anywhere;white-space:normal;text-align:start}
+.background-result{display:flex;align-items:center;gap:6px;margin:14px 0 12px;color:var(--ink-2);font-size:var(--text-callout)}.background-result.ok{color:var(--accent-verde,var(--ink))}
+.background-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.background-page .styled-button.primary{background:var(--accent);color:var(--on-accent)}.background-page .styled-button.secondary{background:var(--field);color:var(--ink)}.background-page .styled-button:disabled{opacity:var(--opacity-disabled)}.background-page .styled-button.primary:focus-visible{box-shadow:var(--focus-ring)}
+.background-info{padding:12px 14px;background:var(--group);border:1px solid var(--line);border-radius:var(--radius-m);line-height:1.45}.background-info p{margin:4px 0 0;color:var(--ink-2);font-size:var(--text-callout)}
+.background-spaces{border:1px solid var(--line);border-radius:var(--radius-m);background:var(--raised);overflow:hidden}.background-space{display:flex;align-items:flex-start;gap:12px;padding:16px}.background-space+.background-space{border-top:1px solid var(--line)}.background-space>div:not(.background-space-actions){flex:1;min-width:0}.background-space h2{font-size:var(--text-title3);font-weight:600;margin:0 0 10px}.background-space-actions{display:flex;flex-direction:column;gap:8px;max-width:190px}.background-space-actions button{white-space:normal;text-wrap:balance}.background-badge{display:inline-flex;padding:2px 8px;border-radius:var(--radius-pill);background:var(--field);color:var(--ink-2);font-size:var(--text-caption)}
+@container(max-width:520px){.background-row{flex-wrap:wrap}.background-row-choice{max-width:none;order:3;flex-basis:100%;text-align:start}.background-space{flex-wrap:wrap}.background-space-actions{width:100%;max-width:none}}
+@media(prefers-reduced-motion:reduce){.background-page .styled-button:active{transform:none}}
+.background-vazio{display:flex;align-items:center;gap:10px;margin:0;padding:18px 16px;color:var(--ink-2);line-height:1.45}
+.background-editor-titulo{font-size:var(--text-title3);font-weight:600;margin:0 0 6px}
+.background-cabecalho{min-height:28px}
+.background-spaces>p{margin:0;padding:14px 16px;color:var(--ink-2)}
+/* Decisão do dono (11/11): Em preparo recolhido atrás de "Ver N em preparo". */
+.background-ver strong{font-weight:500;color:var(--text-accent,var(--accent))}.background-ver:disabled{opacity:var(--opacity-disabled)}
+#background-em-preparo-secao .card-section-title{gap:8px}
+/* Desenho v2 (16/11): o campo "Conta e modelo" abre o seletor do chat; a frase diz o que acontece. */
+.background-frase{margin:0 0 14px;font-size:var(--text-title3);line-height:1.5;max-width:62ch}
+.background-frase .ajustes-link{margin-inline-start:6px;font-size:var(--text-callout)}
+.background-editor label.background-campo{margin-top:12px}
+.background-escolha{position:relative}
+.background-gatilho{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 12px 6px 10px;text-align:start;color:var(--ink);background:var(--field);border:0;border-radius:var(--radius-s);box-shadow:inset 0 0 0 1px var(--line);cursor:pointer}
+.background-gatilho:disabled{opacity:var(--opacity-disabled);cursor:default}
+/* O foco é o canônico de `button:focus-visible` (theme.css, outline que resiste a cores forçadas); só o painel aberto ganha o anel. */
+.background-gatilho[aria-expanded=true]{box-shadow:0 0 0 2px var(--raised),0 0 0 4px var(--accent)}
+.background-gatilho>svg:last-child{margin-inline-start:auto;flex:none;color:var(--ink-3)}
+.background-gatilho-texto{display:flex;flex-direction:column;min-width:0;flex:1}
+.background-gatilho-texto b{font-weight:600;line-height:17px}.background-gatilho-texto span{color:var(--ink-2);font-size:var(--text-caption);line-height:16px;overflow:hidden;text-overflow:ellipsis}
+.background-gatilho-vazio{color:var(--ink-2);font-size:var(--text-body)!important;font-weight:500}
+.background-novo{margin-inline-start:8px;padding:1px 7px;border-radius:var(--radius-pill);background:var(--accent-soft);color:var(--accent);font-size:var(--text-caption);font-weight:600}

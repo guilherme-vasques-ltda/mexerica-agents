@@ -1,0 +1,53 @@
+{
+  "id": "todoist",
+  "nome": "Todoist",
+  "categoria": "Produtividade",
+  "descricao": "Tarefas, projetos e filtros do Todoist. Leitura só se o acesso vier com o escopo de leitura.",
+  "exemplos": [
+    "O que tenho para hoje no Todoist?",
+    "Liste as tarefas atrasadas do projeto Casa",
+    "Quais tarefas vencem esta semana?"
+  ],
+  "site": "https://www.todoist.com",
+  "docs": "https://developer.todoist.com/api/v1",
+  "links": {
+    "privacidade": "https://www.todoist.com/privacy",
+    "termos": "https://www.todoist.com/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developer.todoist.com/api/v1",
+    "https://ai.todoist.net/.well-known/oauth-protected-resource/mcp",
+    "https://todoist.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "todoist.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Doist",
+      "url": "https://ai.todoist.net/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "data:read"
+          ],
+          "padrao": true,
+          "disponivel": false,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Todoist só anuncia o acesso de leitura e escrita juntos para este conector."
+    }
+  ],
+  "skillsOficiais": [],
+  "emBreve": "O Todoist anuncia leitura e escrita juntas; entra depois do filtro de ações perigosas."
+}

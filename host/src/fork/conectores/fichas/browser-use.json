@@ -1,0 +1,57 @@
+{
+  "id": "browser-use",
+  "nome": "Browser Use",
+  "categoria": "Pesquisa e web",
+  "descricao": "Navegadores em nuvem para agentes de IA: o MCP roda tarefas de navegação na web em sessões pagas por hora de uso.",
+  "exemplos": [
+    "Abra um site e me diga os preços da página de planos",
+    "Confira se a página de contato carrega sem erro"
+  ],
+  "site": "https://browser-use.com",
+  "docs": "https://docs.browser-use.com/cloud/guides/mcp-server",
+  "links": {
+    "privacidade": "https://browser-use.com/privacy",
+    "termos": "https://browser-use.com/legal/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.browser-use.com/cloud/guides/mcp-server",
+    "https://api.browser-use.com/oauth/register",
+    "https://api.browser-use.com/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "Gasta créditos da sua conta do Browser Use.",
+  "tipos": [
+    {
+      "id": "browser-use.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Browser Use",
+      "url": "https://api.browser-use.com/v3/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Browser Use não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/browser-use/browser-use/tree/main/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

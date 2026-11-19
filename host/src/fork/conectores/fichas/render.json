@@ -1,0 +1,60 @@
+{
+  "id": "render",
+  "nome": "Render",
+  "categoria": "Infraestrutura",
+  "descricao": "Serviços, bancos, logs e métricas da Render. Entra com chave de API, que vale para todos os seus workspaces.",
+  "exemplos": [
+    "Liste os serviços do meu workspace na Render",
+    "Mostre os últimos logs do serviço api",
+    "Como está o uso de CPU do banco?"
+  ],
+  "site": "https://render.com",
+  "docs": "https://render.com/docs/mcp-server",
+  "links": {
+    "privacidade": "https://render.com/privacy",
+    "termos": "https://render.com/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://render.com/docs/mcp-server",
+    "https://mcp.render.com/.well-known/oauth-protected-resource/mcp",
+    "https://api.render.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "render.oficial_chave",
+      "tipo": "oficial_chave",
+      "rotulo": "Oficial — chave de acesso",
+      "mantidoPor": "Render",
+      "url": "https://mcp.render.com/mcp",
+      "auth": {
+        "modo": "chave",
+        "destino": "header",
+        "nome": "Authorization",
+        "prefixo": "Bearer ",
+        "comoCriarLeitura": "Crie uma chave de API em Account Settings → API Keys, na Render."
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "A chave da Render não tem modo só de leitura e vale para todos os workspaces."
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/render-oss/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ],
+  "emBreve": "A chave da Render não tem modo só de leitura; entra depois do filtro de ações perigosas."
+}

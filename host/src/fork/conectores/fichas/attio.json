@@ -1,0 +1,56 @@
+{
+  "id": "attio",
+  "nome": "Attio",
+  "categoria": "Vendas e CRM",
+  "descricao": "CRM flexível para times de vendas. O MCP hospedado dá a agentes de IA acesso a registros, atividades, listas e views do workspace.",
+  "exemplos": [
+    "Quais negócios do Attio estão parados há mais de 30 dias?",
+    "Liste os contatos que falei esta semana"
+  ],
+  "site": "https://attio.com/",
+  "docs": "https://docs.attio.com/mcp/overview",
+  "links": {
+    "privacidade": "https://attio.com/legal/privacy",
+    "termos": "https://attio.com/legal/services-agreement"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.attio.com/mcp/overview",
+    "https://app.attio.com/oauth/register",
+    "https://app.attio.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "attio.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Attio",
+      "url": "https://mcp.attio.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Attio não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/attio/ai-plugins",
+      "origem": "fornecedor",
+      "licenca": "PolyForm Shield 1.0.0",
+      "aproveitavel": false
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+ "sobre": "D506: JavaScript em src que a main já tinha (tools/textos-gate.ts). Só encolhe: apague o arquivo e a entrada. Entrada nova reprova (naoCresceu).",
+ "arquivos": [
+  "src/main/fork-cloud/personal-runtime-asar.mjs",
+  "src/main/fork-cloud/personal-runtime-format.mjs"
+ ]
+}

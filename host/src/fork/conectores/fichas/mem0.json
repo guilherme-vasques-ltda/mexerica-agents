@@ -1,0 +1,58 @@
+{
+  "id": "mem0",
+  "nome": "mem0",
+  "categoria": "IA e automação",
+  "descricao": "Camada de memória para agentes de IA. O MCP hospedado expõe ferramentas de adicionar, buscar, atualizar e apagar memórias.",
+  "exemplos": [
+    "O que você lembra sobre as minhas preferências de trabalho?",
+    "Guarde que prefiro respostas curtas"
+  ],
+  "site": "https://mem0.ai/",
+  "docs": "https://docs.mem0.ai/platform/mem0-mcp",
+  "links": {
+    "privacidade": "https://mem0.ai/privacy",
+    "termos": "https://mem0.ai/terms"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://docs.mem0.ai/platform/mem0-mcp",
+    "https://mcp.mem0.ai/register",
+    "https://mcp.mem0.ai/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "mem0.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "mem0",
+      "url": "https://mcp.mem0.ai/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [
+            "read"
+          ],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O registro devolve um segredo por instalação, que o Hub ainda não guarda com segurança."
+    }
+  ],
+  "emBreve": "O fornecedor exige um segredo por instalação do aplicativo; fica fora das conexões por enquanto.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/mem0ai/mem0",
+      "origem": "fornecedor",
+      "licenca": "Apache-2.0",
+      "aproveitavel": true
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+/* MX-95: Bot → Ferramentas em abas (Conectores, Logins, Skills), com busca sempre à mostra e páginas de 15. */
+.bf { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bf-abas { justify-content: flex-start; flex-wrap: wrap; }
+.bf-aba { display: inline-flex; align-items: center; gap: 6px; }
+.bf-aba-n { font-size: var(--text-caption, 11px); font-variant-numeric: tabular-nums; color: var(--context-ink-2, var(--ink-2)); background: var(--control-fill-muted, var(--field)); border-radius: var(--radius-pill); padding: 1px 7px; }
+.bf-aba:focus-visible, .bf-num:focus-visible, .bf-vermais:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.bf-painel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bf-painel[hidden] { display: none; }
+.bf-barra { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.bf-barra .search-field { flex: 1; min-width: 0; }
+.bf-ligados, .bf-faixa { font-size: var(--text-footnote, 12px); color: var(--context-ink-2, var(--ink-2)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bf-acessorio { display: flex; justify-content: flex-end; min-width: 0; }
+.bf-vazio, .bf-estado { margin: 0; padding: 22px 0; text-align: center; color: var(--context-ink-2, var(--ink-2)); font-size: 13px; overflow-wrap: anywhere; }
+.bf-aviso { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--control-fill-muted, var(--field)); color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-footnote, 12px); }
+
+/* Rodapé da lista: "16–23 de 23" no começo, "‹ 1 2 ›" no fim. */
+.bf-paginas { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding-bottom: 12px; }
+.bf-faixa { margin-inline-end: auto; }
+.bf-numeros { display: inline-flex; align-items: center; gap: 2px; }
+.bf-num { min-width: 26px; height: 26px; padding: 0 6px; border-radius: var(--radius-pill); font-size: var(--text-footnote, 12px); font-variant-numeric: tabular-nums; color: var(--context-ink-2, var(--ink-2)); }
+.bf-num:hover:not(:disabled) { color: var(--text-primary, var(--ink)); background: var(--control-fill-muted, var(--field)); }
+.bf-num.on { background: var(--glass-raised); color: var(--text-primary, var(--ink)); font-weight: 600; }
+.bf-num:disabled { opacity: 0.35; }
+.bf-seta { font-size: 16px; line-height: 1; }
+.bf-reticencias { padding: 0 4px; color: var(--context-ink-2, var(--ink-2)); }
+
+/* Linha de skill: descrição em 2 linhas, "ver mais" abre ali mesmo; o interruptor é um controle à parte. */
+.bf-linha { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bf-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.bf-nome { color: var(--text-primary, var(--ink)); font-size: var(--text-body); overflow-wrap: anywhere; }
+.bf-desc { margin: 0; font-size: var(--text-caption); line-height: 1.35; color: var(--context-ink-2, var(--ink-2)); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.bf-desc.aberta { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.bf-vermais { padding: 0; font-size: var(--text-caption); color: var(--action-fill, var(--accent)); }
+.bf-vermais:hover { text-decoration: underline; }
+.bf-linha > .switch { width: auto; flex: none; }

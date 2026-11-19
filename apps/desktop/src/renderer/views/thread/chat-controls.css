@@ -1,0 +1,153 @@
+.mac-chat-button {
+  border-radius: 50%;
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  color: var(--context-ink-2, var(--ink-2));
+  display: grid;
+  place-items: center;
+  flex: none;
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--morph), color var(--motion-hover);
+}
+.mac-chat-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0);
+  transition: background-color var(--motion-hover);
+}
+.mac-chat-button > * {
+  transition: translate var(--morph);
+}
+.mac-chat-button:hover {
+  color: var(--text-primary, var(--ink));
+}
+.mac-chat-button:hover::after {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.06);
+}
+.mac-chat-button:hover > * {
+  translate: calc(var(--dx) * 1px) calc(var(--dy) * 1px);
+}
+.mac-chat-button:active {
+  transform: scale(0.94);
+  transition: transform var(--press);
+}
+.mac-chat-button:active::after {
+  background: rgba(var(--foreground-rgb, var(--ink-rgb)), 0.12);
+}
+.mac-chat-button:active > * {
+  translate: calc(var(--dx) * 1.5px) calc(var(--dy) * 1.5px);
+}
+/* Grok Bot's details buttons (open, share, close): glass like the header's pill, ringed by a soft shadow. */
+.mac-chat-button.ringed {
+  background: var(--glass-raised);
+  color: var(--text-primary, var(--ink));
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mac-chat-button:hover > *,
+  .mac-chat-button:active > * {
+    translate: none;
+  }
+  .mac-chat-button:active {
+    transform: none;
+  }
+}
+
+/* The floating composer: messages pass underneath it through a material/gradient fade. */
+.composer-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+}
+.composer-fade {
+  /* D165 fase E: the transcript's mask fades messages under the box; no painted band. */
+  display: none;
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: -24px;
+  bottom: 0;
+  pointer-events: none;
+  backdrop-filter: blur(20px);
+  -webkit-mask-image: linear-gradient(to top, #000 40%, transparent);
+  mask-image: linear-gradient(to top, #000 40%, transparent);
+  background: linear-gradient(to top, color-mix(in srgb, var(--content-ground, var(--canvas)) 90%, transparent) 0%, color-mix(in srgb, var(--content-ground, var(--canvas)) 45%, transparent) 40%, transparent 100%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .composer-fade {
+    backdrop-filter: none;
+    background: linear-gradient(to top, var(--content-ground, var(--canvas)) 40%, transparent);
+  }
+}
+.jump-to-latest {
+  position: absolute;
+  bottom: calc(var(--composer-height, 70px) + 10px);
+  left: 50%;
+  z-index: 5;
+  transform: translateX(-50%);
+  opacity: 0;
+  translate: 0 6px;
+  transition: opacity var(--morph), translate var(--morph);
+}
+.jump-to-latest.shown {
+  opacity: 1;
+  translate: none;
+}
+
+/* D432 (docs/reference/design/barrinha-novas-20261107): "Ir para o fim" em pílula, no mesmo lugar do botão redondo (sobe com o
+   campo por --composer-height); com novas abaixo, "N novas" e o ponto em accent. */.jump-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-raised);
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+  backdrop-filter: blur(var(--blur-glass));
+  box-shadow: var(--shadow-glass);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color var(--fade);
+}
+.jump-pill:hover,
+.jump-pill.has-new {
+  color: var(--ink);
+}
+.jump-pill.has-new {
+  font-weight: 600;
+}
+.jump-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.jump-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* A linha "Novas": fio de 1 px em accent a 40% e o rótulo pequeno em accent à esquerda. */
+.chat-novas {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  margin: var(--sp-12) 0;
+  color: var(--text-accent, var(--accent));
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.chat-novas::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}

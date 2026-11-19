@@ -1,0 +1,32 @@
+/* D471: tokens escopados das telas de primeiro uso (passo de idioma e conta), com as cores do pacote da marca
+   (brand/assets/logo/LEIA-ME.txt). Ficam fora do tokens.json de propósito: valem só nessas duas telas, e o resto do
+   app segue `canvas`/`raised` (docs/reference/redesenho/entrada.md#marca-mexerica-no-primeiro-uso-d471-07112026). */
+.passo-idioma,
+.welcome.welcome-calm {
+  --entrada-chao: #fff8ee; /* Creme */
+  --entrada-cartao: #ffffff;
+}
+[data-theme='dark'] .passo-idioma,
+[data-theme='dark'] .welcome.welcome-calm {
+  --entrada-chao: #1b1511; /* Noite */
+  --entrada-cartao: #2a1c14; /* Marrom */
+}
+
+/* D476: nas duas telas, botão principal e passo ativo no Laranja da marca (#F58A1F) com texto/ícone Marrom (#2A1C14,
+   6,70:1; branco daria 2,46:1). Hover e pressionado escurecem o fundo com o Marrom (12% e 20%) e o texto segue ≥4,5:1.
+   O passo ativo no claro usa um laranja mais escuro (#C2620A, 3,95:1 sobre o Creme); no escuro, o Laranja direto
+   (7,35:1 sobre a Noite). Anel de foco: Marrom no claro, Laranja no escuro. Medidas em entrada.md (D476). */
+.passo-idioma,
+.welcome.welcome-calm {
+  --entrada-acao: #f58a1f;
+  --entrada-acao-tinta: #2a1c14;
+  --entrada-acao-hover: #dd7d1e;
+  --entrada-acao-pressionado: #cc741d;
+  --entrada-passo: #c2620a;
+  --entrada-foco: #2a1c14;
+}
+[data-theme='dark'] .passo-idioma,
+[data-theme='dark'] .welcome.welcome-calm {
+  --entrada-passo: #f58a1f;
+  --entrada-foco: #f58a1f;
+}

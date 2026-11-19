@@ -1,0 +1,11 @@
+/* DON-905 (C6): só o que os componentes de Ajustes não trazem. */
+.armazenamento-barra {
+  padding: 10px 0 4px;
+}
+.armazenamento-nota {
+  margin: 0;
+  padding: 0 4px;
+}
+.armazenamento-falha {
+  align-items: center;
+}

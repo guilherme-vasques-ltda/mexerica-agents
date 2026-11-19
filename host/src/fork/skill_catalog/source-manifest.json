@@ -1,0 +1,3416 @@
+[
+  {
+    "id": "security-audit",
+    "sourceName": "security-audit",
+    "sourceDescription": "Security guidance and vulnerability review for codebases, APIs, services, CLI tools, libraries, and daemons. Use for security questions, focused reviews, vulnerability research, security audits, or pen tests. Run the complete workflow only for explicit codebase audit or pen-test requests, full/comprehensive/end-to-end reviews, or requested report artifacts.",
+    "origin": {
+      "repo": "cloudflare/security-audit-skill",
+      "revision": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+      "path": "skills/security-audit",
+      "sourceDigest": "076209aadfb634843a247edf7c4e0c1176872603dae49753b446184d0ab0cc0a"
+    },
+    "sourceSkill": {
+      "path": "skills/security-audit/SKILL.md",
+      "gitBlob": "92178dad304d3f63e37582a297026a7874e12c62",
+      "sha256": "5e3e96a1e438d8f35fef0a1e38f02d4f00e2bdf910401b7dfe00e6779c6dac85",
+      "bytes": 22026,
+      "lines": 192
+    },
+    "sourceFrontmatter": {
+      "name": "security-audit",
+      "description": "Security guidance and vulnerability review for codebases, APIs, services, CLI tools, libraries, and daemons. Use for security questions, focused reviews, vulnerability research, security audits, or pen tests. Run the complete workflow only for explicit codebase audit or pen-test requests, full/comprehensive/end-to-end reviews, or requested report artifacts."
+    },
+    "installId": "security-audit",
+    "previousInstallId": "security-audit-donna",
+    "previousDigest": "3650f495de49a09f4d0881eb034980cb1df9fd27933819a68645df05a6cb33dc",
+    "digest": "7c522ae1f0bfd1ca5831c554a5e6a6af07bfdb6518879027fe2d5a7a5c1fb4a3",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "AI-AND-LLM.md",
+        "source": "skills/security-audit/AI-AND-LLM.md",
+        "gitBlob": "02ba9039eca4cec811fefc77bce0d7349b379aae",
+        "sha256": "7335a95c43554eadefcf03ece639291bb0e038c398a179299e3887ffe06bd2ef",
+        "bytes": 10617,
+        "lines": 83,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ATTACK-CLASSES.md",
+        "source": "skills/security-audit/ATTACK-CLASSES.md",
+        "gitBlob": "18a2beb4dbb554fb52b0a0293b8bd9108207f8fa",
+        "sha256": "3ee4f00c6e8c9dcf6dd02dd5ac2a4ceb322e2085f3e9fbe79cf0c6330bc7ef83",
+        "bytes": 15695,
+        "lines": 130,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "CLIENT-SIDE.md",
+        "source": "skills/security-audit/CLIENT-SIDE.md",
+        "gitBlob": "8ba673e9e7e3d02f5518aa0219bcbeec7957531b",
+        "sha256": "613f6b98f86083e045525c5b60154ffdab122bac35f1e05eb17488e6e453370c",
+        "bytes": 8594,
+        "lines": 83,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "CLOUD-AND-DEPLOYMENT.md",
+        "source": "skills/security-audit/CLOUD-AND-DEPLOYMENT.md",
+        "gitBlob": "5569f76c7740744aa3f60aaa89eaefe275f2e6c9",
+        "sha256": "3c80f3088be22345e07b057c056d6ed99fe2b0304f794398964f7ccd5a496ca3",
+        "bytes": 8291,
+        "lines": 86,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "DATA-ISOLATION-AND-LIFECYCLE.md",
+        "source": "skills/security-audit/DATA-ISOLATION-AND-LIFECYCLE.md",
+        "gitBlob": "0cba1fa463b62c9b0caba710a201e29c1eecd0ec",
+        "sha256": "307dcb3e24d292715c4a041190e7bb135646a37eb6187619ae01d000a634a4ad",
+        "bytes": 7798,
+        "lines": 84,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "DESKTOP-MOBILE-AND-LOCAL-IPC.md",
+        "source": "skills/security-audit/DESKTOP-MOBILE-AND-LOCAL-IPC.md",
+        "gitBlob": "d6230098651bff6348d3868c11f566bfb1306e7f",
+        "sha256": "58eae8ee0ca6a46611c501ec5a3ab47fdff88dd7db0d8d74789bbf8bb19d8cb2",
+        "bytes": 8739,
+        "lines": 89,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "HUNTING.md",
+        "source": "skills/security-audit/HUNTING.md",
+        "gitBlob": "377d4dcfbe88a049379448cd7892717185401597",
+        "sha256": "71c121decea1322c47c718f6e110f1a892980bb4266bd7ac55ef043a213ade09",
+        "bytes": 22446,
+        "lines": 251,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "MEMORY-SAFETY-AND-BINARY.md",
+        "source": "skills/security-audit/MEMORY-SAFETY-AND-BINARY.md",
+        "gitBlob": "86ff4920752661fc4a31a35ca4f962ace5dd5f48",
+        "sha256": "7c8b0dccfb35315cca2455509674d49632b2fe37e1f3aac16c1a496a7e9924a7",
+        "bytes": 10513,
+        "lines": 101,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "PROTOCOLS-RPC-AND-MESSAGING.md",
+        "source": "skills/security-audit/PROTOCOLS-RPC-AND-MESSAGING.md",
+        "gitBlob": "b04ab88f852224838fdc9683d9fcccd858b0778a",
+        "sha256": "8b73816fa5b3697c9c40977f0c836b40f01d6e81929ff2720fe83ce089e9a619",
+        "bytes": 7483,
+        "lines": 81,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "RECONNAISSANCE.md",
+        "source": "skills/security-audit/RECONNAISSANCE.md",
+        "gitBlob": "1a170a93ab76b93dc5ac268a5b690beb423a8aa9",
+        "sha256": "02ca887aca84de8ae137f1891bd2f0a54f28d3fa6da92a27f54734382b3381a2",
+        "bytes": 15902,
+        "lines": 156,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md",
+        "source": "skills/security-audit/RESOURCE-EXHAUSTION-AND-AVAILABILITY.md",
+        "gitBlob": "6cbbd1e2cfa482068c8279c2f7da9db43d3f54b8",
+        "sha256": "4326fab5c92a0b4c420a70196254040105cd794026562130b59bf1a6db3e4baa",
+        "bytes": 7476,
+        "lines": 78,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "SKILL.md",
+        "source": "skills/security-audit/SKILL.md",
+        "gitBlob": "92178dad304d3f63e37582a297026a7874e12c62",
+        "sha256": "5e3e96a1e438d8f35fef0a1e38f02d4f00e2bdf910401b7dfe00e6779c6dac85",
+        "bytes": 22026,
+        "lines": 192,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "SUPPLY-CHAIN-AND-RELEASE.md",
+        "source": "skills/security-audit/SUPPLY-CHAIN-AND-RELEASE.md",
+        "gitBlob": "bf96aed0803bc07471483ab129dea86759c3e305",
+        "sha256": "f372e919940e335468ba1ae09f99026c3986a345f7fe26f8068f132e199f52a5",
+        "bytes": 7258,
+        "lines": 73,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "VALIDATION-AND-REPORTING.md",
+        "source": "skills/security-audit/VALIDATION-AND-REPORTING.md",
+        "gitBlob": "5e200d7387e665e53e0e4190fa4a5814c334c507",
+        "sha256": "b892470cb89bb31f33403e050d4bdfbe2cdaef940ade1496fa65e32b2e129449",
+        "bytes": 17843,
+        "lines": 186,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "WEB-PROTOCOL-AND-AUTH.md",
+        "source": "skills/security-audit/WEB-PROTOCOL-AND-AUTH.md",
+        "gitBlob": "1a099fa575cf52a61e9a627f91b61015120fa517",
+        "sha256": "4f3066dffa23c5635859187be9b96c32f2aff29a688186b91ff0c63e47d62b5c",
+        "bytes": 12300,
+        "lines": 105,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "report-schema.json",
+        "source": "skills/security-audit/report-schema.json",
+        "gitBlob": "55815a3687a45fff63d8ebf20068611bd6ad6d9a",
+        "sha256": "6575c9de4a62255699ea052ebf9a49ebfb373a32891bcd89af6f55cc84b35519",
+        "bytes": 14494,
+        "lines": 461,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+        "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391",
+        "bytes": 1078,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+            "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "6f6c426d90eb3c98a8304cd9aedb76ef71f6dafc1c9d4b50324a37b4ba7d4155",
+        "bytes": 967,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [
+      "skills/security-audit/validate-coverage-ledger.cjs",
+      "skills/security-audit/validate-coverage-ledger.test.cjs",
+      "skills/security-audit/validate-findings.cjs",
+      "skills/security-audit/validate-findings.test.cjs"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "6dbc9ecb3a5b9080e95b962869e8c7ab16cfdc20",
+        "sha256": "e598e694aa506650c7192d5ea3be0e50aca0d356ea00551c53429f0b01eb6391",
+        "bytes": 1078,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "hallmark",
+    "sourceName": "hallmark",
+    "sourceDescription": "Design skill for websites and new pages that look designed, not generated. Use when the user asks to build or design something new, or names Hallmark. Never use it on an existing design unless the user names Hallmark, as in `/hallmark redesign <path>`.",
+    "origin": {
+      "repo": "Nutlope/hallmark",
+      "revision": "7ec868225c6caa040558c321ee0fefa0e73f83a8",
+      "path": "skills/hallmark",
+      "sourceDigest": "0bf88176a88b76efeb3f2a22f2bf94a674d9e72248e9b93a6c05351dabce7480"
+    },
+    "sourceSkill": {
+      "path": "skills/hallmark/SKILL.md",
+      "gitBlob": "d27771723e827baa5e2b34d01492783a42df9174",
+      "sha256": "25a1ff92d925b2389e8409f42fb8ad7e033fceca8b5d1f07ed4ca4c28da53dc3",
+      "bytes": 18239,
+      "lines": 154
+    },
+    "sourceFrontmatter": {
+      "name": "hallmark",
+      "description": "Design skill for websites and new pages that look designed, not generated. Use when the user asks to build or design something new, or names Hallmark. Never use it on an existing design unless the user names Hallmark, as in `/hallmark redesign <path>`.",
+      "argument-hint": "<prompt> | redesign <path> | audit <path>",
+      "version": "2.0.0",
+      "metadata": {
+        "opencode/slash": "true"
+      }
+    },
+    "installId": "hallmark",
+    "previousInstallId": "hallmark-donna",
+    "previousDigest": "d20edd71b9f84b1aee09c3c2b6089ac283626eec7402bd2a29c7437c730e98a9",
+    "digest": "cfe477b900f1cf10591afa862e4246602be77ab897b0d1dd6dd879cfe2b05b8b",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: argument-hint, version. O arquivo não foi reescrito para passar a validação.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/hallmark/LICENSE",
+      "skills/hallmark/SKILL.md",
+      "skills/hallmark/agents/openai.yaml",
+      "skills/hallmark/references/anatomy.md",
+      "skills/hallmark/references/brand-truth.md",
+      "skills/hallmark/references/comp.md",
+      "skills/hallmark/references/craft.md",
+      "skills/hallmark/references/dark-mode.md",
+      "skills/hallmark/references/data-viz.md",
+      "skills/hallmark/references/design-md.md",
+      "skills/hallmark/references/direction.md",
+      "skills/hallmark/references/export-formats.md",
+      "skills/hallmark/references/flow.md",
+      "skills/hallmark/references/fonts.md",
+      "skills/hallmark/references/gates.md",
+      "skills/hallmark/references/genres/atmospheric.md",
+      "skills/hallmark/references/genres/editorial.md",
+      "skills/hallmark/references/genres/modern-minimal.md",
+      "skills/hallmark/references/genres/playful.md",
+      "skills/hallmark/references/imagery.md",
+      "skills/hallmark/references/interaction-and-states.md",
+      "skills/hallmark/references/layout.md",
+      "skills/hallmark/references/macrostructures.md",
+      "skills/hallmark/references/macrostructures/01-bento-grid.md",
+      "skills/hallmark/references/macrostructures/02-long-document.md",
+      "skills/hallmark/references/macrostructures/03-marquee-hero.md",
+      "skills/hallmark/references/macrostructures/04-stat-led.md",
+      "skills/hallmark/references/macrostructures/05-workbench.md",
+      "skills/hallmark/references/macrostructures/06-conversational-faq.md",
+      "skills/hallmark/references/macrostructures/07-manifesto.md",
+      "skills/hallmark/references/macrostructures/08-photographic.md",
+      "skills/hallmark/references/macrostructures/09-quote-led.md",
+      "skills/hallmark/references/macrostructures/10-specimen.md",
+      "skills/hallmark/references/macrostructures/11-catalogue.md",
+      "skills/hallmark/references/macrostructures/12-letter.md",
+      "skills/hallmark/references/macrostructures/13-index-first.md",
+      "skills/hallmark/references/macrostructures/14-narrative-workflow.md",
+      "skills/hallmark/references/macrostructures/15-split-studio.md",
+      "skills/hallmark/references/macrostructures/16-feature-stack.md",
+      "skills/hallmark/references/macrostructures/17-type-specimen.md",
+      "skills/hallmark/references/macrostructures/18-portfolio-grid.md",
+      "skills/hallmark/references/macrostructures/19-map-diagram.md",
+      "skills/hallmark/references/macrostructures/20-ecosystem-index.md",
+      "skills/hallmark/references/macrostructures/21-component-playground.md",
+      "skills/hallmark/references/microinteractions.md",
+      "skills/hallmark/references/patterns.md",
+      "skills/hallmark/references/redesign.md",
+      "skills/hallmark/references/responsive.md",
+      "skills/hallmark/references/review-finish.md",
+      "skills/hallmark/references/review-hero.md",
+      "skills/hallmark/references/scroll-choreography.md",
+      "skills/hallmark/references/texture.md",
+      "skills/hallmark/references/themes/README.md",
+      "skills/hallmark/references/themes/almanac.jpg",
+      "skills/hallmark/references/themes/almanac.md",
+      "skills/hallmark/references/themes/arcade.jpg",
+      "skills/hallmark/references/themes/arcade.md",
+      "skills/hallmark/references/themes/atelier.jpg",
+      "skills/hallmark/references/themes/atelier.md",
+      "skills/hallmark/references/themes/bloom.jpg",
+      "skills/hallmark/references/themes/bloom.md",
+      "skills/hallmark/references/themes/blueprint.jpg",
+      "skills/hallmark/references/themes/blueprint.md",
+      "skills/hallmark/references/themes/broadside.jpg",
+      "skills/hallmark/references/themes/broadside.md",
+      "skills/hallmark/references/themes/brutal.jpg",
+      "skills/hallmark/references/themes/brutal.md",
+      "skills/hallmark/references/themes/carnival.jpg",
+      "skills/hallmark/references/themes/carnival.md",
+      "skills/hallmark/references/themes/cobalt.jpg",
+      "skills/hallmark/references/themes/cobalt.md",
+      "skills/hallmark/references/themes/console.jpg",
+      "skills/hallmark/references/themes/console.md",
+      "skills/hallmark/references/themes/coral.jpg",
+      "skills/hallmark/references/themes/coral.md",
+      "skills/hallmark/references/themes/darkroom.jpg",
+      "skills/hallmark/references/themes/darkroom.md",
+      "skills/hallmark/references/themes/dose.jpg",
+      "skills/hallmark/references/themes/dose.md",
+      "skills/hallmark/references/themes/dusk.jpg",
+      "skills/hallmark/references/themes/dusk.md",
+      "skills/hallmark/references/themes/editorial.jpg",
+      "skills/hallmark/references/themes/editorial.md",
+      "skills/hallmark/references/themes/formwork.jpg",
+      "skills/hallmark/references/themes/formwork.md",
+      "skills/hallmark/references/themes/furrow.jpg",
+      "skills/hallmark/references/themes/furrow.md",
+      "skills/hallmark/references/themes/garden.jpg",
+      "skills/hallmark/references/themes/garden.md",
+      "skills/hallmark/references/themes/grid.jpg",
+      "skills/hallmark/references/themes/grid.md",
+      "skills/hallmark/references/themes/halftone.jpg",
+      "skills/hallmark/references/themes/halftone.md",
+      "skills/hallmark/references/themes/hedgerow.jpg",
+      "skills/hallmark/references/themes/hedgerow.md",
+      "skills/hallmark/references/themes/hum.jpg",
+      "skills/hallmark/references/themes/hum.md",
+      "skills/hallmark/references/themes/index.json",
+      "skills/hallmark/references/themes/ink.jpg",
+      "skills/hallmark/references/themes/ink.md",
+      "skills/hallmark/references/themes/kiln.jpg",
+      "skills/hallmark/references/themes/kiln.md",
+      "skills/hallmark/references/themes/loom.jpg",
+      "skills/hallmark/references/themes/loom.md",
+      "skills/hallmark/references/themes/lumen.jpg",
+      "skills/hallmark/references/themes/lumen.md",
+      "skills/hallmark/references/themes/manifesto.jpg",
+      "skills/hallmark/references/themes/manifesto.md",
+      "skills/hallmark/references/themes/midnight.jpg",
+      "skills/hallmark/references/themes/midnight.md",
+      "skills/hallmark/references/themes/newsprint.jpg",
+      "skills/hallmark/references/themes/newsprint.md",
+      "skills/hallmark/references/themes/overprint.jpg",
+      "skills/hallmark/references/themes/overprint.md",
+      "skills/hallmark/references/themes/pasteup.jpg",
+      "skills/hallmark/references/themes/pasteup.md",
+      "skills/hallmark/references/themes/piste.jpg",
+      "skills/hallmark/references/themes/piste.md",
+      "skills/hallmark/references/themes/ribbon.jpg",
+      "skills/hallmark/references/themes/ribbon.md",
+      "skills/hallmark/references/themes/rim.jpg",
+      "skills/hallmark/references/themes/rim.md",
+      "skills/hallmark/references/themes/riso.jpg",
+      "skills/hallmark/references/themes/riso.md",
+      "skills/hallmark/references/themes/solstice.jpg",
+      "skills/hallmark/references/themes/solstice.md",
+      "skills/hallmark/references/themes/specimen.jpg",
+      "skills/hallmark/references/themes/specimen.md",
+      "skills/hallmark/references/themes/spore.jpg",
+      "skills/hallmark/references/themes/spore.md",
+      "skills/hallmark/references/themes/sport.jpg",
+      "skills/hallmark/references/themes/sport.md",
+      "skills/hallmark/references/themes/squeeze.jpg",
+      "skills/hallmark/references/themes/squeeze.md",
+      "skills/hallmark/references/themes/sticker.jpg",
+      "skills/hallmark/references/themes/sticker.md",
+      "skills/hallmark/references/themes/studio.jpg",
+      "skills/hallmark/references/themes/studio.md",
+      "skills/hallmark/references/themes/terminal.jpg",
+      "skills/hallmark/references/themes/terminal.md",
+      "skills/hallmark/references/themes/terrazzo.jpg",
+      "skills/hallmark/references/themes/terrazzo.md",
+      "skills/hallmark/references/themes/ultraviolet.jpg",
+      "skills/hallmark/references/themes/ultraviolet.md",
+      "skills/hallmark/references/themes/vellum.jpg",
+      "skills/hallmark/references/themes/vellum.md",
+      "skills/hallmark/references/themes/wayfind.jpg",
+      "skills/hallmark/references/themes/wayfind.md",
+      "skills/hallmark/references/themes/werkstatt.jpg",
+      "skills/hallmark/references/themes/werkstatt.md",
+      "skills/hallmark/scripts/capture.mjs",
+      "skills/hallmark/scripts/fixtures/exemplars/atmospheric.html",
+      "skills/hallmark/scripts/fixtures/exemplars/editorial.html",
+      "skills/hallmark/scripts/fixtures/exemplars/modern-minimal.html",
+      "skills/hallmark/scripts/fixtures/exemplars/playful.html",
+      "skills/hallmark/scripts/fixtures/eyebrow-fail/index.html",
+      "skills/hallmark/scripts/fixtures/eyebrow-pass/index.html",
+      "skills/hallmark/scripts/fixtures/kept/after.html",
+      "skills/hallmark/scripts/fixtures/kept/before.html",
+      "skills/hallmark/scripts/fixtures/slopped.html",
+      "skills/hallmark/scripts/fixtures/tailwind-fail/Feature.vue",
+      "skills/hallmark/scripts/fixtures/tailwind-fail/Hero.tsx",
+      "skills/hallmark/scripts/fixtures/tailwind-fail/index.html",
+      "skills/hallmark/scripts/fixtures/tailwind-fail/style.css",
+      "skills/hallmark/scripts/fixtures/tailwind-pass/Hero.tsx",
+      "skills/hallmark/scripts/fixtures/tailwind-pass/index.html",
+      "skills/hallmark/scripts/fixtures/tailwind-pass/style.css",
+      "skills/hallmark/scripts/fixtures/waiver/index.html",
+      "skills/hallmark/scripts/imagegen.mjs",
+      "skills/hallmark/scripts/install-hook.mjs",
+      "skills/hallmark/scripts/install.mjs",
+      "skills/hallmark/scripts/lint-hook.mjs",
+      "skills/hallmark/scripts/photos.json",
+      "skills/hallmark/scripts/picture.mjs",
+      "skills/hallmark/scripts/refcheck.mjs",
+      "skills/hallmark/scripts/sloplint-render.mjs",
+      "skills/hallmark/scripts/sloplint.mjs",
+      "skills/hallmark/scripts/theme.mjs"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "f4bfc53d8d773d3b10d95c2d58a5773dd4e2f3aa",
+        "sha256": "06088a8b94598626f27612dea42300154bf7be967c85d9d3eee4490cb056af7d",
+        "bytes": 1078,
+        "lines": 21
+      },
+      {
+        "path": "skills/hallmark/LICENSE",
+        "gitBlob": "f4bfc53d8d773d3b10d95c2d58a5773dd4e2f3aa",
+        "sha256": "06088a8b94598626f27612dea42300154bf7be967c85d9d3eee4490cb056af7d",
+        "bytes": 1078,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "impeccable",
+    "sourceName": "impeccable",
+    "sourceDescription": "Use when the user wants to design, redesign, shape, critique, audit, polish, simplify, harden, animate, or otherwise improve a frontend interface: websites, landing pages, dashboards, product UI, components, forms, settings, onboarding, empty states, and native iOS or Android screens. Handles UX review, hierarchy, layout, typography, color, motion, UX copy, accessibility, responsive behavior, edge cases, and capturing or documenting design systems (DESIGN.md, tokens). Also for making bland UI bolder, loud UI quieter, or ambitious visual effects. Not for backend-only or non-UI tasks.",
+    "origin": {
+      "repo": "pbakaus/impeccable",
+      "revision": "936867543ac2576920d663cc9803597f6044f3ac",
+      "path": ".agents/skills/impeccable",
+      "sourceDigest": "4cff78a9a962c2395f1ede385df332fa67617c08b09a477ff5d04e26fca95abd"
+    },
+    "sourceSkill": {
+      "path": ".agents/skills/impeccable/SKILL.md",
+      "gitBlob": "8da085ce49cf210f0fc97edc81479747b91dc831",
+      "sha256": "c26d6963fe2278f570930ea083ec89609ba094ee93b1ae825719ff5d29b9ac3c",
+      "bytes": 11762,
+      "lines": 86
+    },
+    "sourceFrontmatter": {
+      "name": "impeccable",
+      "description": "Use when the user wants to design, redesign, shape, critique, audit, polish, simplify, harden, animate, or otherwise improve a frontend interface: websites, landing pages, dashboards, product UI, components, forms, settings, onboarding, empty states, and native iOS or Android screens. Handles UX review, hierarchy, layout, typography, color, motion, UX copy, accessibility, responsive behavior, edge cases, and capturing or documenting design systems (DESIGN.md, tokens). Also for making bland UI bolder, loud UI quieter, or ambitious visual effects. Not for backend-only or non-UI tasks.",
+      "metadata": {
+        "version": "4.7.1"
+      }
+    },
+    "installId": "impeccable",
+    "previousInstallId": "impeccable-donna",
+    "previousDigest": "6a6cf2350d23c51efc7c7c094fce6914b09c85fe2079d8edb5597645e9499b0d",
+    "digest": "74e1b437045a16e6c2276ced5bedf085005a48dd3a963049ba70a7fbdfed905c",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": ".agents/skills/impeccable/SKILL.md",
+        "gitBlob": "8da085ce49cf210f0fc97edc81479747b91dc831",
+        "sha256": "c26d6963fe2278f570930ea083ec89609ba094ee93b1ae825719ff5d29b9ac3c",
+        "bytes": 11762,
+        "lines": 86,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "bb3f6d23b1f8025514a62a12b51b47d73e3c9aa9",
+            "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812"
+          },
+          {
+            "path": "NOTICE.md",
+            "gitBlob": "0468271c904ae334cfaf27da6f8df3d5f419a1f0",
+            "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "bb3f6d23b1f8025514a62a12b51b47d73e3c9aa9",
+        "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812",
+        "bytes": 10766,
+        "lines": 191,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "bb3f6d23b1f8025514a62a12b51b47d73e3c9aa9",
+            "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812"
+          },
+          {
+            "path": "NOTICE.md",
+            "gitBlob": "0468271c904ae334cfaf27da6f8df3d5f419a1f0",
+            "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "NOTICE.md",
+        "source": "NOTICE.md",
+        "gitBlob": "0468271c904ae334cfaf27da6f8df3d5f419a1f0",
+        "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+        "bytes": 503,
+        "lines": 11,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "bb3f6d23b1f8025514a62a12b51b47d73e3c9aa9",
+            "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812"
+          },
+          {
+            "path": "NOTICE.md",
+            "gitBlob": "0468271c904ae334cfaf27da6f8df3d5f419a1f0",
+            "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "7ba39cdf7a766a83654d936fd7dafe63754168e7b12b0f8a9e76cc9421ae6787",
+        "bytes": 2418,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [
+      ".agents/skills/impeccable/agents/impeccable_asset_producer.toml",
+      ".agents/skills/impeccable/agents/impeccable_documenter.toml",
+      ".agents/skills/impeccable/agents/impeccable_finish_reviewer.toml",
+      ".agents/skills/impeccable/agents/impeccable_manual_edit_applier.toml",
+      ".agents/skills/impeccable/agents/openai.yaml",
+      ".agents/skills/impeccable/reference/adapt.md",
+      ".agents/skills/impeccable/reference/adapt.native.md",
+      ".agents/skills/impeccable/reference/android.md",
+      ".agents/skills/impeccable/reference/animate.md",
+      ".agents/skills/impeccable/reference/audit.md",
+      ".agents/skills/impeccable/reference/audit.native.md",
+      ".agents/skills/impeccable/reference/bolder.md",
+      ".agents/skills/impeccable/reference/clarify.md",
+      ".agents/skills/impeccable/reference/colorize.md",
+      ".agents/skills/impeccable/reference/component-review.md",
+      ".agents/skills/impeccable/reference/craft-floor.md",
+      ".agents/skills/impeccable/reference/craft.md",
+      ".agents/skills/impeccable/reference/critique.md",
+      ".agents/skills/impeccable/reference/degraded/asset-producer.md",
+      ".agents/skills/impeccable/reference/degraded/documenter.md",
+      ".agents/skills/impeccable/reference/degraded/finish-reviewer.md",
+      ".agents/skills/impeccable/reference/degraded/manual-edit-applier.md",
+      ".agents/skills/impeccable/reference/delight.md",
+      ".agents/skills/impeccable/reference/distill.md",
+      ".agents/skills/impeccable/reference/doctor.md",
+      ".agents/skills/impeccable/reference/document.md",
+      ".agents/skills/impeccable/reference/extract.md",
+      ".agents/skills/impeccable/reference/generate.md",
+      ".agents/skills/impeccable/reference/harden.md",
+      ".agents/skills/impeccable/reference/hooks.md",
+      ".agents/skills/impeccable/reference/init.md",
+      ".agents/skills/impeccable/reference/ios.md",
+      ".agents/skills/impeccable/reference/layout.md",
+      ".agents/skills/impeccable/reference/live-setup.md",
+      ".agents/skills/impeccable/reference/live.md",
+      ".agents/skills/impeccable/reference/mode-operate.md",
+      ".agents/skills/impeccable/reference/mode-persuade.md",
+      ".agents/skills/impeccable/reference/mode-read.md",
+      ".agents/skills/impeccable/reference/new-work.md",
+      ".agents/skills/impeccable/reference/onboard.md",
+      ".agents/skills/impeccable/reference/operate.md",
+      ".agents/skills/impeccable/reference/optimize.md",
+      ".agents/skills/impeccable/reference/overdrive.md",
+      ".agents/skills/impeccable/reference/polish.md",
+      ".agents/skills/impeccable/reference/quieter.md",
+      ".agents/skills/impeccable/reference/region-map.md",
+      ".agents/skills/impeccable/reference/routing.md",
+      ".agents/skills/impeccable/reference/shape.md",
+      ".agents/skills/impeccable/reference/typeset.md",
+      ".agents/skills/impeccable/reference/visualize.md",
+      ".agents/skills/impeccable/scripts/VERSION",
+      ".agents/skills/impeccable/scripts/command-metadata.json",
+      ".agents/skills/impeccable/scripts/data/font-index-failures.json",
+      ".agents/skills/impeccable/scripts/data/font-index.json",
+      ".agents/skills/impeccable/scripts/impeccable",
+      ".agents/skills/impeccable/scripts/impeccable.cmd",
+      ".agents/skills/impeccable/scripts/live-browser-dom.js",
+      ".agents/skills/impeccable/scripts/live-browser-ignores.js",
+      ".agents/skills/impeccable/scripts/live-browser-session.js",
+      ".agents/skills/impeccable/scripts/live-browser.js",
+      ".agents/skills/impeccable/scripts/modern-screenshot.umd.js"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "bb3f6d23b1f8025514a62a12b51b47d73e3c9aa9",
+        "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812",
+        "bytes": 10766,
+        "lines": 191
+      },
+      {
+        "path": "NOTICE.md",
+        "gitBlob": "0468271c904ae334cfaf27da6f8df3d5f419a1f0",
+        "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+        "bytes": 503,
+        "lines": 11
+      }
+    ]
+  },
+  {
+    "id": "skill-creator",
+    "sourceName": "skill-creator",
+    "sourceDescription": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+    "origin": {
+      "repo": "anthropics/skills",
+      "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "path": "skills/skill-creator",
+      "sourceDigest": "7a98da8f68379f70c484d6d6e153976cbe4c023bd147e039a8cec8c2f9821277"
+    },
+    "sourceSkill": {
+      "path": "skills/skill-creator/SKILL.md",
+      "gitBlob": "65b3a402dbd09b8e83f9d637c6b553875189085c",
+      "sha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf",
+      "bytes": 33168,
+      "lines": 485
+    },
+    "sourceFrontmatter": {
+      "name": "skill-creator",
+      "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy."
+    },
+    "installId": "skill-creator",
+    "previousInstallId": "skill-creator-donna",
+    "previousDigest": "726e504df73770b14fb453d8a4dac2095231e1fdbb20c8b7ad2f846a7e56dc85",
+    "digest": "89fabd4f76d6adb9de5ea74f32e3c5682a6779dc4891842ab5e0db71576220c9",
+    "availability": "dependencyUnavailable",
+    "reason": "SKILL.md original tem 33168 bytes; o catálogo aceita no máximo 32768. Nenhum corte ou reescrita autorizado.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar limite SKILL.md com orçamento explícito, sem cortar texto.",
+    "files": [],
+    "excluded": [
+      "skills/skill-creator/LICENSE.txt",
+      "skills/skill-creator/SKILL.md",
+      "skills/skill-creator/agents/analyzer.md",
+      "skills/skill-creator/agents/comparator.md",
+      "skills/skill-creator/agents/grader.md",
+      "skills/skill-creator/assets/eval_review.html",
+      "skills/skill-creator/eval-viewer/generate_review.py",
+      "skills/skill-creator/eval-viewer/viewer.html",
+      "skills/skill-creator/references/schemas.md",
+      "skills/skill-creator/scripts/__init__.py",
+      "skills/skill-creator/scripts/aggregate_benchmark.py",
+      "skills/skill-creator/scripts/generate_report.py",
+      "skills/skill-creator/scripts/improve_description.py",
+      "skills/skill-creator/scripts/package_skill.py",
+      "skills/skill-creator/scripts/quick_validate.py",
+      "skills/skill-creator/scripts/run_eval.py",
+      "skills/skill-creator/scripts/run_loop.py",
+      "skills/skill-creator/scripts/utils.py"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "skills/skill-creator/LICENSE.txt",
+        "gitBlob": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+        "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+        "bytes": 11345,
+        "lines": 202
+      }
+    ]
+  },
+  {
+    "id": "frontend-design",
+    "sourceName": "frontend-design",
+    "sourceDescription": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
+    "origin": {
+      "repo": "anthropics/skills",
+      "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "path": "skills/frontend-design",
+      "sourceDigest": "821525fce28c2636f8c25be00b057ee94fafee2938dc0cd7050e602a04604b9e"
+    },
+    "sourceSkill": {
+      "path": "skills/frontend-design/SKILL.md",
+      "gitBlob": "a5333457c414d20d625f307df945842c0952ecc3",
+      "sha256": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3",
+      "bytes": 9390,
+      "lines": 71
+    },
+    "sourceFrontmatter": {
+      "name": "frontend-design",
+      "description": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
+      "license": "Complete terms in LICENSE.txt"
+    },
+    "installId": "frontend-design",
+    "previousInstallId": "frontend-design",
+    "previousDigest": "91b5d5d5afe8870b45babf2cd886ef9a4a570f12d16f1b99a5e532ebbd35d3a1",
+    "digest": "47d838e01592692762500d0017b9676c746b893ca3a90a58704a77921aba6e62",
+    "availability": "text",
+    "reason": "Pacote textual original preservado no pin indicado; nome e descrição originais. Reparação de metadados do catálogo, sem atualizar instalações.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/frontend-design/SKILL.md",
+        "gitBlob": "a5333457c414d20d625f307df945842c0952ecc3",
+        "sha256": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3",
+        "bytes": 9390,
+        "lines": 71,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "skills/frontend-design/LICENSE.txt",
+            "gitBlob": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+            "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE.txt",
+        "source": "skills/frontend-design/LICENSE.txt",
+        "gitBlob": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+        "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "bytes": 10174,
+        "lines": 177,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "skills/frontend-design/LICENSE.txt",
+            "gitBlob": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+            "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      }
+    ],
+    "excluded": [],
+    "licenseEvidence": [
+      {
+        "path": "skills/frontend-design/LICENSE.txt",
+        "gitBlob": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+        "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "bytes": 10174,
+        "lines": 177
+      }
+    ]
+  },
+  {
+    "id": "pdf",
+    "sourceName": "pdf",
+    "sourceDescription": "PDF file handling skill from Anthropic's catalog; not distributed here for license reasons.",
+    "origin": {
+      "repo": "anthropics/skills",
+      "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "path": "skills/pdf",
+      "sourceDigest": "17df884aa690219324516441034568fe209da506ea0df7a250bb215ab0382a25"
+    },
+    "sourceSkill": {
+      "path": "skills/pdf/SKILL.md",
+      "gitBlob": "d3e046a5ae107a6cb23cfb16c219837094ab35d3",
+      "sha256": "9f78b8359fbd4943ad260a7a1e436e5a96503406d6c34e99f69223d647d85b9c",
+      "bytes": 8072,
+      "lines": 314
+    },
+    "sourceFrontmatter": {
+      "name": "pdf",
+      "license": "Proprietary. LICENSE.txt has complete terms"
+    },
+    "installId": "pdf",
+    "previousInstallId": "pdf-donna",
+    "previousDigest": "ac216ebd53d0ce77b89b1c0644d7d51e31ce3403f257bc6de0a6e6741f14a732",
+    "digest": "7c63de367bb40611f263b7306f821a1f642e32ad62ed66ed18569a722d58a0f5",
+    "availability": "licenseUnavailable",
+    "reason": "Licença específica proprietária restringe retenção, cópia, derivados e distribuição fora dos serviços Anthropic; metadados/evidência mínima preservados, sem empacotar os corpos. SKILL.md aponta REFERENCE.md/FORMS.md, mas arquivos reais são reference.md/forms.md; em Linux os caminhos literais não resolvem.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Preservar bloqueio existente; condições originais de licença/requisitos ainda não verificadas.",
+    "files": [],
+    "excluded": [
+      "skills/pdf/LICENSE.txt",
+      "skills/pdf/SKILL.md",
+      "skills/pdf/forms.md",
+      "skills/pdf/reference.md",
+      "skills/pdf/scripts/check_bounding_boxes.py",
+      "skills/pdf/scripts/check_fillable_fields.py",
+      "skills/pdf/scripts/convert_pdf_to_images.py",
+      "skills/pdf/scripts/create_validation_image.py",
+      "skills/pdf/scripts/extract_form_field_info.py",
+      "skills/pdf/scripts/extract_form_structure.py",
+      "skills/pdf/scripts/fill_fillable_fields.py",
+      "skills/pdf/scripts/fill_pdf_form_with_annotations.py"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "skills/pdf/LICENSE.txt",
+        "gitBlob": "c55ab42224874608473643de0a85736b7fec0730",
+        "sha256": "79f6d8f5b427252fa3b1c11ecdbdb6bf610b944f7530b4de78f770f38741cfaa",
+        "bytes": 1467,
+        "lines": 30
+      }
+    ]
+  },
+  {
+    "id": "xlsx",
+    "sourceName": "xlsx",
+    "sourceDescription": "Spreadsheet file handling skill from Anthropic's catalog; not distributed here for license reasons.",
+    "origin": {
+      "repo": "anthropics/skills",
+      "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "path": "skills/xlsx",
+      "sourceDigest": "1375fba3a93f1259fac653642da6ee9e59e44a8cc9c93e56d9beb4f25327e8cd"
+    },
+    "sourceSkill": {
+      "path": "skills/xlsx/SKILL.md",
+      "gitBlob": "9da54804cc8c938586f89363c8da3b3a6e2a563d",
+      "sha256": "6712b39718fe815054abca9c3ee72f989613e6f771c8a5c58f30a65a6c905622",
+      "bytes": 8598,
+      "lines": 99
+    },
+    "sourceFrontmatter": {
+      "name": "xlsx",
+      "license": "Proprietary. LICENSE.txt has complete terms"
+    },
+    "installId": "xlsx",
+    "previousInstallId": "xlsx-donna",
+    "previousDigest": "a8365cdf1412e5914298fbc774ef7058f66800f1d24d504a838f0d9c66f5fd25",
+    "digest": "2fb40a2b78f89c918e9f3f326e5235bdd9d2584223be1012b527d05e538ae425",
+    "availability": "licenseUnavailable",
+    "reason": "Licença específica proprietária restringe retenção, cópia, derivados e distribuição fora dos serviços Anthropic; metadados/evidência mínima preservados, sem empacotar os corpos. Pacote traz schemas com profundidade 5, acima do limite 4; runtime assume bibliotecas instaladas, LibreOffice, macro e shim compilado opcional.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Preservar bloqueio existente; condições originais de licença/requisitos ainda não verificadas.",
+    "files": [],
+    "excluded": [
+      "skills/xlsx/LICENSE.txt",
+      "skills/xlsx/SKILL.md",
+      "skills/xlsx/scripts/office/helpers/__init__.py",
+      "skills/xlsx/scripts/office/helpers/pptx_chart.py",
+      "skills/xlsx/scripts/office/helpers/pptx_slide.py",
+      "skills/xlsx/scripts/office/helpers/pptx_theme.py",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-chart.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-chartDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-diagram.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-lockedCanvas.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-main.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-picture.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-spreadsheetDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/dml-wordprocessingDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/pml.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-additionalCharacteristics.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-bibliography.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-commonSimpleTypes.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-customXmlDataProperties.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-customXmlSchemaProperties.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesCustom.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesExtended.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesVariantTypes.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-math.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/shared-relationshipReference.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/sml.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/vml-main.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/vml-officeDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/vml-presentationDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/vml-spreadsheetDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/vml-wordprocessingDrawing.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/wml.xsd",
+      "skills/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/xml.xsd",
+      "skills/xlsx/scripts/office/schemas/ecma/fouth-edition/opc-contentTypes.xsd",
+      "skills/xlsx/scripts/office/schemas/ecma/fouth-edition/opc-coreProperties.xsd",
+      "skills/xlsx/scripts/office/schemas/ecma/fouth-edition/opc-digSig.xsd",
+      "skills/xlsx/scripts/office/schemas/ecma/fouth-edition/opc-relationships.xsd",
+      "skills/xlsx/scripts/office/schemas/mce/mc.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-2010.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-2012.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-2018.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-cex-2018.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-cid-2016.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-sdtdatahash-2020.xsd",
+      "skills/xlsx/scripts/office/schemas/microsoft/wml-symex-2015.xsd",
+      "skills/xlsx/scripts/office/soffice.py",
+      "skills/xlsx/scripts/office/validate.py",
+      "skills/xlsx/scripts/office/validators/__init__.py",
+      "skills/xlsx/scripts/office/validators/base.py",
+      "skills/xlsx/scripts/office/validators/docx.py",
+      "skills/xlsx/scripts/office/validators/pptx.py",
+      "skills/xlsx/scripts/office/validators/redlining.py",
+      "skills/xlsx/scripts/recalc.py"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "skills/xlsx/LICENSE.txt",
+        "gitBlob": "c55ab42224874608473643de0a85736b7fec0730",
+        "sha256": "79f6d8f5b427252fa3b1c11ecdbdb6bf610b944f7530b4de78f770f38741cfaa",
+        "bytes": 1467,
+        "lines": 30
+      }
+    ]
+  },
+  {
+    "id": "find-skills",
+    "sourceName": "find-skills",
+    "sourceDescription": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
+    "origin": {
+      "repo": "vercel-labs/skills",
+      "revision": "a80e4c9d12d607631249d4d7d059f835d4b2f13a",
+      "path": "skills/find-skills",
+      "sourceDigest": "3238b48960f655dea86f852867f5072602c4aafc85d01a4cf6823bb9b250aea6"
+    },
+    "sourceSkill": {
+      "path": "skills/find-skills/SKILL.md",
+      "gitBlob": "a41bdd074bb587afd861332cf2f473f3154de4d7",
+      "sha256": "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f",
+      "bytes": 5472,
+      "lines": 141
+    },
+    "sourceFrontmatter": {
+      "name": "find-skills",
+      "description": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill."
+    },
+    "installId": "find-skills",
+    "previousInstallId": "find-skills-donna",
+    "previousDigest": "fd51c40ce240b69a20608360836eb6e87e8cd851f1e9f340df0117fa8e3ac0cb",
+    "digest": "9bdbd10610cd1d7567e383b5f0db70405bb3692e593ef056ae2df2ae5feb2287",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/find-skills/SKILL.md",
+        "gitBlob": "a41bdd074bb587afd861332cf2f473f3154de4d7",
+        "sha256": "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f",
+        "bytes": 5472,
+        "lines": 141,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "eabe3008f6c0275929faa8b07d406e82717648cc",
+            "sha256": "661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "eabe3008f6c0275929faa8b07d406e82717648cc",
+        "sha256": "661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca",
+        "bytes": 1069,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "eabe3008f6c0275929faa8b07d406e82717648cc",
+            "sha256": "661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "a955295d5d1f0e9d4dfbe4e6172478ec0b11dc2c7d1b296d72446f7ead1489fb",
+        "bytes": 791,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "eabe3008f6c0275929faa8b07d406e82717648cc",
+        "sha256": "661142e53c313d2bb5e1b055f5c0a39001450ff1b5e27b89dc4bc7de9a6352ca",
+        "bytes": 1069,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "grilling",
+    "sourceName": "grilling",
+    "sourceDescription": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.",
+    "origin": {
+      "repo": "mattpocock/skills",
+      "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
+      "path": "skills/productivity/grilling",
+      "sourceDigest": "fd23008df60775a10735bfd0cb62e2c8ba3077134077fc7893a19760b42e422f"
+    },
+    "sourceSkill": {
+      "path": "skills/productivity/grilling/SKILL.md",
+      "gitBlob": "df69d9936880cd3314c28858c6c52f48db23b856",
+      "sha256": "befdff1e27a1dfe2a294d5871169ac1afe16d983911daa4f32627514a48c1e15",
+      "bytes": 2049,
+      "lines": 30
+    },
+    "sourceFrontmatter": {
+      "name": "grilling",
+      "description": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases."
+    },
+    "installId": "grilling",
+    "previousInstallId": "grilling-donna",
+    "previousDigest": "cabdc2e6c78cc3d72354d952e38e89e7fb44fd7501eaf8c99bc9ca3f99249db2",
+    "digest": "82d55fb9a1b61285151df7a7d0963c559f8de04575f89bd337ab8d763445d9a9",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/productivity/grilling/SKILL.md",
+        "gitBlob": "df69d9936880cd3314c28858c6c52f48db23b856",
+        "sha256": "befdff1e27a1dfe2a294d5871169ac1afe16d983911daa4f32627514a48c1e15",
+        "bytes": 2049,
+        "lines": 30,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+            "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+        "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+        "bytes": 1068,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+            "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "7af7fec3afdc11f6ac6f6ec5465aa335c8111009eaabfba26824424e530ee0e4",
+        "bytes": 864,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [
+      "skills/productivity/grilling/agents/openai.yaml"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+        "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+        "bytes": 1068,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "handoff",
+    "sourceName": "handoff",
+    "sourceDescription": "Compact the current conversation into a handoff document for another agent to pick up.",
+    "origin": {
+      "repo": "mattpocock/skills",
+      "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
+      "path": "skills/productivity/handoff",
+      "sourceDigest": "f07de8560413d83fea1be9bc486fa5448c54d45cbe86c59220fb72670fb71929"
+    },
+    "sourceSkill": {
+      "path": "skills/productivity/handoff/SKILL.md",
+      "gitBlob": "a224edc643a20ddb989f9bca1547440169159810",
+      "sha256": "4cbb043950dad2ffd3662ff1a5a0b51ae676004b5cae10e3787e8ee7a4ee69d3",
+      "bytes": 940,
+      "lines": 16
+    },
+    "sourceFrontmatter": {
+      "name": "handoff",
+      "description": "Compact the current conversation into a handoff document for another agent to pick up.",
+      "argument-hint": "What will the next session be used for?",
+      "disable-model-invocation": true
+    },
+    "installId": "handoff",
+    "previousInstallId": "handoff-donna",
+    "previousDigest": "a2df310dc73d115bf8134312ce428b74f31ea84b321e3853d50887d0c0508c35",
+    "digest": "9b58151132ba726f6a05914fe8d0b84d54b7a8c2a6c928e0d39383687924cbf4",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: argument-hint, disable-model-invocation. O arquivo não foi reescrito para passar a validação.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/productivity/handoff/SKILL.md",
+      "skills/productivity/handoff/agents/openai.yaml"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+        "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+        "bytes": 1068,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "research",
+    "sourceName": "research",
+    "sourceDescription": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.",
+    "origin": {
+      "repo": "mattpocock/skills",
+      "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
+      "path": "skills/engineering/research",
+      "sourceDigest": "7397edfe61c24d4325c7ab6df6d3423ba898a619bbd2762b4c11a6c3cd6ccfa7"
+    },
+    "sourceSkill": {
+      "path": "skills/engineering/research/SKILL.md",
+      "gitBlob": "fecee97e9457ba039678d2fcf1b1bc9fca78307d",
+      "sha256": "985569f15739c713d6784887c3d186d4ef9ac85bec5ad9c068d25bf0739928e4",
+      "bytes": 794,
+      "lines": 12
+    },
+    "sourceFrontmatter": {
+      "name": "research",
+      "description": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent."
+    },
+    "installId": "research",
+    "previousInstallId": "research-donna",
+    "previousDigest": "01cd377ac473c74623a7fbd346d8eee29b3082941536a26cfdb7cae87e7a7205",
+    "digest": "7cf7faa6e080199ac203754ad2ca3d1012a60382d6b738d1cbe97240ae577ecd",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/engineering/research/SKILL.md",
+        "gitBlob": "fecee97e9457ba039678d2fcf1b1bc9fca78307d",
+        "sha256": "985569f15739c713d6784887c3d186d4ef9ac85bec5ad9c068d25bf0739928e4",
+        "bytes": 794,
+        "lines": 12,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+            "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+        "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+        "bytes": 1068,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+            "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "5adc1127ccd6ab47e8ea8446419689f3a919379d17da5d807538071f90756d89",
+        "bytes": 863,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [
+      "skills/engineering/research/agents/openai.yaml"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+        "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+        "bytes": 1068,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "brainstorming",
+    "sourceName": "brainstorming",
+    "sourceDescription": "You MUST use this before any creative work - creating features, building components, adding functionality, modifying behavior, or planning anything new, in software or out of it (a talk, a business, a renovation).",
+    "origin": {
+      "repo": "obra/superpowers",
+      "revision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+      "path": "skills/brainstorming",
+      "sourceDigest": "a42acf9825b967e9523a386828c53e40f8708f5f43a6d54e46a6ba2d142a21f6"
+    },
+    "sourceSkill": {
+      "path": "skills/brainstorming/SKILL.md",
+      "gitBlob": "7f5eef02f894c4f24cea313660c0465ce9c084ed",
+      "sha256": "61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a",
+      "bytes": 13602,
+      "lines": 294
+    },
+    "sourceFrontmatter": {
+      "name": "brainstorming",
+      "description": "You MUST use this before any creative work - creating features, building components, adding functionality, modifying behavior, or planning anything new, in software or out of it (a talk, a business, a renovation)."
+    },
+    "installId": "brainstorming",
+    "previousInstallId": "brainstorming-donna",
+    "previousDigest": "394a1e4f92b941cc00db05b0343f8b66a63b483f610f92879a7b562b5b267b3d",
+    "digest": "28bc12a7ea91214ebc46f977d3332051aabbc90906c582a0e5f6e763618324a7",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/brainstorming/SKILL.md",
+        "gitBlob": "7f5eef02f894c4f24cea313660c0465ce9c084ed",
+        "sha256": "61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a",
+        "bytes": 13602,
+        "lines": 294,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "abf0390320aa14406af7a520b9b0739fdda9bf08",
+            "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "abf0390320aa14406af7a520b9b0739fdda9bf08",
+        "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400",
+        "bytes": 1070,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "abf0390320aa14406af7a520b9b0739fdda9bf08",
+            "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "6b5ae4518d30420857752ff2411000113c19ad5ad8bf63fe990f7aff2d588ebd",
+        "bytes": 998,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [
+      "skills/brainstorming/builder-check-prompt.md",
+      "skills/brainstorming/scripts/frame-template.html",
+      "skills/brainstorming/scripts/helper.js",
+      "skills/brainstorming/scripts/server.cjs",
+      "skills/brainstorming/scripts/start-server.sh",
+      "skills/brainstorming/scripts/stop-server.sh",
+      "skills/brainstorming/visual-companion.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "abf0390320aa14406af7a520b9b0739fdda9bf08",
+        "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400",
+        "bytes": 1070,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "copywriting",
+    "sourceName": "copywriting",
+    "sourceDescription": "When the user wants to write, rewrite, or improve marketing copy for any page, including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"hero section copy,\" \"this copy is weak,\" \"this sounds like AI,\" \"AI slop,\" \"make it sound human,\" or \"help me describe my product.\" Drafts never use AI tells like \"it's not X, it's Y\" reveals, \"no X, no Y, no Z\" lists, or sentences that trail into extra comma clauses. For email copy, see emails. For popup copy, see popups. For editing existing copy, see copy-editing. For the offer underneath the copy (bonuses, guarantees, value framing), see offers. Claims must be supportable, and a declined claim names the evidence that would unlock it. Diagnoses the input first (blank brief, real voice, or point edit) and changes only what it calls for.",
+    "origin": {
+      "repo": "coreyhaines31/marketingskills",
+      "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+      "path": "skills/copywriting",
+      "sourceDigest": "b3784366f7e35e9358a2274ffe44905b0fb9bf3148b483f3745f030da7d139b7"
+    },
+    "sourceSkill": {
+      "path": "skills/copywriting/SKILL.md",
+      "gitBlob": "e70bd2e1f4e96cb94ef69b3899150950b0128be5",
+      "sha256": "13c580c2432a4499e9dfdcf5d553df7aa6589e90cf5bd869fb4fbde5caf9f567",
+      "bytes": 15520,
+      "lines": 339
+    },
+    "installId": "copywriting",
+    "digest": "efdb5ea8df9e5281ab81f69fb6a72ec678cd423a1d6b857b2d4f56b3b23e3d49",
+    "availability": "adapted",
+    "reason": "Texto MIT adaptado: auxiliar de licença não comprovada excluído e substituído por guia curto autoral Donna Bot declarado; sem atualizar instalações.",
+    "files": [
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "b0d9c29fa5cac98ca7417a71ee877c0d2bcdaaf56aa43d63fdb2acefca16b03e",
+        "bytes": 2023,
+        "lines": 12,
+        "license": "MIT",
+        "source": null,
+        "gitBlob": null,
+        "modification": "autoria própria Donna Bot D353",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+            "bytes": 1069,
+            "lines": 21
+          }
+        ]
+      },
+      {
+        "destination": "LICENSE",
+        "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "bytes": 1069,
+        "lines": 21,
+        "license": "MIT",
+        "source": "LICENSE",
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+        "sourceSha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+            "bytes": 1069,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE-Profound.txt",
+        "sha256": "f06665f819f38e0d65b9580e5d7e184df4f6b59981417fae3e6b0680b074dda7",
+        "bytes": 1065,
+        "lines": 21,
+        "license": "MIT",
+        "source": "LICENSE",
+        "repo": "retieedra-profound/skills-marketing-library",
+        "revision": "80293f156c27d3f90aedebfb3c27309769b2eec6",
+        "gitBlob": "6d997ff19f340ee635487352e5bc3695a75b2af9",
+        "sourceSha256": "f06665f819f38e0d65b9580e5d7e184df4f6b59981417fae3e6b0680b074dda7",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "6d997ff19f340ee635487352e5bc3695a75b2af9",
+            "sha256": "f06665f819f38e0d65b9580e5d7e184df4f6b59981417fae3e6b0680b074dda7",
+            "bytes": 1065,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "SKILL.md",
+        "sha256": "bd7ccbb841f798d1a41dcc7332b38ccb7f0465bdced725e74166573dd86f288f",
+        "bytes": 16186,
+        "lines": 350,
+        "license": "MIT",
+        "source": "skills/copywriting/SKILL.md",
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "gitBlob": "e70bd2e1f4e96cb94ef69b3899150950b0128be5",
+        "sourceSha256": "13c580c2432a4499e9dfdcf5d553df7aa6589e90cf5bd869fb4fbde5caf9f567",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+            "bytes": 1069,
+            "lines": 21
+          }
+        ],
+        "modification": "adaptação textual declarada em ADAPTATION.md"
+      },
+      {
+        "destination": "references/ai-tells.md",
+        "sha256": "b98c3a19b3a75c714d69e80a0076e4c07244b0e833c2ce81ff2631224fb7f7b2",
+        "bytes": 20804,
+        "lines": 309,
+        "license": "MIT",
+        "source": "skills/copywriting/references/ai-tells.md",
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "gitBlob": "0a93ab3b88fc2c683ff6280db187644a7aa04612",
+        "sourceSha256": "b98c3a19b3a75c714d69e80a0076e4c07244b0e833c2ce81ff2631224fb7f7b2",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+            "bytes": 1069,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/copy-frameworks.md",
+        "sha256": "352122944bf9e891ceb0e003adce41591d111e9d97057700626249919dfe430d",
+        "bytes": 14352,
+        "lines": 432,
+        "license": "MIT",
+        "source": "skills/copywriting/references/copy-frameworks.md",
+        "repo": "coreyhaines31/marketingskills",
+        "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+        "gitBlob": "194aefed131c4e2e508b76ae9fdfc9cdcd37a6ba",
+        "sourceSha256": "352122944bf9e891ceb0e003adce41591d111e9d97057700626249919dfe430d",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+            "bytes": 1069,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/donna-transitions.md",
+        "source": null,
+        "gitBlob": null,
+        "sha256": "078a754b67ffc51696812b9a75933626b58d91d251a389e53910c6e59ab97d5c",
+        "bytes": 1233,
+        "lines": 21,
+        "license": "MIT",
+        "copyright": "Donna Bot — autoria própria D353 (2026)",
+        "modification": "autoria própria Donna Bot D353",
+        "licenseEvidence": [
+          {
+            "path": "ADAPTATION.md",
+            "kind": "autoria própria sob MIT com o pacote adaptado; não é licença/autoria upstream"
+          }
+        ]
+      }
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+        "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "bytes": 1069,
+        "lines": 21
+      }
+    ],
+    "sourceDigestMethod": "preservado da auditoria original",
+    "sourceDigestFiles": {
+      "skills/copywriting/SKILL.md": "13c580c2432a4499e9dfdcf5d553df7aa6589e90cf5bd869fb4fbde5caf9f567",
+      "skills/copywriting/references/ai-tells.md": "b98c3a19b3a75c714d69e80a0076e4c07244b0e833c2ce81ff2631224fb7f7b2",
+      "skills/copywriting/references/copy-frameworks.md": "352122944bf9e891ceb0e003adce41591d111e9d97057700626249919dfe430d",
+      "LICENSE": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+    },
+    "sourceFrontmatter": {
+      "name": "copywriting",
+      "description": "When the user wants to write, rewrite, or improve marketing copy for any page, including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"hero section copy,\" \"this copy is weak,\" \"this sounds like AI,\" \"AI slop,\" \"make it sound human,\" or \"help me describe my product.\" Drafts never use AI tells like \"it's not X, it's Y\" reveals, \"no X, no Y, no Z\" lists, or sentences that trail into extra comma clauses. For email copy, see emails. For popup copy, see popups. For editing existing copy, see copy-editing. For the offer underneath the copy (bonuses, guarantees, value framing), see offers. Claims must be supportable, and a declined claim names the evidence that would unlock it. Diagnoses the input first (blank brief, real voice, or point edit) and changes only what it calls for.",
+      "metadata": {
+        "version": "2.3.1"
+      }
+    },
+    "previousInstallId": "copywriting-donna",
+    "previousDigest": "9609f19aa0dd7ca2eb1402ba0fd3ba7826d0967df04ae15078ed3134ed6e7f4b",
+    "excluded": [
+      "skills/copywriting/references/natural-transitions.md",
+      "skills/copywriting/evals/evals.json"
+    ],
+    "authoredFiles": [
+      "ADAPTATION.md",
+      "references/donna-transitions.md"
+    ],
+    "sourceDigestExcludesAuthoredFiles": true
+  },
+  {
+    "id": "content-strategy",
+    "sourceName": "content-strategy",
+    "sourceDescription": "When the user wants to plan a content strategy, decide what content to create, or figure out what topics to cover. Also use when the user mentions \"content strategy,\" \"what should I write about,\" \"content ideas,\" \"blog strategy,\" \"topic clusters,\" \"content planning,\" \"editorial calendar,\" \"content marketing,\" \"content roadmap,\" \"what content should I create,\" \"blog topics,\" \"content pillars,\" or \"I don't know what to write.\" Use this whenever someone needs help deciding what content to produce, not just writing it. For writing individual pieces, see copywriting. For SEO-specific audits, see seo-audit. For social media content specifically, see social.",
+    "origin": {
+      "repo": "coreyhaines31/marketingskills",
+      "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+      "path": "skills/content-strategy",
+      "sourceDigest": "794eecca3e2ec1fd6c65e5d9c202b252ec621ad405bf67e58da0a9bba8a92ea7"
+    },
+    "sourceSkill": {
+      "path": "skills/content-strategy/SKILL.md",
+      "gitBlob": "772846f604505ccd8ad571cded9aa4391cdada65",
+      "sha256": "5097ae8c11c27e2846be307b30f09ac17333fd1ffab1bae19728c81444767001",
+      "bytes": 19387,
+      "lines": 444
+    },
+    "sourceFrontmatter": {
+      "name": "content-strategy",
+      "description": "When the user wants to plan a content strategy, decide what content to create, or figure out what topics to cover. Also use when the user mentions \"content strategy,\" \"what should I write about,\" \"content ideas,\" \"blog strategy,\" \"topic clusters,\" \"content planning,\" \"editorial calendar,\" \"content marketing,\" \"content roadmap,\" \"what content should I create,\" \"blog topics,\" \"content pillars,\" or \"I don't know what to write.\" Use this whenever someone needs help deciding what content to produce, not just writing it. For writing individual pieces, see copywriting. For SEO-specific audits, see seo-audit. For social media content specifically, see social.",
+      "metadata": {
+        "version": "2.1.4"
+      }
+    },
+    "installId": "content-strategy",
+    "previousInstallId": "content-strategy",
+    "previousDigest": "0e6ffe48742da74725088f4cde63254f50b2856c221317ba78abc029e55f0e2c",
+    "digest": "7b30c1fd5ad08ce4dde213d1d235a5bde0f9ec79087a2ed5351c473ed3469f10",
+    "availability": "text",
+    "reason": "Pacote textual original preservado no pin indicado; nome e descrição originais. Reparação de metadados do catálogo, sem atualizar instalações.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/content-strategy/SKILL.md",
+        "gitBlob": "772846f604505ccd8ad571cded9aa4391cdada65",
+        "sha256": "5097ae8c11c27e2846be307b30f09ac17333fd1ffab1bae19728c81444767001",
+        "bytes": 19387,
+        "lines": 444,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "evals/evals.json",
+        "source": "skills/content-strategy/evals/evals.json",
+        "gitBlob": "23310228166d5b0bf579299c40e9a5e4b33d5779",
+        "sha256": "10167e7125ee77cbabe4f03953750dd99ea147f7461027fdbb0cf8e089e5506d",
+        "bytes": 10190,
+        "lines": 116,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/content-distribution.md",
+        "source": "skills/content-strategy/references/content-distribution.md",
+        "gitBlob": "6f4a3c38a15e9949727ebcf621f0054710a02a83",
+        "sha256": "1861a1aab0627ab29c279000879a9889242da1ba85e677acdc759c66a6241778",
+        "bytes": 5576,
+        "lines": 83,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/headless-cms.md",
+        "source": "skills/content-strategy/references/headless-cms.md",
+        "gitBlob": "fa01433bf3b29a33fef40c3a580a6087495d3fcc",
+        "sha256": "efc796ae9596d1efcb876683db2d9b7c10c83e76e1cb69e527097907d5b4fc3f",
+        "bytes": 8583,
+        "lines": 194,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+        "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "bytes": 1069,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      }
+    ],
+    "excluded": [],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+        "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "bytes": 1069,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "marketing-psychology",
+    "sourceName": "marketing-psychology",
+    "sourceDescription": "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or leverage how people think and make decisions in a marketing context. For applying psychology to specific pages, see cro; for pricing tactics, see pricing; for copy framing, see copywriting.",
+    "origin": {
+      "repo": "coreyhaines31/marketingskills",
+      "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+      "path": "skills/marketing-psychology",
+      "sourceDigest": "a44ad415576a1847384447ceda163894625b17f738b448ed654c8ec5ac950fea"
+    },
+    "sourceSkill": {
+      "path": "skills/marketing-psychology/SKILL.md",
+      "gitBlob": "806c09fba8228e53b9d2443cea7e2bbb104e6ee9",
+      "sha256": "573bbe4f6e300e7fb75299e314f56e26382d284782caa2ae0e0f33eb2e646548",
+      "bytes": 21884,
+      "lines": 455
+    },
+    "sourceFrontmatter": {
+      "name": "marketing-psychology",
+      "description": "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or leverage how people think and make decisions in a marketing context. For applying psychology to specific pages, see cro; for pricing tactics, see pricing; for copy framing, see copywriting.",
+      "metadata": {
+        "version": "2.0.0"
+      }
+    },
+    "installId": "marketing-psychology",
+    "previousInstallId": "marketing-psychology",
+    "previousDigest": "a4533adc3b97cf70f02e207a8dd69eecc942b75370f37f6b21a633e83869bdf6",
+    "digest": "ef883ece671c8e599d40f087806c6e966778347a3e2dc88a1adf899c4039203c",
+    "availability": "text",
+    "reason": "Pacote textual original preservado no pin indicado; nome e descrição originais. Reparação de metadados do catálogo, sem atualizar instalações.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/marketing-psychology/SKILL.md",
+        "gitBlob": "806c09fba8228e53b9d2443cea7e2bbb104e6ee9",
+        "sha256": "573bbe4f6e300e7fb75299e314f56e26382d284782caa2ae0e0f33eb2e646548",
+        "bytes": 21884,
+        "lines": 455,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "evals/evals.json",
+        "source": "skills/marketing-psychology/evals/evals.json",
+        "gitBlob": "09bda2f99b77dc9953e61b9b2368392334b5e7e2",
+        "sha256": "c3b7d15b3008eeb493796e21affd6a0c6e7ce312f9cfeffcdef467857903c733",
+        "bytes": 6036,
+        "lines": 88,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+        "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "bytes": 1069,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+            "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      }
+    ],
+    "excluded": [],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "7c48dd638a9ebed49a8ef0c0c4eea90105381cdf",
+        "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+        "bytes": 1069,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "orca-reference",
+    "sourceName": "orchestration",
+    "sourceDescription": "Coordinate supervised Orca workers: threaded messages, blocking ask/reply, task dispatch, worker_done/escalation waits, task DAGs, decision gates, coordinator loops, and decomposing work across agents. Use `orca-cli` for full ownership handoffs — \"hand off\", \"handoff\", \"handover\", \"give this to another agent\", \"another worktree\" — unless asked to supervise, monitor, or coordinate a DAG, and for terminal control, lightweight terminal prompts, shell commands, Orca worktree management, and reading or waiting on terminals.",
+    "origin": {
+      "repo": "stablyai/orca",
+      "revision": "c90d0f93c0f2f2c3ec243046c36059a1f4ec5cd2",
+      "path": "skills/orchestration",
+      "sourceDigest": "347ca514f39e2c077784abd2912df0ce383ce292def409c7c1f0e3df3e90bd4d"
+    },
+    "sourceSkill": {
+      "path": "skills/orchestration/SKILL.md",
+      "gitBlob": "4ecd42624d4d68a48a9687d14b8709a33d877abc",
+      "sha256": "cd1b364bf35781bad06bf75ab1766afa8d6cec69cb2060529691d89871a2098a",
+      "bytes": 3671,
+      "lines": 66
+    },
+    "sourceFrontmatter": {
+      "name": "orchestration",
+      "description": "Coordinate supervised Orca workers: threaded messages, blocking ask/reply, task dispatch, worker_done/escalation waits, task DAGs, decision gates, coordinator loops, and decomposing work across agents. Use `orca-cli` for full ownership handoffs — \"hand off\", \"handoff\", \"handover\", \"give this to another agent\", \"another worktree\" — unless asked to supervise, monitor, or coordinate a DAG, and for terminal control, lightweight terminal prompts, shell commands, Orca worktree management, and reading or waiting on terminals."
+    },
+    "installId": "orchestration",
+    "previousInstallId": "orca-reference-donna",
+    "previousDigest": "4faa362713062d6a2adb49702c62b93154a5889afe12321eade96ae24aa53330",
+    "digest": "24e87a5a197d5fc1feadc14620d7aac1b9fea1f081f28ce4c789a8ef358b17c6",
+    "availability": "dependencyUnavailable",
+    "reason": "Referência de ideias para Donna. Não é habilidade instalável: o stub upstream depende de Orca; esta rodada não adota esse runtime nem implementa nova orquestração nativa.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Preservar bloqueio existente; condições originais de licença/requisitos ainda não verificadas.",
+    "files": [],
+    "excluded": [
+      "skills/orchestration/SKILL.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "fbf46fc17dacb1f65e03e2b6290eb53ba94b149d",
+        "sha256": "ff1b611f80580d49f4b97e93a97b24eb050b0671b26b8afe16341fab699112f3",
+        "bytes": 1070,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "browser-use",
+    "sourceName": "browser-use",
+    "sourceDescription": "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client.",
+    "origin": {
+      "repo": "browser-use/browser-use",
+      "revision": "3df5806a0d097a1546d92c49bcf1b28c9972c3bd",
+      "path": "skills/browser-use",
+      "sourceDigest": "30d5684d420b2164bb478577f3ba02d1094449c5740118b391813379d2dbb50e"
+    },
+    "sourceSkill": {
+      "path": "skills/browser-use/SKILL.md",
+      "gitBlob": "83e4d3e79821e15ed12c369208ab42253b0ba0dc",
+      "sha256": "5651d390c3acfe518960a8b506a7c0d0b40d6b9e79911001ff479c501d877a10",
+      "bytes": 14721,
+      "lines": 294
+    },
+    "sourceFrontmatter": {
+      "name": "browser-use",
+      "description": "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client.",
+      "homepage": "https://browser-use.com",
+      "metadata": {
+        "openclaw": {
+          "requires": {
+            "bins": [
+              "browser-use"
+            ]
+          },
+          "install": [
+            {
+              "id": "uv",
+              "kind": "uv",
+              "package": "browser-use",
+              "bins": [
+                "browser-use"
+              ],
+              "label": "Install Browser Use CLI (uv)"
+            }
+          ]
+        }
+      }
+    },
+    "installId": "browser-use",
+    "previousInstallId": "browser-use-donna",
+    "previousDigest": "cf4881a869e2b0ba69b77e45450bc7b59683c1a982dde9bea8f58e2d71fdc3b7",
+    "digest": "5e4880f5ff7d958a7a607cf586c66a711deb4e37415aecd9e0171c4ccce20994",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: homepage. O arquivo não foi reescrito para passar a validação. metadata original contém valores estruturados; o importador atual exige mapa de textos. Nenhum instalador YAML será interpretado.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/browser-use/SKILL.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "1ea3836ce58a4cd32c90c0b4f4e736d840d23780",
+        "sha256": "135c57671b0ee957669b05a0ca00cc06f645496d351e2e732832c6e276da9a5e",
+        "bytes": 1069,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "hyperframes",
+    "sourceName": "hyperframes",
+    "sourceDescription": "Read first to make, edit, animate or render any video with HyperFrames (HTML rendered to video), including launch films, explainers, music videos, charts, maps, vertical clips, title cards, captions and overlays. Holds the render contract, the work loop and what each kind of video needs.",
+    "origin": {
+      "repo": "heygen-com/hyperframes",
+      "revision": "9aadc0b9b99d92afd25215228878cee23ea47a0f",
+      "path": "skills/hyperframes",
+      "sourceDigest": "e0851598b925c9ee422ebc2d82d5b7f118b59820ac620179930583e95454a0eb"
+    },
+    "sourceSkill": {
+      "path": "skills/hyperframes/SKILL.md",
+      "gitBlob": "e0a01d0f3ae13e1c4b4501a1ed465a12659037b1",
+      "sha256": "180ce4eea5f33f1617105c92e2690a5a2320abf624c263186ec0cb1a78a919ef",
+      "bytes": 7167,
+      "lines": 74
+    },
+    "sourceFrontmatter": {
+      "name": "hyperframes",
+      "description": "Read first to make, edit, animate or render any video with HyperFrames (HTML rendered to video), including launch films, explainers, music videos, charts, maps, vertical clips, title cards, captions and overlays. Holds the render contract, the work loop and what each kind of video needs."
+    },
+    "installId": "hyperframes",
+    "previousInstallId": "hyperframes-receita-donna",
+    "previousDigest": "425f4e9bc103044a6276c172cd215c0ff314accadb635d750a6c341833094948",
+    "digest": "43c571fb03ae354af59f1d553fa8e11c236061ce1ac2051ba6facbc88742f6ac",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/hyperframes/SKILL.md",
+        "gitBlob": "e0a01d0f3ae13e1c4b4501a1ed465a12659037b1",
+        "sha256": "180ce4eea5f33f1617105c92e2690a5a2320abf624c263186ec0cb1a78a919ef",
+        "bytes": 7167,
+        "lines": 74,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/captions.md",
+        "source": "skills/hyperframes/references/captions.md",
+        "gitBlob": "db13fc7e3ed25af4324ec7408aafb98c2f2d8f8f",
+        "sha256": "e7e2af7eace992487baa455bfa703fb3d770fb29f36732541554e60a46896d54",
+        "bytes": 4985,
+        "lines": 46,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/film.md",
+        "source": "skills/hyperframes/references/film.md",
+        "gitBlob": "879bc96487b30bad0f0d979c8c81fb84f696cdb5",
+        "sha256": "58e12bde32c864fe36886be1e0225d832bb0ee3cdec005b266685bdb871c46fd",
+        "bytes": 7026,
+        "lines": 47,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/format.md",
+        "source": "skills/hyperframes/references/format.md",
+        "gitBlob": "5f5bdb31f24c0d50b106f2aa08a38cdd4587b1ac",
+        "sha256": "6418c8f1fe24943be2eb913421a6355d5d4bee60fe8eea4ced9b78ccdf88a4bb",
+        "bytes": 12884,
+        "lines": 158,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/look.md",
+        "source": "skills/hyperframes/references/look.md",
+        "gitBlob": "b20dc1480e3e1c22e05d8237ea12ca67409178ca",
+        "sha256": "5128a54cdb75bca2f627170e4a3a9667f4f11cf1579301fc16c53862c29c3ad3",
+        "bytes": 6031,
+        "lines": 69,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/motion.md",
+        "source": "skills/hyperframes/references/motion.md",
+        "gitBlob": "a9f9e3c7a34bdb914b078dd64dbc113e0ae79c41",
+        "sha256": "80b9bd70c011b7fc679f351cb41b993b16d610af1cda316eaf9d19bf9c08372f",
+        "bytes": 12162,
+        "lines": 95,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/overlays.md",
+        "source": "skills/hyperframes/references/overlays.md",
+        "gitBlob": "2f5f83a74157ffca2555318bdab6faa5880396c1",
+        "sha256": "d87fa3d13e8e0dace593f4aafb68c085b7f4393eee468c7695a74d5665150da3",
+        "bytes": 2592,
+        "lines": 39,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/plugin-installation.md",
+        "source": "skills/hyperframes/references/plugin-installation.md",
+        "gitBlob": "ad7809bb114f949148d1127f45ecaedde41126f9",
+        "sha256": "d3268edd1bbf2bc4e077108462aacff8c04bd2660472dd6ca9fd1bb32839b661",
+        "bytes": 2706,
+        "lines": 43,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/review.md",
+        "source": "skills/hyperframes/references/review.md",
+        "gitBlob": "9dcef20320703ca2d65877949e3ae6d23552e719",
+        "sha256": "90886b58db02aaa53e6b91c433748629eda061b18465804b56ebbbab92508e56",
+        "bytes": 5327,
+        "lines": 51,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/runtimes.md",
+        "source": "skills/hyperframes/references/runtimes.md",
+        "gitBlob": "dbe2755ce4065a2ea6bf3a597330e36a4a8e8591",
+        "sha256": "584e5312a6cdcba93bc9cf92261b4bfaf0ad4ef3dff9ce9e4ce7080d07913b03",
+        "bytes": 3035,
+        "lines": 43,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/skill-lifecycle.md",
+        "source": "skills/hyperframes/references/skill-lifecycle.md",
+        "gitBlob": "2f397f01147a8f952902890c33426ad818a4d5ff",
+        "sha256": "3039b344a4bc63118ff7680a1008bcc7bfc0637563e6ac69f59cc5e06a31874a",
+        "bytes": 4191,
+        "lines": 49,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/sound.md",
+        "source": "skills/hyperframes/references/sound.md",
+        "gitBlob": "8c252cabc4a8635fa1c73c26f7dd544eebdc9139",
+        "sha256": "be9e39ef947678b3ffed452063ce414af4a7d7c534b1e6c440bb5ce474d28ab4",
+        "bytes": 3599,
+        "lines": 43,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/spec.md",
+        "source": "skills/hyperframes/references/spec.md",
+        "gitBlob": "ac756a0fab94c2d02acfba9b2bbff55ac058868c",
+        "sha256": "6fa0658c5cf5c23058f70a6549cc952d683979052a0934760ba748bbec88fbc0",
+        "bytes": 6055,
+        "lines": 76,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/story.md",
+        "source": "skills/hyperframes/references/story.md",
+        "gitBlob": "528ca1d43151b2f41ae2e5e73215dc9dca6ccc48",
+        "sha256": "3c2b96bb7f262652f4bf5efdef1ae806b47fd259c6704cb131938c5254965f22",
+        "bytes": 11486,
+        "lines": 103,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/storyboard-format.md",
+        "source": "skills/hyperframes/references/storyboard-format.md",
+        "gitBlob": "9653cd08240b90109a908bc9bdb240d69749953f",
+        "sha256": "f79e3be44cf2e506cdd2d1c46926319a0067f11889fe8aaf3a55759a9c61fb86",
+        "bytes": 6696,
+        "lines": 107,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/storyboard.md",
+        "source": "skills/hyperframes/references/storyboard.md",
+        "gitBlob": "6d35319b2de5647c6335bb418442eeccde066857",
+        "sha256": "f757c6d2b26e1a3587a63a4a8f9aafab86d9507ed31579f4dda4279397742fe3",
+        "bytes": 4067,
+        "lines": 36,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/3d.md",
+        "source": "skills/hyperframes/references/types/3d.md",
+        "gitBlob": "a0a2965e48cdc8965d23679474a54d01e25b482e",
+        "sha256": "1a8c965d36bac37c5625cd404b37c3d3913632cb858881d89741afacc560ea12",
+        "bytes": 1673,
+        "lines": 25,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/character.md",
+        "source": "skills/hyperframes/references/types/character.md",
+        "gitBlob": "d2aea1fe9d7e68ffbdc98cb9a1dad03b414097b8",
+        "sha256": "e8b4f6fd622acff593e2d7e478aa4e18ace1f9f785d16e42db5faf57ed525498",
+        "bytes": 1635,
+        "lines": 20,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/data.md",
+        "source": "skills/hyperframes/references/types/data.md",
+        "gitBlob": "3b6c6ede3071e0ce588d205172d0667e528439d3",
+        "sha256": "c5fda22433aca573b871eeff956cd57e3773d6b16ffd9b3cc5726937912c1b7a",
+        "bytes": 1322,
+        "lines": 19,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/explainer.md",
+        "source": "skills/hyperframes/references/types/explainer.md",
+        "gitBlob": "049e4f75f91456e7afc265709f34b4d7e98316fd",
+        "sha256": "ef2bd945bd347e760fd483515189c58e8000bd2cbc5f4b1c2d3e5d34e4d81f4e",
+        "bytes": 3045,
+        "lines": 34,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/launch.md",
+        "source": "skills/hyperframes/references/types/launch.md",
+        "gitBlob": "10d5b4ff4b0241607680b3a8dcf998f072fbcb28",
+        "sha256": "405984871b15c2acc8535bc1c95a2205a9c89f97f0d5313cda8c4fb23c6d7900",
+        "bytes": 2902,
+        "lines": 31,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/music.md",
+        "source": "skills/hyperframes/references/types/music.md",
+        "gitBlob": "c602f0c903b6ab9f429ef105f905657fca7035ff",
+        "sha256": "868df2814d2a8e8f2bc884372d674320aee43c995fc67d25a109ebfdecb58b4a",
+        "bytes": 1606,
+        "lines": 24,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/types/vertical.md",
+        "source": "skills/hyperframes/references/types/vertical.md",
+        "gitBlob": "e482c2c78a3617fce5b4e039d829d3b0a05f89eb",
+        "sha256": "fed9f5a1a3ceb204bb54e0dda0fd50befe611d0ab388a5036fc80cbc117a691b",
+        "bytes": 1646,
+        "lines": 23,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+        "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8",
+        "bytes": 10763,
+        "lines": 190,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "CREDITS.md",
+        "source": "CREDITS.md",
+        "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+        "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e",
+        "bytes": 4351,
+        "lines": 66,
+        "license": "Apache-2.0",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+            "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
+          },
+          {
+            "path": "CREDITS.md",
+            "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+            "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "6ff18141b5428369f2c756fc543b41b28a300720560fc5b213e5cbc5670a26cf",
+        "bytes": 3516,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [
+      "skills/hyperframes/assets/frame-presets/biennale-yellow/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/biennale-yellow/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/biennale-yellow/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/blockframe/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/blockframe/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/blockframe/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/blue-professional/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/blue-professional/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/blue-professional/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/bold-poster/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/bold-poster/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/bold-poster/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/broadside/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/broadside/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/broadside/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/capsule/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/capsule/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/capsule/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/cartesian/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/cartesian/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/cartesian/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/cobalt-grid/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/cobalt-grid/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/cobalt-grid/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/code-editorial/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/code-editorial/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/EBGaramond-400.woff2",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/EBGaramond-700.woff2",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/Inter-400.woff2",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/Inter-700.woff2",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/JetBrainsMono-400.woff2",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/JetBrainsMono-700.woff2",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/OFL-eb-garamond.txt",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/OFL-inter.txt",
+      "skills/hyperframes/assets/frame-presets/code-editorial/fonts/OFL-jetbrains-mono.txt",
+      "skills/hyperframes/assets/frame-presets/code-editorial/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/coral/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/coral/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/coral/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/creative-mode/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/creative-mode/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/creative-mode/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/daisy-days/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/daisy-days/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/daisy-days/frame-showcase.html",
+      "skills/hyperframes/assets/frame-presets/editorial-forest/FRAME.md",
+      "skills/hyperframes/assets/frame-presets/editorial-forest/caption-skin.html",
+      "skills/hyperframes/assets/frame-presets/editorial-forest/frame-showcase.html",
+      "skills/hyperframes/scripts/bake-basemap.mjs",
+      "skills/hyperframes/scripts/lib/main-module.mjs",
+      "skills/hyperframes/scripts/lib/main-module.test.mjs",
+      "skills/hyperframes/scripts/locate.mjs",
+      "skills/hyperframes/scripts/plugin-cli.mjs",
+      "skills/hyperframes/scripts/plugin-cli.test.mjs"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "ae06b37e1c5116ccfaa615ac25ec1aabf5658d8c",
+        "sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8",
+        "bytes": 10763,
+        "lines": 190
+      },
+      {
+        "path": "CREDITS.md",
+        "gitBlob": "4d3c74e55aab50db0f813e41fd803e8c109fa287",
+        "sha256": "a484f3ddebdb8cdde6b3fb4e597e57d953fd5b83bf872701ad9d7c0c5761a39e",
+        "bytes": 4351,
+        "lines": 66
+      }
+    ]
+  },
+  {
+    "id": "firecrawl-build-scrape",
+    "sourceName": "firecrawl-build-scrape",
+    "sourceDescription": "Integrate Firecrawl `/scrape` into product code for single-page extraction. Use when an app already has a URL and needs markdown, HTML, links, screenshots, metadata, or structured page output. Prefer this skill over broader crawl patterns when the feature is page-level.",
+    "origin": {
+      "repo": "firecrawl/skills",
+      "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+      "path": "skills/build/firecrawl-build-scrape",
+      "sourceDigest": "bb27251d7a415c6866f786df7b7acf18d83fdf3afa01cb7ed9c47340d123dc64"
+    },
+    "sourceSkill": {
+      "path": "skills/build/firecrawl-build-scrape/SKILL.md",
+      "gitBlob": "deb25772c77237c7d43baf601e83422f4ad4678d",
+      "sha256": "d8cf8df8221b8d8216346ea4b70ea714f89bc62c4686ab406b115c34227386d1",
+      "bytes": 3776,
+      "lines": 77
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl-build-scrape",
+      "description": "Integrate Firecrawl `/scrape` into product code for single-page extraction. Use when an app already has a URL and needs markdown, HTML, links, screenshots, metadata, or structured page output. Prefer this skill over broader crawl patterns when the feature is page-level.",
+      "license": "ISC",
+      "metadata": {
+        "author": "firecrawl",
+        "version": "0.1.0",
+        "homepage": "https://www.firecrawl.dev",
+        "source": "https://github.com/firecrawl/skills"
+      },
+      "inputs": [
+        {
+          "name": "FIRECRAWL_API_KEY",
+          "description": "Firecrawl API key for hosted Firecrawl requests.",
+          "required": true
+        },
+        {
+          "name": "FIRECRAWL_API_URL",
+          "description": "Optional base URL for self-hosted Firecrawl deployments.",
+          "required": false
+        }
+      ],
+      "references": [
+        "references/freshness-and-liveness.md"
+      ]
+    },
+    "installId": "firecrawl-build-scrape",
+    "previousInstallId": "firecrawl-build-scrape-donna",
+    "previousDigest": "b2d3744760b994a4a18cedaed16f95e05c61a7bcbc228a971d66fa17eefdf656",
+    "digest": "f6a510e92322345fb49357334716f6fbcacabe7d7c3bc6a9c24e189021b9bae8",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs, references. O arquivo não foi reescrito para passar a validação.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/build/firecrawl-build-scrape/SKILL.md",
+      "skills/build/firecrawl-build-scrape/references/freshness-and-liveness.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "49f8600931998aa1a104ee3ecdf4724066573f65",
+        "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+        "bytes": 735,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "firecrawl-build-search",
+    "sourceName": "firecrawl-build-search",
+    "sourceDescription": "Integrate Firecrawl `/search` into product code and agent workflows. Use when an app needs discovery before extraction, when the feature starts with a query instead of a URL, or when the system should search the web and optionally hydrate result content.",
+    "origin": {
+      "repo": "firecrawl/skills",
+      "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+      "path": "skills/build/firecrawl-build-search",
+      "sourceDigest": "b887479dfe3d49c68c83323d2c6fc4a51ca6f216bc2dcff3549c6d251da79093"
+    },
+    "sourceSkill": {
+      "path": "skills/build/firecrawl-build-search/SKILL.md",
+      "gitBlob": "5595695e47cd703e429a899523650c6abd743178",
+      "sha256": "3a59f9b9686b786e080a7a8aee5092e0587f2180cea3618f1435343969987dff",
+      "bytes": 4295,
+      "lines": 76
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl-build-search",
+      "description": "Integrate Firecrawl `/search` into product code and agent workflows. Use when an app needs discovery before extraction, when the feature starts with a query instead of a URL, or when the system should search the web and optionally hydrate result content.",
+      "license": "ISC",
+      "metadata": {
+        "author": "firecrawl",
+        "version": "0.1.0",
+        "homepage": "https://www.firecrawl.dev",
+        "source": "https://github.com/firecrawl/skills"
+      },
+      "inputs": [
+        {
+          "name": "FIRECRAWL_API_KEY",
+          "description": "Firecrawl API key for hosted Firecrawl requests.",
+          "required": true
+        },
+        {
+          "name": "FIRECRAWL_API_URL",
+          "description": "Optional base URL for self-hosted Firecrawl deployments.",
+          "required": false
+        }
+      ]
+    },
+    "installId": "firecrawl-build-search",
+    "previousInstallId": "firecrawl-build-search-donna",
+    "previousDigest": "b1a1e143c06d88e8218140dff38a4b1330df34036455b09920bb5df8e1a760cc",
+    "digest": "1493fb1c6c41187e632b8387ad1e8f1880db18b542250baf73ca23d91decbb00",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs. O arquivo não foi reescrito para passar a validação.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/build/firecrawl-build-search/SKILL.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "49f8600931998aa1a104ee3ecdf4724066573f65",
+        "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+        "bytes": 735,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "firecrawl-build-interact",
+    "sourceName": "firecrawl-build-interact",
+    "sourceDescription": "Integrate Firecrawl `/interact` into product code for dynamic pages and browser actions after scraping. Use when a feature needs clicks, form fills, pagination, authentication-aware flows, or other multi-step interactions that plain `/scrape` cannot complete.",
+    "origin": {
+      "repo": "firecrawl/skills",
+      "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+      "path": "skills/build/firecrawl-build-interact",
+      "sourceDigest": "b00100e9326f16e7ab0e1aa5aa6a97f7dfd3b7b97247fe351e1ee5eb3dbebc82"
+    },
+    "sourceSkill": {
+      "path": "skills/build/firecrawl-build-interact/SKILL.md",
+      "gitBlob": "66bcf97b6a36ce1b85f3d0c25716e0c349a5e422",
+      "sha256": "cb28225617a633afef90b03a928c4d22b64dd1672b5c41f98792577df1c2bf84",
+      "bytes": 2924,
+      "lines": 67
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl-build-interact",
+      "description": "Integrate Firecrawl `/interact` into product code for dynamic pages and browser actions after scraping. Use when a feature needs clicks, form fills, pagination, authentication-aware flows, or other multi-step interactions that plain `/scrape` cannot complete.",
+      "license": "ISC",
+      "metadata": {
+        "author": "firecrawl",
+        "version": "0.1.0",
+        "homepage": "https://www.firecrawl.dev",
+        "source": "https://github.com/firecrawl/skills"
+      },
+      "inputs": [
+        {
+          "name": "FIRECRAWL_API_KEY",
+          "description": "Firecrawl API key for hosted Firecrawl requests.",
+          "required": true
+        },
+        {
+          "name": "FIRECRAWL_API_URL",
+          "description": "Optional base URL for self-hosted Firecrawl deployments.",
+          "required": false
+        }
+      ]
+    },
+    "installId": "firecrawl-build-interact",
+    "previousInstallId": "firecrawl-build-interact-donna",
+    "previousDigest": "64a025769d055573452773fd647b93967d86ba50d03291e62a44517268ff7898",
+    "digest": "3332c8da823a470aa3249d9e15d79844a41acc78ef2ffbf789c68a2e65504e90",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs. O arquivo não foi reescrito para passar a validação.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/build/firecrawl-build-interact/SKILL.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "49f8600931998aa1a104ee3ecdf4724066573f65",
+        "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+        "bytes": 735,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "firecrawl-deep-research",
+    "sourceName": "firecrawl-deep-research",
+    "sourceDescription": "Produce an intensive, cited analytical report: executive summary, multi-angle\nfindings, contrarian views, open questions, and full sources. Use only when the\nuser needs rigorous synthesis of a complex topic (scientific, technical, policy,\nor market-analytical) that cannot be answered with a short search, and wants\na formal written report, not a recommendation list.\n\nDo not use for product picks, top-N lists, quick lookups, or routine \"find out\nabout X\" tasks. If the request does not clearly need this kind of report, do\nnot use this skill.\n\nDo not use for a literature review over published papers. This skill collects\nevidence from the open web. A request for the literature on a biomedical,\nclinical, life-science, or other scientific topic — papers, studies, trials,\npreprints — belongs to firecrawl-research-papers, which queries Firecrawl's\npaper index (PubMed, bioRxiv, medRxiv, arXiv) instead of searching websites.\n",
+    "origin": {
+      "repo": "firecrawl/firecrawl-workflows",
+      "revision": "d2a986240f9d786ae54fc33fcfd9ad37308e9cc3",
+      "path": "skills/firecrawl-deep-research",
+      "sourceDigest": "3689d22a3ccf5c7792c32f98a81536aac17187ffa54e6a400a836b6fcccf8b24"
+    },
+    "sourceSkill": {
+      "path": "skills/firecrawl-deep-research/SKILL.md",
+      "gitBlob": "76c907214156746fda6c88415a6a68d35a32079c",
+      "sha256": "dfd224ee3eed753bde0f4eb1e4854e4f430a3c17a6c1b4a81664986eabe2dcb3",
+      "bytes": 5595,
+      "lines": 144
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl-deep-research",
+      "description": "Produce an intensive, cited analytical report: executive summary, multi-angle\nfindings, contrarian views, open questions, and full sources. Use only when the\nuser needs rigorous synthesis of a complex topic (scientific, technical, policy,\nor market-analytical) that cannot be answered with a short search, and wants\na formal written report, not a recommendation list.\n\nDo not use for product picks, top-N lists, quick lookups, or routine \"find out\nabout X\" tasks. If the request does not clearly need this kind of report, do\nnot use this skill.\n\nDo not use for a literature review over published papers. This skill collects\nevidence from the open web. A request for the literature on a biomedical,\nclinical, life-science, or other scientific topic — papers, studies, trials,\npreprints — belongs to firecrawl-research-papers, which queries Firecrawl's\npaper index (PubMed, bioRxiv, medRxiv, arXiv) instead of searching websites.\n",
+      "license": "ISC",
+      "metadata": {
+        "author": "firecrawl",
+        "version": "0.1.0",
+        "homepage": "https://www.firecrawl.dev",
+        "source": "https://github.com/firecrawl/firecrawl-workflows"
+      },
+      "inputs": [
+        {
+          "name": "FIRECRAWL_API_KEY",
+          "description": "Firecrawl API key for hosted Firecrawl requests.",
+          "required": true
+        }
+      ]
+    },
+    "installId": "firecrawl-deep-research",
+    "previousInstallId": "firecrawl-deep-research-donna",
+    "previousDigest": "b95e6878b41e270da07b437191331a718f387558c2759e25467f237f7379e561",
+    "digest": "eaa961a262c77a93d7083414756cee1c2d72b2666891424a5a13b93454fe187e",
+    "availability": "dependencyUnavailable",
+    "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs. O arquivo não foi reescrito para passar a validação.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/firecrawl-deep-research/SKILL.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "ee221a2151d63ddc1db9857f9c5d346a3de9d816",
+        "sha256": "7bb9acac4ebb53a0fda17dd8a764ae184ff8ebf2563a9dd7915a023f73d55c3a",
+        "bytes": 740,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "firecrawl",
+    "sourceName": "firecrawl",
+    "sourceDescription": "Any live-web task via the Firecrawl CLI — including ordinary web research: searching the web, reading or extracting pages, gathering sources, discovering site URLs, bulk extraction, downloading a site, change alerts, or pages needing clicks/login — web only; local files route to firecrawl-parse. For US legal or regulatory questions use gov; for papers use firecrawl-research-index; for library, API, error, or bug questions use firecrawl-developer-index.\n",
+    "origin": {
+      "repo": "firecrawl/skills",
+      "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+      "path": "skills/core/firecrawl",
+      "sourceDigest": "69f1d69452fccf1ac8a7af6d394271d0707f87e1e5d9a321e58ff5ecb22b2ef6"
+    },
+    "sourceSkill": {
+      "path": "skills/core/firecrawl/SKILL.md",
+      "gitBlob": "a8baff5d20669ac6dfc8cda522a7a1de4d4fd5be",
+      "sha256": "bb8af1c77b34a14e6d1d43587d3611af5f6b0c2cd89e0da997be1c53dfc58ef8",
+      "bytes": 12060,
+      "lines": 162
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl",
+      "description": "Any live-web task via the Firecrawl CLI — including ordinary web research: searching the web, reading or extracting pages, gathering sources, discovering site URLs, bulk extraction, downloading a site, change alerts, or pages needing clicks/login — web only; local files route to firecrawl-parse. For US legal or regulatory questions use gov; for papers use firecrawl-research-index; for library, API, error, or bug questions use firecrawl-developer-index.\n",
+      "allowed-tools": [
+        "Bash(firecrawl *)",
+        "Bash(npx firecrawl-cli *)"
+      ]
+    },
+    "installId": "firecrawl",
+    "previousInstallId": "firecrawl-donna",
+    "previousDigest": "c943a45303123116615379e1c729b0680e34625c4d4c79b2483ea6a17956272a",
+    "digest": "405a982d906d3207be991cf3077508b4ffb2b31533649db030a18570a06a37b2",
+    "availability": "dependencyUnavailable",
+    "reason": "allowed-tools original é lista; o importador atual exige texto. Não converter em permissões nem reescrever YAML.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/core/firecrawl/SKILL.md",
+      "skills/core/firecrawl/rules/install.md",
+      "skills/core/firecrawl/rules/security.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "49f8600931998aa1a104ee3ecdf4724066573f65",
+        "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+        "bytes": 735,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "firecrawl-search",
+    "sourceName": "firecrawl-search",
+    "sourceDescription": "Find web sources with query-relevant page excerpts and optional full-page content, and discover workflows, data APIs, and indexes. Use for web research or finding structured records, listings, transcripts, and datasets. Supports semantic tool discovery, domain matching, and progressive catalogue browsing.",
+    "origin": {
+      "repo": "firecrawl/skills",
+      "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+      "path": "skills/core/firecrawl-search",
+      "sourceDigest": "12e63948da95fec4e47e341ffef230be4fc5c98b244b12a43d62ef21831d2529"
+    },
+    "sourceSkill": {
+      "path": "skills/core/firecrawl-search/SKILL.md",
+      "gitBlob": "fccbeb6c6267756e352a2fa5c403305608e55486",
+      "sha256": "86eff5f134da2e35a22aabea79013d0d1eca518c0ad3761fb3eae47ffcddc2d2",
+      "bytes": 14043,
+      "lines": 150
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl-search",
+      "description": "Find web sources with query-relevant page excerpts and optional full-page content, and discover workflows, data APIs, and indexes. Use for web research or finding structured records, listings, transcripts, and datasets. Supports semantic tool discovery, domain matching, and progressive catalogue browsing.",
+      "allowed-tools": [
+        "Bash(firecrawl *)",
+        "Bash(npx firecrawl-cli *)"
+      ]
+    },
+    "installId": "firecrawl-search",
+    "previousInstallId": "firecrawl-search-donna",
+    "previousDigest": "c88a9db105928fba701ab95eb7a870e9b898393e32f036135b07a98c08a7da3e",
+    "digest": "819ac0fe8690d44e090a1a10f1e951c107905d3d542f8b5850aef0158aecd52b",
+    "availability": "dependencyUnavailable",
+    "reason": "allowed-tools original é lista; o importador atual exige texto. Não converter em permissões nem reescrever YAML.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/core/firecrawl-search/SKILL.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "49f8600931998aa1a104ee3ecdf4724066573f65",
+        "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+        "bytes": 735,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "firecrawl-scrape",
+    "sourceName": "firecrawl-scrape",
+    "sourceDescription": "Read a known webpage or execute a discovered workflow or data-provider capability. Use for page content or structured results once the URL or tool is selected.",
+    "origin": {
+      "repo": "firecrawl/skills",
+      "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
+      "path": "skills/core/firecrawl-scrape",
+      "sourceDigest": "abce694a393452720e54e831731033b6c7049fb4db62415365a9414dd717bd18"
+    },
+    "sourceSkill": {
+      "path": "skills/core/firecrawl-scrape/SKILL.md",
+      "gitBlob": "6d2b3d7c04a68f6336662bc2b19ac353412b8d06",
+      "sha256": "beadacd5032c3d534f6c142190fb2c347c2e99e040e9a48d3f832b861592f813",
+      "bytes": 9049,
+      "lines": 145
+    },
+    "sourceFrontmatter": {
+      "name": "firecrawl-scrape",
+      "description": "Read a known webpage or execute a discovered workflow or data-provider capability. Use for page content or structured results once the URL or tool is selected.",
+      "allowed-tools": [
+        "Bash(firecrawl *)",
+        "Bash(npx firecrawl-cli *)"
+      ]
+    },
+    "installId": "firecrawl-scrape",
+    "previousInstallId": "firecrawl-scrape-donna",
+    "previousDigest": "483fea5582378050575c00b98b3f181de1914dd89d930e4fe45be9902ad48dc5",
+    "digest": "5aa0c2bcdf32e3d69eba762fdcf1e139ad20c77ba3d237d991decc079a0e29ee",
+    "availability": "dependencyUnavailable",
+    "reason": "allowed-tools original é lista; o importador atual exige texto. Não converter em permissões nem reescrever YAML.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Revisar parser apenas para os campos originais indicados, como dados inertes e sem grants; manter limites/licenças e gates.",
+    "files": [],
+    "excluded": [
+      "skills/core/firecrawl-scrape/SKILL.md",
+      "skills/core/firecrawl-scrape/references/large-results.md"
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "49f8600931998aa1a104ee3ecdf4724066573f65",
+        "sha256": "8db975b9d59274cd37f19d3f7fec9ce0f2d96daf71e0c69d48dc5358f55dd691",
+        "bytes": 735,
+        "lines": 15
+      }
+    ]
+  },
+  {
+    "id": "boat",
+    "sourceName": "boat",
+    "sourceDescription": "Manage Boat (boat.dev, formerly Box by Ascii) cloud sandboxes via API, CLI, and SSH. Use for provisioning, environments, secrets, templates, snapshots, stop/resume/fork, or running BB and coding agents on Boat.",
+    "origin": {
+      "repo": "davidondrej/skills",
+      "revision": "8605863f211961c96208fe625d4024609cd7dbd5",
+      "path": "skills/ops-and-setup/boat",
+      "sourceDigest": "c17d15d2feafa0a613dc198d4777010a94c5aede39f38dd30e936f09aae93ae0"
+    },
+    "sourceSkill": {
+      "path": "skills/ops-and-setup/boat/SKILL.md",
+      "gitBlob": "9461c99623e8f73f3d62a955e7374076ad572018",
+      "sha256": "fbe7969049c923904f2e427e0f78174a66268b35c12463e6a8ade67fc21c44ba",
+      "bytes": 8031,
+      "lines": 109
+    },
+    "sourceFrontmatter": {
+      "name": "boat",
+      "description": "Manage Boat (boat.dev, formerly Box by Ascii) cloud sandboxes via API, CLI, and SSH. Use for provisioning, environments, secrets, templates, snapshots, stop/resume/fork, or running BB and coding agents on Boat."
+    },
+    "installId": "boat",
+    "previousInstallId": "boat-donna",
+    "previousDigest": "c18cb3e3a8e850ca9c3f4a4c08ec3d91ffabc8b151d25937909ce2b07d982b1e",
+    "digest": "e3db83a1240e48d0c2007c199c900b27c4c654cb1f41c96bcfb23280499936e5",
+    "availability": "adapted",
+    "reason": "Texto original integral no pin indicado; embalagem passiva revisada donna-original-text-v2. A importação não executa instruções nem instala ferramentas.",
+    "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
+    "minimumCompatibility": "Nenhuma mudança necessária para importação passiva deste recorte.",
+    "files": [
+      {
+        "destination": "SKILL.md",
+        "source": "skills/ops-and-setup/boat/SKILL.md",
+        "gitBlob": "9461c99623e8f73f3d62a955e7374076ad572018",
+        "sha256": "fbe7969049c923904f2e427e0f78174a66268b35c12463e6a8ade67fc21c44ba",
+        "bytes": 8031,
+        "lines": 109,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "aa4c3084927af513046779215f66b022e7602af0",
+            "sha256": "1bd321a3b9cfa8d4af2105e20edd69d830df0b28e83a1b0255558f888e493981"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/operations.md",
+        "source": "skills/ops-and-setup/boat/references/operations.md",
+        "gitBlob": "1b9455c30338d1a358598eb05c099e3f49984247",
+        "sha256": "4f853fd4219f47c49a53d21794596bb92088d6cf6aa0ace877394b89248bc967",
+        "bytes": 14059,
+        "lines": 126,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "aa4c3084927af513046779215f66b022e7602af0",
+            "sha256": "1bd321a3b9cfa8d4af2105e20edd69d830df0b28e83a1b0255558f888e493981"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "LICENSE",
+        "source": "LICENSE",
+        "gitBlob": "aa4c3084927af513046779215f66b022e7602af0",
+        "sha256": "1bd321a3b9cfa8d4af2105e20edd69d830df0b28e83a1b0255558f888e493981",
+        "bytes": 1069,
+        "lines": 21,
+        "license": "MIT",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "aa4c3084927af513046779215f66b022e7602af0",
+            "sha256": "1bd321a3b9cfa8d4af2105e20edd69d830df0b28e83a1b0255558f888e493981"
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "91c4603f8005c931bd64b2cad44203d138ceca858bdb5fe7e5256c118926aa40",
+        "bytes": 798,
+        "origin": "Donnabot",
+        "license": "Apache-2.0",
+        "modification": "recibo local de embalagem"
+      }
+    ],
+    "excluded": [],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "aa4c3084927af513046779215f66b022e7602af0",
+        "sha256": "1bd321a3b9cfa8d4af2105e20edd69d830df0b28e83a1b0255558f888e493981",
+        "bytes": 1069,
+        "lines": 21
+      }
+    ]
+  },
+  {
+    "id": "stop-slop",
+    "sourceName": "stop-slop",
+    "sourceDescription": "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text to eliminate predictable AI tells.",
+    "origin": {
+      "repo": "hardikpandya/stop-slop",
+      "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
+      "path": "SKILL.md",
+      "sourceDigest": "378b18f503214113b54062e192e217c346cfcb6d6d235e5d9ce852df2041a523"
+    },
+    "sourceSkill": {
+      "path": "SKILL.md",
+      "gitBlob": "83f2032fde406e97492ec48ee05ebe46f6403109",
+      "sha256": "7432a1d9ebdd42b27666da8458af252edf549f723fb14bcd4791425103930310",
+      "bytes": 2629,
+      "lines": 68
+    },
+    "installId": "stop-slop",
+    "digest": "74a010e1d76c9c4b293593b0b49eee3cf937ca13b90b80046c44131d2fbea9ae",
+    "availability": "adapted",
+    "reason": "Texto MIT original integral; embalagem passiva recortada, com aviso local e sem instalação/seleção automática.",
+    "files": [
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "e93f352115a47a88267d848e8a52830192f91bdc181066e6ca61ac211436bbf9",
+        "bytes": 837,
+        "lines": 7,
+        "license": "MIT",
+        "source": null,
+        "gitBlob": null,
+        "modification": "autoria própria Donna Bot D353",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+            "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+            "bytes": 1070,
+            "lines": 21
+          }
+        ]
+      },
+      {
+        "destination": "LICENSE",
+        "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+        "bytes": 1070,
+        "lines": 21,
+        "license": "MIT",
+        "source": "LICENSE",
+        "repo": "hardikpandya/stop-slop",
+        "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
+        "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+        "sourceSha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+            "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+            "bytes": 1070,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "SKILL.md",
+        "sha256": "7432a1d9ebdd42b27666da8458af252edf549f723fb14bcd4791425103930310",
+        "bytes": 2629,
+        "lines": 68,
+        "license": "MIT",
+        "source": "SKILL.md",
+        "repo": "hardikpandya/stop-slop",
+        "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
+        "gitBlob": "83f2032fde406e97492ec48ee05ebe46f6403109",
+        "sourceSha256": "7432a1d9ebdd42b27666da8458af252edf549f723fb14bcd4791425103930310",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+            "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+            "bytes": 1070,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/examples.md",
+        "sha256": "49c592899eb4457f95d0767e15e3143569e2cef50f2927c3174e62432984cd3d",
+        "bytes": 1686,
+        "lines": 59,
+        "license": "MIT",
+        "source": "references/examples.md",
+        "repo": "hardikpandya/stop-slop",
+        "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
+        "gitBlob": "0376b6d66ec69a4af381fcb73100fcd0182537fc",
+        "sourceSha256": "49c592899eb4457f95d0767e15e3143569e2cef50f2927c3174e62432984cd3d",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+            "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+            "bytes": 1070,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/phrases.md",
+        "sha256": "4ca1b7e97123b5c67eff3dc97e5e977332e0b24021265c1553888a93ec33fa93",
+        "bytes": 2915,
+        "lines": 128,
+        "license": "MIT",
+        "source": "references/phrases.md",
+        "repo": "hardikpandya/stop-slop",
+        "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
+        "gitBlob": "f9234fe284aab56d2bcd988764626c5b1bb44aec",
+        "sourceSha256": "4ca1b7e97123b5c67eff3dc97e5e977332e0b24021265c1553888a93ec33fa93",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+            "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+            "bytes": 1070,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "references/structures.md",
+        "sha256": "ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58",
+        "bytes": 5255,
+        "lines": 134,
+        "license": "MIT",
+        "source": "references/structures.md",
+        "repo": "hardikpandya/stop-slop",
+        "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
+        "gitBlob": "bbcc359c92dce54dc5458ad13295c13358e14e40",
+        "sourceSha256": "ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+            "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+            "bytes": 1070,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      }
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "e0ede9b66618724f59a1bad9ef1681db43d0334c",
+        "sha256": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c",
+        "bytes": 1070,
+        "lines": 21
+      }
+    ],
+    "sourceDigestMethod": "SHA-256 do JSON UTF-8 compacto ordenado {path:sha256} dos arquivos de origem deste recorte; não inclui textos autorais nem bytes adaptados",
+    "sourceDigestFiles": {
+      "SKILL.md": "7432a1d9ebdd42b27666da8458af252edf549f723fb14bcd4791425103930310",
+      "references/examples.md": "49c592899eb4457f95d0767e15e3143569e2cef50f2927c3174e62432984cd3d",
+      "references/phrases.md": "4ca1b7e97123b5c67eff3dc97e5e977332e0b24021265c1553888a93ec33fa93",
+      "references/structures.md": "ffbf1316c7fb5aaf552de005609a64a9639b546ecd76bfb0e482864d5bbe6f58",
+      "LICENSE": "2e2b2beaf41cc0ce28485455a62aed81777cdcdf68702e142427aef1cd720f2c"
+    },
+    "excluded": [
+      "README.md",
+      "CHANGELOG.md"
+    ]
+  },
+  {
+    "id": "copy-review-panel",
+    "sourceName": "copy-review-panel",
+    "sourceDescription": "Review marketing drafts through five editorial perspectives, scoring each 0-20 and the total 0-100 before presenting candidates to the owner.",
+    "origin": {
+      "repo": "Yuzzyuk/marketing-os",
+      "revision": "bb67dff5f04b390e861ee11433166e4519e7f4c0",
+      "path": "skills/marketing-os/references/copy.md",
+      "sourceDigest": "9b5c45f4532079cce65d69ac322836c413a6fc3a72970bc143f77b4f40bfa730"
+    },
+    "sourceSkill": {
+      "path": "skills/marketing-os/references/copy.md",
+      "gitBlob": "4e1ea7a82bdf67186de5860f06f39a4cf910947f",
+      "sha256": "cb6e723d5b0ac38cb7ec90c1638c515f8afc78f9bea65cca9107d06eb1e1c40e",
+      "bytes": 6449,
+      "lines": 109
+    },
+    "installId": "copy-review-panel",
+    "digest": "ad3c53d1e3efba1b68a44d571e43966854c9f7d0e5e8b1f5739dfa846365d076",
+    "availability": "adapted",
+    "reason": "Método textual MIT recortado em skill passiva; cinco perspectivas numa resposta e candidato >=85 apenas para apresentação ao dono.",
+    "files": [
+      {
+        "destination": "ADAPTATION.md",
+        "sha256": "b2f2892ada90f2d6416ad064084cd8b22f7a9f6d3707836d87669400186eac8c",
+        "bytes": 1424,
+        "lines": 9,
+        "license": "MIT",
+        "source": null,
+        "gitBlob": null,
+        "modification": "autoria própria Donna Bot D353",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f3b95c42d64b1cd9bf013bdc8ba6948754a2cbf1",
+            "sha256": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37",
+            "bytes": 1082,
+            "lines": 21
+          }
+        ]
+      },
+      {
+        "destination": "LICENSE",
+        "sha256": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37",
+        "bytes": 1082,
+        "lines": 21,
+        "license": "MIT",
+        "source": "LICENSE",
+        "repo": "Yuzzyuk/marketing-os",
+        "revision": "bb67dff5f04b390e861ee11433166e4519e7f4c0",
+        "gitBlob": "f3b95c42d64b1cd9bf013bdc8ba6948754a2cbf1",
+        "sourceSha256": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f3b95c42d64b1cd9bf013bdc8ba6948754a2cbf1",
+            "sha256": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37",
+            "bytes": 1082,
+            "lines": 21
+          }
+        ],
+        "modification": "nenhuma; bytes originais"
+      },
+      {
+        "destination": "SKILL.md",
+        "sha256": "f25e34bfaa03cf6f08cf6524543d3a4f8217a57dcab5efc9ebefca24ef72bb5a",
+        "bytes": 2841,
+        "lines": 53,
+        "license": "MIT",
+        "source": "skills/marketing-os/references/copy.md",
+        "repo": "Yuzzyuk/marketing-os",
+        "revision": "bb67dff5f04b390e861ee11433166e4519e7f4c0",
+        "gitBlob": "4e1ea7a82bdf67186de5860f06f39a4cf910947f",
+        "sourceSha256": "cb6e723d5b0ac38cb7ec90c1638c515f8afc78f9bea65cca9107d06eb1e1c40e",
+        "licenseEvidence": [
+          {
+            "path": "LICENSE",
+            "gitBlob": "f3b95c42d64b1cd9bf013bdc8ba6948754a2cbf1",
+            "sha256": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37",
+            "bytes": 1082,
+            "lines": 21
+          }
+        ],
+        "modification": "adaptação textual declarada em ADAPTATION.md"
+      }
+    ],
+    "licenseEvidence": [
+      {
+        "path": "LICENSE",
+        "gitBlob": "f3b95c42d64b1cd9bf013bdc8ba6948754a2cbf1",
+        "sha256": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37",
+        "bytes": 1082,
+        "lines": 21
+      }
+    ],
+    "sourceDigestMethod": "SHA-256 do JSON UTF-8 compacto ordenado {path:sha256} dos arquivos de origem deste recorte; não inclui textos autorais nem bytes adaptados",
+    "sourceDigestFiles": {
+      "skills/marketing-os/references/copy.md": "cb6e723d5b0ac38cb7ec90c1638c515f8afc78f9bea65cca9107d06eb1e1c40e",
+      "LICENSE": "1d68893c890fe536c041fab0e5dbdedcb470143c1a6c682e44cf84693db3fc37"
+    },
+    "excluded": [
+      "marketing-os: todos os demais módulos e referências; demais seções de copy.md"
+    ],
+    "sourceKind": "referência textual sem frontmatter; nome e descrição autorais da adaptação"
+  }
+]

@@ -1,0 +1,48 @@
+/* MX-111 (fase 1): Nunca fazer. Só tokens existentes; propriedades lógicas para o árabe (docs/reference/design/redesenho). */
+.nf { display: contents; }
+.nf .card-row { align-items: stretch; }
+.nf-grupo { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+.nf-corpo { display: flex; flex-direction: column; gap: 14px; flex: 1; min-width: 0; }
+.nf-grupo-cabeca { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.nf-grupo-titulo { font-size: var(--text-caption); font-weight: 600; color: var(--context-ink-2, var(--ink-2)); text-transform: uppercase; letter-spacing: .04em; }
+.nf-grupo-ajuda { font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); margin-block-start: -4px; }
+.nf-lista { display: flex; flex-direction: column; gap: 6px; }
+.nf-item { display: flex; align-items: flex-start; gap: 10px; padding-block: 7px; padding-inline: 10px 6px; border-radius: var(--radius-m); background: var(--content-ground, var(--canvas)); border: 1px solid var(--line); min-width: 0; }
+.nf-item.herdado { background: transparent; border-style: dashed; }
+.nf-item.editando { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+.nf-icone { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-xs); background: var(--field); color: var(--context-ink-2, var(--ink-2)); }
+.nf-texto { flex: 1; min-width: 0; padding-block-start: 2px; font-size: var(--text-callout); color: var(--text-primary, var(--ink)); line-height: 1.35; overflow-wrap: anywhere; }
+.nf-item.herdado .nf-texto { color: var(--context-ink-2, var(--ink-2)); }
+.nf-mais { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius-xs); color: var(--context-ink-2, var(--ink-2)); }
+.nf-mais:hover { background: var(--hover); }
+.nf-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--text-accent, var(--accent)); font-size: var(--text-caption); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.nf-link:hover { text-decoration: underline; }
+.nf-link:dir(rtl) svg, .nf-link:dir(rtl) span[aria-hidden] { transform: scaleX(-1); }
+.nf-nota { margin: 0; font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); line-height: 1.45; }
+.nf-aviso { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-radius: var(--radius-s); background: var(--field); color: var(--text-primary, var(--ink)); font-size: var(--text-caption); line-height: 1.45; }
+.nf-aviso-icone { flex: none; color: var(--context-ink-2, var(--ink-2)); }
+.nf-aviso-texto { flex: 1; min-width: 12em; }
+.nf-campo { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.nf-campo .field-box { flex: 1; min-width: 0; border: 1px solid var(--line); }
+.nf-caracteres { flex: none; min-width: 4.5em; text-align: end; font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); font-variant-numeric: tabular-nums; pointer-events: none; }
+.nf-caracteres.excesso { color: var(--danger, var(--red)); font-weight: 600; }
+.nf-adicionar { display: flex; gap: 8px; align-items: center; margin-block-start: 2px; }
+.nf-acoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.nf-contagem { font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); font-variant-numeric: tabular-nums; align-self: flex-end; }
+.nf-vazio p { margin: 2px 0 10px; color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout); }
+.nf-exemplos { display: flex; flex-wrap: wrap; gap: 6px; }
+.nf-exemplo { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: var(--radius-pill); border: 1px dashed var(--line-strong); color: var(--text-primary, var(--ink)); font-size: var(--text-caption); }
+.nf-exemplo:hover:not(:disabled) { background: var(--hover); }
+.nf .card-section-footer { display: flex; flex-direction: column; gap: 4px; }
+.nf-desligar { display: block; }
+/* Ajustes › Nunca fazer. */
+.nf-pagina { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: auto; container-type: inline-size; padding-block: 12px 24px; }
+.nf-lead { margin: 0; color: var(--context-ink-2, var(--ink-2)); line-height: 1.5; }
+.nf-escolha { display: flex; align-items: center; gap: 12px; }
+@container (max-width: 520px) {
+  .nf-adicionar { flex-wrap: wrap; }
+  .nf-adicionar .styled-button { margin-inline-start: auto; }
+}
+/* O invólucro quebra o `.card-section + .card-section` do bot: devolve o mesmo respiro (22 px). */
+.nf:not(.nf-pagina) > .card-section, .nf + .card-section { margin-top: 22px; }
+.nf-item.orfao { border-style: dashed; border-color: var(--attention, var(--line-strong)); }

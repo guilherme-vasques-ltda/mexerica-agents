@@ -1,0 +1,57 @@
+{
+  "id": "fal",
+  "nome": "Fal AI",
+  "categoria": "Design e mídia",
+  "descricao": "Plataforma de geração por IA (imagem, vídeo, áudio, 3D): o MCP busca modelos, consulta preços e roda gerações com créditos fal.",
+  "exemplos": [
+    "Gere uma imagem de capa com o tema do meu produto",
+    "Quanto gastei em gerações este mês?"
+  ],
+  "site": "https://fal.ai",
+  "docs": "https://fal.ai/docs/documentation/setting-up/mcp",
+  "links": {
+    "privacidade": "https://fal.ai/legal/privacy-policy",
+    "termos": "https://fal.ai/legal/terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://fal.ai/docs/documentation/setting-up/mcp",
+    "https://authkit.fal.ai/oauth2/register",
+    "https://authkit.fal.ai/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "Gasta créditos da sua conta da Fal a cada geração.",
+  "tipos": [
+    {
+      "id": "fal.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Fal AI",
+      "url": "https://mcp.fal.ai/mcp-relay",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Fal AI não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/fal-ai-community/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

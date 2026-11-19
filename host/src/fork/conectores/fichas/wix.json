@@ -1,0 +1,56 @@
+{
+  "id": "wix",
+  "nome": "Wix",
+  "categoria": "Código",
+  "descricao": "MCP oficial da Wix: busca a documentação, chama APIs do site e gerencia sites da conta Wix (publicar, editar, upar imagens).",
+  "exemplos": [
+    "Quais pedidos entraram na minha loja Wix hoje?",
+    "Resuma o desempenho do site esta semana"
+  ],
+  "site": "https://www.wix.com",
+  "docs": "https://dev.wix.com/docs/sdk/articles/use-the-wix-mcp/about-the-wix-mcp",
+  "links": {
+    "privacidade": "https://www.wix.com/about/privacy",
+    "termos": "https://www.wix.com/about/terms-of-use"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://dev.wix.com/docs/sdk/articles/use-the-wix-mcp/about-the-wix-mcp",
+    "https://mcp.wix.com/register",
+    "https://mcp.wix.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "wix.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Wix",
+      "url": "https://mcp.wix.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "O Wix não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+    }
+  ],
+  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/wix/skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

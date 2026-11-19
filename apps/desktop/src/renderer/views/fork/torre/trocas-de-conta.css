@@ -1,0 +1,42 @@
+/* MEX-1391: seção "Trocas de conta" do Mission Board. Só tokens do redesenho; reaproveita .torre-group e .torre-pill. */
+
+.trocas-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.trocas-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: var(--text-callout);
+}
+.trocas-row + .trocas-row { border-top: 1px solid var(--line); }
+.trocas-contas { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.trocas-contas b { color: var(--ink); font-weight: 600; }
+.trocas-bot { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.trocas-when { flex: none; color: var(--ink-2); min-width: 190px; text-align: end; }
+.trocas-more {
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+}
+.trocas-empty {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-callout);
+}
+/* Perto do limite é atenção (não vermelho); o texto do rótulo nunca depende só da cor. */
+.torre-pill.trocas-motivo-perto_do_limite,
+.torre-pill.trocas-motivo-esgotada { background: var(--attention-soft); color: var(--text-attention, var(--attention)); }
+.torre-pill.trocas-motivo-voltou { background: var(--group); color: var(--ink-2); }

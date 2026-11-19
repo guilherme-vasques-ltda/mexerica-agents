@@ -1,0 +1,56 @@
+{
+  "id": "brevo",
+  "nome": "Brevo",
+  "categoria": "Marketing",
+  "descricao": "Plataforma de marketing e CRM: e-mail, SMS e WhatsApp. O MCP conecta 27 módulos do Brevo a agentes de IA.",
+  "exemplos": [
+    "Como foi a última campanha de e-mail no Brevo?",
+    "Quantos contatos entraram na lista este mês?"
+  ],
+  "site": "https://www.brevo.com/",
+  "docs": "https://developers.brevo.com/docs/mcp-protocol",
+  "links": {
+    "privacidade": "https://www.brevo.com/legal/privacypolicy/",
+    "termos": "https://www.brevo.com/legal/termsofuse/"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://developers.brevo.com/docs/mcp-protocol",
+    "https://mcp.brevo.com/oauth/register",
+    "https://mcp.brevo.com/.well-known/oauth-authorization-server/oauth"
+  ],
+  "tipos": [
+    {
+      "id": "brevo.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Brevo",
+      "url": "https://mcp.brevo.com/v1/brevo/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
+          "escopos": [],
+          "padrao": true,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": false,
+      "motivoIndisponivel": "Ainda não tem um jeito seguro de conectar por aqui; entra numa próxima etapa."
+    }
+  ],
+  "emBreve": "Ainda não tem um jeito seguro de conectar por aqui; entra numa próxima etapa.",
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/getbrevo/brevo-skills",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

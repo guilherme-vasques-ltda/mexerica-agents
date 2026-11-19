@@ -1,0 +1,235 @@
+/* Biblioteca de especialistas (components/BibliotecaEspecialistas): folha como Novo bot, cartões em `group`,
+   textos em `ink`/`ink-2`, etiqueta de função neutra (db-tag) e só o corpo rolando. */
+.bib {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, calc(100vw - 64px));
+  height: min(820px, calc(100vh - 76px));
+  min-height: 0;
+}
+.bib-corpo {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 20px 20px;
+}
+.bib-faixa,
+.bib-aviso,
+.bib-pendente,
+.bib-problema {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-l);
+  background: var(--group);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  line-height: 1.4;
+}
+.bib-faixa strong { color: var(--context-ink, var(--ink)); }
+.bib-faixa > svg, .bib-faixa > span:first-child { color: var(--success); flex: none; }
+.bib-aviso { background: var(--attention-soft); color: var(--context-ink, var(--ink)); }
+.bib-pendente { background: var(--attention-soft); color: var(--context-ink, var(--ink)); }
+.bib-pendente > span { flex: 1 1 auto; }
+.bib-problema { justify-content: space-between; }
+.bib-avisos { display: flex; flex-direction: column; gap: 8px; padding: 0 20px; }
+.bib-avisos:not(:empty) { padding-bottom: 8px; }
+.bib-pendente .styled-button,
+.bib-rodape .styled-button { flex: none; white-space: nowrap; }
+.bib-reserva { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.bib-reserva span { height: 220px; border-radius: var(--radius-xl); background: var(--group); }
+
+/* Grade: 3 colunas; 2 em janela estreita. */
+.bib-grade {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bib-grade.is-antigo { opacity: 0.6; }
+.bib-cartao > article {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 18px 16px 14px;
+  border-radius: var(--radius-xl);
+  background: var(--group);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary, var(--ink)) 7%, transparent);
+  text-align: center;
+}
+.bib-cartao-rosto { display: inline-flex; cursor: pointer; }
+.bib-nome {
+  margin: 4px 0 0;
+  color: var(--context-ink, var(--ink));
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.funcao-etiqueta.bib-funcao { max-width: 100%; flex: none; }
+.bib-exemplos {
+  align-self: stretch;
+  list-style: disc;
+  margin: 6px 0 0;
+  padding: 8px 10px 8px 24px;
+  border-radius: var(--radius-l);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  line-height: 1.4;
+  text-align: left;
+}
+.bib-estado {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin: 6px 0 0;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+.bib-estado.is-atencao { color: var(--attention); font-weight: 600; }
+.bib-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+  font-weight: 600;
+}
+.bib-cartao-acao { align-self: stretch; display: flex; }
+.bib-cartao-acao .styled-button { flex: 1 1 auto; justify-content: center; gap: 6px; }
+
+/* Prévia: topo, duas colunas que rolam com o corpo, rodapé fixo. */
+.bib-previa { flex: 1 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.bib-previa-topo { display: flex; align-items: center; gap: 12px; }
+.bib-previa-titulo { min-width: 0; }
+.bib-previa-titulo h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--context-ink, var(--ink));
+  font-size: var(--text-title3);
+  font-weight: 700;
+}
+.bib-previa-titulo p { margin: 2px 0 0; color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout); }
+.bib-previa-corpo {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 16px;
+}
+.bib-coluna {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: var(--radius-xl);
+  background: var(--group);
+}
+.bib-coluna h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--context-ink, var(--ink));
+  font-size: var(--text-callout);
+  font-weight: 600;
+}
+.bib-coluna h4:first-child { margin-top: 0; }
+.bib-chega {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.bib-alma {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-l);
+  background: var(--field);
+  color: var(--context-ink, var(--ink));
+  font-size: var(--text-body);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.bib-texto { margin: 0; color: var(--context-ink, var(--ink)); font-size: var(--text-callout); line-height: 1.45; }
+.bib-nota {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  line-height: 1.4;
+}
+.bib-pilulas { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.bib-pilulas li {
+  padding: 8px 12px;
+  border-radius: var(--radius-l);
+  background: var(--field);
+  color: var(--context-ink, var(--ink));
+  font-size: var(--text-callout);
+}
+.bib-motor { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.bib-etiqueta-atencao {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--attention-soft);
+  color: var(--attention);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.bib-lista { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.bib-lista li {
+  position: relative;
+  padding-left: 20px;
+  color: var(--context-ink, var(--ink));
+  font-size: var(--text-callout);
+  line-height: 1.4;
+}
+.bib-lista li::before {
+  content: '✓';
+  position: absolute;
+  left: 2px;
+  color: var(--success);
+  font-weight: 700;
+}
+.bib-rodape {
+  position: sticky;
+  bottom: -20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: auto -20px -20px;
+  padding: 12px 20px 16px;
+  background: var(--raised);
+  border-top: 1px solid var(--line);
+}
+.bib-mensagem {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-callout);
+  line-height: 1.4;
+}
+
+/* Janela estreita (R1-03): por último, para vencer as regras base de mesma especificidade acima. */
+@media (max-width: 760px) {
+  .bib-grade { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bib-previa-corpo { grid-template-columns: 1fr; }
+}

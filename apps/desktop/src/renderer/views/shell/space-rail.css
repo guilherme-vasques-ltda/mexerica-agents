@@ -1,0 +1,258 @@
+/* D165, fase B: the space rail (components/SpaceRail). Glass over the wallpaper, `rail` without one.
+   Barra05 (dono, 05/11/2026): mais compacta, 52px (`rail-width`; 42px desde o MX-122 v3); tiles de 32px com raio 9; "+" redondo de 28px em
+   `field`; no rodapé, separador de 18px e alvos de 32×28 com ícones de 16px; pendência é um ponto âmbar de 6px. */
+.space-rail {
+  --tile-size: 32px;
+  position: relative;
+  flex: none;
+  width: var(--rail-width);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: 0 0 10px;
+  background: var(--rail);
+}
+html[data-wallpaper] .space-rail {
+  background: var(--glass-rail);
+}
+/* The strip on top moves the window. MX-122 v3: the traffic lights moved to the window's top strip
+   (JanelaHeader), so this is only a margin now, the same on every platform. */
+.space-rail-lights {
+  flex: none;
+  width: 100%;
+  height: 8px;
+}
+.space-rail-gap {
+  flex: 1;
+}
+.space-rail-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--context-ink-2, var(--ink-2));
+  transition: background-color var(--motion-hover), color var(--motion-hover), transform var(--press);
+}
+.space-rail-button:hover:not(:disabled),
+.space-rail-button.is-active {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+}
+.space-rail-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.space-rail-button:disabled {
+  opacity: var(--opacity-disabled);
+}
+/* Over a wallpaper the rail's glass (0.7 of the sidebar's) lets `ink-2` icons fall under 3:1 on an
+   extreme picture, and the icon is the control: enabled ones take `ink`. Without a wallpaper or with
+   reduced transparency the rail is opaque and they stay `ink-2`. The current place is the bar. */
+@media (prefers-reduced-transparency: no-preference) {
+  html[data-wallpaper] .space-rail-button:not(:disabled),
+  html[data-wallpaper] .space-rail-add {
+    color: var(--ink);
+  }
+  /* The keyboard ring stays the app's (2px, inside, or outside on Pessoal and the update), but the accent
+     on that glass falls under 3:1 too: the rail's own controls draw it in `ink`. */
+  html[data-wallpaper] .space-rail-button:focus-visible,
+  html[data-wallpaper] .space-rail-personal:focus-visible,
+  html[data-wallpaper] .space-rail .update-badge:focus-visible {
+    outline-color: var(--ink);
+  }
+}
+/* Barra05: o rodapé começa num separador de 18px; os quatro botões ficam colados (gap da faixa). */
+.space-rail-sep {
+  flex: none;
+  width: 18px;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
+}
+/* Criar space: um círculo de 28px em `field`. */
+.space-rail-add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  transition: background-color var(--motion-hover), color var(--motion-hover), transform var(--press);
+}
+.space-rail-add:hover {
+  background: var(--selected);
+  color: var(--text-primary, var(--ink));
+}
+.space-rail-add:active {
+  transform: scale(0.94);
+}
+/* Pendências waiting: an amber dot on the gear (Barra05: 6px). */
+.space-rail-dot {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--rail);
+}
+html[data-wallpaper] .space-rail-dot {
+  box-shadow: none;
+}
+/* Tiles: 32px, raio 9, com a borda interna `tile-edge` (SpaceTile); crescem de leve com o ponteiro. */
+.space-rail .space-tile {
+  border-radius: 9px;
+  transition: transform 0.12s var(--ease);
+}
+.space-rail-space:hover .space-tile {
+  transform: scale(1.06);
+}
+@media (prefers-reduced-motion: reduce) {
+  .space-rail-space:hover .space-tile { transform: none; }
+}
+/* Pessoal: round, first and fixed; the active space gets only a bar on the rail's edge. */
+.space-rail-personal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--tile-size);
+  height: var(--tile-size);
+  border-radius: 50%;
+}
+.space-rail-personal .profile-avatar {
+  width: var(--tile-size);
+  height: var(--tile-size);
+}
+.space-rail-personal.is-active::before {
+  content: '';
+  position: absolute;
+  left: calc((var(--rail-width) - var(--tile-size)) / -2);
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ink);
+}
+.space-rail-personal .profile-avatar {
+  transition: opacity var(--motion-hover);
+}
+/* Rotinas open: the same bar moves to its button (one current place at a time). The bar follows the
+   announced state (`aria-current`), so what the eye and the screen reader get cannot drift apart. */
+.space-rail-button[aria-current="page"] {
+  color: var(--ink);
+}
+.space-rail-button[aria-current="page"]::before {
+  content: '';
+  position: absolute;
+  left: calc((var(--rail-width) - 32px) / -2);
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ink);
+}
+.space-rail-personal:hover .profile-avatar,
+.space-rail-personal.open .profile-avatar {
+  opacity: 0.82;
+}
+.space-rail-personal:focus-visible {
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+/* D169: the Hub's spaces after Pessoal (36px tiles, SpaceTile), then + to create one. Hover and an open menu are
+   only the `hover` ground, as on the foot; the current place stays Pessoal's bar until a space can be opened.
+   The list is the only part of the rail that shrinks (Sol R2-F1): with more spaces than the height holds it
+   scrolls inside itself (wheel, trackpad, or Tab to a tile out of view), while Pessoal, + and the foot stay in
+   view. It spans the rail's width and keeps 6px at each end (taken back by the margin, so tiles sit where they
+   did when they fit) so the 2px keyboard ring stays whole; only the outer 4px fade, showing a tile passing out.
+   No scrollbar: on a 60px rail it would cover the tiles. */
+.space-rail-spaces {
+  flex: 0 1 auto;
+  min-height: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: 6px 0;
+  margin: -6px 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  /* Tab to a tile at an edge scrolls it clear of the fade, ring included. */
+  scroll-padding-block: 6px;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 4px, #000 calc(100% - 4px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 4px, #000 calc(100% - 4px), transparent 100%);
+}
+.space-rail-spaces::-webkit-scrollbar {
+  display: none;
+}
+.space-rail-space {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(var(--tile-size) + 4px);
+  height: calc(var(--tile-size) + 4px);
+  border-radius: calc(var(--radius-s) + 2px);
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+.space-rail-space:hover,
+.space-rail-space.open {
+  background: var(--hover);
+}
+/* The open space (components/SpaceView) gets Pessoal's bar on the rail's edge, nothing around the tile. */
+.space-rail-space.is-active::before {
+  content: '';
+  position: absolute;
+  left: calc((var(--rail-width) - var(--tile-size) - 4px) / -2);
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ink);
+}
+.space-rail-space:active {
+  transform: scale(0.96);
+}
+.space-rail-space:focus-visible {
+  outline-offset: 0;
+}
+@media (prefers-reduced-transparency: no-preference) {
+  html[data-wallpaper] .space-rail-space:focus-visible {
+    outline-color: var(--ink);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .space-rail-space:active { transform: none; }
+}
+
+/* An available release (UpdateBadge, moved here with the sidebar footer): one filled circle. */
+.update-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--on-accent);
+  background: var(--accent);
+  animation: update-badge-in var(--layout) both;
+  transition: opacity var(--motion-hover), transform var(--motion-hover);
+}
+.update-badge:hover:not(:disabled) { opacity: 0.85; }
+.update-badge:active:not(:disabled) { transform: scale(0.94); }
+.update-badge .spinner circle { stroke: currentColor; }
+@keyframes update-badge-in { from { opacity: 0; transform: scale(0.6); } }
+@media (prefers-reduced-motion: reduce) {
+  .update-badge:active:not(:disabled) { transform: none; }
+  .update-badge { animation: none; }
+}

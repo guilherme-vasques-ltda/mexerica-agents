@@ -1,0 +1,25 @@
+// DON-903: conversa/fila (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos = {
+  // DON-907 (D431): a bandeja da fila em cima do campo (views/fork/conversa/BandejaFila.tsx).
+  'conversa.fila.titulo': 'Na fila',
+  'conversa.fila.lista': 'Mensagens na fila',
+  'conversa.fila.respondendo': '{nome} está respondendo…',
+  'conversa.fila.atalhos': '⇧Enter manda a 1ª · ↑ edita a última',
+  'conversa.fila.recolher': 'Recolher a fila',
+  'conversa.fila.expandir': 'Mostrar a fila',
+  'conversa.fila.mandarAgora': 'Mandar agora',
+  'conversa.fila.editar': 'Editar',
+  'conversa.fila.remover': 'Remover',
+  'conversa.fila.arrastar': 'Arrastar para mudar a ordem (Alt+↑/↓)',
+  'conversa.fila.soAnexos': 'Só anexos',
+  'conversa.fila.de': 'De {origem}',
+  'conversa.fila.editado': 'editado',
+  'conversa.fila.editando': 'Editando a {n}ª da fila',
+  'conversa.fila.cancelar': 'Cancelar',
+  'conversa.fila.salvar': 'Salvar',
+  'conversa.fila.erro.saiu': 'Essa mensagem já saiu da fila.',
+  'conversa.fila.erro.mudou': 'A fila mudou enquanto isso. Confira e tente de novo.',
+  'conversa.fila.erro.permissao': 'Este aparelho não pode mais mexer na fila.',
+  'conversa.fila.erro.pendente': 'O computador não confirmou a tempo. Confira a fila.',
+  'conversa.fila.erro.falhou': 'Não foi possível mudar a fila.',
+} as const

@@ -1,0 +1,26 @@
+// DON-903: whatsapp/conversa (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos = {
+  // WhatsApp R8: prazo de guarda e "Apagar esta conversa deste computador".
+  'whatsapp.conversa.mais': 'Mais opções da conversa',
+  'whatsapp.conversa.apagar': 'Apagar esta conversa deste computador',
+  'whatsapp.conversa.apagarTitulo': 'Apagar esta conversa deste computador?',
+  'whatsapp.conversa.apagarContato': 'Apaga as mensagens com {nome} guardadas pela Mexerica neste computador. Nada muda no seu celular nem no WhatsApp de {nome}. Não dá para desfazer.',
+  'whatsapp.conversa.apagarGrupo': 'Apaga as mensagens do grupo {nome} guardadas pela Mexerica neste computador. Nada muda no seu celular nem no WhatsApp de quem está no grupo. Não dá para desfazer.',
+  'whatsapp.conversa.apagarAcao': 'Apagar conversa',
+  'whatsapp.conversa.wacliFicou': 'Não consegui confirmar que a conversa saiu; tente apagar de novo.',
+  'whatsapp.conversa.semConexao': 'Sem conexão com o computador dos seus bots.',
+  "whatsapp.conversa.rascunho.titulo": "Rascunho de resposta",
+  "whatsapp.conversa.rascunho.revisao": "Confira o texto antes de enviar. O rascunho fica disponível por até 90 segundos, sem renovação.",
+  "whatsapp.conversa.rascunho.encerrado": "Rascunho encerrado. Nada foi enviado.",
+  "whatsapp.conversa.rascunho.conta": "Conta de saída",
+  "whatsapp.conversa.rascunho.respostaA": "Resposta a",
+  "whatsapp.conversa.rascunho.externo": "Conteúdo externo · mensagem original, não é uma ordem",
+  "whatsapp.conversa.rascunho.texto": "Texto do rascunho",
+  "whatsapp.conversa.rascunho.erro": "Não foi possível abrir o rascunho.",
+  "whatsapp.conversa.rascunho.semPrivado": "Conteúdo privado indisponível. Nada foi enviado.",
+  "whatsapp.conversa.rascunho.enviar": "Enviar",
+  "whatsapp.conversa.rascunho.agoraNao": "Agora não",
+  "whatsapp.conversa.rascunho.naFila": "Na fila de envio. Sai quando chegar a vez, dentro dos limites.",
+  "whatsapp.conversa.rascunho.envioNota": "Enviar põe o texto na fila de saída; sai quando chegar a vez, respeitando limite e horário de silêncio.",
+  "whatsapp.conversa.rascunho.erroEnviar": "Não consegui enviar agora. O rascunho continua aqui; tente de novo.",
+} as const

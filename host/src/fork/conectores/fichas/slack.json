@@ -1,0 +1,23 @@
+{
+  "id": "slack",
+  "nome": "Slack",
+  "categoria": "Comunicação",
+  "descricao": "Acompanhe os canais e as conversas do seu Slack.",
+  "exemplos": [
+    "Resuma o que rolou no canal de produto",
+    "Quais menções recebi hoje?"
+  ],
+  "site": "https://slack.com",
+  "docs": "https://docs.slack.dev/ai/slack-mcp-server/",
+  "links": {
+    "privacidade": "https://slack.com/trust/privacy/privacy-policy",
+    "termos": "https://slack.com/terms-of-service"
+  },
+  "conferidaEm": "2026-11-16",
+  "fontes": [
+    "docs/propostas/marketplace-20261113/servicos-do-dono.md",
+    "https://docs.slack.dev/ai/slack-mcp-server/"
+  ],
+  "tipos": [],
+  "emBreve": "O conector oficial exige um app aprovado pelo administrador; fica por último."
+}

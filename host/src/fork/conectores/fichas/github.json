@@ -1,0 +1,69 @@
+{
+  "id": "github",
+  "nome": "GitHub",
+  "categoria": "Código",
+  "descricao": "Repositórios, issues, pull requests e Actions do GitHub, só para leitura, com um token pessoal seu.",
+  "exemplos": [
+    "Quais pull requests estão abertos no repositório mexerica?",
+    "Resuma as issues novas desta semana",
+    "Por que o último workflow falhou?"
+  ],
+  "site": "https://github.com",
+  "docs": "https://github.com/github/github-mcp-server",
+  "links": {
+    "privacidade": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement",
+    "termos": "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
+  },
+  "conferidaEm": "2026-11-18",
+  "fontes": [
+    "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
+    "https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/",
+    "https://github.com/.well-known/oauth-authorization-server/login/oauth"
+  ],
+  "aviso": "Use um token de acesso com permissões só de leitura: o endereço /readonly esconde as ferramentas de escrita, mas o token limitado é a segunda trava.",
+  "tipos": [
+    {
+      "id": "github.oficial_chave",
+      "tipo": "oficial_chave",
+      "rotulo": "Oficial — chave de acesso",
+      "mantidoPor": "GitHub",
+      "url": "https://api.githubcopilot.com/mcp/readonly",
+      "auth": {
+        "modo": "chave",
+        "destino": "header",
+        "nome": "Authorization",
+        "prefixo": "Bearer ",
+        "comoCriarLeitura": "No GitHub, em Settings → Developer settings → Fine-grained tokens, crie um token só com permissões de leitura (Read-only) e cole aqui."
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": [],
+          "url": "https://api.githubcopilot.com/mcp/readonly",
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "url"
+        },
+        {
+          "id": "criar_editar",
+          "rotulo": "Criar e editar",
+          "escopos": [],
+          "url": "https://api.githubcopilot.com/mcp/",
+          "padrao": false,
+          "disponivel": false
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ],
+  "skillsOficiais": [
+    {
+      "url": "https://github.com/github/github-mcp-server",
+      "origem": "fornecedor",
+      "licenca": "MIT",
+      "aproveitavel": true
+    }
+  ]
+}

@@ -1,0 +1,482 @@
+import { Children, Fragment, isValidElement, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { radioArrowTarget, radioTabStop } from '../lib/radio-group'
+import { Icon } from './Icon'
+import { AnchoredMenu, IconButtonBase, type MenuItem, type PortalLanguage } from './Overlay'
+import { HStack, Spacer, VStack } from './Stack'
+import { Text } from './Text'
+import { Fiapos, Gomo } from './toques-mexerica/Toques'
+import { progressoDeterminado } from './toques-mexerica/progresso'
+import { useT } from '../lib/fork-i18n/estado'
+import { useToquesMexerica } from '../lib/toques-mexerica'
+import { useVisibleAnimation } from '../lib/animation-visibility'
+import './controls.css'
+
+// Codync's own controls (kit Controls.swift): never the stock ones.
+
+export const IconButton = IconButtonBase
+
+/** The filled call-to-action (`.primary`) or the quieter filled one (`.secondary`). */
+export function Button({ kind = 'primary', children, onClick, disabled, className, title }: {
+  kind?: 'primary' | 'secondary'
+  children: ReactNode
+  onClick?: () => void
+  disabled?: boolean
+  className?: string
+  title?: string
+}) {
+  return (
+    <button className={`styled-button ${kind} ${className ?? ''}`} onClick={onClick} disabled={disabled} title={title}>
+      {children}
+    </button>
+  )
+}
+
+/** O arco mantém tamanho/atividade; fiapos opcionais transbordam sem alterar o layout. */
+export function Spinner({ size = 14 }: { size?: number }) {
+  const t = useT()
+  const touches = useToquesMexerica()
+  const arc = useRef<SVGSVGElement>(null)
+  useVisibleAnimation(arc, touches)
+  const { w, r, c, center } = ring(size)
+  const indicator = (
+    <svg ref={arc} className="spinner" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label={t('aparencia.toques.carregando')} role="img">
+      <circle cx={center} cy={center} r={r} fill="none" stroke="var(--context-ink-2, var(--ink-2))" strokeWidth={w} strokeLinecap="round" strokeDasharray={`${c * 0.7} ${c}`} />
+    </svg>
+  )
+  return touches ? <span className="mx-loader" style={{ width: size, height: size }}>{indicator}<Fiapos /></span> : indicator
+}
+
+/** Determinate progress (`value` 0...1): a ring that fills clockwise, in the color around it. */
+export function ProgressRing({ value, size = 14 }: { value: number; size?: number }) {
+  const { w, r, c, center } = ring(size)
+  return (
+    <svg className="progress-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
+      <circle className="progress-ring-track" cx={center} cy={center} r={r} strokeWidth={w} />
+      <circle
+        className="progress-ring-fill"
+        cx={center}
+        cy={center}
+        r={r}
+        strokeWidth={w}
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - value)}
+        transform={`rotate(-90 ${center} ${center})`}
+      />
+    </svg>
+  )
+}
+
+/** The geometry `Spinner` and `ProgressRing` share: stroke width, radius, circumference. */
+function ring(size: number) {
+  const w = Math.max(1.5, size / 9)
+  const r = (size - w) / 2
+  return { w, r, c: 2 * Math.PI * r, center: size / 2 }
+}
+
+/** On/off switch: label on the left, a flat capsule track on the right. */
+/** `label` names a switch whose visible label sits outside it (beside an info button, say). */
+export function Switch({ on, onChange, children, label, disabled, className }: { on: boolean; onChange: (on: boolean) => void; children?: ReactNode; label?: string; disabled?: boolean; className?: string }) {
+  return (
+    <button className={`switch${className ? ` ${className}` : ''}`} role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}>
+      {children !== undefined ? <span className="switch-label">{children}</span> : null}
+      <span className={`switch-track ${on ? 'on' : ''}`}>
+        <span className="switch-knob" />
+      </span>
+    </button>
+  )
+}
+
+/** A button that opens a Codync menu. */
+/** `label`: nome acessível do botão quando o conteúdo visível é só o valor escolhido (ex.: “Filtrar por projeto: Todos”). */
+export function DropdownMenu({ items, children, className, style, title, label, disabled, onOpenChange, language, restoreFocusOnClose = false }: { items: () => MenuItem[]; children: ReactNode; className?: string; style?: CSSProperties; title?: string; label?: string; disabled?: boolean; onOpenChange?: (open: boolean) => void; language?: PortalLanguage; restoreFocusOnClose?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLButtonElement>(null)
+  const changeOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next && restoreFocusOnClose) ref.current?.focus()
+    onOpenChange?.(next)
+  }
+  // A containing floating surface retains this portal until dismissal/action, and releases it on unmount.
+  useEffect(() => () => onOpenChange?.(false), [onOpenChange])
+  return (
+    <>
+      <button ref={ref} className={className} style={style} title={title} aria-label={label} disabled={disabled} aria-haspopup="menu" aria-expanded={open} onClick={() => changeOpen(!open)}>
+        {children}
+      </button>
+      <AnchoredMenu open={open} onClose={() => changeOpen(false)} anchor={ref} items={items} language={language} />
+    </>
+  )
+}
+
+/** Picks one value: the current choice in a pill with a chevron, opening a Codync menu. */
+export function ChoicePicker<T extends string | number>({ selection, options, onChange, fill, fits = false, disabled, language, restoreFocusOnClose = false }: {
+  selection: T
+  /** `leading`: a picture before the label, in the menu and on the picker (an agent's logo). */
+  options: { id: T; label: string; leading?: ReactNode; disabled?: boolean }[]
+  onChange: (id: T) => void
+  fill?: string
+  fits?: boolean
+  disabled?: boolean
+  /** D454: o idioma e a direção da tela migrada, para a raiz do menu (portal no body); sem ele, como antes. */
+  language?: PortalLanguage
+  /** Opt-in: mantém o teclado no seletor ao fechar o menu (Aparência, D529b). */
+  restoreFocusOnClose?: boolean
+}) {
+  const chosen = options.find((o) => o.id === selection)
+  const label = chosen?.label ?? 'Choose'
+  return (
+    <DropdownMenu
+      disabled={disabled}
+      language={language}
+      restoreFocusOnClose={restoreFocusOnClose}
+      title={label}
+      className={`choice-picker${fill ? '' : ' outlined'}${fits ? ' fits' : ''}`}
+      style={{ background: fill }}
+      items={() => options.map((o) => ({ title: o.label, leading: o.leading, selected: o.id === selection, disabled: o.disabled, action: () => onChange(o.id) }))}
+    >
+      {chosen?.leading}
+      <span className="choice-label">{label}</span>
+      <Icon name="chevron.down" size={10} weight="semibold" color="var(--context-ink-2, var(--ink-2))" />
+    </DropdownMenu>
+  )
+}
+
+/**
+ * A continuous value with its reading beside the label (D165 `Slider`): blur, transparency, veil.
+ * `shown` is the value in use; when the app holds it away from the choice (`held`), it reads in
+ * `attention` and `note` says why.
+ */
+export function Slider({ label, value, min, max, step = 1, onChange, shown, held = false, note, disabled }: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  onChange: (value: number) => void
+  shown: string
+  held?: boolean
+  note?: ReactNode
+  disabled?: boolean
+}) {
+  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0
+  return (
+    <div className={`slider${disabled ? ' disabled' : ''}`}>
+      <label className="slider-label">
+        <span>{label}</span>
+        <span className={`slider-value${held ? ' held' : ''}`}>{shown}</span>
+        <input
+          type="range"
+          className="slider-input"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          disabled={disabled}
+          aria-valuetext={shown}
+          style={{ '--p': `${percent}%` } as CSSProperties}
+          onChange={(e) => onChange(Number(e.currentTarget.value))}
+        />
+      </label>
+      {note ? <div className={`slider-note${held ? ' held' : ''}`}>{note}</div> : null}
+    </div>
+  )
+}
+
+/** Picks one of a few values side by side: the replacement for `.segmented`. */
+export function SegmentedChoice<T extends string>({ selection, options, onChange }: { selection: T; options: { id: T; label: string }[]; onChange: (id: T) => void }) {
+  const index = Math.max(0, options.findIndex((o) => o.id === selection))
+  return (
+    <div className="segmented">
+      <div className="segmented-thumb" style={{ width: `calc((100% - 6px - ${(options.length - 1) * 2}px) / ${options.length})`, transform: `translateX(calc(var(--segmented-direction, 1) * ${index} * (100% + 2px)))` }} />
+      {options.map((o) => (
+        <button key={o.id} className={`segmented-option ${o.id === selection ? 'on' : ''}`} onClick={() => onChange(o.id)} aria-pressed={o.id === selection}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Grok Bot's page tabs: plain labels, the chosen one on a light capsule. */
+export function TabChoice<T extends string>({ label, selection, options, onChange }: { label: string; selection: T; options: { id: T; label: string }[]; onChange: (id: T) => void }) {
+  return (
+    <div className="tab-choice" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id} role="tab" aria-selected={o.id === selection} className={`tab-choice-option ${o.id === selection ? 'on' : ''}`} onClick={() => onChange(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Picks one of a few values as wrapping plain labels, the chosen one on a light capsule; `title` names a short label in full. */
+export function ChipChoice<T extends string | number>({ label, selection, options, onChange }: {
+  label: string
+  selection: T
+  options: readonly { id: T; label: string; title?: string }[]
+  onChange: (id: T) => void
+}) {
+  return (
+    <HStack gap={2} wrap role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id} role="radio" aria-checked={o.id === selection} aria-label={o.title} title={o.title} className={`chip-choice${o.id === selection ? ' on' : ''}`} onClick={() => onChange(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </HStack>
+  )
+}
+
+/**
+ * A list of choices, one per row with a checkmark: the replacement for `.inline` pickers. A radio group
+ * for assistive tech (D165): the chosen row is announced as checked, not only drawn with ✓. One Tab stop
+ * (the chosen row, or the first when none is); ↑/↓ and ←/→ move and choose, wrapping (lib/radio-group).
+ */
+export function ChoiceList<T extends string>({ selection, options, onChange, label }: { selection: T; options: { id: T; label: string; detail?: string | null }[]; onChange: (id: T) => void; label?: string }) {
+  const rows = useRef<(HTMLButtonElement | null)[]>([])
+  rows.current.length = options.length
+  const stop = radioTabStop(options.map((o) => o.id), selection)
+  // A focused row that goes away with the options hands focus to the group's stop, not to the page.
+  const focused = useRef(false)
+  useLayoutEffect(() => {
+    const active = document.activeElement
+    if (focused.current && (!active || active === document.body)) rows.current[stop]?.focus()
+  })
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next = radioArrowTarget(e, index, options.length)
+    if (next === null) return
+    e.preventDefault()
+    e.stopPropagation()
+    rows.current[next]?.focus()
+    const id = options[next]!.id
+    if (id !== selection) onChange(id)
+  }
+  return (
+    <VStack gap={10} role="radiogroup" aria-label={label}>
+      {options.map((o, i) => (
+        <button
+          key={o.id}
+          ref={(el) => { rows.current[i] = el }}
+          className="choice-row"
+          role="radio"
+          aria-checked={o.id === selection}
+          tabIndex={i === stop ? 0 : -1}
+          onClick={() => onChange(o.id)}
+          onKeyDown={(e) => onKeyDown(e, i)}
+          onFocus={() => { focused.current = true }}
+          onBlur={() => { focused.current = false }}
+        >
+          <VStack gap={2} className="choice-row-label">
+            <Text tone="text">{o.label}</Text>
+            {o.detail ? <Text size="compactSecondary" tone="secondary">{o.detail}</Text> : null}
+          </VStack>
+          <span className={`check-slot${o.id === selection ? ' on' : ''}`}>
+            <Icon name="checkmark" size={10} weight="semibold" />
+          </span>
+        </button>
+      ))}
+    </VStack>
+  )
+}
+
+/** A scrolling page of cards: the replacement for `Form` / grouped `List`. */
+export function CardForm({ children }: { children: ReactNode }) {
+  return (
+    <div className="card-form">
+      <div className="card-form-content">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * A titled group of rows (ChatGPT's desktop settings): a small bold heading over a filled,
+ * rounded group whose rows are split by inset hairlines.
+ */
+export function CardSection({ title, footer, accessory, children }: { title?: string | null; footer?: ReactNode; accessory?: ReactNode; children: ReactNode }) {
+  const rows = Children.toArray(children)
+  return (
+    <section className="card-section">
+      {title || accessory ? (
+        <div className="card-section-title">
+          {title ? <Text as="h3" size="body" weight="semibold" tone="text">{title}</Text> : null}
+          <Spacer />
+          {accessory}
+        </div>
+      ) : null}
+      <div className="card-section-rows">
+        {/* The rows' own keys (Children.toArray keeps them): a reordered row moves, keeping its node and focus. */}
+        {rows.map((row, i) => (
+          <Fragment key={isValidElement(row) && row.key !== null ? row.key : i}>
+            <div className="card-row">{row}</div>
+            {i < rows.length - 1 ? <div className="hairline inset" /> : null}
+          </Fragment>
+        ))}
+      </div>
+      {footer ? <div className="card-section-footer">{footer}</div> : null}
+    </section>
+  )
+}
+
+/** A 1-pixel separator line in the border color. */
+export function Hairline({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <div className={`hairline${className ? ` ${className}` : ''}`} style={style} />
+}
+
+/** A row's title with an optional note under it (rows, fields and switches share it). */
+export function RowLabel({ label, detail, labelId, detailId, grow = false }: { label: ReactNode; detail?: string | null; labelId?: string; detailId?: string; grow?: boolean }) {
+  return (
+    <VStack as="span" gap={3} grow={grow} shrink>
+      <Text id={labelId} tone="text">{label}</Text>
+      {detail ? <span id={detailId} className="detail-note" title={detail}>{detail}</span> : null}
+    </VStack>
+  )
+}
+
+/** Label on the left, value on the right: the replacement for `LabeledContent`. */
+export function ValueRow({ label, detail, children }: { label: string; detail?: string | null; children?: ReactNode }) {
+  return (
+    <div className="value-row">
+      <RowLabel label={label} detail={detail} />
+      <Spacer min={12} />
+      <HStack as="span" className="value-row-value">{children}</HStack>
+    </div>
+  )
+}
+
+/**
+ * A search box: the replacement for `.searchable`. `inputProps` adds attributes to the field (a
+ * combobox's ARIA); `clearLabel` names the clear button.
+ */
+export function SearchField({ value, onChange, prompt = 'Buscar', inputRef, clearLabel = 'Limpar busca', inputProps }: {
+  value: string
+  onChange: (v: string) => void
+  prompt?: string
+  inputRef?: React.RefObject<HTMLInputElement | null>
+  clearLabel?: string
+  inputProps?: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'placeholder'>
+}) {
+  return (
+    <div className="search-field">
+      <Icon name="magnifyingglass" size={12} color="var(--context-ink-2, var(--ink-2))" />
+      <input ref={inputRef} value={value} placeholder={prompt} spellCheck={false} onChange={(e) => onChange(e.target.value)} {...inputProps} />
+      {value ? (
+        <button aria-label={clearLabel} title={clearLabel} className="search-clear" onClick={() => onChange('')}>
+          <Icon name="xmark.circle.fill" size={12} />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+/** A row that expands to show more: the replacement for `DisclosureGroup`. */
+export function Disclosure({ expanded, onToggle, label, children }: { expanded: boolean; onToggle: () => void; label: ReactNode; children: ReactNode }) {
+  return (
+    <VStack gap={8}>
+      <button className="disclosure-label" onClick={onToggle} aria-expanded={expanded}>
+        {label}
+        <Spacer min={8} />
+        <span className={`disclosure-chevron${expanded ? ' open' : ''}`}>
+          <Icon name="chevron.right" size={10} weight="semibold" />
+        </span>
+      </button>
+      {expanded ? children : null}
+    </VStack>
+  )
+}
+
+/** A filled rounded value box, or outlined (outline or fill, never both). */
+export function Pill({ children, fill = 'var(--content-ground, var(--canvas))', outlined = false, className }: { children: ReactNode; fill?: string; outlined?: boolean; className?: string }) {
+  return (
+    <span className={`pill${outlined ? ' outlined' : ''}${className ? ` ${className}` : ''}`} style={{ background: outlined ? undefined : fill }}>
+      {children}
+    </span>
+  )
+}
+
+/** Barra convencional; somente progresso de tarefa adere ao gomo, sem alterar cotas/uso. */
+export function ProgressBar({ value, label, fill, className, taskProgress = false }: { value: number; label: string; fill?: string; className?: string; taskProgress?: boolean }) {
+  const touches = useToquesMexerica()
+  const progress = progressoDeterminado(value)
+  if (!touches || !taskProgress) {
+    return (
+      <div key="plain" className={`progress-track${className ? ` ${className}` : ''}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)}>
+        <div className="progress-fill" style={{ transform: `scaleX(${value})`, background: fill }} />
+      </div>
+    )
+  }
+  if (progress === undefined) {
+    return <div key="plain" className={`progress-track${className ? ` ${className}` : ''}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} />
+  }
+  return (
+    <div key="touched" style={{ '--mx-progress': `${progress * 100}%` } as CSSProperties} className={`progress-track mx-task-progress${className ? ` ${className}` : ''}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+      <div className="progress-fill" style={{ transform: `scaleX(${progress})`, background: fill }} />
+      <span className="mx-wedge-position" aria-hidden="true"><Gomo fill={fill} /></span>
+    </div>
+  )
+}
+
+/**
+ * A panel's resizable edge: a hairline that drags the panel's width, or steps it with ←/→ while
+ * focused. `edge` is the side of the panel it sits on; `onResize` gets the proposed width.
+ */
+export function ResizeHandle({ label, width, min, max, edge, onResize, onDragging, onReset }: {
+  label: string
+  width: number
+  min: number
+  max: number
+  edge: 'leading' | 'trailing'
+  onResize: (width: number) => void
+  onDragging?: (dragging: boolean) => void
+  /** A double click on the edge goes back to the default width. */
+  onReset?: () => void
+}) {
+  const start = useRef<{ x: number; width: number } | null>(null)
+  useEffect(() => () => {
+    if (start.current) document.documentElement.classList.remove('col-resizing')
+  }, [])
+  // Dragging toward the panel's outside grows it.
+  const grow = edge === 'trailing' ? 1 : -1
+  const end = () => {
+    if (!start.current) return
+    start.current = null
+    document.documentElement.classList.remove('col-resizing')
+    onDragging?.(false)
+  }
+  const onPointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    start.current = { x: e.clientX, width }
+    // While dragging, the resize cursor stays wherever the pointer goes.
+    document.documentElement.classList.add('col-resizing')
+    onDragging?.(true)
+  }
+  const onPointerMove = (e: PointerEvent) => {
+    if (start.current) onResize(start.current.width + grow * (e.clientX - start.current.x))
+  }
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    onResize(width + grow * (e.key === 'ArrowRight' ? 16 : -16))
+  }
+  return (
+    <div
+      className="resize-handle"
+      role="separator"
+      tabIndex={0}
+      aria-label={label}
+      aria-orientation="vertical"
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={min}
+      aria-valuemax={Math.round(max)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={end}
+      onPointerCancel={end}
+      onLostPointerCapture={end}
+      onKeyDown={onKeyDown}
+      onDoubleClick={onReset}
+      title={onReset ? 'Arraste para mudar a largura. Duplo clique volta ao padrão.' : undefined}
+    />
+  )
+}

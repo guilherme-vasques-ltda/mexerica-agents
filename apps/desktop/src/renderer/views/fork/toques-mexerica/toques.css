@@ -1,0 +1,95 @@
+/* D530: desenhos no próprio espaço, sem overlay/filtro; decoração limitada pelo interruptor. */
+.mx-decoration { display: none; pointer-events: none; flex: none; }
+.mx-empty-icon { display: grid; place-items: center; }
+.mx-peel { width: 64px; height: 64px; color: var(--accent); }
+.mx-loader { display: inline-grid; place-items: center; position: relative; flex: none; overflow: visible; }
+.mx-pith { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); color: var(--context-ink-2, var(--ink-2)); }
+.mx-wedge { width: 18px; height: 18px; color: var(--action-fill, var(--accent)); }
+.mx-logo { width: 36px; height: 36px; flex: none; overflow: visible; }
+.mx-leaf { transform-origin: 279px -79px; }
+.mx-touch-setting { display: flex; align-items: center; gap: var(--sp-12); }
+.mx-touch-setting .switch { flex: 1; }
+
+@media (prefers-contrast: no-preference) and (forced-colors: none) {
+  :root[data-toques-mexerica="on"] { --mx-warm: 0 8px 24px color-mix(in srgb, var(--accent) 4%, transparent); --mx-halo: 0 0 12px color-mix(in srgb, var(--accent) 8%, transparent); }
+  /* 18% do accent, sobre a superfície do tema: só o alvo ganha a base de contraste.
+     Sem --hover global, sem alterar o vidro, seleção, pressionado ou desabilitados. */
+  :root[data-toques-mexerica="on"] :is(
+    :is(.space-rail-button, .space-rail-add, .space-rail-space, .space-rail-personal):hover:not(:disabled),
+    .roster-row.hovered:not(.selected):not(.times-lead > .roster-row),
+    .sidebar .times-lead:is(:has(> .roster-row.hovered), :has(> .times-teamrow:hover)):not(:has(> .roster-row.selected)),
+    .sidebar :is(.donna-open, .donna-menu-button):hover:not(:disabled),
+    [role="option"]:hover:not(:disabled):not([aria-disabled="true"]):not([aria-selected="true"]),
+    :is(button, a[href], [role="button"])[role="listitem"]:hover:not(:disabled):not([aria-disabled="true"]):not([aria-current="true"]),
+    :is(.space-view-row, .space-view-fold, .srow, button.mb-row, .times-ref):hover:not(:disabled):not(.on):not([aria-current="true"]),
+    .icon-button:hover:not(:disabled):not(.selected):not(:active),
+    .menu-row:is(.highlight, :hover):not(:disabled)
+  ) {
+    --ink-2: var(--mx-hover-ink);
+    --ink-3: var(--mx-hover-ink);
+    --context-ink-2: var(--mx-hover-ink);
+    --text-primary: var(--mx-hover-ink);
+    --text-secondary: var(--mx-hover-ink);
+    --text-tertiary: var(--mx-hover-ink);
+    --text-accent: var(--mx-hover-ink);
+    --donna-text-secondary: var(--mx-hover-ink);
+    --donna-text-accent: var(--mx-hover-ink);
+    background: var(--mx-hover-fill);
+    color: var(--mx-hover-ink);
+  }
+  /* Borda interna sem deslocar conteúdo e sem escrever em box-shadow/foco canônico. */
+  :root[data-toques-mexerica="on"] :is(
+    :is(.space-rail-button, .space-rail-add, .space-rail-space, .space-rail-personal):hover:not(:disabled),
+    .roster-row.hovered:not(.selected):not(.times-lead > .roster-row),
+    .sidebar .times-lead:is(:has(> .roster-row.hovered), :has(> .times-teamrow:hover)):not(:has(> .roster-row.selected)),
+    .sidebar :is(.donna-open, .donna-menu-button):hover:not(:disabled),
+    [role="option"]:hover:not(:disabled):not([aria-disabled="true"]):not([aria-selected="true"]),
+    :is(button, a[href], [role="button"])[role="listitem"]:hover:not(:disabled):not([aria-disabled="true"]):not([aria-current="true"]),
+    :is(.space-view-row, .space-view-fold, .srow, button.mb-row, .times-ref):hover:not(:disabled):not(.on):not([aria-current="true"]),
+    .icon-button:hover:not(:disabled):not(.selected):not(:active),
+    .menu-row:is(.highlight, :hover):not(:disabled)
+  ):not(:focus-visible):not(:has(:focus-visible)) {
+    outline: 1px solid color-mix(in srgb, var(--mx-hover-ink) 70%, transparent);
+    outline-offset: -1px;
+  }
+  :root[data-toques-mexerica="on"] .menu-row:is(.highlight, :hover):not(:disabled) .menu-icon { color: inherit; }
+  /* A moldura recebe o hover; fotografias e logos continuam sendo os ativos escolhidos. */
+  :root[data-toques-mexerica="on"] .space-rail-personal:hover:not(:disabled) .profile-avatar {
+    background: transparent; color: var(--mx-hover-ink); box-shadow: none; opacity: 1;
+  }
+  :root[data-toques-mexerica="on"] .mx-decoration { display: block; }
+  :root[data-toques-mexerica="on"] .mx-empty-fallback { display: none; }
+  :root[data-toques-mexerica="on"] .mx-pith { animation: mx-pith 1.1s ease-in-out 600ms 1; }
+  :root[data-toques-mexerica="on"] .mx-task-progress { position: relative; height: 18px; overflow: hidden; background: none; }
+  :root[data-toques-mexerica="on"] .mx-task-progress::before { content: ''; position: absolute; inset-inline: 0; inset-block-start: 7px; height: 4px; border-radius: var(--radius-pill); background: var(--control-fill-selected, var(--selected)); }
+  :root[data-toques-mexerica="on"] .mx-task-progress .progress-fill { position: absolute; inset-inline: 0; inset-block-start: 7px; height: 4px; }
+  :root[data-toques-mexerica="on"] .mx-task-progress .progress-fill:dir(rtl) { transform-origin: right; }
+  :root[data-toques-mexerica="on"] .mx-task-progress .mx-wedge-position {
+    position: absolute; inset-block-start: 0; inset-inline-start: 0; inline-size: 100%; block-size: 18px;
+    display: flex; pointer-events: none;
+    transform: translateX(clamp(0px, calc(var(--mx-progress) - 9px), calc(100% - 18px)));
+    transition: transform var(--layout);
+  }
+  :root[data-toques-mexerica="on"] .mx-task-progress .mx-wedge-position:dir(rtl) {
+    transform: translateX(calc(-1 * clamp(0px, calc(var(--mx-progress) - 9px), calc(100% - 18px))));
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    :root[data-toques-mexerica="on"] .mx-logo:hover .mx-leaf,
+    :root[data-toques-mexerica="on"] .mx-touch-setting:focus-within .mx-leaf { animation: mx-leaf 280ms ease-out 1; }
+  }
+
+  :root[data-toques-mexerica="on"] .composer-surface { box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line), var(--mx-warm); }
+  :root[data-toques-mexerica="on"] .composer-surface:focus-within { box-shadow: var(--shadow-glass), inset 0 0 0 1px var(--line-strong), var(--mx-warm), var(--mx-halo); }
+  :root[data-toques-mexerica="on"] .anchored-panel { box-shadow: var(--shadow-l), 0 0 0 1px var(--line), var(--mx-warm); }
+  :root[data-toques-mexerica="on"] :is(.modal-content, .dialog-card) { box-shadow: var(--shadow-xl), var(--mx-warm); }
+  :root[data-toques-mexerica="on"] .outlined-card:not(:focus-visible) { box-shadow: var(--mx-warm); }
+  :root[data-toques-mexerica="on"] :is(.styled-button.primary, .composer-send:not(.is-call)):not(:disabled):not(:focus-visible) { box-shadow: 0 3px 12px color-mix(in srgb, var(--accent) 12%, transparent); }
+  /* Só sombra externa: seleção e texto mantêm a composição já coberta pelo piso de legibilidade. */
+  :root[data-toques-mexerica="on"] .roster-row.selected:not(:focus-visible) { box-shadow: var(--mx-halo); }
+}
+@keyframes mx-pith { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes mx-leaf { 0%, 100% { transform: rotate(0); } 40% { transform: rotate(-9deg); } 75% { transform: rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-toques-mexerica="on"] :is(.mx-pith, .mx-leaf) { animation: none; }
+  :root[data-toques-mexerica="on"] .mx-task-progress :is(.progress-fill, .mx-wedge-position) { transition: none; }
+}

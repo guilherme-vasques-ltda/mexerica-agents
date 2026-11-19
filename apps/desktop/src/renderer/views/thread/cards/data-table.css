@@ -1,0 +1,195 @@
+/* D165 fase F, D169 (components/DataTable): `raised` with a `line` edge; the bar sits flush with a
+   divider under it, the header sticks, numbers right and tabular, the footer has its own divider. */
+.data-table {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  min-width: 0;
+  margin: var(--sp-8) 0;
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  user-select: text;
+}
+.data-table.fill {
+  flex: 1;
+  min-height: 0;
+  margin: 0 16px 16px;
+}
+.data-table-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-10);
+  border-bottom: 1px solid var(--line);
+}
+/* The search has no fill of its own: the bar is already the field. */
+.data-table-search {
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  height: 28px;
+  border-radius: var(--radius-s);
+  color: var(--context-ink-2, var(--ink-2));
+  cursor: text;
+}
+.data-table-search input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-callout);
+  color: var(--text-primary, var(--ink));
+}
+.data-table-search input::placeholder {
+  color: var(--context-ink-2, var(--ink-2));
+}
+.data-table-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.data-table-tool {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  color: var(--context-ink-2, var(--ink-2));
+  transition: background-color var(--motion-hover), color var(--motion-hover);
+}
+.data-table-tool:hover {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+}
+.data-table-tool[aria-pressed='true'] {
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+}
+.data-table-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.data-table-scroll {
+  max-height: 280px;
+  overflow: auto;
+}
+.data-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.data-table.fill .data-table-scroll {
+  max-height: none;
+  flex: 1;
+}
+.data-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(12px * var(--md-scale, var(--scale)));
+  line-height: 1.42;
+  color: var(--text-primary, var(--ink));
+}
+.data-table td {
+  padding: var(--sp-10) var(--sp-12);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  border-top: 1px solid var(--line);
+}
+.data-table tbody tr:first-child td {
+  border-top: 0;
+}
+.data-table tbody tr:hover td {
+  background: var(--hover);
+}
+.data-table table.wrap td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 6em;
+}
+/* The header never wraps: a short label stays on one line, the column grows instead. */
+.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  text-align: left;
+  white-space: nowrap;
+  background: var(--raised);
+  box-shadow: inset 0 -1px 0 var(--line);
+  font-weight: 600;
+}
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.data-table-sort {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: var(--sp-8) var(--sp-12);
+  font-weight: 600;
+  text-align: inherit;
+  white-space: nowrap;
+  color: var(--context-ink-2, var(--ink-2));
+  transition: color var(--motion-hover);
+}
+.data-table-sort:hover,
+.data-table th[aria-sort='ascending'] .data-table-sort,
+.data-table th[aria-sort='descending'] .data-table-sort {
+  color: var(--text-primary, var(--ink));
+}
+.data-table-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.data-table th.num .data-table-sort {
+  justify-content: flex-end;
+}
+/* The arrow shows on the sorted column; on the others only while pointed at or focused. */
+.data-table-sort-icon {
+  display: inline-grid;
+  opacity: 0;
+  transition: opacity var(--motion-hover);
+}
+.data-table th[aria-sort='ascending'] .data-table-sort-icon,
+.data-table th[aria-sort='descending'] .data-table-sort-icon,
+.data-table-sort:hover .data-table-sort-icon,
+.data-table-sort:focus-visible .data-table-sort-icon {
+  opacity: 1;
+}
+.data-table .md-code-span {
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--field);
+  font-size: calc(11px * var(--md-scale, var(--scale)));
+}
+.data-table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: var(--sp-6) var(--sp-12);
+  border-top: 1px solid var(--line);
+}
+/* D249 R6: the short table's two tools, at the end of its footer. */
+.data-table-foot-tools {
+  display: flex;
+  gap: var(--sp-2);
+  margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-6)) calc(-1 * var(--sp-4)) auto;
+}
+.data-table-sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .data-table-tool,
+  .data-table-sort,
+  .data-table-sort-icon {
+    transition: none;
+  }
+}
