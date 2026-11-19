@@ -20,6 +20,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.conta.googleLigado': 'حساب Google هذا مرتبط بالفعل بحساب Mexerica آخر.',
   'marca.conta.naoConfirmou': 'تعذّر تأكيد تسجيل الدخول. حاول مرة أخرى: لا تفتح Mexerica إلا بحساب مؤكد.',
   'marca.conta.apagarTudo': 'يسجّل الخروج من كل الحسابات ويحذف الروبوتات والمحادثات والمفاتيح والإعدادات من هذا الكمبيوتر. تبدأ Mexerica من جديد من شاشة الترحيب.',
+  'marca.conta.apagarFalhou': 'تعذّر حذف جميع البيانات. حاول مرة أخرى.',
   'marca.conta.semLogin': 'تسجيل الدخول غير متاح في هذا الإصدار، ولا تفتح Mexerica إلا بحساب.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'الصندوق المحمي غير متاح.',

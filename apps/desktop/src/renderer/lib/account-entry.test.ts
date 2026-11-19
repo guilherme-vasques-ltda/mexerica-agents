@@ -5,9 +5,11 @@ import test from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
+import type { WindowCommand } from '../../shared/ipc.ts'
 
 const features = new URL('../../shared/fork-features.ts', import.meta.url)
 const sourceRoot = new URL('../../', import.meta.url).href
+const hooksApagar = new URL('./fixture-hooks-apagar', import.meta.url).href
 // Each case sets the account projection the gate reads (globalThis.__accountEntryFixture).
 const fixtureAccount = 'export function useAccount() { return globalThis.__accountEntryFixture }'
 // Only the account snapshot and neighboring screens are replaced. The gate ChatWindow uses, the
@@ -19,13 +21,17 @@ const stubs = new Map([
 export function Spinner() { return null }
 export function Button({ children, disabled }) { return createElement('button', { type: 'button', disabled }, children) }`],
   [new URL('../components/Icon.tsx', import.meta.url).href, 'export function Icon() { return null }'],
-  [new URL('../components/Overlay.tsx', import.meta.url).href, 'export function Dialog() { return null }'],
+  [new URL('../components/Overlay.tsx', import.meta.url).href, `import { createElement } from 'react'
+export function Dialog({ open, message }) { return open ? createElement('div', { role: 'alertdialog' }, message) : null }`],
   // DON-903: o passo de idioma (tema, catálogos) fica fora; ele só aparece antes da conta e não decide o portão.
   [new URL('../views/fork/idioma/PassoIdioma.tsx', import.meta.url).href, 'export function PassoIdioma() { return null }\nexport function usePassoIdioma() { return { pendente: false, concluido: false, concluir() {} } }'],
 ])
 
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === 'react' && context.parentURL?.endsWith('AccountEntryGate.tsx?accountEntry=disabled&provaApagar=1')) {
+      return { url: hooksApagar, shortCircuit: true }
+    }
     if (specifier === '@shared/fork-features') {
       const variant = new URL(context.parentURL!).searchParams.get('accountEntry')
       return next(`${features.href}?accountEntry=${variant ?? 'disabled'}`, context)
@@ -39,6 +45,11 @@ registerHooks({
     return next(specifier, context)
   },
   load(url, context, next) {
+    if (url === hooksApagar) return { format: 'module', shortCircuit: true, source: `
+export function useEffect(effect) { effect() }
+export function useState() {
+  return [globalThis.__falhouAoApagarNaFixture, valor => { globalThis.__falhouAoApagarNaFixture = valor }]
+}` }
     if (!url.startsWith('file:')) return next(url, context)
     const clean = new URL(url)
     clean.search = ''
@@ -237,6 +248,37 @@ test('a password leaves its field as soon as it is sent; an incomplete form send
   assert.equal(takeCredentials({ value: 'pessoa@example.test' }, { value: '' }), null)
 })
 
+test('a entrada avisa quando o processo principal não consegue apagar os dados', async () => {
+  let onCommand: ((comando: WindowCommand) => void) | undefined
+  let falhar = false
+  Object.assign(globalThis, {
+    window: {
+      codync: { app: {
+        onCommand: (receber: typeof onCommand) => { onCommand = receber; return () => { onCommand = undefined } },
+        resetAllData: async () => { if (falhar) throw new Error('detalhe interno da fixture') },
+      } },
+      addEventListener() {},
+    },
+    document: idiomaDocumento,
+    __accountEntryFixture: projection(),
+    __falhouAoApagarNaFixture: false,
+  })
+  const url = new URL('../views/AccountEntryGate.tsx?accountEntry=disabled&provaApagar=1', import.meta.url)
+  const { AccountEntryGate } = await import(url.href)
+  const render = () => renderToStaticMarkup(createElement(AccountEntryGate))
+  assert.doesNotMatch(render(), /alertdialog/)
+  assert.ok(onCommand)
+  onCommand({ kind: 'confirmReset' })
+  await Promise.resolve()
+  assert.doesNotMatch(render(), /alertdialog/)
+  falhar = true
+  onCommand({ kind: 'confirmReset' })
+  await Promise.resolve()
+  const falha = render()
+  assert.match(falha, /role="alertdialog">Não foi possível apagar todos os dados/)
+  assert.doesNotMatch(falha, /detalhe interno/)
+})
+
 test('ChatWindow is only the gate around the app; the gate and the sign-in methods never reach preferences, storage or analytics', () => {
   const parse = (path: string) => {
     const file = new URL(path, import.meta.url)
@@ -257,7 +299,7 @@ test('ChatWindow is only the gate around the app; the gate and the sign-in metho
   const valueImports = (path: string) => parse(path).statements.filter(ts.isImportDeclaration)
     .filter(d => !d.importClause?.isTypeOnly)
     .map(d => (d.moduleSpecifier as ts.StringLiteral).text).sort()
-  assert.deepEqual(valueImports('../views/AccountEntryGate.tsx'), ['../store/account', './AccountWelcomeView', './fork/account/ConfirmarSairWeb', '@shared/fork-features', 'react'])
+  assert.deepEqual(valueImports('../views/AccountEntryGate.tsx'), ['../components/Overlay', '../lib/fork-i18n/index.ts', '../store/account', './AccountWelcomeView', './fork/account/ConfirmarSairWeb', '@shared/fork-features', 'react'])
   // The password stays in its field: the methods module reads no store, preference, storage or analytics.
   assert.deepEqual(valueImports('../views/welcome/SignInMethods.tsx'), ['../../assets/google.svg', '../../components/Controls', '../../components/Icon', 'react'])
   assert.doesNotMatch(parse('../views/welcome/SignInMethods.tsx').getFullText(), /localStorage|sessionStorage|console\.|useState<string>/)

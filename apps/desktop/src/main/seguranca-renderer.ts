@@ -7,7 +7,8 @@ interface Solicitante {
 }
 
 export function origemDoChat(renderer: string, solicitante: Solicitante): boolean {
-  return solicitante.janelaPrincipal && solicitante.framePrincipal && solicitante.url === renderer && isLocalRendererURL(renderer)
+  return solicitante.janelaPrincipal && solicitante.framePrincipal && isLocalRendererURL(renderer)
+    && solicitante.url?.split('#')[0] === renderer.split('#')[0]
 }
 
 export function permiteNoChat(

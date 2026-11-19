@@ -1,5 +1,7 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { showsAccountControls } from '@shared/fork-features'
+import { Dialog } from '../components/Overlay'
+import { idiomaDoDocumento, superficieIdioma, tradutor } from '../lib/fork-i18n/index.ts'
 import { useAccount } from '../store/account'
 import { AccountWelcomeView } from './AccountWelcomeView'
 import { ConfirmarSairWeb } from './fork/account/ConfirmarSairWeb'
@@ -40,8 +42,13 @@ export function accountEntry(account: AccountEntryState, controls: boolean): Acc
 export function AccountEntryGate({ children }: { children: ReactNode }) {
   const account = useAccount()
   const entry = accountEntry(account, showsAccountControls())
+  const [falhouAoApagar, setFalhouAoApagar] = useState(false)
+  const idioma = idiomaDoDocumento()
+  const t = tradutor(idioma)
   useEffect(() => window.codync.app.onCommand((comando) => {
-    if (comando.kind === 'confirmReset') void window.codync.app.resetAllData()
+    if (comando.kind !== 'confirmReset') return
+    setFalhouAoApagar(false)
+    void window.codync.app.resetAllData().catch(() => setFalhouAoApagar(true))
   }), [])
   return (
     <>
@@ -52,6 +59,15 @@ export function AccountEntryGate({ children }: { children: ReactNode }) {
         </div>
       )}
       <ConfirmarSairWeb />
+      <Dialog
+        open={falhouAoApagar}
+        title={t('navegacao.janela.erro')}
+        message={t('marca.conta.apagarFalhou')}
+        actions={[]}
+        cancel={t('navegacao.janela.ok')}
+        language={superficieIdioma(idioma)}
+        onClose={() => setFalhouAoApagar(false)}
+      />
     </>
   )
 }

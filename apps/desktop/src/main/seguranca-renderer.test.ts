@@ -9,6 +9,12 @@ test('aceita o documento principal do chat', () => {
   assert.equal(origemDoChat(renderer, chat), true)
 })
 
+test('aceita fragmentos do documento principal sem mudar a origem', () => {
+  const solicitante = { ...chat, url: `${renderer}#conversa` }
+  assert.equal(origemDoChat(renderer, solicitante), true)
+  assert.equal(permiteNoChat(renderer, solicitante, 'media', ['audio'], 'file:///'), true)
+})
+
 test('recusa outra janela, um frame filho e um frame ausente', () => {
   assert.equal(origemDoChat(renderer, { ...chat, janelaPrincipal: false }), false)
   assert.equal(origemDoChat(renderer, { ...chat, framePrincipal: false }), false)
