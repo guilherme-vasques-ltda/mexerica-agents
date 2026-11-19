@@ -44,5 +44,9 @@ os 43 ícones de agentes, o logotipo da Apple, `google.svg` e `computer-linux.sv
 
 ## Procedência
 
-`brand/ARTE-HASHES.tsv` lista cada arquivo com o grupo, a regra de uso (`apache-2.0` ou `reservada`), o SHA-256 e o tamanho. A ferramenta usada
-para gerar as ilustrações não foi informada; este registro não a afirma e não comprova termos de serviço de ferramenta alguma.
+`brand/ARTE-HASHES.tsv` lista cada arquivo com o grupo, a regra de uso (`apache-2.0` ou `reservada`), se traz credenciais C2PA, o SHA-256 e o tamanho.
+
+34 PNGs (os 20 fundos de chat, os 10 personagens e as 4 fontes originais do ícone) trazem credenciais de conteúdo C2PA assinadas pela OpenAI e
+datadas de 07/11/2026, que dizem que foram geradas pelo ChatGPT (`gpt-image`). O dono não informou a ferramenta; este registro só repete o que
+as credenciais afirmam. Não foram conferidos os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens geradas. Detalhes em
+[THIRD_PARTY.md](../THIRD_PARTY.md).

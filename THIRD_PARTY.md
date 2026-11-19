@@ -327,10 +327,16 @@ nos arquivos. Licença: SIL Open Font License 1.1, com o texto completo ao lado 
 A cópia inicial trocou a arte própria da Mexerica por imagens neutras geradas por código. Por decisão do dono do projeto em 19/11/2026
 ("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo."), os arquivos originais voltaram **sem nenhuma alteração**: os
 bytes são os mesmos do repositório de origem (revisão `d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`). `brand/ARTE-HASHES.tsv` lista cada arquivo
-(grupo, SHA-256, tamanho e o identificador do blob Git de origem). Os arquivos foram conferidos e não trazem metadados embutidos que identifiquem
+(grupo, SHA-256, tamanho e o identificador do blob Git de origem). Os 1.075 arquivos foram conferidos e não trazem metadados embutidos que identifiquem
 pessoa ou máquina (nenhum campo EXIF/XMP, nenhum texto de PNG ou de WebP); os PDF de logo têm só `Creator: Chromium`, `Producer: Skia/PDF` e a data de exportação (07/11/2026).
-A ferramenta usada para gerar as ilustrações (mascotes, fundos e ícones) **não foi informada**; o registro de procedência não a afirma, e este texto
-também não comprova termos de serviço de ferramenta alguma nem a cadeia de direitos sobre os insumos. Nada aqui é parecer jurídico.
+
+**Credenciais de conteúdo nos próprios arquivos.** 34 PNGs trazem credenciais C2PA embutidas (bloco `caBX`), assinadas por "OpenAI Media Service /
+OpenAI OpCo, LLC" e datadas de 07/11/2026. Elas registram o agente de software "ChatGPT", versão "gpt-image", e a origem digital "mídia gerada por
+algoritmo treinado" (IPTC `trainedAlgorithmicMedia`). São os 20 fundos de chat (`brand/assets/fundos-chat/`), os 10 personagens por papel
+(`brand/assets/personagens/`) e as 4 fontes originais do ícone (`brand/assets/icon/00_fontes_originais/`). A coluna `credenciais_c2pa` de
+`brand/ARTE-HASHES.tsv` marca cada um. Os demais arquivos não trazem essa marca, o que não prova como foram feitos. O dono do projeto não informou a ferramenta
+de geração; este registro só repete o que as credenciais afirmam. Ele não conferiu os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens
+geradas nem a cadeia de direitos sobre os insumos. Nada aqui é parecer jurídico.
 
 | Grupo | Onde fica | Arquivos | Licença declarada na origem |
 | --- | --- | ---: | --- |
