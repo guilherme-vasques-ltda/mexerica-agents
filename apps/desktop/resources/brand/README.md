@@ -11,7 +11,7 @@ docs/guides/marca.md (não faz parte desta cópia).
 Nomes de arquivo, pacotes e o certificado ("Donnabot Local") são técnicos e não mudam com a marca.
 
 **Uso destes arquivos.** O ícone do app, a logo, o mascote, o símbolo, os favicons e o ícone da barra de menus não são licenciados sob
-Apache-2.0: os direitos ficam reservados, e o uso permitido é dentro da Mexerica como distribuída, sem reuso em outros produtos (decisão do dono,
+Apache-2.0: a Mexerica reserva os direitos que tiver e não concede licença de reuso fora dela; o uso permitido é dentro da Mexerica como distribuída, sem reuso em outros produtos (decisão do dono,
 19/11/2026). A regra completa e a lista de caminhos estão em [`brand/LICENCA-DA-ARTE.md`](../../../../brand/LICENCA-DA-ARTE.md). Não é parecer jurídico.
 
 ## Arquivos

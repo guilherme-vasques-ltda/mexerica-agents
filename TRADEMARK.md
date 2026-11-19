@@ -20,7 +20,7 @@ nenhuma. Esta cópia não escolhe licença onde a origem não declara. Forks red
 
 **Uso da arte da Mexerica (decisão do dono, 19/11/2026).** Só as Mexeriquinhas e as 19 opções de ícone das rodadas 2 e 3 são Apache-2.0. Os
 fundos de chat, os papéis de parede, os personagens, a logo, o mascote, o símbolo, o ícone do app, os favicons, o ícone da barra de menus e as
-variantes e fontes do ícone **não** são licenciados sob Apache-2.0: os direitos ficam reservados, e o uso permitido é dentro da Mexerica como
+variantes e fontes do ícone **não** são licenciados sob Apache-2.0: a Mexerica reserva os direitos que tiver sobre essas imagens e não concede licença de reuso fora dela; o uso permitido é dentro da Mexerica como
 distribuída, sem reuso em outros produtos. A lista de caminhos está em [brand/LICENCA-DA-ARTE.md](brand/LICENCA-DA-ARTE.md). Nenhum advogado leu
 este texto; ele não é parecer jurídico.
 

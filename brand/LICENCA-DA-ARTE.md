@@ -21,11 +21,12 @@ A origem declara Apache-2.0 para estes grupos, e a declaração foi mantida.
 
 ## Regra B: direitos reservados, uso só dentro da Mexerica
 
-Estes grupos **não** são licenciados sob Apache-2.0. A origem não declara licença para eles, e esta cópia também não escolhe uma. Os direitos
-ficam reservados ao titular (a Mexerica, por decisão do dono). O uso permitido é **dentro da Mexerica como distribuída**: ver, compilar e
-rodar o app com essas imagens. Não é permitido reusar, republicar ou incluir essas imagens em outros produtos, nem usá-las como marca de
-outro projeto. O nome, a logo, o mascote e o ícone são também marca reservada (ver [TRADEMARK.md](../TRADEMARK.md)). A permissão pode ser
-ampliada depois pelo titular, sem voltar atrás; o contrário não vale.
+Estes grupos **não** são licenciados sob Apache-2.0. A origem não declara licença para eles, e esta cópia também não escolhe uma. A Mexerica
+reserva os direitos que tiver sobre essas imagens e **não concede licença de reuso fora da Mexerica**. Este texto não afirma quem é o titular
+de direito autoral de cada imagem: 34 delas se declaram geradas por ferramenta de IA (ver "Procedência" abaixo). O uso permitido é **dentro
+da Mexerica como distribuída**: ver, compilar e rodar o app com essas imagens. Não é permitido reusar, republicar ou incluir essas imagens em
+outros produtos. O nome, a logo, o mascote e o ícone são tratados à parte, como marca reservada (ver [TRADEMARK.md](../TRADEMARK.md)). A
+permissão pode ser ampliada depois, sem voltar atrás; o contrário não vale.
 
 | Grupo | Caminhos | Arquivos |
 | --- | --- | ---: |
