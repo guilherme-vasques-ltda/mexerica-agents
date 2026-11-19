@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Which coding harnesses this machine has, and how to drive each over ACP.
 //!
 //! Detection works like Orca's preflight: hydrate PATH from the user's login

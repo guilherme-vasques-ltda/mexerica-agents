@@ -1,3 +1,4 @@
+# Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 """Fixture ACP real para o extrator contido e a nomeação, sem provedor LLM.
 
 Memória reconhece apenas ExtractionInput novo (jobId/messages) e devolve operações

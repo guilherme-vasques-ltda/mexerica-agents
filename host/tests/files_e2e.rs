@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Generated file publication through real ACP/MCP and authenticated HTTP.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

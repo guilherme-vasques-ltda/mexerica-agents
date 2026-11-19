@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // MX-93: entrada mínima. A abertura sorteada do index.html só pinta se o JS pesado do app não ocupar a thread
 // antes do primeiro quadro (sem isso, a primeira pintura vinha depois do bundle inteiro). Na janela principal com
 // abertura, espera um quadro pintado (ou 100 ms, se a janela não pintar) e carrega o app; nas outras, carrega já.

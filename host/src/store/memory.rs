@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The memory crate's tables live in this database. Each change is one transaction stamped with the next `rev`,
 //! like every other mutation; see `codync_mem` and `chat::memory`.
 

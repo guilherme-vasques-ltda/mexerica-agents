@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // SSH computers (spec §11.4): profiles, tunnel status and the computers they attach.
 // The main process runs OpenSSH; the renderer shows the state and attaches a store per tunnel.
 

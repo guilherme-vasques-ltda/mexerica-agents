@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Immutable snapshots explicitly published by a bot, independent of its workspace.
 use crate::chat::uploads::MAX_FILE;
 use anyhow::{Context as _, Result, ensure};

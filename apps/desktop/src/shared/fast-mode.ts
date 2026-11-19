@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // Fast mode in the chat (the composer's `/fast`) and bot settings; the host reports what the agent
 // offers (`fastModeSupport`, `fastModeIssue`): docs/features/marketplace.md, "Fast mode".
 import type { Bot } from './models'

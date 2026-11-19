@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // Fail before packaging if a stale account-config.json belongs to the other app variant.
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { HostClient } from '../../client/host-client'
 import { Observable, useModel } from '../../lib/observable'
 import type { BotStore } from '../../store/bot-store'

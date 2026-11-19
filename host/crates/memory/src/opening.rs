@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The bot's opening memory: what it knows before the first message.
 //!
 //! "Yours" (shared with the owner, personal space only) and the bot's own layer, each under its token cap.

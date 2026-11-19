@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Realtime voice for calls on the user's own provider keys (`OpenAI` Realtime,
 //! Gemini Live). The keys stay in this computer's vault; a client starting a
 //! call gets a short-lived credential minted here and then streams audio to the

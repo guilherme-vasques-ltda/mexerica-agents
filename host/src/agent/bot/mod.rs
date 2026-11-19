@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! One actor per bot. It owns the bot's ACP process and session, runs turns one
 //! at a time, and maps ACP `session/update`s onto transcript entries.
 //!

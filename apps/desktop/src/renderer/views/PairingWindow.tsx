@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useCallback, useEffect, useState } from 'react'
 import { useT } from '../lib/fork-i18n/estado'
 import type { CloudStatus, PairingInfo } from '@shared/models'

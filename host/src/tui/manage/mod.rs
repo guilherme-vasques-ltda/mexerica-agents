@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The settings the other apps keep next to the chat, as TUI sheets: a bot's memory and
 //! routines, the marketplace (agents, connectors, skills), agent sign-in with its setup
 //! terminal, and the pieces of a message you can act on (reactions, sent files).

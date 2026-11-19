@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // `npm run dev` in a linked worktree runs a sandbox beside the main checkout's Donnabot Dev: its own
 // host data (`~/.mexerica-dev-<name>`), port, app data and host process (tools/dev.mjs).
 

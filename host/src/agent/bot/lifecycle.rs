@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Idle agents give their resources back. A session unused for [`IDLE`] is closed (a routine run's
 //! as soon as the run ends); once every session is idle, or a routine run ends with none other open,
 //! the agent stops with its process group.

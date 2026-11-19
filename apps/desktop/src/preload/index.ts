@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { vozBridge } from './fork-voz'
 import { accountProfileBridge } from './fork-account-profile'
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'

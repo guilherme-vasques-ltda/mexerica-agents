@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A bot that manages the team, through a real host and its `manage` MCP process: the approval card that shows a
 //! change in full, the new bot's record of who made it, and a change the user denies.
 

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Phones viewing the screen: prepared WebRTC sessions, offers, takeover and the on/off switch.
 
 use super::{KV_ENABLED, Screen, Viewer, ViewerState, fork_viewer::Original};

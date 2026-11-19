@@ -1,3 +1,4 @@
+/* Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md. */
 /* D165: colors, glass, sizes and shadows come from tokens.json via tokens.css.
    Views consume canonical tokens and scoped semantic roles (docs/reference/redesenho/migracao.md).
    appearance.ts writes data-theme/data-accent before the first paint. */

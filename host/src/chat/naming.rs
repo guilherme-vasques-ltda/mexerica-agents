@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Automatic bot names, as in Grok Bot: a bot created without a name is called
 //! [`PLACEHOLDER`] until its first few conversations show what it's for. Then
 //! a one-shot agent of the bot's harness (see `oneshot`) is asked for a short

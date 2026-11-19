@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Persistent, automatically allocated bot workspaces. A cwd is an execution
 //! default, not an access boundary; explicit project folders remain opt-in.
 

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A bot's memory, as in the other apps: what it knows about you (shared by your bots) and on its own, its dream
 //! log, and Claude Code's own memory where the user kept it on, driven from the keyboard.
 

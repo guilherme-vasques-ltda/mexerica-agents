@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { usePresence } from '../../components/Overlay'

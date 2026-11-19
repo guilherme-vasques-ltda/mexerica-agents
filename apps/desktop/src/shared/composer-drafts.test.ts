@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ComposerDrafts } from './composer-drafts.ts'

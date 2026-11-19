@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The apps' memory methods: the two layers, the user's own edits, the dream log, and the chat cards.
 
 use super::{file_notices, notices};

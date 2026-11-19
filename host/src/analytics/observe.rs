@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! What an API call stands for: `api::dispatch` reports each successful call as one event.
 //! Values come from a request only when they are fixed names, booleans, counts or catalog ids.
 
