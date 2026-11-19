@@ -869,7 +869,7 @@ O app desktop roda sobre o Electron 44.11.4 (MIT; copyright dos contribuidores d
 está em `packaging/avisos/electron-LICENSE.txt` (cópia do arquivo `LICENSE` do pacote npm `electron`). O Electron embute o Chromium e
 dezenas de bibliotecas de terceiros, cujos avisos o projeto publica no arquivo `LICENSES.chromium.html`, que acompanha o
 binário do Electron baixado no empacotamento. **Não há prova nesta etapa de que esse arquivo entre no `.app` do Mac**; essa
-conferência fica pendente para a etapa de geração de instaladores e atualização (GUI-105) e deve ser feita antes de distribuir um
+conferência fica pendente para a etapa de geração de instaladores e atualização e deve ser feita antes de distribuir um
 instalador.
 
 ### WebRTC (helper de tela do Mac)
@@ -882,9 +882,14 @@ com os avisos do WebRTC do Google) está em `packaging/avisos/webrtc-stasel-LICE
 
 ### Dependências de produção
 
-`packaging/avisos/INVENTARIO-DEPENDENCIAS.md` lista as dependências de produção do app Electron, do motor e do Hub (nome, versão e
-licença declarada, a partir dos arquivos de bloqueio). **Limitação:** o inventário traz só o identificador SPDX declarado por cada
-pacote, sem o texto integral de cada licença nem os avisos de copyright de cada autor. Licenças permissivas (MIT, Apache-2.0,
+`packaging/avisos/INVENTARIO-DEPENDENCIAS.md` lista as dependências de produção do app Electron e do Motor (a partir do `package-lock.json`),
+os crates de produção e de compilação do Hub (a partir do `Cargo.lock`) e as bibliotecas que o empacotador do app embute no código do
+renderer mesmo quando o lock as marca como de desenvolvimento (React, React DOM, Scheduler, Lucide, QRCode, dijkstrajs, xterm e o código de
+suporte do Vite; medido num build Linux, não num instalador). **Cobertura e limites estão no começo do inventário.** Ele não lista tudo
+o que um instalador leva: não cobre o Electron e o Chromium, as bibliotecas nativas de macOS e Windows, o helper do Mac nem
+os assets que não vêm do npm, e traz só o identificador SPDX declarado por cada pacote, sem o texto integral de cada licença nem os avisos
+de copyright de cada autor. Para distribuir um instalador, esses textos e avisos ainda precisam ser reunidos e conferidos contra o pacote
+real, antes de distribuir. Licenças permissivas (MIT, Apache-2.0,
 BSD, ISC, Zlib, Unicode) são a grande maioria. Pontos de atenção: o crate `option-ext` (MPL-2.0, licença de arquivo: os arquivos do
 crate são usados sem modificação e seu código-fonte está público em crates.io) e o pacote `argparse` 2.0.1 (Python-2.0, licença permissiva da Python Software Foundation,
 dependência de produção do app Electron). Os crates `r-efi` oferecem MIT ou Apache-2.0 além de LGPL; vale a opção permissiva.
