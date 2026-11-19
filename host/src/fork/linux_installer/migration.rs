@@ -680,9 +680,11 @@ fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<P
             fs::remove_file(&stable)?;
         }
         place(&backup.join("host"), &stable, hub.uid, hub.gid, manifest.binary_mode)?;
+        ensure!(manifest.hashes.get("host") == Some(&digest(&stable)?), "hash do link do app diverge");
     }
     if manifest.unit_present {
         place(&backup.join("unit"), &unit(hub), hub.uid, hub.gid, 0o600)?;
+        ensure!(manifest.hashes.get("unit") == Some(&digest(&unit(hub))?), "hash da unidade restaurada diverge");
     } else if unit(hub).exists() {
         fs::remove_file(unit(hub))?;
     }
