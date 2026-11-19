@@ -17,6 +17,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 mod arquivo;
+mod fixados;
 
 const URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 const MAX_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
@@ -44,7 +45,15 @@ pub fn agents() -> Vec<Value> {
     if cache.is_none() {
         *cache = std::fs::read_to_string(cache_file()).ok().and_then(|s| serde_json::from_str(&s).ok());
     }
-    cache.as_ref().and_then(|v| v["agents"].as_array().cloned()).unwrap_or_default()
+    cache.as_ref().map(agentes_oferecidos).unwrap_or_default()
+}
+
+fn agentes_oferecidos(catalogo: &Value) -> Vec<Value> {
+    catalogo["agents"].as_array().into_iter().flatten().filter(|a| oferecido(a)).cloned().collect()
+}
+
+fn oferecido(agente: &Value) -> bool {
+    !matches!(agente["id"].as_str(), Some("junie" | "cortex-code" | "corust-agent" | "stakpak" | "vtcode"))
 }
 
 pub fn agent(id: &str) -> Option<Value> {
@@ -94,6 +103,12 @@ pub fn platform() -> Option<&'static str> {
 }
 
 pub fn launch_kind(agent: &Value) -> Option<Launch> {
+    if !oferecido(agent) {
+        return None;
+    }
+    if let Some(fixo) = fixados::agente(agent) {
+        return fixo.selecionar(agent, platform()).ok().map(|_| Launch::Download);
+    }
     let d = &agent["distribution"];
     let on_path = crate::agent::backends::on_path;
     if let Some(p) = platform()
@@ -113,7 +128,10 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
 /// The agent runs through `npx` here (no build of its own for this platform).
 pub fn needs_node(agent: &Value) -> bool {
     let d = &agent["distribution"];
-    d["npx"].is_object() && !platform().is_some_and(|p| d["binary"][p].is_object())
+    oferecido(agent)
+        && fixados::agente(agent).is_none()
+        && d["npx"].is_object()
+        && !platform().is_some_and(|p| d["binary"][p].is_object())
 }
 
 fn args_of(v: &Value) -> String {
@@ -160,6 +178,8 @@ impl Cmd {
 /// Downloads the agent first if needed.
 /// `progress` receives short status lines with their stable code ("Downloading Cursor…", `downloading`).
 pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>)) -> Result<Cmd> {
+    ensure!(oferecido(agent), "A instalação pelo catálogo está desativada para este agente.");
+    let fixado = fixados::agente(agent).map(|fixo| fixo.selecionar(agent, platform())).transpose()?;
     if motor_install::orchestrating() {
         let item = agent["name"].as_str().unwrap_or("agent").to_owned();
         progress("Instalando adaptador como motor…", Some(ActivityKind::Installing { item }));
@@ -168,22 +188,24 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             _ => bail!("resposta inválida ao instalar adaptador"),
         };
     }
+    if let Some(pacote) = fixado {
+        return comando_binario(agent, &pacote, "", "acp".into(), &progress).await;
+    }
     let name = agent["name"].as_str().unwrap_or("agent");
     let d = &agent["distribution"];
     match launch_kind(agent) {
         Some(Launch::Download) => {
             let platform = platform().ok_or_else(|| anyhow!("no download for this platform"))?;
             let target = &d["binary"][platform];
-            let cmd =
-                target["cmd"].as_str().and_then(contained).context("Caminho inválido para o executável do agente.")?;
-            let cmd = arquivo::caminho_relativo(cmd)?;
-            let dir = install_binary(agent, target, &cmd, &progress).await?;
-            let executable =
-                if motor_install::worker() { motor_install::published_path(&dir.join(&cmd))? } else { dir.join(&cmd) };
-            Ok(Cmd {
-                program: format!("{}{}", env_prefix(&target["env"]), shell::quote(&executable.to_string_lossy())),
-                args: args_of(target),
-            })
+            // Para os demais agentes, o catálogo externo ainda fornece o hash e o endereço.
+            let pacote = PacoteBinario {
+                hash: hash_obrigatorio(target)?,
+                url: target["archive"].as_str().context("O registro não informou o arquivo do agente.")?,
+                cmd: target["cmd"].as_str().context("Caminho inválido para o executável do agente.")?,
+                limite_download: MAX_ARCHIVE_BYTES,
+                limite_extraido: arquivo::LIMITE_EXTRAIDO,
+            };
+            comando_binario(agent, &pacote, &env_prefix(&target["env"]), args_of(target), &progress).await
         }
         Some(Launch::Npx) => {
             let package = d["npx"]["package"].as_str().unwrap_or_default();
@@ -202,6 +224,28 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
         None if needs_node(agent) => bail!("{name} needs Node.js on this computer: add it in Extensions"),
         None => bail!("{name} has no build for this computer (needs uv)"),
     }
+}
+
+struct PacoteBinario<'a> {
+    url: &'a str,
+    hash: &'a str,
+    cmd: &'a str,
+    limite_download: usize,
+    limite_extraido: u64,
+}
+
+async fn comando_binario(
+    agente: &Value,
+    pacote: &PacoteBinario<'_>,
+    env: &str,
+    args: String,
+    progress: &impl Fn(&str, Option<ActivityKind>),
+) -> Result<Cmd> {
+    let cmd = contained(pacote.cmd).context("Caminho inválido para o executável do agente.")?;
+    let cmd = arquivo::caminho_relativo(cmd)?;
+    let executable = install_binary(agente, pacote, &cmd, progress).await?.join(cmd);
+    let executable = if motor_install::worker() { motor_install::published_path(&executable)? } else { executable };
+    Ok(Cmd { program: format!("{env}{}", shell::quote(&executable.to_string_lossy())), args })
 }
 
 // Fixar a versão evita resolver tags ou faixas móveis. Não fixa as dependências transitivas,
@@ -334,8 +378,12 @@ fn digest_hex(digest: &[u8]) -> String {
 fn hash_obrigatorio(alvo: &Value) -> Result<&str> {
     alvo["sha256"]
         .as_str()
-        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .filter(|hash| sha256_valido(hash))
         .context("O catálogo não trouxe um SHA-256 válido (64 dígitos hexadecimais) para este agente. A instalação foi recusada.")
+}
+
+fn sha256_valido(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 async fn ler_download(mut resposta: reqwest::Response, limite: usize) -> Result<Vec<u8>> {
@@ -352,14 +400,12 @@ async fn ler_download(mut resposta: reqwest::Response, limite: usize) -> Result<
 /// Downloads + extracts a binary distribution into `~/.codync/agents/<id>/<version>`.
 async fn install_binary(
     agent: &Value,
-    target: &Value,
+    pacote: &PacoteBinario<'_>,
     cmd: &Path,
     progress: &impl Fn(&str, Option<ActivityKind>),
 ) -> Result<PathBuf> {
     static INSTALANDO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    // O SHA-256 detecta divergência entre o download e a descrição, mas não autentica o
-    // registro externo: ele fornece tanto o hash quanto o endereço do arquivo.
-    let hash = hash_obrigatorio(target)?;
+    let hash = pacote.hash;
     let _instalando = INSTALANDO.lock().await;
     let id = agent["id"].as_str().and_then(safe_component).ok_or_else(|| anyhow!("registry entry has a bad id"))?;
     let version = agent["version"].as_str().and_then(safe_component).unwrap_or("latest");
@@ -367,8 +413,7 @@ async fn install_binary(
     if arquivo::cache_verificado(&dir, hash, cmd)? {
         return Ok(dir);
     }
-    let url = target["archive"].as_str().context("O registro não informou o arquivo do agente.")?;
-    let url = reqwest::Url::parse(url).or_else(|_| bail!("Endereço de download do agente inválido."))?;
+    let url = reqwest::Url::parse(pacote.url).or_else(|_| bail!("Endereço de download do agente inválido."))?;
     if url.scheme() != "https" {
         bail!("O download do agente exige HTTPS.");
     }
@@ -377,11 +422,12 @@ async fn install_binary(
     let item = agent["name"].as_str().unwrap_or(id).to_owned();
     progress(&format!("Downloading {item}…"), Some(ActivityKind::Downloading { item: item.clone() }));
     let resposta = crate::http().get(url).timeout(Duration::from_secs(600)).send().await?.error_for_status()?;
-    let bytes = ler_download(resposta, MAX_ARCHIVE_BYTES).await?;
+    let bytes = ler_download(resposta, pacote.limite_download).await?;
     progress("Installing…", Some(ActivityKind::Installing { item }));
     let (dir2, hash, cmd) = (dir.clone(), hash.to_owned(), cmd.to_owned());
+    let limite_extraido = pacote.limite_extraido;
     tokio::task::spawn_blocking(move || -> Result<()> {
-        arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd)?;
+        arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd, limite_extraido)?;
         remove_other_versions(&dir2);
         Ok(())
     })
@@ -451,6 +497,34 @@ fn chmod_x(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn lista_do_catalogo_omite_os_cinco_bloqueados_e_preserva_os_motores_nativos() {
+        let v = json!({"agents": [
+            {"id":"cursor"}, {"id":"devin"}, {"id":"junie"}, {"id":"cortex-code"},
+            {"id":"corust-agent"}, {"id":"stakpak"}, {"id":"vtcode"}, {"id":"outro"}
+        ]});
+        let ids: Vec<_> = agentes_oferecidos(&v).into_iter().map(|a| a["id"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(ids, ["cursor", "devin", "outro"]);
+        for id in ["junie", "cortex"] {
+            assert!(crate::agent::backends::harness(id).unwrap().local.is_some());
+        }
+        for id in ["corust-agent", "stakpak", "vtcode"] {
+            assert!(crate::agent::backends::harness(id).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn nao_instala_do_catalogo_bloqueado_nem_troca_um_binario_fixado_por_npm() {
+        for id in ["junie", "cortex-code", "corust-agent", "stakpak", "vtcode"] {
+            let agente = json!({"id": id, "version": "1.0.0", "distribution":{"npx":{"package":"pacote@1.0.0"}}});
+            let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+            assert!(erro.to_string().contains("A instalação pelo catálogo está desativada"));
+        }
+        let agente = json!({"id":"cursor", "version":"0.0.1", "distribution":{"npx":{"package":"pacote@1.0.0"}}});
+        let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+        assert!(erro.to_string().contains("versão verificada"));
+    }
 
     #[test]
     fn exige_sha256_com_64_hexadecimais_antes_de_baixar() {

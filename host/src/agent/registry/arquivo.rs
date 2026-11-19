@@ -5,7 +5,7 @@ use std::io::{self, Cursor, ErrorKind, Read, Write as _};
 use std::path::{Component, Path, PathBuf};
 
 const MARCADOR: &str = ".installed";
-const LIMITE_EXTRAIDO: u64 = 512 * 1024 * 1024;
+pub(super) const LIMITE_EXTRAIDO: u64 = 512 * 1024 * 1024;
 const LIMITE_ENTRADAS: usize = 4096;
 
 pub(super) fn caminho_relativo(caminho: &Path) -> Result<PathBuf> {
@@ -137,13 +137,20 @@ fn hash_executavel(exe: &Path) -> Result<Option<String>> {
     }
 }
 
-pub(super) fn publicar(destino: &Path, nome: &str, bytes: &[u8], hash: &str, cmd: &Path) -> Result<()> {
+pub(super) fn publicar(
+    destino: &Path,
+    nome: &str,
+    bytes: &[u8],
+    hash: &str,
+    cmd: &Path,
+    limite_extraido: u64,
+) -> Result<()> {
     ensure!(super::sha256_hex(bytes).eq_ignore_ascii_case(hash), "O SHA-256 do download do agente não confere.");
     let pai = destino.parent().context("Pasta de instalação do agente inválida.")?;
     preparar_pai(pai)?;
     let temporaria = pasta_privada(pai, ".agente-")?;
     let pasta = temporaria.path();
-    extrair(nome, bytes, pasta, LIMITE_EXTRAIDO, LIMITE_ENTRADAS, cmd)?;
+    extrair(nome, bytes, pasta, limite_extraido, LIMITE_ENTRADAS, cmd)?;
     let exe = executavel_regular(pasta, cmd)?;
     #[cfg(unix)]
     {

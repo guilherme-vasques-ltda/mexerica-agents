@@ -1,5 +1,9 @@
 use super::*;
 
+fn publicar(destino: &Path, nome: &str, bytes: &[u8], hash: &str, cmd: &Path) -> Result<()> {
+    super::publicar(destino, nome, bytes, hash, cmd, LIMITE_EXTRAIDO)
+}
+
 fn pasta_temporaria() -> tempfile::TempDir {
     tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
 }
