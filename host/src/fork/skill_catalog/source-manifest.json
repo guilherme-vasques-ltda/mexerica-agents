@@ -346,7 +346,7 @@
   {
     "id": "hallmark",
     "sourceName": "hallmark",
-    "sourceDescription": "Design skill for websites and new pages that look designed, not generated. Use when the user asks to build or design something new, or names Hallmark. Never use it on an existing design unless the user names Hallmark, as in `/hallmark redesign <path>`.",
+    "sourceDescription": "Guia parcial para planejar páginas e direção visual, sem temas, fotos ou geradores.",
     "origin": {
       "repo": "Nutlope/hallmark",
       "revision": "7ec868225c6caa040558c321ee0fefa0e73f83a8",
@@ -362,7 +362,7 @@
     },
     "sourceFrontmatter": {
       "name": "hallmark",
-      "description": "Design skill for websites and new pages that look designed, not generated. Use when the user asks to build or design something new, or names Hallmark. Never use it on an existing design unless the user names Hallmark, as in `/hallmark redesign <path>`.",
+      "description": "Guia parcial para planejar páginas e direção visual, sem temas, fotos ou geradores.",
       "argument-hint": "<prompt> | redesign <path> | audit <path>",
       "version": "2.0.0",
       "metadata": {
@@ -372,7 +372,7 @@
     "installId": "hallmark",
     "previousInstallId": "hallmark-donna",
     "previousDigest": "d20edd71b9f84b1aee09c3c2b6089ac283626eec7402bd2a29c7437c730e98a9",
-    "digest": "cfe477b900f1cf10591afa862e4246602be77ab897b0d1dd6dd879cfe2b05b8b",
+    "digest": "9396bfb1e34630ccca955a64a161d732dd894b80cc4d51e1f855255e50c9bdbf",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: argument-hint, version. O arquivo não foi reescrito para passar a validação.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -766,7 +766,7 @@
   {
     "id": "skill-creator",
     "sourceName": "skill-creator",
-    "sourceDescription": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+    "sourceDescription": "Roteiro parcial para escrever habilidades textuais com escopo e exemplos claros.",
     "origin": {
       "repo": "anthropics/skills",
       "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
@@ -782,12 +782,12 @@
     },
     "sourceFrontmatter": {
       "name": "skill-creator",
-      "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy."
+      "description": "Roteiro parcial para escrever habilidades textuais com escopo e exemplos claros."
     },
     "installId": "skill-creator",
     "previousInstallId": "skill-creator-donna",
     "previousDigest": "726e504df73770b14fb453d8a4dac2095231e1fdbb20c8b7ad2f846a7e56dc85",
-    "digest": "89fabd4f76d6adb9de5ea74f32e3c5682a6779dc4891842ab5e0db71576220c9",
+    "digest": "487f42c312bb9253b0294be741dca89924edd1fa50bb142f3589fc7f68ba3ba2",
     "availability": "dependencyUnavailable",
     "reason": "SKILL.md original tem 33168 bytes; o catálogo aceita no máximo 32768. Nenhum corte ou reescrita autorizado.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -1222,7 +1222,7 @@
   {
     "id": "handoff",
     "sourceName": "handoff",
-    "sourceDescription": "Compact the current conversation into a handoff document for another agent to pick up.",
+    "sourceDescription": "Preparar um resumo com fontes, pendências e próximos passos para passagem de contexto.",
     "origin": {
       "repo": "mattpocock/skills",
       "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
@@ -1238,14 +1238,14 @@
     },
     "sourceFrontmatter": {
       "name": "handoff",
-      "description": "Compact the current conversation into a handoff document for another agent to pick up.",
+      "description": "Preparar um resumo com fontes, pendências e próximos passos para passagem de contexto.",
       "argument-hint": "What will the next session be used for?",
       "disable-model-invocation": true
     },
     "installId": "handoff",
     "previousInstallId": "handoff-donna",
     "previousDigest": "a2df310dc73d115bf8134312ce428b74f31ea84b321e3853d50887d0c0508c35",
-    "digest": "9b58151132ba726f6a05914fe8d0b84d54b7a8c2a6c928e0d39383687924cbf4",
+    "digest": "e468e625eec4ee069bd8ba819fc215f191471118a3d2203643b9d479575d3d92",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: argument-hint, disable-model-invocation. O arquivo não foi reescrito para passar a validação.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -1876,7 +1876,7 @@
   {
     "id": "orca-reference",
     "sourceName": "orchestration",
-    "sourceDescription": "Coordinate supervised Orca workers: threaded messages, blocking ask/reply, task dispatch, worker_done/escalation waits, task DAGs, decision gates, coordinator loops, and decomposing work across agents. Use `orca-cli` for full ownership handoffs — \"hand off\", \"handoff\", \"handover\", \"give this to another agent\", \"another worktree\" — unless asked to supervise, monitor, or coordinate a DAG, and for terminal control, lightweight terminal prompts, shell commands, Orca worktree management, and reading or waiting on terminals.",
+    "sourceDescription": "Ideias de coordenação para Donna; referência técnica, sem instalação de Orca ou stub.",
     "origin": {
       "repo": "stablyai/orca",
       "revision": "c90d0f93c0f2f2c3ec243046c36059a1f4ec5cd2",
@@ -1892,12 +1892,12 @@
     },
     "sourceFrontmatter": {
       "name": "orchestration",
-      "description": "Coordinate supervised Orca workers: threaded messages, blocking ask/reply, task dispatch, worker_done/escalation waits, task DAGs, decision gates, coordinator loops, and decomposing work across agents. Use `orca-cli` for full ownership handoffs — \"hand off\", \"handoff\", \"handover\", \"give this to another agent\", \"another worktree\" — unless asked to supervise, monitor, or coordinate a DAG, and for terminal control, lightweight terminal prompts, shell commands, Orca worktree management, and reading or waiting on terminals."
+      "description": "Ideias de coordenação para Donna; referência técnica, sem instalação de Orca ou stub."
     },
     "installId": "orchestration",
     "previousInstallId": "orca-reference-donna",
     "previousDigest": "4faa362713062d6a2adb49702c62b93154a5889afe12321eade96ae24aa53330",
-    "digest": "24e87a5a197d5fc1feadc14620d7aac1b9fea1f081f28ce4c789a8ef358b17c6",
+    "digest": "91fe4f62fb9d3cab65e567899214f13167eb73f65f087e3d54998c98d317ae0b",
     "availability": "dependencyUnavailable",
     "reason": "Referência de ideias para Donna. Não é habilidade instalável: o stub upstream depende de Orca; esta rodada não adota esse runtime nem implementa nova orquestração nativa.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -1919,7 +1919,7 @@
   {
     "id": "browser-use",
     "sourceName": "browser-use",
-    "sourceDescription": "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client.",
+    "sourceDescription": "Apoio textual para usar a ferramenta de navegação autorizada quando ela estiver disponível.",
     "origin": {
       "repo": "browser-use/browser-use",
       "revision": "3df5806a0d097a1546d92c49bcf1b28c9972c3bd",
@@ -1935,7 +1935,7 @@
     },
     "sourceFrontmatter": {
       "name": "browser-use",
-      "description": "Direct browser control via CDP for web interaction: automation, scraping, testing, screenshots, and site/app work. Also covers hosted cloud browsers for AI agents: the browser-use Python library (Browser(use_cloud=True)), Playwright, Puppeteer or any CDP client.",
+      "description": "Apoio textual para usar a ferramenta de navegação autorizada quando ela estiver disponível.",
       "homepage": "https://browser-use.com",
       "metadata": {
         "openclaw": {
@@ -1961,7 +1961,7 @@
     "installId": "browser-use",
     "previousInstallId": "browser-use-donna",
     "previousDigest": "cf4881a869e2b0ba69b77e45450bc7b59683c1a982dde9bea8f58e2d71fdc3b7",
-    "digest": "5e4880f5ff7d958a7a607cf586c66a711deb4e37415aecd9e0171c4ccce20994",
+    "digest": "18ecdf8b76b5b8aa72f3e61e4c03e7988c570a372fc5827703406957d0109f44",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: homepage. O arquivo não foi reescrito para passar a validação. metadata original contém valores estruturados; o importador atual exige mapa de textos. Nenhum instalador YAML será interpretado.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2645,7 +2645,7 @@
   {
     "id": "firecrawl-build-scrape",
     "sourceName": "firecrawl-build-scrape",
-    "sourceDescription": "Integrate Firecrawl `/scrape` into product code for single-page extraction. Use when an app already has a URL and needs markdown, HTML, links, screenshots, metadata, or structured page output. Prefer this skill over broader crawl patterns when the feature is page-level.",
+    "sourceDescription": "Integrar extração de páginas com Firecrawl — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2661,7 +2661,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-build-scrape",
-      "description": "Integrate Firecrawl `/scrape` into product code for single-page extraction. Use when an app already has a URL and needs markdown, HTML, links, screenshots, metadata, or structured page output. Prefer this skill over broader crawl patterns when the feature is page-level.",
+      "description": "Integrar extração de páginas com Firecrawl — apoio textual condicional, sem operação externa.",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2688,7 +2688,7 @@
     "installId": "firecrawl-build-scrape",
     "previousInstallId": "firecrawl-build-scrape-donna",
     "previousDigest": "b2d3744760b994a4a18cedaed16f95e05c61a7bcbc228a971d66fa17eefdf656",
-    "digest": "f6a510e92322345fb49357334716f6fbcacabe7d7c3bc6a9c24e189021b9bae8",
+    "digest": "3d60dbb226f223db898a05985f78f46f94c8ed56d6e2fe100f265a5915731518",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs, references. O arquivo não foi reescrito para passar a validação.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2711,7 +2711,7 @@
   {
     "id": "firecrawl-build-search",
     "sourceName": "firecrawl-build-search",
-    "sourceDescription": "Integrate Firecrawl `/search` into product code and agent workflows. Use when an app needs discovery before extraction, when the feature starts with a query instead of a URL, or when the system should search the web and optionally hydrate result content.",
+    "sourceDescription": "Integrar busca com Firecrawl — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2727,7 +2727,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-build-search",
-      "description": "Integrate Firecrawl `/search` into product code and agent workflows. Use when an app needs discovery before extraction, when the feature starts with a query instead of a URL, or when the system should search the web and optionally hydrate result content.",
+      "description": "Integrar busca com Firecrawl — apoio textual condicional, sem operação externa.",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2751,7 +2751,7 @@
     "installId": "firecrawl-build-search",
     "previousInstallId": "firecrawl-build-search-donna",
     "previousDigest": "b1a1e143c06d88e8218140dff38a4b1330df34036455b09920bb5df8e1a760cc",
-    "digest": "1493fb1c6c41187e632b8387ad1e8f1880db18b542250baf73ca23d91decbb00",
+    "digest": "715ca4608305e9f64678c8bde7f7948fe4bdd00fba35b2aa2acb744dbf931e48",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs. O arquivo não foi reescrito para passar a validação.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2773,7 +2773,7 @@
   {
     "id": "firecrawl-build-interact",
     "sourceName": "firecrawl-build-interact",
-    "sourceDescription": "Integrate Firecrawl `/interact` into product code for dynamic pages and browser actions after scraping. Use when a feature needs clicks, form fills, pagination, authentication-aware flows, or other multi-step interactions that plain `/scrape` cannot complete.",
+    "sourceDescription": "Integrar interação web com Firecrawl — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2789,7 +2789,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-build-interact",
-      "description": "Integrate Firecrawl `/interact` into product code for dynamic pages and browser actions after scraping. Use when a feature needs clicks, form fills, pagination, authentication-aware flows, or other multi-step interactions that plain `/scrape` cannot complete.",
+      "description": "Integrar interação web com Firecrawl — apoio textual condicional, sem operação externa.",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2813,7 +2813,7 @@
     "installId": "firecrawl-build-interact",
     "previousInstallId": "firecrawl-build-interact-donna",
     "previousDigest": "64a025769d055573452773fd647b93967d86ba50d03291e62a44517268ff7898",
-    "digest": "3332c8da823a470aa3249d9e15d79844a41acc78ef2ffbf789c68a2e65504e90",
+    "digest": "867704e245a62aae7dedc55f5b39df1243ca41898eea1f049e4e9b8f91cd2844",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs. O arquivo não foi reescrito para passar a validação.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2835,7 +2835,7 @@
   {
     "id": "firecrawl-deep-research",
     "sourceName": "firecrawl-deep-research",
-    "sourceDescription": "Produce an intensive, cited analytical report: executive summary, multi-angle\nfindings, contrarian views, open questions, and full sources. Use only when the\nuser needs rigorous synthesis of a complex topic (scientific, technical, policy,\nor market-analytical) that cannot be answered with a short search, and wants\na formal written report, not a recommendation list.\n\nDo not use for product picks, top-N lists, quick lookups, or routine \"find out\nabout X\" tasks. If the request does not clearly need this kind of report, do\nnot use this skill.\n\nDo not use for a literature review over published papers. This skill collects\nevidence from the open web. A request for the literature on a biomedical,\nclinical, life-science, or other scientific topic — papers, studies, trials,\npreprints — belongs to firecrawl-research-papers, which queries Firecrawl's\npaper index (PubMed, bioRxiv, medRxiv, arXiv) instead of searching websites.\n",
+    "sourceDescription": "Pesquisa aprofundada com fontes — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/firecrawl-workflows",
       "revision": "d2a986240f9d786ae54fc33fcfd9ad37308e9cc3",
@@ -2851,7 +2851,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-deep-research",
-      "description": "Produce an intensive, cited analytical report: executive summary, multi-angle\nfindings, contrarian views, open questions, and full sources. Use only when the\nuser needs rigorous synthesis of a complex topic (scientific, technical, policy,\nor market-analytical) that cannot be answered with a short search, and wants\na formal written report, not a recommendation list.\n\nDo not use for product picks, top-N lists, quick lookups, or routine \"find out\nabout X\" tasks. If the request does not clearly need this kind of report, do\nnot use this skill.\n\nDo not use for a literature review over published papers. This skill collects\nevidence from the open web. A request for the literature on a biomedical,\nclinical, life-science, or other scientific topic — papers, studies, trials,\npreprints — belongs to firecrawl-research-papers, which queries Firecrawl's\npaper index (PubMed, bioRxiv, medRxiv, arXiv) instead of searching websites.\n",
+      "description": "Pesquisa aprofundada com fontes — apoio textual condicional, sem operação externa.",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2870,7 +2870,7 @@
     "installId": "firecrawl-deep-research",
     "previousInstallId": "firecrawl-deep-research-donna",
     "previousDigest": "b95e6878b41e270da07b437191331a718f387558c2759e25467f237f7379e561",
-    "digest": "eaa961a262c77a93d7083414756cee1c2d72b2666891424a5a13b93454fe187e",
+    "digest": "de32b5c61bebc373669850afc1fbe2a2a0b5f1acd5149995d4cd77579ab4fe4d",
     "availability": "dependencyUnavailable",
     "reason": "Frontmatter original usa campos recusados pelo importador atual: inputs. O arquivo não foi reescrito para passar a validação.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2892,7 +2892,7 @@
   {
     "id": "firecrawl",
     "sourceName": "firecrawl",
-    "sourceDescription": "Any live-web task via the Firecrawl CLI — including ordinary web research: searching the web, reading or extracting pages, gathering sources, discovering site URLs, bulk extraction, downloading a site, change alerts, or pages needing clicks/login — web only; local files route to firecrawl-parse. For US legal or regulatory questions use gov; for papers use firecrawl-research-index; for library, API, error, or bug questions use firecrawl-developer-index.\n",
+    "sourceDescription": "Firecrawl: guia de uso autorizado — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2908,7 +2908,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl",
-      "description": "Any live-web task via the Firecrawl CLI — including ordinary web research: searching the web, reading or extracting pages, gathering sources, discovering site URLs, bulk extraction, downloading a site, change alerts, or pages needing clicks/login — web only; local files route to firecrawl-parse. For US legal or regulatory questions use gov; for papers use firecrawl-research-index; for library, API, error, or bug questions use firecrawl-developer-index.\n",
+      "description": "Firecrawl: guia de uso autorizado — apoio textual condicional, sem operação externa.",
       "allowed-tools": [
         "Bash(firecrawl *)",
         "Bash(npx firecrawl-cli *)"
@@ -2917,7 +2917,7 @@
     "installId": "firecrawl",
     "previousInstallId": "firecrawl-donna",
     "previousDigest": "c943a45303123116615379e1c729b0680e34625c4d4c79b2483ea6a17956272a",
-    "digest": "405a982d906d3207be991cf3077508b4ffb2b31533649db030a18570a06a37b2",
+    "digest": "19c9d96b1697669c2fc52aee1fd3ccd911fdb2c9a2025755c1bfd1189af74b09",
     "availability": "dependencyUnavailable",
     "reason": "allowed-tools original é lista; o importador atual exige texto. Não converter em permissões nem reescrever YAML.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2941,7 +2941,7 @@
   {
     "id": "firecrawl-search",
     "sourceName": "firecrawl-search",
-    "sourceDescription": "Find web sources with query-relevant page excerpts and optional full-page content, and discover workflows, data APIs, and indexes. Use for web research or finding structured records, listings, transcripts, and datasets. Supports semantic tool discovery, domain matching, and progressive catalogue browsing.",
+    "sourceDescription": "Pesquisar com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2957,7 +2957,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-search",
-      "description": "Find web sources with query-relevant page excerpts and optional full-page content, and discover workflows, data APIs, and indexes. Use for web research or finding structured records, listings, transcripts, and datasets. Supports semantic tool discovery, domain matching, and progressive catalogue browsing.",
+      "description": "Pesquisar com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
       "allowed-tools": [
         "Bash(firecrawl *)",
         "Bash(npx firecrawl-cli *)"
@@ -2966,7 +2966,7 @@
     "installId": "firecrawl-search",
     "previousInstallId": "firecrawl-search-donna",
     "previousDigest": "c88a9db105928fba701ab95eb7a870e9b898393e32f036135b07a98c08a7da3e",
-    "digest": "819ac0fe8690d44e090a1a10f1e951c107905d3d542f8b5850aef0158aecd52b",
+    "digest": "000b3b34315237f8f4b90a6103a4bab98db5184d201cd132925083f6569c16f0",
     "availability": "dependencyUnavailable",
     "reason": "allowed-tools original é lista; o importador atual exige texto. Não converter em permissões nem reescrever YAML.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
@@ -2988,7 +2988,7 @@
   {
     "id": "firecrawl-scrape",
     "sourceName": "firecrawl-scrape",
-    "sourceDescription": "Read a known webpage or execute a discovered workflow or data-provider capability. Use for page content or structured results once the URL or tool is selected.",
+    "sourceDescription": "Ler páginas com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -3004,7 +3004,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-scrape",
-      "description": "Read a known webpage or execute a discovered workflow or data-provider capability. Use for page content or structured results once the URL or tool is selected.",
+      "description": "Ler páginas com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
       "allowed-tools": [
         "Bash(firecrawl *)",
         "Bash(npx firecrawl-cli *)"
@@ -3013,7 +3013,7 @@
     "installId": "firecrawl-scrape",
     "previousInstallId": "firecrawl-scrape-donna",
     "previousDigest": "483fea5582378050575c00b98b3f181de1914dd89d930e4fe45be9902ad48dc5",
-    "digest": "5aa0c2bcdf32e3d69eba762fdcf1e139ad20c77ba3d237d991decc079a0e29ee",
+    "digest": "c9b2b4587253326772fa441eba7511d5b3d3184faad32ab8074be21c6d8c9401",
     "availability": "dependencyUnavailable",
     "reason": "allowed-tools original é lista; o importador atual exige texto. Não converter em permissões nem reescrever YAML.",
     "compatibilityOwner": "SKILL-MIN/MEM existentes; análise e Opus, sem nova frente",
