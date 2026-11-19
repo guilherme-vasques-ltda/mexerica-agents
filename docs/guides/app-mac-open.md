@@ -6,9 +6,15 @@ A saída é `dist/open/mac-arm64/Mexerica Open.app` no Apple Silicon e
 `dist/open/mac/Mexerica Open.app` no Intel. É um pacote local com assinatura
 ad hoc, sem instalador, download ou atualizações.
 
-Abra o pacote pelo caminho acima, sem mover para Aplicativos. A janela do
-cliente abre sem conta e não conecta ao Hub, SSH ou a conectores. O pacote leva
-o helper de fala, mas a janela de teste não o executa nem pede microfone.
+Abra o `.app` pelo Finder ou com `open`, sem mover para Aplicativos.
+Confirme que a janela apareceu: em um teste num Mac limpo, a primeira
+tentativa não iniciou o app e não mostrou erro; duas aberturas posteriores
+funcionaram. Não execute o binário dentro do pacote para tentar abrir de novo:
+isso deixou um segundo processo sem janela no teste.
+
+A janela do cliente abre sem conta e não conecta ao Hub, SSH ou a conectores.
+O pacote leva o helper de fala, mas a janela de teste não o executa nem pede
+microfone.
 
 O macOS identifica este pacote por `app.mexerica.open`; ele declara apenas o
 esquema `mexerica-open:`. O cliente usa a porta 19524 como identificador,
