@@ -823,3 +823,37 @@ SOFTWARE.
 
 A cópia íntegra permanece em `motor/vendor/pi-mono/LICENSE` e a origem exata em
 `motor/vendor/pi-mono/UPSTREAM.md`.
+
+## Avisos distribuídos nos instaladores
+
+Os arquivos abaixo são copiados para dentro de cada instalador (pasta `resources/avisos/` do app) pela configuração
+`extraResources` de `apps/desktop/electron-builder.yml`: `LICENSE`, `NOTICE`, `THIRD_PARTY.md`, `TRADEMARK.md`,
+`MODIFICACOES.md`, `MODIFICACOES-ARQUIVOS.md`, os textos OFL das fontes, e os arquivos de `packaging/avisos/` descritos aqui.
+**Esta configuração não foi exercitada num empacotamento real** nesta etapa (o binário do Electron não é baixado no ambiente de
+revisão); quem gerar o primeiro instalador deve conferir que `resources/avisos/` aparece no pacote de cada sistema.
+
+### Electron e Chromium
+
+O app desktop roda sobre o Electron 44.11.4 (MIT, copyright da OpenJS Foundation e dos contribuidores do Electron). O texto da licença
+está em `packaging/avisos/electron-LICENSE.txt` (cópia do arquivo `LICENSE` do pacote npm `electron`). O Electron embute o Chromium e
+dezenas de bibliotecas de terceiros, cujos avisos o projeto publica no arquivo `LICENSES.chromium.html`, que acompanha o
+binário do Electron baixado no empacotamento. **Não há prova nesta etapa de que esse arquivo entre no `.app` do Mac**; essa
+conferência fica pendente para a etapa de geração de instaladores e atualização (GUI-105) e deve ser feita antes de distribuir um
+instalador.
+
+### WebRTC (helper de tela do Mac)
+
+O helper de tela do Mac (`apps/screen-macos`, projeto `apps/Mexerica.xcodeproj`) usa o pacote `stasel/WebRTC` na versão exata 153.0.0
+(Swift Package; fixação em `apps/Mexerica.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`, revisão
+`4266157cd08f92115de885ab12d87196a8db87e1`), que redistribui o WebRTC do Google compilado. O texto da licença desse pacote (BSD-3-Clause,
+com os avisos do WebRTC do Google) está em `packaging/avisos/webrtc-stasel-LICENSE.md`, copiado do repositório
+`https://github.com/stasel/WebRTC` nessa revisão.
+
+### Dependências de produção
+
+`packaging/avisos/INVENTARIO-DEPENDENCIAS.md` lista as dependências de produção do app Electron, do motor e do Hub (nome, versão e
+licença declarada, a partir dos arquivos de bloqueio). **Limitação:** o inventário traz só o identificador SPDX declarado por cada
+pacote, sem o texto integral de cada licença nem os avisos de copyright de cada autor. Licenças permissivas (MIT, Apache-2.0,
+BSD, ISC, Zlib, Unicode) são a grande maioria. Pontos de atenção: o crate `option-ext` (MPL-2.0, licença de arquivo: os arquivos do
+crate são usados sem modificação e seu código-fonte está público em crates.io) e o pacote `argparse` 2.0.1 (Python-2.0, licença permissiva da Python Software Foundation,
+dependência de produção do app Electron). Os crates `r-efi` oferecem MIT ou Apache-2.0 além de LGPL; vale a opção permissiva.
