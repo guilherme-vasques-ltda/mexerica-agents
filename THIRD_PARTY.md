@@ -341,8 +341,12 @@ também não comprova termos de serviço de ferramenta alguma nem a cadeia de di
 | Fundos de chat e papéis de parede | `brand/assets/fundos-chat/`, `apps/desktop/src/renderer/assets/wallpapers/` | 128 | nenhuma declarada na origem |
 | Personagens por papel (CEO, Assistente, Financeiro etc.) | `brand/assets/personagens/` | 11 | nenhuma declarada na origem ("originais do dono, 07/11/2026") |
 
-Onde a origem **não declara** licença, este repositório também não escolhe uma: a licença Apache-2.0 do código não cobre esses arquivos, e
-o nome, o logo, o mascote e o ícone são marca reservada. Sem licença declarada, não presuma permissão de uso além do que o titular conceder.
+**Regra de uso (decisão do dono, 19/11/2026).** Dois grupos seguem Apache-2.0, como a origem declara: as 595 Mexeriquinhas e as 19 opções de
+ícone das rodadas 2 e 3. Todos os outros grupos da tabela (logo, mascote, símbolo, ícone do app, favicons e bandeja; variantes e fontes do ícone;
+fundos de chat e papéis de parede; personagens; e o `padrao.png`, que é o ícone oficial reduzido) **não** são licenciados sob Apache-2.0: os
+direitos ficam reservados ao titular, e o uso permitido é dentro da Mexerica como distribuída, sem reuso em outros produtos. Esta cópia não
+escolhe uma licença onde a origem não declara. A lista de caminhos de cada regra, com a decisão do dono citada, está em
+[brand/LICENCA-DA-ARTE.md](brand/LICENCA-DA-ARTE.md). Nenhum advogado leu este texto e ele não é parecer jurídico.
 Dentro das pastas acima ficam também textos que descrevem os arquivos (`LEIA-ME`, tabelas de medidas e PDF de logo).
 
 **Continuam neutros nesta cópia:** os 43 ícones de agentes de terceiros (`apps/desktop/src/renderer/assets/agents/`), o logotipo da Apple no login,
