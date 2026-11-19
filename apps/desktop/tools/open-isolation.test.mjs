@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
 import { environmentProfile } from '../src/shared/environment.ts'
+import { PORTA_PRINCIPAL, PORTA_DEV } from '../src/main/fork-oauth-loopback.ts'
+import { SANDBOX_PORTS } from '../src/shared/dev-sandbox.ts'
 import { open, openPaths, isOpenAsset } from '../src/main/fork-open/isolation.ts'
 
 const require = createRequire(import.meta.url)
@@ -33,6 +35,8 @@ test('a Open usa apenas identificadores próprios, no pacote e em execução', (
     assert.notEqual(open.dataFolder, existing.dataFolder)
     assert.notEqual(open.port, existing.port)
   }
+  assert.ok(![PORTA_PRINCIPAL, PORTA_DEV].includes(open.port))
+  assert.ok(open.port < SANDBOX_PORTS.first || open.port > SANDBOX_PORTS.last)
 })
 
 test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) => {
@@ -46,6 +50,11 @@ test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) 
   const personal = join(appData, 'Donnabot')
   mkdirSync(personal, { mode: 0o700 })
   symlinkSync(personal, join(paths.userData, 'Network'), 'dir')
+  assert.throws(() => openPaths(home, appData))
+  rmSync(join(paths.userData, 'Network'))
+  const personalFile = join(personal, 'fixture')
+  writeFileSync(personalFile, 'dados fictícios', { mode: 0o600 })
+  linkSync(personalFile, join(paths.homeConfig, 'fixture'))
   assert.throws(() => openPaths(home, appData))
 })
 

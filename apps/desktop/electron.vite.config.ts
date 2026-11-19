@@ -37,7 +37,14 @@ export default defineConfig(({ mode }) => {
             return inicio ? [{ tag: 'link', attrs: { rel: 'modulepreload', crossorigin: true, href: `./${inicio.fileName}` }, injectTo: 'head' }] : []
           },
         },
-      }],
+      }, ...(open ? [{
+        name: 'mexerica-open-offline',
+        transformIndexHtml: () => [{
+          tag: 'meta',
+          attrs: { 'http-equiv': 'Content-Security-Policy', content: "connect-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; form-action 'none'" },
+          injectTo: 'head-prepend' as const,
+        }],
+      }] : [])],
       // Readable function names in error reports; the files are local, so size doesn't matter.
       // Auditoria D249 (E2): o CSS das partes sob demanda continua num arquivo só, na ordem de sempre.
       build: { minify: false, cssCodeSplit: false },

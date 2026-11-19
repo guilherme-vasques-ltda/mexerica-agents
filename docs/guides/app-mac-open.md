@@ -11,13 +11,18 @@ cliente abre sem conta e não conecta ao Hub, SSH ou a conectores. O pacote leva
 o helper de fala, mas a janela de teste não o executa nem pede microfone.
 
 O macOS identifica este pacote por `app.mexerica.open`; ele declara apenas o
-esquema `mexerica-open:`. O cliente reserva a porta 19424 como identificador,
+esquema `mexerica-open:`. O cliente usa a porta 19524 como identificador,
 mas não abre uma porta nem tenta acessar um serviço local. Ele mantém dados em
 `~/Library/Application Support/Mexerica Open` e uma raiz própria
 `~/.mexerica-open`. Não importa configurações de outros apps. O nome do
 Safe Storage associado à identidade é **Mexerica Open Safe Storage**;
 o teste sem conta não chama o Safe Storage nem cria esse item no Chaveiro.
 
-Feche o app antes de apagar suas duas pastas de dados e o próprio pacote. A
-separação vale para este cliente de teste; não separa usuários do macOS nem
-transforma o Mac em um ambiente para executar código não revisado.
+Encerre pela janela ou com Command+Q. Em caso de saída forçada, o cliente
+pode recusar a reabertura se encontrar arquivos de trava antigos; não use
+outro perfil para contornar a recusa. Para limpar o teste, feche o app e
+apague só as duas pastas da Open e o próprio pacote. O macOS pode manter
+metadados próprios de `app.mexerica.open`, como preferências, caches, estado
+da janela ou o registro do esquema; eles não pertencem aos outros apps.
+A separação não isola usuários do macOS nem torna seguro executar código
+não revisado.
