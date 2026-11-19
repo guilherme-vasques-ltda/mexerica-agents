@@ -274,6 +274,56 @@ fn recusa_executavel_em_cache_que_virou_link_ou_diretorio() {
     std::os::unix::fs::symlink("programa-real", raiz.path().join("link")).unwrap();
     fs::create_dir(raiz.path().join("pasta")).unwrap();
     for cmd in ["link", "pasta"] {
-        assert!(cache_verificado(raiz.path(), &hash, Path::new(cmd)).is_err());
+        let cmd = Path::new(cmd);
+        assert!(!cache_verificado(raiz.path(), &hash, cmd).unwrap());
+        assert!(executavel_regular(raiz.path(), cmd).is_err());
+    }
+}
+
+#[test]
+fn cache_sem_executavel_permite_reinstalar_a_mesma_versao() {
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("agente");
+    let cmd = Path::new("bin/agente");
+    let bytes = b"agente ficticio";
+    let hash = super::super::sha256_hex(bytes);
+    publicar(&destino, "agente", bytes, &hash, cmd).unwrap();
+    fs::remove_file(destino.join(cmd)).unwrap();
+    assert!(destino.join(MARCADOR).is_file());
+    assert!(!cache_verificado(&destino, &hash, cmd).unwrap());
+    publicar(&destino, "agente", bytes, &hash, cmd).unwrap();
+    assert!(cache_verificado(&destino, &hash, cmd).unwrap());
+    assert_eq!(fs::read(destino.join(cmd)).unwrap(), bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn cache_trata_links_e_diretorio_como_ausentes_sem_tocar_no_alvo_externo() {
+    use std::os::unix::fs::symlink;
+
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("agente");
+    let fora = raiz.path().join("fora");
+    fs::create_dir(&fora).unwrap();
+    let cmd = Path::new("bin/agente");
+    let bytes = b"agente ficticio";
+    let hash = super::super::sha256_hex(bytes);
+    publicar(&fora.join("referencia"), "agente", bytes, &hash, cmd).unwrap();
+
+    for tipo in ["link", "diretorio", "link-no-pai"] {
+        publicar(&destino, "agente", bytes, &hash, cmd).unwrap();
+        fs::remove_file(destino.join(cmd)).unwrap();
+        match tipo {
+            "link" => symlink(fora.join("referencia").join(cmd), destino.join(cmd)).unwrap(),
+            "diretorio" => fs::create_dir(destino.join(cmd)).unwrap(),
+            _ => {
+                fs::remove_dir(destino.join("bin")).unwrap();
+                symlink(fora.join("referencia/bin"), destino.join("bin")).unwrap();
+            }
+        }
+        assert!(!cache_verificado(&destino, &hash, cmd).unwrap(), "{tipo}");
+        publicar(&destino, "agente", bytes, &hash, cmd).unwrap();
+        assert!(cache_verificado(&destino, &hash, cmd).unwrap());
+        assert_eq!(fs::read(fora.join("referencia").join(cmd)).unwrap(), bytes);
     }
 }

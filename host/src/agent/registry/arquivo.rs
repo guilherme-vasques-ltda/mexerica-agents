@@ -89,6 +89,9 @@ fn pasta_privada(pai: &Path, prefixo: &str) -> Result<tempfile::TempDir> {
 }
 
 pub(super) fn cache_verificado(destino: &Path, hash: &str, cmd: &Path) -> Result<bool> {
+    if !diretorio_real(destino)? {
+        return Ok(false);
+    }
     let marcador = destino.join(MARCADOR);
     let meta = match fs::symlink_metadata(&marcador) {
         Ok(meta) => meta,
@@ -104,14 +107,16 @@ pub(super) fn cache_verificado(destino: &Path, hash: &str, cmd: &Path) -> Result
     if !compactado.eq_ignore_ascii_case(hash.as_bytes()) {
         return Ok(false);
     }
-    let exe = executavel_regular(destino, cmd)?;
+    let Some((exe, meta)) = procurar_executavel(destino, cmd)? else { return Ok(false) };
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        if fs::metadata(&exe)?.permissions().mode() & 0o100 == 0 {
+        if meta.permissions().mode() & 0o100 == 0 {
             return Ok(false);
         }
     }
+    #[cfg(not(unix))]
+    let _ = meta;
     // Este recibo detecta mudanças no executável, mas não autentica alguém que também possa reescrevê-lo.
     Ok(hash_executavel(&exe)?.is_some_and(|hash| hash.as_bytes() == executavel))
 }
@@ -188,22 +193,34 @@ fn substituir(pasta: &Path, destino: &Path, pai: &Path) -> Result<()> {
 }
 
 fn executavel_regular(pasta: &Path, cmd: &Path) -> Result<PathBuf> {
+    procurar_executavel(pasta, cmd)?
+        .map(|(exe, _)| exe)
+        .context("O executável do agente deve ser um arquivo regular dentro da pasta de instalação, sem links.")
+}
+
+fn procurar_executavel(pasta: &Path, cmd: &Path) -> Result<Option<(PathBuf, fs::Metadata)>> {
     let relativo = caminho_relativo(cmd)?;
-    let exe = pasta.join(&relativo);
-    let meta = fs::symlink_metadata(&exe).context("O pacote não contém o executável do agente.")?;
-    let raiz = pasta.canonicalize()?;
-    for parte in relativo.ancestors().skip(1).take_while(|p| !p.as_os_str().is_empty()) {
-        let dir = pasta.join(parte);
-        ensure!(
-            fs::symlink_metadata(&dir)?.is_dir() && dir.canonicalize()?.starts_with(&raiz),
-            "O caminho do executável do agente contém um link ou sai da pasta de instalação."
-        );
+    let mut caminho = pasta.to_path_buf();
+    let mut partes = relativo.components().peekable();
+    while let Some(parte) = partes.next() {
+        caminho.push(parte);
+        let meta = match fs::symlink_metadata(&caminho) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        if partes.peek().is_none() {
+            return if meta.is_file() && caminho.canonicalize()?.starts_with(pasta) {
+                Ok(Some((caminho, meta)))
+            } else {
+                Ok(None)
+            };
+        }
+        if !meta.is_dir() || caminho.canonicalize()? != caminho {
+            return Ok(None);
+        }
     }
-    ensure!(
-        meta.is_file() && exe.canonicalize()?.starts_with(&raiz),
-        "O executável do agente deve ser um arquivo regular dentro da pasta de instalação, sem links."
-    );
-    Ok(exe)
+    Ok(None)
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]

@@ -12,9 +12,11 @@ use crate::shell;
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Duration;
+use tokio::sync::{Mutex as TravaAsync, OwnedMutexGuard};
 
 mod arquivo;
 mod fixados;
@@ -142,6 +144,36 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
 fn alvo_binario(agente: &Value) -> Option<&Value> {
     let alvo = &agente["distribution"]["binary"][platform()?];
     alvo.is_object().then_some(alvo)
+}
+
+fn id_instalacao(agente: &Value) -> Result<String> {
+    id_normalizado(agente).filter(|id| safe_component(id).is_some()).context("Identificador de agente inválido.")
+}
+
+pub(crate) fn chave_instalacao_binaria(agente: &Value) -> Result<Option<String>> {
+    if fixados::agente(agente).is_some() || alvo_binario(agente).is_some() {
+        return id_instalacao(agente).map(Some);
+    }
+    Ok(None)
+}
+
+pub(crate) async fn reservar_instalacao_binaria(id: String) -> OwnedMutexGuard<()> {
+    type Travas = Mutex<HashMap<String, Weak<TravaAsync<()>>>>;
+    static TRAVAS: LazyLock<Travas> = LazyLock::new(Mutex::default);
+    // Uma publicação pode remover versões antigas do mesmo agente. A trava cobre a pasta
+    // pai dessas versões, sem bloquear outros agentes durante download ou verificação.
+    let trava = {
+        let mut travas = TRAVAS.locked();
+        travas.retain(|_, trava| trava.strong_count() != 0);
+        if let Some(trava) = travas.get(&id).and_then(Weak::upgrade) {
+            trava
+        } else {
+            let trava = Arc::new(TravaAsync::new(()));
+            travas.insert(id, Arc::downgrade(&trava));
+            trava
+        }
+    };
+    trava.lock_owned().await
 }
 
 /// The agent runs through `npx` here (no build of its own for this platform).
@@ -435,16 +467,23 @@ async fn install_binary(
     cmd: &Path,
     progress: &impl Fn(&str, Option<ActivityKind>),
 ) -> Result<PathBuf> {
-    static INSTALANDO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     static CLIENTE: LazyLock<reqwest::Client> =
         LazyLock::new(|| cliente_download_builder().build().expect("cliente HTTPS do catálogo ACP"));
-    let hash = pacote.hash;
-    let _instalando = INSTALANDO.lock().await;
-    let id =
-        id_normalizado(agent).filter(|id| safe_component(id).is_some()).context("Identificador de agente inválido.")?;
-    let version = agent["version"].as_str().and_then(safe_component).unwrap_or("latest");
-    let dir = arquivo::pasta_instalacao(&motor_install::root(), &id, version)?;
-    if arquivo::cache_verificado(&dir, hash, cmd)? {
+    let id = id_instalacao(agent)?;
+    let version = agent["version"].as_str().and_then(safe_component).unwrap_or("latest").to_owned();
+    let hash = pacote.hash.to_owned();
+    let cmd = cmd.to_owned();
+    let reserva = reservar_instalacao_binaria(id.clone()).await;
+    let (dir, cache_valido) = {
+        let (id, hash, cmd) = (id.clone(), hash.clone(), cmd.clone());
+        tokio::task::spawn_blocking(move || {
+            let dir = arquivo::pasta_instalacao(&motor_install::root(), &id, &version)?;
+            let cache_valido = arquivo::cache_verificado(&dir, &hash, &cmd)?;
+            Ok::<_, anyhow::Error>((dir, cache_valido))
+        })
+        .await??
+    };
+    if cache_valido {
         return Ok(dir);
     }
     let url = reqwest::Url::parse(pacote.url).or_else(|_| bail!("Endereço de download do agente inválido."))?;
@@ -457,9 +496,10 @@ async fn install_binary(
     progress(&format!("Downloading {item}…"), Some(ActivityKind::Downloading { item: item.clone() }));
     let bytes = baixar_binario(&CLIENTE, url, pacote.limite_download).await?;
     progress("Installing…", Some(ActivityKind::Installing { item }));
-    let (dir2, hash, cmd) = (dir.clone(), hash.to_owned(), cmd.to_owned());
+    let dir2 = dir.clone();
     let limite_extraido = pacote.limite_extraido;
     tokio::task::spawn_blocking(move || -> Result<()> {
+        let _reserva = reserva;
         arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd, limite_extraido)?;
         remove_other_versions(&dir2);
         Ok(())
@@ -636,6 +676,18 @@ mod tests {
         assert!(erro.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_redirect));
         assert!(!acessou_destino.load(Ordering::Relaxed));
         servidor.abort();
+    }
+
+    #[tokio::test]
+    async fn trava_do_agente_serializa_a_mesma_chave_sem_bloquear_outra() {
+        let chave = "agente-teste".to_owned();
+        let primeira = reservar_instalacao_binaria(chave.clone()).await;
+        let mut mesma = Box::pin(reservar_instalacao_binaria(chave));
+        assert!(futures::poll!(&mut mesma).is_pending());
+        let mut outra = Box::pin(reservar_instalacao_binaria("outro-agente-teste".to_owned()));
+        assert!(futures::poll!(&mut outra).is_ready());
+        drop(primeira);
+        assert!(futures::poll!(&mut mesma).is_ready());
     }
 
     #[test]
