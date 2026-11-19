@@ -9,7 +9,7 @@ use crate::LockExt;
 use crate::fork::activity_code::ActivityKind;
 use crate::fork::motor_install::{self, Reply, Request};
 use crate::shell;
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
@@ -49,15 +49,31 @@ pub fn agents() -> Vec<Value> {
 }
 
 fn agentes_oferecidos(catalogo: &Value) -> Vec<Value> {
-    catalogo["agents"].as_array().into_iter().flatten().filter(|a| oferecido(a)).cloned().collect()
+    catalogo["agents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|a| oferecido(a))
+        .cloned()
+        .map(|mut agente| {
+            if let Some(id) = id_normalizado(&agente) {
+                agente["id"] = Value::String(id);
+            }
+            agente
+        })
+        .collect()
+}
+
+fn id_normalizado(agente: &Value) -> Option<String> {
+    agente["id"].as_str().map(str::to_ascii_lowercase)
 }
 
 fn oferecido(agente: &Value) -> bool {
-    !matches!(agente["id"].as_str(), Some("junie" | "cortex-code" | "corust-agent" | "stakpak" | "vtcode"))
+    !matches!(id_normalizado(agente).as_deref(), Some("junie" | "cortex-code" | "corust-agent" | "stakpak" | "vtcode"))
 }
 
 pub fn agent(id: &str) -> Option<Value> {
-    agents().into_iter().find(|a| a["id"] == id)
+    agents().into_iter().find(|a| a["id"].as_str().is_some_and(|origem| origem.eq_ignore_ascii_case(id)))
 }
 
 pub async fn refresh_loop() {
@@ -109,13 +125,11 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     if let Some(fixo) = fixados::agente(agent) {
         return fixo.selecionar(agent, platform()).ok().map(|_| Launch::Download);
     }
+    if let Some(alvo) = alvo_binario(agent) {
+        return hash_obrigatorio(alvo).is_ok().then_some(Launch::Download);
+    }
     let d = &agent["distribution"];
     let on_path = crate::agent::backends::on_path;
-    if let Some(p) = platform()
-        && d["binary"][p].is_object()
-    {
-        return Some(Launch::Download);
-    }
     if d["npx"].is_object() && on_path("npx") {
         return Some(Launch::Npx);
     }
@@ -125,13 +139,15 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     None
 }
 
+fn alvo_binario(agente: &Value) -> Option<&Value> {
+    let alvo = &agente["distribution"]["binary"][platform()?];
+    alvo.is_object().then_some(alvo)
+}
+
 /// The agent runs through `npx` here (no build of its own for this platform).
 pub fn needs_node(agent: &Value) -> bool {
     let d = &agent["distribution"];
-    oferecido(agent)
-        && fixados::agente(agent).is_none()
-        && d["npx"].is_object()
-        && !platform().is_some_and(|p| d["binary"][p].is_object())
+    oferecido(agent) && fixados::agente(agent).is_none() && d["npx"].is_object() && alvo_binario(agent).is_none()
 }
 
 fn args_of(v: &Value) -> String {
@@ -191,22 +207,20 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
     if let Some(pacote) = fixado {
         return comando_binario(agent, &pacote, "", "acp".into(), &progress).await;
     }
+    if let Some(target) = alvo_binario(agent) {
+        // Para os demais agentes, o catálogo externo ainda fornece o hash e o endereço.
+        let pacote = PacoteBinario {
+            hash: hash_obrigatorio(target)?,
+            url: target["archive"].as_str().context("O registro não informou o arquivo do agente.")?,
+            cmd: target["cmd"].as_str().context("Caminho inválido para o executável do agente.")?,
+            limite_download: MAX_ARCHIVE_BYTES,
+            limite_extraido: arquivo::LIMITE_EXTRAIDO,
+        };
+        return comando_binario(agent, &pacote, &env_prefix(&target["env"]), args_of(target), &progress).await;
+    }
     let name = agent["name"].as_str().unwrap_or("agent");
     let d = &agent["distribution"];
     match launch_kind(agent) {
-        Some(Launch::Download) => {
-            let platform = platform().ok_or_else(|| anyhow!("no download for this platform"))?;
-            let target = &d["binary"][platform];
-            // Para os demais agentes, o catálogo externo ainda fornece o hash e o endereço.
-            let pacote = PacoteBinario {
-                hash: hash_obrigatorio(target)?,
-                url: target["archive"].as_str().context("O registro não informou o arquivo do agente.")?,
-                cmd: target["cmd"].as_str().context("Caminho inválido para o executável do agente.")?,
-                limite_download: MAX_ARCHIVE_BYTES,
-                limite_extraido: arquivo::LIMITE_EXTRAIDO,
-            };
-            comando_binario(agent, &pacote, &env_prefix(&target["env"]), args_of(target), &progress).await
-        }
         Some(Launch::Npx) => {
             let package = d["npx"]["package"].as_str().unwrap_or_default();
             pacote_npm_fixo(package)?;
@@ -221,8 +235,8 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
                 args: args_of(&d["uvx"]),
             })
         }
-        None if needs_node(agent) => bail!("{name} needs Node.js on this computer: add it in Extensions"),
-        None => bail!("{name} has no build for this computer (needs uv)"),
+        _ if needs_node(agent) => bail!("{name} needs Node.js on this computer: add it in Extensions"),
+        _ => bail!("{name} has no build for this computer (needs uv)"),
     }
 }
 
@@ -386,6 +400,23 @@ fn sha256_valido(hash: &str) -> bool {
     hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn cliente_download_builder() -> reqwest::ClientBuilder {
+    let limite = reqwest::redirect::Policy::default();
+    let politica = reqwest::redirect::Policy::custom(move |tentativa| {
+        if tentativa.url().scheme() != "https" {
+            return tentativa.error("O download do agente não segue redirecionamentos para fora de HTTPS.");
+        }
+        limite.redirect(tentativa)
+    });
+    reqwest::Client::builder().https_only(true).redirect(politica)
+}
+
+async fn baixar_binario(cliente: &reqwest::Client, url: reqwest::Url, limite: usize) -> Result<Vec<u8>> {
+    let resposta = cliente.get(url).timeout(Duration::from_secs(600)).send().await?.error_for_status()?;
+    ensure!(resposta.status().is_success(), "O servidor não retornou o binário solicitado.");
+    ler_download(resposta, limite).await
+}
+
 async fn ler_download(mut resposta: reqwest::Response, limite: usize) -> Result<Vec<u8>> {
     const ERRO: &str = "O download do agente excede o limite de tamanho.";
     ensure!(resposta.content_length().is_none_or(|n| n <= limite as u64), ERRO);
@@ -405,11 +436,14 @@ async fn install_binary(
     progress: &impl Fn(&str, Option<ActivityKind>),
 ) -> Result<PathBuf> {
     static INSTALANDO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    static CLIENTE: LazyLock<reqwest::Client> =
+        LazyLock::new(|| cliente_download_builder().build().expect("cliente HTTPS do catálogo ACP"));
     let hash = pacote.hash;
     let _instalando = INSTALANDO.lock().await;
-    let id = agent["id"].as_str().and_then(safe_component).ok_or_else(|| anyhow!("registry entry has a bad id"))?;
+    let id =
+        id_normalizado(agent).filter(|id| safe_component(id).is_some()).context("Identificador de agente inválido.")?;
     let version = agent["version"].as_str().and_then(safe_component).unwrap_or("latest");
-    let dir = arquivo::pasta_instalacao(&motor_install::root(), id, version)?;
+    let dir = arquivo::pasta_instalacao(&motor_install::root(), &id, version)?;
     if arquivo::cache_verificado(&dir, hash, cmd)? {
         return Ok(dir);
     }
@@ -419,10 +453,9 @@ async fn install_binary(
     }
     let file_name =
         url.path_segments().and_then(Iterator::last).and_then(safe_component).unwrap_or("download").to_owned();
-    let item = agent["name"].as_str().unwrap_or(id).to_owned();
+    let item = agent["name"].as_str().unwrap_or(&id).to_owned();
     progress(&format!("Downloading {item}…"), Some(ActivityKind::Downloading { item: item.clone() }));
-    let resposta = crate::http().get(url).timeout(Duration::from_secs(600)).send().await?.error_for_status()?;
-    let bytes = ler_download(resposta, pacote.limite_download).await?;
+    let bytes = baixar_binario(&CLIENTE, url, pacote.limite_download).await?;
     progress("Installing…", Some(ActivityKind::Installing { item }));
     let (dir2, hash, cmd) = (dir.clone(), hash.to_owned(), cmd.to_owned());
     let limite_extraido = pacote.limite_extraido;
@@ -524,6 +557,85 @@ mod tests {
         let agente = json!({"id":"cursor", "version":"0.0.1", "distribution":{"npx":{"package":"pacote@1.0.0"}}});
         let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
         assert!(erro.to_string().contains("versão verificada"));
+    }
+
+    #[test]
+    fn ids_do_catalogo_em_maiusculas_nao_contornam_a_pinagem_nem_o_bloqueio() {
+        let cursor = json!({"id":"Cursor"});
+        let fixado = fixados::agente(&cursor).unwrap();
+        let esperado = fixados::agente(&json!({"id":"cursor"})).unwrap();
+        assert!(std::ptr::eq(fixado, esperado));
+        let junie = json!({"id":"Junie"});
+        assert!(!oferecido(&junie));
+        let agentes = agentes_oferecidos(&json!({"agents": [cursor, junie]}));
+        assert_eq!(agentes, [json!({"id":"cursor"})]);
+    }
+
+    #[test]
+    fn agentes_bloqueados_nao_anunciam_binario_nem_node() {
+        for id in ["junie", "cortex-code", "corust-agent", "stakpak", "vtcode"] {
+            let mut agente = json!({"id": id, "distribution": {"npx": {"package": "pacote@1.2.3"}}});
+            assert!(!needs_node(&agente), "{id}");
+            assert!(launch_kind(&agente).is_none(), "{id}");
+            if let Some(plataforma) = platform() {
+                agente["distribution"]["binary"][plataforma] = json!({"sha256": "a".repeat(64)});
+                assert!(launch_kind(&agente).is_none(), "{id}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn devin_fixado_recusa_fallback_para_npx() {
+        let agente =
+            json!({"id":"devin", "version":"3000.14.30821", "distribution":{"npx":{"package":"pacote@1.2.3"}}});
+        assert!(launch_kind(&agente).is_none());
+        assert!(!needs_node(&agente));
+        let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+        assert!(erro.to_string().contains("A instalação foi recusada."));
+    }
+
+    #[tokio::test]
+    async fn binario_sem_sha256_valido_nao_aparece_como_disponivel() {
+        let Some(plataforma) = platform() else { return };
+        let mut agente = json!({
+            "id": "exemplo",
+            "distribution": {"binary": {(plataforma): {"cmd": "agente", "archive": "https://example.test/agente"}}}
+        });
+        assert!(launch_kind(&agente).is_none());
+        agente["distribution"]["binary"][plataforma]["sha256"] = json!("curto");
+        assert!(launch_kind(&agente).is_none());
+        let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+        assert!(erro.to_string().contains("O catálogo não trouxe um SHA-256"));
+        agente["distribution"]["binary"][plataforma]["sha256"] = json!("a".repeat(64));
+        assert_eq!(launch_kind(&agente), Some(Launch::Download));
+    }
+
+    #[tokio::test]
+    async fn download_recusa_redirecionamento_para_http_sem_entregar_bytes() {
+        use axum::{Router, response::Redirect, routing::get};
+        use std::net::Ipv4Addr;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let destino = format!("{base}/destino");
+        let acessou_destino = Arc::new(AtomicBool::new(false));
+        let acessou = acessou_destino.clone();
+        let app = Router::new().route("/origem", get(move || async move { Redirect::temporary(&destino) })).route(
+            "/destino",
+            get(move || async move {
+                acessou.store(true, Ordering::Relaxed);
+                "binário fictício"
+            }),
+        );
+        let servidor = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let cliente = cliente_download_builder().https_only(false).no_proxy().build().unwrap();
+        let erro =
+            baixar_binario(&cliente, reqwest::Url::parse(&format!("{base}/origem")).unwrap(), 1024).await.unwrap_err();
+        assert!(erro.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_redirect));
+        assert!(!acessou_destino.load(Ordering::Relaxed));
+        servidor.abort();
     }
 
     #[test]

@@ -31,7 +31,7 @@ static FIXADOS: LazyLock<Fixados> = LazyLock::new(|| {
 });
 
 pub(super) fn agente(entrada: &Value) -> Option<&'static Agente> {
-    match entrada["id"].as_str()? {
+    match super::id_normalizado(entrada)?.as_str() {
         "cursor" => Some(&FIXADOS.cursor),
         "devin" => Some(&FIXADOS.devin),
         _ => None,
