@@ -865,7 +865,7 @@ revisão); quem gerar o primeiro instalador deve conferir que `resources/avisos/
 
 ### Electron e Chromium
 
-O app desktop roda sobre o Electron 44.11.4 (MIT, copyright da OpenJS Foundation e dos contribuidores do Electron). O texto da licença
+O app desktop roda sobre o Electron 44.11.4 (MIT; copyright dos contribuidores do Electron e da GitHub Inc., como no texto da licença). O texto da licença
 está em `packaging/avisos/electron-LICENSE.txt` (cópia do arquivo `LICENSE` do pacote npm `electron`). O Electron embute o Chromium e
 dezenas de bibliotecas de terceiros, cujos avisos o projeto publica no arquivo `LICENSES.chromium.html`, que acompanha o
 binário do Electron baixado no empacotamento. **Não há prova nesta etapa de que esse arquivo entre no `.app` do Mac**; essa
