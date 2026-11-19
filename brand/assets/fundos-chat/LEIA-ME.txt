@@ -1,0 +1,31 @@
+FUNDOS DE CHAT MEXERICA
+10 conceitos, cada um em light e dark
+
+CONTEÚDO
+20 PNGs individuais na pasta wallpapers, preparados para o fundo da área do chat.
+Os nomes terminam em _light ou _dark para facilitar a troca de tema.
+
+CONCEITOS
+01 Aurora suave: gradiente abstrato em creme, pêssego, sálvia e azul profundo.
+02 Janela da cidade: cenário urbano ilustrado com formas simplificadas.
+03 Jardim cítrico: ramos e frutas estilizados nas bordas.
+04 Ondas pastel: camadas abstratas e translúcidas.
+05 Montanhas suaves: paisagem pintada e discreta na borda inferior.
+06 Linho fino: textura neutra com variação tonal muito sutil.
+07 Folhas botânicas: folhagem em aquarela nas bordas.
+08 Nuvens suaves: céu pintado com bastante espaço central.
+09 Canto aconchegante: pequena composição ilustrada de mesa, planta e luminária.
+10 Vidro cítrico: curvas abstratas suaves em tons de laranja e verde.
+
+RESOLUÇÃO E QUALIDADE
+Os PNGs foram gerados individualmente, não recortados da grade de conceitos.
+São arquivos na resolução nativa de geração, sem ampliação artificial.
+Consulte tamanhos.csv para as dimensões e o tamanho de cada arquivo.
+Os pares seguem o mesmo conceito e paleta adaptada, mas podem apresentar pequenas diferenças de desenho.
+
+USO
+Use _light com o tema claro e _dark com o tema escuro.
+A composição deixa o centro mais limpo para as mensagens. Confira o contraste com os balões e o texto reais do aplicativo.
+Para preencher áreas de outras proporções, mantenha a proporção da imagem e aceite um pequeno corte nas bordas.
+
+Os fundos finais combinam abstração e ilustração suave. As versões preliminares com aparência fotográfica não fazem parte deste pacote.
