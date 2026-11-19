@@ -22,7 +22,7 @@ O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mos
 
 - Código de nuvem e relay hospedados (`cloud/`, `relay/`), versão web, demo web e helper Linux.
 - Logos de agentes de terceiros e o logotipo da Apple: o app mostra ícones genéricos. As logos dos serviços do catálogo de conectores estão incluídas, só para identificar cada serviço, e continuam sendo marcas de seus titulares (ver [TRADEMARK.md](TRADEMARK.md) e [THIRD_PARTY.md](THIRD_PARTY.md)).
-- A arte própria (mascotes, ícones do app, avatares, fundos): no lugar há **imagens neutras geradas por código**, só para o app compilar e os testes de estrutura rodarem. A arte original só volta com decisão do titular.
+- Arte de terceiros: os 43 ícones de agentes, o logotipo da Apple, `google.svg` e `computer-linux.svg` continuam neutros. A arte própria da Mexerica (mascote, Mexeriquinhas, ícones, logo, fundos e personagens) está incluída; licenças e marca em [THIRD_PARTY.md](THIRD_PARTY.md) e [TRADEMARK.md](TRADEMARK.md).
 - Histórico, issues, pull requests, automações de CI e configuração de serviços.
 
 ## Como verificar (sem rede de produção)

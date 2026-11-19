@@ -322,6 +322,33 @@ nos arquivos. Licença: SIL Open Font License 1.1, com o texto completo ao lado 
 | Manrope | `manrope-latin-wght-normal.woff2` | https://github.com/sharanda/manrope | Copyright 2019 The Manrope Project Authors |
 | IBM Plex Sans | `ibm-plex-sans-latin-wght-normal.woff2` | https://github.com/IBM/plex | Copyright 2019 IBM Corp. |
 
+## Arte própria da Mexerica (restaurada em 19/11/2026)
+
+A cópia inicial trocou a arte própria da Mexerica por imagens neutras geradas por código. Por decisão do dono do projeto em 19/11/2026
+("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo."), os arquivos originais voltaram **sem nenhuma alteração**: os
+bytes são os mesmos do repositório de origem (revisão `d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`). `brand/ARTE-HASHES.tsv` lista cada arquivo
+(grupo, SHA-256, tamanho e o identificador do blob Git de origem). Os arquivos foram conferidos e não trazem metadados embutidos que identifiquem
+pessoa ou máquina (nenhum campo EXIF/XMP, nenhum texto de PNG ou de WebP); os PDF de logo têm só `Creator: Chromium`, `Producer: Skia/PDF` e a data de exportação (07/11/2026).
+A ferramenta usada para gerar as ilustrações (mascotes, fundos e ícones) **não foi informada**; o registro de procedência não a afirma, e este texto
+também não comprova termos de serviço de ferramenta alguma nem a cadeia de direitos sobre os insumos. Nada aqui é parecer jurídico.
+
+| Grupo | Onde fica | Arquivos | Licença declarada na origem |
+| --- | --- | ---: | --- |
+| Mexeriquinhas (pelúcia 3D, imagens WebP e atlas) | `apps/desktop/src/renderer/lib/mexeriquinhas/assets/` | 595 | Apache-2.0 (README da biblioteca: "código, prompts e ilustrações originais para Apache 2.0") |
+| Ícones opcionais do app (Ajustes › Ícone do app) | `apps/desktop/resources/app-icons/` | 20 | Apache-2.0 para as 19 opções das rodadas 2 e 3, com o texto em `LICENSE` da pasta; `padrao.png` é o ícone oficial reduzido e não declara licença própria |
+| Logo, mascote, símbolo, ícone do app, favicons e ícone da barra de menus | `brand/assets/logo/`, `apps/desktop/resources/{icon*,brand,tray,AppIcon.icon}`, `apps/desktop/src/renderer/assets/brand/` | 136 | nenhuma declarada na origem: marca reservada (ver `TRADEMARK.md`) |
+| Variantes e fontes do ícone do app | `brand/assets/icon/` | 185 | nenhuma declarada na origem |
+| Fundos de chat e papéis de parede | `brand/assets/fundos-chat/`, `apps/desktop/src/renderer/assets/wallpapers/` | 128 | nenhuma declarada na origem |
+| Personagens por papel (CEO, Assistente, Financeiro etc.) | `brand/assets/personagens/` | 11 | nenhuma declarada na origem ("originais do dono, 07/11/2026") |
+
+Onde a origem **não declara** licença, este repositório também não escolhe uma: a licença Apache-2.0 do código não cobre esses arquivos, e
+o nome, o logo, o mascote e o ícone são marca reservada. Sem licença declarada, não presuma permissão de uso além do que o titular conceder.
+Dentro das pastas acima ficam também textos que descrevem os arquivos (`LEIA-ME`, tabelas de medidas e PDF de logo).
+
+**Continuam neutros nesta cópia:** os 43 ícones de agentes de terceiros (`apps/desktop/src/renderer/assets/agents/`), o logotipo da Apple no login,
+`assets/google.svg` e `assets/computer-linux.svg`. A liberação do dono cobre só a arte da Mexerica, não marcas de terceiros. As logos dos
+conectores seguem na seção seguinte.
+
 ## Marcas de serviços do catálogo de conectores (2026-11-17)
 
 Cada serviço do catálogo de conectores (Marketplace) aparece com a logo do próprio fornecedor, em vez do globo genérico.
