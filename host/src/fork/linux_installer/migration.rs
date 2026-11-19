@@ -229,12 +229,18 @@ fn copy_profile(
             if error.root_cause().downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error)
                 == Some(libc::ENOTDIR) =>
         {
+            ensure!(
+                !target.is_empty() && !target.as_bytes().contains(&b'/') && target != "." && target != "..",
+                "nome de destino inválido"
+            );
             let mut input = from.file(name, libc::O_RDONLY, 0)?;
             ensure!(input.metadata()?.uid() == hub_uid, "perfil com arquivo de outro dono recusado");
             let temp = OsString::from(format!(".donna-{}", uuid::Uuid::new_v4()));
             let (temp_c, target_c) = (CString::new(temp.as_bytes())?, CString::new(target.as_bytes())?);
+            let mut created = false;
             let result = (|| {
                 let mut output = to.file(&temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL, 0o600)?;
+                created = true;
                 std::io::copy(&mut input, &mut output)?;
                 output.sync_all()?;
                 fd_owner(&output, uid, gid)?;
@@ -245,7 +251,7 @@ fn copy_profile(
                 ensure!(renamed == 0, "renameat: {}", std::io::Error::last_os_error());
                 Ok(())
             })();
-            if result.is_err() {
+            if result.is_err() && created {
                 // SAFETY: remove só o temporário criado acima, relativo ao diretório ancorado.
                 unsafe { libc::unlinkat(to.0.as_raw_fd(), temp_c.as_ptr(), 0) };
             }
@@ -260,7 +266,7 @@ fn no_acl(path: &Path) -> Result<()> {
     let path_c = CString::new(path.as_os_str().as_bytes())?;
     for name in [c"system.posix_acl_access", c"system.posix_acl_default"] {
         // SAFETY: caminhos e nomes terminados em NUL; consulta sem buffer de saída.
-        let size = unsafe { libc::getxattr(path_c.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
+        let size = unsafe { libc::lgetxattr(path_c.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
         let error = std::io::Error::last_os_error();
         ensure!(
             size == -1 && matches!(error.raw_os_error(), Some(libc::ENODATA | libc::ENOTSUP)),
@@ -294,8 +300,10 @@ fn private_backup(path: &Path, hub_uid: u32) -> Result<()> {
 fn validate_backup(path: &Path) -> Result<()> {
     safe(path)?;
     ensure!(
-        path.parent() == Some(Path::new("/var/backups"))
-            && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("donnabot-")),
+        path.file_name().is_some_and(|n| {
+            n.to_string_lossy().starts_with("donnabot-")
+                && path.as_os_str() == Path::new("/var/backups").join(n).as_os_str()
+        }),
         "backup deve ser /var/backups/donnabot-<identificador>, fora de qualquer árvore liberada"
     );
     safe(Path::new("/var/backups"))?;
@@ -308,9 +316,13 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
     let output = checked(user_command(hub, host)?.arg("migrar-raizes").arg("--data-dir").arg(data).arg("--inventario"))
         .context("F3 deve estar integrada: migrar-raizes --inventario; nada foi parado nem alterado")?;
     let items: Vec<CopyItem> = serde_json::from_slice(&output.stdout).context("inventário F3 inválido")?;
-    for item in &items {
-        safe(&item.source)?;
+    for (i, item) in items.iter().enumerate() {
         safe(&item.destination)?;
+        ensure!(
+            items[..i].iter().all(|other| other.destination != item.destination),
+            "destino repetido no inventário: {}",
+            item.destination.display()
+        );
         ensure!(
             !matches!(item.kind, Kind::Workspace) || !data.starts_with(&item.source),
             "workspace contém dados privados do Hub; origem de cópia recusada"
@@ -331,7 +343,12 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
         );
     }
     // Valida a árvore inteira antes da parada, lendo só o que o Hub já lê.
-    as_user(hub.uid, hub.gid, &[], || items.iter().try_for_each(|item| hashes(&item.source).map(drop)))?;
+    as_user(hub.uid, hub.gid, &[], || {
+        items.iter().try_for_each(|item| {
+            safe(&item.source)?;
+            hashes(&item.source).map(drop)
+        })
+    })?;
     Ok(items)
 }
 
@@ -556,9 +573,9 @@ fn deactivate_config(
 }
 
 fn record_path(backup: &Path) -> PathBuf {
-    let mut name = backup.as_os_str().to_owned();
+    let mut name = backup.file_name().unwrap_or_default().to_owned();
     name.push(".manifesto.json");
-    PathBuf::from(name)
+    backup.with_file_name(name)
 }
 
 fn inside(home: &Path, path: &Path) -> Result<()> {
@@ -623,26 +640,36 @@ fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<P
     } else {
         safe(&manifest.binary)?;
     }
+    safe(&manifest.data)?;
     let after = manifest.data.with_file_name(format!("donnabot-pos-troca-{}", uuid::Uuid::new_v4()));
     directory(&after, hub.uid, hub.gid, 0o700)?;
     // O diretório ativo e seu host.lock nunca mudam de inode durante a volta.
     super::rollback_data::restore(&manifest.data, &backup.join("data"), &after, |source, destination| {
         copy_tree(source, destination, hub.uid, hub.gid, 0o700, 0o600)
     })?;
+    // Conteúdo restaurado confere com o registro do root, não com a cópia gravável.
+    let expected: BTreeMap<String, String> = manifest
+        .hashes
+        .iter()
+        .filter_map(|(key, value)| {
+            let relative = key.strip_prefix("data/")?;
+            let relative = if relative.is_empty() { "/" } else { relative };
+            (relative != "host.lock").then(|| (relative.to_owned(), value.clone()))
+        })
+        .collect();
     ensure!(
-        hashes_excluding(&backup.join("data"), &[backup.join("data/host.lock")], None)?
-            == hashes_excluding(&manifest.data, &[manifest.data.join("host.lock")], Some(&manifest.data))?,
+        expected == hashes_excluding(&manifest.data, &[manifest.data.join("host.lock")], Some(&manifest.data))?,
         "hash diverge na restauração de dados"
     );
     if manifest.binary == stable && stable.is_symlink() {
         ensure!(fs::read_link(&stable)? == Path::new(BIN).join("donnabot-host"), "link estável mudou de destino");
         fs::remove_file(&stable)?;
     }
-    for (relative, mode) in &manifest.data_modes {
+    for (relative, mode) in manifest.data_modes.iter().rev() {
         owner_mode(&manifest.data.join(relative), hub.uid, hub.gid, *mode)?;
     }
     place(&backup.join("host"), &manifest.binary, hub.uid, hub.gid, manifest.binary_mode)?;
-    ensure!(digest(&backup.join("host"))? == digest(&manifest.binary)?, "hash do binário restaurado diverge");
+    ensure!(manifest.hashes.get("host") == Some(&digest(&manifest.binary)?), "hash do binário restaurado diverge");
     if let Some(target) = &manifest.link_target {
         if fs::symlink_metadata(&stable).is_ok() {
             fs::remove_file(&stable)?;
@@ -665,8 +692,11 @@ fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<P
 pub(super) fn rollback(hub: &User, backup: &Path) -> Result<()> {
     validate_backup(backup)?;
     let manifest = checked_manifest(hub.uid, &hub.home, backup)?;
-    as_user(hub.uid, hub.gid, &[], || verify_backup(hub.uid, backup, &manifest))?;
-    if unit(hub).exists() {
+    let unit_present = as_user(hub.uid, hub.gid, &[], || {
+        verify_backup(hub.uid, backup, &manifest)?;
+        Ok(unit(hub).exists())
+    })?;
+    if unit_present {
         service(hub, &["stop", "donnabot-host.service"])?;
     }
     let lock = as_user(hub.uid, hub.gid, &[], || {
@@ -793,17 +823,30 @@ mod tests {
         private_file(&real, &serde_json::to_vec(&manifest)?)?;
         symlink(&real, &record)?;
         assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro por link recusado");
+        fs::remove_file(&record)?;
+        gravar(&manifest)?;
+        fs::hard_link(&record, dir.join("segundo-nome"))?;
+        assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro com hardlink recusado");
+        fs::remove_file(dir.join("segundo-nome"))?;
         for fora in [
             Manifest { data: PathBuf::from("/etc"), ..manifest.clone() },
             Manifest { data: home.clone(), ..manifest.clone() },
             Manifest { binary: home.join("../fora"), ..manifest.clone() },
             Manifest { binary_mode: 0o4755, ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("../../etc".into(), 0o600)]), ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("codync.db".into(), 0o4600)]), ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("/etc".into(), 0o600)]), ..manifest.clone() },
             Manifest { hub_uid: uid + 1, ..manifest.clone() },
         ] {
             gravar(&fora)?;
             assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro fora das raízes recusado");
         }
+        gravar(&manifest)?;
+        assert!(trusted_manifest(uid, &home, &backup, uid).is_ok());
         assert!(inside(Path::new("/"), Path::new("/etc/x")).is_err());
+        let slash = Path::new("/var/backups/donnabot-teste/");
+        assert!(validate_backup(slash).is_err(), "barra final no backup recusada");
+        assert_eq!(record_path(slash), Path::new("/var/backups/donnabot-teste.manifesto.json"));
         fs::remove_dir_all(&dir)?;
         Ok(())
     }
@@ -849,6 +892,18 @@ mod tests {
         assert!(
             copy_profile(&from, OsStr::new(".codex-ficticio"), &again, OsStr::new(".x"), uid + 1, (uid, gid)).is_err()
         );
+        assert!(
+            copy_profile(&from, OsStr::new(".claude.json"), &again, OsStr::new(".y"), uid + 1, (uid, gid)).is_err()
+        );
+        assert!(copy_profile(&from, OsStr::new(".claude.json"), &again, OsStr::new("../z"), uid, (uid, gid)).is_err());
+        let fifo = CString::new(dir.join("home/fila").as_os_str().as_bytes())?;
+        // SAFETY: caminho terminado em NUL dentro da pasta temporária do teste.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(copy_profile(&from, OsStr::new("fila"), &again, OsStr::new("fila"), uid, (uid, gid)).is_err());
+        assert!(again.names()?.iter().all(|n| !n.to_string_lossy().starts_with(".donna-")), "temporário removido");
+        assert!(as_user(0, gid, &[], || Ok(())).is_err());
+        assert!(as_user(uid.max(1), 0, &[], || Ok(())).is_err());
+        assert!(as_user(uid.max(1), gid.max(1), &[0], || Ok(())).is_err());
         fs::remove_dir_all(&dir)?;
         Ok(())
     }

@@ -1,9 +1,10 @@
 //! Operações em árvores de outra conta rodam com a identidade de arquivos dela.
 //! fsuid, fsgid e grupos são por thread no Linux: a thread dedicada morre com eles,
 //! e nenhum caminho trocado ou link alcança o que essa conta não alcançaria.
+//! O trabalho passado não cria processos nem threads: exec devolveria as credenciais de root.
 use anyhow::{Context, Result, ensure};
 
-const FS_CAPABILITIES: u64 = 0b1_1111;
+const FS_CAPABILITIES: u64 = 0b1_1111 | 1 << 32;
 
 pub(super) fn as_user<T: Send>(
     uid: u32,
