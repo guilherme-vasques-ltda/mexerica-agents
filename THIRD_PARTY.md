@@ -13,6 +13,37 @@ no README principal. A exclusão do CODE_OF_CONDUCT retira o documento Contribut
 Covenant 3.0 (CC BY-SA 4.0); nenhum trecho dele foi incorporado aos textos novos.
 O relato de segurança e a confidencialidade permanecem em SECURITY.md/AGENTS.md.
 
+## Escopo desta cópia
+
+Este arquivo veio do projeto de origem (o repositório maior de onde esta cópia foi extraída) e foi mantido como registro de
+procedência. **Ele descreve também material que não está nesta cópia.** O texto de cada seção diz o que o projeto de origem
+fez; para saber o que esta cópia contém, vale a lista abaixo, conferida em 19/11/2026 comparando os destinos citados com a
+árvore deste repositório (só conferência de caminhos; não é parecer jurídico).
+
+**Está nesta cópia** (os avisos e licenças valem para estes arquivos):
+
+- Código adaptado de OpenMausBot (Apache-2.0) no calendário de rotinas do desktop (`apps/desktop/src/renderer/lib/routine-calendar.ts` e `apps/desktop/src/renderer/views/rotinas-central/`).
+- Trechos adaptados de ai-memory (MIT) em `host/crates/memory/src/`.
+- Fixture de teste derivada do esquema do wacli (MIT) em `host/src/fork/whatsapp/wacli_fixture.sql`.
+- Skills adaptadas de Exa e de Supabase (MIT) em `host/catalogo/skills/`.
+- pi-mono (MIT) vendorizado em `motor/vendor/pi-mono/`, com as dependências npm do motor (Anthropic, OpenAI, Google).
+- Fontes da interface (SIL OFL 1.1, texto ao lado de cada arquivo) em `apps/desktop/src/renderer/assets/fonts/`.
+- Pacote npm `lucide` (ISC), dependência do desktop.
+- Biblioteca própria de avatares em `apps/desktop/src/renderer/lib/donnabot-avatars/` (sem o diretório `demo/`).
+- Registro e manifesto do catálogo de skills em `host/src/fork/skill_catalog/` (sem os pacotes de texto das skills de marketing).
+- Código derivado do Codync v2.20.3 e as modificações listadas em `MODIFICACOES.md`.
+
+**Não está nesta cópia** (os registros abaixo ficam apenas como histórico da origem e não indicam que o material seja distribuído aqui):
+
+- A pasta `.claude/` inteira: as skills do projeto de origem (tstack `pr-wait` e as skills `abrir-pr`, `acompanhar-pr` e `full-stop`; security-audit-skill da Cloudflare; as 13 skills de emilkowalski/skills com `LICENSE-MIT-emilkowalski.txt`; `product-launch-film` e as fontes Geist do seu `template/assets/fonts/`) e `skills-lock.json`. O `AGENTS.md` do projeto de origem também não está aqui.
+- O bundle `apps/desktop/src/renderer/lib/donnabot-avatars/demo/demo.js` (React 18.3.1 minificado) e o diretório `demo/`.
+- Os documentos `redesenho/` e `docs/propostas/` e as propostas de design geradas (`gerar.mjs`, HTML, PNGs derivados).
+- Os pacotes de texto das skills de marketing (`copywriting`, `stop-slop`, `copy-review-panel` e referências) e a evidência de revisão do módulo Spaces (`research/reports/evidencias/`).
+- Documentos e arquivos citados só por nome (por exemplo `docs/plans/`, `web/content/docs/` e a maior parte de `docs/features/`) e arquivos do projeto de origem que não foram copiados.
+
+Se uma linha abaixo citar um destino que não existe nesta cópia, vale o que está dito aqui. Quem redistribuir esta cópia
+deve conferir os componentes contra a árvore realmente distribuída.
+
 Registre abaixo cada nova cópia de código de referência, inclusive adaptações,
 conforme D75.
 
