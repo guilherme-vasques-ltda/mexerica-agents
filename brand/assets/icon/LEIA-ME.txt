@@ -1,0 +1,22 @@
+ÍCONES MEXERICA
+==============
+
+19 variantes organizadas em 4 grupos:
+01_principal: ícone principal confirmado, fundo laranja e mascote maior, com a borda corrigida.
+02_selecionados: os dois ícones selecionados, com fundo laranja e creme.
+03_simples: oito variantes simples, na ordem da grade original.
+04_efeitos: oito variantes com efeitos coloridos, na ordem da grade original.
+
+Cada subpasta de variante contém um PNG original recortado, sem redimensionamento, e PNGs de 16, 32, 48, 64, 128, 256, 512 e 1024 pixels.
+
+QUALIDADE E TAMANHOS
+Os arquivos com sufixo _ampliado foram redimensionados acima da resolução do recorte original. A ampliação não cria detalhes novos. Os arquivos menores foram reduzidos com reamostragem Lanczos.
+O principal tem aproximadamente 1053 px de lado no recorte. Os selecionados têm aproximadamente 775 px. As variantes retiradas das grades têm aproximadamente 387 a 396 px.
+As dimensões exatas, fontes e coordenadas de cada recorte estão em resolucoes_e_fontes.csv.
+
+PRESERVAÇÃO DO DESENHO
+Não houve redesenho ou geração de detalhes. Os originais recortados preservam exatamente os pixels das fontes e a borda existente. Foi removida a margem retangular excedente, mantendo uma pequena folga para não cortar o contorno.
+Os PNGs são opacos. As áreas externas dos cantos arredondados mantêm a cor do fundo da fonte; não são arquivos com transparência ou ícones sem máscara para publicação direta na App Store.
+As quatro imagens de origem foram preservadas sem alteração em 00_fontes_originais.
+
+Use 00_catalogo.png para localizar visualmente as variantes. O ícone principal está na primeira posição.
