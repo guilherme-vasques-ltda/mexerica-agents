@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -40,7 +40,7 @@ test('a Open usa apenas identificadores próprios, no pacote e em execução', (
 })
 
 test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'mexerica-open-'))
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const appData = join(home, 'Application Support')
   mkdirSync(appData, { mode: 0o700 })
@@ -49,6 +49,9 @@ test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) 
   assert.equal(paths.homeConfig, join(home, open.dataFolder))
   const personal = join(appData, 'Donnabot')
   mkdirSync(personal, { mode: 0o700 })
+  const linkedAppData = join(home, 'Linked Application Support')
+  symlinkSync(appData, linkedAppData, 'dir')
+  assert.throws(() => openPaths(home, linkedAppData))
   symlinkSync(personal, join(paths.userData, 'Network'), 'dir')
   assert.throws(() => openPaths(home, appData))
   rmSync(join(paths.userData, 'Network'))
