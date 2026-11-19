@@ -1,5 +1,5 @@
 //! Orquestra cópia e volta. Só a F3 conhece e reescreve referências do banco.
-use super::identity::as_user;
+use super::identity::{as_user, user_groups};
 use super::root::{
     BASE, BIN, CONFIG, MOTOR, User, WORK, checked, directory, install, owner_mode, place, safe, service, system, unit,
     user, user_command, write_atomic,
@@ -189,6 +189,12 @@ fn parents(path: &Path, root: &Path, uid: u32, gid: u32, mode: u32) -> Result<()
     Ok(())
 }
 
+fn as_hub<T: Send>(hub: &User, extra: &[u32], work: impl FnOnce() -> Result<T> + Send) -> Result<T> {
+    let mut groups = user_groups(&hub.name, hub.gid)?;
+    groups.extend_from_slice(extra);
+    as_user(hub.uid, hub.gid, &groups, work)
+}
+
 fn fd_owner(file: &fs::File, uid: u32, gid: u32) -> Result<()> {
     // SAFETY: descritor vivo aberto sem seguir link.
     ensure!(unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } == 0, "fchown: {}", std::io::Error::last_os_error());
@@ -343,7 +349,7 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
         );
     }
     // Valida a árvore inteira antes da parada, lendo só o que o Hub já lê.
-    as_user(hub.uid, hub.gid, &[], || {
+    as_hub(hub, &[], || {
         items.iter().try_for_each(|item| {
             safe(&item.source)?;
             hashes(&item.source).map(drop)
@@ -361,7 +367,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
     );
     ensure!(!Path::new(CONFIG).exists(), "instalação já separada; use reinstalação, não migração");
     inside(&hub.home, data)?;
-    as_user(hub.uid, hub.gid, &[], || {
+    as_hub(hub, &[], || {
         safe(data)?;
         ensure!(data.is_dir() && fs::metadata(data)?.uid() == hub.uid, "data_dir deve pertencer ao Hub");
         Ok(())
@@ -380,7 +386,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         "Hub deve responder e estar busy:false antes da migração"
     );
     let link = hub.home.join(".local/bin/donnabot-host");
-    let (old_binary, link_target) = as_user(hub.uid, hub.gid, &[], || {
+    let (old_binary, link_target) = as_hub(hub, &[], || {
         let old_binary = link.canonicalize().context("binário antigo no caminho conhecido pelo app ausente")?;
         safe(&old_binary)?;
         hashes_excluding(data, &[], Some(data))?;
@@ -394,7 +400,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
     let result = (|| {
         service(hub, &["stop", "donnabot-host.service"])?;
         // O guard é solto ao sair da tentativa, antes de qualquer recuperação do serviço.
-        let lock = as_user(hub.uid, hub.gid, &[], || {
+        let lock = as_hub(hub, &[], || {
             Ok(fs::OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -406,7 +412,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         directory(backup, hub.uid, hub.gid, 0o700)?;
         no_acl(backup)?;
         // Tudo o que é lido ou gravado em árvores do Hub usa a identidade de arquivos do Hub.
-        let (unit_present, binary_mode, modes, backup_hashes) = as_user(hub.uid, hub.gid, &[], || {
+        let (unit_present, binary_mode, modes, backup_hashes) = as_hub(hub, &[], || {
             copy_excluding(data, &backup.join("data"), hub.uid, hub.gid, 0o700, 0o600, (&[], Some(data)))?;
             ensure!(
                 hashes_excluding(data, &[], Some(data))? == hashes(&backup.join("data"))?,
@@ -444,7 +450,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         // Destinos e modos da volta ficam num registro do root, fora da cópia gravável pelo Hub.
         write_atomic(&record, &serde_json::to_vec_pretty(&manifest)?, 0, 0, 0o600)?;
         // Só agora o caminho antigo já está salvo e pode virar link estável.
-        as_user(hub.uid, hub.gid, &[], || Ok(fs::remove_file(&link)?))?;
+        as_hub(hub, &[], || Ok(fs::remove_file(&link)?))?;
         install(hub, host, helper, data, port, false)?;
         let config = fs::read_to_string(CONFIG)?;
         let gid: u32 = config.lines().find_map(|s| s.strip_prefix("work_gid=")).context("work_gid ausente")?.parse()?;
@@ -462,7 +468,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
             } else {
                 Vec::new()
             };
-            let source_hashes = as_user(hub.uid, hub.gid, &[], || {
+            let source_hashes = as_hub(hub, &[], || {
                 ensure!(
                     hashes(&item.source)? == hashes(&backup.join("profiles-work").join(i.to_string()))?,
                     "hash diverge do backup {i}"
@@ -488,7 +494,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
                 as_user(uid, motor.gid, &[], || hashes(&item.destination))?
             } else {
                 let (dm, fm) = if matches!(item.kind, Kind::Workspace) { (0o2770, 0o660) } else { (0o2750, 0o640) };
-                as_user(hub.uid, hub.gid, &[gid], || {
+                as_hub(hub, &[gid], || {
                     parents(
                         item.destination.parent().context("destino sem pai")?,
                         Path::new(WORK),
@@ -694,14 +700,14 @@ fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<P
 pub(super) fn rollback(hub: &User, backup: &Path) -> Result<()> {
     validate_backup(backup)?;
     let manifest = checked_manifest(hub.uid, &hub.home, backup)?;
-    let unit_present = as_user(hub.uid, hub.gid, &[], || {
+    let unit_present = as_hub(hub, &[], || {
         verify_backup(hub.uid, backup, &manifest)?;
         Ok(unit(hub).exists())
     })?;
     if unit_present {
         service(hub, &["stop", "donnabot-host.service"])?;
     }
-    let lock = as_user(hub.uid, hub.gid, &[], || {
+    let lock = as_hub(hub, &[], || {
         Ok(fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -710,7 +716,7 @@ pub(super) fn rollback(hub: &User, backup: &Path) -> Result<()> {
     })?;
     ensure!(crate::lock_file(&lock, crate::FLOCK_WAIT)?, "Hub ainda ativo; volta recusada");
     // Nada nas árvores do Hub é gravado com poderes de root.
-    let after = as_user(hub.uid, hub.gid, &[], || restore_hub_files(hub, backup, &manifest))?;
+    let after = as_hub(hub, &[], || restore_hub_files(hub, backup, &manifest))?;
     if Path::new(CONFIG).exists() {
         // Ajudante permanece inerte e sem configuração, conforme plano de volta.
         checked(user_command(hub, Path::new(BIN).join("donnabot-motor-exec"))?.arg("cleanup"))?;
@@ -907,6 +913,15 @@ mod tests {
         assert!(as_user(uid.max(1), 0, &[], || Ok(())).is_err());
         assert!(as_user(uid.max(1), gid.max(1), &[0], || Ok(())).is_err());
         fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn identidade_do_hub_mantem_grupos_suplementares_sem_root() -> Result<()> {
+        // SAFETY: getter da identidade corrente, sem efeitos colaterais.
+        let hub = user(unsafe { libc::geteuid() })?;
+        let groups = user_groups(&hub.name, hub.gid)?;
+        assert!(groups.contains(&hub.gid) && !groups.contains(&0));
         Ok(())
     }
 

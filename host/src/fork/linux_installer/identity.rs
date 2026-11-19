@@ -6,6 +6,26 @@ use anyhow::{Context, Result, ensure};
 
 const FS_CAPABILITIES: u64 = 0b1_1111 | 1 << 32;
 
+/// Grupos da conta como o login os inicializa, sem o grupo root.
+pub(super) fn user_groups(name: &std::ffi::OsStr, gid: u32) -> Result<Vec<u32>> {
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(name.as_bytes())?;
+    let mut groups = vec![0u32; 64];
+    loop {
+        let mut count = libc::c_int::try_from(groups.len())?;
+        // SAFETY: nome terminado em NUL; buffer vivo com a capacidade informada em count.
+        let rc = unsafe { libc::getgrouplist(name.as_ptr(), gid, groups.as_mut_ptr(), &raw mut count) };
+        let count = usize::try_from(count)?;
+        if rc >= 0 {
+            groups.truncate(count);
+            groups.retain(|g| *g != 0);
+            return Ok(groups);
+        }
+        ensure!(count > groups.len() && count <= 65536, "getgrouplist falhou");
+        groups.resize(count, 0);
+    }
+}
+
 pub(super) fn as_user<T: Send>(
     uid: u32,
     gid: u32,
