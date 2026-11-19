@@ -241,6 +241,22 @@ de `LICENSE` deste repositório. O repositório não tem `NOTICE` no commit cita
 `modelo-marketing.ts` leva a origem no topo; `REGRAS_MARKETING` é adaptação
 (tradução para PT-BR) do bloco `COMMON` citado na tabela.
 
+### SF Symbols (Apple) — gerados do sistema, nunca versionados
+
+Nenhum símbolo, imagem ou fonte do SF Symbols está neste repositório. No macOS, o build executa
+`apps/desktop/tools/export-symbols.swift`, que lê os nomes de `apps/desktop/src/renderer/components/symbols.json`
+e desenha cada símbolo a partir do AppKit do próprio sistema em máscaras PNG, gravadas em
+`src/renderer/public/symbols/` (ignorado pelo Git) e embutidas só no app para plataformas Apple. Linux e Windows usam os
+ícones Lucide (abaixo), sem SF Symbols.
+
+- **Origem:** SF Symbols da Apple, via AppKit, no Mac de quem compila.
+- **Condição de uso registrada no código:** segundo o comentário do exportador, SF Symbols só podem ser distribuídos em apps
+  para plataformas Apple; por isso as máscaras são geradas no build e não são versionadas. Este repositório não traz o texto da
+  licença da Apple: quem distribuir um instalador de Mac deve conferir os termos vigentes do SF Symbols.
+- **Logotipo da Apple:** o símbolo `apple.logo` **não** é exportado (marca de terceiros). O botão do provedor Apple usa
+  `provedor.apple`, ícone genérico de conta da Lucide. `tools/verify-build.cjs` recusa o pacote de macOS se `apple.logo` voltar
+  ao manifesto exportado.
+
 ### Lucide
 
 ```text

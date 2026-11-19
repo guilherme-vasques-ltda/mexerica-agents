@@ -1,5 +1,5 @@
 // Fail before packaging if a stale account-config.json belongs to the other app variant.
-const { accessSync, readFileSync } = require('node:fs')
+const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 module.exports = async (context) => {
   await require('./personal-pin-receipt.cjs')(context)
@@ -9,9 +9,7 @@ module.exports = async (context) => {
   if (context.electronPlatformName === 'darwin') {
     const symbols = join(context.packager.projectDir, 'out/renderer/symbols')
     const manifest = JSON.parse(readFileSync(join(symbols, 'manifest.json'), 'utf8'))
-    if (!manifest['apple.logo']) throw new Error('The macOS build is missing the Apple logo; rebuild the app on macOS.')
-    for (const weight of ['light', 'regular', 'medium', 'semibold', 'bold', 'black']) {
-      accessSync(join(symbols, `apple.logo.${weight}.png`))
-    }
+    // O logotipo da Apple não é exportado: marca de terceiros, o app usa um símbolo genérico de conta.
+    if (manifest['apple.logo']) throw new Error('The macOS build exports the Apple logo; remove apple.logo from src/renderer/components/symbols.json.')
   }
 }

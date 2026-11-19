@@ -22,19 +22,16 @@ function fixture(t: TestContext, platform = 'darwin') {
   return { electronPlatformName: platform, packager: { projectDir, appInfo: { id: 'app.donnabot.mac.dev' } } }
 }
 
-test('macOS packaging requires the Apple logo manifest entry and every rendered weight', async (t) => {
+test('macOS packaging requires the exported symbol manifest and refuses the Apple logo', async (t) => {
   const context = fixture(t)
   await assert.rejects(verifyBuild(context), /ENOENT/)
   const symbols = join(context.packager.projectDir, 'out/renderer/symbols')
   mkdirSync(symbols, { recursive: true })
-  writeFileSync(join(symbols, 'manifest.json'), '{}')
-  await assert.rejects(verifyBuild(context), /missing the Apple logo/)
-  writeFileSync(join(symbols, 'manifest.json'), JSON.stringify({ 'apple.logo': { w: 0.9, h: 1.15 } }))
-  await assert.rejects(verifyBuild(context), /ENOENT/)
-  for (const weight of ['light', 'regular', 'medium', 'semibold', 'bold', 'black']) {
-    writeFileSync(join(symbols, `apple.logo.${weight}.png`), 'fixture')
-  }
+  writeFileSync(join(symbols, 'manifest.json'), JSON.stringify({ 'person.crop.circle': { w: 1, h: 1 } }))
   await assert.doesNotReject(verifyBuild(context))
+  writeFileSync(join(symbols, 'manifest.json'), JSON.stringify({ 'apple.logo': { w: 0.9, h: 1.15 } }))
+  await assert.rejects(verifyBuild(context), /exports the Apple logo/)
+  writeFileSync(join(symbols, 'manifest.json'), '{}')
   // Conta da outra variante continua recusada.
   writeFileSync(join(context.packager.projectDir, 'resources/account-config.json'), JSON.stringify({ environment: 'main' }))
   await assert.rejects(verifyBuild(context), /Packaging dev with main account config/)
