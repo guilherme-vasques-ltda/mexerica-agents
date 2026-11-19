@@ -13,8 +13,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
+
+mod arquivo;
 
 const URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 /// Upstream updates hourly; once a day is plenty for picking agents.
@@ -172,30 +174,60 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             let platform = platform().ok_or_else(|| anyhow!("no download for this platform"))?;
             let target = &d["binary"][platform];
             let cmd =
-                target["cmd"].as_str().and_then(contained).ok_or_else(|| anyhow!("registry entry has a bad cmd"))?;
-            let dir = install_binary(agent, target, cmd, &progress).await?;
+                target["cmd"].as_str().and_then(contained).context("Caminho inválido para o executável do agente.")?;
+            let cmd = arquivo::caminho_relativo(cmd)?;
+            let dir = install_binary(agent, target, &cmd, &progress).await?;
             let executable =
-                if motor_install::worker() { motor_install::published_path(&dir.join(cmd))? } else { dir.join(cmd) };
+                if motor_install::worker() { motor_install::published_path(&dir.join(&cmd))? } else { dir.join(&cmd) };
             Ok(Cmd {
                 program: format!("{}{}", env_prefix(&target["env"]), shell::quote(&executable.to_string_lossy())),
                 args: args_of(target),
             })
         }
         Some(Launch::Npx) => {
-            prepare_npx(d["npx"]["package"].as_str().unwrap_or_default(), name, &progress).await?;
+            let package = d["npx"]["package"].as_str().unwrap_or_default();
+            pacote_npm_fixo(package)?;
+            prepare_npx(package, name, &progress).await?;
             Ok(npx_cmd(&d["npx"]))
         }
-        Some(Launch::Uvx) => Ok(Cmd {
-            program: format!(
-                "{}uvx {}",
-                env_prefix(&d["uvx"]["env"]),
-                shell::quote(d["uvx"]["package"].as_str().unwrap_or_default())
-            ),
-            args: args_of(&d["uvx"]),
-        }),
+        Some(Launch::Uvx) => {
+            let package = d["uvx"]["package"].as_str().unwrap_or_default();
+            pacote_uv_fixo(package)?;
+            Ok(Cmd {
+                program: format!("{}uvx {}", env_prefix(&d["uvx"]["env"]), shell::quote(package)),
+                args: args_of(&d["uvx"]),
+            })
+        }
         None if needs_node(agent) => bail!("{name} needs Node.js on this computer: add it in Extensions"),
         None => bail!("{name} has no build for this computer (needs uv)"),
     }
+}
+
+// Fixar a versão evita resolver tags ou faixas móveis. Não fixa as dependências transitivas,
+// não autentica o catálogo externo e não audita o pacote nem seus scripts de instalação.
+fn pacote_npm_fixo(pacote: &str) -> Result<()> {
+    static NOME: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"\A(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*\z").expect("regex constante")
+    });
+    if pacote.rsplit_once('@').is_some_and(|(nome, versao)| {
+        NOME.is_match(nome) && semver::Version::parse(versao.strip_prefix('v').unwrap_or(versao)).is_ok()
+    }) {
+        return Ok(());
+    }
+    bail!("O registro deve indicar uma versão exata do pacote npm (por exemplo, pacote@1.2.3).")
+}
+
+fn pacote_uv_fixo(pacote: &str) -> Result<()> {
+    static ESPECIFICACAO: LazyLock<regex::Regex> = LazyLock::new(|| {
+        let nome = r"[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?";
+        regex::Regex::new(&format!(
+            r"(?i)\A{nome}(?:\[{nome}(?:,{nome})*\])?(?:==|@)v?(?:[0-9]+!)?[0-9]+(?:\.[0-9]+)*(?:[-_.]?(?:a|b|c|rc|alpha|beta|pre|preview)[-_.]?[0-9]*)?(?:-[0-9]+|[-_.]?(?:post|rev|r)[-_.]?[0-9]*)?(?:[-_.]?dev[-_.]?[0-9]*)?(?:\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?\z"
+        )).expect("regex constante")
+    });
+    if pacote.is_ascii() && ESPECIFICACAO.is_match(pacote) {
+        return Ok(());
+    }
+    bail!("O registro deve indicar uma versão exata do pacote uv (por exemplo, pacote==1.2.3).")
 }
 
 fn npx_cmd(npx: &Value) -> Cmd {
@@ -294,6 +326,13 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     })
 }
 
+fn hash_obrigatorio(alvo: &Value) -> Result<&str> {
+    alvo["sha256"]
+        .as_str()
+        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .context("O registro deve informar um SHA-256 válido (64 dígitos hexadecimais) para instalar o agente.")
+}
+
 /// Downloads + extracts a binary distribution into `~/.codync/agents/<id>/<version>`.
 async fn install_binary(
     agent: &Value,
@@ -301,16 +340,24 @@ async fn install_binary(
     cmd: &Path,
     progress: &impl Fn(&str, Option<ActivityKind>),
 ) -> Result<PathBuf> {
+    static INSTALANDO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    // O SHA-256 detecta divergência entre o download e a descrição, mas não autentica o
+    // registro externo: ele fornece tanto o hash quanto o endereço do arquivo.
+    let hash = hash_obrigatorio(target)?;
+    let _instalando = INSTALANDO.lock().await;
     let id = agent["id"].as_str().and_then(safe_component).ok_or_else(|| anyhow!("registry entry has a bad id"))?;
     let version = agent["version"].as_str().and_then(safe_component).unwrap_or("latest");
-    let dir = motor_install::root().join("agents").join(id).join(version);
-    if tokio::fs::try_exists(dir.join(".installed")).await.unwrap_or(false) {
+    let dir = arquivo::pasta_instalacao(&motor_install::root(), id, version)?;
+    if arquivo::cache_verificado(&dir, hash, cmd)? {
         return Ok(dir);
     }
-    let url = target["archive"].as_str().ok_or_else(|| anyhow!("registry entry has no archive"))?;
-    if !url.starts_with("https://") {
-        bail!("refusing a non-HTTPS download for {id}");
+    let url = target["archive"].as_str().context("O registro não informou o arquivo do agente.")?;
+    let url = reqwest::Url::parse(url).or_else(|_| bail!("Endereço de download do agente inválido."))?;
+    if url.scheme() != "https" {
+        bail!("O download do agente exige HTTPS.");
     }
+    let file_name =
+        url.path_segments().and_then(Iterator::last).and_then(safe_component).unwrap_or("download").to_owned();
     let item = agent["name"].as_str().unwrap_or(id).to_owned();
     progress(&format!("Downloading {item}…"), Some(ActivityKind::Downloading { item: item.clone() }));
     let bytes = crate::http()
@@ -322,27 +369,14 @@ async fn install_binary(
         .bytes()
         .await
         .with_context(|| format!("downloading {id}"))?;
-    if let Some(want) = target["sha256"].as_str()
-        && !sha256_hex(&bytes).eq_ignore_ascii_case(want)
-    {
-        bail!("download checksum mismatch for {id}");
-    }
     progress("Installing…", Some(ActivityKind::Installing { item }));
-    let file_name =
-        url.rsplit('/').next().and_then(|f| f.split('?').next()).and_then(safe_component).unwrap_or("download");
-    let (dir2, file_name, cmd) = (dir.clone(), file_name.to_owned(), cmd.to_owned());
+    let (dir2, hash, cmd) = (dir.clone(), hash.to_owned(), cmd.to_owned());
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let _ = std::fs::remove_dir_all(&dir2);
-        std::fs::create_dir_all(&dir2)?;
-        let archive = dir2.join(file_name);
-        std::fs::write(&archive, &bytes)?;
-        extract(&archive, &dir2, &cmd)?;
-        std::fs::write(dir2.join(".installed"), "")?;
+        arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd)?;
         remove_other_versions(&dir2);
         Ok(())
     })
-    .await?
-    .with_context(|| format!("installing {id}"))?;
+    .await??;
     Ok(dir)
 }
 
@@ -358,7 +392,7 @@ fn remove_other_versions(installed: &Path) {
     }
 }
 
-/// Blocking: unpacks `archive` into `dir` and makes `cmd` executable.
+/// Extrator do instalador de Node.js, para arquivos com hash fixado no próprio Hub.
 pub(crate) fn extract(archive: &Path, dir: &Path, cmd: &Path) -> Result<()> {
     if motor_install::orchestrating() {
         crate::fork::motor_exec::refuse("extração de adaptadores")?;
@@ -408,6 +442,28 @@ fn chmod_x(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn exige_sha256_com_64_hexadecimais_antes_de_baixar() {
+        assert!(hash_obrigatorio(&json!({"sha256": null})).is_err());
+        assert!(hash_obrigatorio(&json!({"sha256": "abc"})).is_err());
+        assert!(hash_obrigatorio(&json!({"sha256": "g".repeat(64)})).is_err());
+        let alvo = json!({"sha256": "A".repeat(64)});
+        assert_eq!(hash_obrigatorio(&alvo).unwrap(), "A".repeat(64));
+    }
+
+    #[test]
+    fn recusa_pacotes_sem_versao_exata() {
+        for pacote in ["pacote", "@escopo/pacote", "pacote@latest", "pacote@^1.2.3", "pacote@1.2", "pacote@1.x"] {
+            assert!(pacote_npm_fixo(pacote).is_err(), "{pacote}");
+        }
+        for pacote in ["pacote", "pacote@latest", "pacote>=1.2", "pacote~=1.2", "pacote==1.*", "pacote==1.2,!=1.2.1"] {
+            assert!(pacote_uv_fixo(pacote).is_err(), "{pacote}");
+        }
+        assert!(pacote_npm_fixo("@escopo/pacote@1.2.3-beta.1").is_ok());
+        assert!(pacote_uv_fixo("pacote==1.2.3rc1").is_ok());
+        assert!(pacote_uv_fixo("pacote@1.2.3").is_ok());
+    }
 
     #[test]
     fn npx_command_is_quoted() {
