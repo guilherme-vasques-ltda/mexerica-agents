@@ -4,6 +4,8 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
+mod identity;
+#[cfg(target_os = "linux")]
 mod migration;
 #[cfg(target_os = "linux")]
 mod rollback_data;
