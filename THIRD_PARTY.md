@@ -325,18 +325,26 @@ nos arquivos. Licença: SIL Open Font License 1.1, com o texto completo ao lado 
 ## Arte própria da Mexerica (restaurada em 19/11/2026)
 
 A cópia inicial trocou a arte própria da Mexerica por imagens neutras geradas por código. Por decisão do dono do projeto em 19/11/2026
-("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo."), os arquivos originais voltaram **sem nenhuma alteração**: os
-bytes são os mesmos do repositório de origem (revisão `d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`). `brand/ARTE-HASHES.tsv` lista cada arquivo
-(grupo, SHA-256, tamanho e o identificador do blob Git de origem). Os 1.075 arquivos foram conferidos e não trazem metadados embutidos que identifiquem
+("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo."), os arquivos originais voltaram do repositório de origem
+(revisão `d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`): 1.037 deles com exatamente os mesmos bytes, 34 PNGs recomprimidos sem perda (ver "Credenciais de
+conteúdo" abaixo) e 4 textos descritivos com uma nota e os novos hashes. `brand/ARTE-HASHES.tsv` lista cada arquivo (grupo, regra de uso, SHA-256 e tamanho
+da origem, SHA-256 e tamanho do arquivo atual, e o identificador do blob Git de origem). Os 1.075 arquivos foram conferidos e não trazem metadados embutidos que identifiquem
 pessoa ou máquina (nenhum campo EXIF/XMP, nenhum texto de PNG ou de WebP); os PDF de logo têm só `Creator: Chromium`, `Producer: Skia/PDF` e a data de exportação (07/11/2026).
 
 **Credenciais de conteúdo nos próprios arquivos.** 34 PNGs trazem credenciais C2PA embutidas (bloco `caBX`), assinadas por "OpenAI Media Service /
 OpenAI OpCo, LLC" e datadas de 07/11/2026. Elas registram o agente de software "ChatGPT", versão "gpt-image", e a origem digital "mídia gerada por
 algoritmo treinado" (IPTC `trainedAlgorithmicMedia`). São os 20 fundos de chat (`brand/assets/fundos-chat/`), os 10 personagens por papel
-(`brand/assets/personagens/`) e as 4 fontes originais do ícone (`brand/assets/icon/00_fontes_originais/`). A coluna `credenciais_c2pa` de
+(`brand/assets/personagens/`) e as 4 fontes originais do ícone (`brand/assets/icon/00_fontes_originais/`). A coluna `c2pa_no_original` de
 `brand/ARTE-HASHES.tsv` marca cada um. Os demais arquivos não trazem essa marca, o que não prova como foram feitos. O dono do projeto não informou a ferramenta
 de geração; este registro só repete o que as credenciais afirmam. Ele não conferiu os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens
 geradas nem a cadeia de direitos sobre os insumos. Nada aqui é parecer jurídico.
+
+**Recompressão desses 34 PNGs (decisão do dono, 19/11/2026).** Para reduzir o peso do repositório, o dono decidiu em 19/11/2026 recomprimir esses 34 PNGs
+sem perda. A recompressão (oxipng, nível 4, sem redução de tipo de cor nem alteração de canal alfa) removeu o bloco `caBX` com as credenciais C2PA de cada
+arquivo; **os arquivos atuais não carregam mais essa marca de origem**, e esta seção a substitui por escrito. Os pixels decodificados são idênticos aos dos
+originais: conferido nos 34 por dois decodificadores independentes (PIL e ffmpeg, em RGBA de 64 bits), com o mesmo cabeçalho de imagem (largura, altura,
+profundidade e tipo de cor) e nenhum outro bloco removido. Os originais intactos, com as credenciais, continuam no repositório de origem, na revisão
+`d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`. `brand/ARTE-HASHES.tsv` traz, para cada um, o SHA-256 da origem e o do arquivo atual.
 
 | Grupo | Onde fica | Arquivos | Licença declarada na origem |
 | --- | --- | ---: | --- |

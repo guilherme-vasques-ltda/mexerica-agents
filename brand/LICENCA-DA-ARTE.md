@@ -23,7 +23,7 @@ A origem declara Apache-2.0 para estes grupos, e a declaração foi mantida.
 
 Estes grupos **não** são licenciados sob Apache-2.0. A origem não declara licença para eles, e esta cópia também não escolhe uma. A Mexerica
 reserva os direitos que tiver sobre essas imagens e **não concede licença de reuso fora da Mexerica**. Este texto não afirma quem é o titular
-de direito autoral de cada imagem: 34 delas se declaram geradas por ferramenta de IA (ver "Procedência" abaixo). O uso permitido é **dentro
+de direito autoral de cada imagem: os originais de 34 delas se declaravam gerados por ferramenta de IA (ver "Procedência" abaixo). O uso permitido é **dentro
 da Mexerica como distribuída**: ver, compilar e rodar o app com essas imagens. Não é permitido reusar, republicar ou incluir essas imagens em
 outros produtos. O nome, a logo, o mascote e o ícone são tratados à parte, como marca reservada (ver [TRADEMARK.md](../TRADEMARK.md)). A
 permissão pode ser ampliada depois, sem voltar atrás; o contrário não vale.
@@ -45,9 +45,12 @@ os 43 ícones de agentes, o logotipo da Apple, `google.svg` e `computer-linux.sv
 
 ## Procedência
 
-`brand/ARTE-HASHES.tsv` lista cada arquivo com o grupo, a regra de uso (`apache-2.0` ou `reservada`), se traz credenciais C2PA, o SHA-256 e o tamanho.
+`brand/ARTE-HASHES.tsv` lista cada arquivo com o grupo, a regra de uso (`apache-2.0` ou `reservada`), se o original trazia credenciais C2PA, se o
+arquivo foi alterado, e o SHA-256 e o tamanho da origem e do arquivo atual.
 
-34 PNGs (os 20 fundos de chat, os 10 personagens e as 4 fontes originais do ícone) trazem credenciais de conteúdo C2PA assinadas pela OpenAI e
-datadas de 07/11/2026, que dizem que foram geradas pelo ChatGPT (`gpt-image`). O dono não informou a ferramenta; este registro só repete o que
-as credenciais afirmam. Não foram conferidos os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens geradas. Detalhes em
-[THIRD_PARTY.md](../THIRD_PARTY.md).
+Os originais de 34 PNGs (os 20 fundos de chat, os 10 personagens e as 4 fontes originais do ícone) traziam credenciais de conteúdo C2PA assinadas pela
+OpenAI e datadas de 07/11/2026, que diziam que foram geradas pelo ChatGPT (`gpt-image`). Por decisão do dono em 19/11/2026, esses 34 foram
+recomprimidos sem perda para reduzir o peso, com os mesmos pixels; a recompressão removeu o bloco das credenciais, de modo que os arquivos atuais não a
+carregam mais. Os originais intactos continuam no repositório de origem (revisão `d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`). O dono não informou a
+ferramenta; este registro só repete o que as credenciais afirmavam. Não foram conferidos os termos de uso da ferramenta sobre titularidade ou uso
+comercial das imagens geradas. Detalhes em [THIRD_PARTY.md](../THIRD_PARTY.md).

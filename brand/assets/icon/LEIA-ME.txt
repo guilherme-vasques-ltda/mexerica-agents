@@ -17,6 +17,6 @@ As dimensões exatas, fontes e coordenadas de cada recorte estão em resolucoes_
 PRESERVAÇÃO DO DESENHO
 Não houve redesenho ou geração de detalhes. Os originais recortados preservam exatamente os pixels das fontes e a borda existente. Foi removida a margem retangular excedente, mantendo uma pequena folga para não cortar o contorno.
 Os PNGs são opacos. As áreas externas dos cantos arredondados mantêm a cor do fundo da fonte; não são arquivos com transparência ou ícones sem máscara para publicação direta na App Store.
-As quatro imagens de origem foram preservadas sem alteração em 00_fontes_originais.
+As quatro imagens de origem estão em 00_fontes_originais. Em 19/11/2026 foram recomprimidas sem perda (os pixels decodificados são idênticos aos dos originais); os SHA-256 dos originais estão em brand/ARTE-HASHES.tsv.
 
 Use 00_catalogo.png para localizar visualmente as variantes. O ícone principal está na primeira posição.

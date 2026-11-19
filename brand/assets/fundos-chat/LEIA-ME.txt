@@ -21,6 +21,7 @@ RESOLUÇÃO E QUALIDADE
 Os PNGs foram gerados individualmente, não recortados da grade de conceitos.
 São arquivos na resolução nativa de geração, sem ampliação artificial.
 Consulte tamanhos.csv para as dimensões e o tamanho de cada arquivo.
+Em 19/11/2026 os 20 PNGs foram recomprimidos sem perda (os pixels decodificados são idênticos aos dos originais). Os bytes e os SHA-256 de tamanhos.csv são os dos arquivos atuais; os dos originais estão em brand/ARTE-HASHES.tsv.
 Os pares seguem o mesmo conceito e paleta adaptada, mas podem apresentar pequenas diferenças de desenho.
 
 USO
