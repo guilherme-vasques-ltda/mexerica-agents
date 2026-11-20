@@ -719,7 +719,10 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   // Entre o início da navegação e a troca efetiva o documento que está saindo ainda pode falar por IPC: nada do navegador do bot
   // abre, comanda nem confirma nesse intervalo, e a geração avança nas duas pontas (a posse nunca passa ao documento seguinte).
   const navigating = new WeakSet<object>()
-  const loading = (sender: IpcMainEvent['sender']) => navigating.has(sender) || (sender as { isLoadingMainFrame?: () => boolean }).isLoadingMainFrame?.() === true
+  // Janela destruída, ou que lança ao responder, conta como em navegação: nunca libera nem herda nada.
+  const loading = (sender: IpcMainEvent['sender']) => {
+    try { return navigating.has(sender) || sender.isDestroyed() || (sender as { isLoadingMainFrame?: () => boolean }).isLoadingMainFrame?.() === true } catch { return true }
+  }
   const watchDocument = (sender: IpcMainEvent['sender']) => {
     if (watched.has(sender)) return
     watched.add(sender)

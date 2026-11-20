@@ -38,11 +38,12 @@ function montar() {
   const atraso = { quadro: 0, clique: [] as number[] }
   const eventosDaJanela = new Map<string, Listener[]>()
   const carregando = { principal: false }
+  const destruida = { v: false }
   const emitir = (canal: string, ...args: unknown[]) => (eventosDaJanela.get(canal) ?? []).forEach((cb) => cb(...args))
   const enviados = { n: 0 }
   const frame = { url }
   const sender = {
-    id: 1, mainFrame: frame, isDestroyed: () => false, once() {}, removeListener() {}, isLoadingMainFrame: () => carregando.principal,
+    id: 1, mainFrame: frame, isDestroyed: () => destruida.v, once() {}, removeListener() {}, isLoadingMainFrame: () => { if (destruida.v) throw new Error('Object has been destroyed'); return carregando.principal },
     on: (canal: string, cb: Listener) => { (eventosDaJanela.get(canal) ?? eventosDaJanela.set(canal, []).get(canal)!).push(cb) },
     send: (canal: string, ...args: unknown[]) => {
       if (canal === 'forkCloud:frames:data') { enviados.n += 1; passa(atraso.quadro) }
@@ -122,7 +123,7 @@ function montar() {
     /** O documento novo entrou: fim da navegação. */
     navegou: () => emitir('did-navigate', {}),
     falhou: (principal: boolean) => emitir('did-fail-load', {}, -3, 'x', 'file:///x', principal),
-    carregando,
+    carregando, destruida,
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -518,4 +519,20 @@ test('janela já carregando a página principal quando vê a primeira abertura �
   assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok')
   r.navegou()
   assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'commit principal sem início observado também troca a geração: a posse não passa')
+})
+
+test('janela fechada durante a inscrição: a tentativa sempre é liberada, sem herdar posse, e a próxima inscrição não fica presa', async () => {
+  const r = await comPessoa()
+  const respostas: ((v: ForkCloudCallResult) => void)[] = []
+  r.hub.browserStreamSubscribe = () => new Promise((resolve) => respostas.push(resolve))
+  const inscricao = r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
+  await settle()
+  r.destruida.v = true
+  respostas[0]!({ kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } })
+  await inscricao
+  r.destruida.v = false
+  r.hub.browserStreamSubscribe = (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } })
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent', 'resultado incerto: ninguém comanda até uma confirmação nova')
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok', 'a troca não ficou ocupada')
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'ok')
 })
