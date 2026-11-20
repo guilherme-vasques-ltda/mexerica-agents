@@ -818,7 +818,7 @@ fn stepwise_swap_reports_both_errors_and_keeps_the_old_copy_when_the_undo_fails(
     .unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("entrada recusada") && message.contains("desfazer recusado"));
-    assert!(message.contains(".old-"));
+    assert!(message.contains(".old-") && message.contains("-existing"));
     assert_eq!(old_dirs(&f.0.skills_root), 1);
     assert!(!dest.exists());
 }
@@ -840,20 +840,36 @@ fn stepwise_swap_succeeds_and_cleans_up_when_only_the_last_step_fails() {
 }
 
 #[test]
-fn orphan_cleanup_removes_only_old_and_stage_directories() {
+fn orphan_cleanup_removes_stale_directories_and_restores_the_only_copy() {
     let _isolamento = TEST_ISOLATION.blocking_lock();
     let f = Fixture::new();
     private_dir(&f.0.skills_root).unwrap();
     let root = &f.0.skills_root;
-    for name in [".old-a", ".stage-b", "find-skills"] {
+    let id = uuid::Uuid::new_v4();
+    let only_copy = format!(".old-{id}-lost-skill");
+    let stale = format!(".old-{}-find-skills", uuid::Uuid::new_v4());
+    for name in [only_copy.as_str(), stale.as_str(), ".stage-b", "find-skills"] {
         fs::create_dir(root.join(name)).unwrap();
-        fs::write(root.join(name).join("x"), "x").unwrap();
+        fs::write(root.join(name).join("x"), name).unwrap();
     }
     fs::write(root.join(".old-file"), "x").unwrap();
-    clean_orphans(root);
-    assert!(!root.join(".old-a").exists() && !root.join(".stage-b").exists());
-    assert!(root.join("find-skills").join("x").exists());
+    clean_orphans(root, |a, b| fs::rename(a, b));
+    assert_eq!(fs::read_to_string(root.join("lost-skill").join("x")).unwrap(), only_copy);
+    assert!(!root.join(&only_copy).exists() && !root.join(&stale).exists() && !root.join(".stage-b").exists());
+    assert_eq!(fs::read_to_string(root.join("find-skills").join("x")).unwrap(), "find-skills");
     assert!(root.join(".old-file").exists());
+}
+
+#[test]
+fn orphan_cleanup_keeps_the_old_copy_when_the_restore_fails() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let root = &f.0.skills_root;
+    let name = format!(".old-{}-lost-skill", uuid::Uuid::new_v4());
+    fs::create_dir(root.join(&name)).unwrap();
+    clean_orphans(root, |_, _| Err(std::io::Error::other("restauração recusada")));
+    assert!(root.join(&name).exists() && !root.join("lost-skill").exists());
 }
 
 #[cfg(windows)]

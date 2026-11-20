@@ -465,7 +465,7 @@ fn root_lock(store: &Store) -> Result<File> {
     let lock = options.open(path)?;
     acquire(&lock, LOCK_WAIT)?;
     #[cfg(windows)]
-    clean_orphans(&store.skills_root);
+    clean_orphans(&store.skills_root, move_no_replace);
     Ok(lock)
 }
 
@@ -654,7 +654,10 @@ fn move_no_replace(source: &Path, dest: &Path) -> std::io::Result<()> {
 /// falha, os dois erros chegam ao chamador. O lock de filesystem serializa os escritores do Hub.
 #[cfg(any(windows, test))]
 fn swap_in_steps(source: &Path, dest: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) -> Result<()> {
-    let old = dest.with_file_name(format!(".old-{}", uuid::Uuid::new_v4()));
+    // O nome guarda o destino (".old-<uuid>-<destino>"): se o desfazer falhar, `clean_orphans` sabe para onde
+    // devolver a única cópia da versão anterior.
+    let name = dest.file_name().unwrap_or_default().to_string_lossy();
+    let old = dest.with_file_name(format!(".old-{}-{name}", uuid::Uuid::new_v4()));
     mv(dest, &old).context("Não foi possível tirar a versão anterior do caminho")?;
     if let Err(error) = mv(source, dest) {
         return match mv(&old, dest) {
@@ -675,21 +678,42 @@ fn swap_in_steps(source: &Path, dest: &Path, mv: impl Fn(&Path, &Path) -> std::i
     Ok(())
 }
 
-/// Apaga `.old-*` e `.stage-*` que uma queda deixou. Roda sob o lock do catálogo, quando nenhum
-/// escritor está em passo de troca ou de preparo.
+/// Limpa o que uma queda deixou, sob o lock do catálogo (nenhum escritor está em passo de troca ou de
+/// preparo): `.stage-*` é apagado; `.old-*` volta para o destino que o nome guarda quando esse destino
+/// não existe (era a única cópia) e só é apagado quando o destino já existe.
 #[cfg(any(windows, test))]
-fn clean_orphans(root: &Path) {
+fn clean_orphans(root: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) {
     let Ok(entries) = fs::read_dir(root) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if !(name.starts_with(".old-") || name.starts_with(".stage-")) {
+        let old = name.starts_with(".old-");
+        if !(old || name.starts_with(".stage-")) {
             continue;
         }
-        if !fs::symlink_metadata(entry.path()).is_ok_and(|meta| meta.file_type().is_dir()) {
+        let path = entry.path();
+        if !fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_dir()) {
             continue;
         }
-        if let Err(error) = fs::remove_dir_all(entry.path()) {
+        if old {
+            let target = name.get(42..).filter(|target| !target.is_empty() && !target.starts_with('.'));
+            let dest = target.map(|target| root.join(target));
+            let missing = dest.as_ref().is_some_and(|dest| {
+                fs::symlink_metadata(dest).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            });
+            if let (true, Some(dest)) = (missing, dest) {
+                match mv(&path, &dest) {
+                    Ok(()) => {
+                        tracing::warn!("Versão anterior do catálogo de habilidades restaurada após troca interrompida")
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "Versão anterior do catálogo não pôde ser restaurada; mantida em .old-*")
+                    }
+                }
+                continue;
+            }
+        }
+        if let Err(error) = fs::remove_dir_all(&path) {
             tracing::warn!(%error, "Pasta órfã do catálogo de habilidades não foi apagada");
         }
     }
