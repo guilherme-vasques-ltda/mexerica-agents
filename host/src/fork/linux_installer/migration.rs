@@ -845,8 +845,11 @@ mod tests {
                     && lido.data_modes == manifest.data_modes,
             );
         }
+        let _ = fs::remove_file(backup.join("manifest.json"));
+        private_file(&backup.join("manifest.json"), &serde_json::to_vec(&manifest)?)?;
         fs::remove_file(&record)?;
-        let sem_registro = checked_manifest(uid, &home, &backup).is_err();
+        let sem_registro = checked_manifest(uid, &home, &backup)
+            .is_err_and(|e| format!("{e:#}").contains("registro protegido da cópia ausente"));
         fs::remove_dir_all(&dir)?;
         assert_eq!(ignorados, [true; 4], "destinos e modos alterados no backup não podem orientar a volta");
         assert!(sem_registro, "sem registro protegido do root, a volta é recusada");

@@ -2774,7 +2774,9 @@ sistema separado; o Hub permanece no serviço de usuário. `migrar-motor` é com
 administrativo exclusivo da instalação de teste do dono, com cópia e volta;
 não é ferramenta do bot nem RPC e não concede autoridade Local. O bot não pede
 senha, código ou token no chat nem executa a instalação. Perfis já utilizados
-são copiados sempre; se a CLI recusar, o dono refaz login pelo app sob as guardas
+dentro da home do Hub são copiados sempre; um perfil fora dela (por exemplo por
+`CODEX_HOME` ou `CLAUDE_CONFIG_DIR`) recusa a migração antes de parar o Hub, e deve ser
+movido para a home antes; se a CLI recusar, o dono refaz login pelo app sob as guardas
 SAAS-04. Veja o guia Linux. Liberações de
 pastas por bot pertencem à F2b; a F4 apenas consulta o ABI Landlock.
 ### D330 F3 — arquivos no modo de motor separado
