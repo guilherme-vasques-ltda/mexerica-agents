@@ -214,6 +214,8 @@ pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
 enum Outcome {
     Sent,
     Retry,
+    /// Fila da conversa cheia: espera a vez sem gastar tentativa.
+    Wait,
     Failed(&'static str),
 }
 
@@ -281,6 +283,9 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
                 if hub.store.find_by_nonce(&p.bot_id, &nonce).is_some() {
                     return Ok(Outcome::Sent);
                 }
+                if crate::fork::owner_question::queue_full(&error) {
+                    return Ok(Outcome::Wait);
+                }
                 tracing::warn!(%error, bot = %p.bot_id, "tarefas_runtime: entrega de aviso falhou");
                 Ok(if p.attempts + 1 >= MAX_ATTEMPTS { Outcome::Failed("delivery_failed") } else { Outcome::Retry })
             }
@@ -294,9 +299,10 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
             if p.attempts + 1 >= MAX_ATTEMPTS { Outcome::Failed("delivery_failed") } else { Outcome::Retry }
         }
     };
+    let wait = matches!(outcome, Outcome::Wait);
     let (status, reason) = match outcome {
         Outcome::Sent => ("sent", None),
-        Outcome::Retry => ("queued", None),
+        Outcome::Retry | Outcome::Wait => ("queued", None),
         Outcome::Failed(reason) => ("failed", Some(reason)),
     };
     let hub = hub.clone();
@@ -328,6 +334,13 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
                 delivered_session
             ],
         )?;
+        if wait {
+            tx.execute(
+                "UPDATE donna_task_deliveries SET attempts=MAX(attempts-1,0)
+                 WHERE hub_id=?1 AND space_id=?2 AND project_id=?3 AND task_id=?4 AND comment_id=?5 AND bot_id=?6",
+                params![hub.host_id, p.space_id, p.project_id, p.task_id, p.comment_id, p.bot_id],
+            )?;
+        }
         if status == "queued" {
             // Backoff por tentativa: created_at funciona como "disponível em".
             tx.execute(

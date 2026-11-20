@@ -419,6 +419,9 @@ async fn conclude(hub: &Arc<Hub>, f: &Fire, ok: bool, error: Option<String>) -> 
         let tx = db.unchecked_transaction()?;
         let (state, bump) = if ok {
             ("started", false)
+        } else if error.as_deref().is_some_and(|e| e.contains("queue_full")) {
+            // Fila da conversa cheia: tenta de novo mais tarde sem gastar tentativa.
+            ("scheduled", false)
         } else if f.attempts + 1 >= MAX_ATTEMPTS {
             ("failed", true)
         } else {

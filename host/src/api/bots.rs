@@ -303,12 +303,6 @@ pub(super) async fn call(
             }
             let nonce = b["clientNonce"].as_str().unwrap_or_default();
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
-            // `replyTo`: the message of this chat it answers (`chat::replies`).
-            let reply = match b["replyTo"].as_str().filter(|id| !id.is_empty()) {
-                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
-                None => None,
-            };
-            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let mut attachments = Vec::new();
             if !uploads.is_empty() {
                 let root = crate::chat::uploads::root(&row.config);
@@ -316,14 +310,23 @@ pub(super) async fn call(
                     attachments.push(crate::chat::uploads::resolve(&root, id)?.1);
                 }
             }
+            let quoted = b["replyTo"].as_str().filter(|id| !id.is_empty());
+            let session = b["sessionId"].as_str().filter(|id| *id != bot);
+            let intent = crate::store::send_intent(text, &attachments, quoted, session);
+            // Reenvio com a mesma chave sai antes de conferir sessão e citação, que podem ter mudado desde o original.
+            let repeated = json!({"clientNonce": nonce, "intent": intent});
+            if let Some(e) = crate::store::Store::replay_on(&hub.store.db.locked(), bot, &repeated)? {
+                return Ok(ControlFlow::Break(json!({"entry": e})));
+            }
+            // `replyTo`: the message of this chat it answers (`chat::replies`).
+            let reply = match quoted {
+                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
+                None => None,
+            };
+            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
-            // O que o reenvio com a mesma chave precisa repetir; anexos por nome e tamanho, já que cada tentativa sobe
-            // o arquivo de novo com outro id.
-            let files: Vec<Value> = attachments.iter().map(|a| json!({"name": a["name"], "size": a["size"]})).collect();
-            let intent =
-                json!({"text": text, "attachments": files, "replyTo": reply.as_ref().map(|r| r["id"].clone())});
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
             // A fila D72 precisa sobreviver até ao crash entre salvar a entrada e entregá-la ao ator.

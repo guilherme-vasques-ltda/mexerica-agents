@@ -144,12 +144,14 @@ fn migrate_7(c: &Connection) -> Result<()> {
         "BEGIN;
          UPDATE entries SET data = json_set(data, '$.clientNonce', '',
                 '$.duplicateClientNonce', json_extract(data, '$.clientNonce'))
-          WHERE kind = 'user' AND json_valid(data) AND COALESCE(json_extract(data, '$.clientNonce'), '') <> ''
-            AND EXISTS(SELECT 1 FROM entries o WHERE o.kind = 'user' AND o.bot_id = entries.bot_id
-                AND o.seq < entries.seq AND json_valid(o.data)
-                AND json_extract(o.data, '$.clientNonce') = json_extract(entries.data, '$.clientNonce'));
-         CREATE UNIQUE INDEX IF NOT EXISTS entries_client_nonce ON entries(bot_id, json_extract(data, '$.clientNonce'))
-          WHERE kind = 'user' AND json_extract(data, '$.clientNonce') <> '';
+          WHERE seq IN (SELECT seq FROM (
+                SELECT seq, ROW_NUMBER() OVER (PARTITION BY bot_id, json_extract(data, '$.clientNonce') ORDER BY seq) AS n
+                  FROM entries WHERE kind = 'user' AND json_valid(data)
+                   AND COALESCE(json_extract(data, '$.clientNonce'), '') <> '')
+              WHERE n > 1);
+         CREATE UNIQUE INDEX IF NOT EXISTS entries_client_nonce
+          ON entries(bot_id, (CASE WHEN json_valid(data) THEN json_extract(data, '$.clientNonce') END))
+          WHERE kind = 'user' AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.clientNonce') END, '') <> '';
          INSERT INTO kv(k, v) VALUES('schema', '7') ON CONFLICT(k) DO UPDATE SET v = '7';
          COMMIT;",
     )?;
@@ -345,7 +347,8 @@ mod tests {
                    ('a3', 'a', 3, 'user', 3, '{\"text\":\"oi de novo\",\"clientNonce\":\"n\"}', 0, 0),
                    ('b1', 'b', 4, 'user', 1, '{\"text\":\"oi\",\"clientNonce\":\"n\"}', 0, 0),
                    ('s1', 'a', 5, 'user', 4, '{\"text\":\"sem chave\",\"clientNonce\":\"\"}', 0, 0),
-                   ('s2', 'a', 6, 'user', 5, '{\"text\":\"sem chave\",\"clientNonce\":\"\"}', 0, 0);",
+                   ('s2', 'a', 6, 'user', 5, '{\"text\":\"sem chave\",\"clientNonce\":\"\"}', 0, 0),
+                   ('x1', 'a', 7, 'user', 6, 'nao e json', 0, 0);",
             )
             .unwrap();
         }
@@ -370,9 +373,11 @@ mod tests {
         assert!(again.is_err(), "o índice único recusa a segunda linha com a mesma chave");
         let c = Connection::open(&db).unwrap();
         let rows: i64 = c
-            .query_row("SELECT COUNT(*) FROM entries WHERE id IN ('a1','a2','a3','b1','s1','s2')", [], |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM entries WHERE id IN ('a1','a2','a3','b1','s1','s2','x1')", [], |r| {
+                r.get(0)
+            })
             .unwrap();
-        assert_eq!(rows, 6, "nenhuma linha apagada");
+        assert_eq!(rows, 7, "nenhuma linha apagada, nem a que não é JSON");
     }
 
     #[test]

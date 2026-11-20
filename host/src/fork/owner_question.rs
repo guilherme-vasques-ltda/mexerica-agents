@@ -343,7 +343,7 @@ pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value)
         }
         if data["status"] == "queued" {
             let waiting: i64 = c.query_row(
-                "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
+                "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_valid(data)
                     AND json_extract(data, '$.status') = 'queued'",
                 [&lane.chat],
                 |r| r.get(0),
@@ -360,7 +360,13 @@ pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value)
     })
 }
 
-/// Mensagens que uma conversa pode ter esperando a vez; a seguinte é recusada com `queue_full`.
+/// Recusa por fila cheia: quem envia sozinho (tarefas) espera a vez sem contar como falha.
+pub(crate) fn queue_full(error: &anyhow::Error) -> bool {
+    format!("{error:#}").contains("queue_full")
+}
+
+/// Mensagens novas do dono que uma conversa pode ter esperando a vez; a seguinte é recusada com `queue_full`.
+/// Respostas a cartões do próprio bot não passam por aqui e nunca são recusadas.
 pub(crate) const QUEUE_MAX: i64 = 50;
 
 /// O que o envio do dono gravou.

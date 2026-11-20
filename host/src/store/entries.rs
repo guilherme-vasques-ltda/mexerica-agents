@@ -123,6 +123,14 @@ pub(crate) fn check_execution_on(
     Ok(())
 }
 
+/// O que o reenvio de uma mensagem do dono com a mesma chave precisa repetir: texto, sessão, mensagem citada e anexos
+/// por nome e tamanho (cada tentativa do app sobe o arquivo de novo, com outro id).
+pub(crate) fn send_intent(text: &str, attachments: &[Value], reply_to: Option<&str>, session: Option<&str>) -> Value {
+    let files: Vec<Value> =
+        attachments.iter().map(|a| serde_json::json!({"name": a["name"], "size": a["size"]})).collect();
+    serde_json::json!({"text": text, "attachments": files, "replyTo": reply_to, "session": session})
+}
+
 impl Store {
     #[cfg(test)]
     pub fn insert_entry(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value) -> Result<Entry> {
@@ -236,7 +244,7 @@ impl Store {
     }
 
     /// Reenvio com a mesma chave na mesma conversa: devolve a mensagem original quando a intenção é a mesma e recusa
-    /// com `nonce_intent_conflict` quando mudou. Mensagem antiga sem intenção gravada compara o texto.
+    /// com `nonce_intent_conflict` quando mudou. Mensagem gravada antes da intenção existir tem a sua reconstruída.
     pub(crate) fn replay_on(c: &rusqlite::Connection, chat: &str, data: &Value) -> Result<Option<Entry>> {
         let nonce = data["clientNonce"].as_str().unwrap_or_default();
         if nonce.is_empty() {
@@ -245,7 +253,8 @@ impl Store {
         let Some(existing) = c
             .query_row(
                 &format!(
-                    "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_extract(data, '$.clientNonce') = ?2"
+                    "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_valid(data)
+                       AND json_extract(data, '$.clientNonce') = ?2"
                 ),
                 params![chat, nonce],
                 row_entry,
@@ -254,11 +263,17 @@ impl Store {
         else {
             return Ok(None);
         };
-        let same = match existing.data.get("intent") {
-            Some(intent) => *intent == data["intent"],
-            None => existing.data["text"] == data["text"],
-        };
-        ensure!(same, "nonce_intent_conflict");
+        let stored = existing.data.get("intent").cloned().unwrap_or_else(|| {
+            let attachments = existing.data["attachments"].as_array().cloned().unwrap_or_default();
+            let session = (existing.session_id != existing.bot_id).then_some(existing.session_id.as_str());
+            send_intent(
+                existing.data["text"].as_str().unwrap_or_default(),
+                &attachments,
+                existing.data["replyTo"]["id"].as_str(),
+                session,
+            )
+        });
+        ensure!(stored == data["intent"], "nonce_intent_conflict");
         Ok(Some(existing))
     }
 
@@ -608,6 +623,42 @@ mod tests {
     use super::*;
     use crate::store::tests::temp_store;
     use serde_json::json;
+
+    #[test]
+    fn reenvio_com_a_mesma_chave_compara_texto_sessao_citacao_e_anexos() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let file = json!({"id": "u1", "name": "a.txt", "size": 3});
+        let intent = send_intent("oi", std::slice::from_ref(&file), None, None);
+        let data = json!({"text": "oi", "clientNonce": "n", "attachments": [file.clone()], "intent": intent});
+        let original = store.insert_entry(&Lane::main("b"), EntryKind::User, 1, &data).unwrap();
+        let legacy = json!({"text": "velho", "clientNonce": "v", "attachments": [file.clone()], "replyTo": {"id": "m1", "text": "x"}});
+        let old = store.insert_entry(&Lane::main("b"), EntryKind::User, 2, &legacy).unwrap();
+        let c = store.db.locked();
+        let ask =
+            |nonce: &str, intent: Value| Store::replay_on(&c, "b", &json!({"clientNonce": nonce, "intent": intent}));
+        let reuploaded = json!({"id": "u2", "name": "a.txt", "size": 3});
+        assert_eq!(
+            ask("n", send_intent("oi", std::slice::from_ref(&reuploaded), None, None)).unwrap().unwrap().id,
+            original.id
+        );
+        for changed in [
+            send_intent("tchau", std::slice::from_ref(&file), None, None),
+            send_intent("oi", &[], None, None),
+            send_intent("oi", &[json!({"id": "u1", "name": "b.txt", "size": 3})], None, None),
+            send_intent("oi", std::slice::from_ref(&file), Some("m1"), None),
+            send_intent("oi", std::slice::from_ref(&file), None, Some("extra")),
+        ] {
+            let error = ask("n", changed).unwrap_err();
+            assert!(error.to_string().contains("nonce_intent_conflict"), "{error}");
+        }
+        assert_eq!(
+            ask("v", send_intent("velho", std::slice::from_ref(&file), Some("m1"), None)).unwrap().unwrap().id,
+            old.id
+        );
+        assert!(ask("v", send_intent("velho", std::slice::from_ref(&file), None, None)).is_err(), "citação diferente");
+        assert!(ask("outra", send_intent("oi", &[], None, None)).unwrap().is_none());
+        assert!(Store::replay_on(&c, "b", &json!({"clientNonce": "", "intent": intent})).unwrap().is_none());
+    }
 
     #[test]
     fn transferencia_da_fila_e_checkpoint_sao_uma_transacao() {

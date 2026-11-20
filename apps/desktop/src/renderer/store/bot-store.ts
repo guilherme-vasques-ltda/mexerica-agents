@@ -30,6 +30,9 @@ import { bloqueioSenha, destinoSenha, type ResultadoEnvio } from './fork-senha-b
 export { builtInBackendName, type Connection } from './bot-mirror'
 
 /** A file picked in the composer, sent with the next message. */
+/** O Hub recusou a mensagem nova porque a fila da conversa está cheia; nada foi criado. */
+const filaCheia = (error: unknown) => error instanceof Error && error.message.startsWith('queue_full')
+
 export interface OutgoingFile {
   id: string
   name: string
@@ -181,6 +184,7 @@ export class BotStore extends BotSync {
       } catch (error) {
         voz?.concluir(false)
         if (session) {
+          if (filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
           // Fork (UI-01): a mensagem da extra fica na bolha da extra, com Tentar de novo (que revalida), mesmo se o
           // link mudou; o texto não se perde e nada vai para a principal.
           const client = this.connectedClient
@@ -192,8 +196,7 @@ export class BotStore extends BotSync {
         // Recusa tipada (ex.: mismatch) fica registrada como motivo, além da bolha "não enviada".
         if (error instanceof ErroFrase) this.acaoRecusada = error.frase
         if (this.outgoingFiles.has(nonce)) this.lastError = `Couldn't send the files: ${error instanceof Error ? error.message : error}`
-        // A fila cheia não cria nada no Hub: a bolha fica "não enviada", com os anexos guardados para tentar de novo.
-        if (error instanceof Error && error.message.startsWith('queue_full')) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
+        if (filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
         this.markLocal(nonce, botId, 'failed')
       }
     })()
