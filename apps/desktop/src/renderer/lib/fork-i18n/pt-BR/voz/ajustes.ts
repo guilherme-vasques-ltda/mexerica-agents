@@ -181,7 +181,7 @@ export const textos = {
   "voz.ajustes.entrada.atalho.gravando": "Aperte a combinação… (Esc cancela)",
   "voz.ajustes.entrada.atalho.semCombinacao": "Escolha uma combinação para o atalho começar a valer.",
   "voz.ajustes.entrada.atalho.ativo": "Atalho ativo: {combinacao}",
-  "voz.ajustes.entrada.atalho.erro.invalido": "Essa combinação não vale. Use pelo menos dois modificadores (Ctrl/⌘, Alt/⌥, Shift) e uma letra, um número ou uma tecla F.",
+  "voz.ajustes.entrada.atalho.erro.invalido": "Essa combinação não vale. Use pelo menos dois modificadores (Ctrl/⌘, Alt/⌥, Shift) e uma letra, um número ou uma tecla F (ou um modificador com uma tecla F).",
   "voz.ajustes.entrada.atalho.erro.reservado": "Essa combinação já é usada pela Mexerica ou pelo sistema. Escolha outra.",
   "voz.ajustes.entrada.atalho.erro.emUso": "Outro app já usa essa combinação. Escolha outra.",
   "voz.ajustes.entrada.atalho.erro.indisponivel": "Este sistema não deixou registrar o atalho. Escolha outra combinação ou use o botão.",

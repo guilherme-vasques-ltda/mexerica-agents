@@ -184,7 +184,7 @@ export const textos: Traducao<typeof fonte> = {
   "voz.ajustes.entrada.atalho.gravando": "Pulsa la combinación… (Esc cancela)",
   "voz.ajustes.entrada.atalho.semCombinacao": "Elige una combinación para que el atajo empiece a funcionar.",
   "voz.ajustes.entrada.atalho.ativo": "Atajo activo: {combinacao}",
-  "voz.ajustes.entrada.atalho.erro.invalido": "Esa combinación no es válida. Usa al menos dos modificadores (Ctrl/⌘, Alt/⌥, Shift) y una letra, un número o una tecla F.",
+  "voz.ajustes.entrada.atalho.erro.invalido": "Esa combinación no es válida. Usa al menos dos modificadores (Ctrl/⌘, Alt/⌥, Shift) y una letra, un número o una tecla F (o un modificador con una tecla F).",
   "voz.ajustes.entrada.atalho.erro.reservado": "Esa combinación ya la usan Mexerica o el sistema. Elige otra.",
   "voz.ajustes.entrada.atalho.erro.emUso": "Otra app ya usa esa combinación. Elige otra.",
   "voz.ajustes.entrada.atalho.erro.indisponivel": "Este sistema no permitió registrar el atajo. Elige otra combinación o usa el botón.",

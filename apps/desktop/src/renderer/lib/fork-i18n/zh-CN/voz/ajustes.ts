@@ -182,7 +182,7 @@ export const textos: Traducao<typeof fonte> = {
   "voz.ajustes.entrada.atalho.gravando": "请按下组合键…（按 Esc 取消）",
   "voz.ajustes.entrada.atalho.semCombinacao": "请选择一个组合键，快捷键才会生效。",
   "voz.ajustes.entrada.atalho.ativo": "快捷键已启用：{combinacao}",
-  "voz.ajustes.entrada.atalho.erro.invalido": "该组合无效。请使用至少两个修饰键（Ctrl/⌘、Alt/⌥、Shift）加一个字母、数字或 F 键。",
+  "voz.ajustes.entrada.atalho.erro.invalido": "该组合无效。请使用至少两个修饰键（Ctrl/⌘、Alt/⌥、Shift）加一个字母、数字或 F 键（或一个修饰键加 F 键）。",
   "voz.ajustes.entrada.atalho.erro.reservado": "该组合已被 Mexerica 或系统占用。请换一个。",
   "voz.ajustes.entrada.atalho.erro.emUso": "另一个应用已占用该组合。请换一个。",
   "voz.ajustes.entrada.atalho.erro.indisponivel": "系统不允许注册该快捷键。请换一个组合，或使用按钮。",

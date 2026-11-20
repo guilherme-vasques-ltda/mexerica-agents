@@ -186,7 +186,7 @@ export const textos: Traducao<typeof fonte> = {
   "voz.ajustes.entrada.atalho.gravando": "اضغط التركيبة… (Esc للإلغاء)",
   "voz.ajustes.entrada.atalho.semCombinacao": "اختر تركيبة حتى يبدأ الاختصار بالعمل.",
   "voz.ajustes.entrada.atalho.ativo": "الاختصار نشط: {combinacao}",
-  "voz.ajustes.entrada.atalho.erro.invalido": "هذه التركيبة غير صالحة. استخدم مفتاحي تعديل على الأقل (Ctrl/⌘ وAlt/⌥ وShift) مع حرف أو رقم أو مفتاح F.",
+  "voz.ajustes.entrada.atalho.erro.invalido": "هذه التركيبة غير صالحة. استخدم مفتاحي تعديل على الأقل (Ctrl/⌘ وAlt/⌥ وShift) مع حرف أو رقم أو مفتاح F أو مفتاح تعديل واحد مع مفتاح F.",
   "voz.ajustes.entrada.atalho.erro.reservado": "هذه التركيبة مستخدمة بالفعل من Mexerica أو النظام. اختر غيرها.",
   "voz.ajustes.entrada.atalho.erro.emUso": "تطبيق آخر يستخدم هذه التركيبة. اختر غيرها.",
   "voz.ajustes.entrada.atalho.erro.indisponivel": "لم يسمح هذا النظام بتسجيل الاختصار. اختر تركيبة أخرى أو استخدم الزر.",

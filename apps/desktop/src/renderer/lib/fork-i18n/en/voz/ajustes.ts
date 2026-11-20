@@ -183,7 +183,7 @@ export const textos: Traducao<typeof fonte> = {
   "voz.ajustes.entrada.atalho.gravando": "Press the combination… (Esc cancels)",
   "voz.ajustes.entrada.atalho.semCombinacao": "Choose a combination for the shortcut to take effect.",
   "voz.ajustes.entrada.atalho.ativo": "Shortcut active: {combinacao}",
-  "voz.ajustes.entrada.atalho.erro.invalido": "That combination isn’t valid. Use at least two modifiers (Ctrl/⌘, Alt/⌥, Shift) plus a letter, a number or an F key.",
+  "voz.ajustes.entrada.atalho.erro.invalido": "That combination isn’t valid. Use at least two modifiers (Ctrl/⌘, Alt/⌥, Shift) plus a letter, a number or an F key (or one modifier with an F key).",
   "voz.ajustes.entrada.atalho.erro.reservado": "That combination is already used by Mexerica or the system. Choose another.",
   "voz.ajustes.entrada.atalho.erro.emUso": "Another app already uses that combination. Choose another.",
   "voz.ajustes.entrada.atalho.erro.indisponivel": "This system wouldn’t let the shortcut be registered. Choose another combination or use the button.",

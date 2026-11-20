@@ -18,38 +18,38 @@ function montar(ocupados: string[] = []) {
 
 test('ligar registra a combinação normalizada e apertar manda um só comando voiceToggle ao chat', () => {
   const t = montar()
-  assert.deepEqual(t.atalho.definir({ ativo: true, acelerador: 'cmdorctrl+shift+k' }), { ok: true, acelerador: 'CommandOrControl+Shift+K' })
-  t.registrados.get('CommandOrControl+Shift+K')!()
+  assert.deepEqual(t.atalho.definir({ ativo: true, acelerador: 'cmdorctrl+shift+l' }), { ok: true, acelerador: 'CommandOrControl+Shift+L' })
+  t.registrados.get('CommandOrControl+Shift+L')!()
   assert.deepEqual(t.enviados, [{ kind: 'voiceToggle' }])
 })
 
 test('repetição do sistema e toques seguidos viram um só comando; depois da pausa vale de novo', () => {
   const t = montar()
-  t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+K' })
-  const apertar = t.registrados.get('CommandOrControl+Shift+K')!
+  t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+L' })
+  const apertar = t.registrados.get('CommandOrControl+Shift+L')!
   apertar()
   for (let i = 0; i < 30; i++) { t.passa(30); apertar() }
   assert.equal(t.enviados.length, 1)
-  t.passa(1000)
+  t.passa(1300)
   apertar()
   assert.equal(t.enviados.length, 2)
 })
 
 test('desligar ou trocar a combinação solta a anterior: nada fica registrado escutando teclas', () => {
   const t = montar()
-  t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+K' })
+  t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+L' })
   t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+J' })
   assert.deepEqual([...t.registrados.keys()], ['CommandOrControl+Shift+J'])
   assert.deepEqual(t.atalho.definir({ ativo: false, acelerador: 'CommandOrControl+Shift+J' }), { ok: true, acelerador: null })
   assert.equal(t.registrados.size, 0)
-  t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+K' })
+  t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+L' })
   t.atalho.liberar()
   assert.equal(t.registrados.size, 0)
 })
 
 test('conflitos e entradas ruins: em uso por outro app, reservada, inválida e pedido malformado; nada fica registrado', () => {
-  const t = montar(['CommandOrControl+Shift+K'])
-  assert.deepEqual(t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+K' }), { ok: false, motivo: 'em-uso' })
+  const t = montar(['CommandOrControl+Shift+L'])
+  assert.deepEqual(t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+L' }), { ok: false, motivo: 'em-uso' })
   assert.deepEqual(t.atalho.definir({ ativo: true, acelerador: 'CommandOrControl+Shift+Z' }), { ok: false, motivo: 'reservado' })
   assert.deepEqual(t.atalho.definir({ ativo: true, acelerador: 'K' }), { ok: false, motivo: 'invalido' })
   assert.deepEqual(t.atalho.definir({ ativo: true }), { ok: false, motivo: 'invalido' })
@@ -60,5 +60,5 @@ test('conflitos e entradas ruins: em uso por outro app, reservada, inválida e p
 test('o sistema que não consegue registrar (erro) é indisponível, sem derrubar o app', () => {
   const global: AtalhoGlobal = { register: () => { throw new Error('sem suporte') }, unregister() {}, isRegistered: () => false }
   const atalho = criarAtalhoVoz({ global, plataforma: 'linux', enviar() {} })
-  assert.deepEqual(atalho.definir({ ativo: true, acelerador: 'Control+Shift+K' }), { ok: false, motivo: 'indisponivel' })
+  assert.deepEqual(atalho.definir({ ativo: true, acelerador: 'Control+Shift+L' }), { ok: false, motivo: 'indisponivel' })
 })

@@ -26,6 +26,8 @@ export function EntradasVoz() {
   const [gravando, setGravando] = useState(false)
   const [recusada, setRecusada] = useState<keyof typeof ERRO | null>(null)
 
+  useEffect(() => { if (!ativo) setGravando(false) }, [ativo])
+
   useEffect(() => {
     if (!gravando) return
     const aperta = (e: KeyboardEvent) => {

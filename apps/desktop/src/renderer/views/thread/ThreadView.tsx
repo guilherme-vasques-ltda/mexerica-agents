@@ -142,7 +142,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const voiceAvailable = useCallAvailability(store, panel.open)
   // o atalho global abre ou encerra a MESMA chamada do botão, só na conversa principal de um bot à vista.
   const recusaVoz = useEntradaVoz(
-    () => ({ grupo: !!bot && isGroup(bot), sessaoAberta: openSession !== null, disponivel: voiceAvailable && !!bot, senhaBloqueada: vozBloqueada, emChamada: calling }),
+    () => ({ grupo: !!bot && isGroup(bot), telaGrande: telaOn, sessaoAberta: openSession !== null, disponivel: voiceAvailable && !!bot, senhaBloqueada: vozBloqueada, emChamada: calling }),
     () => setCalling(true),
     () => setCalling(false),
   )

@@ -17,7 +17,7 @@ Em **Ajustes → Voz → Ao vivo → Abrir a chamada**. Desligado de fábrica e 
   indisponível. Nesses casos nada liga e a conversa mostra o motivo por 6 segundos.
 - Já em chamada: o atalho **encerra** pelo mesmo caminho do botão vermelho (libera o microfone, registra a chamada uma vez,
   para os relógios). O botão não abre uma segunda sessão.
-- Pressões repetidas (tecla segurada, duplo toque) valem como uma só dentro de 700 ms.
+- Pressões repetidas (tecla segurada, duplo toque) valem como uma só dentro de 1,2 s (cobre o atraso da repetição do teclado).
 - Conflito de teclas: exige dois modificadores (ou um com F1 a F24) e recusa combinações que a Mexerica, a Ilha ou o sistema
   já usam e as que outro app já registrou. O motivo aparece em Ajustes; se falhar, nada fica registrado.
 - O atalho é solto ao desligar, ao trocar a combinação e ao fechar o app. Web e demo não registram atalho.
@@ -25,7 +25,7 @@ Em **Ajustes → Voz → Ao vivo → Abrir a chamada**. Desligado de fábrica e 
 ## Limites
 
 - Testado com um `globalShortcut` falso: a lógica está provada, o comportamento do sistema (macOS, Windows, X11, Wayland)
-  não. No Wayland o registro pode ser negado; o app então mostra "indisponível".
+  não. No Wayland o registro pode ser negado, ou o sistema pode responder "ok" antes de o portal aceitar de fato: o app não consegue distinguir, então "Atalho ativo" não prova que a combinação funciona nesse caso.
 - **Não existe palavra de ativação.** Não há detector local incorporado, então nada fica escutando e a opção não existe.
 - Sem conversa montada na janela, o atalho não faz nada.
 - A chamada é a conversa em tempo real, não o Ditado (escrita por turnos).

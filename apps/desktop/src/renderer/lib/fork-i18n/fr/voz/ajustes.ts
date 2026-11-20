@@ -184,7 +184,7 @@ export const textos: Traducao<typeof fonte> = {
   "voz.ajustes.entrada.atalho.gravando": "Appuyez sur la combinaison… (Échap annule)",
   "voz.ajustes.entrada.atalho.semCombinacao": "Choisissez une combinaison pour activer le raccourci.",
   "voz.ajustes.entrada.atalho.ativo": "Raccourci actif : {combinacao}",
-  "voz.ajustes.entrada.atalho.erro.invalido": "Cette combinaison n’est pas valide. Utilisez au moins deux modificateurs (Ctrl/⌘, Alt/⌥, Maj) et une lettre, un chiffre ou une touche F.",
+  "voz.ajustes.entrada.atalho.erro.invalido": "Cette combinaison n’est pas valide. Utilisez au moins deux modificateurs (Ctrl/⌘, Alt/⌥, Maj) et une lettre, un chiffre ou une touche F (ou un modificateur avec une touche F).",
   "voz.ajustes.entrada.atalho.erro.reservado": "Cette combinaison est déjà utilisée par Mexerica ou le système. Choisissez-en une autre.",
   "voz.ajustes.entrada.atalho.erro.emUso": "Une autre application utilise déjà cette combinaison. Choisissez-en une autre.",
   "voz.ajustes.entrada.atalho.erro.indisponivel": "Ce système n’a pas permis d’enregistrer le raccourci. Choisissez une autre combinaison ou utilisez le bouton.",

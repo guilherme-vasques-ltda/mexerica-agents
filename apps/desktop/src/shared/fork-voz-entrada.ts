@@ -6,6 +6,8 @@ export interface ContextoEntradaVoz {
   /** Há uma conversa de bot montada e a pessoa a vê (nenhuma tela de Ajustes, Rotinas… ou camada na frente). */
   conversaVisivel: boolean
   grupo: boolean
+  /** A tela grande do WhatsApp cobre a conversa: os controles da chamada ficariam escondidos. */
+  telaGrande: boolean
   /** Uma aba de sessão está aberta: a chamada é sempre da conversa principal do bot. */
   sessaoAberta: boolean
   /** A mesma disponibilidade que habilita o botão (chave, Hub, modo). */
@@ -29,7 +31,7 @@ export type DecisaoEntradaVoz =
  */
 export function decidirEntradaVoz(c: ContextoEntradaVoz): DecisaoEntradaVoz {
   if (c.emChamada) return { acao: 'encerrar' }
-  if (!c.conversaVisivel) return { acao: 'recusar', motivo: 'oculta' }
+  if (!c.conversaVisivel || c.telaGrande) return { acao: 'recusar', motivo: 'oculta' }
   if (c.grupo) return { acao: 'recusar', motivo: 'grupo' }
   if (c.sessaoAberta) return { acao: 'recusar', motivo: 'sessao' }
   if (c.senhaBloqueada) return { acao: 'recusar', motivo: 'senha' }
@@ -53,6 +55,7 @@ const ORDEM = ['CommandOrControl', 'Command', 'Control', 'Alt', 'Shift'] as cons
 /** Combinações que o app (menus, Ilha, edição) ou o sistema já usam, com `CommandOrControl` resolvido por plataforma. */
 const RESERVADOS = [
   'Control+CommandOrControl+S', // barra lateral
+  'CommandOrControl+Shift+K', // seletor de Spaces (renderer/lib/fork-space-shortcuts.ts)
   'CommandOrControl+Shift+Z', // refazer
   'CommandOrControl+Shift+R', // recarregar (desenvolvimento)
   'CommandOrControl+Alt+I', // ferramentas do desenvolvedor
@@ -74,14 +77,14 @@ export function validarAtalho(entrada: unknown, plataforma: Plataforma): Resulta
   const tecla = partes.pop() ?? ''
   const mods: string[] = []
   for (const p of partes) {
-    const m = MODIFICADORES[p.toLowerCase()]
+    const m = Object.hasOwn(MODIFICADORES, p.toLowerCase()) ? MODIFICADORES[p.toLowerCase()] : undefined
     if (!m || mods.includes(m)) return { ok: false, motivo: 'invalido' }
     mods.push(m)
   }
   const teclaFn = /^F([1-9]|1\d|2[0-4])$/i.test(tecla)
   if (!teclaFn && !/^[A-Za-z0-9]$/.test(tecla)) return { ok: false, motivo: 'invalido' }
-  const fortes = mods.filter((m) => m !== 'Shift')
-  if (!fortes.length || (!teclaFn && mods.length < 2)) return { ok: false, motivo: 'invalido' }
+  const reais = new Set(resolver(mods, plataforma))
+  if (!reais.size || (reais.size === 1 && reais.has('Shift')) || (!teclaFn && reais.size < 2)) return { ok: false, motivo: 'invalido' }
   const t = tecla.toUpperCase()
   const entre = chave(mods, t, plataforma)
   if (RESERVADOS.some((r) => { const ps = r.split('+'); return chave(ps.slice(0, -1), ps.at(-1)!.toUpperCase(), plataforma) === entre })) return { ok: false, motivo: 'reservado' }
@@ -93,7 +96,7 @@ export function validarAtalho(entrada: unknown, plataforma: Plataforma): Resulta
  * Pressões repetidas: cada evento, aceito ou não, renova a janela. Segurar a tecla (repetição do sistema) ou apertar
  * duas vezes seguidas não liga e desliga a chamada em sequência; só um novo toque depois da pausa vale.
  */
-export function criarGuardaPressao(agora: () => number, janelaMs = 700) {
+export function criarGuardaPressao(agora: () => number, janelaMs = 1200) {
   let ultimo = -Infinity
   return () => {
     const t = agora()
@@ -103,9 +106,10 @@ export function criarGuardaPressao(agora: () => number, janelaMs = 700) {
   }
 }
 
-/** O que a pessoa apertou ao gravar a combinação (por `code`, não pelo caractere: ⌥ digita outras letras no Mac). `null` até haver uma tecla de verdade. */
-export function aceleradorDoEvento(e: { code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }, plataforma: Plataforma): string | null {
-  const tecla = /^Key([A-Z])$/.exec(e.code)?.[1] ?? /^Digit(\d)$/.exec(e.code)?.[1] ?? (/^F\d{1,2}$/.test(e.code) ? e.code : null)
+/** O que a pessoa apertou ao gravar a combinação. Letra e dígito vêm de `key` (a tecla que o teclado em uso mostra, como em AZERTY); sem ela (⌥ no Mac digita outro caractere), vale a posição física (`code`). `null` até haver uma tecla de verdade. */
+export function aceleradorDoEvento(e: { key?: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }, plataforma: Plataforma): string | null {
+  const impressa = e.key !== undefined && /^[A-Za-z0-9]$/.test(e.key) ? e.key.toUpperCase() : null
+  const tecla = impressa ?? /^Key([A-Z])$/.exec(e.code)?.[1] ?? /^Digit(\d)$/.exec(e.code)?.[1] ?? (/^F\d{1,2}$/.test(e.code) ? e.code : null)
   if (!tecla || (e.metaKey && plataforma !== 'darwin')) return null
   return [e.metaKey && 'Command', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', tecla].filter(Boolean).join('+')
 }

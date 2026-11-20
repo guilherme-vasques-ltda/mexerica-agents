@@ -34,6 +34,8 @@ export const estadoAtalho = new EstadoAtalho()
 /** Mantém o registro do main igual à preferência, desde a abertura do app (não só com Ajustes aberto). */
 export function useSincronizarAtalhoVoz() {
   const [{ ativo, acelerador }] = usePref(atalhoVoz)
+  // Declarado antes: ao sair (conta encerrada), solta o atalho do sistema; numa remontagem o efeito seguinte registra de novo.
+  useEffect(() => () => { void window.codync.voz.definirAtalho({ ativo: false, acelerador: '' }).catch(() => {}) }, [])
   useEffect(() => {
     let atual = true
     const pedir = ativo && acelerador !== ''
@@ -45,7 +47,7 @@ export function useSincronizarAtalhoVoz() {
   }, [ativo, acelerador])
 }
 
-const CAMADAS = '[aria-modal="true"], [role="menu"]'
+const CAMADAS = '[aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"], .context-layer'
 
 /** A conversa está à vista: nenhuma tela (Ajustes, Rotinas…) nem camada na frente. O main já trouxe a janela à frente. */
 export function conversaVisivel(): boolean {
