@@ -129,6 +129,16 @@ fn chat_turns_off_codex_tools_and_admin_policy_must_belong_to_root() {
         assert!(CHAT_OVERRIDES.contains(&format!("features.{tool}=false").as_str()), "{tool}");
     }
     assert!(CHAT_OVERRIDES.contains(&"web_search=\"disabled\""));
+    for setting in [
+        "sandbox_mode=\"read-only\"",
+        "approval_policy=\"never\"",
+        "features.hooks=false",
+        "features.sleep_tool=false",
+        "tools.experimental_request_user_input.enabled=false",
+        "mcp_oauth_credentials_store=\"file\"",
+    ] {
+        assert!(CHAT_OVERRIDES.contains(&setting), "{setting}");
+    }
     let fixture = Fixture::new();
     assert!(admin_policy_safe(&fixture.scope.join("absent")));
     let owned_by_user = fixture.scope.join("codex");

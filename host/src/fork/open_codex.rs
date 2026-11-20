@@ -17,7 +17,9 @@ const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
 const ADMIN_POLICY: &str = "/private/etc/codex";
 /// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
 /// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
-pub(crate) const CHAT_OVERRIDES: [&str; 9] = [
+pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
+    "sandbox_mode=\"read-only\"",
+    "approval_policy=\"never\"",
     "features.shell_tool=false",
     "features.unified_exec=false",
     "features.view_image=false",
@@ -26,6 +28,14 @@ pub(crate) const CHAT_OVERRIDES: [&str; 9] = [
     "features.plugins=false",
     "features.memories=false",
     "features.image_generation=false",
+    "features.hooks=false",
+    "features.sleep_tool=false",
+    "features.tool_suggest=false",
+    "features.browser_use=false",
+    "features.computer_use=false",
+    "features.skill_mcp_dependency_install=false",
+    "tools.experimental_request_user_input.enabled=false",
+    "mcp_oauth_credentials_store=\"file\"",
     "web_search=\"disabled\"",
 ];
 const SANDBOX: &str = "/usr/bin/sandbox-exec";
@@ -228,6 +238,9 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     let mut command = command(&selection.executable, directory, true)?;
     command.args(["-c", "cli_auth_credentials_store=\"file\""]);
     if chat {
+        let place = directory.parent().context("open_codex_unavailable")?.join("chat");
+        Directory::open(&place, true)?;
+        command.current_dir(place);
         for setting in CHAT_OVERRIDES {
             command.args(["-c", setting]);
         }

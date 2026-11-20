@@ -16,6 +16,8 @@ use tokio::sync::watch;
 
 const TURN_LIMIT: Duration = Duration::from_secs(600);
 const MAX_REPLY: usize = 200_000;
+/// Uma resposta longa chega inteira no fim do item; a linha do protocolo pode passar bem dos 64 KiB do setup.
+const LINE_LIMIT: usize = 4 * 1024 * 1024;
 const INSTRUCTIONS: &str = "Nesta edição você conversa só por texto. Você não tem ferramentas, arquivos, \
 internet nem acesso ao computador; se o pedido precisar disso, diga que não pode fazer por aqui.";
 /// Itens que um turno só de texto pode produzir; qualquer outro encerra o turno.
@@ -161,7 +163,11 @@ async fn turn_in_profile(
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
 ) -> Result<()> {
-    let launch = crate::fork::open_codex::app_server(directory, true).await?;
+    let launch = tokio::select! {
+        launch = crate::fork::open_codex::app_server(directory, true) => launch?,
+        _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
+    };
+    ensure!(!*cancel.borrow(), "open_chat_cancelled");
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let mut rpc = Rpc::from_child(child)?;
     let thread = hub.store.kv_get(&thread_key(lane));
@@ -191,6 +197,9 @@ fn notice(code: &str) -> &'static str {
             "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada."
         }
         "open_chat_timeout" => "O Codex demorou demais para responder. Tente de novo.",
+        "open_chat_policy" => {
+            "A configuração do Codex neste Mac não deixa a conversa ficar só em texto e sem aprovações. Resposta cancelada."
+        }
         "open_codex_unavailable" | "open_codex_platform" => {
             "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA."
         }
@@ -258,23 +267,28 @@ pub(crate) async fn drive(
     cancel: &mut watch::Receiver<bool>,
     mut on_delta: impl FnMut(&str),
 ) -> Result<String> {
+    rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
         rpc.initialize().await?;
+        let session = json!({"sandbox": "read-only", "approvalPolicy": "never", "developerInstructions": instructions});
         let resumed = match thread.filter(|id| valid_id(id)) {
-            Some(id) => rpc.call(2, "thread/resume", json!({"threadId": id})).await.ok(),
+            Some(id) => {
+                let mut params = session.clone();
+                params["threadId"] = id.into();
+                params["excludeTurns"] = true.into();
+                match rpc.call(2, "thread/resume", params).await {
+                    Ok(value) => Some(value),
+                    Err(error) if error.to_string() == "auth_capability_unavailable" => None,
+                    Err(error) => return Err(error),
+                }
+            }
             None => None,
         };
         let started = match resumed {
             Some(value) => value,
-            None => {
-                rpc.call(
-                    3,
-                    "thread/start",
-                    json!({"sandbox": "read-only", "approvalPolicy": "never", "developerInstructions": instructions}),
-                )
-                .await?
-            }
+            None => rpc.call(3, "thread/start", session).await?,
         };
+        ensure!(started["approvalPolicy"] == "never" && started["sandbox"]["type"] == "readOnly", "open_chat_policy");
         let thread = started["thread"]["id"]
             .as_str()
             .filter(|id| valid_id(id))
