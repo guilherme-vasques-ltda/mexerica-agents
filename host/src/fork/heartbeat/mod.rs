@@ -65,6 +65,14 @@ const fn intervalo_padrao() -> u64 {
 }
 
 impl Declaracao {
+    /// Observa a mesma coisa para o mesmo destinatário (só o intervalo pode ser diferente): o estado vale para as duas.
+    pub(crate) fn mesma_observacao(&self, outra: &Self) -> bool {
+        self.fonte == outra.fonte
+            && self.escopo == outra.escopo
+            && self.criterio == outra.criterio
+            && self.destinatario == outra.destinatario
+    }
+
     /// Lê e confere a declaração do corpo salvo pelo app; qualquer falha recusa o corpo inteiro.
     pub(crate) fn parse(value: &Value) -> Result<Self> {
         let Ok(mut declaracao) = serde_json::from_value::<Self>(value.clone()) else {
@@ -135,6 +143,21 @@ impl Motivo {
     }
 }
 
+/// A fonte concedida a um bot: quem a concedeu e qual conta ou vínculo ela representa.
+pub(crate) struct Concessao {
+    /// Numera o registro nesta execução do Hub (vale só enquanto o Hub roda).
+    pub registro: u64,
+    /// Resumo da identidade durável da concessão (a conta ou o vínculo): igual entre reinícios para a mesma
+    /// concessão, diferente para outra conta. É o que o estado guardado lembra.
+    pub identidade: String,
+    pub fonte: std::sync::Arc<dyn Fonte>,
+}
+
+/// O que se guarda no estado como identidade da concessão, sem a identidade bruta.
+pub(crate) fn identidade_de(bruta: &str) -> String {
+    avaliar::resumir(&["concessao", bruta])
+}
+
 /// A fonte só se lê. A interface não tem escrita, envio nem exclusão: observar e executar são coisas separadas,
 /// e a checagem não herda do bot nenhuma permissão de enviar ou apagar.
 pub(crate) trait Fonte: Send + Sync {
@@ -178,7 +201,7 @@ pub(crate) struct Estado {
     /// A concessão da fonte a que este estado pertence; outra concessão (outra conta, a mesma fonte registrada de novo)
     /// descarta o estado.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub concessao: Option<u64>,
+    pub concessao: Option<String>,
     /// Resumo da declaração a que este estado pertence; outra declaração descarta o estado.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,

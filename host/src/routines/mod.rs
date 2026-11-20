@@ -205,8 +205,8 @@ fn guard_live_runs(state: &State) -> impl Iterator<Item = (&str, &str)> {
         .map(|run| (run.bot_id.as_str(), run.id.as_str()))
 }
 
-/// Fontes concedidas, por (bot, nome): o número da concessão e a fonte.
-type Fontes = std::collections::HashMap<(String, String), (u64, Arc<dyn crate::fork::heartbeat::Fonte>)>;
+/// Fontes concedidas, por (bot, nome): a concessão e a fonte.
+type Fontes = std::collections::HashMap<(String, String), crate::fork::heartbeat::Concessao>;
 
 pub struct Routines {
     state: Mutex<State>,
@@ -217,7 +217,7 @@ pub struct Routines {
     hooks_rev: tokio::sync::watch::Sender<u64>,
     /// Fontes que cada bot pode ler nas checagens silenciosas: (bot, nome). Vazio até um conector registrar uma.
     fontes: Mutex<Fontes>,
-    /// Numera cada concessão de fonte: a mesma fonte registrada de novo é outra concessão.
+    /// Numera cada registro de fonte nesta execução do Hub: quem lê só grava se o registro não mudou desde a leitura.
     concessoes: std::sync::atomic::AtomicU64,
     /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
     checando: Mutex<HashSet<String>>,
@@ -358,10 +358,12 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
             .as_ref()
             .and_then(|r| r.external_release_pending)
             .filter(|_| body["enabled"] != true),
-        heartbeat_state: old
-            .as_ref()
-            .and_then(|r| r.heartbeat_state.clone())
-            .filter(|_| old.as_ref().is_some_and(|r| r.heartbeat == heartbeat)),
+        heartbeat_state: old.as_ref().and_then(|r| r.heartbeat_state.clone()).filter(|_| {
+            old.as_ref()
+                .and_then(|r| r.heartbeat.as_ref())
+                .zip(heartbeat.as_ref())
+                .is_some_and(|(antes, agora)| antes.mesma_observacao(agora))
+        }),
         heartbeat,
     };
     if !(1..=86_400).contains(&r.timeout_seconds) {
@@ -528,11 +530,14 @@ impl Routines {
         next.routines.retain(|r| r.bot_id != bot);
         for routine in before {
             let mut restored = routine.clone();
-            // Desfazer uma edição não desfaz o que a checagem já avisou: o progresso mais recente fica.
-            if let Some(atual) = current.iter().find(|r| r.id == restored.id)
-                && atual.heartbeat == restored.heartbeat
-            {
-                restored.heartbeat_state.clone_from(&atual.heartbeat_state);
+            // Desfazer uma edição não desfaz o que a checagem já avisou: o progresso mais recente fica. E a versão da
+            // rotina só avança (nunca volta ao valor antigo), para uma leitura em andamento não passar por válida.
+            if let Some(atual) = current.iter().find(|r| r.id == restored.id) {
+                restored.updated_at = now_ms().max(atual.updated_at.max(restored.updated_at).saturating_add(1));
+                if atual.heartbeat.as_ref().zip(restored.heartbeat.as_ref()).is_some_and(|(a, b)| a.mesma_observacao(b))
+                {
+                    restored.heartbeat_state.clone_from(&atual.heartbeat_state);
+                }
             }
             restored.next_runs = restored.triggers.iter().map(|t| t.next(now_ms())).collect::<Result<_>>()?;
             restored.schedule_generation = current
@@ -781,7 +786,7 @@ impl Routines {
                     .find(|r| r.id == id && r.bot_id == bot && !r.deleted)
                     .context("routine not found")?;
                 r.webhook_key = webhook_key();
-                r.updated_at = now_ms();
+                r.updated_at = now_ms().max(r.updated_at.saturating_add(1));
                 Ok(())
             })?;
         }
@@ -910,7 +915,7 @@ pub(crate) fn enable_for_review(routine: &mut Routine) -> Result<()> {
         routine.schedule_generation.checked_add(1).context("Não foi possível atualizar a agenda desta rotina")?;
     routine.enabled = true;
     routine.external_release_pending = None;
-    routine.updated_at = now_ms();
+    routine.updated_at = now_ms().max(routine.updated_at.saturating_add(1));
     Ok(())
 }
 fn cancel_pending(state: &mut State, id: &str) {
