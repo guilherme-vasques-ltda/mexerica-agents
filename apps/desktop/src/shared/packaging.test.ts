@@ -84,11 +84,16 @@ test('every packaging variant carries the notice files, including the art-use ru
   const devLocal = require('../../tools/dev-local-builder.cjs')
   const expected = ['LICENSE', 'NOTICE', 'THIRD_PARTY.md', 'TRADEMARK.md', 'MODIFICACOES.md', 'MODIFICACOES-ARQUIVOS.md', 'LICENCA-DA-ARTE.md']
   for (const [name, config] of Object.entries({ prod, dev, local, devLocal })) {
-    const notices = (config as { extraResources: { from: string; to: string }[] }).extraResources.filter((f) => f.to.startsWith('avisos/'))
+    const notices = (config as { extraResources: { from: string; to: string; filter?: string[] }[] }).extraResources.filter((f) => f.to.startsWith('avisos/'))
     for (const file of expected) {
       const entry = notices.find((f) => f.to === `avisos/${file}`)
       assert.ok(entry, `${name} lacks avisos/${file}`)
       assert.ok(existsSync(new URL(`../../${entry.from}`, import.meta.url)), `${name}: ${entry.from} does not exist`)
     }
+    const terceiros = notices.find((f) => f.to === 'avisos/terceiros')
+    assert.ok(terceiros && existsSync(new URL(`../../${terceiros.from}/INVENTARIO-DEPENDENCIAS.md`, import.meta.url)), `${name} lacks avisos/terceiros`)
+    const fontes = notices.find((f) => f.to === 'avisos/fontes') as { from: string; filter?: string[] } | undefined
+    assert.ok(fontes && existsSync(new URL(`../../${fontes.from}`, import.meta.url)), `${name} lacks avisos/fontes`)
+    assert.deepEqual(fontes.filter, ['OFL-*.txt'])
   }
 })

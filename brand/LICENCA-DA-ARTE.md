@@ -5,7 +5,7 @@ repositório cobre o **código**. Para a arte valem as duas regras abaixo.
 
 **Decisão do dono, 19/11/2026.** Perguntado se os fundos de chat, os papéis de parede e os personagens ficam "só da Mexerica ou livres para
 reuso", o dono escolheu "só da Mexerica" ("isso"). Sobre logo, mascote, símbolo e ícone do app ficarem reservados como marca e sobre as
-Mexeriquinhas e os 20 ícones opcionais já estarem registrados como livres para reuso, respondeu "ISSO". Antes disso, em 19/11/2026, o dono
+Mexeriquinhas e os 20 ícones opcionais já estarem registrados como livres para reuso, respondeu "ISSO". (Na pasta há 19 opções com licença Apache-2.0 declarada na origem e o `padrao.png`, que segue a regra B.) Antes disso, em 19/11/2026, o dono
 tinha liberado a arte própria para esta cópia ("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo.").
 
 Este texto registra essas decisões em linguagem simples. Nenhum advogado o leu, e ele não é parecer jurídico.
