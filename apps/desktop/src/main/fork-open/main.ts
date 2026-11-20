@@ -4,10 +4,11 @@ import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, session } from 'electron'
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../../shared/fork-idioma.ts'
-import type { AccountState, HostSnapshot, UpdateState } from '../../shared/ipc'
+import type { AccountState, UpdateState } from '../../shared/ipc'
 import type { SSHState } from '../../shared/ssh'
 import { privateDirectory } from '../../shared/fork-private-files'
 import { bringToFront, isOpenAsset, open, openPaths } from './isolation'
+import { registerOpenHub } from './hub'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
     JSON.stringify(JSON.parse(readFileSync(join(process.resourcesPath, 'open-profile.json'), 'utf8'))) !== JSON.stringify(open)) {
@@ -20,7 +21,8 @@ app.setPath('userData', userData)
 app.setPath('sessionData', userData)
 app.setPath('logs', privateDirectory(join(userData, 'logs')))
 app.setPath('crashDumps', privateDirectory(join(userData, 'crashDumps')))
-app.setPath('temp', privateDirectory(join(homeConfig, 'tmp')))
+const temp = privateDirectory(join(homeConfig, 'tmp'))
+app.setPath('temp', temp)
 app.commandLine.appendSwitch('disable-background-networking')
 
 const assetRoot = join(__dirname, '../renderer')
@@ -61,7 +63,6 @@ if (!app.requestSingleInstanceLock()) {
     }
     for (const [channel, value] of Object.entries(sync)) ipcMain.on(channel, (event) => { event.returnValue = value })
     const state = {
-      'host:snapshot': { state: { kind: 'disabled' }, local: null, dev: false, logPath: '' } satisfies HostSnapshot,
       'ssh:state': { profiles: [], status: {}, attachments: [] } satisfies SSHState,
       'account:state': {
         ready: true, configured: false, busy: false, error: null, user: null, cloudURL: null, socialProviders: [],
@@ -76,6 +77,7 @@ if (!app.requestSingleInstanceLock()) {
       'app:showInDock': true, 'app:launchAtLogin': false, 'appIcon:selected': null, 'app:isFullScreen': false,
     }
     for (const [channel, value] of Object.entries(state)) ipcMain.handle(channel, () => value)
+    registerOpenHub(homeConfig, temp, chatURL, () => window)
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
       { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },

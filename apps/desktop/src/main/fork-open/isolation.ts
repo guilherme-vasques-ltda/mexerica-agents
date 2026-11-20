@@ -28,13 +28,14 @@ function isChromiumLink(root: string, entry: string, child: string, item: Stats)
   try { return readlinkSync(join(remote, 'SingletonCookie')) === readlinkSync(join(root, 'SingletonCookie')) } catch { return false }
 }
 
-function assertPrivateTree(path: string, root = '') {
+function assertPrivateTree(path: string, socketRoot?: string, root = '') {
   for (const entry of readdirSync(path)) {
     const child = join(path, entry)
     const item = lstatSync(child)
     if (root && isChromiumLink(root, entry, child, item)) continue
     if (item.uid !== process.getuid?.() || (item.mode & 0o022) !== 0) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados'))
-    if (item.isDirectory()) assertPrivateTree(child)
+    if (item.isDirectory()) assertPrivateTree(child, socketRoot)
+    else if (socketRoot && item.isSocket() && (item.mode & 0o077) === 0 && /^h-[A-Za-z0-9]{6}[/\\]s$/.test(relative(socketRoot, child))) continue
     else if (!item.isFile() || item.nlink !== 1) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilArquivo'))
   }
 }
@@ -42,8 +43,8 @@ function assertPrivateTree(path: string, root = '') {
 export function openPaths(home: string, appData: string) {
   const userData = privateDirectory(join(appData, open.userDataFolder))
   const homeConfig = privateDirectory(join(home, open.dataFolder))
-  assertPrivateTree(userData, userData)
-  assertPrivateTree(homeConfig)
+  assertPrivateTree(userData, undefined, userData)
+  assertPrivateTree(homeConfig, join(homeConfig, 'tmp'))
   return { userData, homeConfig }
 }
 
