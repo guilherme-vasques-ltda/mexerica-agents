@@ -23,6 +23,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.conta.googleLigado': 'Ce compte Google est déjà associé à un autre compte Mexerica.',
   'marca.conta.naoConfirmou': 'Impossible de confirmer la connexion. Réessayez : Mexerica ne s’ouvre qu’avec un compte confirmé.',
   'marca.conta.apagarTudo': 'Déconnecte tous les comptes et supprime les bots, conversations, clés et réglages de cet ordinateur. Mexerica repart de l’écran d’accueil.',
+  'marca.conta.apagarFalhou': 'Impossible de supprimer toutes les données. Réessayez.',
   'marca.conta.semLogin': 'La connexion n’est pas disponible dans cette version, et Mexerica ne s’ouvre qu’avec un compte.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'Boîte protégée indisponible.',
