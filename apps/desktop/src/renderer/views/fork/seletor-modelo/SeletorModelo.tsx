@@ -68,7 +68,7 @@ const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolh
   return (
     <div className={`seletor-linha${escolhido ? ' on' : ''}`} data-i={indice} style={{ top: indice * ALTURA_LINHA }}>
       <button role="option" aria-selected={escolhido} aria-posinset={item.posicao} aria-setsize={total} className="seletor-modelo-nome" onClick={() => acoes.escolher(provedor, modelo)} disabled={!!motivo} title={motivo ?? (escondido ? t('conversa.seletor.ocultoEmUso') : undefined)}
-        aria-label={`${modelo.name}, ${provedor.name}${escondido ? `, ${t('conversa.seletor.oculto')}` : ''}`} aria-describedby={contexto ? dicaId : undefined}
+        aria-label={`${modelo.name}, ${provedor.name}${selo ? `, ${selo}` : ''}${escondido ? `, ${t('conversa.seletor.oculto')}` : ''}`} aria-describedby={contexto ? dicaId : undefined}
         aria-keyshortcuts={n ? `${isMac ? 'Meta' : 'Control'}+${n}` : undefined}>
         {marca(escolhido)}
         <AgentIcon registry={provedor.registry ?? provedor.id} size={14} />
