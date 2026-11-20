@@ -623,7 +623,9 @@ test('data URI: termo longo continua comparado no base64 cru; metadado legível 
 test('data URI: PNG incompleto, outro formato, CRC errado, bloco sem fim claro ou base64 inválido seguem crus', () => {
   const bad = Buffer.from(png, 'base64'); bad[bad.length - 1] ^= 1;
   const noIhdr = pngParts('CactoAAA', [], [chunk('ruSt', Buffer.alloc(13))]), noIdat = pngParts('CactoAAA', [], [ihdr], []);
-  for (const line of [svgWith(png, 'image/x-desconhecido'), svgWith(png, 'image/jpeg'), svgWith(bad.toString('base64')), svgWith(png).replace('"/>', '!"/>'), svgWith(png).replace('"/>', ';x"/>'), svgWith(png.replace(/=*$/, '') + 'C'), svgWith('CactoAAA'), svgWith(noIhdr), svgWith(noIdat)]) {
+  const emptyIdat = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.alloc(0))]), badZlib = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x78, 0x00, 0x01]))]);
+  assert.equal(b64Hit(svgWith(pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.alloc(0)), idat]))), false, 'IDAT vazio seguido de IDAT com dados é aceito');
+  for (const line of [svgWith(png, 'image/x-desconhecido'), svgWith(png, 'image/jpeg'), svgWith(bad.toString('base64')), svgWith(png).replace('"/>', '!"/>'), svgWith(png).replace('"/>', ';x"/>'), svgWith(png.replace(/=*$/, '') + 'C'), svgWith('CactoAAA'), svgWith(noIhdr), svgWith(noIdat), svgWith(emptyIdat), svgWith(badZlib)]) {
     assert.equal(b64Hit(line), true, line.slice(0, 60));
   }
 });

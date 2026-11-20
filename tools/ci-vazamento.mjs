@@ -119,7 +119,7 @@ export function termExceptions(policy) {
   });
 }
 // Data URI de PNG em base64: o base64 de uma imagem tem letras ao acaso que formam termos curtos. Só um PNG completo
-// (IHDR primeiro, IDAT, IEND no fim exato e CRC de todos os chunks), num bloco base64 canônico que termina em aspas,
+// (IHDR primeiro, IDAT com cabeçalho zlib, IEND no fim exato e CRC de todos os chunks), num bloco base64 canônico que termina em aspas,
 // parêntese, espaço ou fim de linha, tira o base64 cru da comparação de termos curtos. Termos com 8+ caracteres seguem
 // comparados na linha inteira; os textos dos chunks tEXt/zTXt/iTXt e os trechos ASCII legíveis do PNG entram para todos. Base64 de texto acrescenta o texto
 // decodificado sem tirar o cru. Qualquer outro caso segue cru, como antes.
@@ -131,8 +131,7 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 // `budget` é compartilhado por todos os PNGs da linha: descompressão acima dele deixa o bloco cru.
 function completePng(mime, b, budget) {
   if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
-  const texts = [];
-  let idat = false;
+  const texts = [], idat = [];
   const inflate = (z) => { const out = inflateSync(z, { maxOutputLength: budget.left }); budget.left -= out.length; return out; };
   const field = (data, from) => { const k = data.indexOf(0, from); if (k < from + (from ? 0 : 1) || (from === 0 && k > 79)) throw new Error('chunk de texto inválido'); return k; };
   for (let i = 8; i + 12 <= b.length;) {
@@ -160,8 +159,11 @@ function completePng(mime, b, budget) {
           strictUtf8.decode(data[k + 1] ? inflate(value) : value));
       }
     } catch { return null; }
-    if (type === 'IDAT') idat = true;
-    if (type === 'IEND') return idat && end === b.length ? texts : null;
+    if (type === 'IDAT') idat.push(data.subarray(0, 2));
+    if (type === 'IEND') {
+      const z = Buffer.concat(idat).subarray(0, 2);
+      return z.length === 2 && (z[0] & 0x0f) === 8 && (z[0] * 256 + z[1]) % 31 === 0 && end === b.length ? texts : null;
+    }
     i = end;
   }
   return null;
