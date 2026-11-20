@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
+import { crc32 } from 'node:zlib';
 
 const RULES = '.github/security/vazamento.json';
 const INVENTORY = '.github/security/vazamento-inventario.json';
@@ -117,13 +118,65 @@ export function termExceptions(policy) {
     return e;
   });
 }
+// Data URI de PNG em base64: o base64 de uma imagem tem letras ao acaso que formam termos curtos. Só um PNG completo
+// (IHDR primeiro, IDAT, IEND no fim exato e CRC de todos os chunks), num bloco base64 canônico que termina em aspas,
+// parêntese, espaço ou fim de linha, tira o base64 cru da comparação de termos curtos. Termos com 8+ caracteres seguem
+// comparados na linha inteira, e os trechos ASCII legíveis do PNG entram para todos. Base64 de texto acrescenta o texto
+// decodificado sem tirar o cru. Qualquer outro caso segue cru, como antes.
+const DATA_URI = /data:([\w.+-]*\/[\w.+-]+)?(?:;[\w.+-]+(?:=[\w.+-]*)?)*;base64,([A-Za-z0-9+/]+={0,2})(?=$|["')\s])/gi;
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+const LONG_TERM = 8;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+function completePng(mime, b) {
+  if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
+  let idat = false;
+  for (let i = 8; i + 12 <= b.length;) {
+    const end = i + 12 + b.readUInt32BE(i);
+    const type = b.toString('latin1', i + 4, i + 8);
+    if (end > b.length || (crc32(b.subarray(i + 4, end - 4)) >>> 0) !== b.readUInt32BE(end - 4)) return false;
+    if (i === 8 && (type !== 'IHDR' || end - i !== 25)) return false;
+    if (type === 'IDAT') idat = true;
+    if (type === 'IEND') return idat && end === b.length;
+    i = end;
+  }
+  return false;
+}
+// Visão para termos curtos (sem o base64 do PNG) e para termos longos (linha inteira); as duas recebem o texto
+// decodificado e os trechos legíveis do PNG.
+function termViews(line, onMedia) {
+  if (!/;base64,/i.test(line)) return { short: line, long: line };
+  const extra = [];
+  let media = false;
+  const short = line.replace(DATA_URI, (whole, mime, block) => {
+    const bytes = Buffer.from(block, 'base64');
+    if (block.length % 4 === 1 || bytes.toString('base64') !== block.padEnd(Math.ceil(block.length / 4) * 4, '=')) return whole;
+    if (completePng(mime, bytes)) {
+      media = true;
+      extra.push((bytes.toString('latin1').match(/[\x20-\x7e]{8,}/g) ?? []).join(' '));
+      return whole.slice(0, whole.length - block.length);
+    }
+    if (!bytes.includes(0)) {
+      try { extra.push(strictUtf8.decode(bytes)); } catch { /* não é texto: fica só o cru */ }
+    }
+    return whole;
+  });
+  if (media) onMedia();
+  const decoded = extra.length ? `\n${extra.join('\n')}` : '';
+  return { short: short + decoded, long: line + decoded };
+}
 // `content` é true só para linhas de conteúdo de arquivo; caminhos e mensagens de commit nunca são exceptuados.
-export function scanLine(path, number, line, policy, terms = [], content = false, marker = true) {
+export function scanLine(path, number, line, policy, terms = [], content = false, marker = true, onMedia = () => {}) {
   const ids = publicRules(line, policy, path, marker);
-  const literal = terms.length ? withoutAllowedUrls(line, policy) : '';
-  const personal = terms.some((t) => !numericTerm(t)) ? literal.replace(/[\s._-]+/g, ' ') : '';
+  const views = terms.length ? termViews(line, onMedia) : { short: '', long: '' };
+  const short = terms.length ? withoutAllowedUrls(views.short, policy) : '';
+  const long = views.long === views.short ? short : withoutAllowedUrls(views.long, policy);
+  const folded = new Map();
+  const personal = (text) => folded.get(text) ?? folded.set(text, text.replace(/[\s._-]+/g, ' ')).get(text);
   const exempt = content && terms.length ? new Set(termExceptions(policy).filter((e) => e.arquivo === path).map((e) => e.sha256)) : new Set();
-  const hit = (t) => numericTerm(t) ? numericPattern(t).test(literal) : personal.includes(normalizeTerm(t));
+  const hit = (t) => {
+    const literal = normalizeTerm(t).replace(/ /g, '').length >= LONG_TERM ? long : short;
+    return numericTerm(t) ? numericPattern(t).test(literal) : personal(literal).includes(normalizeTerm(t));
+  };
   if (terms.some((t) => !exempt.has(termHash(t)) && hit(t))) ids.push('termo-pessoal');
   return ids.map((rule) => ({ path, line: number, rule, fingerprint: fingerprint(rule, path, line) }));
 }
@@ -158,8 +211,8 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
   sha(head);
   if (!['pr', 'arvore'].includes(mode)) throw new Error('Modo inválido');
   if (mode === 'pr') sha(base);
-  const findings = [], limits = { binary: 0, sensitive: 0, submodule: 0 };
-  const add = (path, n, line, content = false, marker = true) => findings.push(...scanLine(path, n, line, policy, terms, content, marker));
+  const findings = [], limits = { binary: 0, sensitive: 0, submodule: 0, base64Media: 0 }, embedded = new Set();
+  const add = (path, n, line, content = false, marker = true) => findings.push(...scanLine(path, n, line, policy, terms, content, marker, () => embedded.add(`${path}:${n}`)));
   // Listing object IDs avoids reading working-tree symlinks, filters and untracked secrets.
   const entries = git(cwd, ['ls-tree', '-rz', head]).split('\0').filter(Boolean);
   const changed = mode === 'pr' ? new Set(git(cwd, ['diff', '--name-only', '--no-renames', '-z', base, head]).split('\0')) : null;
@@ -204,6 +257,7 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
       scanChanges(cwd, sha(from), commit, add, findings, limits);
     }
   }
+  limits.base64Media = embedded.size;
   const unique = [...new Map(findings.map((f) => [`${f.path}:${f.line}:${f.rule}:${f.fingerprint}`, f])).values()];
   return { findings: unique.filter((f) => mode !== 'arvore' || !inventory.includes(f.fingerprint)), limits };
 }
@@ -310,7 +364,7 @@ export async function main(args = process.argv.slice(2)) {
   const report = { total: safe.length, rules: summarize(safe).rules };
   if (privateRepo) {
     for (const f of safe) console.log(`${JSON.stringify(f.path)}${f.line ? `:${f.line}` : ''} regra=${f.rule}`);
-    console.log(`Limites: binários=${limits.binary}; arquivos sensíveis não lidos=${limits.sensitive}; submódulos=${limits.submodule}.`);
+    console.log(`Limites: binários=${limits.binary}; arquivos sensíveis não lidos=${limits.sensitive}; submódulos=${limits.submodule}; linhas com PNG embutido em base64 (termos curtos só no texto legível)=${limits.base64Media}.`);
     report.paths = [...new Set(safe.map((f) => f.path))].sort();
     report.limits = limits;
   } else {
