@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
+import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import type { Entry } from '../../../../shared/models.ts'
 
@@ -13,7 +14,7 @@ const bundle = await build({
       export { StoreContext } from './store/context';
       export { createElement } from 'react';
       export { renderToStaticMarkup } from 'react-dom/server';`,
-    resolveDir: new URL('../../../', import.meta.url).pathname, loader: 'ts',
+    resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'ts',
   },
   bundle: true, platform: 'node', format: 'cjs', write: false, jsx: 'automatic',
   plugins: [{ name: 'icone', setup(b) {

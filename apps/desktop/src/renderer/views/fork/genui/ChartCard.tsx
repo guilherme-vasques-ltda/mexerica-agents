@@ -304,8 +304,8 @@ function BarChart({ chart, id, visible, focus, setFocus }: PlotProps & { id: str
   const valueEndFocusProbe = useRef<SVGTextElement>(null)
   const naProbe = useRef<SVGTextElement>(null)
   const axisProbe = useRef<SVGTextElement>(null)
-  const [measuredLayout, setLayout] = useState<{ chart: Chart; shown: typeof shown; width: number; categoryW: number; categories: { label: string; x: number }[]; valueW: number; axis: AxisTextBounds[] } | null>(null)
-  const layout = measuredLayout?.chart === chart && measuredLayout.shown === shown && measuredLayout.width === width ? measuredLayout : null
+  const [measuredLayout, setLayout] = useState<{ chart: Chart; shown: typeof shown; width: number; unavailable: string; categoryW: number; categories: { label: string; x: number }[]; valueW: number; axis: AxisTextBounds[] } | null>(null)
+  const layout = measuredLayout?.chart === chart && measuredLayout.shown === shown && measuredLayout.width === width && measuredLayout.unavailable === unavailable ? measuredLayout : null
   const hasValues = d !== null
   useLayoutEffect(() => {
     if (!width || !hasValues || !categoryProbe.current || !categoryFocusProbe.current || !valueStartProbe.current
@@ -324,7 +324,7 @@ function BarChart({ chart, id, visible, focus, setFocus }: PlotProps & { id: str
       const label = valueText(v)
       return v === null ? na(label).right : Math.max(valueStart(label).right, valueEnd(label).left)
     }))) + 8
-    setLayout({ chart, shown, width, categoryW, categories, valueW, axis: axis.map(({ text }) => axisText(text)) })
+    setLayout({ chart, shown, width, unavailable, categoryW, categories, valueW, axis: axis.map(({ text }) => axisText(text)) })
   }, [chart, shown, width, hasValues, unavailable])
   const neg = (d?.lo ?? 0) < 0
   const valueW = layout?.valueW ?? 0

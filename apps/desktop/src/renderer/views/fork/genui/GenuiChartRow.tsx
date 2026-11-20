@@ -19,15 +19,15 @@ export function genuiChartRow(entry: Entry, chat: Bot | null, groupStart: boolea
 function GenuiChartRow({ entry, card, chat }: { entry: Entry; card: ChartEntry; chat: Bot | null }) {
   const store = useStore()
   const author = entry.data.author ? store.bots.get(entry.data.author) : chat && !isGroup(chat) ? chat : undefined
-  return <GenuiChartMessage card={card} face={author ? <BotAvatar bot={author} size={28} animated={false} /> : null} />
+  return <GenuiChartMessage card={card} name={store.authorName(entry.data.author ?? chat?.id)} face={author ? <BotAvatar bot={author} size={28} animated={false} /> : null} />
 }
 
 /** Sem store: o balão do bot com o gráfico real. Também serve à prévia com dados fictícios. */
-export function GenuiChartMessage({ card, face }: { card: ChartEntry; face?: ReactNode }) {
+export function GenuiChartMessage({ card, name, face }: { card: ChartEntry; name?: string; face?: ReactNode }) {
   return (
     <div className="message agent with-face genui-chart-message">
       <span className="message-face" aria-hidden>{face}</span>
-      <div className="message-body">
+      <div className="message-body" role="group" aria-label={name}>
         <div className="bubble agent">
           <ChartCard chart={card.chart} />
         </div>
