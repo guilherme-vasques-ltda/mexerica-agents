@@ -33,6 +33,24 @@ const ERROS: Readonly<Record<string, ChaveTexto>> = {
   sem_chave: 'contas.apiDireta.erro.semChave',
 }
 
+/**
+ * Os quatro estados do «Testar acesso». O teste só lê a lista de modelos do fornecedor e nunca gera texto, então
+ * «tudo certo» nunca é afirmado: uma lista não prova saldo, assinatura nem permissão de cada modelo.
+ * - `conta_reconhecida`: o fornecedor aceitou a chave, mas não listou nada;
+ * - `modelos_no_catalogo`: o fornecedor aceitou a chave e listou modelos;
+ * - `acesso_nao_confirmado`: o fornecedor respondeu, mas limite ou crédito impedem confirmar;
+ * - `nao_verificado`: sem resposta, resposta quebrada ou sem permissão de listar (não é chave inválida).
+ * A recusa explícita do fornecedor (`recusada`) é a única que dá a chave como inválida.
+ */
+export type EstadoDoTeste = 'conta_reconhecida' | 'modelos_no_catalogo' | 'acesso_nao_confirmado' | 'nao_verificado' | 'recusada'
+
+export function estadoDoTeste(acesso: Acesso): EstadoDoTeste {
+  if (acesso.ok) return acesso.modelos.length > 0 ? 'modelos_no_catalogo' : 'conta_reconhecida'
+  if (acesso.erro === 'chave_invalida') return 'recusada'
+  if (acesso.erro === 'limite') return 'acesso_nao_confirmado'
+  return 'nao_verificado'
+}
+
 /** A frase de um erro do teste; código desconhecido cai na falha genérica do fornecedor. */
 export const chaveDoErro = (erro: string): ChaveTexto => ERROS[erro] ?? 'contas.apiDireta.erro.fornecedorFalhou'
 

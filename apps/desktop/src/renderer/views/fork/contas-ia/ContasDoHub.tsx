@@ -15,6 +15,7 @@ import type { BotStore } from '../../../store/bot-store'
 import { engineSetup } from '../../../store/fork-engine-setup'
 import { AgentTile } from '../../marketplace/AgentSheet'
 import { EmptyState, Field, FormSheet, MarketBadge } from '../../marketplace/pieces'
+import { AdicionarConexao } from './AdicionarConexao'
 import { ChaveDeApi } from './ChaveDeApi'
 import { ConectarConta } from './ConectarConta'
 import { contasFor, type ContasStore } from './contas-store'
@@ -32,6 +33,7 @@ export function useContas(store: BotStore): ContasStore {
 }
 
 type Route =
+  | { kind: 'pick' }
   | { kind: 'new'; engine?: Engine }
   | { kind: 'connect'; id: string; reconnect: boolean }
   | { kind: 'key'; id: string }
@@ -70,7 +72,7 @@ export function ContasDoHub({ forBot, onChanged }: {
     else if (action === 'key' && store.isLoopback) setRoute({ kind: 'key', id: account.id })
     else setRoute({ kind: 'connect', id: account.id, reconnect: action === 'reconnect' })
   }
-  const routed = route && route.kind !== 'new' ? contas.account(route.id) : null
+  const routed = route && route.kind !== 'new' && route.kind !== 'pick' ? contas.account(route.id) : null
 
   return (
     // A lista inteira declara o idioma (lang/dir) sem mudar o layout de quem a contém.
@@ -85,7 +87,7 @@ export function ContasDoHub({ forBot, onChanged }: {
         <HStack gap={8}>
           <Icon name="server.rack" size={13} color="var(--context-ink-2, var(--ink-2))" />
           <Text size="caption" tone="secondary" grow>{local ? (store.isLoopback ? textos.ligadoPorEsteMac : textos.donoPelaNuvem) : textos.remotoIndisponivel}</Text>
-          {online && local ? <Button onClick={() => setRoute({ kind: 'new', engine: forBot?.engine })}>{textos.adicionar}</Button> : null}
+          {online && local ? <Button onClick={() => setRoute(forBot?.engine ? { kind: 'new', engine: forBot.engine } : { kind: 'pick' })}>{textos.adicionar}</Button> : null}
         </HStack>
         {!online ? <Text tone="secondary">{textos.hubDesconectado}</Text> : null}
         {online && contas.error ? <Text tone="danger" role="alert" className="selectable">{errorMessage(contas.error, idioma)}</Text> : null}
@@ -98,8 +100,10 @@ export function ContasDoHub({ forBot, onChanged }: {
         )) : null}
       </CardSection>
 
-      <FormSheet language={superficieIdioma(idioma)} open={route !== null && (route.kind === 'new' || routed !== null)} onClose={close} width={560} height={580} fixed>
-        {route?.kind === 'new' ? (
+      <FormSheet language={superficieIdioma(idioma)} open={route !== null && (route.kind === 'new' || route.kind === 'pick' || routed !== null)} onClose={close} width={560} height={580} fixed>
+        {route?.kind === 'pick' ? (
+          <AdicionarConexao contas={contas} onPlano={(engine) => setRoute({ kind: 'new', engine })} onClose={close} />
+        ) : route?.kind === 'new' ? (
           <NovaConta
             contas={contas}
             initialEngine={route.engine}

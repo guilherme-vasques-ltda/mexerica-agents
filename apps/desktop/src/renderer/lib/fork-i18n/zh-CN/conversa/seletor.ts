@@ -63,4 +63,6 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.seletor.falhou': "无法读取 {motor} 的模型。",
   'conversa.seletor.tentarDeNovo': "重试",
   'conversa.seletor.ajustesDe': "{modelo} 的设置",
+  'conversa.seletor.selo.plano': "套餐 · {nome}",
+  'conversa.seletor.selo.chave': "密钥 · {nome}",
 }

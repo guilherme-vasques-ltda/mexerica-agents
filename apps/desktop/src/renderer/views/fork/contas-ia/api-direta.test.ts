@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { amostraDeModelos, chaveDoErro, mostrarApiDireta, salvarChave } from './api-direta.ts'
+import { amostraDeModelos, chaveDoErro, estadoDoTeste, mostrarApiDireta, salvarChave } from './api-direta.ts'
 import { CATALOGOS } from '../../../lib/fork-i18n/index.ts'
 import type { HostClient } from '../../../client/host-client'
 
@@ -38,4 +38,15 @@ test('salvar limpa o campo antes de esperar o Hub e manda a chave sem espaços',
   assert.deepEqual(eventos, ['campo limpo', 'chamada:motorChaveSalvar'])
   assert.deepEqual(corpo, { fornecedor: 'openai', chave: 'chave-ficticia-de-teste' })
   assert.equal(r.ok, true)
+})
+
+test('«Testar acesso» tem quatro estados e só a recusa do fornecedor dá a chave como inválida', () => {
+  const um = [{ id: 'x/a', name: 'A' }]
+  assert.equal(estadoDoTeste({ ok: true, modelos: um }), 'modelos_no_catalogo')
+  assert.equal(estadoDoTeste({ ok: true, modelos: [] }), 'conta_reconhecida')
+  assert.equal(estadoDoTeste({ ok: false, erro: 'limite' }), 'acesso_nao_confirmado')
+  for (const erro of ['sem_permissao', 'sem_resposta', 'resposta_invalida', 'fornecedor_falhou', 'qualquer_outro']) {
+    assert.equal(estadoDoTeste({ ok: false, erro }), 'nao_verificado', erro)
+  }
+  assert.equal(estadoDoTeste({ ok: false, erro: 'chave_invalida', status: 401 }), 'recusada')
 })

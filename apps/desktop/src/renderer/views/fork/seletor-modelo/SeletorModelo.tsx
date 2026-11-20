@@ -15,6 +15,7 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { usePref } from '../../../lib/prefs'
 import { isMac } from '../../settings/parts'
 import { seletorPrefs } from './preferencias'
+import { seloDoModelo } from './selo'
 import {
   abaInicialDaFuncao, alternarFavorito, aplicarIntencao, atalho, chave, contaAlvo, contasDoMotor, destinoDaTroca, ehPadraoDoMotor, favoritosNoCatalogo, filtrarMemo, intencaoDeTroca,
   marcadaDaFuncao, modeloOculto, ocultosDoMotor, opcaoEsforco, tamanhoContexto, type CadastroContas, type ConfigFuncao, type MotivoTroca, type Escolha, type ModeloCatalogo, type ModoSeletor, type Provedor,
@@ -46,7 +47,7 @@ interface Acoes { escolher: (provedor: Provedor, modelo: ModeloCatalogo) => void
 const marca = (on: boolean) => <span className="seletor-marca" aria-hidden="true">{on ? <Icon name="checkmark" size={11} weight="semibold" /> : null}</span>
 
 /** Um modelo na lista. Em memo: digitar na busca ou rolar só redesenha as linhas que mudaram. */
-const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolhido, motivo, idBase, acoes }: {
+const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolhido, motivo, selo, idBase, acoes }: {
   indice: number
   item: Extract<Item, { tipo: 'modelo' }>
   total: number
@@ -54,6 +55,8 @@ const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolh
   escolhido: boolean
   /** Por que a linha está desativada (já no idioma), ou `null`. */
   motivo: string | null
+  /** Por qual conexão o modelo roda (já no idioma), ou `null` quando não é certo. */
+  selo: string | null
   idBase: string
   acoes: Acoes
 }) {
@@ -73,7 +76,8 @@ const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolh
         <span className="seletor-nome" dir="auto">{modelo.name}</span>
         {escondido ? <span className="seletor-etiqueta"><Icon name="eye.slash" size={10} />{t('conversa.seletor.oculto')}</span> : null}
         <span className="seletor-meta">
-          {item.comMotor ? <span>{provedor.name}</span> : null}
+          {item.comMotor && !selo ? <span>{provedor.name}</span> : null}
+          {selo ? <span className="seletor-selo">{selo}</span> : null}
           {contexto ? <span id={dicaId}>{t('conversa.seletor.contexto', { tamanho: contexto })}</span> : null}
         </span>
       </button>
@@ -200,6 +204,11 @@ export function SeletorModelo({ modo, provedores: provedoresDeFora, valor, carre
     !m ? null : f && m.chave === 'conversa.seletor.conta.nenhuma' ? f.semConta(m.motor) : m.chave === 'conversa.seletor.conta.automaticoFora' ? (f?.automaticoFora(m.conta) ?? null) : 'conta' in m ? t(m.chave, { conta: m.conta }) : 'motor' in m ? t(m.chave, { motor: m.motor }) : t(m.chave)
   // Desativado só na aba do próprio motor, onde a conta e o motivo estão à vista; no favorito, o clique navega e explica.
   // Calculado uma vez por linha (e só das linhas que aparecem ou que o teclado visita), até a aba, a conta ou a conversa mudarem.
+  const seloDe = (provedor: Provedor, modelo: string) => {
+    const selo = seloDoModelo({ backend: provedor.id, modelo, nomeDoMotor: provedor.name, cobranca: contaAlvo(atualConta, provedor.id, cadastro, marcada(provedor.id))?.billing })
+    if (!selo) return null
+    return selo.grupo === null ? selo.nome : t(selo.grupo === 'planos' ? 'conversa.seletor.selo.plano' : 'conversa.seletor.selo.chave', { nome: selo.nome })
+  }
   const motivos = useMemo(() => new Map<string, string | null>(), [aba, contas, marcadas, valor.backend, valor.accountId, t]) // eslint-disable-line react-hooks/exhaustive-deps
   const motivoNaAba = (provedor: Provedor, model: string | null) => {
     if (aba !== provedor.id) return null
@@ -417,7 +426,7 @@ export function SeletorModelo({ modo, provedores: provedoresDeFora, valor, carre
                     </div>
                   )
                 }
-                return <LinhaModelo key={item.k} indice={i} item={item} total={total} fav={favoritosSet.has(item.k)} escolhido={emUso(item.provedor.id, item.modelo.id)} motivo={motivoNaAba(item.provedor, item.modelo.id)} idBase={id} acoes={acoes} />
+                return <LinhaModelo key={item.k} indice={i} item={item} total={total} fav={favoritosSet.has(item.k)} escolhido={emUso(item.provedor.id, item.modelo.id)} motivo={motivoNaAba(item.provedor, item.modelo.id)} selo={seloDe(item.provedor, item.modelo.id)} idBase={id} acoes={acoes} />
               })}
             </div>
             {itens[0]?.tipo === 'padrao' ? avisos : null}
