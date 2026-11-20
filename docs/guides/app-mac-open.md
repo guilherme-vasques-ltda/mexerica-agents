@@ -15,11 +15,11 @@ isso deixou um segundo processo sem janela no teste.
 
 A janela abre sem conta da Mexerica e inicia o Hub incluído no pacote. O Hub
 encerra com o app e não instala um serviço do macOS nem se conecta a um relay.
-Esta versão ainda não executa motores: a Open não usa contas, executores ou
-credenciais de outros perfis. WhatsApp e a seleção de pastas externas
-também ficam indisponíveis. O fluxo de criação de Space pela interface
-exige uma conta de motor, por isso termina na seleção da conta. O pacote
-leva o helper de fala, mas a janela não o executa nem pede microfone.
+Esta fatia da Open permite configurar o login do Codex. A Open não usa
+contas, executores ou credenciais de outros perfis. O login ainda não
+ativa o envio de conversas. WhatsApp e a seleção de pastas externas
+continuam indisponíveis. O pacote leva o helper de fala, mas a janela
+não o executa nem pede microfone.
 
 O macOS identifica este pacote por `app.mexerica.open`; ele declara apenas o
 esquema `mexerica-open:`. O Hub reserva a porta 19524 na interface local,
@@ -30,6 +30,26 @@ pessoal própria em `~/.mexerica-open/home`, sem importar configurações ou
 credenciais de outros apps. O cofre da Open reserva o serviço de Chaveiro
 `app.mexerica.open.credentials`, mas está desativado nesta versão. A janela
 não usa Safe Storage.
+
+### Conectar o Codex
+
+A Open não instala nem procura o Codex no `PATH`. Use o executável nativo
+do Codex CLI 0.164.0 já instalado. Sem esse executável, ou se o macOS não
+conseguir iniciar o processo isolado, a Open informa que o Codex está
+indisponível e não recorre a outro perfil.
+
+Na raiz própria `~/.mexerica-open`, crie `codex-local.json` com permissão
+0600. Informe `executable` como o caminho absoluto do binário real, sem
+links; `version` como `0.164.0`; e `sha256` como o hash de 64 caracteres
+minúsculos do executável confiável. A Open admite instalações em
+`/opt/homebrew`, `/usr/local/bin`, `/Applications/Codex.app` e nas
+pastas `.local/bin` e `.local/share` do usuário.
+
+Em **Ajustes → Contas de IA**, adicione uma conta Codex e abra a página
+oficial quando a janela mostrar o código de dispositivo. Sem concluir
+a autorização no navegador, a conta não fica conectada. O Codex guarda
+sua sessão em arquivo no perfil da Open; não copie o `auth.json` de
+outra instalação nem compartilhe o arquivo criado.
 
 Em ambiente de testes Unix sem o app aberto, use
 `cd host && CODYNC_ENV=open CARGO_PROFILE_DEV_DEBUG=0 cargo test --test open_hub`

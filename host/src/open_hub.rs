@@ -39,7 +39,7 @@ pub(crate) fn require_executor() -> std::io::Result<()> {
 pub(crate) fn check_method(method: &str) -> Result<()> {
     if Environment::is_open()
         && (method.starts_with("donnaWorkplace")
-            || crate::fork::engine_setup::methods(method)
+            || (crate::fork::engine_setup::methods(method) && !crate::fork::engine_setup::open_login_method(method))
             || crate::fork::whatsapp::api::handles(method)
             || crate::fork::whatsapp::leitura::handles(method)
             || matches!(
@@ -74,7 +74,6 @@ pub(crate) fn check_method(method: &str) -> Result<()> {
                     | "agentModels"
                     | "setAgentEnv"
                     | "engineGoKeySave"
-                    | "donnaEngineAccounts"
                     | "listDirs"
                     | "send"
                     | "retrySubscription"
@@ -312,6 +311,7 @@ mod unix {
             result = axum::serve(unix, socket_router).into_future() => result,
             result = axum::serve(tcp, axum::Router::new()).into_future() => result,
         };
+        crate::fork::engine_setup::shutdown_open(&hub).await;
         hub.shutdown().await;
         crate::agent::acp::stopped().await;
         drop(socket_file);

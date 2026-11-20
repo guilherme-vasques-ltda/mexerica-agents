@@ -4,7 +4,25 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { openApiPath, openStreamPath, requestOpenHub } from '../src/main/fork-open/hub-transport.ts'
+import { isOpenCodexDeviceURL, openApiPath, openCodexDeviceDeadline, openStreamPath, requestOpenHub } from '../src/main/fork-open/hub-transport.ts'
+
+test('a Open só pode abrir a página exata de autorização do Codex', () => {
+  assert.equal(isOpenCodexDeviceURL('https://auth.openai.com/codex/device'), true)
+  for (const url of [
+    'https://auth.openai.com/codex/device?next=other',
+    'https://auth.openai.com/codex/device#fragment',
+    'https://auth.openai.com:443/codex/device',
+    'https://auth.openai.com.example.invalid/codex/device',
+    'http://auth.openai.com/codex/device',
+    ['https://auth.openai.com/codex/device'],
+  ]) assert.equal(isOpenCodexDeviceURL(url), false)
+  const challenge = { kind: 'device_code', url: 'https://auth.openai.com/codex/device' }
+  const operation = { phase: 'awaiting_authorization', expiresAt: 2000, challenge }
+  assert.equal(openCodexDeviceDeadline(operation, 1500), 2000)
+  assert.equal(openCodexDeviceDeadline(operation, 2000), 0)
+  assert.equal(openCodexDeviceDeadline({ ...operation, phase: 'cancelled' }, 1500), 0)
+  assert.equal(openCodexDeviceDeadline({ ...operation, challenge: { ...challenge, url: 'https://example.invalid' } }, 1500), 0)
+})
 
 test('a ponte só aceita métodos e streams do Hub Open', () => {
   assert.equal(openApiPath('createSpace'), '/api/createSpace')

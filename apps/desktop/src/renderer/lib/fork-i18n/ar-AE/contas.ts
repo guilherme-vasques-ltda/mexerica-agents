@@ -196,6 +196,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.auth_output_limit": "أنتج تسجيل الدخول مخرجات كثيرة جدًا فأُنهي.",
   "contas.falha.auth_failed": "رفض المزوّد تسجيل الدخول. حاول مرة أخرى.",
   "contas.falha.cli_incompatible": "لم يكن البرنامج مجهزًا على الـ Hub بعد. ابدأ من جديد لتجهيزه.",
+  "contas.falha.open_codex_unavailable": "تعذّر تشغيل Codex في ملف Open. تحقّق من الملف التنفيذي والإصدار اللذين أعددتهما لـ Open.",
   "contas.falha.account_busy": "كان بوت من هذا الحساب يعمل. انتظر حتى ينتهي دوره وحاول مرة أخرى.",
   "contas.falha.account_unverified": "انتهى تسجيل الدخول، لكن الـ Hub لم يؤكد الحساب والاشتراك.",
   "contas.falha.identity_changed": "سجّلت الدخول إلى حساب آخر. لشخص آخر أو خطة أخرى، أضف حسابًا جديدًا.",
