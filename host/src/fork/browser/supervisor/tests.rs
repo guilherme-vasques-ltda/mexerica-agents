@@ -49,7 +49,8 @@ impl Launcher for Fake {
         })
     }
     fn stop(&mut self, process: &mut PathBuf) -> Result<()> {
-        self.events.borrow_mut().push(format!("stop {}", process.display()));
+        let cut = self.cut_log.lock().is_ok_and(|cut| cut.contains(process));
+        self.events.borrow_mut().push(format!("stop {} cut={cut}", process.display()));
         ensure!(!self.fail_stop, "falha simulada ao parar");
         Ok(())
     }
@@ -57,14 +58,15 @@ impl Launcher for Fake {
 fn scope(bot: &str) -> Scope {
     Scope { hub: "hub".into(), space: "space".into(), bot: bot.into() }
 }
-fn session_dirs(root: &Path) -> Vec<PathBuf> {
-    fs::read_dir(root)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with("session-"))
-        .map(|entry| entry.path())
-        .collect()
+fn session_dirs(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut dirs = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.file_name().to_string_lossy().starts_with("session-") {
+            dirs.push(entry.path());
+        }
+    }
+    Ok(dirs)
 }
 fn root() -> PathBuf {
     std::env::temp_dir().join(format!("mex-supervisor-test-{}", uuid::Uuid::new_v4()))
@@ -167,6 +169,7 @@ async fn revogacao_durante_o_arranque_corta_a_instancia_que_ainda_inicia_e_a_de_
     let revoking = async {
         started.notified().await;
         let starting_socket = session_dirs(&root)
+            .expect("listar perfis")
             .into_iter()
             .map(|dir| dir.join("proxy.sock"))
             .find(|candidate| *candidate != socket)
@@ -186,7 +189,7 @@ async fn revogacao_durante_o_arranque_corta_a_instancia_que_ainda_inicia_e_a_de_
     let error = format!("{:#}", started_b.expect_err("a instância revogada durante o arranque não pode ficar de pé"));
     assert!(error.contains("browser_authority_revoked"), "{error}");
     assert!(!supervisor.contains(&scope("b")) && watch.entry(&scope("b")).is_none());
-    assert_eq!(session_dirs(&root).len(), 1, "o perfil de b sobrou");
+    assert_eq!(session_dirs(&root)?.len(), 1, "o perfil de b sobrou");
     assert!(events.borrow().iter().any(|event| event.starts_with("stop ")), "o processo de b não foi encerrado");
     assert_eq!(supervisor.reap_dead()?, 1, "a manutenção encerra a sessão a, já cortada");
     assert!(!supervisor.contains(&scope("a")) && !profile.exists());
@@ -200,6 +203,7 @@ async fn revogacao_durante_o_arranque_corta_a_instancia_que_ainda_inicia_e_a_de_
 async fn falha_de_autenticacao_corta_o_proxy_antes_de_parar_e_guarda_a_limpeza_pendente() -> Result<()> {
     let root = short_root();
     let mut fake = Fake { fail_auth: true, fail_stop: true, ..Fake::default() };
+    let events = fake.events.clone();
     let (started, release) = (Rc::new(tokio::sync::Notify::new()), Rc::new(tokio::sync::Notify::new()));
     fake.hold = Some((started.clone(), release.clone()));
     let mut supervisor = Supervisor::new(fake, root.clone(), 1, Duration::from_secs(60))?;
@@ -207,7 +211,7 @@ async fn falha_de_autenticacao_corta_o_proxy_antes_de_parar_e_guarda_a_limpeza_p
     let starting = supervisor.ensure(scope("a"), "vinculo-a", now);
     let probing = async {
         started.notified().await;
-        let dirs = session_dirs(&root);
+        let dirs = session_dirs(&root).expect("listar perfis");
         assert_eq!(dirs.len(), 1);
         let socket = dirs[0].join("proxy.sock");
         release.notify_one();
@@ -217,11 +221,15 @@ async fn falha_de_autenticacao_corta_o_proxy_antes_de_parar_e_guarda_a_limpeza_p
     let error = format!("{:#}", result.expect_err("a autenticação falha de propósito"));
     assert!(error.contains("falha simulada na autenticação"), "{error}");
     assert!(deixa_de_aceitar(&socket).await, "o proxy continuou ativo depois da falha de arranque e de parada");
+    assert!(
+        events.borrow().iter().any(|event| event.starts_with("stop ") && event.ends_with("cut=true")),
+        "o processo foi parado antes de o proxy e o controle serem cortados"
+    );
     assert_eq!(supervisor.retired_len(), 1, "a limpeza pendente do arranque que falhou se perdeu");
     assert!(supervisor.start(scope("b"), now).await.is_err(), "a sessão pendente ocupa a vaga");
     supervisor.launcher_mut().fail_stop = false;
     assert_eq!(supervisor.retry_retired()?, 1);
-    assert!(session_dirs(&root).is_empty(), "o perfil do arranque que falhou sobrou");
+    assert!(session_dirs(&root)?.is_empty(), "o perfil do arranque que falhou sobrou");
     drop(supervisor);
     fs::remove_dir_all(root)?;
     Ok(())
@@ -243,7 +251,7 @@ async fn arranque_cancelado_nao_deixa_proxy_registro_nem_perfil() -> Result<()> 
     assert!(cancelled.is_err(), "o arranque preso tinha de estourar o prazo e ser cancelado");
     assert!(watch.entry(&scope("a")).is_none(), "a instância cancelada continuou no registro de cortes");
     assert!(!supervisor.contains(&scope("a")));
-    assert!(session_dirs(&root).is_empty(), "o perfil do arranque cancelado sobrou");
+    assert!(session_dirs(&root)?.is_empty(), "o perfil do arranque cancelado sobrou");
     supervisor.ensure(scope("a"), "vinculo-a", now).await?;
     assert!(supervisor.contains(&scope("a")), "a vaga do arranque cancelado ficou presa");
     drop(supervisor);
@@ -520,7 +528,7 @@ async fn arranque_cancelado_mata_o_processo_antes_de_apagar_o_perfil() -> Result
             .await;
     assert!(cancelled.is_err(), "o arranque preso tinha de ser cancelado");
     assert_eq!(*seen.borrow(), Some(true), "o perfil foi apagado antes de o processo ser descartado");
-    assert!(session_dirs(&root).is_empty(), "o perfil do arranque cancelado sobrou");
+    assert!(session_dirs(&root)?.is_empty(), "o perfil do arranque cancelado sobrou");
     drop(supervisor);
     fs::remove_dir_all(root)?;
     Ok(())

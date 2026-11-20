@@ -205,7 +205,8 @@ impl State {
             let current = guard.as_ref().and_then(|supervisor| supervisor.owned_instance(scope, owner));
             let instance = match (current, expected) {
                 (Some(current), Some(expected)) if current == expected => current,
-                (_, Some(_)) => {
+                (current, Some(expected)) => {
+                    tracing::warn!(?current, expected, "leitura recusada: a instância pretendida não é mais a vigente");
                     return Outcome::failed(
                         None,
                         anyhow!("browser_session_changed: a sessão foi encerrada ou trocada"),

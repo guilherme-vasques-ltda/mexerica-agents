@@ -299,9 +299,11 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 writer.write_all(&message).await?;
                 writer.flush().await
             };
+            // `biased`: se o corte e a escrita estiverem prontos ao mesmo tempo, o corte vence e nada é enviado.
             tokio::select! {
-                result = sent => result.map_err(|_| anyhow!("falha ao escrever no pipe CDP"))?,
+                biased;
                 () = &mut cut => bail!("pipe CDP fechado"),
+                result = sent => result.map_err(|_| anyhow!("falha ao escrever no pipe CDP"))?,
             }
             writing.complete = true;
             drop(writer);
