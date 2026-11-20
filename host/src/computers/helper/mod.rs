@@ -239,11 +239,16 @@ fn status(home: &Home) -> Result<()> {
 
 async fn revoke(home: &Home, local_only: bool) -> Result<()> {
     // O vínculo que esta revogação alcança é o de agora: se mudar enquanto a rede responde, o novo não é apagado.
-    let link = home.link();
+    // Vínculo e chave são lidos juntos, sob o trinco: um recadastro no meio não mistura o novo com o antigo.
+    let (link, key) = {
+        let _lock = home.lock()?;
+        (home.link(), home.key(false))
+    };
     if !local_only {
         let link = link.as_ref().map_err(|e| anyhow!("{e:#}"))?;
+        let key = key.as_ref().map_err(|e| anyhow!("{e:#}"))?;
         let sign_pub = crypto::unb64_n::<32>(&link.sign_pub)?;
-        let mut session = Session::connect(&link.url, &home.key(false)?, &sign_pub, false)
+        let mut session = Session::connect(&link.url, key, &sign_pub, false)
             .await
             .context("não consegui avisar o Hub; use --local-only para apagar só aqui")?;
         // O Hub apaga a credencial ao processar o pedido e fecha o canal antes de a resposta chegar: erro aqui não
