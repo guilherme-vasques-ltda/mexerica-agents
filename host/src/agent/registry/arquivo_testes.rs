@@ -123,6 +123,26 @@ fn recusa_expansao_acima_do_teto_no_zip_e_no_tar() {
 }
 
 #[test]
+fn recusa_entrada_zip_com_metodo_lzma_ou_xz() {
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let opcoes = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    zip.start_file("programa", opcoes).unwrap();
+    zip.write_all(b"conteudo").unwrap();
+    let zip = zip.finish().unwrap().into_inner();
+    // O método de compressão fica a 8 bytes do início do cabeçalho local e a 10 do cabeçalho do diretório central.
+    for metodo in [14_u16, 95] {
+        let mut bytes = zip.clone();
+        for (assinatura, deslocamento) in [([b'P', b'K', 3, 4], 8), ([b'P', b'K', 1, 2], 10)] {
+            let inicio = bytes.windows(4).position(|janela| janela == assinatura).unwrap();
+            bytes[inicio + deslocamento..inicio + deslocamento + 2].copy_from_slice(&metodo.to_le_bytes());
+        }
+        let pasta = pasta_temporaria();
+        let erro = extrair("pacote.zip", &bytes, pasta.path(), 4096, 10, Path::new("programa")).unwrap_err();
+        assert!(erro.to_string().contains("not supported"), "método {metodo}: {erro}");
+    }
+}
+
+#[test]
 fn recusa_entrada_zip_fora_do_destino_e_link_simbolico() {
     for link in [false, true] {
         let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));

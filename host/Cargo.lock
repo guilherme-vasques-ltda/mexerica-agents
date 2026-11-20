@@ -4675,7 +4675,6 @@ dependencies = [
  "getrandom 0.4.3",
  "indexmap",
  "libc",
- "lzma-rust2",
  "memchr",
  "nix 0.32.0",
  "typed-path",

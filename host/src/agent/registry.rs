@@ -129,17 +129,25 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
         return fixo.selecionar(agent, platform()).ok().map(|_| Launch::Download);
     }
     if let Some(alvo) = alvo_binario(agent) {
-        return hash_obrigatorio(alvo).is_ok().then_some(Launch::Download);
+        return alvo_lancavel(alvo).then_some(Launch::Download);
     }
     let d = &agent["distribution"];
     let on_path = crate::agent::backends::on_path;
-    if d["npx"].is_object() && on_path("npx") {
+    let pacote = |ferramenta: &str| d[ferramenta]["package"].as_str().unwrap_or_default();
+    if d["npx"].is_object() && on_path("npx") && pacote_npm_fixo(pacote("npx")).is_ok() {
         return Some(Launch::Npx);
     }
-    if d["uvx"].is_object() && on_path("uvx") {
+    if d["uvx"].is_object() && on_path("uvx") && pacote_uv_fixo(pacote("uvx")).is_ok() {
         return Some(Launch::Uvx);
     }
     None
+}
+
+/// As mesmas conferências de metadados que `command` faz antes de baixar: o que não passa aqui não aparece como disponível.
+fn alvo_lancavel(alvo: &Value) -> bool {
+    hash_obrigatorio(alvo).is_ok()
+        && alvo["archive"].as_str().is_some()
+        && alvo["cmd"].as_str().and_then(contained).is_some_and(|cmd| arquivo::caminho_relativo(cmd).is_ok())
 }
 
 fn alvo_binario(agente: &Value) -> Option<&Value> {
@@ -268,8 +276,20 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
                 args: args_of(&d["uvx"]),
             })
         }
-        _ if needs_node(agent) => bail!("{name} needs Node.js on this computer: add it in Extensions"),
-        _ => bail!("{name} has no build for this computer (needs uv)"),
+        _ => {
+            // Com a ferramenta instalada, só uma versão não fixa deixa o agente sem lançamento: diga isso.
+            let on_path = crate::agent::backends::on_path;
+            if d["npx"].is_object() && on_path("npx") {
+                pacote_npm_fixo(d["npx"]["package"].as_str().unwrap_or_default())?;
+            }
+            if d["uvx"].is_object() && on_path("uvx") {
+                pacote_uv_fixo(d["uvx"]["package"].as_str().unwrap_or_default())?;
+            }
+            if needs_node(agent) {
+                bail!("{name} needs Node.js on this computer: add it in Extensions");
+            }
+            bail!("{name} has no build for this computer (needs uv)")
+        }
     }
 }
 
@@ -649,6 +669,43 @@ mod tests {
         assert!(erro.to_string().contains("O catálogo não trouxe um SHA-256"));
         agente["distribution"]["binary"][plataforma]["sha256"] = json!("a".repeat(64));
         assert_eq!(launch_kind(&agente), Some(Launch::Download));
+    }
+
+    #[test]
+    fn launch_kind_nao_oferece_o_que_command_recusa() {
+        let on_path = crate::agent::backends::on_path;
+        let npx = |pacote: &str| json!({"id": "exemplo", "distribution": {"npx": {"package": pacote}}});
+        for pacote in ["pacote", "pacote@latest", "pacote@^1.2.3"] {
+            assert!(launch_kind(&npx(pacote)).is_none(), "{pacote}");
+        }
+        assert_eq!(launch_kind(&npx("pacote@1.2.3")), on_path("npx").then_some(Launch::Npx));
+        let uvx = |pacote: &str| json!({"id": "exemplo", "distribution": {"uvx": {"package": pacote}}});
+        for pacote in ["pacote", "pacote@latest", "pacote>=1.2"] {
+            assert!(launch_kind(&uvx(pacote)).is_none(), "{pacote}");
+        }
+        assert_eq!(launch_kind(&uvx("pacote==1.2.3")), on_path("uvx").then_some(Launch::Uvx));
+        let Some(plataforma) = platform() else { return };
+        let mut agente = json!({
+            "id": "exemplo",
+            "distribution": {"binary": {(plataforma): {"sha256": "a".repeat(64), "archive": "https://example.test/agente"}}}
+        });
+        assert!(launch_kind(&agente).is_none(), "sem cmd");
+        agente["distribution"]["binary"][plataforma]["cmd"] = json!("../fora");
+        assert!(launch_kind(&agente).is_none(), "cmd fora da pasta");
+        agente["distribution"]["binary"][plataforma]["cmd"] = json!("agente");
+        assert_eq!(launch_kind(&agente), Some(Launch::Download));
+        agente["distribution"]["binary"][plataforma].as_object_mut().unwrap().remove("archive");
+        assert!(launch_kind(&agente).is_none(), "sem archive");
+    }
+
+    #[tokio::test]
+    async fn pacote_sem_versao_exata_explica_o_motivo_em_vez_de_pedir_node() {
+        if !crate::agent::backends::on_path("npx") {
+            return;
+        }
+        let agente = json!({"id": "exemplo", "distribution": {"npx": {"package": "pacote@latest"}}});
+        let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+        assert!(erro.to_string().contains("versão exata"), "{erro}");
     }
 
     #[tokio::test]

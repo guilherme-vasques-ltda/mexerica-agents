@@ -94,7 +94,7 @@ unicode-general-category = "1"
 unicode-normalization = "0.1"
 uuid = { version = "1.26.1", features = ["v4", "v7"] }
 x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
-zip = { version = "9.7.3", default-features = false, features = ["deflate-flate2", "bzip2", "lzma", "xz"] }
+zip = { version = "9.7.3", default-features = false, features = ["deflate-flate2", "bzip2"] }
 
 zeroize = "1"
 
@@ -151,4 +151,5 @@ incremental = true
 libc = "0.2"
 
 [dev-dependencies]
+lzma-rust2 = { version = "0.25.0", default-features = false, features = ["std", "xz", "encoder"] }
 tokio = { version = "1.53.1", features = ["test-util"] }
