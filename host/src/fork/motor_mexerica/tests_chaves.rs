@@ -71,7 +71,7 @@ async fn chave_recusada_pelo_fornecedor_nao_e_salva() {
 async fn testar_sem_chave_no_cofre_diz_sem_chave_sem_abrir_conversa() {
     let Some(hub) = hub_de_prova("testar_sem_chave_no_cofre_diz_sem_chave_sem_abrir_conversa") else { return };
     let acesso = chaves::testar(hub_vault(hub.clone()), "faux", &[(FAUX_ENV, "1")]).await.unwrap();
-    assert_eq!(acesso, serde_json::json!({"ok": false, "erro": "sem_chave"}));
+    assert_eq!(acesso, serde_json::json!({"ok": false, "erro": "sem_chave", "estado": "nao_verificado"}));
 }
 
 #[test]
@@ -171,4 +171,162 @@ fn pedido_vindo_de_um_space_aberto_e_aceito_e_campo_estranho_nao() {
         serde_json::from_value(serde_json::json!({"fornecedor": "openai", "spaceId": "space-aberto"})).unwrap();
     assert_eq!(pedido.fornecedor.as_deref(), Some("openai"));
     assert!(serde_json::from_value::<chaves::Pedido>(serde_json::json!({"fornecedor": "openai", "outro": 1})).is_err());
+}
+
+// Endereço próprio: um serviço de mentira em 127.0.0.1, que só vale com a opção «local».
+
+/// Servidor HTTP mínimo: anota cada pedido (linha inicial, cabeçalhos e corpo) e responde com `resposta(pedido)`.
+pub(super) async fn servico_local(
+    resposta: impl Fn(&str) -> (u16, String, &'static str) + Send + Sync + 'static,
+) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let escuta = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", escuta.local_addr().unwrap());
+    let pedidos = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let anotados = pedidos.clone();
+    let resposta = Arc::new(resposta);
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = escuta.accept().await {
+            let anotados = anotados.clone();
+            let resposta = resposta.clone();
+            tokio::spawn(async move {
+                let mut lido = Vec::new();
+                let mut buf = [0u8; 8192];
+                loop {
+                    let Ok(n) = socket.read(&mut buf).await else { return };
+                    if n == 0 {
+                        return;
+                    }
+                    lido.extend_from_slice(&buf[..n]);
+                    let texto = String::from_utf8_lossy(&lido).to_string();
+                    let Some(fim) = texto.find("\r\n\r\n") else { continue };
+                    let tamanho = texto[..fim]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if lido.len() < fim + 4 + tamanho {
+                        continue;
+                    }
+                    let (status, corpo, tipo) = resposta(&texto);
+                    anotados.lock().unwrap().push(texto);
+                    let saida = format!(
+                        "HTTP/1.1 {status} X\r\ncontent-type: {tipo}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{corpo}",
+                        corpo.len()
+                    );
+                    let _ = socket.write_all(saida.as_bytes()).await;
+                    return;
+                }
+            });
+        }
+    });
+    (base, pedidos)
+}
+
+fn pedido_endereco(base: &str, local: bool, modelo: Option<&str>) -> chaves::Pedido {
+    serde_json::from_value(serde_json::json!({
+        "nome": "Serviço de prova", "url": format!("{base}/v1"), "formato": "chat-completions",
+        "local": local, "chave": CHAVE, "modelo": modelo,
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn endereco_proprio_e_salvo_depois_do_teste_e_o_app_nunca_ve_a_chave() {
+    let Some(hub) = hub_de_prova("endereco_proprio_e_salvo_depois_do_teste_e_o_app_nunca_ve_a_chave") else { return };
+    let (base, pedidos) =
+        servico_local(|_| (200, r#"{"data":[{"id":"modelo-local"}]}"#.into(), "application/json")).await;
+    let acesso = chaves::salvar_endereco(&hub, pedido_endereco(&base, true, None), &[]).await.unwrap();
+    assert_eq!(acesso["ok"], true, "{acesso}");
+    assert_eq!(acesso["estado"], "modelos_no_catalogo");
+    let id = acesso["id"].as_str().unwrap().to_owned();
+    assert!(proprio::eh_proprio(&id));
+    assert_eq!(acesso["modelos"][0]["id"], format!("{id}/modelo-local"));
+    let pedido = pedidos.lock().unwrap()[0].clone();
+    assert!(pedido.starts_with("GET /v1/models "), "{pedido}");
+    assert!(
+        pedido.to_ascii_lowercase().contains(&format!("authorization: bearer {CHAVE}")),
+        "a chave não foi ao serviço"
+    );
+
+    let lista = chaves::listar(&hub.store).unwrap();
+    assert!(!lista.to_string().contains(CHAVE), "o app viu a chave");
+    assert_eq!(lista["enderecos"][0]["id"], id.as_str());
+    assert_eq!(lista["enderecos"][0]["url"], format!("{base}/v1"));
+    let cifrado = hub.store.kv_read(&credential_slot(&id)).unwrap().unwrap();
+    assert!(!cifrado.contains(CHAVE) && !cifrado.contains("127.0.0.1"), "o registro tem de ficar cifrado");
+    let catalogo = chaves::catalogo(&hub.store, crate::fork::spaces::PERSONAL).unwrap();
+    assert!(catalogo["models"].as_array().unwrap().iter().any(|m| m["id"] == format!("{id}/modelo-local")));
+
+    chaves::remover(&hub.store, &id).unwrap();
+    assert_eq!(chaves::listar(&hub.store).unwrap()["enderecos"], serde_json::json!([]));
+    assert_eq!(hub.store.kv_read(&credential_slot(&id)).unwrap(), None);
+}
+
+#[tokio::test]
+async fn servico_sem_lista_so_e_salvo_com_o_modelo_digitado() {
+    let Some(hub) = hub_de_prova("servico_sem_lista_so_e_salvo_com_o_modelo_digitado") else { return };
+    let (base, _) = servico_local(|_| (404, r#"{"error":"sem lista"}"#.into(), "application/json")).await;
+    let sem_modelo = chaves::salvar_endereco(&hub, pedido_endereco(&base, true, None), &[]).await.unwrap();
+    assert_eq!(sem_modelo["erro"], "sem_lista");
+    assert_eq!(sem_modelo["estado"], "acesso_nao_confirmado");
+    assert_eq!(chaves::listar(&hub.store).unwrap()["enderecos"], serde_json::json!([]), "nada salvo sem modelo");
+
+    let com_modelo =
+        chaves::salvar_endereco(&hub, pedido_endereco(&base, true, Some("dono/modelo:tag")), &[]).await.unwrap();
+    assert_eq!(com_modelo["ok"], true, "{com_modelo}");
+    assert_eq!(com_modelo["estado"], "acesso_nao_confirmado");
+    let id = com_modelo["id"].as_str().unwrap();
+    assert_eq!(com_modelo["modelos"][0]["id"], format!("{id}/dono/modelo:tag"));
+}
+
+#[tokio::test]
+async fn endereco_local_sem_a_opcao_local_e_recusado_pelo_motor_e_nao_e_salvo() {
+    let Some(hub) = hub_de_prova("endereco_local_sem_a_opcao_local_e_recusado_pelo_motor_e_nao_e_salvo") else {
+        return;
+    };
+    let (base, pedidos) = servico_local(|_| (200, r#"{"data":[]}"#.into(), "application/json")).await;
+    // https para a própria máquina: a forma passa no Hub, o portão do motor recusa antes de conectar.
+    let url = base.replace("http://", "https://");
+    let acesso = chaves::salvar_endereco(&hub, pedido_endereco(&url, false, Some("x")), &[]).await.unwrap();
+    assert_eq!(acesso["erro"], "destino_recusado", "{acesso}");
+    assert_eq!(acesso["estado"], "nao_verificado");
+    assert!(pedidos.lock().unwrap().is_empty());
+    assert_eq!(chaves::listar(&hub.store).unwrap()["enderecos"], serde_json::json!([]));
+}
+
+#[test]
+fn forma_do_endereco_proprio() {
+    use proprio::{conferir_url, eh_proprio};
+    assert!(eh_proprio("proprio-abcdef12"));
+    for ruim in ["proprio-", "proprio-ABCDEF12", "proprio-abc", "openai", "proprio-abcdef12/x"] {
+        assert!(!eh_proprio(ruim), "{ruim}");
+    }
+    assert_eq!(conferir_url("https://api.example.invalid/v1/", false).unwrap(), "https://api.example.invalid/v1");
+    assert_eq!(conferir_url("http://127.0.0.1:11434/v1", true).unwrap(), "http://127.0.0.1:11434/v1");
+    for (ruim, local) in [
+        ("http://api.example.invalid/v1", false),
+        ("https://usuario:senha@api.example.invalid/v1", false),
+        ("https://api.example.invalid/v1?key=1", false),
+        ("https://api.example.invalid/v1#x", false),
+        ("ftp://api.example.invalid", true),
+        ("não é endereço", true),
+        ("", true),
+    ] {
+        let erro = conferir_url(ruim, local).unwrap_err().to_string();
+        assert!(erro.starts_with("endereco_invalido"), "{ruim}: {erro}");
+    }
+    let registro = r#"{"key":"chave-ficticia-123","baseUrl":"https://api.example.invalid/v1","formato":"responses","local":false,"nome":"x"}"#;
+    assert_eq!(proprio::segredo("proprio-abcdef12", registro).unwrap(), "chave-ficticia-123");
+    assert_eq!(proprio::segredo("openai", "chave-direta-1234").unwrap(), "chave-direta-1234");
+    let motor = proprio::credencial_do_motor(registro).unwrap();
+    assert_eq!(motor["key"], "chave-ficticia-123");
+    assert_eq!(
+        motor["endpoint"],
+        serde_json::json!({"baseUrl": "https://api.example.invalid/v1", "formato": "responses", "local": false})
+    );
+    assert!(proprio::segredo("proprio-abcdef12", "não é json").is_err(), "registro ilegível falha fechado");
 }
