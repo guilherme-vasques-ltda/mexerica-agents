@@ -666,6 +666,8 @@ fn depois_do_desafio_so_outro_codigo_derruba_e_a_espera_longa_nao_estoura() {
         .push(b"Open https://auth.x.ai/device?user_code=ABCD-EFGH\nSigned in. See https://accounts.x.ai/account\n")
         .unwrap();
     assert!(!screen.code_conflict("ABCD-EFGH"));
+    screen.push(b"Manage at https://accounts.x.ai/account?tab=profile\n").unwrap();
+    assert!(!screen.code_conflict("ABCD-EFGH"));
     // Espera redesenhada por muito tempo: sem estourar o limite, guardando só a cauda.
     for _ in 0..2000 {
         screen.push(&b"\rWaiting for authorization... \x1b[2K|".repeat(20)).unwrap();

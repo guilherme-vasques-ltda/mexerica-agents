@@ -288,8 +288,12 @@ pub(crate) fn grok_status(observation: &mut Observation, success: bool, output: 
     let signed_in =
         backends::harness("grok").and_then(|h| h.signed_in).is_some_and(|check| (check.ok)(success, output));
     if !signed_in {
-        observation.state =
-            if output.contains("You are not authenticated.") { State::Disconnected } else { State::Unavailable };
+        let not_authenticated = output.contains("You are not authenticated.");
+        tracing::warn!(
+            motivo = if not_authenticated { "sem login" } else { "comando falhou ou saída inesperada" },
+            "grok: login não confirmado"
+        );
+        observation.state = if not_authenticated { State::Disconnected } else { State::Unavailable };
         return;
     }
     // O programa não informa a pessoa dona do login sem abrir a credencial, que o Hub nunca lê: a identidade

@@ -111,13 +111,15 @@ impl Screen {
         Ok(Some(transport::challenge(Backend::Grok, "device_code", shown, Some(&code))?))
     }
 
-    /// Depois do desafio na tela: qualquer outro código impresso (no texto ou na consulta de uma URL da xAI) derruba o login.
-    /// Outras páginas da xAI, como a da conta no texto de sucesso, não contam.
+    /// Depois do desafio na tela: qualquer outro código impresso (no texto ou no parâmetro de código de uma URL da xAI)
+    /// derruba o login. Outras páginas da xAI, como a da conta no texto de sucesso, e outros parâmetros delas não contam.
     fn code_conflict(&self, shown: &str) -> bool {
         let text = self.text.rsplit_once('\n').map_or("", |(done, _)| done);
         let from_urls = official_urls(text).any(|raw| {
             reqwest::Url::parse(raw).is_ok_and(|url| {
-                url.query_pairs().next().is_some_and(|(_, code)| user_code(&code).is_none_or(|code| code != shown))
+                url.query_pairs().any(|(key, code)| {
+                    matches!(&*key, "user_code" | "code") && user_code(&code).is_none_or(|code| code != shown)
+                })
             })
         });
         from_urls || text_codes(text).iter().any(|code| code != shown)
