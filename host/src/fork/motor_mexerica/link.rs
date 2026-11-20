@@ -82,7 +82,7 @@ impl Drop for BusyGuard<'_> {
 }
 
 /// Menor credencial que dá para achar no texto sem estragá-lo: abaixo disto a conversa não é guardada.
-const MIN_SECRET_LEN: usize = 8;
+pub(super) const MIN_SECRET_LEN: usize = 8;
 
 /// Provedor do modelo `provider/model` ou do nome (`gemini-*` → google,
 /// `gpt-*`/`o*` → openai). Sem provedor reconhecido, falha fechada.

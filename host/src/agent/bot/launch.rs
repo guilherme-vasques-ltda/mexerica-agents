@@ -217,7 +217,7 @@ pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, bot: &str, extra_
     {
         // Flag desligada (ou sem ajudante): nada abre, nem servidores MCP.
         crate::fork::motor_mexerica::ensure_runnable()?;
-        let vault = crate::fork::motor_mexerica::hub_vault(hub.clone());
+        let vault = crate::fork::motor_mexerica::chaves::owner_vault(hub.clone(), bot);
         let link = crate::fork::motor_mexerica::link::Link::new(vault, bot, extra_env);
         if !extra_env.is_empty() {
             link.skip_mcp_servers();

@@ -17,8 +17,9 @@ import { HubCredentialStore } from "./src/credentials.ts";
 import { parseHistory } from "./src/history.ts";
 import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
-import { registerProviders } from "./src/providers.ts";
+import { fauxAcesso, registerProviders } from "./src/providers.ts";
 import { comPrazoDeSilencio } from "./src/silencio.ts";
+import { ehFornecedor, modeloDoFornecedor, testarAcesso } from "./src/fornecedores.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
 
 type Command = { id?: string; type: string } & Record<string, unknown>;
@@ -42,15 +43,18 @@ const fail = (id: string | undefined, command: string, error: string) =>
 	write({ id, type: "response", command, success: false, error });
 
 const channel = VaultChannel.open(); // falha fechado: sem fd 3 não há cofre
-const models = createModels({
-	credentials: new HubCredentialStore(channel, (key) => segredos.add(key)),
-	authContext: emptyAuthContext(),
-});
-registerProviders(models);
+const credentials = new HubCredentialStore(channel, (key) => segredos.add(key));
+const models = createModels({ credentials, authContext: emptyAuthContext() });
+const fauxHandle = registerProviders(models);
 
 const hubTools = new HubTools(write);
 // Um único fetch para todos os pedidos (o cliente da Anthropic é reaproveitado enquanto o fetch é o mesmo).
 const fetchDoFornecedor = comPrazoDeSilencio((input, init) => globalThis.fetch(input, init));
+/** «Testar acesso» é curto: 15 s sem resposta já é «sem resposta», e o teste inteiro não passa de 30 s. Os testes do
+ * motor encurtam o prazo por MEXERICA_TESTE_PRAZO_MS; o Hub abre o motor com o ambiente limpo, sem ela. */
+const prazoDeTeste = Number(process.env["MEXERICA_TESTE_PRAZO_MS"]) || 15_000;
+const fetchDoTeste = comPrazoDeSilencio((input, init) => globalThis.fetch(input, init), prazoDeTeste);
+const PRAZO_DO_TESTE_MS = prazoDeTeste * 2;
 const agent = new Agent({
 	streamFn: (model, context, options) => models.streamSimple(model, context, { ...options, fetch: fetchDoFornecedor }),
 	toolExecution: "parallel",
@@ -120,7 +124,9 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		}
 	},
 	set_model(command) {
-		const found = models.getModel(String(command.provider), String(command.modelId));
+		const provider = String(command.provider);
+		const modelId = String(command.modelId);
+		const found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId) : undefined);
 		if (!found) throw new Error(`modelo desconhecido: ${command.provider}/${command.modelId}`);
 		model = found;
 		agent.state.model = found;
@@ -138,6 +144,17 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		hubTools.failAll("sessão reiniciada");
 		agent.state.messages = [];
 		respond(command.id, "new_session", { cancelled: true });
+	},
+	// «Testar acesso»: só lista os modelos que a chave do cofre enxerga. A resposta nunca leva corpo do fornecedor.
+	async list_models(command) {
+		const provider = String(command.provider);
+		const faux = fauxHandle !== undefined && (provider === "faux" || provider === "faux2");
+		if (!ehFornecedor(provider) && !faux) throw new Error(`fornecedor desconhecido: ${provider}`);
+		const credential = await credentials.read(provider);
+		const key = (credential as { key?: unknown } | undefined)?.key;
+		if (typeof key !== "string" || !key) return respond(command.id, "list_models", { ok: false, erro: "sem_chave" });
+		if (!ehFornecedor(provider)) return respond(command.id, "list_models", fauxAcesso(provider, key, models.getModels(provider)));
+		respond(command.id, "list_models", await testarAcesso(provider, key, fetchDoTeste, AbortSignal.timeout(PRAZO_DO_TESTE_MS)));
 	},
 	get_available_models(command) {
 		respond(command.id, "get_available_models", { models: models.getModels() });

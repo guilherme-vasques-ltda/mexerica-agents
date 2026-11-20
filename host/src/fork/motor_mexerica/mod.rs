@@ -22,6 +22,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[cfg(unix)]
+pub(crate) mod chaves;
+#[cfg(unix)]
 pub(crate) mod historico;
 #[cfg(unix)]
 pub(crate) mod link;
@@ -56,6 +58,40 @@ pub(crate) fn hub_vault(hub: Arc<crate::hub::Hub>) -> VaultSource {
     Arc::new(move |slot: &str| crate::market::vault::read(&hub.store, slot))
 }
 
+/// Métodos do app para as chaves do motor (veja `chaves`).
+pub(crate) const CHAVE_METHODS: [&str; 4] =
+    ["motorChaves", "motorChaveTestar", "motorChaveSalvar", "motorChaveRemover"];
+
+pub(crate) async fn chaves_call(
+    hub: &Arc<crate::hub::Hub>,
+    caller: &crate::api::devices::Caller,
+    method: &str,
+    body: Value,
+) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (hub, caller, method, body);
+        bail!("motor_desligado: o Motor Mexerica não roda nesta plataforma.")
+    }
+    #[cfg(unix)]
+    {
+        chaves::call(hub, caller, method, body).await
+    }
+}
+
+/// Modelos da escolha do bot no backend do motor (veja `chaves::catalogo`).
+pub(crate) fn catalogo(store: &Store) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = store;
+        Ok(json!({"models": [], "currentModelId": null, "fastMode": false}))
+    }
+    #[cfg(unix)]
+    {
+        chaves::catalogo(store)
+    }
+}
+
 /// Slot do cofre por provedor: `motor-mexerica/<provider>`.
 pub(crate) fn credential_slot(provider_id: &str) -> String {
     format!("motor-mexerica/{provider_id}")
@@ -63,7 +99,7 @@ pub(crate) fn credential_slot(provider_id: &str) -> String {
 
 /// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
 #[cfg(unix)]
-const PROVIDERS: [&str; 4] = ["google", "openai", "faux", "faux2"];
+const PROVIDERS: [&str; 8] = ["anthropic", "openai", "google", "xai", "openrouter", "meta", "faux", "faux2"];
 
 #[cfg(unix)]
 const OWNER_SEPARATOR: char = '\u{1f}';
@@ -358,6 +394,21 @@ impl Engine {
         Ok(())
     }
 
+    /// «Testar acesso»: a lista de modelos que a chave do cofre enxerga, como o motor a devolveu
+    /// (`{ok, modelos}` ou `{ok: false, erro, status}`). Nenhuma conversa é aberta.
+    pub(crate) async fn list_models(&mut self) -> Result<Value> {
+        self.next_id += 1;
+        let id = format!("list-{}", self.next_id);
+        self.send(json!({"id": id, "type": "list_models", "provider": self.provider})).await?;
+        let res = self.response(&id).await?;
+        ensure!(
+            res["success"] == true,
+            "o motor recusou o teste de acesso: {}",
+            res["error"].as_str().unwrap_or_default()
+        );
+        Ok(res["data"].clone())
+    }
+
     /// Provedor fixado no nascimento do processo.
     pub(crate) fn provider(&self) -> &str {
         &self.provider
@@ -620,3 +671,6 @@ mod tests_link;
 
 #[cfg(test)]
 mod tests_paridade;
+
+#[cfg(test)]
+mod tests_chaves;

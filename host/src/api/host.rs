@@ -137,15 +137,20 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         }
         "agentModels" => {
             let backend = str_arg(&b, "backend")?;
-            let env = crate::fork::terminal_login::runtime_env(
-                &hub.store,
-                backend,
-                b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
-            )?;
-            if env.is_empty() {
-                crate::agent::auth::models(&hub.store, backend).await?
+            // O motor próprio não tem programa para sondar: os modelos são os do último «Testar acesso» das chaves.
+            if backend == crate::fork::motor_mexerica::ENGINE_ID {
+                crate::fork::motor_mexerica::catalogo(&hub.store)?
             } else {
-                crate::agent::auth::models_with_env(&hub.store, backend, &env).await?
+                let env = crate::fork::terminal_login::runtime_env(
+                    &hub.store,
+                    backend,
+                    b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
+                )?;
+                if env.is_empty() {
+                    crate::agent::auth::models(&hub.store, backend).await?
+                } else {
+                    crate::agent::auth::models_with_env(&hub.store, backend, &env).await?
+                }
             }
         }
         "agentAuth" | "agentAuthenticate" | "setAgentEnv" => {
