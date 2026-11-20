@@ -33,15 +33,16 @@ type Section = typeof allSections[number][0]
 
 export function BotSettingsPage({ botId, initialSection, onClose, onConversation, ref }: { botId: string; initialSection?: BotSettingsSection; onClose: () => void; onConversation: () => void; ref?: Ref<BotSettingsHandle> }) {
   const t = useT()
+  const open = window.codync.appScheme === 'mexerica-open'
   const store = useModel(useStore())
   const principal = useModel(store.principal)
   const model = useMemo(() => createBotSettingsStore(store), [store])
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot)
-  const [section, setSectionState] = useState<Section>(initialSection ?? 'identity')
+  const [section, setSectionState] = useState<Section>(open ? 'identity' : initialSection ?? 'identity')
   // D350: o item e a seção WhatsApp só com o plugin ligado em Ajustes → Plugins (e somem ao desligar).
-  const whatsapp = useWhatsapp(store)
+  const whatsapp = useWhatsapp(store, !open)
   const whatsappKnown = whatsapp.leitura !== null || whatsapp.erroLeitura !== null
-  const sections = secoesVisiveis(allSections, pluginLigado(whatsapp.leitura))
+  const sections = open ? allSections.slice(0, 1) : secoesVisiveis(allSections, pluginLigado(whatsapp.leitura))
   const setSection = (next: Section) => setSectionState(secaoValida(next, sections))
   useEffect(() => { if (secaoValida(section, sections) !== section) setSectionState(sections[0]![0]) }, [section, sections.length])
   const [leaving, setLeaving] = useState<(() => void) | null>(null)
@@ -119,10 +120,10 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
   const openedOn = useRef(false)
   useEffect(() => {
     // Aberto na seção WhatsApp: espera a leitura do plugin; desligado, fica na primeira.
-    if (openedOn.current || !initialSection || !state.editor || (initialSection === 'whatsapp' && !whatsappKnown)) return
+    if (open || openedOn.current || !initialSection || !state.editor || (initialSection === 'whatsapp' && !whatsappKnown)) return
     openedOn.current = true
     navigate(secaoValida(initialSection, sections))
-  }, [state.editor, whatsappKnown])
+  }, [open, state.editor, whatsappKnown])
   const name = state.draft?.name ?? bot?.name ?? t('botSettings.pagina.bot')
   const editorDirty = abaAlterada(section, state.draft, state.editor?.profile ?? null)
   const dirty = editorDirty || Object.entries(pendingControls).some(([control, pending]) => pending && abaDaIntencao(control as SettingsControl) === section)
@@ -133,7 +134,7 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
   const status = !online ? t('botSettings.estado.offline') : sectionError ?? (hasIntentErrors ? t('botSettings.estado.recusada') : state.loading && !state.editor ? t('botSettings.estado.carregando') : (state.saving && (editorDirty || section === editorSavingSection.current)) || savingSection === section ? t('botSettings.estado.salvando') : dirty ? t('botSettings.estado.pendente') : errorSections.size ? t('botSettings.estado.outraAba') : state.editor && ['identity', 'engine', 'behaviour', 'tools', 'notifications'].includes(section) ? t('botSettings.estado.salvo') : '')
   // Auditoria D249, F4: a função do bot no lugar do texto técnico; a principal vem da identidade (D121).
   const subtitle = principal.id === botId ? t('botSettings.pagina.principal') : (state.draft?.title ?? bot?.title)?.trim() || ''
-  const workspaceIssue = state.editor?.workspaceIssue ?? bot?.workspaceIssue
+  const workspaceIssue = open ? null : state.editor?.workspaceIssue ?? bot?.workspaceIssue
   const disabled = !online || !state.editor?.permissions.canEdit || intentSaving
   // D366/D368: o Hub recusa; a tela só reflete. Motor, ferramentas e preferências: só o dono, por aqui.
   const fixed = principal.id === botId
@@ -151,13 +152,13 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
         <IconButton title={t('botSettings.pagina.fechar')} icon="xmark" onClick={() => { void leave(onClose) }} />
       </div>
     </header>
-    <div className="bot-settings-chips" {...idioma} aria-label={t('botSettings.pagina.resumo')}>
+    {!open ? <div className="bot-settings-chips" {...idioma} aria-label={t('botSettings.pagina.resumo')}>
       {bot ? <>
         <button title={t('botSettings.pagina.modelo', { modelo: bot.model || store.backendName(bot.backend) })} onClick={() => navigate('engine')}>{bot.model || store.backendName(bot.backend)}</button>
         <button title={t('botSettings.pagina.autonomia', { modo: bot.permission === 'auto' ? t('botSettings.pagina.liberar') : t('botSettings.pagina.pedir') })} onClick={() => navigate('behaviour')}>{bot.permission === 'auto' ? t('botSettings.pagina.liberar') : t('botSettings.pagina.pedir')}</button>
         <button title={t('botSettings.pagina.skills', { n: bot.skills.length })} onClick={() => navigate('tools')}>{t('botSettings.pagina.skills', { n: bot.skills.length })}</button>
       </> : null}
-    </div>
+    </div> : null}
     <div className={`bot-settings-status ${errorSections.size || !online ? 'attention' : ''}`} role="status" aria-live="polite" {...idioma}>
       <span>{status}</span>
       {sectionError && !state.conflict || state.paused && online && editorDirty ? <button onClick={() => { void model.retry() }}>{t('botSettings.pagina.retry')}</button> : null}
@@ -168,7 +169,7 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
     </div>
     {(section === 'identity' || section === 'engine') && state.editor?.application === 'apply_pending' ? <p className="bot-settings-warning">{t('botSettings.pagina.aplicacao')}</p> : null}
     {workspaceIssue ? <p className="bot-settings-warning">{workspaceIssue} <button onClick={() => navigate('behaviour')}>{t('botSettings.pagina.pasta')}</button></p> : null}
-    {fixed ? <p className="bot-settings-warning" {...idioma}>{t('botSettings.donnaFixa.aviso')}</p> : null}
+    {fixed && !open ? <p className="bot-settings-warning" {...idioma}>{t('botSettings.donnaFixa.aviso')}</p> : null}
     {state.editor && !state.editor.permissions.canEdit ? <p className="bot-settings-warning">{t('botSettings.pagina.semPermissao')}</p> : null}
     <div className="bot-settings-layout">
       <nav className="bot-settings-nav" {...idioma} role="tablist" aria-orientation="vertical" aria-label={t('botSettings.abas.rotulo')}>
@@ -187,7 +188,7 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
       <div className="bot-settings-content" ref={content}>
         {bot && isGroup(bot) ? <p>{t('botSettings.pagina.canal')}</p> : <>
           <div role="tabpanel" id="bot-settings-panel-identity" aria-labelledby="bot-settings-tab-identity" hidden={section !== 'identity'} tabIndex={0}><IdentitySection state={state} model={model} blocked={intentSaving} fixed={fixed}
-            preferences={fixed && bot ? <DonnaPreferencias bot={bot} save={save} feedback={feedback} disabled={disabled} /> : null} /></div>
+            preferences={fixed && bot && !open ? <DonnaPreferencias bot={bot} save={save} feedback={feedback} disabled={disabled} /> : null} /></div>
           {sections.slice(1).map(([id, label]) => <section key={id} role="tabpanel" id={`bot-settings-panel-${id}`} aria-labelledby={`bot-settings-tab-${id}`} hidden={section !== id} tabIndex={0} className="bot-settings-placeholder">
             <h2>{t(label)}</h2>
             {bot && ['engine', 'behaviour', 'tools', 'notifications'].includes(id) ? <fieldset disabled={id === 'tools' ? false : disabled} className="bot-settings-controls">

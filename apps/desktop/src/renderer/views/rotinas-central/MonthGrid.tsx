@@ -1,4 +1,4 @@
-// A visão Mês (D85; o OpenMausBot só tem Dia e Semana): 6 semanas a partir do domingo, até 4
+// A visão Mês (D85): 6 semanas a partir do domingo, até 4
 // rotinas por dia e "+N mais", que abre o Dia. Soltar um bot num dia agenda às 9 h. No teclado, o
 // mês é um só Tab: as setas andam entre os dias e Enter abre o dia, onde cada rotina tem o seu
 // Tab; as entradas e o "+N mais" ficam fora da ordem do Tab (o mouse continua abrindo-os).
