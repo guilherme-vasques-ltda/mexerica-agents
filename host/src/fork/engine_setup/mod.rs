@@ -80,6 +80,8 @@ impl Drop for ProfileStaging {
 }
 
 static OPERATIONS: Mutex<Option<HashMap<String, Operation>>> = Mutex::new(None);
+/// Hubs em encerramento: lido e gravado só com OPERATIONS retido, para nenhuma operação entrar depois da espera.
+static CLOSING: Mutex<Vec<Weak<Hub>>> = Mutex::new(Vec::new());
 
 /// Barreiras determinísticas de teste (D372/R1), só para a chave indicada (`clientRequestId` do setup ou id da conta
 /// em desconectar/remover). `Antes`: depois dos preflights, fora da cerca. `Cerca`: dentro da cerca de runtime (no
@@ -418,19 +420,22 @@ fn clear(op: &mut Operation, phase: Phase, error: Option<&'static str>) {
 }
 
 pub(crate) async fn shutdown_open(hub: &Arc<Hub>) {
-    let waiting: Vec<_> = OPERATIONS
-        .locked()
-        .as_mut()
-        .into_iter()
-        .flat_map(|ops| ops.values_mut())
-        .filter(|op| op.hub.ptr_eq(&Arc::downgrade(hub)))
-        .map(|op| {
-            if op.phase.active() {
-                clear(op, Phase::Cancelled, None);
-            }
-            op.worker_lifetime.clone()
-        })
-        .collect();
+    let waiting: Vec<_> = {
+        let mut operations = OPERATIONS.locked();
+        CLOSING.locked().push(Arc::downgrade(hub));
+        operations
+            .as_mut()
+            .into_iter()
+            .flat_map(|ops| ops.values_mut())
+            .filter(|op| op.hub.ptr_eq(&Arc::downgrade(hub)))
+            .map(|op| {
+                if op.phase.active() {
+                    clear(op, Phase::Cancelled, None);
+                }
+                op.worker_lifetime.clone()
+            })
+            .collect()
+    };
     let _ = tokio::time::timeout(Duration::from_secs(3), async {
         for mut worker in waiting {
             let _ = worker.changed().await;
@@ -560,7 +565,7 @@ async fn start_authorized(
     // ociosidade final, metadados e perfil novo (com limpeza RAII imediata), capacidade, primeira escrita pela
     // Authority original e só então a operação visível. Recusa antes do commit não grava nada nem consome o pedido;
     // um preparo na conta espera o runtime e encontra a operação ativa.
-    let (answer, generation, backend, profile, mut cleanup) =
+    let (answer, generation, backend, profile, cleanup) =
         hub.with_idle_engine_account(&request.engine_account_id, || {
             let mut registry = Registry::load(&hub.store)?;
             let account = registry.account_mut(&request.engine_account_id, request.expected_revision)?;
@@ -590,6 +595,7 @@ async fn start_authorized(
                 (old_directory, ProfileStaging(None))
             };
             let mut guard = OPERATIONS.locked();
+            ensure!(!CLOSING.locked().iter().any(|closing| closing.ptr_eq(&Arc::downgrade(hub))), "setup_cancelled");
             let ops = guard.get_or_insert_with(HashMap::new);
             let now = crate::store::now_ms();
             ops.retain(|_, op| op.hub.strong_count() > 0 && (op.phase.active() || op.expires + 600_000 > now));
@@ -667,6 +673,8 @@ async fn start_authorized(
     };
     tokio::spawn(async move {
         let _worker_done = worker_done;
+        // Declarado depois: o perfil provisório some antes de o encerramento ver o worker concluído.
+        let mut cleanup = cleanup;
         let outcome = until_deadline(deadline, rx_cancel.clone(), async {
             let (executable, mut proof) = if open {
                 #[cfg(unix)]

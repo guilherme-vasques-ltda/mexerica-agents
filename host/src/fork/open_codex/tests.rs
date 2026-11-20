@@ -114,6 +114,11 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     assert!(POLICY.contains("(allow file-read* file-map-executable\n  (literal (param \"CODEX\"))"));
     assert!(POLICY.contains("(subpath \"/System/Volumes/Preboot/Cryptexes/OS\")"));
     assert!(!POLICY.contains("(subpath \"/System/Volumes/Data\")"));
+    assert!(
+        POLICY.contains("(subpath \"/private/etc/codex\")"),
+        "o Codex lê a política do administrador em /etc/codex"
+    );
+    assert!(!POLICY.contains("(subpath \"/private/etc\")"));
     assert!(!LOGIN_NETWORK.contains("securityd"));
 }
 
