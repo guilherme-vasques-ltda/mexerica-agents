@@ -596,3 +596,44 @@ async fn e1_rpc_de_space_e_rpc_de_sessao_nao_respondem_pergunta_do_outro_dominio
     assert_eq!(code(&error), SCOPE);
     assert_eq!((count(&space.hub), question(&space.hub, &space_q)), (entries, ("pending".into(), 1)));
 }
+
+/// Gráfico de leitura na extra: excluir a sessão apaga o registro do gráfico (e só o dela), sem depender de cascata.
+#[test]
+fn excluir_a_extra_apaga_o_registro_do_grafico_e_so_o_dela() {
+    let f = fixture_with(true, true);
+    let (lane, irma) = (extra(&f), extra(&f));
+    let chart = crate::fork::genui::charts::ValidatedChart::parse(
+        &json!({"version":1,"component":"bar_chart","title":"Vendas","summary":"Valores fictícios",
+            "data":{"labels":["Jan","Fev"],"series":[{"id":"v","label":"Vendas","values":[1, 2]}],
+                "unit":"itens","period":"Janeiro","sourceLabel":"Fictícia"}})
+        .to_string(),
+    )
+    .unwrap();
+    for lane in [&lane, &irma] {
+        let origin = origin(&f.hub, lane);
+        let mut db = f.hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        let ctx = Context { lane, space: PERSONAL, origin_entry: &origin, domain: Domain::PersonalSession };
+        crate::fork::genui::chart_store::create(&tx, &ctx, &uuid::Uuid::new_v4().to_string(), &chart).unwrap();
+        tx.commit().unwrap();
+    }
+    let charts = |hub: &Hub| -> i64 {
+        hub.store.db.locked().query_row("SELECT COUNT(*) FROM donna_genui_charts", [], |r| r.get(0)).unwrap()
+    };
+    assert_eq!(charts(&f.hub), 2);
+    let request = super::super::excluir::Request {
+        hub_id: f.hub.host_id.clone(),
+        space_id: PERSONAL.into(),
+        bot_id: lane.chat.clone(),
+        session_id: lane.session_id().to_owned(),
+        expected_revision: rev(&f.hub, lane.session_id()),
+    };
+    {
+        let mut db = f.hub.store.db.locked();
+        db.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+        let tx = db.transaction().unwrap();
+        super::super::excluir::delete_on(&tx, &request).unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(charts(&f.hub), 1, "só o gráfico da sessão excluída sai");
+}

@@ -7,7 +7,7 @@ use super::{
     storage::{self, Context},
 };
 use crate::store::{EntryKind, insert_visible_on};
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::json;
 
@@ -57,7 +57,10 @@ pub(crate) fn create(
         tx.query_row("SELECT EXISTS(SELECT 1 FROM donna_genui_questions WHERE invocation=?1)", [invocation], |r| {
             r.get(0)
         })?;
-    ensure!(!used_by_question, "genui_invocation_conflict");
+    if used_by_question {
+        tracing::warn!("gráfico recusado: a invocação já pertence a uma pergunta de escolha");
+        bail!("genui_invocation_conflict");
+    }
     let existing = tx
         .query_row(
             "SELECT id,payload_hash,origin_entry,chat,session,space,entry_id,marker_entry
@@ -73,14 +76,16 @@ pub(crate) fn create(
         )
         .optional()?;
     if let Some((receipt, (stored_hash, origin, chat), (session, space))) = existing {
-        ensure!(
-            stored_hash == hash
-                && origin == ctx.origin_entry
-                && chat == ctx.lane.chat
-                && session == ctx.lane.session_id()
-                && space == ctx.space,
-            "genui_invocation_conflict"
-        );
+        let same = stored_hash == hash
+            && origin == ctx.origin_entry
+            && chat == ctx.lane.chat
+            && session == ctx.lane.session_id()
+            && space == ctx.space;
+        if !same {
+            // Sem conteúdo nem hash: só o fato, para auditoria.
+            tracing::warn!("gráfico recusado: a invocação já pertence a outro conteúdo ou vínculo");
+            bail!("genui_invocation_conflict");
+        }
         storage::check_projection(tx, ctx, &receipt.entry_id)?;
         return Ok(receipt);
     }

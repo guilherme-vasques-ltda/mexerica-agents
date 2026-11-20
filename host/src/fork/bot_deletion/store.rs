@@ -352,6 +352,7 @@ fn delete_space_data(c: &rusqlite::Connection, space_id: &str, hub_id: &str, bot
         }
         c.execute(&format!("DELETE FROM entries WHERE bot_id IN ({marks})"), values())?;
         c.execute(&format!("DELETE FROM donna_genui_questions WHERE chat IN ({marks})"), values())?;
+        c.execute(&format!("DELETE FROM donna_genui_charts WHERE chat IN ({marks})"), values())?;
         c.execute(
             &format!("DELETE FROM donna_session_gateway_pending WHERE binding IN (SELECT id FROM donna_session_bindings WHERE chat IN ({marks}))"),
             values(),

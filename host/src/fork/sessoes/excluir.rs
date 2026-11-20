@@ -102,6 +102,10 @@ pub(crate) fn delete_on(c: &Connection, request: &Request) -> Result<Value> {
         "DELETE FROM donna_genui_questions WHERE chat=?1 AND session=?2",
         params![request.bot_id, request.session_id],
     )?;
+    c.execute(
+        "DELETE FROM donna_genui_charts WHERE chat=?1 AND session=?2",
+        params![request.bot_id, request.session_id],
+    )?;
     c.execute("DELETE FROM entries WHERE bot_id=?1 AND session=?2", params![request.bot_id, request.session_id])?;
     c.execute(
         "UPDATE donna_session_bindings SET revoked_at=COALESCE(revoked_at,?3) WHERE chat=?1 AND session=?2",
