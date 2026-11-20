@@ -14,6 +14,20 @@ const SELECTION: &str = "codex-local.json";
 const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
+const ADMIN_POLICY: &str = "/private/etc/codex";
+/// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
+/// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
+pub(crate) const CHAT_OVERRIDES: [&str; 9] = [
+    "features.shell_tool=false",
+    "features.unified_exec=false",
+    "features.view_image=false",
+    "features.multi_agent=false",
+    "features.apps=false",
+    "features.plugins=false",
+    "features.memories=false",
+    "features.image_generation=false",
+    "web_search=\"disabled\"",
+];
 const SANDBOX: &str = "/usr/bin/sandbox-exec";
 const POLICY: &str = r#"(version 1)
 (deny default)
@@ -189,7 +203,7 @@ impl AppServer {
     }
 }
 
-pub(crate) async fn app_server(directory: &Path) -> Result<AppServer> {
+pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer> {
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
     ensure!(cfg!(target_os = "macos"), "open_codex_platform");
@@ -198,6 +212,7 @@ pub(crate) async fn app_server(directory: &Path) -> Result<AppServer> {
     ensure!(crate::environment::Environment::is_open(), "open_codex_unavailable");
     let selection = Selection::load(open).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
     prepare_profile(open, directory).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
+    ensure!(admin_policy_safe(Path::new(ADMIN_POLICY)), "open_codex_unavailable");
     let mut probe = command(&selection.executable, directory, false)?;
     let probe = async {
         let mut child = probe.arg("--version").spawn()?;
@@ -211,8 +226,29 @@ pub(crate) async fn app_server(directory: &Path) -> Result<AppServer> {
         anyhow::bail!("open_codex_unavailable");
     }
     let mut command = command(&selection.executable, directory, true)?;
-    command.args(["-c", "cli_auth_credentials_store=\"file\"", "app-server", "--listen", "stdio://"]);
+    command.args(["-c", "cli_auth_credentials_store=\"file\""]);
+    if chat {
+        for setting in CHAT_OVERRIDES {
+            command.args(["-c", setting]);
+        }
+    }
+    command.args(["app-server", "--listen", "stdio://"]);
     Ok(AppServer { command, executable: selection.executable })
+}
+
+/// A política do administrador em /etc/codex vale só quando é do root e ninguém mais a altera.
+fn admin_policy_safe(directory: &Path) -> bool {
+    let safe = |meta: &fs::Metadata| meta.uid() == 0 && meta.mode() & 0o022 == 0;
+    match fs::symlink_metadata(directory) {
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        Ok(meta) if !meta.is_dir() || !safe(&meta) => false,
+        Ok(_) => ["managed_config.toml", "config.toml", "requirements.toml"].iter().all(|name| {
+            match fs::symlink_metadata(directory.join(name)) {
+                Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+                Ok(meta) => meta.is_file() && safe(&meta),
+            }
+        }),
+    }
 }
 
 pub(crate) fn confirm_profile(directory: &Path) -> Result<()> {

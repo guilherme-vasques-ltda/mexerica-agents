@@ -1,7 +1,7 @@
 //! D164/SAAS-04: setup pessoal com capacidade explícita do dono, sem ativação comercial.
 pub(crate) mod access;
 pub(crate) mod install;
-mod process;
+pub(crate) mod process;
 pub(crate) use process::{ProcessGroup, Rpc, background_claude_catalog};
 #[cfg(test)]
 mod tests;

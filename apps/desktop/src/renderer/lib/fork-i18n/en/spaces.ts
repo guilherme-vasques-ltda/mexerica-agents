@@ -7,6 +7,8 @@ export const textos: Traducao<typeof fonte> = {
   "spaces.compose.mensagem": "Message in this Space",
   "spaces.compose.enviar": "Send",
   "spaces.compose.falhou": "Could not confirm sending. Check the history before trying again. If the connection changed, reopen the conversation.",
+  "spaces.compose.semContaOpen": "Connect a Codex account in Settings → AI accounts to chat.",
+  "spaces.compose.ocupadoOpen": "Wait for the previous reply to finish before sending another message.",
 
   "spaces.origem.outroHub": "The connection moved to another Hub after this was opened. Nothing was sent: close and open it again.",
   "spaces.origem.semConexao": "No connection to the Hub. Nothing was sent: try again when it’s back.",

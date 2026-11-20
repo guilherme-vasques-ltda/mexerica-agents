@@ -1,0 +1,332 @@
+//! Conversa só de texto da Open com o Codex isolado: um turno por mensagem, sem ferramentas.
+use crate::LockExt;
+use crate::fork::engine_accounts::{LaunchReference, Registry, State};
+use crate::fork::engine_setup::process::Rpc;
+use crate::hub::{BotStatus, Hub};
+use crate::store::{BotConfig, EntryKind, Lane};
+use anyhow::{Result, anyhow, bail, ensure};
+use serde_json::{Value, json};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex, Weak},
+    time::{Duration, Instant},
+};
+use tokio::sync::watch;
+
+const TURN_LIMIT: Duration = Duration::from_secs(600);
+const MAX_REPLY: usize = 200_000;
+const INSTRUCTIONS: &str = "Nesta edição você conversa só por texto. Você não tem ferramentas, arquivos, \
+internet nem acesso ao computador; se o pedido precisar disso, diga que não pode fazer por aqui.";
+/// Itens que um turno só de texto pode produzir; qualquer outro encerra o turno.
+const TEXT_ITEMS: [&str; 5] = ["userMessage", "agentMessage", "reasoning", "plan", "contextCompaction"];
+
+struct Running {
+    hub: Weak<Hub>,
+    cancel: watch::Sender<bool>,
+    done: watch::Receiver<()>,
+}
+
+static RUNNING: Mutex<Option<HashMap<String, Running>>> = Mutex::new(None);
+static CLOSING: Mutex<Vec<Weak<Hub>>> = Mutex::new(Vec::new());
+
+/// Reserva da conversa: um turno por bot, e nenhum depois do encerramento do Hub.
+pub(crate) struct Ticket {
+    bot: String,
+    directory: PathBuf,
+    cancel: watch::Receiver<bool>,
+    done: watch::Sender<()>,
+}
+
+/// A conta Codex da Open que o bot usa: a escolhida nele ou, sem escolha, a conectada mais recente.
+pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<PathBuf> {
+    let registry = Registry::load(&hub.store)?;
+    let mut connected = registry
+        .accounts
+        .iter()
+        .filter(|a| crate::fork::engine_setup::is_open_account(a) && a.state == State::Connected);
+    let account = match cfg.fork_editor.engine_account_id.as_deref() {
+        Some(id) => connected.find(|a| a.id == id),
+        None => connected.max_by_key(|a| a.verified_at),
+    }
+    .ok_or_else(|| anyhow!("open_chat_account_required"))?;
+    let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
+    Ok(directory.clone())
+}
+
+pub(crate) fn begin(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<Ticket> {
+    ensure!(crate::environment::Environment::is_open(), "open_chat_unavailable");
+    ensure!(!cfg.is_group(), "open_chat_unavailable");
+    let directory = account_profile(hub, cfg)?;
+    let mut guard = RUNNING.locked();
+    ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
+    let running = guard.get_or_insert_with(HashMap::new);
+    running.retain(|_, r| r.hub.strong_count() > 0 && r.done.has_changed().is_ok());
+    ensure!(!running.contains_key(&cfg.id), "open_chat_busy");
+    let (cancel_tx, cancel) = watch::channel(false);
+    let (done, done_rx) = watch::channel(());
+    running.insert(cfg.id.clone(), Running { hub: Arc::downgrade(hub), cancel: cancel_tx, done: done_rx });
+    Ok(Ticket { bot: cfg.id.clone(), directory, cancel, done })
+}
+
+pub(crate) fn stop(bot: &str) {
+    if let Some(r) = RUNNING.locked().as_ref().and_then(|running| running.get(bot)) {
+        let _ = r.cancel.send(true);
+    }
+}
+
+/// Recusa turnos novos, interrompe os em curso e espera cada um encerrar o Codex.
+pub(crate) async fn shutdown(hub: &Arc<Hub>) {
+    let waiting: Vec<_> = {
+        let guard = RUNNING.locked();
+        CLOSING.locked().push(Arc::downgrade(hub));
+        guard
+            .as_ref()
+            .into_iter()
+            .flat_map(HashMap::values)
+            .filter(|r| r.hub.ptr_eq(&Arc::downgrade(hub)))
+            .map(|r| {
+                let _ = r.cancel.send(true);
+                r.done.clone()
+            })
+            .collect()
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        for mut done in waiting {
+            let _ = done.changed().await;
+        }
+    })
+    .await;
+}
+
+fn thread_key(lane: &Lane) -> String {
+    format!("open_chat.thread.{}.{}", lane.chat, lane.session.as_deref().unwrap_or("main"))
+}
+
+/// Roda o turno em segundo plano; a resposta chega como entradas normais da conversa.
+pub(crate) fn run(
+    hub: &Arc<Hub>,
+    ticket: Ticket,
+    cfg: &BotConfig,
+    lane: Lane,
+    turn: i64,
+    entry_id: String,
+    text: String,
+) {
+    let hub = hub.clone();
+    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    tokio::spawn(async move {
+        let Ticket { bot, directory, mut cancel, done } = ticket;
+        hub.set_runtime(&bot, |r| {
+            r.status = BotStatus::Working;
+            r.lane = Some(lane.clone());
+            r.message = Some(entry_id.clone());
+            r.started_at = Some(crate::store::now_ms());
+        });
+        hub.emit_bot(&bot);
+        if let Some(entry) = hub.store.entry(&entry_id) {
+            let mut data = entry.data;
+            data["status"] = "sent".into();
+            hub.set_entry(&entry_id, &data);
+        }
+        let mut reply = Stream::new(&hub, &lane, turn, &bot);
+        let outcome = turn_in_profile(&hub, &directory, &lane, &instructions, &text, &mut cancel, &mut reply).await;
+        reply.close();
+        if let Err(error) = outcome {
+            let message = error.to_string();
+            let code = message.split(':').next().unwrap_or("open_chat_failed");
+            hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": notice(code), "code": code, "author": bot}));
+        }
+        hub.set_runtime(&bot, |r| {
+            r.status = BotStatus::Idle;
+            r.lane = None;
+            r.message = None;
+            r.started_at = None;
+        });
+        hub.emit_bot(&bot);
+        if let Some(running) = RUNNING.locked().as_mut() {
+            running.remove(&bot);
+        }
+        drop(done);
+    });
+}
+
+#[cfg(unix)]
+async fn turn_in_profile(
+    hub: &Hub,
+    directory: &std::path::Path,
+    lane: &Lane,
+    instructions: &str,
+    text: &str,
+    cancel: &mut watch::Receiver<bool>,
+    reply: &mut Stream,
+) -> Result<()> {
+    let launch = crate::fork::open_codex::app_server(directory, true).await?;
+    let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
+    let mut rpc = Rpc::from_child(child)?;
+    let thread = hub.store.kv_get(&thread_key(lane));
+    let thread = drive(&mut rpc, thread.as_deref(), instructions, text, cancel, |delta| reply.push(delta)).await?;
+    hub.store.kv_set(&thread_key(lane), &thread)?;
+    let _ = rpc.finish().await;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+async fn turn_in_profile(
+    _: &Hub,
+    _: &std::path::Path,
+    _: &Lane,
+    _: &str,
+    _: &str,
+    _: &mut watch::Receiver<bool>,
+    _: &mut Stream,
+) -> Result<()> {
+    bail!("open_codex_platform")
+}
+
+fn notice(code: &str) -> &'static str {
+    match code {
+        "open_chat_cancelled" => "Resposta interrompida.",
+        "open_chat_tool_refused" => {
+            "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada."
+        }
+        "open_chat_timeout" => "O Codex demorou demais para responder. Tente de novo.",
+        "open_codex_unavailable" | "open_codex_platform" => {
+            "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA."
+        }
+        _ => "O Codex não conseguiu responder agora. Tente de novo.",
+    }
+}
+
+/// Texto da resposta numa entrada do agente, gravado aos poucos.
+struct Stream {
+    hub: Arc<Hub>,
+    lane: Lane,
+    turn: i64,
+    bot: String,
+    entry: Option<String>,
+    text: String,
+    flushed: Instant,
+}
+
+impl Stream {
+    fn new(hub: &Arc<Hub>, lane: &Lane, turn: i64, bot: &str) -> Self {
+        Self {
+            hub: hub.clone(),
+            lane: lane.clone(),
+            turn,
+            bot: bot.to_owned(),
+            entry: None,
+            text: String::new(),
+            flushed: Instant::now(),
+        }
+    }
+    fn data(&self, last: bool) -> Value {
+        json!({"text": self.text, "final": last, "author": self.bot})
+    }
+    fn push(&mut self, delta: &str) {
+        if delta.is_empty() || self.text.len() + delta.len() > MAX_REPLY {
+            return;
+        }
+        self.text.push_str(delta);
+        match &self.entry {
+            None => {
+                self.entry =
+                    self.hub.add_entry(&self.lane, EntryKind::Agent, self.turn, &self.data(false)).map(|e| e.id);
+            }
+            Some(id) if self.flushed.elapsed() >= Duration::from_millis(300) => {
+                self.hub.set_entry(id, &self.data(false));
+                self.flushed = Instant::now();
+            }
+            Some(_) => {}
+        }
+    }
+    fn close(&mut self) {
+        if let Some(id) = &self.entry {
+            self.hub.set_entry(id, &self.data(true));
+        }
+    }
+}
+
+/// Um turno no app-server: retoma ou cria a thread, envia o texto e devolve o id da thread. Recusa qualquer pedido
+/// do servidor e qualquer item que não seja texto, interrompendo o turno.
+pub(crate) async fn drive(
+    rpc: &mut Rpc,
+    thread: Option<&str>,
+    instructions: &str,
+    text: &str,
+    cancel: &mut watch::Receiver<bool>,
+    mut on_delta: impl FnMut(&str),
+) -> Result<String> {
+    let flow = async {
+        rpc.initialize().await?;
+        let resumed = match thread.filter(|id| valid_id(id)) {
+            Some(id) => rpc.call(2, "thread/resume", json!({"threadId": id})).await.ok(),
+            None => None,
+        };
+        let started = match resumed {
+            Some(value) => value,
+            None => {
+                rpc.call(
+                    3,
+                    "thread/start",
+                    json!({"sandbox": "read-only", "approvalPolicy": "never", "developerInstructions": instructions}),
+                )
+                .await?
+            }
+        };
+        let thread = started["thread"]["id"]
+            .as_str()
+            .filter(|id| valid_id(id))
+            .ok_or_else(|| anyhow!("open_chat_failed"))?
+            .to_owned();
+        let turn = rpc
+            .call(
+                4,
+                "turn/start",
+                json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]}),
+            )
+            .await?;
+        let turn_id = turn["turn"]["id"].as_str().unwrap_or_default().to_owned();
+        loop {
+            let message = rpc.next().await?;
+            if message.get("id").is_some() && message.get("method").is_some() {
+                rpc.write(json!({"id": message["id"], "error": {"code": -32601, "message": "text only"}})).await?;
+                interrupt(rpc, &thread, &turn_id).await;
+                bail!("open_chat_tool_refused");
+            }
+            let params = &message["params"];
+            match message["method"].as_str().unwrap_or_default() {
+                "item/started" | "item/completed"
+                    if !TEXT_ITEMS.contains(&params["item"]["type"].as_str().unwrap_or_default()) =>
+                {
+                    interrupt(rpc, &thread, &turn_id).await;
+                    bail!("open_chat_tool_refused");
+                }
+                "item/agentMessage/delta" => on_delta(params["delta"].as_str().unwrap_or_default()),
+                "turn/completed" => {
+                    ensure!(params["turn"]["status"] == "completed", "open_chat_failed");
+                    return Ok(thread);
+                }
+                _ => {}
+            }
+        }
+    };
+    tokio::select! {
+        result = tokio::time::timeout(TURN_LIMIT, flow) => result.map_err(|_| anyhow!("open_chat_timeout"))?,
+        _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
+    }
+}
+
+async fn interrupt(rpc: &mut Rpc, thread: &str, turn: &str) {
+    let _ =
+        rpc.write(json!({"id": 9, "method": "turn/interrupt", "params": {"threadId": thread, "turnId": turn}})).await;
+}
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 100 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+#[cfg(all(test, unix))]
+#[path = "open_chat_tests.rs"]
+mod tests;

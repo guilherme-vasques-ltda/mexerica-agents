@@ -308,6 +308,12 @@ pub(super) async fn call(
                 return Ok(ControlFlow::Break(json!({"entry": e})));
             }
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            // Open: a conversa só de texto reserva o turno antes de gravar a mensagem.
+            let open_turn = if crate::environment::Environment::is_open() {
+                Some(crate::fork::open_chat::begin(hub, &row.config)?)
+            } else {
+                None
+            };
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match b["replyTo"].as_str().filter(|id| !id.is_empty()) {
                 Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
@@ -359,7 +365,9 @@ pub(super) async fn call(
             if let Err(error) = hub.mark_read(bot) {
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
-            if row.config.is_group() {
+            if let Some(ticket) = open_turn {
+                crate::fork::open_chat::run(hub, ticket, &row.config, lane, turn, e.id.clone(), text.to_owned());
+            } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start(hub, &row.config, lane);
             } else {
@@ -387,6 +395,7 @@ pub(super) async fn call(
         "stop" => {
             let bot = str_arg(&b, "botId")?;
             match hub.store.bot(bot)? {
+                _ if crate::environment::Environment::is_open() => crate::fork::open_chat::stop(bot),
                 Some(row) if row.config.is_group() => hub.groups.stop(hub, bot),
                 _ => {
                     crate::fork::spaces::legacy_control(

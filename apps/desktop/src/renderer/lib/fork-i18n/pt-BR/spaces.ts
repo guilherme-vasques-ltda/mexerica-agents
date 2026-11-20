@@ -4,6 +4,8 @@ export const textos = {
   "spaces.compose.mensagem": "Mensagem neste Space",
   "spaces.compose.enviar": "Enviar",
   "spaces.compose.falhou": "Não foi possível confirmar o envio. Confira o histórico antes de tentar de novo. Se a conexão mudou, abra a conversa novamente.",
+  "spaces.compose.semContaOpen": "Conecte uma conta do Codex em Ajustes → Contas de IA para conversar.",
+  "spaces.compose.ocupadoOpen": "Espere a resposta anterior terminar antes de enviar outra mensagem.",
 
   "spaces.origem.outroHub": "A conexão passou para outro Hub depois que isto foi aberto. Nada foi enviado: feche e abra de novo.",
   "spaces.origem.semConexao": "Sem conexão com o Hub. Nada foi enviado: tente de novo quando ele voltar.",
