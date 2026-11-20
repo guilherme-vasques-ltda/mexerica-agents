@@ -30,15 +30,19 @@ fez; para saber o que esta cópia contém, vale a lista abaixo, conferida em 19/
 - Fontes da interface (SIL OFL 1.1, texto ao lado de cada arquivo) em `apps/desktop/src/renderer/assets/fonts/`.
 - Pacote npm `lucide` (ISC), dependência do desktop.
 - Biblioteca própria de avatares em `apps/desktop/src/renderer/lib/donnabot-avatars/` (sem o diretório `demo/`).
-- Registro e manifesto do catálogo de skills em `host/src/fork/skill_catalog/` (sem os pacotes de texto das skills de marketing).
+- O catálogo de skills do Hub em `host/src/fork/skill_catalog/`: o `registry.json` (compilado no Hub) embute os textos, as referências e os arquivos `LICENSE` das skills do catálogo, entre elas as de marketing (`copywriting`, `stop-slop`, `copy-review-panel`) e outras de terceiros (por exemplo `security-audit` da Cloudflare, `impeccable`, `frontend-design`, `find-skills`, `hyperframes`); o `source-manifest.json` registra a procedência de cada arquivo.
+- Anomalia (Apache-2.0) em `apps/desktop/src/renderer/views/fork/times/modelo-marketing.ts`; Tucano, terminal de login (Apache-2.0), em `host/src/fork/terminal_login.rs` e `host/src/agent/term.rs`; papéis de parede em código (Opensource UI, MIT) em `apps/desktop/src/renderer/lib/fork-wallpapers-code.ts`; ChaCha20-Poly1305 via `@noble/ciphers` (MIT) em `apps/desktop/src/main/fork-cloud/crypto.ts`.
+- As logos dos serviços do catálogo de conectores em `apps/desktop/src/renderer/assets/marcas/` (55 arquivos; marcas de seus titulares, só para identificar o serviço).
+- Electron (MIT), WebRTC de `stasel/WebRTC` (BSD-3-Clause) e o driver Cua (MIT): os textos de licença estão em `packaging/avisos/` e `packaging/cua-driver/`; o helper do Mac está em `apps/screen-macos/`.
+- Portes do Codync posteriores à v2.20.3 (por exemplo `host/src/fork/codex_usage/mod.rs` e `host/src/market/vault_unlock.rs`), com commit e autor na tabela acima.
 - Código derivado do Codync v2.20.3 e as modificações listadas em `MODIFICACOES.md`.
 
 **Não está nesta cópia** (os registros abaixo ficam apenas como histórico da origem e não indicam que o material seja distribuído aqui):
 
-- A pasta `.claude/` inteira: as skills do projeto de origem (tstack `pr-wait` e as skills `abrir-pr`, `acompanhar-pr` e `full-stop`; security-audit-skill da Cloudflare; as 13 skills de emilkowalski/skills com `LICENSE-MIT-emilkowalski.txt`; `product-launch-film` e as fontes Geist do seu `template/assets/fonts/`) e `skills-lock.json`. O `AGENTS.md` do projeto de origem também não está aqui.
+- A pasta `.claude/` inteira: as skills do projeto de origem (tstack `pr-wait` e as skills `abrir-pr`, `acompanhar-pr` e `full-stop`; a pasta `.claude/skills/security-audit/` da Cloudflare, cujo texto o catálogo embute no `registry.json`; as 13 skills de emilkowalski/skills com `LICENSE-MIT-emilkowalski.txt`; `product-launch-film` e as fontes Geist do seu `template/assets/fonts/`) e `skills-lock.json`. O `AGENTS.md` do projeto de origem também não está aqui.
 - O bundle `apps/desktop/src/renderer/lib/donnabot-avatars/demo/demo.js` (React 18.3.1 minificado) e o diretório `demo/`.
 - Os documentos `redesenho/` e `docs/propostas/` e as propostas de design geradas (`gerar.mjs`, HTML, PNGs derivados).
-- Os pacotes de texto das skills de marketing (`copywriting`, `stop-slop`, `copy-review-panel` e referências) e a evidência de revisão do módulo Spaces (`research/reports/evidencias/`).
+- A evidência de revisão do módulo Spaces (`research/reports/evidencias/`). Os pacotes de texto das skills de marketing não estão como arquivos soltos; só como conteúdo do `registry.json`, acima.
 - Documentos e arquivos citados só por nome (por exemplo `docs/plans/`, `web/content/docs/` e a maior parte de `docs/features/`) e arquivos do projeto de origem que não foram copiados.
 
 Se uma linha abaixo citar um destino que não existe nesta cópia, vale o que está dito aqui. Quem redistribuir esta cópia
