@@ -177,7 +177,7 @@ fn read(c: &Connection, id: &str) -> Result<Record> {
 }
 
 /// Revalida vínculo e estado canônicos; não consulta Store/Cloud nem aceita carimbo do payload.
-fn context(c: &Connection, ctx: &Context<'_>) -> Result<i64> {
+pub(super) fn context(c: &Connection, ctx: &Context<'_>) -> Result<i64> {
     ensure!(ctx.lane.session.as_deref() != Some(ctx.lane.chat.as_str()), "genui_noncanonical_lane");
     let session = sessoes::store::session_ref_of_entry(c, &ctx.lane.chat, ctx.origin_entry)?;
     ensure!(session.id == ctx.lane.session_id(), "genui_session_mismatch");
@@ -253,14 +253,18 @@ fn bound(c: &Connection, ctx: &Context<'_>, id: &str) -> Result<Record> {
             && record.space == ctx.space,
         "genui_question_scope_mismatch"
     );
-    // A projeção também tem de continuar na mesma sessão e Space.
-    let entry_session = sessoes::store::session_ref_of_entry(c, &record.chat, &record.snapshot.receipt.entry_id)?;
-    ensure!(entry_session.id == record.session, "genui_entry_session_mismatch");
+    check_projection(c, ctx, &record.snapshot.receipt.entry_id)?;
+    Ok(record)
+}
+
+/// A entrada de projeção (pergunta ou gráfico) tem de continuar na mesma sessão e Space do contexto.
+pub(super) fn check_projection(c: &Connection, ctx: &Context<'_>, entry_id: &str) -> Result<()> {
+    let entry_session = sessoes::store::session_ref_of_entry(c, &ctx.lane.chat, entry_id)?;
+    ensure!(entry_session.id == ctx.lane.session_id(), "genui_entry_session_mismatch");
     if ctx.domain == Domain::PersonalSession {
         // A projeção também com o carimbo canônico da principal (E1). Sem corte `context_start_seq` (é de conversa
         // de Space); o equivalente da extra é o fechamento.
-        personal_stamp(c, &record.chat, &record.snapshot.receipt.entry_id)?;
-        return Ok(record);
+        return personal_stamp(c, &ctx.lane.chat, entry_id);
     }
     let stamped: bool = c.query_row(
         "SELECT json_extract(e.data,'$.spaceContext.spaceId')=c.space_id
@@ -268,7 +272,7 @@ fn bound(c: &Connection, ctx: &Context<'_>, id: &str) -> Result<Record> {
             AND json_extract(e.data,'$.spaceContext.botId')=c.bot_id
             FROM entries e JOIN donna_space_conversations c ON c.id=e.bot_id
             WHERE e.id=?1 AND c.space_id=?2",
-        params![record.snapshot.receipt.entry_id, record.space],
+        params![entry_id, ctx.space],
         |r| r.get(0),
     )?;
     ensure!(stamped, "genui_entry_space_mismatch");
@@ -276,11 +280,11 @@ fn bound(c: &Connection, ctx: &Context<'_>, id: &str) -> Result<Record> {
     let current: bool = c.query_row(
         "SELECT e.seq>=s.context_start_seq FROM entries e JOIN donna_space_conversations s ON s.id=e.bot_id
             WHERE e.id=?1",
-        [&record.snapshot.receipt.entry_id],
+        [entry_id],
         |r| r.get(0),
     )?;
     ensure!(current, "genui_context_reset");
-    Ok(record)
+    Ok(())
 }
 
 /// Identidade de invocação é parâmetro interno, não campo do payload nem grant.

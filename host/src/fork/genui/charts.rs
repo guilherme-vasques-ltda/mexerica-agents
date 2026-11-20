@@ -1,5 +1,5 @@
-//! 110A/111A: contrato gráfico interno, sem ferramenta, fio, storage ou autoridade.
-//! Só integrar após os produtores aceitos; parse não prova fonte nem audiência.
+//! Contrato do gráfico de leitura (v1): linha, barras ou pizza a partir de dados estruturados.
+//! O parse só valida a forma e os limites; não prova fonte nem audiência e não dá autoridade.
 use super::contract::{MAX_BYTES, literal};
 use anyhow::{Result, ensure};
 use chrono::{DateTime, NaiveDate};
@@ -77,17 +77,12 @@ struct Series {
 
 /// Fotografia tipada e imutável. Nenhum campo do modelo constitui autoridade.
 #[derive(Debug, Clone)]
-#[cfg_attr(not(test), expect(dead_code, reason = "110A/111A: tipo preparatório sem consumidor público"))]
 pub(crate) struct ValidatedChart {
     payload: Payload,
     effective: Component,
 }
 
 impl ValidatedChart {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "110A/111A: ingresso gráfico depende de integração em PR próprio")
-    )]
     pub(crate) fn parse(raw: &str) -> Result<Self> {
         ensure!(raw.len() <= MAX_BYTES, "genui_chart_too_large");
         let payload: Payload = serde_json::from_str(raw).map_err(|_| anyhow::anyhow!("genui_chart_invalid_payload"))?;
@@ -148,8 +143,7 @@ impl ValidatedChart {
         Ok(Self { payload, effective })
     }
 
-    /// Snapshot interno; não é envelope público nem registro durável de apresentação.
-    #[cfg_attr(not(test), expect(dead_code, reason = "110A/111A: snapshot preparado, sem storage ou projeção no fio"))]
+    /// Snapshot canônico (`{requested, effective, payload}`): é o que o Hub guarda e o app lê.
     pub(crate) fn snapshot(&self) -> Result<String> {
         #[derive(Serialize)]
         struct Snapshot<'a> {
@@ -166,7 +160,6 @@ impl ValidatedChart {
     }
 
     /// Cada valor aceito aparece literalmente, sem rede, inferência ou proporção inventada.
-    #[cfg_attr(not(test), expect(dead_code, reason = "110A/111A: fallback gráfico sem publicação ativa"))]
     pub(crate) fn fallback(&self) -> String {
         let data = &self.payload.data;
         let mut body = format!(
@@ -252,61 +245,50 @@ fn valid_date(value: &str) -> bool {
     explicit_zone && DateTime::parse_from_rfc3339(value).is_ok()
 }
 
-/// Schema gráfico separado: não altera o descritor choice nem participa de tools/list.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "110A/111A: descritor gráfico interno; anúncio bloqueado pelos produtores")
-)]
-pub(crate) fn descriptor() -> Value {
+/// Esquema do campo `data` de cada gráfico, para o descritor da ferramenta. As regras relacionais, as
+/// datas e o total da pizza só o validador confere. Pizza acima de cinco partes vira barras, com todos os dados.
+pub(crate) fn data_schemas() -> Vec<Value> {
     let string = |max| json!({"type":"string","minLength":1,"maxLength":max});
-    let mut variants = Vec::new();
-    for component in [Component::Line, Component::Bar, Component::Pie] {
-        let pie = component == Component::Pie;
-        let mut data = json!({
-            "type":"object", "additionalProperties":false,
-            "required":["labels","series","unit","period","sourceLabel"],
-            "properties":{
-                "labels":{"type":"array","minItems":1,"maxItems":MAX_POINTS,"items":string(160)},
-                "series":{
-                    "type":"array","minItems":1,"maxItems":if pie { 1 } else { MAX_SERIES },
-                    "items":{
-                        "type":"object","additionalProperties":false,"required":["id","label","values"],
-                        "properties":{
-                            "id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9_.-]+$"},
-                            "label":string(160),
-                            "values":{
-                                "type":"array","minItems":1,"maxItems":MAX_POINTS,
-                                "items":if pie {
-                                    json!({"type":"number","minimum":0,"maximum":MAX_VALUE})
-                                } else {
-                                    json!({"type":["number","null"],"minimum":-MAX_VALUE,"maximum":MAX_VALUE})
+    [Component::Line, Component::Bar, Component::Pie]
+        .into_iter()
+        .map(|component| {
+            let pie = component == Component::Pie;
+            let mut data = json!({
+                "type":"object", "additionalProperties":false,
+                "required":["labels","series","unit","period","sourceLabel"],
+                "properties":{
+                    "labels":{"type":"array","minItems":1,"maxItems":MAX_POINTS,"items":string(160)},
+                    "series":{
+                        "type":"array","minItems":1,"maxItems":if pie { 1 } else { MAX_SERIES },
+                        "items":{
+                            "type":"object","additionalProperties":false,"required":["id","label","values"],
+                            "properties":{
+                                "id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9_.-]+$"},
+                                "label":string(160),
+                                "values":{
+                                    "type":"array","minItems":1,"maxItems":MAX_POINTS,
+                                    "items":if pie {
+                                        json!({"type":"number","minimum":0,"maximum":MAX_VALUE})
+                                    } else {
+                                        json!({"type":["number","null"],"minimum":-MAX_VALUE,"maximum":MAX_VALUE})
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                "unit":string(160),"period":string(160),"sourceLabel":string(160)
+                    },
+                    "unit":string(160),"period":string(160),"sourceLabel":string(160)
+                }
+            });
+            if component == Component::Line {
+                data["required"] = json!(["xKind", "labels", "series", "unit", "period", "sourceLabel"]);
+                data["properties"]["xKind"] = json!({"type":"string","enum":["category","date"]});
             }
-        });
-        if component == Component::Line {
-            data["required"] = json!(["xKind", "labels", "series", "unit", "period", "sourceLabel"]);
-            data["properties"]["xKind"] = json!({"type":"string","enum":["category","date"]});
-        }
-        variants.push(json!({
-            "type":"object","additionalProperties":false,
-            "required":["version","component","title","summary","data"],
-            "properties":{
-                "version":{"type":"integer","const":1},
-                "component":{"type":"string","const":component.name()},
-                "title":string(160),"summary":string(2000),"data":data
-            }
-        }));
-    }
-    json!({
-        "description":"Contrato gráfico interno indisponível. Não anunciar como ferramenta. Valores informados pelo bot, sem prova de fonte/audiência, busca ou efeito. Limite 64 KiB; regras relacionais, datas e total de pizza exigem o validador. Pizza acima de cinco vira barras, preservando todos os dados.",
-        "oneOf":variants
-    })
+            data
+        })
+        .collect()
 }
+
+pub(crate) const COMPONENTS: [&str; 3] = ["line_chart", "bar_chart", "pie_chart"];
 
 #[cfg(test)]
 #[path = "charts_tests.rs"]

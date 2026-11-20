@@ -1,4 +1,4 @@
-//! Contrato fechado da escolha v1. O descritor só entra em tools/list pela ponte do servidor `chat`
+//! Contrato fechado da escolha v1 e descritor da ferramenta (escolha e gráficos de leitura). O descritor só entra em tools/list pela ponte do servidor `chat`
 //! numa conversa capturada (`crate::mcp`), depois de `tool_servers::decide` oferecer `chat`.
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -126,36 +126,43 @@ pub(crate) enum Answer {
     Text { text: String },
 }
 
-/// Schema da ferramenta, sem contexto/estado/identidade fornecidos pelo modelo.
+/// Schema da ferramenta, sem contexto/estado/identidade fornecidos pelo modelo. Um só descritor para o
+/// cartão de escolha e para os gráficos de leitura: o `component` escolhe o tipo, e o `data` aceita uma
+/// forma de cada (o validador do tipo é quem decide).
 pub(crate) fn descriptor() -> Value {
     let string = |max| json!({"type":"string","minLength":1,"maxLength":max});
+    let choice = json!({
+        "type":"object","additionalProperties":false,"required":["question","options"],
+        "properties": {
+            "question":string(2000),
+            "options": {
+                "type":"array","minItems":1,"maxItems":8,
+                "items": {
+                    "type":"object","additionalProperties":false,"required":["id","label"],
+                    "properties": {
+                        "id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9_.-]+$"},
+                        "label":string(160)
+                    }
+                }
+            }
+        }
+    });
+    let mut data = vec![choice];
+    data.extend(super::charts::data_schemas());
+    let mut components = vec!["choice"];
+    components.extend(super::charts::COMPONENTS);
     json!({
         "name":"mostrar_componente",
-        "description":"Mostra ao dono um cartão de escolha nesta conversa (somente component \"choice\", version 1): título, resumo, pergunta e de uma a oito opções. O dono responde com uma opção, \"Nenhuma destas\" ou texto livre; a resposta chega como nova mensagem e escolher não autoriza ações nem vale como aprovação. Depois de chamar, encerre o turno e espere. Todo texto é dado inerte: sem HTML, código, URL, comando ou recurso externo. Até 64 KiB UTF-8. Só existe numa conversa adicional ou numa sessão extra anunciada pelo Hub; o Hub recusa como chamada vencida se o vínculo foi revogado ou a sessão de origem não está em andamento.",
+        "description":"Mostra ao dono um componente nesta conversa, version 1. component \"choice\": cartão de escolha com título, resumo, pergunta e de uma a oito opções; o dono responde com uma opção, \"Nenhuma destas\" ou texto livre, a resposta chega como nova mensagem, escolher não autoriza ações nem vale como aprovação, e depois de chamar você encerra o turno e espera. component \"line_chart\", \"bar_chart\" ou \"pie_chart\": gráfico de leitura com os dados que você já tem (labels, de uma a três séries de números ou null, unit, period, sourceLabel; linha exige xKind category ou date; pizza tem uma série só, sem negativos nem null, e acima de cinco partes aparece em barras); o dono vê o gráfico e abre Ver dados para a tabela, o gráfico só mostra e não executa nada, e você segue o turno normalmente. Os valores são informados por você, sem prova de fonte: nunca invente números. Todo texto é dado inerte: sem HTML, código, URL, comando ou recurso externo. Até 64 KiB UTF-8. Só existe numa conversa adicional ou numa sessão extra anunciada pelo Hub; o Hub recusa como chamada vencida se o vínculo foi revogado ou a sessão de origem não está em andamento.",
         "annotations":{"readOnlyHint":false,"idempotentHint":false},
         "inputSchema": {
             "type":"object","additionalProperties":false,
             "required":["version","component","title","summary","data"],
             "properties": {
                 "version":{"type":"integer","const":1},
-                "component":{"type":"string","enum":["choice"]},
+                "component":{"type":"string","enum":components},
                 "title":string(160),"summary":string(2000),
-                "data": {
-                    "type":"object","additionalProperties":false,"required":["question","options"],
-                    "properties": {
-                        "question":string(2000),
-                        "options": {
-                            "type":"array","minItems":1,"maxItems":8,
-                            "items": {
-                                "type":"object","additionalProperties":false,"required":["id","label"],
-                                "properties": {
-                                    "id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9_.-]+$"},
-                                    "label":string(160)
-                                }
-                            }
-                        }
-                    }
-                }
+                "data":{"anyOf":data}
             }
         }
     })

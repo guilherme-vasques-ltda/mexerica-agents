@@ -369,6 +369,63 @@ mod c6 {
         assert_eq!(questions(&f.hub), 3);
     }
 
+    fn charts(hub: &Hub) -> i64 {
+        hub.store.db.locked().query_row("SELECT COUNT(*) FROM donna_genui_charts", [], |r| r.get(0)).unwrap()
+    }
+
+    /// Gráfico de leitura pela mesma ponte real da extra selada: grava com E1 na origem e na projeção, publica só
+    /// depois do commit, o replay mantém um gráfico, entrada hostil recusa sem efeito, e o gráfico não cria pergunta.
+    #[tokio::test]
+    async fn grafico_na_extra_selada_grava_pela_ponte_real_sem_abrir_pergunta() {
+        let f = crate::fork::sessoes::contexto_ferramenta::tests::Fixture::new(false);
+        let mut commands = f.hub.test_bot_commands(BOT);
+        let mut actor = actor(&f).await;
+        let lane = f.extra();
+        let a = define(&actor, &lane, None);
+        let message = human(&f.hub, &lane);
+        activate(&mut actor, &a, "acp-a", &message);
+        let token = a.env(seal::SEAL_ENV).expect("selo só no chat da extra");
+        let chart = json!({"version":1,"component":"pie_chart","title":"Partes","summary":"Valores fictícios",
+            "data":{"labels":["A","B"],"series":[{"id":"s","label":"Partes","values":[40, 60]}],
+                "unit":"%","period":"Novembro de 2026","sourceLabel":"Dados fictícios"}});
+        let call_with = |invocation: &str, arguments: &Value| {
+            let mut body = a.body("mostrar_componente", Some(invocation));
+            body["arguments"] = arguments.clone();
+            body
+        };
+
+        let mut hostile = chart.clone();
+        hostile["data"]["html"] = json!("<b>SENTINELA_PRIVADA</b>");
+        let refused = call(&mut actor, &mut commands, &a.caller, "chatCall", call_with("g:0", &hostile), |_| {}).await;
+        let refused = code(refused);
+        assert!(refused.contains("genui_chart_invalid_payload") && !refused.contains("SENTINELA_PRIVADA"));
+        assert_eq!(charts(&f.hub), 0);
+
+        let mut events = f.hub.events.subscribe();
+        let shown =
+            call(&mut actor, &mut commands, &a.caller, "chatCall", call_with("g:1", &chart), |_| {}).await.unwrap();
+        assert_eq!((shown["status"].as_str(), charts(&f.hub), questions(&f.hub)), (Some("shown"), 1, 0));
+        let id = shown["chartId"].as_str().unwrap().to_owned();
+        let mut published = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            published.push(event);
+        }
+        let projection = published
+            .iter()
+            .find(|e| e["entry"]["data"]["genuiChart"]["chartId"] == id.as_str())
+            .expect("projeção publicada");
+        assert_eq!(projection["entry"]["sessionId"], json!(lane.session_id()));
+        assert_eq!(projection["entry"]["data"]["spaceContext"]["conversationId"], BOT, "E1: carimbo da principal");
+        assert!(!projection.to_string().contains(&token), "selo fora do gráfico");
+        let replay =
+            call(&mut actor, &mut commands, &a.caller, "chatCall", call_with("g:1", &chart), |_| {}).await.unwrap();
+        assert!(replay["chartId"] == id.as_str() && charts(&f.hub) == 1, "replay: gráfico único");
+        close(&f.hub, lane.session_id());
+        let after_close =
+            call(&mut actor, &mut commands, &a.caller, "chatCall", call_with("g:2", &chart), |_| {}).await;
+        assert!(after_close.is_err() && charts(&f.hub) == 1, "extra fechada não grava");
+    }
+
     /// Caso 2: selo ausente/falso, só prefixo, principal e A↔B sem descritor e sem efeito; barreira entre captura e
     /// entrega (fechar a extra) e entre a entrega e o ator (revogar) recusam; binding novo não salva a captura antiga.
     #[tokio::test]

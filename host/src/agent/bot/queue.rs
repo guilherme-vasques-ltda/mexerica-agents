@@ -51,6 +51,9 @@ impl Actor {
                     Cmd::ShowChoice { invocation, payload, reply } => {
                         let _ = reply.send(checked.and_then(|()| self.show_choice(&context, &invocation, &payload)));
                     }
+                    Cmd::ShowChart { invocation, payload, reply } => {
+                        let _ = reply.send(checked.and_then(|()| self.show_chart(&context, &invocation, &payload)));
+                    }
                     Cmd::SendFile { path, name, cancelled, execution: _, reply } => match checked {
                         Ok(()) => self.begin_file(path, name, cancelled, execution, reply, Some(context)),
                         Err(error) => {
@@ -214,7 +217,7 @@ impl Actor {
             Cmd::AskOwner { text, execution, reply } => {
                 let _ = reply.send(self.ask_owner(text, execution.as_ref()));
             }
-            Cmd::ShowChoice { reply, .. } => {
+            Cmd::ShowChoice { reply, .. } | Cmd::ShowChart { reply, .. } => {
                 let _ = reply.send(Err(anyhow!(crate::fork::genui::flow::MAIN_REFUSAL)));
             }
             Cmd::SendFile { path, name, cancelled, execution, reply } => {
