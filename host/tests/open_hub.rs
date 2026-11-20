@@ -72,11 +72,14 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     if option_env!("CODYNC_ENV") != Some("open") {
         return;
     }
-    let root = Profile(Path::new("/tmp").canonicalize().unwrap().join(format!("oh-{}", uuid::Uuid::new_v4().simple())));
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let root = std::env::temp_dir().canonicalize().unwrap().join(&id[..8]);
+    DirBuilder::new().mode(0o700).create(&root).unwrap();
+    let root = Profile(root);
     let private = root.0.join(".mexerica-open");
     let home = private.join("home");
     let tmp = private.join("tmp");
-    let session = tmp.join("h-test");
+    let session = tmp.join("h-a");
     DirBuilder::new().recursive(true).mode(0o700).create(&home).unwrap();
     DirBuilder::new().recursive(true).mode(0o700).create(&session).unwrap();
     let socket = session.join("s");
@@ -234,7 +237,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     close_stdin(&mut child).await;
     assert!(!socket.exists());
 
-    let second_session = tmp.join("h-restart");
+    let second_session = tmp.join("h-b");
     DirBuilder::new().mode(0o700).create(&second_session).unwrap();
     let second_socket = second_session.join("s");
     let second_client = client(&second_socket);
