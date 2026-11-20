@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 /// Bot vivo, agente e do Pessoal: único participante que pode ter concessão hoje.
 const LIVE_BOT: &str = "SELECT 1 FROM bots b WHERE b.id=?1 AND b.deleted=0 AND json_valid(b.config)
     AND json_extract(b.config,'$.id')=b.id AND json_extract(b.config,'$.spaceId')=?2
-    AND COALESCE(json_extract(b.config,'$.kind'),'agent')='agent'";
+    AND (json_type(b.config,'$.kind') IS NULL OR json_extract(b.config,'$.kind')='agent')";
 
 pub(super) fn migrate(c: &Connection) -> Result<()> {
     c.execute_batch(include_str!("schema.sql")).map_err(db_error)
@@ -244,29 +244,48 @@ pub(super) fn default_sender(c: &Connection, mailbox: &str) -> Result<String> {
     .ok_or(MailError::SenderNotAllowed)
 }
 
-/// Emite (ou reaproveita) a referência opaca de uma mensagem ou anexo da caixa.
-pub(super) fn mint(c: &Connection, mailbox: &str, message: &str, attachment: &str) -> Result<String> {
+/// Emite (ou reaproveita) a referência opaca de uma mensagem (`attachment` vazio) ou de
+/// um anexo dela. ID vazio do provedor é recusado.
+pub(super) fn mint(c: &Connection, mailbox: &str, message: &str, attachment: Option<&str>) -> Result<String> {
+    if message.is_empty() || attachment == Some("") {
+        return Err(MailError::Invalid);
+    }
+    let kind = if attachment.is_some() { "attachment" } else { "message" };
+    let attachment = attachment.unwrap_or_default();
     c.execute(
-        "INSERT INTO mail_manager_refs(handle,mailbox_id,message_id,attachment_id) VALUES(?1,?2,?3,?4)
-         ON CONFLICT(mailbox_id,message_id,attachment_id) DO NOTHING",
-        params![uuid::Uuid::new_v4().to_string(), mailbox, message, attachment],
+        "INSERT INTO mail_manager_refs(handle,mailbox_id,kind,message_id,attachment_id) VALUES(?1,?2,?3,?4,?5)
+         ON CONFLICT(mailbox_id,kind,message_id,attachment_id) DO NOTHING",
+        params![uuid::Uuid::new_v4().to_string(), mailbox, kind, message, attachment],
     )
     .map_err(db_error)?;
     c.query_row(
-        "SELECT handle FROM mail_manager_refs WHERE mailbox_id=?1 AND message_id=?2 AND attachment_id=?3",
-        params![mailbox, message, attachment],
+        "SELECT handle FROM mail_manager_refs WHERE mailbox_id=?1 AND kind=?2 AND message_id=?3 AND attachment_id=?4",
+        params![mailbox, kind, message, attachment],
         |r| r.get(0),
     )
     .map_err(db_error)
 }
 
-/// A caixa, a mensagem e o anexo (vazio para mensagem) de uma referência, ou nada.
-pub(super) fn resolve(c: &Connection, handle: &str) -> Result<Option<(String, String, String)>> {
+/// O que uma referência aponta: caixa, mensagem e, se for de anexo, o anexo.
+pub(super) struct Target {
+    pub(super) mailbox: String,
+    pub(super) message: String,
+    pub(super) attachment: Option<String>,
+}
+
+pub(super) fn resolve(c: &Connection, handle: &str) -> Result<Option<Target>> {
     c.query_row(
-        "SELECT r.mailbox_id,r.message_id,r.attachment_id FROM mail_manager_refs r
+        "SELECT r.mailbox_id,r.message_id,r.kind,r.attachment_id FROM mail_manager_refs r
          JOIN mail_manager_mailboxes m ON m.id=r.mailbox_id WHERE r.handle=?1",
         [handle],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        |r| {
+            let kind: String = r.get(2)?;
+            Ok(Target {
+                mailbox: r.get(0)?,
+                message: r.get(1)?,
+                attachment: if kind == "attachment" { Some(r.get(3)?) } else { None },
+            })
+        },
     )
     .optional()
     .map_err(db_error)

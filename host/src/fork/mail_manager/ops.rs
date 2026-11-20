@@ -6,7 +6,7 @@ use super::{
         Attachment, AttachmentRef, BackendError, BackendSummary, MailBackend, MailError, Message, MessageRef, Notice,
         Outcome, Outgoing, Participant, Permission, Result, Summary, address, db_error, subject,
     },
-    store::{audience, default_sender, mint, require, resolve, sender_belongs, viewable},
+    store::{Target, audience, default_sender, mint, require, resolve, sender_belongs, viewable},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -33,7 +33,7 @@ fn summaries(c: &Connection, mailbox: &str, rows: Vec<BackendSummary>) -> Result
         .map(|row| {
             Ok(Summary {
                 mailbox: mailbox.to_owned(),
-                message: MessageRef(mint(c, mailbox, &row.id, "")?),
+                message: MessageRef(mint(c, mailbox, &row.id, None)?),
                 from: row.from,
                 subject: row.subject,
                 preview: row.preview,
@@ -78,12 +78,11 @@ fn message_in(
     message: &MessageRef,
     need: &[Permission],
 ) -> Result<(String, String)> {
-    let Some((mailbox, id, attachment)) = resolve(c, &message.0)? else { return Err(MailError::Denied) };
-    if !attachment.is_empty() {
+    let Some(Target { mailbox, message, attachment: None }) = resolve(c, &message.0)? else {
         return Err(MailError::Denied);
-    }
+    };
     require(c, &mailbox, who, need)?;
-    Ok((mailbox, id))
+    Ok((mailbox, message))
 }
 
 pub(crate) fn open(c: &Connection, mail: &dyn MailBackend, who: &Participant, message: &MessageRef) -> Result<Message> {
@@ -93,7 +92,11 @@ pub(crate) fn open(c: &Connection, mail: &dyn MailBackend, who: &Participant, me
         .attachments
         .into_iter()
         .map(|a| {
-            Ok(Attachment { reference: AttachmentRef(mint(c, &mailbox, &id, &a.id)?), name: a.name, size: a.size })
+            Ok(Attachment {
+                reference: AttachmentRef(mint(c, &mailbox, &id, Some(&a.id))?),
+                name: a.name,
+                size: a.size,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Message {
@@ -112,10 +115,9 @@ pub(crate) fn attachment(
     who: &Participant,
     attachment: &AttachmentRef,
 ) -> Result<Vec<u8>> {
-    let Some((mailbox, message, id)) = resolve(c, &attachment.0)? else { return Err(MailError::Denied) };
-    if id.is_empty() {
+    let Some(Target { mailbox, message, attachment: Some(id) }) = resolve(c, &attachment.0)? else {
         return Err(MailError::Denied);
-    }
+    };
     require(c, &mailbox, who, &[Permission::View])?;
     mail.attachment(&mailbox, &message, &id).map_err(backend)?.ok_or(MailError::NotFound)
 }
@@ -126,7 +128,7 @@ pub(crate) fn notice(c: &Connection, mailbox: &str, provider_message: &str) -> R
     if to.is_empty() {
         return Err(MailError::Denied);
     }
-    Ok(Notice { mailbox: mailbox.to_owned(), message: MessageRef(mint(c, mailbox, provider_message, "")?), to })
+    Ok(Notice { mailbox: mailbox.to_owned(), message: MessageRef(mint(c, mailbox, provider_message, None)?), to })
 }
 
 fn sender(c: &Connection, mailbox: &str, from: Option<&str>) -> Result<String> {
@@ -143,6 +145,8 @@ pub(crate) fn send_new(
     new: &NewMail<'_>,
     key: &str,
 ) -> Result<Outcome> {
+    let need = [Permission::Send];
+    require(c, mailbox, who, &need)?;
     let outgoing = Outgoing {
         from: sender(c, mailbox, new.from)?,
         to: recipients(new.to)?,
@@ -150,12 +154,13 @@ pub(crate) fn send_new(
         body: new.body.to_owned(),
         in_reply_to: None,
     };
-    let effect = Effect { who, key, mailbox, need: &[Permission::Send], from: Some(&outgoing.from) };
-    effect.run(c, &("send", mailbox, &outgoing), || mail.send(mailbox, &outgoing).map(Some))
+    let effect = Effect { who, key, mailbox, need: &need, from: Some(&outgoing.from) };
+    effect.run(c, &("send", mailbox, &outgoing), || mail.send(mailbox, &outgoing).map(Some).map_err(backend))
 }
 
 /// Resposta no fio: exige Ver (para ter o contexto) e Enviar na caixa da mensagem. Vai
-/// para o remetente original, a partir de um endereço da mesma caixa.
+/// para o remetente original, a partir de um endereço da mesma caixa. O recibo é da
+/// intenção (mensagem, remetente e texto): repetir não relê o original no provedor.
 pub(crate) fn reply(
     c: &Connection,
     mail: &mut dyn MailBackend,
@@ -167,21 +172,24 @@ pub(crate) fn reply(
 ) -> Result<Outcome> {
     let need = [Permission::View, Permission::Send];
     let (mailbox, id) = message_in(c, who, message, &need)?;
-    let original = mail.open(&mailbox, &id).map_err(backend)?.ok_or(MailError::NotFound)?;
-    let title = original.subject.trim();
-    let outgoing = Outgoing {
-        from: sender(c, &mailbox, from)?,
-        to: vec![address(&original.from)?],
-        subject: subject(&if title.to_lowercase().starts_with("re:") {
-            title.to_owned()
-        } else {
-            format!("Re: {title}")
-        })?,
-        body: body.to_owned(),
-        in_reply_to: Some(id),
-    };
-    let effect = Effect { who, key, mailbox: &mailbox, need: &need, from: Some(&outgoing.from) };
-    effect.run(c, &("reply", &mailbox, &outgoing), || mail.send(&mailbox, &outgoing).map(Some))
+    let from = sender(c, &mailbox, from)?;
+    let effect = Effect { who, key, mailbox: &mailbox, need: &need, from: Some(&from) };
+    effect.run(c, &("reply", &mailbox, &id, &from, body), || {
+        let original = mail.open(&mailbox, &id).map_err(backend)?.ok_or(MailError::NotFound)?;
+        let title = original.subject.trim();
+        let outgoing = Outgoing {
+            from: from.clone(),
+            to: vec![address(&original.from)?],
+            subject: subject(&if title.to_lowercase().starts_with("re:") {
+                title.to_owned()
+            } else {
+                format!("Re: {title}")
+            })?,
+            body: body.to_owned(),
+            in_reply_to: Some(id.clone()),
+        };
+        mail.send(&mailbox, &outgoing).map(Some).map_err(backend)
+    })
 }
 
 /// Move para a lixeira. Exige só Excluir e uma referência daquela caixa obtida por via
@@ -193,9 +201,10 @@ pub(crate) fn trash(
     message: &MessageRef,
     key: &str,
 ) -> Result<Outcome> {
-    let (mailbox, id) = message_in(c, who, message, &[Permission::Delete])?;
-    let effect = Effect { who, key, mailbox: &mailbox, need: &[Permission::Delete], from: None };
-    effect.run(c, &("trash", &mailbox, &id), || mail.trash(&mailbox, &id).map(|()| None))
+    let need = [Permission::Delete];
+    let (mailbox, id) = message_in(c, who, message, &need)?;
+    let effect = Effect { who, key, mailbox: &mailbox, need: &need, from: None };
+    effect.run(c, &("trash", &mailbox, &id), || mail.trash(&mailbox, &id).map(|()| None).map_err(backend))
 }
 
 fn recipients(to: &[&str]) -> Result<Vec<String>> {
@@ -216,13 +225,16 @@ struct Effect<'a> {
 
 impl Effect<'_> {
     /// Reserva o recibo e confere permissão e remetente na mesma transação; só depois chama
-    /// o transporte (`Some(id)` = enviada, `None` = na lixeira). Repetir a chave com o mesmo
-    /// pedido devolve o resultado guardado, sem novo efeito.
+    /// o transporte (`Some(id)` = enviada, `None` = na lixeira). A reserva é o ponto de
+    /// autorização: revogar antes dela nega; revogar depois não cancela o efeito já iniciado,
+    /// e vale para a operação seguinte. Repetir a chave com o mesmo pedido devolve o
+    /// resultado guardado, sem novo efeito. Falha certa sem efeito libera a chave; qualquer
+    /// incerteza (inclusive não conseguir gravar o resultado) a deixa não confirmada.
     fn run(
         &self,
         c: &Connection,
         request: &impl serde::Serialize,
-        act: impl FnOnce() -> std::result::Result<Option<String>, BackendError>,
+        act: impl FnOnce() -> Result<Option<String>>,
     ) -> Result<Outcome> {
         let (who, key) = (self.who, self.key);
         if key.trim().is_empty() || key.len() > 200 || key.chars().any(char::is_control) {
@@ -264,24 +276,30 @@ impl Effect<'_> {
         )
         .map_err(db_error)?;
         tx.commit().map_err(db_error)?;
-        let outcome = match act() {
-            Ok(Some(id)) => Outcome::Sent { message: MessageRef(mint(c, self.mailbox, &id, "")?) },
-            Ok(None) => Outcome::Trashed,
-            Err(BackendError::Rejected) => {
-                c.execute(
+        match act() {
+            Ok(id) => self.settle(c, id).map_err(|_| MailError::Unconfirmed),
+            Err(MailError::Unconfirmed) => Err(MailError::Unconfirmed),
+            Err(error) => {
+                let released = c.execute(
                     "DELETE FROM mail_manager_receipts
                      WHERE participant_kind=?1 AND participant_id=?2 AND key=?3 AND state='pending'",
                     params![who.kind(), who.id(), key],
-                )
-                .map_err(db_error)?;
-                return Err(MailError::Rejected);
+                );
+                if released.is_ok() { Err(error) } else { Err(MailError::Unconfirmed) }
             }
-            Err(BackendError::Unknown) => return Err(MailError::Unconfirmed),
+        }
+    }
+
+    fn settle(&self, c: &Connection, id: Option<String>) -> Result<Outcome> {
+        let outcome = match id {
+            Some(id) => Outcome::Sent { message: MessageRef(mint(c, self.mailbox, &id, None)?) },
+            None => Outcome::Trashed,
         };
+        let stored = serde_json::to_string(&outcome).map_err(|_| MailError::Storage)?;
         c.execute(
             "UPDATE mail_manager_receipts SET state='done',outcome=?4
              WHERE participant_kind=?1 AND participant_id=?2 AND key=?3 AND state='pending'",
-            params![who.kind(), who.id(), key, serde_json::to_string(&outcome).map_err(|_| MailError::Storage)?],
+            params![self.who.kind(), self.who.id(), self.key, stored],
         )
         .map_err(db_error)?;
         Ok(outcome)

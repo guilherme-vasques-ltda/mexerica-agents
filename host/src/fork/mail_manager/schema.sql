@@ -32,13 +32,15 @@ BEGIN SELECT RAISE(ABORT,'mail_manager_constraint'); END;
 CREATE TRIGGER IF NOT EXISTS mail_manager_grants_no_resurrection
 BEFORE UPDATE OF state ON mail_manager_grants WHEN OLD.state='revoked' AND NEW.state<>'revoked'
 BEGIN SELECT RAISE(ABORT,'mail_manager_constraint'); END;
--- Referência opaca emitida pelo Hub e presa a uma caixa; attachment_id vazio = a mensagem.
+-- Referência opaca emitida pelo Hub, presa a uma caixa e com o tipo explícito.
 CREATE TABLE IF NOT EXISTS mail_manager_refs(
     handle TEXT PRIMARY KEY NOT NULL,
     mailbox_id TEXT NOT NULL REFERENCES mail_manager_mailboxes(id),
-    message_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('message','attachment')),
+    message_id TEXT NOT NULL CHECK(message_id<>''),
     attachment_id TEXT NOT NULL,
-    UNIQUE(mailbox_id,message_id,attachment_id)
+    CHECK((kind='message' AND attachment_id='') OR (kind='attachment' AND attachment_id<>'')),
+    UNIQUE(mailbox_id,kind,message_id,attachment_id)
 ) STRICT;
 -- Recibo por participante e chave de operação: 'pending' foi reservado antes do efeito,
 -- 'done' guarda o resultado. Repetir a chave nunca repete o efeito.

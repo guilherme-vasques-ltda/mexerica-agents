@@ -38,6 +38,8 @@ struct Fake {
     trashed: Vec<(String, String)>,
     fail: Option<BackendError>,
     reads: Cell<usize>,
+    /// Roda dentro do envio, depois da reserva: simula outra conexão agindo no meio.
+    during_send: Option<Box<dyn FnMut()>>,
 }
 
 impl Fake {
@@ -106,6 +108,9 @@ impl MailBackend for Fake {
     }
 
     fn send(&mut self, mailbox: &str, mail: &Outgoing) -> Result<String, BackendError> {
+        if let Some(during) = self.during_send.as_mut() {
+            during();
+        }
         if let Some(error) = self.fail.take() {
             if error == BackendError::Unknown {
                 self.sent.push((mailbox.to_owned(), mail.clone()));
@@ -136,6 +141,7 @@ fn id(who: &Participant) -> &str {
 
 struct Fx {
     store: Store,
+    path: std::path::PathBuf,
     a: String,
     b: String,
     mail: Fake,
@@ -146,7 +152,8 @@ struct Fx {
 fn fixture() -> Fx {
     let root = std::env::temp_dir().join(format!("mail-manager-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = Store::open(&root.join("hub.db")).unwrap();
+    let path = root.join("hub.db");
+    let store = Store::open(&path).unwrap();
     for n in 1..=9 {
         let who = bot(n);
         let cfg = serde_json::from_value(json!({"id": id(&who), "name": format!("Bot {n}")})).unwrap();
@@ -177,7 +184,7 @@ fn fixture() -> Fx {
             }],
         );
     }
-    Fx { store, a, b, mail }
+    Fx { store, path, a, b, mail }
 }
 
 fn grant(c: &Connection, mailbox: &str, who: &Participant, permissions: &[Permission]) {
@@ -356,6 +363,10 @@ fn remetente_tem_que_ser_da_caixa_autorizada() {
         let got = send_new(&c, &mut fx.mail, &x, &fx.a, &new_mail(Some(from), "x"), &format!("k-{from}"));
         assert_eq!(got, Err(MailError::SenderNotAllowed), "{from}");
     }
+    // Sem Enviar, a resposta é a mesma para caixa existente e inexistente: nada é revelado.
+    for mailbox in [fx.b.as_str(), "caixa-inexistente"] {
+        assert_eq!(send_new(&c, &mut fx.mail, &x, mailbox, &new_mail(None, "x"), "k-sem"), Err(MailError::Denied));
+    }
     // Caixa B só tem Ver: o remetente certo não supre a falta de Enviar.
     let got = send_new(&c, &mut fx.mail, &x, &fx.b, &new_mail(Some(OPERACOES), "x"), "k-b");
     assert_eq!(got, Err(MailError::Denied));
@@ -489,10 +500,12 @@ fn bot_apagado_fora_do_pessoal_ou_plugin_desligado_nao_age() {
     let mut fx = fixture();
     let c = fx.store.db.locked();
     // Bot de outro Space e canal (grupo) gravados direto: nenhum dos dois recebe concessão.
-    let (other_space, group) = (bot(20), bot(21));
-    for (who, extra) in
-        [(&other_space, json!({"spaceId": "00000000-0000-4000-8000-0000000000aa"})), (&group, json!({"kind": "group"}))]
-    {
+    let (other_space, group, malformed) = (bot(20), bot(21), bot(22));
+    for (who, extra) in [
+        (&other_space, json!({"spaceId": "00000000-0000-4000-8000-0000000000aa"})),
+        (&group, json!({"kind": "group"})),
+        (&malformed, json!({"kind": null})),
+    ] {
         let mut config = json!({"id": id(who), "name": "Fora", "spaceId": crate::fork::spaces::PERSONAL});
         config.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         c.execute("INSERT INTO bots(id,rev,deleted,config) VALUES(?1,1,0,?2)", [id(who), &config.to_string()]).unwrap();
@@ -555,4 +568,70 @@ fn migracao_repete_sem_efeito_e_nao_toca_o_registro_legado() {
         )
         .unwrap();
     assert_eq!(legacy, 0);
+}
+
+#[test]
+fn repetir_resposta_nao_rele_o_original_e_falha_certa_libera_a_chave() {
+    let mut fx = fixture();
+    let c = fx.store.db.locked();
+    let z = bot(5);
+    grant(&c, &fx.a, &z, &[Permission::View, Permission::Send]);
+    let a_ref = message_ref(&c, &fx.a, SEGREDO_A);
+    let saved = fx.mail.boxes.remove(&fx.a).unwrap();
+    // Original sumiu antes do envio: nada foi enviado e a mesma chave pode tentar de novo.
+    assert_eq!(reply(&c, &mut fx.mail, &z, &a_ref, None, "Resolvido", "k1"), Err(MailError::NotFound));
+    fx.mail.boxes.insert(fx.a.clone(), saved);
+    let first = reply(&c, &mut fx.mail, &z, &a_ref, None, "Resolvido", "k1").unwrap();
+    // Depois de concluída, a repetição devolve o recibo mesmo sem o original no provedor.
+    fx.mail.boxes.remove(&fx.a);
+    let reads = fx.mail.reads.get();
+    assert_eq!(reply(&c, &mut fx.mail, &z, &a_ref, None, "Resolvido", "k1").unwrap(), first);
+    assert_eq!(fx.mail.reads.get(), reads);
+    assert_eq!(fx.mail.sent.len(), 1);
+    assert_eq!(reply(&c, &mut fx.mail, &z, &a_ref, None, "Outro texto", "k1"), Err(MailError::KeyReused));
+}
+
+#[test]
+fn reserva_e_o_ponto_de_autorizacao_e_revogar_depois_vale_para_a_seguinte() {
+    let mut fx = fixture();
+    let x = bot(1);
+    {
+        let c = fx.store.db.locked();
+        grant(&c, &fx.a, &x, &[Permission::Send]);
+    }
+    let (path, mailbox, bot_id) = (fx.path.clone(), fx.a.clone(), id(&x).to_owned());
+    fx.mail.during_send = Some(Box::new(move || {
+        let other = Connection::open(&path).unwrap();
+        other
+            .execute(
+                "UPDATE mail_manager_grants SET state='revoked' WHERE mailbox_id=?1 AND participant_id=?2 AND state='active'",
+                [&mailbox, &bot_id],
+            )
+            .unwrap();
+    }));
+    let c = fx.store.db.locked();
+    let sent = send_new(&c, &mut fx.mail, &x, &fx.a, &new_mail(None, "Já reservada"), "k1").unwrap();
+    assert!(matches!(sent, Outcome::Sent { .. }));
+    assert_eq!(fx.mail.sent.len(), 1);
+    fx.mail.during_send = None;
+    assert_eq!(send_new(&c, &mut fx.mail, &x, &fx.a, &new_mail(None, "Seguinte"), "k2"), Err(MailError::Denied));
+    assert_eq!(send_new(&c, &mut fx.mail, &x, &fx.a, &new_mail(None, "Já reservada"), "k1"), Err(MailError::Denied));
+    assert_eq!(fx.mail.sent.len(), 1);
+}
+
+#[test]
+fn referencia_tem_tipo_explicito_e_id_vazio_e_recusado() {
+    let fx = fixture();
+    let c = fx.store.db.locked();
+    assert_eq!(store::mint(&c, &fx.a, "", None), Err(MailError::Invalid));
+    assert_eq!(store::mint(&c, &fx.a, "msg-1", Some("")), Err(MailError::Invalid));
+    let message = store::mint(&c, &fx.a, "msg-1", None).unwrap();
+    let file = store::mint(&c, &fx.a, "msg-1", Some("anexo-1")).unwrap();
+    assert_ne!(message, file);
+    assert_eq!(store::mint(&c, &fx.a, "msg-1", None).unwrap(), message);
+    let bad = c.execute(
+        "INSERT INTO mail_manager_refs(handle,mailbox_id,kind,message_id,attachment_id) VALUES('h',?1,'attachment','m','')",
+        [&fx.a],
+    );
+    assert!(bad.is_err());
 }
