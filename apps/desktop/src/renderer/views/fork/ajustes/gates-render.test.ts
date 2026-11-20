@@ -180,3 +180,24 @@ test('Ajustes Gerais não consulta a ilha indisponível e segue consultando quan
     } finally { efeitos = undefined }
   }
 })
+
+test('Open: Dock, início de sessão e ícone não aparecem nem consultam a ponte', () => {
+  let consultas = 0
+  const app = {
+    showInDock: async () => { consultas++; return true },
+    launchAtLogin: async () => { consultas++; return false },
+  }
+  aparelho('desktop', { appScheme: 'mexerica-open', app })
+  efeitos = []
+  try {
+    const geral = renderiza(m.GeneralSettings)
+    for (const efeito of efeitos) efeito()
+    assert.equal(consultas, 0)
+    assert.ok(!geral.includes(pt['ajustes.geral.dock']!))
+    assert.ok(!geral.includes(pt['ajustes.geral.aoIniciar']!))
+    assert.ok(!geral.includes(pt['ajustes.geral.sistema']!))
+    const direto = renderiza(m.SettingsView, { page: 'app-icon', aba: null, onPage: nada, onAba: nada })
+    assert.ok(!direto.includes(pt['aparencia.icone.pagina']!))
+    assert.match(direto, /<h2[^>]*>Geral<\/h2>/)
+  } finally { efeitos = undefined }
+})

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { Children, Fragment, isValidElement, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { radioArrowTarget, radioTabStop } from '../lib/radio-group'
 import { Icon } from './Icon'

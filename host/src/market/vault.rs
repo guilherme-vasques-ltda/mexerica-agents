@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Encrypted records backed by the operating system credential store. The database
 //! contains ciphertext only; its random master key lives in Keychain/Secret Service.
 //! Modificado pela DONNA Bot em 2026-11-03: selagem/abertura fora de DB e política

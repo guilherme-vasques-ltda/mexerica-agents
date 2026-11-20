@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Subscription usage limits, read locally on the host — no extra login.
 //!
 //! Claude: asks the installed `claude` binary (`claude -p /usage`, a local

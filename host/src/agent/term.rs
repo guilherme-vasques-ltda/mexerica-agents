@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Setup terminals: installing an agent's CLI or signing in to it runs in a
 //! real PTY on this computer, streamed to the client that started it. The
 //! host picks the command (from `backends::HARNESSES`); clients only type.

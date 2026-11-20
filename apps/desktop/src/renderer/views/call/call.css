@@ -1,3 +1,4 @@
+/* Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md. */
 .call {
   /* This floating control overlaps the title bar's native window-drag region. */
   -webkit-app-region: no-drag;

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! File copies run outside the actor; publication still belongs to its original turn.
 use super::Actor;
 use crate::chat::files::{self, Snapshot};

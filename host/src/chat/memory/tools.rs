@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The built-in `memory` MCP server: the bot's own memory tools, and search over its chat history.
 
 use super::dates::ymd;

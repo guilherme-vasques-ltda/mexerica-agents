@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { privateDirectory, openPrivateFile, writePrivateFile } from '../src/shared/fork-private-files.ts'
 import { mexericaHome } from '../src/shared/fork-data-home.ts'
 import { envAlias } from '../src/shared/env-alias.ts'

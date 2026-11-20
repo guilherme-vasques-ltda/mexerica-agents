@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! HTTP API: `POST /api/<method>` commands + `GET /events` SSE for this computer's own
 //! apps and helpers (loopback + `Authorization: Bearer <token>`), and `GET /channel`, the
 //! direct end-to-end encrypted channel phones use (see `channel`).

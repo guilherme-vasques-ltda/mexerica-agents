@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useState, type ReactNode } from 'react'
 import { isGroup, type Bot } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'

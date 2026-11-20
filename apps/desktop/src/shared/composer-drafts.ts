@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { validOrigin, type OriginDraft, type OriginKind } from './guard-hub.ts'
 import { editOrigin, type EditRange } from './composer-segments.ts'
 import { registrarEstadoEmMemoria } from './estado-so-em-memoria.ts'

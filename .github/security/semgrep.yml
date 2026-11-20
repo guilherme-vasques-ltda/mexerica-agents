@@ -1,0 +1,35 @@
+rules:
+  - id: rust-tls-sem-validacao
+    languages: [rust]
+    severity: WARNING
+    message: Validação TLS desativada; conferir se o destino pode ser controlado.
+    pattern: $BUILDER.danger_accept_invalid_certs(true)
+  - id: rust-shell
+    languages: [rust]
+    severity: WARNING
+    message: Shell explícito; conferir a origem dos argumentos.
+    pattern-either:
+      - pattern: Command::new("sh").arg("-c")
+      - pattern: Command::new("bash").arg("-c")
+      - pattern: std::process::Command::new("sh").arg("-c")
+      - pattern: std::process::Command::new("bash").arg("-c")
+  - id: typescript-eval
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: Execução de texto como código; conferir a origem da entrada.
+    pattern: eval(...)
+  - id: typescript-shell
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: Execução por shell; preferir argumentos separados quando a entrada não for confiável.
+    pattern: child_process.exec(...)
+  - id: typescript-tls-sem-validacao
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: Validação TLS desativada.
+    pattern: '{rejectUnauthorized: false, ...}'
+  - id: segredo-chave-privada
+    languages: [generic]
+    severity: WARNING
+    message: Possível chave privada; validar sem publicar seu conteúdo.
+    pattern-regex: '-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'

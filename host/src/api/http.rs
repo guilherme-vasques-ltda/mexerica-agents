@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! HTTP routes: bearer-token checks for this computer's apps, SSE streams, the channel
 //! upgrade, OAuth callbacks and local routine webhooks.
 

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { memo, type ReactNode } from 'react'
 import { decideNavigation } from '../../../shared/navigation-policy'
 import { parseMarkdown, type Block } from './markdown-blocks.ts'

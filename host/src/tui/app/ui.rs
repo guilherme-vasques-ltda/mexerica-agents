@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The screen's state: panes, overlays and their forms, and where clicks land.
 
 use ratatui::layout::Rect;

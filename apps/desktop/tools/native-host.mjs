@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // Builds the host the app bundles for the same environment as the app: node tools/native-host.mjs
 // dev|main compiles it in as CODYNC_ENV. Built on every package so a host made for another
 // environment is never shipped. macOS: build/native/donnabot-host (universal; Donnabot Dev: this Mac's

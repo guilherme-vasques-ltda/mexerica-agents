@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Admission, capacity and the wait graph for bot requests.
 
 use crate::LockExt;

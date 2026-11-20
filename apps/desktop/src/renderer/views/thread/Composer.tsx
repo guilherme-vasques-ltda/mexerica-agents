@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { originDevice, originReport, type OriginKind } from '@shared/guard-hub'
 import type { EditRange } from '@shared/composer-segments'
 import { draftKey } from '@shared/composer-drafts'

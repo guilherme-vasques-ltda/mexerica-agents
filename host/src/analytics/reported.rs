@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! `track`: the app-level events the desktop app and terminal UI report. Only the catalog's
 //! events and values get through (docs/reference/analytics-events.md): the host reads the body
 //! into these types and builds the properties from them, so no client text can slip in.

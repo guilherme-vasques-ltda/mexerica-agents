@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Linux desktops the computer-use driver doesn't support (GNOME, KDE and other Wayland
 //! sessions): bots act through Codync Screen's portal input on screenshot pixels instead.
 

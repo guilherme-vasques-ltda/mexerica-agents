@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A bot changes its own name or instructions (its description) when the user asks it to, with the `chat`
 //! server's `set_name` and `set_instructions`. The change is the same as one made in the bot's settings,
 //! and a notice in its chat shows it.

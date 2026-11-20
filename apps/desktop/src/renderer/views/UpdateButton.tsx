@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useEffect, useState } from 'react'
 import type { UpdateState } from '@shared/ipc'
 import { updateAction } from '@shared/update-action'

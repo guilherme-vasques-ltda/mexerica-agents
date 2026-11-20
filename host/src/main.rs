@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! `donnabot-host` (pacote codync-host): runs coding-agent bots over ACP and serves the Codync apps.
 
 mod agent;

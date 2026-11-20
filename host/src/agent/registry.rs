@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The official ACP agent registry (<https://agentclientprotocol.com/registry>):
 //! ~40 coding agents with a known-good way to launch each over ACP — an npx or
 //! uvx package, or a per-platform binary archive we download on first use.

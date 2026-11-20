@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain } from 'electron'

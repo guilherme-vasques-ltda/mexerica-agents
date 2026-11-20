@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Build identity. Development and production must never own the same service or data.
 //!
 //! Donnabot: os recursos locais são do Donnabot (`app.donnabot.*`, `~/.donnabot*`, portas 194xx)

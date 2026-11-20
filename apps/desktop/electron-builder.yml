@@ -1,3 +1,4 @@
+# Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 # Packaging for macOS (DMG + zip for updates), Linux (AppImage, deb, tar.gz) and Windows (NSIS).
 # CI puts the native pieces in place first (see .github/workflows/release-desktop.yml):
 #   build/native/donnabot-host      the host for this platform (macOS: universal)
@@ -28,6 +29,24 @@ extraResources:
   # MX-9: o ícone real do pacote em resources/, para o main restaurar o padrão depois de uma escolha (e a bandeja no Windows).
   - from: resources/icon.png
     to: icon.png
+  # Avisos de licença e de modificação (Apache-2.0, MIT, OFL, BSD) que acompanham cada instalador, em resources/avisos/.
+  - from: ../../LICENSE
+    to: avisos/LICENSE
+  - from: ../../NOTICE
+    to: avisos/NOTICE
+  - from: ../../THIRD_PARTY.md
+    to: avisos/THIRD_PARTY.md
+  - from: ../../TRADEMARK.md
+    to: avisos/TRADEMARK.md
+  - from: ../../MODIFICACOES.md
+    to: avisos/MODIFICACOES.md
+  - from: ../../MODIFICACOES-ARQUIVOS.md
+    to: avisos/MODIFICACOES-ARQUIVOS.md
+  - from: ../../packaging/avisos
+    to: avisos/terceiros
+  - from: src/renderer/assets/fonts
+    to: avisos/fontes
+    filter: ['OFL-*.txt']
 protocols:
   - name: Mexerica
     schemes: [donnabot, app.donnabot.mac]
@@ -83,12 +102,19 @@ linux:
   category: Development
   icon: resources/icon.png
   executableName: donnabot
+  # Campos do .deb: sem eles o fpm usaria o autor do projeto de origem como mantenedor.
+  maintainer: Mexerica <support@mexerica.app>
+  vendor: Mexerica
   synopsis: Your coding agents as teammates
   target: [AppImage, deb, tar.gz]
   artifactName: donnabot-linux-${arch}.${ext}
   desktop:
     entry:
       StartupWMClass: Donnabot
+
+deb:
+  # Os padrões do electron-builder mais o ALSA, sem o qual o Electron não abre num Ubuntu sem áudio instalado.
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libasound2]
 
 win:
   icon: resources/icon.png

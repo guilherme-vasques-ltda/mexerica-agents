@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Remote screen: the phone views and controls this computer over WebRTC, and
 //! bots operate it through the built-in `computer` MCP server (`mcp.rs`, `computer.rs`).
 //!

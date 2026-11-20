@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Dreaming: between turns a model reads the latest conversations and proposes changes; deterministic rules
 //! decide which survive. It only adds and archives (never rewrites or deletes), each change cites the user's
 //! own words, and every run is logged and can be undone.
