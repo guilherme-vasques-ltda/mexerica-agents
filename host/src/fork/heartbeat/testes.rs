@@ -307,7 +307,7 @@ fn marcador_enorme_vira_resumo_de_tamanho_fixo() {
 fn campos_diferentes_nunca_dao_o_mesmo_resumo() {
     use super::avaliar::resumir;
     assert_ne!(resumir(&["ab", "c"]), resumir(&["a", "bc"]));
-    assert_ne!(resumir(&["a b", "c"]), resumir(&["a", "b c"]));
+    assert_ne!(resumir(&["a\u{0}b", "c"]), resumir(&["a", "b\u{0}c"]));
     assert_ne!(resumir(&["a", "b"]), resumir(&["ab"]));
 }
 
