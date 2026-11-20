@@ -87,5 +87,6 @@ Os testes unitários rodam com `cargo test fork::browser`. Os testes com Chromiu
 `openssl` e `MEXERICA_TEST_CHROMIUM_FLAGS=--ignore-certificate-errors`:
 
 ```sh
+cargo build --bin donnabot-host
 cargo test --bin donnabot-host fork::browser -- --ignored --test-threads=1
 ```

@@ -108,15 +108,18 @@ async fn sessao_pertence_a_autoridade_que_abriu_e_so_ela_reaproveita() -> Result
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 /// Raiz curta: o caminho do socket do proxy precisa caber nos 108 bytes de um endereço Unix para o teste conectar.
 fn short_root() -> PathBuf {
     PathBuf::from("/tmp").join(format!("mxs-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]))
 }
 
+#[cfg(target_os = "linux")]
 async fn aceita_conexao(socket: &Path) -> bool {
     tokio::net::UnixStream::connect(socket).await.is_ok()
 }
 
+#[cfg(target_os = "linux")]
 async fn deixa_de_aceitar(socket: &Path) -> bool {
     for _ in 0..200 {
         if !aceita_conexao(socket).await {
@@ -127,6 +130,7 @@ async fn deixa_de_aceitar(socket: &Path) -> bool {
     false
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn revogacao_corta_proxy_e_controle_sem_esperar_o_arranque_de_outra_instancia() -> Result<()> {
     let root = short_root();
@@ -150,6 +154,10 @@ async fn revogacao_corta_proxy_e_controle_sem_esperar_o_arranque_de_outra_instan
             0,
             "idempotente: a já cortada não conta e b, ainda em arranque, não está registrada"
         );
+        assert!(
+            deixa_de_aceitar(&socket).await,
+            "o proxy revogado continuou aceitando conexões enquanto o arranque de b seguia preso"
+        );
         release.notify_one();
     };
     let (started_b, ()) = tokio::join!(starting, revoking);
@@ -169,7 +177,7 @@ async fn revogacao_corta_proxy_e_controle_sem_esperar_o_arranque_de_outra_instan
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn falha_ao_parar_ou_apagar_perfil_nao_mantem_o_proxy_e_a_limpeza_roda_depois() -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -224,7 +232,7 @@ async fn falha_ao_parar_ou_apagar_perfil_nao_mantem_o_proxy_e_a_limpeza_roda_dep
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn sessao_sem_canal_de_controle_e_retirada_e_o_processo_morre_sem_nova_chamada() -> Result<()> {
     struct Real {

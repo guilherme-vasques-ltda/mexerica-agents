@@ -110,12 +110,19 @@ pub(crate) fn is_page_tool(name: &str) -> bool {
 }
 
 /// Versão 3 informa o que o bot pode fazer; qualquer outra negociação segue recebendo a recusa da versão 2.
-fn answer(hub: &Hub, bot: &str, space: &str, preference: BrowserPreference, request: &Negotiation) -> Value {
+fn answer(
+    hub: &Hub,
+    bot: &str,
+    space: &str,
+    preference: BrowserPreference,
+    request: &Negotiation,
+    availability: Result<(), &'static str>,
+) -> Value {
     let (Some(3), Some(target)) = (request.version, request.target) else {
         return unavailable(hub, bot, space, preference, request);
     };
     let (status, reason) = match preference {
-        BrowserPreference::Integrated => match hub.browser.availability() {
+        BrowserPreference::Integrated => match availability {
             Ok(()) => ("available", "ready"),
             Err(reason) => ("unavailable", reason),
         },
@@ -163,6 +170,8 @@ pub(crate) fn status(hub: &Hub, caller: &Caller, body: Value) -> Result<Value> {
     let original = Autoridade::capturar(hub, caller)?;
     let request: Read =
         serde_json::from_value(body).map_err(|_| anyhow!("invalid_field: consulta de navegador inválida"))?;
+    // A sonda de contenção pode lançar um processo: roda antes de segurar o banco do Hub.
+    let availability = if request.version == Some(3) { hub.browser.availability() } else { Ok(()) };
     original.with_db(hub, None, |db| {
         crate::fork::spaces::require_space(db, &request.space_id)?;
         let row = Store::bot_on(db, &request.bot_id)?.ok_or_else(|| anyhow!("browser_scope_unavailable"))?;
@@ -176,6 +185,7 @@ pub(crate) fn status(hub: &Hub, caller: &Caller, body: Value) -> Result<Value> {
             &row.config.space_id,
             row.config.browser_preference,
             &Negotiation { version: request.version, target: request.target },
+            availability,
         ))
     })
 }
@@ -242,7 +252,8 @@ pub(crate) fn call(
         serde_json::from_value(args.clone()).map_err(|_| anyhow!("invalid_field: consulta de navegador inválida"))?;
     let execution = execution.ok_or_else(|| anyhow!("browser_context_required: origem original ausente"))?;
     let (cfg, generation) = authorize(hub, bot, execution, context)?;
-    let answer = answer(hub, bot, &cfg.space_id, cfg.browser_preference, &request);
+    let availability = if request.version == Some(3) { hub.browser.availability() } else { Ok(()) };
+    let answer = answer(hub, bot, &cfg.space_id, cfg.browser_preference, &request, availability);
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "browser_response");
     reverify(hub, bot, execution, context, generation)?;
