@@ -116,7 +116,8 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 	// e, de volta com o resultado, ele o repete (`ferramenta respondeu: ...`); `/cadeia <N> <nome> <json>`
 	// chama a ferramenta N vezes em sequência (um turno longo) antes de responder;
 	// `/historico` responde com todos os textos de usuário que o modelo recebeu;
-	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu.
+	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu;
+	// `/pedido` responde `pedido: <json>` com os textos de sistema e de usuário que o provedor recebeu.
 	let chained = 0;
 	const echo: FauxResponseFactory = async (context) => {
 		faux.appendResponses([echo]);
@@ -137,6 +138,10 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 		if (text.includes("/contexto")) {
 			const kept = context.messages.filter((m) => m.role !== "system");
 			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))}`);
+		}
+		if (text.includes("/pedido")) {
+			const sistema = context.messages.filter((m) => m.role === "system").map(userText);
+			return fauxAssistantMessage(`pedido: ${JSON.stringify({ sistema, usuario: users.map(userText) })}`);
 		}
 		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
 		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);
