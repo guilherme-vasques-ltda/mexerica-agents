@@ -35,7 +35,7 @@ export const textos: Traducao<typeof fonte> = {
   "rotinas.central.mais": "+{n} أخرى",
   "rotinas.central.abrirDia": "فتح {dia}",
   "rotinas.central.sobDemanda": "عند الطلب",
-  "rotinas.central.sobDemandaDica": "تعمل عبر Webhook أو حدث، دون موعد محدد.",
+  "rotinas.central.sobDemandaDica": "بلا موعد محدد. لا تعمل Webhook والأحداث تلقائيًا بعد: استخدم «تشغيل الآن» أو اطلب من الروبوت.",
   "rotinas.central.frequentes": "متكررة",
   "rotinas.central.frequentesDica": "تعمل أكثر من مرتين في الساعة نفسها؛ لا تتسع لها الشبكة.",
   "rotinas.central.nomeCitado": "«{nome}»",

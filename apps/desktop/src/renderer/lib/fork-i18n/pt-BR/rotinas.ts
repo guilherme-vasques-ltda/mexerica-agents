@@ -32,7 +32,7 @@ export const textos = {
   "rotinas.central.mais": "+{n} mais",
   "rotinas.central.abrirDia": "Abrir {dia}",
   "rotinas.central.sobDemanda": "Sob demanda",
-  "rotinas.central.sobDemandaDica": "Rodam por webhook ou evento, sem horário.",
+  "rotinas.central.sobDemandaDica": "Sem horário. Webhook e evento ainda não disparam sozinhos: use «Rodar agora» ou peça ao bot.",
   "rotinas.central.frequentes": "Frequentes",
   "rotinas.central.frequentesDica": "Rodam mais de 2 vezes numa mesma hora; não cabem na grade.",
   "rotinas.central.nomeCitado": "“{nome}”",

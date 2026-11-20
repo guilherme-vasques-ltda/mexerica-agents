@@ -35,7 +35,7 @@ export const textos: Traducao<typeof fonte> = {
   "rotinas.central.mais": "+{n} de plus",
   "rotinas.central.abrirDia": "Ouvrir {dia}",
   "rotinas.central.sobDemanda": "À la demande",
-  "rotinas.central.sobDemandaDica": "S'exécutent par webhook ou événement, sans horaire.",
+  "rotinas.central.sobDemandaDica": "Sans horaire. Les webhooks et événements ne se déclenchent pas encore seuls : utilisez « Exécuter maintenant » ou demandez au bot.",
   "rotinas.central.frequentes": "Fréquentes",
   "rotinas.central.frequentesDica": "S'exécutent plus de 2 fois dans la même heure ; elles ne tiennent pas dans la grille.",
   "rotinas.central.nomeCitado": "« {nome} »",
