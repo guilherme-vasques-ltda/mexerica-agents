@@ -43,7 +43,7 @@ test('o AppIcon.icon e o icon.png do builder existem em 1024 px', () => {
   assert.deepEqual(png(file(desktop, prod.linux.icon)), [1024, 1024])
 })
 
-test('os favicons do renderer e do pacote oficial existem nos tamanhos declarados', { skip: 'arte própria fora do recorte (pendência de direitos); reativar ao liberar a arte' }, () => {
+test('os favicons do renderer e do pacote oficial existem nos tamanhos declarados', () => {
   const html = file(desktop, 'src/renderer/index.html').toString('utf8')
   for (const [, sizes, href] of html.matchAll(/<link rel="icon" type="image\/png" sizes="(\d+)x\d+" href="\.\/([^"]+)"/g)) {
     assert.deepEqual(png(file(new URL('src/renderer/', desktop), href)), [Number(sizes), Number(sizes)], href)
@@ -73,7 +73,7 @@ const PACOTE: Record<string, string> = {
   '06-web-e-redes/icone-app-web-512.png': 'a3a8e77bb01af8120a32498dd355b0107e5953a7d13e6d199ccfd8b9f9faa83f',
   '05-icone-app/macos/icone-macos-128.png': 'f000a79e557e5b5721a1ef6140ba81e0c11be7c73f5aca6f35e9812c670e3bfc',
 }
-test('D464: ícones do app e do pacote oficial têm os mesmos bytes do pacote oficial (brand/assets/logo)', { skip: 'arte própria fora do recorte (pendência de direitos); reativar ao liberar a arte' }, () => {
+test('D464: ícones do app e do pacote oficial têm os mesmos bytes do pacote oficial (brand/assets/logo)', () => {
   const sha = (data: Buffer) => createHash('sha256').update(data).digest('hex')
   const pares: [string, string][] = [
     ['05-icone-app/macos/mexerica.icns', 'apps/desktop/resources/brand/Donnabot.icns'],

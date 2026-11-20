@@ -1,12 +1,5 @@
 /* Tela central "Rotinas" (D85). Só tokens do tema (styles/theme.css): claro e escuro, acento da
-   marca (D80). `--bot` é a cor do avatar do bot (parts.tsx).
-
-   Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc),
-   src/components/RoutineCalendarPage.tsx (as classes Tailwind de `CalendarGrid` e
-   `CalendarEventCard`: grade de horas, coluna do fuso, linha da hora atual, cartões na cor do bot)
-   e src/components/routines/MiniMonth.tsx / CalendarSidebar.tsx. Alterado para o Donnabot:
-   reescrito em CSS com os tokens do tema, visão Mês, faixa "Sob demanda", barra lateral que
-   recolhe e a grade num cartão. Copyright 2026 Milind Soni and OpenMausBot contributors. */
+   marca (D80). `--bot` é a cor do avatar do bot (parts.tsx). */
 
 .rc-page {
   --rc-panel-edge: 0 0 0 1px var(--line);

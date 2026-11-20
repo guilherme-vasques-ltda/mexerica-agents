@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { parseProject, parseProjectSnapshot, parseProjectsList, parseTask, type ProjectSummary, type ProjectTask } from './fork-projetos.ts'
 import {
   EMPTY_META, boardColumns, declaredBy, mergeMeta, entriesOf, listGroups, mentionQuery, mentionsIn, metaBody, metaProblem, NO_FILTER, parseComments,
-  followCurrentPhase, joinNames, parseCommentAnswer, parseTaskMeta, parseTasksPage, pendingDraft, phasesFromText, pickProject, progressOf, fromLocalInput, sheetMeta, syncSheetMeta, toLocalInput,
+  followCurrentPhase, joinNames, parseCommentAnswer, parseSessions, parseTaskMeta, parseTasksPage, pendingDraft, phasesFromText, pickProject, progressOf, fromLocalInput, sheetMeta, syncSheetMeta, toLocalInput,
   type TaskBundle,
 } from './fork-tarefas.ts'
 
@@ -15,6 +15,19 @@ const Q = '22222222-2222-4222-8222-222222222222'
 const project = (id: string, name: string, state = 'active'): ProjectSummary => ({ id, name, objective: '', coordinatorBotId: null, state: state as 'active', revision: 3, createdAt: 1, updatedAt: 2 })
 const task = (id: string, extra: Partial<ProjectTask> = {}): ProjectTask => ({ id, parentTaskId: null, assigneeBotId: null, title: id, description: '', acceptance: '', evidence: '', state: 'backlog', ...extra })
 const bundle = (p: ProjectSummary, tasks: ProjectTask[], meta: TaskBundle['meta'] = {}): TaskBundle => ({ project: p, tasks, meta, history: null, declarations: {} })
+
+test('atenção na ficha só com fato tipado da mesma tarefa, projeto, Space e Hub', () => {
+  const where = { ...o, projectId: P, taskId: 't1' }
+  const base = { version: 1, ...where, sessions: [] }
+  assert.equal(parseSessions({ ...base, attention: 'owner' }, where).attention, 'owner')
+  for (const attention of [undefined, null, true, 'coordinator', 'unknown']) {
+    assert.equal(parseSessions({ ...base, attention }, where).attention, null)
+  }
+  for (const key of ['hubId', 'spaceId', 'projectId', 'taskId'] as const) {
+    assert.throws(() => parseSessions({ ...base, [key]: 'outro', attention: 'owner' }, where), new RegExp(key))
+  }
+  assert.throws(() => parseSessions({ ...base, version: 2, attention: 'owner' }, where), /version/)
+})
 
 test('capacidades e projeto padrão: só com anúncio, e só se o Projeto está na lista', () => {
   const base = { version: 1, ...o, projects: [project(P, 'Geral')], bots: [] }

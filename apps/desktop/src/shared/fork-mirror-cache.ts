@@ -62,8 +62,9 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 53: Marketplace — o `marketCatalogo` passa a mandar `skills[]` das fichas como `{id, titulo, resumo}` (antes vinha
 // vazia). O catálogo é lido sob demanda e não entra no mirror; o bump só segue a regra de campo novo do Hub. App antigo
 // ignora a lista; o novo não mostra a seção quando ela não vem.
-// Schema 54: GUI-192 — o aviso de motor mudo traz `Entry.data.motorMudo` ({estado, segundos}); cache anterior não tem o campo.
-export const MIRROR_SCHEMA = 54
+// Schema 54: `donnaTaskSessions` inclui a confirmação de atenção da tarefa; o dado só existe na leitura atual.
+// Schema 55: GUI-192 — o aviso de motor mudo traz `Entry.data.motorMudo` ({estado, segundos}); cache anterior não tem o campo.
+export const MIRROR_SCHEMA = 55
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
