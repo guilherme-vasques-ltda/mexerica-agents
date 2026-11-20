@@ -614,9 +614,17 @@ pub(crate) fn editor_runtime(store: &Store, bot: &BotConfig) -> Result<Value> {
     Ok(registry.account(id).map_or_else(|_|json!({"engineAccountId":id,"state":"unavailable"}), |account| json!({"engineAccountId":id,"state":account.dto().state,"revision":account.managed.as_ref().map_or(1,|m|m.revision)})))
 }
 
+/// Adaptadores ACP próprios de cada motor; o Grok Build fala ACP sozinho (`grok agent stdio`) e não tem adaptador.
+pub(crate) fn adapter_names(backend: &str) -> &'static [&'static str] {
+    match backend {
+        "codex" => &["codex-acp"],
+        "grok" => &[],
+        _ => &["claude-agent-acp", "claude-code-acp"],
+    }
+}
+
 pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<String>> {
-    let names: &[&str] = if backend == "codex" { &["codex-acp"] } else { &["claude-agent-acp", "claude-code-acp"] };
-    for name in names {
+    for name in adapter_names(backend) {
         if let Some(path) = crate::agent::backends::which(name) {
             return Ok(vec![crate::shell::quote(&path.to_string_lossy())]);
         }

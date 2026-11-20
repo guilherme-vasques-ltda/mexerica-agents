@@ -522,3 +522,10 @@ async fn remover_apaga_o_login_antes_e_a_pasta_depois_e_recusa_com_bot_vinculado
     assert!(!home.exists(), "o login e a pasta saíram");
     assert!(Registry::load(&f.hub.store).unwrap().account(account["id"].as_str().unwrap()).is_err());
 }
+
+#[test]
+fn o_grok_nao_usa_adaptador_de_outro_motor() {
+    assert_eq!(managed::adapter_names("grok"), [] as [&str; 0]);
+    assert_eq!(managed::adapter_names("codex"), ["codex-acp"]);
+    assert!(managed::adapter_names("claude").contains(&"claude-agent-acp"));
+}

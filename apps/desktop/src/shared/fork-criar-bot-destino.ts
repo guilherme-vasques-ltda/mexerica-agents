@@ -23,7 +23,7 @@ export function corpoDaCriacao<T extends object>(base: T, destino: Destino, pers
 export const noSpace = (destino: Destino, personalId: string | null) => !!destino.spaceId && destino.spaceId !== personalId
 
 /** Os motores com contas de IA do Hub (D164). */
-export const motorComConta = (backend: string): backend is 'codex' | 'claude' | 'grok' => backend === 'codex' || backend === 'claude' || backend === 'grok'
+export const motorComConta = (backend: string): backend is 'codex' | 'claude' => backend === 'codex' || backend === 'claude'
 
 /** Se a tela mostra a escolha de conta: só com a capacidade `engine.accounts` respondida pelo Hub. */
 export type EscolhaDeConta = 'escolher' | 'sem-posse' | 'motor-sem-conta'
