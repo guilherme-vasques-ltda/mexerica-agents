@@ -231,3 +231,25 @@ async fn autoridade_revogada_depois_das_preparacoes_nao_envia_a_navegacao() {
         }
     }
 }
+
+#[tokio::test]
+async fn abrir_e_ler_concorrentes_na_mesma_aba_nao_se_intercalam() {
+    let (cdp, log) = start(page("https://8.8.8.8/", "T", "texto"));
+    let (first, second, read) = tokio::join!(
+        open(&cdp, "S1", "https://8.8.8.8/a", || true),
+        open(&cdp, "S1", "https://8.8.8.8/b", || true),
+        read(&cdp, "S1")
+    );
+    assert!(first.is_ok() && second.is_ok() && read.is_ok(), "{first:?} {second:?} {read:?}");
+    let open_steps = [
+        "Page.enable",
+        "Page.navigate",
+        "Page.getFrameTree",
+        "Page.createIsolatedWorld",
+        "Runtime.evaluate",
+        "Page.getFrameTree",
+    ];
+    let read_steps = ["Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate", "Page.getFrameTree"];
+    let expected: Vec<&str> = open_steps.iter().chain(&open_steps).chain(&read_steps).copied().collect();
+    assert_eq!(methods(&log), expected, "uma operação só começa depois de a anterior terminar");
+}

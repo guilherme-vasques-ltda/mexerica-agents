@@ -22,8 +22,9 @@ recusado, e nada que a página devolve volta como argumento):
 `unsupported_platform`, `preference_computer`, `preference_off`) e as ferramentas oferecidas.
 Quando responde `available`, o vínculo de execução daquele bot fica **negociado**: só então
 `browser_open` e `browser_read` aparecem no catálogo e são aceitos. Sem negociação, a chamada falha
-com `browser_negotiation_required`. Clientes que usam a versão 2 continuam recebendo a recusa de
-sempre. Preferência `computer` ou `off` recusa abrir, sem cair em outro navegador.
+com `browser_negotiation_required`. Como o catálogo só muda depois da negociação, o motor ou cliente precisa listar as ferramentas de novo
+depois de `browser_status` v3 para vê-las; quem lista só no início da sessão não as enxerga. Clientes
+que usam a versão 2 continuam recebendo a recusa de sempre. Preferência `computer` ou `off` recusa abrir, sem cair em outro navegador.
 
 ## Sessão
 
@@ -31,7 +32,9 @@ Uma por Hub, Space e bot, criada na primeira abertura: Chromium do sistema (cami
 `MEXERICA_CHROMIUM` e `MEXERICA_XVFB`, ou os padrões), Xvfb próprio e perfil temporário vazio. No
 máximo 3 sessões ao mesmo tempo e 5 minutos de ociosidade. Só Linux; em outros sistemas o status é
 `unsupported_platform`. O Hub não abre o navegador sem namespaces de usuário, rede, montagem e PID,
-como usuário root ou se o usuário do Hub estiver nos grupos `docker`, `adm` ou `systemd-journal`.
+como usuário root ou se o usuário do Hub estiver nos grupos `docker`, `adm` ou `systemd-journal`. Os
+grupos são resolvidos pelo sistema (arquivo local e serviços de nomes); se a lista ou algum nome não puder
+ser lido, o navegador fica indisponível (`containment_unavailable`) em vez de liberar.
 
 O Chromium roda com um proxy por sessão que só aceita HTTPS na porta 443 e recusa destinos
 internos ou respostas DNS mistas. O processo enxerga um `/proc` novo e não vê os dados do Hub. O
@@ -41,6 +44,8 @@ token do proxy chega só pelo canal de controle, nunca por argumento ou ambiente
 
 - A sessão pertence ao vínculo de execução que a abriu. Outro vínculo (por exemplo, depois da
   troca de conta ou de motor) nunca reaproveita a aba nem os cookies: abre uma sessão nova e vazia.
+- Abrir e ler na mesma aba são serializados por instância: uma operação só começa depois de a anterior
+  terminar, então uma abertura nunca devolve a página de outra chamada.
 - Ler e fechar conferem a identidade da instância antes de devolver o resultado, então uma
   instância substituta nunca é atingida.
 - A autoridade é conferida de novo depois de toda espera assíncrona e imediatamente antes de

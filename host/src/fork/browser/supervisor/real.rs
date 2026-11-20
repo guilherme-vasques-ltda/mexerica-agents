@@ -46,23 +46,59 @@ fn high_fd(fd: i32) -> Result<OwnedFd> {
 
 const PRIVILEGED_GROUPS: [&str; 3] = ["docker", "adm", "systemd-journal"];
 
+/// Nome do grupo pelo mesmo caminho do sistema (arquivo local e serviços de nomes). Ausência comprovada é
+/// `Ok(None)`; qualquer outra falha é erro, nunca permissão.
+fn group_name(gid: libc::gid_t) -> Result<Option<String>> {
+    let mut buffer = vec![0u8; 1024];
+    loop {
+        // SAFETY: group é um struct C que getgrgid_r inicializa por completo quando devolve 0 com resultado.
+        let mut group: libc::group = unsafe { std::mem::zeroed() };
+        let mut found: *mut libc::group = std::ptr::null_mut();
+        // SAFETY: group, buffer e found são exclusivos desta chamada e buffer tem o tamanho informado.
+        let code =
+            unsafe { libc::getgrgid_r(gid, &raw mut group, buffer.as_mut_ptr().cast(), buffer.len(), &raw mut found) };
+        match code {
+            0 if found.is_null() => return Ok(None),
+            0 => {
+                // SAFETY: com resultado não nulo, gr_name aponta para texto C terminado em NUL dentro de buffer.
+                let name = unsafe { std::ffi::CStr::from_ptr(group.gr_name) };
+                return Ok(Some(name.to_string_lossy().into_owned()));
+            }
+            libc::ERANGE if buffer.len() < (1 << 20) => buffer.resize(buffer.len() * 2, 0),
+            libc::ENOENT | libc::ESRCH | libc::EBADF | libc::EPERM => return Ok(None),
+            code => return Err(std::io::Error::from_raw_os_error(code).into()),
+        }
+    }
+}
+
+/// Grupo privilegiado entre os `gids`, ou erro se algum não puder ser resolvido.
+fn privileged_among(
+    gids: &[libc::gid_t],
+    resolve: impl Fn(libc::gid_t) -> Result<Option<String>>,
+) -> Result<Option<&'static str>> {
+    for gid in gids {
+        let name = resolve(*gid).with_context(|| format!("grupo {gid} não pôde ser resolvido"))?;
+        if let Some(found) = PRIVILEGED_GROUPS.iter().find(|privileged| Some(**privileged) == name.as_deref()) {
+            return Ok(Some(*found));
+        }
+    }
+    Ok(None)
+}
+
 /// O Chromium herda os grupos suplementares do Hub: recusa quem daria acesso ao Docker ou ao journal.
-pub(in crate::fork::browser) fn privileged_group() -> Option<&'static str> {
+/// Se a lista de grupos ou algum nome não puder ser lido, a verificação falha (erro), nunca libera.
+pub(in crate::fork::browser) fn privileged_group() -> Result<Option<&'static str>> {
     // SAFETY: getgroups com tamanho 0 só devolve a contagem.
     let count = unsafe { libc::getgroups(0, std::ptr::null_mut()) };
-    let mut gids = vec![0 as libc::gid_t; usize::try_from(count).unwrap_or(0)];
+    let size = usize::try_from(count).map_err(|_| std::io::Error::last_os_error()).context("getgroups falhou")?;
+    let mut gids = vec![0 as libc::gid_t; size];
     // SAFETY: gids tem exatamente count posições graváveis.
     let filled = unsafe { libc::getgroups(count, gids.as_mut_ptr()) };
-    gids.truncate(usize::try_from(filled).unwrap_or(0));
+    let filled = usize::try_from(filled).map_err(|_| std::io::Error::last_os_error()).context("getgroups falhou")?;
+    gids.truncate(filled);
     // SAFETY: getegid não recebe ponteiros.
     gids.push(unsafe { libc::getegid() });
-    let groups = std::fs::read_to_string("/etc/group").unwrap_or_default();
-    groups.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        let name = fields.next()?;
-        let gid: libc::gid_t = fields.nth(1)?.parse().ok()?;
-        PRIVILEGED_GROUPS.iter().find(|privileged| **privileged == name && gids.contains(&gid)).copied()
-    })
+    privileged_among(&gids, group_name)
 }
 
 fn parent_death(parent: u32) -> std::io::Result<()> {
@@ -159,7 +195,9 @@ impl Launcher for RealLauncher {
     fn start(&mut self, profile: &Path, proxy_socket: &Path) -> Result<Processes> {
         // SAFETY: geteuid não recebe ponteiros nem altera memória.
         ensure!(unsafe { libc::geteuid() } != 0, "Chromium indisponível: sandbox não funciona como root");
-        if let Some(group) = privileged_group() {
+        if let Some(group) = privileged_group()
+            .context("contenção indisponível: não foi possível verificar os grupos do usuário do Hub")?
+        {
             bail!(
                 "contenção indisponível: o usuário do Hub pertence ao grupo {group}, que o navegador herdaria; a sessão do navegador não foi aberta"
             );
@@ -291,6 +329,24 @@ impl Launcher for RealLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grupo_privilegiado_recusa_e_falha_na_verificacao_nao_libera() -> Result<()> {
+        let names = |gid: libc::gid_t| -> Result<Option<String>> {
+            Ok(match gid {
+                1 => Some("usuarios".into()),
+                2 => Some("docker".into()),
+                3 => None,
+                _ => anyhow::bail!("serviço de nomes indisponível"),
+            })
+        };
+        assert_eq!(privileged_among(&[1, 3], names)?, None, "controle positivo: grupos comuns e sem nome passam");
+        assert_eq!(privileged_among(&[1, 2], names)?, Some("docker"));
+        assert!(privileged_among(&[1, 9], names).is_err(), "grupo que não pôde ser resolvido não pode liberar");
+        assert!(privileged_among(&[9, 2], names).is_err(), "a falha vale mesmo antes de um grupo privilegiado");
+        group_name(0)?;
+        Ok(())
+    }
 
     #[test]
     fn filho_nao_herda_segredo() -> Result<()> {

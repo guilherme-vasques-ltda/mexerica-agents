@@ -146,6 +146,7 @@ async fn read_frame<W: AsyncWrite + Unpin + Send + 'static>(
 }
 
 pub(super) async fn read<W: AsyncWrite + Unpin + Send + 'static>(cdp: &Cdp<W>, session: &str) -> Result<Value> {
+    let _page = cdp.lock_page().await;
     let raw = read_frame(cdp, session, true).await?;
     Ok(envelope("ok", None, &raw, true))
 }
@@ -156,6 +157,7 @@ pub(super) async fn open<W: AsyncWrite + Unpin + Send + 'static>(
     raw_url: &str,
     authorized: impl Fn() -> bool,
 ) -> Result<Value> {
+    let _page = cdp.lock_page().await;
     ensure!(authorized(), "browser_authority_revoked: a autoridade da sessão foi revogada");
     cdp.command_session(session, "Page.enable", json!({}), CALL_TIMEOUT).await?;
     let mut events = cdp.events()?;

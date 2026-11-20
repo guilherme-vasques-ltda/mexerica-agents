@@ -94,8 +94,10 @@ fn probe() -> Result<(), &'static str> {
     if unsafe { libc::geteuid() } == 0 {
         return Err("running_as_root");
     }
-    if super::supervisor::real::privileged_group().is_some() {
-        return Err("privileged_group");
+    match super::supervisor::real::privileged_group() {
+        Ok(None) => {}
+        Ok(Some(_)) => return Err("privileged_group"),
+        Err(_) => return Err("containment_unavailable"),
     }
     super::bridge::ensure_namespaces_available().map_err(|_| "containment_unavailable")
 }
@@ -261,6 +263,9 @@ impl State {
             *guard = Some(supervisor);
         }
         let supervisor = guard.as_mut().context("supervisor ausente")?;
+        if !valid() {
+            anyhow::bail!("browser_authority_revoked: a autoridade da sessão foi revogada");
+        }
         supervisor.launcher_mut().extra_hidden = hidden;
         let instance = supervisor.ensure(scope.clone(), owner, Instant::now()).await?;
         if !valid() {
@@ -516,6 +521,22 @@ mod tests {
                 "sobrou processo da abertura revogada"
             );
         }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requer Chromium, Xvfb, namespaces e internet (Linux)"]
+    async fn abertura_vencida_nao_derruba_a_sessao_do_vinculo_sucessor() -> Result<()> {
+        let state = State::default();
+        let live = Arc::new(AtomicBool::new(true));
+        let s = scope("bot");
+        let (_, current) = done(state.open(&s, "novo", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let revoked = Arc::new(AtomicBool::new(false));
+        let outcome = state.open(&s, "antigo", Vec::new(), "https://example.com/", valid(&revoked)).await;
+        outcome.result.expect_err("a abertura sem autoridade não pode seguir");
+        assert_eq!(instance_of(&state, &s).await, Some(current), "a sessão do vínculo vigente foi derrubada");
+        assert!(state.read(&s, "novo", valid(&live)).await.result.is_ok());
+        assert!(state.close(&s, "novo").await?.is_some());
         Ok(())
     }
 

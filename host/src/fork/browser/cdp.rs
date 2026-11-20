@@ -58,6 +58,8 @@ struct Shared<W> {
     auth: Mutex<Option<mpsc::Sender<Value>>>,
     closed: std::sync::atomic::AtomicBool,
     page: Mutex<Option<String>>,
+    /// Uma operação de página por vez: abrir e ler não se intercalam na mesma aba.
+    operation: AsyncMutex<()>,
 }
 
 pub(crate) struct Cdp<W> {
@@ -80,10 +82,16 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
             auth: Mutex::new(None),
             closed: false.into(),
             page: Mutex::new(None),
+            operation: AsyncMutex::new(()),
         });
         let client = Self { shared };
         tokio::spawn(client.clone().read_loop(reader));
         client
+    }
+
+    /// Serializa as operações de página desta instância: quem segura a guarda é o único a navegar ou ler a aba.
+    pub(crate) async fn lock_page(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.shared.operation.lock().await
     }
 
     pub(crate) fn events(&self) -> Result<broadcast::Receiver<Value>> {
