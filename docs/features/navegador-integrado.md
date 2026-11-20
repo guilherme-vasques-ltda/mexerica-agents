@@ -77,7 +77,7 @@ instrução nem autorização.
 - Nenhum texto da página vira comando CDP, URL ou argumento. O transporte CDP só aceita uma lista
   de métodos permitidos, e a navegação só existe com um destino validado.
 - Redirecionamento ou subrecurso fora de HTTPS falha antes de sair do navegador. Toda janela nova
-  só é retomada (o \`window.open\` do opener espera por isso) com o filtro de rede ligado e a execução de
+  só é retomada (o `window.open` do opener espera por isso) com o filtro de rede ligado e a execução de
   scripts da janela desligada, e é fechada logo em seguida. Se qualquer um dos dois falhar, ela nunca é
   retomada e a sessão cai. O fechamento só vale com confirmação explícita, e sem ela a sessão inteira
   (Chromium, proxy e perfil) é descartada. Download é negado.
