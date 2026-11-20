@@ -40,6 +40,8 @@ pub(crate) fn check_method(method: &str) -> Result<()> {
     if Environment::is_open()
         && (method.starts_with("donnaWorkplace")
             || crate::fork::engine_setup::methods(method)
+            || crate::fork::whatsapp::api::handles(method)
+            || crate::fork::whatsapp::leitura::handles(method)
             || matches!(
                 method,
                 "installHostUpdate"
@@ -73,6 +75,7 @@ pub(crate) fn check_method(method: &str) -> Result<()> {
                     | "setAgentEnv"
                     | "engineGoKeySave"
                     | "donnaEngineAccounts"
+                    | "listDirs"
                     | "send"
                     | "retrySubscription"
                     | "queuedSendNow"
@@ -101,7 +104,7 @@ mod unix {
     use std::fs;
     use std::future::IntoFuture;
     use std::io;
-    use std::net::{Ipv4Addr, SocketAddr};
+    use std::net::Ipv4Addr;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
     use std::path::{Path, PathBuf};
@@ -294,7 +297,7 @@ mod unix {
             () = &mut stop => return Ok(()),
             result = TcpListener::bind((Ipv4Addr::LOCALHOST, port)) => result.context("binding the dedicated Mexerica Open port")?,
         };
-        let (unix, _socket) = SocketFile::bind(profile.socket.clone())?;
+        let (unix, socket_file) = SocketFile::bind(profile.socket.clone())?;
         let _lock = profile.reserve_data()?;
         crate::configure_logging();
         let hub = tokio::select! {
@@ -303,17 +306,17 @@ mod unix {
             result = initialize(&profile, port) => result?,
         };
         let socket_router = crate::api::open_socket_router(hub.clone()).layer(Extension(ConnectInfo(SOCKET_PEER)));
-        let tcp_router = crate::api::router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
         let result = tokio::select! {
             biased;
             () = &mut stop => Ok(()),
             result = axum::serve(unix, socket_router).into_future() => result,
-            result = axum::serve(tcp, tcp_router).into_future() => result,
+            result = axum::serve(tcp, axum::Router::new()).into_future() => result,
         };
         hub.shutdown().await;
         crate::agent::acp::stopped().await;
+        drop(socket_file);
         result?;
-        Ok(())
+        std::process::exit(0)
     }
 
     async fn initialize(profile: &Profile, port: u16) -> Result<Arc<Hub>> {

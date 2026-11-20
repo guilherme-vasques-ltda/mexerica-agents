@@ -406,7 +406,7 @@ pub(super) async fn pair(hub: &Arc<Hub>, bot: &str, method: Method, phone: Optio
     state.wait_idle(bot).await;
     wacli::ensure_dir(&dir)?;
     let mut child = wacli::auth(&binary, &dir, method, phone.as_deref())
-        .spawn()
+        .and_then(|mut command| command.spawn())
         .map_err(|_| anyhow::anyhow!("wacli_failed: não deu para abrir o wacli."))?;
     let stderr = child.stderr.take();
     let run = state.0.runs.fetch_add(1, Ordering::SeqCst);
@@ -704,7 +704,7 @@ async fn supervise(
         }
         let mut logged_out = false;
         let mut stopped = false;
-        if let Ok(mut child) = wacli::sync(&binary, &dir, hook.as_ref()).spawn() {
+        if let Ok(mut child) = wacli::sync(&binary, &dir, hook.as_ref()).and_then(|mut command| command.spawn()) {
             wacli::write_pid(&dir, child.id());
             set_link(Link::Starting);
             if let Some(stderr) = child.stderr.take() {

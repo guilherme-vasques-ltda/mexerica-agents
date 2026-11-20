@@ -179,7 +179,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     let mut view = dispatch(hub, caller, method, body).await?;
     // R7: com o plugin ligado, o Hub baixa o wacli oficial em segundo plano se faltar.
     let enabled = view["plugin"]["enabled"] == true;
-    let download = super::binario::follow(hub, enabled, method == "donnaWhatsappWacliRetry");
+    let download = super::binario::follow(hub, enabled, method == "donnaWhatsappWacliRetry")?;
     if let (Some(wacli), Value::Object(fields)) = (view["plugin"]["wacli"].as_object_mut(), download) {
         wacli.extend(fields);
     }

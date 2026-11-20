@@ -16,19 +16,24 @@ isso deixou um segundo processo sem janela no teste.
 A janela abre sem conta da Mexerica e inicia o Hub incluído no pacote. O Hub
 encerra com o app e não instala um serviço do macOS nem se conecta a um relay.
 Esta versão ainda não executa motores: a Open não usa contas, executores ou
-credenciais de outros perfis. O fluxo de criação de Space pela interface
+credenciais de outros perfis. WhatsApp e a seleção de pastas externas
+também ficam indisponíveis. O fluxo de criação de Space pela interface
 exige uma conta de motor, por isso termina na seleção da conta. O pacote
 leva o helper de fala, mas a janela não o executa nem pede microfone.
 
 O macOS identifica este pacote por `app.mexerica.open`; ele declara apenas o
-esquema `mexerica-open:`. O Hub escuta na porta 19524, apenas na interface
-local. A janela usa um socket Unix privado do processo que ela iniciou, sem
-se conectar pela porta TCP. O perfil da janela fica em
+esquema `mexerica-open:`. O Hub reserva a porta 19524 na interface local,
+sem expor a API por TCP. A janela usa um socket Unix privado do processo
+que ela iniciou. O perfil da janela fica em
 `~/Library/Application Support/Mexerica Open`; o Hub roda com uma pasta
 pessoal própria em `~/.mexerica-open/home`, sem importar configurações ou
 credenciais de outros apps. O cofre da Open reserva o serviço de Chaveiro
 `app.mexerica.open.credentials`, mas está desativado nesta versão. A janela
 não usa Safe Storage.
+
+Em ambiente de testes Unix sem o app aberto, use
+`cd host && CODYNC_ENV=open CARGO_PROFILE_DEV_DEBUG=0 cargo test --test open_hub`
+para testar o Hub isolado.
 
 Encerre pela janela ou com Command+Q. Em caso de saída forçada, o cliente
 pode recusar a reabertura se encontrar arquivos de trava antigos; não use

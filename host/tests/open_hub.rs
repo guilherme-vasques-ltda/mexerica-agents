@@ -122,6 +122,8 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let first = health(&session_client, &mut child).await;
     assert_eq!(first["environment"], "open");
     assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
+    let tcp = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap();
+    assert_eq!(tcp.get("http://127.0.0.1:19524/health").send().await.unwrap().status(), reqwest::StatusCode::NOT_FOUND);
     let endpoint = "http://localhost/api/hello";
     assert_eq!(session_client.post(endpoint).send().await.unwrap().status(), reqwest::StatusCode::UNAUTHORIZED);
     for path in ["/events", "/term/fixture"] {
@@ -134,6 +136,10 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert_eq!(fs::metadata(&token_path).unwrap().permissions().mode() & 0o777, 0o600);
     let credential = fs::read_to_string(&token_path).unwrap();
     assert!(session_client.post(endpoint).bearer_auth(&credential).send().await.unwrap().status().is_success());
+    assert_eq!(
+        tcp.post("http://127.0.0.1:19524/api/hello").bearer_auth(&credential).send().await.unwrap().status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
     let spaces = rpc(&session_client, &credential, "donnaSpaces", json!({"hubId": first["hostId"]})).await;
     let created = rpc(
         &session_client,
@@ -156,6 +162,10 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "installHostUpdate",
         "donnaEngineSetupStart",
         "credentialStatus",
+        "donnaWhatsappSave",
+        "donnaWhatsappPair",
+        "donnaWhatsappWacliRetry",
+        "listDirs",
     ] {
         assert_eq!(
             session_client
