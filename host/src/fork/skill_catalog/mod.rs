@@ -693,6 +693,18 @@ fn swap_in_steps(source: &Path, dest: &Path, mv: impl Fn(&Path, &Path) -> std::i
     Ok(())
 }
 
+/// Destino guardado em `.old-<uuid>-<destino>`; só devolve se o nome inteiro casar: prefixo, UUID de
+/// verdade, hífen separador e destino que passa na validação de nome de skill. O resto é ignorado.
+#[cfg(any(windows, test))]
+fn old_destination(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix(".old-")?;
+    let (id, dest) = (rest.get(..36)?, rest.get(37..)?);
+    (rest.as_bytes().get(36) == Some(&b'-')
+        && uuid::Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id)
+        && crate::fork::agent_skills::validate_name(dest, dest).is_ok())
+    .then_some(dest)
+}
+
 /// Limpa o que uma queda deixou, sob o lock do catálogo (nenhum escritor está em passo de troca ou de
 /// preparo): `.stage-*` é apagado; `.old-*` volta para o destino que o nome guarda quando esse destino
 /// não existe (era a única cópia) e só é apagado quando o destino já existe.
@@ -711,11 +723,8 @@ fn clean_orphans(root: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) 
             continue;
         }
         if old {
-            let dest = name.get(42..).filter(|target| !target.is_empty() && !target.starts_with('.'));
-            let Some(dest) = dest.map(|target| root.join(target)) else {
-                tracing::warn!("Pasta .old-* sem destino reconhecível no catálogo de habilidades; mantida");
-                continue;
-            };
+            let Some(dest) = old_destination(&name) else { continue };
+            let dest = root.join(dest);
             // Só apaga depois de ver o destino de fato: sem destino a cópia volta; erro de leitura a mantém.
             match fs::symlink_metadata(&dest) {
                 Ok(_) => {}

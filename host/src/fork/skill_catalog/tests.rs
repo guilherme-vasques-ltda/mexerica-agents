@@ -861,14 +861,42 @@ fn orphan_cleanup_removes_stale_directories_and_restores_the_only_copy() {
 }
 
 #[test]
-fn orphan_cleanup_keeps_old_directories_without_a_recognizable_destination() {
+fn orphan_cleanup_ignores_old_directories_with_a_malformed_name() {
     let _isolamento = TEST_ISOLATION.blocking_lock();
     let f = Fixture::new();
     private_dir(&f.0.skills_root).unwrap();
     let root = &f.0.skills_root;
-    fs::create_dir(root.join(".old-sem-destino")).unwrap();
+    let id = uuid::Uuid::new_v4();
+    let names = [
+        ".old-sem-destino".to_string(),
+        format!(".old-{}", "x".repeat(60)),
+        format!(".old-{}-lost-skill", id.to_string().to_uppercase()),
+        format!(".old-{id}_lost-skill"),
+        format!(".old-{id}-Lost-Skill"),
+        format!(".old-{id}--lost"),
+        format!(".old-{id}-lost--skill"),
+        format!(".old-{id}-.hidden"),
+        format!(".old-{id}-"),
+    ];
+    for name in &names {
+        fs::create_dir(root.join(name)).unwrap();
+    }
     clean_orphans(root, |a, b| fs::rename(a, b));
-    assert!(root.join(".old-sem-destino").exists());
+    for name in &names {
+        assert!(root.join(name).exists(), "{name} deveria ser ignorada");
+    }
+    assert_eq!(fs::read_dir(root).unwrap().count(), names.len());
+}
+
+#[test]
+fn old_destination_requires_the_exact_format() {
+    let id = uuid::Uuid::new_v4();
+    assert_eq!(old_destination(&format!(".old-{id}-find-skills")), Some("find-skills"));
+    assert_eq!(old_destination(&format!(".old-{id}-a")), Some("a"));
+    assert_eq!(old_destination(&format!("old-{id}-find-skills")), None);
+    assert_eq!(old_destination(&format!(".old-{}-find-skills", id.simple())), None);
+    assert_eq!(old_destination(&format!(".old-{id}-find/skills")), None);
+    assert_eq!(old_destination(&format!(".old-{id}-..")), None);
 }
 
 #[test]
