@@ -202,3 +202,19 @@ test('pedaços pequenos demais em quantidade quebram o canal; o limite de pedaç
   const emPedacos = normal.hub.sealPieces(Array.from(json, (byte) => Uint8Array.of(byte)))
   for (const f of emPedacos) normal.channel.receive(f)
 })
+
+test('a conferência final roda com a mensagem selada e antes do socket: se recusar nada sai e o contador não avança', async () => {
+  const { channel, frames, hub } = par(true)
+  let conferencias = 0
+  const recusada = await channel.call('browserStreamInput', { x: 1 }, 5000, () => (conferencias++, false))
+  assert.deepEqual(recusada, { kind: 'notSent', reason: 'notReady' })
+  assert.equal(conferencias, 1)
+  assert.equal(frames.length, 0, 'nenhum frame foi ao socket')
+
+  const aceita = channel.call('browserStreamInput', { x: 2 }, 5000, () => (conferencias++, frames.length === 0))
+  assert.equal(conferencias, 2)
+  assert.equal(frames.length, 1)
+  assert.equal(frames[0]!.c, 0, 'o contador não avançou com a recusa')
+  assert.deepEqual(hub.open(frames[0]!), { id: 2, m: 'browserStreamInput', b: { x: 2 } })
+  void aceita
+})

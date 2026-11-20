@@ -57,7 +57,7 @@ function montar() {
   }
 
   const recebidoPeloHub: Recebido[] = []
-  const hub: Record<string, (body: Record<string, any>) => ForkCloudCallResult> = {
+  const hub: Record<string, (body: Record<string, any>) => ForkCloudCallResult | Promise<ForkCloudCallResult>> = {
     browserStreamSubscribe: (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } }),
     browserStreamControl: () => ({ kind: 'ok', value: { epoch: 1 } }),
     browserStreamInput: (b) => ({ kind: 'ok', value: { accepted: true, sequence: b.sequence } }),
@@ -68,7 +68,12 @@ function montar() {
     framesNegotiated: true as boolean,
     getAttachment: () => ({ connectionId }),
     subscribeFrames: (s: NonNullable<typeof sink>) => { if (sink) return null; sink = s; return { id: 1, cancel() { sink = null } } },
-    call: async (method: string, body: Record<string, any>) => { recebidoPeloHub.push({ method, body }); return hub[method]!(body) },
+    // Como o canal real: a conferência final roda com a mensagem pronta, imediatamente antes de ela ir ao socket.
+    call: async (method: string, body: Record<string, any>, _timeout?: number, authorize?: () => boolean): Promise<ForkCloudCallResult> => {
+      if (authorize && !authorize()) return { kind: 'notSent', reason: 'notReady' }
+      recebidoPeloHub.push({ method, body })
+      return hub[method]!(body)
+    },
   }
 
   const { registerForkCloudService } = loadMainModule<typeof import('../main/fork-cloud/service.ts')>('fork-cloud/service', {
@@ -106,7 +111,7 @@ function montar() {
   const vistos: BrowserFrame[] = []
   sessao.subscribe({ onState: () => {}, onFrame: (f) => vistos.push(f) })
   return {
-    passa, atraso, sessao, ponte, hub, conexao, outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => navegacao.forEach((cb) => cb(detalhes)),
+    passa, atraso, sessao, ponte, hub, conexao, comandosNoHub: () => recebidoPeloHub.map((c) => c.method), outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => navegacao.forEach((cb) => cb(detalhes)),
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -241,12 +246,12 @@ test('quadro substituído na fila nunca foi despachado e não autoriza entrada, 
   assert.equal((await cita(r, { frameSequence: 4 })).kind, 'ok', 'controle: o 4 foi despachado')
 })
 
-test('a identidade do quadro é estrutural: sessão e alvo com quebra de linha não se confundem', async () => {
+test('quadro de outra sessão que a confirmada nunca autoriza entrada, mesmo com identificadores com quebra de linha', async () => {
   const r = await comPessoa()
   r.chega({ ...quadro(5), session: 'a\nb', target: 'c' })
   await settle()
   assert.equal((await cita(r, { session: 'a', target: 'b\nc', frameSequence: 5 })).kind, 'notSent', 'outro par de identificadores')
-  assert.equal((await cita(r, { session: 'a\nb', target: 'c', frameSequence: 5 })).kind, 'ok', 'controle: o par real')
+  assert.equal((await cita(r, { session: 'a\nb', target: 'c', frameSequence: 5 })).kind, 'notSent', 'o par real, mas de uma sessão que o Hub não confirmou')
 })
 
 test('consumidor de quadros já em uso é 409; capacidade não negociada é 501; conexão encerrada é 0', async () => {
@@ -304,4 +309,81 @@ test('o corpo da entrada que sai ao Hub é fechado: só os campos do contrato, c
   }
   assert.equal((await r.ponte.call('browserStreamInput', [entrada], 5000)).kind, 'notSent')
   assert.equal(r.entradasNoHub().length, 1)
+})
+
+test('janela sem assinatura de quadros nesta conexão, ou sem inscrição confirmada, não comanda o navegador', async () => {
+  const r = await comPessoa()
+  const antes = r.comandosNoHub().length
+  for (const metodo of ['browserStreamSubscribe', 'browserStreamControl', 'browserStreamTarget', 'browserStreamAck', 'browserStreamInput']) {
+    assert.equal((await r.outraJanela(metodo, { session: 's1', target: 'aba1' })).kind, 'notSent', metodo)
+  }
+  assert.equal(r.comandosNoHub().length, antes, 'nada da outra janela chegou ao Hub')
+
+  const sem = montar()
+  sem.ponte.subscribeFrames(() => {}, () => {})
+  for (const metodo of ['browserStreamControl', 'browserStreamTarget', 'browserStreamAck']) {
+    assert.equal((await sem.ponte.call(metodo, { controller: 'person', target: 'aba1' }, 5000)).kind, 'notSent', `${metodo} sem inscrição confirmada`)
+  }
+  assert.deepEqual(sem.comandosNoHub(), [], 'nada saiu ao Hub antes da confirmação')
+})
+
+test('durante a troca da inscrição, e depois de um resultado incerto, nenhum quadro autoriza e nenhum comando sai; só a confirmação reabre', async () => {
+  const r = await comPessoa()
+  const respostas: ((v: ForkCloudCallResult) => void)[] = []
+  r.hub.browserStreamSubscribe = () => new Promise((resolve) => respostas.push(resolve))
+  const inscrever = () => r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
+  const confirmada: ForkCloudCallResult = { kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } }
+
+  const a = inscrever()
+  await settle()
+  await r.quadro(2)
+  assert.equal((await cita(r, { frameSequence: 2 })).kind, 'notSent', 'durante a troca: quadro da inscrição anterior não autoriza')
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent', 'durante a troca: nenhum comando sai')
+  respostas[0]!(confirmada)
+  assert.equal((await a).kind, 'ok')
+  assert.equal((await cita(r, { frameSequence: 2 })).kind, 'notSent', 'o quadro que chegou antes da confirmação continua sem valer')
+  await r.quadro(3)
+  assert.equal((await cita(r, { frameSequence: 3 })).kind, 'ok', 'controle: quadro depois da confirmação vale')
+
+  const incerta = inscrever()
+  await settle()
+  respostas[1]!({ kind: 'unknown', reason: 'timeout' })
+  assert.equal((await incerta).kind, 'unknown')
+  await r.quadro(4)
+  assert.equal((await cita(r, { frameSequence: 4 })).kind, 'notSent', 'resultado incerto mantém o bloqueio')
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent')
+
+  const nova = inscrever()
+  await settle()
+  respostas[2]!(confirmada)
+  await nova
+  await r.quadro(5)
+  assert.equal((await cita(r, { frameSequence: 5 })).kind, 'ok', 'só uma confirmação nova reabre')
+})
+
+test('tentativa de inscrição antiga que termina depois de uma mais nova não derruba a prova da nova', async () => {
+  const r = await comPessoa()
+  const respostas: ((v: ForkCloudCallResult) => void)[] = []
+  r.hub.browserStreamSubscribe = () => new Promise((resolve) => respostas.push(resolve))
+  const inscrever = () => r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
+  const confirmada: ForkCloudCallResult = { kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } }
+  const velha = inscrever()
+  const nova = inscrever()
+  await settle()
+  respostas[1]!(confirmada)
+  await nova
+  await r.quadro(2)
+  assert.equal((await cita(r, { frameSequence: 2 })).kind, 'notSent', 'enquanto a tentativa antiga está em curso a troca não terminou: fail-closed')
+  respostas[0]!({ kind: 'unknown', reason: 'timeout' })
+  await velha
+  await r.quadro(3)
+  assert.equal((await cita(r, { frameSequence: 3 })).kind, 'ok', 'a tentativa antiga, incerta, não decide nada: o quadro seguinte vale')
+})
+
+test('recusa explícita do Hub na troca não derruba a inscrição anterior: ela segue valendo', async () => {
+  const r = await comPessoa()
+  r.hub.browserStreamSubscribe = () => ({ kind: 'err', status: 403, message: 'x' })
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'err')
+  await r.quadro(2)
+  assert.equal((await cita(r, { frameSequence: 2 })).kind, 'ok')
 })

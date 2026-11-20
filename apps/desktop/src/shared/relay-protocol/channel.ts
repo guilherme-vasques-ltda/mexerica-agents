@@ -179,26 +179,38 @@ export function createChannel(proto: Protocol) {
       }
     }
 
-    private send(inner: unknown): boolean {
+    /**
+     * Sela a mensagem inteira antes de entregar o primeiro pedaço ao socket. `authorize`, quando dado, é a última conferência:
+     * se recusar, nada sai e o contador de frames não avança (`'refused'`).
+     */
+    private send(inner: unknown, authorize?: () => boolean): boolean | 'refused' {
       const bytes = new TextEncoder().encode(JSON.stringify(inner))
       if (bytes.length > MAX_OUTGOING) return false
+      const frames: { t: 'f'; c: number; d: string }[] = []
       for (let at = 0; at === 0 || at < bytes.length; at += CHUNK) {
         const chunk = bytes.subarray(at, at + CHUNK)
         const final = at + CHUNK >= bytes.length
-        this.wire.send({ t: 'f', c: this.sendC, d: sealFrame(this.keys.d2h, this.sendC, final, chunk) })
+        const c = this.sendC + frames.length
+        frames.push({ t: 'f', c, d: sealFrame(this.keys.d2h, c, final, chunk) })
+      }
+      if (authorize && !authorize()) return 'refused'
+      for (const frame of frames) {
+        this.wire.send(frame)
         this.sendC += 1
       }
       return true
     }
 
-    call(method: string, body: unknown = null, timeoutMs = 20_000): Promise<CallResult> {
+    call(method: string, body: unknown = null, timeoutMs = 20_000, authorize?: () => boolean): Promise<CallResult> {
       if (this.closed) return Promise.resolve({ kind: 'notSent', reason: 'notReady' })
       // O Hub só inscreve e controla o navegador ao vivo com `browserFramesV1` aceito neste canal.
       if (method.startsWith('browserStream') && !this.framesNegotiated) return Promise.resolve({ kind: 'notSent', reason: 'notReady' })
       if (this.pending.size >= MAX_REQUESTS) return Promise.resolve({ kind: 'notSent', reason: 'busy' })
       const id = this.nextId++
       return new Promise<CallResult>((resolve) => {
-        if (!this.send({ id, m: method, b: body })) return resolve({ kind: 'notSent', reason: 'tooLarge' })
+        const sent = this.send({ id, m: method, b: body }, authorize)
+        if (sent === 'refused') return resolve({ kind: 'notSent', reason: 'notReady' })
+        if (!sent) return resolve({ kind: 'notSent', reason: 'tooLarge' })
         const timer = setTimeout(() => {
           if (!this.pending.delete(id)) return
           // O Hub descarta a resposta; uma mutação já iniciada não é desfeita (§6.5).

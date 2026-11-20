@@ -89,6 +89,9 @@ function directory(value: unknown): Directory[] | null {
   return entries
 }
 
+/** Chegada de um quadro do Hub neste processo: a hora (relógio monotônico) e a ordem entre chegadas e trocas de inscrição. */
+export interface FrameArrival { at: number; order: number }
+
 /** Identidade estrutural do quadro que um clique cita (sessão, aba, geração e sequência). */
 export interface InputFrame { session: string; target: string; targetGeneration: number; sequence: number }
 
@@ -107,27 +110,71 @@ function closedInput(body: unknown): { frame: InputFrame; body: Record<string, u
   return { frame: { session, target, targetGeneration, sequence: frameSequence }, body: { session, target, frameSequence, targetGeneration, sequence, epoch, controller, x, y, displayWidth, displayHeight } }
 }
 
+const subscribeSession = (body: unknown): string => (body && typeof body === 'object' && typeof (body as { session?: unknown }).session === 'string' ? (body as { session: string }).session : '')
+
+/** Confirmada só com a resposta cifrada `subscribed`, `frames` e a sessão pedida; recusa explícita (o Hub não trocou) ou incerta. */
+function subscribeOutcome(result: ForkCloudCallResult, body: unknown): 'confirmed' | 'refused' | 'uncertain' {
+  if (result.kind === 'err' || result.kind === 'notSent') return 'refused'
+  const session = subscribeSession(body)
+  const value = result.kind === 'ok' && result.value && typeof result.value === 'object' ? result.value as Record<string, unknown> : null
+  return value && session !== '' && value.subscribed === true && value.frames === true && value.session === session ? 'confirmed' : 'uncertain'
+}
+
+/**
+ * Estado da inscrição do navegador no Hub, por conexão (o Hub tem UMA por canal). Inscrever de novo reinicia geração e sequência:
+ * enquanto uma tentativa está em curso, ou depois de um resultado incerto, nenhuma janela comanda o navegador nem tem quadro
+ * elegível. Só a confirmação cifrada da tentativa mais recente (`subscribed`, `frames` e a sessão pedida) volta a abrir; uma
+ * recusa explícita significa que o Hub não trocou a inscrição, então a anterior segue valendo. Tentativa antiga que termina
+ * depois de uma mais nova não decide nada.
+ */
+class HubSwitch {
+  private pending = 0
+  private latest = 0
+  private blocked = false
+  /** Sessão da última inscrição confirmada nesta conexão. */
+  session: string | null = null
+  /** Ordem de chegada marcada na última troca: quadro com ordem menor veio de uma inscrição que já pode ter sido trocada. */
+  since = 0
+  get open() { return this.pending === 0 && !this.blocked && this.session !== null }
+  begin(mark: number): number {
+    this.pending += 1
+    this.since = mark
+    return ++this.latest
+  }
+  settle(attempt: number, outcome: 'confirmed' | 'refused' | 'uncertain', session: string, mark: number) {
+    this.pending = Math.max(0, this.pending - 1)
+    if (attempt !== this.latest) return
+    if (outcome === 'uncertain') this.blocked = true
+    if (outcome !== 'confirmed') return
+    this.session = session
+    this.blocked = false
+    this.since = mark
+  }
+}
+
 /**
  * Prova de entrega de UMA assinatura de quadros (uma janela, uma conexão): os quadros que saíram pelo IPC para ela e a hora da
- * CHEGADA de cada um (relógio monotônico deste processo). Só o que ainda está em 6 s autoriza entrada. A identidade é uma lista
- * estruturada, sem separador de texto. `reset` (troca da inscrição no Hub, que reinicia geração e sequência) descarta tudo e
- * ignora quadros que chegaram antes dele.
+ * CHEGADA de cada um (relógio monotônico deste processo). Só autoriza com a inscrição do Hub aberta, para quadro da sessão
+ * confirmada que chegou depois da última troca e há no máximo 6 s. A identidade é uma lista estruturada, sem separador de texto.
  */
 class DispatchedFrames {
-  private readonly arrivals = new Map<string, number>()
-  private since = Number.NEGATIVE_INFINITY
+  private readonly arrivals = new Map<string, FrameArrival>()
+  private readonly hub: HubSwitch
+  constructor(hub: HubSwitch) { this.hub = hub }
   private key(frame: InputFrame) { return JSON.stringify([frame.session, frame.target, frame.targetGeneration, frame.sequence]) }
-  record(frame: InputFrame, arrival: number) {
-    if (arrival < this.since) return
+  private valid(frame: InputFrame, arrival: FrameArrival) {
+    return this.hub.open && frame.session === this.hub.session && arrival.order > this.hub.since && performance.now() - arrival.at <= STALE_AFTER_MS
+  }
+  record(frame: InputFrame, arrival: FrameArrival) {
+    if (!this.valid(frame, arrival)) return
     this.arrivals.set(this.key(frame), arrival)
     // Inserção em ordem de despacho: o que passou do prazo está no começo e nunca mais autoriza nada.
-    for (const [key, at] of this.arrivals) { if (this.arrivals.size <= 16 && performance.now() - at <= STALE_AFTER_MS) break; this.arrivals.delete(key) }
+    for (const [key, { at }] of this.arrivals) { if (this.arrivals.size <= 16 && performance.now() - at <= STALE_AFTER_MS) break; this.arrivals.delete(key) }
   }
   fresh(frame: InputFrame): boolean {
     const arrival = this.arrivals.get(this.key(frame))
-    return arrival !== undefined && performance.now() - arrival <= STALE_AFTER_MS
+    return arrival !== undefined && this.valid(frame, arrival)
   }
-  reset() { this.arrivals.clear(); this.since = performance.now() }
 }
 
 export class ForkCloudService {
@@ -152,7 +199,8 @@ export class ForkCloudService {
   private foundBinding: string | null = null
   private state: ForkCloudState
   /** Quando cada quadro chegou do Hub (relógio monotônico deste processo). Só o recebimento: não autoriza entrada; quem autoriza é `DispatchedFrames`, por assinatura. */
-  private readonly frameArrivedAt = new WeakMap<BrowserFrame, number>()
+  private readonly frameArrivedAt = new WeakMap<BrowserFrame, FrameArrival>()
+  private arrivalOrder = 0
   private readonly epochChanged = () => { this.managedPaused=false; this.invalidate(); this.set('signedOut') }
 
   constructor(private readonly account: AccountService, private readonly factory: Factory, private readonly local: LocalSource, private readonly onChange: (value: ForkCloudResult) => void = () => {}) {
@@ -405,14 +453,15 @@ export class ForkCloudService {
     const connection = this.dataConnection(id)
     if (!connection) return { kind: 'notSent', reason: 'notReady' }
     let outgoing = body
+    let gate: (() => boolean) | undefined
     if (method === 'browserStreamInput') {
       const input = closedInput(body)
       if (!input || !authorizeInput) return { kind: 'notSent', reason: 'notReady' }
       outgoing = input.body
-      // Última conferência antes do envio: o corpo já é pequeno e fechado, então nada entre aqui e o socket leva tempo.
-      if (!authorizeInput(input.frame)) return { kind: 'notSent', reason: 'notReady' }
+      // Última conferência: com a mensagem já selada e imediatamente antes de ela ir ao socket (nada sai e o contador não avança se recusar).
+      gate = () => authorizeInput(input.frame)
     }
-    try { return await connection.call(method, outgoing, timeout) } catch { return { kind: 'unknown', reason: 'closed' } }
+    try { return await connection.call(method, outgoing, timeout, gate) } catch { return { kind: 'unknown', reason: 'closed' } }
   }
   subscribe(id: unknown, body: unknown, onEvent: (value: unknown) => void, onEnd: (error: { status: number; message: string } | null) => void): Subscription | null {
     const request = cloudSubscription(body)
@@ -425,10 +474,12 @@ export class ForkCloudService {
   subscribeFrames(id: unknown, sink: FrameSink): Subscription | null {
     const connection = this.dataConnection(id)
     if (!connection?.framesNegotiated || typeof id !== 'string') return null
-    return connection.subscribeFrames({ onFrame: (frame) => { this.frameArrivedAt.set(frame, performance.now()); sink.onFrame(frame) }, onEnd: sink.onEnd })
+    return connection.subscribeFrames({ onFrame: (frame) => { this.frameArrivedAt.set(frame, { at: performance.now(), order: this.markOrder() }); sink.onFrame(frame) }, onEnd: sink.onEnd })
   }
   /** Hora da chegada do quadro do Hub, no relógio deste processo; `undefined` para quadro que este serviço não recebeu. */
-  frameArrival(frame: BrowserFrame): number | undefined { return this.frameArrivedAt.get(frame) }
+  frameArrival(frame: BrowserFrame): FrameArrival | undefined { return this.frameArrivedAt.get(frame) }
+  /** Próximo número de ordem: chegadas de quadros e trocas de inscrição se ordenam por ele, sem depender da resolução do relógio. */
+  markOrder(): number { return ++this.arrivalOrder }
 
   async invoke(input: unknown, callerCurrent: () => boolean = () => true): Promise<ForkCloudResult> {
     const intent = intentOf(input)
@@ -647,6 +698,14 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   }
   type FrameEntry = { event: IpcMainEvent; connectionId: string; sub: Subscription | null; proof: DispatchedFrames; gate: ReturnType<typeof createFrameGate<BrowserFrame>>; cleanup: () => void }
   const frames = new Map<string, FrameEntry>()
+  const hubSwitches = new Map<string, HubSwitch>()
+  const hubSwitchOf = (connectionId: string) => {
+    let hub = hubSwitches.get(connectionId)
+    if (hub) return hub
+    if (hubSwitches.size >= 4) hubSwitches.delete(hubSwitches.keys().next().value as string)
+    hubSwitches.set(connectionId, hub = new HubSwitch())
+    return hub
+  }
   const transportError = (status: number, message: string) => ({ status, message })
   const endFrames = (id: string, error: { status: number; message: string } | null, notify: boolean) => {
     const entry = frames.get(id)
@@ -696,14 +755,23 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   ipcMain.handle('forkCloud:call', async (event, ...args: unknown[]) => {
     if (!live(event) || args.length !== 4) return { kind: 'notSent', reason: 'notReady' }
     const frame = event.senderFrame
-    // A prova do quadro é da assinatura desta janela, não da conexão: outra janela nunca usa o despacho feito à primeira.
-    const mine = () => [...frames.values()].filter(entry => entry.event.sender === event.sender && entry.event.senderFrame === frame && entry.connectionId === args[0])
-    // Inscrever no Hub reinicia geração e sequência: nenhuma prova anterior vale depois, nem a de quadros que chegaram durante a troca.
-    const resubscribing = args[1] === 'browserStreamSubscribe'
-    const dropProofs = () => { for (const entry of frames.values()) if (entry.connectionId === args[0]) entry.proof.reset() }
-    if (resubscribing) dropProofs()
-    const result = await service.call(args[0], args[1], args[2], args[3], args[1] === 'browserStreamInput' ? input => mine().some(entry => entry.proof.fresh(input)) : undefined)
-    if (resubscribing) dropProofs()
+    const [connectionId, method, body] = args
+    // O navegador do bot só é comandado por uma janela que tem a assinatura de quadros aberta nesta conexão (a prova do quadro
+    // e o comando são da assinatura da janela, não da conexão), e só com a inscrição do Hub confirmada para a sessão pedida.
+    const mine = () => [...frames.values()].filter(entry => entry.event.sender === event.sender && entry.event.senderFrame === frame && entry.connectionId === connectionId)
+    let hub: HubSwitch | null = null
+    if (typeof method === 'string' && method.startsWith('browserStream')) {
+      if (typeof connectionId !== 'string' || mine().length === 0) return { kind: 'notSent', reason: 'notReady' }
+      hub = hubSwitchOf(connectionId)
+      if (method !== 'browserStreamSubscribe' && !hub.open) return { kind: 'notSent', reason: 'notReady' }
+    }
+    const attempt = method === 'browserStreamSubscribe' && hub ? hub.begin(service.markOrder()) : 0
+    let result: ForkCloudCallResult = { kind: 'unknown', reason: 'closed' }
+    try {
+      result = await service.call(connectionId, method, body, args[3], method === 'browserStreamInput' ? input => mine().some(entry => entry.proof.fresh(input)) : undefined)
+    } finally {
+      if (method === 'browserStreamSubscribe' && hub) hub.settle(attempt, subscribeOutcome(result, body), subscribeSession(body), service.markOrder())
+    }
     if (!live(event) || event.senderFrame !== frame) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
   })
@@ -752,7 +820,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     event.sender.on('did-start-navigation', navigated); event.sender.once('destroyed', changed)
     const cleanup = () => { event.sender.removeListener('did-start-navigation', navigated); event.sender.removeListener('destroyed', changed) }
     const gate = createFrameGate<BrowserFrame>((value, waited) => { if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false); event.sender.send('forkCloud:frames:data', id, value, waited); const arrival = service.frameArrival(value); if (arrival !== undefined) entry.proof.record({ session: value.session, target: value.target, targetGeneration: value.targetGeneration, sequence: value.sequence }, arrival) })
-    const entry: FrameEntry = { event, connectionId, sub: null, proof: new DispatchedFrames(), gate, cleanup }
+    const entry: FrameEntry = { event, connectionId, sub: null, proof: new DispatchedFrames(hubSwitchOf(connectionId)), gate, cleanup }
     frames.set(mapKey, entry)
     entry.sub = service.subscribeFrames(connectionId, { onFrame: value => gate.offer(value), onEnd: error => endFrames(mapKey, error, true) })
     if (entry.sub) { if (live(event)) event.sender.send('forkCloud:frames:opened', id); return }

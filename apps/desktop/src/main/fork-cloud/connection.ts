@@ -124,10 +124,11 @@ export class Connection {
     else if (entries[0]?.access === 'none') this.publish('needsLink')
     else this.publish('hubOffline')
   }
-  async call(method: string, body: unknown, timeoutMs = 20_000): Promise<CallResult> {
+  /** `authorize` roda depois de a mensagem estar selada e imediatamente antes de ela ir ao socket; se recusar, nada sai. */
+  async call(method: string, body: unknown, timeoutMs = 20_000, authorize?: () => boolean): Promise<CallResult> {
     const channel = this.channel
     if (!this.current() || !channel) return { kind: 'notSent', reason: 'notReady' }
-    const result = await channel.call(method, body, timeoutMs)
+    const result = await channel.call(method, body, timeoutMs, authorize)
     if (!this.current() || this.channel !== channel) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
   }
