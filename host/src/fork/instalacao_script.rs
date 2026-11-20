@@ -8,9 +8,12 @@
 //! ponto de execução, então vale para toda entrada que abre o terminal (app, TUI, celular),
 //! sem depender de cada tela.
 //!
-//! Fail-closed: sem confirmação, nada é executado; resposta inválida, fim de entrada ou
-//! interrupção cancelam. O comando confirmado é o mesmo que o cabeçalho do terminal mostra,
-//! montado a partir da mesma string de `backends::Install`; nada é baixado antes do "s".
+//! Fail-closed: nada é executado sem uma linha confirmada — só o "s" da pergunta. Linha
+//! vazia, resposta fora da lista e fim de entrada cancelam com saída 130 (não é sucesso da
+//! instalação); um fim de entrada depois de texto parcial também cancela: o `read` pode
+//! falhar deixando o texto na variável, e o retorno dele é quem decide. Interrupção encerra
+//! o terminal sem executar nada. O comando confirmado é o mesmo que o cabeçalho do terminal
+//! mostra, montado a partir da mesma string de `backends::Install`; nada é baixado antes do "s".
 
 /// A pergunta e o aviso que o terminal mostra antes de qualquer download.
 #[cfg(unix)]
@@ -31,20 +34,29 @@ const CANCELADO_WINDOWS: &str = "Cancelado: nada foi executado.";
 pub fn linha_com_confirmacao(comando: &str) -> String {
     format!(
         "printf '{AVISO_UNIX}\\n{PERGUNTA_UNIX} '\n\
-         IFS= read -r mexerica_instalar\n\
-         case \"$mexerica_instalar\" in\n\
-         \x20   [sS]|[yY]) {comando} ;;\n\
-         \x20   *) printf '\\n{CANCELADO_UNIX}\\n'; exit 130 ;;\n\
-         esac"
+         if IFS= read -r mexerica_instalar; then\n\
+         \x20   case \"$mexerica_instalar\" in\n\
+         \x20       [sS]) {comando} ;;\n\
+         \x20       *) printf '\\n{CANCELADO_UNIX}\\n'; exit 130 ;;\n\
+         \x20   esac\n\
+         else\n\
+         \x20   printf '\\n{CANCELADO_UNIX}\\n'; exit 130\n\
+         fi"
     )
 }
 
-/// O mesmo no Windows: `choice` pede S/N e devolve 1 para S e 2 para N; a linha só executa
-/// `comando` quando a resposta é S. Qualquer outra saída de `choice` (inclusive erro) cai no
-/// `if errorlevel 2`, que cancela. A mensagem é ASCII porque o `cmd` não garante UTF-8.
+/// O mesmo no Windows: `choice` devolve no ERRORLEVEL a resposta, não um código de sucesso
+/// (1 = S, 2 = N, 255 = erro), então o `if` roda sempre (`&`, nunca `&&`). O comando só
+/// executa com ERRORLEVEL exatamente 1, o "S": N e erro caem no cancelamento com saída 130;
+/// interrupção (ERRORLEVEL 0, se o `cmd` seguir vivo) não cai em ramo nenhum e não executa
+/// nada. O comando vem sem parênteses em volta: os instaladores Windows chamam o PowerShell
+/// com parênteses dentro das aspas, e um bloco aberto seria fechado antes da hora. A
+/// mensagem é ASCII porque o `cmd` não garante UTF-8.
 #[cfg(windows)]
 pub fn linha_com_confirmacao(comando: &str) -> String {
-    format!("choice /c SN /m \"{PERGUNTA_WINDOWS}\" && if errorlevel 2 (echo {CANCELADO_WINDOWS}) else {comando}")
+    format!(
+        "choice /c SN /m \"{PERGUNTA_WINDOWS}\" & if errorlevel 2 (echo {CANCELADO_WINDOWS} & exit 130) else if errorlevel 1 {comando}"
+    )
 }
 
 #[cfg(test)]
@@ -85,25 +97,54 @@ mod tests {
         assert!(saida.contains("instalado-pelo-teste"));
     }
 
-    /// Ctrl-D sem nada digitado (fim de entrada) responde como não: nada executa.
-    /// Com "s" digitado o `read` já atribuiu a resposta, então o fim de entrada depois
-    /// vale como o "s" da pessoa — o teste cubre só o fim de entrada em linha vazia.
+    /// Fim de entrada em linha vazia cancela: nada executa.
     #[cfg(unix)]
     #[tokio::test]
     async fn fim_de_entrada_cancela() {
         let (codigo, saida) = rodar(&linha_com_confirmacao("printf 'nao-deve-aparecer'"), b"").await;
         assert_eq!(codigo, Some(130));
+        assert!(saida.contains(CANCELADO_UNIX));
         assert!(!saida.contains("nao-deve-aparecer"));
+    }
+
+    /// Fim de entrada depois de texto parcial NÃO autoriza: o `read` falha deixando o texto
+    /// na variável, e é o retorno dele quem decide, não o conteúdo.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fim_de_entrada_parcial_cancela() {
+        let (codigo, saida) = rodar(&linha_com_confirmacao("printf 'nao-deve-aparecer'"), b"s").await;
+        assert_eq!(codigo, Some(130), "s sem Enter não é linha confirmada");
+        assert!(saida.contains(CANCELADO_UNIX));
+        assert!(!saida.contains("nao-deve-aparecer"));
+    }
+
+    /// Linha vazia e resposta fora da lista cancelam do mesmo jeito.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn linha_vazia_e_resposta_fora_da_lista_cancelam() {
+        for resposta in ["\n", "x\n", "y\n", "sim e depois algo\n"] {
+            let (codigo, saida) =
+                rodar(&linha_com_confirmacao("printf 'nao-deve-aparecer'"), resposta.as_bytes()).await;
+            assert_eq!(codigo, Some(130), "resposta {resposta:?}");
+            assert!(saida.contains(CANCELADO_UNIX));
+            assert!(!saida.contains("nao-deve-aparecer"), "resposta {resposta:?}");
+        }
     }
 
     #[cfg(windows)]
     #[test]
-    fn wrapper_windows_cancela_sem_s() {
+    fn wrapper_windows_executa_somente_com_s() {
         let linha = linha_com_confirmacao("echo comando-do-fornecedor");
         assert!(linha.contains("choice /c SN"));
-        assert!(linha.contains("if errorlevel 2"));
-        // Sem S cai no cancelamento; o comando do fornecedor vem só depois do `else`.
-        let (_, depois) = linha.split_once(") else ").unwrap();
+        // `&` e nunca `&&`: a resposta de `choice` é o ERRORLEVEL (1 = S, 2 = N), não um código
+        // de sucesso; com `&&` o "S" (1) nunca executaria e a interrupção (0) executaria.
+        assert!(linha.contains("\" & if "), "{linha}");
+        assert!(!linha.contains("&&"));
+        // O comando vem só depois do `else if errorlevel 1`: ERRORLEVEL exatamente 1, o "S".
+        // N (2), interrupção (0) e erro (255) não caem em nenhum ramo e não executam nada.
+        let (_, depois) = linha.split_once("else if errorlevel 1 ").unwrap();
         assert_eq!(depois, "echo comando-do-fornecedor");
+        let antes = &linha[..linha.len() - depois.len()];
+        assert!(antes.contains("(echo Cancelado: nada foi executado.)"));
     }
 }

@@ -439,6 +439,54 @@ mod tests {
         assert_eq!(without_cursor_query(b"plain"), None);
     }
 
+    /// GUI-145: a confirmação do script do fornecedor no PTY de verdade — "s" executa o
+    /// comando embrulhado; resposta fora da lista cancela sem executar nada.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirmacao_no_pty_so_executa_com_linha_sim() {
+        let terms = Arc::new(Terms::default());
+        for (resposta, esperado, marcador) in [("s\n", 0i64, Some("pronto-executado")), ("x\n", 130, None)] {
+            // A saída do comando difere do literal do comando: o cabeçalho sempre mostra o
+            // comando inteiro, então o marcador só pode vir da execução de verdade.
+            let comando = "printf 'pronto-%s' executado";
+            let id = terms
+                .spawn(
+                    ("confirm".into(), Step::Login),
+                    None,
+                    &Linha {
+                        comando: crate::fork::instalacao_script::linha_com_confirmacao(comando),
+                        cabecalho: comando.to_owned(),
+                    },
+                    80,
+                    24,
+                )
+                .unwrap();
+            let term = terms.get(&id).unwrap();
+            let (_, mut rx) = term.attach();
+            terms.write(&id, &B64.encode(resposta)).unwrap();
+            let code = tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let v = rx.recv().await.unwrap();
+                    if v["type"] == "exit" {
+                        return v["code"].as_i64().unwrap();
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            let (head, _) = term.attach();
+            let text = String::from_utf8(
+                head.iter().flat_map(|v| B64.decode(v["data"].as_str().unwrap_or_default()).unwrap()).collect(),
+            )
+            .unwrap();
+            assert_eq!(code, esperado, "{text}");
+            assert_eq!(marcador.is_some_and(|m| text.contains(m)), marcador.is_some(), "{text}");
+            if marcador.is_none() {
+                assert!(text.contains("Cancelado: nada foi executado."), "{text}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn runs_in_a_pty_and_takes_input() {
         let terms = Arc::new(Terms::default());
