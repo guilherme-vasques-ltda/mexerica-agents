@@ -222,6 +222,15 @@ async fn fila_cheia_conta_so_mensagens_novas_do_dono() {
         data.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         f.hub.store.insert_entry(&lane, EntryKind::User, 1, &data).unwrap();
     }
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute(
+            "INSERT INTO entries(id, bot_id, rev, kind, turn, data, created_at, updated_at) VALUES('x', 'a', 999, 'user', 1, 'nao e json', 0, 0)",
+            [],
+        )
+        .unwrap();
     for i in 0..QUEUE_MAX {
         let data = json!({"text": format!("m{i}"), "status": "queued", "clientNonce": format!("n{i}")});
         assert!(matches!(add_human_message(&f.hub, &lane, 2, &data).unwrap(), Human::New(_)), "{i}");

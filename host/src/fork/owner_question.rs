@@ -345,8 +345,8 @@ pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value)
             let waiting: i64 = c.query_row(
                 "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
                     AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'
-                    AND json_extract(data, '$.choice_response') IS NULL
-                    AND COALESCE(json_extract(data, '$.from'), '') <> 'host'",
+                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.choice_response') END) IS NULL
+                    AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.from') END, '') <> 'host'",
                 [&lane.chat],
                 |r| r.get(0),
             )?;
