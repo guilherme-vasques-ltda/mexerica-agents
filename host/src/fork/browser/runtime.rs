@@ -188,7 +188,7 @@ impl State {
     pub(super) fn watched_instance(&self, scope: &Scope, binding: &str) -> Option<u64> {
         let watch = self.watch.lock().ok()?.clone()?;
         let (owner, instance) = watch.entry(scope)?;
-        owner.starts_with(&format!("{binding}#")).then_some(instance)
+        super::owned_by(&owner, binding).then_some(instance)
     }
 
     /// Lê a página da instância `expected` da autoridade `owner`; nunca cria uma sessão. Outra instância (ainda
@@ -248,7 +248,7 @@ impl State {
         let Some(expected) = expected else { return Ok(None) };
         let mut guard = self.sessions.lock().await;
         let Some(supervisor) = guard.as_mut() else { return Ok(None) };
-        let ours = supervisor.owner(scope).is_some_and(|owner| owner.starts_with(&format!("{binding}#")));
+        let ours = supervisor.owner(scope).is_some_and(|owner| super::owned_by(owner, binding));
         if !ours || supervisor.instance(scope) != Some(expected) {
             return Ok(None);
         }

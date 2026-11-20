@@ -481,3 +481,47 @@ fn recusa_diretorio_inseguro() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+/// Processo de teste que registra se o perfil ainda existia quando ele foi descartado.
+struct Probe {
+    profile: PathBuf,
+    seen: Rc<RefCell<Option<bool>>>,
+}
+impl Drop for Probe {
+    fn drop(&mut self) {
+        *self.seen.borrow_mut() = Some(self.profile.exists());
+    }
+}
+struct ProbeLauncher {
+    seen: Rc<RefCell<Option<bool>>>,
+}
+impl Launcher for ProbeLauncher {
+    type Process = Probe;
+    fn start(&mut self, profile: &Path, _proxy: &Path) -> Result<Probe> {
+        Ok(Probe { profile: profile.to_owned(), seen: Rc::clone(&self.seen) })
+    }
+    async fn authenticate(&mut self, _process: &mut Probe, _token: String) -> Result<()> {
+        std::future::pending::<()>().await;
+        Ok(())
+    }
+    fn stop(&mut self, _process: &mut Probe) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn arranque_cancelado_mata_o_processo_antes_de_apagar_o_perfil() -> Result<()> {
+    let root = root();
+    let seen = Rc::new(RefCell::new(None));
+    let mut supervisor =
+        Supervisor::new(ProbeLauncher { seen: Rc::clone(&seen) }, root.clone(), 1, Duration::from_secs(60))?;
+    let cancelled =
+        tokio::time::timeout(Duration::from_millis(100), supervisor.ensure(scope("a"), "vinculo", Instant::now()))
+            .await;
+    assert!(cancelled.is_err(), "o arranque preso tinha de ser cancelado");
+    assert_eq!(*seen.borrow(), Some(true), "o perfil foi apagado antes de o processo ser descartado");
+    assert!(session_dirs(&root).is_empty(), "o perfil do arranque cancelado sobrou");
+    drop(supervisor);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

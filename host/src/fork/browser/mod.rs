@@ -287,6 +287,11 @@ fn split_owner(owner: &str) -> Option<(&str, i64)> {
     Some((binding, generation.parse().ok()?))
 }
 
+/// O vínculo `binding` é o dono do `owner` (`vínculo#geração`)? Comparação exata, nunca por prefixo.
+fn owned_by(owner: &str, binding: &str) -> bool {
+    split_owner(owner).is_some_and(|(owner_binding, _)| owner_binding == binding)
+}
+
 /// A autoridade que abriu a sessão continua válida: vínculo ainda o ativo do bot, bot do mesmo Space com a
 /// preferência integrada e a mesma geração de configuração. Falha fechada.
 fn authority_valid(hub: &Hub, scope: &supervisor::Scope, owner: &str) -> bool {
@@ -391,3 +396,18 @@ mod tests;
 
 #[cfg(test)]
 mod preference_tests;
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+
+    #[test]
+    fn dono_da_sessao_e_comparacao_exata_e_nunca_prefixo() {
+        assert!(owned_by("a#1", "a"));
+        assert!(!owned_by("a#b#1", "a"), "vínculo que só começa igual não é o dono");
+        assert!(owned_by("a#b#1", "a#b"));
+        assert!(!owned_by("a#x", "a"), "geração não numérica nunca vale");
+        assert!(!owned_by("a", "a"), "sem geração nunca vale");
+        assert!(!owned_by("", ""));
+    }
+}

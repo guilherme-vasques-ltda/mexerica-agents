@@ -89,6 +89,14 @@ A página ainda pode tentar convencer o modelo. O Hub entrega o texto como dado,
 que a página não tem como agir sozinha, mas não impede o modelo de obedecer. Ações sensíveis
 precisam de autorização fora do conteúdo da página.
 
+## Limites conhecidos
+
+- Desconectar uma conta gerenciada não derruba, na hora, uma sessão de navegador já aberta que estava
+  ociosa: nenhum turno novo usa a conta, mas a página aberta só cai pela ociosidade (5 minutos), por outra
+  revogação ou pelo fechamento.
+- Entre retomar uma janela nova e fechá-la há uma ida e volta de CDP; nela os scripts da janela já estão
+  desligados e a rede só passa por HTTPS filtrado.
+
 ## Testes
 
 Os testes unitários rodam com `cargo test fork::browser`. Os testes com Chromium real são

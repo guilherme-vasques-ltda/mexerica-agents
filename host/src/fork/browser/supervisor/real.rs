@@ -122,6 +122,27 @@ fn parent_death(parent: u32) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Mata o filho se o arranque falhar depois do `spawn` (o erro não pode deixar o Chromium vivo).
+struct KillOnDrop(Option<Child>);
+
+impl KillOnDrop {
+    fn child(&mut self) -> Result<&mut Child> {
+        self.0.as_mut().context("processo do navegador ausente")
+    }
+
+    fn release(mut self) -> Result<Child> {
+        self.0.take().context("processo do navegador ausente")
+    }
+}
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.as_mut() {
+            let _ = stop_child(child);
+        }
+    }
+}
+
 fn stop_child(child: &mut Child) -> Result<()> {
     if child.try_wait()?.is_none() {
         let pid = i32::try_from(child.id()).context("PID inválido")?;
@@ -304,10 +325,11 @@ impl Launcher for RealLauncher {
                     Ok(())
                 });
             }
-            let mut chromium =
-                command.spawn().context("contenção indisponível: falha ao iniciar namespaces do navegador")?;
+            let mut chromium = KillOnDrop(Some(
+                command.spawn().context("contenção indisponível: falha ao iniciar namespaces do navegador")?,
+            ));
             thread::sleep(Duration::from_millis(500));
-            if let Some(status) = chromium.try_wait()? {
+            if let Some(status) = chromium.child()?.try_wait()? {
                 bail!(
                     "Chromium terminou ao iniciar ({status}); confira se o sandbox e os namespaces estão disponíveis"
                 );
@@ -317,7 +339,7 @@ impl Launcher for RealLauncher {
             let tokio_write = tokio::net::UnixStream::from_std(hub_write)?;
             let tokio_read = tokio::net::UnixStream::from_std(hub_read)?;
             let cdp = super::super::cdp::Cdp::new(tokio_read, tokio_write);
-            Ok((chromium, cdp))
+            Ok((chromium.release()?, cdp))
         })();
         match result {
             Ok((chromium, cdp)) => Ok(Processes { chromium, xvfb, cdp: Some(cdp) }),
@@ -344,6 +366,25 @@ impl Launcher for RealLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filho_com_guarda_morre_se_o_arranque_falha_e_sobrevive_quando_liberado() -> Result<()> {
+        use std::os::unix::process::CommandExt;
+        let spawn = || -> Result<Child> { Ok(Command::new("sleep").arg("300").process_group(0).spawn()?) };
+        let running = |pid: u32| Path::new(&format!("/proc/{pid}")).exists();
+        let failing = KillOnDrop(Some(spawn()?));
+        let pid = failing.0.as_ref().map(Child::id).context("pid")?;
+        assert!(running(pid), "controle positivo: o filho está de pé");
+        drop(failing);
+        assert!(!running(pid), "o filho sobreviveu à falha do arranque");
+        let mut kept = spawn()?;
+        let kept_pid = kept.id();
+        let released = KillOnDrop(Some(kept)).release()?;
+        assert!(running(kept_pid), "o filho liberado não pode morrer");
+        kept = released;
+        stop_child(&mut kept)?;
+        Ok(())
+    }
 
     #[test]
     fn processos_descartados_sem_stop_morrem_junto() -> Result<()> {

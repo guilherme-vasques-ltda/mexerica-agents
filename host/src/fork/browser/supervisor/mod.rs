@@ -123,7 +123,11 @@ impl<P> Drop for Starting<P> {
         if let Some(session) = self.session.take() {
             self.watch.remove(&self.scope, session.instance);
             session.cut.fire();
-            let _ = fs::remove_dir_all(&session.profile);
+            // Os processos morrem primeiro (o `Drop` da sessão); só depois o perfil é apagado, para o navegador
+            // não escrever nele enquanto a remoção corre.
+            let profile = session.profile.clone();
+            drop(session);
+            let _ = fs::remove_dir_all(&profile);
         }
     }
 }
