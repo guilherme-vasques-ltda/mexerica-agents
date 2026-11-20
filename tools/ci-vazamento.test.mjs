@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -117,6 +117,15 @@ test('B6: atributos Git não escondem texto de commit intermediário', () => fix
   const head = commit('limpa');
   const rules = scan({ cwd, mode: 'pr', base, head, policy }).findings.map((f) => `${f.path}:${f.rule}`);
   assert.ok(rules.includes('nota.txt:cofre'), rules.join());
+}));
+
+test('B8: troca de tipo em commit intermediário (arquivo para link) também é varrida', () => fixture(({ cwd, write, commit, base }) => {
+  write('atalho', 'texto limpo\n'); commit('arquivo');
+  rmSync(join(cwd, 'atalho')); symlinkSync(personalPath(), join(cwd, 'atalho')); commit('vira link');
+  rmSync(join(cwd, 'atalho')); write('atalho', 'texto limpo\n');
+  const head = commit('volta a arquivo');
+  const rules = scan({ cwd, mode: 'pr', base, head, policy }).findings.map((f) => `${f.path}:${f.rule}`);
+  assert.ok(rules.includes('atalho:caminho-pessoal'), rules.join());
 }));
 
 test('B7: conteúdo trazido só pela resolução de um merge intermediário é varrido; octopus é recusado', () => fixture(({ cwd, git, write, commit, base }) => {

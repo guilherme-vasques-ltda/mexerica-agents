@@ -118,9 +118,9 @@ function autoMerge(cwd, [ours, theirs]) {
   if (![0, 1].includes(r.status)) throw new Error('Operação Git recusada');
   return r.stdout.split('\n')[0];
 }
-// Uma mudança por caminho, com o nome canônico do Git; binário pelo conteúdo do blob e diff forçado como texto.
+// Toda mudança que não é remoção (inclusive troca de tipo), com o nome canônico do Git; binário pelo conteúdo do blob e diff forçado como texto.
 function scanChanges(cwd, from, to, add, findings, limits) {
-  const raw = git(cwd, ['diff-tree', '-r', '-z', '--raw', '--no-renames', '--diff-filter=AM', from, to]).split('\0');
+  const raw = git(cwd, ['diff-tree', '-r', '-z', '--raw', '--no-renames', '--diff-filter=d', from, to]).split('\0');
   for (let i = 0; i + 1 < raw.length; i += 2) {
     const [, mode, oid] = /^:\d+ (\d+) [a-f\d]+ ([a-f\d]+) /.exec(raw[i]) ?? [];
     const path = raw[i + 1];
