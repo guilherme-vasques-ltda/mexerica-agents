@@ -20,8 +20,33 @@ const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
+const ALLOWED_METHODS: &[&str] = &[
+    "Browser.getVersion",
+    "Browser.setDownloadBehavior",
+    "Fetch.continueRequest",
+    "Fetch.continueWithAuth",
+    "Fetch.enable",
+    "Fetch.failRequest",
+    "Page.createIsolatedWorld",
+    "Page.enable",
+    "Page.getFrameTree",
+    "Runtime.enable",
+    "Runtime.evaluate",
+    "Runtime.runIfWaitingForDebugger",
+    "Target.attachToTarget",
+    "Target.closeTarget",
+    "Target.getTargets",
+    "Target.setAutoAttach",
+];
+
+/// Só HTTPS (e a página em branco inicial): redirecionamento ou subrecurso em `http:`, `file:`, `data:`,
+/// `chrome:` e afins nunca sai do navegador, qualquer que seja o filtro de rede abaixo.
 pub(crate) fn url_allowed(url: &str) -> bool {
-    url == "about:blank" || url.starts_with("http://") || url.starts_with("https://")
+    url == "about:blank" || url.starts_with("https://")
+}
+
+fn closed_ok(result: &Result<Value>) -> bool {
+    result.as_ref().is_ok_and(|value| value.get("success").and_then(Value::as_bool) == Some(true))
 }
 type Pending = HashMap<u64, (String, oneshot::Sender<Result<Value>>)>;
 
@@ -32,6 +57,7 @@ struct Shared<W> {
     events: Mutex<Option<broadcast::Sender<Value>>>,
     auth: Mutex<Option<mpsc::Sender<Value>>>,
     closed: std::sync::atomic::AtomicBool,
+    page: Mutex<Option<String>>,
 }
 
 pub(crate) struct Cdp<W> {
@@ -53,6 +79,7 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
             events: Mutex::new(Some(events)),
             auth: Mutex::new(None),
             closed: false.into(),
+            page: Mutex::new(None),
         });
         let client = Self { shared };
         tokio::spawn(client.clone().read_loop(reader));
@@ -78,21 +105,24 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         self.command_inner(Some(session), method, params, timeout, false).await
     }
 
-    /// Caminho do gate (`nav.rs`): único autorizado a navegar/criar alvo,
-    /// depois de validar a URL no Hub.
-    pub(crate) async fn command_from_gate(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
-        self.command_inner(None, method, params, timeout, true).await
+    /// Única navegação existente: o tipo `ValidatedNavigation` só nasce em `nav.rs`, depois de validar a URL no Hub.
+    pub(super) async fn navigate(&self, session: &str, target: &super::nav::ValidatedNavigation) -> Result<Value> {
+        self.command_inner(Some(session), "Page.navigate", json!({"url": target.url}), super::nav::NAV_TIMEOUT, true)
+            .await
     }
 
-    /// Idem `command_from_gate`, com sessão de página.
-    pub(crate) async fn command_session_from_gate(
-        &self,
-        session: &str,
-        method: &str,
-        params: Value,
-        timeout: Duration,
-    ) -> Result<Value> {
-        self.command_inner(Some(session), method, params, timeout, true).await
+    /// Único criador de alvo: mesma regra de `navigate`.
+    pub(super) async fn create_target(&self, target: &super::nav::ValidatedNavigation) -> Result<Value> {
+        self.command_inner(None, "Target.createTarget", json!({"url": target.url}), super::nav::NAV_TIMEOUT, true).await
+    }
+
+    /// Sessão da página principal, fixada quando a autenticação do proxy a configurou.
+    pub(crate) fn main_session(&self) -> Option<String> {
+        self.shared.page.lock().ok().and_then(|page| page.clone())
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.shared.closed.load(Ordering::Acquire)
     }
 
     /// Bypass cru só para os testes vivos provarem as camadas abaixo do
@@ -108,6 +138,17 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         self.command_inner(Some(session), method, params, timeout, true).await
     }
 
+    /// Corta o canal de controle na hora: nenhum comando novo sai e os pendentes falham.
+    pub(crate) fn sever(&self) {
+        self.close();
+    }
+
+    /// Comando cru de nível de navegador só para os controles positivos dos testes vivos.
+    #[cfg(test)]
+    pub(crate) async fn command_raw_for_tests(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        self.command_inner(None, method, params, timeout, true).await
+    }
+
     async fn get_version_tolerant(&self) -> Result<Value> {
         // Partida a frio do Chromium pode passar de 10 s: timeout maior e 1 retry.
         if let Ok(version) = self.command("Browser.getVersion", json!({}), HANDSHAKE_TIMEOUT).await {
@@ -119,6 +160,11 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
 
     /// O pipe é do navegador: comandos de página exigem sessão de um alvo.
     pub(crate) async fn page_session(&self) -> Result<String> {
+        Ok(self.page_target().await?.1)
+    }
+
+    /// Alvo e sessão da página principal.
+    async fn page_target(&self) -> Result<(String, String)> {
         // Aperto de mão: prova que o pipe responde antes de qualquer outro comando.
         let version = self.get_version_tolerant().await?;
         tracing::info!(cdp_product = %version.get("product").and_then(|value| value.as_str()).unwrap_or("?"), "aperto de mão CDP ok");
@@ -133,11 +179,12 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         let attached = self
             .command("Target.attachToTarget", json!({"targetId": target_id, "flatten": true}), AUTH_TIMEOUT)
             .await?;
-        attached
+        let session = attached
             .get("sessionId")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .ok_or_else(|| anyhow!("sessão de página ausente no CDP"))
+            .ok_or_else(|| anyhow!("sessão de página ausente no CDP"))?;
+        Ok((target_id.to_owned(), session))
     }
 
     async fn command_inner(
@@ -149,8 +196,13 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         from_gate: bool,
     ) -> Result<Value> {
         // Navegar/criar alvo só pelo gate de URL (nav.rs), nunca cru.
-        if !from_gate && matches!(method, "Page.navigate" | "Target.createTarget" | "Page.navigateToHistoryEntry") {
-            bail!("browser_navigation_gate_required");
+        if !from_gate {
+            if matches!(method, "Page.navigate" | "Target.createTarget" | "Page.navigateToHistoryEntry") {
+                bail!("browser_navigation_gate_required");
+            }
+            if !ALLOWED_METHODS.contains(&method) {
+                bail!("browser_cdp_method_denied");
+            }
         }
         if self.shared.closed.load(Ordering::Acquire) {
             bail!("pipe CDP fechado");
@@ -194,7 +246,8 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
     }
 
     pub(crate) async fn provide_proxy_credentials(&self, token: String) -> Result<()> {
-        let session = self.page_session().await?;
+        let (main_target, session) = self.page_target().await?;
+        *self.shared.page.lock().map_err(|_| anyhow!("pipe CDP indisponível"))? = Some(session.clone());
         let (tx, mut rx) = mpsc::channel::<Value>(256);
         {
             let mut auth = self.shared.auth.lock().map_err(|_| anyhow!("pipe CDP indisponível"))?;
@@ -220,7 +273,7 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 let is_known = known_auth.lock().is_ok_and(|set| set.contains(&event_session));
                 if !is_known {
                     // Sessão desconhecida nunca recebe credencial; o pedido
-                    // não fica pausado: falha (ou auth Default) sem token.
+                    // não fica pausado: falha (ou auth CancelAuth) sem token.
                     tracing::warn!(method = %event["method"], "evento Fetch de sessão desconhecida recusado sem credencial");
                     if let Some(request_id) =
                         event.pointer("/params/requestId").and_then(Value::as_str).map(str::to_owned)
@@ -228,7 +281,7 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                         let (method, params) = if event["method"] == "Fetch.authRequired" {
                             (
                                 "Fetch.continueWithAuth",
-                                json!({"requestId":request_id,"authChallengeResponse":{"response":"Default"}}),
+                                json!({"requestId":request_id,"authChallengeResponse":{"response":"CancelAuth"}}),
                             )
                         } else {
                             ("Fetch.failRequest", json!({"requestId":request_id,"errorReason":"BlockedByClient"}))
@@ -326,17 +379,35 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 };
                 let target_type =
                     event.pointer("/params/targetInfo/type").and_then(Value::as_str).unwrap_or_default().to_owned();
-                let target_url =
-                    event.pointer("/params/targetInfo/url").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let target_id = event.pointer("/params/targetInfo/targetId").and_then(Value::as_str).map(str::to_owned);
-                if target_type == "page" && !target_url.is_empty() && !url_allowed(&target_url) {
-                    if let Some(target_id) = target_id {
-                        let _ =
-                            watcher.command("Target.closeTarget", json!({"targetId":target_id}), AUTH_TIMEOUT).await;
+                if target_type == "page" && target_id.as_deref() != Some(main_target.as_str()) {
+                    // Popup/janela nova nunca é mantido, nem com URL aparentemente permitida: o alvo nasce
+                    // sem URL e o endereço só aparece depois. Sessão desconhecida tem todo pedido barrado
+                    // (`failRequest`); só com o filtro ligado o alvo é liberado (o `window.open` do opener
+                    // espera por isso) e logo fechado. Sem o fechamento confirmado a contenção não se
+                    // sustenta: o canal CDP é encerrado e a sessão inteira é descartada.
+                    let Some(popup_id) = target_id else {
+                        tracing::warn!("popup sem identidade de alvo; canal CDP encerrado");
+                        watcher.close();
+                        break;
+                    };
+                    let filtered = watcher
+                        .command_session(&new_session, "Fetch.enable", json!({"handleAuthRequests":true}), AUTH_TIMEOUT)
+                        .await
+                        .is_ok();
+                    if filtered {
+                        let _ = watcher
+                            .command_session(&new_session, "Runtime.runIfWaitingForDebugger", json!({}), AUTH_TIMEOUT)
+                            .await;
                     }
-                    let _ = watcher
-                        .command_session(&new_session, "Runtime.runIfWaitingForDebugger", json!({}), AUTH_TIMEOUT)
-                        .await;
+                    let closed = closed_ok(
+                        &watcher.command("Target.closeTarget", json!({"targetId":popup_id}), AUTH_TIMEOUT).await,
+                    );
+                    if !closed {
+                        tracing::warn!("popup sem fechamento confirmado; canal CDP encerrado");
+                        watcher.close();
+                        break;
+                    }
                     continue;
                 }
                 if known.lock().map(|mut set| set.insert(new_session.clone())).is_err() {
@@ -345,7 +416,8 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 }
                 // OOPIF/filhos: auto-attach recursivo a partir da sessão de
                 // página/iframe, para herdar a mesma regra.
-                if matches!(target_type.as_str(), "page" | "iframe")
+                let covered = matches!(target_type.as_str(), "page" | "iframe");
+                let mut refused = covered
                     && watcher
                         .command_session(
                             &new_session,
@@ -354,19 +426,34 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                             AUTH_TIMEOUT,
                         )
                         .await
-                        .is_err()
-                {
-                    tracing::warn!(target_type, "auto-attach recursivo recusado na sessão anexada");
-                }
+                        .is_err();
                 // Fetch pode não existir em worker: falhar aqui não pode
                 // derrubar a sessão inteira (uma página hostil registra um
                 // worker e mataria o canal). O proxy segue como barreira.
-                if watcher
+                let fetch_refused = watcher
                     .command_session(&new_session, "Fetch.enable", json!({"handleAuthRequests":true}), AUTH_TIMEOUT)
                     .await
-                    .is_err()
-                {
+                    .is_err();
+                if fetch_refused && !covered {
                     tracing::warn!(target_type, "Fetch.enable recusado no alvo anexado; sessão mantida sem Fetch");
+                }
+                refused |= fetch_refused && covered;
+                if refused {
+                    // Página ou iframe sem o filtro Fetch (ou sem auto-attach) fica só com o proxy: fecha o alvo.
+                    tracing::warn!(target_type, "alvo sem Fetch ou auto-attach recursivo; fechado");
+                    let closed = match &target_id {
+                        Some(target_id) => closed_ok(
+                            &watcher.command("Target.closeTarget", json!({"targetId":target_id}), AUTH_TIMEOUT).await,
+                        ),
+                        None => false,
+                    };
+                    known.lock().map(|mut set| set.remove(&new_session)).ok();
+                    if !closed {
+                        tracing::warn!(target_type, "alvo sem Fetch não pôde ser fechado; canal CDP encerrado");
+                        watcher.close();
+                        break;
+                    }
+                    continue;
                 }
                 let _ = watcher
                     .command_session(&new_session, "Runtime.runIfWaitingForDebugger", json!({}), AUTH_TIMEOUT)
@@ -506,19 +593,19 @@ mod tests {
         let mut events = client.events().unwrap();
         let a = tokio::spawn({
             let c = client.clone();
-            async move { c.command("A", json!({}), Duration::from_secs(1)).await.unwrap() }
+            async move { c.command("Browser.getVersion", json!({}), Duration::from_secs(1)).await.unwrap() }
         });
         let b = tokio::spawn({
             let c = client.clone();
-            async move { c.command("B", json!({}), Duration::from_secs(1)).await.unwrap() }
+            async move { c.command("Target.getTargets", json!({}), Duration::from_secs(1)).await.unwrap() }
         });
         let first = receive(&mut reader).await;
         let second = receive(&mut reader).await;
         send(&mut writer, json!({"method":"Test.event","params":{}})).await;
         send(&mut writer, json!({"id":second["id"],"result":{"method":second["method"]}})).await;
         send(&mut writer, json!({"id":first["id"],"result":{"method":first["method"]}})).await;
-        assert_eq!(a.await.unwrap()["method"], "A");
-        assert_eq!(b.await.unwrap()["method"], "B");
+        assert_eq!(a.await.unwrap()["method"], "Browser.getVersion");
+        assert_eq!(b.await.unwrap()["method"], "Target.getTargets");
         assert_eq!(events.recv().await.unwrap()["method"], "Test.event");
     }
     #[tokio::test]
@@ -553,7 +640,7 @@ mod tests {
         send(&mut writer, json!({"id":auto["id"],"result":{}})).await;
         let _client = task.await.unwrap();
         // Evento de outra sessão não pode receber a credencial: recebe
-        // auth Default (sem token) e não fica pausado para sempre.
+        // CancelAuth (sem token) e não fica pausado para sempre.
         send(
             &mut writer,
             json!({"sessionId":"s2","method":"Fetch.authRequired","params":{"requestId":"s2-req", "authChallenge":{"source":"Proxy"}}}),
@@ -562,7 +649,7 @@ mod tests {
         let unknown = receive(&mut reader).await;
         assert_eq!(unknown["method"], "Fetch.continueWithAuth");
         assert_eq!(unknown["sessionId"], "s2");
-        assert_eq!(unknown["params"]["authChallengeResponse"], json!({"response":"Default"}));
+        assert_eq!(unknown["params"]["authChallengeResponse"], json!({"response":"CancelAuth"}));
         send(&mut writer, json!({"id":unknown["id"],"result":{}})).await;
         for (method, source, expected) in [
             ("Fetch.authRequired", "Proxy", "Fetch.continueWithAuth"),
@@ -615,7 +702,7 @@ mod tests {
         for index in 0..3 {
             send(
                 &mut writer,
-                json!({"sessionId":"s1","method":"Fetch.requestPaused","params":{"requestId":format!("r{index}"),"request":{"url":"http://a.test/"}}}),
+                json!({"sessionId":"s1","method":"Fetch.requestPaused","params":{"requestId":format!("r{index}"),"request":{"url":"https://a.test/"}}}),
             )
             .await;
         }
@@ -651,10 +738,11 @@ mod tests {
     }
     #[test]
     fn esquemas_permitidos() {
-        for url in ["http://a.test/", "https://a.test/", "about:blank"] {
+        for url in ["https://a.test/", "about:blank"] {
             assert!(url_allowed(url), "{url}");
         }
         for url in [
+            "http://a.test/",
             "file:///etc/passwd",
             "chrome://settings",
             "devtools://x",
@@ -667,11 +755,130 @@ mod tests {
             assert!(!url_allowed(url), "{url}");
         }
     }
+
+    async fn conectado() -> (
+        Cdp<tokio::io::WriteHalf<DuplexStream>>,
+        BufReader<tokio::io::ReadHalf<DuplexStream>>,
+        tokio::io::WriteHalf<DuplexStream>,
+    ) {
+        let (client, mut reader, mut writer) = pair();
+        let prover = client.clone();
+        let task = tokio::spawn(async move { prover.provide_proxy_credentials("segredo-teste".into()).await.unwrap() });
+        let version = receive(&mut reader).await;
+        send(&mut writer, json!({"id":version["id"],"result":{"product":"Chromium/teste"}})).await;
+        let targets = receive(&mut reader).await;
+        send(&mut writer, json!({"id":targets["id"],"result":{"targetInfos":[{"type":"page","targetId":"t1"}]}})).await;
+        let attach = receive(&mut reader).await;
+        send(&mut writer, json!({"id":attach["id"],"result":{"sessionId":"s1"}})).await;
+        for _ in 0..3 {
+            let command = receive(&mut reader).await;
+            send(&mut writer, json!({"id":command["id"],"result":{}})).await;
+        }
+        task.await.unwrap();
+        (client, reader, writer)
+    }
+    fn popup(url: &str, target: Option<&str>) -> Value {
+        let mut info = json!({"type":"page","url":url});
+        if let Some(target) = target {
+            info["targetId"] = json!(target);
+        }
+        json!({"method":"Target.attachedToTarget","params":{"sessionId":"s9","targetInfo":info}})
+    }
+    async fn atende_popup(
+        reader: &mut BufReader<tokio::io::ReadHalf<DuplexStream>>,
+        writer: &mut tokio::io::WriteHalf<DuplexStream>,
+        close: Option<Value>,
+    ) {
+        let filter = receive(reader).await;
+        assert_eq!((filter["method"].as_str(), filter["sessionId"].as_str()), (Some("Fetch.enable"), Some("s9")));
+        send(writer, json!({"id":filter["id"],"result":{}})).await;
+        let resume = receive(reader).await;
+        assert_eq!(resume["method"], "Runtime.runIfWaitingForDebugger");
+        assert_eq!(resume["sessionId"], "s9");
+        send(writer, json!({"id":resume["id"],"result":{}})).await;
+        let closing = receive(reader).await;
+        assert_eq!(closing["method"], "Target.closeTarget");
+        assert_eq!(closing["params"]["targetId"], "t9");
+        let mut response = close.unwrap_or_else(|| json!({"result":{"success":true}}));
+        response["id"] = closing["id"].clone();
+        send(writer, response).await;
+    }
+    #[tokio::test]
+    async fn popup_de_qualquer_url_tem_o_filtro_ligado_antes_de_ser_liberado_e_e_fechado() {
+        let (client, mut reader, mut writer) = conectado().await;
+        for url in
+            ["", "http://a.test/", "https://a.test/", "file:///etc/passwd", "data:text/html,x", "chrome://settings"]
+        {
+            send(&mut writer, popup(url, Some("t9"))).await;
+            atende_popup(&mut reader, &mut writer, None).await;
+        }
+        let probe = tokio::spawn({
+            let client = client.clone();
+            async move { client.command("Target.getTargets", json!({}), Duration::from_secs(2)).await }
+        });
+        let next = receive(&mut reader).await;
+        assert_eq!(next["method"], "Target.getTargets", "nenhum popup ficou aberto ou foi liberado sem filtro");
+        send(&mut writer, json!({"id":next["id"],"result":{"targetInfos":[]}})).await;
+        probe.await.unwrap().unwrap();
+        assert!(!client.is_closed());
+    }
+    #[tokio::test]
+    async fn popup_sem_fechamento_confirmado_ou_sem_identidade_encerra_o_canal() {
+        for answer in [
+            Some(json!({"error":{"code":-32000,"message":"falhou"}})),
+            Some(json!({"result":{"success":false}})),
+            Some(json!({"result":{}})),
+            None,
+        ] {
+            let (client, mut reader, mut writer) = conectado().await;
+            match answer {
+                Some(answer) => {
+                    send(&mut writer, popup("http://a.test/", Some("t9"))).await;
+                    atende_popup(&mut reader, &mut writer, Some(answer)).await;
+                }
+                None => send(&mut writer, popup("http://a.test/", None)).await,
+            }
+            for _ in 0..50 {
+                if client.is_closed() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            assert!(client.is_closed(), "sem fechamento confirmado a sessão não pode continuar");
+        }
+    }
+    #[tokio::test]
+    async fn pagina_principal_reanexada_nao_e_fechada() {
+        let (client, mut reader, mut writer) = conectado().await;
+        send(&mut writer, popup("about:blank", Some("t1"))).await;
+        for expected in ["Target.setAutoAttach", "Fetch.enable", "Runtime.runIfWaitingForDebugger"] {
+            let command = receive(&mut reader).await;
+            assert_eq!(command["method"], expected);
+            assert_eq!(command["sessionId"], "s9");
+            send(&mut writer, json!({"id":command["id"],"result":{}})).await;
+        }
+        assert!(!client.is_closed());
+    }
+    #[tokio::test]
+    async fn redirecionamento_e_subrecurso_nao_https_falham() {
+        let (client, mut reader, mut writer) = conectado().await;
+        for url in ["http://a.test/", "file:///etc/passwd", "data:text/html,x", "chrome://version", "ftp://a/"] {
+            send(&mut writer, json!({"sessionId":"s1","method":"Fetch.requestPaused","params":{"requestId":"r","request":{"url":url}}})).await;
+            let command = receive(&mut reader).await;
+            assert_eq!(command["method"], "Fetch.failRequest", "{url}");
+            assert_eq!(command["params"]["errorReason"], "BlockedByClient");
+            send(&mut writer, json!({"id":command["id"],"result":{}})).await;
+        }
+        assert!(!client.is_closed());
+    }
     #[tokio::test]
     async fn mensagem_gigante_ou_invalida_fecha_pipe() {
         for bytes in [vec![b'x'; MAX_MESSAGE + 1], b"{invalido}\0".to_vec()] {
             let (client, mut reader, mut writer) = pair();
-            let task = tokio::spawn(async move { client.command("A", json!({}), Duration::from_secs(5)).await });
+            let task =
+                tokio::spawn(
+                    async move { client.command("Browser.getVersion", json!({}), Duration::from_secs(5)).await },
+                );
             let _ = receive(&mut reader).await;
             let _ = writer.write_all(&bytes).await;
             assert!(task.await.unwrap().is_err());
@@ -682,13 +889,23 @@ mod tests {
         let (client, reader, writer) = pair();
         let mut events = client.events().unwrap();
         assert!(
-            client.command("A", json!({}), Duration::from_millis(10)).await.unwrap_err().to_string().contains("tempo")
+            client
+                .command("Browser.getVersion", json!({}), Duration::from_millis(10))
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("tempo")
         );
         drop(writer);
         drop(reader);
         assert!(tokio::time::timeout(Duration::from_secs(1), events.recv()).await.unwrap().is_err());
         assert!(
-            client.command("B", json!({}), Duration::from_secs(1)).await.unwrap_err().to_string().contains("fechado")
+            client
+                .command("Target.getTargets", json!({}), Duration::from_secs(1))
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("fechado")
         );
     }
 }

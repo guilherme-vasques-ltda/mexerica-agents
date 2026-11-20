@@ -108,6 +108,7 @@ pub struct Hub {
     pub groups: crate::chat::group::Rooms,
     pub store: Store,
     pub(crate) conectores: crate::fork::conectores::State,
+    pub(crate) browser: crate::fork::browser::State,
     pub(crate) whatsapp: crate::fork::whatsapp::State,
     /// Fase 2b: jobs do gerador de conjuntos 3D (um ativo por Hub).
     pub gerador: crate::fork_avatars::gerador::State,
@@ -170,6 +171,7 @@ impl Hub {
             groups: crate::chat::group::Rooms::default(),
             store,
             conectores: crate::fork::conectores::State::default(),
+            browser: crate::fork::browser::State::default(),
             whatsapp: crate::fork::whatsapp::State::default(),
             gerador: crate::fork_avatars::gerador::State::default(),
             host_id,

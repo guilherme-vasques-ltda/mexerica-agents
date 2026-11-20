@@ -67,7 +67,7 @@ async fn dispatch_app_e_bot_concordam_sem_perfis_ou_efeitos() {
     assert_unavailable(&bot, &f.cfg.id, &f.cfg.space_id);
     assert_eq!(bot["reason"], "backend_absent");
     assert_eq!(bot["browserPreference"], "integrated");
-    assert_eq!(definition()["inputSchema"]["properties"]["version"]["enum"], json!([2]));
+    assert_eq!(definition()["inputSchema"]["properties"]["version"]["enum"], json!([2, 3]));
     let mut request = app(&f);
     request["target"] = json!("host");
     let host = dispatch(&f.hub, &Caller::Local, METHOD, request).await.unwrap();
@@ -154,7 +154,7 @@ async fn contexto_ausente_cliente_antigo_e_recurso_inventado_falham_fechado() {
         assert!(dispatch(&f.hub, &Caller::Local, METHOD, request).await.is_err(), "{field}");
     }
     for negotiation in
-        [json!({}), json!({"version":1,"target":"host"}), json!({"version":3,"target":"host"}), json!({"version":2})]
+        [json!({}), json!({"version":1,"target":"host"}), json!({"version":4,"target":"host"}), json!({"version":2})]
     {
         let mut request = body(&f);
         request["arguments"] = negotiation;
@@ -196,21 +196,260 @@ async fn argumentos_de_pagina_nao_concedem_acesso_ou_alteram_contexto() {
     assert!(f.hub.store.secret_key.locked().is_none());
 }
 
-#[tokio::test]
-async fn catalogo_real_anuncia_somente_consulta_negativa() {
-    let f = Fixture::with_memory_profile(|_, _| {});
+async fn browser_catalog(f: &Fixture) -> Vec<Value> {
     let mut request = f.body.clone();
     request["name"] = json!("__tools");
     request["arguments"] = json!({});
     let response = tool_context::route(&f.hub, "memoryCall", &request).await.unwrap().unwrap();
-    let browser = response["tools"]
+    response["tools"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|t| t["name"].as_str().unwrap().starts_with("browser_"))
         .map(|t| t["name"].clone())
-        .collect::<Vec<_>>();
-    assert_eq!(browser, vec![json!(TOOL)]);
+        .collect()
+}
+
+fn binding(f: &Fixture) -> String {
+    f.body["sessionBinding"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn catalogo_so_anuncia_as_ferramentas_de_pagina_depois_da_negociacao_v3() {
+    let f = Fixture::with_memory_profile(|_, _| {});
+    assert_eq!(browser_catalog(&f).await, vec![json!(TOOL)], "sem negociação só o status é anunciado");
+    f.hub.browser.negotiate("outro-vinculo");
+    assert_eq!(browser_catalog(&f).await, vec![json!(TOOL)], "negociação de outro vínculo não vale");
+    f.hub.browser.negotiate(&binding(&f));
+    assert_eq!(browser_catalog(&f).await, vec![json!(TOOL), json!(OPEN), json!(READ), json!(CLOSE)]);
+    for tool in definitions() {
+        assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{tool}");
+    }
+}
+
+fn page_body(f: &Fixture, name: &str, arguments: Value) -> Value {
+    let mut body = f.body.clone();
+    body["name"] = json!(name);
+    body["arguments"] = arguments;
+    body
+}
+
+fn fixture_with(preference: BrowserPreference) -> Fixture {
+    Fixture::with_memory_profile(move |store, cfg| {
+        store.db.locked().execute("INSERT OR IGNORE INTO donna_fixa_dono(id) VALUES(1)", []).unwrap();
+        cfg.browser_preference = preference;
+    })
+}
+
+#[tokio::test]
+async fn status_v3_informa_o_que_o_bot_pode_e_v2_continua_recebendo_recusa() {
+    for (preference, reason) in
+        [(BrowserPreference::Computer, "preference_computer"), (BrowserPreference::Off, "preference_off")]
+    {
+        let f = fixture_with(preference);
+        let mut request = body(&f);
+        request["arguments"] = json!({"version":3,"target":"host"});
+        let v3 = dispatch(&f.hub, &Caller::Local, "memoryCall", request).await.unwrap();
+        assert_eq!(
+            (v3["version"].clone(), v3["status"].clone(), v3["reason"].clone()),
+            (json!(3), json!("unavailable"), json!(reason))
+        );
+        assert_eq!(v3["tools"], json!([]));
+        assert!(v3["capabilities"].as_object().unwrap().values().all(|v| v == false));
+        let v2 = dispatch(&f.hub, &Caller::Local, "memoryCall", body(&f)).await.unwrap();
+        assert_unavailable(&v2, &f.cfg.id, &f.cfg.space_id);
+        assert_eq!(v2["reason"], "backend_absent");
+    }
+    let f = Fixture::with_memory_profile(|_, _| {});
+    let mut request = body(&f);
+    request["arguments"] = json!({"version":3,"target":"desktop"});
+    let v3 = dispatch(&f.hub, &Caller::Local, "memoryCall", request).await.unwrap();
+    assert_eq!(v3["version"], 3);
+    assert_eq!(v3["scope"]["botId"], f.cfg.id);
+    assert_eq!(v3["capabilities"]["control"], false);
+    assert_eq!(v3["capabilities"]["files"], false);
+    assert_eq!(v3["capabilities"]["privateLogin"], false);
+    assert_eq!(v3["capabilities"]["persistentProfile"], false);
+    match v3["status"].as_str().unwrap() {
+        "available" => {
+            assert_eq!(v3["tools"], json!([OPEN, READ, CLOSE]));
+            assert_eq!(v3["capabilities"]["observe"], true);
+        }
+        _ => assert_eq!(v3["capabilities"]["observe"], false),
+    }
+    let app = dispatch(&f.hub, &Caller::Local, METHOD, app(&f)).await.unwrap();
+    assert_unavailable(&app, &f.cfg.id, &f.cfg.space_id);
+}
+
+#[tokio::test]
+async fn ferramentas_de_pagina_recusam_destino_proibido_e_argumento_extra_sem_abrir_sessao() {
+    let f = Fixture::with_memory_profile(|_, _| {});
+    for (url, code) in [
+        ("file:///etc/passwd", "browser_navigation_scheme_denied"),
+        ("javascript:alert(1)", "browser_navigation_scheme_denied"),
+        ("data:text/html,x", "browser_navigation_scheme_denied"),
+        ("chrome://settings", "browser_navigation_scheme_denied"),
+        ("http://example.com/", "browser_navigation_http_denied"),
+        ("https://example.com:8443/", "browser_navigation_port_denied"),
+        ("https://user:senha@example.com/", "browser_navigation_url_invalid"),
+        ("https://localhost/", "browser_navigation_address_denied"),
+    ] {
+        let error = dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, OPEN, json!({"url":url})))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with(code), "{url}: {error}");
+    }
+    for extra in [
+        json!({"url":"https://example.com/","approved":true}),
+        json!({"url":"https://example.com/","profileId":"outro"}),
+        json!({"url":"https://example.com/","spaceId":"outro"}),
+        json!({"url":"https://example.com/","script":"location='file:///etc/passwd'"}),
+        json!({}),
+        json!({"url":7}),
+    ] {
+        let error =
+            dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, OPEN, extra)).await.unwrap_err().to_string();
+        assert!(error.starts_with("invalid_field:"), "{error}");
+    }
+    for name in [READ, CLOSE] {
+        let error =
+            dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, name, json!({"url":"https://example.com/"})))
+                .await
+                .unwrap_err()
+                .to_string();
+        assert!(error.starts_with("invalid_field:"), "{name}: {error}");
+    }
+    assert!(call_page(&f.hub, &f.cfg.id, OPEN, &json!({"url":"https://example.com/"}), None, None).await.is_err());
+}
+
+#[tokio::test]
+async fn ler_e_fechar_sem_sessao_nao_criam_navegador() {
+    let f = Fixture::with_memory_profile(|_, _| {});
+    f.hub.browser.negotiate(&binding(&f));
+    let read = dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, READ, json!({}))).await.unwrap_err();
+    assert!(read.to_string().starts_with("browser_no_page"), "{read:#}");
+    let close = dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, CLOSE, json!({}))).await.unwrap();
+    assert_eq!(close["status"], "no_session");
+}
+
+#[tokio::test]
+async fn preferencia_computer_ou_off_recusa_abrir_sem_fallback() {
+    for preference in [BrowserPreference::Computer, BrowserPreference::Off] {
+        let f = fixture_with(preference);
+        f.hub.browser.negotiate(&binding(&f));
+        let error =
+            dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, OPEN, json!({"url":"https://example.com/"})))
+                .await
+                .unwrap_err()
+                .to_string();
+        assert!(error.starts_with("browser_preference_denied"), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn cliente_sem_negociacao_v3_nao_abre_nem_le_mas_pode_fechar() {
+    let f = Fixture::with_memory_profile(|_, _| {});
+    for (name, arguments) in [(OPEN, json!({"url":"https://example.com/"})), (READ, json!({}))] {
+        let error = dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, name, arguments))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with("browser_negotiation_required"), "{name}: {error}");
+    }
+    let mut v2 = body(&f);
+    v2["arguments"] = json!({"version":2,"target":"host"});
+    dispatch(&f.hub, &Caller::Local, "memoryCall", v2).await.unwrap();
+    assert!(!f.hub.browser.negotiated(&binding(&f)), "status v2 não negocia");
+    let mut unavailable = body(&f);
+    unavailable["arguments"] = json!({"version":3,"target":"host"});
+    let answer = dispatch(&f.hub, &Caller::Local, "memoryCall", unavailable).await.unwrap();
+    assert_eq!(f.hub.browser.negotiated(&binding(&f)), answer["status"] == "available", "só o v3 disponível negocia");
+    let close = dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, CLOSE, json!({}))).await.unwrap();
+    assert_eq!(close["status"], "no_session", "fechar é sempre permitido à autoridade dona");
+}
+
+#[tokio::test]
+async fn preferencia_desligada_nao_impede_fechar_a_sessao() {
+    for preference in [BrowserPreference::Computer, BrowserPreference::Off] {
+        let f = fixture_with(preference);
+        f.hub.browser.negotiate(&binding(&f));
+        let close = dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, CLOSE, json!({}))).await.unwrap();
+        assert_eq!(close["status"], "no_session");
+    }
+}
+
+#[tokio::test]
+async fn autoridade_da_sessao_cai_na_troca_de_conta_na_revogacao_e_na_preferencia() {
+    for change in ["revoga", "troca_de_space", "conta_do_bot", "conta_da_sessao", "computer", "off", "bot_apagado"] {
+        let f = Fixture::with_memory_profile(|_, _| {});
+        let scope =
+            supervisor::Scope { hub: f.hub.host_id.clone(), space: f.cfg.space_id.clone(), bot: f.cfg.id.clone() };
+        let owner = binding(&f);
+        assert!(authority_valid(&f.hub, &scope, &owner), "controle positivo: a autoridade vale no início");
+        assert!(!authority_valid(&f.hub, &scope, "outro-vinculo"), "vínculo alheio nunca vale");
+        match change {
+            "revoga" => bindings::revoke(&f.hub.store, &f.cfg.id, None).unwrap(),
+            "troca_de_space" => {
+                f.hub
+                    .store
+                    .db
+                    .locked()
+                    .execute(
+                        "UPDATE bots SET config=json_set(config,'$.spaceId','fixture-space-b') WHERE id=?1",
+                        [&f.cfg.id],
+                    )
+                    .unwrap();
+            }
+            "conta_do_bot" => {
+                f.hub
+                    .store
+                    .db
+                    .locked()
+                    .execute(
+                        "UPDATE bots SET config=json_set(config,'$.forkEditor',json_object('engineAccountId','outra-conta')) WHERE id=?1",
+                        [&f.cfg.id],
+                    )
+                    .unwrap();
+            }
+            "conta_da_sessao" => {
+                let db = f.hub.store.db.locked();
+                let session = bindings::resolve(&db, &owner, &f.cfg.id).unwrap().session_ref.id;
+                db.execute(
+                    "UPDATE donna_bot_sessions SET engine_choice=?2 WHERE id=?1",
+                    rusqlite::params![session, r#"{"backend":"codex","accountId":"conta-b"}"#],
+                )
+                .unwrap();
+            }
+            "computer" | "off" => {
+                f.hub
+                    .store
+                    .db
+                    .locked()
+                    .execute(
+                        "UPDATE bots SET config=json_set(config,'$.browserPreference',?2) WHERE id=?1",
+                        [&f.cfg.id, change],
+                    )
+                    .unwrap();
+            }
+            _ => {
+                f.hub.store.db.locked().execute("UPDATE bots SET deleted=1 WHERE id=?1", [&f.cfg.id]).unwrap();
+            }
+        }
+        assert!(!authority_valid(&f.hub, &scope, &owner), "{change}: a autoridade continuou valendo");
+    }
+}
+
+#[tokio::test]
+async fn revogacao_antes_do_resultado_descarta_a_resposta_da_ferramenta_de_pagina() {
+    let f = Fixture::with_memory_profile(|_, _| {});
+    let hub = f.hub.clone();
+    let bot = f.cfg.id.clone();
+    let reached = call_tests::interleave(&f.hub.store, "browser_page_response", move || {
+        bindings::revoke(&hub.store, &bot, None).unwrap();
+    });
+    assert!(dispatch(&f.hub, &Caller::Local, "memoryCall", page_body(&f, CLOSE, json!({}))).await.is_err());
+    assert!(reached.load(Ordering::SeqCst));
 }
 
 #[tokio::test]
