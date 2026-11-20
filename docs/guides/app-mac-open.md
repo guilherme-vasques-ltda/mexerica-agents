@@ -65,7 +65,10 @@ não pesquisa na internet e não abre outros programas. Se o Codex tentar usar
 uma ferramenta, a resposta é encerrada com um aviso. Anexos e conversas extras
 não estão disponíveis. Se existir `/etc/codex`, a pasta e seus arquivos
 precisam pertencer ao administrador do Mac e não podem aceitar escrita de
-outros usuários; caso contrário, a Open não abre o Codex.
+outros usuários; caso contrário, a Open não abre o Codex. Para a conexão
+segura, o Codex isolado confia só nos certificados públicos do macOS em
+`/etc/ssl/cert.pem`, sem consultar o Chaveiro; certificados instalados à parte,
+como os de uma rede corporativa, não valem na Open.
 
 Em ambiente de testes Unix sem o app aberto, volte à raiz do repositório e use
 `(cd host && CODYNC_ENV=open CARGO_PROFILE_DEV_DEBUG=0 cargo test --test open_hub)`

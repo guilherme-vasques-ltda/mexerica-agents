@@ -15,6 +15,8 @@ const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
 const ADMIN_POLICY: &str = "/private/etc/codex";
+/// Certificados públicos do macOS, do root: o TLS do Codex usa este arquivo em vez do Chaveiro.
+const CA_BUNDLE: &str = "/private/etc/ssl/cert.pem";
 /// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
 /// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
 pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
@@ -60,13 +62,15 @@ const POLICY: &str = r#"(version 1)
   (path-ancestors "/private/var/db/dyld"))
 (allow file-read* (subpath (param "PROFILE")) (subpath "/usr/share") (subpath "/private/etc/codex"))
 (allow file-read-data (literal "/"))
-(allow file-read-metadata (literal "/") (literal "/dev") (literal "/private") (literal "/private/etc") (literal "/private/var") (literal "/private/var/run"))
+(allow file-read-metadata (literal "/") (literal "/dev") (literal "/etc") (literal "/private") (literal "/private/etc") (literal "/private/var") (literal "/private/var/run"))
 (allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))
 (allow file-write* (subpath (param "PROFILE")) (literal "/dev/null"))
 "#;
 const LOGIN_NETWORK: &str = r#"
 (allow network-outbound (remote tcp "*:443"))
 (allow network-outbound (literal "/private/var/run/mDNSResponder"))
+(allow file-read-metadata (literal "/var"))
+(allow file-read* (literal "/private/etc/ssl/cert.pem"))
 (allow mach-lookup (global-name "com.apple.mDNSResponder") (global-name "com.apple.trustd.agent") (global-name "com.apple.system.opendirectoryd.libinfo"))
 "#;
 
@@ -193,6 +197,7 @@ fn command(executable: &Path, directory: &Path, login: bool) -> Result<Command> 
         .env("HOME", home)
         .env("CODEX_HOME", directory)
         .env("TMPDIR", tmp)
+        .env("SSL_CERT_FILE", CA_BUNDLE)
         .current_dir(home)
         .stdin(if login { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -223,6 +228,10 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     let selection = Selection::load(open).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
     prepare_profile(open, directory).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
     ensure!(admin_policy_safe(Path::new(ADMIN_POLICY)), "open_codex_unavailable");
+    ensure!(
+        fs::symlink_metadata(CA_BUNDLE).is_ok_and(|meta| meta.is_file() && meta.uid() == 0 && meta.mode() & 0o022 == 0),
+        "open_codex_unavailable"
+    );
     let mut probe = command(&selection.executable, directory, false)?;
     let probe = async {
         let mut child = probe.arg("--version").spawn()?;

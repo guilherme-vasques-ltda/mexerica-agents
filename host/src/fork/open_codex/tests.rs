@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::{
-    AUTH_CONFIG, CHAT_OVERRIDES, LOGIN_NETWORK, POLICY, SANDBOX, SELECTION, Selection, VERSION, admin_policy_safe,
-    command, hex, prepare_profile,
+    AUTH_CONFIG, CA_BUNDLE, CHAT_OVERRIDES, LOGIN_NETWORK, POLICY, SANDBOX, SELECTION, Selection, VERSION,
+    admin_policy_safe, command, hex, prepare_profile,
 };
 use crate::fork::private_fs::{self, Directory};
 use sha2::{Digest, Sha256};
@@ -107,7 +107,8 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     let std = command.as_std();
     assert_eq!(std.get_program(), SANDBOX);
     let vars: Vec<_> = std.get_envs().collect();
-    assert_eq!(vars.len(), 5);
+    assert_eq!(vars.len(), 6);
+    assert!(vars.iter().any(|(key, val)| *key == "SSL_CERT_FILE" && *val == Some(std::ffi::OsStr::new(CA_BUNDLE))));
     assert!(vars.iter().any(|(key, val)| *key == "CODEX_HOME" && *val == Some(profile.as_os_str())));
     let args: Vec<_> = std.get_args().collect();
     assert_eq!(args.last().copied(), Some(fixture.executable.as_os_str()));
@@ -120,7 +121,17 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
         "o Codex lê a política do administrador em /etc/codex"
     );
     assert!(!POLICY.contains("(subpath \"/private/etc\")"));
-    assert!(!LOGIN_NETWORK.contains("securityd"));
+    assert!(!LOGIN_NETWORK.contains("securityd") && !LOGIN_NETWORK.contains("SecurityServer"));
+    assert!(LOGIN_NETWORK.contains(&format!("(allow file-read* (literal \"{CA_BUNDLE}\"))")));
+    assert!(
+        POLICY.contains("(literal \"/etc\")")
+            && LOGIN_NETWORK.contains("(allow file-read-metadata (literal \"/var\"))")
+    );
+    assert!(
+        !POLICY.contains("(subpath \"/etc\")")
+            && !POLICY.contains("(subpath \"/var\")")
+            && !POLICY.contains("(subpath \"/private/var\")")
+    );
 }
 
 #[test]
@@ -175,7 +186,6 @@ async fn macos_login_sandbox_denies_personal_and_dev_files_even_through_a_link()
 #include <unistd.h>
 int main(int argc, char **argv) {
   if (argc == 1) return 0;
-  if (argc != 5) return 1;
   const char marker[] = "auxiliar nativo chegou a main\n";
   (void)write(STDOUT_FILENO, marker, sizeof(marker) - 1);
   int fd = open(argv[1], O_RDONLY);
@@ -183,7 +193,13 @@ int main(int argc, char **argv) {
   if (fd < 0 || read(fd, &byte, 1) != 1 || byte != 'o') return 2;
   close(fd);
   for (int i = 2; i < argc; ++i) {
-    fd = open(argv[i], O_RDONLY);
+    const char *path = argv[i] + 2;
+    fd = argv[i][0] == 'w' ? open(path, O_WRONLY | O_CREAT, 0600) : open(path, O_RDONLY);
+    if (argv[i][0] == 'a') {
+      if (fd < 0 || read(fd, &byte, 1) != 1) return 30 + i;
+      close(fd);
+      continue;
+    }
     if (fd >= 0) return 10 + i;
     if (errno != EPERM && errno != EACCES) return 20 + i;
   }
@@ -205,10 +221,13 @@ int main(int argc, char **argv) {
         "o auxiliar fictício não chegou a main no controle sem sandbox"
     );
     let mut sandbox = command(&fixture.executable, &profile, true).unwrap();
+    let mut denied: Vec<String> = files.iter().chain([&redirect]).map(|path| format!("r:{}", path.display())).collect();
+    denied.extend(["r:/etc/hosts".into(), "r:/private/etc/passwd".into(), format!("w:{CA_BUNDLE}")]);
+    denied.push(format!("w:{}", fixture.scope.join("outside").display()));
     sandbox
         .arg(open_file)
-        .args(files)
-        .arg(redirect)
+        .args(denied)
+        .arg(format!("a:{CA_BUNDLE}"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit());
