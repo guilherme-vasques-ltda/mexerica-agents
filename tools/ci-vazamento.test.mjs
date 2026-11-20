@@ -109,6 +109,38 @@ test('marcador não dispensa regra em nome de arquivo, mesmo sem outro achado', 
   assert.equal(publicRules('/Users/pessoa-ficticia/x vazamento-ok: exemplo', policy).length, 0, 'em conteúdo o marcador continua valendo');
 }));
 
+test('B6: atributos Git não escondem texto de commit intermediário', () => fixture(({ cwd, write, commit, base }) => {
+  write('.gitattributes', 'nota.txt -diff\n');
+  write('nota.txt', `${vault}\n`);
+  commit('intermediario');
+  write('nota.txt', 'texto limpo\n');
+  const head = commit('limpa');
+  const rules = scan({ cwd, mode: 'pr', base, head, policy }).findings.map((f) => `${f.path}:${f.rule}`);
+  assert.ok(rules.includes('nota.txt:cofre'), rules.join());
+}));
+
+test('B7: conteúdo trazido só pela resolução de um merge intermediário é varrido; octopus é recusado', () => fixture(({ cwd, git, write, commit, base }) => {
+  // Máquinas com wrapper de git podem gravar log dentro do HOME da fixture; fica fora das trocas de branch.
+  write('.git/info/exclude', '.capy/\n'); git('rm', '-r', '-q', '--cached', '--ignore-unmatch', '.capy');
+  git('-c', 'core.hooksPath=/dev/null', 'commit', '-q', '--allow-empty', '-m', 'prepara');
+  const start = git('rev-parse', 'HEAD');
+  git('checkout', '-q', '-b', 'lado'); write('lado.md', 'lado\n'); commit('lado');
+  git('checkout', '-q', 'main'); write('outro.md', 'outro\n'); commit('main2');
+  git('merge', '-q', '--no-ff', '--no-commit', 'lado');
+  write('resolucao.md', `${vault}\n`);
+  commit('merge com resolucao');
+  write('resolucao.md', 'texto limpo\n');
+  const head = commit('limpa');
+  const found = scan({ cwd, mode: 'pr', base, head, policy }).findings;
+  assert.ok(found.some((f) => f.path === 'resolucao.md' && f.rule === 'cofre'), found.map((f) => `${f.path}:${f.rule}`).join());
+  assert.ok(!found.some((f) => f.path === 'lado.md' || f.path === 'outro.md'), 'conteúdo limpo dos pais não vira achado');
+  git('checkout', '-q', '-b', 'a', start); write('a.md', 'a\n'); commit('a');
+  git('checkout', '-q', '-b', 'b', start); write('b.md', 'b\n'); commit('b');
+  git('checkout', '-q', 'main'); git('merge', '-q', '--no-ff', '-m', 'octopus', 'a', 'b');
+  const octo = git('rev-parse', 'HEAD');
+  assert.throws(() => scan({ cwd, mode: 'pr', base, head: octo, policy }), /mais de dois pais/);
+}));
+
 test('binários com NUL ficam fora; arquivos sensíveis geram achado sem ler conteúdo', () => fixture(({ cwd, write, commit }) => {
   write('imagem.png', Buffer.from([0, 1, 2, 3]));
   // Valores fictícios, sem consultar arquivos ou ambiente da máquina.

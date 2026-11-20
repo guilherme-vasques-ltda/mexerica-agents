@@ -112,6 +112,33 @@ export function scanLine(path, number, line, policy, terms = [], content = false
   if (terms.some((t) => !exempt.has(termHash(t)) && personal.includes(normalizeTerm(t)))) ids.push('termo-pessoal');
   return ids.map((rule) => ({ path, line: number, rule, fingerprint: fingerprint(rule, path, line) }));
 }
+function autoMerge(cwd, [ours, theirs]) {
+  const r = spawnSync('git', ['--no-pager', 'merge-tree', '--write-tree', sha(ours), sha(theirs)], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // 1 = conflito: a árvore sai com marcadores, e a resolução inteira entra na varredura.
+  if (![0, 1].includes(r.status)) throw new Error('Operação Git recusada');
+  return r.stdout.split('\n')[0];
+}
+// Uma mudança por caminho, com o nome canônico do Git; binário pelo conteúdo do blob e diff forçado como texto.
+function scanChanges(cwd, from, to, add, findings, limits) {
+  const raw = git(cwd, ['diff-tree', '-r', '-z', '--raw', '--no-renames', '--diff-filter=AM', from, to]).split('\0');
+  for (let i = 0; i + 1 < raw.length; i += 2) {
+    const [, mode, oid] = /^:\d+ (\d+) [a-f\d]+ ([a-f\d]+) /.exec(raw[i]) ?? [];
+    const path = raw[i + 1];
+    if (!oid || !path) throw new Error('Diff inválido');
+    if (mode === '160000') { limits.submodule++; continue; }
+    if (sensitiveFile(path)) { findings.push({ path, rule: 'arquivo-sensivel', fingerprint: fingerprint('arquivo-sensivel', path, path) }); continue; }
+    add(path, 1, path, false, false);
+    if (binaryFile(git(cwd, ['cat-file', 'blob', oid], true))) continue;
+    const patch = git(cwd, ['-c', 'core.quotePath=false', 'diff', '--no-ext-diff', '--no-textconv', '--text', '--no-renames', '--unified=0', from, to, '--', ':(literal)' + path]);
+    let n = 0, hunk = false;
+    for (const line of patch.split('\n')) {
+      const match = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+      if (match) { n = Number(match[1]); hunk = true; continue; }
+      if (hunk && line.startsWith('+')) add(path, n++, line.slice(1), true);
+      else if (hunk && line.startsWith(' ')) n++;
+    }
+  }
+}
 export function scan({ cwd, mode, base, head, policy, terms = [], inventory = [] }) {
   sha(head);
   if (!['pr', 'arvore'].includes(mode)) throw new Error('Modo inválido');
@@ -154,21 +181,12 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
       git(cwd, ['show', '-s', '--format=%B', sha(commit)]).split('\n').forEach((line, i) => add(`commit/${commit}`, i + 1, line));
     }
     // Commits intermediários ficam no histórico depois de um merge normal: cada um é varrido também.
-    const own = git(cwd, ['rev-list', '--no-merges', `${base}..${head}`]).trim().split('\n').filter(Boolean);
-    for (const commit of own) {
-      for (const path of git(cwd, ['diff-tree', '--no-commit-id', '-r', '-z', '--name-only', '--no-renames', '--diff-filter=AM', sha(commit)]).split('\0').filter(Boolean)) {
-        if (sensitiveFile(path)) findings.push({ path, rule: 'arquivo-sensivel', fingerprint: fingerprint('arquivo-sensivel', path, path) });
-        else add(path, 1, path, false, false);
-      }
-      const patch = git(cwd, ['-c', 'core.quotePath=false', 'show', '--format=', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0', sha(commit)]);
-      let path = null, n = 0, hunk = false;
-      for (const line of patch.split('\n')) {
-        if (line.startsWith('diff --git ')) { path = null; hunk = false; continue; }
-        if (!hunk && line.startsWith('+++ ')) { path = line === '+++ /dev/null' ? null : line.slice(4).replace(/^"?b\//, '').replace(/"$/, ''); continue; }
-        const match = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-        if (match) { n = Number(match[1]); hunk = true; continue; }
-        if (hunk && path && !sensitiveFile(path) && line.startsWith('+')) add(path, n++, line.slice(1), true);
-      }
+    // Merge: compara o merge automático dos pais com o resultado, para pegar só o que a resolução trouxe.
+    for (const commit of commits) {
+      const parents = git(cwd, ['rev-list', '--parents', '-n', '1', sha(commit)]).trim().split(' ').slice(1);
+      if (parents.length > 2) throw new Error('Merge com mais de dois pais não suportado');
+      const from = parents.length === 2 ? autoMerge(cwd, parents) : parents[0];
+      scanChanges(cwd, sha(from), commit, add, findings, limits);
     }
   }
   const unique = [...new Map(findings.map((f) => [`${f.path}:${f.line}:${f.rule}:${f.fingerprint}`, f])).values()];

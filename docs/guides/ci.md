@@ -39,7 +39,8 @@ início da rodada. Se o Boat recusar um job depois:
   mensagens de commit contra regras públicas (caminho pessoal, IP privado, host interno,
   identificador de serviço, referência de cofre, arquivo sensível) e contra termos pessoais
   vindos do secret `VAZAMENTO_TERMOS`. Olha o resultado final e também cada commit do PR,
-  porque um commit intermediário fica no histórico. É o único job que recebe um secret, e só
+  porque um commit intermediário fica no histórico; num merge, olha o que a resolução trouxe
+  além do merge automático. Merge com mais de dois pais é recusado. É o único job que recebe um secret, e só
   no passo cujo executor veio da `main`. Sem o secret, o job falha fechado para qualquer
   autor; PRs do Dependabot leem o secret de Dependabot de mesmo nome.
 - **changes:** compara a `main` com o merge do PR e decide se Hub e Desktop precisam rodar.
