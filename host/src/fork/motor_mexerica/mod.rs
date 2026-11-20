@@ -47,6 +47,8 @@ pub(crate) const REQUIRED_ENV: &str = "MEXERICA_MOTOR_TESTS_REQUIRED";
 /// `motor-mexerica/<provider>` e devolve a chave, sem nunca registrar o valor.
 /// No bot o leitor fecha sobre o `Arc<Hub>`; nos testes, sobre um `Arc<Store>`.
 pub(crate) type VaultSource = Arc<dyn Fn(&str) -> Result<Option<String>> + Send + Sync>;
+/// Limites (`contextWindow`, `maxTokens`) de `(fornecedor, modelo)`; `{}` quando não há.
+pub(crate) type LimitsSource = Arc<dyn Fn(&str, &str) -> Result<Value> + Send + Sync>;
 
 /// Fonte do cofre sobre um `Store` próprio (provas e testes).
 pub(crate) fn store_vault(store: Arc<Store>) -> VaultSource {
@@ -388,11 +390,18 @@ impl Engine {
     }
 
     /// `set_model` do provedor fixado no nascimento. Fora de um turno.
-    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str) -> Result<()> {
+    /// `limits` leva `contextWindow`/`maxTokens` do último «Testar acesso», quando há.
+    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str, limits: &Value) -> Result<()> {
         ensure!(provider == self.provider, "este motor está preso ao provedor {}", self.provider);
         self.next_id += 1;
         let set_id = format!("set-{}", self.next_id);
-        self.send(json!({"id": set_id, "type": "set_model", "provider": provider, "modelId": model_id})).await?;
+        let mut command = json!({"id": set_id, "type": "set_model", "provider": provider, "modelId": model_id});
+        for field in ["contextWindow", "maxTokens"] {
+            if let Some(n) = limits[field].as_u64() {
+                command[field] = n.into();
+            }
+        }
+        self.send(command).await?;
         let res = self.response(&set_id).await?;
         ensure!(res["success"] == true, "set_model recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
@@ -493,7 +502,7 @@ impl Engine {
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
-        self.set_model(provider, model_id).await?;
+        self.set_model(provider, model_id, &json!({})).await?;
         self.next_id += 1;
         self.send(json!({"id": format!("p-{}", self.next_id), "type": "prompt", "message": message})).await?;
 

@@ -130,7 +130,10 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 	set_model(command) {
 		const provider = String(command.provider);
 		const modelId = String(command.modelId);
-		const found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId) : undefined);
+		// Os limites vêm do último «Testar acesso» (o Hub os guarda); sem eles, os padrões do fornecedor.
+		const limite = (valor: unknown) => (Number.isSafeInteger(valor) && (valor as number) > 0 ? (valor as number) : undefined);
+		const listado = { id: modelId, name: modelId, contextWindow: limite(command.contextWindow), maxTokens: limite(command.maxTokens) };
+		const found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId, listado) : undefined);
 		if (!found) throw new Error(`modelo desconhecido: ${command.provider}/${command.modelId}`);
 		model = found;
 		agent.state.model = found;

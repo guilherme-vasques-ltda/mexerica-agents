@@ -1,7 +1,7 @@
 // Servidores de mentira dos fornecedores, só para testes (--import). Nada sai da máquina. O cenário vem de
 // MEXERICA_TEST_CENARIO: ok, invalida, sem_permissao, lenta, erro, quebrada. Toda resposta de erro repete a
 // credencial recebida no corpo, como uma API que devolve a chave no erro: a saída do motor não pode contê-la.
-// Cada chamada (url, método e cabeçalhos) vai para MEXERICA_MOTOR_FETCH_LOG.
+// Cada chamada (url, método, cabeçalhos e o corpo JSON da conversa) vai para MEXERICA_MOTOR_FETCH_LOG.
 import { appendFileSync } from "node:fs";
 
 const log = process.env.MEXERICA_MOTOR_FETCH_LOG;
@@ -30,7 +30,8 @@ globalThis.fetch = async (input, init) => {
 	const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
 	const method = (init?.method ?? input?.method ?? "GET").toUpperCase();
 	const headers = Object.fromEntries(new Headers(init?.headers ?? input?.headers ?? {}));
-	if (log) appendFileSync(log, JSON.stringify({ url: url.href, method, headers }) + "\n");
+	const corpo = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+	if (log) appendFileSync(log, JSON.stringify({ url: url.href, method, headers, corpo }) + "\n");
 	const credencial = headers.authorization ?? headers["x-api-key"] ?? headers["x-goog-api-key"] ?? "sem-credencial";
 	const eco = (status, motivo) => json({ error: { message: `${motivo}: ${credencial}` } }, status);
 	if (cenario === "lenta") {

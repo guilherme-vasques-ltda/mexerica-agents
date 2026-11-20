@@ -11,7 +11,7 @@ import { encerrar, startEngine, turnoTerminou, type Line } from "./helpers.ts";
 const STUB = fileURLToPath(new URL("./stub-fornecedores.mjs", import.meta.url));
 const SECRET = "chave-de-mentira-que-nao-pode-vazar-42";
 
-type Chamada = { url: string; method: string; headers: Record<string, string> };
+type Chamada = { url: string; method: string; headers: Record<string, string>; corpo?: Record<string, unknown> };
 
 async function comMotor<T>(cenario: string, corpo: (proc: ReturnType<typeof startEngine>, chamadas: () => Chamada[]) => Promise<T>, segredo = SECRET): Promise<T> {
 	const dir = mkdtempSync(join(tmpdir(), "motor-fornecedores-"));
@@ -84,6 +84,23 @@ for (const [provider, esperado] of Object.entries(FORNECEDORES)) {
 			assert.equal(conversa.length, 1, JSON.stringify(chamadas()));
 			assert.match(conversa[0]!.url, esperado.conversa);
 			assert.ok(conversa[0]!.headers[esperado.auth]?.includes(SECRET));
+		}));
+}
+
+for (const [caso, limites, teto] of [
+	["os limites do «Testar acesso»", { contextWindow: 32000, maxTokens: 4096 }, 4096],
+	["sem limites, o padrão do fornecedor", {}, 16384],
+	["limites fora do formato são ignorados", { contextWindow: "muito", maxTokens: -1 }, 16384],
+] as const) {
+	test(`teto de saída do pedido: ${caso}`, () =>
+		comMotor("ok", async (proc, chamadas) => {
+			proc.send({ id: "m", type: "set_model", provider: "openrouter", modelId: "fornecedor/modelo-teste", ...limites });
+			await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+			proc.send({ id: "p", type: "prompt", message: "oi" });
+			await proc.waitFor(turnoTerminou);
+			const conversa = chamadas().filter((c) => c.method === "POST");
+			assert.equal(conversa.length, 1, JSON.stringify(chamadas()));
+			assert.equal(conversa[0]!.corpo?.["max_completion_tokens"], teto, JSON.stringify(conversa[0]!.corpo));
 		}));
 }
 

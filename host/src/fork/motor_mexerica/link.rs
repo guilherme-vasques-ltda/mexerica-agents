@@ -10,7 +10,7 @@
 use super::historico::{self, History, TurnLog};
 use super::tools::{ToolFuture, ToolRunner};
 use super::{
-    Engine, VaultSource,
+    Engine, LimitsSource, VaultSource,
     mcp_host::{McpHost, ToolClass},
 };
 use crate::LockExt;
@@ -64,6 +64,8 @@ pub(crate) struct Link {
     next_out: AtomicU64,
     /// So as provas do ator com o motor real dispensam os servidores MCP: o executavel deles seria o binario de testes.
     skip_mcp: std::sync::atomic::AtomicBool,
+    /// Limites do modelo escolhido (contexto e teto de saída) guardados pelo «Testar acesso».
+    limits: std::sync::OnceLock<LimitsSource>,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -196,6 +198,7 @@ impl Link {
             pending: Mutex::new(acp::Pending::default()),
             next_out: AtomicU64::new(1),
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
+            limits: std::sync::OnceLock::new(),
             stop,
             task: Mutex::new(None),
         })
@@ -204,6 +207,11 @@ impl Link {
     /// Dispensa os servidores MCP deste adaptador (so a prova do ator com o motor real).
     pub(crate) fn skip_mcp_servers(&self) {
         self.skip_mcp.store(true, Ordering::Relaxed);
+    }
+
+    /// Fonte dos limites de cada modelo; sem ela, o motor usa os padrões do fornecedor.
+    pub(crate) fn use_limits(&self, source: LimitsSource) {
+        let _ = self.limits.set(source);
     }
 
     /// Liga o adaptador ao transporte: `read` recebe os quadros JSON-RPC do
@@ -493,7 +501,11 @@ impl Link {
         self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
         let mut engine = session.engine.lock().await;
         let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
-        engine.set_model(&provider, &model).await?;
+        let limits = match self.limits.get() {
+            Some(source) => source(&provider, &model)?,
+            None => json!({}),
+        };
+        engine.set_model(&provider, &model, &limits).await?;
         *session.provider.locked() = provider;
         *session.model.locked() = model;
         Ok(())
