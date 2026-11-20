@@ -228,6 +228,74 @@
     }
   },
   {
+    "name": "create_spreadsheet",
+    "description": "Cria uma planilha .xlsx NOVA numa pasta que o dono autorizou NO COMPUTADOR dele (nunca no servidor do Hub; para o servidor use os arquivos do motor). Você escolhe o local nomeado (hoje só desktop = Área de Trabalho do computador, na pasta especial do sistema, qualquer idioma) e, se quiser, uma subpasta única (folder), que o computador cria se faltar. Você nunca informa caminho. Nunca sobrescreve nem apaga nada: se o arquivo já existe, falha sem tocar nele. Só dados (texto, número, true/false, null); sem fórmulas. O computador só aceita local que o dono liberou nele; fora disso, recusa sem perguntar. Depois de gravar, o computador reabre o arquivo e devolve um recibo (caminho, tamanho, SHA-256 e conteúdo conferidos). Só o outcome done com recibo prova que o arquivo existe naquele computador: a planilha montada no servidor é apenas prévia, nunca \"salva\". Ao responder ao dono, diga em qual computador e em qual pasta o arquivo foi criado e que o computador confirmou; sem recibo, diga que não foi confirmado. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "location",
+        "filename",
+        "sheets",
+        "reason"
+      ],
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Nome ou id de list_computers. Omitido: computador de onde o dono escreveu; com vários e nenhum indicado, falha."
+        },
+        "location": {
+          "enum": [
+            "desktop"
+          ],
+          "description": "Local autorizado no computador: desktop = Área de Trabalho."
+        },
+        "folder": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Subpasta opcional dentro do local, um só nome (sem / ou \\). Criada se não existir; se já existir, é reaproveitada."
+        },
+        "filename": {
+          "type": "string",
+          "maxLength": 69,
+          "description": "Só o nome, terminado em .xlsx (até 64 letras, números, espaço, _ - .). Sem pasta."
+        },
+        "sheets": {
+          "type": "array",
+          "maxItems": 5,
+          "description": "De 1 a 5 abas.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "rows"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 31
+              },
+              "rows": {
+                "type": "array",
+                "maxItems": 500,
+                "description": "Até 500 linhas de até 20 células: texto, número, true/false ou null.",
+                "items": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {}
+                }
+              }
+            }
+          }
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Por que, em uma frase; fica registrado no Hub."
+        }
+      }
+    }
+  },
+  {
     "name": "computer_job_status",
     "description": "Estado e resultado de um trabalho. Em awaiting_approval ou running, continue consultando até receber o resultado; em unknown, confira antes de repetir. Só na principal, com a sessão de origem em andamento; vínculo revogado ou de outra sessão é chamada vencida.",
     "inputSchema": {

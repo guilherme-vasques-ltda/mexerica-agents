@@ -1,12 +1,14 @@
 //! D83: Hub side only. Local approval and execution belong to the future helper.
 pub mod context;
 pub mod executor_api;
+pub mod helper;
 pub mod jobs;
 pub mod pairing;
 pub mod registry;
 #[cfg(test)]
 mod test_executor;
 pub mod tools;
+pub mod xlsx;
 
 use crate::LockExt;
 use crate::hub::Hub;

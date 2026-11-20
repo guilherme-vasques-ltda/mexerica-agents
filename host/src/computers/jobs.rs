@@ -176,8 +176,17 @@ pub(crate) fn create_in_execution(
         c.label,
         c.state_since.or(c.last_seen_at).unwrap_or(c.enrolled_at)
     );
+    // Em disco que não diferencia maiúsculas, `V.xlsx` e `v.xlsx` são o mesmo alvo: a chave de repetição os junta.
+    let mut keyed = spec.clone();
+    if spec["purpose"] == "spreadsheet" {
+        for key in ["path", "folder"] {
+            if let Some(text) = spec[key].as_str() {
+                keyed[key] = json!(text.to_lowercase());
+            }
+        }
+    }
     let idem =
-        crypto::b64(&crypto::sha256(&[serde_json::to_string(&json!([bot, message, c.id, kind, spec]))?.as_bytes()]));
+        crypto::b64(&crypto::sha256(&[serde_json::to_string(&json!([bot, message, c.id, kind, keyed]))?.as_bytes()]));
     let all = hub.store.computer_jobs()?;
     ensure!(
         !all.iter().any(|j| j.bot_id == bot

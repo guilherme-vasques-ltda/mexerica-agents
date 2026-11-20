@@ -373,7 +373,8 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     let c = computer(hub, caller)?;
     jobs::sweep_locked(hub, now_ms())?;
     let mut j = owned(hub, &c, b)?;
-    if j.result.is_some() && j.state != Phase::Unknown {
+    // Um `done` já confirmado nunca muda: o reenvio do mesmo resultado só recebe o ACK (mesmo depois da retenção).
+    if j.state == Phase::Done || (j.result.is_some() && j.state != Phase::Unknown) {
         return Ok(json!({"ack":true}));
     }
     let outcome = arg(b, "outcome")?;
@@ -391,6 +392,16 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
         !matches!(phase, Phase::Done | Phase::Failed | Phase::Unknown) || j.started_at.is_some(),
         "job_cancelled: start não confirmado"
     );
+    // Planilha só conta como feita com recibo coerente com o que o Hub enviou; sem isso, o efeito é incerto.
+    // Depois da retenção o Hub guarda só o tipo `spreadsheet`: sem os campos esperados o recibo nunca confere.
+    let (phase, receipt_code) = if phase == Phase::Done
+        && j.spec["purpose"] == "spreadsheet"
+        && !receipt_ok(&j.spec, b, c.platform == "windows")
+    {
+        (Phase::Unknown, Some("receipt_invalid"))
+    } else {
+        (phase, None)
+    };
     let ended_before_start = j.started_at.is_none() && matches!(j.state, Phase::Cancelled | Phase::Expired);
     ensure!(
         !ended_before_start || matches!(phase, Phase::Cancelled | Phase::Expired | Phase::Refused | Phase::Denied),
@@ -419,15 +430,24 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     } else {
         j.state = phase;
         j.outcome = Some(if phase == Phase::Unknown { "unknown_outcome".into() } else { outcome.into() });
-        j.error_code = b["code"].as_str().map(str::to_owned);
+        j.error_code = receipt_code.or_else(|| b["code"].as_str()).map(str::to_owned);
     }
     j.finished_at = Some(now_ms());
     j.cancel_requested = false;
+    // O computador provou que nada foi gravado (conferiu a mesma tentativa depois da queda): repetir deixa de ser risco.
+    if j.spec["purpose"] == "spreadsheet" && phase == Phase::Failed && b["code"] == "not_written" {
+        j.unknown_reported = false;
+    }
     // Store only the result contract, never reflect its lease token through the MCP.
     let mut clean = b.clone();
     if let Some(map) = clean.as_object_mut() {
         map.remove("leaseToken");
         map.remove("jobId");
+        if receipt_code.is_some() {
+            // Recibo recusado não é prova de nada: não volta ao modelo como se fosse.
+            map.remove("receipt");
+            map.insert("receiptRejected".into(), json!(true));
+        }
     }
     j.result = Some(clean);
     if j.kind == "fs.read" || j.kind == "fs.list" || (j.kind == "program" && j.spec["program"] == "spark") {
@@ -435,6 +455,33 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     }
     jobs::save(hub, &j)?;
     Ok(json!({"ack":true}))
+}
+
+/// Caminho absoluto que termina em [pasta/]nome, como o pedido descreveu.
+/// No Windows a barra invertida separa componentes; no macOS ela é parte do nome do arquivo.
+fn path_matches(path: &str, name: &str, folder: Option<&str>, windows: bool) -> bool {
+    let absolute = path.starts_with('/')
+        || (windows && (path.starts_with("\\\\") || path.get(1..3).is_some_and(|s| s == ":\\" || s == ":/")));
+    let parts: Vec<&str> = if windows { path.split(['/', '\\']).collect() } else { path.split('/').collect() };
+    let [.., parent, last] = parts.as_slice() else { return false };
+    absolute && *last == name && folder.is_none_or(|f| *parent == f) && !parts.contains(&"..")
+}
+
+/// O recibo de uma planilha precisa repetir o que o Hub enviou e vir de aprovação na janela do computador.
+fn receipt_ok(spec: &Value, b: &Value, windows: bool) -> bool {
+    let r = &b["receipt"];
+    let name = spec["path"].as_str().unwrap_or_default();
+    matches!(b["decidedBy"].as_str(), Some("policy" | "click"))
+        && !name.is_empty()
+        && r["location"] == spec["location"]
+        && r["folder"] == spec["folder"]
+        && r["path"].as_str().is_some_and(|p| path_matches(p, name, spec["folder"].as_str(), windows))
+        && r["created"] == true
+        && r["reopened"] == true
+        && r["size"] == spec["size"]
+        && r["sha256"] == spec["sha256"]
+        && r["contentSha256"] == spec["contentSha256"]
+        && r["sheets"] == spec["summary"]
 }
 
 /// Additional fork permissions; None defers unchanged upstream method policy.
@@ -447,5 +494,24 @@ pub fn permit(caller: &Caller, method: &str) -> Option<bool> {
         Caller::Device { scopes, .. } if scopes.contains(&Scope::Executor) => Some(false),
         Caller::Device { .. } if super::LOCAL_METHODS.contains(&method) => Some(false),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod receipt_path_tests {
+    use super::path_matches;
+
+    #[test]
+    fn receipt_paths_follow_the_platform_of_the_enrolled_computer() {
+        assert!(path_matches("/Users/user/Desktop/X/Vendas.xlsx", "Vendas.xlsx", Some("X"), false));
+        assert!(!path_matches("/Users/user/Desktop/Y/Vendas.xlsx", "Vendas.xlsx", Some("X"), false));
+        assert!(!path_matches("Vendas.xlsx", "Vendas.xlsx", None, false));
+        assert!(!path_matches("/Users/user/../Vendas.xlsx", "Vendas.xlsx", None, false));
+        // No macOS a barra invertida faz parte do nome da pasta, não é separador.
+        assert!(path_matches("/Users/user/Team\\..\\x/Vendas.xlsx", "Vendas.xlsx", None, false));
+        assert!(!path_matches("C:\\Users\\user\\Desktop\\Vendas.xlsx", "Vendas.xlsx", None, false));
+        assert!(path_matches("C:\\Users\\user\\Desktop\\X\\Vendas.xlsx", "Vendas.xlsx", Some("X"), true));
+        assert!(path_matches("\\\\?\\C:\\Users\\user\\Desktop\\Vendas.xlsx", "Vendas.xlsx", None, true));
+        assert!(!path_matches("C:\\Users\\user\\..\\Vendas.xlsx", "Vendas.xlsx", None, true));
     }
 }
