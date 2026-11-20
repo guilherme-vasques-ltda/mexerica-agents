@@ -574,6 +574,33 @@ impl Store {
         }
         Ok(ids.len())
     }
+
+    /// Sem ator vivo (início do Hub ou fim do desligamento) ninguém continua a escrever: o trecho de resposta que
+    /// ficou aberto vira interrompido, nunca final, e a ferramenta sem desfecho vira falha interrompida. Nada é
+    /// reenviado ao motor.
+    pub fn interrupt_open_work(&self) -> Result<usize> {
+        let ids: Vec<String> = {
+            let c = self.db.locked();
+            let mut st = c.prepare(
+                "SELECT id FROM entries WHERE (kind = 'agent' AND json_extract(data, '$.streaming') = 1
+                    AND COALESCE(json_extract(data, '$.final'), 0) = 0)
+                  OR (kind = 'tool' AND json_extract(data, '$.status') IN ('pending', 'in_progress'))",
+            )?;
+            st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        for id in &ids {
+            let Some(mut e) = self.entry(id) else { continue };
+            let Some(data) = e.data.as_object_mut() else { continue };
+            if e.kind == EntryKind::Tool.as_str() {
+                data.insert("status".into(), "failed".into());
+            } else {
+                data.remove("streaming");
+            }
+            data.insert("interrupted".into(), true.into());
+            self.update_entry(id, &e.data)?;
+        }
+        Ok(ids.len())
+    }
 }
 
 #[cfg(test)]

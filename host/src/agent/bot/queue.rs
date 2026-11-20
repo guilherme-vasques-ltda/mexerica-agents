@@ -356,7 +356,11 @@ impl Actor {
                     self.restart_agent().await;
                 }
             }
-            Cmd::Shutdown => return false,
+            Cmd::Shutdown => {
+                // O que chegou depois do último tick vai para o disco; o corte é marcado depois, sem ator vivo.
+                self.flush(true);
+                return false;
+            }
         }
         true
     }

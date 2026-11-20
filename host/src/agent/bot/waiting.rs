@@ -364,8 +364,7 @@ impl Actor {
         self.turn_limit = None;
         let reset = resets_at
             .or_else(|| subscription::usage_reset(&self.hub.usage.locked(), &backend, self.cfg.model.as_deref(), now));
-        self.flush(true);
-        self.seg = Seg::None;
+        self.close_seg();
         self.files.cancel();
         self.close_turn_work(true);
         let had_waiting = self.waiting.is_some();

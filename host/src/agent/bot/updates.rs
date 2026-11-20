@@ -480,8 +480,7 @@ impl Actor {
             .transpose()?
             .map(|p| (p.id.to_owned(), p.fence));
         let turn = self.turn.unwrap_or(0);
-        self.flush_in_execution(true, Some(&execution))?;
-        self.seg = Seg::None;
+        self.seal_seg_in_execution(Some(&execution))?;
         let options = data["options"]
             .as_array()
             .into_iter()
@@ -800,7 +799,7 @@ impl Actor {
         if !same {
             self.close_seg();
             let (k, data) = match kind {
-                SegKind::Text => (EntryKind::Agent, json!({"text": text, "final": false})),
+                SegKind::Text => (EntryKind::Agent, json!({"text": text, "final": false, "streaming": true})),
                 SegKind::Thought => (EntryKind::Thought, json!({"text": text})),
             };
             if let Some(e) = self.add(k, self.turn.unwrap_or(0), data) {
@@ -823,18 +822,22 @@ impl Actor {
         let _ = self.flush_in_execution(force, None);
     }
 
+    /// Texto de resposta ainda aberto leva `streaming`: se o Hub cair antes de fechá-lo, a varredura do início
+    /// (`Store::interrupt_open_work`) o marca como interrompido. Gravação que falha não conta como gravada.
     fn flush_in_execution(&mut self, force: bool, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
         if let Seg::Open { kind, entry_id, buf, flushed, dirty } = &mut self.seg
             && *dirty
             && (force || flushed.elapsed() >= Duration::from_millis(300))
         {
             let data = match kind {
-                SegKind::Text => json!({"text": buf, "final": false, "author": self.cfg.id}),
+                SegKind::Text => json!({"text": buf, "final": false, "streaming": true, "author": self.cfg.id}),
                 SegKind::Thought => json!({"text": buf, "author": self.cfg.id}),
             };
-            let written = self.hub.set_entry_in_execution(entry_id, &data, execution);
-            if execution.is_some() && written.is_none() {
-                bail!("chamada vencida: segmento não confirmado");
+            if self.hub.set_entry_in_execution(entry_id, &data, execution).is_none() {
+                if execution.is_some() {
+                    bail!("chamada vencida: segmento não confirmado");
+                }
+                return Ok(());
             }
             *flushed = Instant::now();
             *dirty = false;
@@ -842,9 +845,41 @@ impl Actor {
         Ok(())
     }
 
-    pub(super) fn close_seg(&mut self) {
-        self.flush(true);
+    /// Fecha o trecho aberto gravando o texto inteiro; a resposta fechada perde `streaming`.
+    fn seal_seg_in_execution(&mut self, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
+        let Seg::Open { kind, entry_id, buf, dirty, .. } = &self.seg else { return Ok(()) };
+        let data = match kind {
+            SegKind::Text => json!({"text": buf, "final": false, "author": self.cfg.id}),
+            SegKind::Thought if *dirty => json!({"text": buf, "author": self.cfg.id}),
+            SegKind::Thought => {
+                self.seg = Seg::None;
+                return Ok(());
+            }
+        };
+        if self.hub.set_entry_in_execution(entry_id, &data, execution).is_none() {
+            if execution.is_some() {
+                bail!("chamada vencida: segmento não confirmado");
+            }
+            tracing::error!(entry = entry_id, "não foi possível gravar o fim do trecho");
+        }
         self.seg = Seg::None;
+        Ok(())
+    }
+
+    pub(super) fn close_seg(&mut self) {
+        let _ = self.seal_seg_in_execution(None);
+    }
+
+    /// Resposta cortada (Stop, erro ou desligamento) fica na trilha como interrompida, nunca como resposta final.
+    pub(super) fn mark_interrupted(&self, entry_id: &str) {
+        if let Some(mut entry) = self.hub.store.entry(entry_id)
+            && entry.data["final"] != true
+            && let Some(data) = entry.data.as_object_mut()
+        {
+            data.remove("streaming");
+            data.insert("interrupted".into(), true.into());
+            self.hub.set_entry(entry_id, &entry.data);
+        }
     }
 }
 
