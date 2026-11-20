@@ -98,10 +98,10 @@ export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, 
   for (const [k, list] of steps) {
     const reply = lastReply.get(k)
     // A reply that came before the turn's last step is not the end of the work: the steps stay live.
-    // Uma resposta interrompida fecha o turno cortado: a ferramenta cortada depois dela fica na bolha. Passo ainda vivo
-    // ou texto escrito depois dela são de uma nova tentativa do mesmo turno, que segue ao vivo.
+    // Uma resposta interrompida fecha o turno cortado: a ferramenta cortada (falha) depois dela fica na bolha. Qualquer
+    // outro passo ou texto depois dela é de uma nova tentativa do mesmo turno, que segue ao vivo.
     const cut = reply?.data.interrupted === true && (lastAgent.get(k) ?? 0) <= reply.createdAt
-      && !list.some((s) => s.at > reply.createdAt && (s.state === 'running' || s.state === 'waiting'))
+      && !list.some((s) => s.at > reply.createdAt && s.state !== 'failed')
     if (reply && (reply.createdAt >= list[list.length - 1]!.at || cut)) byReply.set(reply.id, summarize(list, reply.createdAt))
     else if (k.startsWith(`${currentTurn}|`)) pending.set(k.slice(k.indexOf('|') + 1), summarize(list, list[list.length - 1]!.at))
   }
