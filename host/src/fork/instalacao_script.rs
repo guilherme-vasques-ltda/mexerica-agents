@@ -23,15 +23,20 @@ const PERGUNTA_UNIX: &str = "Rodar agora? [s/N]";
 #[cfg(unix)]
 const CANCELADO_UNIX: &str = "Cancelado: nada foi executado.";
 /// O `cmd` não garante UTF-8, então a mensagem do Windows é ASCII.
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const PERGUNTA_WINDOWS: &str = "Rodar este comando agora? [S/N]";
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const CANCELADO_WINDOWS: &str = "Cancelado: nada foi executado.";
 
 /// `comando` (a linha de instalação de `backends::Install`) embrulhada para exigir
 /// confirmação no terminal antes de executar.
 #[cfg(unix)]
 pub fn linha_com_confirmacao(comando: &str) -> String {
+    linha_unix(comando)
+}
+
+#[cfg(unix)]
+fn linha_unix(comando: &str) -> String {
     format!(
         "printf '{AVISO_UNIX}\\n{PERGUNTA_UNIX} '\n\
          if IFS= read -r mexerica_instalar; then\n\
@@ -45,17 +50,27 @@ pub fn linha_com_confirmacao(comando: &str) -> String {
     )
 }
 
-/// O mesmo no Windows: `choice` devolve no ERRORLEVEL a resposta, não um código de sucesso
-/// (1 = S, 2 = N, 255 = erro), então o `if` roda sempre (`&`, nunca `&&`). O comando só
-/// executa com ERRORLEVEL exatamente 1, o "S": N e erro caem no cancelamento com saída 130;
-/// interrupção (ERRORLEVEL 0, se o `cmd` seguir vivo) não cai em ramo nenhum e não executa
-/// nada. O comando vem sem parênteses em volta: os instaladores Windows chamam o PowerShell
-/// com parênteses dentro das aspas, e um bloco aberto seria fechado antes da hora. A
-/// mensagem é ASCII porque o `cmd` não garante UTF-8.
+/// Windows: `choice` devolve no ERRORLEVEL a resposta, não um código de sucesso
+/// (1 = S, 2 = N, 0 = interrupção, 255 = erro), então o `if` roda sempre (`&`, nunca `&&`)
+/// e cada desfecho tem seu ramo: só o ERRORLEVEL 1, o "S", executa; N, interrupção e erro
+/// cancelam com saída 130. O comando vem solto no fim, sem parênteses em volta: os
+/// instaladores Windows chamam o PowerShell com parênteses dentro das aspas, e um bloco
+/// aberto seria fechado antes da hora. A mensagem é ASCII porque o `cmd` não garante UTF-8.
 #[cfg(windows)]
 pub fn linha_com_confirmacao(comando: &str) -> String {
+    linha_windows(comando)
+}
+
+/// O construtor puro, compilado também nos testes do Linux para a forma poder ser
+/// conferida onde o `cmd` não roda; o comportamento do `cmd` em si só é verificável no
+/// Windows.
+#[cfg(any(windows, test))]
+fn linha_windows(comando: &str) -> String {
     format!(
-        "choice /c SN /m \"{PERGUNTA_WINDOWS}\" & if errorlevel 2 (echo {CANCELADO_WINDOWS} & exit 130) else if errorlevel 1 {comando}"
+        "choice /c SN /m \"{PERGUNTA_WINDOWS}\" \
+         & if errorlevel 2 (echo {CANCELADO_WINDOWS} & exit 130) \
+         else if not errorlevel 1 (echo {CANCELADO_WINDOWS} & exit 130) \
+         else {comando}"
     )
 }
 
@@ -131,20 +146,25 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
+    /// No Windows os quatro desfechos têm ramo próprio: só o ERRORLEVEL 1 (o "S") executa;
+    /// N (2), interrupção (0) e erro (255) cancelam com saída 130. Roda também no Linux
+    /// porque o construtor é string pura — o comportamento do `cmd` em si só é verificável
+    /// no Windows.
     #[test]
     fn wrapper_windows_executa_somente_com_s() {
-        let linha = linha_com_confirmacao("echo comando-do-fornecedor");
-        assert!(linha.contains("choice /c SN"));
+        let linha = linha_windows("echo comando-do-fornecedor");
+        assert!(linha.contains("choice /c SN"), "{linha}");
         // `&` e nunca `&&`: a resposta de `choice` é o ERRORLEVEL (1 = S, 2 = N), não um código
         // de sucesso; com `&&` o "S" (1) nunca executaria e a interrupção (0) executaria.
         assert!(linha.contains("\" & if "), "{linha}");
-        assert!(!linha.contains("&&"));
-        // O comando vem só depois do `else if errorlevel 1`: ERRORLEVEL exatamente 1, o "S".
-        // N (2), interrupção (0) e erro (255) não caem em nenhum ramo e não executam nada.
-        let (_, depois) = linha.split_once("else if errorlevel 1 ").unwrap();
-        assert_eq!(depois, "echo comando-do-fornecedor");
-        let antes = &linha[..linha.len() - depois.len()];
-        assert!(antes.contains("(echo Cancelado: nada foi executado.)"));
+        assert!(!linha.contains("&&"), "{linha}");
+        // O comando vem solto no fim, depois do último `else`, e só uma vez: nenhum ramo de
+        // cancelamento o contém, e sem parênteses em volta os parênteses do PowerShell não
+        // fecham bloco nenhum.
+        assert_eq!(linha.matches("comando-do-fornecedor").count(), 1);
+        let (_, comando) = linha.rsplit_once(" else ").unwrap();
+        assert_eq!(comando, "echo comando-do-fornecedor");
+        assert!(linha.contains("if errorlevel 2 (echo Cancelado: nada foi executado. & exit 130)"), "{linha}");
+        assert!(linha.contains("else if not errorlevel 1 (echo Cancelado: nada foi executado. & exit 130)"), "{linha}");
     }
 }
