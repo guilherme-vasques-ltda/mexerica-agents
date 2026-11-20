@@ -565,7 +565,15 @@ fn sync_directories(path: &Path) -> Result<()> {
             sync_directories(&entry.path())?;
         }
     }
+    sync_directory(path)
+}
+
+/// O Windows não abre pasta como arquivo (`File::open` nega acesso); lá a gravação já é por arquivo.
+fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
     File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -601,7 +609,13 @@ fn rename_flagged(source: &Path, dest: &Path, swap: bool) -> Result<()> {
         }
         Ok(())
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    {
+        // Sem troca atômica no Windows; a publicação nova usa o rename, que não substitui pasta existente.
+        ensure!(!swap, "Troca atômica de pastas indisponível nesta plataforma");
+        Ok(fs::rename(source, dest)?)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = (source, dest, swap);
         bail!("Publicação atômica sem substituição indisponível nesta plataforma");
@@ -619,7 +633,7 @@ fn publish(store: &Store, id: &str, files: &[registry::Asset], r: Option<&Receip
     // O lock de filesystem serializa todos os escritores do Hub; nenhum destino é substituído.
     ensure!(fs::symlink_metadata(&dest).is_err(), "Destino criado durante a importação");
     rename_new(&stage.0, &dest)?;
-    File::open(&store.skills_root)?.sync_all()?;
+    sync_directory(&store.skills_root)?;
     Ok(true)
 }
 
@@ -633,7 +647,7 @@ fn replace(store: &Store, id: &str, files: &[registry::Asset], r: &Receipt) -> R
         Ok(meta) if meta.file_type().is_dir() => rename_swap(&stage.0, &dest)?,
         _ => bail!(installation::UNAVAILABLE),
     }
-    File::open(&store.skills_root)?.sync_all()?;
+    sync_directory(&store.skills_root)?;
     Ok(())
 }
 
