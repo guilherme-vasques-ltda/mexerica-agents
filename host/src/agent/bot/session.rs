@@ -378,6 +378,7 @@ impl Actor {
             if let Some(launch) = &selected {
                 env.extend(launch.env.clone());
             }
+            env.extend(super::fork_aprovacao_motor::launch_env(&self.cfg.backend));
             let mut last_err = None;
             let mut spawned = None;
             if interno {

@@ -311,6 +311,7 @@ impl Actor {
         let codex = self.conn.as_ref().is_some_and(|c| c.adapter == super::Adapter::Codex);
         let options = params["options"].as_array().cloned().unwrap_or_default();
         let options = if codex { crate::agent::engine_permissions::codex_options(options) } else { options };
+        let options = super::fork_aprovacao_motor::card_options(&self.cfg.backend, options);
         let tool = &params["toolCall"];
         let recorded =
             tool["toolCallId"].as_str().and_then(|id| self.tools.get(id)).and_then(|id| self.hub.store.entry(id));

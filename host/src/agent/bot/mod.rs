@@ -22,6 +22,7 @@ mod compaction;
 mod fast_mode;
 mod files;
 mod fork_admission;
+mod fork_aprovacao_motor;
 #[path = "../../fork/compressao/actor.rs"]
 mod fork_compressao;
 #[path = "../../fork/contexto/actor.rs"]

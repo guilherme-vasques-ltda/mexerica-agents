@@ -41,6 +41,9 @@ impl Actor {
     /// Compatibilidade com adaptadores que ainda ignoram permissionMode nas opções de criação.
     /// Só ao abrir/recarregar, e só se o catálogo anunciar outro modo; nunca um RPC por turno.
     pub(super) async fn manual_mode(&mut self, sid: &str, res: Value) -> Result<Value> {
+        if self.cfg.backend == "cline" {
+            return self.lock_cline_approval(sid, res).await;
+        }
         let adapter = self.conn.as_ref().map(|c| c.adapter);
         let expected = match adapter {
             Some(Adapter::Claude) => "default",
@@ -180,7 +183,8 @@ fn model_choice<'a>(
     let (model, mut options) = split_variant(res, model);
     options.extend(own.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     let mode = res["configOptions"].as_array().into_iter().flatten().find(|o| o["category"] == "mode");
-    options.retain(|(id, _)| mode.is_none_or(|m| m["id"] != *id));
+    options
+        .retain(|(id, _)| mode.is_none_or(|m| m["id"] != *id) && !super::fork_aprovacao_motor::is_approval_option(id));
     (model, options)
 }
 
@@ -515,5 +519,14 @@ mod tests {
         ]});
         let own = [("mode", "auto"), ("effort", "high")].map(|(k, v)| (k.to_owned(), v.to_owned())).into();
         assert_eq!(model_choice(&res, "opus[mode=acceptEdits]", &own), ("opus", vec![("effort", "high")]));
+    }
+
+    #[test]
+    fn opcao_de_aprovacao_do_bot_nunca_chega_ao_motor() {
+        let res = json!({"configOptions": [{"id": "model", "category": "model", "type": "select", "options": [{"value": "m1"}]}]});
+        let own = [("auto_approve", "true"), ("yolo", "true"), ("effort", "high")]
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .into();
+        assert_eq!(model_choice(&res, "m1", &own), ("m1", vec![("effort", "high")]));
     }
 }
