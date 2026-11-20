@@ -18,6 +18,9 @@ pub(crate) fn autenticar(hub: &Hub, headers: &HeaderMap, peer: SocketAddr) -> Op
     if let Some(caller) = hub.pontes.autenticar(hub, given) {
         return Some(caller);
     }
+    if crate::environment::Environment::is_open() && peer != crate::open_hub::SOCKET_PEER {
+        return None;
+    }
     crypto::ct_eq(given.as_bytes(), hub.token.as_bytes()).then_some(Caller::Local)
 }
 

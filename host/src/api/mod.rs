@@ -14,6 +14,8 @@ mod remote;
 #[cfg(test)]
 pub use events::events_stream;
 pub use events::{scoped_events_stream, term_events};
+#[cfg(unix)]
+pub(crate) use http::open_socket_router;
 pub use http::router;
 
 use crate::LockExt;
@@ -79,6 +81,7 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
+    crate::open_hub::check_method(method)?;
     // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368.
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).

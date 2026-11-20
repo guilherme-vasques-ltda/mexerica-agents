@@ -19,6 +19,9 @@ const SERVICE: &str = crate::environment::Environment::current().vault_service()
 mod vault_unlock;
 
 pub async fn unlock(hub: Arc<crate::hub::Hub>) -> Result<()> {
+    if crate::environment::Environment::is_open() {
+        return Err(crate::api::devices::Forbidden.into());
+    }
     #[cfg(test)]
     hub.store.vault_unlock_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     vault_unlock::unlock(hub).await

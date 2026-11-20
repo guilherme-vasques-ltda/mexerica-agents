@@ -220,7 +220,7 @@ impl Terms {
         let builder = if let Some(login) = &login {
             let hub = login.hub.upgrade().ok_or_else(|| anyhow!("Login encerrado."))?;
             login.authority.require_current(&hub)?;
-            let mut builder = crate::fork::motor_exec::pty(&login.executable, &login.home);
+            let mut builder = crate::fork::motor_exec::pty(&login.executable, &login.home)?;
             builder.env_clear();
             builder.args(&login.args);
             for (k, v) in &login.env {
@@ -233,7 +233,7 @@ impl Terms {
         } else {
             let shell = crate::shell::line(command);
             let cwd = dirs::home_dir().unwrap_or_else(|| "/".into());
-            let mut builder = crate::fork::motor_exec::pty(shell.program, &cwd);
+            let mut builder = crate::fork::motor_exec::pty(shell.program, &cwd)?;
             if crate::fork::motor_exec::configured() {
                 builder.env_clear();
                 for (key, value) in super::environment::inherited(std::env::vars_os()) {

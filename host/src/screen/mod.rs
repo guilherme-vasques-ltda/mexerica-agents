@@ -174,7 +174,7 @@ impl Screen {
     /// only while a graphical session is up (checked live, so a headless server stays off
     /// and a desktop that logs in after the host started turns on).
     pub fn enabled(&self) -> bool {
-        (*self.enabled.locked()).unwrap_or_else(graphical_session)
+        !crate::environment::Environment::is_open() && (*self.enabled.locked()).unwrap_or_else(graphical_session)
     }
 
     /// What clients show: availability, permissions, displays, who's in control.

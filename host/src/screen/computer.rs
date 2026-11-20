@@ -63,6 +63,9 @@ impl Screen {
 
 /// The `computer` MCP tools on this computer.
 pub async fn computer_tools(hub: &Arc<Hub>) -> Value {
+    if crate::environment::Environment::is_open() {
+        return json!({"tools": []});
+    }
     let screen = &hub.screen;
     let mut tools = match backend() {
         Backend::Driver => cua::tools(screen).await,
@@ -80,6 +83,9 @@ pub async fn computer_tools(hub: &Arc<Hub>) -> Value {
 }
 
 pub(crate) fn observation_read_only(name: &str) -> bool {
+    if crate::environment::Environment::is_open() {
+        return false;
+    }
     match backend() {
         Backend::Driver => cua::read_only(name),
         #[cfg(target_os = "linux")]

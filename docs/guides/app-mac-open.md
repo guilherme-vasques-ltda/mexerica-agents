@@ -1,7 +1,8 @@
 # Mexerica Open — teste local no macOS
 
 No diretório `apps/desktop`, use Node 24, `npm ci` e
-`npm run dist:mac:open`. O Xcode e o SDK do Mac compilam o helper de fala.
+`npm run dist:mac:open`. O pacote usa o Xcode, o SDK do Mac e a versão do Rust
+fixada em `rust-toolchain.toml` para compilar os binários da arquitetura local.
 A saída é `dist/open/mac-arm64/Mexerica Open.app` no Apple Silicon e
 `dist/open/mac/Mexerica Open.app` no Intel. É um pacote local com assinatura
 ad hoc, sem instalador, download ou atualizações.
@@ -12,17 +13,22 @@ tentativa não iniciou o app e não mostrou erro; duas aberturas posteriores
 funcionaram. Não execute o binário dentro do pacote para tentar abrir de novo:
 isso deixou um segundo processo sem janela no teste.
 
-A janela do cliente abre sem conta e não conecta ao Hub, SSH ou a conectores.
-O pacote leva o helper de fala, mas a janela de teste não o executa nem pede
-microfone.
+A janela abre sem conta da Mexerica e inicia o Hub incluído no pacote. O Hub
+encerra com o app e não instala um serviço do macOS nem se conecta a um relay.
+Esta versão ainda não executa motores: a Open não usa contas, executores ou
+credenciais de outros perfis. O fluxo de criação de Space pela interface
+exige uma conta de motor, por isso termina na seleção da conta. O pacote
+leva o helper de fala, mas a janela não o executa nem pede microfone.
 
 O macOS identifica este pacote por `app.mexerica.open`; ele declara apenas o
-esquema `mexerica-open:`. O cliente usa a porta 19524 como identificador,
-mas não abre uma porta nem tenta acessar um serviço local. Ele mantém dados em
-`~/Library/Application Support/Mexerica Open` e uma raiz própria
-`~/.mexerica-open`. Não importa configurações de outros apps. O nome do
-Safe Storage associado à identidade é **Mexerica Open Safe Storage**;
-o teste sem conta não chama o Safe Storage nem cria esse item no Chaveiro.
+esquema `mexerica-open:`. O Hub escuta na porta 19524, apenas na interface
+local. A janela usa um socket Unix privado do processo que ela iniciou, sem
+se conectar pela porta TCP. O perfil da janela fica em
+`~/Library/Application Support/Mexerica Open`; o Hub roda com uma pasta
+pessoal própria em `~/.mexerica-open/home`, sem importar configurações ou
+credenciais de outros apps. O cofre da Open reserva o serviço de Chaveiro
+`app.mexerica.open.credentials`, mas está desativado nesta versão. A janela
+não usa Safe Storage.
 
 Encerre pela janela ou com Command+Q. Em caso de saída forçada, o cliente
 pode recusar a reabertura se encontrar arquivos de trava antigos; não use

@@ -65,7 +65,7 @@ fn enabled_value(flag: Option<&std::ffi::OsStr>) -> bool {
 
 /// Desligada por padrão: só `MEXERICA_MOTOR=1` registra o motor.
 pub(crate) fn enabled() -> bool {
-    enabled_value(std::env::var_os(FLAG).as_deref())
+    !crate::environment::Environment::is_open() && enabled_value(std::env::var_os(FLAG).as_deref())
 }
 
 /// Entrypoint `motor/mexerica/rpc.ts`; `MEXERICA_MOTOR_ENTRY` sobrepõe
