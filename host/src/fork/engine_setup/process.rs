@@ -82,6 +82,7 @@ pub(crate) struct Rpc {
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     pending: VecDeque<Value>,
+    limit: usize,
 }
 impl Drop for Rpc {
     fn drop(&mut self) {
@@ -111,7 +112,10 @@ impl Rpc {
     pub(crate) fn from_child(mut child: Child) -> Result<Self> {
         let input = child.stdin.take().ok_or_else(|| anyhow!("setup_unavailable"))?;
         let output = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("setup_unavailable"))?);
-        Ok(Self { child, input: Some(input), output, pending: VecDeque::new() })
+        Ok(Self { child, input: Some(input), output, pending: VecDeque::new(), limit: 65_536 })
+    }
+    pub(crate) fn set_line_limit(&mut self, limit: usize) {
+        self.limit = limit;
     }
     pub(crate) async fn write(&mut self, value: Value) -> Result<()> {
         let input = self.input.as_mut().ok_or_else(|| anyhow!("auth_shutdown_failed"))?;
@@ -133,8 +137,8 @@ impl Rpc {
     async fn line(&mut self) -> Result<Value> {
         use tokio::io::AsyncReadExt;
         let mut bytes = Vec::new();
-        let count = (&mut self.output).take(65_537).read_until(b'\n', &mut bytes).await?;
-        ensure!(count > 0 && count <= 65_536, "auth_protocol_invalid");
+        let count = (&mut self.output).take(self.limit as u64 + 1).read_until(b'\n', &mut bytes).await?;
+        ensure!(count > 0 && count <= self.limit, "auth_protocol_invalid");
         Ok(serde_json::from_slice(&bytes)?)
     }
     pub(crate) async fn next(&mut self) -> Result<Value> {
@@ -147,12 +151,11 @@ impl Rpc {
         self.write(json!({"id":id,"method":method,"params":params})).await?;
         loop {
             let value = self.line().await?;
-            if value["id"] == id {
-                ensure!(value.get("error").is_none(), "auth_capability_unavailable");
-                return Ok(value["result"].clone());
-            }
             if value.get("method").is_some() && value.get("id").is_some() {
                 self.write(json!({"id":value["id"],"error":{"code":-32601,"message":"setup only"}})).await?;
+            } else if value["id"] == id {
+                ensure!(value.get("error").is_none(), "auth_capability_unavailable");
+                return Ok(value["result"].clone());
             } else {
                 ensure!(self.pending.len() < 64, "auth_protocol_limit");
                 self.pending.push_back(value);
