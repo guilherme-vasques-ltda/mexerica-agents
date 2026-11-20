@@ -245,10 +245,12 @@ export async function main(args = process.argv.slice(2)) {
     event.pull_request.head.repo.full_name !== event.repository.full_name;
   const dependabot = pullRequest && event.pull_request.user?.login === 'dependabot[bot]' &&
     event.pull_request.user?.type === 'Bot';
-  if (!terms.length && !fork && !dependabot) throw new Error('Secret obrigatório ausente');
-  if (!terms.length) console.log(`termos pessoais: não verificados (${dependabot ? 'Dependabot' : 'fork'})`);
-  const range = eventRange(cwd, event, process.env.GITHUB_EVENT_NAME, process.env.GITHUB_SHA);
   const trusted = sha(process.env.VAZAMENTO_TRUSTED_MAIN_SHA);
+  // Instalação inicial: a main ainda não tem o executor, então ele veio do PR e não recebe o secret.
+  const inicial = pullRequest && !hasFile(cwd, trusted, 'tools/ci-vazamento.mjs');
+  if (!terms.length && !fork && !dependabot && !inicial) throw new Error('Secret obrigatório ausente');
+  if (!terms.length) console.log(`termos pessoais: não verificados (${dependabot ? 'Dependabot' : fork ? 'fork' : 'instalação inicial'})`);
+  const range = eventRange(cwd, event, process.env.GITHUB_EVENT_NAME, process.env.GITHUB_SHA);
   const { policy, inventory } = loadPolicy(cwd, trusted, range.head, process.env.GITHUB_EVENT_NAME === 'pull_request');
   if (mode === 'arvore' && event.repository.private !== true && inventory.length) throw new Error('Inventário público deve estar vazio');
   const { findings, limits } = scan({ cwd, mode, ...range, policy, terms, inventory: event.repository.private === true ? inventory : [] });

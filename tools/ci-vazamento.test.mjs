@@ -133,6 +133,22 @@ test('CLI: fork sem secret usa regras públicas; fora do fork falha fechado', ()
   assert.equal(base.length, 40);
 }));
 
+test('CLI: instalação inicial sem secret usa regras públicas; depois disso o secret volta a ser obrigatório', () => fixture((ctx) => {
+  const { git, write, commit } = ctx;
+  git('rm', 'tools/ci-vazamento.mjs'); git('rm', '.github/security/vazamento.json'); git('rm', '.github/security/vazamento-inventario.json');
+  const before = commit(); git('update-ref', 'refs/remotes/origin/main', before);
+  write('tools/ci-vazamento.mjs', readFileSync(script));
+  write('.github/security/vazamento.json', JSON.stringify(policy));
+  write('.github/security/vazamento-inventario.json', JSON.stringify({ fingerprints: [] }));
+  write('novo.md', 'texto limpo\n');
+  const first = commit();
+  const r = cli({ ...ctx, base: before, head: first });
+  assert.equal(r.status, 0); assert.match(r.stdout, /termos pessoais: não verificados \(instalação inicial\)/);
+  git('update-ref', 'refs/remotes/origin/main', first);
+  write('novo.md', 'outro texto limpo\n'); const second = commit();
+  assert.notEqual(cli({ ...ctx, base: first, head: second }).status, 0);
+}));
+
 test('CLI: mask vem antes de qualquer saída; termo e linha não escapam após máscaras', () => fixture((ctx) => {
   ctx.write('novo.md', 'prefixo cAcTo FiCtIcIo sufixo confidencial\n');
   const head = ctx.commit();
@@ -193,7 +209,7 @@ test('contrato do workflow: scanner aprovado, testes sem secret e ci-ok obrigat�
   assert.ok(testJob.includes('tools/ci-vazamento.test.mjs'));
   assert.ok(!testJob.includes('secrets.'), 'VM dos testes não recebe secrets');
   assert.ok(!testJob.includes('VAZAMENTO_TERMOS'));
-  assert.match(ci, /needs: \[route, secrets, vazamento, changes,/);
+  assert.match(ci, /needs: \[route, secrets, vazamento, semgrep, changes,/);
   assert.match(ci, /\.vazamento.result == "success"/);
 });
 

@@ -78,11 +78,11 @@ test('ci-ok sempre roda, recusa fork e não aceita job obrigatório pulado', () 
   const ok = body('ci-ok');
   assert.match(ok, /^    name: ci-ok$/m);
   assert.match(ok, /^    if: \$\{\{ always\(\) \}\}$/m);
-  assert.match(ok, /^    needs: \[route, secrets, vazamento, changes, ferramentas-ci, hub, desktop\]$/m);
+  assert.match(ok, /^    needs: \[route, secrets, vazamento, semgrep, changes, ferramentas-ci, hub, desktop\]$/m);
   assert.match(ok, /^    permissions: \{\}$/m);
   assert.ok(!ok.includes('uses:'), 'ci-ok não faz checkout nem usa actions');
   assert.match(ok, /head\.repo\.full_name != github\.repository/);
-  for (const job of ['route', 'secrets', 'vazamento', 'changes', 'ferramentas-ci']) {
+  for (const job of ['route', 'secrets', 'vazamento', 'semgrep', 'changes', 'ferramentas-ci']) {
     assert.ok(ok.includes(`.${job.includes('-') ? `"${job}"` : job}.result == "success"`), `ci-ok exige ${job}`);
   }
   assert.match(ok, /if selected\("host"\) then \.hub\.result == "success" else \.hub\.result == "skipped" end/);
@@ -102,4 +102,22 @@ test('Hub e Desktop rodam as provas completas', () => {
   for (const cmd of ['npm ci --no-audit --no-fund', 'npm run typecheck', 'npm test', 'npm run test:open --if-present']) assert.ok(desktop.includes(cmd), cmd);
   assert.match(desktop, /MEXERICA_CI_BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
   assert.match(desktop, /fetch-depth: 0/);
+});
+
+test('secret só no passo cujo executor veio da main', () => {
+  const steps = body('vazamento').split('\n      - ').slice(1);
+  const withSecret = steps.filter((st) => st.includes('secrets.VAZAMENTO_TERMOS'));
+  assert.equal(withSecret.length, 1);
+  assert.ok(withSecret[0].includes("if: ${{ steps.fonte.outputs.inicial == 'false' }}"));
+  const publicOnly = steps.filter((st) => st.includes("steps.fonte.outputs.inicial != 'false'"));
+  assert.equal(publicOnly.length, 1);
+  assert.ok(!publicOnly[0].includes('secrets.'));
+});
+
+test('changes reprova se o diff falhar e cobre configuração do Cargo', () => {
+  const changes = body('changes');
+  assert.match(changes, /git diff --name-only --no-renames -z "\$\{parents\[0\]\}" HEAD > "\$RUNNER_TEMP\/alterados\.z"/);
+  assert.match(changes, /done < "\$RUNNER_TEMP\/alterados\.z"/);
+  assert.ok(!changes.includes('done < <('), 'sem substituição de processo, que engole o erro');
+  for (const p of ['Cargo.toml', 'Cargo.lock', '.cargo/*', 'rustfmt.toml', 'clippy.toml']) assert.ok(changes.includes(p), p);
 });
