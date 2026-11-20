@@ -11,7 +11,7 @@ export const open = Object.freeze(profile)
 const chromiumLinks = new Map([
   ['SingletonLock', /^[^/]+-\d+$/],
   ['SingletonCookie', /^[^/]+$/],
-  ['SingletonSocket', /^(?:\/[^/]+)+\/org\.chromium\.Chromium\.[A-Za-z0-9]+\/SingletonSocket$/],
+  ['SingletonSocket', /^(?:\/[^/]+)+\/(?:org\.chromium\.Chromium\.|scoped_dir)[A-Za-z0-9]+\/SingletonSocket$/],
 ])
 
 /** Links que o Chromium cria na pasta de dados da instância aberta: o destino não é arquivo do perfil. */

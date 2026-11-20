@@ -76,7 +76,7 @@ test('a segunda execução passa pela guarda com as travas da instância aberta,
   const { userData, homeConfig } = openPaths(home, appData)
   const personal = join(appData, 'Donnabot')
   mkdirSync(personal, { mode: 0o700 })
-  const remote = join(home, 'org.chromium.Chromium.Ab12Cd')
+  const remote = join(home, 'scoped_dirAb12Cd')
   const socket = join(remote, 'SingletonSocket')
   const reset = (links = {}) => {
     rmSync(remote, { recursive: true, force: true })
@@ -96,7 +96,8 @@ test('a segunda execução passa pela guarda com as travas da instância aberta,
     { SingletonLock: 'host-sem-pid' },
     { SingletonCookie: personal },
     { SingletonSocket: join(personal, 'SingletonSocket') },
-    { SingletonSocket: join(home, 'org.chromium.Chromium.Ab12Cd', 'outro') },
+    { SingletonSocket: join(remote, 'outro') },
+    { SingletonSocket: join(home, 'scoped_dir', 'SingletonSocket') },
   ]
   for (const links of refused) {
     reset(links)
