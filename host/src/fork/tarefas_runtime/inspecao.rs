@@ -24,7 +24,7 @@ pub(super) fn owner_attention(
             "SELECT EXISTS(
                 SELECT 1 FROM entries e
                 JOIN donna_space_conversations c ON c.id=e.bot_id AND c.space_id=?1 AND c.bot_id=?2 AND c.closed=0
-                WHERE e.bot_id=?3 AND e.session=?4
+                WHERE e.bot_id=?3 AND e.session=?4 AND e.seq>=c.context_start_seq
                   AND (SELECT COUNT(*) FROM donna_task_sessions WHERE session_id=?4)=1
                   AND CASE WHEN json_valid(e.data) THEN json_extract(e.data,'$.author')=?2
                       AND (({PENDING_PERMISSION} AND json_extract(e.data,'$.toolKind') IS NOT 'screen_access')

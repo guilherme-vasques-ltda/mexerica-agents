@@ -121,9 +121,9 @@ interface TowerEventWithTask {
   id?: string
   bot?: { id?: string; deleted?: boolean; hidden?: boolean; spaceId?: string }
   conversation?: { botId?: string; closed?: boolean }
-  session?: { id?: string; state?: string }
+  session?: { id?: string; state?: string; origin?: { kind?: string; taskId?: string } }
   sessionId?: string
-  entry?: { kind?: string; sessionId?: string; data?: { card?: string } }
+  entry?: { kind?: string; botId?: string; sessionId?: string; data?: { card?: string } }
 }
 /**
  * Uma gravação em voo: só ela pode mexer em `write` quando voltar, e só na mesma autoridade (fonte, Hub e Space). A
@@ -223,6 +223,7 @@ export class ProjectsSession extends Observable {
   private unwatch: (() => void) | null = null
   private stopEvents: (() => void) | null = null
   private rereadTimer: ReturnType<typeof setTimeout> | null = null
+  private linkedTimer: ReturnType<typeof setTimeout> | null = null
   private relistenTimer: ReturnType<typeof setTimeout> | null = null
   private relistenDelay = RELISTEN_MIN
   private now: () => number
@@ -279,6 +280,8 @@ export class ProjectsSession extends Observable {
 
   /** Sessões vinculadas e agenda da tarefa aberta, só com `taskSessions` (sem o anúncio, nada é pedido). */
   private openLinked(target: { projectId: string; taskId: string } | null) {
+    if (this.linkedTimer) clearTimeout(this.linkedTimer)
+    this.linkedTimer = null
     this.linkedReads++
     if (!target || !this.has(TASK_CAPABILITIES.sessions)) {
       this.linked = null
@@ -783,18 +786,27 @@ export class ProjectsSession extends Observable {
       const lostBot = (ev.type === 'botDeleted' && linkedBot(ev.id))
         || (ev.type === 'bot' && ev.bot && linkedBot(ev.bot.id)
           && (ev.bot.deleted || ev.bot.hidden || (ev.bot.spaceId !== undefined && ev.bot.spaceId !== spaceId)))
-      const needsRead = (ev.type === 'entry' && entry && linkedSession(entry.sessionId)
-        && (entry.kind === 'permission' || (entry.kind === 'notice' && entry.data?.card === 'ownerQuestion')))
+      const card = ev.type === 'entry' && entry && entry.sessionId
+        && (entry.kind === 'permission' || (entry.kind === 'notice' && entry.data?.card === 'ownerQuestion'))
+      const needsRead = (card && linkedSession(entry.sessionId))
         || (ev.type === 'sessionDeleted' && linkedSession(ev.sessionId))
         || (ev.type === 'session' && ev.session?.state !== 'open' && linkedSession(ev.session?.id))
         || (ev.type === 'conversation' && ev.conversation?.closed && linkedBot(ev.conversation.botId))
       const resync = ev.type === 'hello' || ev.type === 'resync' || ev.type === 'spaces'
       const projects = ev.type === PROJECTS_EVENT && ev.spaceId === spaceId
+      const newTaskSession = ev.type === 'session' && ev.session?.state === 'open'
+        && ev.session.origin?.kind === 'task' && ev.session.origin.taskId === l?.taskId
       if (resync || lostBot || needsRead) {
         this.invalidateAttention()
       }
-      if (l && (lostBot || needsRead || projects)) {
+      if (l && (lostBot || needsRead || projects || newTaskSession)) {
         void this.readLinked(origin)
+      } else if (l && !this.linkedTimer && ((card && entry.sessionId !== entry.botId)
+        || (ev.type === 'conversation' && linkedBot(ev.conversation?.botId)))) {
+        this.linkedTimer = setTimeout(() => {
+          this.linkedTimer = null
+          if (this.current(origin) && this.events === 'live') void this.readLinked(origin)
+        }, REREAD_DELAY)
       }
       if (projects || resync || ev.type === 'bot' || ev.type === 'botDeleted') {
         this.scheduleRead(origin)
@@ -903,6 +915,8 @@ export class ProjectsSession extends Observable {
   private release() {
     if (this.rereadTimer) clearTimeout(this.rereadTimer)
     this.rereadTimer = null
+    if (this.linkedTimer) clearTimeout(this.linkedTimer)
+    this.linkedTimer = null
     if (this.relistenTimer) clearTimeout(this.relistenTimer)
     this.relistenTimer = null
     this.stopEvents?.()

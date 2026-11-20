@@ -35,6 +35,7 @@ class Hub {
   startAnswer: unknown = null
   scheduleAnswer: unknown = null
   attention: 'owner' | null = null
+  linkedSessionId: string | null = 's1'
   ensured = 0
   ensuredOnce = 0
   /** Hub anterior ao TEC-722-16: recusa o campo desconhecido `historyAuthors` (serde deny_unknown_fields). */
@@ -84,7 +85,7 @@ class Hub {
         return { version: 1, hubId: 'h1', spaceId: 'p', snapshot: snap(G), created: this.ensured === 1 && !this.ensuredOnce++ }
       }
       case 'donnaTaskComments': return { version: 1, hubId: 'h1', spaceId: 'p', projectId: b.projectId, taskId: b.taskId, comments: this.comments, omitted: 0 }
-      case 'donnaTaskSessions': return { version: 1, ...b, sessions: [{ botId: 'b1', sessionId: 's1', state: 'idle' }], attention: this.attention }
+      case 'donnaTaskSessions': return { version: 1, ...b, sessions: this.linkedSessionId ? [{ botId: 'b1', sessionId: this.linkedSessionId, state: 'idle' }] : [], attention: this.attention }
       case 'donnaTaskComment': {
         const again = this.commentByRequest.get(b.clientRequestId)
         if (again) return { comment: again, receipt: { clientRequestId: b.clientRequestId } }
@@ -172,6 +173,33 @@ test('eventos de atividade, inclusive do responsável, não apagam uma pendênci
   src.event(deleted)
   assert.equal(s.needsOwnerAttention(P, T1), false)
   s.close()
+})
+
+test('primeiro pedido em sessão antes desconhecida relê apenas o vínculo, agrupando eventos', async () => {
+  const src = new Source()
+  src.hub.caps = ['manualProjects', 'taskSessions']
+  const s = new ProjectsSession(() => 42, ids())
+  s.open(src, 'p')
+  try {
+    await tick()
+    src.hub.linkedSessionId = null
+    s.openProject(P)
+    s.openComments({ projectId: P, taskId: T1 })
+    await tick()
+    assert.equal(s.needsOwnerAttention(P, T1), false)
+    src.hub.log.length = 0
+    src.hub.linkedSessionId = 'nova'
+    src.hub.attention = 'owner'
+    const event = { type: 'entry', spaceId: 'p', entry: { kind: 'notice', botId: 'b1', sessionId: 'nova', data: { card: 'ownerQuestion' } } }
+    src.event(event)
+    src.event(event)
+    src.event(event)
+    await tick(300)
+    assert.equal(s.needsOwnerAttention(P, T1), true)
+    assert.deepEqual(src.hub.log, ['donnaTaskSessions'])
+  } finally {
+    s.close()
+  }
 })
 
 test('dúvida de autoridade na leitura do vínculo não preserva atenção confirmada', async () => {

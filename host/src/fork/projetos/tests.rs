@@ -169,6 +169,11 @@ async fn task_attention_requires_an_open_owner_request_in_an_exclusive_scoped_se
     let answer = f.call("donnaTaskSessions", read.clone()).await.unwrap();
     assert_eq!(answer["attention"], "owner");
     assert!(!answer.to_string().contains("Não projetar"));
+    f.hub.store.db.locked().execute(
+        "UPDATE donna_space_conversations SET context_start_seq=(SELECT seq+1 FROM entries WHERE id='question') WHERE id='visible'",
+        [],
+    ).unwrap();
+    assert_eq!(attention().await, Value::Null);
     f.hub.store.db.locked().execute("DELETE FROM entries WHERE id='question'", []).unwrap();
     insert(
         "screen",
