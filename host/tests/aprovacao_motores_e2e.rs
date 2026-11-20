@@ -180,6 +180,20 @@ async fn kilo_pede_cartao_para_editar_comandar_e_usar_ferramenta_do_hub() {
     confere_efeitos(&host, &bot, &KILO);
 }
 
+/// Quem liberou tudo na própria config global do Kilo continua passando pelo cartão: as chaves do Hub têm o mesmo nome.
+#[tokio::test]
+async fn kilo_com_config_global_liberando_tudo_continua_pedindo_cartao() {
+    let falsos = Falsos::nova();
+    let pasta_kilo = falsos.raiz.join("config/kilo");
+    std::fs::create_dir_all(&pasta_kilo).unwrap();
+    let liberado = json!({"permission": {"*": "allow", "edit": "allow", "bash": "allow", "webfetch": "allow"}});
+    std::fs::write(pasta_kilo.join("kilo.json"), liberado.to_string()).unwrap();
+    let host = falsos.hub().await;
+    let bot = criar_bot(&host, "kilo", json!({})).await;
+    turno_com_cartoes(&host, &bot, &KILO, "once", "reject").await;
+    confere_efeitos(&host, &bot, &KILO);
+}
+
 #[tokio::test]
 async fn cline_pede_cartao_por_padrao() {
     let falsos = Falsos::nova();
@@ -224,11 +238,19 @@ async fn cline_recusado(flags: &str) {
     let comando = format!("{} --acp --auto-approve true {flags}", falsos.binario("cline").display());
     let bot = criar_bot(&host, "cline", json!({"command": comando})).await;
     enviar(&host, &bot, "faça as alterações").await;
-    let fim = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < fim && !pasta(&host, &bot).join("requests.jsonl").exists() {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+    let fim = Instant::now() + Duration::from_secs(30);
+    loop {
+        let estado = host.snapshot().await;
+        if common::snapshot_bot(&estado, &bot)["status"] == "unavailable" {
+            break;
+        }
+        assert!(
+            Instant::now() < fim,
+            "o Hub não registrou a recusa do motor: {}",
+            common::snapshot_bot(&estado, &bot)["status"]
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    tokio::time::sleep(Duration::from_secs(2)).await;
     let pedidos = std::fs::read_to_string(pasta(&host, &bot).join("requests.jsonl")).unwrap_or_default();
     assert!(pedidos.contains("session/new"), "o motor nem chegou a abrir a sessão: {pedidos}");
     assert!(!pedidos.contains("session/prompt"), "o turno não pode começar com a aprovação automática ligada");

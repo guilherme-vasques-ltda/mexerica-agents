@@ -9,8 +9,18 @@ use super::Actor;
 use anyhow::{Result, bail, ensure};
 use serde_json::{Value, json};
 
+/// O curinga cobre as ferramentas que não conhecemos (as do Hub chegam como `servidor_ferramenta`). As de risco que o
+/// Kilo conhece também vão por nome: uma regra específica do usuário na config global (`"bash": "allow"`) vence o
+/// curinga quando vem depois dele, e só uma chave de mesmo nome a substitui. Leitura de arquivo e listagem de nomes
+/// seguem livres; `grep` lê conteúdo (inclusive de `.env`) sem passar pela regra de `read`, então pergunta.
 const KILO_PERMISSION: &str = r#"{
     "*": "ask",
+    "edit": "ask", "write": "ask", "apply_patch": "ask", "bash": "ask", "webfetch": "ask", "websearch": "ask",
+    "task": "ask", "skill": "ask", "lsp": "ask", "grep": "ask", "external_directory": "ask",
+    "markdown_source": "ask", "doom_loop": "ask", "semantic_search": "ask", "recall": "ask",
+    "kilo_memory_recall": "ask", "kilo_memory_save": "ask", "agent_manager": "ask", "browser_open": "ask",
+    "sandbox_escalation": "ask", "workflow_tool_approval": "ask", "notebook_read": "ask", "notebook_edit": "ask",
+    "notebook_execute": "ask", "board_read": "ask", "board_post": "ask", "goal": "ask",
     "read": {"*": "allow", "*.env": "ask", "*.env.*": "ask", "*.env.example": "allow"},
     "glob": "allow", "list": "allow", "todoread": "allow", "todowrite": "allow",
     "question": "deny", "suggest": "deny", "plan_enter": "deny", "plan_exit": "deny",
@@ -97,11 +107,8 @@ mod tests {
             "o curinga vem primeiro; o último que casa vence"
         );
         assert_eq!(rules["*"], "ask");
-        for ferramenta in ["edit", "bash", "grep"] {
-            assert!(
-                rules.get(ferramenta).is_none(),
-                "{ferramenta} segue o curinga: grep lê o conteúdo de .env sem passar pela regra de read"
-            );
+        for ferramenta in ["edit", "write", "bash", "webfetch", "websearch", "task", "grep", "external_directory"] {
+            assert_eq!(rules[ferramenta], "ask", "{ferramenta}: regra do usuário na config global não pode liberar");
         }
         assert!(env.contains(&("KILO_DISABLE_PROJECT_CONFIG".into(), "1".into())));
         assert!(launch_env("cline").is_empty() && launch_env("claude").is_empty());

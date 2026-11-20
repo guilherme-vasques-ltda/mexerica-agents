@@ -47,6 +47,23 @@ def from_config(config):
     return rules
 
 
+def deep_merge(base, overlay):
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def user_global_permission():
+    """Config global do usuário (`$XDG_CONFIG_HOME/kilo/kilo.json`), mesclada por baixo de KILO_PERMISSION (config.ts)."""
+    config = Path(os.environ.get("XDG_CONFIG_HOME", "/nonexistent")) / "kilo" / "kilo.json"
+    permission = json.loads(config.read_text()).get("permission", {}) if config.is_file() else {}
+    return {"*": permission} if isinstance(permission, str) else permission
+
+
 def kilo_rules():
     defaults = from_config({
         "*": "allow", "doom_loop": "ask", "external_directory": {"*": "ask"},
@@ -56,7 +73,7 @@ def kilo_rules():
     })
     patch = from_config({"bash": {"*": "ask", "cat *": "allow", "ls *": "allow"}, "recall": "ask"})
     build = from_config({"question": "allow", "suggest": "allow", "plan_enter": "allow"})
-    user = from_config(json.loads(os.environ.get("KILO_PERMISSION") or "{}"))
+    user = from_config(deep_merge(user_global_permission(), json.loads(os.environ.get("KILO_PERMISSION") or "{}")))
     return defaults + patch + build + user
 
 
