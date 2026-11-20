@@ -1,7 +1,4 @@
 //! Renovação OAuth da Mexerica, sem nova autoridade nem registro de credenciais.
-//! MODIFICADO em 2026-11-04 a partir de host/src/market/oauth.rs do Codync,
-//! e82c417424e06d1da71a865845f230d665b59ff1 (Apache-2.0).
-//! leepokai; Co-Authored-By: Claude Opus 5.5. Procedência em `THIRD_PARTY.md`.
 //! A classificação conservadora e as guardas/CAS são adaptações da Mexerica.
 use super::{oauth_binding as binding, oauth_runtime::RuntimeIntent};
 use crate::hub::Hub;

@@ -42,6 +42,8 @@ extraResources:
     to: avisos/MODIFICACOES.md
   - from: ../../MODIFICACOES-ARQUIVOS.md
     to: avisos/MODIFICACOES-ARQUIVOS.md
+  - from: ../../brand/LICENCA-DA-ARTE.md
+    to: avisos/LICENCA-DA-ARTE.md
   - from: ../../packaging/avisos
     to: avisos/terceiros
   - from: src/renderer/assets/fonts

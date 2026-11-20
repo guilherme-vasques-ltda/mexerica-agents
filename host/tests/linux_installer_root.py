@@ -66,6 +66,9 @@ def as_hub(*args, check=True, motor_env=False, **kwargs):
 def service(*args, check=True):
     return as_hub('systemctl', '--user', *args, check=check)
 
+def main_process():
+    return service('show', 'donnabot-host.service', '-p', 'MainPID', '-p', 'ExecMainStartTimestampMonotonic').stdout
+
 def health():
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
@@ -126,6 +129,9 @@ try:
     exe = bin_dir / 'bin/donnabot-motor-exec'
     assert exe.stat().st_uid == 0 and exe.stat().st_gid == hub.pw_gid and mode(exe) == 0o750
     assert config.stat().st_uid == 0 and mode(config) == 0o644
+    host_bin = bin_dir / 'bin/donnabot-host'
+    assert (bin_dir / 'bin').stat().st_uid == 0 and (bin_dir / 'bin').stat().st_gid == 0 and mode(bin_dir / 'bin') == 0o755
+    assert host_bin.stat().st_uid == 0 and host_bin.stat().st_gid == 0 and mode(host_bin) == 0o755
     assert os.getxattr(exe, 'security.capability')
     assert 'cap_setgid,cap_setuid=ep' in run('getcap', exe).stdout
     assert as_hub(exe, '--cwd', base / 'motor', '--', '/usr/bin/id', '-u').stdout.strip() == str(motor.pw_uid)
@@ -164,6 +170,72 @@ try:
     assert mode(exe) == 0o750 and os.getxattr(exe, 'security.capability')
     assert health()['ok']
     print('PASS 5 reinstalação idempotente, reaplica modo/cap e preserva dados/IDs')
+    secret = Path('/root/f4-origem-privada')
+    secret.write_text('origem-que-a-conta-do-hub-nao-le')
+    secret.chmod(0o600)
+    before_process = main_process()
+    denied = stage('instalar', '--host', secret, *args[2:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
+    secret.unlink()
+    assert denied.returncode != 0 and host_bin.stat().st_uid == 0 and health()['ok']
+    print('PASS 5b origem que a conta do Hub não lê é recusada antes de parar o Hub')
+    os.chown(bin_dir / 'bin', hub.pw_uid, hub.pw_gid)
+    os.chown(host_bin, hub.pw_uid, hub.pw_gid)
+    planted = bin_dir / 'bin/plantado'
+    planted.write_text('x')
+    os.chown(planted, hub.pw_uid, hub.pw_gid)
+    stage('instalar', *args)
+    assert (bin_dir / 'bin').stat().st_uid == 0 and mode(bin_dir / 'bin') == 0o755 and not planted.exists()
+    assert host_bin.stat().st_uid == 0 and mode(host_bin) == 0o755 and os.getxattr(exe, 'security.capability')
+    assert not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5c pasta de binários da conta do Hub trocada por uma do root na reinstalação')
+    outside = Path('/etc/donnabot-f4-fora-da-home')
+    refused = stage('instalar', '--host', host, '--ajudante', helper, '--data-dir', outside, '--port', '19422', check=False)
+    assert refused.returncode != 0 and not outside.exists() and health()['ok']
+    print('PASS 5d pasta de dados fora da home do Hub recusada sem criar nada')
+    config_before, exe_before, bin_inode = config.read_bytes(), digest(exe), (bin_dir / 'bin').stat().st_ino
+    fake = Path('/tmp/f4bin/ajudante-falso')
+    shutil.copy('/usr/bin/false', fake)
+    fake.chmod(0o755)
+    before_process = main_process()
+    refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
+    fake.unlink()
+    assert refused.returncode != 0 and health()['ok'] and config.read_bytes() == config_before
+    assert digest(exe) == exe_before and (bin_dir / 'bin').stat().st_ino == bin_inode
+    assert not list(bin_dir.glob('.bin-*'))
+    print('PASS 5e ajudante que não funciona é recusado antes de parar o Hub, sem trocar nada')
+    fake = Path('/tmp/f4bin/ajudante-sem-troca')
+    fake.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
+    fake.chmod(0o755)
+    before_process = main_process()
+    refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
+    fake.unlink()
+    assert refused.returncode != 0 and 'conta do motor' in refused.stdout + refused.stderr
+    assert health()['ok'] and config.read_bytes() == config_before and digest(exe) == exe_before
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and not list(bin_dir.glob('.bin-*'))
+    print('PASS 5e2 ajudante que termina sem trocar de conta é recusado antes de parar o Hub')
+    local_bin = home / '.local/bin'
+    local_bin.rename(home / '.local/bin-guardado')
+    local_bin.write_text('bloqueio')
+    os.chown(local_bin, hub.pw_uid, hub.pw_gid)
+    failed = stage('instalar', *args, check=False)
+    local_bin.unlink()
+    (home / '.local/bin-guardado').rename(local_bin)
+    assert failed.returncode != 0 and 'desfeita' in failed.stdout + failed.stderr
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
+    assert config.read_bytes() == config_before and not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5f falha depois da troca desfaz a troca e religa o Hub anterior')
+    fake = Path('/tmp/f4bin/hub-que-nao-sobe')
+    shutil.copy('/usr/bin/true', fake)
+    fake.chmod(0o755)
+    failed = stage('instalar', '--host', fake, *args[2:], check=False)
+    fake.unlink()
+    assert failed.returncode != 0 and 'desfeita' in failed.stdout + failed.stderr
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
+    assert not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5g Hub novo que não responde no /health é desfeito e o anterior volta')
     # UID da etapa é explícito, testado separadamente, sem modificar a instalação.
     wrong = run(host, 'install-motor', 'desinstalar', '--hub-uid', '0', check=False)
     assert wrong.returncode != 0 and config.exists()

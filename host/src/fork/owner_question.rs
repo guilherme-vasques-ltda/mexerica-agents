@@ -89,7 +89,7 @@ pub(crate) fn question(args: &Value) -> Result<String> {
 
 const PENDING: &str = "kind='notice' AND json_extract(data,'$.card')='ownerQuestion' \
     AND json_extract(data,'$.ownerQuestion.status')='pending'";
-const PENDING_E: &str = "e.kind='notice' AND json_extract(e.data,'$.card')='ownerQuestion' \
+pub(crate) const PENDING_E: &str = "e.kind='notice' AND json_extract(e.data,'$.card')='ownerQuestion' \
     AND json_extract(e.data,'$.ownerQuestion.status')='pending'";
 
 fn ids(c: &Connection, sql: &str, args: impl rusqlite::Params) -> Result<Vec<String>> {

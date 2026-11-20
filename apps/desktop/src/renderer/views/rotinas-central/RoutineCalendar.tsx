@@ -1,6 +1,4 @@
-// Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc),
-// src/components/automations/AutomationsCalendar.tsx (alterado): anterior/próximo, "Hoje",
-// Dia/Semana e agora Mês, a barra lateral (minicalendário e "Meus bots") ao lado de um cartão com a
+// Calendário das rotinas: anterior/próximo, "Hoje", Dia/Semana/Mês, a barra lateral (minicalendário e "Meus bots") ao lado de um cartão com a
 // grade, a faixa "Sob demanda" e os estados de carregando, erro e vazio. Em janelas estreitas a
 // barra lateral vira um botão que a abre por cima da grade (Esc fecha).
 // D169 R5 (components/RoutinesCalendar, referência do dono): a barra do período fica dentro do painel

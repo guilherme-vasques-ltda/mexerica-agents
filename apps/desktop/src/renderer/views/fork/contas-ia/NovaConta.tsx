@@ -23,7 +23,8 @@ export function NovaConta({ contas, initialEngine, onCreated, onClose }: {
 }) {
   const store = useStore()
   useModel(contas)
-  const [engine, setEngine] = useState<Engine>(initialEngine ?? 'codex')
+  const open = window.codync.appScheme === 'mexerica-open'
+  const [engine, setEngine] = useState<Engine>(open ? 'codex' : initialEngine ?? 'codex')
   const [kind, setKind] = useState<AccountKind>('cli')
   const [label, setLabel] = useState('')
   const [error, setError] = useState<unknown>(null)
@@ -54,7 +55,7 @@ export function NovaConta({ contas, initialEngine, onCreated, onClose }: {
           <CardSection title={textos.qualMotor}>
             <ChoiceList
               selection={engine}
-              options={ENGINES.map((e) => ({ id: e, label: engineName(e), detail: engineCompany(e) }))}
+              options={ENGINES.filter((e) => !open || e === 'codex').map((e) => ({ id: e, label: engineName(e), detail: engineCompany(e) }))}
               onChange={(next) => { setEngine(next); if (next === 'grok') setKind('cli') }}
             />
           </CardSection>
@@ -63,7 +64,7 @@ export function NovaConta({ contas, initialEngine, onCreated, onClose }: {
               selection={kind}
               options={[
                 { id: 'cli', label: textos.porLogin, detail: textos.porLoginDetalhe },
-                ...(store.isLoopback && engine !== 'grok' ? [{ id: 'api' as const, label: textos.porChave, detail: textos.porChaveDetalhe }] : []),
+                ...(store.isLoopback && !open && engine !== 'grok' ? [{ id: 'api' as const, label: textos.porChave, detail: textos.porChaveDetalhe }] : []),
               ]}
               onChange={setKind}
             />

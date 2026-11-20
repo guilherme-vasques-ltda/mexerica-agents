@@ -231,7 +231,7 @@ function registerIPC(tray: Tray) {
   registerHostProxy()
   registerMexeriquinhaProtocol(host)
   if (appIcon) registerAppIconIPC(appIcon, () => chat, rendererURL('chat'))
-  registerVozIPC(() => chat, rendererURL('chat'))
+  registerVozIPC(() => chat, rendererURL('chat'), (comando) => send(comando))
   ipcMain.on('app:hostPort', (e) => (e.returnValue = identity.port))
   ipcMain.on('app:name', (e) => (e.returnValue = app.getName()))
   ipcMain.on('app:scheme', (e) => (e.returnValue = identity.scheme))

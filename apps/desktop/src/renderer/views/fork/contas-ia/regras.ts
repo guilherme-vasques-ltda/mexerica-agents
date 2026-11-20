@@ -222,6 +222,7 @@ export function errorMessage(error: unknown, idioma: AppLanguage): string {
 
 /** Mensagem da fase final sem sucesso, pelo `errorCode` da operação. */
 export function failureMessage(code: string | null, idioma: AppLanguage): string {
+  if (code === 'open_codex_platform') return traduzir(idioma, 'contas.falha.open_codex_unavailable')
   const chave = chaveDeFalha(code)
   return chave ? frase(idioma, chave) : traduzir(idioma, 'contas.faseFalhou')
 }

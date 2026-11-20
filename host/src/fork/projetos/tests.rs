@@ -16,11 +16,14 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_hub_id("projects-fixture".into())
+    }
+    fn with_hub_id(host_id: String) -> Self {
         let dir = std::env::temp_dir().join(format!("d541-projects-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let hub = Hub::new(
             Store::open(Path::new(":memory:")).unwrap(),
-            "projects-fixture".into(),
+            host_id,
             Identity::load_or_create(&dir).unwrap(),
             "fixture".into(),
             0,
@@ -101,6 +104,120 @@ impl Drop for Fixture {
 }
 fn task() -> Value {
     json!({"id":uuid::Uuid::new_v4().to_string(),"parentTaskId":null,"assigneeBotId":"visible","title":"Tarefa fictícia","description":"Descrição","acceptance":"Aceite","evidence":"Referência textual","state":"backlog"})
+}
+
+#[tokio::test]
+async fn task_attention_requires_an_open_owner_request_in_an_exclusive_scoped_session() {
+    use crate::fork::sessoes::{
+        origin::SessionOrigin,
+        store::{self as sessions, NewSession},
+    };
+    let f = Fixture::with_hub_id(uuid::Uuid::new_v4().to_string());
+    let created = f.call("donnaProjectCreate", f.create()).await.unwrap();
+    let mut save = f.save(&created["snapshot"]);
+    let first = task();
+    let second = task();
+    save["tasks"] = json!([first, second]);
+    let id = first["id"].as_str().unwrap();
+    let project = save["projectId"].as_str().unwrap().to_owned();
+    f.call("donnaProjectSave", save).await.unwrap();
+    let read = json!({"hubId":f.hub.host_id,"spaceId":PERSONAL,"projectId":project,"taskId":id});
+    let attention = || async { f.call("donnaTaskSessions", read.clone()).await.unwrap()["attention"].clone() };
+    assert_eq!(attention().await, Value::Null);
+    let session = {
+        let db = f.hub.store.db.locked();
+        let s = sessions::create(
+            &db,
+            &NewSession {
+                chat: "visible".into(),
+                origin: SessionOrigin::Task { task_id: id.into() },
+                source_session: None,
+                parent_session: None,
+                title: "Fictícia".into(),
+                runs_on: None,
+            },
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO donna_task_sessions VALUES(?1,?2,?3,?4,'visible',?5,0)",
+            rusqlite::params![f.hub.host_id, PERSONAL, project, id, s.id],
+        )
+        .unwrap();
+        s.id
+    };
+    let insert = |entry, session: Option<&str>, kind, data: Value| {
+        f.hub
+            .store
+            .db
+            .locked()
+            .execute(
+                "INSERT INTO entries(id,bot_id,rev,kind,turn,data,created_at,updated_at,session)
+             VALUES(?1,'visible',1,?2,1,?3,1,1,?4)",
+                rusqlite::params![entry, kind, data.to_string(), session],
+            )
+            .unwrap();
+    };
+    insert("unrelated", None, "permission", json!({"status":"pending","author":"visible"}));
+    insert("comment", Some(&session), "notice", json!({"text":"Pode decidir?"}));
+    assert_eq!(attention().await, Value::Null);
+    insert(
+        "question",
+        Some(&session),
+        "notice",
+        json!({"card":"ownerQuestion","author":"visible","ownerQuestion":{"status":"pending"},"text":"Não projetar"}),
+    );
+    let answer = f.call("donnaTaskSessions", read.clone()).await.unwrap();
+    assert_eq!(answer["attention"], "owner");
+    assert!(!answer.to_string().contains("Não projetar"));
+    f.hub.store.db.locked().execute(
+        "UPDATE donna_space_conversations SET context_start_seq=(SELECT seq+1 FROM entries WHERE id='question') WHERE id='visible'",
+        [],
+    ).unwrap();
+    assert_eq!(attention().await, Value::Null);
+    f.hub.store.db.locked().execute("DELETE FROM entries WHERE id='question'", []).unwrap();
+    insert(
+        "screen",
+        Some(&session),
+        "permission",
+        json!({"status":"pending","author":"visible","toolKind":"screen_access"}),
+    );
+    insert("other-author", Some(&session), "permission", json!({"status":"pending","author":"hidden"}));
+    assert_eq!(attention().await, Value::Null);
+    insert("approval", Some(&session), "permission", json!({"status":"pending","author":"visible"}));
+    assert_eq!(attention().await, "owner");
+    f.hub.store.db.locked().execute("UPDATE donna_bot_sessions SET state='closed' WHERE id=?1", [&session]).unwrap();
+    assert_eq!(attention().await, Value::Null);
+    f.hub.store.db.locked().execute("UPDATE donna_bot_sessions SET state='open' WHERE id=?1", [&session]).unwrap();
+    f.hub.store.db.locked().execute("UPDATE bots SET deleted=1 WHERE id='visible'", []).unwrap();
+    assert_eq!(attention().await, Value::Null);
+    f.hub.store.db.locked().execute("UPDATE bots SET deleted=0 WHERE id='visible'", []).unwrap();
+    assert_eq!(attention().await, "owner");
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute(
+            "INSERT INTO donna_task_sessions VALUES(?1,?2,?3,?4,'visible',?5,0)",
+            rusqlite::params![f.hub.host_id, PERSONAL, project, second["id"].as_str().unwrap(), session],
+        )
+        .unwrap();
+    assert_eq!(attention().await, Value::Null);
+    f.hub.store.db.locked().execute("DELETE FROM donna_task_sessions WHERE task_id<>?1", [id]).unwrap();
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute("UPDATE entries SET data='{\"status\":\"approved\"}' WHERE id='approval'", [])
+        .unwrap();
+    assert_eq!(attention().await, Value::Null);
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute("UPDATE entries SET data='{\"status\":\"pending\",\"author\":\"visible\"}' WHERE id='approval'", [])
+        .unwrap();
+    f.hub.store.db.locked().execute("UPDATE donna_space_conversations SET closed=1 WHERE id='visible'", []).unwrap();
+    assert_eq!(attention().await, Value::Null);
 }
 
 fn assert_authority_ended(error: &anyhow::Error) {

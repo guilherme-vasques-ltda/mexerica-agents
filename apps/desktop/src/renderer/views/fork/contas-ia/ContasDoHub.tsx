@@ -45,6 +45,7 @@ export function ContasDoHub({ forBot, onChanged }: {
 }) {
   const textos = useTextosContas()
   const idioma = useIdioma()
+  const open = window.codync.appScheme === 'mexerica-open'
   const store = useStore()
   const contas = useContas(store)
   const [route, setRoute] = useState<Route | null>(null)
@@ -90,7 +91,7 @@ export function ContasDoHub({ forBot, onChanged }: {
         {online && contas.error ? <Text tone="danger" role="alert" className="selectable">{errorMessage(contas.error, idioma)}</Text> : null}
         {online && contas.accounts === null && contas.loading ? <Text tone="secondary" role="status">{textos.carregando}</Text> : null}
         {online && contas.accounts !== null && accounts.length === 0 ? (
-          <EmptyState icon="key" title={textos.vazioTitulo} detail={textos.vazioDetalhe} />
+          <EmptyState icon="key" title={textos.vazioTitulo} detail={open ? traduzir(idioma, 'contas.vazioOpen') : textos.vazioDetalhe} />
         ) : null}
         {online ? accounts.map((account) => (
           <ContaLinha key={account.id} store={store} contas={contas} account={account} local={local && (accountKind(account, contas.kindOf(account.id)) !== 'api' || store.isLoopback)} onAction={run} onOpen={() => setRoute({ kind: 'details', id: account.id })} onChanged={onChanged} />
@@ -194,7 +195,7 @@ function ContaLinha({ store, contas, account, local, onAction, onOpen, onChanged
         <button className="capsule-action" onClick={() => onAction(account, account.state === 'disconnected' ? 'connect' : 'reconnect')}>{textos.continuar}</button>
       ) : local ? (
         <>
-          {acoes.test ? (
+          {acoes.test && window.codync.appScheme !== 'mexerica-open' ? (
             <button className="capsule-action" disabled={ocupado} aria-label={`${textos.testar}: ${nome}`} onClick={() => void testar()}>
               {testando ? <Spinner size={11} /> : textos.testar}
             </button>
@@ -236,7 +237,7 @@ function ContaLinha({ store, contas, account, local, onAction, onOpen, onChanged
 }
 
 /** Tudo de uma conta: estado e prova, cobrança, bots que a usam, uso e as ações de gestão. */
-function ContaDetalhe({ store, contas, account, local, onAction, onClose }: {
+export function ContaDetalhe({ store, contas, account, local, onAction, onClose }: {
   store: BotStore
   contas: ContasStore
   account: ManagedAccount
@@ -263,21 +264,23 @@ function ContaDetalhe({ store, contas, account, local, onAction, onClose }: {
   const busy = contas.busy !== null
   // Entrega 3: os nomes dos modelos vêm do catálogo do motor (o mesmo do seletor); sem ele, vale o id.
   useCatalogoMudou()
-  useEffect(() => { carregarModelos(store, account.backend) }, [store, account.backend])
+  useEffect(() => { if (window.codync.appScheme !== 'mexerica-open') carregarModelos(store, account.backend) }, [store, account.backend])
   const catalogo = provedoresDoHub(store).find((p) => p.id === account.backend)?.models ?? []
   const nomeModelo = (id: string | null | undefined) => (id ? (catalogo.find((m) => m.id === id)?.name ?? id) : textos.botModeloPadrao)
   const hidden = account.hiddenModelIds ?? []
   const visiveis = account.models.filter((m) => !hidden.includes(m.id)).length
+  // A Open não verifica a conta à parte, não lê uso nem reserva e não oculta modelos: o Hub dela recusa essas chamadas.
+  const open = window.codync.appScheme === 'mexerica-open'
   const podeOcultar = local && managed
   // Hub antigo (sem `hiddenModelIds` na resposta): o botão fica desativado, com o motivo; nada é guardado só aqui.
   const hubOculta = account.hiddenModelIds !== undefined
 
   useEffect(() => {
     let live = true
-    if (account.state !== 'connected' || !local) return
+    if (open || account.state !== 'connected' || !local) return
     contas.usage(account.id, store.spaceId).then((u) => { if (live) setUsage(u) }, () => { if (live) setUsage('erro') })
     return () => { live = false }
-  }, [contas, account.id, account.state, local, store.spaceId])
+  }, [open, contas, account.id, account.state, local, store.spaceId])
 
   const act = async (work: () => Promise<unknown>, after?: () => void) => {
     setError(null)
@@ -352,7 +355,7 @@ function ContaDetalhe({ store, contas, account, local, onAction, onClose }: {
             )}
           </section>
 
-          <section className="contas-secao" aria-label={textos.modelosTitulo}>
+          {!open ? <section className="contas-secao" aria-label={textos.modelosTitulo}>
             <HStack gap={6} className="contas-secao-titulo">
               <Text size="caption" weight="semibold" tone="secondary">{textos.modelosTitulo}</Text>
               <Spacer />
@@ -413,10 +416,10 @@ function ContaDetalhe({ store, contas, account, local, onAction, onClose }: {
                 {local ? <button className="capsule-action" disabled={busy || contas.loading} onClick={() => onAction('refresh')}>{textos.modelosVerificar}</button> : null}
               </HStack>
             )}
-          </section>
+          </section> : null}
 
-          {account.state === 'connected' && local ? <Uso usage={usage} /> : null}
-          {account.state === 'connected' && local && managed && account.backend !== 'grok' ? <SeEstaContaAcabar store={store} contas={contas} account={account} /> : null}
+          {account.state === 'connected' && local && !open ? <Uso usage={usage} /> : null}
+          {account.state === 'connected' && local && managed && !open && account.backend !== 'grok' ? <SeEstaContaAcabar store={store} contas={contas} account={account} /> : null}
           {error || comBots ? <Text tone="danger" role="alert" className="selectable">{comBots ? textos.removerComBots(names) : errorMessage(error, idioma)}</Text> : null}
         </VStack>
       </div>

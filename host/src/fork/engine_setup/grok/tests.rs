@@ -644,3 +644,13 @@ fn duas_paginas_ou_dois_codigos_diferentes_derrubam_o_login() {
         ("https://auth.x.ai/device?user_code=AAAA-1111", Some("AAAA-1111"))
     );
 }
+
+#[tokio::test]
+async fn a_open_nao_trata_conta_grok_como_conta_sua() {
+    let f = Fixture::new("plain");
+    let account = f.create("grok-open").await;
+    let registry = Registry::load(&f.hub.store).unwrap();
+    let grok = registry.account(account["id"].as_str().unwrap()).unwrap();
+    assert_eq!(grok.backend, Backend::Grok);
+    assert!(!super::super::is_open_account(grok), "só o Codex gerenciado é conta da Open");
+}

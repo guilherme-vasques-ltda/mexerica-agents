@@ -72,11 +72,14 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     if option_env!("CODYNC_ENV") != Some("open") {
         return;
     }
-    let root = Profile(Path::new("/tmp").canonicalize().unwrap().join(format!("oh-{}", uuid::Uuid::new_v4().simple())));
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let root = std::env::temp_dir().canonicalize().unwrap().join(&id[..8]);
+    DirBuilder::new().mode(0o700).create(&root).unwrap();
+    let root = Profile(root);
     let private = root.0.join(".mexerica-open");
     let home = private.join("home");
     let tmp = private.join("tmp");
-    let session = tmp.join("h-test");
+    let session = tmp.join("h-a");
     DirBuilder::new().recursive(true).mode(0o700).create(&home).unwrap();
     DirBuilder::new().recursive(true).mode(0o700).create(&session).unwrap();
     let socket = session.join("s");
@@ -161,6 +164,74 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let renamed =
         rpc(&session_client, &credential, "updateBot", json!({"id":bot["bot"]["id"],"name":"Fixture Renamed"})).await;
     assert_eq!(renamed["bot"]["name"], "Fixture Renamed");
+    let editor_request = json!({"botId":bot["bot"]["id"]});
+    let mut responses = Vec::new();
+    for (method, body) in [("donnaEngineAccess", json!({})), ("donnaBotEditor", editor_request.clone())] {
+        responses.push(
+            session_client
+                .post(format!("http://localhost/api/{method}"))
+                .bearer_auth(&credential)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(
+        responses.iter().map(reqwest::Response::status).collect::<Vec<_>>(),
+        [reqwest::StatusCode::OK; 2],
+        "the local window needs the engine permission probe and bot editor"
+    );
+    let mut responses = responses.into_iter();
+    let access: Value = responses.next().unwrap().json().await.unwrap();
+    assert_eq!(access, json!({"capability":"engine.accounts","canManage":true}));
+    let editor: Value = responses.next().unwrap().json().await.unwrap();
+    assert_eq!(editor["profile"]["name"], "Fixture Renamed");
+    assert_eq!(
+        editor["capabilities"]["editableFields"],
+        json!(["name", "description", "avatarConfig", "mexeriquinha", "title"])
+    );
+    assert_eq!(editor["engineAccounts"], json!([]));
+    assert!(editor["engineRuntime"].is_null());
+    let version = &editor["settingsVersion"];
+    for patch in [json!({"cwd":"outside"}), json!({"forkEditor":{"engineAccountId":null}}), json!({"backend":"claude"})]
+    {
+        assert_eq!(
+            session_client
+                .post("http://localhost/api/donnaBotEditorSave")
+                .bearer_auth(&credential)
+                .json(&json!({"botId":bot["bot"]["id"],"expectedVersion":version,"patch":patch}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+    }
+    let edited = rpc(
+        &session_client,
+        &credential,
+        "donnaBotEditorSave",
+        json!({
+            "botId":bot["bot"]["id"], "expectedVersion":version, "patch":{"description":"Fixture description"}
+        }),
+    )
+    .await;
+    assert_eq!(edited["profile"]["description"], "Fixture description");
+    assert_ne!(edited["settingsVersion"], *version);
+    assert_ne!(edited["application"], "apply_pending");
+    for method in ["donnaEngineAccess", "donnaBotEditor", "donnaBotEditorSave"] {
+        assert_eq!(
+            session_client
+                .post(format!("http://localhost/api/{method}"))
+                .json(&editor_request)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+    }
     let external = root.0.join("outside");
     fs::create_dir(&external).unwrap();
     for (method, body) in [
@@ -179,12 +250,63 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             reqwest::StatusCode::FORBIDDEN
         );
     }
+    assert_eq!(
+        rpc(&session_client, &credential, "donnaEngineAccounts", json!({"refresh":true})).await["accounts"],
+        json!([])
+    );
+    for (backend, kind) in [("claude", "cli"), ("grok", "cli"), ("codex", "api")] {
+        assert_eq!(
+            session_client
+                .post("http://localhost/api/donnaEngineAccountCreate")
+                .bearer_auth(&credential)
+                .json(&json!({"backend":backend,"kind":kind,"label":"Open","clientRequestId":"refused"}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::BAD_REQUEST
+        );
+    }
+    let account = rpc(
+        &session_client,
+        &credential,
+        "donnaEngineAccountCreate",
+        json!({"backend":"codex","kind":"cli","label":"Open","clientRequestId":"create-open"}),
+    )
+    .await;
+    assert_eq!(account["state"], "unverified");
+    let operation = rpc(&session_client, &credential, "donnaEngineSetupStart", json!({
+        "engineAccountId":account["id"],"expectedRevision":account["revision"],"action":"login","clientRequestId":"login-open"
+    })).await;
+    let final_state = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let reply = rpc(
+                &session_client,
+                &credential,
+                "donnaEngineSetupAction",
+                json!({
+                    "operationId":operation["operationId"],"generation":operation["generation"],"action":"read"
+                }),
+            )
+            .await;
+            if reply["phase"] == "failed" {
+                break reply;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        final_state["errorCode"],
+        if cfg!(target_os = "macos") { "open_codex_unavailable" } else { "open_codex_platform" }
+    );
+    assert!(final_state["challenge"].is_null());
     for method in [
         "send",
         "requestScreenPermission",
         "setCloud",
         "installHostUpdate",
-        "donnaEngineSetupStart",
         "credentialStatus",
         "donnaWhatsappSave",
         "donnaWhatsappPair",
@@ -195,6 +317,10 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "connectorVerify",
         "saveRoutine",
         "credentialSaveLogin",
+        "donnaEngineAccountUsage",
+        "donnaEngineFallback",
+        "donnaEngineFallbackSave",
+        "donnaEngineFallbackAction",
         "unlistedFixtureMethod",
     ] {
         assert_eq!(
@@ -223,7 +349,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         assert_eq!(serde_json::from_str::<Value>(&config).unwrap()["name"], "Fixture Renamed");
     }
 
-    let second_session = tmp.join("h-restart");
+    let second_session = tmp.join("h-b");
     DirBuilder::new().mode(0o700).create(&second_session).unwrap();
     let second_socket = second_session.join("s");
     let second_client = client(&second_socket);
