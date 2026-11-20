@@ -29,6 +29,20 @@ pub(super) fn ensure_no_model_release(before: &State, after: &State) -> Result<(
     Ok(())
 }
 
+/// Heartbeat: o modelo não declara, não altera, não remove nem liga uma checagem silenciosa; isso é gesto do dono no app.
+pub(super) fn ensure_no_model_heartbeat(before: &State, after: &State) -> Result<()> {
+    for routine in after.routines.iter().filter(|r| !r.deleted) {
+        let old = before.routines.iter().find(|old| old.id == routine.id && old.bot_id == routine.bot_id);
+        let unchanged = match (&routine.heartbeat, old.and_then(|old| old.heartbeat.as_ref())) {
+            (None, None) => true,
+            (Some(now), Some(was)) => now == was && old.is_some_and(|old| old.enabled || !routine.enabled),
+            _ => false,
+        };
+        anyhow::ensure!(unchanged, crate::fork::heartbeat::SO_O_DONO);
+    }
+    Ok(())
+}
+
 pub(super) fn retain_history(next: &mut State) {
     let mut kept = 0;
     next.runs.reverse();
@@ -65,6 +79,7 @@ impl Routines {
         let result = update(&mut next)?;
         if origin.is_some() {
             ensure_no_model_release(&guard, &next)?;
+            ensure_no_model_heartbeat(&guard, &next)?;
         }
         retain_history(&mut next);
         let raw = serde_json::to_string(&next)?;

@@ -84,6 +84,9 @@ pub struct Routine {
     /// Ainda aguarda a primeira liberação humana; não é sinônimo de pausa posterior.
     #[serde(default)]
     pub(crate) external_release_pending: Option<ExternalRelease>,
+    /// Checagem silenciosa (Heartbeat): declarada só pelo dono, pelo app; nunca recebida do modelo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) heartbeat: Option<crate::fork::heartbeat::Declaracao>,
 }
 
 /// Campos editáveis e identidade; metadados do agendador não são edições do usuário.
@@ -100,6 +103,7 @@ pub(crate) fn same_team_routines(a: &[Routine], b: &[Routine]) -> bool {
                     && a.timeout_seconds == b.timeout_seconds
                     && a.webhook_key == b.webhook_key
                     && a.deleted == b.deleted
+                    && a.heartbeat == b.heartbeat
             })
         })
 }
@@ -260,6 +264,17 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
     let id = body["id"].as_str().map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_owned);
     let updated = body["id"].is_string();
     let old = check::replaced(s, bot, body, &triggers, now)?;
+    let heartbeat = match body.get("heartbeat") {
+        None => old.as_ref().and_then(|r| r.heartbeat.clone()),
+        Some(Value::Null) => None,
+        Some(declaration) => Some(crate::fork::heartbeat::Declaracao::parse(declaration)?),
+    };
+    if heartbeat.is_some() && triggers.iter().any(|t| matches!(t, Trigger::Webhook | Trigger::Event { .. })) {
+        bail!(crate::fork::heartbeat::SO_NO_HORARIO);
+    }
+    // Uma checagem silenciosa nasce pausada: só liga quando o dono diz `enabled: true`, de propósito.
+    let explicit_enable = old.as_ref().is_some_and(|r| r.heartbeat.is_some()) || body["enabled"] == true;
+    let instruction = if heartbeat.is_some() { crate::fork::heartbeat::INSTRUCAO.to_owned() } else { instruction };
     if !updated && s.routines.iter().filter(|r| !r.deleted).count() >= MAX_ROUTINES {
         bail!("routine limit reached");
     }
@@ -275,7 +290,8 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
         bot_id: bot.to_owned(),
         name,
         instruction,
-        enabled: body["enabled"].as_bool().unwrap_or_else(|| old.as_ref().is_none_or(|r| r.enabled)),
+        enabled: (heartbeat.is_none() || explicit_enable)
+            && body["enabled"].as_bool().unwrap_or_else(|| old.as_ref().is_none_or(|r| r.enabled)),
         created_at: old.as_ref().map_or(now, |r| r.created_at),
         updated_at: now,
         next_runs: if let Some(old) = &old
@@ -298,6 +314,7 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
             .as_ref()
             .and_then(|r| r.external_release_pending)
             .filter(|_| body["enabled"] != true),
+        heartbeat,
     };
     if !(1..=86_400).contains(&r.timeout_seconds) {
         bail!("timeoutSeconds must be between 1 and 86400");
@@ -532,11 +549,13 @@ impl Routines {
         bodies: &[Value],
         commit: impl FnOnce(&str, &[Routine]) -> Result<T>,
     ) -> Result<(T, Vec<Value>)> {
+        anyhow::ensure!(!bodies.iter().any(|body| body.get("heartbeat").is_some()), crate::fork::heartbeat::SO_O_DONO);
         let mut state = self.state.locked();
         let mut next = state.clone();
         let saved =
             bodies.iter().map(|body| save_in(&mut next, bot, body).map(|r| public(&r))).collect::<Result<_>>()?;
         bound_save::ensure_no_model_release(&state, &next)?;
+        bound_save::ensure_no_model_heartbeat(&state, &next)?;
         let after: Vec<_> = next.routines.iter().filter(|r| r.bot_id == bot && !r.deleted).cloned().collect();
         let result = commit(&serde_json::to_string(&next)?, &after)?;
         let hooks_changed = hook_set(&state) != hook_set(&next);
@@ -627,6 +646,15 @@ impl Routines {
         test: bool,
         origin: Option<&tool_origin::ToolOrigin>,
     ) -> Result<Value> {
+        anyhow::ensure!(
+            !self
+                .state
+                .locked()
+                .routines
+                .iter()
+                .any(|r| r.id == id && r.bot_id == bot && !r.deleted && r.heartbeat.is_some()),
+            crate::fork::heartbeat::SO_NO_HORARIO
+        );
         if let Some(result) = self.enqueue_descendant(
             store,
             bot,
@@ -755,7 +783,7 @@ fn required<'a>(body: &'a Value, key: &str) -> Result<&'a str> {
 }
 fn public(r: &Routine) -> Value {
     json!({"id":r.id,"botId":r.bot_id,"name":r.name,"instruction":r.instruction,"triggers":r.triggers,"enabled":r.enabled,"createdAt":r.created_at,"updatedAt":r.updated_at,
-        "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
+        "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"heartbeat":r.heartbeat,"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
         "triggerDescriptions":r.triggers.iter().map(Trigger::description).collect::<Vec<_>>(),"agenda":calendar::agenda(&r.triggers),"nextRunAt": if r.enabled {r.next_runs.iter().flatten().min().copied()} else {None}})
 }
 fn public_run(run: &Run) -> Value {
@@ -915,6 +943,10 @@ fn call_in_origin(
     args: &Value,
     origin: Option<&tool_origin::ToolOrigin>,
 ) -> Result<Value> {
+    anyhow::ensure!(
+        !matches!(name, "save_routine" | "duplicate_routine") || args.get("heartbeat").is_none(),
+        crate::fork::heartbeat::SO_O_DONO
+    );
     if origin.is_none() {
         let changes = matches!(name, "save_routine" | "set_routine_enabled" | "delete_routine" | "run_routine")
             || (name == "routine_webhook" && args["rotate"] == true);
@@ -1023,6 +1055,7 @@ mod tests {
             creation_origin: None,
             external_creation: false,
             external_release_pending: None,
+            heartbeat: None,
         }
     }
     #[test]
@@ -1388,3 +1421,7 @@ mod tests {
         assert!(s.runs[0].status == Status::Pending);
     }
 }
+
+#[cfg(test)]
+#[path = "../fork/heartbeat/testes_rotina.rs"]
+mod heartbeat_rotina_tests;
