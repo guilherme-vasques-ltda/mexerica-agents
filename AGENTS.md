@@ -64,8 +64,6 @@ Rode só a verificação da parte que você mudou:
   texto visível novo fora dos catálogos (salvo as exceções previstas no próprio gate) e chave faltando em algum idioma.
 - **Testes:** cubra as fronteiras de segurança e o fluxo alterado; não enfraqueça nem apague teste
   para fazê-lo passar.
-- **Registro de mudanças:** PR que muda comportamento visível acrescenta uma linha em
-  [CHANGELOG.md](CHANGELOG.md), na seção «Não lançado», no grupo que couber.
 
 ## Segurança
 

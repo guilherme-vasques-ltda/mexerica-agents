@@ -1,6 +1,6 @@
 # Registro de mudanças
 
-O que de fato entrou na main deste repositório. Ainda não houve versão lançada: enquanto não houver, as entradas ficam na seção «Não lançado», sem número de versão nem data.
+O que de fato entrou na main deste repositório. Ainda não houve versão lançada: enquanto não houver, as entradas ficam na seção «Não lançado», sem número de versão nem data. O registro é atualizado na hora de fechar cada versão, a partir dos PRs que entraram; PR individual não precisa editar este arquivo.
 
 ## Não lançado
 
