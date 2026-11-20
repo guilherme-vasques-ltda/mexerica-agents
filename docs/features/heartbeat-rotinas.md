@@ -59,8 +59,9 @@ de melhor esforço: o aviso no chat é a confirmação durável. As fontes preci
 não entrar em pânico com conteúdo; uma fonte lenta atrasa as demais checagens do mesmo ciclo.
 
 Se o Hub cair justamente durante uma consulta, aquela ocorrência não é refeita: a checagem segue no horário seguinte
-da rotina (é uma amostragem periódica, não um compromisso a cumprir). Outra concessão da mesma fonte (outra conta, ou a
-fonte registrada de novo) começa do zero: não herda marcador, espera nem pendências já avisadas.
+da rotina (é uma amostragem periódica, não um compromisso a cumprir). Quem registra uma fonte informa a identidade da conta ou do vínculo (a
+mesma entre reinícios): outra identidade começa do zero e não herda marcador, espera nem pendências já avisadas; sem
+concessão registrada ainda (logo após reiniciar), a checagem só registra a falha e conserva o que sabia.
 
 Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
 de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só é lida pelo bot a que foi concedida.
@@ -69,3 +70,21 @@ de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só 
 
 Ainda não existe fonte real: o registro de fontes nasce vazio e uma rotina que aponta para uma fonte não concedida
 ao bot fica como fonte indisponível (sem acesso), com alerta. Os testes usam fontes fictícias.
+
+## Cenários que os testes cobrem
+
+Os testes de `host/src/fork/heartbeat/testes_cenarios.rs` andam um relógio simulado pelo agendador de verdade, com
+uma fonte fictícia de pedidos de compra (nenhum dado real, nenhuma rede, nenhuma IA):
+
+| Cenário | O que se espera |
+|---|---|
+| Um dia (288 checagens) sem novidade | Zero mensagens; o conteúdo é lido uma vez só; a última checagem fica registrada. |
+| Pedido aberto por quatro checagens | Um aviso, com o fato e a escolha. |
+| Pedido novo com outro já avisado | Um segundo aviso, só pelo novo. |
+| Pedido respondido e depois reaberto | Responder é silêncio; reabrir é decisão nova. |
+| Fonte fora do ar por muito tempo e volta | Um alerta só; a falha aparece na rotina; ao voltar, nada repetido. |
+| Acesso perdido | Um alerta na hora, uma vez. |
+| Rotina pausada, pausa geral, apagada ou fonte retirada | A fonte deixa de ser consultada. |
+| Reinício do Hub no meio | A última checagem continua; a mesma pendência não é avisada de novo. |
+| Nada chega à IA | Toda execução veio da checagem, já terminada; o histórico não guarda o conteúdo da fonte. |
+| Uma manhã inteira | Exatamente três mensagens para o dono. |
