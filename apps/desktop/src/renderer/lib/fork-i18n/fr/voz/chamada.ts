@@ -46,4 +46,8 @@ export const textos: Traducao<typeof fonte> = {
   "voz.chamada.falha.microfone": "Impossible d’utiliser le micro : {erro}",
   "voz.chamada.falha.audioFila": "File audio pleine.",
   "voz.chamada.falha.audioFrequencia": "Fréquence audio non valide.",
+  "voz.chamada.entrada.recusa.grupo": "L’appel vocal se fait avec un bot, pas avec un canal.",
+  "voz.chamada.entrada.recusa.sessao": "L’appel vocal appartient à la conversation principale. Revenez à l’onglet principal et réessayez.",
+  "voz.chamada.entrada.recusa.senha": "Un avertissement de mot de passe collé est ouvert dans ce chat. Réglez-le avant d’appeler.",
+  "voz.chamada.entrada.recusa.indisponivel": "La voix en direct n’est pas disponible pour le moment. Vérifiez Réglages → Voix.",
 }
