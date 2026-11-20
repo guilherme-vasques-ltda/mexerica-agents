@@ -334,7 +334,11 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
             "workspace contém dados privados do Hub; origem de cópia recusada"
         );
         let root = match item.kind {
-            Kind::Profile => MOTOR,
+            Kind::Profile => {
+                // O root abre a origem do perfil por descritor: só dentro da home do Hub.
+                inside(&hub.home, &item.source)?;
+                MOTOR
+            }
             _ => WORK,
         };
         ensure!(item.destination.starts_with(root) && item.destination != Path::new(root), "destino fora da raiz F3");
@@ -499,6 +503,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
             })?;
             let destination_hashes = if matches!(item.kind, Kind::Profile) {
                 // A raiz do motor não é do Hub: cópia ancorada em descritores, origem só do Hub.
+                inside(&hub.home, &item.source)?;
                 let destination_parent = anchored_parents(
                     item.destination.parent().context("destino sem pai")?,
                     Path::new(MOTOR),
@@ -819,20 +824,32 @@ mod tests {
     fn volta_recusa_manifesto_alterado_pela_conta_do_hub_depois_do_backup() -> Result<()> {
         let Volta { dir, home, backup, manifest } = volta_ficticia()?;
         let uid = manifest.hub_uid;
+        let record = record_path(&backup);
+        private_file(&record, &serde_json::to_vec(&manifest)?)?;
         let alterados = [
             Manifest { data: PathBuf::from("/etc"), ..manifest.clone() },
             Manifest { binary: PathBuf::from("/etc/donnabot-volta-teste"), ..manifest.clone() },
             Manifest { binary_mode: 0o4755, ..manifest.clone() },
             Manifest { data_modes: BTreeMap::from([("../../etc".into(), 0o600)]), ..manifest.clone() },
         ];
-        let mut recusados = Vec::new();
+        let mut ignorados = Vec::new();
         for alterado in &alterados {
+            // A conta do Hub grava a cópia dentro do backup; a volta segue só o registro do root.
             let _ = fs::remove_file(backup.join("manifest.json"));
             private_file(&backup.join("manifest.json"), &serde_json::to_vec(alterado)?)?;
-            recusados.push(checked_manifest(uid, &home, &backup).is_err());
+            let lido = trusted_manifest(uid, &home, &backup, uid)?;
+            ignorados.push(
+                lido.data == manifest.data
+                    && lido.binary == manifest.binary
+                    && lido.binary_mode == manifest.binary_mode
+                    && lido.data_modes == manifest.data_modes,
+            );
         }
+        fs::remove_file(&record)?;
+        let sem_registro = checked_manifest(uid, &home, &backup).is_err();
         fs::remove_dir_all(&dir)?;
-        assert_eq!(recusados, [true; 4], "destinos e modos alterados no manifesto não podem orientar a volta");
+        assert_eq!(ignorados, [true; 4], "destinos e modos alterados no backup não podem orientar a volta");
+        assert!(sem_registro, "sem registro protegido do root, a volta é recusada");
         Ok(())
     }
 
