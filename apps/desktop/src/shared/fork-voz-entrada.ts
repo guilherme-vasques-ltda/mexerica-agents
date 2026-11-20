@@ -6,8 +6,8 @@ export interface ContextoEntradaVoz {
   /** Há uma conversa de bot montada e a pessoa a vê (nenhuma tela de Ajustes, Rotinas… ou camada na frente). */
   conversaVisivel: boolean
   grupo: boolean
-  /** A tela grande do WhatsApp cobre a conversa: os controles da chamada ficariam escondidos. */
-  telaGrande: boolean
+  /** A tela grande do WhatsApp ou o painel direito flutuante cobre a conversa: os controles da chamada ficariam escondidos. */
+  coberta: boolean
   /** Uma aba de sessão está aberta: a chamada é sempre da conversa principal do bot. */
   sessaoAberta: boolean
   /** A mesma disponibilidade que habilita o botão (chave, Hub, modo). */
@@ -31,7 +31,7 @@ export type DecisaoEntradaVoz =
  */
 export function decidirEntradaVoz(c: ContextoEntradaVoz): DecisaoEntradaVoz {
   if (c.emChamada) return { acao: 'encerrar' }
-  if (!c.conversaVisivel || c.telaGrande) return { acao: 'recusar', motivo: 'oculta' }
+  if (!c.conversaVisivel || c.coberta) return { acao: 'recusar', motivo: 'oculta' }
   if (c.grupo) return { acao: 'recusar', motivo: 'grupo' }
   if (c.sessaoAberta) return { acao: 'recusar', motivo: 'sessao' }
   if (c.senhaBloqueada) return { acao: 'recusar', motivo: 'senha' }
@@ -50,7 +50,7 @@ const MODIFICADORES: Record<string, 'CommandOrControl' | 'Command' | 'Control' |
   alt: 'Alt', option: 'Alt',
   shift: 'Shift',
 }
-const ORDEM = ['CommandOrControl', 'Command', 'Control', 'Alt', 'Shift'] as const
+const ORDEM = ['Command', 'Control', 'Alt', 'Shift'] as const
 
 /** Combinações que o app (menus, Ilha, edição) ou o sistema já usam, com `CommandOrControl` resolvido por plataforma. */
 const RESERVADOS = [
@@ -88,7 +88,7 @@ export function validarAtalho(entrada: unknown, plataforma: Plataforma): Resulta
   const t = tecla.toUpperCase()
   const entre = chave(mods, t, plataforma)
   if (RESERVADOS.some((r) => { const ps = r.split('+'); return chave(ps.slice(0, -1), ps.at(-1)!.toUpperCase(), plataforma) === entre })) return { ok: false, motivo: 'reservado' }
-  const ordenados = ORDEM.filter((m) => mods.includes(m))
+  const ordenados = ORDEM.filter((m) => reais.has(m))
   return { ok: true, acelerador: [...ordenados, t].join('+') }
 }
 

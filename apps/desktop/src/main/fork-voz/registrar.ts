@@ -23,7 +23,17 @@ export function registerVozIPC(chat: () => BrowserWindow | null, rendererURL: st
   const cofre = new CofreVoz({ dados: app.getPath('userData'), sistema: safeStorage, plataforma: process.platform })
   instalarCanaisVoz(ipcMain, new ServicoVoz(cofre, buscar, avisar), (event) => isChatSender(event as IpcMainInvokeEvent, chat(), rendererURL))
   // só o chat registra o atalho global; nada aqui lê o microfone.
-  const atalho = criarAtalhoVoz({ global: globalShortcut, plataforma: process.platform as 'darwin' | 'win32' | 'linux', enviar })
+  const atalho: ReturnType<typeof criarAtalhoVoz> = criarAtalhoVoz({
+    global: globalShortcut,
+    plataforma: process.platform as 'darwin' | 'win32' | 'linux',
+    enviar: (comando) => {
+      const janela = chat()
+      // Renderer caído: o registro não fica preso sem quem o solte. Janela modal (cofre seguro) à frente: nada de abrir a chamada por baixo.
+      if (janela && !janela.isDestroyed() && janela.webContents.isCrashed()) return atalho.liberar()
+      if (janela && !janela.isDestroyed() && janela.getChildWindows().some((w) => w.isModal() && w.isVisible())) return
+      enviar(comando)
+    },
+  })
   ipcMain.handle('voz:atalho', (event, pedido: unknown) => isChatSender(event as IpcMainInvokeEvent, chat(), rendererURL) ? atalho.definir(pedido) : { ok: false, motivo: 'invalido' })
   app.on('will-quit', atalho.liberar)
 }

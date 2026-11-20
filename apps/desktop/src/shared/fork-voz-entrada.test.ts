@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { aceleradorDoEvento, criarGuardaPressao, decidirEntradaVoz, rotuloAtalho, validarAtalho, type ContextoEntradaVoz } from './fork-voz-entrada.ts'
 
-const pronto: ContextoEntradaVoz = { conversaVisivel: true, telaGrande: false, grupo: false, sessaoAberta: false, disponivel: true, senhaBloqueada: false, emChamada: false }
+const pronto: ContextoEntradaVoz = { conversaVisivel: true, coberta: false, grupo: false, sessaoAberta: false, disponivel: true, senhaBloqueada: false, emChamada: false }
 
 test('o atalho inicia a chamada na conversa principal à vista', () => {
   assert.deepEqual(decidirEntradaVoz(pronto), { acao: 'iniciar' })
@@ -16,10 +16,10 @@ test('encerrar nunca é recusado, nem com a conversa fora de vista', () => {
   assert.deepEqual(decidirEntradaVoz({ ...pronto, emChamada: true, conversaVisivel: false, disponivel: false }), { acao: 'encerrar' })
 })
 
-test('chat errado, conversa escondida (inclui a tela grande do WhatsApp), grupo, aba de sessão, senha colada e voz indisponível são recusados com motivo', () => {
+test('chat errado, conversa escondida (inclui a tela grande do WhatsApp e o painel flutuante), grupo, aba de sessão, senha colada e voz indisponível são recusados com motivo', () => {
   const caso = (parcial: Partial<ContextoEntradaVoz>) => decidirEntradaVoz({ ...pronto, ...parcial })
   assert.deepEqual(caso({ conversaVisivel: false }), { acao: 'recusar', motivo: 'oculta' })
-  assert.deepEqual(caso({ telaGrande: true }), { acao: 'recusar', motivo: 'oculta' })
+  assert.deepEqual(caso({ coberta: true }), { acao: 'recusar', motivo: 'oculta' })
   assert.deepEqual(caso({ grupo: true }), { acao: 'recusar', motivo: 'grupo' })
   assert.deepEqual(caso({ sessaoAberta: true }), { acao: 'recusar', motivo: 'sessao' })
   assert.deepEqual(caso({ senhaBloqueada: true }), { acao: 'recusar', motivo: 'senha' })
@@ -27,7 +27,9 @@ test('chat errado, conversa escondida (inclui a tela grande do WhatsApp), grupo,
 })
 
 test('atalho: normaliza, exige dois modificadores (ou um com F), recusa reservados e lixo', () => {
-  assert.deepEqual(validarAtalho('cmdorctrl+shift+l', 'darwin'), { ok: true, acelerador: 'CommandOrControl+Shift+L' })
+  assert.deepEqual(validarAtalho('cmdorctrl+shift+l', 'darwin'), { ok: true, acelerador: 'Command+Shift+L' })
+  assert.deepEqual(validarAtalho('Command+CommandOrControl+Shift+L', 'darwin'), { ok: true, acelerador: 'Command+Shift+L' })
+  assert.deepEqual(validarAtalho('CommandOrControl+Shift+L', 'win32'), { ok: true, acelerador: 'Control+Shift+L' })
   assert.deepEqual(validarAtalho('Shift+Alt+V', 'linux'), { ok: true, acelerador: 'Alt+Shift+V' })
   assert.deepEqual(validarAtalho('Control+F9', 'win32'), { ok: true, acelerador: 'Control+F9' })
   for (const ruim of ['K', 'Shift+K', 'CommandOrControl+K', 'Alt+Y', 'Alt+K', 'Control+Space', 'CommandOrControl+Shift+Enter', 'CommandOrControl+Shift', 'Foo+K', 'CommandOrControl+CmdOrCtrl+K', 'Shift+F5', '', 'CommandOrControl+Shift+F25', 'Command+CommandOrControl+L', 'Shift+Shift+L', 42, null]) {
