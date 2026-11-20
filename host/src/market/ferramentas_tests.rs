@@ -910,6 +910,36 @@ fn erro_do_fornecedor_na_descoberta_fecha_a_admissao_e_preserva_as_liberacoes() 
     assert_eq!(estado_de(&store, "b", &pol, "create_refund"), Estado::Ligada);
 }
 
+#[test]
+fn resposta_nao_aceita_nao_mostra_nada_nem_com_o_inventario_aberto_por_outra_lista() {
+    let store = store();
+    let pol = pol(&COM_LISTA);
+    registrar_lista(&store, &lista(&["list_orders", "create_refund"]));
+    let bruto = json!({"result": {"tools": lista(&["list_orders", "create_refund"]), "nextCursor": "p2"}});
+    let mut mediado = mediada(&["list_orders", "create_refund"]);
+    filtrar_lista_com(&store, "b", "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
+    assert_eq!(nomes_mediados(&mediado).unwrap(), BTreeSet::new(), "página parcial não mostra nada");
+    assert_eq!(estado_de(&store, "b", &pol, "list_orders"), Estado::Desligada(Motivo::SemInventario));
+}
+
+#[test]
+fn recusa_nao_guarda_nome_que_a_conta_nunca_mostrou() {
+    let store = store();
+    let pol = pol(&COM_LISTA);
+    registrar_lista(&store, &lista(&["create_refund"]));
+    let estranho = "ferramenta_que_a_conta_nunca_mostrou_0123456789";
+    assert!(chamar(&store, "b", "conta", Some(&pol), estranho));
+    assert!(chamar(&store, "b", "conta", Some(&pol), "create_refund"));
+    let nomes: Vec<String> = {
+        let db = store.db.locked();
+        let mut q = db
+            .prepare("SELECT ferramenta FROM mexerica_ferramenta_recibos WHERE evento='recusada' ORDER BY id")
+            .unwrap();
+        q.query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap()
+    };
+    assert_eq!(nomes, ["?", "create_refund"], "só o nome que a conta já mostrou entra no recibo");
+}
+
 #[tokio::test]
 async fn setup_e_bot_tratam_igual_o_erro_do_fornecedor_e_se_recuperam_com_lista_completa() {
     let hub = hub();

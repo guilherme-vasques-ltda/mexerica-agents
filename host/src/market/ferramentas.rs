@@ -408,10 +408,25 @@ fn registrar_com(
 ) -> Result<()> {
     let mut db = store.db.locked();
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let vigente = geracao.is_some_and(|g| geracao_em(&tx, conta).is_ok_and(|atual| atual == g));
+    instalar_em(&tx, conta, tools, mediados, completa, geracao)?;
+    Ok(tx.commit()?)
+}
+
+/// Instala o inventário da conta na transação do chamador (sem confirmar). `true`: esta resposta foi aceita (lista
+/// completa, mediada e de geração vigente) e é, nesta transação, a fonte do inventário; `false`: a conta foi
+/// invalidada e nada dela passa.
+fn instalar_em(
+    tx: &Connection,
+    conta: &str,
+    tools: &[Value],
+    mediados: &BTreeSet<String>,
+    completa: bool,
+    geracao: Option<i64>,
+) -> Result<bool> {
+    let vigente = geracao.is_some_and(|g| geracao_em(tx, conta).is_ok_and(|atual| atual == g));
     if !completa || !vigente {
-        invalidar_em(&tx, conta)?;
-        return Ok(tx.commit()?);
+        invalidar_em(tx, conta)?;
+        return Ok(false);
     }
     let mut vistos: BTreeMap<String, Option<Visto>> = BTreeMap::new();
     for visto in tools.iter().filter_map(ler_ferramenta) {
@@ -426,12 +441,12 @@ fn registrar_com(
         .into_iter()
         .filter_map(|(nome, visto)| visto.filter(|_| nome_aceitavel(&nome)).map(|v| (nome, v)))
         .collect();
-    let existentes = linhas(&tx, conta)?;
+    let existentes = linhas(tx, conta)?;
     let agora = crate::store::now_ms();
     for nome in existentes.keys().filter(|nome| !vistos.contains_key(*nome)) {
         tx.execute("DELETE FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2", params![conta, nome])?;
         tx.execute("DELETE FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2", params![conta, nome])?;
-        recibo(&tx, conta, "*", nome, "invalidada", "retirada")?;
+        recibo(tx, conta, "*", nome, "invalidada", "retirada")?;
     }
     for (nome, visto) in &vistos {
         match existentes.get(nome) {
@@ -451,7 +466,7 @@ fn registrar_com(
                     params![conta, nome],
                 )?;
                 if apagadas > 0 {
-                    recibo(&tx, conta, "*", nome, "invalidada", "alterada")?;
+                    recibo(tx, conta, "*", nome, "invalidada", "alterada")?;
                 }
             }
             None => {
@@ -466,8 +481,7 @@ fn registrar_com(
         "INSERT INTO mexerica_conta_inventario(conta,completo) VALUES(?1,1) ON CONFLICT(conta) DO UPDATE SET completo=1",
         [conta],
     )?;
-    tx.commit()?;
-    Ok(())
+    Ok(true)
 }
 
 /// O inventário da conta deixa de valer (lista parcial, paginada ou `tools/list_changed`): nada passa até o Hub ver
@@ -523,7 +537,17 @@ fn inventario_completo(c: &Connection, conta: &str) -> Result<bool> {
 }
 
 fn recibo(c: &Connection, conta: &str, bot: &str, ferramenta: &str, evento: &str, motivo: &str) -> Result<()> {
-    let nome = if nome_aceitavel(ferramenta) { ferramenta } else { "?" };
+    // Nome que o bot manda numa chamada recusada só entra no recibo se a conta já o mostrou: texto livre do bot nunca vira
+    // registro.
+    let conhecida = evento != "recusada"
+        || c.query_row(
+            "SELECT 1 FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2",
+            params![conta, ferramenta],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    let nome = if conhecida && nome_aceitavel(ferramenta) { ferramenta } else { "?" };
     c.execute(
         "INSERT INTO mexerica_ferramenta_recibos(em,conta,bot,ferramenta,evento,motivo) VALUES(?1,?2,?3,?4,?5,?6)",
         params![crate::store::now_ms(), conta, bot, nome, evento, motivo],
@@ -654,24 +678,26 @@ fn filtrar_lista_com(
 ) -> Result<()> {
     let tools = lista_do_frame(store, conta, bruto)?;
     let mediados = nomes_mediados(mediado);
-    registrar_com(
-        store,
-        conta,
-        tools,
-        mediados.as_ref().unwrap_or(&BTreeSet::new()),
-        lista_completa(pedido, bruto) && mediados.is_some(),
-        geracao,
-    )?;
-    let mediados = mediados.unwrap_or_default();
-    let db = store.db.locked();
-    let completo = inventario_completo(&db, conta)?;
-    let linhas = linhas(&db, conta)?;
-    let liberadas = liberacoes(&db, bot, conta)?;
-    let passam: BTreeSet<&str> = mediados
-        .iter()
-        .map(String::as_str)
-        .filter(|n| completo && linhas.get(*n).is_some_and(|l| estado(pol, n, l, liberadas.get(*n)).passa()))
-        .collect();
+    let mediados_ref = mediados.clone().unwrap_or_default();
+    // Instalar e decidir o que passa é uma transação só: só uma resposta aceita agora decide o que o bot vê, e só
+    // pelos digests dela. Outra descoberta que reabra o inventário em seguida não empresta digest a esta resposta.
+    let mut db = store.db.locked();
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let instalada =
+        instalar_em(&tx, conta, tools, &mediados_ref, lista_completa(pedido, bruto) && mediados.is_some(), geracao)?;
+    let passam: BTreeSet<String> = if instalada {
+        let linhas = linhas(&tx, conta)?;
+        let liberadas = liberacoes(&tx, bot, conta)?;
+        mediados_ref
+            .iter()
+            .filter(|n| linhas.get(*n).is_some_and(|l| estado(pol, n, l, liberadas.get(*n)).passa()))
+            .cloned()
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
+    tx.commit()?;
+    drop(db);
     if let Some(lista) = mediado["message"]["result"]["tools"].as_array_mut() {
         lista.retain(|t| t["name"].as_str().is_some_and(|n| passam.contains(n)));
     }
