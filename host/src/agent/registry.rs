@@ -129,7 +129,7 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
         return fixo.selecionar(agent, platform()).ok().map(|_| Launch::Download);
     }
     if let Some(alvo) = alvo_binario(agent) {
-        return (id_instalacao(agent).is_ok() && alvo_lancavel(alvo)).then_some(Launch::Download);
+        return (nomes_de_instalacao_validos(agent) && alvo_lancavel(alvo)).then_some(Launch::Download);
     }
     let d = &agent["distribution"];
     let on_path = crate::agent::backends::on_path;
@@ -141,6 +141,13 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
         return pacote_uv_fixo(pacote("uvx")).is_ok().then_some(Launch::Uvx);
     }
     None
+}
+
+/// A pasta de instalação nasce do id e da versão; nomes que `pasta_instalacao` recusaria não aparecem como disponíveis.
+fn nomes_de_instalacao_validos(agente: &Value) -> bool {
+    let versao = agente["version"].as_str().and_then(safe_component).unwrap_or("latest");
+    id_instalacao(agente)
+        .is_ok_and(|id| [id.as_str(), versao].iter().all(|nome| arquivo::caminho_relativo(Path::new(nome)).is_ok()))
 }
 
 /// As mesmas conferências de metadados que `command` faz antes de baixar: o que não passa aqui não aparece como disponível.
@@ -277,11 +284,10 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             })
         }
         _ => {
-            // Com a ferramenta instalada, só uma versão não fixa deixa o agente sem lançamento: diga isso.
-            let on_path = crate::agent::backends::on_path;
-            if d["npx"].is_object() && on_path("npx") {
+            // Uma versão não fixa não se resolve instalando a ferramenta: diga isso antes de pedir Node ou uv.
+            if d["npx"].is_object() {
                 pacote_npm_fixo(d["npx"]["package"].as_str().unwrap_or_default())?;
-            } else if d["uvx"].is_object() && on_path("uvx") {
+            } else if d["uvx"].is_object() {
                 pacote_uv_fixo(d["uvx"]["package"].as_str().unwrap_or_default())?;
             }
             if needs_node(agent) {
@@ -699,16 +705,18 @@ mod tests {
         assert_eq!(launch_kind(&agente), Some(Launch::Download));
         agente["id"] = json!("../fora");
         assert!(launch_kind(&agente).is_none(), "id que não é componente de caminho");
+        agente["id"] = json!("exemplo.");
+        assert!(launch_kind(&agente).is_none(), "id que a pasta de instalação recusa");
         agente["id"] = json!("exemplo");
+        agente["version"] = json!("1.2.");
+        assert!(launch_kind(&agente).is_none(), "versão que a pasta de instalação recusa");
+        agente.as_object_mut().unwrap().remove("version");
         agente["distribution"]["binary"][plataforma].as_object_mut().unwrap().remove("archive");
         assert!(launch_kind(&agente).is_none(), "sem archive");
     }
 
     #[tokio::test]
     async fn pacote_sem_versao_exata_explica_o_motivo_em_vez_de_pedir_node() {
-        if !crate::agent::backends::on_path("npx") {
-            return;
-        }
         let agente = json!({"id": "exemplo", "distribution": {"npx": {"package": "pacote@latest"}}});
         let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
         assert!(erro.to_string().contains("versão exata"), "{erro}");
