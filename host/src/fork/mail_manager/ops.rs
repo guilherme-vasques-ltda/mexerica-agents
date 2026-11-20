@@ -175,7 +175,8 @@ pub(crate) fn reply(
     let from = sender(c, &mailbox, from)?;
     let effect = Effect { who, key, mailbox: &mailbox, need: &need, from: Some(&from) };
     effect.run(c, &("reply", &mailbox, &id, &from, body), || {
-        let original = mail.open(&mailbox, &id).map_err(backend)?.ok_or(MailError::NotFound)?;
+        // Ler o original não tem efeito: qualquer falha aqui é certa e libera a chave.
+        let original = mail.open(&mailbox, &id).map_err(|_| MailError::Rejected)?.ok_or(MailError::NotFound)?;
         let title = original.subject.trim();
         let outgoing = Outgoing {
             from: from.clone(),

@@ -38,6 +38,7 @@ struct Fake {
     trashed: Vec<(String, String)>,
     fail: Option<BackendError>,
     reads: Cell<usize>,
+    fail_read: Cell<Option<BackendError>>,
     /// Roda dentro do envio, depois da reserva: simula outra conexão agindo no meio.
     during_send: Option<Box<dyn FnMut()>>,
 }
@@ -83,6 +84,9 @@ impl MailBackend for Fake {
 
     fn open(&self, mailbox: &str, message: &str) -> Result<Option<BackendMessage>, BackendError> {
         self.reads.set(self.reads.get() + 1);
+        if let Some(error) = self.fail_read.take() {
+            return Err(error);
+        }
         Ok(self.find(mailbox, message).map(|m| BackendMessage {
             from: m.from.clone(),
             subject: m.subject.clone(),
@@ -505,6 +509,7 @@ fn bot_apagado_fora_do_pessoal_ou_plugin_desligado_nao_age() {
         (&other_space, json!({"spaceId": "00000000-0000-4000-8000-0000000000aa"})),
         (&group, json!({"kind": "group"})),
         (&malformed, json!({"kind": null})),
+        (&bot(23), json!({"name": null})),
     ] {
         let mut config = json!({"id": id(who), "name": "Fora", "spaceId": crate::fork::spaces::PERSONAL});
         config.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
@@ -581,6 +586,9 @@ fn repetir_resposta_nao_rele_o_original_e_falha_certa_libera_a_chave() {
     // Original sumiu antes do envio: nada foi enviado e a mesma chave pode tentar de novo.
     assert_eq!(reply(&c, &mut fx.mail, &z, &a_ref, None, "Resolvido", "k1"), Err(MailError::NotFound));
     fx.mail.boxes.insert(fx.a.clone(), saved);
+    // Falha transitória ao ler o original: nada foi enviado, a chave não fica presa.
+    fx.mail.fail_read.set(Some(BackendError::Unknown));
+    assert_eq!(reply(&c, &mut fx.mail, &z, &a_ref, None, "Resolvido", "k1"), Err(MailError::Rejected));
     let first = reply(&c, &mut fx.mail, &z, &a_ref, None, "Resolvido", "k1").unwrap();
     // Depois de concluída, a repetição devolve o recibo mesmo sem o original no provedor.
     fx.mail.boxes.remove(&fx.a);

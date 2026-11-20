@@ -1,13 +1,22 @@
 //! Estado persistido do Mail Manager e a única checagem de permissão ([`allowed`]).
 //! Funções de administração devolvem só estado operacional e concessões.
 use super::model::{MailError, MailboxAdmin, Participant, Permission, Result, address, db_error};
-use crate::fork::spaces::PERSONAL;
+use crate::{
+    fork::spaces::PERSONAL,
+    store::{BotConfig, BotKind},
+};
 use rusqlite::{Connection, OptionalExtension, params};
 
-/// Bot vivo, agente e do Pessoal: único participante que pode ter concessão hoje.
-const LIVE_BOT: &str = "SELECT 1 FROM bots b WHERE b.id=?1 AND b.deleted=0 AND json_valid(b.config)
-    AND json_extract(b.config,'$.id')=b.id AND json_extract(b.config,'$.spaceId')=?2
-    AND (json_type(b.config,'$.kind') IS NULL OR json_extract(b.config,'$.kind')='agent')";
+/// Bot vivo, agente e do Pessoal, lido pelo cadastro canônico do Hub: único participante
+/// que pode ter concessão hoje. Cadastro que o Hub não consegue ler é negado.
+fn live_bot(c: &Connection, bot: &str) -> Result<bool> {
+    let config: Option<String> = c
+        .query_row("SELECT config FROM bots WHERE id=?1 AND deleted=0", [bot], |r| r.get(0))
+        .optional()
+        .map_err(db_error)?;
+    let Some(Ok(config)) = config.map(|raw| serde_json::from_str::<BotConfig>(&raw)) else { return Ok(false) };
+    Ok(config.id == bot && config.space_id == PERSONAL && matches!(config.kind, BotKind::Agent))
+}
 
 pub(super) fn migrate(c: &Connection) -> Result<()> {
     c.execute_batch(include_str!("schema.sql")).map_err(db_error)
@@ -89,15 +98,13 @@ pub(crate) fn set_grant(
         let Participant::Bot(bot) = who else { return Err(MailError::Denied) };
         let ok: bool = tx
             .query_row(
-                &format!(
-                    "SELECT EXISTS(SELECT 1 FROM mail_manager_plugin WHERE singleton=1 AND state='enabled')
-                     AND EXISTS(SELECT 1 FROM mail_manager_mailboxes WHERE id=?3) AND EXISTS({LIVE_BOT})"
-                ),
-                params![bot, PERSONAL, mailbox],
+                "SELECT EXISTS(SELECT 1 FROM mail_manager_plugin WHERE singleton=1 AND state='enabled')
+                 AND EXISTS(SELECT 1 FROM mail_manager_mailboxes WHERE id=?1)",
+                [mailbox],
                 |r| r.get(0),
             )
             .map_err(db_error)?;
-        if !ok {
+        if !ok || !live_bot(&tx, bot)? {
             return Err(MailError::Denied);
         }
         tx.execute(
@@ -167,18 +174,18 @@ pub(crate) fn mailboxes(c: &Connection) -> Result<Vec<MailboxAdmin>> {
 /// concessão ativa. Pessoa sempre é negada neste recorte.
 pub(super) fn allowed(c: &Connection, mailbox: &str, who: &Participant, permission: Permission) -> Result<bool> {
     let Participant::Bot(bot) = who else { return Ok(false) };
-    c.query_row(
-        &format!(
+    let granted: bool = c
+        .query_row(
             "SELECT EXISTS(SELECT 1 FROM mail_manager_plugin p
-               JOIN mail_manager_mailboxes m ON m.id=?3
+               JOIN mail_manager_mailboxes m ON m.id=?2
                JOIN mail_manager_grants g ON g.mailbox_id=m.id
              WHERE p.singleton=1 AND p.state='enabled' AND g.participant_kind='bot' AND g.participant_id=?1
-               AND g.permission=?4 AND g.state='active' AND EXISTS({LIVE_BOT}))"
-        ),
-        params![bot, PERSONAL, mailbox, permission.key()],
-        |r| r.get(0),
-    )
-    .map_err(db_error)
+               AND g.permission=?3 AND g.state='active')",
+            params![bot, mailbox, permission.key()],
+            |r| r.get(0),
+        )
+        .map_err(db_error)?;
+    Ok(granted && live_bot(c, bot)?)
 }
 
 pub(super) fn require(c: &Connection, mailbox: &str, who: &Participant, permissions: &[Permission]) -> Result<()> {
