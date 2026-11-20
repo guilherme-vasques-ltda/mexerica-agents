@@ -15,6 +15,7 @@ Em **Ajustes → Voz → Ao vivo → Abrir a chamada**. Desligado de fábrica e 
 - Chamada parada: abre a chamada na **conversa principal do bot que está à vista**. Não abre em canal (grupo), em aba de
   sessão, com Ajustes, Rotinas ou outra tela na frente, com diálogo aberto, com o aviso de senha colada aberto ou com a voz
   indisponível. Nesses casos nada liga e a conversa mostra o motivo por 6 segundos. Com a conversa coberta (tela grande do WhatsApp, painel direito flutuante, camada ou janela modal à frente), o atalho não liga e não mostra aviso, porque a conversa não está à vista.
+- O atalho só liga a chamada se a janela do app receber o foco (espera até 0,5 s). Com um diálogo do sistema na frente, ou se o sistema negar o foco (por exemplo no Wayland), nada liga.
 - Já em chamada: o atalho **encerra** pelo mesmo caminho do botão vermelho (libera o microfone, registra a chamada uma vez,
   para os relógios). O botão não abre uma segunda sessão.
 - Pressões repetidas (tecla segurada, duplo toque) valem como uma só dentro de 1,2 s. Limite: uma primeira repetição do teclado que chegue depois disso (atraso de repetição configurado muito alto) conta como novo toque, e o sistema não oferece como distingui-la.

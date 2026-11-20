@@ -56,6 +56,7 @@ export function conversaVisivel(): boolean {
 }
 
 const AVISO_MS = 6000
+const FOCO_MS = 500
 
 /** O que a conversa diz quando o atalho não liga. `oculta` não diz nada: a conversa não está à vista. */
 export const TEXTO_RECUSA = {
@@ -76,11 +77,19 @@ export function useEntradaVoz(contexto: () => Omit<ContextoEntradaVoz, 'conversa
 
   useEffect(() => window.codync.app.onCommand((c) => {
     if (c.kind !== 'voiceToggle') return
-    const atual = vivo.current
-    const decisao = decidirEntradaVoz({ ...atual.contexto(), conversaVisivel: conversaVisivel() && c.modal !== true })
-    if (decisao.acao === 'iniciar') { setRecusa(null); atual.iniciar() }
-    else if (decisao.acao === 'encerrar') { setRecusa(null); atual.encerrar() }
-    else setRecusa(decisao.motivo)
+    const decidir = () => decidirEntradaVoz({ ...vivo.current.contexto(), conversaVisivel: conversaVisivel() && c.modal !== true })
+    const aplicar = (decisao: ReturnType<typeof decidir>) => {
+      if (decisao.acao === 'iniciar') { setRecusa(null); vivo.current.iniciar() }
+      else if (decisao.acao === 'encerrar') { setRecusa(null); vivo.current.encerrar() }
+      else setRecusa(decisao.motivo)
+    }
+    const decisao = decidir()
+    if (decisao.acao !== 'iniciar' || document.hasFocus()) return aplicar(decisao)
+    // O main acabou de trazer a janela à frente: dá um instante para o foco chegar. Sem foco (diálogo do sistema na frente,
+    // o sistema negou o foco), a chamada não abre por baixo de outra janela.
+    const fim = setTimeout(() => { window.removeEventListener('focus', chegou); setRecusa('oculta') }, FOCO_MS)
+    const chegou = () => { clearTimeout(fim); aplicar(decidir()) }
+    window.addEventListener('focus', chegou, { once: true })
   }), [])
 
   useEffect(() => {
