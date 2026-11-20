@@ -28,7 +28,9 @@ bin_dir = Path('/opt/donnabot')
 config = Path('/etc/donnabot/motor.conf')
 home = Path('/home/d330-f4-hub')
 backup = Path('/var/backups/donnabot-f4-prova')
-for path in [base, bin_dir, config, home, backup]:
+record = Path(f'{backup}.manifesto.json')
+forged = Path('/var/backups/donnabot-f4-forjado')
+for path in [base, bin_dir, config, home, backup, record, forged, Path('/etc/donnabot-f4-forjado')]:
     assert not path.exists(), f'VM já contém {path}; recuso alterar'
 for name in ['d330-f4-hub', 'donnabot-motor']:
     assert subprocess.run(['getent', 'passwd', name], env=SAFE_ROOT_ENV, stdout=subprocess.DEVNULL).returncode == 2
@@ -254,6 +256,7 @@ try:
           '--backup', backup, '--port', '19422')
     assert health()['ok'] and link.is_symlink() and mode(backup) == 0o700
     assert all(mode(p) == 0o600 for p in backup.rglob('*') if p.is_file())
+    assert record.stat().st_uid == 0 and mode(record) == 0o600 and not (backup / 'manifest.json').exists()
     print('PASS 10 migração fictícia: backup privado, cópias, F3 e Hub reiniciado')
     migrated_script = base / 'trabalho/bots' / bid / 'workspace/script.sh'
     assert mode(migrated_script) == 0o770
@@ -327,6 +330,16 @@ try:
         print('LIMITAÇÃO R4: VM sem Secret Service; sentinela de cofre antes/depois fica para F5')
     else:
         raise RuntimeError('Secret Service presente: executar sentinela real antes de aceitar a prova')
+    shutil.copytree(backup, forged)
+    manifest = json.loads(record.read_text())
+    manifest.update(binary='/etc/donnabot-f4-forjado', binary_mode=0o4755)
+    (forged / 'manifest.json').write_text(json.dumps(manifest))
+    (forged / 'manifest.json').chmod(0o600)
+    run('chown', '-R', f'{hub.pw_uid}:{hub.pw_gid}', forged)
+    refused = stage('voltar', '--backup', forged, check=False)
+    assert refused.returncode != 0 and 'registro protegido' in refused.stderr, refused.stderr
+    assert not Path('/etc/donnabot-f4-forjado').exists() and health()['ok']
+    print('PASS F4-REV3: volta recusa cópia com manifesto do Hub sem registro protegido do root')
     post = data / 'mensagem-pos-troca-ficticia'
     post.write_text('não apagar')
     service('stop', 'donnabot-host.service')
@@ -390,10 +403,11 @@ finally:
                 run('userdel', name, check=False)
         for name in ['donnabot-trabalho', 'donnabot-motor', 'd330-f4-hub']:
             run('groupdel', name, check=False)
-        for path in [base, bin_dir, home, backup]:
+        for path in [base, bin_dir, home, backup, forged]:
             if path.exists():
                 shutil.rmtree(path)
         config.unlink(missing_ok=True)
+        record.unlink(missing_ok=True)
         backup.with_suffix('.motor-conf-inativo').unlink(missing_ok=True)
     if backup_tmpfs:
         run('umount', '/var/backups', check=False)

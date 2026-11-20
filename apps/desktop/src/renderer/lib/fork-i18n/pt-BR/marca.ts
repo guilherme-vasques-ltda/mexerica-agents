@@ -1,6 +1,9 @@
 // PR (c), D443: textos com o nome do app (Mexerica) ou da bot principal (Berga), migrados dos literais legados.
 // Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  'marca.open.perfilMetadados': 'Metadados inseguros no perfil Open.',
+  'marca.open.perfilArquivo': 'O perfil Open não aceita links nem arquivos especiais.',
+  'marca.open.pacoteInvalido': 'Pacote Open inválido.',
   "marca.dados.legado": "Remova DONNABOT_HOME/CODYNC_HOME e configure MEXERICA_HOME para a Mexerica.",
   "marca.dados.vazio": "MEXERICA_HOME não pode ser vazio.",
   "marca.dados.ancestral": "A pasta pessoal ou seus ancestrais não podem ser usados como dados.",
@@ -18,6 +21,7 @@ export const textos = {
   'marca.conta.googleLigado': 'Essa conta Google já está ligada a outra conta da Mexerica.',
   'marca.conta.naoConfirmou': 'Não foi possível confirmar a entrada na conta. Tente de novo: a Mexerica só abre com a conta confirmada.',
   'marca.conta.apagarTudo': 'Sai de todas as contas e apaga os bots, conversas, chaves e ajustes deste computador. A Mexerica recomeça pela tela de boas-vindas.',
+  'marca.conta.apagarFalhou': 'Não foi possível apagar todos os dados. Tente novamente.',
   'marca.conta.semLogin': 'O login não está disponível nesta versão, e a Mexerica só abre com uma conta.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'Caixa protegida indisponível.',

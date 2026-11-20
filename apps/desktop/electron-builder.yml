@@ -104,12 +104,19 @@ linux:
   category: Development
   icon: resources/icon.png
   executableName: donnabot
+  # Campos do .deb: sem eles o fpm usaria o autor do projeto de origem como mantenedor.
+  maintainer: Mexerica <support@mexerica.app>
+  vendor: Mexerica
   synopsis: Your coding agents as teammates
   target: [AppImage, deb, tar.gz]
   artifactName: donnabot-linux-${arch}.${ext}
   desktop:
     entry:
       StartupWMClass: Donnabot
+
+deb:
+  # Os padrões do electron-builder mais o ALSA, sem o qual o Electron não abre num Ubuntu sem áudio instalado.
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libasound2]
 
 win:
   icon: resources/icon.png

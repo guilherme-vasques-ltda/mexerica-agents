@@ -144,6 +144,9 @@ pub struct KeepAwake(Option<Child>);
 
 impl KeepAwake {
     pub fn set(&mut self, on: bool) {
+        if crate::environment::Environment::is_open() {
+            return;
+        }
         match (on, self.0.is_some()) {
             (true, false) => {
                 let pid = std::process::id().to_string();
@@ -189,6 +192,9 @@ impl KeepAwake {
 
 /// Addresses the phone can try, best first: Tailscale, then LAN.
 pub fn addresses(port: u16) -> Vec<String> {
+    if crate::environment::Environment::is_open() {
+        return Vec::new();
+    }
     crate::fork::pairing_addresses::addresses(port)
 }
 
