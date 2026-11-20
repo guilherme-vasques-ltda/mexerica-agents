@@ -141,7 +141,9 @@ export interface PedidoDefinirVinculo {
  * `ligada`: a pessoa ligou neste bot; `desligada`: perigosa, nova ou alterada pelo fornecedor, só a pessoa liga.
  */
 export type EstadoDaFerramenta = 'permitida' | 'ligada' | 'desligada'
-export type MotivoDaFerramenta = 'perigosa' | 'nova' | 'alterada'
+export type MotivoDaFerramenta = 'perigosa' | 'nova' | 'alterada' | 'descricao_invalida'
+/** As partes de uma ação que o fornecedor pode mudar depois que a pessoa a ligou. */
+export type ParteDaFerramenta = 'descricao' | 'entrada' | 'titulo' | 'saida' | 'anotacoes'
 
 export interface FerramentaDaConta {
   nome: string
@@ -151,6 +153,10 @@ export interface FerramentaDaConta {
   motivo: MotivoDaFerramenta | null
   /** A impressão digital que a pessoa viu: o Hub só liga a ferramenta se ela ainda for esta. */
   digest: string
+  /** O texto que o modelo lê sobre a ação, como o fornecedor o escreveu; a pessoa o lê antes de ligar. */
+  descricao: string | null
+  /** Ligada antes e mudada pelo fornecedor: o que mudou (vazio quando o Hub não sabe dizer). */
+  mudou: ParteDaFerramenta[] | null
 }
 
 export interface FerramentasDaConta {

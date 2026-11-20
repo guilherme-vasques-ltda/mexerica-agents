@@ -7,7 +7,7 @@ import { Text } from '../../../components/Text'
 import { useT } from '../../../lib/fork-i18n/estado'
 import { useStore } from '../../../store/context'
 import { desligarFerramenta, ferramentasDoBot, ligarFerramenta } from './estado'
-import { acoesQueAPessoaDecide } from './regras.ts'
+import { acoesQueAPessoaDecide, listaDeNomes, podeLigar } from './regras.ts'
 import type { FerramentaDaConta, FerramentasDaConta } from './tipos.ts'
 import { Aviso, Carregando, Erro, frasesDaRecusa } from './pecas'
 
@@ -58,16 +58,19 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
               <VStack gap={0} grow shrink>
                 <Text size="body" tone="text" truncate>{nome}</Text>
                 <Text size="caption" tone="secondary">{f.estado === 'ligada' ? t('mercado.acoes.estado.ligada') : t(`mercado.acoes.estado.${f.motivo ?? 'perigosa'}` as 'mercado.acoes.estado.perigosa')}</Text>
+                {f.mudou?.length ? <Text size="caption" tone="secondary">{t('mercado.acoes.mudou', { partes: listaDeNomes(f.mudou.map((p) => t(`mercado.acoes.parte.${p}` as 'mercado.acoes.parte.descricao')), t('mercado.bot.e')) })}</Text> : null}
               </VStack>
               {f.estado === 'ligada'
                 ? <Button kind="secondary" disabled={salvando} onClick={() => void desligar(f)}>{t('mercado.acoes.desligar')}</Button>
-                : <Button kind="secondary" disabled={salvando || aberta} onClick={() => setConfirmando({ nome: f.nome, digest: f.digest, vinculo: dados.vinculo })}>{t('mercado.acoes.ligar')}</Button>}
+                : podeLigar(f) ? <Button kind="secondary" disabled={salvando || aberta} onClick={() => setConfirmando({ nome: f.nome, digest: f.digest, vinculo: dados.vinculo })}>{t('mercado.acoes.ligar')}</Button> : null}
             </HStack>
             {aberta ? (
               <div className="mercado-aviso alerta" role="alertdialog" aria-label={t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}>
                 <VStack gap={8}>
                   <Text size="callout" weight="semibold" as="div">{t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}</Text>
                   <Text size="callout" as="div">{t('mercado.acoes.confirmar.texto', { conta: conta.nome })}</Text>
+                  <Text size="caption" tone="secondary" as="div">{t('mercado.acoes.confirmar.descricao')}</Text>
+                  <div className="mercado-acao-descricao"><Text size="caption" as="div">{f.descricao ?? t('mercado.acoes.confirmar.semDescricao')}</Text></div>
                   <HStack gap={8}>
                     <Button disabled={salvando} onClick={() => confirmando && void ligar(confirmando)}>{t('mercado.acoes.confirmar.sim')}</Button>
                     <Button kind="secondary" disabled={salvando} onClick={() => setConfirmando(null)}>{t('mercado.acoes.confirmar.cancelar')}</Button>

@@ -28,6 +28,9 @@ pub(crate) fn digest(value: &Value) -> String {
     })
 }
 
+/// Teto da descrição de uma ferramenta, em bytes. Acima dele o texto não chega ao modelo nem pode ser aprovado.
+pub(crate) const DESCRICAO_MAX: usize = 8 * 1024;
+
 /// 2: apresentação com conta de saída e rótulos curados. App que só conhece o 1 não
 /// exibiu a conta: não mostra botões e o Hub recusa sua decisão/edição.
 pub(crate) const DECISION_PROTOCOL: u8 = 2;
@@ -130,6 +133,10 @@ pub(crate) struct Regra {
     pub fields: BTreeMap<String, Campo>,
     /// Ação curada em português (ex.: "Enviar mensagem no `WhatsApp`"); título do cartão.
     pub presentation: String,
+    /// Descrição aprovada, byte a byte: a única que o modelo recebe. A do fornecedor só passa se for idêntica.
+    /// Default só para ler ledger antigo; vazia recusa a admissão nova.
+    #[serde(default)]
+    pub descricao: String,
     pub evidence: Evidencia,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -175,6 +182,10 @@ impl SnapshotAcesso {
         ensure!(self.conta.is_some(), "conta_saida_nao_identificada: fonte sem conta de saída canônica");
         for rule in self.rules.values() {
             ensure!(digest(&rule.schema) == rule.schema_digest, "Schema curado divergente");
+            ensure!(
+                !rule.descricao.trim().is_empty() && rule.descricao.len() <= DESCRICAO_MAX,
+                "Descrição aprovada ausente ou acima do teto"
+            );
             let curto = |v: &str, max: usize| !v.trim().is_empty() && v.len() <= max;
             ensure!(
                 curto(&rule.presentation, 120) && rule.fields.values().all(|f| curto(&f.rotulo, 64)),

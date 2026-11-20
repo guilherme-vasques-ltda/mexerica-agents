@@ -192,8 +192,28 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
             PRIMARY KEY(bot, conta, nome));
          CREATE TABLE IF NOT EXISTS mexerica_ferramenta_recibos(
             id INTEGER PRIMARY KEY AUTOINCREMENT, em INTEGER NOT NULL, conta TEXT NOT NULL, bot TEXT NOT NULL,
-            ferramenta TEXT NOT NULL, evento TEXT NOT NULL, motivo TEXT NOT NULL);",
+            ferramenta TEXT NOT NULL, evento TEXT NOT NULL, motivo TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS mexerica_ferramenta_mudancas(
+            bot TEXT NOT NULL, conta TEXT NOT NULL, nome TEXT NOT NULL, partes TEXT, em INTEGER NOT NULL,
+            PRIMARY KEY(bot, conta, nome));",
     )?;
+    // Colunas da descrição aprovada. Linha anterior a elas fica sem texto e sem partes até a próxima lista completa:
+    // a liberação continua presa ao digest, que já cobre a descrição.
+    for (tabela, coluna, tipo) in [
+        ("mexerica_conta_ferramentas", "descricao", "TEXT"),
+        ("mexerica_conta_ferramentas", "descricao_invalida", "INTEGER NOT NULL DEFAULT 0"),
+        ("mexerica_conta_ferramentas", "partes", "TEXT"),
+        ("mexerica_ferramenta_liberacoes", "partes", "TEXT"),
+    ] {
+        let existe: bool = c.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{tabela}') WHERE name=?1)"),
+            [coluna],
+            |r| r.get(0),
+        )?;
+        if !existe {
+            c.execute_batch(&format!("ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"))?;
+        }
+    }
     Ok(())
 }
 
@@ -207,6 +227,8 @@ pub(crate) enum Motivo {
     ForaDaFicha,
     /// Nenhum `tools/list` foi visto para esta ferramenta.
     SemInventario,
+    /// A descrição passa do teto ou não é texto: não chega ao modelo e nem a pessoa a liga.
+    DescricaoInvalida,
 }
 
 impl Motivo {
@@ -216,6 +238,7 @@ impl Motivo {
             Self::Alterada => "alterada",
             Self::ForaDaFicha => "fora_da_ficha",
             Self::SemInventario => "sem_inventario",
+            Self::DescricaoInvalida => "descricao_invalida",
         }
     }
 }
@@ -331,10 +354,19 @@ pub(crate) struct Visto {
     pub nome: String,
     pub digest: String,
     pub dica: bool,
+    /// O texto que o modelo lê, até o teto; a pessoa o vê antes de ligar.
+    pub descricao: Option<String>,
+    pub descricao_invalida: bool,
+    /// Digest de cada parte (`PARTES`), em JSON: diz à pessoa o que o fornecedor mudou.
+    pub partes: String,
 }
 
+/// As partes da ferramenta que o digest cobre além do nome, na ordem em que a tela as cita.
+const PARTES: [&str; 5] = ["descricao", "entrada", "titulo", "saida", "anotacoes"];
+
 /// Nome técnico e `schema_digest` do que a pessoa vê e do que o fornecedor promete: título, descrição, entrada, saída
-/// e anotações. Mudou qualquer parte, a autorização antiga deixa de valer. Só o hash é guardado, nunca o texto.
+/// e anotações. Mudou qualquer parte, a autorização antiga deixa de valer. A comparação é exata: um espaço ou uma
+/// maiúscula a mais na descrição também é mudança. Do texto, só a descrição é guardada, para a pessoa ler o que libera.
 pub(crate) fn ler_ferramenta(tool: &Value) -> Option<Visto> {
     let nome = tool["name"].as_str()?.to_owned();
     let dicas = &tool["annotations"];
@@ -343,20 +375,64 @@ pub(crate) fn ler_ferramenta(tool: &Value) -> Option<Visto> {
         "saida": tool["outputSchema"], "anotacoes": dicas
     }));
     let dica = dicas["destructiveHint"] == true || dicas["readOnlyHint"] == false;
-    Some(Visto { nome, digest, dica })
+    let (descricao, descricao_invalida) = match &tool["description"] {
+        Value::Null => (None, false),
+        Value::String(texto) if texto.len() <= operacao::DESCRICAO_MAX => (Some(texto.clone()), false),
+        _ => (None, true),
+    };
+    let campo = |parte: &str| match parte {
+        "descricao" => &tool["description"],
+        "entrada" => &tool["inputSchema"],
+        "titulo" => &tool["title"],
+        "saida" => &tool["outputSchema"],
+        _ => dicas,
+    };
+    let partes: BTreeMap<&str, String> = PARTES.iter().map(|p| (*p, operacao::digest(campo(p)))).collect();
+    Some(Visto { nome, digest, dica, descricao, descricao_invalida, partes: json!(partes).to_string() })
+}
+
+/// As partes que mudaram entre o que a pessoa ligou e o que o fornecedor mostra agora. Vazia quando uma das duas
+/// versões é anterior ao registro das partes: a tela diz só que a ação mudou.
+fn partes_que_mudaram(aprovadas: Option<&str>, atuais: Option<&str>) -> Vec<&'static str> {
+    let ler = |p: Option<&str>| p.and_then(|t| serde_json::from_str::<BTreeMap<String, String>>(t).ok());
+    let (Some(antes), Some(agora)) = (ler(aprovadas), ler(atuais)) else { return vec![] };
+    PARTES.into_iter().filter(|p| antes.get(*p) != agora.get(*p)).collect()
 }
 
 struct Linha {
     digest: String,
     dica: bool,
+    descricao: Option<String>,
+    descricao_invalida: bool,
+    partes: Option<String>,
 }
 
 fn linhas(c: &Connection, conta: &str) -> Result<BTreeMap<String, Linha>> {
-    let mut st = c.prepare("SELECT nome,digest,dica FROM mexerica_conta_ferramentas WHERE conta=?1")?;
+    let mut st = c.prepare(
+        "SELECT nome,digest,dica,descricao,descricao_invalida,partes FROM mexerica_conta_ferramentas WHERE conta=?1",
+    )?;
     let rows = st
         .query_map([conta], |r| {
-            Ok((r.get::<_, String>(0)?, Linha { digest: r.get(1)?, dica: r.get::<_, i64>(2)? != 0 }))
+            Ok((
+                r.get::<_, String>(0)?,
+                Linha {
+                    digest: r.get(1)?,
+                    dica: r.get::<_, i64>(2)? != 0,
+                    descricao: r.get(3)?,
+                    descricao_invalida: r.get::<_, i64>(4)? != 0,
+                    partes: r.get(5)?,
+                },
+            ))
         })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    Ok(rows)
+}
+
+/// As ferramentas que a pessoa tinha ligado neste bot e que o fornecedor mudou depois, com as partes que ela viu.
+fn mudancas(c: &Connection, bot: &str, conta: &str) -> Result<BTreeMap<String, Option<String>>> {
+    let mut st = c.prepare("SELECT nome,partes FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2")?;
+    let rows = st
+        .query_map([bot, conta], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)))?
         .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
     Ok(rows)
 }
@@ -372,7 +448,11 @@ fn liberacoes(c: &Connection, bot: &str, conta: &str) -> Result<BTreeMap<String,
 fn estado(pol: &Politica, nome: &str, linha: &Linha, liberada: Option<&String>) -> Estado {
     let ligada = liberada == Some(&linha.digest);
     let fechada = |motivo| if ligada { Estado::Ligada } else { Estado::Desligada(motivo) };
-    match classe(pol, nome, linha.dica) {
+    let classe = classe(pol, nome, linha.dica);
+    if classe != Classe::Fora && linha.descricao_invalida {
+        return Estado::Desligada(Motivo::DescricaoInvalida);
+    }
+    match classe {
         Classe::Fora => Estado::Desligada(Motivo::ForaDaFicha),
         Classe::Perigosa => fechada(if liberada.is_some() { Motivo::Alterada } else { Motivo::Perigosa }),
         Classe::Segura if pol.curadas.get(nome) == Some(&linha.digest) => Estado::Permitida,
@@ -449,20 +529,47 @@ fn instalar_em(
     for nome in existentes.keys().filter(|nome| !vistos.contains_key(*nome)) {
         tx.execute("DELETE FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2", params![conta, nome])?;
         tx.execute("DELETE FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2", params![conta, nome])?;
+        tx.execute("DELETE FROM mexerica_ferramenta_mudancas WHERE conta=?1 AND nome=?2", params![conta, nome])?;
         recibo(tx, conta, "*", nome, "invalidada", "retirada")?;
     }
     for (nome, visto) in &vistos {
         match existentes.get(nome) {
             Some(antiga) if antiga.digest == visto.digest => {
                 tx.execute(
-                    "UPDATE mexerica_conta_ferramentas SET dica=?3, visto_em=?4 WHERE conta=?1 AND nome=?2",
-                    params![conta, nome, i64::from(visto.dica), agora],
+                    "UPDATE mexerica_conta_ferramentas SET dica=?3, visto_em=?4, descricao=?5, descricao_invalida=?6,
+                     partes=?7 WHERE conta=?1 AND nome=?2",
+                    params![
+                        conta,
+                        nome,
+                        i64::from(visto.dica),
+                        agora,
+                        visto.descricao,
+                        i64::from(visto.descricao_invalida),
+                        visto.partes
+                    ],
                 )?;
             }
             Some(_) => {
                 tx.execute(
-                    "UPDATE mexerica_conta_ferramentas SET digest=?3, dica=?4, visto_em=?5 WHERE conta=?1 AND nome=?2",
-                    params![conta, nome, visto.digest, i64::from(visto.dica), agora],
+                    "UPDATE mexerica_conta_ferramentas SET digest=?3, dica=?4, visto_em=?5, descricao=?6,
+                     descricao_invalida=?7, partes=?8 WHERE conta=?1 AND nome=?2",
+                    params![
+                        conta,
+                        nome,
+                        visto.digest,
+                        i64::from(visto.dica),
+                        agora,
+                        visto.descricao,
+                        i64::from(visto.descricao_invalida),
+                        visto.partes
+                    ],
+                )?;
+                // O que a pessoa tinha ligado fica anotado, com as partes que ela viu, para a tela dizer o que mudou.
+                tx.execute(
+                    "INSERT INTO mexerica_ferramenta_mudancas(bot,conta,nome,partes,em)
+                     SELECT bot,conta,nome,partes,?3 FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2
+                     ON CONFLICT(bot,conta,nome) DO UPDATE SET partes=excluded.partes, em=excluded.em",
+                    params![conta, nome, agora],
                 )?;
                 let apagadas = tx.execute(
                     "DELETE FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2",
@@ -474,8 +581,18 @@ fn instalar_em(
             }
             None => {
                 tx.execute(
-                    "INSERT INTO mexerica_conta_ferramentas(conta,nome,digest,dica,visto_em) VALUES(?1,?2,?3,?4,?5)",
-                    params![conta, nome, visto.digest, i64::from(visto.dica), agora],
+                    "INSERT INTO mexerica_conta_ferramentas(conta,nome,digest,dica,visto_em,descricao,descricao_invalida,
+                     partes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![
+                        conta,
+                        nome,
+                        visto.digest,
+                        i64::from(visto.dica),
+                        agora,
+                        visto.descricao,
+                        i64::from(visto.descricao_invalida),
+                        visto.partes
+                    ],
                 )?;
             }
         }
@@ -726,18 +843,26 @@ pub(crate) fn listar(store: &Store, bot: &str, conta_id: &str) -> Result<Value> 
     let db = store.db.locked();
     let linhas = linhas(&db, &conta.id)?;
     let liberadas = liberacoes(&db, bot, &conta.id)?;
+    let mudancas = mudancas(&db, bot, &conta.id)?;
     let pronto = inventario_completo(&db, &conta.id)?;
     let itens: Vec<Value> = linhas
         .iter()
         .filter_map(|(nome, linha)| {
+            let mudou =
+                mudancas.get(nome).map(|aprovadas| partes_que_mudaram(aprovadas.as_deref(), linha.partes.as_deref()));
             let (estado, motivo) = match estado(&pol, nome, linha, liberadas.get(nome)) {
                 Estado::Permitida => ("permitida", None),
                 Estado::Ligada => ("ligada", None),
                 Estado::Desligada(Motivo::ForaDaFicha) => return None,
+                Estado::Desligada(Motivo::Perigosa) if mudou.is_some() => {
+                    ("desligada", Some(Motivo::Alterada.codigo()))
+                }
                 Estado::Desligada(motivo) => ("desligada", Some(motivo.codigo())),
             };
+            let mudou = mudou.filter(|_| estado == "desligada");
             let rotulo = pol.tipo.perigosas.iter().find(|p| p.ferramenta == nome).map(|p| p.rotulo);
-            Some(json!({"nome": nome, "rotulo": rotulo, "estado": estado, "motivo": motivo, "digest": linha.digest}))
+            Some(json!({"nome": nome, "rotulo": rotulo, "estado": estado, "motivo": motivo, "digest": linha.digest,
+                "descricao": linha.descricao, "mudou": mudou}))
         })
         .collect();
     Ok(json!({"botId": bot, "conta": conta.id, "inventarioPronto": pronto, "vinculo": epoca, "ferramentas": itens}))
@@ -751,6 +876,9 @@ pub(crate) struct PedidoLigar<'a> {
 }
 
 const VINCULO_MUDOU: &str = "vinculo_mudou: a conta saiu deste bot e voltou desde que você abriu a lista; abra a lista de novo e confirme outra vez.";
+
+const DESCRICAO_INVALIDA: &str =
+    "descricao_invalida: o texto desta ação é grande demais ou não é texto; ela não pode ser ligada.";
 
 const FERRAMENTA_MUDOU: &str =
     "ferramenta_mudou: a ferramenta mudou desde que você a viu; abra a lista de novo e confirme outra vez.";
@@ -780,6 +908,7 @@ pub(crate) fn conferir_ligar(store: &Store, pedido: &PedidoLigar<'_>, confirmado
         classe(&pol, pedido.ferramenta, linha.dica) != Classe::Fora,
         "ferramenta_fora_da_ficha: a ficha desta conta não oferece essa ferramenta."
     );
+    ensure!(!linha.descricao_invalida, "{DESCRICAO_INVALIDA}");
     ensure!(linha.digest == pedido.digest, "{FERRAMENTA_MUDOU}");
     Ok(())
 }
@@ -794,18 +923,24 @@ pub(crate) fn gravar_liberacao(tx: &Connection, pedido: &PedidoLigar<'_>) -> Res
         inventario_completo(tx, pedido.conta)?,
         "ferramenta_desconhecida: essa conta ainda não mostrou a lista completa de ferramentas; verifique a conta."
     );
-    let atual: Option<String> = tx
+    let atual: Option<(String, bool, Option<String>)> = tx
         .query_row(
-            "SELECT digest FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2",
+            "SELECT digest,descricao_invalida,partes FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2",
             params![pedido.conta, pedido.ferramenta],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?)),
         )
         .optional()?;
-    ensure!(atual.as_deref() == Some(pedido.digest), "{FERRAMENTA_MUDOU}");
+    let (digest, invalida, partes) = atual.ok_or_else(|| anyhow!("{FERRAMENTA_MUDOU}"))?;
+    ensure!(digest == pedido.digest, "{FERRAMENTA_MUDOU}");
+    ensure!(!invalida, "{DESCRICAO_INVALIDA}");
     tx.execute(
-        "INSERT INTO mexerica_ferramenta_liberacoes(bot,conta,nome,digest,em) VALUES(?1,?2,?3,?4,?5)
-         ON CONFLICT(bot,conta,nome) DO UPDATE SET digest=excluded.digest, em=excluded.em",
-        params![pedido.bot, pedido.conta, pedido.ferramenta, pedido.digest, crate::store::now_ms()],
+        "INSERT INTO mexerica_ferramenta_liberacoes(bot,conta,nome,digest,em,partes) VALUES(?1,?2,?3,?4,?5,?6)
+         ON CONFLICT(bot,conta,nome) DO UPDATE SET digest=excluded.digest, em=excluded.em, partes=excluded.partes",
+        params![pedido.bot, pedido.conta, pedido.ferramenta, pedido.digest, crate::store::now_ms(), partes],
+    )?;
+    tx.execute(
+        "DELETE FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2 AND nome=?3",
+        params![pedido.bot, pedido.conta, pedido.ferramenta],
     )?;
     recibo(tx, pedido.conta, pedido.bot, pedido.ferramenta, "ligada", "confirmada")
 }
@@ -828,6 +963,10 @@ pub(crate) fn gravar_desligamento(tx: &Connection, bot: &str, conta: &str, ferra
         "DELETE FROM mexerica_ferramenta_liberacoes WHERE bot=?1 AND conta=?2 AND nome=?3",
         params![bot, conta, ferramenta],
     )?;
+    tx.execute(
+        "DELETE FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2 AND nome=?3",
+        params![bot, conta, ferramenta],
+    )?;
     if n > 0 {
         recibo(tx, conta, bot, ferramenta, "desligada", "pela_pessoa")?;
     }
@@ -839,6 +978,7 @@ pub(crate) fn gravar_desligamento(tx: &Connection, bot: &str, conta: &str, ferra
 pub(crate) fn esquecer_liberacoes_do_bot(c: &Connection, bot: &str, contas: &[String]) -> Result<()> {
     for conta in contas {
         c.execute("DELETE FROM mexerica_ferramenta_liberacoes WHERE bot=?1 AND conta=?2", params![bot, conta])?;
+        c.execute("DELETE FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2", params![bot, conta])?;
         c.execute(
             "INSERT INTO mexerica_vinculo_epoca(bot,conta,n) VALUES(?1,?2,1) ON CONFLICT(bot,conta) DO UPDATE SET n=n+1",
             params![bot, conta],
@@ -850,7 +990,12 @@ pub(crate) fn esquecer_liberacoes_do_bot(c: &Connection, bot: &str, contas: &[St
 /// Desconectar a conta apaga o inventário e as liberações dela, em todos os bots, na mesma transação que a tira do
 /// cofre. Os recibos ficam.
 pub(crate) fn esquecer_conta(c: &Connection, conta: &str) -> Result<()> {
-    for tabela in ["mexerica_conta_ferramentas", "mexerica_conta_inventario", "mexerica_ferramenta_liberacoes"] {
+    for tabela in [
+        "mexerica_conta_ferramentas",
+        "mexerica_conta_inventario",
+        "mexerica_ferramenta_liberacoes",
+        "mexerica_ferramenta_mudancas",
+    ] {
         c.execute(&format!("DELETE FROM {tabela} WHERE conta=?1"), [conta])?;
     }
     // A geração nunca volta atrás: um pedido anotado antes da desconexão não instala inventário na conta nova.
@@ -860,3 +1005,7 @@ pub(crate) fn esquecer_conta(c: &Connection, conta: &str) -> Result<()> {
 #[cfg(test)]
 #[path = "ferramentas_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ferramentas_descricao_tests.rs"]
+mod descricao_tests;
