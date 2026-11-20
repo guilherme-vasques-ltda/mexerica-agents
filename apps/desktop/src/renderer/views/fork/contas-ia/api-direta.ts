@@ -60,5 +60,6 @@ export async function salvarChave(client: HostClient, fornecedor: string, digita
   }
 }
 
+// O Hub faz uma operação de chave por vez: remover pode esperar um teste em andamento terminar.
 export const removerChave = (client: HostClient, fornecedor: string) =>
-  client.call<{ ok: boolean }>('motorChaveRemover', { fornecedor }, 15_000)
+  client.call<{ ok: boolean }>('motorChaveRemover', { fornecedor }, PRAZO_MS)
