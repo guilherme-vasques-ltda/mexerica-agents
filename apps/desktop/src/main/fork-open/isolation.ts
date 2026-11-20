@@ -8,10 +8,13 @@ import profile from '../../../config/open.json' with { type: 'json' }
 
 export const open = Object.freeze(profile)
 
-function assertPrivateTree(path: string) {
+const chromiumLocks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket']
+
+function assertPrivateTree(path: string, locks = false) {
   for (const entry of readdirSync(path)) {
     const child = join(path, entry)
     const item = lstatSync(child)
+    if (locks && chromiumLocks.includes(entry) && item.uid === process.getuid?.() && (item.isSymbolicLink() || (entry === 'SingletonSocket' && item.isSocket()))) continue
     if (item.uid !== process.getuid?.() || (item.mode & 0o022) !== 0) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados'))
     if (item.isDirectory()) assertPrivateTree(child)
     else if (!item.isFile() || item.nlink !== 1) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilArquivo'))
@@ -21,9 +24,16 @@ function assertPrivateTree(path: string) {
 export function openPaths(home: string, appData: string) {
   const userData = privateDirectory(join(appData, open.userDataFolder))
   const homeConfig = privateDirectory(join(home, open.dataFolder))
-  assertPrivateTree(userData)
+  assertPrivateTree(userData, true)
   assertPrivateTree(homeConfig)
   return { userData, homeConfig }
+}
+
+export function bringToFront(window: { isMinimized(): boolean, restore(): void, show(): void, focus(): void }, activateApp: () => void) {
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  activateApp()
 }
 
 export function isOpenAsset(root: string, url: string) {

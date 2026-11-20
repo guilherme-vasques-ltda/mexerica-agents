@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { environmentProfile } from '../src/shared/environment.ts'
 import { PORTA_PRINCIPAL, PORTA_DEV } from '../src/main/fork-oauth-loopback.ts'
 import { SANDBOX_PORTS } from '../src/shared/dev-sandbox.ts'
-import { open, openPaths, isOpenAsset } from '../src/main/fork-open/isolation.ts'
+import { open, openPaths, isOpenAsset, bringToFront } from '../src/main/fork-open/isolation.ts'
 import { traduzir } from '../src/renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../src/shared/fork-idioma.ts'
 
@@ -66,6 +66,51 @@ test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) 
   writeFileSync(unsafeFile, '', { mode: 0o600 })
   chmodSync(unsafeFile, 0o622)
   assert.throws(() => openPaths(home, appData), { message: traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados') })
+})
+
+test('a segunda execução passa pela guarda com as travas da instância aberta, sem afrouxar o perfil', (t) => {
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const appData = join(home, 'Application Support')
+  mkdirSync(appData, { mode: 0o700 })
+  const { userData } = openPaths(home, appData)
+  const personal = join(appData, 'Donnabot')
+  mkdirSync(personal, { mode: 0o700 })
+  symlinkSync('host-1234', join(userData, 'SingletonLock'))
+  symlinkSync('5678', join(userData, 'SingletonCookie'))
+  symlinkSync(join(home, 'org.chromium.Chromium.example', 'SingletonSocket'), join(userData, 'SingletonSocket'))
+  assert.doesNotThrow(() => openPaths(home, appData))
+  rmSync(join(userData, 'SingletonLock'))
+  symlinkSync(personal, join(userData, 'SingletonLock'), 'dir')
+  assert.doesNotThrow(() => openPaths(home, appData))
+  const nested = join(userData, 'Network')
+  mkdirSync(nested, { mode: 0o700 })
+  symlinkSync('host-1234', join(nested, 'SingletonLock'))
+  assert.throws(() => openPaths(home, appData))
+  rmSync(nested, { recursive: true })
+  symlinkSync(personal, join(userData, 'Cookies'), 'dir')
+  assert.throws(() => openPaths(home, appData))
+  rmSync(join(userData, 'Cookies'))
+  const homeConfig = join(home, open.dataFolder)
+  symlinkSync('host-1234', join(homeConfig, 'SingletonLock'))
+  assert.throws(() => openPaths(home, appData))
+  rmSync(join(homeConfig, 'SingletonLock'))
+  const personalFile = join(personal, 'fixture')
+  writeFileSync(personalFile, 'dados fictícios', { mode: 0o600 })
+  rmSync(join(userData, 'SingletonCookie'))
+  linkSync(personalFile, join(userData, 'SingletonCookie'))
+  assert.throws(() => openPaths(home, appData), { message: traduzir(SOURCE_LANGUAGE, 'marca.open.perfilArquivo') })
+})
+
+test('a segunda execução traz a janela existente para a frente', () => {
+  const calls = []
+  const window = { isMinimized: () => true, restore: () => calls.push('restore'), show: () => calls.push('show'), focus: () => calls.push('focus') }
+  bringToFront(window, () => calls.push('app'))
+  assert.deepEqual(calls, ['restore', 'show', 'focus', 'app'])
+  calls.length = 0
+  window.isMinimized = () => false
+  bringToFront(window, () => calls.push('app'))
+  assert.deepEqual(calls, ['show', 'focus', 'app'])
 })
 
 test('a janela só pede arquivos empacotados, sem rede nem esquemas externos', () => {

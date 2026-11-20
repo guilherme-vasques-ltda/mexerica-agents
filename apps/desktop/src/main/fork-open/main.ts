@@ -7,7 +7,7 @@ import { SOURCE_LANGUAGE } from '../../shared/fork-idioma.ts'
 import type { AccountState, HostSnapshot, UpdateState } from '../../shared/ipc'
 import type { SSHState } from '../../shared/ssh'
 import { privateDirectory } from '../../shared/fork-private-files'
-import { isOpenAsset, open, openPaths } from './isolation'
+import { bringToFront, isOpenAsset, open, openPaths } from './isolation'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
     JSON.stringify(JSON.parse(readFileSync(join(process.resourcesPath, 'open-profile.json'), 'utf8'))) !== JSON.stringify(open)) {
@@ -28,7 +28,6 @@ const chatURL = pathToFileURL(join(assetRoot, 'index.html')).href + '?window=cha
 let window: BrowserWindow | null = null
 
 function openWindow() {
-  if (window) { window.showInactive(); return }
   window = new BrowserWindow({
     width: 1100, height: 760, title: open.name, show: false, titleBarStyle: 'hidden',
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: true, contextIsolation: true, devTools: false },
@@ -45,7 +44,11 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('window-all-closed', () => app.quit())
-  app.on('second-instance', () => { if (app.isReady()) openWindow() })
+  app.on('second-instance', () => {
+    if (!app.isReady()) return
+    if (window) bringToFront(window, () => app.focus({ steal: true }))
+    else openWindow()
+  })
   void app.whenReady().then(() => {
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !isOpenAsset(assetRoot, details.url) }))
     session.defaultSession.setPermissionCheckHandler(() => false)
