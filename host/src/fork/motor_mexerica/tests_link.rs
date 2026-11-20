@@ -555,7 +555,7 @@ async fn chave_curta_demais_para_proteger_nao_guarda_a_conversa() {
     acp.request("initialize", json!({})).await.unwrap();
     let sid = sessao(&acp, &case).await;
     turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
-    matar_o_motor(acp.pid().unwrap()).await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
     let texto = historico_visto(&acp, &mut rx, &sid).await;
     assert_eq!(texto, "historico: /historico", "sem proteção nada ficou guardado para o processo novo");
     acp.kill_and_wait().await;
@@ -574,7 +574,7 @@ async fn cofre_ilegivel_para_proteger_nao_guarda_a_conversa() {
     acp.request("initialize", json!({})).await.unwrap();
     let sid = sessao(&acp, &case).await;
     turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
-    matar_o_motor(acp.pid().unwrap()).await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
     let texto = historico_visto(&acp, &mut rx, &sid).await;
     assert_eq!(texto, "historico: /historico", "sem ler o cofre nada ficou guardado para o processo novo");
     acp.kill_and_wait().await;
@@ -625,8 +625,7 @@ async fn cofre_que_falha_depois_de_guardar_descarta_a_copia_e_o_motor_vivo() {
 
     broken.store(false, Ordering::Relaxed);
     let depois = historico_visto(&acp, &mut rx, &sid).await;
-    assert!(!depois.contains("já estava guardada"), "o que foi descartado não volta quando o cofre volta: {depois}");
-    assert_eq!(depois, "historico: /historico | /historico", "só o turno sem proteção segue, no processo novo");
+    assert_eq!(depois, "historico: /historico", "o turno sem proteção não vira contexto quando o cofre volta");
     acp.kill_and_wait().await;
 }
 
@@ -646,6 +645,16 @@ async fn cancelar_durante_a_retomada_da_conversa_para_o_turno() {
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(2500)).await;
+    let second = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "intruso"}]}))
+        .await
+        .unwrap();
+    let refused =
+        tokio::time::timeout(Duration::from_secs(10), second.response()).await.expect("o segundo prompt ficou preso");
+    assert!(
+        refused.unwrap_err().to_string().contains("turno em curso"),
+        "um segundo prompt na mesma sessão é recusado antes de tocar na conversa"
+    );
     acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
     let result = tokio::time::timeout(Duration::from_secs(10), answer.response())
         .await

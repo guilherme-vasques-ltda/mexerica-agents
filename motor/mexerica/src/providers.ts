@@ -115,14 +115,27 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 	// de teste: `/ferramenta <nome> <json>` faz o "modelo" chamar essa ferramenta
 	// e, de volta com o resultado, ele o repete (`ferramenta respondeu: ...`); `/cadeia <N> <nome> <json>`
 	// chama a ferramenta N vezes em sequência (um turno longo) antes de responder;
+	// `/paralelo <N> <nome> <json>` chama a ferramenta N vezes na MESMA mensagem; `/ferramentagrande <nome> <N>` chama a
+	// ferramenta com um argumento `x` de N caracteres;
 	// `/historico` responde com todos os textos de usuário que o modelo recebeu;
 	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu.
 	let chained = 0;
+	let issued: number | undefined;
 	const echo: FauxResponseFactory = async (context) => {
 		faux.appendResponses([echo]);
 		faux2.appendResponses([echo]);
 		const tail = context.messages.at(-1);
 		const lastUser = context.messages.filter((m) => m.role === "user").at(-1);
+		const parallel = /^\/paralelo (\d+) (\S+) ([\s\S]*)$/.exec(lastUser ? userText(lastUser) : "");
+		if (tail?.role === "user" && parallel && issued !== tail.timestamp) {
+			issued = tail.timestamp;
+			const calls = Array.from({ length: Number(parallel[1]) }, () => fauxToolCall(parallel[2]!, JSON.parse(parallel[3]!)));
+			return fauxAssistantMessage(calls, { stopReason: "toolUse" });
+		}
+		const big = /^\/ferramentagrande (\S+) (\d+)$/.exec(lastUser ? userText(lastUser) : "");
+		if (tail?.role === "user" && big) {
+			return fauxAssistantMessage(fauxToolCall(big[1]!, { x: "a".repeat(Number(big[2])) }), { stopReason: "toolUse" });
+		}
 		const chain = /^\/cadeia (\d+) (\S+) ([\s\S]*)$/.exec(lastUser ? userText(lastUser) : "");
 		if (tail?.role === "user") chained = 0;
 		if (tail?.role === "toolResult" && chain && ++chained < Number(chain[1])) {
@@ -136,7 +149,9 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 		const text = users.length === 0 ? "" : userText(users[users.length - 1]!);
 		if (text.includes("/contexto")) {
 			const kept = context.messages.filter((m) => m.role !== "system");
-			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))}`);
+			const asked = new Set(kept.flatMap((m) => (m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall").map((b) => b.id) : [])));
+			const orphans = kept.filter((m) => m.role === "toolResult" && !asked.has(m.toolCallId)).length;
+			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans}`);
 		}
 		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
 		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);

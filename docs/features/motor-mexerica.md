@@ -16,22 +16,26 @@ Todos os tetos usam a mesma unidade: bytes UTF-8 do JSON na forma em que ele cru
 
 - 256 KiB por mensagem, 2 MiB para o array inteiro (colchetes e vírgulas incluídos) e 2000 mensagens por conversa.
 - O Hub manda cada mensagem como um texto JSON e o receptor do motor mede esses mesmos bytes, sem serializar de novo (os serializadores do Rust e do Node imprimem alguns números de modos diferentes). Um teste fecha o array exatamente no teto, com um número que cada serializador imprime com tamanho diferente, e confere que o receptor real aceita esse histórico e recusa um item a mais.
-- Os tetos valem na coleta do turno, na cópia guardada e no processo vivo: o contexto de cada chamada ao provedor, o estado do agente, a lista do turno em andamento (cada mensagem é limitada ao terminar, no próprio objeto que o laço acumula) e a mensagem final.
+- Os tetos valem na coleta do turno, na cópia guardada e no processo vivo: o contexto de cada chamada ao provedor, o estado do agente, a lista do turno em andamento (cada mensagem é limitada ao terminar, no próprio objeto que o laço acumula, e o evento de fim de volta vai sem a carga) e a mensagem final. Os argumentos de uma chamada de ferramenta nunca mudam antes de ela ser executada: o corte da mensagem do assistente que tem chamadas vem no fim da volta. Enquanto uma volta de ferramentas está aberta (há chamada sem resultado), o corte do estado vivo espera ela fechar, para não deixar resultados sem a chamada.
 - Estourou: sai a volta mais antiga inteira. Numa volta só, ficam o pedido e os grupos mais novos que couberem. Uma chamada de ferramenta e os resultados dela saem sempre juntos.
 
 ## Pares de chamada e resultado
 
-Um resultado de ferramenta só é guardado se responde a uma chamada ainda aberta da última mensagem do assistente: mesmo id, mesmo nome da ferramenta e um resultado por chamada. Um id repetido na mesma mensagem não é guardado. O receptor do motor aplica a mesma regra, devolve só os campos permitidos e recusa a lista inteira se um item for inválido.
+Um resultado de ferramenta só é guardado se responde a uma chamada ainda aberta da última mensagem do assistente: mesmo id, mesmo nome da ferramenta e um resultado por chamada. Um id repetido na mesma mensagem não é guardado. Uma volta que não terminou (turno cancelado ou processo morto no meio) sai inteira da cópia: a conversa guardada nunca tem chamada sem resultado. O receptor do motor exige o mesmo (cada chamada com o resultado dela antes da próxima mensagem), devolve só os campos permitidos e recusa a lista inteira se um item for inválido.
 
 ## Identidade e credencial
 
 - A cópia tem como chave o bot e a identidade da conversa (Space, conta e revisão). Invalidar uma sessão apaga só a cópia dela; as outras conversas do mesmo bot ficam.
 - A cada turno o Hub lê o cofre uma vez. Dessa leitura saem as chaves que a redação precisa conhecer e a geração da credencial de cada provedor (um resumo em memória, nunca registrado). O cofre que o processo do motor enxerga é preso a essa geração: se a credencial mudar depois da autorização, a leitura é recusada e a chamada ao provedor falha, em vez de a conta nova receber o contexto autorizado para a anterior.
-- A decisão de proteção vem antes de qualquer retomada. Se o cofre não pode ser lido, ou uma chave é curta demais para ser achada no texto (menos de 8 caracteres), a cópia é apagada, o processo vivo que ainda guardava o contexto é descartado e o turno não é guardado. Trocar a credencial de um provedor recomeça só as conversas dele.
+- A decisão de proteção vem antes de qualquer retomada. Se o cofre não pode ser lido, ou uma chave é curta demais para ser achada no texto (menos de 8 caracteres), a cópia é apagada, o processo vivo que ainda guardava o contexto é descartado e o turno não é guardado. O processo que viu esse turno sem proteção também não volta a ser usado, mesmo que o cofre se recupere: o turno seguinte começa de uma conversa que passou pela redação. Um segundo prompt na mesma sessão, enquanto há um turno em curso, é recusado antes de tocar na conversa. Trocar a credencial de um provedor recomeça só as conversas dele.
 
 ## Retenção
 
 O arquivo tem teto de 64 conversas e 12 horas sem atividade, contadas da última mensagem, da reabertura ou do fechamento da sessão ou da conexão. Uma tarefa de limpeza apaga as vencidas a cada 10 minutos; uma conversa de sessão ainda aberta não é removida, e com todas as vagas em uso a conversa nova é recusada. Não é um descarte pontual em 12 horas: a cópia pode ficar na memória até a próxima rodada da limpeza.
+
+## Reabrir a sessão
+
+Trocar de modelo no app fecha a conexão e o bot abre outra com `session/load`. O motor retoma sem modelo escolhido e não anuncia nenhum, então o bot seleciona o modelo configurado de novo depois do `load`, como faz na sessão nova.
 
 ## Windows
 

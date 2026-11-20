@@ -75,6 +75,15 @@ impl Cenario {
     async fn turno(&mut self, text: &str) -> String {
         let bot = self.bot;
         let lane = crate::store::Lane::main(bot);
+        // Só vale a resposta final DESTE turno: uma anterior não pode fazer o teste passar por engano.
+        let before: std::collections::HashSet<_> = self
+            .hub
+            .store
+            .history_in_session(bot, Some(bot), i64::MAX, 50)
+            .unwrap()
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
         let turn = self.hub.store.alloc_turn(bot).unwrap();
         let data = json!({"text": text, "status": "queued", "contentOrigin": {"ingress": {"caller": "local"}}});
         let ids = [self.hub.store.insert_entry(&lane, crate::store::EntryKind::User, turn, &data).unwrap().id];
@@ -101,7 +110,7 @@ impl Cenario {
         let answer = entries
             .iter()
             .rev()
-            .find(|e| e.kind == "agent" && e.data["final"] == true)
+            .find(|e| e.kind == "agent" && e.data["final"] == true && !before.contains(&e.id))
             .map(|e| e.data["text"].as_str().unwrap_or_default().to_owned());
         answer.unwrap_or_else(|| {
             let seen: Vec<_> = entries.iter().map(|e| (e.kind.as_str(), e.data.to_string())).collect();
@@ -134,12 +143,15 @@ async fn troca_de_modelo_pelo_ator_do_bot_mantem_a_conversa_do_motor_mexerica() 
     assert_eq!(c.actor.cfg.model.as_deref(), Some("faux2/faux-1"));
     let nova = c.actor.conn.as_ref().map(|conn| conn.acp.clone()).unwrap();
     assert!(!Arc::ptr_eq(&antiga, &nova), "a troca de modelo tinha de fechar a conexão e abrir outra");
-    assert!(resposta.contains("MEU-CODIGO-42 vale hoje"), "a conversa se perdeu na troca pelo app: {resposta:?}");
+    assert!(
+        resposta.starts_with("historico:") && resposta.contains("MEU-CODIGO-42 vale hoje"),
+        "a conversa se perdeu na troca pelo app: {resposta:?}"
+    );
 
     // E de volta ao primeiro provedor.
     c.proximo_modelo("faux/faux-1");
     let resposta = c.turno("/historico").await;
-    assert!(resposta.contains("MEU-CODIGO-42 vale hoje"), "{resposta:?}");
+    assert!(resposta.starts_with("historico:") && resposta.contains("MEU-CODIGO-42 vale hoje"), "{resposta:?}");
     c.encerrar().await;
 }
 

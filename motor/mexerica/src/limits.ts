@@ -98,6 +98,9 @@ function shrink(message: AgentMessage): AgentMessage {
  * recebem a mensagem dentro do teto e nada cresce até um corte posterior.
  */
 export function boundInPlace(message: AgentMessage): void {
+	// Uma mensagem com chamadas de ferramenta é a que o laço vai EXECUTAR agora: os argumentos dela não mudam antes disso
+	// (o corte dela vem em seguida, no fim da volta, por `fitMessages`).
+	if (role(message) === "assistant" && callIds(message).length > 0) return;
 	measured.delete(message);
 	const bounded = shrink(message);
 	if (bounded === message) return;
@@ -105,6 +108,23 @@ export function boundInPlace(message: AgentMessage): void {
 	for (const key of Object.keys(target)) delete target[key];
 	Object.assign(target, bounded);
 	measured.delete(message);
+}
+
+const callIds = (message: AgentMessage): string[] => {
+	const content = (message as unknown as Json).content;
+	return Array.isArray(content) ? (content as Json[]).filter((block) => block.type === "toolCall").map((block) => String(block.id)) : [];
+};
+
+/** Há uma volta de ferramentas em andamento: a última mensagem do assistente tem chamada sem o resultado ainda. */
+export function batchOpen(messages: AgentMessage[]): boolean {
+	let answered = 0;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const current = messages[index]!;
+		if (role(current) === "toolResult") answered++;
+		else if (role(current) === "assistant") return callIds(current).length > answered;
+		else if (role(current) !== "system") return false;
+	}
+	return false;
 }
 
 /** Onde acaba o grupo que começa em `start`: a mensagem do assistente e os resultados das chamadas dela. */

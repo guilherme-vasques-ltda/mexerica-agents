@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { encerrar, startEngine, type Line, type Proc } from "./helpers.ts";
-import { arrayBytes, bytesOf, fitMessages, MAX_HISTORY_BYTES, MAX_HISTORY_MESSAGES, MAX_MESSAGE_BYTES } from "../src/limits.ts";
+import { arrayBytes, batchOpen, bytesOf, fitMessages, MAX_HISTORY_BYTES, MAX_HISTORY_MESSAGES, MAX_MESSAGE_BYTES } from "../src/limits.ts";
 import { parseHistory } from "../src/history.ts";
 
 /** Cada mensagem cruza a fronteira como o texto JSON que o Hub manda; o receptor mede esses bytes. */
@@ -146,7 +146,7 @@ test("o processo vivo manda ao provedor só o que cabe nos tetos, em turnos giga
 	const grande = "g".repeat(200_000);
 	for (let i = 0; i < 10; i++) await turno(proc, String(i), "faux", grande);
 	const resposta = await turno(proc, "x", "faux", "/contexto " + "c".repeat(200_000));
-	const [, mensagens, bytes] = /^contexto: (\d+) (\d+)$/.exec(resposta) ?? [];
+	const [, mensagens, bytes] = /^contexto: (\d+) (\d+) orfaos=0$/.exec(resposta) ?? [];
 	assert.ok(mensagens, resposta);
 	assert.ok(Number(bytes) <= MAX_HISTORY_BYTES, "o contexto do provedor passou do teto: " + bytes + " bytes");
 	assert.ok(Number(mensagens) <= 21, "e as voltas mais antigas saíram: " + mensagens);
@@ -223,7 +223,7 @@ test("o receptor devolve só os campos permitidos e recusa resultado sem a chama
 	assert.deepEqual(Object.keys(r!).sort(), ["content", "isError", "role", "timestamp", "toolCallId", "toolName"]);
 
 	assert.throws(() => receber([texto("pedido"), { ...ok, toolCallId: "outra" }]), /sem a chamada/);
-	assert.throws(() => receber([suja, texto("nova volta"), ok]), /sem a chamada/, "a chamada de outra volta não vale");
+	assert.throws(() => receber([suja, texto("nova volta"), ok]), /sem resultado/, "a chamada de outra volta não vale");
 	assert.throws(() => receber([ok]), /sem a chamada/);
 });
 
@@ -245,7 +245,7 @@ test("a mensagem final do turno também respeita os tetos, na mesma medida", asy
 });
 
 const numerica = (preenchimento: number): string =>
-	JSON.stringify({ role: "assistant", content: [{ type: "toolCall", id: "n", name: "eco", arguments: { n: 0 } }], api: "a", provider: "p", model: "m", stopReason: "toolUse", timestamp: 1, x: "z".repeat(preenchimento) }).replace('"n":0', '"n":1e20');
+	JSON.stringify({ role: "assistant", content: [{ type: "text", text: "n" }], api: "a", provider: "p", model: "m", stopReason: "stop", usage: { input: 0 }, timestamp: 1, x: "z".repeat(preenchimento) }).replace('"input":0', '"input":1e20');
 
 test("o receptor mede os bytes que recebeu, não uma nova serialização (número que cada serializador imprime de um jeito)", () => {
 	const numero = numerica(0);
@@ -292,5 +292,64 @@ test("o acumulador do turno também é limitado enquanto o turno anda, e cada me
 	for (const m of proc.lines.filter((v) => v.type === "message_end").map((v) => v.message)) {
 		assert.ok(bytesOf(m) <= MAX_MESSAGE_BYTES, "mensagem entregue acima do teto por mensagem: " + bytesOf(m));
 	}
+	await encerrar(proc);
+});
+
+async function comFerramenta(): Promise<Proc> {
+	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
+	proc.send({ id: "m", type: "set_model", provider: "faux", modelId: "faux-1" });
+	await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+	proc.send({ id: "t", type: "set_tools", tools: [{ name: "list_bots", description: "Lista", inputSchema: { type: "object", properties: {} }, origin: { kind: "hub" } }] });
+	await proc.waitFor((v) => v.id === "t" && v.success === true);
+	return proc;
+}
+
+test("os argumentos de uma chamada chegam inteiros à ferramenta mesmo acima do teto por mensagem", async () => {
+	const proc = await comFerramenta();
+	proc.send({ id: "p", type: "prompt", message: "/ferramentagrande list_bots 300000" });
+	const pedido = await proc.waitFor((v) => v.type === "tool_request");
+	assert.equal(((pedido.input as { x: string }).x ?? "").length, 300_000, "a ferramenta recebe o argumento sem corte");
+	proc.send({ type: "tool_result", callId: pedido.callId, ok: true, output: "feito" });
+	await proc.waitFor((v) => v.type === "agent_end");
+	await encerrar(proc);
+});
+
+test("o corte do processo vivo espera a volta de ferramentas fechar e nunca deixa resultado sem a chamada", async () => {
+	const proc = await comFerramenta();
+	proc.send({ id: "p", type: "prompt", message: "/paralelo 10 list_bots {}" });
+	const vistos = new Set<unknown>();
+	for (let i = 0; i < 10; i++) {
+		const pedido = await proc.waitFor((v) => v.type === "tool_request" && !vistos.has(v.callId));
+		vistos.add(pedido.callId);
+		proc.send({ type: "tool_result", callId: pedido.callId, ok: true, output: i < 9 ? "r".repeat(250_000) : "ok" });
+	}
+	await proc.waitFor((v) => v.type === "agent_end");
+	for (const linha of proc.lines.filter((v) => v.type === "turn_end")) assert.deepEqual(Object.keys(linha), ["type"], "o turn_end vai sem a carga da volta");
+	proc.send({ id: "c", type: "prompt", message: "/contexto" });
+	const fim = await proc.waitFor((v) => v.type === "agent_end" && proc.lines.filter((x) => x.type === "agent_end").length > 1);
+	const resposta = textoFinal(fim);
+	assert.match(resposta, /orfaos=0$/, "o contexto do provedor não tem resultado sem a chamada: " + resposta);
+	await encerrar(proc);
+});
+
+test("batchOpen vê a volta aberta pela última mensagem do assistente", () => {
+	const duas = { role: "assistant", content: [{ type: "toolCall", id: "a", name: "eco", arguments: {} }, { type: "toolCall", id: "b", name: "eco", arguments: {} }], api: "a", provider: "p", model: "m", stopReason: "toolUse", timestamp: 1 } as unknown as AgentMessage;
+	assert.equal(batchOpen([texto("pedido"), duas]), true);
+	assert.equal(batchOpen([texto("pedido"), duas, resultado("a", "x")]), true);
+	assert.equal(batchOpen([texto("pedido"), duas, resultado("a", "x"), resultado("b", "y")]), false);
+	assert.equal(batchOpen([texto("pedido"), texto("oi", "assistant")]), false);
+	assert.equal(batchOpen([]), false);
+});
+
+test("o receptor recusa chamada que ficou sem resultado", () => {
+	assert.throws(() => receber([texto("pedido"), chamada("c1"), texto("outra volta")]), /sem resultado/);
+	assert.throws(() => receber([texto("pedido"), chamada("c1")]), /sem resultado/);
+	assert.equal(receber([texto("pedido"), chamada("c1"), resultado("c1", "ok"), texto("seguinte")]).length, 4);
+});
+
+test("o restore_history também respeita os tetos depois de reserializar", async () => {
+	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
+	proc.send({ id: "r", type: "restore_history", messages: fio([texto("a"), texto("b", "assistant")]) });
+	assert.equal((await proc.waitFor((v) => v.id === "r")).success, true);
 	await encerrar(proc);
 });

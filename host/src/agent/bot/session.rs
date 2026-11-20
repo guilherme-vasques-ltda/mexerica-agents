@@ -546,8 +546,10 @@ impl Actor {
             match res {
                 Ok(res) => {
                     // A resumed session can come back on the agent's last-used model (Cursor
-                    // keeps one for all its sessions), so the bot's own is set again.
-                    let res = if res.get("configOptions").is_some() || res.get("models").is_some() {
+                    // keeps one for all its sessions), so the bot's own is set again. The internal engine
+                    // always resumes without a model and never announces one: it is selected here too.
+                    let internal = self.cfg.backend == crate::fork::motor_mexerica::ENGINE_ID;
+                    let res = if internal || res.get("configOptions").is_some() || res.get("models").is_some() {
                         select_model(&conn.acp, &res, &sid, &self.cfg).await?
                     } else {
                         res

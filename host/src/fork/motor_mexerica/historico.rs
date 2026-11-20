@@ -336,8 +336,23 @@ impl TurnLog {
             })
     }
 
+    /// Uma volta de ferramentas que não terminou (turno cancelado ou processo morto no meio): a mensagem do assistente
+    /// e os resultados que já chegaram saem juntos. A conversa guardada nunca tem chamada sem o resultado dela.
+    fn drop_open_calls(&mut self) {
+        let Some(start) = self.messages.iter().rposition(|m| role(m) != "toolResult") else { return };
+        let calls = self.messages[start]["content"]
+            .as_array()
+            .map_or(0, |blocks| blocks.iter().filter(|b| b["type"] == "toolCall").count());
+        let answered = self.messages.len() - start - 1;
+        if role(&self.messages[start]) == "assistant" && calls > answered {
+            self.messages.truncate(start);
+            self.dropped = true;
+        }
+    }
+
     /// O que o turno guardou e se algo foi descartado (o processo vivo ainda tem esse algo).
     pub(super) fn take(&mut self) -> (Vec<Value>, bool) {
+        self.drop_open_calls();
         self.bytes = 0;
         (std::mem::take(&mut self.messages), std::mem::take(&mut self.dropped))
     }

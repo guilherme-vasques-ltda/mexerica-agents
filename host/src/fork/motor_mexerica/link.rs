@@ -38,6 +38,8 @@ struct Session {
     /// Pid do motor tomado pelo turno em curso (o slot do `engine` fica vazio).
     pid: Mutex<Option<u32>>,
     cancel: watch::Sender<bool>,
+    /// Há um turno em curso nesta sessão: um segundo prompt é recusado antes de tocar na conversa ou no processo.
+    busy: std::sync::atomic::AtomicBool,
     /// A conversa é da sessão, não do processo (e sobrevive ao adaptador: ver
     /// o módulo historico). Cancelar, trocar de provedor ou cair matam o
     /// processo; o novo recebe a conversa de volta.
@@ -67,6 +69,15 @@ pub(crate) struct Link {
 /// Só para provas: segura o fim da retomada para o cancelamento chegar no meio dela.
 #[cfg(test)]
 pub(super) static PAUSE_AFTER_RESTORE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Libera a marca de turno em curso quando o prompt termina, por qualquer caminho.
+struct BusyGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
 
 /// Menor credencial que dá para achar no texto sem estragá-lo: abaixo disto a conversa não é guardada.
 const MIN_SECRET_LEN: usize = 8;
@@ -382,6 +393,7 @@ impl Link {
             system_prompt: Mutex::new(params["systemPrompt"].as_str().map(str::to_owned)),
             pid: Mutex::new(None),
             cancel,
+            busy: std::sync::atomic::AtomicBool::new(false),
             history,
         }))
     }
@@ -478,6 +490,8 @@ impl Link {
         let sid = params["sessionId"].as_str().context("session/prompt sem sessionId")?.to_owned();
         historico::sweep();
         let session = self.sessions.locked().get(&sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
+        ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
+        let _busy = BusyGuard(&session.busy);
         let text = acp::content_text(&params["prompt"]);
         let runner = CardRunner { link: self.clone(), session: session.clone(), sid: sid.clone() };
         let mut retried = false;
@@ -504,7 +518,9 @@ impl Link {
             let delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
             // Mensagens que o motor terminou de emitir neste turno (limpas, dentro do teto): viram a
             // conversa da sessão.
-            let finished = Arc::new(Mutex::new(match creds.known() {
+            let known = creds.known();
+            let protected = known.is_ok();
+            let finished = Arc::new(Mutex::new(match known {
                 Ok(known) => TurnLog::new(known),
                 Err(error) => {
                     tracing::warn!(
@@ -559,7 +575,13 @@ impl Link {
             };
             if alive {
                 *session.pid.locked() = None;
-                *session.engine.lock().await = Some(owned);
+                // O turno sem proteção não vira contexto: o processo que o viu não volta ao slot, e o próximo
+                // turno começa de uma conversa que passou pela redação.
+                if protected {
+                    *session.engine.lock().await = Some(owned);
+                } else {
+                    drop(owned);
+                }
             }
             return Ok(json!({"stopReason": if alive { "end_turn" } else { "cancelled" }}));
         }
@@ -709,6 +731,7 @@ impl Link {
             system_prompt: Mutex::new(None),
             pid: Mutex::new(None),
             cancel,
+            busy: std::sync::atomic::AtomicBool::new(false),
             history: Arc::default(),
         });
         Box::new(CardRunner { link: self.clone(), session, sid: "sessao-de-prova".to_owned() })

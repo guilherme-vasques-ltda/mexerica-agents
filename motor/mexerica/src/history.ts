@@ -39,11 +39,13 @@ function project(message: unknown, where: string, calls: Map<string, string>): J
 	if (!isObject(message)) throw new Error(where + ": item inválido");
 	switch (message.role) {
 		case "user":
+			if (calls.size > 0) throw new Error(where + ": chamada sem resultado antes da próxima mensagem");
 			calls.clear();
 			if (typeof message.content === "string") return { role: "user", content: message.content, timestamp: timestamp(message) };
 			if (!textBlocks(message.content)) throw new Error(where + ": conteúdo inválido");
 			return { role: "user", content: message.content.map(keep), timestamp: timestamp(message) };
 		case "assistant": {
+			if (calls.size > 0) throw new Error(where + ": chamada sem resultado antes da próxima mensagem");
 			calls.clear();
 			const blocks = message.content;
 			if (!Array.isArray(blocks)) throw new Error(where + ": conteúdo inválido");
@@ -114,5 +116,6 @@ export function parseHistory(raw: unknown): AgentMessage[] {
 		}
 		return project(value, "restore_history[" + index + "]", calls);
 	});
+	if (calls.size > 0) throw new Error("restore_history: chamada sem resultado no fim da lista");
 	return messages as unknown as AgentMessage[];
 }

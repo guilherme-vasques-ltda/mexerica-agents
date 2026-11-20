@@ -15,7 +15,7 @@ import { attachJsonlLineReader, serializeJsonLine } from "../vendor/pi-mono/pack
 import { emptyAuthContext } from "./src/auth-context.ts";
 import { HubCredentialStore } from "./src/credentials.ts";
 import { parseHistory } from "./src/history.ts";
-import { boundInPlace, fitMessages } from "./src/limits.ts";
+import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
 import { registerProviders } from "./src/providers.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
@@ -84,9 +84,18 @@ agent.subscribe((event: AgentEvent) => {
 		});
 		return;
 	}
+	// O `turn_end` do laço leva a mensagem e todos os resultados da volta (já entregues, um a um, nos `message_end`):
+	// aqui vai sem a carga, para uma volta com muitas ferramentas não passar da linha que o Hub aceita.
+	if (event.type === "turn_end") {
+		write({ type: "turn_end" });
+		return;
+	}
 	write(event);
-	// O estado do processo também não passa dos tetos durante o turno, não só entre turnos.
-	if (event.type === "message_end") agent.state.messages = fitMessages(agent.state.messages);
+	// O estado do processo também não passa dos tetos durante o turno, não só entre turnos. Com uma volta de
+	// ferramentas aberta o corte espera: tirar a volta pela metade deixaria os resultados que ainda chegam sem a chamada.
+	if (event.type === "message_end" && !batchOpen(agent.state.messages)) {
+		agent.state.messages = fitMessages(agent.state.messages);
+	}
 });
 
 let streaming = false;
@@ -148,7 +157,7 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 	// provedor ou cair) a recebe aqui, depois do prompt de sistema e antes do prompt.
 	restore_history(command) {
 		if (streaming || agent.state.isStreaming) throw new Error("restore_history só vale fora de um turno");
-		const history = parseHistory(command.messages);
+		const history = fitMessages(parseHistory(command.messages));
 		agent.state.messages = [...agent.state.messages.filter((message) => message.role === "system"), ...history];
 		respond(command.id, "restore_history", { count: history.length });
 	},

@@ -43,6 +43,10 @@ fn assert_paired(messages: &[Value]) {
     }
 }
 
+fn texts_of(messages: &[Value]) -> Vec<String> {
+    messages.iter().map(|m| m["content"][0]["text"].as_str().unwrap_or_default().to_owned()).collect()
+}
+
 fn texts(history: &History) -> Vec<String> {
     history.snapshot().iter().map(|m| m["content"][0]["text"].as_str().unwrap_or_default().to_owned()).collect()
 }
@@ -348,7 +352,10 @@ fn o_receptor_do_motor_aceita_o_historico_que_o_hub_fechou_exatamente_no_teto() 
         return;
     }
     let weird = "aspas \" barra \\ nova\nlinha tab\t ctrl\u{1}\u{1f} ç ñ 日本語 😀 \u{7f} \u{2028} fim";
-    let mut messages = vec![sanitize(&call("c1", &json!({"n": 1e20, "texto": weird})), &[]).unwrap()];
+    let mut messages = vec![
+        sanitize(&call("c1", &json!({"n": 1e20, "texto": weird})), &[]).unwrap(),
+        sanitize(&result("c1", "feito"), &[]).unwrap(),
+    ];
     let empty = size(&sanitize(&user(""), &[]).unwrap());
     for _ in 0..10 {
         messages.push(sanitize(&user(&"e".repeat(200_000 - empty)), &[]).unwrap());
@@ -398,8 +405,8 @@ fn resultado_so_entra_para_chamada_aberta_uma_vez_e_com_o_mesmo_nome() {
     let roles: Vec<&str> = kept.iter().map(|m| m["role"].as_str().unwrap()).collect();
     assert_eq!(
         roles,
-        ["user", "assistant", "toolResult", "assistant"],
-        "sem o segundo resultado do mesmo id nem o de outro nome"
+        ["user", "assistant", "toolResult"],
+        "sem o segundo resultado do mesmo id; a chamada c2, cujo resultado de outro nome foi recusado, fica aberta e sai"
     );
     assert_eq!(kept[2]["content"][0]["text"], "primeiro");
 
@@ -408,6 +415,28 @@ fn resultado_so_entra_para_chamada_aberta_uma_vez_e_com_o_mesmo_nome() {
             {"type": "toolCall", "id": "d", "name": "eco", "arguments": {}},
             {"type": "toolCall", "id": "d", "name": "eco", "arguments": {}}]});
     assert!(sanitize(&twice, &[]).is_none(), "o mesmo id duas vezes na mesma mensagem não é guardado");
+}
+
+#[test]
+fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
+    let two = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
+        "timestamp": 2, "content": [
+            {"type": "toolCall", "id": "a", "name": "eco", "arguments": {}},
+            {"type": "toolCall", "id": "b", "name": "eco", "arguments": {}}]});
+    let mut log = TurnLog::new(Vec::new());
+    log.push(&user("pedido"));
+    log.push(&two);
+    log.push(&result("a", "so um chegou"));
+    let (kept, dropped) = log.take();
+    assert!(dropped, "a volta aberta marca a cópia para a ressincronização");
+    assert_eq!(texts_of(&kept), ["pedido"], "nem a chamada nem o resultado que chegou ficam");
+
+    let mut log = TurnLog::new(Vec::new());
+    log.push(&user("pedido"));
+    log.push(&call("c1", &json!({})));
+    log.push(&result("c1", "ok"));
+    let (kept, dropped) = log.take();
+    assert!(!dropped && kept.len() == 3, "a volta fechada fica inteira");
 }
 
 #[tokio::test]

@@ -65,10 +65,12 @@ pub(crate) fn credential_slot(provider_id: &str) -> String {
 #[cfg(unix)]
 const PROVIDERS: [&str; 4] = ["google", "openai", "faux", "faux2"];
 
+#[cfg(unix)]
 const OWNER_SEPARATOR: char = '\u{1f}';
 
 /// O dono de uma conversa guardada: o bot e a identidade com que a sessão abriu (Space, conta, revisão e perfil de
 /// login). Outra identidade nunca reabre a conversa.
+#[cfg(unix)]
 pub(crate) fn conversation_owner(bot: &str, identity: &str) -> String {
     format!("{bot}{OWNER_SEPARATOR}{identity}")
 }
