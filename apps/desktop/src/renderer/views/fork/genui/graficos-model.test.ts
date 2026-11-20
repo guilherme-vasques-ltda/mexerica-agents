@@ -180,6 +180,19 @@ test('null é Indisponível, nunca zero, e quebra a linha', () => {
   assert.equal(readout(c, 2, [true]), 'Categoria 2: 0 itens')
 })
 
+test('Ver dados e leitura seguem as palavras do idioma, sem mudar os números', () => {
+  const words = { unavailable: 'Unavailable', category: 'Category', date: 'Date' }
+  const c = ok(payload('bar_chart', 3, [2, null, 0]))
+  const { header, rows } = tableData(c, words)
+  assert.equal(header[0], 'Category')
+  assert.deepEqual(rows.map((r) => r[1]), ['2', 'Unavailable', '0'])
+  assert.equal(readout(c, 1, [true], words.unavailable), 'Categoria 1: Unavailable')
+  assert.equal(parseExact('Unavailable', words.unavailable), -Infinity)
+  const dated = ok({ ...payload('line_chart', 2, [1, 2]), data: { ...payload('line_chart', 2, [1, 2]).data, xKind: 'date', labels: ['2026-01-01', '2026-01-02'] } })
+  assert.equal(tableData(dated, words).header[0], 'Date')
+  assert.equal(tableData(dated).header[0], 'Data')
+})
+
 test('escala inclui zero, sem NaN nem altura zero, de minúscula a 2^53 − 1', () => {
   const cases: [number, number][] = [[0, 0], [5, 5], [-3, -3], [-40, 25], [1e-9, 3e-9], [Number.MIN_VALUE, Number.MIN_VALUE], [0, MAX_VALUE], [-MAX_VALUE, MAX_VALUE], [42, 61]]
   for (const [lo, hi] of cases) {

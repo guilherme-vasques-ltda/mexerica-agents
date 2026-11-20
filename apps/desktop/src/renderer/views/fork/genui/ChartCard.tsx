@@ -7,7 +7,7 @@ import { Icon } from '../../../components/Icon'
 import { DataTable } from '../../thread/cards/DataTable'
 import {
   contextLine, formatExact, formatTick, niceScale, parseExact, percentText, pieSlices, pieTotal, ratio, readout,
-  segments, tableData, UNAVAILABLE, type Chart,
+  segments, tableData, type Chart, type Words,
 } from './graficos-model'
 import { fitMeasuredText, fullAxisTicks, lineAxisTicks, type AxisTextBounds, type AxisTick } from './chart-axis'
 import { svgTextReader, textEnvelope } from './chart-text'
@@ -42,7 +42,8 @@ export function ChartCard({ chart }: { chart: Chart }) {
   const kind = chart.effective
   const kindLabel = t(KIND_KEY[kind])
   const legend = kind !== 'pie_chart' && chart.series.length > 1
-  const said = focus === null ? '' : readout(chart, focus, visible)
+  const words: Words = { unavailable: t('conversa.cartoes.grafico.indisponivel'), category: t('conversa.cartoes.grafico.colunaCategoria'), date: t('conversa.cartoes.grafico.colunaData') }
+  const said = focus === null ? '' : readout(chart, focus, visible, words.unavailable)
   const count = chart.labels.length
 
   const onKey = (e: KeyboardEvent) => {
@@ -56,7 +57,7 @@ export function ChartCard({ chart }: { chart: Chart }) {
   }
   const toggle = (i: number) => setVisible((v) => (v[i] && v.filter(Boolean).length === 1 ? v : v.map((x, j) => (j === i ? !x : x))))
 
-  const { header, rows } = tableData(chart)
+  const { header, rows } = tableData(chart, words)
   return (
     <section className="chart-card idioma-superficie" {...superficieIdioma(idioma)} aria-labelledby={`${id}-t`}>
       <ChartDefs id={id} />
@@ -72,7 +73,7 @@ export function ChartCard({ chart }: { chart: Chart }) {
 
       {table ? (
         <div id={`${id}-d`} className="chart-data">
-          <DataTable header={header} rows={rows} renderCell={plainCell} plain parseNumber={parseExact} />
+          <DataTable header={header} rows={rows} renderCell={plainCell} plain parseNumber={(cell) => parseExact(cell, words.unavailable)} />
           <p className="chart-data-note">{t('conversa.cartoes.grafico.mesmosNumeros', { unidade: chart.unit })}</p>
         </div>
       ) : (
@@ -287,7 +288,8 @@ function BarChart({ chart, id, visible, focus, setFocus }: PlotProps & { id: str
   const shown = useMemo(() => chart.series.map((s, i) => ({ s, i })).filter(({ i }) => visible[i]), [chart, visible])
   const d = domain(chart, visible)
   const scale = niceScale(d?.lo ?? 0, d?.hi ?? 1)
-  const valueText = (v: number | null) => (v === null ? UNAVAILABLE : formatExact(v))
+  const unavailable = t('conversa.cartoes.grafico.indisponivel')
+  const valueText = (v: number | null) => (v === null ? unavailable : formatExact(v))
   const k = shown.length
   const barH = k === 1 ? 14 : 10
   const rowH = k * barH + (k - 1) * 2 + 12
@@ -381,7 +383,7 @@ function BarChart({ chart, id, visible, focus, setFocus }: PlotProps & { id: str
                         {shown.map(({ s, i }, b) => {
                           const v = s.values[r] ?? null
                           const by = y0 + b * (barH + 2)
-                          if (v === null) return <text key={s.id} className="chart-na" x={zero + 4} y={by + barH - 2}>{UNAVAILABLE}</text>
+                          if (v === null) return <text key={s.id} className="chart-na" x={zero + 4} y={by + barH - 2}>{unavailable}</text>
                           const xv = x(v)
                           const w = Math.abs(xv - zero)
                           return (
