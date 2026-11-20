@@ -99,13 +99,16 @@ públicos (bloqueado por padrão) e o custo dos starts do `ci-ok` de forks.
 
 ## Rodar localmente
 
-Os mesmos comandos dos jobs rodam numa máquina Linux com Node 24 e o Rust do
-`rust-toolchain.toml`:
+Os comandos principais dos jobs rodam numa máquina Linux (Ubuntu 24.04) com Node 24, o Rust
+do `rust-toolchain.toml`, `ssh`, `bubblewrap` e cargo-nextest 0.9.152 instalados:
 
 ```sh
 node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs
 (cd apps/desktop && npm ci && npm run typecheck && npm test && npm run test:open --if-present)
-(cd host && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo nextest run --workspace --locked --no-fail-fast)
+(cd motor && npm ci && npm run typecheck && npm test)
+(cd host && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && MEXERICA_MOTOR_TESTS_REQUIRED=1 MEXERICA_EXIGIR_BWRAP=1 cargo nextest run --workspace --locked --no-fail-fast)
 ```
 
-Para os testes de `tools/ci-gitleaks.test.mjs`, aponte `GITLEAKS_BIN` para o Gitleaks 8.30.1.
+O `motor` precisa do `npm ci` antes da suíte do Hub. A prova de dois UIDs e o fallback com
+`unshare` estão no job `hub` do workflow. Para os testes de `tools/ci-gitleaks.test.mjs`,
+aponte `GITLEAKS_BIN` para o Gitleaks 8.30.1.

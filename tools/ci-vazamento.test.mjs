@@ -333,6 +333,7 @@ test('A2: caminhos Linux mantêm detecção e exceções', () => {
   assert.ok(ids(linux('pessoa-ficticia')).includes('caminho-pessoal'));
   for (const user of ['user', '<usuario>', '$USER']) assert.ok(!ids(linux(user)).includes('caminho-pessoal'));
   assert.equal(safePath(linux('pessoa-ficticia'), [], policy), '[caminho-omitido]');
+  assert.equal(safePath('capturas/Users/pessoa-ficticia/vazamento-ok: fixture.txt', [], policy), '[caminho-omitido]');
 });
 
 test('A3: IPv4 privado no fim de frase é detectado sem aceitar octeto extra', () => {

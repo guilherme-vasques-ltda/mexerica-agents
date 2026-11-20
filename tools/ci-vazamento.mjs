@@ -167,7 +167,8 @@ export function summarize(findings) {
   return { rules, folders };
 }
 export function safePath(path, terms = [], policy) {
-  return scanLine('', 0, path, policy, terms).length || /[\x00-\x1f\x7f]/.test(path) ? '[caminho-omitido]' : path;
+  // Em nomes de arquivo o marcador não dispensa regra: o caminho vai para log e relatório.
+  return scanLine('', 0, path.replace(/vazamento-ok:/gi, ''), policy, terms).length || /[\x00-\x1f\x7f]/.test(path) ? '[caminho-omitido]' : path;
 }
 export function maskTerms(raw, emit) {
   const terms = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
