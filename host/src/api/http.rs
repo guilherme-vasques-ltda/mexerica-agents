@@ -24,23 +24,42 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub fn router(hub: Arc<Hub>) -> Router {
+fn desktop_routes() -> Router<Arc<Hub>> {
     Router::new()
         .route("/health", get(health))
-        .route("/computers/enroll-hello", post(crate::computers::pairing::enroll_hello))
-        .route("/hooks/routines/{id}", post(routine_hook))
         .route("/events", get(events))
         // A ponte aceita até 4 MiB de frame; sua validação inclui os argumentos.
         .route("/api/donnaGuardRuntime", post(guard_runtime).layer(DefaultBodyLimit::max(5 * 1024 * 1024)))
         .route("/api/{method}", post(command))
         .route("/term/{id}", get(term_stream))
-        .route("/ingest/statusline", post(statusline))
-        .route("/channel", get(channel))
-        .route("/personal-possession", get(crate::fork::personal_bootstrap::channel::upgrade))
-        .route("/personal-prepare", get(crate::fork::personal_bootstrap::prepare::upgrade))
-        .route("/oauth/callback", get(oauth_callback))
+}
+
+fn secured(routes: Router<Arc<Hub>>, hub: Arc<Hub>) -> Router {
+    routes
         .layer(axum::middleware::from_fn_with_state(hub.clone(), crate::fork::ponte_credencial::limitar_bearer))
         .with_state(hub)
+}
+
+#[cfg(unix)]
+pub(crate) fn open_socket_router(hub: Arc<Hub>) -> Router {
+    secured(desktop_routes(), hub)
+}
+
+pub fn router(hub: Arc<Hub>) -> Router {
+    let routes = desktop_routes()
+        .route("/hooks/routines/{id}", post(routine_hook))
+        .route("/oauth/callback", get(oauth_callback));
+    let routes = if crate::environment::Environment::is_open() {
+        routes
+    } else {
+        routes
+            .route("/computers/enroll-hello", post(crate::computers::pairing::enroll_hello))
+            .route("/ingest/statusline", post(statusline))
+            .route("/channel", get(channel))
+            .route("/personal-possession", get(crate::fork::personal_bootstrap::channel::upgrade))
+            .route("/personal-prepare", get(crate::fork::personal_bootstrap::prepare::upgrade))
+    };
+    secured(routes, hub)
 }
 
 /// Loopback, also as an IPv4-mapped IPv6 address (`::ffff:127.0.0.1` under `--bind ::`).

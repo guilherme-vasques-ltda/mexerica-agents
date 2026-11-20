@@ -25,6 +25,11 @@ test('a Open usa apenas identificadores próprios, no pacote e em execução', (
   assert.equal(config.mac.notarize, false)
   assert.equal(config.publish, null)
   assert.deepEqual(config.mac.extraResources, [{ from: 'build/native/codync-speech', to: 'codync-speech' }])
+  assert.deepEqual(config.extraResources.filter(({ to }) => !to.startsWith('avisos/')), [
+    { from: 'config/open.json', to: 'open-profile.json' },
+    { from: 'build/native/mexerica-open-hub', to: 'mexerica-open-hub' },
+  ])
+  assert.ok(config.extraResources.some(({ to }) => to === 'avisos/NOTICE'))
   assert.equal(config.mac.extraFiles, undefined)
   assert.equal(config.extraMetadata.main, 'out-open/main/open.js')
   for (const environment of ['main', 'dev']) {

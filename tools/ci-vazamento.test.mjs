@@ -529,3 +529,49 @@ test('exceção de termo: scan em pr e arvore respeita arquivo exato, caminho e 
   git('update-ref', 'refs/remotes/origin/main', badHead);
   assert.throws(() => loadPolicy(cwd, badHead, badHead, true));
 }));
+
+const numericHit = (line, terms) => scanLine('fixture', 1, line, policy, terms, true).some((f) => f.rule === 'termo-pessoal');
+const fakeIP = ['10', '0', '0', '9'].join('.');
+
+test('termo numérico: coordenadas de SVG não fabricam o termo trocando separadores', () => {
+  for (const line of ['<path d="M14.0 0.9Q10.0 0.9L10.0 0.9"/>', '10 0 0 9', '10-0-0-9', '10_0_0_9', '1' + fakeIP, fakeIP + '5', '1.' + fakeIP, fakeIP + '.5', fakeIP + '.5 ', fakeIP + '.75,', fakeIP + '.5.6']) {
+    assert.equal(numericHit(line, [fakeIP]), false, line);
+  }
+  const svg = '<svg><path d="' + 'M14.0 0.9Q10.0 0.9 '.repeat(50000) + '"/></svg>';
+  assert.equal(numericHit(svg, [fakeIP]), false, 'linha longa de desenho sem o termo');
+});
+
+test('termo numérico: IP literal continua pego em texto, URL, aspas e no meio de linha longa', () => {
+  for (const line of ['servidor em ' + fakeIP + '.', 'http://' + fakeIP + ':8080/api', 'https://' + fakeIP + '/', '"' + fakeIP + '"', "'" + fakeIP + "'", '`' + fakeIP + '`', 'ssh pessoa@' + fakeIP, 'host=' + fakeIP, '(' + fakeIP + ')', fakeIP + ', depois', '[' + fakeIP + ']', 'backup_' + fakeIP + '_dump.sql', 'ip' + fakeIP + 'x', '1,' + fakeIP + ',2', 'a;' + fakeIP + ';b', '1-' + fakeIP, 'copia-' + fakeIP + '.7z', fakeIP + '.3gp', fakeIP + '.7.zip', fakeIP + '.75z']) {
+    assert.equal(numericHit(line, [fakeIP]), true, line);
+  }
+  const data = 'M14.0 0.9Q10.0 0.9 '.repeat(50000);
+  assert.equal(numericHit('<path d="' + data + '"/>' + fakeIP + '<path d="' + data + '"/>', [fakeIP]), true, 'linha longa não esconde o termo');
+  assert.ok(scanLine('commit/x', 1, 'deploy em ' + fakeIP, policy, [fakeIP]).some((f) => f.rule === 'termo-pessoal'), 'mensagem de commit');
+  assert.equal(safePath('pasta/' + fakeIP + '.txt', [fakeIP], policy), '[caminho-omitido]');
+});
+
+test('termo numérico: espaço do termo aceita qualquer espaço; outros separadores precisam ser os mesmos', () => {
+  const phone = '11 9999' + '9-8888';
+  assert.equal(numericHit('tel: +55 11  9999' + '9-8888', [phone]), true);
+  assert.equal(numericHit('tel: 11\t9999' + '9-8888', [phone]), true);
+  assert.equal(numericHit('tel: 11.9999' + '9.8888', [phone]), false);
+  assert.equal(numericHit('contato_11 9999' + '9-8888.vcf', [phone]), true);
+  assert.equal(numericHit('id,11 9999' + '9-8888,ativo', [phone]), true);
+});
+
+test('termo de texto continua igual: hífen, espaço, ponto e sublinhado são equivalentes', () => {
+  for (const [term, lines] of [
+    ['Cácto Fictício', ['cacto ficticio', 'CACTO-FICTICIO', 'cacto.ficticio', 'cacto_ficticio', 'cacto   ficticio']],
+    ['Agave-Inventado', ['agave inventado', 'Agave Inventado', 'agave_inventado']],
+    ['agave 2000', ['agave-2000', 'Agave.2000']],
+  ]) {
+    for (const line of lines) assert.equal(numericHit(line, [term]), true, line);
+  }
+});
+
+test('termo numérico: exceção por hash continua valendo só no arquivo exato', () => {
+  const p = { ...policy, excecoesTermo: [{ sha256: hashOf(fakeIP.replace(/\./g, ' ')), arquivo: EXC_FILE, motivo: 'fixture' }] };
+  assert.equal(termRule(EXC_FILE, 'ip ' + fakeIP, p, [fakeIP]), false);
+  assert.equal(termRule('outro.txt', 'ip ' + fakeIP, p, [fakeIP]), true);
+});

@@ -23,7 +23,7 @@
     "dist:mac:local": "node tools/account-config.mjs main && node tools/native-speech.mjs && electron-vite build && electron-builder --mac --config tools/local-builder.cjs",
     "dist:mac:dev:client": "node tools/account-config.mjs dev && node tools/native-speech.mjs && electron-vite build && electron-builder --mac --config tools/dev-local-builder.cjs",
     "dist:mac:open": "node tools/open-dist.mjs",
-    "test:open": "node --test tools/open-isolation.test.mjs",
+    "test:open": "node --test tools/open-isolation.test.mjs tools/open-hub.test.mjs",
     "dist:mac:main": "node tools/account-config.mjs main && node tools/native-host.mjs main && node tools/native-screen.mjs main && electron-vite build && electron-builder --mac",
     "dist:linux:dev": "node tools/account-config.mjs dev && electron-vite build && electron-builder --linux --config tools/dev-builder.cjs",
     "dist:linux:main": "node tools/account-config.mjs main && electron-vite build && electron-builder --linux",

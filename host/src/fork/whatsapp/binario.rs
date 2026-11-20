@@ -108,9 +108,10 @@ static OFFICIAL: LazyLock<Arc<Downloader>> = LazyLock::new(|| {
 });
 
 /// Estado do wacli para a leitura do app; com o plugin ligado, baixa se faltar.
-pub(super) fn follow(hub: &Arc<Hub>, enabled: bool, retry: bool) -> Value {
+pub(super) fn follow(hub: &Arc<Hub>, enabled: bool, retry: bool) -> Result<Value> {
+    crate::open_hub::require_executor()?;
     let hub = hub.clone();
-    Downloader::follow(&OFFICIAL, enabled, retry, move || super::number::reconcile(&hub))
+    Ok(Downloader::follow(&OFFICIAL, enabled, retry, move || super::number::reconcile(&hub)))
 }
 
 impl Downloader {

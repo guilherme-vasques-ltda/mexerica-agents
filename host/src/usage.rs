@@ -86,6 +86,9 @@ pub async fn poll(hub: Arc<Hub>) {
 }
 
 pub async fn refresh(hub: &Hub) {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
     crate::fork::codex_usage::refresh(hub).await;
     if let Some(windows) = claude_cli_usage(&hub.store).await {
         merge(hub, "claude", "Claude", "claude", windows);

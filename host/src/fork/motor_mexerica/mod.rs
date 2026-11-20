@@ -105,7 +105,7 @@ pub(crate) fn actor_extra_env() -> &'static [(&'static str, &'static str)] {
 
 /// Desligada por padrão: só `MEXERICA_MOTOR=1` registra o motor.
 pub(crate) fn enabled() -> bool {
-    enabled_value(std::env::var_os(FLAG).as_deref())
+    !crate::environment::Environment::is_open() && enabled_value(std::env::var_os(FLAG).as_deref())
 }
 
 /// Entrypoint `motor/mexerica/rpc.ts`; `MEXERICA_MOTOR_ENTRY` sobrepõe
@@ -256,32 +256,11 @@ impl Engine {
 
         // Canal do cofre: socket par bidirecional; o filho o vê como fd 3.
         // NONBLOCK dos dois lados: o lado Hub entra no executor do Tokio.
-        let mut pair = [-1i32; 2];
-        ensure!(
-            // SAFETY: pair é um array válido de dois descritores.
-            unsafe {
-                libc::socketpair(
-                    libc::AF_UNIX,
-                    libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
-                    0,
-                    pair.as_mut_ptr(),
-                )
-            } == 0,
-            "socketpair do canal do cofre falhou: {}",
-            std::io::Error::last_os_error()
-        );
-        let (child_end, hub_end) = {
-            use std::os::fd::FromRawFd;
-            // SAFETY: dois descritores novos e válidos; a posse passa aos OwnedFd
-            // (RAII): fecham sozinhos em qualquer retorno de erro.
-            unsafe { (std::os::fd::OwnedFd::from_raw_fd(pair[0]), std::os::fd::OwnedFd::from_raw_fd(pair[1])) }
-        };
-        let hub_socket = {
-            // From<OwnedFd> move a posse para o socket, sem unsafe.
-            let std_socket = std::os::unix::net::UnixStream::from(hub_end);
-            std_socket.set_nonblocking(true).context("nonblocking do canal do cofre falhou")?;
-            tokio::net::UnixStream::from_std(std_socket).context("canal do cofre não entrou no Tokio")?
-        };
+        let (child_end, hub_end) =
+            std::os::unix::net::UnixStream::pair().context("socketpair do canal do cofre falhou")?;
+        child_end.set_nonblocking(true).context("nonblocking do canal do cofre falhou")?;
+        hub_end.set_nonblocking(true).context("nonblocking do canal do cofre falhou")?;
+        let hub_socket = tokio::net::UnixStream::from_std(hub_end).context("canal do cofre não entrou no Tokio")?;
 
         // A pasta de trabalho é a pasta privada do motor (0700, dele), nunca o /tmp compartilhado.
         let mut command = crate::fork::motor_exec::command(&node, &home.0.join("work"));
