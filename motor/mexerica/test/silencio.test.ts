@@ -68,3 +68,21 @@ test("cancelar continua sendo cancelar, não silêncio", async () => {
 	await assert.rejects(pedido, /cancelado pelo usuário/);
 });
 
+
+test("pedido já cancelado não deixa rejeição solta", async () => {
+	const soltas: unknown[] = [];
+	const anotar = (motivo: unknown) => soltas.push(motivo);
+	process.on("unhandledRejection", anotar);
+	try {
+		const parar = new AbortController();
+		parar.abort(new Error("cancelado antes de começar"));
+		const fetch = comPrazoDeSilencio(async () => {
+			throw new Error("o fetch recusou o sinal cancelado");
+		}, 10_000);
+		await assert.rejects(fetch("https://api.example.invalid/v1/responses", { signal: parar.signal }), /cancelado antes de começar/);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.deepEqual(soltas, []);
+	} finally {
+		process.off("unhandledRejection", anotar);
+	}
+});

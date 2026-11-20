@@ -34,9 +34,10 @@ export function comPrazoDeSilencio(base: Fetch, prazoMs = SILENCIO_MS): Fetch {
 		const ouCorte = <T>(promessa: Promise<T>): Promise<T> =>
 			new Promise<T>((resolve, reject) => {
 				const cortar = () => reject(corte.signal.reason);
-				if (corte.signal.aborted) return cortar();
+				// A promessa recebida é sempre observada, mesmo quando o corte já aconteceu: rejeição solta derruba o Node.
 				corte.signal.addEventListener("abort", cortar, { once: true });
 				promessa.then(resolve, reject).finally(() => corte.signal.removeEventListener("abort", cortar));
+				if (corte.signal.aborted) cortar();
 			});
 
 		rearmar();
