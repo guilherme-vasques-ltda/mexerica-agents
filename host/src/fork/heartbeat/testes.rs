@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Default)]
-pub(super) struct Ficticia {
+pub(crate) struct Ficticia {
     pub itens: Mutex<Vec<Item>>,
     pub marcador: Mutex<Option<String>>,
     pub falha: Mutex<Option<Motivo>>,
@@ -14,12 +14,12 @@ pub(super) struct Ficticia {
 }
 
 impl Ficticia {
-    fn com(itens: &[(&str, &str, &str)]) -> Self {
+    pub(crate) fn com(itens: &[(&str, &str, &str)]) -> Self {
         let fonte = Self::default();
         fonte.define(itens);
         fonte
     }
-    fn define(&self, itens: &[(&str, &str, &str)]) {
+    pub(crate) fn define(&self, itens: &[(&str, &str, &str)]) {
         *self.itens.lock().unwrap() = itens
             .iter()
             .map(|(id, versao, estado)| Item {

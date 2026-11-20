@@ -257,7 +257,7 @@ impl Routines {
     /// alerts; a failed one leaves a notice. The entry ID deduplicates a crash after SQLite inserted the notice but
     /// before this ack.
     /// I-023: aviso e alerta conforme o desfecho gravado (`visibleReply` incluso), sem recalcular pela trilha.
-    fn publish(&self, hub: &Hub) -> Result<()> {
+    pub(super) fn publish(&self, hub: &Hub) -> Result<()> {
         let pending: Vec<_> = {
             let state = self.state.locked();
             state.runs.iter().filter(|r| r.report_pending).map(|r| (routine_name(&state, &r.id), r.clone())).collect()
@@ -280,6 +280,12 @@ impl Routines {
                 if let Some(r) = s.runs.iter_mut().find(|r| r.id == run.id) {
                     r.report_pending = false;
                     r.result = None;
+                    // O fato e a escolha do aviso vão ao dono e ao chat; o histórico guarda só o resultado.
+                    if r.heartbeat
+                        && let Some(crate::fork::rotina_resultado::Lenient::Ok(outcome)) = &mut r.outcome
+                    {
+                        outcome.summary = None;
+                    }
                 }
                 Ok(())
             })?;
@@ -324,7 +330,6 @@ impl Routines {
             !state.paused
                 && state.routines.iter().any(|r| {
                     r.creation_origin.is_none()
-                        && r.heartbeat.is_none()
                         && !r.deleted
                         && r.enabled
                         && r.next_runs.iter().flatten().any(|at| *at <= now)
@@ -333,16 +338,13 @@ impl Routines {
         if !due {
             return Ok(());
         }
+        let mut checks = Vec::new();
         self.change(store, |s| {
             if s.paused {
                 return Ok(());
             }
             for routine in &mut s.routines {
-                if routine.deleted
-                    || !routine.enabled
-                    || routine.creation_origin.is_some()
-                    || routine.heartbeat.is_some()
-                {
+                if routine.deleted || !routine.enabled || routine.creation_origin.is_some() {
                     continue;
                 }
                 let anchor = routine
@@ -369,6 +371,11 @@ impl Routines {
                         }
                     }
                 }
+                // Checagem silenciosa: a ocorrência não vira execução com IA; só marca a consulta à fonte.
+                if fired && routine.enabled && routine.heartbeat.is_some() {
+                    checks.push(routine.id.clone());
+                    continue;
+                }
                 // Keep one pending wake while a prior run is active. This also
                 // preserves a one-shot trigger that occurs during a long run.
                 if fired
@@ -382,7 +389,9 @@ impl Routines {
                 }
             }
             Ok(())
-        })
+        })?;
+        self.check_due(store, &checks, now);
+        Ok(())
     }
 }
 

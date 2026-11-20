@@ -1,6 +1,6 @@
 //! O Heartbeat dentro das Rotinas: quem declara, quando liga e o que nunca roda. Só rotinas e dados fictícios.
 use super::tests::routine;
-use super::{Routine, State, Status, Trigger, bound_save, new_run};
+use super::{Routine, Routines, Run, State, Status, Trigger, bound_save, new_run};
 use crate::fork::heartbeat::{INSTRUCAO, SO_NO_HORARIO, SO_O_DONO};
 use crate::{LockExt, hub::Hub, store::Store};
 use serde_json::{Value, json};
@@ -189,18 +189,282 @@ fn disparo_manual_ou_por_webhook_de_checagem_e_recusado() {
     assert!(hub.routines.state.locked().runs.is_empty());
 }
 
+// --- Agendador: a consulta à fonte, o estado e os avisos ---
+
+use crate::fork::heartbeat::testes::Ficticia;
+use crate::fork::heartbeat::{Fonte, Item, Motivo};
+use std::sync::atomic::Ordering;
+
+const PASSO: i64 = 300_000;
+
+fn com_fonte() -> (Arc<Hub>, Arc<Ficticia>, String) {
+    let hub = hub();
+    let fonte = Arc::new(Ficticia::default());
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", fonte.clone());
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    (hub, fonte, id)
+}
+
+/// Uma checagem no instante `volta * 5 min`, como o agendador a chamaria.
+fn checa(hub: &Hub, id: &str, volta: i64) {
+    hub.routines.check_due(&hub.store, &[id.to_owned()], volta * PASSO);
+}
+
+fn avisos(hub: &Hub) -> Vec<String> {
+    hub.routines.publish(hub).unwrap();
+    hub.store
+        .entries_since(0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.id.starts_with("routine-result-"))
+        .map(|e| e.data["text"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+fn execucoes(hub: &Hub) -> Vec<Run> {
+    hub.routines.state.locked().runs.clone()
+}
+
+fn estado(hub: &Hub, id: &str) -> crate::fork::heartbeat::Estado {
+    hub.routines.state.locked().routines.iter().find(|r| r.id == id).unwrap().heartbeat_state.clone().unwrap()
+}
+
 #[test]
-fn agendador_ainda_nao_cria_execucao_com_ia_para_checagem() {
+fn sem_mudanca_nao_gera_mensagem_nem_execucao() {
+    let (hub, fonte, id) = com_fonte();
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    fonte.define(&[("1", "v1", "arquivado")]);
+    for volta in 1..=10 {
+        checa(&hub, &id, volta);
+    }
+    assert_eq!(avisos(&hub), Vec::<String>::new());
+    assert_eq!(execucoes(&hub).len(), 1, "só a primeira leitura, que estabelece a base, fica no histórico");
+    assert!(!execucoes(&hub)[0].report_pending);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), 1, "marcador igual: o conteúdo não é lido de novo");
+    assert_eq!(estado(&hub, &id).ultima.unwrap().em, 10 * PASSO, "a última checagem é registrada mesmo em silêncio");
+}
+
+#[test]
+fn a_mesma_pendencia_em_quatro_checagens_gera_um_aviso_so() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    for volta in 1..=4 {
+        checa(&hub, &id, volta);
+    }
+    let avisos = avisos(&hub);
+    assert_eq!(avisos.len(), 1);
+    assert!(avisos[0].contains("Pedido 7 aguarda resposta") && avisos[0].contains("Aprovar ou recusar"), "{avisos:?}");
+    assert_eq!(estado(&hub, &id).ultima.unwrap().abertas, 1);
+}
+
+#[test]
+fn decisao_nova_avisa_de_novo_so_a_nova() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    fonte.define(&[("7", "v1", "aguardando"), ("8", "v1", "aguardando")]);
+    checa(&hub, &id, 2);
+    let avisos = avisos(&hub);
+    assert_eq!(avisos.len(), 2);
+    assert!(avisos[1].contains("Pedido 8") && !avisos[1].contains("Pedido 7"), "{avisos:?}");
+}
+
+#[test]
+fn historico_e_estado_nao_guardam_o_conteudo_da_fonte() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    assert_eq!(avisos(&hub).len(), 1);
+    let execucao = execucoes(&hub).pop().unwrap();
+    assert!(!execucao.report_pending);
+    let guardado = hub.store.kv_read("routines.v1").unwrap().unwrap();
+    assert!(
+        !guardado.contains("Pedido 7") && !guardado.contains("Aprovar"),
+        "o conteúdo saiu do histórico ao publicar"
+    );
+    assert!(guardado.contains("needsOwner"), "mas o resultado fica");
+}
+
+#[test]
+fn queda_da_fonte_e_falha_visivel_e_nao_sem_mudanca() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    *fonte.falha.lock().unwrap() = Some(Motivo::SemAcesso);
+    checa(&hub, &id, 2);
+    let avisos = avisos(&hub);
+    assert_eq!(avisos.len(), 2, "decisão e falha que exige ação: {avisos:?}");
+    assert!(avisos[1].contains("sem acesso"), "{avisos:?}");
+    let ultima = estado(&hub, &id).ultima.unwrap();
+    assert_eq!(ultima.resultado, crate::fork::heartbeat::Resultado::FonteIndisponivel);
+    assert_eq!(ultima.abertas, 1, "a falha não apaga o que se sabia");
+    let rotina = hub.routines.list("bot")["routines"][0].clone();
+    assert_eq!(rotina["heartbeatStatus"]["ultimaChecagem"]["resultado"], "fonte_indisponivel");
+    assert_eq!(rotina["heartbeatStatus"]["falhasSeguidas"], 1);
+}
+
+#[test]
+fn falha_repetida_recua_e_nao_repete_o_alerta_e_a_volta_nao_reavisa() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    *fonte.falha.lock().unwrap() = Some(Motivo::SemAcesso);
+    checa(&hub, &id, 2);
+    let leituras = fonte.leituras.load(Ordering::SeqCst);
+    let ate = estado(&hub, &id).nao_antes;
+    assert!(ate > 2 * PASSO, "recuo depois da falha");
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), ate - 1);
+    assert_eq!(estado(&hub, &id).falhas_seguidas, 1, "em recuo a fonte nem é consultada");
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), ate);
+    assert_eq!(estado(&hub, &id).falhas_seguidas, 2);
+    *fonte.falha.lock().unwrap() = None;
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), ate + 3_600_000 * 7);
+    assert!(fonte.leituras.load(Ordering::SeqCst) > leituras);
+    assert_eq!(avisos(&hub).len(), 2, "uma decisão e um alerta de falha; a volta não repete a pendência já avisada");
+    assert_eq!(estado(&hub, &id).falhas_seguidas, 0);
+}
+
+#[test]
+fn fonte_nao_concedida_ao_bot_e_indisponivel_e_nunca_e_lida() {
+    let hub = hub();
+    let fonte = Arc::new(Ficticia::default());
+    hub.routines.registrar_fonte("outro-bot", "pedidos.ficticio", fonte.clone());
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    checa(&hub, &id, 1);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), 0);
+    assert_eq!(avisos(&hub).len(), 1);
+    assert_eq!(estado(&hub, &id).falhas_seguidas, 1);
+}
+
+#[test]
+fn rotina_pausada_removida_ou_com_fonte_revogada_nao_consulta_mais() {
+    let (hub, fonte, id) = com_fonte();
+    checa(&hub, &id, 1);
+    let leituras = fonte.leituras.load(Ordering::SeqCst);
+    hub.routines.set_enabled(&hub.store, "bot", &id, false).unwrap();
+    checa(&hub, &id, 2);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), leituras, "rotina pausada");
+    hub.routines.set_enabled(&hub.store, "bot", &id, true).unwrap();
+    hub.routines
+        .change(&hub.store, |s| {
+            s.paused = true;
+            Ok(())
+        })
+        .unwrap();
+    checa(&hub, &id, 3);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), leituras, "pausa global");
+    hub.routines
+        .change(&hub.store, |s| {
+            s.paused = false;
+            Ok(())
+        })
+        .unwrap();
+    hub.routines.retirar_fonte("bot", "pedidos.ficticio");
+    checa(&hub, &id, 4);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), leituras, "concessão revogada");
+    hub.routines.remove(&hub.store, "bot", &id).unwrap();
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", fonte.clone());
+    checa(&hub, &id, 5);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), leituras, "rotina apagada");
+}
+
+#[test]
+fn pausa_no_meio_da_leitura_descarta_o_resultado() {
+    struct Gancho(Arc<Hub>, String);
+    impl Fonte for Gancho {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.routines.set_enabled(&self.0.store, "bot", &self.1, false).unwrap();
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![Item {
+                id: "1".into(),
+                versao: "v".into(),
+                estado: "aguardando".into(),
+                fato: "x".into(),
+                escolha: "y".into(),
+            }])
+        }
+    }
     let hub = hub();
     let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", Arc::new(Gancho(hub.clone(), id.clone())));
+    checa(&hub, &id, 1);
+    assert!(execucoes(&hub).is_empty());
+    assert!(hub.routines.state.locked().routines[0].heartbeat_state.is_none());
+    assert_eq!(avisos(&hub).len(), 0);
+}
+
+struct Quebrada;
+impl Fonte for Quebrada {
+    fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+        panic!("fonte fictícia quebrada")
+    }
+    fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+        unreachable!()
+    }
+}
+
+#[test]
+fn rodada_sobreposta_e_recusada_e_a_vaga_volta_mesmo_se_a_fonte_der_panico() {
+    let (hub, fonte, id) = com_fonte();
+    hub.routines.checando.locked().insert(id.clone());
+    checa(&hub, &id, 1);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), 0, "já há uma rodada desta rotina");
+    hub.routines.checando.locked().remove(&id);
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", Arc::new(Quebrada));
+    checa(&hub, &id, 2);
+    assert_eq!(estado(&hub, &id).falhas_seguidas, 1, "pânico da fonte vira falha visível");
+    assert!(hub.routines.checando.locked().is_empty(), "a vaga é devolvida");
+}
+
+#[test]
+fn dedup_e_ultima_checagem_sobrevivem_ao_reinicio() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    assert_eq!(avisos(&hub).len(), 1);
+    let reiniciado = Routines::default();
+    reiniciado.restore(&hub.store).unwrap();
+    reiniciado.registrar_fonte("bot", "pedidos.ficticio", fonte.clone());
+    for volta in 2..=4 {
+        reiniciado.check_due(&hub.store, std::slice::from_ref(&id), volta * PASSO);
+    }
+    let rotina = reiniciado.state.locked().routines[0].clone();
+    assert_eq!(rotina.heartbeat_state.unwrap().ultima.unwrap().em, 4 * PASSO);
+    assert_eq!(avisos(&hub).len(), 1, "depois do reinício a mesma pendência não é avisada de novo");
+}
+
+#[test]
+fn o_agendador_dispara_a_consulta_sem_criar_execucao_com_ia() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
     hub.routines
         .change(&hub.store, |s| {
             s.routines.iter_mut().find(|r| r.id == id).unwrap().next_runs = vec![Some(1)];
             Ok(())
         })
         .unwrap();
-    hub.routines.schedule_due(&hub.store, 10_000).unwrap();
-    assert!(hub.routines.state.locked().runs.is_empty());
+    hub.routines.schedule_due(&hub.store, 10_000_000).unwrap();
+    let execucoes = execucoes(&hub);
+    assert_eq!(execucoes.len(), 1);
+    assert!(execucoes[0].heartbeat && execucoes[0].status == Status::Failed && execucoes[0].chain.is_none());
+    assert_eq!(avisos(&hub).len(), 1);
+}
+
+#[test]
+fn editar_a_declaracao_recomeca_o_estado_e_renomear_nao() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    let mut corpo_igual = corpo(&json!({"id": id, "name": "Outro nome", "enabled": true}));
+    corpo_igual.as_object_mut().unwrap().remove("heartbeat");
+    hub.routines.save(&hub, "bot", &corpo_igual).unwrap();
+    assert!(!estado(&hub, &id).avisadas.is_empty(), "renomear mantém o que a checagem sabe");
+    let mut outra = declaracao();
+    outra["escopo"] = json!("outra fila");
+    hub.routines.save(&hub, "bot", &corpo(&json!({"id": id, "heartbeat": outra, "enabled": true}))).unwrap();
+    assert!(hub.routines.state.locked().routines[0].heartbeat_state.is_none(), "outro escopo, outra base");
 }
 
 #[test]

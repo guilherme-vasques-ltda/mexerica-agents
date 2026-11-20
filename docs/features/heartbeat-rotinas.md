@@ -44,8 +44,19 @@ Enquanto a fonte falha, a checagem espera cada vez mais entre as tentativas (at�
 sabia: ao voltar, uma pendência já avisada não é avisada de novo. Uma pendência que sai da fonte e volta é
 decisão nova.
 
+## Como roda
+
+No horário da rotina (relógio ou intervalo), o agendador das Rotinas consulta a fonte sem passar pela IA: uma
+rodada por vez por rotina, e nunca antes do intervalo mínimo declarado. O Hub grava, na própria rotina, a última
+checagem, o resumo do marcador e as pendências já avisadas; por isso o aviso não se repete depois de reiniciar. Só o
+resultado que importa vira execução no histórico (mudança sem decisão, decisão pendente e a primeira falha de uma
+sequência); `sem mudança` só atualiza a hora da última checagem, que aparece em `heartbeatStatus` na rotina. O texto
+do aviso (fato e escolha) vai ao dono pelo chat e pelo alerta do celular e sai do histórico depois de publicado.
+
+Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
+de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só é lida pelo bot a que foi concedida.
+
 ## Estado desta entrega
 
-A declaração, a validação, as regras acima e as guardas de permissão estão no Hub; o agendador passa a
-consultar a fonte na entrega seguinte. Ainda não existe fonte real: o registro de fontes nasce vazio, e uma
-rotina que aponta para uma fonte não registrada fica como fonte indisponível. Testes usam fontes fictícias.
+Ainda não existe fonte real: o registro de fontes nasce vazio e uma rotina que aponta para uma fonte não concedida
+ao bot fica como fonte indisponível (sem acesso), com alerta. Os testes usam fontes fictícias.

@@ -10,7 +10,9 @@ use serde_json::Value;
 
 mod avaliar;
 #[cfg(test)]
-mod testes;
+pub(crate) mod testes;
+
+pub(crate) use avaliar::{Aviso, Saida, avaliar, pode_checar};
 
 pub(crate) const MIN_INTERVALO_S: u64 = 60;
 const MAX_INTERVALO_S: u64 = 7 * 86_400;
@@ -197,6 +199,17 @@ pub(crate) struct Estado {
     /// Enquanto a fonte falha, não consulta antes deste instante (recuo).
     #[serde(default, skip_serializing_if = "is_zero_i64")]
     pub nao_antes: i64,
+}
+
+impl Estado {
+    /// O que a rotina mostra do estado: a última checagem e a situação da fonte, sem marcador nem impressões.
+    pub(crate) fn public(&self) -> Value {
+        serde_json::json!({
+            "ultimaChecagem": self.ultima,
+            "falhasSeguidas": self.falhas_seguidas,
+            "naoConsultarAntes": (self.nao_antes != 0).then_some(self.nao_antes),
+        })
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&T) -> bool")]

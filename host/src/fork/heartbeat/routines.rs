@@ -1,0 +1,169 @@
+//! Heartbeat: a consulta da fonte no horário da rotina, dentro do agendador das Rotinas. Nada aqui chama a IA nem
+//! executa efeito: a fonte só é lida, o estado e o resultado são gravados juntos, e o aviso sai pelo mesmo caminho
+//! de publicação das demais execuções.
+use super::{Arc, LockExt, Result, Routine, Routines, Run, Status, Store, Value, new_run};
+use crate::fork::heartbeat::{Aviso, Fonte, Item, Motivo, Resultado, Saida, avaliar, pode_checar};
+use crate::fork::rotina_resultado::{Kind, Lenient, RunOutcome, Source};
+use std::{fmt::Write as _, panic::AssertUnwindSafe};
+
+const MAX_RESUMO: usize = 300;
+
+/// Fonte que não existe para esta rotina, ou que falhou de forma inesperada: sempre indisponível, nunca vazia.
+struct Indisponivel(Motivo);
+
+impl Fonte for Indisponivel {
+    fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+        Err(self.0)
+    }
+    fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+        Err(self.0)
+    }
+}
+
+/// Libera a vaga da rotina ao sair, mesmo se a fonte der pânico.
+struct EmAndamento<'a> {
+    routines: &'a Routines,
+    id: &'a str,
+}
+
+impl Drop for EmAndamento<'_> {
+    fn drop(&mut self) {
+        self.routines.checando.locked().remove(self.id);
+    }
+}
+
+#[allow(
+    dead_code,
+    reason = "o conector que registra fontes reais chega em outra entrega; os testes registram fontes fictícias"
+)]
+impl Routines {
+    /// Concede ao bot a leitura de uma fonte. Sem concessão, a rotina do bot enxerga a fonte como indisponível.
+    pub(crate) fn registrar_fonte(&self, bot: &str, nome: &str, fonte: Arc<dyn Fonte>) {
+        self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), fonte);
+    }
+
+    /// Revoga a concessão: a próxima checagem já não consulta a fonte.
+    pub(crate) fn retirar_fonte(&self, bot: &str, nome: &str) {
+        self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned()));
+    }
+}
+
+impl Routines {
+    pub(super) fn check_due(&self, store: &Store, ids: &[String], now: i64) {
+        for id in ids {
+            if let Err(error) = self.check_one(store, id, now) {
+                tracing::warn!(routine = %id, error = format!("{error:#}"), "checagem silenciosa não foi gravada");
+            }
+        }
+    }
+
+    fn check_one(&self, store: &Store, id: &str, now: i64) -> Result<()> {
+        let (bot, declaracao, anterior) = {
+            let state = self.state.locked();
+            if state.paused {
+                return Ok(());
+            }
+            let Some(routine) = state.routines.iter().find(|r| r.id == id && !r.deleted && r.enabled) else {
+                return Ok(());
+            };
+            let Some(declaracao) = &routine.heartbeat else { return Ok(()) };
+            (routine.bot_id.clone(), declaracao.clone(), routine.heartbeat_state.clone().unwrap_or_default())
+        };
+        if !pode_checar(&anterior, &declaracao, now) || !self.checando.locked().insert(id.to_owned()) {
+            return Ok(());
+        }
+        let _vaga = EmAndamento { routines: self, id };
+        let fonte: Arc<dyn Fonte> = self
+            .fontes
+            .locked()
+            .get(&(bot, declaracao.fonte.clone()))
+            .cloned()
+            .unwrap_or_else(|| Arc::new(Indisponivel(Motivo::SemAcesso)));
+        let saida = std::panic::catch_unwind(AssertUnwindSafe(|| avaliar(&*fonte, &declaracao, &anterior, now)))
+            .unwrap_or_else(|_| avaliar(&Indisponivel(Motivo::Fora), &declaracao, &anterior, now));
+        self.change(store, |s| {
+            // Pausa, revogação, exclusão ou outra declaração entre a leitura e a gravação: o resultado é descartado.
+            if s.paused {
+                return Ok(());
+            }
+            let Some(routine) = s
+                .routines
+                .iter_mut()
+                .find(|r| r.id == id && !r.deleted && r.enabled && r.heartbeat.as_ref() == Some(&declaracao))
+            else {
+                return Ok(());
+            };
+            routine.heartbeat_state = Some(saida.estado.clone());
+            if let Some(run) = registro(routine, &saida, now) {
+                s.runs.push(run);
+            }
+            Ok(())
+        })
+    }
+}
+
+/// A execução que fica no histórico: nenhuma para «sem mudança»; só histórico para «mudança sem decisão» e para a
+/// primeira falha de uma sequência; aviso (notice e alerta) para decisão pendente e para falha que pede ação.
+fn registro(routine: &Routine, saida: &Saida, now: i64) -> Option<Run> {
+    let (status, kind, summary, publicar) = match (saida.resultado, &saida.aviso) {
+        (Resultado::SemMudanca, _) => return None,
+        (Resultado::MudancaSemDecisao, _) => {
+            (Status::Succeeded, Kind::Reported, "Houve mudança na fonte, sem decisão pendente.".to_owned(), false)
+        }
+        (Resultado::DecisaoPendente, aviso) => {
+            let texto = match aviso {
+                Some(Aviso::Decisao { itens, alem }) => texto_decisao(itens, *alem),
+                _ => "Há uma decisão pendente.".to_owned(),
+            };
+            (Status::Failed, Kind::NeedsOwner, texto, true)
+        }
+        (Resultado::FonteIndisponivel, aviso) => {
+            if aviso.is_none() && saida.estado.falhas_seguidas != 1 {
+                return None;
+            }
+            let texto = match aviso {
+                Some(Aviso::Falha { motivo }) => texto_falha(*motivo),
+                _ => "A fonte não respondeu.".to_owned(),
+            };
+            (Status::Failed, Kind::Failed, texto, aviso.is_some())
+        }
+    };
+    let mut run = new_run(routine, Value::Null, None);
+    run.status = status;
+    run.created_at = now;
+    run.started_at = Some(now);
+    run.finished_at = Some(now);
+    // `Declared` só para que a falha mostre o texto acima; ninguém declarou nada, não houve IA.
+    let source = if kind == Kind::Failed { Source::Declared } else { Source::Observed };
+    run.outcome = Some(Lenient::Ok(RunOutcome {
+        version: 1,
+        kind,
+        source,
+        reason: None,
+        summary: Some(summary),
+        visible_reply: false,
+    }));
+    run.report_pending = publicar;
+    run.heartbeat = true;
+    Some(run)
+}
+
+fn texto_decisao(itens: &[(String, String)], alem: usize) -> String {
+    let mut texto = itens.iter().map(|(fato, escolha)| format!("{fato} — {escolha}")).collect::<Vec<_>>().join("; ");
+    if alem > 0 {
+        let _ = write!(texto, " (e mais {alem})");
+    }
+    if texto.chars().count() > MAX_RESUMO {
+        texto = texto.chars().take(MAX_RESUMO - 1).collect::<String>() + "…";
+    }
+    texto
+}
+
+fn texto_falha(motivo: Motivo) -> String {
+    match motivo {
+        Motivo::SemAcesso => "A fonte está sem acesso: confira a conexão e a permissão desta rotina.",
+        Motivo::Fora => "A fonte continua fora do ar ou sem resposta.",
+        Motivo::Limite => "A fonte devolveu mais do que a checagem aceita ou limitou o uso.",
+    }
+    .to_owned()
+}
