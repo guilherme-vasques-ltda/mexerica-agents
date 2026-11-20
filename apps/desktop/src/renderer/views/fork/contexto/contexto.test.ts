@@ -290,7 +290,7 @@ test('UI01: principal medida → extra sem medida oculta → principal continua 
 
 test('DON-903: todo contexto.* existe nos seis catálogos, sem vazio, e o texto segue o idioma', () => {
   const chaves = Object.keys(CATALOGOS['pt-BR']).filter((k) => k.startsWith('contexto.') && !k.startsWith('contexto.custo.'))
-  assert.equal(chaves.length, 95)
+  assert.equal(chaves.length, 111)
   for (const [idioma, cat] of Object.entries(CATALOGOS)) for (const k of chaves) assert.ok((cat as Record<string, string>)[k]?.trim(), `${idioma} ${k}`)
   assert.equal(sp(traduzir('pt-BR', 'contexto.detalhes.espacoValor', { usado: tokensCurtos('pt-BR', 84_000), total: tokensCurtos('pt-BR', 200_000) })), '84 mil de 200 mil tokens')
   assert.equal(sp(traduzir('en', 'contexto.detalhes.espacoValor', { usado: tokensCurtos('en', 84_000), total: tokensCurtos('en', 200_000) })), '84K of 200K tokens')
@@ -661,4 +661,20 @@ test('bloqueio atual explica botão desligado antes de resultado ou recusa anter
   assert.equal(vista({ working: true, resultado: { fase: 'feito', antes: 60_000, depois: 22_000 } }).aviso?.id, 'turno')
   assert.equal(vista({ working: true, recusa: 'falha' }).aviso?.id, 'turno')
   assert.equal(vista({ online: false, recusa: 'repetida' }).aviso?.id, 'semConexao')
+})
+
+test('partes do contexto conferidas; o que o motor não informa nunca ganha número', () => {
+  const parte = (id: string, tokens: number | null, origin = 'estimado') => ({ id, origin, chars: null, tokens })
+  const bruto = { charsPerToken: 4, items: [parte('fixo', 7_000), parte('memoria', 300), parte('skills', 0), parte('ferramentas', null, 'naoInformado'), parte('conversa', 76_700)] }
+  const l = conferirContexto(resp('a', { context: ctx({ parts: bruto }) }), pedido('a'))?.leitura
+  assert.deepEqual(l?.partes?.itens.map((p) => [p.id, p.origem, p.tokens]), [['fixo', 'estimado', 7_000], ['memoria', 'estimado', 300], ['skills', 'estimado', 0], ['ferramentas', 'naoInformado', null], ['conversa', 'estimado', 76_700]])
+  assert.equal(l?.partes?.caracteresPorToken, 4)
+  // Hub antigo (sem parts) segue medindo o total; o balão diz que falta a divisão.
+  assert.equal(conferirContexto(resp('a'), pedido('a'))?.leitura?.partes, null)
+  // Número vindo como "não informado" é descartado; qualquer desvio do contrato descarta a divisão inteira.
+  const naoInformado = { ...bruto, items: [{ ...parte('fixo', 999, 'naoInformado') }, ...bruto.items.slice(1)] }
+  assert.equal(conferirContexto(resp('a', { context: ctx({ parts: naoInformado }) }), pedido('a'))?.leitura?.partes?.itens[0]?.tokens, null)
+  for (const ruim of [{ ...bruto, items: bruto.items.slice(1) }, { ...bruto, items: [...bruto.items].reverse() }, { ...bruto, charsPerToken: 0 }, { ...bruto, items: [parte('fixo', -1), ...bruto.items.slice(1)] }, { ...bruto, items: [parte('fixo', 1.5), ...bruto.items.slice(1)] }, { ...bruto, items: [parte('fixo', 5, 'medido'), ...bruto.items.slice(1)] }, 'texto', null]) {
+    assert.equal(conferirContexto(resp('a', { context: ctx({ parts: ruim }) }), pedido('a'))?.leitura?.partes, null, JSON.stringify(ruim))
+  }
 })

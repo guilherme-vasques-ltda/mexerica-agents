@@ -288,6 +288,27 @@ mod tests {
         assert!(!manual.contains("Leia esse arquivo"));
     }
 
+    /// Tamanho do texto fixo montado (sem o caminho do manual, que muda de máquina para máquina). Quem inflar o prompt
+    /// vê este teste falhar: confira se o aumento é intencional e atualize o número no mesmo PR, com o motivo.
+    const TEXTO_FIXO_BYTES: usize = 27_210;
+
+    #[test]
+    fn tamanho_do_texto_fixo_esta_fixado() {
+        // As raízes mudam de máquina e de modo (dados do Hub ou motor separado): só o texto em volta conta.
+        let mut raizes = [
+            crate::service::data_dir().display().to_string(),
+            crate::fork::motor_roots::work().display().to_string(),
+            crate::fork::motor_roots::MOTOR.to_owned(),
+        ];
+        // A mais longa primeiro: uma raiz que é prefixo de outra não deixa resto no texto.
+        raizes.sort_by_key(|raiz| std::cmp::Reverse(raiz.len()));
+        let bytes = raizes.iter().fold(compile(), |texto, raiz| texto.replace(raiz.as_str(), "")).len();
+        assert_eq!(
+            bytes, TEXTO_FIXO_BYTES,
+            "o texto fixo do bot mudou de tamanho (era {TEXTO_FIXO_BYTES} bytes, agora {bytes}): se foi de propósito, atualize TEXTO_FIXO_BYTES e explique no PR"
+        );
+    }
+
     /// D384: o item de memória ficou curto, mas as regras que só existem no texto continuam no manual.
     #[test]
     fn manual_de_memoria_mantem_as_regras_de_seguranca() {
