@@ -341,7 +341,7 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
                 params![hub.host_id, p.space_id, p.project_id, p.task_id, p.comment_id, p.bot_id],
             )?;
         }
-        if status == "queued" {
+        if status == "queued" && settled == 1 {
             // Backoff por tentativa: created_at funciona como "disponível em".
             tx.execute(
                 "UPDATE donna_task_deliveries SET created_at=?7,reason=NULL

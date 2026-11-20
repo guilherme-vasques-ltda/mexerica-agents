@@ -31,7 +31,10 @@ export { builtInBackendName, type Connection } from './bot-mirror'
 
 /** A file picked in the composer, sent with the next message. */
 /** O Hub recusou a mensagem nova porque a fila da conversa está cheia; nada foi criado. */
-const filaCheia = (error: unknown) => error instanceof Error && error.message.startsWith('queue_full')
+const filaCheia = (error: unknown) => {
+  const message = (error as { message?: unknown } | null)?.message
+  return typeof message === 'string' && message.startsWith('queue_full')
+}
 
 export interface OutgoingFile {
   id: string
