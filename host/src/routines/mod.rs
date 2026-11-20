@@ -170,6 +170,9 @@ pub struct Run {
     /// Execução gravada por uma checagem silenciosa: nunca passou pela IA; o texto do aviso sai do histórico ao publicar.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     heartbeat: bool,
+    /// O texto do aviso da checagem, só até a publicação. Nunca vai às listagens (`public_run`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    heartbeat_texto: Option<String>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&u64) -> bool")]
@@ -284,7 +287,7 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
         Some(Value::Null) => None,
         Some(declaration) => Some(crate::fork::heartbeat::Declaracao::parse(declaration)?),
     };
-    if heartbeat.is_some() && triggers.iter().any(|t| matches!(t, Trigger::Webhook | Trigger::Event { .. })) {
+    if heartbeat.is_some() && triggers.iter().any(|t| !matches!(t, Trigger::Interval { .. } | Trigger::Cron { .. })) {
         bail!(crate::fork::heartbeat::SO_NO_HORARIO);
     }
     if heartbeat.is_some()
@@ -515,6 +518,12 @@ impl Routines {
         next.routines.retain(|r| r.bot_id != bot);
         for routine in before {
             let mut restored = routine.clone();
+            // Desfazer uma edição não desfaz o que a checagem já avisou: o progresso mais recente fica.
+            if let Some(atual) = current.iter().find(|r| r.id == restored.id)
+                && atual.heartbeat == restored.heartbeat
+            {
+                restored.heartbeat_state.clone_from(&atual.heartbeat_state);
+            }
             restored.next_runs = restored.triggers.iter().map(|t| t.next(now_ms())).collect::<Result<_>>()?;
             restored.schedule_generation = current
                 .iter()
@@ -851,6 +860,7 @@ fn new_run(r: &Routine, event: Value, delivery_id: Option<String>) -> Run {
         catchup: false,
         attempts: 0,
         heartbeat: false,
+        heartbeat_texto: None,
     }
 }
 

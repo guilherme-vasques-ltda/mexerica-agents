@@ -50,15 +50,18 @@ impl Routines {
 
 impl Routines {
     pub(super) fn check_due(&self, store: &Store, ids: &[String], now: i64) {
+        let inicio = std::time::Instant::now();
         for id in ids {
-            if let Err(error) = self.check_one(store, id, now) {
+            // Uma fonte lenta atrasa as seguintes: cada consulta usa o horário dela, não o do tick.
+            let agora = now.saturating_add(i64::try_from(inicio.elapsed().as_millis()).unwrap_or(i64::MAX));
+            if let Err(error) = self.check_one(store, id, agora) {
                 tracing::warn!(routine = %id, error = format!("{error:#}"), "checagem silenciosa não foi gravada");
             }
         }
     }
 
     fn check_one(&self, store: &Store, id: &str, now: i64) -> Result<()> {
-        let (bot, declaracao, anterior) = {
+        let (bot, declaracao, anterior, geracao) = {
             let state = self.state.locked();
             if state.paused {
                 return Ok(());
@@ -67,32 +70,45 @@ impl Routines {
                 return Ok(());
             };
             let Some(declaracao) = &routine.heartbeat else { return Ok(()) };
-            (routine.bot_id.clone(), declaracao.clone(), routine.heartbeat_state.clone().unwrap_or_default())
+            (
+                routine.bot_id.clone(),
+                declaracao.clone(),
+                routine.heartbeat_state.clone().unwrap_or_default(),
+                routine.updated_at,
+            )
         };
         if !pode_checar(&anterior, &declaracao, now) || !self.checando.locked().insert(id.to_owned()) {
             return Ok(());
         }
         let _vaga = EmAndamento { routines: self, id };
-        let fonte: Arc<dyn Fonte> = self
-            .fontes
-            .locked()
-            .get(&(bot, declaracao.fonte.clone()))
-            .cloned()
-            .unwrap_or_else(|| Arc::new(Indisponivel(Motivo::SemAcesso)));
+        let chave = (bot, declaracao.fonte.clone());
+        let concedida = self.fontes.locked().get(&chave).cloned();
+        let fonte: Arc<dyn Fonte> = concedida.clone().unwrap_or_else(|| Arc::new(Indisponivel(Motivo::SemAcesso)));
         let saida = std::panic::catch_unwind(AssertUnwindSafe(|| avaliar(&*fonte, &declaracao, &anterior, now)))
             .unwrap_or_else(|_| avaliar(&Indisponivel(Motivo::Fora), &declaracao, &anterior, now));
         self.change(store, |s| {
-            // Pausa, revogação, exclusão ou outra declaração entre a leitura e a gravação: o resultado é descartado.
+            // Pausa, revogação, exclusão, outra edição (mesmo que desfeita depois) ou concessão da fonte retirada ou
+            // trocada entre a leitura e a gravação: o resultado é descartado.
             if s.paused {
                 return Ok(());
             }
-            let Some(routine) = s
-                .routines
-                .iter_mut()
-                .find(|r| r.id == id && !r.deleted && r.enabled && r.heartbeat.as_ref() == Some(&declaracao))
-            else {
+            let mantida = match (&concedida, self.fontes.locked().get(&chave)) {
+                (None, None) => true,
+                (Some(lida), Some(atual)) => Arc::ptr_eq(lida, atual),
+                _ => false,
+            };
+            let Some(routine) = s.routines.iter_mut().find(|r| {
+                r.id == id
+                    && !r.deleted
+                    && r.enabled
+                    && r.updated_at == geracao
+                    && r.heartbeat.as_ref() == Some(&declaracao)
+            }) else {
                 return Ok(());
             };
+            if !mantida {
+                return Ok(());
+            }
             routine.heartbeat_state = Some(saida.estado.clone());
             if let Some(run) = registro(routine, &saida, now) {
                 s.runs.push(run);
@@ -135,14 +151,22 @@ fn registro(routine: &Routine, saida: &Saida, now: i64) -> Option<Run> {
     run.finished_at = Some(now);
     // `Declared` só para que a falha mostre o texto acima; ninguém declarou nada, não houve IA.
     let source = if kind == Kind::Failed { Source::Declared } else { Source::Observed };
+    // O histórico guarda só o desfecho; o texto do aviso (fato e escolha, vindos da fonte) fica num campo privado que
+    // só a publicação lê e depois apaga, e que nenhuma listagem devolve.
+    let generico = match kind {
+        Kind::NeedsOwner => "Há uma decisão pendente.",
+        Kind::Failed => "A fonte não respondeu.",
+        _ => summary.as_str(),
+    };
     run.outcome = Some(Lenient::Ok(RunOutcome {
         version: 1,
         kind,
         source,
         reason: None,
-        summary: Some(summary),
+        summary: Some(generico.to_owned()),
         visible_reply: false,
     }));
+    run.heartbeat_texto = publicar.then_some(summary);
     run.report_pending = publicar;
     run.heartbeat = true;
     Some(run)

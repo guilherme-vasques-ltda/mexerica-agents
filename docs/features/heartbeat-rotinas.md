@@ -51,7 +51,12 @@ rodada por vez por rotina, e nunca antes do intervalo mínimo declarado. O Hub g
 checagem, o resumo do marcador e as pendências já avisadas; por isso o aviso não se repete depois de reiniciar. Só o
 resultado que importa vira execução no histórico (mudança sem decisão, decisão pendente e a primeira falha de uma
 sequência); `sem mudança` só atualiza a hora da última checagem, que aparece em `heartbeatStatus` na rotina. O texto
-do aviso (fato e escolha) vai ao dono pelo chat e pelo alerta do celular e sai do histórico depois de publicado.
+do aviso (fato e escolha) fica só num campo privado até ser publicado (nenhuma listagem o devolve), vai ao dono pelo
+chat e pelo alerta do celular e é apagado depois de publicado; o histórico guarda só o resultado.
+
+Só gatilhos de relógio (cron ou intervalo) valem para uma checagem; gatilho único é recusado. O alerta no celular é
+de melhor esforço: o aviso no chat é a confirmação durável. As fontes precisam limitar o próprio tempo de leitura e
+não entrar em pânico com conteúdo; uma fonte lenta atrasa as demais checagens do mesmo ciclo.
 
 Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
 de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só é lida pelo bot a que foi concedida.

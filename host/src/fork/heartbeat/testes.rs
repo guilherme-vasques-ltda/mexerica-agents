@@ -190,9 +190,9 @@ fn aviso_limita_e_limpa_o_texto_que_vem_de_fora() {
         .collect();
     let saida = avalia(&fonte, &Estado::default(), 1);
     let Some(Aviso::Decisao { itens, alem }) = saida.aviso else { panic!("esperava aviso") };
-    assert_eq!((itens.len(), alem), (5, 3));
+    assert_eq!((itens.len(), alem), (2, 6), "só cabem inteiras as pendências que o aviso comporta");
     assert!(
-        itens.iter().all(|(fato, _)| fato.chars().count() <= 160 && !fato.contains('\n') && !fato.contains('\u{7}'))
+        itens.iter().all(|(fato, _)| fato.chars().count() <= 120 && !fato.contains('\n') && !fato.contains('\u{7}'))
     );
     let guardado = serde_json::to_string(&saida.estado).unwrap();
     assert!(!guardado.contains("ignore") && !guardado.contains("arquivo"), "o estado não guarda conteúdo da fonte");
@@ -422,4 +422,31 @@ fn reduzir_o_intervalo_vale_na_hora_mesmo_depois_de_falha() {
     let estado = avaliar(&fonte, &longo(7 * 86_400), &Estado::default(), 0).estado;
     assert!(!pode_checar(&estado, &longo(7 * 86_400), 120_000));
     assert!(pode_checar(&estado, &longo(60), 120_000), "intervalo menor: a espera antiga não vale mais");
+}
+
+#[test]
+fn textos_longos_saem_um_por_aviso_e_nenhuma_pendencia_fica_escondida() {
+    let fonte = Ficticia::default();
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    *fonte.itens.lock().unwrap() = (0..4)
+        .map(|n| Item {
+            id: n.to_string(),
+            versao: "v".into(),
+            estado: "aguardando".into(),
+            fato: "fato ".repeat(60),
+            escolha: "escolha ".repeat(40),
+        })
+        .collect();
+    let mut estado = Estado::default();
+    let mut vistas = 0;
+    for volta in 1..=6 {
+        let saida = avalia(&fonte, &estado, volta * 1000);
+        if let Some(Aviso::Decisao { itens, alem }) = &saida.aviso {
+            assert_eq!(itens.len(), 1, "cada pendência longa cabe inteira, uma por aviso");
+            vistas += 1;
+            assert_eq!(*alem, 4 - vistas);
+        }
+        estado = saida.estado;
+    }
+    assert_eq!(vistas, 4);
 }

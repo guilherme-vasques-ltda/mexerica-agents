@@ -64,7 +64,9 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // ignora a lista; o novo não mostra a seção quando ela não vem.
 // Schema 54: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
 // silenciosa) ou `null`; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
-export const MIRROR_SCHEMA = 54
+// Schema 55: Heartbeat — a rotina traz `heartbeatStatus` (última checagem e situação da fonte) quando é uma checagem
+// silenciosa; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
+export const MIRROR_SCHEMA = 55
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

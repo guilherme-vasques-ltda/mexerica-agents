@@ -6,7 +6,7 @@ use crate::{LockExt, hub::Hub, store::Store};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-fn hub() -> Arc<Hub> {
+pub(super) fn hub() -> Arc<Hub> {
     let store = Store::open(std::path::Path::new(":memory:")).unwrap();
     store.save_bot(&serde_json::from_value(json!({"id":"bot","name":"Bot"})).unwrap()).unwrap();
     let dir = std::env::temp_dir().join(format!("heartbeat-rotina-{}", uuid::Uuid::new_v4()));
@@ -14,11 +14,11 @@ fn hub() -> Arc<Hub> {
     Hub::new(store, "fixture".into(), crate::remote::identity::Identity::load_or_create(&dir).unwrap(), "f".into(), 0)
 }
 
-fn declaracao() -> Value {
+pub(super) fn declaracao() -> Value {
     json!({"fonte":"pedidos.ficticio","escopo":"fila de compras","criterio":{"estados":["aguardando"]}})
 }
 
-fn corpo(extra: &Value) -> Value {
+pub(super) fn corpo(extra: &Value) -> Value {
     let mut corpo = json!({"name":"Checar pedidos","instruction":"Procure o pedido e envie um e-mail","triggers":[{"type":"interval","seconds":300}],"heartbeat":declaracao()});
     for (chave, valor) in extra.as_object().unwrap() {
         corpo[chave] = valor.clone();
@@ -26,7 +26,7 @@ fn corpo(extra: &Value) -> Value {
     corpo
 }
 
-fn salva(hub: &Hub, body: &Value) -> Value {
+pub(super) fn salva(hub: &Hub, body: &Value) -> Value {
     hub.routines.save(hub, "bot", body).unwrap()["routine"].clone()
 }
 
@@ -210,8 +210,13 @@ fn checa(hub: &Hub, id: &str, volta: i64) {
     hub.routines.check_due(&hub.store, &[id.to_owned()], volta * PASSO);
 }
 
-fn avisos(hub: &Hub) -> Vec<String> {
-    hub.routines.publish(hub).unwrap();
+pub(super) fn avisos(hub: &Hub) -> Vec<String> {
+    avisos_de(&hub.routines, hub)
+}
+
+/// Publica pelas `routines` dadas (por exemplo, as de um Hub reiniciado) e lista os avisos do chat.
+pub(super) fn avisos_de(routines: &Routines, hub: &Hub) -> Vec<String> {
+    routines.publish(hub).unwrap();
     hub.store
         .entries_since(0, 1000)
         .unwrap()
@@ -221,11 +226,11 @@ fn avisos(hub: &Hub) -> Vec<String> {
         .collect()
 }
 
-fn execucoes(hub: &Hub) -> Vec<Run> {
+pub(super) fn execucoes(hub: &Hub) -> Vec<Run> {
     hub.routines.state.locked().runs.clone()
 }
 
-fn estado(hub: &Hub, id: &str) -> crate::fork::heartbeat::Estado {
+pub(super) fn estado(hub: &Hub, id: &str) -> crate::fork::heartbeat::Estado {
     hub.routines.state.locked().routines.iter().find(|r| r.id == id).unwrap().heartbeat_state.clone().unwrap()
 }
 
@@ -432,7 +437,7 @@ fn dedup_e_ultima_checagem_sobrevivem_ao_reinicio() {
     }
     let rotina = reiniciado.state.locked().routines[0].clone();
     assert_eq!(rotina.heartbeat_state.unwrap().ultima.unwrap().em, 4 * PASSO);
-    assert_eq!(avisos(&hub).len(), 1, "depois do reinício a mesma pendência não é avisada de novo");
+    assert_eq!(avisos_de(&reiniciado, &hub).len(), 1, "depois do reinício a mesma pendência não é avisada de novo");
 }
 
 #[test]
@@ -545,4 +550,122 @@ fn webhook_recebido_nao_enfileira_execucao_de_checagem() {
     let resposta = hub.routines.receive(&hub, &id, &cabecalhos, br#"{"text":"oi"}"#).unwrap();
     assert!(resposta["ignored"].is_string(), "a entrega autenticada é ignorada: {resposta}");
     assert!(hub.routines.state.locked().runs.is_empty());
+}
+
+fn item_aguardando() -> Item {
+    Item {
+        id: "1".into(),
+        versao: "v".into(),
+        estado: "aguardando".into(),
+        fato: "Pedido 1".into(),
+        escolha: "Aprovar".into(),
+    }
+}
+
+#[test]
+fn concessao_retirada_ou_trocada_no_meio_da_leitura_descarta_o_resultado() {
+    struct Revoga(Arc<Hub>, bool);
+    impl Fonte for Revoga {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            if self.1 {
+                self.0.routines.retirar_fonte("bot", "pedidos.ficticio");
+            } else {
+                self.0.routines.registrar_fonte("bot", "pedidos.ficticio", Arc::new(Ficticia::default()));
+            }
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![item_aguardando()])
+        }
+    }
+    for retirar in [true, false] {
+        let hub = hub();
+        let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+        hub.routines.registrar_fonte("bot", "pedidos.ficticio", Arc::new(Revoga(hub.clone(), retirar)));
+        checa(&hub, &id, 1);
+        assert!(execucoes(&hub).is_empty(), "retirar={retirar}");
+        assert!(hub.routines.state.locked().routines[0].heartbeat_state.is_none());
+        assert_eq!(avisos(&hub).len(), 0);
+    }
+}
+
+#[test]
+fn pausa_e_religa_no_meio_da_leitura_tambem_descarta() {
+    struct PausaReliga(Arc<Hub>, String);
+    impl Fonte for PausaReliga {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.routines.set_enabled(&self.0.store, "bot", &self.1, false).unwrap();
+            self.0.routines.set_enabled(&self.0.store, "bot", &self.1, true).unwrap();
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![item_aguardando()])
+        }
+    }
+    let hub = hub();
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", Arc::new(PausaReliga(hub.clone(), id.clone())));
+    checa(&hub, &id, 1);
+    assert!(execucoes(&hub).is_empty());
+    assert_eq!(avisos(&hub).len(), 0);
+}
+
+#[test]
+fn rodada_da_mesma_rotina_dentro_da_leitura_e_recusada() {
+    struct Aninha(Arc<Hub>, std::sync::Mutex<String>, std::sync::atomic::AtomicUsize);
+    impl Fonte for Aninha {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.2.fetch_add(1, Ordering::SeqCst);
+            let id = self.1.lock().unwrap().clone();
+            self.0.routines.check_due(&self.0.store, &[id], 99 * PASSO);
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![])
+        }
+    }
+    let hub = hub();
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    let fonte =
+        Arc::new(Aninha(hub.clone(), std::sync::Mutex::new(id.clone()), std::sync::atomic::AtomicUsize::new(0)));
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", fonte.clone());
+    checa(&hub, &id, 1);
+    assert_eq!(fonte.2.load(Ordering::SeqCst), 1, "a rodada aninhada não consultou a fonte");
+}
+
+#[test]
+fn texto_do_aviso_nao_sai_na_listagem_nem_fica_depois_de_publicado() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    let lista = hub.routines.list("bot").to_string();
+    assert!(!lista.contains("Pedido 7") && !lista.contains("Aprovar"), "{lista}");
+    assert_eq!(avisos(&hub).len(), 1);
+    assert!(execucoes(&hub).iter().all(|r| r.heartbeat_texto.is_none()));
+    let guardado = hub.store.kv_read("routines.v1").unwrap().unwrap();
+    assert!(!guardado.contains("Pedido 7"));
+}
+
+#[test]
+fn checagem_nao_aceita_gatilho_unico() {
+    let hub = hub();
+    let em_uma_hora = crate::store::now_ms() + 3_600_000;
+    let erro =
+        hub.routines.save(&hub, "bot", &corpo(&json!({"triggers":[{"type":"once","at": em_uma_hora}]}))).unwrap_err();
+    assert_eq!(erro.to_string(), SO_NO_HORARIO);
+}
+
+#[test]
+fn desfazer_edicao_de_time_preserva_o_progresso_da_checagem() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    let antes = hub.routines.team_snapshot("bot");
+    fonte.define(&[("7", "v1", "aguardando"), ("8", "v1", "aguardando")]);
+    checa(&hub, &id, 2);
+    let atual = hub.routines.team_snapshot("bot");
+    hub.routines.restore_team("bot", &atual, &antes, |_| Ok(())).unwrap();
+    assert_eq!(estado(&hub, &id).ultima.unwrap().em, 2 * PASSO, "o estado mais recente fica");
+    checa(&hub, &id, 3);
+    assert_eq!(avisos(&hub).len(), 2, "uma pendência por avisar de cada vez, nenhuma repetida depois de desfazer");
 }

@@ -262,7 +262,12 @@ impl Routines {
             let state = self.state.locked();
             state.runs.iter().filter(|r| r.report_pending).map(|r| (routine_name(&state, &r.id), r.clone())).collect()
         };
-        for (name, run) in pending {
+        for (name, mut run) in pending {
+            if let (Some(texto), Some(crate::fork::rotina_resultado::Lenient::Ok(outcome))) =
+                (run.heartbeat_texto.take(), &mut run.outcome)
+            {
+                outcome.summary = Some(texto);
+            }
             let publication = crate::fork::rotina_resultado::publication(
                 run.outcome.as_ref(),
                 run.status,
@@ -280,12 +285,7 @@ impl Routines {
                 if let Some(r) = s.runs.iter_mut().find(|r| r.id == run.id) {
                     r.report_pending = false;
                     r.result = None;
-                    // O fato e a escolha do aviso vão ao dono e ao chat; o histórico guarda só o resultado.
-                    if r.heartbeat
-                        && let Some(crate::fork::rotina_resultado::Lenient::Ok(outcome)) = &mut r.outcome
-                    {
-                        outcome.summary = None;
-                    }
+                    r.heartbeat_texto = None;
                 }
                 Ok(())
             })?;
