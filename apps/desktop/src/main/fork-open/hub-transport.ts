@@ -1,6 +1,20 @@
 import { request, type IncomingMessage } from 'node:http'
 import type { Readable } from 'node:stream'
 
+export function isLoginPageURL(url: unknown): url is string {
+  return url === 'https://auth.openai.com/codex/device'
+}
+
+export function loginPageDeadline(result: unknown, now: number): number {
+  if (!result || typeof result !== 'object') return 0
+  const { phase, expiresAt, challenge } = result as Record<string, unknown>
+  if (phase !== 'awaiting_authorization' || typeof expiresAt !== 'number' ||
+      !Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > now + 600_000 ||
+      !challenge || typeof challenge !== 'object') return 0
+  const { kind, url } = challenge as Record<string, unknown>
+  return kind === 'device_code' && isLoginPageURL(url) ? expiresAt : 0
+}
+
 export function openApiPath(method: unknown) {
   return typeof method === 'string' && /^[A-Za-z][A-Za-z0-9]{0,79}(?![\s\S])/.test(method) ? `/api/${method}` : null
 }

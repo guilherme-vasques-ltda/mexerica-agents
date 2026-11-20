@@ -346,6 +346,12 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Result<Value>
     let authority = super::engine_setup::access::resolve(hub, caller)?;
     let query: Query = serde_json::from_value(body)
         .map_err(|_| anyhow!("invalid_field: a consulta de contas aceita somente refresh booleano opcional."))?;
+    if crate::environment::Environment::is_open() {
+        super::engine_setup::require_local(caller)?;
+        let mut registry = Registry::load(&hub.store)?;
+        registry.accounts.retain(super::engine_setup::is_open_account);
+        return registry.response_with_bots(&hub.store);
+    }
     let value = read_authorized(&DISCOVERY, hub, query.refresh, probe::discover(&hub.store), &authority)
         .await
         .map_err(|_| anyhow!("accounts_unavailable: não foi possível consultar contas; configuração preservada."))?;
