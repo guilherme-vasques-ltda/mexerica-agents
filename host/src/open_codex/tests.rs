@@ -111,6 +111,9 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     let args: Vec<_> = std.get_args().collect();
     assert_eq!(args.last().copied(), Some(fixture.executable.as_os_str()));
     assert!(POLICY.contains("(deny default)"));
+    assert!(POLICY.contains("(allow file-read* file-map-executable\n  (literal (param \"CODEX\"))"));
+    assert!(POLICY.contains("(subpath \"/System/Volumes/Preboot/Cryptexes/OS\")"));
+    assert!(!POLICY.contains("(subpath \"/System/Volumes/Data\")"));
     assert!(!LOGIN_NETWORK.contains("securityd"));
 }
 
@@ -139,14 +142,18 @@ async fn macos_login_sandbox_denies_personal_and_dev_files_even_through_a_link()
 #include <fcntl.h>
 #include <unistd.h>
 int main(int argc, char **argv) {
+  if (argc == 1) return 0;
   if (argc != 5) return 1;
+  const char marker[] = "auxiliar nativo chegou a main\n";
+  (void)write(STDOUT_FILENO, marker, sizeof(marker) - 1);
   int fd = open(argv[1], O_RDONLY);
   char byte = 0;
   if (fd < 0 || read(fd, &byte, 1) != 1 || byte != 'o') return 2;
   close(fd);
   for (int i = 2; i < argc; ++i) {
     fd = open(argv[i], O_RDONLY);
-    if (fd >= 0 || (errno != EPERM && errno != EACCES)) return 3;
+    if (fd >= 0) return 10 + i;
+    if (errno != EPERM && errno != EACCES) return 20 + i;
   }
   return 0;
 }"#,
@@ -161,8 +168,18 @@ int main(int argc, char **argv) {
             .unwrap()
             .success()
     );
+    assert!(
+        std::process::Command::new(&fixture.executable).status().unwrap().success(),
+        "o auxiliar fictício não chegou a main no controle sem sandbox"
+    );
     let mut sandbox = command(&fixture.executable, &profile, true).unwrap();
-    sandbox.arg(open_file).args(files).arg(redirect);
+    sandbox
+        .arg(open_file)
+        .args(files)
+        .arg(redirect)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
     let status = tokio::time::timeout(std::time::Duration::from_secs(10), sandbox.status()).await.unwrap().unwrap();
     assert!(status.success(), "sandbox ou prova nativa recusada: {status}");
 }
