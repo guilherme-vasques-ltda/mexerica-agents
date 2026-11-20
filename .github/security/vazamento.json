@@ -14,7 +14,7 @@
     "guilherme-vasques-ltda.github.io"
   ],
   "excecoesTermo": [],
-  "genericUsers": ["you", "user", "usuario", "username", "seu-usuario", "shared", "$USER", "${USER}", "<usuario>", "<user>", "<nome>", "<username>", "<seu-usuario>", "runner", "ubuntu", "node", "vscode"],
+  "genericUsers": ["you", "user", "example", "exemplo", "usuario", "username", "seu-usuario", "shared", "$USER", "${USER}", "<usuario>", "<user>", "<nome>", "<username>", "<seu-usuario>", "runner", "ubuntu", "node", "vscode"],
   "placeholderValues": ["example", "exemplo", "placeholder", "your", "your_id", "your_key", "your_token", "test", "dummy"],
   "limits": ["Somente arquivos com byte NUL são considerados binários; submódulos não são analisados.", "Arquivos .env e arquivos de chaves geram arquivo-sensivel pelo caminho, sem ler o conteúdo.", "Termos pessoais só são verificados quando fornecidos pelo secret; o inventário inicial contém apenas regras públicas."]
 }
