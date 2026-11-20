@@ -626,7 +626,11 @@ fn rename_flagged(source: &Path, dest: &Path, swap: bool) -> Result<()> {
             fs::rename(&old, dest).context("Troca de pastas interrompida; versão anterior mantida em .old-*")?;
             return Err(error.into());
         }
-        Ok(fs::rename(&old, source)?)
+        // `dest` já tem a versão nova; levar a antiga para o stage é só limpeza, em melhor esforço.
+        if fs::rename(&old, source).is_err() {
+            let _ = fs::remove_dir_all(&old);
+        }
+        Ok(())
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
