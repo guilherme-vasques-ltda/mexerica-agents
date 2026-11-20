@@ -34,6 +34,12 @@ impl Drop for Host {
 impl Host {
     async fn start() -> Self {
         let home = std::env::temp_dir().join(format!("hub-reinicio-e2e-{}", uuid::Uuid::new_v4()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&home).unwrap();
+        }
+        #[cfg(not(unix))]
         std::fs::create_dir_all(&home).unwrap();
         let workspaces = Workspaces::new(&home);
         let (child, base) = common::serve(&home).await;

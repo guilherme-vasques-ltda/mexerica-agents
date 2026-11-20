@@ -82,6 +82,47 @@ async fn texto_antes_de_aprovacao_sem_resposta_fica_interrompido_e_o_cartao_segu
 }
 
 #[tokio::test]
+async fn selagem_que_falhou_antes_da_ferramenta_nao_vira_resposta_final() {
+    let (hub, mut actor, dir) = fixture();
+    actor.append(SegKind::Text, "metade ");
+    actor.append(SegKind::Text, "e o resto");
+    let id = actor.last_text.clone().unwrap();
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "CREATE TRIGGER sem_disco BEFORE UPDATE ON entries BEGIN SELECT RAISE(FAIL, 'disco cheio'); END;",
+        )
+        .unwrap();
+    actor.on_update(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Ler", "status": "pending"}));
+    hub.store.db.locked().execute_batch("DROP TRIGGER sem_disco;").unwrap();
+    actor.on_update(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"}));
+    actor.finish_turn(&Ok(json!({"stopReason": "end_turn"})));
+    let data = hub.store.entry(&id).unwrap().data;
+    assert_ne!(data["final"], true, "o texto velho no disco não vira resposta final: {data}");
+    assert_eq!(data["interrupted"], true, "{data}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn resposta_a_outro_bot_cortada_fica_na_trilha() {
+    let (hub, _actor, dir) = fixture();
+    let text = hub
+        .store
+        .insert_entry(
+            &Lane::main("b"),
+            EntryKind::Agent,
+            1,
+            &json!({"text": "Para o outro bot", "final": false, "streaming": true, "delegated": true}),
+        )
+        .unwrap();
+    hub.store.interrupt_open_work().unwrap();
+    let data = hub.store.entry(&text.id).unwrap().data;
+    assert!(data.get("interrupted").is_none() && data.get("streaming").is_none(), "{data}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn fim_que_nao_chegou_ao_disco_nao_promove_a_versao_antiga() {
     let (hub, mut actor, dir) = fixture();
     actor.append(SegKind::Text, "metade ");

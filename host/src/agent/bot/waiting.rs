@@ -365,6 +365,14 @@ impl Actor {
         let reset = resets_at
             .or_else(|| subscription::usage_reset(&self.hub.usage.locked(), &backend, self.cfg.model.as_deref(), now));
         self.close_seg();
+        // A tentativa cortada pelo limite fica na conversa como interrompida, como no fim de turno sem espera.
+        if self.sent.is_empty()
+            && matches!(self.reacted, super::Reacted::No)
+            && !self.active_request.as_ref().is_some_and(crate::chat::team::BotRequest::expects_reply)
+            && let Some(id) = self.last_text.clone()
+        {
+            self.mark_interrupted(&id);
+        }
         self.files.cancel();
         self.close_turn_work(true);
         let had_waiting = self.waiting.is_some();

@@ -105,6 +105,11 @@ test('resposta interrompida leva a ferramenta cortada depois dela, sem deixar pa
   const { byReply, pending } = stepsByReply([text, tool])
   assert.deepEqual(byReply.get('cut')?.steps.map((s) => s.id), ['tool'])
   assert.equal(pending.size, 0)
+  // Nova tentativa do mesmo turno depois do reinício: o passo vivo não vai para a bolha interrompida.
+  const again = entry('again', 'tool', 1, 3, { author: 'A', title: 'Ler', status: 'in_progress' })
+  const resumed = stepsByReply([text, tool, again])
+  assert.equal(resumed.byReply.size, 0)
+  assert.deepEqual([...resumed.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
 })
 
 test('turno sem final não vira atividade do pedido seguinte; histórico final e autores são preservados', () => {

@@ -799,7 +799,7 @@ impl Actor {
         if !same {
             self.close_seg();
             let (k, data) = match kind {
-                SegKind::Text => (EntryKind::Agent, json!({"text": text, "final": false, "streaming": true})),
+                SegKind::Text => (EntryKind::Agent, self.reply_data(text, true)),
                 SegKind::Thought => (EntryKind::Thought, json!({"text": text})),
             };
             if let Some(e) = self.add(k, self.turn.unwrap_or(0), data) {
@@ -825,20 +825,21 @@ impl Actor {
     /// Texto de resposta ainda aberto leva `streaming`: se o Hub cair antes de fechá-lo, a varredura do início
     /// (`Store::interrupt_open_work`) o marca como interrompido. Gravação que falha não conta como gravada.
     fn flush_in_execution(&mut self, force: bool, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
-        if let Seg::Open { kind, entry_id, buf, flushed, dirty } = &mut self.seg
-            && *dirty
-            && (force || flushed.elapsed() >= Duration::from_millis(300))
-        {
-            let data = match kind {
-                SegKind::Text => json!({"text": buf, "final": false, "streaming": true, "author": self.cfg.id}),
-                SegKind::Thought => json!({"text": buf, "author": self.cfg.id}),
-            };
-            if self.hub.set_entry_in_execution(entry_id, &data, execution).is_none() {
-                if execution.is_some() {
-                    bail!("chamada vencida: segmento não confirmado");
-                }
-                return Ok(());
+        let Seg::Open { kind, entry_id, buf, flushed, dirty } = &self.seg else { return Ok(()) };
+        if !*dirty || !(force || flushed.elapsed() >= Duration::from_millis(300)) {
+            return Ok(());
+        }
+        let data = match kind {
+            SegKind::Text => self.reply_data(buf, true),
+            SegKind::Thought => json!({"text": buf, "author": self.cfg.id}),
+        };
+        if self.hub.set_entry_in_execution(entry_id, &data, execution).is_none() {
+            if execution.is_some() {
+                bail!("chamada vencida: segmento não confirmado");
             }
+            return Ok(());
+        }
+        if let Seg::Open { flushed, dirty, .. } = &mut self.seg {
             *flushed = Instant::now();
             *dirty = false;
         }
@@ -850,7 +851,7 @@ impl Actor {
     fn seal_seg_in_execution(&mut self, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
         let Seg::Open { kind, entry_id, buf, dirty, .. } = &self.seg else { return Ok(()) };
         let data = match kind {
-            SegKind::Text => json!({"text": buf, "final": false, "author": self.cfg.id}),
+            SegKind::Text => self.reply_data(buf, false),
             SegKind::Thought if *dirty => json!({"text": buf, "author": self.cfg.id}),
             SegKind::Thought => {
                 self.seg = Seg::None;
@@ -874,16 +875,30 @@ impl Actor {
         self.seal_seg_in_execution(None).is_ok()
     }
 
-    /// Resposta cortada (Stop, erro ou desligamento) fica na trilha como interrompida, nunca como resposta final.
-    pub(super) fn mark_interrupted(&self, entry_id: &str) {
-        if let Some(mut entry) = self.hub.store.entry(entry_id)
-            && entry.data["final"] != true
-            && let Some(data) = entry.data.as_object_mut()
-        {
-            data.remove("streaming");
-            data.insert("interrupted".into(), true.into());
-            self.hub.set_entry(entry_id, &entry.data);
+    /// Texto de resposta: `streaming` enquanto o trecho está aberto; `delegated` quando a resposta vai a outro bot
+    /// (`ask_bot`), para o corte nunca a mostrar na conversa do dono.
+    fn reply_data(&self, text: &str, streaming: bool) -> Value {
+        let mut data = json!({"text": text, "final": false, "author": self.cfg.id});
+        if streaming {
+            data["streaming"] = true.into();
         }
+        if self.active_request.as_ref().is_some_and(crate::chat::team::BotRequest::expects_reply) {
+            data["delegated"] = true.into();
+        }
+        data
+    }
+
+    /// Resposta cortada (Stop, erro ou desligamento) fica na trilha como interrompida, nunca como resposta final.
+    /// `false` quando a marca não chegou ao disco: o trecho segue com `streaming` e a varredura sem ator o marca.
+    pub(super) fn mark_interrupted(&self, entry_id: &str) -> bool {
+        let Some(mut entry) = self.hub.store.entry(entry_id) else { return false };
+        if entry.data["final"] == true {
+            return false;
+        }
+        let Some(data) = entry.data.as_object_mut() else { return false };
+        data.remove("streaming");
+        data.insert("interrupted".into(), true.into());
+        self.hub.set_entry(entry_id, &entry.data).is_some()
     }
 }
 

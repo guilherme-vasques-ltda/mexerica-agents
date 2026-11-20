@@ -584,8 +584,16 @@ impl Actor {
             *used = Instant::now();
         }
         self.files.cancel();
-        let sealed = self.close_seg();
         let stopped = self.stop_requested || matches!(&done, Ok(v) if v["stopReason"] == "cancelled");
+        // Turno cortado: o trecho aberto vai inteiro para o disco ainda com `streaming`, que só a marca de interrompida
+        // tira; se ela falhar, a varredura sem ator marca depois.
+        let cut_early = stopped || done.is_err() || limited;
+        let sealed = if cut_early {
+            self.flush(true);
+            !matches!(self.seg, Seg::Open { dirty: true, .. })
+        } else {
+            self.close_seg()
+        };
         self.close_turn_work(stopped || done.is_err() || limited);
         let mut final_text = None;
         // R1: a entrada `agent` que originou a resposta, só referência (sem copiar o texto).
@@ -606,11 +614,16 @@ impl Actor {
             // A reaction (or one it held back) was its whole reply: what it wrote stays in the trace too.
             self.last_text = None;
         }
-        let cut = stopped || done.is_err() || limited || !sealed;
         let last_text = self.last_text.take();
-        if cut && let Some(id) = &last_text {
-            self.mark_interrupted(id);
+        // Fim que ficou só na memória (selagem que falhou em algum trecho do turno): o disco ainda diz `streaming`.
+        let unsealed =
+            last_text.as_ref().and_then(|id| self.hub.store.entry(id)).is_some_and(|e| e.data["streaming"] == true);
+        let cut = cut_early || !sealed || unsealed;
+        let marked = cut && !delegated && last_text.as_ref().is_some_and(|id| self.mark_interrupted(id));
+        if !marked {
+            self.close_seg();
         }
+        self.seg = Seg::None;
         if let Some(id) = last_text.filter(|_| !cut)
             && let Some(mut e) = self.hub.store.entry(&id)
         {

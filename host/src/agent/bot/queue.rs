@@ -361,9 +361,15 @@ impl Actor {
                 // ficam sem resposta e o motor é encerrado. O corte é marcado depois, sem ator vivo.
                 let queued = self.conn.as_ref().map_or(0, |c| c.rx.len());
                 for _ in 0..queued {
-                    let Some(crate::agent::acp::Incoming::Notification { method, params }) =
-                        self.conn.as_mut().and_then(|c| c.rx.try_recv().ok())
-                    else {
+                    let Some(incoming) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) else { continue };
+                    let crate::agent::acp::Incoming::Notification { method, params } = incoming else {
+                        if let crate::agent::acp::Incoming::Request { method, .. } = incoming {
+                            tracing::warn!(
+                                bot = self.cfg.id,
+                                method,
+                                "pedido do motor sem resposta: o Hub está desligando"
+                            );
+                        }
                         continue;
                     };
                     if method == "session/update"
