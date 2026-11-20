@@ -69,7 +69,7 @@ pub(crate) struct Link {
 pub(super) static PAUSE_AFTER_RESTORE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Menor credencial que dá para achar no texto sem estragá-lo: abaixo disto a conversa não é guardada.
-const MIN_SECRET_LEN: usize = 8;
+pub(super) const MIN_SECRET_LEN: usize = 8;
 
 /// Provedor do modelo `provider/model` ou do nome (`gemini-*` → google,
 /// `gpt-*`/`o*` → openai). Sem provedor reconhecido, falha fechada.
