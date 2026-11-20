@@ -845,7 +845,8 @@ impl Actor {
         Ok(())
     }
 
-    /// Fecha o trecho aberto gravando o texto inteiro; a resposta fechada perde `streaming`.
+    /// Fecha o trecho aberto gravando o texto inteiro; a resposta fechada perde `streaming`. Falha ao gravar o fim é
+    /// erro: quem fecha o turno não promove a versão antiga.
     fn seal_seg_in_execution(&mut self, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
         let Seg::Open { kind, entry_id, buf, dirty, .. } = &self.seg else { return Ok(()) };
         let data = match kind {
@@ -856,18 +857,21 @@ impl Actor {
                 return Ok(());
             }
         };
-        if self.hub.set_entry_in_execution(entry_id, &data, execution).is_none() {
-            if execution.is_some() {
-                bail!("chamada vencida: segmento não confirmado");
-            }
+        let written = self.hub.set_entry_in_execution(entry_id, &data, execution).is_some();
+        if !written && execution.is_some() {
+            bail!("chamada vencida: segmento não confirmado");
+        }
+        if !written {
             tracing::error!(entry = entry_id, "não foi possível gravar o fim do trecho");
         }
         self.seg = Seg::None;
+        anyhow::ensure!(written, "fim do trecho não gravado");
         Ok(())
     }
 
-    pub(super) fn close_seg(&mut self) {
-        let _ = self.seal_seg_in_execution(None);
+    /// Fecha o trecho aberto; `false` quando o fim do texto não chegou ao disco.
+    pub(super) fn close_seg(&mut self) -> bool {
+        self.seal_seg_in_execution(None).is_ok()
     }
 
     /// Resposta cortada (Stop, erro ou desligamento) fica na trilha como interrompida, nunca como resposta final.

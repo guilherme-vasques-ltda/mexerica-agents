@@ -575,31 +575,69 @@ impl Store {
         Ok(ids.len())
     }
 
-    /// Sem ator vivo (início do Hub ou fim do desligamento) ninguém continua a escrever: o trecho de resposta que
-    /// ficou aberto vira interrompido, nunca final, e a ferramenta sem desfecho vira falha interrompida. Nada é
-    /// reenviado ao motor.
+    /// Sem ator vivo (início do Hub ou fim do desligamento) ninguém continua a escrever. Num turno cortado (trecho de
+    /// resposta ainda aberto ou ferramenta sem desfecho), a última resposta vira interrompida, nunca final, e a
+    /// ferramenta sem desfecho vira falha interrompida. A conversa cujo turno ainda pertence à espera da assinatura fica
+    /// com ela. Nada é reenviado ao motor.
     pub fn interrupt_open_work(&self) -> Result<usize> {
-        let ids: Vec<String> = {
-            let c = self.db.locked();
-            let mut st = c.prepare(
-                "SELECT id FROM entries WHERE (kind = 'agent' AND json_extract(data, '$.streaming') = 1
-                    AND COALESCE(json_extract(data, '$.final'), 0) = 0)
-                  OR (kind = 'tool' AND json_extract(data, '$.status') IN ('pending', 'in_progress'))",
-            )?;
-            st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
-        };
-        for id in &ids {
-            let Some(mut e) = self.entry(id) else { continue };
+        let mut owned = std::collections::BTreeSet::new();
+        for key in self.kv_prefix("turn.waiting.") {
+            let Some(bot) = key.strip_prefix("turn.waiting.") else { continue };
+            if let Some(waiting) = crate::agent::bot::read_waiting_checkpoint(self, bot)?
+                && waiting["phase"] != "finished"
+                && let Some(chat) = waiting["input"]["chat"].as_str()
+            {
+                owned.insert(chat.to_owned());
+            }
+        }
+        let mut db = self.db.locked();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let open: Vec<Entry> = tx
+            .prepare(&format!(
+                "SELECT {ENTRY_COLS} FROM entries WHERE kind IN ('agent', 'tool') AND json_valid(data)
+                  AND ((kind = 'agent' AND json_extract(data, '$.streaming') = 1)
+                    OR (kind = 'tool' AND json_extract(data, '$.status') IN ('pending', 'in_progress')))"
+            ))?
+            .query_map([], row_entry)?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|e| !owned.contains(&e.bot_id))
+            .collect();
+        let turns: std::collections::BTreeSet<_> =
+            open.iter().map(|e| (e.bot_id.clone(), e.session_id.clone(), e.turn)).collect();
+        let mut changed = 0;
+        for mut e in open {
             let Some(data) = e.data.as_object_mut() else { continue };
             if e.kind == EntryKind::Tool.as_str() {
                 data.insert("status".into(), "failed".into());
+                data.insert("interrupted".into(), true.into());
             } else {
                 data.remove("streaming");
             }
-            data.insert("interrupted".into(), true.into());
-            self.update_entry(id, &e.data)?;
+            Self::update_entry_on(&tx, &e.id, &e.data, None)?;
+            changed += 1;
         }
-        Ok(ids.len())
+        for (chat, session, turn) in turns {
+            let last = tx
+                .query_row(
+                    &format!(
+                        "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND COALESCE(session, bot_id) = ?2
+                          AND turn = ?3 AND kind = 'agent' AND json_valid(data) ORDER BY seq DESC LIMIT 1"
+                    ),
+                    params![chat, session, turn],
+                    row_entry,
+                )
+                .optional()?;
+            if let Some(mut last) = last.filter(|e| e.data["final"] != true && e.data["interrupted"] != true)
+                && let Some(data) = last.data.as_object_mut()
+            {
+                data.insert("interrupted".into(), true.into());
+                Self::update_entry_on(&tx, &last.id, &last.data, None)?;
+                changed += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 }
 

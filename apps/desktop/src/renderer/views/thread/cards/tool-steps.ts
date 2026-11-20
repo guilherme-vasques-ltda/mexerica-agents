@@ -87,7 +87,7 @@ export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, 
       const list = steps.get(k) ?? []
       list.push({ id: e.id, title: e.data.title ?? '', kind: e.data.toolKind ?? 'other', state: stepState(e.data.status), at: e.createdAt })
       steps.set(k, list)
-    } else if (e.kind === 'agent' && e.data.final === true) {
+    } else if (e.kind === 'agent' && (e.data.final === true || e.data.interrupted === true)) {
       lastReply.set(k, e)
     }
   }

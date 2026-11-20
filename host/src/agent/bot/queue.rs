@@ -357,7 +357,11 @@ impl Actor {
                 }
             }
             Cmd::Shutdown => {
-                // O que chegou depois do último tick vai para o disco; o corte é marcado depois, sem ator vivo.
+                // O que o motor já mandou e o que chegou depois do último tick vão para o disco; o corte é marcado
+                // depois, sem ator vivo.
+                while let Some(inc) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) {
+                    self.on_incoming(Some(inc)).await;
+                }
                 self.flush(true);
                 return false;
             }

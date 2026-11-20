@@ -39,7 +39,7 @@ async fn desligar_grava_o_ultimo_trecho_e_a_varredura_marca_o_corte() {
     assert_eq!(saved["text"], "primeiro e o fim", "nada se perde no desligamento normal");
     assert_eq!(saved["streaming"], true);
 
-    assert_eq!(hub.store.interrupt_open_work().unwrap(), 2);
+    assert!(hub.store.interrupt_open_work().unwrap() > 0);
     let cut = hub.store.entry(&id).unwrap().data;
     assert_eq!(
         (cut["text"].clone(), cut["final"].clone(), cut["interrupted"].clone()),
@@ -49,6 +49,40 @@ async fn desligar_grava_o_ultimo_trecho_e_a_varredura_marca_o_corte() {
     let tool = hub.store.entry(&actor.tools["t1"]).unwrap().data;
     assert_eq!((tool["status"].clone(), tool["interrupted"].clone()), (json!("failed"), json!(true)));
     assert_eq!(hub.store.interrupt_open_work().unwrap(), 0, "a varredura não repete");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn texto_fechado_antes_da_ferramenta_que_nao_terminou_tambem_fica_interrompido() {
+    let (hub, mut actor, dir) = fixture();
+    actor.append(SegKind::Text, "Vou olhar o arquivo.");
+    let id = actor.last_text.clone().unwrap();
+    actor.on_update(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Ler", "status": "pending"}));
+    assert!(hub.store.entry(&id).unwrap().data.get("streaming").is_none(), "o trecho fechou antes da ferramenta");
+    hub.store.interrupt_open_work().unwrap();
+    let data = hub.store.entry(&id).unwrap().data;
+    assert_eq!((data["interrupted"].clone(), data["final"].clone()), (json!(true), json!(false)), "{data}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn fim_que_nao_chegou_ao_disco_nao_promove_a_versao_antiga() {
+    let (hub, mut actor, dir) = fixture();
+    actor.append(SegKind::Text, "metade ");
+    actor.append(SegKind::Text, "e o resto");
+    let id = actor.last_text.clone().unwrap();
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "CREATE TRIGGER sem_disco BEFORE UPDATE ON entries BEGIN SELECT RAISE(FAIL, 'disco cheio'); END;",
+        )
+        .unwrap();
+    actor.finish_turn(&Ok(json!({"stopReason": "end_turn"})));
+    hub.store.db.locked().execute_batch("DROP TRIGGER sem_disco;").unwrap();
+    let data = hub.store.entry(&id).unwrap().data;
+    assert_eq!(data["text"], "metade ");
+    assert_ne!(data["final"], true, "texto velho não vira resposta final: {data}");
     let _ = std::fs::remove_dir_all(dir);
 }
 

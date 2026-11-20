@@ -584,7 +584,7 @@ impl Actor {
             *used = Instant::now();
         }
         self.files.cancel();
-        self.close_seg();
+        let sealed = self.close_seg();
         let stopped = self.stop_requested || matches!(&done, Ok(v) if v["stopReason"] == "cancelled");
         self.close_turn_work(stopped || done.is_err() || limited);
         let mut final_text = None;
@@ -606,7 +606,7 @@ impl Actor {
             // A reaction (or one it held back) was its whole reply: what it wrote stays in the trace too.
             self.last_text = None;
         }
-        let cut = stopped || done.is_err();
+        let cut = stopped || done.is_err() || limited || !sealed;
         let last_text = self.last_text.take();
         if cut && let Some(id) = &last_text {
             self.mark_interrupted(id);
