@@ -75,7 +75,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const [channel, value] of Object.entries(state)) ipcMain.handle(channel, () => value)
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
-      { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'selectAll' }] },
+      { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { role: 'windowMenu', submenu: [{ role: 'close' }, { role: 'minimize' }] },
     ]))
     openWindow()

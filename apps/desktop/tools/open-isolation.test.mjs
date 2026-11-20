@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -77,4 +77,11 @@ test('a janela só pede arquivos empacotados, sem rede nem esquemas externos', (
   assert.equal(isOpenAsset(root, 'http://127.0.0.1:19422/'), false)
   assert.equal(isOpenAsset(root, 'ws://127.0.0.1:19423/'), false)
   assert.equal(isOpenAsset(root, 'donnabot://anything'), false)
+})
+
+test('a Open usa papéis nativos de edição sem ponte para a área de transferência', () => {
+  const main = readFileSync(new URL('../src/main/fork-open/main.ts', import.meta.url), 'utf8')
+  const submenu = /\{ role: 'editMenu', submenu: \[([^\]]+)\]/.exec(main)?.[1] ?? ''
+  assert.deepEqual([...submenu.matchAll(/role: '([^']+)'/g)].map(([, role]) => role), ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'])
+  assert.doesNotMatch(main, /\bclipboard\b|['"]app:copy['"]/)
 })
