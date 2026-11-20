@@ -297,12 +297,13 @@ fn unit_state(hub: &User, query: &str) -> Result<bool> {
 
 /// Consulta ao systemd do usuário com prazo: passado o prazo, o processo é encerrado e colhido.
 fn query_until(hub: &User, args: &[&str], deadline: std::time::Instant) -> Result<Output> {
-    use std::io::Read;
+    use std::{io::Read, os::unix::process::CommandExt};
     let mut child = user_command(hub, system("systemctl")?)?
         .arg("--user")
         .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
+        .process_group(0)
         .spawn()?;
     loop {
         if let Some(status) = child.try_wait()? {
@@ -313,7 +314,11 @@ fn query_until(hub: &User, args: &[&str], deadline: std::time::Instant) -> Resul
             return Ok(Output { status, stdout, stderr: Vec::new() });
         }
         if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
+            // runuser executa o systemctl num filho: o grupo inteiro é encerrado.
+            if let Ok(pgid) = i32::try_from(child.id()) {
+                // SAFETY: sinal ao grupo criado só para esta consulta.
+                unsafe { libc::kill(-pgid, libc::SIGKILL) };
+            }
             let _ = child.wait();
             bail!("systemctl não respondeu dentro do prazo");
         }
@@ -323,8 +328,8 @@ fn query_until(hub: &User, args: &[&str], deadline: std::time::Instant) -> Resul
 
 /// Processo que o systemd iniciou para a unidade, se ele executa o binário instalado e é dono
 /// do socket que escuta na porta do Hub. Qualquer leitura que falhe conta como "ainda não".
-fn serving_pid(hub: &User, port: u16, host: &Path, deadline: std::time::Instant) -> bool {
-    (|| -> Result<bool> {
+fn serving_pid(hub: &User, port: u16, host: &Path, deadline: std::time::Instant) -> Result<bool> {
+    {
         let active = query_until(hub, &["is-active", "--quiet", "donnabot-host.service"], deadline)?;
         if !active.status.success() {
             return Ok(false);
@@ -358,8 +363,7 @@ fn serving_pid(hub: &User, port: u16, host: &Path, deadline: std::time::Instant)
             }
         }
         Ok(false)
-    })()
-    .unwrap_or(false)
+    }
 }
 
 /// O Hub novo precisa ser o processo da unidade, dono da porta, e responder no /health com o
@@ -371,9 +375,22 @@ fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
     let expected = format!("\"binaryPath\":\"{}\"", host.display());
     let deadline = Instant::now() + Duration::from_secs(30);
     let left = || deadline.saturating_duration_since(Instant::now());
+    // Falha de leitura conta como "ainda não"; o último motivo vai na mensagem de prazo.
+    let mut reason = String::new();
+    let serving = |reason: &mut String| match serving_pid(hub, port, host, deadline) {
+        Ok(serving) => serving,
+        Err(error) => {
+            *reason = format!("{error:#}");
+            false
+        }
+    };
     loop {
-        ensure!(!left().is_zero(), "Hub novo não respondeu no /health em 30 s");
-        if serving_pid(hub, port, host, deadline)
+        ensure!(
+            !left().is_zero(),
+            "Hub novo não respondeu no /health em 30 s{}",
+            if reason.is_empty() { String::new() } else { format!(" (último motivo: {reason})") }
+        );
+        if serving(&mut reason)
             && let Ok(mut stream) = std::net::TcpStream::connect_timeout(
                 &([127, 0, 0, 1], port).into(),
                 left().max(Duration::from_millis(1)),
@@ -390,11 +407,7 @@ fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
                 }
             }
             let text = String::from_utf8_lossy(&response);
-            if text.contains("\"ok\":true")
-                && text.contains(&expected)
-                && serving_pid(hub, port, host, deadline)
-                && !left().is_zero()
-            {
+            if text.contains("\"ok\":true") && text.contains(&expected) && serving(&mut reason) && !left().is_zero() {
                 return Ok(());
             }
         }
@@ -629,13 +642,6 @@ pub(super) fn install(
             note(&mut problems, "parar a unidade nova", service(hub, &["stop", "donnabot-host.service"]));
             if start && enablement != "enabled" {
                 note(&mut problems, "desabilitar a unidade", service(hub, &["disable", "donnabot-host.service"]));
-                if enablement == "enabled-runtime" {
-                    note(
-                        &mut problems,
-                        "habilitação só desta sessão",
-                        service(hub, &["enable", "--runtime", "donnabot-host.service"]),
-                    );
-                }
             }
         }
         let restored = unpublish(&staged, &published);
@@ -662,6 +668,14 @@ pub(super) fn install(
         );
         if unit_written || previous_unit.is_some() {
             note(&mut problems, "recarregar unidades", service(hub, &["daemon-reload"]));
+        }
+        // A habilitação só desta sessão volta com base na unidade anterior já restaurada.
+        if start && enablement == "enabled-runtime" {
+            note(
+                &mut problems,
+                "habilitação só desta sessão",
+                service(hub, &["enable", "--runtime", "donnabot-host.service"]),
+            );
         }
         // Só religa se binários, configuração e unidade anteriores voltaram de fato.
         if running && problems.is_empty() {
