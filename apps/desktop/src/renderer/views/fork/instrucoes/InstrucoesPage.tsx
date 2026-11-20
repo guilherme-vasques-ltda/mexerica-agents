@@ -29,7 +29,7 @@ function Campo({ fonte, escopo, guardarComo }: { fonte: FonteLink; escopo: Escop
       <label htmlFor={id} className="instrucoes-titulo">{t(`instrucoes.${chave}.titulo`)}</label>
       <p className="instrucoes-ajuda">{t(`instrucoes.${chave}.ajuda`)}</p>
       <textarea id={id} className="instrucoes-texto" dir="auto" value={campo.texto} placeholder={t(`instrucoes.${chave}.exemplo`)} rows={6}
-        disabled={campo.fase === 'lendo'} onChange={(e) => modelo.editar(e.target.value)} aria-describedby={`${id}-estado`} />
+        disabled={campo.fase === 'lendo' || !campo.lido} onChange={(e) => modelo.editar(e.target.value)} aria-describedby={`${id}-estado`} />
       <div className="instrucoes-rodape">
         <span id={`${id}-estado`} className={alerta ? 'instrucoes-alerta' : undefined} role={alerta ? 'alert' : undefined}>{t(campo.estado)}</span>
         <span className={`instrucoes-contador${campo.excede ? ' instrucoes-alerta' : ''}`}>

@@ -170,3 +170,41 @@ test('reabrir com rascunho e o Hub igual mantém o rascunho sem conflito', async
   assert.equal(campo.fase, 'pronto')
   assert.equal(campo.texto, 'Rascunho.')
 })
+
+test('reabrir a página com conflito pendente não o apaga: só Tentar de novo decide', async () => {
+  const h = hub()
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await campo.ler()
+  h.state.geral = { texto: 'Mudou em outra janela.', revision: 4 }
+  campo.editar('Meu rascunho.')
+  await campo.salvar()
+  assert.equal(campo.fase, 'conflito')
+  await campo.ler(campo.sujo)
+  assert.equal(campo.fase, 'conflito', 'a releitura passiva mantém o aviso')
+  assert.equal(h.state.geral.texto, 'Mudou em outra janela.')
+  await campo.tentarDeNovo()
+  assert.equal(h.state.geral.texto, 'Meu rascunho.')
+})
+
+test('o que a pessoa digita enquanto a leitura volta não é apagado', async () => {
+  const h = hub()
+  let solta: (() => void) | null = null
+  const link = { call: (m: string, b?: unknown) => new Promise((resolve, reject) => { solta = () => h.link.call(m, b as Record<string, unknown>).then(resolve, reject) }) }
+  const campo = new CampoInstrucao(() => link, { tipo: 'geral' })
+  const leitura = campo.ler()
+  campo.editar('Digitado durante a leitura.')
+  solta!()
+  await leitura
+  assert.equal(campo.texto, 'Digitado durante a leitura.')
+})
+
+test('sem leitura bem-sucedida o campo não é editável (não há revisão para gravar por cima)', async () => {
+  const h = hub()
+  const link = { call: async () => { throw Object.assign(new Error('x'), { status: 0 }) } }
+  const campo = new CampoInstrucao(() => link, { tipo: 'geral' })
+  await campo.ler()
+  assert.equal(campo.lido, false)
+  const bom = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await bom.ler()
+  assert.equal(bom.lido, true)
+})

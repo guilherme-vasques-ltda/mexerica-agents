@@ -95,6 +95,8 @@ export class CampoInstrucao extends Observable {
   get sujo() { return limpar(this.texto) !== this.salvo }
   get excede() { return contar(this.texto) > LIMITE }
   get invalido() { return invisivel(this.texto) }
+  /** Já se leu o texto salvo: sem isso não há revisão para gravar por cima, e o campo fica travado. */
+  get lido() { return this.#lido }
 
   #corpoDaLeitura() { return this.escopo.tipo === 'space' ? { spaceId: this.escopo.spaceId } : {} }
 
@@ -104,8 +106,15 @@ export class CampoInstrucao extends Observable {
     this.revisao = campo.revision
   }
 
+  /** A leitura passiva da página (abrir, voltar): um conflito pendente continua pendente até a pessoa decidir em Tentar de novo. */
   async ler(manterTexto = false) {
+    if (manterTexto && this.fase === 'conflito') return
+    await this.#reler(manterTexto)
+  }
+
+  async #reler(manterTexto: boolean) {
     const minha = ++this.#leitura
+    const antes = this.texto
     try {
       const estado = lerEstado(await this.#link().call('instrucaoGeral', this.#corpoDaLeitura()))
       if (minha !== this.#leitura) return
@@ -119,7 +128,8 @@ export class CampoInstrucao extends Observable {
         this.changed()
         return
       }
-      if (!manterTexto) this.texto = this.salvo
+      // Só troca o texto se a pessoa não digitou enquanto a leitura voltava.
+      if (!manterTexto && this.texto === antes) this.texto = this.salvo
       this.fase = 'pronto'
       this.falha = null
       this.#falhouNaLeitura = false
@@ -140,6 +150,8 @@ export class CampoInstrucao extends Observable {
 
   async salvar() {
     if (this.excede || this.invalido || this.fase === 'salvando') return
+    // Uma leitura ainda em voo não pode desfazer o que esta gravação vai decidir.
+    this.#leitura++
     const texto = limpar(this.texto)
     this.fase = 'salvando'
     this.falha = null
@@ -166,7 +178,7 @@ export class CampoInstrucao extends Observable {
   /** Conflito: relê a revisão nova, mantém o texto da pessoa e grava. Falha: tenta gravar de novo (ou relê, se nada foi lido). */
   async tentarDeNovo() {
     if (this.fase === 'conflito' || (this.fase === 'falha' && !this.#falhouNaLeitura)) {
-      await this.ler(true)
+      await this.#reler(true)
       if ((this.fase as Fase) === 'pronto') await this.salvar()
     } else {
       await this.ler(this.sujo)
