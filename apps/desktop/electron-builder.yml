@@ -83,6 +83,9 @@ linux:
   category: Development
   icon: resources/icon.png
   executableName: donnabot
+  # Campos do .deb: sem eles o fpm usaria o autor do projeto de origem como mantenedor.
+  maintainer: Mexerica <support@mexerica.app>
+  vendor: Mexerica
   synopsis: Your coding agents as teammates
   target: [AppImage, deb, tar.gz]
   artifactName: donnabot-linux-${arch}.${ext}
