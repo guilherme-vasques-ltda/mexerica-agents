@@ -193,18 +193,28 @@ fn open_source(source: &Path) -> Result<fs::File> {
 }
 
 /// O caminho e cada pasta acima dele são do root, sem escrita de grupo ou outros e sem link.
+/// Uma pasta com sticky bit (como /tmp) vale: ninguém troca ali uma entrada do root.
 fn root_only(path: &Path) -> Result<()> {
     safe(path)?;
     for ancestor in path.ancestors() {
         let meta = fs::symlink_metadata(ancestor)?;
+        let sticky = meta.is_dir() && meta.mode() & 0o1000 != 0 && ancestor != path;
         ensure!(
-            meta.uid() == 0 && meta.mode() & 0o022 == 0,
+            meta.uid() == 0 && (meta.mode() & 0o022 == 0 || sticky),
             "{} deve ser do root, sem escrita de grupo ou outros",
             ancestor.display()
         );
     }
     Ok(())
 }
+
+/// Instalação separada ativa (configuração do root presente). Depois da desinstalação, que
+/// remove o ajudante e a configuração, a próxima instalação volta a ser a primeira.
+fn existing_installation() -> bool {
+    fs::symlink_metadata(CONFIG).is_ok()
+}
+
+const PROTECTED_PACKAGE: &str = "com instalação existente, só um pacote numa pasta do root é aceito: extraia o pacote com sudo (por exemplo sudo tar -xzf PACOTE -C /opt/mexerica-pacote) e rode o install de lá";
 
 /// Hub já instalado no layout do root: é ele que o sudo executa, nunca uma cópia gravável pela conta.
 fn installed_host() -> Option<PathBuf> {
@@ -222,15 +232,21 @@ fn exchange(a: &Path, b: &Path) -> Result<()> {
     Ok(())
 }
 
+enum Published {
+    Nothing,
+    Fresh,
+    Exchanged,
+}
+
 /// Põe a pasta preparada no lugar de /opt/donnabot/bin numa troca só, dentro da pasta do root.
-/// Devolve se houve troca: a pasta anterior fica no lugar da preparada até a instalação terminar.
-fn swap_bin(staged: &Path) -> Result<bool> {
+/// Com troca, a pasta anterior fica no lugar da preparada até a instalação terminar.
+fn swap_bin(staged: &Path) -> Result<Published> {
     let bin = Path::new(BIN);
     let old = match fs::symlink_metadata(bin) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             fs::rename(staged, bin)?;
-            return Ok(false);
+            return Ok(Published::Fresh);
         }
         Err(e) => return Err(e.into()),
     };
@@ -238,13 +254,25 @@ fn swap_bin(staged: &Path) -> Result<bool> {
     if !(old.is_dir() && old.uid() == 0 && old.gid() == 0) {
         println!("Pasta de binários da instalação anterior, da conta do Hub, trocada por uma do root.");
     }
-    Ok(true)
+    Ok(Published::Exchanged)
+}
+
+fn unpublish(staged: &Path, published: &Published) -> Result<()> {
+    match published {
+        Published::Nothing => Ok(()),
+        Published::Fresh => Ok(fs::rename(BIN, staged)?),
+        Published::Exchanged => exchange(staged, Path::new(BIN)),
+    }
 }
 
 /// Origens do Hub e do ajudante, abertas com a identidade de arquivos do Hub antes de qualquer
-/// mudança: o root nunca copia o que essa conta não lê, e copia exatamente o que foi aberto.
+/// mudança: o root nunca copia o que essa conta não lê. Com instalação existente, as origens
+/// também precisam estar numa pasta do root, para que a conta do Hub não altere os bytes.
 pub(super) fn open_sources(hub: &User, host: &Path, helper: &Path) -> Result<(fs::File, fs::File)> {
     ensure!(host != helper, "Hub e ajudante distintos são exigidos");
+    if existing_installation() {
+        root_only(host).and_then(|()| root_only(helper)).context(PROTECTED_PACKAGE)?;
+    }
     as_hub(hub, &[], || Ok((open_source(host)?, open_source(helper)?)))
         .context("origem do Hub ou do ajudante ilegível pela conta do Hub; nada foi alterado")
 }
@@ -256,11 +284,37 @@ fn active(hub: &User) -> Result<bool> {
         .success())
 }
 
-fn restore_config(previous: Option<&[u8]>) {
-    let _ = match previous {
+fn restore_config(previous: Option<&[u8]>) -> Result<()> {
+    match previous {
         Some(bytes) => write_atomic(Path::new(CONFIG), bytes, 0, 0, 0o644),
-        None => fs::remove_file(CONFIG).map_err(Into::into),
-    };
+        None => match fs::remove_file(CONFIG) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        },
+    }
+}
+
+/// O Hub novo precisa responder no /health com o binário instalado antes de o par anterior sair.
+fn wait_ready(port: u16) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+    let expected = format!("\"binaryPath\":\"{BIN}/donnabot-host\"");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+            let mut response = String::new();
+            if stream.write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").is_ok()
+                && stream.read_to_string(&mut response).is_ok()
+                && response.contains("\"ok\":true")
+                && response.contains(&expected)
+            {
+                return Ok(());
+            }
+        }
+        ensure!(Instant::now() < deadline, "Hub novo não respondeu no /health em 30 s");
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 
 fn config_owner(hub: &User) -> Result<()> {
@@ -411,19 +465,20 @@ pub(super) fn install(
     })();
     if let Err(error) = prepared {
         let _ = fs::remove_dir_all(&staged);
-        restore_config(previous_config.as_deref());
+        let _ = restore_config(previous_config.as_deref());
         return Err(error.context("instalação recusada antes de parar o Hub; nada foi trocado"));
     }
     let text = format!(
-        "[Unit]\nDescription=Mexerica Hub\nAfter=network-online.target\n\n[Service]\nUMask=0077\nExecStartPre={BIN}/donnabot-motor-exec cleanup\nExecStart={BIN}/donnabot-host serve --port {port}\nExecStopPost={BIN}/donnabot-motor-exec cleanup\nEnvironment={}\nEnvironment=\"PATH=/opt/donnabot/bin:/usr/local/bin:/usr/bin:/bin\"\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+        "[Unit]\nDescription=Mexerica Hub\nAfter=network-online.target\n\n[Service]\nType=exec\nUMask=0077\nExecStartPre={BIN}/donnabot-motor-exec cleanup\nExecStart={BIN}/donnabot-host serve --port {port}\nExecStopPost={BIN}/donnabot-motor-exec cleanup\nEnvironment={}\nEnvironment=\"PATH=/opt/donnabot/bin:/usr/local/bin:/usr/bin:/bin\"\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
         quote(&format!("MEXERICA_HOME={}", data.display()))
     );
-    let mut exchanged = false;
+    let mut published = Published::Nothing;
+    let (mut unit_written, mut link_created) = (false, false);
     let finished: Result<()> = (|| {
         if previous_unit.is_some() {
             service(hub, &["stop", "donnabot-host.service"])?;
         }
-        exchanged = swap_bin(&staged)?;
+        published = swap_bin(&staged)?;
         as_hub(hub, &[], || {
             for suffix in [".local", ".local/bin", ".config", ".config/systemd", ".config/systemd/user"] {
                 let path = hub.home.join(suffix);
@@ -438,36 +493,73 @@ pub(super) fn install(
                     ensure!(fs::read_link(&stable)? == host_dst, "link do app pertence a outro destino");
                 }
                 Ok(_) => bail!("binário antigo no link do app; use migrar-motor antes"),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::os::unix::fs::symlink(&host_dst, &stable)?,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    std::os::unix::fs::symlink(&host_dst, &stable)?;
+                    link_created = true;
+                }
                 Err(e) => return Err(e.into()),
             }
             crate::fork::private_fs::Directory::for_owner(data, true, hub.uid, Some(hub.gid))?;
-            write_atomic(&unit(hub), text.as_bytes(), hub.uid, hub.gid, 0o600)
+            write_atomic(&unit(hub), text.as_bytes(), hub.uid, hub.gid, 0o600)?;
+            unit_written = true;
+            Ok(())
         })?;
         service(hub, &["daemon-reload"])?;
         if start {
             service(hub, &["enable", "--now", "donnabot-host.service"])?;
+            wait_ready(port)?;
         }
         Ok(())
     })();
     if let Err(error) = finished {
-        // Desfaz a troca e religa o que estava rodando; a pasta preparada guarda o par novo ou o anterior.
-        let _ = service(hub, &["stop", "donnabot-host.service"]);
-        if exchanged {
-            let _ = exchange(&staged, Path::new(BIN));
+        // Desfaz o que esta tentativa publicou ou criou e religa o que estava rodando.
+        let mut problems = Vec::new();
+        let mut note = |what: &str, result: Result<()>| {
+            if let Err(e) = result {
+                problems.push(format!("{what}: {e:#}"));
+            }
+        };
+        if unit_written || previous_unit.is_some() {
+            let _ = service(hub, &["stop", "donnabot-host.service"]);
         }
-        let _ = fs::remove_dir_all(&staged);
-        restore_config(previous_config.as_deref());
-        if let Some(bytes) = &previous_unit {
-            let _ = as_hub(hub, &[], || write_atomic(&unit(hub), bytes, hub.uid, hub.gid, 0o600));
-            let _ = service(hub, &["daemon-reload"]);
+        let restored = unpublish(&staged, &published);
+        let kept = restored.is_err() && matches!(published, Published::Exchanged);
+        note("pasta de binários", restored);
+        if !kept {
+            let _ = fs::remove_dir_all(&staged);
+        }
+        note("configuração", restore_config(previous_config.as_deref()));
+        note(
+            "unidade e link",
+            as_hub(hub, &[], || {
+                match &previous_unit {
+                    Some(bytes) => write_atomic(&unit(hub), bytes, hub.uid, hub.gid, 0o600)?,
+                    None if unit_written => fs::remove_file(unit(hub))?,
+                    None => {}
+                }
+                if link_created {
+                    fs::remove_file(&stable)?;
+                }
+                Ok(())
+            }),
+        );
+        if unit_written || previous_unit.is_some() {
+            note("recarregar unidades", service(hub, &["daemon-reload"]));
         }
         if running {
-            let _ = service(hub, &["start", "donnabot-host.service"]);
+            note("religar o Hub anterior", service(hub, &["start", "donnabot-host.service"]));
         }
-        return Err(error.context("instalação desfeita; binários, configuração e unidade anteriores restaurados"));
+        if problems.is_empty() {
+            return Err(error.context("instalação desfeita; estado anterior restaurado"));
+        }
+        let kept = if kept { format!("; par anterior preservado em {}", staged.display()) } else { String::new() };
+        return Err(
+            error.context(format!("instalação desfeita com recuperação incompleta ({}){kept}", problems.join("; ")))
+        );
     }
-    if exchanged && let Err(error) = fs::remove_dir_all(&staged) {
+    if matches!(published, Published::Exchanged)
+        && let Err(error) = fs::remove_dir_all(&staged)
+    {
         println!("Pasta anterior de binários fora do caminho, mas não removida ({error}): {}", staged.display());
     }
     println!("Instalação pronta; link do app em ~/.local/bin/donnabot-host; dados preservados.");
@@ -516,11 +608,10 @@ fn request(args: Vec<OsString>) -> Result<()> {
         host
     } else {
         let exe = crate::service::current_exe()?;
-        ensure!(
-            !exe.starts_with(BIN),
-            "instalação anterior com binários da conta do Hub: o sudo não executa {}; rode ./donnabot-host install a partir do pacote baixado",
-            exe.display()
-        );
+        ensure!(!exe.starts_with(BIN), "binário em {BIN} sem ser do root não roda com sudo; {PROTECTED_PACKAGE}");
+        if existing_installation() {
+            root_only(&exe).context(PROTECTED_PACKAGE)?;
+        }
         exe
     };
     let status = Command::new(system("sudo")?)

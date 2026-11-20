@@ -209,6 +209,15 @@ try:
     assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
     assert config.read_bytes() == config_before and not list(bin_dir.glob('.bin-*')) and health()['ok']
     print('PASS 5f falha depois da troca desfaz a troca e religa o Hub anterior')
+    fake = Path('/tmp/f4bin/hub-que-nao-sobe')
+    shutil.copy('/usr/bin/true', fake)
+    fake.chmod(0o755)
+    failed = stage('instalar', '--host', fake, *args[2:], check=False)
+    fake.unlink()
+    assert failed.returncode != 0 and 'desfeita' in failed.stdout + failed.stderr
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
+    assert not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5g Hub novo que não responde no /health é desfeito e o anterior volta')
     # UID da etapa é explícito, testado separadamente, sem modificar a instalação.
     wrong = run(host, 'install-motor', 'desinstalar', '--hub-uid', '0', check=False)
     assert wrong.returncode != 0 and config.exists()
