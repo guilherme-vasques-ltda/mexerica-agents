@@ -2770,7 +2770,11 @@ posteriores. Fonte: [MCP, vínculo ao servidor de autorização](https://modelco
 ### Instalação Linux e migração administrativa (D330 F4)
 
 `donnabot-host install` no Linux pede sudo e instala o motor num usuário de
-sistema separado; o Hub permanece no serviço de usuário. `migrar-motor` é comando
+sistema separado; o Hub permanece no serviço de usuário. Os binários ficam em
+`/opt/donnabot/bin`, pasta do root sem escrita da conta do Hub, e a origem de cada
+binário é lida com a identidade dessa conta. Com essa instalação presente, o sudo
+executa o binário do root, nunca uma cópia gravável pela conta; uma pasta de
+binários da conta do Hub, de instalação anterior, é trocada na reinstalação. `migrar-motor` é comando
 administrativo exclusivo da instalação de teste do dono, com cópia e volta;
 não é ferramenta do bot nem RPC e não concede autoridade Local. O bot não pede
 senha, código ou token no chat nem executa a instalação. Perfis já utilizados

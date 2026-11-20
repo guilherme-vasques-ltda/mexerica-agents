@@ -126,6 +126,9 @@ try:
     exe = bin_dir / 'bin/donnabot-motor-exec'
     assert exe.stat().st_uid == 0 and exe.stat().st_gid == hub.pw_gid and mode(exe) == 0o750
     assert config.stat().st_uid == 0 and mode(config) == 0o644
+    host_bin = bin_dir / 'bin/donnabot-host'
+    assert (bin_dir / 'bin').stat().st_uid == 0 and (bin_dir / 'bin').stat().st_gid == 0 and mode(bin_dir / 'bin') == 0o755
+    assert host_bin.stat().st_uid == 0 and host_bin.stat().st_gid == 0 and mode(host_bin) == 0o755
     assert os.getxattr(exe, 'security.capability')
     assert 'cap_setgid,cap_setuid=ep' in run('getcap', exe).stdout
     assert as_hub(exe, '--cwd', base / 'motor', '--', '/usr/bin/id', '-u').stdout.strip() == str(motor.pw_uid)
@@ -164,6 +167,23 @@ try:
     assert mode(exe) == 0o750 and os.getxattr(exe, 'security.capability')
     assert health()['ok']
     print('PASS 5 reinstalação idempotente, reaplica modo/cap e preserva dados/IDs')
+    secret = Path('/root/f4-origem-privada')
+    secret.write_text('origem-que-a-conta-do-hub-nao-le')
+    secret.chmod(0o600)
+    denied = stage('instalar', '--host', secret, *args[2:], check=False)
+    secret.unlink()
+    assert denied.returncode != 0 and host_bin.stat().st_uid == 0 and health()['ok']
+    print('PASS 5b origem que a conta do Hub não lê é recusada antes de parar o Hub')
+    os.chown(bin_dir / 'bin', hub.pw_uid, hub.pw_gid)
+    os.chown(host_bin, hub.pw_uid, hub.pw_gid)
+    planted = bin_dir / 'bin/plantado'
+    planted.write_text('x')
+    os.chown(planted, hub.pw_uid, hub.pw_gid)
+    stage('instalar', *args)
+    assert (bin_dir / 'bin').stat().st_uid == 0 and mode(bin_dir / 'bin') == 0o755 and not planted.exists()
+    assert host_bin.stat().st_uid == 0 and mode(host_bin) == 0o755 and os.getxattr(exe, 'security.capability')
+    assert not list(bin_dir.glob('.bin-anterior-*')) and health()['ok']
+    print('PASS 5c pasta de binários da conta do Hub trocada por uma do root na reinstalação')
     # UID da etapa é explícito, testado separadamente, sem modificar a instalação.
     wrong = run(host, 'install-motor', 'desinstalar', '--hub-uid', '0', check=False)
     assert wrong.returncode != 0 and config.exists()
