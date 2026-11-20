@@ -211,16 +211,17 @@ fn root_only(path: &Path) -> Result<()> {
 /// Instalação separada ativa (configuração do root presente). Depois da desinstalação, que
 /// remove o ajudante e a configuração, a próxima instalação volta a ser a primeira.
 fn existing_installation() -> bool {
-    fs::symlink_metadata(CONFIG).is_ok()
+    // Na dúvida (erro que não seja ausência), vale como instalação ativa.
+    !matches!(fs::symlink_metadata(CONFIG), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 
-const PROTECTED_PACKAGE: &str = "com instalação existente, só um pacote numa pasta do root é aceito: extraia o pacote com sudo (por exemplo sudo tar -xzf PACOTE -C /opt/mexerica-pacote) e rode o install de lá";
+const PROTECTED_PACKAGE: &str = "com instalação existente, só um pacote numa pasta do root é aceito: extraia o pacote com sudo numa pasta nova do root (por exemplo sudo mkdir /opt/mexerica-pacote && sudo tar --no-same-owner -xzf PACOTE -C /opt/mexerica-pacote) e rode o install de lá";
 
 /// Hub já instalado no layout do root: é ele que o sudo executa, nunca uma cópia gravável pela conta.
 fn installed_host() -> Option<PathBuf> {
     let host = Path::new(BIN).join("donnabot-host");
     let meta = fs::symlink_metadata(&host).ok()?;
-    (meta.is_file() && meta.gid() == 0 && root_only(&host).is_ok()).then_some(host)
+    (existing_installation() && meta.is_file() && meta.gid() == 0 && root_only(&host).is_ok()).then_some(host)
 }
 
 fn exchange(a: &Path, b: &Path) -> Result<()> {
@@ -294,48 +295,76 @@ fn unit_state(hub: &User, query: &str) -> Result<bool> {
         .success())
 }
 
-/// Processo que o systemd iniciou para a unidade, se ele executa o binário instalado e é dono
-/// do socket que escuta na porta do Hub.
-fn serving_pid(hub: &User, port: u16, host: &Path) -> Result<bool> {
-    let out = checked(user_command(hub, system("systemctl")?)?.args([
-        "--user",
-        "show",
-        "--property=MainPID",
-        "--value",
-        "donnabot-host.service",
-    ]))?;
-    let pid: u32 = String::from_utf8(out.stdout)?.trim().parse()?;
-    if pid == 0 || fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() != Some(host) {
-        return Ok(false);
+/// Consulta ao systemd do usuário com prazo: passado o prazo, o processo é encerrado e colhido.
+fn query_until(hub: &User, args: &[&str], deadline: std::time::Instant) -> Result<Output> {
+    use std::io::Read;
+    let mut child = user_command(hub, system("systemctl")?)?
+        .arg("--user")
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let mut stdout = Vec::new();
+            if let Some(mut out) = child.stdout.take() {
+                out.read_to_end(&mut stdout)?;
+            }
+            return Ok(Output { status, stdout, stderr: Vec::new() });
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("systemctl não respondeu dentro do prazo");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let mut listening = Vec::new();
-    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
-        let text = match fs::read_to_string(table) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e.into()),
-        };
-        for line in text.lines().skip(1) {
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            let local_port =
-                fields.get(1).and_then(|a| a.rsplit(':').next()).and_then(|p| u16::from_str_radix(p, 16).ok());
-            if local_port == Some(port) && fields.get(3) == Some(&"0A") {
-                listening.extend(fields.get(9).map(|inode| format!("socket:[{inode}]")));
+}
+
+/// Processo que o systemd iniciou para a unidade, se ele executa o binário instalado e é dono
+/// do socket que escuta na porta do Hub. Qualquer leitura que falhe conta como "ainda não".
+fn serving_pid(hub: &User, port: u16, host: &Path, deadline: std::time::Instant) -> bool {
+    (|| -> Result<bool> {
+        let active = query_until(hub, &["is-active", "--quiet", "donnabot-host.service"], deadline)?;
+        if !active.status.success() {
+            return Ok(false);
+        }
+        let out = query_until(hub, &["show", "--property=MainPID", "--value", "donnabot-host.service"], deadline)?;
+        let pid: u32 = String::from_utf8(out.stdout)?.trim().parse()?;
+        if pid == 0 || fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() != Some(host) {
+            return Ok(false);
+        }
+        let mut listening = Vec::new();
+        for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+            let text = match fs::read_to_string(table) {
+                Ok(text) => text,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
+            for line in text.lines().skip(1) {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                let local_port =
+                    fields.get(1).and_then(|a| a.rsplit(':').next()).and_then(|p| u16::from_str_radix(p, 16).ok());
+                if local_port == Some(port) && fields.get(3) == Some(&"0A") {
+                    listening.extend(fields.get(9).map(|inode| format!("socket:[{inode}]")));
+                }
             }
         }
-    }
-    for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
-        if let Ok(target) = fs::read_link(entry?.path())
-            && listening.iter().any(|socket| target.as_os_str() == socket.as_str())
-        {
-            return Ok(true);
+        for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
+            if let Ok(target) = fs::read_link(entry?.path())
+                && listening.iter().any(|socket| target.as_os_str() == socket.as_str())
+            {
+                return Ok(true);
+            }
         }
-    }
-    Ok(false)
+        Ok(false)
+    })()
+    .unwrap_or(false)
 }
 
 /// O Hub novo precisa ser o processo da unidade, dono da porta, e responder no /health com o
-/// binário instalado antes de o par anterior sair. Toda a espera respeita o prazo de 30 s.
+/// binário instalado antes de o par anterior sair. Toda a espera, inclusive as consultas ao
+/// systemd, respeita o prazo de 30 s.
 fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
@@ -344,8 +373,7 @@ fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
     let left = || deadline.saturating_duration_since(Instant::now());
     loop {
         ensure!(!left().is_zero(), "Hub novo não respondeu no /health em 30 s");
-        if unit_state(hub, "is-active")?
-            && serving_pid(hub, port, host)?
+        if serving_pid(hub, port, host, deadline)
             && let Ok(mut stream) = std::net::TcpStream::connect_timeout(
                 &([127, 0, 0, 1], port).into(),
                 left().max(Duration::from_millis(1)),
@@ -362,7 +390,11 @@ fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
                 }
             }
             let text = String::from_utf8_lossy(&response);
-            if text.contains("\"ok\":true") && text.contains(&expected) && serving_pid(hub, port, host)? {
+            if text.contains("\"ok\":true")
+                && text.contains(&expected)
+                && serving_pid(hub, port, host, deadline)
+                && !left().is_zero()
+            {
                 return Ok(());
             }
         }
@@ -417,6 +449,10 @@ pub(super) fn install(
     crate::environment::ensure_own_port(port)?;
     inside(&hub.home, data)?;
     crate::environment::ensure_own_data_dir(&hub.home, data)?;
+    ensure!(
+        start || !existing_installation(),
+        "sem iniciar o Hub, só a primeira instalação: trocar um par ativo exige confirmar o Hub novo"
+    );
     let host_dst = Path::new(BIN).join("donnabot-host");
     let stable = hub.home.join(".local/bin/donnabot-host");
     // O que está na home do Hub é lido e gravado com a identidade de arquivos dele.
@@ -489,7 +525,19 @@ pub(super) fn install(
         }
     })?;
     let running = previous_unit.is_some() && unit_state(hub, "is-active")?;
-    let enabled = previous_unit.is_some() && unit_state(hub, "is-enabled")?;
+    // Estado exato da habilitação (enabled, enabled-runtime, disabled...), para a volta repor.
+    let enablement = if previous_unit.is_some() {
+        String::from_utf8(
+            user_command(hub, system("systemctl")?)?
+                .args(["--user", "is-enabled", "donnabot-host.service"])
+                .output()?
+                .stdout,
+        )?
+        .trim()
+        .to_owned()
+    } else {
+        String::new()
+    };
     // O par novo é preparado e conferido numa pasta do root ao lado; o Hub só para antes da troca.
     let staged = Path::new("/opt/donnabot").join(format!(".bin-novo-{}", uuid::Uuid::new_v4()));
     let prepared = (|| {
@@ -572,25 +620,33 @@ pub(super) fn install(
     if let Err(error) = finished {
         // Desfaz o que esta tentativa publicou ou criou e religa o que estava rodando.
         let mut problems = Vec::new();
-        let mut note = |what: &str, result: Result<()>| {
+        let note = |problems: &mut Vec<String>, what: &str, result: Result<()>| {
             if let Err(e) = result {
                 problems.push(format!("{what}: {e:#}"));
             }
         };
         if unit_written || previous_unit.is_some() {
-            note("parar a unidade nova", service(hub, &["stop", "donnabot-host.service"]));
-            if start && !enabled {
-                note("desabilitar a unidade", service(hub, &["disable", "donnabot-host.service"]));
+            note(&mut problems, "parar a unidade nova", service(hub, &["stop", "donnabot-host.service"]));
+            if start && enablement != "enabled" {
+                note(&mut problems, "desabilitar a unidade", service(hub, &["disable", "donnabot-host.service"]));
+                if enablement == "enabled-runtime" {
+                    note(
+                        &mut problems,
+                        "habilitação só desta sessão",
+                        service(hub, &["enable", "--runtime", "donnabot-host.service"]),
+                    );
+                }
             }
         }
         let restored = unpublish(&staged, &published);
         let kept = restored.is_err() && matches!(published, Published::Exchanged);
-        note("pasta de binários", restored);
+        note(&mut problems, "pasta de binários", restored);
         if !kept {
             let _ = fs::remove_dir_all(&staged);
         }
-        note("configuração", restore_config(previous_config.as_deref()));
+        note(&mut problems, "configuração", restore_config(previous_config.as_deref()));
         note(
+            &mut problems,
             "unidade e link",
             as_hub(hub, &[], || {
                 match &previous_unit {
@@ -605,10 +661,13 @@ pub(super) fn install(
             }),
         );
         if unit_written || previous_unit.is_some() {
-            note("recarregar unidades", service(hub, &["daemon-reload"]));
+            note(&mut problems, "recarregar unidades", service(hub, &["daemon-reload"]));
         }
-        if running {
-            note("religar o Hub anterior", service(hub, &["start", "donnabot-host.service"]));
+        // Só religa se binários, configuração e unidade anteriores voltaram de fato.
+        if running && problems.is_empty() {
+            note(&mut problems, "religar o Hub anterior", service(hub, &["start", "donnabot-host.service"]));
+        } else if running {
+            problems.push("Hub anterior não religado: restauração incompleta".into());
         }
         if problems.is_empty() {
             return Err(error.context("instalação desfeita; estado anterior restaurado"));

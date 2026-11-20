@@ -2775,11 +2775,14 @@ sistema separado; o Hub permanece no serviço de usuário. Os binários ficam em
 binário é lida com a identidade dessa conta. Com essa instalação presente, o sudo
 executa o binário do root, nunca uma cópia gravável pela conta. Com a instalação
 ativa, reinstalar pelo link do app usa só os binários do root, e atualizar exige o
-pacote extraído com sudo numa pasta do root (por exemplo `/opt/mexerica-pacote`);
+pacote extraído com sudo numa pasta nova do root, sem herdar os donos do arquivo
+(`sudo tar --no-same-owner -xzf PACOTE -C /opt/mexerica-pacote`);
 a desinstalação libera a próxima instalação a partir de um pacote baixado. Uma pasta de
 binários da conta do Hub, de instalação anterior, é trocada na atualização. O par novo
 é preparado e testado antes de parar o Hub; se algo falhar depois, a troca é desfeita
-e o Hub anterior volta. `migrar-motor` é comando
+e o Hub anterior volta. Se a própria volta falhar, a mensagem diz "recuperação
+incompleta", o Hub anterior não é religado e o par anterior fica na pasta indicada,
+para repor à mão. `migrar-motor` é comando
 administrativo exclusivo da instalação de teste do dono, com cópia e volta;
 não é ferramenta do bot nem RPC e não concede autoridade Local. O bot não pede
 senha, código ou token no chat nem executa a instalação. Perfis já utilizados

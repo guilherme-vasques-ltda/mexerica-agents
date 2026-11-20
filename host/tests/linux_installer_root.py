@@ -66,6 +66,9 @@ def as_hub(*args, check=True, motor_env=False, **kwargs):
 def service(*args, check=True):
     return as_hub('systemctl', '--user', *args, check=check)
 
+def main_process():
+    return service('show', 'donnabot-host.service', '-p', 'MainPID', '-p', 'ExecMainStartTimestampMonotonic').stdout
+
 def health():
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
@@ -170,7 +173,9 @@ try:
     secret = Path('/root/f4-origem-privada')
     secret.write_text('origem-que-a-conta-do-hub-nao-le')
     secret.chmod(0o600)
+    before_process = main_process()
     denied = stage('instalar', '--host', secret, *args[2:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
     secret.unlink()
     assert denied.returncode != 0 and host_bin.stat().st_uid == 0 and health()['ok']
     print('PASS 5b origem que a conta do Hub não lê é recusada antes de parar o Hub')
@@ -192,7 +197,9 @@ try:
     fake = Path('/tmp/f4bin/ajudante-falso')
     shutil.copy('/usr/bin/false', fake)
     fake.chmod(0o755)
+    before_process = main_process()
     refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
     fake.unlink()
     assert refused.returncode != 0 and health()['ok'] and config.read_bytes() == config_before
     assert digest(exe) == exe_before and (bin_dir / 'bin').stat().st_ino == bin_inode
@@ -201,7 +208,9 @@ try:
     fake = Path('/tmp/f4bin/ajudante-sem-troca')
     fake.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
     fake.chmod(0o755)
+    before_process = main_process()
     refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
     fake.unlink()
     assert refused.returncode != 0 and 'conta do motor' in refused.stdout + refused.stderr
     assert health()['ok'] and config.read_bytes() == config_before and digest(exe) == exe_before
