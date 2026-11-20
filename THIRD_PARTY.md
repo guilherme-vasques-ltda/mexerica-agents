@@ -7,8 +7,9 @@ não se estende por inferência a todo código, fonte, skill ou ativo do conjunt
 
 Este arquivo registra só o material de terceiros que está de fato nesta cópia: código ou arquivos
 copiados (mesmo com ajustes), ativos (fontes, ícones, logos, skills inteiras) e dependências.
-Ideias, estrutura, listas, textos e trechos curtos reescritos, traduzidos ou reaproveitados não
-ganham entrada.
+Código ou ativo de terceiros copiado ganha entrada, qualquer que seja o tamanho. Não ganham entrada o que foi
+reescrito, traduzido ou portado, as ideias, a estrutura, as listas e o texto corrido (frase ou parágrafo)
+aproveitado de outro lugar.
 
 ## Escopo desta cópia
 
@@ -331,19 +332,20 @@ de cada skill abaixo; `source-manifest.json` registra, por arquivo, o commit, o 
 Os arquivos são os da origem, sem alteração, exceto os dois `SKILL.md` indicados. Cada pacote leva a licença da origem.
 As demais skills listadas no manifesto não têm o texto no registro e não entram aqui.
 
-| Skill | Origem | Commit | Licença |
-|---|---|---|---|
-| `security-audit` | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) — Cloudflare, Inc. | `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8` | MIT (aviso na seção `security-audit-skill`) |
-| `impeccable` | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | `936867543ac2576920d663cc9803597f6044f3ac` | Apache-2.0 (`LICENSE` e `NOTICE.md` no pacote) |
-| `frontend-design` | [anthropics/skills](https://github.com/anthropics/skills) | `dbd4588f9e1033efb41dad4bef2f7947c8993d44` | Apache-2.0 (`LICENSE.txt` no pacote) |
-| `find-skills` | [vercel-labs/skills](https://github.com/vercel-labs/skills) — Vercel, Inc. | `a80e4c9d12d607631249d4d7d059f835d4b2f13a` | MIT (`LICENSE` no pacote) |
-| `grilling`, `research` | [mattpocock/skills](https://github.com/mattpocock/skills) — Matt Pocock | `5beb35b040e3de97e54fa9e386d7e42d15c295c2` | MIT (`LICENSE` no pacote) |
-| `brainstorming` | [obra/superpowers](https://github.com/obra/superpowers) — Jesse Vincent | `2ce8aa15d05bd57213e6f746f953aafb7ded7a8b` | MIT (`LICENSE` no pacote) |
-| `copywriting`, `content-strategy`, `marketing-psychology` | [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills) — Corey Haines | `e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b` | MIT (`LICENSE` no pacote); `copywriting` traz também a `LICENSE` da Profound ([skills-marketing-library](https://github.com/retieedra-profound/skills-marketing-library), commit `80293f156c27d3f90aedebfb3c27309769b2eec6`, MIT). O `SKILL.md` de `copywriting` tem a adaptação descrita em `ADAPTATION.md` |
-| `hyperframes` | [heygen-com/hyperframes](https://github.com/heygen-com/hyperframes) | `9aadc0b9b99d92afd25215228878cee23ea47a0f` | Apache-2.0 (`LICENSE` e `CREDITS.md` no pacote) |
-| `boat` | [davidondrej/skills](https://github.com/davidondrej/skills) — David Ondrej | `8605863f211961c96208fe625d4024609cd7dbd5` | MIT (`LICENSE` no pacote) |
-| `stop-slop` | [hardikpandya/stop-slop](https://github.com/hardikpandya/stop-slop) — Hardik Pandya | `8da1f030185bdfe8471220585162991eaeb970e9` | MIT (`LICENSE` no pacote) |
-| `copy-review-panel` | [Yuzzyuk/marketing-os](https://github.com/Yuzzyuk/marketing-os) — Marketing OS contributors | `bb67dff5f04b390e861ee11433166e4519e7f4c0` | MIT (`LICENSE` no pacote). O `SKILL.md` adapta `skills/marketing-os/references/copy.md`, com a tabela idêntica à da origem |
+| Skill | Origem | Commit | Arquivos da origem | Licença | Data (AAAA-MM-DD) |
+|---|---|---|---|---|---|
+| `security-audit` | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) — Cloudflare, Inc. | `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8` | 17 arquivos | MIT (aviso na seção `security-audit-skill`) | 2026-11-07 |
+| `impeccable` | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | `936867543ac2576920d663cc9803597f6044f3ac` | 3 arquivos | Apache-2.0 (`LICENSE` e `NOTICE.md` no pacote) | 2026-10-25 |
+| `frontend-design` | [anthropics/skills](https://github.com/anthropics/skills) | `dbd4588f9e1033efb41dad4bef2f7947c8993d44` | 2 arquivos | Apache-2.0 (`LICENSE.txt` no pacote) | 2026-10-25 |
+| `find-skills` | [vercel-labs/skills](https://github.com/vercel-labs/skills) — Vercel, Inc. | `a80e4c9d12d607631249d4d7d059f835d4b2f13a` | 2 arquivos | MIT (`LICENSE` no pacote) | 2026-10-25 |
+| `grilling`, `research` | [mattpocock/skills](https://github.com/mattpocock/skills) — Matt Pocock | `5beb35b040e3de97e54fa9e386d7e42d15c295c2` | 2 arquivos por skill | MIT (`LICENSE` no pacote) | 2026-10-25 |
+| `brainstorming` | [obra/superpowers](https://github.com/obra/superpowers) — Jesse Vincent | `2ce8aa15d05bd57213e6f746f953aafb7ded7a8b` | 2 arquivos | MIT (`LICENSE` no pacote) | 2026-10-25 |
+| `copywriting` | [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills) — Corey Haines | `e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b` | 5 arquivos | MIT (`LICENSE` no pacote); `copywriting` traz também a `LICENSE` da Profound ([skills-marketing-library](https://github.com/retieedra-profound/skills-marketing-library), commit `80293f156c27d3f90aedebfb3c27309769b2eec6`, MIT). O `SKILL.md` de `copywriting` tem a adaptação descrita em `ADAPTATION.md` | 2026-11-06 |
+| `content-strategy`, `marketing-psychology` | [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills) — Corey Haines | `e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b` | 5 e 3 arquivos | MIT (`LICENSE` no pacote) | 2026-10-25 |
+| `hyperframes` | [heygen-com/hyperframes](https://github.com/heygen-com/hyperframes) | `9aadc0b9b99d92afd25215228878cee23ea47a0f` | 25 arquivos | Apache-2.0 (`LICENSE` e `CREDITS.md` no pacote) | 2026-10-25 |
+| `boat` | [davidondrej/skills](https://github.com/davidondrej/skills) — David Ondrej | `8605863f211961c96208fe625d4024609cd7dbd5` | 3 arquivos | MIT (`LICENSE` no pacote) | 2026-10-25 |
+| `stop-slop` | [hardikpandya/stop-slop](https://github.com/hardikpandya/stop-slop) — Hardik Pandya | `8da1f030185bdfe8471220585162991eaeb970e9` | 5 arquivos | MIT (`LICENSE` no pacote) | 2026-11-06 |
+| `copy-review-panel` | [Yuzzyuk/marketing-os](https://github.com/Yuzzyuk/marketing-os) — Marketing OS contributors | `bb67dff5f04b390e861ee11433166e4519e7f4c0` | 2 arquivos | MIT (`LICENSE` no pacote). O `SKILL.md` adapta `skills/marketing-os/references/copy.md`, com a tabela idêntica à da origem | 2026-11-06 |
 
 ## Fontes da interface — Barra04 (2026-11-05)
 
