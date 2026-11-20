@@ -325,7 +325,7 @@ function BarChart({ chart, id, visible, focus, setFocus }: PlotProps & { id: str
       return v === null ? na(label).right : Math.max(valueStart(label).right, valueEnd(label).left)
     }))) + 8
     setLayout({ chart, shown, width, categoryW, categories, valueW, axis: axis.map(({ text }) => axisText(text)) })
-  }, [chart, shown, width, hasValues])
+  }, [chart, shown, width, hasValues, unavailable])
   const neg = (d?.lo ?? 0) < 0
   const valueW = layout?.valueW ?? 0
   const left = Math.max((layout?.categoryW ?? 0) + 12 + (neg ? valueW : 0), Math.max(0, ...(layout?.axis.map((b) => b.left) ?? [])) + 2)
