@@ -2770,11 +2770,27 @@ posteriores. Fonte: [MCP, vínculo ao servidor de autorização](https://modelco
 ### Instalação Linux e migração administrativa (D330 F4)
 
 `donnabot-host install` no Linux pede sudo e instala o motor num usuário de
-sistema separado; o Hub permanece no serviço de usuário. `migrar-motor` é comando
+sistema separado; o Hub permanece no serviço de usuário. Os binários ficam em
+`/opt/donnabot/bin`, pasta do root sem escrita da conta do Hub, e a origem de cada
+binário é lida com a identidade dessa conta. Com essa instalação presente, o sudo
+executa o binário do root, nunca uma cópia gravável pela conta. Com a instalação
+ativa, reinstalar pelo link do app usa só os binários do root, e atualizar exige o
+pacote extraído com sudo numa pasta nova do root, sem herdar os donos do arquivo
+(`sudo mkdir /opt/mexerica-pacote && sudo tar --no-same-owner -xzf PACOTE -C /opt/mexerica-pacote`);
+a desinstalação libera a próxima instalação a partir de um pacote baixado. Uma pasta de
+binários da conta do Hub, de instalação anterior, é trocada na atualização. O par novo
+é preparado e testado antes de parar o Hub; se algo falhar depois, a troca é desfeita
+e o Hub anterior volta. Se a própria volta falhar, a mensagem diz "recuperação
+incompleta" e lista o que não voltou, e o Hub anterior não é religado; se a falha foi
+ao devolver a pasta de binários, a mensagem indica onde o par anterior ficou, para
+repor à mão. `migrar-motor` é comando
 administrativo exclusivo da instalação de teste do dono, com cópia e volta;
 não é ferramenta do bot nem RPC e não concede autoridade Local. O bot não pede
 senha, código ou token no chat nem executa a instalação. Perfis já utilizados
-são copiados sempre; se a CLI recusar, o dono refaz login pelo app sob as guardas
+dentro da home do Hub são copiados sempre; um perfil fora dela (por exemplo por
+`CODEX_HOME` ou `CLAUDE_CONFIG_DIR`) recusa a migração antes de parar o Hub. Antes de migrar, mova o perfil para
+a home, aponte a variável e a conta do app para o novo caminho e confira o
+inventário (`migrar-raizes --inventario`); se a CLI recusar, o dono refaz login pelo app sob as guardas
 SAAS-04. Veja o guia Linux. Liberações de
 pastas por bot pertencem à F2b; a F4 apenas consulta o ABI Landlock.
 ### D330 F3 — arquivos no modo de motor separado

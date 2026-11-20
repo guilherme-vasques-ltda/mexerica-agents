@@ -1,6 +1,4 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-// Modificado pela DONNA Bot em 2026-11-06: coordenação modal seletiva de Codync
-// 219935410dffccb950f90d0565bd1d9f1661bd5b, Apache-2.0; leepokai e Claude Opus 5.5. Ver THIRD_PARTY.md.
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { interactive, useInertExit, useLayerEscape as useEscape, useModalFocus } from '../lib/fork-modal-stack'

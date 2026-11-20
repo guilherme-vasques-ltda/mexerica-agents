@@ -46,4 +46,8 @@ export const textos: Traducao<typeof fonte> = {
   "voz.chamada.falha.microfone": "تعذّر استخدام الميكروفون: {erro}",
   "voz.chamada.falha.audioFila": "قائمة انتظار الصوت ممتلئة.",
   "voz.chamada.falha.audioFrequencia": "تردد الصوت غير صالح.",
+  "voz.chamada.entrada.recusa.grupo": "المكالمة الصوتية تكون مع روبوت وليس مع قناة.",
+  "voz.chamada.entrada.recusa.sessao": "المكالمة الصوتية خاصة بالمحادثة الرئيسية. ارجع إلى علامة التبويب الرئيسية وحاول مرة أخرى.",
+  "voz.chamada.entrada.recusa.senha": "هناك تحذير من كلمة مرور ملصوقة مفتوح في هذه المحادثة. عالجه قبل الاتصال.",
+  "voz.chamada.entrada.recusa.indisponivel": "الصوت المباشر غير متاح الآن. تحقق من الإعدادات ← الصوت.",
 }

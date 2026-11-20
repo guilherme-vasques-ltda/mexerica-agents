@@ -28,7 +28,9 @@ bin_dir = Path('/opt/donnabot')
 config = Path('/etc/donnabot/motor.conf')
 home = Path('/home/d330-f4-hub')
 backup = Path('/var/backups/donnabot-f4-prova')
-for path in [base, bin_dir, config, home, backup]:
+record = Path(f'{backup}.manifesto.json')
+forged = Path('/var/backups/donnabot-f4-forjado')
+for path in [base, bin_dir, config, home, backup, record, forged, Path('/etc/donnabot-f4-forjado')]:
     assert not path.exists(), f'VM já contém {path}; recuso alterar'
 for name in ['d330-f4-hub', 'donnabot-motor']:
     assert subprocess.run(['getent', 'passwd', name], env=SAFE_ROOT_ENV, stdout=subprocess.DEVNULL).returncode == 2
@@ -63,6 +65,9 @@ def as_hub(*args, check=True, motor_env=False, **kwargs):
 
 def service(*args, check=True):
     return as_hub('systemctl', '--user', *args, check=check)
+
+def main_process():
+    return service('show', 'donnabot-host.service', '-p', 'MainPID', '-p', 'ExecMainStartTimestampMonotonic').stdout
 
 def health():
     deadline = time.monotonic() + 20
@@ -124,6 +129,9 @@ try:
     exe = bin_dir / 'bin/donnabot-motor-exec'
     assert exe.stat().st_uid == 0 and exe.stat().st_gid == hub.pw_gid and mode(exe) == 0o750
     assert config.stat().st_uid == 0 and mode(config) == 0o644
+    host_bin = bin_dir / 'bin/donnabot-host'
+    assert (bin_dir / 'bin').stat().st_uid == 0 and (bin_dir / 'bin').stat().st_gid == 0 and mode(bin_dir / 'bin') == 0o755
+    assert host_bin.stat().st_uid == 0 and host_bin.stat().st_gid == 0 and mode(host_bin) == 0o755
     assert os.getxattr(exe, 'security.capability')
     assert 'cap_setgid,cap_setuid=ep' in run('getcap', exe).stdout
     assert as_hub(exe, '--cwd', base / 'motor', '--', '/usr/bin/id', '-u').stdout.strip() == str(motor.pw_uid)
@@ -162,6 +170,72 @@ try:
     assert mode(exe) == 0o750 and os.getxattr(exe, 'security.capability')
     assert health()['ok']
     print('PASS 5 reinstalação idempotente, reaplica modo/cap e preserva dados/IDs')
+    secret = Path('/root/f4-origem-privada')
+    secret.write_text('origem-que-a-conta-do-hub-nao-le')
+    secret.chmod(0o600)
+    before_process = main_process()
+    denied = stage('instalar', '--host', secret, *args[2:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
+    secret.unlink()
+    assert denied.returncode != 0 and host_bin.stat().st_uid == 0 and health()['ok']
+    print('PASS 5b origem que a conta do Hub não lê é recusada antes de parar o Hub')
+    os.chown(bin_dir / 'bin', hub.pw_uid, hub.pw_gid)
+    os.chown(host_bin, hub.pw_uid, hub.pw_gid)
+    planted = bin_dir / 'bin/plantado'
+    planted.write_text('x')
+    os.chown(planted, hub.pw_uid, hub.pw_gid)
+    stage('instalar', *args)
+    assert (bin_dir / 'bin').stat().st_uid == 0 and mode(bin_dir / 'bin') == 0o755 and not planted.exists()
+    assert host_bin.stat().st_uid == 0 and mode(host_bin) == 0o755 and os.getxattr(exe, 'security.capability')
+    assert not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5c pasta de binários da conta do Hub trocada por uma do root na reinstalação')
+    outside = Path('/etc/donnabot-f4-fora-da-home')
+    refused = stage('instalar', '--host', host, '--ajudante', helper, '--data-dir', outside, '--port', '19422', check=False)
+    assert refused.returncode != 0 and not outside.exists() and health()['ok']
+    print('PASS 5d pasta de dados fora da home do Hub recusada sem criar nada')
+    config_before, exe_before, bin_inode = config.read_bytes(), digest(exe), (bin_dir / 'bin').stat().st_ino
+    fake = Path('/tmp/f4bin/ajudante-falso')
+    shutil.copy('/usr/bin/false', fake)
+    fake.chmod(0o755)
+    before_process = main_process()
+    refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
+    fake.unlink()
+    assert refused.returncode != 0 and health()['ok'] and config.read_bytes() == config_before
+    assert digest(exe) == exe_before and (bin_dir / 'bin').stat().st_ino == bin_inode
+    assert not list(bin_dir.glob('.bin-*'))
+    print('PASS 5e ajudante que não funciona é recusado antes de parar o Hub, sem trocar nada')
+    fake = Path('/tmp/f4bin/ajudante-sem-troca')
+    fake.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
+    fake.chmod(0o755)
+    before_process = main_process()
+    refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    assert main_process() == before_process, "recusa antes da parada não reinicia o Hub"
+    fake.unlink()
+    assert refused.returncode != 0 and 'conta do motor' in refused.stdout + refused.stderr
+    assert health()['ok'] and config.read_bytes() == config_before and digest(exe) == exe_before
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and not list(bin_dir.glob('.bin-*'))
+    print('PASS 5e2 ajudante que termina sem trocar de conta é recusado antes de parar o Hub')
+    local_bin = home / '.local/bin'
+    local_bin.rename(home / '.local/bin-guardado')
+    local_bin.write_text('bloqueio')
+    os.chown(local_bin, hub.pw_uid, hub.pw_gid)
+    failed = stage('instalar', *args, check=False)
+    local_bin.unlink()
+    (home / '.local/bin-guardado').rename(local_bin)
+    assert failed.returncode != 0 and 'desfeita' in failed.stdout + failed.stderr
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
+    assert config.read_bytes() == config_before and not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5f falha depois da troca desfaz a troca e religa o Hub anterior')
+    fake = Path('/tmp/f4bin/hub-que-nao-sobe')
+    shutil.copy('/usr/bin/true', fake)
+    fake.chmod(0o755)
+    failed = stage('instalar', '--host', fake, *args[2:], check=False)
+    fake.unlink()
+    assert failed.returncode != 0 and 'desfeita' in failed.stdout + failed.stderr
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
+    assert not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5g Hub novo que não responde no /health é desfeito e o anterior volta')
     # UID da etapa é explícito, testado separadamente, sem modificar a instalação.
     wrong = run(host, 'install-motor', 'desinstalar', '--hub-uid', '0', check=False)
     assert wrong.returncode != 0 and config.exists()
@@ -254,6 +328,7 @@ try:
           '--backup', backup, '--port', '19422')
     assert health()['ok'] and link.is_symlink() and mode(backup) == 0o700
     assert all(mode(p) == 0o600 for p in backup.rglob('*') if p.is_file())
+    assert record.stat().st_uid == 0 and mode(record) == 0o600 and not (backup / 'manifest.json').exists()
     print('PASS 10 migração fictícia: backup privado, cópias, F3 e Hub reiniciado')
     migrated_script = base / 'trabalho/bots' / bid / 'workspace/script.sh'
     assert mode(migrated_script) == 0o770
@@ -327,6 +402,16 @@ try:
         print('LIMITAÇÃO R4: VM sem Secret Service; sentinela de cofre antes/depois fica para F5')
     else:
         raise RuntimeError('Secret Service presente: executar sentinela real antes de aceitar a prova')
+    shutil.copytree(backup, forged)
+    manifest = json.loads(record.read_text())
+    manifest.update(binary='/etc/donnabot-f4-forjado', binary_mode=0o4755)
+    (forged / 'manifest.json').write_text(json.dumps(manifest))
+    (forged / 'manifest.json').chmod(0o600)
+    run('chown', '-R', f'{hub.pw_uid}:{hub.pw_gid}', forged)
+    refused = stage('voltar', '--backup', forged, check=False)
+    assert refused.returncode != 0 and 'registro protegido' in refused.stderr, refused.stderr
+    assert not Path('/etc/donnabot-f4-forjado').exists() and health()['ok']
+    print('PASS F4-REV3: volta recusa cópia com manifesto do Hub sem registro protegido do root')
     post = data / 'mensagem-pos-troca-ficticia'
     post.write_text('não apagar')
     service('stop', 'donnabot-host.service')
@@ -390,10 +475,11 @@ finally:
                 run('userdel', name, check=False)
         for name in ['donnabot-trabalho', 'donnabot-motor', 'd330-f4-hub']:
             run('groupdel', name, check=False)
-        for path in [base, bin_dir, home, backup]:
+        for path in [base, bin_dir, home, backup, forged]:
             if path.exists():
                 shutil.rmtree(path)
         config.unlink(missing_ok=True)
+        record.unlink(missing_ok=True)
         backup.with_suffix('.motor-conf-inativo').unlink(missing_ok=True)
     if backup_tmpfs:
         run('umount', '/var/backups', check=False)

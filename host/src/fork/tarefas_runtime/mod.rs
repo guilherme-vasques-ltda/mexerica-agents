@@ -9,6 +9,7 @@
 //! `send`, e a evidência é a entrada existente, nunca um palpite.
 mod acordar;
 pub(crate) mod avisos;
+mod inspecao;
 mod store;
 
 pub(crate) use acordar::start_in_execution as start_task_in_execution;

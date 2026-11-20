@@ -102,6 +102,7 @@ impl Child {
 }
 
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
+    crate::open_hub::require_executor()?;
     let helper = super::helper_path();
     let separate = command.as_std().get_program() == helper.as_os_str();
     if separate {
@@ -113,6 +114,11 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     let inner = command.spawn()?;
     let group = if separate { inner.id().map(|pid| Group { pid, helper }) } else { None };
     Ok(Child { group, inner })
+}
+
+#[cfg(unix)]
+pub(crate) fn start_open_codex(launch: crate::fork::open_codex::AppServer) -> io::Result<Child> {
+    Ok(Child { group: None, inner: launch.spawn()? })
 }
 
 pub(crate) async fn output(command: &mut Command) -> io::Result<Output> {

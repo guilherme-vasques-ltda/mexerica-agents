@@ -1,6 +1,5 @@
 // Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc):
-// src/lib/routine-calendar.ts (datas, encaixe e colunas de sobreposição) e
-// src/components/routines/MiniMonth.tsx (grade de 42 dias). Alterado para o Donnabot (D85):
+// src/lib/routine-calendar.ts (datas, encaixe e colunas de sobreposição). Alterado para o Donnabot (D85):
 // semana a partir do domingo, visão Mês, rótulos com Intl no idioma do app (DON-917; `idioma` explícito, sem
 // ler a preferência aqui), sem chamadas, limites nem projeção no cliente (as ocorrências vêm do Hub).
 import type { AppLanguage } from '../../shared/fork-idioma.ts'

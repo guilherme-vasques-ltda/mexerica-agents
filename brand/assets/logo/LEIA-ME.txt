@@ -1,0 +1,77 @@
+MEXERICA · PACOTE DA LOGO
+=========================
+
+QUAL ARQUIVO USAR
+-----------------
+01-logo-mascote/  A LOGO PRINCIPAL: o nome com o mascote no pingo do i.
+  Use em telas e em tamanho médio ou grande (site, redes, apresentações, telas do app).
+  mexerica-logo-mascote-claro ............ nome marrom, sem fundo (fundos claros).
+  mexerica-logo-mascote-escuro ........... nome creme, sem fundo (fundos escuros).
+  mexerica-logo-mascote-claro-com-fundo .. já com fundo creme.
+  mexerica-logo-mascote-escuro-com-fundo . já com fundo noite.
+  svg/ (nome em vetor + mascote em imagem), pdf/, png-grande-2400px / png-medio-1200px / png-pequeno-600px.
+  O mascote é 3D, então não vira uma cor só: para preto, branco, gravação e tamanhos
+  pequenos (menos de ~200 px de largura), use a logo plana (pasta 02).
+
+02-logo-plana/  a mesma logo com a mexerica plana no pingo do i (100% vetor).
+  mexerica-logo-claro / -escuro ............ sem fundo.
+  ...-claro-com-fundo / -escuro-com-fundo .. com fundo creme / noite.
+  mexerica-logo-preto / -branco ............ uma cor só (carimbo, gravação, jornal, foto).
+  ...-preto-fundo-branco / -branco-fundo-preto: as mesmas, já com fundo.
+  svg/, pdf-impressao/, png-grande-2400px / png-medio-1200px / png-pequeno-600px.
+  "sem fundo" = fundo transparente.
+
+03-simbolo/  só a mexerica plana (avatar pequeno, marca d'água, carimbo). Colorida, preta e branca.
+
+04-mascote/  o mascote sozinho, fundo transparente (ilustrações, estados vazios, boas-vindas).
+
+05-icone-app/  o ícone do app (mexerica de feltro sobre laranja).
+  icone-mestre-1024.png ... arte quadrada, sem cantos arredondados. Base de tudo.
+  ios/ ............. 1024 para o App Store e os tamanhos do Xcode. Quadrado e opaco:
+                     o iPhone arredonda sozinho. Não arredonde antes.
+  macos/ ........... já na grade do Mac (forma de 824 dentro de 1024, com sombra),
+                     PNGs de 16 a 1024 e o mexerica.icns pronto.
+  windows/ ......... mexerica.ico (16 a 256) para o app de desktop.
+  android/ ......... ícone da Play Store (512) e ícone legado (192).
+  web-pwa/ ......... ícones de app web: arredondado (192/512/1024), "maskable" 512
+                     e apple-touch-icon 180.
+
+06-web-e-redes/
+  foto-de-perfil-mascote-1080.png .... Instagram, LinkedIn, WhatsApp, X (ícone do app).
+  foto-de-perfil-1080.png ............ opção com a mexerica plana.
+  capa-compartilhamento-mascote-1200x630.png ... imagem de link (og:image), com mascote.
+  capa-compartilhamento-1200x630.png ........... a mesma com a logo plana.
+  favicon.ico / favicon.svg / favicon-32.png / favicon-16.png ... aba do navegador.
+  apple-touch-icon-180.png ............ atalho no iPhone (ícone do app).
+  icone-app-web-192.png / -512.png .... PWA / Android (ícone do app).
+  O favicon usa a mexerica plana de propósito: em 16 px ela lê melhor que a de feltro.
+
+  No <head> do site:
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180.png">
+    <meta property="og:image" content="/capa-compartilhamento-mascote-1200x630.png">
+
+CORES
+-----
+  Laranja   #F58A1F   RGB 245 138 31   (a mexerica)
+  Folha     #5C9B3A   RGB 92 155 58
+  Marrom    #2A1C14   RGB 42 28 20     (nome na versão clara, olhos)
+  Creme     #FFF8EE   RGB 255 248 238  (fundo claro, nome na versão escura)
+  Noite     #1B1511   RGB 27 21 17     (fundo escuro)
+
+FONTE
+-----
+  Nunito (Google Fonts, gratuita, licença OFL). O nome da logo já está em curvas:
+  não precisa ter a fonte instalada. Use Nunito nos textos que acompanham a marca.
+
+REGRAS RÁPIDAS
+--------------
+  - Respiro: deixe em volta da logo, no mínimo, a altura das letras do nome.
+  - Tamanho mínimo: logo com mascote, 200 px de largura; logo plana, 120 px (3 cm impresso).
+    Menor que isso, use só o símbolo.
+  - Exceção registrada (MX-122, dono, 11/11/2026): barra do app na tela: logo plana com nome,
+    mínimo 89 × 23 px; abaixo disso, só a fruta. Vale só para a faixa do topo da janela do app
+    (29 px de altura), nas cores oficiais (nome marrom no claro, creme no escuro).
+  - Não estique, não gire, não troque as cores, não ponha sombra nem contorno.
+  - Sobre foto ou fundo colorido, use a versão branca ou preta.

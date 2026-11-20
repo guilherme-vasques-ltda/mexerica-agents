@@ -43,4 +43,8 @@ export const textos = {
   "voz.chamada.falha.microfone": "Não foi possível usar o microfone: {erro}",
   "voz.chamada.falha.audioFila": "Fila de áudio cheia.",
   "voz.chamada.falha.audioFrequencia": "Frequência de áudio inválida.",
+  "voz.chamada.entrada.recusa.grupo": "A chamada de voz é com um bot, não com um canal.",
+  "voz.chamada.entrada.recusa.sessao": "A chamada de voz é da conversa principal. Volte à aba principal e tente de novo.",
+  "voz.chamada.entrada.recusa.senha": "Há um aviso de senha colada aberto neste chat. Resolva-o antes de ligar.",
+  "voz.chamada.entrada.recusa.indisponivel": "A voz ao vivo não está disponível agora. Confira Ajustes → Voz.",
 } as const
