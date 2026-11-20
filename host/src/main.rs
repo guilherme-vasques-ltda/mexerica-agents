@@ -144,6 +144,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Sub {
+    /// Executor de referência no computador do dono: cadastrar, liberar um local e atender pedidos de planilha.
+    Executor {
+        #[command(subcommand)]
+        action: computers::helper::Action,
+    },
     /// Auditoria interna, executada como motor pelo ajudante.
     #[command(hide = true)]
     AuditarCodex {
@@ -593,7 +598,7 @@ async fn main() -> Result<()> {
     // MCP de sessão usa só credencial da ponte. A descoberta com SETUP_ENV
     // ainda lê token local e conserva todas as guardas de pasta.
     if !environment::Environment::is_open()
-        && (!matches!(cli.cmd.as_ref(), Some(Sub::Mcp { .. }))
+        && (!matches!(cli.cmd.as_ref(), Some(Sub::Mcp { .. } | Sub::Executor { .. }))
             || std::env::var_os(fork::ponte_credencial::SETUP_ENV).is_some())
     {
         fork::data_home::validate_environment()?;
@@ -618,6 +623,7 @@ async fn main() -> Result<()> {
         Sub::MigrarRaizes { data_dir, inventario, trava_stdin } => {
             fork::motor_migration::run(&data_dir, inventario, trava_stdin)
         }
+        Sub::Executor { action } => computers::helper::main(action).await,
         Sub::Runner { action } => fork::onde_roda::runner::run(action).await,
         Sub::PersonalLink { action } => fork::personal_link::installation::executar(action).await,
         Sub::Bootstrap { action: BootstrapAction::ControlHealth { port } } => {
