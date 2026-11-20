@@ -338,6 +338,8 @@ impl Routines {
         if !due {
             return Ok(());
         }
+        // O mesmo instante em que `now` foi amostrado: o horário de cada consulta é `now` mais o que já passou desde aqui.
+        let amostra = Instant::now();
         let mut checks = Vec::new();
         self.change(store, |s| {
             if s.paused {
@@ -373,7 +375,7 @@ impl Routines {
                 }
                 // Checagem silenciosa: a ocorrência não vira execução com IA; só marca a consulta à fonte.
                 if fired && routine.enabled && routine.heartbeat.is_some() {
-                    checks.push(routine.id.clone());
+                    checks.push((routine.id.clone(), routine.updated_at));
                     continue;
                 }
                 // Keep one pending wake while a prior run is active. This also
@@ -390,7 +392,9 @@ impl Routines {
             }
             Ok(())
         })?;
-        self.check_due(store, &checks, now);
+        self.check_collected(store, &checks, || {
+            now.saturating_add(i64::try_from(amostra.elapsed().as_millis()).unwrap_or(i64::MAX))
+        });
         Ok(())
     }
 }

@@ -55,12 +55,16 @@ do aviso (fato e escolha) fica só num campo privado até ser publicado (nenhuma
 chat e pelo alerta do celular e é apagado depois de publicado; o histórico guarda só o resultado.
 
 Só gatilhos de relógio (cron ou intervalo) valem para uma checagem; gatilho único é recusado. O alerta no celular é
-de melhor esforço: o aviso no chat é a confirmação durável. As fontes precisam limitar o próprio tempo de leitura e
-não entrar em pânico com conteúdo; uma fonte lenta atrasa as demais checagens do mesmo ciclo.
+de melhor esforço: o aviso no chat é a confirmação durável. Cada chamada à fonte tem prazo de 30 segundos: estourado o
+prazo, a checagem registra a fonte como indisponível (nunca «sem mudança») e segue para a próxima rotina do ciclo. Uma
+chamada que não voltou fica numa linha de execução à parte e mantém a fonte ocupada: ela não recebe outra chamada até
+terminar. A fonte não deve entrar em pânico com conteúdo.
 
 Se o Hub cair justamente durante uma consulta, aquela ocorrência não é refeita: a checagem segue no horário seguinte
-da rotina (é uma amostragem periódica, não um compromisso a cumprir). Outra concessão da mesma fonte (outra conta, ou a
-fonte registrada de novo) começa do zero: não herda marcador, espera nem pendências já avisadas.
+da rotina (é uma amostragem periódica, não um compromisso a cumprir). Quem registra uma fonte informa a identidade da conta ou
+do vínculo (a mesma entre reinícios). Outra identidade (outra conta ou vínculo) começa do zero e não herda marcador,
+espera nem pendências já avisadas; registrar de novo a mesma identidade mantém o progresso e só descarta uma leitura em
+andamento. Sem concessão registrada ainda (logo após reiniciar), a checagem só registra a falha e conserva o que sabia.
 
 Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
 de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só é lida pelo bot a que foi concedida.

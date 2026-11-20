@@ -6,7 +6,15 @@ use crate::fork::heartbeat::{
     Aviso, Concessao, Estado, Fonte, Item, Motivo, Resultado, Saida, avaliar, identidade_de, pode_checar,
 };
 use crate::fork::rotina_resultado::{Kind, Lenient, RunOutcome, Source};
-use std::{fmt::Write as _, panic::AssertUnwindSafe};
+use std::{
+    fmt::Write as _,
+    panic::AssertUnwindSafe,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    time::Duration,
+};
 
 const MAX_RESUMO: usize = 300;
 
@@ -19,6 +27,48 @@ impl Fonte for Indisponivel {
     }
     fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
         Err(self.0)
+    }
+}
+
+/// A fonte com prazo por chamada: cada `marcador` ou `ler` roda numa linha de execução à parte e, se não voltar a tempo
+/// (ou entrar em pânico), vira `Motivo::Fora`. Uma chamada que ficou para trás mantém a fonte `ocupada`: nova chamada
+/// não é aberta até ela terminar, para uma fonte travada não acumular linhas de execução.
+struct ComPrazo {
+    fonte: Arc<dyn Fonte>,
+    prazo: Duration,
+    ocupada: Arc<AtomicBool>,
+}
+
+impl ComPrazo {
+    fn chamar<T: Send + 'static>(
+        &self,
+        chamada: impl FnOnce(&dyn Fonte) -> Result<T, Motivo> + Send + 'static,
+    ) -> Result<T, Motivo> {
+        if self.ocupada.swap(true, Ordering::AcqRel) {
+            return Err(Motivo::Fora);
+        }
+        let (envia, recebe) = mpsc::channel();
+        let (fonte, ocupada) = (self.fonte.clone(), self.ocupada.clone());
+        std::thread::spawn(move || {
+            let resultado = std::panic::catch_unwind(AssertUnwindSafe(|| chamada(&*fonte)));
+            ocupada.store(false, Ordering::Release);
+            let _ = envia.send(resultado);
+        });
+        match recebe.recv_timeout(self.prazo) {
+            Ok(Ok(resultado)) => resultado,
+            _ => Err(Motivo::Fora),
+        }
+    }
+}
+
+impl Fonte for ComPrazo {
+    fn marcador(&self, escopo: &str) -> Result<Option<String>, Motivo> {
+        let escopo = escopo.to_owned();
+        self.chamar(move |fonte| fonte.marcador(&escopo))
+    }
+    fn ler(&self, escopo: &str) -> Result<Vec<Item>, Motivo> {
+        let escopo = escopo.to_owned();
+        self.chamar(move |fonte| fonte.ler(&escopo))
     }
 }
 
@@ -45,8 +95,13 @@ impl Routines {
     /// Mexe no registro com o estado das rotinas travado: nenhuma checagem grava entre a mudança e o que ela vê.
     pub(crate) fn registrar_fonte(&self, bot: &str, nome: &str, identidade: &str, fonte: Arc<dyn Fonte>) {
         let _estado = self.state.locked();
-        let registro = self.concessoes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        let concessao = Concessao { registro, identidade: identidade_de(identidade), fonte };
+        let registro = self.concessoes.fetch_add(1, Ordering::SeqCst) + 1;
+        let concessao = Concessao {
+            registro,
+            identidade: identidade_de(identidade),
+            fonte,
+            ocupada: Arc::new(AtomicBool::new(false)),
+        };
         self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), concessao);
     }
 
@@ -58,24 +113,38 @@ impl Routines {
 }
 
 impl Routines {
-    pub(super) fn check_due(&self, store: &Store, ids: &[String], now: i64) {
-        let inicio = std::time::Instant::now();
-        for id in ids {
-            // Uma fonte lenta atrasa as seguintes: cada consulta usa o horário dela, não o do tick.
-            let agora = now.saturating_add(i64::try_from(inicio.elapsed().as_millis()).unwrap_or(i64::MAX));
-            if let Err(error) = self.check_one(store, id, agora) {
+    /// As checagens vencidas neste tick, cada uma presa à versão da rotina (`updated_at`) de quando foi coletada: se a
+    /// rotina mudou entre a coleta e a vez dela, aquela ocorrência fica para trás. `relogio` dá o horário de cada
+    /// consulta: uma fonte lenta atrasa as seguintes, então cada uma usa o instante em que de fato começa.
+    pub(super) fn check_collected(&self, store: &Store, vencidas: &[(String, i64)], mut relogio: impl FnMut() -> i64) {
+        for (id, versao) in vencidas {
+            if let Err(error) = self.check_one(store, id, *versao, relogio()) {
                 tracing::warn!(routine = %id, error = format!("{error:#}"), "checagem silenciosa não foi gravada");
             }
         }
     }
 
-    fn check_one(&self, store: &Store, id: &str, now: i64) -> Result<()> {
+    /// Testes: a versão de cada rotina é a de agora.
+    #[cfg(test)]
+    pub(super) fn check_due(&self, store: &Store, ids: &[String], mut relogio: impl FnMut() -> i64) {
+        let vencidas: Vec<(String, i64)> = {
+            let state = self.state.locked();
+            ids.iter()
+                .filter_map(|id| state.routines.iter().find(|r| &r.id == id).map(|r| (id.clone(), r.updated_at)))
+                .collect()
+        };
+        self.check_collected(store, &vencidas, &mut relogio);
+    }
+
+    fn check_one(&self, store: &Store, id: &str, coletada: i64, now: i64) -> Result<()> {
         let (bot, declaracao, anterior, geracao, pausas) = {
             let state = self.state.locked();
             if state.paused {
                 return Ok(());
             }
-            let Some(routine) = state.routines.iter().find(|r| r.id == id && !r.deleted && r.enabled) else {
+            let Some(routine) =
+                state.routines.iter().find(|r| r.id == id && !r.deleted && r.enabled && r.updated_at == coletada)
+            else {
                 return Ok(());
             };
             let Some(declaracao) = &routine.heartbeat else { return Ok(()) };
@@ -88,9 +157,13 @@ impl Routines {
             )
         };
         let chave = (bot, declaracao.fonte.clone());
-        let concedida = self.fontes.locked().get(&chave).map(|c| (c.registro, c.identidade.clone(), c.fonte.clone()));
+        let concedida = self
+            .fontes
+            .locked()
+            .get(&chave)
+            .map(|c| (c.registro, c.identidade.clone(), c.fonte.clone(), c.ocupada.clone()));
         let numero = concedida.as_ref().map(|(registro, ..)| *registro);
-        let identidade = concedida.as_ref().map(|(_, identidade, _)| identidade.clone());
+        let identidade = concedida.as_ref().map(|(_, identidade, ..)| identidade.clone());
         // Outra conta ou vínculo não herda marcador, espera nem avisos. Sem concessão (por exemplo, logo depois de
         // reiniciar, antes do conector registrar a fonte) o que se sabia fica: só a falha é registrada.
         let anterior =
@@ -99,8 +172,11 @@ impl Routines {
             return Ok(());
         }
         let _vaga = EmAndamento { routines: self, id };
-        let fonte: Arc<dyn Fonte> =
-            concedida.map_or_else(|| Arc::new(Indisponivel(Motivo::SemAcesso)) as Arc<dyn Fonte>, |(.., fonte)| fonte);
+        let prazo = Duration::from_millis(self.prazo_fonte_ms.load(Ordering::Relaxed));
+        let fonte: Arc<dyn Fonte> = concedida.map_or_else(
+            || Arc::new(Indisponivel(Motivo::SemAcesso)) as Arc<dyn Fonte>,
+            |(_, _, fonte, ocupada)| Arc::new(ComPrazo { fonte, prazo, ocupada }) as Arc<dyn Fonte>,
+        );
         let mut saida = std::panic::catch_unwind(AssertUnwindSafe(|| avaliar(&*fonte, &declaracao, &anterior, now)))
             .unwrap_or_else(|_| avaliar(&Indisponivel(Motivo::Fora), &declaracao, &anterior, now));
         if identidade.is_some() {
