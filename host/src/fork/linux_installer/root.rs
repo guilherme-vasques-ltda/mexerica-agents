@@ -1,7 +1,7 @@
 use super::{Migration, RootAction, migration};
 use anyhow::{Context, Result, bail, ensure};
 use std::{
-    ffi::{CStr, OsStr, OsString},
+    ffi::{CStr, CString, OsStr, OsString},
     fs::{self, OpenOptions},
     os::{
         fd::AsRawFd,
@@ -168,17 +168,34 @@ fn copy_into(mut input: fs::File, target: &Path, uid: u32, gid: u32, mode: u32) 
     result
 }
 
+pub(super) fn as_hub<T: Send>(hub: &User, extra: &[u32], work: impl FnOnce() -> Result<T> + Send) -> Result<T> {
+    let mut groups = super::identity::user_groups(&hub.name, hub.gid)?;
+    groups.extend_from_slice(extra);
+    super::identity::as_user(hub.uid, hub.gid, &groups, work)
+}
+
+pub(super) fn inside(home: &Path, path: &Path) -> Result<()> {
+    let plain = |p: &Path| p.is_absolute() && !p.components().any(|c| matches!(c, Component::ParentDir));
+    ensure!(plain(home) && home != Path::new("/"), "home do Hub inválida para migração e volta");
+    ensure!(
+        plain(path) && path.starts_with(home) && path != home,
+        "caminho fora da home do Hub recusado: {}",
+        path.display()
+    );
+    Ok(())
+}
+
+fn open_source(source: &Path) -> Result<fs::File> {
+    safe(source)?;
+    let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(source)?;
+    ensure!(file.metadata()?.is_file(), "arquivo regular exigido: {}", source.display());
+    Ok(file)
+}
+
 /// Origem de um binário do pacote, aberta com a identidade de arquivos do Hub: o root nunca
 /// copia o que essa conta não lê.
-fn open_as_hub(hub: &User, source: &Path) -> Result<fs::File> {
-    let groups = super::identity::user_groups(&hub.name, hub.gid)?;
-    super::identity::as_user(hub.uid, hub.gid, &groups, || {
-        safe(source)?;
-        let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(source)?;
-        ensure!(file.metadata()?.is_file(), "arquivo regular exigido: {}", source.display());
-        Ok(file)
-    })
-    .with_context(|| format!("a conta do Hub não lê {}", source.display()))
+pub(super) fn open_as_hub(hub: &User, source: &Path) -> Result<fs::File> {
+    as_hub(hub, &[], || open_source(source)).with_context(|| format!("a conta do Hub não lê {}", source.display()))
 }
 
 /// O caminho e cada pasta acima dele são do root, sem escrita de grupo ou outros e sem link.
@@ -202,25 +219,27 @@ fn installed_host() -> Option<PathBuf> {
     (meta.is_file() && meta.gid() == 0 && root_only(&host).is_ok()).then_some(host)
 }
 
-/// Layout anterior, com a pasta de binários da conta do Hub: ela sai inteira do caminho e
-/// dá lugar a uma do root. /opt/donnabot é do root, então a troca de nome não depende dela.
-fn retire_hub_bin() -> Result<()> {
+/// Põe a pasta preparada no lugar de /opt/donnabot/bin numa troca só, dentro da pasta do root.
+/// A anterior (inclusive a da conta do Hub, de instalação antiga) sai do caminho e é apagada.
+fn swap_bin(staged: &Path) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
     let bin = Path::new(BIN);
-    safe(bin)?;
-    let meta = match fs::symlink_metadata(bin) {
+    let old = match fs::symlink_metadata(bin) {
         Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(fs::rename(staged, bin)?),
         Err(e) => return Err(e.into()),
     };
-    if meta.is_dir() && meta.uid() == 0 && meta.gid() == 0 && meta.mode() & 0o7777 == 0o755 {
-        return Ok(());
+    let (from, to) = (CString::new(staged.as_os_str().as_bytes())?, CString::new(bin.as_os_str().as_bytes())?);
+    // SAFETY: caminhos absolutos terminados em NUL, ambos em /opt/donnabot, que é do root.
+    let rc =
+        unsafe { libc::renameat2(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), libc::RENAME_EXCHANGE) };
+    ensure!(rc == 0, "troca da pasta de binários: {}", std::io::Error::last_os_error());
+    if !(old.is_dir() && old.uid() == 0 && old.gid() == 0) {
+        println!("Pasta de binários da instalação anterior, da conta do Hub, trocada por uma do root.");
     }
-    let old = bin.with_file_name(format!(".bin-anterior-{}", uuid::Uuid::new_v4()));
-    fs::rename(bin, &old)?;
-    if let Err(error) = fs::remove_dir_all(&old) {
-        println!("Pasta anterior de binários fora do caminho, mas não removida ({error}): {}", old.display());
+    if let Err(error) = fs::remove_dir_all(staged) {
+        println!("Pasta anterior de binários fora do caminho, mas não removida ({error}): {}", staged.display());
     }
-    println!("Pasta de binários da instalação anterior, da conta do Hub, trocada por uma do root.");
     Ok(())
 }
 
@@ -263,21 +282,27 @@ pub(super) fn install(hub: &User, host: &Path, helper: &Path, data: &Path, port:
     config_owner(hub)?;
     ensure!(port != 0, "porta inválida");
     crate::environment::ensure_own_port(port)?;
-    let stable = hub.home.join(".local/bin/donnabot-host");
-    if let Ok(meta) = fs::symlink_metadata(&stable) {
-        ensure!(
-            meta.file_type().is_symlink() && fs::read_link(&stable)? == Path::new(BIN).join("donnabot-host"),
-            "binário antigo ou outro destino no link do app; use migrar-motor antes"
-        );
-    }
+    inside(&hub.home, data)?;
     crate::environment::ensure_own_data_dir(&hub.home, data)?;
-    if fs::symlink_metadata(data).is_ok() {
-        crate::fork::private_fs::Directory::for_owner(data, false, hub.uid, Some(hub.gid))?;
-    }
-    safe(data)?;
-    ensure!(data.parent().is_some_and(Path::is_dir), "pai de data_dir deve existir");
-    ensure!(host != helper && host.is_file() && helper.is_file(), "Hub e ajudante distintos são exigidos");
-    let (host_file, helper_file) = (open_as_hub(hub, host)?, open_as_hub(hub, helper)?);
+    ensure!(host != helper, "Hub e ajudante distintos são exigidos");
+    let host_dst = Path::new(BIN).join("donnabot-host");
+    let stable = hub.home.join(".local/bin/donnabot-host");
+    // O que está na home do Hub é lido e gravado com a identidade de arquivos dele.
+    let (host_file, helper_file) = as_hub(hub, &[], || {
+        if let Ok(meta) = fs::symlink_metadata(&stable) {
+            ensure!(
+                meta.file_type().is_symlink() && fs::read_link(&stable)? == host_dst,
+                "binário antigo ou outro destino no link do app; use migrar-motor antes"
+            );
+        }
+        if fs::symlink_metadata(data).is_ok() {
+            crate::fork::private_fs::Directory::for_owner(data, false, hub.uid, Some(hub.gid))?;
+        }
+        safe(data)?;
+        ensure!(data.parent().is_some_and(Path::is_dir), "pai de data_dir deve existir");
+        Ok((open_source(host)?, open_source(helper)?))
+    })
+    .context("origem do Hub ou do ajudante ilegível pela conta do Hub; nada foi alterado")?;
     if nss("group", WORK_GROUP.as_ref())?.is_none() {
         checked(Command::new(system("groupadd")?).args(["--system", WORK_GROUP]))?;
     }
@@ -316,58 +341,66 @@ pub(super) fn install(hub: &User, host: &Path, helper: &Path, data: &Path, port:
     directory(Path::new(BASE), 0, 0, 0o755)?;
     directory(Path::new(MOTOR), uid, motor.gid, 0o700)?;
     directory(Path::new(WORK), hub.uid, gid, 0o2770)?;
-    if unit(hub).exists() {
-        service(hub, &["stop", "donnabot-host.service"])?;
-    }
     directory(Path::new("/opt/donnabot"), 0, 0, 0o755)?;
-    retire_hub_bin()?;
-    directory(Path::new(BIN), 0, 0, 0o755)?;
-    root_only(Path::new(BIN))?;
-    let helper_dst = Path::new(BIN).join("donnabot-motor-exec");
-    copy_into(helper_file, &helper_dst, 0, hub.gid, 0o750)?;
-    checked(Command::new(system("setcap")?).arg("cap_setuid,cap_setgid+ep").arg(&helper_dst))
-        .context("/opt precisa suportar security.capability")?;
-    let caps = checked(Command::new(system("getcap")?).arg(&helper_dst))?;
-    let caps = String::from_utf8(caps.stdout)?;
-    ensure!(
-        caps.contains("cap_setgid,cap_setuid=ep") || caps.contains("cap_setuid,cap_setgid=ep"),
-        "getcap não confirmou capacidades"
-    );
-    directory(Path::new("/etc/donnabot"), 0, 0, 0o755)?;
-    write_atomic(
-        Path::new(CONFIG),
-        format!("motor_user={MOTOR_USER}\nhub_uid={}\nwork_gid={gid}\n", hub.uid).as_bytes(),
-        0,
-        0,
-        0o644,
-    )?;
-    checked(user_command(hub, &helper_dst)?.args(["--cwd", MOTOR, "--", "/usr/bin/id", "-u"]))
-        .context("capacidades ineficazes: /opt não pode ser nosuid e o chamador não pode usar NoNewPrivileges")?;
-    let host_dst = Path::new(BIN).join("donnabot-host");
-    copy_into(host_file, &host_dst, 0, 0, 0o755)?;
-    for suffix in [".local", ".local/bin", ".config", ".config/systemd", ".config/systemd/user"] {
-        let path = hub.home.join(suffix);
-        safe(&path)?;
-        if !path.exists() {
-            directory(&path, hub.uid, hub.gid, 0o700)?;
+    root_only(Path::new("/opt/donnabot"))?;
+    // O par novo é preparado e conferido numa pasta do root ao lado; o Hub só para antes da troca.
+    let staged = Path::new("/opt/donnabot").join(format!(".bin-novo-{}", uuid::Uuid::new_v4()));
+    let result = (|| {
+        directory(&staged, 0, 0, 0o755)?;
+        let helper_new = staged.join("donnabot-motor-exec");
+        copy_into(helper_file, &helper_new, 0, hub.gid, 0o750)?;
+        copy_into(host_file, &staged.join("donnabot-host"), 0, 0, 0o755)?;
+        checked(Command::new(system("setcap")?).arg("cap_setuid,cap_setgid+ep").arg(&helper_new))
+            .context("/opt precisa suportar security.capability")?;
+        let caps = checked(Command::new(system("getcap")?).arg(&helper_new))?;
+        let caps = String::from_utf8(caps.stdout)?;
+        ensure!(
+            caps.contains("cap_setgid,cap_setuid=ep") || caps.contains("cap_setuid,cap_setgid=ep"),
+            "getcap não confirmou capacidades"
+        );
+        directory(Path::new("/etc/donnabot"), 0, 0, 0o755)?;
+        write_atomic(
+            Path::new(CONFIG),
+            format!("motor_user={MOTOR_USER}\nhub_uid={}\nwork_gid={gid}\n", hub.uid).as_bytes(),
+            0,
+            0,
+            0o644,
+        )?;
+        checked(user_command(hub, &helper_new)?.args(["--cwd", MOTOR, "--", "/usr/bin/id", "-u"]))
+            .context("capacidades ineficazes: /opt não pode ser nosuid e o chamador não pode usar NoNewPrivileges")?;
+        if as_hub(hub, &[], || Ok(unit(hub).exists()))? {
+            service(hub, &["stop", "donnabot-host.service"])?;
         }
-        ensure!(path.is_dir() && fs::metadata(&path)?.uid() == hub.uid, "diretório do Hub incompatível");
+        swap_bin(&staged)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staged);
     }
-    let link = hub.home.join(".local/bin/donnabot-host");
-    match fs::symlink_metadata(&link) {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            ensure!(fs::read_link(&link)? == host_dst, "link do app pertence a outro destino");
-        }
-        Ok(_) => bail!("binário antigo no link do app; use migrar-motor antes"),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::os::unix::fs::symlink(&host_dst, &link)?,
-        Err(e) => return Err(e.into()),
-    }
-    crate::fork::private_fs::Directory::for_owner(data, true, hub.uid, Some(hub.gid))?;
+    result?;
     let text = format!(
         "[Unit]\nDescription=Mexerica Hub\nAfter=network-online.target\n\n[Service]\nUMask=0077\nExecStartPre={BIN}/donnabot-motor-exec cleanup\nExecStart={BIN}/donnabot-host serve --port {port}\nExecStopPost={BIN}/donnabot-motor-exec cleanup\nEnvironment={}\nEnvironment=\"PATH=/opt/donnabot/bin:/usr/local/bin:/usr/bin:/bin\"\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
         quote(&format!("MEXERICA_HOME={}", data.display()))
     );
-    write_atomic(&unit(hub), text.as_bytes(), hub.uid, hub.gid, 0o600)?;
+    as_hub(hub, &[], || {
+        for suffix in [".local", ".local/bin", ".config", ".config/systemd", ".config/systemd/user"] {
+            let path = hub.home.join(suffix);
+            safe(&path)?;
+            if !path.exists() {
+                directory(&path, hub.uid, hub.gid, 0o700)?;
+            }
+            ensure!(path.is_dir() && fs::metadata(&path)?.uid() == hub.uid, "diretório do Hub incompatível");
+        }
+        match fs::symlink_metadata(&stable) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                ensure!(fs::read_link(&stable)? == host_dst, "link do app pertence a outro destino");
+            }
+            Ok(_) => bail!("binário antigo no link do app; use migrar-motor antes"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::os::unix::fs::symlink(&host_dst, &stable)?,
+            Err(e) => return Err(e.into()),
+        }
+        crate::fork::private_fs::Directory::for_owner(data, true, hub.uid, Some(hub.gid))?;
+        write_atomic(&unit(hub), text.as_bytes(), hub.uid, hub.gid, 0o600)
+    })?;
     service(hub, &["daemon-reload"])?;
     if start {
         service(hub, &["enable", "--now", "donnabot-host.service"])?;
@@ -385,10 +418,12 @@ fn quote(s: &str) -> String {
 
 fn uninstall(hub: &User, remove_user: bool) -> Result<()> {
     config_owner(hub)?;
-    if unit(hub).exists() {
+    if as_hub(hub, &[], || Ok(unit(hub).exists()))? {
         service(hub, &["disable", "--now", "donnabot-host.service"])?;
-        safe(&unit(hub))?;
-        fs::remove_file(unit(hub))?;
+        as_hub(hub, &[], || {
+            safe(&unit(hub))?;
+            Ok(fs::remove_file(unit(hub))?)
+        })?;
         service(hub, &["daemon-reload"])?;
     }
     if Path::new(CONFIG).exists() {
@@ -412,9 +447,16 @@ fn request(args: Vec<OsString>) -> Result<()> {
     // SAFETY: consulta sem efeitos colaterais.
     let uid = unsafe { libc::getuid() };
     ensure!(uid != 0, "execute como usuário de login; install solicitará sudo");
-    let program = match installed_host() {
-        Some(host) => host,
-        None => crate::service::current_exe()?,
+    let program = if let Some(host) = installed_host() {
+        host
+    } else {
+        let exe = crate::service::current_exe()?;
+        ensure!(
+            !exe.starts_with(BIN),
+            "instalação anterior com binários da conta do Hub: o sudo não executa {}; rode ./donnabot-host install a partir do pacote baixado",
+            exe.display()
+        );
+        exe
     };
     let status = Command::new(system("sudo")?)
         .arg("--")

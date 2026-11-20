@@ -182,8 +182,12 @@ try:
     stage('instalar', *args)
     assert (bin_dir / 'bin').stat().st_uid == 0 and mode(bin_dir / 'bin') == 0o755 and not planted.exists()
     assert host_bin.stat().st_uid == 0 and mode(host_bin) == 0o755 and os.getxattr(exe, 'security.capability')
-    assert not list(bin_dir.glob('.bin-anterior-*')) and health()['ok']
+    assert not list(bin_dir.glob('.bin-*')) and health()['ok']
     print('PASS 5c pasta de binários da conta do Hub trocada por uma do root na reinstalação')
+    outside = Path('/etc/donnabot-f4-fora-da-home')
+    refused = stage('instalar', '--host', host, '--ajudante', helper, '--data-dir', outside, '--port', '19422', check=False)
+    assert refused.returncode != 0 and not outside.exists() and health()['ok']
+    print('PASS 5d pasta de dados fora da home do Hub recusada sem criar nada')
     # UID da etapa é explícito, testado separadamente, sem modificar a instalação.
     wrong = run(host, 'install-motor', 'desinstalar', '--hub-uid', '0', check=False)
     assert wrong.returncode != 0 and config.exists()
