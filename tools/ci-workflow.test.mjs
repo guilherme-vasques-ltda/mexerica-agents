@@ -1,4 +1,4 @@
-// Contrato do workflow de CI: só runners Boat/Instabox, permissões explícitas, actions por SHA e ci-ok sem atalho.
+// Contrato do workflow de CI: só runners da Instabox, permissões explícitas, actions por SHA e ci-ok sem atalho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,14 +14,7 @@ for (const line of lines.slice(jobsStart + 1)) {
   if (current) jobs[current].push(line);
 }
 const body = (name) => jobs[name].join('\n');
-const LABELS = ['boat-small', 'boat', 'boat-large', 'instabox-small', 'instabox-medium', 'instabox-large'];
-const RUNS_ON = new Set([
-  'boat-small',
-  'instabox-small',
-  "${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}",
-  "${{ github.run_attempt == 1 && needs.route.outputs.medium || 'instabox-medium' }}",
-  "${{ github.run_attempt == 1 && needs.route.outputs.heavy || 'instabox-large' }}",
-]);
+const RUNS_ON = new Set(['instabox-small', 'instabox-medium', 'instabox-large']);
 
 test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fora', () => {
   assert.ok(!/[^\x00-\x7F]/.test(ci), 'ci.yml deve ser ASCII');
@@ -33,8 +26,8 @@ test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fo
   assert.match(ci, /^concurrency:\n  group: ci-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true$/m);
 });
 
-test('todo job roda em Boat ou Instabox, com permissões e timeout explícitos', () => {
-  assert.ok(Object.keys(jobs).length >= 9);
+test('todo job roda na Instabox, com permissões e timeout explícitos', () => {
+  assert.deepEqual(Object.keys(jobs), ['leves', 'vazamento', 'hub', 'desktop', 'ci-ok']);
   for (const [name, job] of Object.entries(jobs)) {
     const runsOn = job.filter((l) => /^    runs-on:/.test(l));
     assert.equal(runsOn.length, 1, `${name}: exatamente um runs-on`);
@@ -43,17 +36,30 @@ test('todo job roda em Boat ou Instabox, com permissões e timeout explícitos',
     assert.ok(job.some((l) => /^    timeout-minutes: [1-9][0-9]*$/.test(l)), `${name}: timeout-minutes`);
     assert.ok(!/container:|services:/.test(job.join('\n')), `${name}: sem container/services`);
   }
-  assert.ok(!/ubuntu-|windows-|macos-|self-hosted|blacksmith|buildjet|depot-/i.test(ci), 'nenhum rótulo de runner do GitHub ou de outro fornecedor');
+  assert.ok(!/ubuntu-|windows-|macos-|self-hosted|blacksmith|buildjet|depot-|boat|nscloud/i.test(ci), 'nenhum rótulo de runner do GitHub ou de outro fornecedor');
+  assert.ok(!/run_attempt|needs\.route|vars\./.test(ci), 'rótulo fixo, sem rota por tentativa nem variável');
 });
 
-test('route só publica rótulos Boat e Instabox', () => {
-  const route = body('route');
-  assert.match(route, /boat\) light=boat-small; medium=boat; heavy=boat-large ;;/);
-  assert.match(route, /\*\) light=instabox-small; medium=instabox-medium; heavy=instabox-large ;;/);
-  assert.match(route, /^          family=instabox$/m, 'sem resposta da sonda, a rodada vai para a Instabox');
-  const assigned = [...route.matchAll(/\b(?:light|medium|heavy)=([a-z-]+)/g)].map((m) => m[1]);
-  assert.ok(assigned.length >= 6 && assigned.every((label) => LABELS.includes(label)));
-  assert.match(route, /^    permissions:\n      actions: read$/m);
+test('leves: verificadores da main antes de qualquer código do PR; auditoria só como aviso', () => {
+  const steps = body('leves').split('\n      - ').slice(1);
+  const at = (needle) => steps.findIndex((st) => st.includes(needle));
+  const trusted = ['id: selection', 'trusted-ci-gitleaks.mjs', 'semgrep-politica/semgrep.yml'].map(at);
+  const pr = ['node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs', 'node tools/ci-security-audit.mjs'].map(at);
+  assert.ok([...trusted, ...pr].every((i) => i >= 0), 'todas as checagens presentes');
+  assert.ok(Math.max(...trusted) < Math.min(...pr), 'código do PR só depois dos verificadores da main');
+  for (const st of steps.filter((s) => s.includes('Auditoria -'))) assert.match(st, /continue-on-error: true/);
+  assert.equal(steps.filter((s) => s.includes('continue-on-error')).length, 2, 'só a auditoria é aviso');
+  assert.ok(!/continue-on-error/.test(body('leves').split('\n    steps:')[0]), 'o job leves não é aviso');
+});
+
+test('Hub e Desktop só ligam máquina quando selecionados e fora de rascunho ou PR empilhado', () => {
+  assert.match(body('hub'), /^    needs: leves\n    if: \$\{\{ needs\.leves\.outputs\.host == 'true' && needs\.leves\.outputs\.heavy == 'true' \}\}$/m);
+  assert.match(body('desktop'), /^    needs: leves\n    if: \$\{\{ needs\.leves\.outputs\.desktop == 'true' && needs\.leves\.outputs\.heavy == 'true' \}\}$/m);
+  const leves = body('leves');
+  assert.match(leves, /\[ "\$BASE_REF" = main \] \|\| stacked=true/);
+  assert.match(leves, /if \[ "\$DRAFT" = true \] \|\| \[ "\$stacked" = true \]; then heavy=false; fi/);
+  assert.match(leves, /BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+  for (const job of ['leves', 'vazamento']) assert.match(body(job), /^    if: \$\{\{ github\.event\.pull_request\.head\.repo\.full_name == github\.repository \}\}$/m);
 });
 
 test('actions de terceiros fixadas por SHA completo; checkout sem credencial persistida', () => {
@@ -74,17 +80,17 @@ test('só o job vazamento recebe secret; token de escrita não existe', () => {
   assert.match(body('vazamento'), /VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/);
 });
 
-test('ci-ok sempre roda, recusa fork e não aceita job obrigatório pulado', () => {
+test('ci-ok sempre roda, recusa fork, PR empilhado e job obrigatório pulado', () => {
   const ok = body('ci-ok');
   assert.match(ok, /^    name: ci-ok$/m);
   assert.match(ok, /^    if: \$\{\{ always\(\) \}\}$/m);
-  assert.match(ok, /^    needs: \[route, secrets, vazamento, semgrep, changes, ferramentas-ci, hub, desktop\]$/m);
+  assert.match(ok, /^    needs: \[leves, vazamento, hub, desktop\]$/m);
   assert.match(ok, /^    permissions: \{\}$/m);
   assert.ok(!ok.includes('uses:'), 'ci-ok não faz checkout nem usa actions');
   assert.match(ok, /head\.repo\.full_name != github\.repository/);
-  for (const job of ['route', 'secrets', 'vazamento', 'semgrep', 'changes', 'ferramentas-ci']) {
-    assert.ok(ok.includes(`.${job.includes('-') ? `"${job}"` : job}.result == "success"`), `ci-ok exige ${job}`);
-  }
+  assert.match(ok, /\(\.leves\.result == "success"\) and \(\.vazamento\.result == "success"\)/);
+  assert.match(ok, /if \[ "\$\(jq -r '\.leves\.outputs\.stacked' <<< "\$NEEDS"\)" = true \]; then[\s\S]*?exit 1\n          fi/);
+  assert.match(ok, /\(\.leves\.outputs\.stacked == "false"\)/);
   assert.match(ok, /if selected\("host"\) then \.hub\.result == "success" else \.hub\.result == "skipped" end/);
   assert.match(ok, /if selected\("desktop"\) then \.desktop\.result == "success" else \.desktop\.result == "skipped" end/);
   assert.match(ok, /flag\("host"\) and flag\("desktop"\) and flag\("heavy"\)/);
@@ -114,8 +120,8 @@ test('secret só no passo cujo executor veio da main', () => {
   assert.ok(!publicOnly[0].includes('secrets.'));
 });
 
-test('changes reprova se o diff falhar e cobre configuração do Cargo', () => {
-  const changes = body('changes');
+test('seleção reprova se o diff falhar e cobre configuração do Cargo', () => {
+  const changes = body('leves');
   assert.match(changes, /git diff --name-only --no-renames -z "\$\{parents\[0\]\}" HEAD > "\$RUNNER_TEMP\/alterados\.z"/);
   assert.match(changes, /done < "\$RUNNER_TEMP\/alterados\.z"/);
   assert.ok(!changes.includes('done < <('), 'sem substituição de processo, que engole o erro');
@@ -123,7 +129,7 @@ test('changes reprova se o diff falhar e cobre configuração do Cargo', () => {
 });
 
 test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
-  const sem = body('semgrep');
+  const sem = body('leves');
   assert.ok(sem.includes('git show "$source:.github/security/semgrep.yml"'));
   assert.ok(sem.includes('git show "$source:.github/security/semgrep-requirements.txt"'));
   assert.ok(sem.includes('-r "$RUNNER_TEMP/semgrep-politica/requirements.txt"'));
