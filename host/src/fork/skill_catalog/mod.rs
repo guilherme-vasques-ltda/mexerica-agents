@@ -464,6 +464,8 @@ fn root_lock(store: &Store) -> Result<File> {
     }
     let lock = options.open(path)?;
     acquire(&lock, LOCK_WAIT)?;
+    #[cfg(windows)]
+    clean_orphans(&store.skills_root);
     Ok(lock)
 }
 
@@ -611,31 +613,85 @@ fn rename_flagged(source: &Path, dest: &Path, swap: bool) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        // O rename do Windows pode substituir pasta vazia e não tem troca atômica. O lock de filesystem
-        // serializa os escritores do Hub; a troca sai em passos e desfaz o primeiro se o segundo falhar.
+        // Sem troca atômica no Windows: a troca sai em passos (ver `swap_in_steps`) e todo passo recusa
+        // destino existente, então um destino criado no intervalo nunca é substituído.
         if !swap {
-            ensure!(
-                fs::symlink_metadata(dest).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
-                "Destino existente; nenhuma versão será sobrescrita"
-            );
-            return Ok(fs::rename(source, dest)?);
+            return Ok(move_no_replace(source, dest)?);
         }
-        let old = dest.with_file_name(format!(".old-{}", uuid::Uuid::new_v4()));
-        fs::rename(dest, &old)?;
-        if let Err(error) = fs::rename(source, dest) {
-            fs::rename(&old, dest).context("Troca de pastas interrompida; versão anterior mantida em .old-*")?;
-            return Err(error.into());
-        }
-        // `dest` já tem a versão nova; levar a antiga para o stage é só limpeza, em melhor esforço.
-        if fs::rename(&old, source).is_err() {
-            let _ = fs::remove_dir_all(&old);
-        }
-        Ok(())
+        swap_in_steps(source, dest, move_no_replace)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = (source, dest, swap);
         bail!("Publicação atômica sem substituição indisponível nesta plataforma");
+    }
+}
+
+/// `MoveFileExW` sem `MOVEFILE_REPLACE_EXISTING`: o próprio sistema recusa quando o destino existe
+/// (arquivo, pasta, vazia ou não, ou junção). O `fs::rename` do Rust substitui o destino.
+#[cfg(windows)]
+fn move_no_replace(source: &Path, dest: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    let wide = |path: &Path| path.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (source, dest) = (wide(source), wide(dest));
+    if source[..source.len() - 1].contains(&0) || dest[..dest.len() - 1].contains(&0) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "caminho com NUL"));
+    }
+    // SAFETY: os dois buffers terminam em NUL, não têm NUL no meio e ficam vivos durante a chamada; flags 0
+    // não substitui destino existente.
+    if unsafe { MoveFileExW(source.as_ptr(), dest.as_ptr(), 0) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Troca duas pastas sem rename atômico: `dest` sai para `.old-*`, `source` entra em `dest` e a antiga
+/// volta para `source` (o stage a apaga). Se a entrada falha, a anterior volta; se o desfazer também
+/// falha, os dois erros chegam ao chamador. O lock de filesystem serializa os escritores do Hub.
+#[cfg(any(windows, test))]
+fn swap_in_steps(source: &Path, dest: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) -> Result<()> {
+    let old = dest.with_file_name(format!(".old-{}", uuid::Uuid::new_v4()));
+    mv(dest, &old).context("Não foi possível tirar a versão anterior do caminho")?;
+    if let Err(error) = mv(source, dest) {
+        return match mv(&old, dest) {
+            Ok(()) => Err(anyhow!(error).context("Troca de pastas recusada; versão anterior mantida")),
+            Err(undo) => Err(anyhow!(
+                "Troca de pastas interrompida ({error}) e o desfazer falhou ({undo}); a versão anterior ficou em {}",
+                old.file_name().unwrap_or_default().to_string_lossy()
+            )),
+        };
+    }
+    // `dest` já tem a versão nova; levar a antiga para o stage é só limpeza, em melhor esforço.
+    if let Err(error) = mv(&old, source) {
+        tracing::warn!(%error, "Não foi possível mover a versão anterior para o stage; apagando");
+        if let Err(error) = fs::remove_dir_all(&old) {
+            tracing::warn!(%error, "Pasta .old-* órfã não foi apagada; a próxima operação a remove");
+        }
+    }
+    Ok(())
+}
+
+/// Apaga `.old-*` e `.stage-*` que uma queda deixou. Roda sob o lock do catálogo, quando nenhum
+/// escritor está em passo de troca ou de preparo.
+#[cfg(any(windows, test))]
+fn clean_orphans(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name.starts_with(".old-") || name.starts_with(".stage-")) {
+            continue;
+        }
+        if !fs::symlink_metadata(entry.path()).is_ok_and(|meta| meta.file_type().is_dir()) {
+            continue;
+        }
+        if let Err(error) = fs::remove_dir_all(entry.path()) {
+            tracing::warn!(%error, "Pasta órfã do catálogo de habilidades não foi apagada");
+        }
     }
 }
 
@@ -651,6 +707,11 @@ fn publish(store: &Store, id: &str, files: &[registry::Asset], r: Option<&Receip
     ensure!(fs::symlink_metadata(&dest).is_err(), "Destino criado durante a importação");
     rename_new(&stage.0, &dest)?;
     sync_directory(&store.skills_root)?;
+    // Confere de novo o que ficou em `dest`: o stage pode ter sido mexido entre a prova e a publicação.
+    if let Err(error) = verify_published(&dest, files, r) {
+        let _ = fs::remove_dir_all(&dest);
+        return Err(error.context("A importação publicada não conferiu; removida"));
+    }
     Ok(true)
 }
 
