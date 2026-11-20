@@ -717,13 +717,10 @@ fn clean_orphans(root: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) 
                 fs::symlink_metadata(dest).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
             });
             if let (true, Some(dest)) = (missing, dest) {
-                match mv(&path, &dest) {
-                    Ok(()) => {
-                        tracing::warn!("Versão anterior do catálogo de habilidades restaurada após troca interrompida")
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, "Versão anterior do catálogo não pôde ser restaurada; mantida em .old-*")
-                    }
+                if let Err(error) = mv(&path, &dest) {
+                    tracing::warn!(%error, "Versão anterior do catálogo não pôde ser restaurada; mantida em .old-*");
+                } else {
+                    tracing::warn!("Versão anterior do catálogo de habilidades restaurada após troca interrompida");
                 }
                 continue;
             }
