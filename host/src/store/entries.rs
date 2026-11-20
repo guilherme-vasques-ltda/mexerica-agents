@@ -123,6 +123,10 @@ pub(crate) fn check_execution_on(
     Ok(())
 }
 
+/// A chave antiduplicata como o índice único `entries_client_nonce` a lê (schema 7); consultas com a mesma expressão
+/// usam o índice, e linha que não é JSON fica de fora.
+pub(crate) const NONCE: &str = "(CASE WHEN json_valid(data) THEN json_extract(data, '$.clientNonce') END)";
+
 /// O que o reenvio de uma mensagem do dono com a mesma chave precisa repetir: texto, sessão, mensagem citada e anexos
 /// por nome e tamanho (cada tentativa do app sobe o arquivo de novo, com outro id).
 pub(crate) fn send_intent(text: &str, attachments: &[Value], reply_to: Option<&str>, session: Option<&str>) -> Value {
@@ -253,8 +257,8 @@ impl Store {
         let Some(existing) = c
             .query_row(
                 &format!(
-                    "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_valid(data)
-                       AND json_extract(data, '$.clientNonce') = ?2"
+                    "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user'
+                       AND COALESCE({NONCE}, '') <> '' AND {NONCE} = ?2"
                 ),
                 params![chat, nonce],
                 row_entry,
@@ -281,7 +285,7 @@ impl Store {
         let c = self.db.locked();
         let row = c.query_row(
             &format!(
-                "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_extract(data, '$.clientNonce') = ?2"
+                "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_valid(data) AND json_extract(data, '$.clientNonce') = ?2"
             ),
             params![bot_id, nonce],
             row_entry,
@@ -658,6 +662,25 @@ mod tests {
         assert!(ask("v", send_intent("velho", std::slice::from_ref(&file), None, None)).is_err(), "citação diferente");
         assert!(ask("outra", send_intent("oi", &[], None, None)).unwrap().is_none());
         assert!(Store::replay_on(&c, "b", &json!({"clientNonce": "", "intent": intent})).unwrap().is_none());
+        c.execute(
+            "INSERT INTO entries(id, bot_id, rev, kind, turn, data, created_at, updated_at) VALUES('x', 'b', 99, 'user', 9, 'nao e json', 0, 0)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            ask("n", send_intent("oi", std::slice::from_ref(&file), None, None)).unwrap().unwrap().id,
+            original.id
+        );
+        let plan: String = c
+            .query_row(
+                &format!("EXPLAIN QUERY PLAN SELECT id FROM entries WHERE bot_id = 'b' AND kind = 'user' AND COALESCE({NONCE}, '') <> '' AND {NONCE} = 'n'"),
+                [],
+                |r| r.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("entries_client_nonce"), "a busca pela chave usa o índice único: {plan}");
+        drop(c);
+        assert_eq!(store.find_by_nonce("b", "n").unwrap().id, original.id, "linha que não é JSON não derruba a busca");
     }
 
     #[test]

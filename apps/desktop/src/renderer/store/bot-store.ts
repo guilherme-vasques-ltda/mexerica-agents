@@ -184,12 +184,13 @@ export class BotStore extends BotSync {
       } catch (error) {
         voz?.concluir(false)
         if (session) {
-          if (filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
           // Fork (UI-01): a mensagem da extra fica na bolha da extra, com Tentar de novo (que revalida), mesmo se o
           // link mudou; o texto não se perde e nada vai para a principal.
           const client = this.connectedClient
           const failure = !client || !this.sessions.current(session, client) ? 'linkChanged' : this.sessions.failureOf(error)
-          this.sessions.fail(botId, session.id, failure)
+          // Fila cheia no link atual: um aviso só, o de fila cheia; a bolha fica "não enviada" com Tentar de novo.
+          if (failure === 'failed' && filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
+          else this.sessions.fail(botId, session.id, failure)
           return this.markLocal(nonce, botId, 'failed')
         }
         if (!vinculo.aceitar()) return
