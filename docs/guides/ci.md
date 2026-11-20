@@ -84,7 +84,10 @@ no PR como a sonda do Boat e não trava a fila enquanto estabiliza.
   compartilhado por rótulo entre todas as rodadas. O resumo do job mostra os minutos gastos e
   a estimativa em dólar.
 - **Segurança:** `permissions: {}` no topo e só `contents: read` no job; nenhum secret;
-  actions de uma lista fechada por SHA (checkout, setup-node, rust-cache e upload-artifact);
+  actions de uma lista fechada por SHA (checkout, setup-node, rust-cache e upload-artifact).
+  A mesma lista está em Settings → Actions do repositório, que recusa qualquer outra action:
+  `upload-artifact` entrou nela para guardar o zip da Open no disparo manual. Uma action nova
+  precisa entrar nos dois lugares, senão o workflow nem começa ("startup failure");
   o rustup, se faltar na imagem, é baixado com SHA-256 fixo. `tools/ci-workflow.test.mjs`
   confere tudo isso.
 
