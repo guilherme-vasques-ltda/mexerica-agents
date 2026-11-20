@@ -73,7 +73,7 @@ export function NavegadorAoVivo({ bridge, scope, session, target, conexao, botNa
       {!temQuadro && !fechada && <VStack gap={6} className="aovivo-espera"><Text size="callout" tone="secondary">{t(faixa.kind === 'abrindo' ? 'ajustes.navegadorAoVivo.abrindo' : 'ajustes.navegadorAoVivo.semQuadro', { bot: botName })}</Text></VStack>}
     </div>
 
-    {!fechada && <Text size="caption" tone="secondary" className="aovivo-rodape">
+    {!fechada && <Text size="caption" tone="secondary" className="aovivo-rodape" role="status">
       {aviso === 'assumir' ? t('ajustes.navegadorAoVivo.avisoAssumir')
         : aviso === 'clique' ? t('ajustes.navegadorAoVivo.avisoClique')
         : faixa.kind === 'pessoa' ? t('ajustes.navegadorAoVivo.dicaClique')

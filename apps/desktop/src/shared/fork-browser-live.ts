@@ -226,7 +226,10 @@ export class BrowserLiveSession {
   private attachId = 0
   private inputSequence = 0
   private lostInput = false
+  /** Entradas que ainda não terminaram: cada uma sai da conta só ao terminar, mesmo que o controle, a aba ou a inscrição tenham mudado. */
   private pendingInputs = 0
+  /** Muda quando a sessão se reinscreve: o resultado tardio de uma entrada da inscrição anterior não mexe na sequência da nova. */
+  private subscriptionId = 0
   private inputChain: Promise<unknown> = Promise.resolve()
   private acking = false
   private ackAgain = false
@@ -442,13 +445,13 @@ export class BrowserLiveSession {
     this.lastSequence = 0
     this.inputSequence = 0
     this.lostInput = false
-    this.pendingInputs = 0
+    this.subscriptionId += 1
     this.set({ status: 'connecting', controller: 'agent', epoch: 0, targetGeneration: 0, switching: false })
     await this.subscribeAtHub()
   }
 
   private ack() {
-    if (this.current.status !== 'live' || !this.owns()) return
+    if (this.current.status !== 'live' || !this.owns() || this.paused) return
     if (this.acking) {
       this.ackAgain = true
       return
@@ -478,7 +481,6 @@ export class BrowserLiveSession {
       else this.set({ switching: false })
       return false
     }
-    this.pendingInputs = 0
     this.set({ controller, epoch, switching: false })
     return true
   }
@@ -496,7 +498,6 @@ export class BrowserLiveSession {
     }
     this.displayed = null
     this.lastSequence = 0
-    this.pendingInputs = 0
     this.set({ target, targetGeneration: generation })
     return true
   }
@@ -537,10 +538,12 @@ export class BrowserLiveSession {
   private async send(frame: BrowserFrame, epoch: number, generation: number, x: number, y: number, displayWidth: number, displayHeight: number): Promise<InputResult> {
     const attempt = async (sequence: number) =>
       this.bridge.call('browserStreamInput', { session: this.session, target: this.current.target, frameSequence: frame.sequence, targetGeneration: generation, sequence, epoch, controller: 'person', x, y, displayWidth, displayHeight }, CALL_TIMEOUT_MS)
+    const subscription = this.subscriptionId
     let blocked = this.blockedInput(frame, epoch, generation)
     if (blocked) return blocked
     let sequence = this.inputSequence + 1
     let result = await attempt(sequence)
+    if (subscription !== this.subscriptionId) return { ok: false, reason: 'refused' }
     let retried = false
     const accepted = (value: ForkCloudCallResult) => value.kind === 'ok' && record(value.value)?.accepted === true
     // Depois de um resultado incerto o Hub pode ter avançado a sequência: uma única nova tentativa com a seguinte.
@@ -550,6 +553,7 @@ export class BrowserLiveSession {
       sequence += 1
       retried = true
       result = await attempt(sequence)
+      if (subscription !== this.subscriptionId) return { ok: false, reason: 'refused' }
     }
     if (accepted(result)) {
       this.inputSequence = sequence

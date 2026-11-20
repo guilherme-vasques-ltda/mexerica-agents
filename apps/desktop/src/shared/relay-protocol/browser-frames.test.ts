@@ -40,6 +40,14 @@ test('o cabeçalho segue o formato do Hub, byte a byte', () => {
   assert.deepEqual(decodeFrame(wire), quadro())
 })
 
+test('identificadores com U+FEFF no começo voltam iguais: o BOM não é removido', () => {
+  const original = { ...quadro(), session: '\uFEFFsessão', target: '\uFEFF' }
+  const frame = decodeFrame(encodeFrame(original))
+  assert.equal(frame.session, original.session)
+  assert.equal(frame.target, original.target)
+  assert.equal(decodeFrame(encodeFrame(quadro())).session, 'sessão', 'controle: identificador comum não muda')
+})
+
 test('o JPEG decodificado é cópia própria, não uma visão do buffer do canal', () => {
   const wire = encodeFrame(quadro())
   const frame = decodeFrame(wire)

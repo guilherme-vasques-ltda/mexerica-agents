@@ -138,19 +138,21 @@ export class Connection {
     const channel = this.channel
     if (!this.current() || !channel || !this.attachment) return null
     let raw: Subscription | null = null
+    let sub: Subscription | null = null
     let ended = false
     const guard = () => !ended && this.current() && this.channel === channel
     try {
       raw = channel.subscribeFrames({
         onFrame: (frame) => { if (guard()) sink.onFrame(frame) },
-        onEnd: (error) => { if (ended) return; ended = true; if (raw) this.subscriptions.delete(raw); if (this.current() && this.channel === channel) sink.onEnd(error) },
+        onEnd: (error) => { if (ended) return; ended = true; if (sub) this.subscriptions.delete(sub); if (this.current() && this.channel === channel) sink.onEnd(error) },
       })
     } catch { return null }
     if (!raw) return null
     const inner = raw
-    const sub: Subscription = { id: inner.id, cancel: () => { if (ended) return; ended = true; this.subscriptions.delete(sub); inner.cancel() } }
-    this.subscriptions.add(sub)
-    return sub
+    const tracked: Subscription = { id: inner.id, cancel: () => { if (ended) return; ended = true; this.subscriptions.delete(tracked); inner.cancel() } }
+    sub = tracked
+    this.subscriptions.add(tracked)
+    return tracked
   }
   subscribe(body: unknown, onEvent: (value: unknown) => void, onEnd: (error: { status: number; message: string } | null) => void): Subscription | null {
     const channel = this.channel

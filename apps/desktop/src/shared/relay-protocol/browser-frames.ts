@@ -46,7 +46,7 @@ export class FrameCodecError extends Error {
   }
 }
 
-const utf8 = new TextDecoder('utf-8', { fatal: true })
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 /** Os quatro primeiros bytes são `MXJ1`: decide, sem copiar, se a mensagem interna é um quadro. */
 export function isFrameBytes(bytes: Uint8Array): boolean {

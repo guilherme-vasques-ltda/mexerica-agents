@@ -321,6 +321,48 @@ test('painel fechado durante a abertura local e reaberto depois também inscreve
   assert.equal(m.chamadas.filter((c) => c.method === 'browserStreamSubscribe').length, 1)
 })
 
+test('resultado tardio de uma entrada da inscrição anterior não mexe na sequência da nova', async () => {
+  const slot = new BrowserHubSlot()
+  const canal = canalFalso()
+  let libera: (r: ForkCloudCallResult) => void = () => {}
+  const a = montar({ browserStreamInput: (_b, n) => (n === 1 ? (new Promise((r) => (libera = r)) as never) : { kind: 'ok', value: { accepted: true } }) }, canal, 's1', undefined, slot)
+  await aoVivoComPessoa(a)
+  const antiga = a.sessao.click(5, 5, 100, 100)
+  await a.tick()
+  a.sessao.pause()
+  const b = montar({}, canal, 's2', undefined, slot)
+  await b.sessao.start()
+  b.sessao.pause()
+  await a.sessao.resume()
+  libera({ kind: 'ok', value: { accepted: true } })
+  assert.deepEqual(await antiga, { ok: false, reason: 'refused' })
+  a.mostrar(quadro(1))
+  assert.equal(await a.sessao.setController('person'), true)
+  assert.deepEqual(await a.sessao.click(5, 5, 100, 100), { ok: true })
+  assert.deepEqual(a.chamadas.filter((c) => c.method === 'browserStreamInput').map((c) => c.body.sequence), [1, 1], 'a inscrição nova começa na sequência 1')
+})
+
+test('o aviso de próximo quadro pendente não sai com o painel fechado', async () => {
+  let libera: (r: ForkCloudCallResult) => void = () => {}
+  const m = montar({ browserStreamAck: (_b, n) => (n === 1 ? (new Promise((r) => (libera = r)) as never) : { kind: 'ok', value: { acknowledged: true } }) })
+  await m.sessao.start()
+  m.mostrar(quadro(1))
+  m.sessao.pause()
+  libera({ kind: 'ok', value: { acknowledged: true } })
+  await m.tick()
+  assert.equal(m.chamadas.filter((c) => c.method === 'browserStreamAck').length, 1)
+})
+
+test('entradas antigas continuam na conta da fila até terminarem, mesmo depois de trocar o controle', async () => {
+  const m = montar({ browserStreamInput: () => new Promise(() => {}) as never })
+  await aoVivoComPessoa(m)
+  for (let i = 0; i < 4; i++) void m.sessao.click(5, 5, 100, 100)
+  assert.deepEqual(await m.sessao.click(5, 5, 100, 100), { ok: false, reason: 'busy' })
+  assert.equal(await m.sessao.setController('agent'), true)
+  assert.equal(await m.sessao.setController('person'), true)
+  assert.deepEqual(await m.sessao.click(5, 5, 100, 100), { ok: false, reason: 'busy' }, 'a conta não zera: as quatro antigas ainda estão na fila')
+})
+
 test('trocar de aba avança a geração, descarta quadro e entrada pendente da anterior', async () => {
   const m = montar()
   await aoVivoComPessoa(m)

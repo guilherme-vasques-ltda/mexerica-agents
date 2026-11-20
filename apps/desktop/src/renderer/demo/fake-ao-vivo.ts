@@ -131,6 +131,8 @@ export class HubNavegadorFalso {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
     this.sink = null
+    this.ocupado = false
+    this.pendente = null
   }
 
   perder() {

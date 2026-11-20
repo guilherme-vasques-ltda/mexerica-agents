@@ -36,9 +36,11 @@ function montar() {
   const ouvintesTela = new Map<string, Set<Listener>>()
   /** Milissegundos que o IPC leva: os quadros (processo principal → tela) e cada envio de clique (tela → processo principal), pela ordem do envio desde o começo do teste. */
   const atraso = { quadro: 0, clique: [] as number[] }
+  const navegacao: Listener[] = []
   const frame = { url }
   const sender = {
-    id: 1, mainFrame: frame, isDestroyed: () => false, on() {}, once() {}, removeListener() {},
+    id: 1, mainFrame: frame, isDestroyed: () => false, once() {}, removeListener() {},
+    on: (canal: string, cb: Listener) => { if (canal === 'did-start-navigation') navegacao.push(cb) },
     send: (canal: string, ...args: unknown[]) => {
       if (canal === 'forkCloud:frames:data') passa(atraso.quadro)
       for (const cb of ouvintesTela.get(canal) ?? []) cb({}, ...args)
@@ -101,7 +103,7 @@ function montar() {
   const vistos: BrowserFrame[] = []
   sessao.subscribe({ onState: () => {}, onFrame: (f) => vistos.push(f) })
   return {
-    passa, atraso, sessao, ponte, hub, conexao,
+    passa, atraso, sessao, ponte, hub, conexao, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => navegacao.forEach((cb) => cb(detalhes)),
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -255,4 +257,15 @@ test('consumidor de quadros já em uso é 409; capacidade não negociada é 501;
   const sem = r.ponte.subscribeFrames(() => {}, (e) => fins.push(e))
   assert.equal(await sem.opened, false)
   assert.equal(fins.at(-1)?.status, 501, 'sem capacidade negociada')
+})
+
+test('âncora e subquadro não encerram os quadros; a troca de documento da janela principal encerra', async () => {
+  const r = await comPessoa()
+  r.navegar({ isMainFrame: true, isSameDocument: true })
+  r.navegar({ isMainFrame: false, isSameDocument: false })
+  await r.quadro(2)
+  assert.equal(r.sessao.frame?.sequence, 2, 'seguem chegando')
+  assert.equal(r.assinado(), true)
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  assert.equal(r.assinado(), false, 'a troca de documento cancela a assinatura de quadros')
 })

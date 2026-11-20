@@ -726,8 +726,10 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const frame = event.senderFrame
     const current = () => live(event) && event.senderFrame === frame && !!service.dataConnection(connectionId)
     const changed = () => endFrames(mapKey, null, false)
-    event.sender.on('did-start-navigation', changed); event.sender.once('destroyed', changed)
-    const cleanup = () => { event.sender.removeListener('did-start-navigation', changed); event.sender.removeListener('destroyed', changed) }
+    // Só a troca de documento da janela principal encerra: âncora (mesmo documento) e subquadro não mexem na tela aberta.
+    const navigated = (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) changed() }
+    event.sender.on('did-start-navigation', navigated); event.sender.once('destroyed', changed)
+    const cleanup = () => { event.sender.removeListener('did-start-navigation', navigated); event.sender.removeListener('destroyed', changed) }
     const gate = createFrameGate<BrowserFrame>((value, waited) => { if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false); event.sender.send('forkCloud:frames:data', id, value, waited); service.frameDispatched(connectionId, value) })
     const entry: FrameEntry = { event, connectionId, sub: null, gate, cleanup }
     frames.set(mapKey, entry)

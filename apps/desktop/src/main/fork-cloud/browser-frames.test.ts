@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { Channel, ChannelBroken } from './channel.ts'
 import type { Channel as ChannelType } from './channel.ts'
@@ -30,6 +30,9 @@ function par(negociado: boolean) {
   return { channel, frames, hub: new HostCodec(keys) }
 }
 
+const enlaces: RelayLink[] = []
+after(() => { for (const l of enlaces) l.stop() })
+
 function link(frames: boolean | undefined) {
   const sockets: FakeSocket[] = []
   const channels: (ChannelType | null)[] = []
@@ -47,6 +50,7 @@ function link(frames: boolean | undefined) {
     },
     onChannel: (c) => channels.push(c),
   })
+  enlaces.push(l)
   l.start()
   const socket = sockets[0]!
   socket.open()
