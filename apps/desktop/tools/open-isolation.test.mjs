@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -9,6 +9,8 @@ import { environmentProfile } from '../src/shared/environment.ts'
 import { PORTA_PRINCIPAL, PORTA_DEV } from '../src/main/fork-oauth-loopback.ts'
 import { SANDBOX_PORTS } from '../src/shared/dev-sandbox.ts'
 import { open, openPaths, isOpenAsset } from '../src/main/fork-open/isolation.ts'
+import { traduzir } from '../src/renderer/lib/fork-i18n/index.ts'
+import { SOURCE_LANGUAGE } from '../src/shared/fork-idioma.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -58,7 +60,12 @@ test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) 
   const personalFile = join(personal, 'fixture')
   writeFileSync(personalFile, 'dados fictícios', { mode: 0o600 })
   linkSync(personalFile, join(paths.homeConfig, 'fixture'))
-  assert.throws(() => openPaths(home, appData))
+  assert.throws(() => openPaths(home, appData), { message: traduzir(SOURCE_LANGUAGE, 'marca.open.perfilArquivo') })
+  rmSync(join(paths.homeConfig, 'fixture'))
+  const unsafeFile = join(paths.userData, 'unsafe')
+  writeFileSync(unsafeFile, '', { mode: 0o600 })
+  chmodSync(unsafeFile, 0o622)
+  assert.throws(() => openPaths(home, appData), { message: traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados') })
 })
 
 test('a janela só pede arquivos empacotados, sem rede nem esquemas externos', () => {

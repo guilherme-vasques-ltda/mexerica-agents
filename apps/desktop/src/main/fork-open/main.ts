@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, session } from 'electron'
+import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
+import { SOURCE_LANGUAGE } from '../../shared/fork-idioma.ts'
 import type { AccountState, HostSnapshot, UpdateState } from '../../shared/ipc'
 import type { SSHState } from '../../shared/ssh'
 import { privateDirectory } from '../../shared/fork-private-files'
@@ -9,7 +11,7 @@ import { isOpenAsset, open, openPaths } from './isolation'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
     JSON.stringify(JSON.parse(readFileSync(join(process.resourcesPath, 'open-profile.json'), 'utf8'))) !== JSON.stringify(open)) {
-  throw new Error('Pacote Open inválido.')
+  throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.pacoteInvalido'))
 }
 
 app.setName(open.name)
@@ -51,7 +53,7 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.on('will-download', (event) => event.preventDefault())
     const sync = {
       'app:name': open.name, 'app:scheme': open.scheme, 'app:hostPort': open.port, 'app:version': app.getVersion(),
-      'app:computerName': open.name, 'app:suggestedLanguage': 'pt-BR', 'app:openedAtLogin': false, 'app:debugOpen': null,
+      'app:computerName': open.name, 'app:suggestedLanguage': SOURCE_LANGUAGE, 'app:openedAtLogin': false, 'app:debugOpen': null,
       'speech:available': false, 'speech:locales': [], 'island:supported': false,
     }
     for (const [channel, value] of Object.entries(sync)) ipcMain.on(channel, (event) => { event.returnValue = value })
@@ -72,7 +74,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     for (const [channel, value] of Object.entries(state)) ipcMain.handle(channel, () => value)
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: open.name, submenu: [{ label: 'Ajustes…', accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
+      { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
       { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'selectAll' }] },
       { role: 'windowMenu', submenu: [{ role: 'close' }, { role: 'minimize' }] },
     ]))
