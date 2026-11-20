@@ -54,6 +54,9 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
         | "donnaSpaceReorder"
         | "donnaOwnerPresentation"
         | "donnaEngineAccounts"
+        | "donnaEngineAccess"
+        | "donnaBotEditor"
+        | "donnaBotEditorSave"
         | "deleteBot"
         | "reorderBots" => Ok(()),
         "createBot" | "updateBot" if body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")) => Ok(()),

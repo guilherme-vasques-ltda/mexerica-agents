@@ -18,6 +18,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.rodape": "账号保存在你的机器人所在的电脑上，每个都有自己的配置文件。连接和验证不会发送消息，也不产生费用。",
   "contas.vazioTitulo": "此 Hub 上没有 AI 账号",
   "contas.vazioDetalhe": "添加 Codex 或 Claude Code 账号，让你的机器人可以回复。",
+  "contas.vazioOpen": "添加 Codex 账号以将其连接到 Open。目前还不能发送消息。",
   "contas.adicionar": "添加账号",
   "contas.atualizar": "刷新账号",
   "contas.carregando": "正在加载账号…",

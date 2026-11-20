@@ -164,6 +164,74 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let renamed =
         rpc(&session_client, &credential, "updateBot", json!({"id":bot["bot"]["id"],"name":"Fixture Renamed"})).await;
     assert_eq!(renamed["bot"]["name"], "Fixture Renamed");
+    let editor_request = json!({"botId":bot["bot"]["id"]});
+    let mut responses = Vec::new();
+    for (method, body) in [("donnaEngineAccess", json!({})), ("donnaBotEditor", editor_request.clone())] {
+        responses.push(
+            session_client
+                .post(format!("http://localhost/api/{method}"))
+                .bearer_auth(&credential)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(
+        responses.iter().map(reqwest::Response::status).collect::<Vec<_>>(),
+        [reqwest::StatusCode::OK; 2],
+        "the local window needs the engine permission probe and bot editor"
+    );
+    let mut responses = responses.into_iter();
+    let access: Value = responses.next().unwrap().json().await.unwrap();
+    assert_eq!(access, json!({"capability":"engine.accounts","canManage":true}));
+    let editor: Value = responses.next().unwrap().json().await.unwrap();
+    assert_eq!(editor["profile"]["name"], "Fixture Renamed");
+    assert_eq!(
+        editor["capabilities"]["editableFields"],
+        json!(["name", "description", "avatarConfig", "mexeriquinha", "title"])
+    );
+    assert_eq!(editor["engineAccounts"], json!([]));
+    assert!(editor["engineRuntime"].is_null());
+    let version = &editor["settingsVersion"];
+    for patch in [json!({"cwd":"outside"}), json!({"forkEditor":{"engineAccountId":null}}), json!({"backend":"claude"})]
+    {
+        assert_eq!(
+            session_client
+                .post("http://localhost/api/donnaBotEditorSave")
+                .bearer_auth(&credential)
+                .json(&json!({"botId":bot["bot"]["id"],"expectedVersion":version,"patch":patch}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+    }
+    let edited = rpc(
+        &session_client,
+        &credential,
+        "donnaBotEditorSave",
+        json!({
+            "botId":bot["bot"]["id"], "expectedVersion":version, "patch":{"description":"Fixture description"}
+        }),
+    )
+    .await;
+    assert_eq!(edited["profile"]["description"], "Fixture description");
+    assert_ne!(edited["settingsVersion"], *version);
+    assert_ne!(edited["application"], "apply_pending");
+    for method in ["donnaEngineAccess", "donnaBotEditor", "donnaBotEditorSave"] {
+        assert_eq!(
+            session_client
+                .post(format!("http://localhost/api/{method}"))
+                .json(&editor_request)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+    }
     let external = root.0.join("outside");
     fs::create_dir(&external).unwrap();
     for (method, body) in [

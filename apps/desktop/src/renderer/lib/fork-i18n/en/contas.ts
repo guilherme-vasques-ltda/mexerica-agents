@@ -18,6 +18,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.rodape": "Accounts live on your bots’ computer, each in its own profile. Connecting and checking send no message and cost nothing.",
   "contas.vazioTitulo": "No AI accounts on this Hub",
   "contas.vazioDetalhe": "Add a Codex or Claude Code account so your bots can reply.",
+  "contas.vazioOpen": "Add a Codex account to connect it to Open. Sending messages is not available yet.",
   "contas.adicionar": "Add account",
   "contas.atualizar": "Refresh accounts",
   "contas.carregando": "Loading accounts…",

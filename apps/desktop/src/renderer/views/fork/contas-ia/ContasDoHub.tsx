@@ -45,6 +45,7 @@ export function ContasDoHub({ forBot, onChanged }: {
 }) {
   const textos = useTextosContas()
   const idioma = useIdioma()
+  const open = window.codync.appScheme === 'mexerica-open'
   const store = useStore()
   const contas = useContas(store)
   const [route, setRoute] = useState<Route | null>(null)
@@ -90,7 +91,7 @@ export function ContasDoHub({ forBot, onChanged }: {
         {online && contas.error ? <Text tone="danger" role="alert" className="selectable">{errorMessage(contas.error, idioma)}</Text> : null}
         {online && contas.accounts === null && contas.loading ? <Text tone="secondary" role="status">{textos.carregando}</Text> : null}
         {online && contas.accounts !== null && accounts.length === 0 ? (
-          <EmptyState icon="key" title={textos.vazioTitulo} detail={textos.vazioDetalhe} />
+          <EmptyState icon="key" title={textos.vazioTitulo} detail={open ? traduzir(idioma, 'contas.vazioOpen') : textos.vazioDetalhe} />
         ) : null}
         {online ? accounts.map((account) => (
           <ContaLinha key={account.id} store={store} contas={contas} account={account} local={local && (accountKind(account, contas.kindOf(account.id)) !== 'api' || store.isLoopback)} onAction={run} onOpen={() => setRoute({ kind: 'details', id: account.id })} onChanged={onChanged} />

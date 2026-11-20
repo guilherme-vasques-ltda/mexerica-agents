@@ -15,6 +15,7 @@ export const textos = {
   "contas.rodape": "As contas ficam no computador dos seus bots, cada uma no próprio perfil. Conectar e verificar não enviam mensagem e não geram custo.",
   "contas.vazioTitulo": "Nenhuma conta de IA neste Hub",
   "contas.vazioDetalhe": "Adicione uma conta do Codex ou do Claude Code para seus bots responderem.",
+  "contas.vazioOpen": "Adicione uma conta do Codex para conectá-la à Open. Enviar mensagens ainda não está disponível.",
   "contas.adicionar": "Adicionar conta",
   "contas.atualizar": "Atualizar contas",
   "contas.carregando": "Carregando contas…",

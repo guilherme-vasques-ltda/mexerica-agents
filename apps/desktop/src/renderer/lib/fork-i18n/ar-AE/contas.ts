@@ -18,6 +18,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.rodape": "الحسابات موجودة على حاسوب بوتاتك، كل حساب في ملفه الخاص. الاتصال والتحقق لا يرسلان رسالة ولا يكلّفان شيئًا.",
   "contas.vazioTitulo": "لا توجد حسابات ذكاء اصطناعي على هذا الـ Hub",
   "contas.vazioDetalhe": "أضف حساب Codex أو Claude Code لكي تردّ البوتات.",
+  "contas.vazioOpen": "أضف حساب Codex لربطه بـ Open. إرسال الرسائل غير متاح بعد.",
   "contas.adicionar": "إضافة حساب",
   "contas.atualizar": "تحديث الحسابات",
   "contas.carregando": "جارٍ تحميل الحسابات…",
