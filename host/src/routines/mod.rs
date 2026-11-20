@@ -391,6 +391,13 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
     }
     if !r.enabled {
         cancel_pending(s, &id);
+    } else if r.triggers.is_empty() && old.as_ref().is_some_and(|old| !old.triggers.is_empty()) {
+        // Virou «só quando eu mandar»: o que a agenda antiga já enfileirou não roda sozinho; o pedido manual segue.
+        for run in &mut s.runs {
+            if run.routine_id == id && run.status == Status::Pending && run.event["source"] != "test" {
+                cancel_run(run);
+            }
+        }
     }
     s.routines.retain(|r| r.id != id);
     s.routines.push(r.clone());
@@ -1608,6 +1615,28 @@ mod tests {
         assert!(matches!(saved.next_runs.as_slice(), []));
         let copy = routines.change(&store, |s| duplicate_in(s, "bot", &id)).unwrap();
         assert!(copy.triggers.is_empty() && copy.next_runs.is_empty() && !copy.enabled);
+    }
+
+    #[test]
+    fn becoming_manual_cancels_queued_automatic_runs_but_keeps_a_manual_request() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let timed = json!({"name":"Botão","instruction":"Somente tarefa sintética","triggers":[{"type":"interval","seconds":60}]});
+        let id = routines.change(&store, |s| save_in(s, "bot", &timed)).unwrap().id;
+        routines
+            .change(&store, |s| {
+                let routine = s.routines[0].clone();
+                s.runs.push(new_run(&routine, json!({"source":"schedule"}), None));
+                s.runs.push(new_run(&routine, json!({"source":"test"}), None));
+                Ok(())
+            })
+            .unwrap();
+        let mut manual = manual_body();
+        manual["id"] = json!(id);
+        routines.change(&store, |s| save_in(s, "bot", &manual)).unwrap();
+        let state = routines.state.locked();
+        assert!(state.runs[0].status == Status::Cancelled);
+        assert!(state.runs[1].status == Status::Pending);
     }
 }
 
