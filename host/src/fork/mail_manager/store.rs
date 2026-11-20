@@ -60,13 +60,20 @@ pub(crate) fn connect_mailbox(c: &Connection, label: &str, addresses: &[&str]) -
     tx.execute("INSERT INTO mail_manager_mailboxes(id,label) VALUES(?1,?2)", params![id, label]).map_err(db_error)?;
     for a in &addresses {
         let taken: bool = tx
-            .query_row("SELECT EXISTS(SELECT 1 FROM mail_manager_addresses WHERE address=?1)", [a], |r| r.get(0))
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM mail_manager_addresses WHERE canonical=?1)",
+                [a.to_lowercase()],
+                |r| r.get(0),
+            )
             .map_err(db_error)?;
         if taken {
             return invalid("endereço já pertence a outra caixa");
         }
-        tx.execute("INSERT INTO mail_manager_addresses(address,mailbox_id) VALUES(?1,?2)", params![a, id])
-            .map_err(db_error)?;
+        tx.execute(
+            "INSERT INTO mail_manager_addresses(canonical,address,mailbox_id) VALUES(?1,?2,?3)",
+            params![a.to_lowercase(), a, id],
+        )
+        .map_err(db_error)?;
     }
     tx.commit().map_err(db_error)?;
     Ok(id)

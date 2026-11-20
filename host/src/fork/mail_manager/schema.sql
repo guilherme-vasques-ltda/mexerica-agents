@@ -10,8 +10,11 @@ CREATE TABLE IF NOT EXISTS mail_manager_mailboxes(
     label TEXT NOT NULL
 ) STRICT;
 -- Um endereço pertence a uma única caixa: é por ele que o Hub confere o remetente.
+-- A unicidade vale para a forma canônica (toda em minúsculas), para que duas caixas não
+-- reivindiquem o mesmo endereço com só a caixa das letras diferente; o envio usa o original.
 CREATE TABLE IF NOT EXISTS mail_manager_addresses(
-    address TEXT PRIMARY KEY NOT NULL,
+    canonical TEXT PRIMARY KEY NOT NULL,
+    address TEXT NOT NULL,
     mailbox_id TEXT NOT NULL REFERENCES mail_manager_mailboxes(id)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS mail_manager_grants(
