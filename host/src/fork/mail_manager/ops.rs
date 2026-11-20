@@ -4,9 +4,9 @@
 use super::{
     model::{
         Attachment, AttachmentRef, BackendError, BackendSummary, MailBackend, MailError, Message, MessageRef, Notice,
-        Outcome, Outgoing, Participant, Permission, Result, Summary, address, db_error, subject,
+        Outcome, Outgoing, Participant, Permission, Result, SUBJECT_MAX, Summary, address, db_error, subject,
     },
-    store::{Target, audience, default_sender, mint, require, resolve, sender_belongs, viewable},
+    store::{Target, audience, default_sender, denied, mint, require, resolve, sender_belongs, viewable},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -28,19 +28,24 @@ fn backend(error: BackendError) -> MailError {
     }
 }
 
+/// Emite as referências da lista numa só transação.
 fn summaries(c: &Connection, mailbox: &str, rows: Vec<BackendSummary>) -> Result<Vec<Summary>> {
-    rows.into_iter()
+    let tx = c.unchecked_transaction().map_err(db_error)?;
+    let out = rows
+        .into_iter()
         .map(|row| {
             Ok(Summary {
                 mailbox: mailbox.to_owned(),
-                message: MessageRef(mint(c, mailbox, &row.id, None)?),
+                message: MessageRef(mint(&tx, mailbox, &row.id, None)?),
                 from: row.from,
                 subject: row.subject,
                 preview: row.preview,
                 has_attachments: row.has_attachments,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    tx.commit().map_err(db_error)?;
+    Ok(out)
 }
 
 pub(crate) fn list(c: &Connection, mail: &dyn MailBackend, who: &Participant, mailbox: &str) -> Result<Vec<Summary>> {
@@ -79,7 +84,7 @@ fn message_in(
     need: &[Permission],
 ) -> Result<(String, String)> {
     let Some(Target { mailbox, message, attachment: None }) = resolve(c, &message.0)? else {
-        return Err(MailError::Denied);
+        return denied("referência inválida ou de anexo");
     };
     require(c, &mailbox, who, need)?;
     Ok((mailbox, message))
@@ -116,7 +121,7 @@ pub(crate) fn attachment(
     attachment: &AttachmentRef,
 ) -> Result<Vec<u8>> {
     let Some(Target { mailbox, message, attachment: Some(id) }) = resolve(c, &attachment.0)? else {
-        return Err(MailError::Denied);
+        return denied("referência inválida ou de mensagem");
     };
     require(c, &mailbox, who, &[Permission::View])?;
     mail.attachment(&mailbox, &message, &id).map_err(backend)?.ok_or(MailError::NotFound)
@@ -126,7 +131,7 @@ pub(crate) fn attachment(
 pub(crate) fn notice(c: &Connection, mailbox: &str, provider_message: &str) -> Result<Notice> {
     let to = audience(c, mailbox)?;
     if to.is_empty() {
-        return Err(MailError::Denied);
+        return denied("ninguém pode ver a caixa");
     }
     Ok(Notice { mailbox: mailbox.to_owned(), message: MessageRef(mint(c, mailbox, provider_message, None)?), to })
 }
@@ -134,7 +139,11 @@ pub(crate) fn notice(c: &Connection, mailbox: &str, provider_message: &str) -> R
 fn sender(c: &Connection, mailbox: &str, from: Option<&str>) -> Result<String> {
     let Some(from) = from else { return default_sender(c, mailbox) };
     let from = address(from).map_err(|_| MailError::SenderNotAllowed)?;
-    if sender_belongs(c, mailbox, &from)? { Ok(from) } else { Err(MailError::SenderNotAllowed) }
+    if sender_belongs(c, mailbox, &from)? {
+        return Ok(from);
+    }
+    tracing::warn!("mail_manager: remetente não pertence à caixa");
+    Err(MailError::SenderNotAllowed)
 }
 
 pub(crate) fn send_new(
@@ -177,15 +186,10 @@ pub(crate) fn reply(
     effect.run(c, &("reply", &mailbox, &id, &from, body), || {
         // Ler o original não tem efeito: qualquer falha aqui é certa e libera a chave.
         let original = mail.open(&mailbox, &id).map_err(|_| MailError::Rejected)?.ok_or(MailError::NotFound)?;
-        let title = original.subject.trim();
         let outgoing = Outgoing {
             from: from.clone(),
             to: vec![address(&original.from)?],
-            subject: subject(&if title.to_lowercase().starts_with("re:") {
-                title.to_owned()
-            } else {
-                format!("Re: {title}")
-            })?,
+            subject: subject(&reply_subject(&original.subject))?,
             body: body.to_owned(),
             in_reply_to: Some(id.clone()),
         };
@@ -206,6 +210,20 @@ pub(crate) fn trash(
     let (mailbox, id) = message_in(c, who, message, &need)?;
     let effect = Effect { who, key, mailbox: &mailbox, need: &need, from: None };
     effect.run(c, &("trash", &mailbox, &id), || mail.trash(&mailbox, &id).map(|()| None).map_err(backend))
+}
+
+/// "Re: " antes do assunto original, cortado numa fronteira de caractere para caber no
+/// limite. Assunto que já começa com "Re:" fica como está.
+fn reply_subject(original: &str) -> String {
+    let title = original.trim();
+    if title.to_lowercase().starts_with("re:") {
+        return title.to_owned();
+    }
+    let mut end = title.len().min(SUBJECT_MAX - "Re: ".len());
+    while !title.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("Re: {}", &title[..end])
 }
 
 fn recipients(to: &[&str]) -> Result<Vec<String>> {

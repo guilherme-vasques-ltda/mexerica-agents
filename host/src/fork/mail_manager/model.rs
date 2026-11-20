@@ -204,6 +204,7 @@ pub(crate) struct BackendAttachment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BackendMessage {
+    /// Endereço puro do remetente, sem nome de exibição: separar o nome é do transporte.
     pub(crate) from: String,
     pub(crate) subject: String,
     pub(crate) body: String,
@@ -235,27 +236,39 @@ pub(crate) trait MailBackend {
     fn trash(&mut self, mailbox: &str, message: &str) -> std::result::Result<(), BackendError>;
 }
 
-/// Endereço simples `local@dominio`, minúsculo, sem espaço nem caractere de controle
-/// (impede injeção de cabeçalho). Qualquer outra forma é inválida.
+/// Tamanho máximo do assunto, em bytes.
+pub(super) const SUBJECT_MAX: usize = 998;
+
+/// Endereço simples `local@dominio`, sem espaço nem caractere de controle (impede injeção
+/// de cabeçalho). Só o domínio vai para minúsculas: a parte local mantém a caixa, como
+/// pede o SMTP. Qualquer outra forma é inválida.
 pub(super) fn address(raw: &str) -> Result<String> {
-    let address = raw.trim().to_lowercase();
-    let mut parts = address.split('@');
+    let raw = raw.trim();
+    let mut parts = raw.split('@');
     let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
-        return Err(MailError::Invalid);
+        return invalid("endereço sem a forma local@dominio");
     };
     let ok = !local.is_empty()
         && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
-        && address.len() <= 254
-        && address.chars().all(|c| !c.is_whitespace() && !c.is_control() && !matches!(c, '<' | '>' | ',' | ';' | '"'));
-    if ok { Ok(address) } else { Err(MailError::Invalid) }
+        && domain.split('.').all(|label| !label.is_empty())
+        && raw.len() <= 254
+        && raw.chars().all(|c| !c.is_whitespace() && !c.is_control() && !matches!(c, '<' | '>' | ',' | ';' | '"'));
+    if !ok {
+        return invalid("endereço com caractere ou domínio inválido");
+    }
+    Ok(format!("{local}@{}", domain.to_lowercase()))
 }
 
 /// Assunto em uma linha, sem caractere de controle.
 pub(super) fn subject(raw: &str) -> Result<String> {
-    if raw.chars().any(char::is_control) || raw.len() > 998 {
-        return Err(MailError::Invalid);
+    if raw.chars().any(char::is_control) || raw.len() > SUBJECT_MAX {
+        return invalid("assunto com quebra de linha ou longo demais");
     }
     Ok(raw.to_owned())
+}
+
+/// Recusa por formato, com o motivo estático no log e nunca o valor recebido.
+pub(super) fn invalid<T>(reason: &'static str) -> Result<T> {
+    tracing::warn!(reason, "mail_manager: entrada recusada");
+    Err(MailError::Invalid)
 }

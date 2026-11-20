@@ -191,6 +191,15 @@ fn fixture() -> Fx {
     Fx { store, path, a, b, mail }
 }
 
+/// Apaga a pasta do banco fictício ao fim do teste, inclusive quando uma asserção falha.
+impl Drop for Fx {
+    fn drop(&mut self) {
+        if let Some(root) = self.path.parent() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+}
+
 fn grant(c: &Connection, mailbox: &str, who: &Participant, permissions: &[Permission]) {
     for &p in permissions {
         set_grant(c, mailbox, who, p, true).unwrap();
@@ -384,7 +393,13 @@ fn remetente_tem_que_ser_da_caixa_autorizada() {
     assert_eq!(send_new(&c, &mut fx.mail, &x, &fx.a, &bad, "k-subject"), Err(MailError::Invalid));
     assert_eq!(fx.mail.sent.len(), 0);
 
-    reply(&c, &mut fx.mail, &x, &a_ref, Some(" Atendimento@Loja.Example.Invalid "), "Resolvido", "k-ok").unwrap();
+    // O domínio não diferencia maiúsculas; a parte local sim, então outra caixa na parte
+    // local é outro endereço.
+    assert_eq!(
+        reply(&c, &mut fx.mail, &x, &a_ref, Some("Atendimento@loja.example.invalid"), "x", "k-caixa"),
+        Err(MailError::SenderNotAllowed)
+    );
+    reply(&c, &mut fx.mail, &x, &a_ref, Some(" atendimento@Loja.Example.Invalid "), "Resolvido", "k-ok").unwrap();
     let (mailbox, sent) = &fx.mail.sent[0];
     assert_eq!(
         (mailbox, sent.from.as_str(), sent.to.as_slice()),
@@ -642,4 +657,42 @@ fn referencia_tem_tipo_explicito_e_id_vazio_e_recusado() {
         [&fx.a],
     );
     assert!(bad.is_err());
+}
+
+#[test]
+fn endereco_preserva_a_parte_local_e_recusa_dominio_com_rotulo_vazio() {
+    let mut fx = fixture();
+    let c = fx.store.db.locked();
+    assert_eq!(connect_mailbox(&c, "Ruim", &["mesa@setor..example.invalid"]), Err(MailError::Invalid));
+    assert_eq!(connect_mailbox(&c, "Ruim", &["mesa@.example.invalid"]), Err(MailError::Invalid));
+    let mesa = connect_mailbox(&c, "Mesa", &["Mesa@Setor.Example.Invalid"]).unwrap();
+    let admin = mailboxes(&c).unwrap();
+    assert_eq!(admin.iter().find(|m| m.id == mesa).unwrap().addresses, vec!["Mesa@setor.example.invalid".to_owned()]);
+    let x = bot(1);
+    grant(&c, &mesa, &x, &[Permission::Send]);
+    let to = ["Cliente.Grande@Cliente.Example.Invalid"];
+    send_new(&c, &mut fx.mail, &x, &mesa, &NewMail { from: None, to: &to, subject: "Oi", body: "x" }, "k").unwrap();
+    let sent = &fx.mail.sent[0].1;
+    assert_eq!(
+        (sent.from.as_str(), sent.to[0].as_str()),
+        ("Mesa@setor.example.invalid", "Cliente.Grande@cliente.example.invalid")
+    );
+}
+
+#[test]
+fn assunto_da_resposta_cabe_no_limite() {
+    let mut fx = fixture();
+    let c = fx.store.db.locked();
+    let z = bot(5);
+    grant(&c, &fx.a, &z, &[Permission::View, Permission::Send]);
+    let long = "é".repeat(498);
+    fx.mail.boxes.get_mut(&fx.a).unwrap()[0].subject = long.clone();
+    let a_ref = message_ref(&c, &fx.a, SEGREDO_A);
+    reply(&c, &mut fx.mail, &z, &a_ref, None, "ok", "k1").unwrap();
+    let subject = &fx.mail.sent[0].1.subject;
+    assert!(subject.starts_with("Re: é") && subject.len() <= 998, "{}", subject.len());
+    let already = format!("RE: {}", "é".repeat(400));
+    fx.mail.boxes.get_mut(&fx.a).unwrap()[0].subject = already.clone();
+    reply(&c, &mut fx.mail, &z, &a_ref, None, "ok", "k2").unwrap();
+    assert_eq!(fx.mail.sent[1].1.subject, already);
 }

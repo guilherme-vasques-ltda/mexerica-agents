@@ -1,11 +1,11 @@
 //! Estado persistido do Mail Manager e a única checagem de permissão ([`allowed`]).
 //! Funções de administração devolvem só estado operacional e concessões.
-use super::model::{MailError, MailboxAdmin, Participant, Permission, Result, address, db_error};
+use super::model::{MailError, MailboxAdmin, Participant, Permission, Result, address, db_error, invalid};
 use crate::{
     fork::spaces::PERSONAL,
     store::{BotConfig, BotKind},
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 /// Bot vivo, agente e do Pessoal, lido pelo cadastro canônico do Hub: único participante
 /// que pode ter concessão hoje. Cadastro que o Hub não consegue ler é negado.
@@ -47,23 +47,23 @@ pub(crate) fn set_enabled(c: &Connection, on: bool) -> Result<()> {
 /// Conecta uma caixa com seus endereços remetentes. Cada endereço pertence a uma só caixa.
 /// Conectar não concede nada a ninguém.
 pub(crate) fn connect_mailbox(c: &Connection, label: &str, addresses: &[&str]) -> Result<String> {
-    if !enabled(c)? {
-        return Err(MailError::Denied);
-    }
     let label = label.trim();
     if label.is_empty() || label.chars().any(char::is_control) || addresses.is_empty() {
-        return Err(MailError::Invalid);
+        return invalid("caixa sem nome ou sem endereço");
     }
     let addresses = addresses.iter().map(|a| address(a)).collect::<Result<Vec<_>>>()?;
     let id = uuid::Uuid::new_v4().to_string();
-    let tx = c.unchecked_transaction().map_err(db_error)?;
+    let tx = Transaction::new_unchecked(c, TransactionBehavior::Immediate).map_err(db_error)?;
+    if !enabled(&tx)? {
+        return denied("plugin desligado");
+    }
     tx.execute("INSERT INTO mail_manager_mailboxes(id,label) VALUES(?1,?2)", params![id, label]).map_err(db_error)?;
     for a in &addresses {
         let taken: bool = tx
             .query_row("SELECT EXISTS(SELECT 1 FROM mail_manager_addresses WHERE address=?1)", [a], |r| r.get(0))
             .map_err(db_error)?;
         if taken {
-            return Err(MailError::Invalid);
+            return invalid("endereço já pertence a outra caixa");
         }
         tx.execute("INSERT INTO mail_manager_addresses(address,mailbox_id) VALUES(?1,?2)", params![a, id])
             .map_err(db_error)?;
@@ -95,7 +95,7 @@ pub(crate) fn set_grant(
 ) -> Result<()> {
     let tx = c.unchecked_transaction().map_err(db_error)?;
     if want {
-        let Participant::Bot(bot) = who else { return Err(MailError::Denied) };
+        let Participant::Bot(bot) = who else { return denied("concessão a pessoa ainda não existe") };
         let ok: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM mail_manager_plugin WHERE singleton=1 AND state='enabled')
@@ -105,7 +105,7 @@ pub(crate) fn set_grant(
             )
             .map_err(db_error)?;
         if !ok || !live_bot(&tx, bot)? {
-            return Err(MailError::Denied);
+            return denied("plugin desligado, caixa inexistente ou bot inválido");
         }
         tx.execute(
             "INSERT INTO mail_manager_grants(id,mailbox_id,participant_kind,participant_id,permission,state)
@@ -191,10 +191,17 @@ pub(super) fn allowed(c: &Connection, mailbox: &str, who: &Participant, permissi
 pub(super) fn require(c: &Connection, mailbox: &str, who: &Participant, permissions: &[Permission]) -> Result<()> {
     for &permission in permissions {
         if !allowed(c, mailbox, who, permission)? {
+            tracing::warn!(permission = permission.key(), kind = who.kind(), "mail_manager: operação negada");
             return Err(MailError::Denied);
         }
     }
     Ok(())
+}
+
+/// Negação com o motivo estático no log.
+pub(super) fn denied<T>(reason: &'static str) -> Result<T> {
+    tracing::warn!(reason, "mail_manager: operação negada");
+    Err(MailError::Denied)
 }
 
 /// Caixas que o participante pode ver agora.
