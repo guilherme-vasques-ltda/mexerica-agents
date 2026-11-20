@@ -61,6 +61,7 @@ pub(crate) mod historico;
 pub(crate) mod idioma_app;
 #[cfg(target_os = "linux")]
 pub(crate) mod instalacao_gerida;
+pub(crate) mod instalacao_script;
 pub(crate) mod lider_canal;
 pub(crate) mod memory;
 pub(crate) mod memory_auto;
