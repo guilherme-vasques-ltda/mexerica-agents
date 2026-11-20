@@ -10,7 +10,8 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { amostraDeModelos, chaveDoErro, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { amostraDeModelos, chaveDoErro, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type EnderecoProprio, type FornecedorDaChave } from './api-direta'
+import { EnderecosProprios } from './EnderecoProprio'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
 import '../../settings/settings.css'
 
@@ -22,13 +23,16 @@ export function ApiDireta() {
   const online = store.connection.kind === 'online' && !store.mismatch
   const visivel = mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
+  const [enderecos, setEnderecos] = useState<EnderecoProprio[]>([])
   const [falhou, setFalhou] = useState(false)
 
   const reler = async () => {
     const client = liveClient(store)
     if (!client) return
     try {
-      setFornecedores(await listarChaves(client))
+      const lista = await listarChaves(client)
+      setFornecedores(lista.fornecedores)
+      setEnderecos(lista.enderecos)
       setFalhou(false)
     } catch {
       setFalhou(true)
@@ -47,6 +51,7 @@ export function ApiDireta() {
         {online && !fornecedores && !falhou ? <Spinner size={12} /> : null}
         {online ? fornecedores?.map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} aoMudar={reler} />) : null}
       </CardSection>
+      {online && fornecedores ? <EnderecosProprios enderecos={enderecos} aoMudar={reler} /> : null}
     </div>
   )
 }
@@ -140,12 +145,14 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
   )
 }
 
-function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } }) {
+export function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } }) {
   const t = useT()
   let texto: string
   if (resultado.ok) {
     const { nomes, restantes } = amostraDeModelos(resultado.modelos)
-    texto = resultado.modelos.length === 0
+    texto = resultado.estado === 'acesso_nao_confirmado'
+      ? t('contas.apiDireta.okNaoConfirmado')
+      : resultado.modelos.length === 0
       ? t('contas.apiDireta.okSemModelos')
       : restantes > 0 ? t('contas.apiDireta.okComMais', { nomes, n: restantes }) : t('contas.apiDireta.ok', { nomes })
   } else {

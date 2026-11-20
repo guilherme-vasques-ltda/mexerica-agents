@@ -17,7 +17,34 @@ export interface FornecedorDaChave {
   conferidoEm: number | null
 }
 
-export type Acesso = { ok: true; modelos: ModeloDaChave[] } | { ok: false; erro: string; status?: number }
+/** `estado`: modelos_no_catalogo, acesso_nao_confirmado, nao_verificado ou recusada. `id`: endereço próprio salvo. */
+export type Acesso =
+  | { ok: true; modelos: ModeloDaChave[]; estado?: string; id?: string }
+  | { ok: false; erro: string; status?: number; estado?: string }
+
+export type FormatoProprio = 'chat-completions' | 'responses' | 'anthropic-messages'
+export const FORMATOS: readonly FormatoProprio[] = ['chat-completions', 'responses', 'anthropic-messages']
+
+/** Um endereço próprio cadastrado: tudo menos a chave, que nunca sai do Hub. */
+export interface EnderecoProprio {
+  id: string
+  nome: string
+  url: string
+  formato: FormatoProprio
+  local: boolean
+  configurada: boolean
+  modelos: ModeloDaChave[] | null
+  conferidoEm: number | null
+}
+
+export interface NovoEndereco {
+  nome: string
+  url: string
+  formato: FormatoProprio
+  local: boolean
+  chave: string
+  modelo: string
+}
 
 /** O Hub mostra a seção quando o motor está ligado e o app fala com o Hub deste mesmo computador (métodos locais). */
 export const mostrarApiDireta = (backends: readonly { id: string }[], isLoopback: boolean) =>
@@ -31,6 +58,8 @@ const ERROS: Readonly<Record<string, ChaveTexto>> = {
   sem_resposta: 'contas.apiDireta.erro.semResposta',
   resposta_invalida: 'contas.apiDireta.erro.respostaInvalida',
   sem_chave: 'contas.apiDireta.erro.semChave',
+  sem_lista: 'contas.apiDireta.erro.semLista',
+  destino_recusado: 'contas.apiDireta.erro.destinoRecusado',
 }
 
 /** A frase de um erro do teste; código desconhecido cai na falha genérica do fornecedor. */
@@ -43,8 +72,10 @@ export function amostraDeModelos(modelos: readonly ModeloDaChave[], limite = 4):
 
 const PRAZO_MS = 60_000
 
-export const listarChaves = async (client: HostClient) =>
-  ((await client.call<{ fornecedores: FornecedorDaChave[] }>('motorChaves', {}, 15_000)).fornecedores)
+export const listarChaves = async (client: HostClient) => {
+  const r = await client.call<{ fornecedores: FornecedorDaChave[]; enderecos?: EnderecoProprio[] }>('motorChaves', {}, 15_000)
+  return { fornecedores: r.fornecedores, enderecos: r.enderecos ?? [] }
+}
 
 export const testarChave = (client: HostClient, fornecedor: string) =>
   client.call<Acesso>('motorChaveTestar', { fornecedor }, PRAZO_MS)
@@ -63,3 +94,25 @@ export async function salvarChave(client: HostClient, fornecedor: string, digita
 // O Hub faz uma operação de chave por vez: remover pode esperar um teste em andamento terminar.
 export const removerChave = (client: HostClient, fornecedor: string) =>
   client.call<{ ok: boolean }>('motorChaveRemover', { fornecedor }, PRAZO_MS)
+
+/** Endereço próprio: a chave sai do estado da tela antes da espera, como em `salvarChave`. */
+export async function salvarEndereco(client: HostClient, dados: NovoEndereco, limparChave: () => void): Promise<Acesso> {
+  const pedido = { nome: dados.nome.trim(), url: dados.url.trim(), formato: dados.formato, local: dados.local, chave: dados.chave.trim(), modelo: dados.modelo.trim() || undefined }
+  limparChave()
+  try {
+    return await client.call<Acesso>('motorEnderecoSalvar', pedido, PRAZO_MS)
+  } finally {
+    pedido.chave = ''
+  }
+}
+
+/** O formulário só envia o que o Hub aceitaria; a regra de verdade (e o portão de rede) fica no Hub e no motor. */
+export function enderecoPronto(d: NovoEndereco): boolean {
+  if (!d.nome.trim() || !d.chave.trim()) return false
+  try {
+    const url = new URL(d.url.trim())
+    return url.protocol === 'https:' || (d.local && url.protocol === 'http:')
+  } catch {
+    return false
+  }
+}

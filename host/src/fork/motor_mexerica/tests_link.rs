@@ -895,3 +895,58 @@ async fn definicao_curada_ou_com_outro_executavel_sai_como_conector() {
     assert!(!classe("mcp__chat__ler").released() && !classe("mcp__chat__gravar").released());
     assert!(mcp.classify("mcp__chat__nao_existe").is_none());
 }
+
+#[tokio::test]
+async fn conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu() {
+    let case = caso!("conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu");
+    let pedaco = |delta: Value, fim: Value| {
+        format!(
+            "data: {}\n\n",
+            json!({"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "modelo-local",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": fim}]})
+        )
+    };
+    let corpo = pedaco(json!({"role": "assistant", "content": "resposta do endereço"}), Value::Null)
+        + &pedaco(json!({}), json!("stop"))
+        + "data: [DONE]\n\n";
+    let (base, pedidos) = tests_chaves::servico_local(move |_| (200, corpo.clone(), "text/event-stream")).await;
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let registro = json!({"key": "chave-do-endereco-proprio-1", "baseUrl": format!("{base}/v1"),
+        "formato": "chat-completions", "local": true, "nome": "Serviço local"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let params = json!({"cwd": case.dir, "mcpServers": []});
+    let sid = acp.request("session/new", params).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let marca = "CONVERSA-QUE-NAO-PODE-SAIR-77";
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": marca}]}))
+        .await
+        .unwrap();
+    dirigir(&acp, answer, &mut rx, true).await;
+
+    // Trocar para um endereço próprio que nunca recebeu esta conversa: ela recomeça lá, sem a cópia.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    let (result, updates, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let texto: String = updates
+        .iter()
+        .filter(|u| u["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|u| u["content"]["text"].as_str().map(str::to_owned))
+        .collect();
+    assert!(texto.contains("resposta do endereço"), "{texto}");
+    let recebidos = pedidos.lock().unwrap().clone();
+    let conversa =
+        recebidos.iter().find(|p| p.starts_with("POST ")).expect("o endereço próprio não recebeu a conversa");
+    assert!(conversa.contains("\"oi\""), "{conversa}");
+    assert!(!recebidos.iter().any(|p| p.contains(marca)), "a conversa anterior seguiu para o endereço próprio");
+    acp.kill_and_wait().await;
+}

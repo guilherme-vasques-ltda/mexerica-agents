@@ -110,30 +110,40 @@ pub(super) fn credential_generation(provider: &str, key: Option<&str>) -> String
 /// credencial, então o que foi autorizado e o que foi protegido são a mesma identidade (não há segunda leitura
 /// que possa trocar a conta depois da decisão).
 struct Credentials {
-    reads: Vec<(&'static str, Result<Option<String>>)>,
+    reads: Vec<(String, Result<Option<String>>)>,
 }
 
 impl Credentials {
-    fn read(vault: &VaultSource) -> Self {
+    /// Os provedores fixos e o desta conversa (um endereço próprio não está na lista fixa).
+    fn read(vault: &VaultSource, provider: &str) -> Self {
+        let mut names: Vec<String> = super::PROVIDERS.iter().map(|p| (*p).to_owned()).collect();
+        if !names.iter().any(|name| name == provider) {
+            names.push(provider.to_owned());
+        }
         Self {
-            reads: super::PROVIDERS
-                .iter()
-                .map(|provider| (*provider, vault(&super::credential_slot(provider))))
+            reads: names
+                .into_iter()
+                .map(|provider| {
+                    let read = vault(&super::credential_slot(&provider));
+                    (provider, read)
+                })
                 .collect(),
         }
     }
 
-    fn key(&self, provider: &str) -> Result<Option<&str>> {
-        match self.reads.iter().find(|(name, _)| *name == provider) {
+    /// O registro do cofre como está: a chave, ou o registro inteiro (chave e destino) de um endereço próprio.
+    fn raw(&self, provider: &str) -> Result<Option<&str>> {
+        match self.reads.iter().find(|(name, _)| name == provider) {
             None | Some((_, Ok(None))) => Ok(None),
-            Some((_, Ok(Some(key)))) => Ok(Some(key.as_str())),
+            Some((_, Ok(Some(raw)))) => Ok(Some(raw.as_str())),
             Some((name, Err(error))) => bail!("lendo a credencial do provedor {name}: {error:#}"),
         }
     }
 
-    /// Geração da credencial do provedor. Cofre ilegível: erro (nada é autorizado sem saber qual conta recebe).
+    /// Geração da credencial do provedor, sobre o registro inteiro: trocar o destino de um endereço próprio também
+    /// muda a geração. Cofre ilegível: erro (nada é autorizado sem saber qual conta recebe).
     fn generation(&self, provider: &str) -> Result<String> {
-        Ok(credential_generation(provider, self.key(provider)?))
+        Ok(credential_generation(provider, self.raw(provider)?))
     }
 
     /// Chaves do cofre de todos os provedores: saem do texto antes de a conversa ser guardada. A proteção não pode
@@ -142,12 +152,16 @@ impl Credentials {
     fn known(&self) -> Result<Vec<String>> {
         let mut keys = Vec::new();
         for (provider, _) in &self.reads {
-            let Some(key) = self.key(provider)?.filter(|key| !key.is_empty()) else { continue };
+            let Some(raw) = self.raw(provider)? else { continue };
+            let key = super::proprio::segredo(provider, raw)?;
+            if key.is_empty() {
+                continue;
+            }
             ensure!(
                 key.len() >= MIN_SECRET_LEN,
                 "a credencial do provedor {provider} é curta demais para ser protegida"
             );
-            keys.push(key.to_owned());
+            keys.push(key);
         }
         Ok(keys)
     }
@@ -405,6 +419,12 @@ impl Link {
             tracing::warn!(error = format!("{error:#}"), "sem proteger a conversa não há cópia nem contexto vivo");
             session.history.drop_unprotected();
             discard = true;
+        } else if super::proprio::eh_proprio(provider) && !session.history.received_by(provider) {
+            // Destino escolhido pela pessoa que ainda não recebeu esta conversa: ela não é transferida sem
+            // consentimento. A conversa recomeça nesse endereço.
+            tracing::info!("endereço próprio novo para esta conversa; a conversa recomeça sem a cópia");
+            session.history.restart_for(provider, &generation);
+            discard = true;
         } else if !session.history.bind_credential(provider, &generation) {
             tracing::info!(provider, "a credencial do provedor mudou; a conversa recomeça");
             discard = true;
@@ -465,7 +485,7 @@ impl Link {
         let model_id = params["modelId"].as_str().context("session/set_model sem modelId")?;
         let (provider, model) = provider_of(model_id)?;
         let session = self.sessions.locked().get(sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
-        self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
+        self.ensure_engine(&session, &provider, &Credentials::read(&self.vault, &provider)).await?;
         let mut engine = session.engine.lock().await;
         let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
         engine.set_model(&provider, &model).await?;
@@ -487,7 +507,7 @@ impl Link {
         loop {
             let current_provider = session.provider.locked().clone();
             // Uma leitura do cofre por turno: a mesma identidade decide a retomada, a proteção e a credencial servida.
-            let creds = Credentials::read(&self.vault);
+            let creds = Credentials::read(&self.vault, &current_provider);
             let ready = tokio::select! {
                 _ = cancel.changed() => false,
                 result = self.ensure_engine(&session, &current_provider, &creds) => result.map(|()| true)?,

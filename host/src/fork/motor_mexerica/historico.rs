@@ -425,6 +425,25 @@ impl History {
         true
     }
 
+    /// `provider` já recebeu esta conversa, ou não há conversa a transferir.
+    pub(super) fn received_by(&self, provider: &str) -> bool {
+        let Ok(state) = self.state.lock() else { return false };
+        state.messages.is_empty() || state.credentials.contains_key(provider)
+    }
+
+    /// Recomeça a conversa para `provider` (um destino que não a recebeu antes): nada da cópia segue para ele.
+    pub(super) fn restart_for(&self, provider: &str, generation: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.messages.clear();
+            state.bytes = 0;
+            state.resync = true;
+            state.credentials.clear();
+            if !generation.is_empty() {
+                state.credentials.insert(provider.to_owned(), generation.to_owned());
+            }
+        }
+    }
+
     /// O Hub não conseguiu proteger o que seria guardado (cofre ilegível, chave curta demais): nada fica guardado.
     pub(super) fn drop_unprotected(&self) {
         if let Ok(mut state) = self.state.lock() {

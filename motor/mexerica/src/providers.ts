@@ -30,7 +30,7 @@ import {
 	stream as responsesStream,
 	streamSimple as responsesStreamSimple,
 } from "@earendil-works/pi-ai/api/openai-responses.ts";
-import { FORNECEDORES, type FornecedorId } from "./fornecedores.ts";
+import { FORNECEDORES, fornecedorProprio, type Endereco, type FornecedorId } from "./fornecedores.ts";
 
 const STREAMS = {
 	"anthropic-messages": { stream: anthropicStream, streamSimple: anthropicStreamSimple },
@@ -38,6 +38,21 @@ const STREAMS = {
 	"openai-completions": { stream: completionsStream, streamSimple: completionsStreamSimple },
 	"openai-responses": { stream: responsesStream, streamSimple: responsesStreamSimple },
 } as const;
+
+/** Registra o endereço próprio desta conversa (um processo por fornecedor: registrado uma vez). */
+export function registrarProprio(models: MutableModels, id: string, endereco: Endereco): void {
+	const f = fornecedorProprio(endereco);
+	models.setProvider(
+		createProvider({
+			id,
+			name: f.nome,
+			baseUrl: f.baseUrl,
+			auth: { apiKey: envApiKeyAuth(f.nome, []) },
+			models: [],
+			api: STREAMS[f.api as keyof typeof STREAMS],
+		} as Parameters<typeof createProvider>[0]),
+	);
+}
 
 /** Registra os fornecedores por chave (sem modelos fixos) e, sob a flag de teste, o faux. */
 export function registerProviders(models: MutableModels): FauxProviderHandle | undefined {

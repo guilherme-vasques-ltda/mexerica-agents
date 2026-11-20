@@ -140,6 +140,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("motorChaveTestar", LocalOnly),
     ("motorChaveSalvar", LocalOnly),
     ("motorChaveRemover", LocalOnly),
+    ("motorEnderecoSalvar", LocalOnly),
     // gerador Mexeriquinhas 2b: todo o grupo exige Caller::Local (host/src/fork_avatars/gerador).
     ("mexeriquinhaGeradorEstado", LocalOnly),
     ("mexeriquinhaGeradorChave", LocalOnly),
