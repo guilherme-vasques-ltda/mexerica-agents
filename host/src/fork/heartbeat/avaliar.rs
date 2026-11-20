@@ -131,6 +131,7 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
     avisadas.extend(mostradas.iter().map(|(impressao, _)| (*impressao).clone()));
     avisadas.sort();
     let estado = Estado {
+        concessao: anterior.concessao,
         config: anterior.config.clone(),
         marcador,
         assinatura: Some(assinatura),

@@ -2,7 +2,7 @@
 //! executa efeito: a fonte só é lida, o estado e o resultado são gravados juntos, e o aviso sai pelo mesmo caminho
 //! de publicação das demais execuções.
 use super::{Arc, LockExt, Result, Routine, Routines, Run, Status, Store, Value, new_run};
-use crate::fork::heartbeat::{Aviso, Fonte, Item, Motivo, Resultado, Saida, avaliar, pode_checar};
+use crate::fork::heartbeat::{Aviso, Estado, Fonte, Item, Motivo, Resultado, Saida, avaliar, pode_checar};
 use crate::fork::rotina_resultado::{Kind, Lenient, RunOutcome, Source};
 use std::{fmt::Write as _, panic::AssertUnwindSafe};
 
@@ -38,12 +38,16 @@ impl Drop for EmAndamento<'_> {
 )]
 impl Routines {
     /// Concede ao bot a leitura de uma fonte. Sem concessão, a rotina do bot enxerga a fonte como indisponível.
+    /// Mexe no registro com o estado das rotinas travado: nenhuma checagem grava entre a mudança e o que ela vê.
     pub(crate) fn registrar_fonte(&self, bot: &str, nome: &str, fonte: Arc<dyn Fonte>) {
-        self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), fonte);
+        let _estado = self.state.locked();
+        let numero = self.concessoes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), (numero, fonte));
     }
 
-    /// Revoga a concessão: a próxima checagem já não consulta a fonte.
+    /// Revoga a concessão: a próxima checagem já não consulta a fonte, e a que está lendo descarta o resultado.
     pub(crate) fn retirar_fonte(&self, bot: &str, nome: &str) {
+        let _estado = self.state.locked();
         self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned()));
     }
 }
@@ -61,7 +65,7 @@ impl Routines {
     }
 
     fn check_one(&self, store: &Store, id: &str, now: i64) -> Result<()> {
-        let (bot, declaracao, anterior, geracao) = {
+        let (bot, declaracao, anterior, geracao, pausas) = {
             let state = self.state.locked();
             if state.paused {
                 return Ok(());
@@ -75,28 +79,34 @@ impl Routines {
                 declaracao.clone(),
                 routine.heartbeat_state.clone().unwrap_or_default(),
                 routine.updated_at,
+                state.pausas,
             )
         };
+        let chave = (bot, declaracao.fonte.clone());
+        let concedida = self.fontes.locked().get(&chave).cloned();
+        let concessao = concedida.as_ref().map(|(numero, _)| *numero);
+        // Outra concessão (outra conta, a mesma fonte registrada de novo) não herda marcador, espera nem avisos.
+        let anterior = if anterior.concessao == concessao { anterior } else { Estado::default() };
         if !pode_checar(&anterior, &declaracao, now) || !self.checando.locked().insert(id.to_owned()) {
             return Ok(());
         }
         let _vaga = EmAndamento { routines: self, id };
-        let chave = (bot, declaracao.fonte.clone());
-        let concedida = self.fontes.locked().get(&chave).cloned();
-        let fonte: Arc<dyn Fonte> = concedida.clone().unwrap_or_else(|| Arc::new(Indisponivel(Motivo::SemAcesso)));
-        let saida = std::panic::catch_unwind(AssertUnwindSafe(|| avaliar(&*fonte, &declaracao, &anterior, now)))
+        let fonte: Arc<dyn Fonte> =
+            concedida.map_or_else(|| Arc::new(Indisponivel(Motivo::SemAcesso)) as Arc<dyn Fonte>, |(_, fonte)| fonte);
+        let mut saida = std::panic::catch_unwind(AssertUnwindSafe(|| avaliar(&*fonte, &declaracao, &anterior, now)))
             .unwrap_or_else(|_| avaliar(&Indisponivel(Motivo::Fora), &declaracao, &anterior, now));
+        saida.estado.concessao = concessao;
         self.change(store, |s| {
-            // Pausa, revogação, exclusão, outra edição (mesmo que desfeita depois) ou concessão da fonte retirada ou
-            // trocada entre a leitura e a gravação: o resultado é descartado.
-            if s.paused {
+            // Pausa geral (mesmo que desfeita antes da gravação), exclusão, desligamento, outra edição da rotina
+            // (mesmo que desfeita depois) ou concessão retirada ou trocada entre a leitura e a gravação: o resultado
+            // é descartado. Tudo isso muda sob o mesmo lock que esta gravação segura, então nada passa no meio.
+            if s.paused || s.pausas != pausas {
                 return Ok(());
             }
-            let mantida = match (&concedida, self.fontes.locked().get(&chave)) {
-                (None, None) => true,
-                (Some(lida), Some(atual)) => Arc::ptr_eq(lida, atual),
-                _ => false,
-            };
+            let atual = self.fontes.locked().get(&chave).map(|(numero, _)| *numero);
+            if atual != concessao {
+                return Ok(());
+            }
             let Some(routine) = s.routines.iter_mut().find(|r| {
                 r.id == id
                     && !r.deleted
@@ -106,9 +116,6 @@ impl Routines {
             }) else {
                 return Ok(());
             };
-            if !mantida {
-                return Ok(());
-            }
             routine.heartbeat_state = Some(saida.estado.clone());
             if let Some(run) = registro(routine, &saida, now) {
                 s.runs.push(run);

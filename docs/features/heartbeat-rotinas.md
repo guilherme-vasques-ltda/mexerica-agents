@@ -58,6 +58,10 @@ Só gatilhos de relógio (cron ou intervalo) valem para uma checagem; gatilho ú
 de melhor esforço: o aviso no chat é a confirmação durável. As fontes precisam limitar o próprio tempo de leitura e
 não entrar em pânico com conteúdo; uma fonte lenta atrasa as demais checagens do mesmo ciclo.
 
+Se o Hub cair justamente durante uma consulta, aquela ocorrência não é refeita: a checagem segue no horário seguinte
+da rotina (é uma amostragem periódica, não um compromisso a cumprir). Outra concessão da mesma fonte (outra conta, ou a
+fonte registrada de novo) começa do zero: não herda marcador, espera nem pendências já avisadas.
+
 Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
 de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só é lida pelo bot a que foi concedida.
 

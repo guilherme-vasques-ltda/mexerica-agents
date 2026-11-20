@@ -175,6 +175,10 @@ pub(crate) struct UltimaChecagem {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Estado {
+    /// A concessão da fonte a que este estado pertence; outra concessão (outra conta, a mesma fonte registrada de novo)
+    /// descarta o estado.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concessao: Option<u64>,
     /// Resumo da declaração a que este estado pertence; outra declaração descarta o estado.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,

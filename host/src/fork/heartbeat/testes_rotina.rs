@@ -669,3 +669,67 @@ fn desfazer_edicao_de_time_preserva_o_progresso_da_checagem() {
     checa(&hub, &id, 3);
     assert_eq!(avisos(&hub).len(), 2, "uma pendência por avisar de cada vez, nenhuma repetida depois de desfazer");
 }
+
+#[test]
+fn pausa_geral_ligada_e_desligada_no_meio_da_leitura_descarta_o_resultado() {
+    struct PausaGeral(Arc<Hub>);
+    impl Fonte for PausaGeral {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.routines.set_paused(&self.0.store, true).unwrap();
+            self.0.routines.set_paused(&self.0.store, false).unwrap();
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![item_aguardando()])
+        }
+    }
+    let hub = hub();
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", Arc::new(PausaGeral(hub.clone())));
+    checa(&hub, &id, 1);
+    assert!(execucoes(&hub).is_empty());
+    assert_eq!(avisos(&hub).len(), 0);
+}
+
+#[test]
+fn outra_concessao_da_mesma_fonte_nao_herda_o_estado_da_anterior() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    checa(&hub, &id, 1);
+    checa(&hub, &id, 2);
+    assert_eq!(avisos(&hub).len(), 1);
+    let outra_conta = Arc::new(Ficticia::default());
+    outra_conta.define(&[("7", "v1", "aguardando")]);
+    *outra_conta.marcador.lock().unwrap() = Some("m1".into());
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", outra_conta.clone());
+    checa(&hub, &id, 3);
+    assert_eq!(outra_conta.leituras.load(Ordering::SeqCst), 1, "mesmo marcador, mas é outra conta: lê");
+    assert_eq!(avisos(&hub).len(), 2, "a decisão da outra conta é nova para o dono");
+}
+
+#[test]
+fn aviso_pendente_sobrevive_ao_reinicio_e_publicar_de_novo_nao_duplica() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    checa(&hub, &id, 1);
+    let reiniciada = Routines::default();
+    reiniciada.restore(&hub.store).unwrap();
+    let pendente = reiniciada.state.locked().runs.iter().find(|r| r.report_pending).cloned().unwrap();
+    assert!(
+        pendente.heartbeat_texto.as_deref().is_some_and(|t| t.contains("Pedido 7")),
+        "o texto foi guardado até publicar"
+    );
+    // O chat chegou a gravar o aviso, mas a limpeza da fila não: publicar de novo não pode duplicar.
+    hub.add_entry_once(
+        &format!("routine-result-{}", pendente.id),
+        &crate::store::Lane::main("bot"),
+        crate::store::EntryKind::Notice,
+        0,
+        &json!({"text": "A rotina «Checar pedidos» precisa de você: Pedido 7 aguarda resposta — Aprovar ou recusar", "style": "info"}),
+    )
+    .unwrap();
+    assert_eq!(avisos_de(&reiniciada, &hub).len(), 1);
+    assert_eq!(avisos_de(&reiniciada, &hub).len(), 1);
+    assert!(reiniciada.state.locked().runs.iter().all(|r| !r.report_pending && r.heartbeat_texto.is_none()));
+}

@@ -184,6 +184,10 @@ fn is_zero(v: &u64) -> bool {
 struct State {
     #[serde(default)]
     paused: bool,
+    /// Quantas vezes a pausa geral mudou. Uma checagem em leitura descarta o resultado se ela mudou, mesmo que a
+    /// pausa tenha sido desfeita antes da gravação.
+    #[serde(default)]
+    pausas: u64,
     /// Último instante em que o Hub pôde executar ocorrências (boot/despausa).
     /// Ocorrência com `at < available_at` é atrasada por indisponibilidade —
     /// critério verificável, sem tolerância arbitrária (MX-110).
@@ -201,6 +205,9 @@ fn guard_live_runs(state: &State) -> impl Iterator<Item = (&str, &str)> {
         .map(|run| (run.bot_id.as_str(), run.id.as_str()))
 }
 
+/// Fontes concedidas, por (bot, nome): o número da concessão e a fonte.
+type Fontes = std::collections::HashMap<(String, String), (u64, Arc<dyn crate::fork::heartbeat::Fonte>)>;
+
 pub struct Routines {
     state: Mutex<State>,
     active: Mutex<HashSet<String>>,
@@ -209,7 +216,9 @@ pub struct Routines {
     /// Bumped whenever the webhook set the relay registers (`hooks()`) changes.
     hooks_rev: tokio::sync::watch::Sender<u64>,
     /// Fontes que cada bot pode ler nas checagens silenciosas: (bot, nome). Vazio até um conector registrar uma.
-    fontes: Mutex<std::collections::HashMap<(String, String), Arc<dyn crate::fork::heartbeat::Fonte>>>,
+    fontes: Mutex<Fontes>,
+    /// Numera cada concessão de fonte: a mesma fonte registrada de novo é outra concessão.
+    concessoes: std::sync::atomic::AtomicU64,
     /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
     checando: Mutex<HashSet<String>>,
     /// Falhas transitórias injetadas em `prepare_attempt` nos testes.
@@ -229,6 +238,7 @@ impl Default for Routines {
             stopping: std::sync::atomic::AtomicBool::default(),
             hooks_rev: tokio::sync::watch::channel(0).0,
             fontes: Mutex::default(),
+            concessoes: std::sync::atomic::AtomicU64::new(0),
             checando: Mutex::default(),
             #[cfg(test)]
             fail_next: std::sync::atomic::AtomicUsize::new(0),
@@ -327,7 +337,7 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
         enabled: (heartbeat.is_none() || explicit_enable)
             && body["enabled"].as_bool().unwrap_or_else(|| old.as_ref().is_none_or(|r| r.enabled)),
         created_at: old.as_ref().map_or(now, |r| r.created_at),
-        updated_at: now,
+        updated_at: old.as_ref().map_or(now, |r| now.max(r.updated_at.saturating_add(1))),
         next_runs: if let Some(old) = &old
             && old.triggers == triggers
             && (body["enabled"] != true || old.enabled)
@@ -639,7 +649,7 @@ impl Routines {
             if enabled {
                 r.external_release_pending = None;
             }
-            r.updated_at = now_ms();
+            r.updated_at = now_ms().max(r.updated_at.saturating_add(1));
             if !enabled {
                 for run in &mut s.runs {
                     if run.routine_id == id && run.status == Status::Pending {
