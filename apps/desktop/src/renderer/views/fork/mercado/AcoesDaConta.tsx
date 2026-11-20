@@ -30,7 +30,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
     setSalvando(true); setErro(null)
     try { setDados(await op()); setConfirmando(null) } catch (e) { setErro(frasesDaRecusa(t, e)); await ler() } finally { setSalvando(false) }
   }
-  const ligar = (f: FerramentaDaConta) => aplicar(() => ligarFerramenta(store, { botId, conta: conta.id, ferramenta: f.nome, digest: f.digest, confirmo: true }))
+  const ligar = (f: FerramentaDaConta) => aplicar(() => ligarFerramenta(store, { botId, conta: conta.id, ferramenta: f.nome, digest: f.digest, vinculo: dados?.vinculo ?? -1, confirmo: true }))
   const desligar = (f: FerramentaDaConta) => aplicar(() => desligarFerramenta(store, botId, conta.id, f.nome))
 
   const titulo = <Text size="callout" weight="semibold" tone="text">{t('mercado.acoes.titulo', { conta: conta.nome })}</Text>

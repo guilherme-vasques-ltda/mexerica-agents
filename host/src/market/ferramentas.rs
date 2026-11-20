@@ -175,6 +175,8 @@ const ESCRITA: &[&str] = &[
 /// Tabelas do filtro. `mexerica_conta_ferramentas`: o que a conta viu do fornecedor (`digest` atual, `dica` = o
 /// fornecedor marca como destrutiva). `mexerica_conta_inventario`: `completo` = a lista inteira já foi vista.
 /// `mexerica_conta_geracao`: contador que avança a cada invalidação e nunca volta (nem ao desconectar a conta).
+/// `mexerica_vinculo_epoca`: contador por bot e conta que avança cada vez que a conta sai do bot; uma confirmação só vale
+/// para a época que a pessoa viu.
 /// `mexerica_ferramenta_liberacoes`: o que a pessoa ligou, por bot, preso ao digest.
 /// `mexerica_ferramenta_recibos`: liberações e recusas.
 pub(crate) fn migrate(c: &Connection) -> Result<()> {
@@ -184,6 +186,7 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
             visto_em INTEGER NOT NULL, PRIMARY KEY(conta, nome));
          CREATE TABLE IF NOT EXISTS mexerica_conta_inventario(conta TEXT PRIMARY KEY, completo INTEGER NOT NULL);
          CREATE TABLE IF NOT EXISTS mexerica_conta_geracao(conta TEXT PRIMARY KEY, n INTEGER NOT NULL);
+         CREATE TABLE IF NOT EXISTS mexerica_vinculo_epoca(bot TEXT NOT NULL, conta TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(bot, conta));
          CREATE TABLE IF NOT EXISTS mexerica_ferramenta_liberacoes(
             bot TEXT NOT NULL, conta TEXT NOT NULL, nome TEXT NOT NULL, digest TEXT NOT NULL, em INTEGER NOT NULL,
             PRIMARY KEY(bot, conta, nome));
@@ -721,6 +724,7 @@ pub(crate) fn listar(store: &Store, bot: &str, conta_id: &str) -> Result<Value> 
     let linhas = linhas(&db, &conta.id)?;
     let liberadas = liberacoes(&db, bot, &conta.id)?;
     let pronto = inventario_completo(&db, &conta.id)?;
+    let epoca = epoca_em(&db, bot, &conta.id)?;
     let itens: Vec<Value> = linhas
         .iter()
         .filter_map(|(nome, linha)| {
@@ -734,7 +738,7 @@ pub(crate) fn listar(store: &Store, bot: &str, conta_id: &str) -> Result<Value> 
             Some(json!({"nome": nome, "rotulo": rotulo, "estado": estado, "motivo": motivo, "digest": linha.digest}))
         })
         .collect();
-    Ok(json!({"botId": bot, "conta": conta.id, "inventarioPronto": pronto, "ferramentas": itens}))
+    Ok(json!({"botId": bot, "conta": conta.id, "inventarioPronto": pronto, "vinculo": epoca, "ferramentas": itens}))
 }
 
 pub(crate) struct PedidoLigar<'a> {
@@ -743,6 +747,8 @@ pub(crate) struct PedidoLigar<'a> {
     pub ferramenta: &'a str,
     pub digest: &'a str,
 }
+
+const VINCULO_MUDOU: &str = "vinculo_mudou: a conta saiu deste bot e voltou desde que você abriu a lista; abra a lista de novo e confirme outra vez.";
 
 const FERRAMENTA_MUDOU: &str =
     "ferramenta_mudou: a ferramenta mudou desde que você a viu; abra a lista de novo e confirme outra vez.";
@@ -802,6 +808,19 @@ pub(crate) fn gravar_liberacao(tx: &Connection, pedido: &PedidoLigar<'_>) -> Res
     recibo(tx, pedido.conta, pedido.bot, pedido.ferramenta, "ligada", "confirmada")
 }
 
+fn epoca_em(c: &Connection, bot: &str, conta: &str) -> Result<i64> {
+    Ok(c.query_row("SELECT n FROM mexerica_vinculo_epoca WHERE bot=?1 AND conta=?2", params![bot, conta], |r| r.get(0))
+        .optional()?
+        .unwrap_or(0))
+}
+
+/// A confirmação carrega a época do vínculo bot–conta que a pessoa viu; se a conta saiu do bot desde então (mesmo que
+/// tenha voltado), a confirmação não vale. Roda na transação que grava a liberação.
+pub(crate) fn conferir_vinculo(tx: &Connection, bot: &str, conta: &str, vinculo: i64) -> Result<()> {
+    ensure!(epoca_em(tx, bot, conta)? == vinculo, "{VINCULO_MUDOU}");
+    Ok(())
+}
+
 pub(crate) fn gravar_desligamento(tx: &Connection, bot: &str, conta: &str, ferramenta: &str) -> Result<()> {
     let n = tx.execute(
         "DELETE FROM mexerica_ferramenta_liberacoes WHERE bot=?1 AND conta=?2 AND nome=?3",
@@ -818,6 +837,10 @@ pub(crate) fn gravar_desligamento(tx: &Connection, bot: &str, conta: &str, ferra
 pub(crate) fn esquecer_liberacoes_do_bot(c: &Connection, bot: &str, contas: &[String]) -> Result<()> {
     for conta in contas {
         c.execute("DELETE FROM mexerica_ferramenta_liberacoes WHERE bot=?1 AND conta=?2", params![bot, conta])?;
+        c.execute(
+            "INSERT INTO mexerica_vinculo_epoca(bot,conta,n) VALUES(?1,?2,1) ON CONFLICT(bot,conta) DO UPDATE SET n=n+1",
+            params![bot, conta],
+        )?;
     }
     Ok(())
 }

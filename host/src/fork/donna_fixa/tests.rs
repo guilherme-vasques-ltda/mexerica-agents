@@ -1047,7 +1047,7 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
         // Fatia 2: ligar ação perigosa recusa antes de gravar sem conta do catálogo ligada; desligar grava pelo ponto do dono.
         (
             "marketFerramentaLigar",
-            json!({"botId":"donna","conta":"$conector","ferramenta":"x","digest":"d","confirmo":true}),
+            json!({"botId":"donna","conta":"$conector","ferramenta":"x","digest":"d","vinculo":0,"confirmo":true}),
             false,
         ),
         ("marketFerramentaDesligar", json!({"botId":"donna","conta":"$conector","ferramenta":"x"}), true),

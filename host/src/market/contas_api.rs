@@ -164,8 +164,14 @@ fn ligar_ferramenta(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value>
         ferramenta: texto(b, "ferramenta")?,
         digest: texto(b, "digest")?,
     };
+    let vinculo = b["vinculo"]
+        .as_i64()
+        .ok_or_else(|| anyhow!("vinculo_obrigatorio: abra a lista de ações de novo e confirme outra vez."))?;
     super::ferramentas::conferir_ligar(&hub.store, &pedido, b["confirmo"] == true)?;
-    crate::fork::donna_fixa::pedido::gravar(&hub.store, |tx| super::ferramentas::gravar_liberacao(tx, &pedido))?;
+    crate::fork::donna_fixa::pedido::gravar(&hub.store, |tx| {
+        super::ferramentas::conferir_vinculo(tx, pedido.bot, pedido.conta, vinculo)?;
+        super::ferramentas::gravar_liberacao(tx, &pedido)
+    })?;
     if let Err(error) = hub.send_cmd(pedido.bot, Cmd::RefreshTools) {
         tracing::warn!(%error, bot = pedido.bot, "ação ligada; atualização das ferramentas do bot pendente");
     }

@@ -251,11 +251,12 @@ test('a recusa do principal vem do código estável do Hub', () => {
 
 test('as ações que a pessoa decide: tudo menos o permitido, em ordem de rótulo; a recusa do Hub tem código estável', () => {
   const f = (nome: string, estado: 'permitida' | 'ligada' | 'desligada', rotulo: string | null = null, motivo: 'perigosa' | 'nova' | 'alterada' | null = null) => ({ nome, rotulo, estado, motivo, digest: 'd' })
-  const dados = { botId: 'b', conta: 'c', inventarioPronto: true, ferramentas: [f('list_orders', 'permitida'), f('x_novo', 'desligada', null, 'nova'), f('create_refund', 'ligada', 'Reembolsar'), f('delete_all', 'desligada', 'Apagar tudo', 'perigosa')] }
+  const dados = { botId: 'b', conta: 'c', inventarioPronto: true, vinculo: 0, ferramentas: [f('list_orders', 'permitida'), f('x_novo', 'desligada', null, 'nova'), f('create_refund', 'ligada', 'Reembolsar'), f('delete_all', 'desligada', 'Apagar tudo', 'perigosa')] }
   assert.deepEqual(acoesQueAPessoaDecide(dados).map((x) => x.nome), ['delete_all', 'create_refund', 'x_novo'])
   assert.deepEqual(acoesQueAPessoaDecide({ ...dados, ferramentas: [f('list_orders', 'permitida')] }), [])
   assert.equal(codigoDaRecusa(new Error('ferramenta_mudou: a ação mudou.')), 'ferramenta_mudou')
   assert.equal(codigoDaRecusa(new Error('confirmacao_obrigatoria: confirme.')), 'confirmacao_obrigatoria')
+  assert.equal(codigoDaRecusa(new Error('vinculo_mudou: a conta saiu do bot.')), 'vinculo_mudou')
 })
 
 test('o catálogo vem por categoria, na ordem do Hub; categoria que o Hub não conhece vai depois', () => {

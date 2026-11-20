@@ -621,7 +621,7 @@ async fn a_pessoa_liga_com_confirmacao_presa_ao_digest_e_so_no_bot_escolhido() {
     let tools = tools_do_linear();
     registrar_na_conta(&hub, &conta, &tools);
     let digest = digest_de(&tools[1]);
-    let ligar = |bot: &str, digest: &str, confirmo: Value| json!({"botId": bot, "conta": conta.id, "ferramenta": "list_issues", "digest": digest, "confirmo": confirmo});
+    let ligar = |bot: &str, digest: &str, confirmo: Value| json!({"botId": bot, "conta": conta.id, "ferramenta": "list_issues", "digest": digest, "vinculo": 0, "confirmo": confirmo});
     let local = Caller::Local;
     // Sem confirmação (ausente, falsa ou de outro tipo): recusado e nada gravado.
     for confirmo in [Value::Null, json!(false), json!("sim"), json!(1)] {
@@ -686,7 +686,7 @@ async fn bot_e_conteudo_externo_nunca_ligam_nada_so_o_dono_pelo_app() {
     let _rx = bot(&hub, "b1", &[conta.id.as_str()]);
     let tools = tools_do_linear();
     registrar_na_conta(&hub, &conta, &tools);
-    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "confirmo": true});
+    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "vinculo": 0, "confirmo": true});
     // A ponte do bot (a mesma que carrega o texto do fornecedor) não tem estes métodos, e um aparelho sem controle
     // também não: nem chegam ao Hub.
     let tela = Caller::Device { key: "k".into(), scopes: vec![crate::store::Scope::Screen], autoridade: None };
@@ -712,7 +712,7 @@ async fn tirar_a_conta_do_bot_ou_desconectar_apaga_o_que_a_pessoa_ligou() {
     let _rx = bot(&hub, "b1", &[conta.id.as_str()]);
     let tools = tools_do_linear();
     registrar_na_conta(&hub, &conta, &tools);
-    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "confirmo": true});
+    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "vinculo": 0, "confirmo": true});
     chamar_api(&hub, &Caller::Local, "marketFerramentaLigar", corpo.clone()).await.unwrap();
     let contar = || -> i64 {
         hub.store
@@ -731,6 +731,20 @@ async fn tirar_a_conta_do_bot_ou_desconectar_apaga_o_que_a_pessoa_ligou() {
         .await
         .unwrap();
     assert_eq!(estado_de_conta(&hub, "b1", &conta, "list_issues"), Estado::Desligada(Motivo::Perigosa));
+    // A confirmação aberta antes de a conta sair do bot não vale depois que ela volta, nem com o mesmo digest.
+    let erro = chamar_api(&hub, &Caller::Local, "marketFerramentaLigar", corpo.clone()).await.unwrap_err();
+    assert!(erro.to_string().starts_with("vinculo_mudou"), "{erro}");
+    let mut sem_vinculo = corpo.clone();
+    sem_vinculo.as_object_mut().unwrap().remove("vinculo");
+    let erro = chamar_api(&hub, &Caller::Local, "marketFerramentaLigar", sem_vinculo).await.unwrap_err();
+    assert!(erro.to_string().starts_with("vinculo_obrigatorio"), "{erro}");
+    assert_eq!(contar(), 0);
+    // Aberta a lista de novo, a época nova entra na confirmação.
+    let lista =
+        chamar_api(&hub, &Caller::Local, "marketFerramentas", json!({"botId": "b1", "conta": conta.id})).await.unwrap();
+    assert_eq!(lista["vinculo"], 1);
+    let mut corpo = corpo;
+    corpo["vinculo"] = lista["vinculo"].clone();
     // Desconectar a conta apaga inventário e liberações.
     chamar_api(&hub, &Caller::Local, "marketFerramentaLigar", corpo).await.unwrap();
     chamar_api(&hub, &Caller::Local, "marketContaDesconectar", json!({"id": conta.id})).await.unwrap();

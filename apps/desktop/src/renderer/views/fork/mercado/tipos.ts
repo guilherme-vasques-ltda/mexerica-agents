@@ -158,7 +158,9 @@ export interface FerramentasDaConta {
   conta: string
   /** `false` até o Hub ver a lista completa de ferramentas da conta (verificação ou primeiro uso). */
   inventarioPronto: boolean
+  /** A época do vínculo bot–conta que a pessoa viu: o Hub recusa a confirmação se a conta saiu do bot desde então. */
+  vinculo: number
   ferramentas: FerramentaDaConta[]
 }
 
-export interface PedidoLigarFerramenta { botId: string; conta: string; ferramenta: string; digest: string; confirmo: true }
+export interface PedidoLigarFerramenta { botId: string; conta: string; ferramenta: string; digest: string; vinculo: number; confirmo: true }
