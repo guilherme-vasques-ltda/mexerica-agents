@@ -198,6 +198,15 @@ try:
     assert digest(exe) == exe_before and (bin_dir / 'bin').stat().st_ino == bin_inode
     assert not list(bin_dir.glob('.bin-*'))
     print('PASS 5e ajudante que não funciona é recusado antes de parar o Hub, sem trocar nada')
+    fake = Path('/tmp/f4bin/ajudante-sem-troca')
+    fake.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
+    fake.chmod(0o755)
+    refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    fake.unlink()
+    assert refused.returncode != 0 and 'conta do motor' in refused.stdout + refused.stderr
+    assert health()['ok'] and config.read_bytes() == config_before and digest(exe) == exe_before
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and not list(bin_dir.glob('.bin-*'))
+    print('PASS 5e2 ajudante que termina sem trocar de conta é recusado antes de parar o Hub')
     local_bin = home / '.local/bin'
     local_bin.rename(home / '.local/bin-guardado')
     local_bin.write_text('bloqueio')

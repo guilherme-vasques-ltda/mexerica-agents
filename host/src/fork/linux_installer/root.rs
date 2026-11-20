@@ -277,13 +277,6 @@ pub(super) fn open_sources(hub: &User, host: &Path, helper: &Path) -> Result<(fs
         .context("origem do Hub ou do ajudante ilegível pela conta do Hub; nada foi alterado")
 }
 
-fn active(hub: &User) -> Result<bool> {
-    Ok(user_command(hub, system("systemctl")?)?
-        .args(["--user", "is-active", "--quiet", "donnabot-host.service"])
-        .status()?
-        .success())
-}
-
 fn restore_config(previous: Option<&[u8]>) -> Result<()> {
     match previous {
         Some(bytes) => write_atomic(Path::new(CONFIG), bytes, 0, 0, 0o644),
@@ -294,25 +287,43 @@ fn restore_config(previous: Option<&[u8]>) -> Result<()> {
     }
 }
 
-/// O Hub novo precisa responder no /health com o binário instalado antes de o par anterior sair.
-fn wait_ready(port: u16) -> Result<()> {
+fn unit_state(hub: &User, query: &str) -> Result<bool> {
+    Ok(user_command(hub, system("systemctl")?)?
+        .args(["--user", query, "--quiet", "donnabot-host.service"])
+        .status()?
+        .success())
+}
+
+/// O Hub novo precisa estar ativo no systemd e responder no /health com o hash do binário
+/// instalado antes de o par anterior sair. Tempo e tamanho totais da leitura são limitados.
+fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
+    use sha2::{Digest, Sha256};
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
-    let expected = format!("\"binaryPath\":\"{BIN}/donnabot-host\"");
+    let hash = Sha256::digest(fs::read(host)?).iter().fold(String::new(), |mut out, b| {
+        let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{b:02x}"));
+        out
+    });
+    let expected = [format!("\"binaryPath\":\"{}\"", host.display()), format!("\"binaryHash\":\"{hash}\"")];
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-            let mut response = String::new();
+        let left = deadline.saturating_duration_since(Instant::now());
+        ensure!(!left.is_zero(), "Hub novo não respondeu no /health em 30 s");
+        if unit_state(hub, "is-active")?
+            && let Ok(mut stream) =
+                std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), left.min(Duration::from_secs(2)))
+        {
+            let _ = stream.set_read_timeout(Some(left.min(Duration::from_secs(2))));
+            let mut response = Vec::new();
             if stream.write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").is_ok()
-                && stream.read_to_string(&mut response).is_ok()
-                && response.contains("\"ok\":true")
-                && response.contains(&expected)
+                && (&mut stream).take(64 * 1024).read_to_end(&mut response).is_ok()
             {
-                return Ok(());
+                let text = String::from_utf8_lossy(&response);
+                if text.contains("\"ok\":true") && expected.iter().all(|e| text.contains(e.as_str())) {
+                    return Ok(());
+                }
             }
         }
-        ensure!(Instant::now() < deadline, "Hub novo não respondeu no /health em 30 s");
         std::thread::sleep(Duration::from_millis(250));
     }
 }
@@ -435,7 +446,8 @@ pub(super) fn install(
             Err(e) => Err(e.into()),
         }
     })?;
-    let running = previous_unit.is_some() && active(hub)?;
+    let running = previous_unit.is_some() && unit_state(hub, "is-active")?;
+    let enabled = previous_unit.is_some() && unit_state(hub, "is-enabled")?;
     // O par novo é preparado e conferido numa pasta do root ao lado; o Hub só para antes da troca.
     let staged = Path::new("/opt/donnabot").join(format!(".bin-novo-{}", uuid::Uuid::new_v4()));
     let prepared = (|| {
@@ -459,8 +471,12 @@ pub(super) fn install(
             0,
             0o644,
         )?;
-        checked(user_command(hub, &helper_new)?.args(["--cwd", MOTOR, "--", "/usr/bin/id", "-u"]))
+        let probe = checked(user_command(hub, &helper_new)?.args(["--cwd", MOTOR, "--", "/usr/bin/id", "-u"]))
             .context("capacidades ineficazes: /opt não pode ser nosuid e o chamador não pode usar NoNewPrivileges")?;
+        ensure!(
+            String::from_utf8_lossy(&probe.stdout).trim() == uid.to_string(),
+            "o ajudante não trocou para a conta do motor"
+        );
         Ok(())
     })();
     if let Err(error) = prepared {
@@ -507,7 +523,7 @@ pub(super) fn install(
         service(hub, &["daemon-reload"])?;
         if start {
             service(hub, &["enable", "--now", "donnabot-host.service"])?;
-            wait_ready(port)?;
+            wait_ready(hub, port, &host_dst)?;
         }
         Ok(())
     })();
@@ -520,7 +536,10 @@ pub(super) fn install(
             }
         };
         if unit_written || previous_unit.is_some() {
-            let _ = service(hub, &["stop", "donnabot-host.service"]);
+            note("parar a unidade nova", service(hub, &["stop", "donnabot-host.service"]));
+            if start && !enabled {
+                note("desabilitar a unidade", service(hub, &["disable", "donnabot-host.service"]));
+            }
         }
         let restored = unpublish(&staged, &published);
         let kept = restored.is_err() && matches!(published, Published::Exchanged);
