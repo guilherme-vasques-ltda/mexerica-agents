@@ -155,6 +155,12 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     .await;
     assert_eq!(created["spaces"][1]["name"], "Fixture Open");
     assert!(created["spaces"][1]["principalBotId"].is_null());
+    let bot =
+        rpc(&session_client, &credential, "createBot", json!({"name":"Fixture Bot","backend":"codex","skills":[]}))
+            .await;
+    let renamed =
+        rpc(&session_client, &credential, "updateBot", json!({"id":bot["bot"]["id"],"name":"Fixture Renamed"})).await;
+    assert_eq!(renamed["bot"]["name"], "Fixture Renamed");
     for method in [
         "send",
         "requestScreenPermission",
@@ -182,6 +188,15 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert_eq!(stream.status(), reqwest::StatusCode::OK);
     close_stdin(&mut child).await;
     assert!(!socket.exists());
+    {
+        let saved =
+            rusqlite::Connection::open_with_flags(data.join("codync.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .unwrap();
+        let config: String = saved
+            .query_row("SELECT config FROM bots WHERE id = ?1", [bot["bot"]["id"].as_str().unwrap()], |row| row.get(0))
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&config).unwrap()["name"], "Fixture Renamed");
+    }
 
     let second_session = tmp.join("h-restart");
     DirBuilder::new().mode(0o700).create(&second_session).unwrap();

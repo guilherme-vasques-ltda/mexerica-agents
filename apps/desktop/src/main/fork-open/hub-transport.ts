@@ -1,4 +1,5 @@
 import { request, type IncomingMessage } from 'node:http'
+import type { Readable } from 'node:stream'
 
 export function openApiPath(method: unknown) {
   return typeof method === 'string' && /^[A-Za-z][A-Za-z0-9]{0,79}(?![\s\S])/.test(method) ? `/api/${method}` : null
@@ -33,4 +34,18 @@ export async function readOpenResponse(response: IncomingMessage) {
   let text = ''
   for await (const chunk of response) text += chunk as string
   return text
+}
+
+export async function* readOpenEventData(response: Readable) {
+  response.setEncoding('utf8')
+  let buffer = ''
+  for await (const chunk of response) {
+    buffer += chunk as string
+    let end: number
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end).replace(/\r$/, '')
+      buffer = buffer.slice(end + 1)
+      if (line.startsWith('data:')) yield line.slice(5).trimStart()
+    }
+  }
 }

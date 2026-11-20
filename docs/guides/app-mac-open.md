@@ -31,8 +31,8 @@ credenciais de outros apps. O cofre da Open reserva o serviço de Chaveiro
 `app.mexerica.open.credentials`, mas está desativado nesta versão. A janela
 não usa Safe Storage.
 
-Em ambiente de testes Unix sem o app aberto, use
-`cd host && CODYNC_ENV=open CARGO_PROFILE_DEV_DEBUG=0 cargo test --test open_hub`
+Em ambiente de testes Unix sem o app aberto, volte à raiz do repositório e use
+`(cd host && CODYNC_ENV=open CARGO_PROFILE_DEV_DEBUG=0 cargo test --test open_hub)`
 para testar o Hub isolado.
 
 Encerre pela janela ou com Command+Q. Em caso de saída forçada, o cliente

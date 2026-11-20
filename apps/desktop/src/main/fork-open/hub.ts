@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process'
 import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, rmdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { createInterface } from 'node:readline'
 import { setTimeout as delay } from 'node:timers/promises'
 import { app, ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
@@ -10,7 +9,7 @@ import { privateDirectory, validatePrivateFile } from '../../shared/fork-private
 import { hostCallError } from '../../shared/host-call-error'
 import type { CallError, HostSnapshot } from '../../shared/ipc'
 import { open } from './isolation'
-import { openApiPath, openStreamPath, readOpenResponse, requestOpenHub } from './hub-transport'
+import { openApiPath, openStreamPath, readOpenEventData, readOpenResponse, requestOpenHub } from './hub-transport'
 
 const origin = `http://127.0.0.1:${open.port}`
 const unavailable: CallError = { status: 0, message: traduzir(SOURCE_LANGUAGE, 'navegacao.janela.hub.parado') }
@@ -152,11 +151,9 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
           response.destroy()
           return send('host:stream:end', unavailable)
         }
-        const lines = createInterface({ input: response })
         try {
-          for await (const line of lines) if (line.startsWith('data:')) send('host:stream:data', [line.slice(5).trimStart()])
+          for await (const data of readOpenEventData(response)) send('host:stream:data', [data])
         } finally {
-          lines.close()
           response.destroy()
         }
         send('host:stream:end', null)

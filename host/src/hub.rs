@@ -618,7 +618,9 @@ impl Hub {
             if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
                 crate::chat::memory::changed(self, Some(&id));
             }
-            self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
+            if !crate::environment::Environment::is_open() {
+                self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
+            }
         }
         self.emit_bot(&id);
         Ok(self.bot_value(&id).unwrap_or(Value::Null))
