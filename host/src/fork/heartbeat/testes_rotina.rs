@@ -193,7 +193,7 @@ fn disparo_manual_ou_por_webhook_de_checagem_e_recusado() {
 
 use crate::fork::heartbeat::testes::Ficticia;
 use crate::fork::heartbeat::{Fonte, Item, Motivo};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PASSO: i64 = 300_000;
 
@@ -207,7 +207,7 @@ fn com_fonte() -> (Arc<Hub>, Arc<Ficticia>, String) {
 
 /// Uma checagem no instante `volta * 5 min`, como o agendador a chamaria.
 fn checa(hub: &Hub, id: &str, volta: i64) {
-    hub.routines.check_due(&hub.store, &[id.to_owned()], volta * PASSO);
+    hub.routines.check_due(&hub.store, &[id.to_owned()], || volta * PASSO);
 }
 
 pub(super) fn avisos(hub: &Hub) -> Vec<String> {
@@ -318,12 +318,12 @@ fn falha_repetida_recua_e_nao_repete_o_alerta_e_a_volta_nao_reavisa() {
     let leituras = fonte.leituras.load(Ordering::SeqCst);
     let ate = estado(&hub, &id).nao_antes;
     assert!(ate > 2 * PASSO, "recuo depois da falha");
-    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), ate - 1);
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || ate - 1);
     assert_eq!(estado(&hub, &id).falhas_seguidas, 1, "em recuo a fonte nem é consultada");
-    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), ate);
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || ate);
     assert_eq!(estado(&hub, &id).falhas_seguidas, 2);
     *fonte.falha.lock().unwrap() = None;
-    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), ate + 3_600_000 * 7);
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || ate + 3_600_000 * 7);
     assert!(fonte.leituras.load(Ordering::SeqCst) > leituras);
     assert_eq!(avisos(&hub).len(), 2, "uma decisão e um alerta de falha; a volta não repete a pendência já avisada");
     assert_eq!(estado(&hub, &id).falhas_seguidas, 0);
@@ -433,7 +433,7 @@ fn dedup_e_ultima_checagem_sobrevivem_ao_reinicio() {
     reiniciado.restore(&hub.store).unwrap();
     reiniciado.registrar_fonte("bot", "pedidos.ficticio", "conta-1", fonte.clone());
     for volta in 2..=4 {
-        reiniciado.check_due(&hub.store, std::slice::from_ref(&id), volta * PASSO);
+        reiniciado.check_due(&hub.store, std::slice::from_ref(&id), || volta * PASSO);
     }
     let rotina = reiniciado.state.locked().routines[0].clone();
     assert_eq!(rotina.heartbeat_state.unwrap().ultima.unwrap().em, 4 * PASSO);
@@ -612,12 +612,12 @@ fn pausa_e_religa_no_meio_da_leitura_tambem_descarta() {
 
 #[test]
 fn rodada_da_mesma_rotina_dentro_da_leitura_e_recusada() {
-    struct Aninha(Arc<Hub>, std::sync::Mutex<String>, std::sync::atomic::AtomicUsize);
+    struct Aninha(Arc<Hub>, std::sync::Mutex<String>, AtomicUsize);
     impl Fonte for Aninha {
         fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
             self.2.fetch_add(1, Ordering::SeqCst);
             let id = self.1.lock().unwrap().clone();
-            self.0.routines.check_due(&self.0.store, &[id], 99 * PASSO);
+            self.0.routines.check_due(&self.0.store, &[id], || 99 * PASSO);
             Ok(None)
         }
         fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
@@ -626,8 +626,7 @@ fn rodada_da_mesma_rotina_dentro_da_leitura_e_recusada() {
     }
     let hub = hub();
     let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
-    let fonte =
-        Arc::new(Aninha(hub.clone(), std::sync::Mutex::new(id.clone()), std::sync::atomic::AtomicUsize::new(0)));
+    let fonte = Arc::new(Aninha(hub.clone(), std::sync::Mutex::new(id.clone()), AtomicUsize::new(0)));
     hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", fonte.clone());
     checa(&hub, &id, 1);
     assert_eq!(fonte.2.load(Ordering::SeqCst), 1, "a rodada aninhada não consultou a fonte");
@@ -745,7 +744,7 @@ fn a_mesma_identidade_de_concessao_sobrevive_ao_reinicio_mesmo_com_outra_ordem_d
     // Outra fonte registra antes: o número do registro muda, a identidade da concessão não.
     reiniciada.registrar_fonte("bot", "outra.fonte", "conta-x", Arc::new(Ficticia::default()));
     reiniciada.registrar_fonte("bot", "pedidos.ficticio", "conta-1", fonte.clone());
-    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), 2 * PASSO);
+    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), || 2 * PASSO);
     assert_eq!(avisos_de(&reiniciada, &hub).len(), 1, "a mesma conta: nada reavisado");
 }
 
@@ -759,7 +758,7 @@ fn outra_conta_depois_do_reinicio_nao_herda_o_estado() {
     let outra = Arc::new(Ficticia::default());
     outra.define(&[("7", "v1", "aguardando")]);
     reiniciada.registrar_fonte("bot", "pedidos.ficticio", "conta-2", outra);
-    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), 2 * PASSO);
+    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), || 2 * PASSO);
     assert_eq!(avisos_de(&reiniciada, &hub).len(), 2, "outra conta, mesmos ids: decisão nova para o dono");
 }
 
@@ -770,9 +769,9 @@ fn tick_antes_do_conector_registrar_a_fonte_nao_apaga_o_que_se_sabia() {
     checa(&hub, &id, 1);
     let reiniciada = Routines::default();
     reiniciada.restore(&hub.store).unwrap();
-    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), 2 * PASSO);
+    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), || 2 * PASSO);
     reiniciada.registrar_fonte("bot", "pedidos.ficticio", "conta-1", fonte.clone());
-    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), 40 * PASSO);
+    reiniciada.check_due(&hub.store, std::slice::from_ref(&id), || 40 * PASSO);
     assert_eq!(
         avisos_de(&reiniciada, &hub).len(),
         2,
@@ -822,4 +821,59 @@ fn mudar_so_o_intervalo_mantem_o_estado_e_apagar_o_bot_limpa_o_texto_pendente() 
     hub.store.save_bot(&serde_json::from_value(json!({"id":"bot","name":"Bot"})).unwrap()).unwrap();
     hub.routines.delete_bot_committed(&hub.store, "bot").unwrap();
     assert!(hub.routines.state.locked().runs.iter().all(|r| r.heartbeat_texto.is_none()));
+}
+
+#[test]
+fn fonte_que_nao_responde_no_prazo_vira_falha_e_nao_trava_a_proxima_rotina() {
+    struct Travada(AtomicUsize);
+    impl Fonte for Travada {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![])
+        }
+    }
+    let hub = hub();
+    hub.routines.prazo_fonte_ms.store(100, Ordering::SeqCst);
+    let travada = Arc::new(Travada(AtomicUsize::new(0)));
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
+    let lenta = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    let boa = Arc::new(Ficticia::default());
+    hub.routines.registrar_fonte("bot", "outra.fonte", "conta-2", boa.clone());
+    let mut declaracao = declaracao();
+    declaracao["fonte"] = json!("outra.fonte");
+    let rapida = salva(&hub, &corpo(&json!({"heartbeat": declaracao, "enabled": true, "name": "Outra"})))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let inicio = std::time::Instant::now();
+    hub.routines.check_due(&hub.store, &[lenta.clone(), rapida.clone()], || PASSO);
+    assert!(inicio.elapsed() < std::time::Duration::from_millis(700), "o prazo corta a espera");
+    assert_eq!(estado(&hub, &lenta).ultima.unwrap().resultado, crate::fork::heartbeat::Resultado::FonteIndisponivel);
+    assert_eq!(estado(&hub, &lenta).falhas_seguidas, 1, "estouro de prazo é falha, nunca «sem mudança»");
+    assert!(boa.leituras.load(Ordering::SeqCst) > 0, "a rotina seguinte foi consultada");
+    // Enquanto a chamada travada não volta, a fonte não recebe outra.
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&lenta), || 40 * PASSO);
+    assert_eq!(travada.0.load(Ordering::SeqCst), 1, "nenhuma segunda chamada enquanto a primeira não voltou");
+    std::thread::sleep(std::time::Duration::from_millis(900));
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&lenta), || 80 * PASSO);
+    assert_eq!(travada.0.load(Ordering::SeqCst), 2, "voltou: pode ser consultada de novo");
+}
+
+#[test]
+fn ocorrencia_coletada_nao_roda_se_a_rotina_mudou_antes_da_vez_dela() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    let versao = hub.routines.state.locked().routines[0].updated_at;
+    let mut novo = corpo(&json!({"id": id, "enabled": true}));
+    novo["triggers"] = json!([{"type": "interval", "seconds": 600}]);
+    hub.routines.save(&hub, "bot", &novo).unwrap();
+    hub.routines.check_collected(&hub.store, &[(id.clone(), versao)], || PASSO);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), 0, "a ocorrência antiga ficou para trás");
+    let atual = hub.routines.state.locked().routines[0].updated_at;
+    hub.routines.check_collected(&hub.store, &[(id, atual)], || PASSO);
+    assert!(fonte.leituras.load(Ordering::SeqCst) > 0, "a rotina inalterada roda");
 }

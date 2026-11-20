@@ -15,6 +15,8 @@ pub(crate) mod testes;
 pub(crate) use avaliar::{Aviso, Saida, avaliar, pode_checar};
 
 pub(crate) const MIN_INTERVALO_S: u64 = 60;
+/// Prazo de cada chamada a uma fonte (`marcador` ou `ler`).
+pub(crate) const PRAZO_PADRAO_MS: u64 = 30_000;
 const MAX_INTERVALO_S: u64 = 7 * 86_400;
 const INTERVALO_PADRAO_S: u64 = 300;
 const MAX_ESTADOS: usize = 20;
@@ -151,6 +153,8 @@ pub(crate) struct Concessao {
     /// concessão, diferente para outra conta. É o que o estado guardado lembra.
     pub identidade: String,
     pub fonte: std::sync::Arc<dyn Fonte>,
+    /// Há uma chamada à fonte ainda em andamento (estourou o prazo e não voltou): nova chamada não é aberta.
+    pub ocupada: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// O que se guarda no estado como identidade da concessão, sem a identidade bruta.
@@ -158,7 +162,9 @@ pub(crate) fn identidade_de(bruta: &str) -> String {
     avaliar::resumir(&["concessao", bruta])
 }
 
-/// A fonte só se lê. A interface não tem escrita, envio nem exclusão: observar e executar são coisas separadas,
+/// A fonte só se lê. Cada chamada tem um prazo (`PRAZO_PADRAO_MS`, 30 s): estourado o prazo, a checagem registra a fonte
+/// como indisponível e segue para a próxima, nunca como «sem mudança». Uma chamada que não voltou segue numa linha
+/// de execução à parte; enquanto ela não terminar, a fonte não recebe outra chamada. A interface não tem escrita, envio nem exclusão: observar e executar são coisas separadas,
 /// e a checagem não herda do bot nenhuma permissão de enviar ou apagar.
 pub(crate) trait Fonte: Send + Sync {
     /// Marcador barato do estado atual do escopo (versão, data da última alteração). Ele precisa mudar a cada

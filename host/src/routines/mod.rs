@@ -219,6 +219,8 @@ pub struct Routines {
     fontes: Mutex<Fontes>,
     /// Numera cada registro de fonte nesta execução do Hub: quem lê só grava se o registro não mudou desde a leitura.
     concessoes: std::sync::atomic::AtomicU64,
+    /// Prazo de cada chamada a uma fonte, em milissegundos.
+    prazo_fonte_ms: std::sync::atomic::AtomicU64,
     /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
     checando: Mutex<HashSet<String>>,
     /// Falhas transitórias injetadas em `prepare_attempt` nos testes.
@@ -239,6 +241,7 @@ impl Default for Routines {
             hooks_rev: tokio::sync::watch::channel(0).0,
             fontes: Mutex::default(),
             concessoes: std::sync::atomic::AtomicU64::new(0),
+            prazo_fonte_ms: std::sync::atomic::AtomicU64::new(crate::fork::heartbeat::PRAZO_PADRAO_MS),
             checando: Mutex::default(),
             #[cfg(test)]
             fail_next: std::sync::atomic::AtomicUsize::new(0),

@@ -1,5 +1,5 @@
 //! Cenários de ponta a ponta da checagem silenciosa, com fonte fictícia e pelo agendador de verdade: o relógio é
-//! simulado, mas cada passo passa por `schedule_due` e `publish`, como no Hub em funcionamento. Nenhum dado real,
+//! simulado, mas cada passo passa pelo agendador (`schedule_due_com`, o mesmo caminho do `schedule_due` com o relógio injetado) e por `publish`, como no Hub em funcionamento. Nenhum dado real,
 //! nenhuma rede, nenhuma IA.
 use super::heartbeat_rotina_tests::{avisos, avisos_de, corpo, estado, execucoes, hub, salva};
 use super::{Routines, Status};
@@ -39,7 +39,8 @@ impl Cena {
     fn anda(&mut self, passos: i64) {
         for _ in 0..passos {
             self.agora += CINCO_MIN;
-            self.hub.routines.schedule_due(&self.hub.store, self.agora).unwrap();
+            let agora = self.agora;
+            self.hub.routines.schedule_due_com(&self.hub.store, agora, || agora).unwrap();
         }
     }
 
@@ -195,7 +196,8 @@ fn reiniciar_o_hub_no_meio_nao_repete_o_aviso_nem_perde_a_ultima_checagem() {
     reiniciada.registrar_fonte("bot", "pedidos.ficticio", "conta-1", cena.fonte.clone());
     for _ in 0..4 {
         cena.agora += CINCO_MIN;
-        reiniciada.schedule_due(&cena.hub.store, cena.agora).unwrap();
+        let agora = cena.agora;
+        reiniciada.schedule_due_com(&cena.hub.store, agora, || agora).unwrap();
     }
     let rotina = reiniciada.state.locked().routines[0].clone();
     assert_eq!(
