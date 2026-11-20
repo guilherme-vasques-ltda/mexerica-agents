@@ -4,6 +4,8 @@ use tokio::process::Command;
 
 mod child;
 #[cfg(unix)]
+pub(crate) use child::start_open_codex;
+#[cfg(unix)]
 pub(crate) mod fd;
 #[cfg(unix)]
 pub(crate) mod login_cleanup;

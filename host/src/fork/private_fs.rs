@@ -198,6 +198,14 @@ pub(crate) fn create_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 pub(crate) fn read(path: &Path) -> Result<Option<Vec<u8>>> {
+    read_bytes(path, None)
+}
+
+pub(crate) fn read_limited(path: &Path, limit: u64) -> Result<Option<Vec<u8>>> {
+    read_bytes(path, Some(limit))
+}
+
+fn read_bytes(path: &Path, limit: Option<u64>) -> Result<Option<Vec<u8>>> {
     use std::io::Read;
     let directory = match Directory::open(path.parent().context("pai ausente")?, false) {
         Ok(directory) => directory,
@@ -227,7 +235,13 @@ pub(crate) fn read(path: &Path) -> Result<Option<Vec<u8>>> {
         "leitura privada: dono/tipo/modo/hardlink recusado"
     );
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    if let Some(limit) = limit {
+        ensure!(m.len() <= limit, "arquivo privado acima do limite");
+        file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() as u64 <= limit, "arquivo privado acima do limite");
+    } else {
+        file.read_to_end(&mut bytes)?;
+    }
     Ok(Some(bytes))
 }
 
