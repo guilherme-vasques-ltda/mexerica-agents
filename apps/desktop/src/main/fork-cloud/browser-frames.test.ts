@@ -5,13 +5,15 @@ import type { Channel as ChannelType } from './channel.ts'
 import { computerIdOf, random, signerFromSeed } from './crypto.ts'
 import { FakeSocket, HostCodec, hostAccept } from './fake-hub.ts'
 import { RelayLink } from './relay-socket.ts'
-import { encodeFrame, FRAME_HEADER, FRAME_MAX_WIRE, FRAMES_CAPABILITY, type BrowserFrame } from '../../shared/relay-protocol/browser-frames.ts'
+import { encodeFrame, FRAME_HEADER, FRAME_MAGIC, FRAME_MAX_WIRE, FRAMES_CAPABILITY, type BrowserFrame } from '../../shared/relay-protocol/browser-frames.ts'
 
 // B2: o app negocia browserFramesV1 e recebe quadros binários dentro dos frames cifrados do canal.
 
 const host = signerFromSeed(new Uint8Array(32).fill(1))
 const device = signerFromSeed(new Uint8Array(32).fill(3))
 const computerId = computerIdOf(host.publicKey)
+
+const FRAME_MAGIC_BYTES = Uint8Array.from(FRAME_MAGIC)
 
 const quadro = (sequence = 1, bytes = 4): BrowserFrame => ({
   session: 's1',
@@ -167,4 +169,36 @@ test('revogação do acesso chega ao consumidor de quadros como 403; queda comum
   queda.channels[0]!.subscribeFrames({ onFrame: () => {}, onEnd: (e) => outros.push(e) })
   queda.socket.drop(1006, 'queda')
   assert.equal((outros[0] as { status: number }).status, 0)
+})
+
+test('a assinatura MXJ1 dividida em pedaços pequenos ainda é reconhecida como quadro e o teto vale antes de juntar tudo', () => {
+  const wire = encodeFrame(quadro(5))
+  const a = par(true)
+  const recebidos: BrowserFrame[] = []
+  a.channel.subscribeFrames({ onFrame: (f) => recebidos.push(f), onEnd: () => {} })
+  for (const f of a.hub.sealPieces([wire.subarray(0, 1), wire.subarray(1, 3), wire.subarray(3, 4), wire.subarray(4)])) a.channel.receive(f)
+  assert.deepEqual(recebidos.map((f) => f.sequence), [5], 'quadro dividido chega inteiro')
+
+  const b = par(true)
+  b.channel.subscribeFrames({ onFrame: () => assert.fail('gigante'), onEnd: () => {} })
+  const grande = new Uint8Array(256 * 1024)
+  grande.set(FRAME_MAGIC_BYTES, 0)
+  const pedacos = b.hub.sealPieces([grande.subarray(0, 2), grande.subarray(2, 4), grande, grande, grande, new Uint8Array(4)])
+  b.channel.receive(pedacos[0]!)
+  b.channel.receive(pedacos[1]!)
+  b.channel.receive(pedacos[2]!)
+  b.channel.receive(pedacos[3]!)
+  assert.throws(() => b.channel.receive(pedacos[4]!), (e: unknown) => e instanceof ChannelBroken && e.closeCode === 4013, 'recusado antes do pedaço final, sem juntar a mensagem')
+})
+
+test('pedaços pequenos demais em quantidade quebram o canal; o limite de pedaços comporta a mensagem máxima', () => {
+  const abuso = par(true)
+  const pedacos = abuso.hub.sealPieces(Array.from({ length: 65 }, () => Uint8Array.of(0x20)))
+  for (const f of pedacos.slice(0, 64)) abuso.channel.receive(f)
+  assert.throws(() => abuso.channel.receive(pedacos[64]!), (e: unknown) => e instanceof ChannelBroken && e.closeCode === 4013)
+
+  const normal = par(true)
+  const json = new TextEncoder().encode('{"id":99,"ok":1}')
+  const emPedacos = normal.hub.sealPieces(Array.from(json, (byte) => Uint8Array.of(byte)))
+  for (const f of emPedacos) normal.channel.receive(f)
 })

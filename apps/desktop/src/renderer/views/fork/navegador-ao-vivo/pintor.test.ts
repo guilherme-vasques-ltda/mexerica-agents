@@ -87,6 +87,19 @@ test('imagem acima do teto de pixels não chega nem a ser decodificada', async (
   assert.deepEqual([canvas.width, canvas.chamadas, mente.fechados], [100, [], [1]])
 })
 
+test('bitmap com outra proporção que o cabeçalho anunciou não é pintado: o clique desviaria', async () => {
+  const outra = bitmaps(960, 720)
+  const canvas = tela()
+  const p = desenhar(canvas, quadro(1), () => true, outra.criar)
+  outra.liberar(true)
+  assert.equal(await p, false)
+  assert.deepEqual([canvas.width, canvas.chamadas, outra.fechados], [100, [], [1]], 'canvas intocado e bitmap fechado')
+  const certa = bitmaps(960, 540)
+  const q = desenhar(canvas, quadro(2), () => true, certa.criar)
+  certa.liberar(true)
+  assert.equal(await q, true, 'controle: mesma proporção pinta')
+})
+
 test('desenho que termina depois de a tela ser desfeita não toca o canvas e fecha o bitmap', async () => {
   const b = bitmaps()
   const canvas = tela()

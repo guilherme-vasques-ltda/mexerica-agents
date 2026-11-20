@@ -1,6 +1,6 @@
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { concat, type ChannelKeys, type DeviceSigner, type Protocol } from './protocol.ts'
-import { decodeFrame, FRAME_MAX_WIRE, FRAMES_CAPABILITY, FrameCodecError, isFrameBytes, type BrowserFrame } from './browser-frames.ts'
+import { decodeFrame, FRAME_MAGIC, FRAME_MAX_WIRE, FRAMES_CAPABILITY, FrameCodecError, isFrameBytes, type BrowserFrame } from './browser-frames.ts'
 
 /**
  * Canal E2E do aparelho (docs/reference/remote-relay.md §6.2–§6.5) depois do aperto de mão:
@@ -85,7 +85,8 @@ export function createChannel(proto: Protocol) {
     private readonly subs = new Map<number, Sub>()
     private readonly keys: ChannelKeys
     private readonly wire: ChannelWire
-    private binary = false
+    /** `null` até haver 4 bytes para decidir se a mensagem é um quadro (a assinatura pode vir dividida em pedaços). */
+    private binary: boolean | null = null
     private frameSink: FrameSink | null = null
     /** O Hub aceitou `browserFramesV1`; sem isso, qualquer quadro recebido quebra o canal. */
     readonly framesNegotiated: boolean
@@ -113,16 +114,28 @@ export function createChannel(proto: Protocol) {
       this.recvC += 1
       this.partsSize += opened.chunk.length
       if (this.partsSize > MAX_INCOMING) throw new ChannelBroken(4013, 'message.tooLarge')
-      if (this.parts.length === 0) this.binary = isFrameBytes(opened.chunk)
-      // Quadro acima do teto é recusado antes de juntar os pedaços ou copiar o JPEG.
-      if (this.binary && this.partsSize > FRAME_MAX_WIRE) throw new ChannelBroken(4013, 'message.tooLarge')
+      // O Hub parte a mensagem em pedaços de CHUNK bytes: mais pedaços que o teto comporta é abuso, mesmo com cada um pequeno.
+      if (this.parts.length >= Math.ceil(MAX_INCOMING / CHUNK)) throw new ChannelBroken(4013, 'message.tooLarge')
       this.parts.push(opened.chunk)
+      // Decide pelo prefixo acumulado, sem juntar a mensagem: quadro acima do teto é recusado antes de copiar o JPEG.
+      if (this.binary === null && this.partsSize >= FRAME_MAGIC.length) {
+        const prefix = new Uint8Array(FRAME_MAGIC.length)
+        let filled = 0
+        for (const part of this.parts) {
+          const take = Math.min(prefix.length - filled, part.length)
+          prefix.set(part.subarray(0, take), filled)
+          filled += take
+          if (filled === prefix.length) break
+        }
+        this.binary = isFrameBytes(prefix)
+      }
+      if (this.binary && this.partsSize > FRAME_MAX_WIRE) throw new ChannelBroken(4013, 'message.tooLarge')
       if (!opened.final) return
       const bytes = concat(...this.parts)
-      const binary = this.binary
+      const binary = this.binary === true
       this.parts = []
       this.partsSize = 0
-      this.binary = false
+      this.binary = null
       if (binary) return this.dispatchFrame(bytes)
       let message: unknown
       try {

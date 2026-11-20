@@ -28,6 +28,8 @@ export async function desenhar(
   try {
     bitmap = await criar(new Blob([frame.jpeg as BlobPart], { type: 'image/jpeg' }))
     if (!aindaVale() || !withinPixelLimit(bitmap.width, bitmap.height)) return false
+    // O bitmap decodificado tem de ter o tamanho que o cabeçalho anunciou: é por ele que o Hub converte o clique.
+    if (bitmap.width !== frame.image.width || bitmap.height !== frame.image.height) return false
     const contexto = canvas.getContext('2d')
     if (!contexto) return false
     canvas.width = bitmap.width

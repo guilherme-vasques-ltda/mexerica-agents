@@ -47,6 +47,9 @@ function montar() {
     },
   }
   const evento = { sender, senderFrame: frame }
+  const outroFrame = { url }
+  const outroSender = { ...sender, id: 2, mainFrame: outroFrame }
+  const outroEvento = { sender: outroSender, senderFrame: outroFrame }
   const ipcMain = {
     handle: (nome: string, cb: (...args: any[]) => any) => handles.set(nome, cb),
     on: (nome: string, cb: Listener) => ouvintesMain.set(nome, cb),
@@ -75,7 +78,7 @@ function montar() {
     './principal': {}, './account-api': {}, './device-keys': {}, './crypto': { unb64url: () => Buffer.alloc(16) }, './enroll': {}, './connection': {}, './pins': {},
   }, { Buffer, Object, URL, process, performance: { now: () => main.t } })
   const servico = registerForkCloudService({ sessionEpoch: 1, on() {}, off() {} } as never, {} as never, {} as never,
-    () => [{ isDestroyed: () => false, webContents: sender }] as never, [url], () => false)
+    () => [{ isDestroyed: () => false, webContents: sender }, { isDestroyed: () => false, webContents: outroSender }] as never, [url], () => false)
   ;(servico as unknown as { connection: unknown }).connection = conexao
 
   let cliques = 0
@@ -103,7 +106,7 @@ function montar() {
   const vistos: BrowserFrame[] = []
   sessao.subscribe({ onState: () => {}, onFrame: (f) => vistos.push(f) })
   return {
-    passa, atraso, sessao, ponte, hub, conexao, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => navegacao.forEach((cb) => cb(detalhes)),
+    passa, atraso, sessao, ponte, hub, conexao, outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => navegacao.forEach((cb) => cb(detalhes)),
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -268,4 +271,37 @@ test('âncora e subquadro não encerram os quadros; a troca de documento da jane
   assert.equal(r.assinado(), true)
   r.navegar({ isMainFrame: true, isSameDocument: false })
   assert.equal(r.assinado(), false, 'a troca de documento cancela a assinatura de quadros')
+})
+
+test('a prova do quadro é da assinatura da janela: outra janela autorizada não usa o despacho feito à primeira', async () => {
+  const r = await comPessoa()
+  const entrada = { session: 's1', target: 'aba1', targetGeneration: 0, frameSequence: 1, sequence: 1, epoch: 1, controller: 'person', x: 1, y: 1, displayWidth: 10, displayHeight: 10 }
+  assert.equal((await r.outraJanela('browserStreamInput', entrada)).kind, 'notSent', 'a outra janela não recebeu quadro algum')
+  assert.equal(r.entradasNoHub().length, 0)
+  assert.equal((await r.ponte.call('browserStreamInput', entrada, 5000)).kind, 'ok', 'controle: a janela que recebeu o quadro envia')
+  assert.equal(r.entradasNoHub().length, 1)
+})
+
+test('trocar a inscrição no Hub invalida a prova: o mesmo par de identificadores não vale para o quadro novo', async () => {
+  const r = await comPessoa()
+  const entrada = { session: 's1', target: 'aba1', targetGeneration: 0, frameSequence: 1, sequence: 1, epoch: 1, controller: 'person', x: 1, y: 1, displayWidth: 10, displayHeight: 10 }
+  assert.equal((await r.ponte.call('browserStreamInput', entrada, 5000)).kind, 'ok')
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok')
+  assert.equal((await r.ponte.call('browserStreamInput', entrada, 5000)).kind, 'notSent', 'o Hub reiniciou geração e sequência: o quadro 1 antigo não vale mais')
+  await r.quadro(2)
+  assert.equal((await r.ponte.call('browserStreamInput', { ...entrada, frameSequence: 2 }, 5000)).kind, 'ok', 'controle: quadro entregue depois da troca vale')
+})
+
+test('o corpo da entrada que sai ao Hub é fechado: só os campos do contrato, com tipo e faixa conferidos', async () => {
+  const r = await comPessoa()
+  const entrada = { session: 's1', target: 'aba1', targetGeneration: 0, frameSequence: 1, sequence: 1, epoch: 1, controller: 'person', x: 1, y: 1, displayWidth: 10, displayHeight: 10 }
+  const grande = { ...entrada, extra: 'x'.repeat(900_000), outro: { a: 1 } }
+  assert.equal((await r.ponte.call('browserStreamInput', grande, 5000)).kind, 'ok')
+  assert.deepEqual(Object.keys(r.entradasNoHub()[0]!.body).sort(), Object.keys(entrada).sort(), 'o que o Hub ignoraria não sai')
+  assert.deepEqual(JSON.parse(JSON.stringify(r.entradasNoHub()[0]!.body)), entrada)
+  for (const ruim of [{ controller: 'agent' }, { x: 'um' }, { displayWidth: 0 }, { sequence: -1 }, { epoch: 1.5 }, { session: '' }, { target: 'a'.repeat(257) }, { frameSequence: undefined }]) {
+    assert.equal((await r.ponte.call('browserStreamInput', { ...entrada, ...ruim }, 5000)).kind, 'notSent', JSON.stringify(Object.keys(ruim)))
+  }
+  assert.equal((await r.ponte.call('browserStreamInput', [entrada], 5000)).kind, 'notSent')
+  assert.equal(r.entradasNoHub().length, 1)
 })

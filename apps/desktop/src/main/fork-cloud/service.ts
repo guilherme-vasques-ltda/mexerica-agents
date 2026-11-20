@@ -89,6 +89,47 @@ function directory(value: unknown): Directory[] | null {
   return entries
 }
 
+/** Identidade estrutural do quadro que um clique cita (sessão, aba, geração e sequência). */
+export interface InputFrame { session: string; target: string; targetGeneration: number; sequence: number }
+
+const counterOf = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+const idOf = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 256
+
+/**
+ * Só os campos que o Hub lê em `browserStreamInput`, com tipo e faixa conferidos: o resto do que a tela mandar nunca sai,
+ * então o corpo enviado é pequeno e a conferência do prazo pode ser a última coisa antes do socket.
+ */
+function closedInput(body: unknown): { frame: InputFrame; body: Record<string, unknown> } | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+  const { session, target, targetGeneration, frameSequence, sequence, epoch, controller, x, y, displayWidth, displayHeight } = body as Record<string, unknown>
+  if (!idOf(session) || !idOf(target) || !counterOf(targetGeneration) || !counterOf(frameSequence) || !counterOf(sequence) || !counterOf(epoch) || controller !== 'person') return null
+  if (![x, y, displayWidth, displayHeight].every((v) => typeof v === 'number' && Number.isFinite(v)) || (displayWidth as number) <= 0 || (displayHeight as number) <= 0) return null
+  return { frame: { session, target, targetGeneration, sequence: frameSequence }, body: { session, target, frameSequence, targetGeneration, sequence, epoch, controller, x, y, displayWidth, displayHeight } }
+}
+
+/**
+ * Prova de entrega de UMA assinatura de quadros (uma janela, uma conexão): os quadros que saíram pelo IPC para ela e a hora da
+ * CHEGADA de cada um (relógio monotônico deste processo). Só o que ainda está em 6 s autoriza entrada. A identidade é uma lista
+ * estruturada, sem separador de texto. `reset` (troca da inscrição no Hub, que reinicia geração e sequência) descarta tudo e
+ * ignora quadros que chegaram antes dele.
+ */
+class DispatchedFrames {
+  private readonly arrivals = new Map<string, number>()
+  private since = Number.NEGATIVE_INFINITY
+  private key(frame: InputFrame) { return JSON.stringify([frame.session, frame.target, frame.targetGeneration, frame.sequence]) }
+  record(frame: InputFrame, arrival: number) {
+    if (arrival < this.since) return
+    this.arrivals.set(this.key(frame), arrival)
+    // Inserção em ordem de despacho: o que passou do prazo está no começo e nunca mais autoriza nada.
+    for (const [key, at] of this.arrivals) { if (this.arrivals.size <= 16 && performance.now() - at <= STALE_AFTER_MS) break; this.arrivals.delete(key) }
+  }
+  fresh(frame: InputFrame): boolean {
+    const arrival = this.arrivals.get(this.key(frame))
+    return arrival !== undefined && performance.now() - arrival <= STALE_AFTER_MS
+  }
+  reset() { this.arrivals.clear(); this.since = performance.now() }
+}
+
 export class ForkCloudService {
   private generation = 0
   private busy = false
@@ -110,10 +151,8 @@ export class ForkCloudService {
   private foundEpoch = -1
   private foundBinding: string | null = null
   private state: ForkCloudState
-  /** Quando cada quadro chegou do Hub (relógio monotônico deste processo). Só o recebimento: não autoriza entrada. */
+  /** Quando cada quadro chegou do Hub (relógio monotônico deste processo). Só o recebimento: não autoriza entrada; quem autoriza é `DispatchedFrames`, por assinatura. */
   private readonly frameArrivedAt = new WeakMap<BrowserFrame, number>()
-  /** Quadros realmente despachados ao app pela assinatura atual, por conexão, com a hora da CHEGADA (só os que ainda estão em 6 s; no máximo 2 conexões). */
-  private readonly frameArrivals = new Map<string, Map<string, number>>()
   private readonly epochChanged = () => { this.managedPaused=false; this.invalidate(); this.set('signedOut') }
 
   constructor(private readonly account: AccountService, private readonly factory: Factory, private readonly local: LocalSource, private readonly onChange: (value: ForkCloudResult) => void = () => {}) {
@@ -360,13 +399,20 @@ export class ForkCloudService {
     const connection = this.connection
     return connection && connection.getAttachment()?.connectionId === id ? connection : null
   }
-  async call(id: unknown, method: unknown, body: unknown, timeout: unknown): Promise<ForkCloudCallResult> {
+  async call(id: unknown, method: unknown, body: unknown, timeout: unknown, authorizeInput?: (frame: InputFrame) => boolean): Promise<ForkCloudCallResult> {
     if (typeof method !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(method) || typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout < 1000 || timeout > 120_000) return { kind: 'notSent', reason: 'notReady' }
     try { const serialized = JSON.stringify(body); if (serialized === undefined) return { kind: 'notSent', reason: 'notReady' }; if (Buffer.byteLength(serialized, 'utf8') > 1024 * 1024) return { kind: 'notSent', reason: 'tooLarge' } } catch { return { kind: 'notSent', reason: 'notReady' } }
     const connection = this.dataConnection(id)
     if (!connection) return { kind: 'notSent', reason: 'notReady' }
-    if (method === 'browserStreamInput' && !this.inputFrameFresh(id as string, body)) return { kind: 'notSent', reason: 'notReady' }
-    try { return await connection.call(method, body, timeout) } catch { return { kind: 'unknown', reason: 'closed' } }
+    let outgoing = body
+    if (method === 'browserStreamInput') {
+      const input = closedInput(body)
+      if (!input || !authorizeInput) return { kind: 'notSent', reason: 'notReady' }
+      outgoing = input.body
+      // Última conferência antes do envio: o corpo já é pequeno e fechado, então nada entre aqui e o socket leva tempo.
+      if (!authorizeInput(input.frame)) return { kind: 'notSent', reason: 'notReady' }
+    }
+    try { return await connection.call(method, outgoing, timeout) } catch { return { kind: 'unknown', reason: 'closed' } }
   }
   subscribe(id: unknown, body: unknown, onEvent: (value: unknown) => void, onEnd: (error: { status: number; message: string } | null) => void): Subscription | null {
     const request = cloudSubscription(body)
@@ -379,42 +425,10 @@ export class ForkCloudService {
   subscribeFrames(id: unknown, sink: FrameSink): Subscription | null {
     const connection = this.dataConnection(id)
     if (!connection?.framesNegotiated || typeof id !== 'string') return null
-    const subscription = connection.subscribeFrames({
-      onFrame: (frame) => { this.frameArrivedAt.set(frame, performance.now()); sink.onFrame(frame) },
-      onEnd: (error) => { this.frameArrivals.delete(id); sink.onEnd(error) },
-    })
-    return subscription && { ...subscription, cancel: () => { this.frameArrivals.delete(id); subscription.cancel() } }
+    return connection.subscribeFrames({ onFrame: (frame) => { this.frameArrivedAt.set(frame, performance.now()); sink.onFrame(frame) }, onEnd: sink.onEnd })
   }
-  /** Identidade estrutural do quadro: uma lista JSON, sem separador que os identificadores possam conter. */
-  private frameKey(frame: { session: string; target: string; targetGeneration: number; sequence: number }) { return JSON.stringify([frame.session, frame.target, frame.targetGeneration, frame.sequence]) }
-  /**
-   * Chamado só depois de o quadro ter saído pelo IPC para a assinatura atual: um quadro recebido que a fila descartou ou
-   * ainda retém não chega aqui e nunca autoriza entrada. A idade segue contando desde a chegada, não desde o despacho.
-   */
-  frameDispatched(connectionId: string, frame: BrowserFrame) {
-    const arrival = this.frameArrivedAt.get(frame)
-    if (arrival === undefined) return
-    let arrivals = this.frameArrivals.get(connectionId)
-    if (!arrivals) {
-      if (this.frameArrivals.size >= 2) this.frameArrivals.delete(this.frameArrivals.keys().next().value as string)
-      this.frameArrivals.set(connectionId, arrivals = new Map())
-    }
-    arrivals.set(this.frameKey(frame), arrival)
-    // Despacho em ordem de chegada: o que passou do prazo está no começo e nunca mais autoriza nada.
-    for (const [key, at] of arrivals) { if (performance.now() - at <= STALE_AFTER_MS) break; arrivals.delete(key) }
-  }
-  /**
-   * O processo principal é a autoridade final do prazo do quadro: o clique só sai ao Hub se o quadro que ele cita (sessão,
-   * aba, geração e sequência) foi mesmo despachado ao app por esta conexão e chegou há no máximo 6 s, contados aqui, neste relógio,
-   * imediatamente antes do envio. A idade calculada pelo renderer não autoriza nada (ela não vê o IPC nos dois sentidos).
-   */
-  private inputFrameFresh(connectionId: string, body: unknown): boolean {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return false
-    const { session, target, targetGeneration, frameSequence } = body as Record<string, unknown>
-    if (typeof session !== 'string' || typeof target !== 'string' || typeof targetGeneration !== 'number' || typeof frameSequence !== 'number') return false
-    const arrival = this.frameArrivals.get(connectionId)?.get(this.frameKey({ session, target, targetGeneration, sequence: frameSequence }))
-    return arrival !== undefined && performance.now() - arrival <= STALE_AFTER_MS
-  }
+  /** Hora da chegada do quadro do Hub, no relógio deste processo; `undefined` para quadro que este serviço não recebeu. */
+  frameArrival(frame: BrowserFrame): number | undefined { return this.frameArrivedAt.get(frame) }
 
   async invoke(input: unknown, callerCurrent: () => boolean = () => true): Promise<ForkCloudResult> {
     const intent = intentOf(input)
@@ -631,7 +645,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     subscriptions.delete(id); entry.cleanup(); try { entry.sub?.cancel() } catch {}
     if (notify && live(entry.event)) entry.event.sender.send('forkCloud:events:end', id.slice(id.indexOf(':') + 1), error)
   }
-  type FrameEntry = { event: IpcMainEvent; connectionId: string; sub: Subscription | null; gate: ReturnType<typeof createFrameGate<BrowserFrame>>; cleanup: () => void }
+  type FrameEntry = { event: IpcMainEvent; connectionId: string; sub: Subscription | null; proof: DispatchedFrames; gate: ReturnType<typeof createFrameGate<BrowserFrame>>; cleanup: () => void }
   const frames = new Map<string, FrameEntry>()
   const transportError = (status: number, message: string) => ({ status, message })
   const endFrames = (id: string, error: { status: number; message: string } | null, notify: boolean) => {
@@ -682,7 +696,14 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   ipcMain.handle('forkCloud:call', async (event, ...args: unknown[]) => {
     if (!live(event) || args.length !== 4) return { kind: 'notSent', reason: 'notReady' }
     const frame = event.senderFrame
-    const result = await service.call(args[0], args[1], args[2], args[3])
+    // A prova do quadro é da assinatura desta janela, não da conexão: outra janela nunca usa o despacho feito à primeira.
+    const mine = () => [...frames.values()].filter(entry => entry.event.sender === event.sender && entry.event.senderFrame === frame && entry.connectionId === args[0])
+    // Inscrever no Hub reinicia geração e sequência: nenhuma prova anterior vale depois, nem a de quadros que chegaram durante a troca.
+    const resubscribing = args[1] === 'browserStreamSubscribe'
+    const dropProofs = () => { for (const entry of frames.values()) if (entry.connectionId === args[0]) entry.proof.reset() }
+    if (resubscribing) dropProofs()
+    const result = await service.call(args[0], args[1], args[2], args[3], args[1] === 'browserStreamInput' ? input => mine().some(entry => entry.proof.fresh(input)) : undefined)
+    if (resubscribing) dropProofs()
     if (!live(event) || event.senderFrame !== frame) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
   })
@@ -730,8 +751,8 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const navigated = (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) changed() }
     event.sender.on('did-start-navigation', navigated); event.sender.once('destroyed', changed)
     const cleanup = () => { event.sender.removeListener('did-start-navigation', navigated); event.sender.removeListener('destroyed', changed) }
-    const gate = createFrameGate<BrowserFrame>((value, waited) => { if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false); event.sender.send('forkCloud:frames:data', id, value, waited); service.frameDispatched(connectionId, value) })
-    const entry: FrameEntry = { event, connectionId, sub: null, gate, cleanup }
+    const gate = createFrameGate<BrowserFrame>((value, waited) => { if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false); event.sender.send('forkCloud:frames:data', id, value, waited); const arrival = service.frameArrival(value); if (arrival !== undefined) entry.proof.record({ session: value.session, target: value.target, targetGeneration: value.targetGeneration, sequence: value.sequence }, arrival) })
+    const entry: FrameEntry = { event, connectionId, sub: null, proof: new DispatchedFrames(), gate, cleanup }
     frames.set(mapKey, entry)
     entry.sub = service.subscribeFrames(connectionId, { onFrame: value => gate.offer(value), onEnd: error => endFrames(mapKey, error, true) })
     if (entry.sub) { if (live(event)) event.sender.send('forkCloud:frames:opened', id); return }

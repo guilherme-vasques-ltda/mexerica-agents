@@ -84,10 +84,14 @@ export function jpegSize(jpeg: Uint8Array): FrameSize | null {
   return null
 }
 
-/** O quadro cabe no teto de pixels pelo cabeçalho e pelo próprio JPEG, antes de qualquer decodificação. */
+/**
+ * O quadro cabe no teto de pixels pelo cabeçalho e pelo próprio JPEG, antes de qualquer decodificação, e os dois dizem o
+ * mesmo tamanho: o Hub converte o clique pela proporção do cabeçalho, então uma imagem de outra proporção desviaria o ponto.
+ */
 export function isDrawable(frame: BrowserFrame): boolean {
   const real = jpegSize(frame.jpeg)
   return real !== null && withinPixelLimit(real.width, real.height) && withinPixelLimit(frame.image.width, frame.image.height)
+    && real.width === frame.image.width && real.height === frame.image.height
 }
 
 /** Decodifica um quadro; lança `FrameCodecError`. O JPEG devolvido é uma cópia própria (nunca uma visão do buffer do canal). */

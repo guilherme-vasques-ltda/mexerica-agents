@@ -103,7 +103,9 @@ test('o tamanho real do JPEG vem do marcador SOF, antes de decodificar', () => {
 test('o teto de pixels vale pelo cabeçalho e pelo próprio JPEG: quadro normal passa, gigante não', () => {
   const normal = { ...quadro(), jpeg: jpegSintetico(960, 540) }
   assert.equal(isDrawable(normal), true)
-  assert.equal(isDrawable({ ...normal, jpeg: jpegSintetico(8192, 2048) }), true)
+  assert.equal(isDrawable({ ...normal, image: { width: 8192, height: 2048 }, jpeg: jpegSintetico(8192, 2048) }), true)
+  assert.equal(isDrawable({ ...normal, jpeg: jpegSintetico(960, 720) }), false, 'o JPEG tem outra proporção que o cabeçalho: o clique desviaria')
+  assert.equal(isDrawable({ ...normal, image: { width: 961, height: 540 } }), false, 'um pixel de diferença também')
   assert.equal(isDrawable({ ...normal, jpeg: jpegSintetico(8192, 8192) }), false, 'pixels demais')
   assert.equal(isDrawable({ ...normal, jpeg: jpegSintetico(FRAME_MAX_SIDE + 1, 10) }), false, 'lado demais')
   assert.equal(isDrawable({ ...normal, image: { width: 960, height: 70_000 } }), false, 'o cabeçalho mente')

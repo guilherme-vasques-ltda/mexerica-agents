@@ -57,6 +57,15 @@ export class HostCodec {
     return out
   }
 
+  /** Mensagem interna repartida exatamente nestes pedaços (o último é o final), para provar os limites do receptor. */
+  sealPieces(pieces: Uint8Array[]): { t: 'f'; c: number; d: string }[] {
+    return pieces.map((piece, i) => {
+      const frame = { t: 'f' as const, c: this.sendC, d: sealFrame(this.keys.h2d, this.sendC, i === pieces.length - 1, piece) }
+      this.sendC += 1
+      return frame
+    })
+  }
+
   open(frame: { c: number; d: string }): unknown {
     if (frame.c !== this.recvC) throw new Error('contador')
     const { final, chunk } = openFrame(this.keys.d2h, frame.c, frame.d)
