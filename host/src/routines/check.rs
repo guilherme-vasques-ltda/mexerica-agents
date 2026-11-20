@@ -29,13 +29,14 @@ impl Checked {
         if name.is_empty() || name.len() > 200 || instruction.is_empty() || instruction.len() > 32_000 {
             bail!("routine name or instruction is empty or too long");
         }
+        let manual_intent = body["manual"] == true;
         let (triggers, manual): (Vec<Trigger>, bool) = if let Some(draft) = body.get("schedule") {
             let draft = serde_json::from_value::<ScheduleDraft>(draft.clone()).context("invalid schedule")?;
-            (draft.triggers()?, draft.kind == ScheduleDraft::MANUAL)
+            (draft.triggers()?, manual_intent || draft.kind == ScheduleDraft::MANUAL)
         } else {
-            let manual = body["manual"] == true;
-            let raw = body.get("triggers").cloned().unwrap_or_else(|| if manual { json!([]) } else { Value::Null });
-            (serde_json::from_value(raw).context("invalid triggers")?, manual)
+            let raw =
+                body.get("triggers").cloned().unwrap_or_else(|| if manual_intent { json!([]) } else { Value::Null });
+            (serde_json::from_value(raw).context("invalid triggers")?, manual_intent)
         };
         if manual && !triggers.is_empty() {
             bail!("{MANUAL_WITH_TRIGGERS}");

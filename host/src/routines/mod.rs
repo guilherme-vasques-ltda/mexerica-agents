@@ -1588,6 +1588,10 @@ mod tests {
             refused(with(json!({"manual":true,"triggers":[{"type":"webhook"}]})))
                 .contains("não tem horário nem gatilho")
         );
+        assert!(
+            refused(with(json!({"manual":true,"schedule":{"kind":"interval","amount":"60","unit":1}})))
+                .contains("não tem horário nem gatilho")
+        );
         assert!(matches!(Checked::parse(&with(json!({"manual":true}))).unwrap().triggers.as_slice(), []));
         assert!(matches!(
             Checked::parse(&with(json!({"schedule":{"kind":"manual"}}))).unwrap().triggers.as_slice(),

@@ -1,10 +1,12 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconButton, Switch } from '../../components/Controls'
 import { Sheet } from '../../components/Overlay'
 import { HStack, Spacer, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useScreenViewed } from '../../store/analytics'
+import { useModel } from '../../lib/observable'
+import { RoutinesPauseModel } from '../../store/routines-pause'
 import { useStore } from '../../store/context'
 import { errorText, rawError, isActiveRun, isManual, type Routine, type RoutineListing, type RoutineRun } from './routine'
 import { awaitingRelease } from './routine-duplicate'
@@ -46,6 +48,9 @@ export function routineLine(routine: Routine, runs: RoutineRun[], idioma: AppLan
 /** The routine list in the details panel (and the routines sheet); a row opens its editor. */
 export function RoutinesView({ botId, initialId, onClose, previewLimit }: { botId: string; initialId: string | null; onClose?: () => void; previewLimit?: number }) {
   const store = useStore()
+  const pause = useMemo(() => new RoutinesPauseModel(store), [store])
+  useModel(pause)
+  useEffect(() => { pause.start(); return () => pause.stop() }, [pause])
   const idioma = useIdioma()
   const t = tradutor(idioma)
   const [expanded, setExpanded] = useState(false)
@@ -172,7 +177,7 @@ export function RoutinesView({ botId, initialId, onClose, previewLimit }: { botI
                 })()}
               </button>
               <HStack as="span" align="stretch" aria-label={routine.name}>
-                {isManual(routine) && routine.enabled ? <IconButton title={t('rotinas.central.rodarAgoraNome', { nome: routine.name })} icon="play.circle" disabled={busy || store.isOffline} onClick={() => void action('runRoutine', routine)} /> : null}
+                {isManual(routine) && routine.enabled ? <IconButton title={t('rotinas.central.rodarAgoraNome', { nome: routine.name })} icon="play.circle" disabled={busy || store.isOffline || pause.paused !== false} onClick={() => void action('runRoutine', routine)} /> : null}
                 <Switch label={t('rotinas.painel.ativar', { nome: routine.name })} on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
               </HStack>
             </HStack>
