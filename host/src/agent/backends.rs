@@ -391,11 +391,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["junie"],
         local: Some("{bin} --acp=true"),
         registry: Some("junie"),
-        setup: "Install Junie (curl -fsSL https://junie.jetbrains.com/install.sh | bash) and sign in with `junie`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://junie.jetbrains.com/install.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"iex (irm 'https://junie.jetbrains.com/install.ps1')\"",
-        }),
+        setup: "A Mexerica não instala o Junie. Você pode usá-lo se ele já estiver instalado neste computador.",
+        install: None,
         login: "{bin}",
         signed_in: None,
     },
@@ -419,11 +416,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["cortex"],
         local: Some("{bin} acp serve"),
         registry: Some("cortex-code"),
-        setup: "Install Cortex Code (curl -LsS https://ai.snowflake.com/static/cc-scripts/install.sh | sh) and set up a connection with `cortex`.",
-        install: Some(Install::Scripts {
-            unix: "curl -LsS https://ai.snowflake.com/static/cc-scripts/install.sh | sh",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://ai.snowflake.com/static/cc-scripts/install.ps1 | iex\"",
-        }),
+        setup: "A Mexerica não instala o Cortex Code. Você pode usá-lo se ele já estiver instalado neste computador.",
+        install: None,
         login: "{bin}",
         signed_in: None,
     },
@@ -920,5 +914,53 @@ mod tests {
     fn every_harness_is_unique() {
         let ids: HashSet<_> = HARNESSES.iter().map(|h| h.id).collect();
         assert_eq!(ids.len(), HARNESSES.len());
+    }
+
+    #[test]
+    fn junie_e_cortex_sao_detectados_no_path_sem_oferecer_instalacao() {
+        const FIXTURE: &str = "MEXERICA_TESTE_MOTORES_NATIVOS";
+        if let Some(raiz) = std::env::var_os(FIXTURE) {
+            let raiz = PathBuf::from(raiz);
+            let oferta = list();
+            for (id, args) in [("junie", "--acp=true"), ("cortex", "acp serve")] {
+                let h = harness(id).unwrap();
+                assert!(h.install.is_none(), "{id}");
+                let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
+                assert_eq!(entrada["canInstall"], false, "{id}");
+                assert_eq!(entrada["installed"], true, "{id}");
+                assert_eq!(entrada["available"], true, "{id}");
+                let exe = which(id).unwrap();
+                assert!(exe.starts_with(&raiz), "{id}");
+                let candidato = local_candidate(id).unwrap();
+                assert_eq!(candidato.program, shell::quote(&exe.to_string_lossy()));
+                assert_eq!(candidato.args, args);
+            }
+            for id in ["cursor", "devin"] {
+                let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
+                assert_eq!(entrada["canInstall"], true, "{id}");
+            }
+            return;
+        }
+
+        let raiz = tempfile::tempdir().unwrap();
+        for bin in ["junie", "cortex"] {
+            let exe = raiz.path().join(executable_names(bin).next().unwrap());
+            std::fs::write(&exe, b"executavel ficticio").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        }
+        let saida = std::process::Command::new(std::env::current_exe().unwrap())
+            .env(FIXTURE, raiz.path())
+            .env(TESTE_ISOLADO, "1")
+            .env("PATH", raiz.path())
+            .env("MEXERICA_HOME", raiz.path())
+            .args(["--exact", "agent::backends::tests::junie_e_cortex_sao_detectados_no_path_sem_oferecer_instalacao"])
+            .output()
+            .unwrap();
+        assert!(saida.status.success(), "{}", String::from_utf8_lossy(&saida.stdout));
+        assert!(String::from_utf8_lossy(&saida.stdout).contains("1 passed"));
     }
 }

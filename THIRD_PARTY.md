@@ -357,6 +357,51 @@ nos arquivos. Licença: SIL Open Font License 1.1, com o texto completo ao lado 
 | Manrope | `manrope-latin-wght-normal.woff2` | https://github.com/sharanda/manrope | Copyright 2019 The Manrope Project Authors |
 | IBM Plex Sans | `ibm-plex-sans-latin-wght-normal.woff2` | https://github.com/IBM/plex | Copyright 2019 IBM Corp. |
 
+## Arte própria da Mexerica (restaurada em 19/11/2026)
+
+A cópia inicial trocou a arte própria da Mexerica por imagens neutras geradas por código. Por decisão do dono do projeto em 19/11/2026
+("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo."), os arquivos originais voltaram do repositório de origem
+(revisão `d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`): 1.037 deles com exatamente os mesmos bytes, 34 PNGs recomprimidos sem perda (ver "Credenciais de
+conteúdo" abaixo) e 4 textos descritivos com uma nota e os novos hashes. `brand/ARTE-HASHES.tsv` lista cada arquivo (grupo, regra de uso, SHA-256 e tamanho
+da origem, SHA-256 e tamanho do arquivo atual, e o identificador do blob Git de origem). Os 1.075 arquivos foram conferidos e não trazem metadados embutidos que identifiquem
+pessoa ou máquina (nenhum campo EXIF/XMP, nenhum texto de PNG ou de WebP); os PDF de logo têm só `Creator: Chromium`, `Producer: Skia/PDF` e a data de exportação (07/11/2026).
+
+**Credenciais de conteúdo nos próprios arquivos.** Os originais de 34 PNGs traziam credenciais C2PA embutidas (bloco `caBX`), assinadas por "OpenAI Media Service /
+OpenAI OpCo, LLC" e datadas de 07/11/2026. Elas registravam o agente de software "ChatGPT", versão "gpt-image", e a origem digital "mídia gerada por
+algoritmo treinado" (IPTC `trainedAlgorithmicMedia`). São os 20 fundos de chat (`brand/assets/fundos-chat/`), os 10 personagens por papel
+(`brand/assets/personagens/`) e as 4 fontes originais do ícone (`brand/assets/icon/00_fontes_originais/`). A coluna `c2pa_no_original` de
+`brand/ARTE-HASHES.tsv` marca cada um. Os demais arquivos não traziam essa marca, o que não prova como foram feitos. O dono do projeto não informou a ferramenta
+de geração; este registro só repete o que as credenciais afirmavam. Ele não conferiu os termos de uso da ferramenta sobre titularidade ou uso comercial das imagens
+geradas nem a cadeia de direitos sobre os insumos. Nada aqui é parecer jurídico.
+
+**Recompressão desses 34 PNGs (decisão do dono, 19/11/2026).** Para reduzir o peso do repositório, o dono decidiu em 19/11/2026 recomprimir esses 34 PNGs
+sem perda. A recompressão (oxipng, nível 4, sem redução de tipo de cor nem alteração de canal alfa) removeu o bloco `caBX` com as credenciais C2PA de cada
+arquivo; **os arquivos atuais não carregam mais essa marca de origem**, e esta seção a substitui por escrito. Os pixels decodificados são idênticos aos dos
+originais: conferido nos 34 por dois decodificadores independentes (PIL e ffmpeg, em RGBA de 64 bits), com o mesmo cabeçalho de imagem (largura, altura,
+profundidade e tipo de cor) e nenhum outro bloco removido. Os originais intactos, com as credenciais, continuam no repositório de origem, na revisão
+`d6a75dd0afb0bcddc917bcebcf7c8701085fc0f9`. `brand/ARTE-HASHES.tsv` traz, para cada um, o SHA-256 da origem e o do arquivo atual.
+
+| Grupo | Onde fica | Arquivos | Licença declarada na origem |
+| --- | --- | ---: | --- |
+| Mexeriquinhas (pelúcia 3D, imagens WebP e atlas) | `apps/desktop/src/renderer/lib/mexeriquinhas/assets/` | 595 | Apache-2.0 (README da biblioteca: "código, prompts e ilustrações originais para Apache 2.0") |
+| Ícones opcionais do app (Ajustes › Ícone do app) | `apps/desktop/resources/app-icons/` | 20 | Apache-2.0 para as 19 opções das rodadas 2 e 3, com o texto em `LICENSE` da pasta; `padrao.png` é o ícone oficial reduzido e não declara licença própria |
+| Logo, mascote, símbolo, ícone do app, favicons e ícone da barra de menus | `brand/assets/logo/`, `apps/desktop/resources/{icon*,brand,tray,AppIcon.icon}`, `apps/desktop/src/renderer/assets/brand/` | 136 | nenhuma declarada na origem: marca reservada (ver `TRADEMARK.md`) |
+| Variantes e fontes do ícone do app | `brand/assets/icon/` | 185 | nenhuma declarada na origem |
+| Fundos de chat e papéis de parede | `brand/assets/fundos-chat/`, `apps/desktop/src/renderer/assets/wallpapers/` | 128 | nenhuma declarada na origem |
+| Personagens por papel (CEO, Assistente, Financeiro etc.) | `brand/assets/personagens/` | 11 | nenhuma declarada na origem ("originais do dono, 07/11/2026") |
+
+**Regra de uso (decisão do dono, 19/11/2026).** Dois grupos seguem Apache-2.0, como a origem declara: as 595 Mexeriquinhas e as 19 opções de
+ícone das rodadas 2 e 3. Todos os outros grupos da tabela (logo, mascote, símbolo, ícone do app, favicons e bandeja; variantes e fontes do ícone;
+fundos de chat e papéis de parede; personagens; e o `padrao.png`, que é o ícone oficial reduzido) **não** são licenciados sob Apache-2.0:
+a Mexerica reserva os direitos que tiver sobre essas imagens e não concede licença de reuso fora dela (este texto não afirma quem é o titular de direito autoral de cada uma), e o uso permitido é dentro da Mexerica como distribuída, sem reuso em outros produtos. Esta cópia não
+escolhe uma licença onde a origem não declara. A lista de caminhos de cada regra, com a decisão do dono citada, está em
+[brand/LICENCA-DA-ARTE.md](brand/LICENCA-DA-ARTE.md). Nenhum advogado leu este texto e ele não é parecer jurídico.
+Dentro das pastas acima ficam também textos que descrevem os arquivos (`LEIA-ME`, tabelas de medidas e PDF de logo).
+
+**Continuam neutros nesta cópia:** os 43 ícones de agentes de terceiros (`apps/desktop/src/renderer/assets/agents/`), o logotipo da Apple no login,
+`assets/google.svg` e `assets/computer-linux.svg`. A liberação do dono cobre só a arte da Mexerica, não marcas de terceiros. As logos dos
+conectores seguem na seção seguinte.
+
 ## Marcas de serviços do catálogo de conectores (2026-11-17)
 
 Cada serviço do catálogo de conectores (Marketplace) aparece com a logo do próprio fornecedor, em vez do globo genérico.
@@ -863,7 +908,7 @@ A cópia íntegra permanece em `motor/vendor/pi-mono/LICENSE` e a origem exata e
 
 Os arquivos abaixo são copiados para dentro de cada instalador (pasta `resources/avisos/` do app) pela configuração
 `extraResources` de `apps/desktop/electron-builder.yml`: `LICENSE`, `NOTICE`, `THIRD_PARTY.md`, `TRADEMARK.md`,
-`MODIFICACOES.md`, `MODIFICACOES-ARQUIVOS.md`, os textos OFL das fontes, e os arquivos de `packaging/avisos/` descritos aqui.
+`MODIFICACOES.md`, `MODIFICACOES-ARQUIVOS.md`, `brand/LICENCA-DA-ARTE.md` (como `avisos/LICENCA-DA-ARTE.md`), os textos OFL das fontes, e os arquivos de `packaging/avisos/` descritos aqui.
 **Esta configuração não foi exercitada num empacotamento real** nesta etapa (o binário do Electron não é baixado no ambiente de
 revisão); quem gerar o primeiro instalador deve conferir que `resources/avisos/` aparece no pacote de cada sistema.
 
