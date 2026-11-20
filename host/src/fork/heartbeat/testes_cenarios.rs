@@ -43,6 +43,18 @@ impl Cena {
         }
     }
 
+    /// Põe a próxima ocorrência no relógio simulado (religar e despausar recalculam a agenda pelo relógio real).
+    fn rearma(&self) {
+        let proxima = self.agora + CINCO_MIN;
+        self.hub
+            .routines
+            .change(&self.hub.store, |s| {
+                s.routines.iter_mut().find(|r| r.id == self.id).unwrap().next_runs = vec![Some(proxima)];
+                Ok(())
+            })
+            .unwrap();
+    }
+
     fn mensagens(&self) -> Vec<String> {
         avisos(&self.hub)
     }
@@ -138,33 +150,34 @@ fn perda_de_acesso_alerta_na_hora_uma_vez() {
 fn pausa_apagar_e_concessao_retirada_param_de_consultar() {
     let mut cena = Cena::nova();
     cena.anda(2);
-    let lidas = cena.leituras();
-    let pausa = |cena: &Cena, ligada: bool| {
-        cena.hub.routines.set_enabled(&cena.hub.store, "bot", &cena.id, ligada).unwrap();
-    };
-    pausa(&cena, false);
+    let mut lidas = cena.leituras();
+    assert!(lidas > 0);
+
+    cena.hub.routines.set_enabled(&cena.hub.store, "bot", &cena.id, false).unwrap();
     cena.anda(5);
     assert_eq!(cena.leituras(), lidas, "rotina pausada");
-    pausa(&cena, true);
-    cena.hub
-        .routines
-        .change(&cena.hub.store, |s| {
-            s.paused = true;
-            Ok(())
-        })
-        .unwrap();
+
+    // Religar recalcula a agenda pelo relógio real; o cenário a rearma no relógio simulado e confere que voltou a ler.
+    cena.hub.routines.set_enabled(&cena.hub.store, "bot", &cena.id, true).unwrap();
+    cena.rearma();
+    cena.anda(2);
+    assert!(cena.leituras() > lidas, "religada, a rotina volta a consultar");
+    lidas = cena.leituras();
+
+    cena.hub.routines.set_paused(&cena.hub.store, true).unwrap();
     cena.anda(5);
     assert_eq!(cena.leituras(), lidas, "pausa geral das rotinas");
-    cena.hub
-        .routines
-        .change(&cena.hub.store, |s| {
-            s.paused = false;
-            Ok(())
-        })
-        .unwrap();
+
+    cena.hub.routines.set_paused(&cena.hub.store, false).unwrap();
+    cena.rearma();
+    cena.anda(2);
+    assert!(cena.leituras() > lidas, "sem a pausa geral, volta a consultar");
+    lidas = cena.leituras();
+
     cena.hub.routines.retirar_fonte("bot", "pedidos.ficticio");
     cena.anda(5);
     assert_eq!(cena.leituras(), lidas, "concessão da fonte retirada");
+
     cena.hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", cena.fonte.clone());
     cena.hub.routines.remove(&cena.hub.store, "bot", &cena.id).unwrap();
     cena.anda(5);
