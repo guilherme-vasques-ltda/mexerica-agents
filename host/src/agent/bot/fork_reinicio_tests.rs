@@ -1,4 +1,4 @@
-//! Resposta cortada (GUI-203): desligar grava o último trecho, a varredura sem ator marca o corte e a ferramenta
+//! Resposta cortada: desligar grava o último trecho, a varredura sem ator marca o corte e a ferramenta
 //! aberta, erro do motor não promove o parcial a resposta final e gravação que falha é repetida.
 #![allow(clippy::unwrap_used)]
 use super::*;

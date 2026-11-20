@@ -1,4 +1,4 @@
-//! Resposta cortada (GUI-203): sem ator vivo, no início do Hub ou no fim do desligamento, o turno que ficou no meio é
+//! Resposta cortada: sem ator vivo, no início do Hub ou no fim do desligamento, o turno que ficou no meio é
 //! fechado como interrompido. Nada é reenviado ao motor.
 use super::Store;
 use super::entries::{ENTRY_COLS, row_entry};
