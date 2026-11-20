@@ -152,3 +152,11 @@ fn chave_colada_fora_do_formato_e_recusada_sem_repetir_a_chave() {
     }
     assert!(chaves::chave(None).is_err());
 }
+
+#[test]
+fn pedido_vindo_de_um_space_aberto_e_aceito_e_campo_estranho_nao() {
+    let pedido: chaves::Pedido =
+        serde_json::from_value(serde_json::json!({"fornecedor": "openai", "spaceId": "space-aberto"})).unwrap();
+    assert_eq!(pedido.fornecedor.as_deref(), Some("openai"));
+    assert!(serde_json::from_value::<chaves::Pedido>(serde_json::json!({"fornecedor": "openai", "outro": 1})).is_err());
+}

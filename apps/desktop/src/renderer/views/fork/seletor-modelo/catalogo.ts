@@ -41,6 +41,12 @@ export function carregarModelos(store: BotStore, backend: string) {
     .finally(() => { lendo.delete(key); avisar() })
 }
 
+/** A lista de um motor mudou no Hub (chave do Motor Mexerica salva, trocada ou removida): a próxima abertura relê. */
+export function esquecerModelos(computerId: string, backend: string) {
+  cache.delete(`${computerId}/${backend}`)
+  avisar()
+}
+
 /** Uma conexão nova (ou o chip montando de novo): a leitura que falhou neste computador e motor é tentada de novo. */
 export function esquecerFalha(store: BotStore, backend: string) {
   const key = `${store.computer.id}/${backend}`

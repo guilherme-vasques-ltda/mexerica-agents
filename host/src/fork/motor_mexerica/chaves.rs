@@ -48,11 +48,15 @@ fn cache_slot(fornecedor: &str) -> String {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Pedido {
+pub(super) struct Pedido {
     #[serde(default)]
-    fornecedor: Option<String>,
+    pub(super) fornecedor: Option<String>,
     #[serde(default)]
-    chave: Option<String>,
+    pub(super) chave: Option<String>,
+    /// O app manda o Space aberto em todo pedido (já conferido pela guarda de Spaces). A chave é do computador e do
+    /// dono, então o Space não muda nada aqui.
+    #[serde(default, rename = "spaceId")]
+    _space_id: Option<Value>,
 }
 
 fn fornecedor(pedido: &Pedido) -> Result<&'static str> {
