@@ -636,8 +636,23 @@ fn move_no_replace(source: &Path, dest: &Path) -> std::io::Result<()> {
     unsafe extern "system" {
         fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
     }
-    let wide = |path: &Path| path.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    let (source, dest) = (wide(source), wide(dest));
+    // Forma estendida (`\\?\`): sem ela o `MoveFileExW` falha acima de 260 unidades, mesmo quando o
+    // staging (que passa pelo `std`) deu certo.
+    let wide = |path: &Path| -> std::io::Result<Vec<u16>> {
+        let units: Vec<u16> = std::path::absolute(path)?.as_os_str().encode_wide().collect();
+        let (verbatim, unc): (Vec<u16>, Vec<u16>) =
+            (r"\\?\".encode_utf16().collect(), r"\\?\UNC\".encode_utf16().collect());
+        let mut full = if units.starts_with(&verbatim) {
+            units
+        } else if let Some(rest) = units.strip_prefix(&[0x5c_u16, 0x5c_u16][..]) {
+            [unc, rest.to_vec()].concat()
+        } else {
+            [verbatim, units].concat()
+        };
+        full.push(0);
+        Ok(full)
+    };
+    let (source, dest) = (wide(source)?, wide(dest)?);
     if source[..source.len() - 1].contains(&0) || dest[..dest.len() - 1].contains(&0) {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "caminho com NUL"));
     }
