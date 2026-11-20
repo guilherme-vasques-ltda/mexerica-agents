@@ -95,32 +95,33 @@ impl Actor {
 
     /// Com que identidade a conversa guardada do Motor Mexerica é aberta e reaberta: Space, dono da sessão, conta
     /// com a revisão e perfil de login. Outra identidade nunca reabre a conversa (o adaptador a une ao bot).
-    fn conversation_identity(&self) -> String {
+    fn conversation_identity(&self) -> Result<String> {
+        // Falha ao ler o perfil de login nega a sessão: uma identidade vazia poderia reabrir a conversa errada.
         let login_profile = if self.account_revision.is_none() {
             crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)
-                .unwrap_or_default()
+                .context("não foi possível ler o perfil de login da sessão")?
         } else {
             String::new()
         };
-        format!(
+        Ok(format!(
             "{}|{}|{}|{login_profile}",
             self.cfg.space_id,
             self.cfg.session_owner(),
             account_stamp(&self.cfg, self.account_revision)
-        )
+        ))
     }
 
     /// Session workspace and MCP servers. Memory is readable without writable additionalDirectories.
-    fn session_params(&self, servers: &Value, session: Option<&str>) -> Value {
+    fn session_params(&self, servers: &Value, session: Option<&str>) -> Result<Value> {
         let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
         if self.cfg.backend == crate::fork::motor_mexerica::ENGINE_ID {
-            params["conversationIdentity"] = self.conversation_identity().into();
+            params["conversationIdentity"] = self.conversation_identity()?.into();
         }
         crate::fork::native_scheduling::apply_session(&mut params, &self.cfg.backend);
         if let Some(sid) = session {
             params["sessionId"] = sid.into();
         }
-        params
+        Ok(params)
     }
 
     /// ACP connectors, team collaboration, and optional team management and computer control.
@@ -528,7 +529,7 @@ impl Actor {
             let (servers, curated) = self.mcp_servers(slot, &binding)?;
             #[cfg(test)]
             crate::fork::sessoes::gateway_actor_tests::prepared(&self.hub, &servers).await?;
-            let mut params = self.session_params(&servers, Some(&sid));
+            let mut params = self.session_params(&servers, Some(&sid))?;
             if instructions == Instructions::ClaudeMeta {
                 params["_meta"] = claude_meta(&crate::agent::harness::compile(), &self.cfg);
             }
@@ -615,7 +616,7 @@ impl Actor {
         let (servers, curated) = self.mcp_servers(slot, &binding)?;
         #[cfg(test)]
         crate::fork::sessoes::gateway_actor_tests::prepared(&self.hub, &servers).await?;
-        let mut params = self.session_params(&servers, None);
+        let mut params = self.session_params(&servers, None)?;
         match instructions {
             Instructions::ClaudeMeta => params["_meta"] = claude_meta(&crate::agent::harness::compile(), &self.cfg),
             Instructions::SystemPrompt => params["systemPrompt"] = system_prompt(&rendered.system),

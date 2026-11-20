@@ -655,6 +655,13 @@ async fn cancelar_durante_a_retomada_da_conversa_para_o_turno() {
         refused.unwrap_err().to_string().contains("turno em curso"),
         "um segundo prompt na mesma sessão é recusado antes de tocar na conversa"
     );
+    let model = acp.send("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let refused =
+        tokio::time::timeout(Duration::from_secs(10), model.response()).await.expect("o set_model ficou preso");
+    assert!(
+        refused.unwrap_err().to_string().contains("turno em curso"),
+        "trocar o modelo no meio de um turno também é recusado"
+    );
     acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
     let result = tokio::time::timeout(Duration::from_secs(10), answer.response())
         .await

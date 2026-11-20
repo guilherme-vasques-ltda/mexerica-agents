@@ -227,8 +227,9 @@ pub(super) fn sanitize(message: &Value, known: &[String]) -> Option<Value> {
         if budget == 0 {
             return None;
         }
-        // Um byte bruto vira até seis no JSON (controles): cortar o excesso dividido por seis nunca passa do alvo.
-        budget = budget.saturating_sub((bytes - MAX_MESSAGE_BYTES).div_ceil(6));
+        // O orçamento cai na proporção do que passou do teto (poucas voltas, cada uma refaz a redação), e sempre
+        // pelo menos um byte.
+        budget = (budget * MAX_MESSAGE_BYTES / bytes).min(budget - 1);
     }
 }
 
@@ -317,6 +318,10 @@ impl TurnLog {
             self.dropped = true;
             return;
         }
+        if role(&message) != "toolResult" {
+            // Uma mensagem nova fecha a volta anterior: a chamada que ficou sem resultado sai agora, não enterrada.
+            self.drop_open_calls();
+        }
         self.bytes += size(&message);
         self.messages.push(message);
         self.dropped |= fit(&mut self.messages, &mut self.bytes);
@@ -346,6 +351,7 @@ impl TurnLog {
         let answered = self.messages.len() - start - 1;
         if role(&self.messages[start]) == "assistant" && calls > answered {
             self.messages.truncate(start);
+            self.bytes = self.messages.iter().map(size).sum();
             self.dropped = true;
         }
     }
@@ -413,6 +419,14 @@ impl History {
     pub(super) fn touch(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.active = Instant::now();
+        }
+    }
+
+    /// Provas: finge que a ultima atividade foi ha mais tempo, sem esperar.
+    #[cfg(test)]
+    pub(super) fn backdate(&self, by: Duration) {
+        if let Ok(mut state) = self.state.lock() {
+            state.active = Instant::now().checked_sub(by).unwrap_or(state.active);
         }
     }
 
