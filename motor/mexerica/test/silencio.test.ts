@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeContext, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses.ts";
-import { comPrazoDeSilencio, SilencioDoFornecedor } from "../src/silencio.ts";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { comPrazoDeSilencio, semRedirecionar, SilencioDoFornecedor } from "../src/silencio.ts";
 
 const MODEL: Model<"openai-responses"> = {
 	id: "gpt-5", name: "GPT-5", api: "openai-responses", provider: "openai", baseUrl: "https://api.example.invalid/v1",
@@ -84,5 +86,35 @@ test("pedido já cancelado não deixa rejeição solta", async () => {
 		assert.deepEqual(soltas, []);
 	} finally {
 		process.off("unhandledRejection", anotar);
+	}
+});
+
+const ouvir = (servidor: Server) =>
+	new Promise<number>((resolve) => servidor.listen(0, "127.0.0.1", () => resolve((servidor.address() as AddressInfo).port)));
+
+test("redirecionamento nunca leva a chave a outro endereço", async () => {
+	const recebidos: (string | undefined)[] = [];
+	const outro = createServer((pedido, resposta) => {
+		recebidos.push(pedido.headers["x-api-key"] as string | undefined);
+		resposta.end("{}");
+	});
+	const portaOutro = await ouvir(outro);
+	const fornecedor = createServer((_pedido, resposta) => {
+		resposta.writeHead(307, { location: `http://127.0.0.1:${portaOutro}/roubar` });
+		resposta.end();
+	});
+	const porta = await ouvir(fornecedor);
+	try {
+		const url = `http://127.0.0.1:${porta}/v1/messages`;
+		const init = { method: "POST", headers: { "x-api-key": "chave-ficticia-de-teste" }, body: "{}" };
+		// Sem a trava, o fetch segue o 307 e manda o cabeçalho da chave ao outro endereço.
+		await globalThis.fetch(url, init);
+		assert.deepEqual(recebidos, ["chave-ficticia-de-teste"]);
+		recebidos.length = 0;
+		await assert.rejects(comPrazoDeSilencio(semRedirecionar, 2000)(url, init));
+		assert.deepEqual(recebidos, [], "o pedido com a chave não pode chegar ao outro endereço");
+	} finally {
+		fornecedor.close();
+		outro.close();
 	}
 });

@@ -13,10 +13,10 @@ const SECRET = "chave-de-mentira-que-nao-pode-vazar-42";
 
 type Chamada = { url: string; method: string; headers: Record<string, string> };
 
-async function comMotor<T>(cenario: string, corpo: (proc: ReturnType<typeof startEngine>, chamadas: () => Chamada[]) => Promise<T>): Promise<T> {
+async function comMotor<T>(cenario: string, corpo: (proc: ReturnType<typeof startEngine>, chamadas: () => Chamada[]) => Promise<T>, segredo = SECRET): Promise<T> {
 	const dir = mkdtempSync(join(tmpdir(), "motor-fornecedores-"));
 	const log = join(dir, "fetch.jsonl");
-	const proc = startEngine({ MEXERICA_TEST_CENARIO: cenario, MEXERICA_TESTE_PRAZO_MS: "300" }, { serveKey: SECRET, fetchLog: log, fetchStub: STUB });
+	const proc = startEngine({ MEXERICA_TEST_CENARIO: cenario, MEXERICA_TESTE_PRAZO_MS: "300" }, { serveKey: segredo, fetchLog: log, fetchStub: STUB });
 	const chamadas = () =>
 		(existsSync(log) ? readFileSync(log, "utf8") : "")
 			.split("\n")
@@ -26,8 +26,10 @@ async function comMotor<T>(cenario: string, corpo: (proc: ReturnType<typeof star
 		return await corpo(proc, chamadas);
 	} finally {
 		await encerrar(proc);
-		assert.ok(!JSON.stringify(proc.lines).includes(SECRET), "a chave vazou na saída do motor");
-		assert.ok(!proc.stderr().includes(SECRET), "a chave vazou no stderr do motor");
+		for (const forma of [segredo, encodeURIComponent(segredo)]) {
+			assert.ok(!JSON.stringify(proc.lines).includes(forma), "a chave vazou na saída do motor");
+			assert.ok(!proc.stderr().includes(forma), "a chave vazou no stderr do motor");
+		}
 		rmSync(dir, { recursive: true, force: true });
 	}
 }
@@ -61,7 +63,7 @@ for (const [provider, esperado] of Object.entries(FORNECEDORES)) {
 			assert.ok(chamada!.headers[esperado.auth]?.includes(SECRET), "a chave do cofre não foi no cabeçalho certo");
 		}));
 
-	for (const [cenario, erro] of [["invalida", "chave_invalida"], ["sem_permissao", "sem_permissao"], ["erro", "fornecedor_falhou"], ["lenta", "sem_resposta"], ["quebrada", "resposta_invalida"]] as const) {
+	for (const [cenario, erro] of [["invalida", "chave_invalida"], ["sem_permissao", "sem_permissao"], ["erro", "fornecedor_falhou"], ["lenta", "sem_resposta"], ["quebrada", "resposta_invalida"], ["enorme", "resposta_invalida"]] as const) {
 		test(`${provider}: ${cenario} vira «${erro}» sem expor a chave`, () =>
 			comMotor(cenario, async (proc) => {
 				const acesso = await testar(proc, provider);
@@ -87,7 +89,7 @@ for (const [provider, esperado] of Object.entries(FORNECEDORES)) {
 
 test("modelo com id fora do formato é recusado antes de qualquer rede", () =>
 	comMotor("ok", async (proc, chamadas) => {
-		for (const [provider, id] of [["openai", "../gpt"], ["anthropic", "dono/modelo"], ["google", ""], ["openrouter", "a//b"]]) {
+		for (const [provider, id] of [["openai", "../gpt"], ["anthropic", "dono/modelo"], ["google", ""], ["google", "gemini:outro"], ["openrouter", "a//b"]]) {
 			proc.send({ id: `m-${provider}`, type: "set_model", provider, modelId: id });
 			const resposta = await proc.waitFor((v) => v.id === `m-${provider}`);
 			assert.equal(resposta.success, false, `${provider}/${id} devia ser recusado`);
@@ -103,3 +105,15 @@ test("fornecedor desconhecido no «Testar acesso» é recusado", () =>
 		assert.equal(chamadas().length, 0);
 	}));
 
+
+test("chave repetida pelo fornecedor em forma de URL também é mascarada", () =>
+	comMotor(
+		"eco_codificado",
+		async (proc) => {
+			proc.send({ id: "m", type: "set_model", provider: "meta", modelId: "muse-teste-1.0" });
+			await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+			proc.send({ id: "p", type: "prompt", message: "oi" });
+			await proc.waitFor(turnoTerminou);
+		},
+		"LLM|chave-de-mentira-com-barra-77",
+	));

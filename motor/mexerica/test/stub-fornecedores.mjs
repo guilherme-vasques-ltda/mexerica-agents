@@ -39,8 +39,10 @@ globalThis.fetch = async (input, init) => {
 	if (cenario === "invalida") return eco(url.hostname === "generativelanguage.googleapis.com" ? 400 : 401, "chave recusada");
 	if (cenario === "sem_permissao") return eco(403, "sem permissão para este recurso");
 	if (cenario === "erro") return eco(503, "fornecedor fora do ar");
+	if (cenario === "eco_codificado") return json({ error: { message: `chave recusada: ${encodeURIComponent(credencial)}` } }, 400);
 	if (method === "GET" && url.pathname.includes("/models")) {
 		if (cenario === "quebrada") return new Response("<html>não é json</html>", { status: 200 });
+		if (cenario === "enorme") return new Response(`{"data":[${'{"id":"x"},'.repeat(1_000_000)}{"id":"y"}]}`, { status: 200 });
 		const lista = LISTAS[url.hostname];
 		return lista ? json(lista()) : json({ error: { message: "rota desconhecida" } }, 404);
 	}

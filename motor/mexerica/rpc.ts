@@ -18,7 +18,7 @@ import { parseHistory } from "./src/history.ts";
 import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
 import { fauxAcesso, registerProviders } from "./src/providers.ts";
-import { comPrazoDeSilencio } from "./src/silencio.ts";
+import { comPrazoDeSilencio, semRedirecionar } from "./src/silencio.ts";
 import { ehFornecedor, modeloDoFornecedor, testarAcesso } from "./src/fornecedores.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
 
@@ -43,17 +43,20 @@ const fail = (id: string | undefined, command: string, error: string) =>
 	write({ id, type: "response", command, success: false, error });
 
 const channel = VaultChannel.open(); // falha fechado: sem fd 3 não há cofre
-const credentials = new HubCredentialStore(channel, (key) => segredos.add(key));
+// A chave e as formas em que um erro do fornecedor pode repeti-la (escapada em JSON ou codificada em URL).
+const credentials = new HubCredentialStore(channel, (key) => {
+	for (const forma of [key, JSON.stringify(key).slice(1, -1), encodeURIComponent(key)]) segredos.add(forma);
+});
 const models = createModels({ credentials, authContext: emptyAuthContext() });
 const fauxHandle = registerProviders(models);
 
 const hubTools = new HubTools(write);
 // Um único fetch para todos os pedidos (o cliente da Anthropic é reaproveitado enquanto o fetch é o mesmo).
-const fetchDoFornecedor = comPrazoDeSilencio((input, init) => globalThis.fetch(input, init));
+const fetchDoFornecedor = comPrazoDeSilencio(semRedirecionar);
 /** «Testar acesso» é curto: 15 s sem resposta já é «sem resposta», e o teste inteiro não passa de 30 s. Os testes do
  * motor encurtam o prazo por MEXERICA_TESTE_PRAZO_MS; o Hub abre o motor com o ambiente limpo, sem ela. */
 const prazoDeTeste = Number(process.env["MEXERICA_TESTE_PRAZO_MS"]) || 15_000;
-const fetchDoTeste = comPrazoDeSilencio((input, init) => globalThis.fetch(input, init), prazoDeTeste);
+const fetchDoTeste = comPrazoDeSilencio(semRedirecionar, prazoDeTeste);
 const PRAZO_DO_TESTE_MS = prazoDeTeste * 2;
 const agent = new Agent({
 	streamFn: (model, context, options) => models.streamSimple(model, context, { ...options, fetch: fetchDoFornecedor }),

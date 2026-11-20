@@ -139,7 +139,10 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             let backend = str_arg(&b, "backend")?;
             // O motor próprio não tem programa para sondar: os modelos são os do último «Testar acesso» das chaves.
             if backend == crate::fork::motor_mexerica::ENGINE_ID {
-                crate::fork::motor_mexerica::catalogo(&hub.store)?
+                crate::fork::motor_mexerica::catalogo(
+                    &hub.store,
+                    b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
+                )?
             } else {
                 let env = crate::fork::terminal_login::runtime_env(
                     &hub.store,

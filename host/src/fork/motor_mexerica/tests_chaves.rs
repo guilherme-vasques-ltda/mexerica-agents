@@ -74,7 +74,7 @@ fn catalogo_e_lista_mostram_so_fornecedor_com_chave() {
     let ids: Vec<_> = vazia["fornecedores"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["anthropic", "openai", "google", "xai", "openrouter", "meta"]);
     assert!(vazia["fornecedores"].as_array().unwrap().iter().all(|f| f["configurada"] == false));
-    assert_eq!(chaves::catalogo(&store).unwrap()["models"], serde_json::json!([]));
+    assert_eq!(chaves::catalogo(&store, crate::fork::spaces::PERSONAL).unwrap()["models"], serde_json::json!([]));
 
     crate::market::vault::write(&store, &credential_slot("openai"), CHAVE).unwrap();
     store
@@ -87,9 +87,14 @@ fn catalogo_e_lista_mostram_so_fornecedor_com_chave() {
     store
         .kv_set("motor-mexerica.modelos/xai", r#"{"modelos":[{"id":"xai/grok-teste","name":"Grok"}],"conferidoEm":1}"#)
         .unwrap();
-    let catalogo = chaves::catalogo(&store).unwrap();
+    let catalogo = chaves::catalogo(&store, crate::fork::spaces::PERSONAL).unwrap();
     let modelos: Vec<_> = catalogo["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
     assert_eq!(modelos, ["openai/gpt-teste"]);
+    assert_eq!(
+        chaves::catalogo(&store, "space-compartilhado").unwrap()["models"],
+        serde_json::json!([]),
+        "outro Space não vê"
+    );
     let lista = chaves::listar(&store).unwrap();
     assert!(!lista.to_string().contains(CHAVE));
     let openai = lista["fornecedores"].as_array().unwrap().iter().find(|f| f["id"] == "openai").unwrap();
@@ -132,7 +137,15 @@ fn chaves_do_motor_sao_so_deste_computador() {
 #[test]
 fn chave_colada_fora_do_formato_e_recusada_sem_repetir_a_chave() {
     assert_eq!(chaves::chave(Some("  chave-ficticia-boa-789 ")).unwrap().as_str(), "chave-ficticia-boa-789");
-    for ruim in ["curta", "chave com espaço no meio", "chave-com\ncontrole", &"x".repeat(5000)] {
+    for ruim in [
+        "curta",
+        "chave com espaço no meio",
+        "chave-com\ncontrole",
+        "chave-com-\"aspas",
+        "chave-com-\\barra",
+        "chave-acentuação",
+        &"x".repeat(5000),
+    ] {
         let erro = chaves::chave(Some(ruim)).unwrap_err().to_string();
         assert!(erro.starts_with("chave_formato"), "{erro}");
         assert!(!erro.contains(ruim), "o erro repetiu a chave");

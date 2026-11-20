@@ -34,6 +34,10 @@ const ERROS: [&str; 7] = [
     "sem_chave",
 ];
 
+/// Uma operação de chave por vez (salvar, remover, testar a chave guardada): um teste lento não pode gravar por cima de
+/// uma remoção ou de uma troca feitas enquanto ele esperava o fornecedor.
+static OPERACAO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// O motor tem 30 s para o teste inteiro; aqui sobra folga para abrir e fechar o processo.
 const PRAZO_DO_TESTE: Duration = Duration::from_secs(45);
 const MAX_CHAVE: usize = 4096;
@@ -63,9 +67,10 @@ fn fornecedor(pedido: &Pedido) -> Result<&'static str> {
 /// A chave colada: sem espaços nas pontas, sem espaço ou controle no meio, de tamanho plausível. O erro nunca a repete.
 pub(super) fn chave(texto: Option<&str>) -> Result<Zeroizing<String>> {
     let chave = texto.map(str::trim).unwrap_or_default();
+    // Só ASCII visível, sem aspas nem barra invertida: a chave aparece igual em JSON e o saneamento do motor a acha.
     ensure!(
         (super::link::MIN_SECRET_LEN..=MAX_CHAVE).contains(&chave.len())
-            && !chave.chars().any(|c| c.is_whitespace() || c.is_control()),
+            && chave.chars().all(|c| c.is_ascii_graphic() && c != '"' && c != '\\'),
         "chave_formato: a chave colada não parece uma chave de API."
     );
     Ok(Zeroizing::new(chave.to_owned()))
@@ -84,12 +89,12 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     crate::market::vault::unlock(hub.clone()).await?;
     match method {
         "motorChaveTestar" => {
-            let candidata = pedido.chave.as_deref().map(|texto| chave(Some(texto))).transpose()?;
-            let guardada = candidata.is_none();
-            let acesso = testar(store_source(hub, candidata), fornecedor, &[]).await?;
-            if guardada {
-                guardar_modelos(&hub.store, fornecedor, &acesso)?;
+            if let Some(texto) = pedido.chave.as_deref() {
+                return testar(store_source(hub, Some(chave(Some(texto))?)), fornecedor, &[]).await;
             }
+            let _operacao = OPERACAO.lock().await;
+            let acesso = testar(store_source(hub, None), fornecedor, &[]).await?;
+            guardar_modelos(&hub.store, fornecedor, &acesso)?;
             Ok(acesso)
         }
         "motorChaveSalvar" => {
@@ -97,6 +102,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
             salvar(hub, fornecedor, candidata, &[]).await
         }
         "motorChaveRemover" => {
+            let _operacao = OPERACAO.lock().await;
             let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
             remover(&hub.store, fornecedor)?;
             Ok(json!({"ok": true}))
@@ -120,6 +126,7 @@ pub(crate) async fn salvar(
     candidata: Zeroizing<String>,
     extra_env: &[(&str, &str)],
 ) -> Result<Value> {
+    let _operacao = OPERACAO.lock().await;
     let valor = candidata.clone();
     let acesso = testar(Arc::new(move |_slot: &str| Ok(Some(valor.to_string()))), fornecedor, extra_env).await?;
     if acesso["ok"] != true {
@@ -201,9 +208,11 @@ pub(crate) fn listar(store: &Store) -> Result<Value> {
 
 /// Catálogo da escolha de modelo do bot (`agentModels` do backend `mexerica`): os modelos do último teste de cada
 /// fornecedor com chave, no formato `fornecedor/modelo`.
-pub(crate) fn catalogo(store: &Store) -> Result<Value> {
+pub(crate) fn catalogo(store: &Store, space: &str) -> Result<Value> {
     let mut modelos = Vec::new();
-    for (id, _) in FORNECEDORES {
+    // A chave é do dono e só serve ao Space pessoal.
+    let pessoal = space == crate::fork::spaces::PERSONAL;
+    for (id, _) in FORNECEDORES.iter().copied().filter(|_| pessoal) {
         if store.kv_read(&credential_slot(id))?.is_none() {
             continue;
         }
@@ -215,12 +224,14 @@ pub(crate) fn catalogo(store: &Store) -> Result<Value> {
     Ok(json!({"models": modelos, "currentModelId": Value::Null, "fastMode": false}))
 }
 
-/// O cofre do motor para um bot: a chave do dono só sai para bot do Space pessoal, conferido a cada leitura (o bot
-/// pode ter mudado de Space ou sido apagado desde que a conexão abriu).
-pub(crate) fn owner_vault(hub: Arc<Hub>, bot: &str) -> VaultSource {
-    let bot = bot.to_owned();
+/// O cofre do motor para uma execução do bot: a chave do dono só sai se esta execução é do Space pessoal, sem contexto
+/// de outro Space ou conversa (o contexto existe só na configuração em memória, nunca no banco), e se o bot gravado
+/// continua pessoal e não apagado, conferido a cada leitura.
+pub(crate) fn owner_vault(hub: Arc<Hub>, cfg: &crate::store::BotConfig) -> VaultSource {
+    let bot = cfg.id.clone();
+    let execucao_pessoal = cfg.context.is_none() && cfg.space_id == crate::fork::spaces::PERSONAL;
     Arc::new(move |slot: &str| {
-        if !bot_pessoal(&hub.store, &bot)? {
+        if !execucao_pessoal || !bot_pessoal(&hub.store, &bot)? {
             return Ok(None);
         }
         crate::market::vault::read(&hub.store, slot)

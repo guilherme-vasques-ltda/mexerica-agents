@@ -132,7 +132,13 @@ export const ehFornecedor = (id: string): id is FornecedorId => Object.hasOwn(FO
 
 /** Id de modelo aceitável: só o OpenRouter usa barra (`dono/modelo`). */
 export function modeloValido(fornecedor: FornecedorId, id: string): boolean {
-	const permitido = fornecedor === "openrouter" ? /^[A-Za-z0-9][A-Za-z0-9._:~\/-]{0,199}$/ : /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+	// O Google põe o id no caminho (`models/<id>:streamGenerateContent`): ali, nem `:`.
+	const permitido =
+		fornecedor === "openrouter"
+			? /^[A-Za-z0-9][A-Za-z0-9._:~\/-]{0,199}$/
+			: fornecedor === "google"
+				? /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/
+				: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 	return permitido.test(id) && !id.includes("..") && !id.includes("//");
 }
 
@@ -176,6 +182,32 @@ export type Acesso = { ok: true; modelos: ModeloListado[] } | { ok: false; erro:
 
 const MAX_PAGINAS = 10;
 const MAX_MODELOS = 2000;
+/** Teto de uma página da lista de modelos; acima disso a resposta é recusada sem ser lida inteira. */
+const MAX_BYTES_PAGINA = 8 * 1024 * 1024;
+const MAX_MARCADOR = 1024;
+
+/** Lê o corpo como JSON sem passar de `limite` bytes. */
+async function jsonLimitado(resposta: Response, limite: number): Promise<unknown> {
+	const leitor = resposta.body?.getReader();
+	if (!leitor) throw new RespostaInvalida();
+	const partes: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await leitor.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > limite) {
+			await leitor.cancel().catch(() => {});
+			throw new RespostaInvalida();
+		}
+		partes.push(value);
+	}
+	try {
+		return JSON.parse(Buffer.concat(partes).toString("utf8"));
+	} catch {
+		throw new RespostaInvalida();
+	}
+}
 
 /** «Testar acesso»: lista os modelos que a chave enxerga. Só GET de listagem; nenhuma conversa, nenhuma cobrança. */
 export async function testarAcesso(fornecedor: FornecedorId, chave: string, fetch: typeof globalThis.fetch, signal: AbortSignal): Promise<Acesso> {
@@ -190,8 +222,9 @@ export async function testarAcesso(fornecedor: FornecedorId, chave: string, fetc
 				await resposta.body?.cancel().catch(() => {});
 				return { ok: false, erro: erroDoStatus(fornecedor, resposta.status), status: resposta.status };
 			}
-			const lido = f.ler(await resposta.json().catch(() => Promise.reject(new RespostaInvalida())));
+			const lido = f.ler(await jsonLimitado(resposta, MAX_BYTES_PAGINA));
 			for (const modelo of lido.modelos) if (!modelos.some((m) => m.id === modelo.id) && modelos.length < MAX_MODELOS) modelos.push(modelo);
+			if (lido.proxima && lido.proxima.length > MAX_MARCADOR) throw new RespostaInvalida();
 			pagina = lido.proxima;
 			if (!pagina) break;
 		}

@@ -80,15 +80,19 @@ pub(crate) async fn chaves_call(
 }
 
 /// Modelos da escolha do bot no backend do motor (veja `chaves::catalogo`).
-pub(crate) fn catalogo(store: &Store) -> Result<Value> {
+pub(crate) fn catalogo(store: &Store, space: &str) -> Result<Value> {
     #[cfg(not(unix))]
     {
-        let _ = store;
+        let _ = (store, space);
         Ok(json!({"models": [], "currentModelId": null, "fastMode": false}))
     }
     #[cfg(unix)]
     {
-        chaves::catalogo(store)
+        // Com o motor desligado não há modelo do motor para escolher.
+        if !enabled() {
+            return Ok(json!({"models": [], "currentModelId": null, "fastMode": false}));
+        }
+        chaves::catalogo(store, space)
     }
 }
 
