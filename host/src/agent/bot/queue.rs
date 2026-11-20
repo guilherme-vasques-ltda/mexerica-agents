@@ -256,7 +256,6 @@ impl Actor {
                     self.retry_waiting(done_tx).await;
                 }
             }
-            #[cfg(test)]
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id, reply, origem } => {
                 let _ = reply.send(self.answer_permission_from(&entry_id, option_id, origem.as_ref()).await);
@@ -361,7 +360,6 @@ impl Actor {
         true
     }
 
-    #[cfg(test)]
     pub(super) async fn stop(&mut self) {
         // Congela o alcance do Stop antes de aguardar o encerramento do turno.
         self.cancel_queued = self

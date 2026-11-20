@@ -39,6 +39,7 @@ struct DiscoveryCache {
 pub(crate) enum Backend {
     Claude,
     Codex,
+    Grok,
 }
 
 impl Backend {
@@ -46,6 +47,7 @@ impl Backend {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Grok => "grok",
         }
     }
 
@@ -53,6 +55,25 @@ impl Backend {
         match self {
             Self::Claude => "Anthropic",
             Self::Codex => "OpenAI",
+            Self::Grok => "xAI",
+        }
+    }
+
+    /// Variável que aponta o programa oficial para a pasta de perfil da conta.
+    pub(crate) fn profile_variable(self) -> &'static str {
+        match self {
+            Self::Claude => "CLAUDE_CONFIG_DIR",
+            Self::Codex => "CODEX_HOME",
+            Self::Grok => "GROK_HOME",
+        }
+    }
+
+    /// Nome da pasta de perfil dentro da home própria da conta.
+    pub(crate) fn profile_directory(self) -> &'static str {
+        match self {
+            Self::Claude => ".claude",
+            Self::Codex => ".codex",
+            Self::Grok => ".grok",
         }
     }
 }
@@ -106,8 +127,16 @@ pub(crate) enum AuthorizedScope {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "method", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum SubscriptionProof {
-    ClaudeAuthStatus { plan: String },
-    CodexAccountRead { plan: String },
+    ClaudeAuthStatus {
+        plan: String,
+    },
+    CodexAccountRead {
+        plan: String,
+    },
+    /// `grok models` respondeu com o login de sessão do perfil isolado (sem chave de API no ambiente).
+    GrokModels {
+        login: String,
+    },
 }
 
 /// Persistência privada; não implementar Serialize do DTO reaproveitando este tipo.
@@ -153,10 +182,12 @@ impl Account {
                     match (&self.launch, self.backend) {
                         (LaunchReference::CliProfile { .. }, Backend::Claude) => "Claude — login deste computador",
                         (LaunchReference::CliProfile { .. }, Backend::Codex) => "Codex — login deste computador",
+                        (LaunchReference::CliProfile { .. }, Backend::Grok) => "Grok Build — login deste computador",
                         (LaunchReference::VaultProfile { .. }, Backend::Claude) => {
                             "Claude Code — configuração no cofre"
                         }
                         (LaunchReference::VaultProfile { .. }, Backend::Codex) => "Codex — configuração no cofre",
+                        (LaunchReference::VaultProfile { .. }, Backend::Grok) => "Grok Build — configuração no cofre",
                     }
                     .to_owned()
                 },

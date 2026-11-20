@@ -81,8 +81,9 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
           <p role="status" aria-live="polite" className="contas-status">{status}</p>
           {!op && !session.starting && session.reached < 0 ? (
             <VStack gap={8}>
-              <Text tone="secondary">{reconnect ? textos.introReconectar : textos.introLogin(engineName(engine))}</Text>
+              <Text tone="secondary">{reconnect && engine !== 'grok' ? textos.introReconectar : textos.introLogin(engineName(engine))}</Text>
               <Text size="caption" tone="secondary">{textos.introSemCusto}</Text>
+              {engine === 'grok' ? <Text size="caption" tone="secondary">{tradutor(idioma)('contas.grokAviso')}</Text> : null}
             </VStack>
           ) : null}
           {op?.phase === 'awaiting_authorization' && op.challenge ? (
@@ -249,6 +250,7 @@ function Conectada({ account }: { account: ManagedAccount }) {
       </HStack>
       {account.state === 'connected' ? null : <Text size="caption" tone="secondary">{view.detail}</Text>}
       <Text size="caption" tone="secondary">{textos.escolhaNoBot}</Text>
+      {account.backend === 'grok' ? <Text size="caption" tone="secondary">{tradutor(idioma)('contas.grokAviso')}</Text> : null}
     </VStack>
   )
 }

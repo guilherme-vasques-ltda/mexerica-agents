@@ -1,5 +1,6 @@
 //! D164/SAAS-04: setup pessoal com capacidade explícita do dono, sem ativação comercial.
 pub(crate) mod access;
+mod grok;
 pub(crate) mod install;
 mod process;
 pub(crate) use process::{ProcessGroup, Rpc, background_claude_catalog};
@@ -215,6 +216,9 @@ pub(crate) fn methods(method: &str) -> bool {
 
 pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
     let authority = access::resolve(hub, caller)?;
+    if matches!(method, "donnaEngineAccountDisconnect" | "donnaEngineAccountRemove") {
+        grok::before_mutation(hub, method, &body).await?;
+    }
     let value = match method {
         "donnaEngineSetupStart" => {
             start_authorized(hub, parse(body)?, authority.clone(), Duration::from_secs(600)).await
@@ -233,6 +237,11 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
             let value = match method {
                 "donnaEngineAccountCreate" => {
                     let request: Create = parse(body)?;
+                    ensure!(
+                        request.backend != Backend::Grok
+                            || (request.kind == "cli" && !crate::fork::motor_exec::configured()),
+                        "invalid_field: o Grok entra só pelo login do programa oficial."
+                    );
                     if !matches!(authority, access::Authority::Local) {
                         ensure!(request.kind == "cli", "remote_api_unavailable: use o login oficial do provedor.");
                     }
@@ -278,10 +287,11 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     barreira(id, Barreira::Antes);
                     // D372 (R1): leitura final de ocupação e escrita sob o runtime retido; um preparo na conta espera
                     // o commit (e a ativação/permit/lançamento recusam a conta desconectada) ou já ocupou o runtime.
-                    let registry = hub.with_idle_engine_account(id, || {
+                    let (registry, credential) = hub.with_idle_engine_account(id, || {
                         #[cfg(test)]
                         barreira(id, Barreira::Cerca);
                         let mut registry = Registry::load(&hub.store)?;
+                        let credential = grok::profile_home(registry.account(id)?);
                         if remove {
                             // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
                             if registry.account(id)?.managed.is_none() {
@@ -314,8 +324,19 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             meta.revision += 1;
                             authority.persist(hub, &registry)?;
                         }
-                        Ok(registry)
+                        Ok((registry, credential))
                     })?;
+                    accounts::invalidate();
+                    // O login local já saiu antes da mutação (remover) ou sai agora, depois do cadastro (desconectar).
+                    if let Some(home) = &credential {
+                        if remove {
+                            if let Err(error) = grok::erase(&hub.store, id, home) {
+                                tracing::warn!(%error, "pasta vazia do Grok não removida");
+                            }
+                        } else {
+                            grok::wipe(&hub.store, id, home)?;
+                        }
+                    }
                     #[cfg(test)]
                     barreira(id, Barreira::Depois);
                     if remove { json!({}) } else { registry.dto_for(&hub.store, id)? }
@@ -664,6 +685,7 @@ async fn start_authorized(
                     .and_then(|p| p.identity.as_deref())
                     .map(|identity| registry.fingerprint(backend, "principal", managed::principal(identity)));
                 let account = registry.account_mut(&request.engine_account_id, request.expected_revision)?;
+                let superseded = grok::previous_home(account, &profile);
                 let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
                 ensure!(meta.generation == generation, "operation_stale");
                 let mut guard = OPERATIONS.locked();
@@ -706,6 +728,12 @@ async fn start_authorized(
                 }
                 op.authority.persist(&hub, &registry)?;
                 cleanup.0 = None;
+                if request.action == Step::Login
+                    && let Some(home) = &superseded
+                    && let Err(error) = grok::erase(&hub.store, &request.engine_account_id, home)
+                {
+                    tracing::warn!(%error, "login anterior do Grok não apagado");
+                }
                 accounts::invalidate();
                 clear(op, Phase::Connected, None);
                 Ok(())
@@ -729,6 +757,7 @@ async fn start_authorized(
                     "auth_failed",
                     "auth_shutdown_failed",
                     "cli_incompatible",
+                    "grok_not_installed",
                     "account_busy",
                     "account_unverified",
                     "identity_changed",
@@ -816,6 +845,7 @@ pub(crate) async fn usage(hub: &Arc<Hub>, id: String, space_id: Option<&Value>) 
                         // A mesma leitura do painel global do Codex: bucket `codex` e janela vencida descartada.
                         crate::fork::codex_usage::parse(&rates, crate::store::now_ms())
                     }
+                    Backend::Grok => bail!("usage_unavailable"),
                     Backend::Claude => {
                         let proof = accounts::probe::inspect(Backend::Claude, executable, directory).await;
                         let quota =
@@ -881,8 +911,8 @@ pub(crate) async fn confirm_identity(registry: &Registry, id: &str) -> Result<()
                 let proof = rpc.proof(executable, directory).await?;
                 Ok::<_, anyhow::Error>((proof.identity, proof.state))
             }
-            Backend::Claude => {
-                let proof = accounts::probe::inspect(Backend::Claude, executable, directory).await;
+            Backend::Claude | Backend::Grok => {
+                let proof = accounts::probe::inspect(backend, executable, directory).await;
                 Ok((proof.identity, proof.state))
             }
         }
@@ -905,6 +935,7 @@ pub(crate) async fn set_api_env(hub: &Arc<Hub>, caller: &Caller, body: Value) ->
     }
     require_local(caller)?;
     let request: Api = parse(body)?;
+    ensure!(request.backend != Backend::Grok, "invalid_field: o Grok entra só pelo login do programa oficial.");
     let key = if request.backend == Backend::Codex { "OPENAI_API_KEY" } else { "ANTHROPIC_API_KEY" };
     ensure!(
         request.vars.len() == 1

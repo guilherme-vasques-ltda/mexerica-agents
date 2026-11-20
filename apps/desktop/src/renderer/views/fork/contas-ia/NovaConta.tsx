@@ -55,7 +55,7 @@ export function NovaConta({ contas, initialEngine, onCreated, onClose }: {
             <ChoiceList
               selection={engine}
               options={ENGINES.map((e) => ({ id: e, label: engineName(e), detail: engineCompany(e) }))}
-              onChange={setEngine}
+              onChange={(next) => { setEngine(next); if (next === 'grok') setKind('cli') }}
             />
           </CardSection>
           <CardSection title={textos.comoEntra}>
@@ -63,7 +63,7 @@ export function NovaConta({ contas, initialEngine, onCreated, onClose }: {
               selection={kind}
               options={[
                 { id: 'cli', label: textos.porLogin, detail: textos.porLoginDetalhe },
-                ...(store.isLoopback ? [{ id: 'api' as const, label: textos.porChave, detail: textos.porChaveDetalhe }] : []),
+                ...(store.isLoopback && engine !== 'grok' ? [{ id: 'api' as const, label: textos.porChave, detail: textos.porChaveDetalhe }] : []),
               ]}
               onChange={setKind}
             />

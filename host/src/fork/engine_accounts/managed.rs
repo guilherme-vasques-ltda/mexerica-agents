@@ -172,7 +172,7 @@ pub(crate) fn new_profile(store: &Store, id: &str, backend: Backend) -> Result<P
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600))?;
     }
-    let directory = home.join(if backend == Backend::Codex { ".codex" } else { ".claude" });
+    let directory = home.join(backend.profile_directory());
     private_dir(&directory)?;
     Ok(directory)
 }
@@ -203,7 +203,7 @@ pub(crate) fn validate_profile(store: &Store, id: &str, directory: &Path) -> Res
 pub(crate) fn secure_files(directory: &Path) -> Result<()> {
     if crate::fork::motor_exec::configured() {
         // O chamador histórico protege a home; o ajudante recebe o perfil canônico.
-        let profile = if directory.file_name().is_some_and(|v| v == ".claude" || v == ".codex") {
+        let profile = if directory.file_name().is_some_and(|v| v == ".claude" || v == ".codex" || v == ".grok") {
             directory.to_path_buf()
         } else {
             anyhow::bail!("profile_invalid: operação exige perfil, não home")
@@ -437,7 +437,7 @@ pub(crate) fn migrated_legacy(account: &Account) -> bool {
             == crate::fork::motor_roots::accounts()
                 .join(&account.id)
                 .join("legacy")
-                .join(if account.backend == Backend::Codex { ".codex" } else { ".claude" })
+                .join(account.backend.profile_directory())
 }
 
 pub(crate) fn resolve_for_bot(store: &Store, bot: &BotConfig) -> Result<Option<AccountLaunch>> {
@@ -467,13 +467,14 @@ pub(crate) fn resolve_for_bot(store: &Store, bot: &BotConfig) -> Result<Option<A
                     directory.parent().ok_or_else(|| anyhow!("profile_invalid"))?.to_string_lossy().into_owned(),
                 ));
             }
-            env.push((
-                if account.backend == Backend::Codex { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }.into(),
-                directory.to_string_lossy().into_owned(),
-            ));
+            env.push((account.backend.profile_variable().into(), directory.to_string_lossy().into_owned()));
             env.push(("DISABLE_AUTOUPDATER".into(), "1".into()));
-            env.push(("CODEX_PATH".into(), executable.to_string_lossy().into_owned()));
-            env.push(("CLAUDE_CODE_EXECUTABLE".into(), executable.to_string_lossy().into_owned()));
+            if account.backend == Backend::Grok {
+                env.push(("GROK_DISABLE_AUTOUPDATER".into(), "1".into()));
+            } else {
+                env.push(("CODEX_PATH".into(), executable.to_string_lossy().into_owned()));
+                env.push(("CLAUDE_CODE_EXECUTABLE".into(), executable.to_string_lossy().into_owned()));
+            }
             Ok(Some(AccountLaunch { env, revision: account.managed.as_ref().map_or(1, |m| m.revision) }))
         }
         LaunchReference::VaultProfile { slot } => {

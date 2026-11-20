@@ -271,6 +271,7 @@ fn temporary_failure_preserves_the_account_id_and_recovers_without_a_phantom() {
                 );
                 candidate
             }
+            Backend::Grok => unreachable!("o Grok tem teste próprio em engine_setup/grok"),
         };
         let mut registry = Registry { salt: "test".into(), accounts: vec![] };
         let mut failure = observation(backend);
@@ -296,6 +297,7 @@ fn temporary_failure_preserves_the_account_id_and_recovers_without_a_phantom() {
         match backend {
             Backend::Claude => probe::claude_status(&mut logged_out, &json!({"loggedIn":false}), false),
             Backend::Codex => probe::codex_account(&mut logged_out, &json!({"account":null})),
+            Backend::Grok => unreachable!("o Grok tem teste próprio em engine_setup/grok"),
         }
         registry.refresh(vec![logged_out]);
         assert_eq!(registry.accounts.len(), 1);

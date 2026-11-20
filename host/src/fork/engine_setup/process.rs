@@ -56,11 +56,9 @@ pub(crate) fn environment(directory: &Path, backend: Backend) -> Vec<(String, St
     }
     env.extend([
         ("HOME".into(), directory.parent().unwrap_or(directory).to_string_lossy().into_owned()),
-        (
-            if backend == Backend::Codex { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }.into(),
-            directory.to_string_lossy().into_owned(),
-        ),
+        (backend.profile_variable().into(), directory.to_string_lossy().into_owned()),
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
+        ("GROK_DISABLE_AUTOUPDATER".into(), "1".into()),
         ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
         ("BROWSER".into(), "/usr/bin/false".into()),
         ("TERM".into(), "dumb".into()),
@@ -209,6 +207,7 @@ pub(crate) async fn login(
         match backend {
             Backend::Codex => codex(executable, directory, events).await,
             Backend::Claude => claude(executable, directory, events, input).await,
+            Backend::Grok => super::grok::login(executable, directory, events).await,
         }
     };
     tokio::select! {
