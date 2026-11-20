@@ -11,6 +11,7 @@ import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 import { amostraDeModelos, chaveDoErro, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { esquecerModelos } from '../seletor-modelo/catalogo'
 import '../../settings/settings.css'
 
 /** Conexões de IA → API direta: uma linha por fornecedor, com a chave guardada no cofre do Hub deste computador. */
@@ -73,6 +74,8 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
           setResultado(r as Acesso)
           depois?.(r as Acesso)
         }
+        // A escolha de modelo do bot relê a lista do motor na próxima abertura.
+        esquecerModelos(store.computer.id, 'mexerica')
         return aoMudar()
       })
       .catch((e: unknown) => setResultado({ ok: false, motivo: e instanceof Error ? e.message : String(e) }))
