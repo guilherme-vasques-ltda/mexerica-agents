@@ -14,7 +14,6 @@ export async function readFiles(paths: string[]) {
   return out
 }
 
-// Adaptado de Codync 6dcee39da4e475d233bc9c245a9505bd0c10f27b (Apache-2.0).
 const fileURLFormat = 'text/uri-list'
 
 /** ⌘V with a copied file or image: the files it holds (the text field alone would paste a name). */

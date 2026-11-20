@@ -41,7 +41,7 @@ const PACKAGE_SHA256: Readonly<Record<string, string>> = {
   'icone-19-berga.png': 'bc02b03d872bf568bd5a42b9d9f6283805c002c7ac6719e8283b1f0fda9e6b18',
 }
 
-test('MX-9: o manifesto tem o padrão primeiro, ids únicos e só ids conhecidos resolvem arquivo', { skip: 'arte própria fora do recorte (pendência de direitos); reativar ao liberar a arte' }, () => {
+test('MX-9: o manifesto tem o padrão primeiro, ids únicos e só ids conhecidos resolvem arquivo', () => {
   assert.equal(APP_ICON_CHOICES.length, 1 + APP_ICON_OPTIONS.length)
   assert.equal(APP_ICON_CHOICES[0]!.id, APP_ICON_DEFAULT_ID)
   assert.equal(new Set(APP_ICON_CHOICES.map((choice) => choice.id)).size, APP_ICON_CHOICES.length)
