@@ -738,6 +738,208 @@ fn cumulative_limits_and_atomic_no_replace_are_enforced() {
     assert!(fs::read_dir(dest).unwrap().next().is_none());
 }
 
+#[test]
+fn swapping_exchanges_existing_directories() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let source = f.0.skills_root.join("stage");
+    let dest = f.0.skills_root.join("existing");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&dest).unwrap();
+    fs::write(source.join("data.txt"), "new").unwrap();
+    fs::write(dest.join("data.txt"), "old").unwrap();
+    rename_swap(&source, &dest).unwrap();
+    assert_eq!(fs::read_to_string(dest.join("data.txt")).unwrap(), "new");
+    assert_eq!(fs::read_to_string(source.join("data.txt")).unwrap(), "old");
+    assert_eq!(fs::read_dir(&f.0.skills_root).unwrap().count(), 2);
+}
+
+fn swap_fixture(f: &Fixture) -> (PathBuf, PathBuf) {
+    private_dir(&f.0.skills_root).unwrap();
+    let source = f.0.skills_root.join("stage");
+    let dest = f.0.skills_root.join("existing");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&dest).unwrap();
+    fs::write(source.join("data.txt"), "new").unwrap();
+    fs::write(dest.join("data.txt"), "old").unwrap();
+    (source, dest)
+}
+
+fn old_dirs(root: &Path) -> usize {
+    fs::read_dir(root)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().starts_with(".old-"))
+        .count()
+}
+
+#[test]
+fn stepwise_swap_exchanges_directories() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    let (source, dest) = swap_fixture(&f);
+    swap_in_steps(&source, &dest, |a, b| fs::rename(a, b)).unwrap();
+    assert_eq!(fs::read_to_string(dest.join("data.txt")).unwrap(), "new");
+    assert_eq!(fs::read_to_string(source.join("data.txt")).unwrap(), "old");
+    assert_eq!(old_dirs(&f.0.skills_root), 0);
+}
+
+#[test]
+fn stepwise_swap_restores_the_previous_version_when_the_entry_step_fails() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    let (source, dest) = swap_fixture(&f);
+    let calls = std::cell::Cell::new(0);
+    let error = swap_in_steps(&source, &dest, |a, b| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 2 { Err(std::io::Error::other("entrada recusada")) } else { fs::rename(a, b) }
+    })
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("entrada recusada"));
+    assert_eq!(fs::read_to_string(dest.join("data.txt")).unwrap(), "old");
+    assert_eq!(fs::read_to_string(source.join("data.txt")).unwrap(), "new");
+    assert_eq!(old_dirs(&f.0.skills_root), 0);
+}
+
+#[test]
+fn stepwise_swap_reports_both_errors_and_keeps_the_old_copy_when_the_undo_fails() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    let (source, dest) = swap_fixture(&f);
+    let calls = std::cell::Cell::new(0);
+    let error = swap_in_steps(&source, &dest, |a, b| {
+        calls.set(calls.get() + 1);
+        match calls.get() {
+            2 => Err(std::io::Error::other("entrada recusada")),
+            3 => Err(std::io::Error::other("desfazer recusado")),
+            _ => fs::rename(a, b),
+        }
+    })
+    .unwrap_err();
+    let message = format!("{error:#}");
+    assert!(message.contains("entrada recusada") && message.contains("desfazer recusado"));
+    assert!(message.contains(".old-") && message.contains("-existing"));
+    assert_eq!(old_dirs(&f.0.skills_root), 1);
+    assert!(!dest.exists());
+}
+
+#[test]
+fn stepwise_swap_succeeds_and_cleans_up_when_only_the_last_step_fails() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    let (source, dest) = swap_fixture(&f);
+    let calls = std::cell::Cell::new(0);
+    swap_in_steps(&source, &dest, |a, b| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 3 { Err(std::io::Error::other("limpeza recusada")) } else { fs::rename(a, b) }
+    })
+    .unwrap();
+    assert_eq!(fs::read_to_string(dest.join("data.txt")).unwrap(), "new");
+    assert!(!source.exists());
+    assert_eq!(old_dirs(&f.0.skills_root), 0);
+}
+
+#[test]
+fn orphan_cleanup_removes_stale_directories_and_restores_the_only_copy() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let root = &f.0.skills_root;
+    let id = uuid::Uuid::new_v4();
+    let only_copy = format!(".old-{id}-lost-skill");
+    let stale = format!(".old-{}-find-skills", uuid::Uuid::new_v4());
+    for name in [only_copy.as_str(), stale.as_str(), ".stage-b", "find-skills"] {
+        fs::create_dir(root.join(name)).unwrap();
+        fs::write(root.join(name).join("x"), name).unwrap();
+    }
+    fs::write(root.join(".old-file"), "x").unwrap();
+    clean_orphans(root, |a, b| fs::rename(a, b));
+    assert_eq!(fs::read_to_string(root.join("lost-skill").join("x")).unwrap(), only_copy);
+    assert!(!root.join(&only_copy).exists() && !root.join(&stale).exists() && !root.join(".stage-b").exists());
+    assert_eq!(fs::read_to_string(root.join("find-skills").join("x")).unwrap(), "find-skills");
+    assert!(root.join(".old-file").exists());
+}
+
+#[test]
+fn orphan_cleanup_ignores_old_directories_with_a_malformed_name() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let root = &f.0.skills_root;
+    let id = uuid::Uuid::new_v4();
+    let names = [
+        ".old-sem-destino".to_string(),
+        format!(".old-{}", "x".repeat(60)),
+        format!(".old-{}-lost-skill", id.to_string().to_uppercase()),
+        format!(".old-{id}_lost-skill"),
+        format!(".old-{id}-Lost-Skill"),
+        format!(".old-{id}--lost"),
+        format!(".old-{id}-lost--skill"),
+        format!(".old-{id}-.hidden"),
+        format!(".old-{id}-"),
+    ];
+    for name in &names {
+        fs::create_dir(root.join(name)).unwrap();
+    }
+    clean_orphans(root, |a, b| fs::rename(a, b));
+    for name in &names {
+        assert!(root.join(name).exists(), "{name} deveria ser ignorada");
+    }
+    assert_eq!(fs::read_dir(root).unwrap().count(), names.len());
+}
+
+#[test]
+fn old_destination_requires_the_exact_format() {
+    let id = uuid::Uuid::new_v4();
+    assert_eq!(old_destination(&format!(".old-{id}-find-skills")), Some("find-skills"));
+    assert_eq!(old_destination(&format!(".old-{id}-a")), Some("a"));
+    assert_eq!(old_destination(&format!("old-{id}-find-skills")), None);
+    assert_eq!(old_destination(&format!(".old-{}-find-skills", id.simple())), None);
+    assert_eq!(old_destination(&format!(".old-{id}-find/skills")), None);
+    assert_eq!(old_destination(&format!(".old-{id}-..")), None);
+}
+
+#[test]
+fn orphan_cleanup_keeps_the_old_copy_when_the_restore_fails() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let root = &f.0.skills_root;
+    let name = format!(".old-{}-lost-skill", uuid::Uuid::new_v4());
+    fs::create_dir(root.join(&name)).unwrap();
+    clean_orphans(root, |_, _| Err(std::io::Error::other("restauração recusada")));
+    assert!(root.join(&name).exists() && !root.join("lost-skill").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_move_refuses_any_existing_destination() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let root = &f.0.skills_root;
+    let source = root.join("source");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("data.txt"), "source").unwrap();
+    let file = root.join("file");
+    fs::write(&file, "x").unwrap();
+    let empty = root.join("empty");
+    fs::create_dir(&empty).unwrap();
+    let target = root.join("target");
+    fs::create_dir(&target).unwrap();
+    let junction = root.join("junction");
+    let linked =
+        std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&junction).arg(&target).status().unwrap();
+    assert!(linked.success());
+    for dest in [&file, &empty, &junction] {
+        assert!(move_no_replace(&source, dest).is_err());
+        assert!(source.join("data.txt").exists());
+    }
+    assert!(fs::read_dir(&empty).unwrap().next().is_none());
+    assert!(fs::read_dir(&target).unwrap().next().is_none());
+    move_no_replace(&source, &root.join("fresh")).unwrap();
+}
+
 // SPACE-SKILLS-1: dispatch/SQLite reais, dados e identidade descartáveis; não inicia Hub/motor.
 pub(super) struct ScopeFixture {
     pub(super) hub: std::sync::Arc<crate::hub::Hub>,
