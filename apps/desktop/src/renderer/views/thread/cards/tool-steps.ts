@@ -78,6 +78,7 @@ function summarize(steps: Step[], end: number): TurnSteps {
 export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, TurnSteps>; pending: Map<string, TurnSteps> } {
   const steps = new Map<string, Step[]>()
   const lastReply = new Map<string, Entry>()
+  const lastAgent = new Map<string, number>()
   // allEntries is in transcript order, including a new user entry before its first tool arrives.
   // A local optimistic user entry has turn 0, which also keeps earlier work out of its live list.
   const currentTurn = entries[entries.length - 1]?.turn
@@ -87,8 +88,9 @@ export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, 
       const list = steps.get(k) ?? []
       list.push({ id: e.id, title: e.data.title ?? '', kind: e.data.toolKind ?? 'other', state: stepState(e.data.status), at: e.createdAt })
       steps.set(k, list)
-    } else if (e.kind === 'agent' && (e.data.final === true || e.data.interrupted === true)) {
-      lastReply.set(k, e)
+    } else if (e.kind === 'agent') {
+      lastAgent.set(k, e.createdAt)
+      if (e.data.final === true || e.data.interrupted === true) lastReply.set(k, e)
     }
   }
   const byReply = new Map<string, TurnSteps>()
@@ -97,8 +99,9 @@ export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, 
     const reply = lastReply.get(k)
     // A reply that came before the turn's last step is not the end of the work: the steps stay live.
     // Uma resposta interrompida fecha o turno cortado: a ferramenta cortada depois dela fica na bolha. Passo ainda vivo
-    // depois dela é de uma nova tentativa do mesmo turno e segue ao vivo.
-    const cut = reply?.data.interrupted === true && !list.some((s) => s.at > reply.createdAt && (s.state === 'running' || s.state === 'waiting'))
+    // ou texto escrito depois dela são de uma nova tentativa do mesmo turno, que segue ao vivo.
+    const cut = reply?.data.interrupted === true && (lastAgent.get(k) ?? 0) <= reply.createdAt
+      && !list.some((s) => s.at > reply.createdAt && (s.state === 'running' || s.state === 'waiting'))
     if (reply && (reply.createdAt >= list[list.length - 1]!.at || cut)) byReply.set(reply.id, summarize(list, reply.createdAt))
     else if (k.startsWith(`${currentTurn}|`)) pending.set(k.slice(k.indexOf('|') + 1), summarize(list, list[list.length - 1]!.at))
   }

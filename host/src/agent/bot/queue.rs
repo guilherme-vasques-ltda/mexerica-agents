@@ -374,6 +374,8 @@ impl Actor {
                     };
                     if method == "session/update"
                         && self.turn.is_some()
+                        && !self.waiting_for_reset()
+                        && !self.completing()
                         && params["sessionId"].as_str() == self.turn_session.as_deref()
                         && matches!(
                             params["update"]["sessionUpdate"].as_str(),

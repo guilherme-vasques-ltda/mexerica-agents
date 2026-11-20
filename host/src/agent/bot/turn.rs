@@ -619,8 +619,13 @@ impl Actor {
         let unsealed =
             last_text.as_ref().and_then(|id| self.hub.store.entry(id)).is_some_and(|e| e.data["streaming"] == true);
         let cut = cut_early || !sealed || unsealed;
-        let marked = cut && !delegated && last_text.as_ref().is_some_and(|id| self.mark_interrupted(id));
-        if !marked {
+        // Resposta cortada que vai à conversa: só a marca tira o `streaming`; se ela falhar, a varredura marca depois.
+        let shows_cut = cut && !delegated && last_text.is_some();
+        if shows_cut {
+            if let Some(id) = &last_text {
+                self.mark_interrupted(id);
+            }
+        } else {
             self.close_seg();
         }
         self.seg = Seg::None;

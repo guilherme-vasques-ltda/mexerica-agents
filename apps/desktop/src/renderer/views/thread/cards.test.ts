@@ -110,6 +110,12 @@ test('resposta interrompida leva a ferramenta cortada depois dela, sem deixar pa
   const resumed = stepsByReply([text, tool, again])
   assert.equal(resumed.byReply.size, 0)
   assert.deepEqual([...resumed.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
+  // A ferramenta da nova tentativa terminou e a resposta dela ainda está sendo escrita: os passos seguem ao vivo.
+  const done = { ...again, data: { ...again.data, status: 'completed' } }
+  const writing = entry('retry', 'agent', 1, 4, { author: 'A', final: false, text: 'Agora sim' })
+  const streaming = stepsByReply([text, tool, done, writing])
+  assert.equal(streaming.byReply.size, 0)
+  assert.deepEqual([...streaming.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
 })
 
 test('turno sem final não vira atividade do pedido seguinte; histórico final e autores são preservados', () => {
