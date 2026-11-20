@@ -66,6 +66,22 @@ async fn texto_fechado_antes_da_ferramenta_que_nao_terminou_tambem_fica_interrom
 }
 
 #[tokio::test]
+async fn texto_antes_de_aprovacao_sem_resposta_fica_interrompido_e_o_cartao_segue_para_expirar() {
+    let (hub, mut actor, dir) = fixture();
+    actor.append(SegKind::Text, "Posso apagar a pasta?");
+    let id = actor.last_text.clone().unwrap();
+    actor.close_seg();
+    let card = hub
+        .store
+        .insert_entry(&Lane::main("b"), EntryKind::Permission, 1, &json!({"title": "Apagar", "status": "pending"}))
+        .unwrap();
+    hub.store.interrupt_open_work().unwrap();
+    assert_eq!(hub.store.entry(&id).unwrap().data["interrupted"], true);
+    assert_eq!(hub.store.entry(&card.id).unwrap().data["status"], "pending", "o cartão fica para expire_pending");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn fim_que_nao_chegou_ao_disco_nao_promove_a_versao_antiga() {
     let (hub, mut actor, dir) = fixture();
     actor.append(SegKind::Text, "metade ");

@@ -357,10 +357,25 @@ impl Actor {
                 }
             }
             Cmd::Shutdown => {
-                // O que o motor já mandou e o que chegou depois do último tick vão para o disco; o corte é marcado
-                // depois, sem ator vivo.
-                while let Some(inc) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) {
-                    self.on_incoming(Some(inc)).await;
+                // O texto e as ferramentas que o motor já mandou vão para o disco; pedidos dele (aprovação, leitura)
+                // ficam sem resposta e o motor é encerrado. O corte é marcado depois, sem ator vivo.
+                let queued = self.conn.as_ref().map_or(0, |c| c.rx.len());
+                for _ in 0..queued {
+                    let Some(crate::agent::acp::Incoming::Notification { method, params }) =
+                        self.conn.as_mut().and_then(|c| c.rx.try_recv().ok())
+                    else {
+                        continue;
+                    };
+                    if method == "session/update"
+                        && self.turn.is_some()
+                        && params["sessionId"].as_str() == self.turn_session.as_deref()
+                        && matches!(
+                            params["update"]["sessionUpdate"].as_str(),
+                            Some("agent_message_chunk" | "tool_call" | "tool_call_update")
+                        )
+                    {
+                        self.on_update(&params["update"]);
+                    }
                 }
                 self.flush(true);
                 return false;

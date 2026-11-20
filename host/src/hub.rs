@@ -221,8 +221,8 @@ impl Hub {
         // Aprovações e canais transitórios expiram; humanos queued continuam elegíveis.
         self.store.conector_recover()?;
         crate::fork::conectores::whatsapp_human::recover(self)?;
-        self.store.expire_pending()?;
         self.store.interrupt_open_work()?;
+        self.store.expire_pending()?;
         if !crate::environment::Environment::is_open() {
             crate::screen::fork_permission::restore_pending(self)?;
         }
