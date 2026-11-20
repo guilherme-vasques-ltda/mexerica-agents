@@ -16,6 +16,8 @@ test('todo erro do teste tem frase nos seis idiomas, e erro desconhecido cai na 
     for (const catalogo of Object.values(CATALOGOS)) assert.ok(catalogo[chave], `${erro} sem texto`)
   }
   assert.equal(chaveDoErro('qualquer_outro'), 'contas.apiDireta.erro.fornecedorFalhou')
+  assert.equal(chaveDoErro('toString'), 'contas.apiDireta.erro.fornecedorFalhou')
+  assert.equal(chaveDoErro('constructor'), 'contas.apiDireta.erro.fornecedorFalhou')
 })
 
 test('a amostra de modelos mostra os primeiros e conta o resto', () => {

@@ -52,7 +52,7 @@ export function estadoDoTeste(acesso: Acesso): EstadoDoTeste {
 }
 
 /** A frase de um erro do teste; código desconhecido cai na falha genérica do fornecedor. */
-export const chaveDoErro = (erro: string): ChaveTexto => ERROS[erro] ?? 'contas.apiDireta.erro.fornecedorFalhou'
+export const chaveDoErro = (erro: string): ChaveTexto => (Object.hasOwn(ERROS, erro) ? ERROS[erro]! : 'contas.apiDireta.erro.fornecedorFalhou')
 
 /** Os primeiros nomes da lista de modelos, para a linha de resultado; o resto vira contagem. */
 export function amostraDeModelos(modelos: readonly ModeloDaChave[], limite = 4): { nomes: string; restantes: number } {
@@ -60,6 +60,14 @@ export function amostraDeModelos(modelos: readonly ModeloDaChave[], limite = 4):
 }
 
 const PRAZO_MS = 60_000
+
+// Chave salva, trocada, removida ou testada: quem mostra a lista de chaves (a seção da página e a tela «Adicionar conexão») relê.
+const ouvintesDeChaves = new Set<() => void>()
+export const chavesMudaram = () => { for (const ouvinte of ouvintesDeChaves) ouvinte() }
+export const aoMudarChaves = (ouvinte: () => void) => {
+  ouvintesDeChaves.add(ouvinte)
+  return () => void ouvintesDeChaves.delete(ouvinte)
+}
 
 export const listarChaves = async (client: HostClient) =>
   ((await client.call<{ fornecedores: FornecedorDaChave[] }>('motorChaves', {}, 15_000)).fornecedores)

@@ -11,6 +11,8 @@ test('modelo do motor Mexerica roda pela chave do fornecedor do id', () => {
 test('fornecedor desconhecido, id sem prefixo e nomes herdados do objeto não ganham selo', () => {
   assert.equal(seloDoModelo({ backend: 'mexerica', modelo: 'desconhecido/x', nomeDoMotor: 'Mexerica' }), null)
   assert.equal(seloDoModelo({ backend: 'mexerica', modelo: 'sem-prefixo', nomeDoMotor: 'Mexerica' }), null)
+  assert.equal(seloDoModelo({ backend: 'mexerica', modelo: 'openai', nomeDoMotor: 'Mexerica' }), null)
+  assert.equal(seloDoModelo({ backend: 'mexerica', modelo: 'openai/', nomeDoMotor: 'Mexerica' }), null)
   assert.equal(seloDoModelo({ backend: 'mexerica', modelo: 'constructor/x', nomeDoMotor: 'Mexerica' }), null)
   assert.equal(seloDoModelo({ backend: 'mexerica', modelo: '__proto__/x', nomeDoMotor: 'Mexerica' }), null)
 })

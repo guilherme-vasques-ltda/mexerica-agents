@@ -11,7 +11,7 @@ import { Field, MarketBadge } from '../../marketplace/pieces'
 import { liveClient } from '../../settings/parts'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { LinhaDoFornecedor } from './ApiDireta'
-import { listarChaves, type FornecedorDaChave } from './api-direta'
+import { aoMudarChaves, listarChaves, type FornecedorDaChave } from './api-direta'
 import { agrupar, buscar, chavesDaTela, chavesDisponiveis, ehOpen, planosDaTela } from './conexoes'
 import type { ContasStore } from './contas-store'
 import { engineCompany, engineName, engineRegistry } from './regras'
@@ -48,6 +48,7 @@ export function AdicionarConexao({ contas, onPlano, onClose }: { contas: ContasS
   useEffect(() => {
     if (comChaves && online) void reler()
   }, [comChaves, online, store.hello?.hostId])
+  useEffect(() => (comChaves && online ? aoMudarChaves(() => void reler()) : undefined), [comChaves, online, store])
 
   const itens = [...planosDaTela(contexto.open, engineName), ...chavesDaTela(contexto, fornecedores ?? [])]
   const grupos = agrupar(buscar(itens, consulta))
@@ -65,7 +66,7 @@ export function AdicionarConexao({ contas, onPlano, onClose }: { contas: ContasS
             <CardSection key={grupo} title={t(grupo === 'planos' ? 'contas.conexoes.planos' : 'contas.conexoes.chaves')} footer={t(grupo === 'planos' ? 'contas.conexoes.planosRodape' : 'contas.conexoes.chavesRodape')}>
               {doGrupo.map((item) => {
                 const fornecedor = item.fornecedor ? fornecedores?.find((f) => f.id === item.fornecedor) : undefined
-                if (fornecedor) return <LinhaDoFornecedor key={item.id} fornecedor={fornecedor} aoMudar={reler} />
+                if (fornecedor) return <LinhaDoFornecedor key={item.id} fornecedor={fornecedor} />
                 if (!item.engine) return null
                 const engine = item.engine
                 return (
@@ -82,10 +83,13 @@ export function AdicionarConexao({ contas, onPlano, onClose }: { contas: ContasS
                   </div>
                 )
               })}
-              {grupo === 'chaves' && online && !fornecedores && !falhou ? <Spinner size={12} /> : null}
-              {grupo === 'chaves' && online && falhou ? <Text size="caption" tone="secondary" role="status">{t('contas.apiDireta.erroLista')}</Text> : null}
             </CardSection>
           ))}
+          {comChaves && online && !fornecedores && !consulta.trim() ? (
+            <CardSection title={t('contas.conexoes.chaves')}>
+              {falhou ? <Text size="caption" tone="secondary" role="status">{t('contas.apiDireta.erroLista')}</Text> : <Spinner size={12} />}
+            </CardSection>
+          ) : null}
           {consulta.trim() && grupos.length === 0 ? <Text tone="secondary" role="status">{t('contas.conexoes.nada', { busca: consulta.trim() })}</Text> : null}
         </CardForm>
       </div>

@@ -10,7 +10,7 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { amostraDeModelos, chaveDoErro, estadoDoTeste, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { amostraDeModelos, aoMudarChaves, chaveDoErro, chavesMudaram, estadoDoTeste, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
 import { ehOpen } from './conexoes'
 import '../../settings/settings.css'
@@ -41,6 +41,7 @@ export function ApiDireta() {
   useEffect(() => {
     if (visivel && online) void reler()
   }, [visivel, online, store.hello?.hostId])
+  useEffect(() => (visivel && online ? aoMudarChaves(() => void reler()) : undefined), [visivel, online, store])
 
   if (!visivel) return null
   return (
@@ -50,13 +51,13 @@ export function ApiDireta() {
         {online && falhou ? <Text size="caption" tone="secondary" role="status">{t('contas.apiDireta.erroLista')}</Text> : null}
         {online && !fornecedores && !falhou ? <Spinner size={12} /> : null}
         {online && fornecedores && !fornecedores.some((f) => f.configurada) ? <Text size="caption" tone="secondary">{t('contas.apiDireta.vazio')}</Text> : null}
-        {online ? fornecedores?.filter((f) => f.configurada).map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} aoMudar={reler} />) : null}
+        {online ? fornecedores?.filter((f) => f.configurada).map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} />) : null}
       </CardSection>
     </div>
   )
 }
 
-export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorDaChave; aoMudar: () => Promise<void> }) {
+export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaChave }) {
   const store = useStore()
   const t = useT()
   const [editando, setEditando] = useState(false)
@@ -81,7 +82,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
         }
         // A escolha de modelo do bot relê a lista do motor na próxima abertura.
         esquecerModelos(store.computer.id, 'mexerica')
-        return aoMudar()
+        chavesMudaram()
       })
       .catch((e: unknown) => setResultado({ ok: false, motivo: e instanceof Error ? e.message : String(e) }))
       .finally(() => {
@@ -153,7 +154,7 @@ const ESTADOS = {
   recusada: 'contas.apiDireta.estado.recusada',
 } as const
 
-/** O resultado do «Testar acesso»: o estado, a frase do detalhe e, quando há lista, o aviso de que ela não prova acesso. */
+/** O resultado do «Testar acesso»: o estado, a frase do detalhe e, quando há lista de modelos, o aviso de que ela não prova acesso. */
 function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } }) {
   const t = useT()
   const estado = 'motivo' in resultado ? 'nao_verificado' : estadoDoTeste(resultado)
@@ -174,7 +175,7 @@ function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; moti
         <Text size="caption" className="selectable">{t(ESTADOS[estado])}</Text>
       </HStack>
       <Text size="caption" tone="secondary" className="selectable">{detalhe}</Text>
-      {positivo ? <Text size="caption" tone="tertiary">{t('contas.apiDireta.catalogoNaoProva')}</Text> : null}
+      {estado === 'modelos_no_catalogo' ? <Text size="caption" tone="tertiary">{t('contas.apiDireta.catalogoNaoProva')}</Text> : null}
     </VStack>
   )
 }

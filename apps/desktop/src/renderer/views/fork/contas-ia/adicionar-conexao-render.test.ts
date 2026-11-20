@@ -26,6 +26,8 @@ const bundle = await build({
   stdin: {
     contents: `export { AdicionarConexao } from './views/fork/contas-ia/AdicionarConexao';
       export { ApiDireta } from './views/fork/contas-ia/ApiDireta';
+      export { NovaConta } from './views/fork/contas-ia/NovaConta';
+      export { chavesMudaram } from './views/fork/contas-ia/api-direta';
       export { StoreContext } from './store/context';
       export { createElement } from 'react';
       export { renderToStaticMarkup } from 'react-dom/server';`,
@@ -52,11 +54,13 @@ runInNewContext(bundle.outputFiles[0]!.text, {
   module, exports: module.exports, require: createRequire(import.meta.url), window, document, matchMedia: media, localStorage: storage,
   agendarEfeito: (efeito: () => void) => { efeitos?.push(efeito) },
   navigator: { platform: 'MacIntel', language: 'pt-BR' }, fetch: () => new Promise(() => {}), TextEncoder, URLSearchParams, URL, Intl, console, setTimeout, clearTimeout, queueMicrotask,
-  structuredClone, requestAnimationFrame: () => 0, __importMeta: { glob: () => ({}), env: { BASE_URL: '/', DEV: false, PROD: true, MODE: 'test' } },
+  structuredClone, crypto: globalThis.crypto, requestAnimationFrame: () => 0, __importMeta: { glob: () => ({}), env: { BASE_URL: '/', DEV: false, PROD: true, MODE: 'test' } },
 })
 const m = module.exports as {
   AdicionarConexao: typeof import('./AdicionarConexao').AdicionarConexao
   ApiDireta: typeof import('./ApiDireta').ApiDireta
+  NovaConta: typeof import('./NovaConta').NovaConta
+  chavesMudaram: typeof import('./api-direta').chavesMudaram
   StoreContext: typeof import('../../../store/context').StoreContext
   createElement: typeof import('react').createElement
   renderToStaticMarkup: typeof import('react-dom/server').renderToStaticMarkup
@@ -100,6 +104,7 @@ test('edição completa: busca, Planos com Codex e Claude Code, e a lista de cha
   assert.match(html, /Codex/)
   assert.match(html, /Claude Code/)
   assert.ok(html.includes(pt['contas.conexoes.conectar']!))
+  assert.ok(html.includes(pt['contas.conexoes.chaves']!), 'o grupo de chaves já aparece (carregando) antes da lista chegar')
   await c.rodaEfeitos(m.AdicionarConexao, nadaProps(c.contas))
   assert.deepEqual(c.chamadas, ['motorChaves'])
 })
@@ -121,6 +126,28 @@ test('Hub remoto: planos sim, chaves não (o cadastro de chave é só deste comp
   await c.rodaEfeitos(m.AdicionarConexao, nadaProps(c.contas))
   assert.deepEqual(c.chamadas, [])
   assert.match(c.renderiza(m.AdicionarConexao, nadaProps(c.contas)), /Codex/)
+})
+
+test('Open: o passo seguinte, «Nova conta», também só oferece o Codex e nenhuma chave de API', () => {
+  const props = (c: ReturnType<typeof cenario>) => ({ contas: c.contas, initialEngine: 'claude', onCreated: nada, onClose: nada })
+  const open = cenario('mexerica-open')
+  const html = open.renderiza(m.NovaConta, props(open))
+  assert.match(html, /Codex/)
+  assert.doesNotMatch(html, /Claude/)
+  assert.ok(!html.includes(pt['contas.porChave']!), 'sem a opção de chave de API')
+  const completa = cenario('donnabot')
+  const todos = completa.renderiza(m.NovaConta, props(completa))
+  assert.match(todos, /Claude Code/)
+  assert.ok(todos.includes(pt['contas.porChave']!), 'a edição completa mantém a chave de API')
+})
+
+test('uma chave salva numa tela avisa a outra: a seção da página relê o Hub', async () => {
+  const c = cenario('donnabot')
+  await c.rodaEfeitos(m.ApiDireta)
+  assert.deepEqual(c.chamadas, ['motorChaves'])
+  m.chavesMudaram()
+  await new Promise(setImmediate)
+  assert.deepEqual(c.chamadas, ['motorChaves', 'motorChaves'])
 })
 
 test('a seção de chaves salvas aparece na edição completa', () => {

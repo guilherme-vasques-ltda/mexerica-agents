@@ -28,8 +28,10 @@ export function seloDoModelo(opcoes: {
   cobranca?: string | null
 }): SeloDoModelo | null {
   if (opcoes.backend === 'mexerica') {
-    const nome = Object.hasOwn(FORNECEDORES, opcoes.modelo.split('/')[0]!) ? FORNECEDORES[opcoes.modelo.split('/')[0]!] : undefined
-    return nome ? { grupo: 'chaves', nome } : null
+    const barra = opcoes.modelo.indexOf('/')
+    if (barra <= 0 || barra === opcoes.modelo.length - 1) return null
+    const prefixo = opcoes.modelo.slice(0, barra)
+    return Object.hasOwn(FORNECEDORES, prefixo) ? { grupo: 'chaves', nome: FORNECEDORES[prefixo]! } : null
   }
   if (!MOTORES_DE_CONTA.has(opcoes.backend)) return null
   if (opcoes.cobranca === 'subscription') return { grupo: 'planos', nome: opcoes.nomeDoMotor }
