@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Entries: adding, revising, archiving, forgetting and reading memory.
 //!
 //! Every function takes the caller's connection (or transaction) plus the time and `rev` to stamp, so the change

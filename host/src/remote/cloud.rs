@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The Codync cloud (Cloudflare relay + accounts, spec §4.2, §4.3, §8.4, §9.6): which one
 //! this host uses, its `/v1/host/*` API (signed with `Codync-Sig`), the state pull that may
 //! only renew or remove account devices, never add one, and account access requests with

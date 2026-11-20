@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Quote replies: a message the user sends in answer to an earlier one of the same chat (theirs or a bot's).
 //! `send` stores the answered message as the new one's `replyTo`; the agent reads it as a note before the text.
 

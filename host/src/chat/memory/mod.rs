@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Bot memory ([design](docs/reference/memoria/bot-memory.md)): it records the person, not the work. The rules
 //! (store, checks, opening, dreaming) live in the `codync_mem` crate; this module runs them in the host: the
 //! session opening, the bot's memory tools, the client API, the chat lines that show and undo a bot's writes,

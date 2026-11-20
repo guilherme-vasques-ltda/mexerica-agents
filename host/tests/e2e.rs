@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! End to end: a real `codync-host serve` driving a scripted ACP agent
 //! (`fake_agent.py`) through a full turn with an approval in the middle.
 

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The background service on Windows: the per-user Run key starts the host at
 //! sign-in through `codync-hostw.exe`, which keeps it running without a console
 //! window (`src/bin/codync-hostw.rs`).

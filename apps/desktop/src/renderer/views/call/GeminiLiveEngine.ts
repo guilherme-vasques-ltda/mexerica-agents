@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { CallOperator } from './call-operator'
 import { falhaSegura } from '../fork/voz/falha-segura'
 import { fromBase64, micPCM16k, toBase64, VoiceEngine } from './voice'

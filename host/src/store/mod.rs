@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! SQLite persistence. Every mutation stamps a global, monotonically increasing
 //! `rev`; clients sync with `since: rev` and never need a separate event log.
 //!

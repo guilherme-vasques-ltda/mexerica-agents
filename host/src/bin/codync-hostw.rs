@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Windows' service runner: starts `donnabot-host.exe` beside it with the given
 //! arguments and no console window, and starts it again when it exits (what
 //! launchd's `KeepAlive` and systemd's `Restart=always` do elsewhere). It is a

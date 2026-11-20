@@ -3,6 +3,9 @@ import type { textos as fonte } from '../pt-BR/marca.ts'
 
 // PR (c), D443: marca (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'marca.open.perfilMetadados': 'Metadatos inseguros en el perfil Open.',
+  'marca.open.perfilArquivo': 'El perfil Open no admite enlaces ni archivos especiales.',
+  'marca.open.pacoteInvalido': 'Paquete Open no válido.',
   "marca.dados.legado": "Elimina DONNABOT_HOME/CODYNC_HOME y configura MEXERICA_HOME para Mexerica.",
   "marca.dados.vazio": "MEXERICA_HOME no puede estar vacío.",
   "marca.dados.ancestral": "La carpeta personal y sus antecesoras no pueden usarse como carpeta de datos.",

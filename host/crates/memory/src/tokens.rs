@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Token estimates for the memory caps.
 //!
 //! Caps count tokens, not characters, so Chinese isn't penalised: 2,000 CJK characters are 2–3k tokens, 2,000

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A rollover's handoff. When the bot's main conversation is due to start over (see `agent::bot::compaction`), a
 //! card in its chat shows what the new conversation will carry; the user can edit it, or keep the old conversation,
 //! until their next message starts the new one with it. The card is a notice whose `handoff` field holds the draft,

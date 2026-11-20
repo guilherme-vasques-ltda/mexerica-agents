@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A bot's changes to its memory files don't show in the chat: the memory settings keep every version. Lines and
 //! cards that older hosts put in the chat ("Updated people.md" with an undo, a change to approve) still answer and
 //! undo for the apps that show them; their `memoryFile` field holds the change.

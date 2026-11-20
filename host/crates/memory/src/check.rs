@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Deterministic content checks. Secrets are refused for every new write, including explicit human edits.
 
 use crate::{text, tokens};

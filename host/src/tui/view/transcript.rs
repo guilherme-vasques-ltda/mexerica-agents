@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A chat's lines: messages, the messages replies quote, turns and reactions.
 
 use ratatui::style::{Modifier, Style};

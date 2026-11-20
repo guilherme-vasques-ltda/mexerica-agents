@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Webhook deliveries, from the local endpoint or the cloud's public one (spec §7.8): who may
 //! send one (the routine's bearer key, or a GitHub-style HMAC of the body), and the event the
 //! routine's triggers match and its run sees.

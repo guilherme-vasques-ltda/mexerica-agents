@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { avatarDoBot } from '@shared/fork-avatar-config'
 import { botEditorUpdate, chooseNewBotPermission } from '@shared/bot-autonomy'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'

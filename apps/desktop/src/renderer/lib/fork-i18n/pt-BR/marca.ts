@@ -1,6 +1,9 @@
 // PR (c), D443: textos com o nome do app (Mexerica) ou da bot principal (Berga), migrados dos literais legados.
 // Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  'marca.open.perfilMetadados': 'Metadados inseguros no perfil Open.',
+  'marca.open.perfilArquivo': 'O perfil Open não aceita links nem arquivos especiais.',
+  'marca.open.pacoteInvalido': 'Pacote Open inválido.',
   "marca.dados.legado": "Remova DONNABOT_HOME/CODYNC_HOME e configure MEXERICA_HOME para a Mexerica.",
   "marca.dados.vazio": "MEXERICA_HOME não pode ser vazio.",
   "marca.dados.ancestral": "A pasta pessoal ou seus ancestrais não podem ser usados como dados.",

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Bot memory on a real host with disposable data: moving the old memory, the user's edits, a bot's writes by
 //! its permission, dreaming, and how the instructions holding memory reach each kind of harness.
 

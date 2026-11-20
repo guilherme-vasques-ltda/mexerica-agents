@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Commands from clients and the queue of turns waiting for the bot.
 
 use super::{Actor, CANCEL_GRACE, Cmd, NoticeStyle, Queued, RoutineCompletion};

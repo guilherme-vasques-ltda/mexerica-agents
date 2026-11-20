@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Built-in stdio MCP servers: `chat` sends the user messages, reacts to messages and changes the bot's name and instructions; `team` discovers and asks other bots; `manage`
 //! creates bots and changes any bot's setup, and `computer` operates the desktop, when enabled. Calls go through authenticated loopback
 //! HTTP to the running host, which owns delegation and screen control.

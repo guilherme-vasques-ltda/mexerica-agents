@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! `codync-host tui`: the Codync client for a terminal. It talks to a host over the
 //! same HTTP + SSE API as the phone and desktop apps (locally: no pairing needed).
 

@@ -1,0 +1,10 @@
+{
+  "environment": "open",
+  "name": "Mexerica Open",
+  "packageName": "mexerica-desktop-open",
+  "appId": "app.mexerica.open",
+  "userDataFolder": "Mexerica Open",
+  "scheme": "mexerica-open",
+  "dataFolder": ".mexerica-open",
+  "port": 19524
+}

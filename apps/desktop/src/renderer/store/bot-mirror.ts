@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { SpacesSnapshot, SpaceConversation } from '../../shared/fork-spaces'
 import { AvatarBotMap, AvatarMoods } from '@shared/fork-avatar-mood'
 import { cachedBots, mirrorCacheStamp, isCurrentMirrorSchema } from '@shared/fork-mirror-cache'

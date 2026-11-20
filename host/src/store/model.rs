@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Row and wire types: bot configs, lanes, entries and their kinds.
 
 use serde::{Deserialize, Serialize};

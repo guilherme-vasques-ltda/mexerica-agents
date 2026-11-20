@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Bot-to-bot exchanges: the notices `chat::team` writes, and the conversation a pair of bots had.
 //! Pure functions over entries, so the chat row and the conversation sheet share one reading.
 

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Habilidades instaladas e comandos. Catálogo/importação ficam no módulo próprio D166.
 use anyhow::Result;
 use serde_json::Value;
