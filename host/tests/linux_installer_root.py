@@ -188,6 +188,27 @@ try:
     refused = stage('instalar', '--host', host, '--ajudante', helper, '--data-dir', outside, '--port', '19422', check=False)
     assert refused.returncode != 0 and not outside.exists() and health()['ok']
     print('PASS 5d pasta de dados fora da home do Hub recusada sem criar nada')
+    config_before, exe_before, bin_inode = config.read_bytes(), digest(exe), (bin_dir / 'bin').stat().st_ino
+    fake = Path('/tmp/f4bin/ajudante-falso')
+    shutil.copy('/usr/bin/false', fake)
+    fake.chmod(0o755)
+    refused = stage('instalar', '--host', host, '--ajudante', fake, *args[4:], check=False)
+    fake.unlink()
+    assert refused.returncode != 0 and health()['ok'] and config.read_bytes() == config_before
+    assert digest(exe) == exe_before and (bin_dir / 'bin').stat().st_ino == bin_inode
+    assert not list(bin_dir.glob('.bin-*'))
+    print('PASS 5e ajudante que não funciona é recusado antes de parar o Hub, sem trocar nada')
+    local_bin = home / '.local/bin'
+    local_bin.rename(home / '.local/bin-guardado')
+    local_bin.write_text('bloqueio')
+    os.chown(local_bin, hub.pw_uid, hub.pw_gid)
+    failed = stage('instalar', *args, check=False)
+    local_bin.unlink()
+    (home / '.local/bin-guardado').rename(local_bin)
+    assert failed.returncode != 0 and 'desfeita' in failed.stdout + failed.stderr
+    assert (bin_dir / 'bin').stat().st_ino == bin_inode and digest(exe) == exe_before
+    assert config.read_bytes() == config_before and not list(bin_dir.glob('.bin-*')) and health()['ok']
+    print('PASS 5f falha depois da troca desfaz a troca e religa o Hub anterior')
     # UID da etapa é explícito, testado separadamente, sem modificar a instalação.
     wrong = run(host, 'install-motor', 'desinstalar', '--hub-uid', '0', check=False)
     assert wrong.returncode != 0 and config.exists()

@@ -1,7 +1,7 @@
 //! Orquestra cópia e volta. Só a F3 conhece e reescreve referências do banco.
 use super::identity::as_user;
 use super::root::{
-    BASE, BIN, CONFIG, MOTOR, User, WORK, as_hub, checked, directory, inside, install, open_as_hub, owner_mode, place,
+    BASE, BIN, CONFIG, MOTOR, User, WORK, as_hub, checked, directory, inside, install, open_sources, owner_mode, place,
     safe, service, system, unit, user, user_command, write_atomic,
 };
 use crate::fork::motor_exec::fd::Directory;
@@ -381,9 +381,8 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
     );
     ensure!(!Path::new(CONFIG).exists(), "instalação já separada; use reinstalação, não migração");
     inside(&hub.home, data)?;
-    // As origens que a instalação vai copiar precisam ser legíveis pela conta do Hub antes da parada.
-    open_as_hub(hub, host)?;
-    open_as_hub(hub, helper)?;
+    // As origens que a instalação vai copiar são abertas como Hub antes da parada e copiadas assim.
+    let sources = open_sources(hub, host, helper)?;
     as_hub(hub, &[], || {
         // A cópia é gravada com a identidade do Hub: /var/backups precisa ser atravessável por ela.
         match fs::symlink_metadata(backup) {
@@ -474,7 +473,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         write_atomic(&record, &serde_json::to_vec_pretty(&manifest)?, 0, 0, 0o600)?;
         // Só agora o caminho antigo já está salvo e pode virar link estável.
         as_hub(hub, &[], || Ok(fs::remove_file(&link)?))?;
-        install(hub, host, helper, data, port, false)?;
+        install(hub, sources, data, port, false)?;
         let config = fs::read_to_string(CONFIG)?;
         let gid: u32 = config.lines().find_map(|s| s.strip_prefix("work_gid=")).context("work_gid ausente")?.parse()?;
         let motor_text = checked(Command::new(system("getent")?).args(["passwd", "donnabot-motor"]))?;
