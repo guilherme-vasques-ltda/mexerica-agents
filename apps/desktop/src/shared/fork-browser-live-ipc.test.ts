@@ -36,12 +36,13 @@ function montar() {
   const ouvintesTela = new Map<string, Set<Listener>>()
   /** Milissegundos que o IPC leva: os quadros (processo principal → tela) e cada envio de clique (tela → processo principal), pela ordem do envio desde o começo do teste. */
   const atraso = { quadro: 0, clique: [] as number[] }
-  const navegacao: Listener[] = []
+  const eventosDaJanela = new Map<string, Listener[]>()
+  const emitir = (canal: string, ...args: unknown[]) => (eventosDaJanela.get(canal) ?? []).forEach((cb) => cb(...args))
   const enviados = { n: 0 }
   const frame = { url }
   const sender = {
     id: 1, mainFrame: frame, isDestroyed: () => false, once() {}, removeListener() {},
-    on: (canal: string, cb: Listener) => { if (canal === 'did-start-navigation') navegacao.push(cb) },
+    on: (canal: string, cb: Listener) => { (eventosDaJanela.get(canal) ?? eventosDaJanela.set(canal, []).get(canal)!).push(cb) },
     send: (canal: string, ...args: unknown[]) => {
       if (canal === 'forkCloud:frames:data') { enviados.n += 1; passa(atraso.quadro) }
       for (const cb of ouvintesTela.get(canal) ?? []) cb({}, ...args)
@@ -116,7 +117,9 @@ function montar() {
     janelaDois: { abrirQuadros: () => { ouvintesMain.get('forkCloud:frames:open')!(outroEvento, 'f'.repeat(32), connectionId); return true } },
     abrirQuadrosEm: (id: string, conexaoId: string) => ouvintesMain.get('forkCloud:frames:open')!(evento, id, conexaoId),
     ponte2: (conexaoId: string, m: string, b: unknown) => handles.get('forkCloud:call')!(evento, conexaoId, m, b, 5000) as Promise<ForkCloudCallResult>,
-    comandosNoHub: () => recebidoPeloHub.map((c) => c.method), outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => navegacao.forEach((cb) => cb(detalhes)),
+    comandosNoHub: () => recebidoPeloHub.map((c) => c.method), outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => emitir('did-start-navigation', detalhes),
+    /** O documento novo entrou: fim da navegação. */
+    navegou: () => emitir('did-navigate', {}),
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -439,6 +442,7 @@ test('a posse não sobrevive à troca de documento, mesmo com o mesmo objeto de 
   const comando = { controller: 'agent' }
   assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok')
   r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.navegou()
   r.abrirQuadrosEm('c'.repeat(32), connectionId)
   assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'documento novo, mesmo frame: não herda a posse')
 
@@ -447,6 +451,7 @@ test('a posse não sobrevive à troca de documento, mesmo com o mesmo objeto de 
   const inscricao = r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
   await settle()
   r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.navegou()
   r.abrirQuadrosEm('d'.repeat(32), connectionId)
   respostas[0]!({ kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } })
   await inscricao
@@ -455,4 +460,36 @@ test('a posse não sobrevive à troca de documento, mesmo com o mesmo objeto de 
   r.hub.browserStreamSubscribe = (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } })
   assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok')
   assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok', 'controle: inscrevendo e confirmando no documento novo, comanda')
+})
+
+test('durante a navegação da janela principal nada do navegador abre, comanda nem confirma; o documento que entra não herda o que o que saía fazia', async () => {
+  const r = await comPessoa()
+  const comando = { controller: 'agent' }
+  const respostas: ((v: ForkCloudCallResult) => void)[] = []
+  r.hub.browserStreamSubscribe = () => new Promise((resolve) => respostas.push(resolve))
+  const velha = r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
+  await settle()
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'o documento que está saindo ainda fala por IPC: negado')
+  r.abrirQuadrosEm('e'.repeat(32), connectionId)
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'notSent', 'abertura durante a navegação: negada')
+  respostas[0]!({ kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } })
+  await velha
+  r.navegou()
+  r.abrirQuadrosEm('f'.repeat(32), connectionId)
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'a confirmação do documento anterior não passa ao seguinte')
+  r.hub.browserStreamSubscribe = (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } })
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok')
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok', 'controle: o documento carregado inscreve e confirma a própria')
+})
+
+test('recarregar e reabrir a mesma sessão: o Hub recusa a repetida (403) e a posse anterior não volta', async () => {
+  const r = await comPessoa()
+  const comando = { controller: 'agent' }
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.navegou()
+  r.abrirQuadrosEm('a'.repeat(32), connectionId)
+  r.hub.browserStreamSubscribe = () => ({ kind: 'err', status: 403, message: 'x' })
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'err', 'como o Hub real: a mesma sessão ainda inscrita é recusada')
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'recusado, o documento novo não ganha a posse; a recuperação é por nova conexão')
 })

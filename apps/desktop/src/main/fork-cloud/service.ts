@@ -716,10 +716,15 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   const documents = new WeakMap<object, number>()
   const watched = new WeakSet<object>()
   const documentOf = (sender: object) => documents.get(sender) ?? 0
+  // Entre o início da navegação e a troca efetiva o documento que está saindo ainda pode falar por IPC: nada do navegador do bot
+  // abre, comanda nem confirma nesse intervalo, e a geração avança nas duas pontas (a posse nunca passa ao documento seguinte).
+  const navigating = new WeakSet<object>()
   const watchDocument = (sender: IpcMainEvent['sender']) => {
     if (watched.has(sender)) return
     watched.add(sender)
-    sender.on('did-start-navigation', (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) documents.set(sender, documentOf(sender) + 1) })
+    const bump = () => documents.set(sender, documentOf(sender) + 1)
+    sender.on('did-start-navigation', (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) { navigating.add(sender); bump() } })
+    for (const settled of ['did-navigate', 'did-fail-load', 'did-stop-loading'] as const) sender.on(settled as 'did-navigate', () => { if (navigating.delete(sender)) bump() })
   }
   const authorityOf = (connectionId: string): HubSwitch | null => {
     if (!service.dataConnection(connectionId)) return null
@@ -781,7 +786,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const mine = () => [...frames.values()].filter(entry => entry.event.sender === event.sender && entry.event.senderFrame === frame && entry.connectionId === connectionId)
     let hub: HubSwitch | null = null
     if (typeof method === 'string' && method.startsWith('browserStream')) {
-      if (typeof connectionId !== 'string' || mine().length === 0) return { kind: 'notSent', reason: 'notReady' }
+      if (typeof connectionId !== 'string' || mine().length === 0 || navigating.has(event.sender)) return { kind: 'notSent', reason: 'notReady' }
       hub = authorityOf(connectionId)
       if (!hub || (method !== 'browserStreamSubscribe' && !(hub.open && hub.ownedBy(event.sender, frame, documentOf(event.sender))))) return { kind: 'notSent', reason: 'notReady' }
     }
@@ -794,7 +799,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
       result = await service.call(connectionId, method, body, args[3], method === 'browserStreamInput' ? input => mine().some(entry => entry.proof.fresh(input)) : undefined)
     } finally {
       // Se o documento mudou durante a troca, o Hub trocou a inscrição mas ninguém a herda: fica bloqueado até uma confirmação nova.
-      if (subscribing) { const outcome = subscribeOutcome(result, body); hub!.settle(outcome === 'confirmed' && documentOf(event.sender) !== document ? 'uncertain' : outcome, subscribeSession(body), service.markOrder(), event.sender, frame, document) }
+      if (subscribing) { const outcome = subscribeOutcome(result, body); hub!.settle(outcome === 'confirmed' && (documentOf(event.sender) !== document || navigating.has(event.sender)) ? 'uncertain' : outcome, subscribeSession(body), service.markOrder(), event.sender, frame, document) }
     }
     if (!live(event) || event.senderFrame !== frame) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
@@ -836,12 +841,16 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     }
     const mapKey = key(event, id)
     if (frames.has(mapKey)) return
+    watchDocument(event.sender)
+    if (navigating.has(event.sender)) {
+      event.sender.send('forkCloud:frames:end', id, transportError(0, 'Assinatura indisponível.')) // textos-ok: diagnóstico do transporte
+      return
+    }
     const frame = event.senderFrame
     const current = () => live(event) && event.senderFrame === frame && !!service.dataConnection(connectionId)
     const changed = () => endFrames(mapKey, null, false)
     // Só a troca de documento da janela principal encerra: âncora (mesmo documento) e subquadro não mexem na tela aberta.
     const navigated = (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) changed() }
-    watchDocument(event.sender)
     event.sender.on('did-start-navigation', navigated); event.sender.once('destroyed', changed)
     const cleanup = () => { event.sender.removeListener('did-start-navigation', navigated); event.sender.removeListener('destroyed', changed) }
     // O quadro só vai a esta janela se ela é a dona da inscrição confirmada e o quadro é da sessão confirmada; senão é descartado
