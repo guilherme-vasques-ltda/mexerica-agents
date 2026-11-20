@@ -238,8 +238,10 @@ fn status(home: &Home) -> Result<()> {
 }
 
 async fn revoke(home: &Home, local_only: bool) -> Result<()> {
+    // O vínculo que esta revogação alcança é o de agora: se mudar enquanto a rede responde, o novo não é apagado.
+    let link = home.link();
     if !local_only {
-        let link = home.link()?;
+        let link = link.as_ref().map_err(|e| anyhow!("{e:#}"))?;
         let sign_pub = crypto::unb64_n::<32>(&link.sign_pub)?;
         let mut session = Session::connect(&link.url, &home.key(false)?, &sign_pub, false)
             .await
@@ -257,6 +259,9 @@ async fn revoke(home: &Home, local_only: bool) -> Result<()> {
     // Mesmo trinco da criação, só durante a limpeza (não durante a rede): se um pedido está gravando, a revogação
     // espera; depois dela nada novo é criado.
     let _lock = home.lock()?;
+    if let Ok(link) = &link {
+        same_binding(home, link).context("o vínculo mudou durante a revogação; nada foi apagado")?;
+    }
     home.wipe_identity()?;
     println!("Identidade e liberações locais apagadas.");
     Ok(())
