@@ -63,8 +63,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // vazia). O catálogo é lido sob demanda e não entra no mirror; o bump só segue a regra de campo novo do Hub. App antigo
 // ignora a lista; o novo não mostra a seção quando ela não vem.
 // Schema 54: `donnaTaskSessions` inclui a confirmação de atenção da tarefa; o dado só existe na leitura atual.
-// Schema 55: gráfico de leitura do bot (`Entry.data.genuiChart`, mostrar_componente com gráfico); cache anterior não tem a projeção.
-export const MIRROR_SCHEMA = 55
+// Schema 57: gráfico de leitura do bot (`Entry.data.genuiChart`, mostrar_componente com gráfico); cache anterior não tem a projeção.
+export const MIRROR_SCHEMA = 57
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
