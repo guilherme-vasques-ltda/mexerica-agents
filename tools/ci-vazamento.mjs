@@ -76,7 +76,7 @@ export function publicRules(line, policy, path = '', marker = true) {
   return policy.rules.filter((r) => found.has(r.id) && !(mark && r.marker)).map((r) => r.id);
 }
 // D523: exclui só o prefixo aprovado em posição de URL, preservando o resto da linha.
-export function personalText(line, policy) {
+function withoutAllowedUrls(line, policy) {
   for (const prefix of policy.urlsPermitidas ?? []) {
     const escaped = Array.from(prefix, (c) => '.?+*|^$()[]{}'.includes(c) || c.charCodeAt(0) === 92 ? String.fromCharCode(92) + c : c).join('');
     const scheme = prefix.startsWith('git@') ? '' : '(https?://)?';
@@ -84,9 +84,22 @@ export function personalText(line, policy) {
     const url = new RegExp('(?<![a-z0-9_./:@-])' + scheme + escaped + boundary, 'gi');
     line = line.replace(url, (match, protocol) => scheme ? (protocol ?? '') : '');
   }
-  return normalize(line).replace(/[\s._-]+/g, ' ');
+  return normalize(line);
 }
+export const personalText = (line, policy) => withoutAllowedUrls(line, policy).replace(/[\s._-]+/g, ' ');
 const normalizeTerm = (t) => normalize(t).replace(/[\s._-]+/g, ' ');
+// Termo com dígito e sem letra (IP, telefone, documento): trocar separador por espaço fabricaria o termo a partir de
+// outros números (coordenadas de SVG). Ele casa só literal, com os separadores originais, fora de um número maior;
+// ponto e dígitos seguidos de letra (extensão como .7z ou .3gp) não contam como continuação do número.
+const numericTerm = (t) => /\p{Nd}/u.test(normalize(t)) && !/\p{L}/u.test(normalize(t));
+const numericPatterns = new Map();
+const numericPattern = (t) => {
+  if (!numericPatterns.has(t)) {
+    const body = normalize(t).trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+    numericPatterns.set(t, new RegExp('(?<!\\p{Nd}\\.?)' + body + '(?!\\p{Nd})(?!\\.\\p{Nd}+(?!\\p{Nd}|\\.?\\p{L}))', 'u'));
+  }
+  return numericPatterns.get(t);
+};
 const termHash = (t) => createHash('sha256').update(normalizeTerm(t)).digest('hex');
 // Exceção estreita de termo: só o hash do termo normalizado, num caminho exato, para o conteúdo (nunca nome/commit).
 // Formato inválido falha fechado (lança).
@@ -107,9 +120,11 @@ export function termExceptions(policy) {
 // `content` é true só para linhas de conteúdo de arquivo; caminhos e mensagens de commit nunca são exceptuados.
 export function scanLine(path, number, line, policy, terms = [], content = false, marker = true) {
   const ids = publicRules(line, policy, path, marker);
-  const personal = terms.length ? personalText(line, policy) : '';
+  const literal = terms.length ? withoutAllowedUrls(line, policy) : '';
+  const personal = terms.some((t) => !numericTerm(t)) ? literal.replace(/[\s._-]+/g, ' ') : '';
   const exempt = content && terms.length ? new Set(termExceptions(policy).filter((e) => e.arquivo === path).map((e) => e.sha256)) : new Set();
-  if (terms.some((t) => !exempt.has(termHash(t)) && personal.includes(normalizeTerm(t)))) ids.push('termo-pessoal');
+  const hit = (t) => numericTerm(t) ? numericPattern(t).test(literal) : personal.includes(normalizeTerm(t));
+  if (terms.some((t) => !exempt.has(termHash(t)) && hit(t))) ids.push('termo-pessoal');
   return ids.map((rule) => ({ path, line: number, rule, fingerprint: fingerprint(rule, path, line) }));
 }
 function autoMerge(cwd, [ours, theirs]) {
