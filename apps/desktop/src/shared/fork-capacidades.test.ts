@@ -10,6 +10,7 @@ const semSuporte = {
   ssh: false,
   cofreLocal: false,
   perfilConta: false,
+  atalhoVoz: false,
 }
 
 test('sem argumento, todas as capacidades ficam desabilitadas', () => {
@@ -42,6 +43,7 @@ for (const platform of ['darwin', 'linux', 'win32'] as const) {
       ssh: true,
       cofreLocal: true,
       perfilConta: true,
+      atalhoVoz: true,
     })
   })
 

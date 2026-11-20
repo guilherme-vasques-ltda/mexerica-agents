@@ -173,7 +173,7 @@ function contem(raiz: unknown, texto: string, vistos = new Set<unknown>()): bool
 
 test('a ponte do preload tem somente os canais fixos autorizados e o aviso, e nenhum devolve a chave', async () => {
   const m = montar()
-  assert.deepEqual(Object.keys(m.ponte).sort(), ['catalogoXai', 'conferirSessaoXai', 'credencial', 'credencialXai', 'estado', 'fecharSessaoXai', 'guardar', 'limpar', 'onChange', 'testar', 'usarReserva'])
+  assert.deepEqual(Object.keys(m.ponte).sort(), ['catalogoXai', 'conferirSessaoXai', 'credencial', 'credencialXai', 'definirAtalho', 'estado', 'fecharSessaoXai', 'guardar', 'limpar', 'onChange', 'testar', 'usarReserva'])
   const respostas: unknown[] = []
   respostas.push(await m.ponte.guardar('openai', `  ${CHAVE}  `))
   respostas.push(await m.ponte.estado())
