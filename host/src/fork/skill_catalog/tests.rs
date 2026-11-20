@@ -861,6 +861,17 @@ fn orphan_cleanup_removes_stale_directories_and_restores_the_only_copy() {
 }
 
 #[test]
+fn orphan_cleanup_keeps_old_directories_without_a_recognizable_destination() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let root = &f.0.skills_root;
+    fs::create_dir(root.join(".old-sem-destino")).unwrap();
+    clean_orphans(root, |a, b| fs::rename(a, b));
+    assert!(root.join(".old-sem-destino").exists());
+}
+
+#[test]
 fn orphan_cleanup_keeps_the_old_copy_when_the_restore_fails() {
     let _isolamento = TEST_ISOLATION.blocking_lock();
     let f = Fixture::new();

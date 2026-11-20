@@ -711,18 +711,26 @@ fn clean_orphans(root: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) 
             continue;
         }
         if old {
-            let target = name.get(42..).filter(|target| !target.is_empty() && !target.starts_with('.'));
-            let dest = target.map(|target| root.join(target));
-            let missing = dest.as_ref().is_some_and(|dest| {
-                fs::symlink_metadata(dest).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-            });
-            if let (true, Some(dest)) = (missing, dest) {
-                if let Err(error) = mv(&path, &dest) {
-                    tracing::warn!(%error, "Versão anterior do catálogo não pôde ser restaurada; mantida em .old-*");
-                } else {
-                    tracing::warn!("Versão anterior do catálogo de habilidades restaurada após troca interrompida");
-                }
+            let dest = name.get(42..).filter(|target| !target.is_empty() && !target.starts_with('.'));
+            let Some(dest) = dest.map(|target| root.join(target)) else {
+                tracing::warn!("Pasta .old-* sem destino reconhecível no catálogo de habilidades; mantida");
                 continue;
+            };
+            // Só apaga depois de ver o destino de fato: sem destino a cópia volta; erro de leitura a mantém.
+            match fs::symlink_metadata(&dest) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if let Err(error) = mv(&path, &dest) {
+                        tracing::warn!(%error, "Versão anterior do catálogo não pôde ser restaurada; mantida em .old-*");
+                    } else {
+                        tracing::warn!("Versão anterior do catálogo de habilidades restaurada após troca interrompida");
+                    }
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Destino do catálogo ilegível; versão anterior mantida em .old-*");
+                    continue;
+                }
             }
         }
         if let Err(error) = fs::remove_dir_all(&path) {
