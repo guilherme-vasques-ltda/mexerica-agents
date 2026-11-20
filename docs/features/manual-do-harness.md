@@ -2773,8 +2773,13 @@ posteriores. Fonte: [MCP, vínculo ao servidor de autorização](https://modelco
 sistema separado; o Hub permanece no serviço de usuário. Os binários ficam em
 `/opt/donnabot/bin`, pasta do root sem escrita da conta do Hub, e a origem de cada
 binário é lida com a identidade dessa conta. Com essa instalação presente, o sudo
-executa o binário do root, nunca uma cópia gravável pela conta; uma pasta de
-binários da conta do Hub, de instalação anterior, é trocada na reinstalação. `migrar-motor` é comando
+executa o binário do root, nunca uma cópia gravável pela conta. Com a instalação
+ativa, reinstalar pelo link do app usa só os binários do root, e atualizar exige o
+pacote extraído com sudo numa pasta do root (por exemplo `/opt/mexerica-pacote`);
+a desinstalação libera a próxima instalação a partir de um pacote baixado. Uma pasta de
+binários da conta do Hub, de instalação anterior, é trocada na atualização. O par novo
+é preparado e testado antes de parar o Hub; se algo falhar depois, a troca é desfeita
+e o Hub anterior volta. `migrar-motor` é comando
 administrativo exclusivo da instalação de teste do dono, com cópia e volta;
 não é ferramenta do bot nem RPC e não concede autoridade Local. O bot não pede
 senha, código ou token no chat nem executa a instalação. Perfis já utilizados
