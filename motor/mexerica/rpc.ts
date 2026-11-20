@@ -45,7 +45,8 @@ const fail = (id: string | undefined, command: string, error: string) =>
 const channel = VaultChannel.open(); // falha fechado: sem fd 3 não há cofre
 // A chave e as formas em que um erro do fornecedor pode repeti-la (escapada em JSON ou codificada em URL).
 const credentials = new HubCredentialStore(channel, (key) => {
-	for (const forma of [key, JSON.stringify(key).slice(1, -1), encodeURIComponent(key)]) segredos.add(forma);
+	const url = encodeURIComponent(key);
+	for (const forma of [key, JSON.stringify(key).slice(1, -1), url, url.replace(/%[0-9A-F]{2}/g, (c) => c.toLowerCase())]) segredos.add(forma);
 });
 const models = createModels({ credentials, authContext: emptyAuthContext() });
 const fauxHandle = registerProviders(models);
