@@ -537,6 +537,9 @@ fn well_known_dirs() -> Vec<PathBuf> {
 /// Re-detects the search path and exports it as this process's PATH, so every
 /// agent we spawn (and the `npx`/`node` they need) resolves the same way.
 pub fn hydrate_path() {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
     let mut seen = HashSet::new();
     let mut path: Vec<PathBuf> = vec![];
     let current = std::env::var("PATH").unwrap_or_default();
@@ -608,6 +611,9 @@ pub fn on_path(bin: &str) -> bool {
 
 /// Every harness the phone can pick, installed ones first.
 pub fn list() -> Vec<Value> {
+    if crate::environment::Environment::is_open() {
+        return Vec::new();
+    }
     let registry = registry::agents();
     let mut out: Vec<Value> = HARNESSES
         .iter()
@@ -683,6 +689,9 @@ pub fn set_signed_in(id: &str, state: Option<bool>) {
 
 /// Re-checks every installed harness that can report its sign-in state.
 pub async fn refresh_sign_in(store: &crate::store::Store) {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
     let checks = HARNESSES.iter().filter_map(|h| {
         let check = h.signed_in?;
         let bin = h.bins.iter().find_map(|b| which(b))?;
@@ -762,6 +771,7 @@ pub async fn launch_candidates(
     id: &str,
     progress: impl Fn(&str, Option<crate::fork::activity_code::ActivityKind>),
 ) -> anyhow::Result<Vec<registry::Cmd>> {
+    crate::open_hub::require_executor()?;
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::launch_candidates();
     }

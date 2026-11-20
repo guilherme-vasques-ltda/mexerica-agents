@@ -272,7 +272,7 @@ async fn claude(
 ) -> Result<probe::Observation> {
     use portable_pty::{PtySize, native_pty_system};
     let pair = native_pty_system().openpty(PtySize { rows: 24, cols: 100, pixel_width: 0, pixel_height: 0 })?;
-    let mut cmd = crate::fork::motor_exec::pty(executable, directory);
+    let mut cmd = crate::fork::motor_exec::pty(executable, directory)?;
     cmd.args(["auth", "login"]);
     cmd.env_clear();
     for (key, value) in environment(directory, Backend::Claude) {
