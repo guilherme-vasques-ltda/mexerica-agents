@@ -240,6 +240,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.retorno.parado.texto": "Esta dirección solo recibe el retorno de un inicio de sesión iniciado en Mexerica.",
   "mercado.erro.confirmacao_obrigatoria": "Confirma que quieres activar esta acción.",
   "mercado.erro.ferramenta_mudou": "La acción cambió desde que la viste. Abre la lista de nuevo y confirma otra vez.",
+  "mercado.erro.vinculo_mudou": "Esta cuenta salió de este bot y volvió desde que abriste la lista. Abre la lista de nuevo y confirma otra vez.",
   "mercado.erro.ferramenta_desconhecida": "Esta cuenta aún no mostró esa acción. Verifica la cuenta e inténtalo de nuevo.",
   "mercado.erro.ferramenta_fora_da_ficha": "La ficha de esta cuenta no ofrece esa acción.",
   "mercado.erro.conta_sem_ficha": "Solo las cuentas del catálogo tienen acciones controladas aquí.",

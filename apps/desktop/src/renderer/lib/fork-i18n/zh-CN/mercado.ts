@@ -234,6 +234,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.retorno.parado.texto": "此地址只接收在 Mexerica 中发起的登录的返回。",
   "mercado.erro.confirmacao_obrigatoria": "请确认你要开启此操作。",
   "mercado.erro.ferramenta_mudou": "自你查看后此操作已变化。请重新打开列表并再次确认。",
+  "mercado.erro.vinculo_mudou": "自你打开列表后，此账户已被移出该机器人并重新添加。请重新打开列表并再次确认。",
   "mercado.erro.ferramenta_desconhecida": "此账号还没有显示该操作。请先验证账号再试。",
   "mercado.erro.ferramenta_fora_da_ficha": "此账号的清单不提供该操作。",
   "mercado.erro.conta_sem_ficha": "这里只控制目录账号的操作。",

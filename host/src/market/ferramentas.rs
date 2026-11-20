@@ -717,6 +717,9 @@ fn conta_do_bot(todas: &[Connector], bot: &crate::store::BotConfig, id: &str) ->
 
 /// Ferramentas da conta como a tela as mostra, para um bot. Só o que a ficha admite (`fora_da_ficha` não aparece).
 pub(crate) fn listar(store: &Store, bot: &str, conta_id: &str) -> Result<Value> {
+    // A época é lida ANTES do vínculo: uma retirada que aconteça depois só deixa a época velha, e a confirmação feita
+    // com ela é recusada; nunca uma época nova para uma lista montada com o vínculo antigo.
+    let epoca = epoca_em(&store.db.locked(), bot, conta_id)?;
     let cfg = store.bot(bot)?.filter(|b| !b.deleted).ok_or_else(|| anyhow!("unknown bot"))?.config;
     let conta = conta_do_bot(&super::connectors(store)?, &cfg, conta_id)?;
     let pol = politica(&conta)?.ok_or_else(|| anyhow!("conta sem ficha"))?;
@@ -724,7 +727,6 @@ pub(crate) fn listar(store: &Store, bot: &str, conta_id: &str) -> Result<Value> 
     let linhas = linhas(&db, &conta.id)?;
     let liberadas = liberacoes(&db, bot, &conta.id)?;
     let pronto = inventario_completo(&db, &conta.id)?;
-    let epoca = epoca_em(&db, bot, &conta.id)?;
     let itens: Vec<Value> = linhas
         .iter()
         .filter_map(|(nome, linha)| {

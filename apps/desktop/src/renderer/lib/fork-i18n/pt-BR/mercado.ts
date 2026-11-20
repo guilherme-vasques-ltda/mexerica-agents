@@ -237,6 +237,7 @@ export const textos = {
   "mercado.retorno.parado.texto": "Este endereço só recebe o retorno de um login iniciado na Mexerica.",
   "mercado.erro.confirmacao_obrigatoria": "Confirme que você quer ligar esta ação.",
   "mercado.erro.ferramenta_mudou": "A ação mudou desde que você a viu. Abra a lista de novo e confirme outra vez.",
+  "mercado.erro.vinculo_mudou": "Essa conta saiu deste bot e voltou desde que você abriu a lista. Abra a lista de novo e confirme outra vez.",
   "mercado.erro.ferramenta_desconhecida": "Esta conta ainda não mostrou essa ação. Verifique a conta e tente de novo.",
   "mercado.erro.ferramenta_fora_da_ficha": "A ficha desta conta não oferece essa ação.",
   "mercado.erro.conta_sem_ficha": "Só contas do catálogo têm ações controladas por aqui.",

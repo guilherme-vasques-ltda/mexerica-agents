@@ -249,6 +249,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.retorno.parado.texto": "هذا العنوان يستقبل فقط عودة تسجيل دخول بدأ من Mexerica.",
   "mercado.erro.confirmacao_obrigatoria": "أكّد أنك تريد تشغيل هذا الإجراء.",
   "mercado.erro.ferramenta_mudou": "تغيّر الإجراء منذ رأيته. افتح القائمة مجددًا وأكّد مرة أخرى.",
+  "mercado.erro.vinculo_mudou": "غادر هذا الحساب هذا الروبوت ثم عاد منذ فتحت القائمة. افتح القائمة مجددًا وأكّد مرة أخرى.",
   "mercado.erro.ferramenta_desconhecida": "لم يُظهر هذا الحساب ذلك الإجراء بعد. تحقّق من الحساب وحاول مجددًا.",
   "mercado.erro.ferramenta_fora_da_ficha": "بطاقة هذا الحساب لا تقدّم ذلك الإجراء.",
   "mercado.erro.conta_sem_ficha": "حسابات الكتالوج وحدها لها إجراءات تُدار هنا.",

@@ -17,11 +17,12 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
   const [dados, setDados] = useState<FerramentasDaConta | null>(null)
   const [falhou, setFalhou] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [confirmando, setConfirmando] = useState<string | null>(null)
+  // A confirmação guarda o que a pessoa viu ao abri-la (digest e época do vínculo); recarregar a lista a descarta.
+  const [confirmando, setConfirmando] = useState<{ nome: string; digest: string; vinculo: number } | null>(null)
   const [salvando, setSalvando] = useState(false)
 
   const ler = useCallback(async () => {
-    setFalhou(false)
+    setFalhou(false); setConfirmando(null)
     try { setDados(await ferramentasDoBot(store, botId, conta.id)) } catch { setFalhou(true) }
   }, [store, botId, conta.id])
   useEffect(() => { setDados(null); setConfirmando(null); setErro(null); void ler() }, [ler])
@@ -30,7 +31,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
     setSalvando(true); setErro(null)
     try { setDados(await op()); setConfirmando(null) } catch (e) { setErro(frasesDaRecusa(t, e)); await ler() } finally { setSalvando(false) }
   }
-  const ligar = (f: FerramentaDaConta) => aplicar(() => ligarFerramenta(store, { botId, conta: conta.id, ferramenta: f.nome, digest: f.digest, vinculo: dados?.vinculo ?? -1, confirmo: true }))
+  const ligar = (visto: { nome: string; digest: string; vinculo: number }) => aplicar(() => ligarFerramenta(store, { botId, conta: conta.id, ferramenta: visto.nome, digest: visto.digest, vinculo: visto.vinculo, confirmo: true }))
   const desligar = (f: FerramentaDaConta) => aplicar(() => desligarFerramenta(store, botId, conta.id, f.nome))
 
   const titulo = <Text size="callout" weight="semibold" tone="text">{t('mercado.acoes.titulo', { conta: conta.nome })}</Text>
@@ -45,7 +46,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
       {dados.inventarioPronto && acoes.length === 0 ? <Text size="caption" tone="secondary">{t('mercado.acoes.vazio')}</Text> : null}
       {acoes.map((f) => {
         const nome = f.rotulo ?? f.nome
-        const aberta = confirmando === f.nome
+        const aberta = confirmando?.nome === f.nome
         return (
           <VStack key={f.nome} gap={6} className="mercado-acao">
             <HStack gap={10} shrink>
@@ -55,7 +56,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
               </VStack>
               {f.estado === 'ligada'
                 ? <Button kind="secondary" disabled={salvando} onClick={() => void desligar(f)}>{t('mercado.acoes.desligar')}</Button>
-                : <Button kind="secondary" disabled={salvando || aberta} onClick={() => setConfirmando(f.nome)}>{t('mercado.acoes.ligar')}</Button>}
+                : <Button kind="secondary" disabled={salvando || aberta} onClick={() => setConfirmando({ nome: f.nome, digest: f.digest, vinculo: dados.vinculo })}>{t('mercado.acoes.ligar')}</Button>}
             </HStack>
             {aberta ? (
               <div className="mercado-aviso alerta" role="alertdialog" aria-label={t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}>
@@ -63,7 +64,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
                   <Text size="callout" weight="semibold" as="div">{t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}</Text>
                   <Text size="callout" as="div">{t('mercado.acoes.confirmar.texto', { conta: conta.nome })}</Text>
                   <HStack gap={8}>
-                    <Button disabled={salvando} onClick={() => void ligar(f)}>{t('mercado.acoes.confirmar.sim')}</Button>
+                    <Button disabled={salvando} onClick={() => confirmando && void ligar(confirmando)}>{t('mercado.acoes.confirmar.sim')}</Button>
                     <Button kind="secondary" disabled={salvando} onClick={() => setConfirmando(null)}>{t('mercado.acoes.confirmar.cancelar')}</Button>
                   </HStack>
                 </VStack>

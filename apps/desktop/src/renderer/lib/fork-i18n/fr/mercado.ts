@@ -240,6 +240,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.retorno.parado.texto": "Cette adresse ne reçoit que le retour d'une connexion lancée dans Mexerica.",
   "mercado.erro.confirmacao_obrigatoria": "Confirmez que vous voulez activer cette action.",
   "mercado.erro.ferramenta_mudou": "L’action a changé depuis que vous l’avez vue. Rouvrez la liste et confirmez à nouveau.",
+  "mercado.erro.vinculo_mudou": "Ce compte a quitté ce bot puis est revenu depuis que vous avez ouvert la liste. Rouvrez la liste et confirmez à nouveau.",
   "mercado.erro.ferramenta_desconhecida": "Ce compte n’a pas encore montré cette action. Vérifiez le compte et réessayez.",
   "mercado.erro.ferramenta_fora_da_ficha": "La fiche de ce compte ne propose pas cette action.",
   "mercado.erro.conta_sem_ficha": "Seuls les comptes du catalogue ont des actions contrôlées ici.",

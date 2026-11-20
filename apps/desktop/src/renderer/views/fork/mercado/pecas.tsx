@@ -31,7 +31,7 @@ export const ChaveDoErro: Record<CodigoDeRecusa, ChaveTexto> = {
   principal_sem_contas: 'mercado.erro.principal_sem_contas',
   confirmacao_obrigatoria: 'mercado.erro.confirmacao_obrigatoria',
   ferramenta_mudou: 'mercado.erro.ferramenta_mudou',
-  vinculo_mudou: 'mercado.erro.ferramenta_mudou',
+  vinculo_mudou: 'mercado.erro.vinculo_mudou',
   vinculo_obrigatorio: 'mercado.erro.ferramenta_mudou',
   ferramenta_desconhecida: 'mercado.erro.ferramenta_desconhecida',
   ferramenta_fora_da_ficha: 'mercado.erro.ferramenta_fora_da_ficha',

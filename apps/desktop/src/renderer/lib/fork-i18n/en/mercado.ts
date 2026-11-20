@@ -237,6 +237,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.retorno.parado.texto": "This address only receives the return of a sign-in started in Mexerica.",
   "mercado.erro.confirmacao_obrigatoria": "Confirm that you want to turn this action on.",
   "mercado.erro.ferramenta_mudou": "The action changed since you saw it. Open the list again and confirm once more.",
+  "mercado.erro.vinculo_mudou": "This account left this bot and came back since you opened the list. Open the list again and confirm once more.",
   "mercado.erro.ferramenta_desconhecida": "This account has not shown that action yet. Check the account and try again.",
   "mercado.erro.ferramenta_fora_da_ficha": "This account’s listing does not offer that action.",
   "mercado.erro.conta_sem_ficha": "Only catalog accounts have actions controlled here.",
