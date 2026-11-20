@@ -34,6 +34,7 @@ class Hub {
   commentByRequest = new Map<unknown, unknown>()
   startAnswer: unknown = null
   scheduleAnswer: unknown = null
+  attention: 'owner' | null = null
   ensured = 0
   ensuredOnce = 0
   /** Hub anterior ao TEC-722-16: recusa o campo desconhecido `historyAuthors` (serde deny_unknown_fields). */
@@ -83,6 +84,7 @@ class Hub {
         return { version: 1, hubId: 'h1', spaceId: 'p', snapshot: snap(G), created: this.ensured === 1 && !this.ensuredOnce++ }
       }
       case 'donnaTaskComments': return { version: 1, hubId: 'h1', spaceId: 'p', projectId: b.projectId, taskId: b.taskId, comments: this.comments, omitted: 0 }
+      case 'donnaTaskSessions': return { version: 1, ...b, sessions: [{ botId: 'b1', sessionId: 's1', state: 'idle' }], attention: this.attention }
       case 'donnaTaskComment': {
         const again = this.commentByRequest.get(b.clientRequestId)
         if (again) return { comment: again, receipt: { clientRequestId: b.clientRequestId } }
@@ -102,9 +104,11 @@ class Source {
   principalEpoch = 1
   hub = new Hub()
   bodies: Record<string, unknown>[] = []
+  event: (e: TowerEvent) => void = () => {}
+  endEvents: (err: unknown) => void = () => {}
   connectedClient: TowerLink = {
     call: async (method, body) => { this.bodies.push({ method, ...(body as object) }); return this.hub.call(method, body as Record<string, unknown>) },
-    inSpace: () => ({ events: (_s: number, _c: string, _on: (e: TowerEvent) => void) => () => {} }),
+    inSpace: () => ({ events: (_s, _c, on, end) => { this.event = on; this.endEvents = end; return () => {} } }),
   }
   subscribe() { return () => {} }
 }
@@ -120,6 +124,70 @@ async function opened(caps: string[] = ['manualProjects']) {
   await tick(5)
   return { src, s }
 }
+
+test('atenção some ao resolver o pedido e não atravessa tarefa, Space nem queda do fluxo', async () => {
+  const { src, s } = await opened(['manualProjects', 'taskSessions'])
+  src.hub.attention = 'owner'
+  s.openProject(P)
+  s.openComments({ projectId: P, taskId: T1 })
+  await tick()
+  assert.equal(s.needsOwnerAttention(P, T1), true)
+  assert.equal(s.needsOwnerAttention(Q, T1), false)
+  assert.equal(s.needsOwnerAttention(P, 'outra'), false)
+  src.hub.attention = null
+  const event = { type: 'entry', entry: { kind: 'permission', sessionId: 's1' } }
+  src.event({ ...event, spaceId: 'outro' })
+  const neighbor = { ...event, entry: { ...event.entry, sessionId: 'vizinha' } }
+  src.event(neighbor)
+  assert.equal(s.needsOwnerAttention(P, T1), true)
+  src.event(event)
+  assert.equal(s.needsOwnerAttention(P, T1), false)
+  await tick()
+  assert.equal(s.needsOwnerAttention(P, T1), false)
+  src.hub.attention = 'owner'
+  src.event(event)
+  await tick()
+  assert.equal(s.needsOwnerAttention(P, T1), true)
+  src.endEvents(new Error('fluxo interrompido'))
+  assert.equal(s.needsOwnerAttention(P, T1), false)
+  s.close()
+})
+
+test('eventos de atividade, inclusive do responsável, não apagam uma pendência aberta', async () => {
+  const { src, s } = await opened(['manualProjects', 'taskSessions'])
+  src.hub.attention = 'owner'
+  s.openProject(P)
+  s.openComments({ projectId: P, taskId: T1 })
+  await tick()
+  for (const id of ['vizinho', 'b1']) {
+    const runtime = { type: 'bot', spaceId: 'p', bot: { id, status: 'working' } }
+    src.event(runtime)
+    assert.equal(s.needsOwnerAttention(P, T1), true)
+  }
+  src.event({ type: 'donnaProjectsChanged', spaceId: 'p' })
+  assert.equal(s.needsOwnerAttention(P, T1), true)
+  await tick()
+  assert.equal(s.needsOwnerAttention(P, T1), true)
+  const deleted = { type: 'botDeleted', spaceId: 'p', id: 'b1' }
+  src.event(deleted)
+  assert.equal(s.needsOwnerAttention(P, T1), false)
+  s.close()
+})
+
+test('dúvida de autoridade na leitura do vínculo não preserva atenção confirmada', async () => {
+  const { src, s } = await opened(['manualProjects', 'taskSessions'])
+  src.hub.attention = 'owner'
+  s.openProject(P)
+  s.openComments({ projectId: P, taskId: T1 })
+  await tick()
+  assert.equal(s.needsOwnerAttention(P, T1), true)
+  src.hub.fail.donnaTaskSessions = new HostErr(400, 'not_allowed: autorização original encerrada')
+  src.event({ type: 'donnaProjectsChanged', spaceId: 'p' })
+  await tick()
+  assert.equal(s.needsOwnerAttention(P, T1), false)
+  assert.equal(s.authority, 'pending')
+  s.close()
+})
 
 test('sem pedir as tarefas, nada além da lista; pedindo, um donnaProject por Projeto ativo', async () => {
   const src = new Source()

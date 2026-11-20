@@ -93,6 +93,7 @@ export interface LinkedView {
   state: 'loading' | 'ready' | 'error'
   sessions: LinkedSession[]
   agenda: TaskAgenda | null
+  attention: 'owner' | null
   reason: ProjectsFailure | null
 }
 
@@ -113,6 +114,17 @@ export interface CommentsView {
 export type WriteResult = { ok: true; projectId: string } | { ok: false; status: Exclude<WriteStatus, 'sending'> | 'blocked' | 'outdated'; requestId?: string }
 
 interface Origin { source: TowerSource; hostId: string; client: TowerLink; epoch: number; gen: number }
+interface TowerEventWithTask {
+  type: string
+  spaceId?: string
+  hubId?: string
+  id?: string
+  bot?: { id?: string; deleted?: boolean; hidden?: boolean; spaceId?: string }
+  conversation?: { botId?: string; closed?: boolean }
+  session?: { id?: string; state?: string }
+  sessionId?: string
+  entry?: { kind?: string; sessionId?: string; data?: { card?: string } }
+}
 /**
  * Uma gravação em voo: só ela pode mexer em `write` quando voltar, e só na mesma autoridade (fonte, Hub e Space). A
  * época (`principalEpoch`) NÃO é identidade: no app ela sobe a cada hello, inclusive na reconexão do mesmo Hub; resposta
@@ -273,7 +285,7 @@ export class ProjectsSession extends Observable {
       return
     }
     if (this.linked?.projectId !== target.projectId || this.linked.taskId !== target.taskId) {
-      this.linked = { ...target, state: 'loading', sessions: [], agenda: null, reason: null }
+      this.linked = { ...target, state: 'loading', sessions: [], agenda: null, attention: null, reason: null }
     }
     const origin = this.origin
     if (origin && this.current(origin)) void this.readLinked(origin)
@@ -283,6 +295,11 @@ export class ProjectsSession extends Observable {
   agendaOf(projectId: string, taskId: string): TaskAgenda | null {
     if (this.linked?.projectId === projectId && this.linked.taskId === taskId && this.linked.state === 'ready') return this.linked.agenda
     return this.agendas?.find((a) => a.projectId === projectId && a.taskId === taskId) ?? null
+  }
+
+  needsOwnerAttention(projectId: string, taskId: string): boolean {
+    const l = this.linked
+    return !this.stale && l?.state === 'ready' && l.projectId === projectId && l.taskId === taskId && l.attention === 'owner'
   }
 
   /** Abre (ou fecha, com null) os comentários de uma tarefa do Projeto aberto. */
@@ -723,6 +740,7 @@ export class ProjectsSession extends Observable {
     const hostId = source.hello?.hostId
     const client = source.connectedClient
     this.verified = false
+    this.invalidateAttention()
     this.legacyHistory = false
     // Outro Hub: outra autoridade; nada do que estava na tela (nem o pedido) continua. Outra época do MESMO Hub é só
     // outro ciclo do stream (o BotSync sobe a época a cada hello, inclusive na reconexão): a fotografia fica, antiga,
@@ -756,14 +774,35 @@ export class ProjectsSession extends Observable {
     this.stopEvents = origin.client.inSpace(spaceId).events(origin.source.hello?.rev ?? 0, 'desktop', (e) => {
       if (!this.current(origin)) return
       this.relistenDelay = RELISTEN_MIN
-      const ev = e as { type: string; spaceId?: string; hubId?: string }
-      // Só invalidação: outro space ou outro Hub não fazem nada; o conteúdo vem da releitura autorizada.
-      if (ev.type === PROJECTS_EVENT ? ev.spaceId === spaceId && (ev.hubId === undefined || ev.hubId === origin.hostId) : ev.type === 'bot' || ev.type === 'botDeleted' || ev.type === 'hello' || ev.type === 'resync') {
+      const ev = e as TowerEventWithTask
+      if ((ev.spaceId !== undefined && ev.spaceId !== spaceId) || (ev.hubId !== undefined && ev.hubId !== origin.hostId)) return
+      const l = this.linked
+      const entry = ev.entry
+      const linkedSession = (id: string | undefined) => !!id && !!l && (l.state !== 'ready' || l.sessions.some((s) => s.sessionId === id))
+      const linkedBot = (id: string | undefined) => !!id && !!l && (l.state !== 'ready' || l.sessions.some((s) => s.botId === id))
+      const lostBot = (ev.type === 'botDeleted' && linkedBot(ev.id))
+        || (ev.type === 'bot' && ev.bot && linkedBot(ev.bot.id)
+          && (ev.bot.deleted || ev.bot.hidden || (ev.bot.spaceId !== undefined && ev.bot.spaceId !== spaceId)))
+      const needsRead = (ev.type === 'entry' && entry && linkedSession(entry.sessionId)
+        && (entry.kind === 'permission' || (entry.kind === 'notice' && entry.data?.card === 'ownerQuestion')))
+        || (ev.type === 'sessionDeleted' && linkedSession(ev.sessionId))
+        || (ev.type === 'session' && ev.session?.state !== 'open' && linkedSession(ev.session?.id))
+        || (ev.type === 'conversation' && ev.conversation?.closed && linkedBot(ev.conversation.botId))
+      const resync = ev.type === 'hello' || ev.type === 'resync' || ev.type === 'spaces'
+      const projects = ev.type === PROJECTS_EVENT && ev.spaceId === spaceId
+      if (resync || lostBot || needsRead) {
+        this.invalidateAttention()
+      }
+      if (l && (lostBot || needsRead || projects)) {
+        void this.readLinked(origin)
+      }
+      if (projects || resync || ev.type === 'bot' || ev.type === 'botDeleted') {
         this.scheduleRead(origin)
       }
     }, () => {
       if (!this.current(origin)) return
       this.events = 'paused'
+      this.invalidateAttention()
       if (this.offlineSince === null) this.offlineSince = this.now()
       this.changed()
       if (this.relistenTimer) clearTimeout(this.relistenTimer)
@@ -837,6 +876,7 @@ export class ProjectsSession extends Observable {
   /** Autoridade em dúvida: a fotografia da mesma origem fica (antiga) e nada grava até a próxima leitura autorizada. */
   private authorityInDoubt() {
     this.verified = false
+    this.invalidateAttention()
     if (this.authority === 'ok' && this.offlineSince === null) this.offlineSince = this.now()
     this.authority = 'pending'
     this.changed()
@@ -938,23 +978,33 @@ export class ProjectsSession extends Observable {
     }
   }
 
+  private invalidateAttention() {
+    this.linkedReads++
+    if (this.linked?.attention) {
+      this.linked = { ...this.linked, attention: null }
+      this.changed()
+    }
+  }
+
   private async readLinked(origin: Origin) {
     const l = this.linked
     const spaceId = this.spaceId
     if (!l || !spaceId || !this.has(TASK_CAPABILITIES.sessions)) return
     const read = ++this.linkedReads
     const where = { hubId: origin.hostId, spaceId, projectId: l.projectId, taskId: l.taskId }
-    const fresh = () => this.current(origin) && read === this.linkedReads && this.linked?.projectId === l.projectId && this.linked.taskId === l.taskId
+    const fresh = () => this.current(origin) && this.events === 'live' && read === this.linkedReads && this.linked?.projectId === l.projectId && this.linked.taskId === l.taskId
     try {
       const answer = await origin.client.call('donnaTaskSessions', where)
       if (!fresh()) return
-      const { sessions, agenda } = parseSessions(answer)
-      this.linked = { ...l, state: 'ready', sessions, agenda, reason: null }
+      const { sessions, agenda, attention } = parseSessions(answer, where)
+      this.linked = { ...l, state: 'ready', sessions, agenda, attention, reason: null }
     } catch (e) {
       if (!fresh()) return
       const reason = readFailure(e)
       if (reason === 'lostAccess') return this.lostAccess()
-      if (this.linked?.state !== 'ready') this.linked = { ...l, state: 'error', sessions: [], agenda: null, reason }
+      if (reason === 'authority') this.authorityInDoubt()
+      if (this.linked?.state !== 'ready') this.linked = { ...l, state: 'error', sessions: [], agenda: null, attention: null, reason }
+      else this.linked = { ...this.linked, attention: null }
     } finally {
       if (this.current(origin)) this.changed()
     }
