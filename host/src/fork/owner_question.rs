@@ -343,8 +343,10 @@ pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value)
         }
         if data["status"] == "queued" {
             let waiting: i64 = c.query_row(
-                "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_valid(data)
-                    AND json_extract(data, '$.status') = 'queued'",
+                "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
+                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'
+                    AND json_extract(data, '$.choice_response') IS NULL
+                    AND COALESCE(json_extract(data, '$.from'), '') <> 'host'",
                 [&lane.chat],
                 |r| r.get(0),
             )?;
@@ -366,7 +368,7 @@ pub(crate) fn queue_full(error: &anyhow::Error) -> bool {
 }
 
 /// Mensagens novas do dono que uma conversa pode ter esperando a vez; a seguinte é recusada com `queue_full`.
-/// Respostas a cartões do próprio bot não passam por aqui e nunca são recusadas.
+/// Respostas a cartões do próprio bot e confirmações do Hub não passam por aqui, nunca são recusadas e não contam.
 pub(crate) const QUEUE_MAX: i64 = 50;
 
 /// O que o envio do dono gravou.

@@ -16,7 +16,7 @@ const SCHEMA: i64 = 7;
 /// per-bot ones go.
 /// 5: threads merge into their chats (quote replies took their place, see [`migrate_5`]).
 /// 6: the dividers that announced a fresh agent session go; the chat no longer shows session resets.
-/// 7: a `clientNonce` is unique per conversation (see [`migrate_7`]).
+/// 7: a `clientNonce` is unique per conversation and queued messages are indexed (see [`migrate_7`]).
 fn migrate(c: &Connection) -> Result<()> {
     let version: i64 =
         c.query_row("SELECT CAST(v AS INTEGER) FROM kv WHERE k = 'schema'", [], |r| r.get(0)).optional()?.unwrap_or(0);
@@ -152,6 +152,8 @@ fn migrate_7(c: &Connection) -> Result<()> {
          CREATE UNIQUE INDEX IF NOT EXISTS entries_client_nonce
           ON entries(bot_id, (CASE WHEN json_valid(data) THEN json_extract(data, '$.clientNonce') END))
           WHERE kind = 'user' AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.clientNonce') END, '') <> '';
+         CREATE INDEX IF NOT EXISTS entries_user_queued ON entries(bot_id)
+          WHERE kind = 'user' AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued';
          INSERT INTO kv(k, v) VALUES('schema', '7') ON CONFLICT(k) DO UPDATE SET v = '7';
          COMMIT;",
     )?;
@@ -378,6 +380,15 @@ mod tests {
             })
             .unwrap();
         assert_eq!(rows, 7, "nenhuma linha apagada, nem a que não é JSON");
+        let plan: String = c
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM entries WHERE bot_id = 'a' AND kind = 'user'
+                  AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'",
+                [],
+                |r| r.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("entries_user_queued"), "a contagem da fila usa o índice: {plan}");
     }
 
     #[test]

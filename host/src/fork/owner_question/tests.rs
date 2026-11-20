@@ -212,3 +212,22 @@ async fn retry_com_o_mesmo_nonce_nao_duplica_a_mensagem_nem_a_resposta() {
     assert_eq!(after.data["ownerQuestion"]["answeredBy"], first["entry"]["id"]);
     assert_eq!(after.rev, answered.rev, "a segunda chegada não grava nem responde de novo");
 }
+
+#[tokio::test]
+async fn fila_cheia_conta_so_mensagens_novas_do_dono() {
+    let f = Fixture::new();
+    let lane = Lane::main("a");
+    for (i, extra) in [json!({"choice_response": {"question": "q"}}), json!({"from": "host"})].into_iter().enumerate() {
+        let mut data = json!({"text": format!("cartão {i}"), "status": "queued"});
+        data.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        f.hub.store.insert_entry(&lane, EntryKind::User, 1, &data).unwrap();
+    }
+    for i in 0..QUEUE_MAX {
+        let data = json!({"text": format!("m{i}"), "status": "queued", "clientNonce": format!("n{i}")});
+        assert!(matches!(add_human_message(&f.hub, &lane, 2, &data).unwrap(), Human::New(_)), "{i}");
+    }
+    let extra = json!({"text": "uma a mais", "status": "queued", "clientNonce": "n-extra"});
+    let error = add_human_message(&f.hub, &lane, 2, &extra).err().unwrap();
+    assert!(error.to_string().starts_with("queue_full"), "{error}");
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
