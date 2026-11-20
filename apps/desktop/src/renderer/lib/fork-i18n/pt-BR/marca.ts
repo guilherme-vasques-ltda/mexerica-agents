@@ -21,6 +21,7 @@ export const textos = {
   'marca.conta.googleLigado': 'Essa conta Google já está ligada a outra conta da Mexerica.',
   'marca.conta.naoConfirmou': 'Não foi possível confirmar a entrada na conta. Tente de novo: a Mexerica só abre com a conta confirmada.',
   'marca.conta.apagarTudo': 'Sai de todas as contas e apaga os bots, conversas, chaves e ajustes deste computador. A Mexerica recomeça pela tela de boas-vindas.',
+  'marca.conta.apagarFalhou': 'Não foi possível apagar todos os dados. Tente novamente.',
   'marca.conta.semLogin': 'O login não está disponível nesta versão, e a Mexerica só abre com uma conta.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'Caixa protegida indisponível.',
