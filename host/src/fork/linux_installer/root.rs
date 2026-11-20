@@ -294,37 +294,74 @@ fn unit_state(hub: &User, query: &str) -> Result<bool> {
         .success())
 }
 
-/// O Hub novo precisa estar ativo no systemd e responder no /health com o hash do binário
-/// instalado antes de o par anterior sair. Tempo e tamanho totais da leitura são limitados.
-fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    use std::io::{Read, Write};
-    use std::time::{Duration, Instant};
-    let hash = Sha256::digest(fs::read(host)?).iter().fold(String::new(), |mut out, b| {
-        let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{b:02x}"));
-        out
-    });
-    let expected = [format!("\"binaryPath\":\"{}\"", host.display()), format!("\"binaryHash\":\"{hash}\"")];
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        ensure!(!left.is_zero(), "Hub novo não respondeu no /health em 30 s");
-        if unit_state(hub, "is-active")?
-            && let Ok(mut stream) =
-                std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), left.min(Duration::from_secs(2)))
-        {
-            let _ = stream.set_read_timeout(Some(left.min(Duration::from_secs(2))));
-            let mut response = Vec::new();
-            if stream.write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").is_ok()
-                && (&mut stream).take(64 * 1024).read_to_end(&mut response).is_ok()
-            {
-                let text = String::from_utf8_lossy(&response);
-                if text.contains("\"ok\":true") && expected.iter().all(|e| text.contains(e.as_str())) {
-                    return Ok(());
-                }
+/// Processo que o systemd iniciou para a unidade, se ele executa o binário instalado e é dono
+/// do socket que escuta na porta do Hub.
+fn serving_pid(hub: &User, port: u16, host: &Path) -> Result<bool> {
+    let out = checked(user_command(hub, system("systemctl")?)?.args([
+        "--user",
+        "show",
+        "--property=MainPID",
+        "--value",
+        "donnabot-host.service",
+    ]))?;
+    let pid: u32 = String::from_utf8(out.stdout)?.trim().parse()?;
+    if pid == 0 || fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() != Some(host) {
+        return Ok(false);
+    }
+    let mut listening = Vec::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        for line in fs::read_to_string(table)?.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let local_port =
+                fields.get(1).and_then(|a| a.rsplit(':').next()).and_then(|p| u16::from_str_radix(p, 16).ok());
+            if local_port == Some(port) && fields.get(3) == Some(&"0A") {
+                listening.extend(fields.get(9).map(|inode| format!("socket:[{inode}]")));
             }
         }
-        std::thread::sleep(Duration::from_millis(250));
+    }
+    for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
+        if let Ok(target) = fs::read_link(entry?.path())
+            && listening.iter().any(|socket| target.as_os_str() == socket.as_str())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// O Hub novo precisa ser o processo da unidade, dono da porta, e responder no /health com o
+/// binário instalado antes de o par anterior sair. Toda a espera respeita o prazo de 30 s.
+fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+    let expected = format!("\"binaryPath\":\"{}\"", host.display());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let left = || deadline.saturating_duration_since(Instant::now());
+    loop {
+        ensure!(!left().is_zero(), "Hub novo não respondeu no /health em 30 s");
+        if unit_state(hub, "is-active")?
+            && serving_pid(hub, port, host)?
+            && let Ok(mut stream) = std::net::TcpStream::connect_timeout(
+                &([127, 0, 0, 1], port).into(),
+                left().max(Duration::from_millis(1)),
+            )
+            && stream.write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").is_ok()
+        {
+            let mut response = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while response.len() < 64 * 1024 && !left().is_zero() {
+                let _ = stream.set_read_timeout(Some(left().max(Duration::from_millis(1))));
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => response.extend_from_slice(&chunk[..n]),
+                }
+            }
+            let text = String::from_utf8_lossy(&response);
+            if text.contains("\"ok\":true") && text.contains(&expected) && serving_pid(hub, port, host)? {
+                return Ok(());
+            }
+        }
+        std::thread::sleep(Duration::from_millis(250).min(left()));
     }
 }
 
