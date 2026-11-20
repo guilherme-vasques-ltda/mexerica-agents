@@ -85,11 +85,13 @@ mod tests {
         assert!(saida.contains("instalado-pelo-teste"));
     }
 
-    /// Ctrl-D (fim de entrada) responde como não: nada executa.
+    /// Ctrl-D sem nada digitado (fim de entrada) responde como não: nada executa.
+    /// Com "s" digitado o `read` já atribuiu a resposta, então o fim de entrada depois
+    /// vale como o "s" da pessoa — o teste cubre só o fim de entrada em linha vazia.
     #[cfg(unix)]
     #[tokio::test]
     async fn fim_de_entrada_cancela() {
-        let (codigo, saida) = rodar(&linha_com_confirmacao("printf 'nao-deve-aparecer'"), b"s").await;
+        let (codigo, saida) = rodar(&linha_com_confirmacao("printf 'nao-deve-aparecer'"), b"").await;
         assert_eq!(codigo, Some(130));
         assert!(!saida.contains("nao-deve-aparecer"));
     }
