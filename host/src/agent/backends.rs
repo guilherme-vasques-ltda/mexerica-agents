@@ -35,8 +35,11 @@ pub struct Harness {
     pub signed_in: Option<SignInCheck>,
 }
 
-// Versão fixada (GUI-145): `Npm` aceita `pacote@versão`; o npm confere no registro o hash
-// de integridade daquela versão exata, e atualizar a versão é edição aqui.
+// Versão fixada (GUI-145): `Npm` aceita `pacote@versão`; o npm confere no registro, na
+// hora de instalar, o hash de integridade (sha512) daquela versão exata — não é hash
+// embutido no Hub como o do Node e o do engine_setup. Dependências transitivas seguem a
+// resolução do npm, e scripts pós-instalação do pacote rodam como o npm roda por padrão.
+// Atualizar a versão é edição aqui.
 #[derive(Clone, Copy)]
 pub enum Install {
     /// A vendor install script (`curl … | bash`), Unix only.
@@ -104,7 +107,7 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["claude"],
         local: None,
         registry: Some("claude-acp"),
-        setup: "Install Claude Code (npm, exact version pinned by the Hub) and run `claude auth login`.",
+        setup: "Install Claude Code (npm install -g @anthropic-ai/claude-code, exact version pinned by the Hub) and run `claude auth login`.",
         install: Some(Install::Npm("@anthropic-ai/claude-code@2.1.329")),
         login: "{bin} auth login",
         signed_in: Some(SignInCheck { args: "auth status", ok: claude_signed_in }),
@@ -115,7 +118,7 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["codex"],
         local: None,
         registry: Some("codex-acp"),
-        setup: "Install Codex CLI (npm, exact version pinned by the Hub) and run `codex login --device-auth`.",
+        setup: "Install Codex CLI (npm install -g @openai/codex, exact version pinned by the Hub) and run `codex login --device-auth`.",
         install: Some(Install::Npm("@openai/codex@0.171.0")),
         login: "{bin} login --device-auth",
         signed_in: Some(SignInCheck { args: "login status", ok: exit_ok }),
@@ -166,7 +169,7 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["opencode"],
         local: Some("{bin} acp"),
         registry: Some("opencode"),
-        setup: "Install OpenCode (npm, exact version pinned by the Hub) and run `opencode auth login`.",
+        setup: "Install OpenCode (npm install -g opencode-ai, exact version pinned by the Hub) and run `opencode auth login`.",
         install: Some(Install::Npm("opencode-ai@1.19.6")),
         login: "{bin} auth login",
         signed_in: None,
@@ -202,7 +205,7 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["copilot"],
         local: Some("{bin} --acp --stdio"),
         registry: Some("github-copilot-cli"),
-        setup: "Install Copilot CLI (npm, exact version pinned by the Hub) and run `copilot login`.",
+        setup: "Install Copilot CLI (npm install -g @github/copilot, exact version pinned by the Hub) and run `copilot login`.",
         install: Some(Install::Npm("@github/copilot@1.0.114")),
         login: "{bin} login --device-code",
         signed_in: None,
@@ -213,7 +216,7 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["qwen"],
         local: Some("{bin} --acp"),
         registry: Some("qwen-code"),
-        setup: "Install Qwen Code (npm, exact version pinned by the Hub), run `qwen` and type /auth.",
+        setup: "Install Qwen Code (npm install -g @qwen-code/qwen-code, exact version pinned by the Hub), run `qwen` and type /auth.",
         install: Some(Install::Npm("@qwen-code/qwen-code@0.28.0")),
         login: "{bin}",
         signed_in: None,
@@ -782,10 +785,14 @@ pub async fn launch_candidates(
     Ok(out)
 }
 
-/// `@escopo/nome@1.2.3` → `@escopo/nome`; pacote sem versão fica como está.
+/// `@escopo/nome@1.2.3` → `@escopo/nome`; pacote sem versão fica como está. O nome
+/// descascado tem de ser não vazio e a parte removida não pode ter `/`: um escopo pode
+/// começar por dígito (`@1password/cli`), e sem isso a função devolveria string vazia.
 fn pacote_sem_versao(pkg: &str) -> &str {
     pkg.rsplit_once('@')
-        .filter(|(_, versao)| !versao.is_empty() && versao.starts_with(|c: char| c.is_ascii_digit()))
+        .filter(|(nome, versao)| {
+            !nome.is_empty() && !versao.contains('/') && versao.starts_with(|c: char| c.is_ascii_digit())
+        })
         .map_or(pkg, |(nome, _)| nome)
 }
 
@@ -867,6 +874,8 @@ mod tests {
         assert_eq!(pacote_sem_versao("opencode-ai@1.19.6"), "opencode-ai");
         assert_eq!(pacote_sem_versao("@kilocode/cli"), "@kilocode/cli");
         assert_eq!(pacote_sem_versao("cline"), "cline");
+        // Escopo pode começar por dígito: sem versão, não descasca nada (e nunca vira vazio).
+        assert_eq!(pacote_sem_versao("@1password/cli"), "@1password/cli");
     }
 
     #[test]
