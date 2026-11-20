@@ -206,6 +206,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.install_integrity_invalid": "El archivo descargado no pasó la verificación de integridad. No se instaló nada.",
   "contas.falha.setup_failed": "No se pudo completar. Se mantuvo el inicio de sesión anterior.",
   "contas.erro.request_pending": "Espera a que termine la solicitud anterior.",
+  "contas.erro.credential_not_erased": "No se pudo borrar el inicio de sesión de Grok de este ordenador. Elimina la cuenta o conéctala de nuevo para intentarlo otra vez.",
   "contas.chaveRotulo.codex": "Clave de la API de OpenAI",
   "contas.chaveRotulo.claude": "Clave de la API de Anthropic",
   "contas.remotoEscolhida": "Cuenta elegida. Envía un mensaje para continuar la conversación.",

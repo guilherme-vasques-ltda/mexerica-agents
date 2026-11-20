@@ -206,6 +206,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.install_integrity_invalid": "لم يجتز الملف الذي تم تنزيله فحص السلامة. لم يُثبَّت شيء.",
   "contas.falha.setup_failed": "تعذّر الإكمال. تم الإبقاء على تسجيل الدخول السابق.",
   "contas.erro.request_pending": "انتظر حتى ينتهي الطلب السابق.",
+  "contas.erro.credential_not_erased": "تعذّر حذف تسجيل دخول Grok من هذا الحاسوب. أزل الحساب أو اتصل مجددًا للمحاولة مرة أخرى.",
   "contas.chaveRotulo.codex": "مفتاح OpenAI API",
   "contas.chaveRotulo.claude": "مفتاح Anthropic API",
   "contas.remotoEscolhida": "تم اختيار الحساب. أرسل رسالة لمتابعة المحادثة.",

@@ -83,7 +83,10 @@ pub(crate) async fn compatible(path: &Path, backend: Backend, directory: &Path) 
         child.stdout.take().ok_or_else(|| anyhow!("version_unavailable"))?.take(4097).read_to_end(&mut bytes).await?;
         ensure!(bytes.len() <= 4096 && child.wait().await?.success(), "version_unavailable");
         let text = String::from_utf8(bytes)?;
-        Ok::<_, anyhow::Error>(version.is_none_or(|version| text.split_whitespace().any(|word| word == version)))
+        let named = backend != Backend::Grok || text.to_lowercase().contains("grok");
+        Ok::<_, anyhow::Error>(
+            named && version.is_none_or(|version| text.split_whitespace().any(|word| word == version)),
+        )
     };
     matches!(tokio::time::timeout(Duration::from_secs(10), output).await, Ok(Ok(true)))
 }

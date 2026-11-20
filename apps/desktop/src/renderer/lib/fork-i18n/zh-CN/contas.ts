@@ -206,6 +206,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.install_integrity_invalid": "下载的文件未通过完整性检查。没有安装任何内容。",
   "contas.falha.setup_failed": "无法完成。已保留之前的登录。",
   "contas.erro.request_pending": "请等待上一个请求完成。",
+  "contas.erro.credential_not_erased": "无法删除此电脑上的 Grok 登录。请移除该账号或重新连接后再试。",
   "contas.chaveRotulo.codex": "OpenAI API 密钥",
   "contas.chaveRotulo.claude": "Anthropic API 密钥",
   "contas.remotoEscolhida": "已选择账号。发送一条消息以继续对话。",

@@ -203,6 +203,7 @@ export const textos = {
   "contas.falha.install_integrity_invalid": "O arquivo baixado não passou na conferência de integridade. Nada foi instalado.",
   "contas.falha.setup_failed": "Não foi possível concluir. O login anterior foi mantido.",
   "contas.erro.request_pending": "Espere o pedido anterior terminar.",
+  "contas.erro.credential_not_erased": "Não foi possível apagar o login do Grok deste computador. Remova a conta ou conecte de novo para tentar outra vez.",
   "contas.chaveRotulo.codex": "Chave da API da OpenAI",
   "contas.chaveRotulo.claude": "Chave da API da Anthropic",
   "contas.remotoEscolhida": "Conta escolhida. Envie uma mensagem para continuar a conversa.",

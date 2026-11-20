@@ -206,6 +206,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.install_integrity_invalid": "Le fichier téléchargé n’a pas passé le contrôle d’intégrité. Rien n’a été installé.",
   "contas.falha.setup_failed": "Impossible de terminer. La connexion précédente a été conservée.",
   "contas.erro.request_pending": "Attendez la fin de la demande précédente.",
+  "contas.erro.credential_not_erased": "Impossible d’effacer la connexion Grok de cet ordinateur. Supprimez le compte ou reconnectez-le pour réessayer.",
   "contas.chaveRotulo.codex": "Clé d’API OpenAI",
   "contas.chaveRotulo.claude": "Clé d’API Anthropic",
   "contas.remotoEscolhida": "Compte choisi. Envoyez un message pour continuer la conversation.",

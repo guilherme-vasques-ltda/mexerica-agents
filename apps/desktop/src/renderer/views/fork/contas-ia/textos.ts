@@ -232,7 +232,7 @@ const ERROS = [
   'request_conflict', 'account_busy', 'account_in_use', 'account_invalid', 'account_not_found', 'account_incompatible',
   'accounts_unavailable', 'legacy_preserved', 'profile_invalid', 'setup_in_progress', 'api_form_required',
   'operation_expired', 'operation_stale', 'operation_limit', 'auth_code_invalid', 'auth_input_unavailable', 'invalid_field',
-  'request_pending',
+  'request_pending', 'credential_not_erased',
 ] as const
 /** Motivos da fase final sem sucesso (`errorCode` da operação). */
 const FALHAS = [

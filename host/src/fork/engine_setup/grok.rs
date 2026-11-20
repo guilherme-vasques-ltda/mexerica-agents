@@ -60,7 +60,7 @@ impl Screen {
                 }
                 5 => self.escape = 0,
                 _ if b == 27 => self.escape = 1,
-                b'\r' => self.text.push('\n'),
+                _ if b == b'\r' => self.text.push('\n'),
                 _ if b.is_ascii_graphic() || b == b' ' || b == b'\n' || b == b'\t' => self.text.push(char::from(b)),
                 _ => {}
             }
@@ -71,17 +71,20 @@ impl Screen {
 
     /// Endereço e código só saem de linhas completas, para nunca mostrar um código cortado ao meio.
     /// Fail-closed: código do texto diferente do código da URL, ou qualquer dúvida, não mostra nada.
-    fn challenge(&self) -> Option<Challenge> {
-        let (done, _) = self.text.rsplit_once('\n')?;
-        let url = done
+    fn challenge(&self) -> Result<Option<Challenge>> {
+        let Some((done, _)) = self.text.rsplit_once('\n') else { return Ok(None) };
+        let Some(url) = done
             .split_whitespace()
             .filter(|word| word.starts_with("https://"))
             .map(|word| word.trim_end_matches(['.', ',', ';', ')', '>', '"', '\'']))
-            .find(|word| transport::challenge(Backend::Grok, "device_code", word, None).is_ok())?;
+            .find(|word| transport::challenge(Backend::Grok, "device_code", word, None).is_ok())
+        else {
+            return Ok(None);
+        };
         // Consulta na URL: o valor precisa ter o formato estrito do código; senão, a URL inteira é recusada.
-        let parsed = reqwest::Url::parse(url).ok()?;
+        let Ok(parsed) = reqwest::Url::parse(url) else { return Ok(None) };
         let from_url = match parsed.query_pairs().next() {
-            Some((_, code)) => Some(user_code(&code)?),
+            Some((_, code)) => Some(user_code(&code).ok_or_else(|| anyhow!("auth_url_invalid"))?),
             None => None,
         };
         let from_text = done.lines().filter(|line| !line.contains("http")).find_map(|line| {
@@ -89,11 +92,11 @@ impl Screen {
             labelled.and_then(|(_, rest)| user_code(rest)).or_else(|| paired_code(line.trim()))
         });
         let code = match (from_text, from_url) {
-            (Some(text), Some(url)) if text != url => return None,
+            (Some(text), Some(url)) if text != url => bail!("auth_correlation_invalid"),
             (Some(code), _) | (None, Some(code)) => code,
-            (None, None) => return None,
+            (None, None) => return Ok(None),
         };
-        transport::challenge(Backend::Grok, "device_code", url, Some(&code)).ok()
+        Ok(Some(transport::challenge(Backend::Grok, "device_code", url, Some(&code))?))
     }
 
     fn expired(&self) -> bool {
@@ -152,9 +155,9 @@ pub(super) async fn login(
     cmd.cwd(crate::fork::motor_exec::hub_cwd(directory));
     #[cfg(unix)]
     cmd.umask(Some(0o077));
+    let mut reader = pair.master.try_clone_reader()?;
     let child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
-    let mut reader = pair.master.try_clone_reader()?;
     // O destrutor encerra o grupo do programa no cancelamento, no prazo e em qualquer erro.
     let mut pty = LoginPty { child, _master: pair.master, reaped: false };
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(16);
@@ -167,7 +170,7 @@ pub(super) async fn login(
         }
     });
     let mut screen = Screen::default();
-    let mut offered = false;
+    let mut offered: Option<(String, Option<String>)> = None;
     let mut output_closed = false;
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let status = loop {
@@ -175,9 +178,15 @@ pub(super) async fn login(
             bytes = rx.recv(), if !output_closed => match bytes {
                 Some(bytes) => {
                     screen.push(&bytes)?;
-                    if !offered && let Some(challenge) = screen.challenge() {
-                        events.send(Event::Challenge(challenge)).await?;
-                        offered = true;
+                    // Continua conferindo a saída: qualquer mudança no que já foi mostrado derruba o login.
+                    if let Some(challenge) = screen.challenge()? {
+                        let shown = (challenge.url.clone(), challenge.code.clone());
+                        if let Some(first) = &offered {
+                            ensure!(*first == shown, "auth_correlation_invalid");
+                        } else {
+                            events.send(Event::Challenge(challenge)).await?;
+                            offered = Some(shown);
+                        }
                     }
                 }
                 None => output_closed = true,
@@ -190,11 +199,14 @@ pub(super) async fn login(
     // Última saída do programa, para distinguir código vencido de recusa.
     while let Ok(Some(bytes)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
         screen.push(&bytes)?;
+        if let (Some(first), Some(challenge)) = (&offered, screen.challenge()?) {
+            ensure!(*first == (challenge.url, challenge.code), "auth_correlation_invalid");
+        }
     }
     if !status.success() {
         bail!(if screen.expired() { "setup_expired" } else { "auth_failed" });
     }
-    ensure!(offered, "auth_correlation_invalid");
+    ensure!(offered.is_some(), "auth_correlation_invalid");
     events.send(Event::Verifying).await?;
     Ok(probe::inspect(Backend::Grok, executable, directory).await)
 }
@@ -245,7 +257,11 @@ fn checked_home(store: &Store, id: &str, home: &Path) -> Result<Option<PathBuf>>
 /// Hub e uma pasta de perfil vazia no lugar, para a conta poder entrar de novo. Falha é erro, nunca silêncio.
 pub(super) fn wipe(store: &Store, id: &str, home: &Path) -> Result<()> {
     let Some(directory) = checked_home(store, id, home)? else { return Ok(()) };
-    let failed = || anyhow!("credential_not_erased: não foi possível apagar o login local.");
+    let failed = || {
+        anyhow!(
+            "credential_not_erased: não foi possível apagar o login local. Remova a conta ou conecte de novo para tentar outra vez."
+        )
+    };
     for entry in std::fs::read_dir(home).map_err(|_| failed())? {
         let entry = entry.map_err(|_| failed())?;
         if entry.file_name() == ".donnabot-profile" {
@@ -267,7 +283,7 @@ pub(super) fn erase(store: &Store, id: &str, home: &Path) -> Result<()> {
         return Ok(());
     }
     managed::remove_profile_home(home)
-        .map_err(|_| anyhow!("credential_not_erased: não foi possível apagar o login local."))
+        .map_err(|_| anyhow!("credential_not_erased: não foi possível apagar o login local. Remova a conta ou conecte de novo para tentar outra vez."))
 }
 
 /// Antes de desconectar ou remover uma conta Grok, fora da trava de contas (a espera pode durar alguns segundos) e só

@@ -16,7 +16,7 @@ def setting(name, default=''):
 
 
 if args == ['--version']:
-    print('grok 0.0.0-fixture')
+    print(setting('version', 'grok 0.0.0-fixture'))
     sys.exit(0)
 
 # Isolamento que o Hub promete: perfil da conta, sem chave de API, sem navegador.

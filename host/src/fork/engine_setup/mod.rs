@@ -641,9 +641,13 @@ async fn start_authorized(
                     drop(hub);
                     install::install(&binaries, backend, &profile).await?
                 }
-                Step::Login => install::existing(&binaries, backend, &profile)
-                    .await
-                    .ok_or_else(|| anyhow!("cli_incompatible: prepare o conector antes de entrar."))?,
+                Step::Login => install::existing(&binaries, backend, &profile).await.ok_or_else(|| {
+                    if backend == Backend::Grok {
+                        anyhow!("grok_not_installed")
+                    } else {
+                        anyhow!("cli_incompatible: prepare o conector antes de entrar.")
+                    }
+                })?,
             };
             let mut proof = if request.action == Step::Login {
                 Some(process::login(backend, &executable, &profile, tx_event, rx_input, rx_cancel).await?)
@@ -726,14 +730,14 @@ async fn start_authorized(
                 if request.action == Step::Login {
                     account.bind_catalog();
                 }
-                op.authority.persist(&hub, &registry)?;
-                cleanup.0 = None;
+                // O login anterior sai antes de a conta apontar para o novo: se não der para apagá-lo, nada muda.
                 if request.action == Step::Login
                     && let Some(home) = &superseded
-                    && let Err(error) = grok::erase(&hub.store, &request.engine_account_id, home)
                 {
-                    tracing::warn!(%error, "login anterior do Grok não apagado");
+                    grok::erase(&hub.store, &request.engine_account_id, home)?;
                 }
+                op.authority.persist(&hub, &registry)?;
+                cleanup.0 = None;
                 accounts::invalidate();
                 clear(op, Phase::Connected, None);
                 Ok(())
@@ -758,6 +762,7 @@ async fn start_authorized(
                     "auth_shutdown_failed",
                     "cli_incompatible",
                     "grok_not_installed",
+                    "credential_not_erased",
                     "account_busy",
                     "account_unverified",
                     "identity_changed",

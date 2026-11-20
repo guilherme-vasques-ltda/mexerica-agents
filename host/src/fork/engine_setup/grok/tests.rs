@@ -106,7 +106,7 @@ fn screen(chunks: &[&[u8]]) -> Option<Challenge> {
     for chunk in chunks {
         screen.push(chunk).unwrap();
     }
-    screen.challenge()
+    screen.challenge().unwrap_or(None)
 }
 
 #[test]
@@ -258,6 +258,9 @@ async fn cancelar_encerra_o_programa_e_nao_deixa_login() {
     assert!(!waiting.to_string().contains("SENTINEL"));
     let pid: i32 = std::fs::read_to_string(f.control.join("login-pids")).unwrap().trim().parse().unwrap();
     assert!(alive(pid));
+    let generations = f.root.join("accounts").join(account["id"].as_str().unwrap());
+    let count = || std::fs::read_dir(&generations).unwrap().count();
+    assert_eq!(count(), 2, "a pasta original e a de preparação do login");
     let cancelled = f.read(&op, json!({"action":"cancel"}));
     assert_eq!(cancelled["phase"], "cancelled");
     assert!(cancelled["challenge"].is_null());
@@ -268,10 +271,20 @@ async fn cancelar_encerra_o_programa_e_nao_deixa_login() {
     })
     .await
     .expect("o programa de login continuou vivo depois de cancelar");
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while count() != 1 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("a pasta de preparação do login cancelado continuou no disco");
     f.decide("approve");
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_ne!(f.account(&account["id"])["state"], "connected");
     assert!(!f.home(&account["id"]).join(".grok/auth.json").exists());
+    for entry in std::fs::read_dir(&generations).unwrap() {
+        assert!(!entry.unwrap().path().join(".grok/auth.json").exists(), "credencial deixada pelo login cancelado");
+    }
 }
 
 #[tokio::test]
@@ -373,6 +386,9 @@ async fn grok_so_entra_por_login_e_sem_programa_a_tela_recebe_o_motivo() {
     assert!(api.unwrap_err().to_string().starts_with("invalid_field"));
 
     std::fs::remove_file(f.control.join("grok")).unwrap();
+    if crate::agent::backends::which("grok").is_some() {
+        return;
+    }
     let account = f.create("grok-missing").await;
     let install = f.start(&account, "install", "grok-install").await;
     let failed = tokio::time::timeout(WAIT, async {
@@ -388,6 +404,20 @@ async fn grok_so_entra_por_login_e_sem_programa_a_tela_recebe_o_motivo() {
     .unwrap();
     assert_eq!(failed["errorCode"], "grok_not_installed");
     assert_eq!(f.account(&account["id"])["state"], "unverified");
+    // Pedir o login direto, sem passar pela preparação, dá o mesmo motivo.
+    let login = f.start(&f.account(&account["id"]), "login", "grok-login-missing").await;
+    let failed = tokio::time::timeout(WAIT, async {
+        loop {
+            let value = f.read(&login, json!({"action":"read"}));
+            if value["phase"] == "failed" {
+                return value;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(failed["errorCode"], "grok_not_installed");
 }
 
 #[test]
@@ -528,4 +558,67 @@ fn o_grok_nao_usa_adaptador_de_outro_motor() {
     assert_eq!(managed::adapter_names("grok"), [] as [&str; 0]);
     assert_eq!(managed::adapter_names("codex"), ["codex-acp"]);
     assert!(managed::adapter_names("claude").contains(&"claude-agent-acp"));
+}
+
+#[test]
+fn retorno_de_carro_separa_linhas_e_mudanca_depois_do_desafio_e_recusada() {
+    let crlf = screen(&[b"https://auth.x.ai/device\rThen enter this code: ABCD-EFGH\r"]).unwrap();
+    assert_eq!(crlf.code.as_deref(), Some("ABCD-EFGH"));
+    // O que já foi mostrado não pode mudar depois: texto diferente do código da URL derruba o login.
+    let mut later = Screen::default();
+    later.push(b"Open https://auth.x.ai/device?user_code=AAAA-1111 now\n").unwrap();
+    assert_eq!(later.challenge().unwrap().unwrap().code.as_deref(), Some("AAAA-1111"));
+    later.push(b"Then enter this code: BBBB-2222\n").unwrap();
+    assert!(later.challenge().is_err());
+}
+
+#[tokio::test]
+async fn programa_sem_nome_de_grok_nao_serve_e_login_antigo_que_nao_sai_trava_o_novo() {
+    let f = Fixture::new("plain");
+    std::fs::write(f.control.join("version"), "").unwrap();
+    let account = f.create("grok-unnamed").await;
+    let op = f.start(&account, "login", "grok-unnamed-login").await;
+    let failed = tokio::time::timeout(WAIT, async {
+        loop {
+            let value = f.read(&op, json!({"action":"read"}));
+            if value["phase"] == "failed" {
+                return value;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(failed["errorCode"], "grok_not_installed");
+    std::fs::remove_file(f.control.join("version")).unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let first = f.start(&f.account(&account["id"]), "login", "grok-stuck-1").await;
+        f.phase(&first, "awaiting_authorization").await;
+        f.decide("approve");
+        f.phase(&first, "connected").await;
+        let home = f.home(&account["id"]);
+        let locked = home.join(".grok");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let blocked = std::fs::remove_file(locked.join("auth.json")).is_err();
+        if blocked {
+            let second = f.start(&f.account(&account["id"]), "login", "grok-stuck-2").await;
+            let failed = tokio::time::timeout(WAIT, async {
+                loop {
+                    let value = f.read(&second, json!({"action":"read"}));
+                    if ["failed", "connected"].iter().any(|phase| value["phase"] == *phase) {
+                        return value;
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(failed["errorCode"], "credential_not_erased");
+            assert_eq!(f.home(&account["id"]), home, "a conta continua apontando para o login anterior");
+        }
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
 }

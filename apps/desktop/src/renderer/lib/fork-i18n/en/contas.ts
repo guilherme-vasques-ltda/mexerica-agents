@@ -206,6 +206,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.install_integrity_invalid": "The downloaded file failed the integrity check. Nothing was installed.",
   "contas.falha.setup_failed": "Couldn’t finish. The previous sign-in was kept.",
   "contas.erro.request_pending": "Wait for the previous request to finish.",
+  "contas.erro.credential_not_erased": "Couldn’t delete the Grok sign-in from this computer. Remove the account or connect again to try once more.",
   "contas.chaveRotulo.codex": "OpenAI API key",
   "contas.chaveRotulo.claude": "Anthropic API key",
   "contas.remotoEscolhida": "Account selected. Send a message to continue the conversation.",
