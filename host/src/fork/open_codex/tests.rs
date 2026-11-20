@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::{
-    AUTH_CONFIG, LOGIN_NETWORK, POLICY, SANDBOX, SELECTION, Selection, VERSION, command, hex, prepare_profile,
+    AUTH_CONFIG, CHAT_OVERRIDES, LOGIN_NETWORK, POLICY, SANDBOX, SELECTION, Selection, VERSION, admin_policy_safe,
+    command, hex, prepare_profile,
 };
 use crate::fork::private_fs::{self, Directory};
 use sha2::{Digest, Sha256};
@@ -120,6 +121,22 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     );
     assert!(!POLICY.contains("(subpath \"/private/etc\")"));
     assert!(!LOGIN_NETWORK.contains("securityd"));
+}
+
+#[test]
+fn chat_turns_off_codex_tools_and_admin_policy_must_belong_to_root() {
+    for tool in ["shell_tool", "unified_exec", "view_image", "multi_agent", "apps", "plugins", "image_generation"] {
+        assert!(CHAT_OVERRIDES.contains(&format!("features.{tool}=false").as_str()), "{tool}");
+    }
+    assert!(CHAT_OVERRIDES.contains(&"web_search=\"disabled\""));
+    let fixture = Fixture::new();
+    assert!(admin_policy_safe(&fixture.scope.join("absent")));
+    let owned_by_user = fixture.scope.join("codex");
+    Directory::open(&owned_by_user, true).unwrap();
+    if private_fs::uid() != 0 {
+        assert!(!admin_policy_safe(&owned_by_user), "a policy folder that a non-root user controls is refused");
+    }
+    assert!(!admin_policy_safe(&fixture.executable), "a file in place of the folder is refused");
 }
 
 #[cfg(target_os = "macos")]

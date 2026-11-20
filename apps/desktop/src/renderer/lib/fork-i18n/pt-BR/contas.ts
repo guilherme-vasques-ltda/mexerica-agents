@@ -236,6 +236,7 @@ export const textos = {
   // Entrega 3 (revisão do app): bots e modelos dentro da conta, com Ocultar.
   "contas.botsTitulo": "Bots nesta conta",
   "contas.botsVazioDetalhe": "Para ligar um bot, abra as configurações dele e escolha esta conta em Motor.",
+  "contas.botsOpen": "Na Open, os bots respondem com a conta do Codex conectada mais recentemente. Não é preciso escolher nada.",
   "contas.botModeloPadrao": "Padrão do motor",
   "contas.modelosTitulo": "Modelos",
   "contas.modelosResumo": "No seletor: {visiveis} de {total}",

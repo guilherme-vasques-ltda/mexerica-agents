@@ -57,9 +57,15 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
         | "donnaEngineAccess"
         | "donnaBotEditor"
         | "donnaBotEditorSave"
+        | "donnaConversations"
+        | "donnaConversationHistory"
+        | "donnaConversationRead"
+        | "stop"
         | "deleteBot"
         | "reorderBots" => Ok(()),
         "createBot" | "updateBot" if body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")) => Ok(()),
+        // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
+        "send" if ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)) => Ok(()),
         _ if crate::fork::engine_setup::open_login_method(method) => Ok(()),
         _ => Err(crate::api::devices::Forbidden.into()),
     }
@@ -288,6 +294,7 @@ mod unix {
             result = axum::serve(tcp, axum::Router::new()).into_future() => result,
         };
         crate::fork::engine_setup::shutdown_open(&hub).await;
+        crate::fork::open_chat::shutdown(&hub).await;
         hub.shutdown().await;
         crate::agent::acp::stopped().await;
         drop(socket_file);

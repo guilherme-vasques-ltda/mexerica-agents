@@ -108,7 +108,7 @@ impl Rpc {
         let child = crate::fork::motor_exec::spawn(cmd.args(["app-server"]).stdin(Stdio::piped()))?;
         Self::from_child(child)
     }
-    fn from_child(mut child: Child) -> Result<Self> {
+    pub(crate) fn from_child(mut child: Child) -> Result<Self> {
         let input = child.stdin.take().ok_or_else(|| anyhow!("setup_unavailable"))?;
         let output = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("setup_unavailable"))?);
         Ok(Self { child, input: Some(input), output, pending: VecDeque::new() })
@@ -119,7 +119,7 @@ impl Rpc {
         input.flush().await?;
         Ok(())
     }
-    async fn finish(&mut self) -> Result<()> {
+    pub(crate) async fn finish(&mut self) -> Result<()> {
         // Codex removes its own arg0 helper symlinks during normal EOF shutdown.
         // Reap before validating/promoting the profile; Drop still kills on error/cancel.
         drop(self.input.take());
@@ -230,7 +230,7 @@ pub(crate) async fn login_open_codex(
     directory: &Path,
     events: mpsc::Sender<Event>,
 ) -> Result<(std::path::PathBuf, probe::Observation)> {
-    let launch = crate::fork::open_codex::app_server(directory).await?;
+    let launch = crate::fork::open_codex::app_server(directory, false).await?;
     let executable = launch.executable.clone();
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let proof = codex_device_flow(Rpc::from_child(child)?, &executable, directory, events).await?;

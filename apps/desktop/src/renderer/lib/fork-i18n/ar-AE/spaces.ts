@@ -7,6 +7,8 @@ export const textos: Traducao<typeof fonte> = {
   "spaces.compose.mensagem": "رسالة في هذا Space",
   "spaces.compose.enviar": "إرسال",
   "spaces.compose.falhou": "تعذر تأكيد الإرسال. تحقق من السجل قبل المحاولة مجددًا. إذا تغير الاتصال، أعد فتح المحادثة.",
+  "spaces.compose.semContaOpen": "اربط حساب Codex من الإعدادات ← حسابات الذكاء الاصطناعي لبدء المحادثة.",
+  "spaces.compose.ocupadoOpen": "انتظر حتى ينتهي الرد السابق قبل إرسال رسالة أخرى.",
 
   "spaces.origem.outroHub": "انتقل الاتصال إلى Hub آخر بعد فتح هذا. لم يُرسَل شيء: أغلقه وافتحه من جديد.",
   "spaces.origem.semConexao": "لا يوجد اتصال بالـ Hub. لم يُرسَل شيء: حاول مجددًا عند عودته.",
