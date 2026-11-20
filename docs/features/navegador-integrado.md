@@ -42,19 +42,26 @@ token do proxy chega só pelo canal de controle, nunca por argumento ou ambiente
 
 ## Autoridade e revogação
 
-- A sessão pertence ao vínculo de execução que a abriu. Outro vínculo (por exemplo, depois da
+- A sessão pertence ao vínculo de execução que a abriu e à geração da configuração do bot naquele instante.
+  A geração muda a cada escrita da configuração; por isso sair da preferência Integrado e voltar, ou trocar o
+  vínculo ativo do bot, nunca revalida uma sessão velha. Outro vínculo (por exemplo, depois da
   troca de conta ou de motor) nunca reaproveita a aba nem os cookies: abre uma sessão nova e vazia.
 - Abrir e ler na mesma aba são serializados por instância: uma operação só começa depois de a anterior
   terminar, então uma abertura nunca devolve a página de outra chamada.
-- Ler e fechar conferem a identidade da instância antes de devolver o resultado, então uma
-  instância substituta nunca é atingida.
-- A autoridade é conferida de novo depois de toda espera assíncrona e imediatamente antes de
-  enviar a navegação. Revogada nesse intervalo, nada é navegado.
+- Ler e fechar capturam a instância pretendida antes de qualquer espera e só valem para ela; uma instância
+  substituta, mesmo do mesmo vínculo, nunca é lida nem fechada.
+- A autoridade completa (execução original, contexto, geração e vínculo) é conferida em cada comando de
+  página no instante do envio, já com a trava do escritor do canal CDP. Revogada, o comando não sai. O corte
+  acorda uma escrita que estava presa.
+- A instância entra no registro de cortes antes de autenticar: revogar durante o arranque corta o proxy e o
+  controle na hora. Arranque cancelado ou que falha apaga o perfil, derruba o proxy e mata os processos.
 - Revogação do vínculo, troca de conta ou de Space, bot apagado e preferência fora de Integrado
   derrubam a sessão por um corte que não usa a trava do supervisor: o arranque lento de outra
   instância não atrasa a revogação. O corte desliga o proxy e o canal de controle; processos e
   perfil são encerrados em seguida pela manutenção.
 - A conferência roda a cada 250 ms. Esse é o período de checagem, não um tempo máximo garantido.
+- A queda do canal de controle (por falha) corta o proxy da instância na hora, sem depender da trava do
+  supervisor. O corte é efetivo antes de qualquer limpeza começar.
 - Ao encerrar uma sessão, o Hub corta proxy e controle antes de qualquer limpeza. Se parar o
   Chromium ou apagar o perfil falhar, a sessão deixa de ser servida, o diagnóstico fica no log (sem
   credencial) e a limpeza pendente é refeita pela manutenção e a cada nova abertura; enquanto
@@ -70,8 +77,10 @@ instrução nem autorização.
 - Nenhum texto da página vira comando CDP, URL ou argumento. O transporte CDP só aceita uma lista
   de métodos permitidos, e a navegação só existe com um destino validado.
 - Redirecionamento ou subrecurso fora de HTTPS falha antes de sair do navegador. Toda janela nova
-  é fechada e nunca retomada; o fechamento só vale com confirmação explícita, e sem ela a sessão
-  inteira (Chromium, proxy e perfil) é descartada. Download é negado.
+  só é retomada (o \`window.open\` do opener espera por isso) com o filtro de rede ligado e a execução de
+  scripts da janela desligada, e é fechada logo em seguida. Se qualquer um dos dois falhar, ela nunca é
+  retomada e a sessão cai. O fechamento só vale com confirmação explícita, e sem ela a sessão inteira
+  (Chromium, proxy e perfil) é descartada. Download é negado.
 - O texto é higienizado (sem controles, bidi, largura zero nem caracteres "tag" Unicode) e fica num
   envelope JSON: não consegue fechar o envelope nem criar campos.
 - Página que não é web, ou que mudou de endereço durante a leitura, não devolve conteúdo.

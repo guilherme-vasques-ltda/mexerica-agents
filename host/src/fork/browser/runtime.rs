@@ -66,6 +66,8 @@ pub(crate) struct State {
     /// e usam as ferramentas de página. Cheio, esvazia: cliente renegocia (falha fechada).
     negotiated: Mutex<HashSet<String>>,
     authority: Arc<Mutex<Option<Authority>>>,
+    /// Registro de cortes do supervisor: consulta de instância e revogação sem pegar a trava dele.
+    watch: Mutex<Option<super::supervisor::Watch>>,
     #[cfg(all(test, target_os = "linux"))]
     pauses: Mutex<std::collections::HashMap<&'static str, PauseHook>>,
 }
@@ -156,7 +158,7 @@ impl State {
         owner: &str,
         hidden: Vec<PathBuf>,
         url: &str,
-        valid: impl Fn() -> bool,
+        valid: impl Fn() -> bool + Sync,
     ) -> Outcome {
         if let Err(error) = super::nav::validate_navigation_url(url).await {
             return Outcome::failed(None, error);
@@ -181,21 +183,44 @@ impl State {
         Outcome { instance: Some(instance), result }
     }
 
-    /// Lê a página da sessão já aberta pela mesma autoridade; nunca cria uma.
-    pub(super) async fn read(&self, scope: &Scope, owner: &str, valid: impl Fn() -> bool) -> Outcome {
+    /// Instância vigente (ou em arranque) do bot para o vínculo, sem esperar trava alguma. Quem chama captura
+    /// isso ANTES de qualquer espera: ler e fechar valem só para essa instância.
+    pub(super) fn watched_instance(&self, scope: &Scope, binding: &str) -> Option<u64> {
+        let watch = self.watch.lock().ok()?.clone()?;
+        let (owner, instance) = watch.entry(scope)?;
+        owner.starts_with(&format!("{binding}#")).then_some(instance)
+    }
+
+    /// Lê a página da instância `expected` da autoridade `owner`; nunca cria uma sessão. Outra instância (ainda
+    /// que do mesmo vínculo) nunca é lida.
+    pub(super) async fn read(
+        &self,
+        scope: &Scope,
+        owner: &str,
+        expected: Option<u64>,
+        valid: impl Fn() -> bool + Sync,
+    ) -> Outcome {
         let handle = {
             let mut guard = self.sessions.lock().await;
-            let Some(supervisor) =
-                guard.as_mut().filter(|supervisor| supervisor.owned_instance(scope, owner).is_some())
-            else {
-                return Outcome::failed(None, anyhow!("browser_no_page: abra uma página com browser_open antes"));
+            let current = guard.as_ref().and_then(|supervisor| supervisor.owned_instance(scope, owner));
+            let instance = match (current, expected) {
+                (Some(current), Some(expected)) if current == expected => current,
+                (_, Some(_)) => {
+                    return Outcome::failed(
+                        None,
+                        anyhow!("browser_session_changed: a sessão foi encerrada ou trocada"),
+                    );
+                }
+                (_, None) => {
+                    return Outcome::failed(None, anyhow!("browser_no_page: abra uma página com browser_open antes"));
+                }
             };
-            let instance = supervisor.instance(scope);
-            let handle = supervisor.touch(scope, Instant::now()).and_then(|()| Self::handle(supervisor, scope));
-            match (handle, instance) {
-                (Ok((cdp, page)), Some(instance)) => (cdp, page, instance),
-                (Err(error), _) => return Outcome::failed(instance, error),
-                (Ok(_), None) => return Outcome::failed(None, anyhow!("browser_session_closed")),
+            let Some(supervisor) = guard.as_mut() else {
+                return Outcome::failed(None, anyhow!("browser_session_closed"));
+            };
+            match supervisor.touch(scope, Instant::now()).and_then(|()| Self::handle(supervisor, scope)) {
+                Ok((cdp, page)) => (cdp, page, instance),
+                Err(error) => return Outcome::failed(Some(instance), error),
             }
         };
         let (cdp, page, instance) = handle;
@@ -206,7 +231,7 @@ impl State {
                 anyhow!("browser_authority_revoked: a autoridade da sessão foi revogada"),
             );
         }
-        let result = match pages::read(&cdp, &page).await {
+        let result = match pages::read(&cdp, &page, &valid).await {
             Ok(value) => {
                 #[cfg(test)]
                 self.pause_point("read").await;
@@ -217,13 +242,18 @@ impl State {
         Outcome { instance: Some(instance), result }
     }
 
-    /// Encerra a sessão da autoridade e apaga o perfil; devolve a instância encerrada, se havia.
-    pub(super) async fn close(&self, scope: &Scope, owner: &str) -> Result<Option<u64>> {
+    /// Encerra a instância `expected` do vínculo `binding` (qualquer geração dele) e apaga o perfil. Uma
+    /// instância sucessora, ou de outro vínculo, nunca é atingida; sem instância pretendida não há o que fechar.
+    pub(super) async fn close(&self, scope: &Scope, binding: &str, expected: Option<u64>) -> Result<Option<u64>> {
+        let Some(expected) = expected else { return Ok(None) };
         let mut guard = self.sessions.lock().await;
         let Some(supervisor) = guard.as_mut() else { return Ok(None) };
-        let Some(instance) = supervisor.owned_instance(scope, owner) else { return Ok(None) };
+        let ours = supervisor.owner(scope).is_some_and(|owner| owner.starts_with(&format!("{binding}#")));
+        if !ours || supervisor.instance(scope) != Some(expected) {
+            return Ok(None);
+        }
         supervisor.stop(scope)?;
-        Ok(Some(instance))
+        Ok(Some(expected))
     }
 
     /// Limpeza por instância: uma sessão sucessora do mesmo bot nunca é atingida.
@@ -239,7 +269,7 @@ impl State {
         scope: &Scope,
         owner: &str,
         hidden: Vec<PathBuf>,
-        valid: &impl Fn() -> bool,
+        valid: &(impl Fn() -> bool + Sync),
     ) -> Result<(Cdp<Pipe>, String, u64)> {
         let mut guard = self.sessions.lock().await;
         if guard.is_none() {
@@ -258,6 +288,9 @@ impl State {
                 LIMIT,
                 IDLE,
             )?;
+            if let Ok(mut slot) = self.watch.lock() {
+                *slot = Some(supervisor.watch());
+            }
             tokio::spawn(cut_revoked(supervisor.watch(), Arc::downgrade(&self.sessions), Arc::clone(&self.authority)));
             tokio::spawn(sweep(self.sessions.clone()));
             *guard = Some(supervisor);
@@ -357,17 +390,26 @@ impl State {
         _owner: &str,
         _hidden: Vec<std::path::PathBuf>,
         _url: &str,
-        _valid: impl Fn() -> bool,
+        _valid: impl Fn() -> bool + Sync,
     ) -> Outcome {
         Outcome::failed(
             None,
             anyhow::anyhow!("browser_engine_missing: o navegador integrado só roda em servidor Linux"),
         )
     }
-    pub(super) async fn read(&self, _scope: &Scope, _owner: &str, _valid: impl Fn() -> bool) -> Outcome {
+    pub(super) fn watched_instance(&self, _scope: &Scope, _binding: &str) -> Option<u64> {
+        None
+    }
+    pub(super) async fn read(
+        &self,
+        _scope: &Scope,
+        _owner: &str,
+        _expected: Option<u64>,
+        _valid: impl Fn() -> bool + Sync,
+    ) -> Outcome {
         Outcome::failed(None, anyhow::anyhow!("browser_no_page: abra uma página com browser_open antes"))
     }
-    pub(super) async fn close(&self, _scope: &Scope, _owner: &str) -> Result<Option<u64>> {
+    pub(super) async fn close(&self, _scope: &Scope, _binding: &str, _expected: Option<u64>) -> Result<Option<u64>> {
         Ok(None)
     }
     pub(super) async fn close_instance(&self, _scope: &Scope, _instance: u64) -> Result<bool> {
@@ -397,6 +439,20 @@ mod tests {
     fn valid(flag: &Arc<AtomicBool>) -> impl Fn() -> bool + Send + 'static {
         let flag = Arc::clone(flag);
         move || flag.load(Ordering::SeqCst)
+    }
+
+    fn key(binding: &str) -> String {
+        format!("{binding}#1")
+    }
+
+    async fn read_as(state: &State, scope: &Scope, binding: &str, live: &Arc<AtomicBool>) -> Outcome {
+        let expected = state.watched_instance(scope, binding);
+        state.read(scope, &key(binding), expected, valid(live)).await
+    }
+
+    async fn close_as(state: &State, scope: &Scope, binding: &str) -> Result<Option<u64>> {
+        let expected = state.watched_instance(scope, binding);
+        state.close(scope, binding, expected).await
     }
 
     async fn profile_of(state: &State, scope: &Scope) -> Option<PathBuf> {
@@ -452,30 +508,31 @@ mod tests {
         let state = State::default();
         let live = Arc::new(AtomicBool::new(true));
         let s = scope("bot");
-        assert!(state.read(&s, "a", valid(&live)).await.result.is_err(), "ler sem abrir não cria sessão");
-        let (opened, instance) = done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        assert!(read_as(&state, &s, "a", &live).await.result.is_err(), "ler sem abrir não cria sessão");
+        let (opened, instance) =
+            done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         assert_eq!(opened["status"], "opened");
         assert!(opened["page"]["url"].as_str().unwrap_or_default().starts_with("https://example.com"), "{opened}");
-        let (read, same) = done(state.read(&s, "a", valid(&live)).await)?;
+        let (read, same) = done(read_as(&state, &s, "a", &live).await)?;
         assert_eq!(same, instance);
         assert_eq!(read["page"]["title"], "Example Domain");
         assert!(read["page"]["text"].as_str().unwrap_or_default().contains("documentation examples"), "{read}");
         assert_eq!(read["untrustedContent"], true);
         for url in ["https://localhost/", "https://127.0.0.1/", "https://2852039166/", "file:///etc/hostname"] {
-            assert!(state.open(&s, "a", Vec::new(), url, valid(&live)).await.result.is_err(), "{url}");
+            assert!(state.open(&s, &key("a"), Vec::new(), url, valid(&live)).await.result.is_err(), "{url}");
         }
-        let (again, _) = done(state.read(&s, "a", valid(&live)).await)?;
+        let (again, _) = done(read_as(&state, &s, "a", &live).await)?;
         assert_eq!(again["page"]["title"], "Example Domain", "recusa não mexe na página");
-        let (_, reused) = done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let (_, reused) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         assert_eq!(reused, instance, "mesma autoridade reaproveita");
-        assert!(state.read(&s, "b", valid(&live)).await.result.is_err(), "outra autoridade não lê a página alheia");
-        assert_eq!(state.close(&s, "b").await?, None, "outra autoridade não fecha a sessão alheia");
-        let (_, replaced) = done(state.open(&s, "b", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        assert!(read_as(&state, &s, "b", &live).await.result.is_err(), "outra autoridade não lê a página alheia");
+        assert_eq!(close_as(&state, &s, "b").await?, None, "outra autoridade não fecha a sessão alheia");
+        let (_, replaced) = done(state.open(&s, &key("b"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         assert_ne!(replaced, instance, "outra autoridade ganha sessão nova e vazia");
         assert!(!state.close_instance(&s, instance).await?, "limpeza da instância antiga não atinge a sucessora");
-        assert!(state.read(&s, "b", valid(&live)).await.result.is_ok());
-        assert!(state.close(&s, "b").await?.is_some());
-        assert_eq!(state.close(&s, "b").await?, None);
+        assert!(read_as(&state, &s, "b", &live).await.result.is_ok());
+        assert!(close_as(&state, &s, "b").await?.is_some());
+        assert_eq!(close_as(&state, &s, "b").await?, None);
         Ok(())
     }
 
@@ -486,7 +543,7 @@ mod tests {
         let live = Arc::new(AtomicBool::new(true));
         state.watch_authority(&authority(&live));
         let s = scope("bot");
-        done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         let profile = profile_of(&state, &s).await.context("perfil")?;
         assert!(!processes_of(&profile).is_empty(), "controle positivo: o navegador está rodando");
         live.store(false, Ordering::SeqCst);
@@ -494,14 +551,17 @@ mod tests {
             until(async || instance_of(&state, &s).await.is_none()).await,
             "página ativa continuou aberta sem nova chamada"
         );
-        assert!(!profile.exists() && processes_of(&profile).is_empty(), "sobrou perfil ou processo da sessão revogada");
+        assert!(
+            until(async || !profile.exists() && processes_of(&profile).is_empty()).await,
+            "sobrou perfil ou processo da sessão revogada"
+        );
 
         for wait_for_sweep in [true, false] {
             live.store(true, Ordering::SeqCst);
             let (reached, proceed) = pause(&state, "open");
             let task = tokio::spawn({
                 let (state, live, s) = (Arc::clone(&state), Arc::clone(&live), s.clone());
-                async move { state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await }
+                async move { state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await }
             });
             reached.notified().await;
             let profile = profile_of(&state, &s).await.context("perfil da abertura em andamento")?;
@@ -530,13 +590,13 @@ mod tests {
         let state = State::default();
         let live = Arc::new(AtomicBool::new(true));
         let s = scope("bot");
-        let (_, current) = done(state.open(&s, "novo", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let (_, current) = done(state.open(&s, &key("novo"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         let revoked = Arc::new(AtomicBool::new(false));
-        let outcome = state.open(&s, "antigo", Vec::new(), "https://example.com/", valid(&revoked)).await;
+        let outcome = state.open(&s, &key("antigo"), Vec::new(), "https://example.com/", valid(&revoked)).await;
         outcome.result.expect_err("a abertura sem autoridade não pode seguir");
         assert_eq!(instance_of(&state, &s).await, Some(current), "a sessão do vínculo vigente foi derrubada");
-        assert!(state.read(&s, "novo", valid(&live)).await.result.is_ok());
-        assert!(state.close(&s, "novo").await?.is_some());
+        assert!(read_as(&state, &s, "novo", &live).await.result.is_ok());
+        assert!(close_as(&state, &s, "novo").await?.is_some());
         Ok(())
     }
 
@@ -547,7 +607,7 @@ mod tests {
         let live = Arc::new(AtomicBool::new(true));
         state.watch_authority(&authority(&live));
         let s = scope("bot");
-        let (_, instance) = done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let (_, instance) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         let profile = profile_of(&state, &s).await.context("perfil")?;
         let socket = profile.join("proxy.sock");
         assert!(socket.exists() && !processes_of(&profile).is_empty(), "controle positivo: proxy e navegador de pé");
@@ -558,9 +618,34 @@ mod tests {
         );
         assert!(until(async || processes_of(&profile).is_empty()).await, "sobrou Chromium, Xvfb ou ponte");
         assert!(!socket.exists() && !profile.exists(), "sobrou o proxy ou o perfil");
-        let (_, next) = done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let (_, next) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         assert_ne!(next, instance, "a próxima abertura começa numa instância nova");
-        assert!(state.close(&s, "a").await?.is_some());
+        assert!(close_as(&state, &s, "a").await?.is_some());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requer Chromium, Xvfb, namespaces e internet (Linux)"]
+    async fn leitura_e_fechamento_ficam_presos_a_instancia_pretendida_antes_da_fila() -> Result<()> {
+        let state = State::default();
+        let live = Arc::new(AtomicBool::new(true));
+        let s = scope("bot");
+        let (_, first) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let expected = state.watched_instance(&s, "a");
+        assert_eq!(expected, Some(first), "a instância pretendida é lida sem esperar trava alguma");
+        assert_eq!(state.watched_instance(&s, "outro"), None, "outro vínculo não enxerga a instância");
+        assert_eq!(close_as(&state, &s, "a").await?, Some(first));
+        let (_, second) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let late = state.read(&s, &key("a"), expected, valid(&live)).await;
+        let error = late.result.expect_err("a leitura pedida para a instância antiga não pode ler a nova").to_string();
+        assert!(error.starts_with("browser_session_changed"), "{error}");
+        assert_eq!(state.close(&s, "a", expected).await?, None, "o fechamento antigo não atinge a substituta");
+        assert_eq!(instance_of(&state, &s).await, Some(second), "a substituta foi derrubada");
+        assert_eq!(state.close(&s, "a", None).await?, None, "sem instância pretendida não há o que fechar");
+        let none = state.read(&s, &key("a"), None, valid(&live)).await;
+        let error = none.result.expect_err("sem instância pretendida não há o que ler").to_string();
+        assert!(error.starts_with("browser_no_page"), "{error}");
+        assert_eq!(close_as(&state, &s, "a").await?, Some(second));
         Ok(())
     }
 
@@ -570,15 +655,15 @@ mod tests {
         let state = Arc::new(State::default());
         let live = Arc::new(AtomicBool::new(true));
         let s = scope("bot");
-        let (_, first) = done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        let (_, first) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         let (reached, proceed) = pause(&state, "read");
         let reading = tokio::spawn({
             let (state, live, s) = (Arc::clone(&state), Arc::clone(&live), s.clone());
-            async move { state.read(&s, "a", valid(&live)).await }
+            async move { read_as(&state, &s, "a", &live).await }
         });
         reached.notified().await;
-        assert_eq!(state.close(&s, "a").await?, Some(first));
-        let (_, second) = done(state.open(&s, "a", Vec::new(), "https://example.com/", valid(&live)).await)?;
+        assert_eq!(close_as(&state, &s, "a").await?, Some(first));
+        let (_, second) = done(state.open(&s, &key("a"), Vec::new(), "https://example.com/", valid(&live)).await)?;
         assert_ne!(first, second);
         state.pauses.lock().expect("pausas").clear();
         proceed.notify_one();
@@ -588,8 +673,8 @@ mod tests {
         assert!(error.starts_with("browser_session_changed"), "{error}");
         assert_eq!(instance_of(&state, &s).await, Some(second), "a sessão sucessora não foi atingida");
         assert!(!state.close_instance(&s, first).await?);
-        assert!(state.read(&s, "a", valid(&live)).await.result.is_ok());
-        assert!(state.close(&s, "a").await?.is_some());
+        assert!(read_as(&state, &s, "a", &live).await.result.is_ok());
+        assert!(close_as(&state, &s, "a").await?.is_some());
         Ok(())
     }
 }

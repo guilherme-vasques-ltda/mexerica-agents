@@ -8,10 +8,7 @@ use std::{
     fs,
     future::Future,
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex as StdMutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex as StdMutex, PoisonError, Weak},
     time::{Duration, Instant},
 };
 
@@ -41,59 +38,93 @@ pub(super) trait Launcher {
     fn cutter(&self, _process: &Self::Process) -> Arc<dyn Fn() + Send + Sync> {
         Arc::new(|| {})
     }
+    /// Registra o aviso a disparar quando o controle do processo cair por falha: a perda corta o proxy da
+    /// instância sem depender de trava alguma.
+    fn watch_loss(&self, _process: &Self::Process, _lost: Arc<dyn Fn() + Send + Sync>) {}
 }
 
 /// Corte de uma instância que não depende da trava do supervisor: derruba o proxy (listener e túneis) e o
-/// canal de controle. Idempotente.
+/// canal de controle. Os efeitos rodam sob a trava do próprio corte: quem chegar depois só volta quando o corte
+/// já está efetivado, então nenhuma limpeza começa antes dele.
 pub(super) struct Cut {
     proxy: tokio::task::AbortHandle,
     control: Arc<dyn Fn() + Send + Sync>,
-    fired: AtomicBool,
+    done: StdMutex<bool>,
 }
 
 impl Cut {
+    fn new(proxy: tokio::task::AbortHandle, control: Arc<dyn Fn() + Send + Sync>) -> Self {
+        Self { proxy, control, done: StdMutex::new(false) }
+    }
+
+    /// Devolve verdadeiro só para quem executou os efeitos.
     fn fire(&self) -> bool {
-        if self.fired.swap(true, Ordering::AcqRel) {
+        let mut done = self.done.lock().unwrap_or_else(PoisonError::into_inner);
+        if *done {
             return false;
         }
         self.proxy.abort();
         (self.control)();
+        *done = true;
         true
+    }
+
+    fn is_fired(&self) -> bool {
+        *self.done.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 type Watched = (String, u64, Arc<Cut>);
 
-/// Instâncias vivas e seus cortes, fora da trava do supervisor: a revogação age mesmo quando outra instância
-/// está iniciando (a trava do supervisor fica presa durante o arranque e a autenticação).
+/// Instâncias vivas ou em arranque e seus cortes, fora da trava do supervisor: a revogação age mesmo quando
+/// outra instância (ou esta) está iniciando, porque a trava do supervisor fica presa durante o arranque.
 #[derive(Clone, Default)]
 pub(super) struct Watch(Arc<StdMutex<HashMap<Scope, Watched>>>);
 
 impl Watch {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Scope, Watched>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn insert(&self, scope: Scope, owner: String, instance: u64, cut: Arc<Cut>) {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(scope, (owner, instance, cut));
+        self.lock().insert(scope, (owner, instance, cut));
     }
 
     fn remove(&self, scope: &Scope, instance: u64) {
-        let mut watched = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut watched = self.lock();
         if watched.get(scope).is_some_and(|entry| entry.1 == instance) {
             watched.remove(scope);
         }
     }
 
+    /// Autoridade e instância registradas para o escopo, sem esperar trava alguma.
+    pub fn entry(&self, scope: &Scope) -> Option<(String, u64)> {
+        self.lock().get(scope).map(|entry| (entry.0.clone(), entry.1))
+    }
+
     /// Corta toda instância cuja autoridade `invalid` reprova. Devolve quantas cortou agora.
     pub fn revoke(&self, invalid: impl Fn(&Scope, &str) -> bool) -> usize {
-        let entries: Vec<_> = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .map(|(scope, entry)| (scope.clone(), entry.0.clone(), Arc::clone(&entry.2)))
-            .collect();
-        entries
-            .iter()
-            .filter(|(scope, owner, cut)| !cut.fired.load(Ordering::Acquire) && invalid(scope, owner) && cut.fire())
-            .count()
+        let entries: Vec<_> =
+            self.lock().iter().map(|(scope, entry)| (scope.clone(), entry.0.clone(), Arc::clone(&entry.2))).collect();
+        entries.iter().filter(|(scope, owner, cut)| !cut.is_fired() && invalid(scope, owner) && cut.fire()).count()
+    }
+}
+
+/// Arranque em andamento: se o futuro for cancelado ou falhar antes de a sessão existir, o corte dispara, o
+/// registro some e o perfil é apagado (o processo morre porque `Launcher::Process` encerra o que lançou ao cair).
+struct Starting<P> {
+    session: Option<Session<P>>,
+    watch: Watch,
+    scope: Scope,
+}
+
+impl<P> Drop for Starting<P> {
+    fn drop(&mut self) {
+        if let Some(session) = self.session.take() {
+            self.watch.remove(&self.scope, session.instance);
+            session.cut.fire();
+            let _ = fs::remove_dir_all(&session.profile);
+        }
     }
 }
 
@@ -205,6 +236,11 @@ impl<L: Launcher> Supervisor<L> {
         self.sessions.get(scope).filter(|session| session.owner == owner).map(|session| session.instance)
     }
 
+    /// Autoridade da sessão vigente do bot, qualquer que seja.
+    pub fn owner(&self, scope: &Scope) -> Option<&str> {
+        self.sessions.get(scope).map(|session| session.owner.as_str())
+    }
+
     pub fn instance(&self, scope: &Scope) -> Option<u64> {
         self.sessions.get(scope).map(|session| session.instance)
     }
@@ -299,31 +335,62 @@ impl<L: Launcher> Supervisor<L> {
                 return Err(error.into());
             }
         };
-        match self.launcher.start(&profile, &socket) {
-            Ok(mut process) => {
-                let token = proxy.token().to_owned();
-                if let Err(error) = self.launcher.authenticate(&mut process, token).await {
-                    let _ = self.launcher.stop(&mut process);
-                    fs::remove_dir_all(&profile).context("falha ao limpar perfil após erro de autenticação")?;
-                    return Err(error);
-                }
-                let instance = self.next_instance;
-                self.next_instance += 1;
-                let cut = Arc::new(Cut {
-                    proxy: proxy.abort_handle(),
-                    control: self.launcher.cutter(&process),
-                    fired: AtomicBool::new(false),
-                });
-                self.watch.insert(scope.clone(), owner.clone(), instance, Arc::clone(&cut));
-                self.sessions
-                    .insert(scope, Session { process, _proxy: proxy, profile, touched: now, owner, instance, cut });
-                Ok(instance)
-            }
+        let process = match self.launcher.start(&profile, &socket) {
+            Ok(process) => process,
             Err(error) => {
                 fs::remove_dir_all(&profile).context("falha ao limpar perfil após erro de início")?;
-                Err(error)
+                return Err(error);
             }
+        };
+        let instance = self.next_instance;
+        self.next_instance += 1;
+        let cut = Arc::new(Cut::new(proxy.abort_handle(), self.launcher.cutter(&process)));
+        // A instância entra no registro de cortes ANTES da autenticação: revogar durante o arranque corta o proxy
+        // e o controle na hora, sem esperar o arranque terminar.
+        self.watch.insert(scope.clone(), owner.clone(), instance, Arc::clone(&cut));
+        let lost: Weak<Cut> = Arc::downgrade(&cut);
+        self.launcher.watch_loss(
+            &process,
+            Arc::new(move || {
+                if let Some(cut) = lost.upgrade() {
+                    cut.fire();
+                }
+            }),
+        );
+        let token = proxy.token().to_owned();
+        let mut starting = Starting {
+            session: Some(Session {
+                process,
+                _proxy: proxy,
+                profile,
+                touched: now,
+                owner,
+                instance,
+                cut: Arc::clone(&cut),
+            }),
+            watch: self.watch.clone(),
+            scope: scope.clone(),
+        };
+        let authenticated = match starting.session.as_mut() {
+            Some(session) => self.launcher.authenticate(&mut session.process, token).await,
+            None => Err(anyhow::anyhow!("arranque sem sessão")),
+        };
+        let outcome = authenticated.and_then(|()| {
+            ensure!(!cut.is_fired(), "browser_authority_revoked: a instância foi cortada durante o arranque");
+            Ok(())
+        });
+        let Some(mut session) = starting.session.take() else { anyhow::bail!("arranque sem sessão") };
+        if let Err(error) = outcome {
+            self.watch.remove(&scope, instance);
+            session.cut.fire();
+            if let Err(cleanup) = Self::release(&mut self.launcher, &mut session) {
+                tracing::warn!(error = %cleanup, "limpeza pendente depois de falha de arranque");
+                self.retired.push(session);
+            }
+            return Err(error);
         }
+        self.sessions.insert(scope, session);
+        Ok(instance)
     }
 
     pub fn contains(&self, scope: &Scope) -> bool {

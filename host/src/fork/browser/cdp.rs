@@ -23,6 +23,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const ALLOWED_METHODS: &[&str] = &[
     "Browser.getVersion",
     "Browser.setDownloadBehavior",
+    "Emulation.setScriptExecutionDisabled",
     "Fetch.continueRequest",
     "Fetch.continueWithAuth",
     "Fetch.enable",
@@ -60,6 +61,11 @@ struct Shared<W> {
     page: Mutex<Option<String>>,
     /// Uma operação de página por vez: abrir e ler não se intercalam na mesma aba.
     operation: AsyncMutex<()>,
+    /// Chamado uma vez quando o canal cai por falha (não pelo corte deliberado): liga a perda do controle
+    /// ao corte do proxy da instância sem passar por trava alguma.
+    on_close: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Acorda a escrita em andamento quando o canal é cortado.
+    close_signal: tokio::sync::Notify,
 }
 
 pub(crate) struct Cdp<W> {
@@ -83,6 +89,8 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
             closed: false.into(),
             page: Mutex::new(None),
             operation: AsyncMutex::new(()),
+            on_close: Mutex::new(None),
+            close_signal: tokio::sync::Notify::new(),
         });
         let client = Self { shared };
         tokio::spawn(client.clone().read_loop(reader));
@@ -94,13 +102,24 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         self.shared.operation.lock().await
     }
 
+    /// Registra o que fazer quando o canal cair por falha. Se já caiu, roda na hora.
+    pub(crate) fn on_close(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        if let Ok(mut slot) = self.shared.on_close.lock()
+            && !self.shared.closed.load(Ordering::Acquire)
+        {
+            *slot = Some(hook);
+            return;
+        }
+        hook();
+    }
+
     pub(crate) fn events(&self) -> Result<broadcast::Receiver<Value>> {
         let events = self.shared.events.lock().map_err(|_| anyhow!("pipe CDP indisponível"))?;
         Ok(events.as_ref().ok_or_else(|| anyhow!("pipe CDP fechado"))?.subscribe())
     }
 
     pub(crate) async fn command(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
-        self.command_inner(None, method, params, timeout, false).await
+        self.command_inner(None, method, params, timeout, false, None).await
     }
 
     pub(crate) async fn command_session(
@@ -110,18 +129,44 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         params: Value,
         timeout: Duration,
     ) -> Result<Value> {
-        self.command_inner(Some(session), method, params, timeout, false).await
+        self.command_inner(Some(session), method, params, timeout, false, None).await
+    }
+
+    /// Comando de página que só sai se a autoridade ainda valer no instante do envio: a conferência roda
+    /// com a trava do escritor já obtida, depois de qualquer espera.
+    pub(crate) async fn command_session_checked(
+        &self,
+        session: &str,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        authorized: &(dyn Fn() -> bool + Sync),
+    ) -> Result<Value> {
+        self.command_inner(Some(session), method, params, timeout, false, Some(authorized)).await
     }
 
     /// Única navegação existente: o tipo `ValidatedNavigation` só nasce em `nav.rs`, depois de validar a URL no Hub.
-    pub(super) async fn navigate(&self, session: &str, target: &super::nav::ValidatedNavigation) -> Result<Value> {
-        self.command_inner(Some(session), "Page.navigate", json!({"url": target.url}), super::nav::NAV_TIMEOUT, true)
-            .await
+    pub(super) async fn navigate(
+        &self,
+        session: &str,
+        target: &super::nav::ValidatedNavigation,
+        authorized: &(dyn Fn() -> bool + Sync),
+    ) -> Result<Value> {
+        self.command_inner(
+            Some(session),
+            "Page.navigate",
+            json!({"url": target.url}),
+            super::nav::NAV_TIMEOUT,
+            true,
+            Some(authorized),
+        )
+        .await
     }
 
     /// Único criador de alvo: mesma regra de `navigate`.
     pub(super) async fn create_target(&self, target: &super::nav::ValidatedNavigation) -> Result<Value> {
-        self.command_inner(None, "Target.createTarget", json!({"url": target.url}), super::nav::NAV_TIMEOUT, true).await
+        self.command_inner(None, "Target.createTarget", json!({"url": target.url}), super::nav::NAV_TIMEOUT, true, None)
+            .await
     }
 
     /// Sessão da página principal, fixada quando a autenticação do proxy a configurou.
@@ -143,18 +188,18 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         params: Value,
         timeout: Duration,
     ) -> Result<Value> {
-        self.command_inner(Some(session), method, params, timeout, true).await
+        self.command_inner(Some(session), method, params, timeout, true, None).await
     }
 
     /// Corta o canal de controle na hora: nenhum comando novo sai e os pendentes falham.
     pub(crate) fn sever(&self) {
-        self.close();
+        self.close_inner(false);
     }
 
     /// Comando cru de nível de navegador só para os controles positivos dos testes vivos.
     #[cfg(test)]
     pub(crate) async fn command_raw_for_tests(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
-        self.command_inner(None, method, params, timeout, true).await
+        self.command_inner(None, method, params, timeout, true, None).await
     }
 
     async fn get_version_tolerant(&self) -> Result<Value> {
@@ -202,6 +247,7 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         params: Value,
         timeout: Duration,
         from_gate: bool,
+        authorized: Option<&(dyn Fn() -> bool + Sync)>,
     ) -> Result<Value> {
         // Navegar/criar alvo só pelo gate de URL (nav.rs), nunca cru.
         if !from_gate {
@@ -237,12 +283,26 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         let guard = PendingGuard { pending: &self.shared.pending, id };
         let result = tokio::time::timeout(timeout, async {
             let mut writer = self.shared.writer.lock().await;
+            let cut = self.shared.close_signal.notified();
+            tokio::pin!(cut);
+            cut.as_mut().enable();
             if self.shared.closed.load(Ordering::Acquire) {
                 bail!("pipe CDP fechado");
             }
+            if let Some(authorized) = authorized
+                && !authorized()
+            {
+                bail!("browser_authority_revoked: a autoridade da sessão foi revogada");
+            }
             let mut writing = WriteGuard { client: self, complete: false };
-            writer.write_all(&message).await.map_err(|_| anyhow!("falha ao escrever no pipe CDP"))?;
-            writer.flush().await.map_err(|_| anyhow!("falha ao escrever no pipe CDP"))?;
+            let sent = async {
+                writer.write_all(&message).await?;
+                writer.flush().await
+            };
+            tokio::select! {
+                result = sent => result.map_err(|_| anyhow!("falha ao escrever no pipe CDP"))?,
+                () = &mut cut => bail!("pipe CDP fechado"),
+            }
             writing.complete = true;
             drop(writer);
             rx.await.map_err(|_| anyhow!("pipe CDP fechado"))?
@@ -390,10 +450,11 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 let target_id = event.pointer("/params/targetInfo/targetId").and_then(Value::as_str).map(str::to_owned);
                 if target_type == "page" && target_id.as_deref() != Some(main_target.as_str()) {
                     // Popup/janela nova nunca é mantido, nem com URL aparentemente permitida: o alvo nasce
-                    // sem URL e o endereço só aparece depois. Sessão desconhecida tem todo pedido barrado
-                    // (`failRequest`); só com o filtro ligado o alvo é liberado (o `window.open` do opener
-                    // espera por isso) e logo fechado. Sem o fechamento confirmado a contenção não se
-                    // sustenta: o canal CDP é encerrado e a sessão inteira é descartada.
+                    // sem URL e o endereço só aparece depois. O alvo nasce pausado e o `window.open` do opener só
+                    // continua quando ele é retomado; por isso a retomada só acontece com o filtro de rede ligado E
+                    // com a execução de scripts do alvo desligada, e o alvo é fechado logo em seguida. Se qualquer
+                    // um dos dois falhar, o alvo NUNCA é retomado: o canal CDP é encerrado e a sessão inteira é
+                    // descartada. Sem o fechamento confirmado a contenção também não se sustenta.
                     let Some(popup_id) = target_id else {
                         tracing::warn!("popup sem identidade de alvo; canal CDP encerrado");
                         watcher.close();
@@ -403,11 +464,26 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                         .command_session(&new_session, "Fetch.enable", json!({"handleAuthRequests":true}), AUTH_TIMEOUT)
                         .await
                         .is_ok();
-                    if filtered {
-                        let _ = watcher
-                            .command_session(&new_session, "Runtime.runIfWaitingForDebugger", json!({}), AUTH_TIMEOUT)
-                            .await;
+                    let silenced = filtered
+                        && watcher
+                            .command_session(
+                                &new_session,
+                                "Emulation.setScriptExecutionDisabled",
+                                json!({"value":true}),
+                                AUTH_TIMEOUT,
+                            )
+                            .await
+                            .is_ok();
+                    if !silenced {
+                        tracing::warn!(
+                            "popup sem filtro e sem scripts desligados; alvo não retomado e canal CDP encerrado"
+                        );
+                        watcher.close();
+                        break;
                     }
+                    let _ = watcher
+                        .command_session(&new_session, "Runtime.runIfWaitingForDebugger", json!({}), AUTH_TIMEOUT)
+                        .await;
                     let closed = closed_ok(
                         &watcher.command("Target.closeTarget", json!({"targetId":popup_id}), AUTH_TIMEOUT).await,
                     );
@@ -472,7 +548,13 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
     }
 
     fn close(&self) {
+        self.close_inner(true);
+    }
+
+    /// `notify` falso é o corte deliberado (quem corta já cuida do resto); verdadeiro é a queda do canal.
+    fn close_inner(&self, notify: bool) {
         self.shared.closed.store(true, Ordering::Release);
+        self.shared.close_signal.notify_waiters();
         if let Ok(mut pending) = self.shared.pending.lock() {
             pending.clear();
         }
@@ -481,6 +563,10 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         }
         if let Ok(mut events) = self.shared.events.lock() {
             events.take();
+        }
+        let hook = self.shared.on_close.lock().ok().and_then(|mut slot| slot.take());
+        if notify && let Some(hook) = hook {
+            hook();
         }
     }
 
@@ -764,6 +850,94 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn escrita_bloqueada_e_cortada_falha_na_hora_sem_esperar_o_prazo() {
+        let (a, _peer) = tokio::io::duplex(64);
+        let (read, write) = tokio::io::split(a);
+        let client = Cdp::new(read, write);
+        let big = "x".repeat(4096);
+        let sender = tokio::spawn({
+            let client = client.clone();
+            async move { client.command("Browser.getVersion", json!({"p": big}), Duration::from_secs(30)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        client.sever();
+        let result = tokio::time::timeout(Duration::from_secs(2), sender)
+            .await
+            .expect("o corte tem de acordar a escrita presa em vez de esperar o prazo")
+            .unwrap();
+        assert!(result.is_err());
+        assert!(client.is_closed());
+    }
+
+    #[tokio::test]
+    async fn comando_nao_sai_se_a_autoridade_sumiu_enquanto_esperava_a_trava_do_escritor() {
+        let (a, b) = tokio::io::duplex(64);
+        let (read, write) = tokio::io::split(a);
+        let client = Cdp::new(read, write);
+        let (browser_read, mut browser_write) = tokio::io::split(b);
+        let mut reader = BufReader::new(browser_read);
+        let big = "x".repeat(2000);
+        let first = tokio::spawn({
+            let client = client.clone();
+            async move { client.command("Browser.getVersion", json!({"p": big}), Duration::from_secs(30)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let allowed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let second = tokio::spawn({
+            let (client, allowed) = (client.clone(), Arc::clone(&allowed));
+            async move {
+                let check = move || allowed.load(Ordering::SeqCst);
+                client
+                    .command_session_checked("s1", "Page.getFrameTree", json!({}), Duration::from_secs(30), &check)
+                    .await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        allowed.store(false, Ordering::SeqCst);
+        let sent = receive(&mut reader).await;
+        send(&mut browser_write, json!({"id":sent["id"],"result":{}})).await;
+        first.await.unwrap().unwrap();
+        let error = second.await.unwrap().unwrap_err().to_string();
+        assert!(error.starts_with("browser_authority_revoked"), "{error}");
+        let extra = tokio::time::timeout(Duration::from_millis(300), receive(&mut reader)).await;
+        assert!(extra.is_err(), "o comando sem autoridade chegou ao navegador");
+    }
+
+    #[tokio::test]
+    async fn perda_do_canal_dispara_o_gancho_uma_vez_e_o_corte_deliberado_nao() {
+        use std::sync::atomic::AtomicUsize;
+        let counter = || Arc::new(AtomicUsize::new(0));
+        let hook = |count: &Arc<AtomicUsize>| {
+            let count = Arc::clone(count);
+            Arc::new(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+            }) as Arc<dyn Fn() + Send + Sync>
+        };
+        let (client, reader, writer) = pair();
+        let lost = counter();
+        client.on_close(hook(&lost));
+        drop((reader, writer));
+        for _ in 0..50 {
+            if client.is_closed() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(client.is_closed());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(lost.load(Ordering::SeqCst), 1, "a queda do canal tem de avisar exatamente uma vez");
+        let late = counter();
+        client.on_close(hook(&late));
+        assert_eq!(late.load(Ordering::SeqCst), 1, "gancho registrado depois da queda roda na hora");
+        let (client, _reader, _writer) = pair();
+        let deliberate = counter();
+        client.on_close(hook(&deliberate));
+        client.sever();
+        assert!(client.is_closed());
+        assert_eq!(deliberate.load(Ordering::SeqCst), 0, "o corte deliberado não é uma queda");
+    }
+
     async fn conectado() -> (
         Cdp<tokio::io::WriteHalf<DuplexStream>>,
         BufReader<tokio::io::ReadHalf<DuplexStream>>,
@@ -800,6 +974,13 @@ mod tests {
         let filter = receive(reader).await;
         assert_eq!((filter["method"].as_str(), filter["sessionId"].as_str()), (Some("Fetch.enable"), Some("s9")));
         send(writer, json!({"id":filter["id"],"result":{}})).await;
+        let silence = receive(reader).await;
+        assert_eq!(
+            (silence["method"].as_str(), silence["sessionId"].as_str(), &silence["params"]["value"]),
+            (Some("Emulation.setScriptExecutionDisabled"), Some("s9"), &json!(true)),
+            "scripts do popup desligados antes de qualquer retomada"
+        );
+        send(writer, json!({"id":silence["id"],"result":{}})).await;
         let resume = receive(reader).await;
         assert_eq!(resume["method"], "Runtime.runIfWaitingForDebugger");
         assert_eq!(resume["sessionId"], "s9");
@@ -812,7 +993,7 @@ mod tests {
         send(writer, response).await;
     }
     #[tokio::test]
-    async fn popup_de_qualquer_url_tem_o_filtro_ligado_antes_de_ser_liberado_e_e_fechado() {
+    async fn popup_de_qualquer_url_tem_filtro_e_scripts_desligados_antes_de_ser_retomado_e_e_fechado() {
         let (client, mut reader, mut writer) = conectado().await;
         for url in
             ["", "http://a.test/", "https://a.test/", "file:///etc/passwd", "data:text/html,x", "chrome://settings"]
@@ -829,6 +1010,32 @@ mod tests {
         send(&mut writer, json!({"id":next["id"],"result":{"targetInfos":[]}})).await;
         probe.await.unwrap().unwrap();
         assert!(!client.is_closed());
+    }
+    #[tokio::test]
+    async fn popup_sem_filtro_ou_sem_scripts_desligados_nunca_e_retomado() {
+        for failing in ["Fetch.enable", "Emulation.setScriptExecutionDisabled"] {
+            let (client, mut reader, mut writer) = conectado().await;
+            send(&mut writer, popup("https://a.test/", Some("t9"))).await;
+            let filter = receive(&mut reader).await;
+            assert_eq!(filter["method"], "Fetch.enable");
+            if failing == "Fetch.enable" {
+                send(&mut writer, json!({"id":filter["id"],"error":{"code":-32000,"message":"falhou"}})).await;
+            } else {
+                send(&mut writer, json!({"id":filter["id"],"result":{}})).await;
+                let silence = receive(&mut reader).await;
+                assert_eq!(silence["method"], "Emulation.setScriptExecutionDisabled");
+                send(&mut writer, json!({"id":silence["id"],"error":{"code":-32000,"message":"falhou"}})).await;
+            }
+            for _ in 0..50 {
+                if client.is_closed() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            assert!(client.is_closed(), "{failing}: sem proteção a sessão não pode continuar");
+            let extra = tokio::time::timeout(Duration::from_millis(200), receive(&mut reader)).await;
+            assert!(extra.is_err(), "{failing}: o popup foi retomado ou fechado sem a proteção");
+        }
     }
     #[tokio::test]
     async fn popup_sem_fechamento_confirmado_ou_sem_identidade_encerra_o_canal() {

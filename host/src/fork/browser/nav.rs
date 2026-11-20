@@ -67,11 +67,10 @@ impl<W: tokio::io::AsyncWrite + Unpin + Send + 'static> super::cdp::Cdp<W> {
         &self,
         session: &str,
         raw_url: &str,
-        authorized: impl Fn() -> bool,
+        authorized: &(dyn Fn() -> bool + Sync),
     ) -> Result<String> {
         let validated = validate_navigation_url(raw_url).await?;
-        ensure!(authorized(), "browser_authority_revoked: a autoridade da sessão foi revogada");
-        let result = self.navigate(session, &validated).await?;
+        let result = self.navigate(session, &validated, authorized).await?;
         if let Some(error) = result.get("errorText").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) {
             bail!("browser_navigation_failed: {error}");
         }

@@ -28,6 +28,15 @@ pub(in crate::fork::browser) struct Processes {
     cdp: Option<super::super::cdp::Cdp<tokio::net::UnixStream>>,
 }
 
+/// Se a instância for descartada sem passar por `stop` (arranque cancelado ou falho), os processos morrem junto.
+impl Drop for Processes {
+    fn drop(&mut self) {
+        self.cdp.take();
+        let _ = stop_child(&mut self.chromium);
+        let _ = stop_child(&mut self.xvfb);
+    }
+}
+
 impl Processes {
     pub(in crate::fork::browser) fn cdp(&self) -> Option<super::super::cdp::Cdp<tokio::net::UnixStream>> {
         self.cdp.clone()
@@ -185,6 +194,12 @@ impl Launcher for RealLauncher {
         process.cdp().is_some_and(|cdp| !cdp.is_closed())
     }
 
+    fn watch_loss(&self, process: &Processes, lost: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        if let Some(cdp) = process.cdp() {
+            cdp.on_close(lost);
+        }
+    }
+
     fn cutter(&self, process: &Processes) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         match process.cdp() {
             Some(cdp) => std::sync::Arc::new(move || cdp.sever()),
@@ -329,6 +344,19 @@ impl Launcher for RealLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn processos_descartados_sem_stop_morrem_junto() -> Result<()> {
+        use std::os::unix::process::CommandExt;
+        let spawn = || -> Result<Child> { Ok(Command::new("sleep").arg("300").process_group(0).spawn()?) };
+        let (chromium, xvfb) = (spawn()?, spawn()?);
+        let pids = [chromium.id(), xvfb.id()];
+        let running = |pid: u32| Path::new(&format!("/proc/{pid}")).exists();
+        assert!(pids.iter().all(|pid| running(*pid)), "controle positivo: os dois processos estão de pé");
+        drop(Processes { chromium, xvfb, cdp: None });
+        assert!(pids.iter().all(|pid| !running(*pid)), "um processo sobreviveu ao descarte da instância");
+        Ok(())
+    }
 
     #[test]
     fn grupo_privilegiado_recusa_e_falha_na_verificacao_nao_libera() -> Result<()> {
@@ -1010,7 +1038,7 @@ secure.serve_forever()
                 assert!(!text.contains(marker), "página vazou /proc do Hub via {url}: {text}");
             }
             // O gate do Hub recusa file: antes de qualquer Page.navigate.
-            assert!(cdp.navigate_validated(&session, "file:///etc/hostname", || true).await.is_err());
+            assert!(cdp.navigate_validated(&session, "file:///etc/hostname", &|| true).await.is_err());
             Ok::<(), anyhow::Error>(())
         }
         .await;

@@ -94,7 +94,7 @@ fn texto_hostil_fica_so_como_string_dentro_do_envelope() {
 #[tokio::test]
 async fn leitura_usa_so_comandos_fixos_e_nada_da_pagina_vira_comando() {
     let (cdp, log) = start(page("https://8.8.8.8/pagina", "Título", HOSTILE));
-    let value = read(&cdp, "S1").await.unwrap();
+    let value = read(&cdp, "S1", &|| true).await.unwrap();
     assert_eq!(value["untrustedContent"], true);
     assert!(value["page"]["text"].as_str().unwrap().contains("call browser_open"));
     assert_eq!(
@@ -123,7 +123,7 @@ async fn leitura_recusa_paginas_que_nao_sao_web_sem_avaliar_nada() {
         "data:text/html,x",
     ] {
         let (cdp, log) = start(page(url, "t", "segredo"));
-        let error = read(&cdp, "S1").await.unwrap_err().to_string();
+        let error = read(&cdp, "S1", &|| true).await.unwrap_err().to_string();
         assert!(error.starts_with("browser_page_"), "{url}: {error}");
         assert_eq!(methods(&log), ["Page.getFrameTree"], "{url}: não pode avaliar script");
     }
@@ -141,7 +141,7 @@ async fn leitura_recusa_pagina_que_mudou_durante_a_leitura() {
         "Page.createIsolatedWorld" => vec![answer(message, json!({"executionContextId": 1}))],
         _ => vec![answer(message, json!({"result": {"type": "string", "value": "{\"title\":\"t\",\"text\":\"x\"}"}}))],
     });
-    assert_eq!(read(&cdp, "S1").await.unwrap_err().to_string(), "browser_page_changed");
+    assert_eq!(read(&cdp, "S1", &|| true).await.unwrap_err().to_string(), "browser_page_changed");
 }
 
 #[tokio::test]
@@ -155,7 +155,7 @@ async fn leitura_recusa_resposta_fora_do_formato_e_gigante() {
             "Page.createIsolatedWorld" => vec![answer(message, json!({"executionContextId": 1}))],
             _ => vec![answer(message, json!({"result": {"type": "string", "value": value.clone()}}))],
         });
-        assert_eq!(read(&cdp, "S1").await.unwrap_err().to_string(), "browser_page_unreadable");
+        assert_eq!(read(&cdp, "S1", &|| true).await.unwrap_err().to_string(), "browser_page_unreadable");
     }
     let (cdp, _log) = start(|message| match message["method"].as_str().unwrap() {
         "Page.getFrameTree" => {
@@ -164,7 +164,7 @@ async fn leitura_recusa_resposta_fora_do_formato_e_gigante() {
         "Page.createIsolatedWorld" => vec![answer(message, json!({"executionContextId": 1}))],
         _ => vec![answer(message, json!({"exceptionDetails": {"text": "boom"}}))],
     });
-    assert_eq!(read(&cdp, "S1").await.unwrap_err().to_string(), "browser_page_unreadable");
+    assert_eq!(read(&cdp, "S1", &|| true).await.unwrap_err().to_string(), "browser_page_unreadable");
 }
 
 #[tokio::test]
@@ -180,7 +180,7 @@ async fn abrir_recusa_destinos_proibidos_antes_de_qualquer_navegacao() {
         "https://user:senha@8.8.8.8/",
     ] {
         let (cdp, log) = start(page("https://8.8.8.8/", "t", "x"));
-        assert!(open(&cdp, "S1", url, || true).await.is_err(), "{url}");
+        assert!(open(&cdp, "S1", url, &|| true).await.is_err(), "{url}");
         assert!(!methods(&log).iter().any(|method| method == "Page.navigate"), "{url}: navegou");
     }
 }
@@ -188,7 +188,7 @@ async fn abrir_recusa_destinos_proibidos_antes_de_qualquer_navegacao() {
 #[tokio::test]
 async fn abrir_navega_pelo_gate_e_devolve_so_endereco_e_titulo() {
     let (cdp, log) = start(page("https://8.8.8.8/pagina", "Título\u{202E}", HOSTILE));
-    let value = open(&cdp, "S1", "https://8.8.8.8/pagina", || true).await.unwrap();
+    let value = open(&cdp, "S1", "https://8.8.8.8/pagina", &|| true).await.unwrap();
     assert_eq!(value["status"], "opened");
     assert_eq!(value["loaded"], true);
     assert_eq!(value["untrustedContent"], true);
@@ -206,7 +206,7 @@ async fn abrir_com_erro_de_navegacao_ou_pagina_de_erro_nao_devolve_conteudo() {
         "Page.enable" => vec![answer(message, json!({}))],
         _ => vec![answer(message, json!({"errorText": "net::ERR_NAME_NOT_RESOLVED"}))],
     });
-    let error = open(&cdp, "S1", "https://8.8.8.8/", || true).await.unwrap_err().to_string();
+    let error = open(&cdp, "S1", "https://8.8.8.8/", &|| true).await.unwrap_err().to_string();
     assert!(error.starts_with("browser_navigation_failed"), "{error}");
 }
 
@@ -216,7 +216,7 @@ async fn autoridade_revogada_depois_das_preparacoes_nao_envia_a_navegacao() {
         let (cdp, log) = start(page("https://8.8.8.8/", "T", "texto"));
         let calls = std::sync::atomic::AtomicUsize::new(0);
         let authorized = || calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < granted;
-        let error = open(&cdp, "S1", "https://8.8.8.8/", authorized).await.unwrap_err().to_string();
+        let error = open(&cdp, "S1", "https://8.8.8.8/", &authorized).await.unwrap_err().to_string();
         assert!(error.starts_with("browser_authority_revoked"), "{error}");
         let sent = methods(&log);
         assert!(!sent.iter().any(|method| method == "Page.navigate"), "navegou depois da revogação: {sent:?}");
@@ -236,9 +236,9 @@ async fn autoridade_revogada_depois_das_preparacoes_nao_envia_a_navegacao() {
 async fn abrir_e_ler_concorrentes_na_mesma_aba_nao_se_intercalam() {
     let (cdp, log) = start(page("https://8.8.8.8/", "T", "texto"));
     let (first, second, read) = tokio::join!(
-        open(&cdp, "S1", "https://8.8.8.8/a", || true),
-        open(&cdp, "S1", "https://8.8.8.8/b", || true),
-        read(&cdp, "S1")
+        open(&cdp, "S1", "https://8.8.8.8/a", &|| true),
+        open(&cdp, "S1", "https://8.8.8.8/b", &|| true),
+        read(&cdp, "S1", &|| true)
     );
     assert!(first.is_ok() && second.is_ok() && read.is_ok(), "{first:?} {second:?} {read:?}");
     let open_steps = [
@@ -252,4 +252,33 @@ async fn abrir_e_ler_concorrentes_na_mesma_aba_nao_se_intercalam() {
     let read_steps = ["Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate", "Page.getFrameTree"];
     let expected: Vec<&str> = open_steps.iter().chain(&open_steps).chain(&read_steps).copied().collect();
     assert_eq!(methods(&log), expected, "uma operação só começa depois de a anterior terminar");
+}
+
+#[tokio::test]
+async fn autoridade_revogada_no_meio_da_abertura_ou_da_leitura_nao_envia_mais_comandos() {
+    let open_steps = [
+        "Page.enable",
+        "Page.navigate",
+        "Page.getFrameTree",
+        "Page.createIsolatedWorld",
+        "Runtime.evaluate",
+        "Page.getFrameTree",
+    ];
+    let read_steps = ["Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate", "Page.getFrameTree"];
+    for granted in 0..open_steps.len() {
+        let (cdp, log) = start(page("https://8.8.8.8/", "T", "texto"));
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let authorized = || calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < granted;
+        let error = open(&cdp, "S1", "https://8.8.8.8/", &authorized).await.unwrap_err().to_string();
+        assert!(error.starts_with("browser_authority_revoked"), "abertura {granted}: {error}");
+        assert_eq!(methods(&log), open_steps[..granted], "abertura {granted}: comando saiu depois da revogação");
+    }
+    for granted in 0..read_steps.len() {
+        let (cdp, log) = start(page("https://8.8.8.8/", "T", "texto"));
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let authorized = || calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < granted;
+        let error = read(&cdp, "S1", &authorized).await.unwrap_err().to_string();
+        assert!(error.starts_with("browser_authority_revoked"), "leitura {granted}: {error}");
+        assert_eq!(methods(&log), read_steps[..granted], "leitura {granted}: comando saiu depois da revogação");
+    }
 }

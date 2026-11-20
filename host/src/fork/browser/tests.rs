@@ -381,13 +381,26 @@ async fn preferencia_desligada_nao_impede_fechar_a_sessao() {
 
 #[tokio::test]
 async fn autoridade_da_sessao_cai_na_troca_de_conta_na_revogacao_e_na_preferencia() {
-    for change in ["revoga", "troca_de_space", "conta_do_bot", "conta_da_sessao", "computer", "off", "bot_apagado"] {
+    for change in [
+        "revoga",
+        "troca_de_space",
+        "conta_do_bot",
+        "conta_da_sessao",
+        "computer",
+        "off",
+        "sai_e_volta_ao_integrado",
+        "outro_vinculo_ativo",
+        "bot_apagado",
+    ] {
         let f = Fixture::with_memory_profile(|_, _| {});
         let scope =
             supervisor::Scope { hub: f.hub.host_id.clone(), space: f.cfg.space_id.clone(), bot: f.cfg.id.clone() };
-        let owner = binding(&f);
+        let binding = binding(&f);
+        let generation = crate::fork::spaces::config_generation_on(&f.hub.store.db.locked(), &f.cfg.id).unwrap();
+        let owner = owner_key(&binding, generation);
         assert!(authority_valid(&f.hub, &scope, &owner), "controle positivo: a autoridade vale no início");
-        assert!(!authority_valid(&f.hub, &scope, "outro-vinculo"), "vínculo alheio nunca vale");
+        assert!(!authority_valid(&f.hub, &scope, &owner_key("outro-vinculo", generation)), "vínculo alheio nunca vale");
+        assert!(!authority_valid(&f.hub, &scope, &binding), "autoridade sem geração nunca vale");
         match change {
             "revoga" => bindings::revoke(&f.hub.store, &f.cfg.id, None).unwrap(),
             "troca_de_space" => {
@@ -414,7 +427,7 @@ async fn autoridade_da_sessao_cai_na_troca_de_conta_na_revogacao_e_na_preferenci
             }
             "conta_da_sessao" => {
                 let db = f.hub.store.db.locked();
-                let session = bindings::resolve(&db, &owner, &f.cfg.id).unwrap().session_ref.id;
+                let session = bindings::resolve(&db, &binding, &f.cfg.id).unwrap().session_ref.id;
                 db.execute(
                     "UPDATE donna_bot_sessions SET engine_choice=?2 WHERE id=?1",
                     rusqlite::params![session, r#"{"backend":"codex","accountId":"conta-b"}"#],
@@ -429,6 +442,30 @@ async fn autoridade_da_sessao_cai_na_troca_de_conta_na_revogacao_e_na_preferenci
                     .execute(
                         "UPDATE bots SET config=json_set(config,'$.browserPreference',?2) WHERE id=?1",
                         [&f.cfg.id, change],
+                    )
+                    .unwrap();
+            }
+            "sai_e_volta_ao_integrado" => {
+                for preference in ["computer", "integrated"] {
+                    f.hub
+                        .store
+                        .db
+                        .locked()
+                        .execute(
+                            "UPDATE bots SET config=json_set(config,'$.browserPreference',?2) WHERE id=?1",
+                            [&f.cfg.id, preference],
+                        )
+                        .unwrap();
+                }
+            }
+            "outro_vinculo_ativo" => {
+                f.hub
+                    .store
+                    .db
+                    .locked()
+                    .execute(
+                        "UPDATE kv SET v='outro-vinculo' WHERE k=?1",
+                        [format!("session.binding.active.{}", f.cfg.id)],
                     )
                     .unwrap();
             }

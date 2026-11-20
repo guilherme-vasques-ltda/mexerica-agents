@@ -275,10 +275,26 @@ struct OpenArgs {
 #[serde(deny_unknown_fields)]
 struct NoArgs {}
 
-/// A autoridade que abriu a sessão continua válida: vínculo ativo, bot do mesmo Space e preferência integrada.
+/// Autoridade de uma sessão: o vínculo de execução que a abriu e a geração da configuração do bot nesse instante.
+/// A geração muda a cada escrita da configuração (troca de conta, de Space, de preferência, A→B→A), então voltar
+/// ao valor anterior não revalida uma sessão velha.
+fn owner_key(binding: &str, generation: i64) -> String {
+    format!("{binding}#{generation}")
+}
+
+fn split_owner(owner: &str) -> Option<(&str, i64)> {
+    let (binding, generation) = owner.rsplit_once('#')?;
+    Some((binding, generation.parse().ok()?))
+}
+
+/// A autoridade que abriu a sessão continua válida: vínculo ainda o ativo do bot, bot do mesmo Space com a
+/// preferência integrada e a mesma geração de configuração. Falha fechada.
 fn authority_valid(hub: &Hub, scope: &supervisor::Scope, owner: &str) -> bool {
+    let Some((binding, generation)) = split_owner(owner) else { return false };
     let db = hub.store.db.locked();
-    bindings::resolve(&db, owner, &scope.bot).is_ok()
+    let Ok(live) = bindings::resolve(&db, binding, &scope.bot) else { return false };
+    bindings::assert_binding_live(&db, &live).is_ok()
+        && crate::fork::spaces::config_generation_on(&db, &scope.bot).is_ok_and(|current| current == generation)
         && Store::bot_on(&db, &scope.bot).ok().flatten().is_some_and(|row| {
             !row.deleted
                 && !row.config.is_group()
@@ -315,37 +331,44 @@ pub(crate) async fn call_page(
     let (cfg, generation) = authorize(hub, bot, execution, context)?;
     let binding = execution.acp_binding().ok_or_else(|| anyhow!("browser_context_required"))?;
     let scope = supervisor::Scope { hub: hub.host_id.clone(), space: cfg.space_id.clone(), bot: bot.to_owned() };
+    let owner = owner_key(binding, generation);
+    // A instância pretendida é a que existe AGORA, antes de qualquer espera: ler e fechar nunca adotam uma substituta.
+    let expected = hub.browser.watched_instance(&scope, binding);
     let weak = Arc::downgrade(hub);
     let authority: runtime::Authority =
         Arc::new(move |scope, owner| weak.upgrade().is_some_and(|hub| authority_valid(&hub, scope, owner)));
-    let valid = || authority_valid(hub, &scope, binding);
+    // Conferida de novo em cada ponto de efeito: execução original, contexto, geração e autoridade da sessão.
+    let valid = || reverify(hub, bot, execution, context, generation).is_ok() && authority_valid(hub, &scope, &owner);
     if name != CLOSE {
         ensure!(
             hub.browser.negotiated(binding),
             "browser_negotiation_required: chame browser_status com version 3 antes de usar o navegador"
         );
         if cfg.browser_preference != BrowserPreference::Integrated {
-            let _ = hub.browser.close(&scope, binding).await;
+            let _ = hub.browser.close(&scope, binding, expected).await;
             anyhow::bail!("browser_preference_denied: o dono não liberou o navegador integrado para este bot");
         }
         hub.browser.watch_authority(&authority);
     }
-    let outcome = match (name, url) {
-        (OPEN, Some(url)) => {
-            let hidden = hub.store.team_settings().ok().and_then(|team| team.workspace_root).map(PathBuf::from);
-            let hidden = hidden.into_iter().filter(|path| path.is_absolute()).collect();
-            hub.browser.open(&scope, binding, hidden, &url, valid).await
-        }
-        (READ, _) => hub.browser.read(&scope, binding, valid).await,
-        _ => runtime::Outcome {
-            instance: None,
-            result: hub
-                .browser
-                .close(&scope, binding)
-                .await
-                .map(|closed| json!({"version":3,"status":if closed.is_some() { "closed" } else { "no_session" }})),
-        },
-    };
+    let outcome =
+        match (name, url) {
+            (OPEN, Some(url)) => {
+                let hidden = hub.store.team_settings().ok().and_then(|team| team.workspace_root).map(PathBuf::from);
+                let hidden = hidden.into_iter().filter(|path| path.is_absolute()).collect();
+                hub.browser.open(&scope, &owner, hidden, &url, valid).await
+            }
+            (READ, _) => hub.browser.read(&scope, &owner, expected, valid).await,
+            _ => runtime::Outcome {
+                instance: None,
+                result: match reverify(hub, bot, execution, context, generation) {
+                    // Fechar é do dono da sessão e não depende da preferência, mas só com a execução original.
+                    Ok(()) => hub.browser.close(&scope, binding, expected).await.map(
+                        |closed| json!({"version":3,"status":if closed.is_some() { "closed" } else { "no_session" }}),
+                    ),
+                    Err(error) => Err(error),
+                },
+            },
+        };
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "browser_page_response");
     if let Err(error) = reverify(hub, bot, execution, context, generation) {
