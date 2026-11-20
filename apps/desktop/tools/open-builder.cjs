@@ -9,7 +9,14 @@ module.exports = {
   directories: { output: 'dist/open', buildResources: 'resources' },
   extraMetadata: { name: open.packageName, productName: open.name, main: 'out-open/main/open.js' },
   files: ['out-open/**', 'package.json', '!node_modules/**'],
-  extraResources: [{ from: 'config/open.json', to: 'open-profile.json' }],
+  extraResources: [
+    { from: 'config/open.json', to: 'open-profile.json' },
+    { from: 'build/native/mexerica-open-hub', to: 'mexerica-open-hub' },
+    ...['LICENSE', 'NOTICE', 'THIRD_PARTY.md', 'TRADEMARK.md', 'MODIFICACOES.md'].map((file) => ({
+      from: join('../..', file), to: join('avisos', file),
+    })),
+    { from: 'src/renderer/assets/fonts', to: 'avisos/fontes', filter: ['OFL-*.txt'] },
+  ],
   protocols: [{ name: open.name, schemes: [open.scheme] }],
   publish: null,
   electronFuses: {
@@ -28,6 +35,7 @@ module.exports = {
     accessSync(join(project, 'out-open/main/open.js'))
     accessSync(join(project, 'out-open/renderer/index.html'))
     accessSync(join(project, 'build/native/codync-speech'))
+    accessSync(join(project, 'build/native/mexerica-open-hub'))
   },
   mac: {
     category: 'public.app-category.developer-tools',

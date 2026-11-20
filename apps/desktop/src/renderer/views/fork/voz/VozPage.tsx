@@ -21,6 +21,7 @@ import type { ChaveAparelho, EstadoChaves } from '../../../../shared/fork-voz'
 import { agirNoAparelho, fonteEfetiva, guardarNoAparelho, TEXTO_SEM_COFRE, textoSituacaoPendente, textoTransicaoMac, textoTransicaoSemLocal, type Fonte, type ModoVoz, type ResultadoTela } from './chave-aparelho'
 import { estadoVozAparelho } from './estado-aparelho'
 import { RodapeCurto } from '../ajustes/RodapeCurto'
+import { EntradasVoz } from './EntradasVoz'
 import './voz.css'
 import { formatarNumero, type ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
@@ -287,6 +288,8 @@ export function VozPage({ reserva, folha = false, aba = null }: { reserva: BotSt
           </div>,
         ]}
       </CardSection> : null}
+
+      {mostra('vivo') && !folha && capacidades(window.codync).atalhoVoz ? <EntradasVoz /> : null}
 
       {mostra('chaves') ? <>
         {capacidades(window.codync).cofreLocal ? <ChavesDoAparelho reserva={reserva} estadoHub={estado} /> : null}

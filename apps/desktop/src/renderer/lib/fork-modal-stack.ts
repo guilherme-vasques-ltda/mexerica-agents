@@ -1,6 +1,6 @@
-// Adaptado de Codync 219935410dffccb950f90d0565bd1d9f1661bd5b (Apache-2.0).
-// leepokai; coautoria histórica Claude Opus 5.5. Modificado pela DONNA Bot em 2026-11-06:
-// gerência única, saída inerte, foco válido e Escape atômico. Ver THIRD_PARTY.md.
+// Adaptado de Codync 219935410dffccb950f90d0565bd1d9f1661bd5b (Apache-2.0): `stackModals`.
+// Modificado pela DONNA Bot em 2026-11-06: gerência única, saída inerte, foco válido e Escape atômico.
+// Ver THIRD_PARTY.md.
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { trapWrap } from './focus-trap.ts'
 

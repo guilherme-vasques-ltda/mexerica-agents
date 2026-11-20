@@ -14,6 +14,7 @@ const CODYNC_PORTS: [std::ops::RangeInclusive<u16>; 3] = [19222..=19222, 19223..
 pub enum Environment {
     Main,
     Dev,
+    Open,
 }
 
 impl Environment {
@@ -21,16 +22,22 @@ impl Environment {
         match option_env!("CODYNC_ENV") {
             Some(value) => match value.as_bytes() {
                 b"main" => Self::Main,
+                b"open" => Self::Open,
                 _ => Self::Dev,
             },
             None => Self::Dev,
         }
     }
 
+    pub const fn is_open() -> bool {
+        matches!(Self::current(), Self::Open)
+    }
+
     pub const fn name(self) -> &'static str {
         match self {
             Self::Main => "main",
             Self::Dev => "dev",
+            Self::Open => "open",
         }
     }
 
@@ -39,6 +46,7 @@ impl Environment {
         match self {
             Self::Main => "Mexerica",
             Self::Dev => "Mexerica Dev",
+            Self::Open => "Mexerica Open",
         }
     }
 
@@ -46,6 +54,7 @@ impl Environment {
         match self {
             Self::Main => 19422,
             Self::Dev => 19423,
+            Self::Open => 19524,
         }
     }
 
@@ -53,6 +62,7 @@ impl Environment {
         match self {
             Self::Main => ".mexerica",
             Self::Dev => ".mexerica-dev",
+            Self::Open => ".mexerica-open",
         }
     }
 
@@ -61,6 +71,7 @@ impl Environment {
         match self {
             Self::Main => "app.donnabot.host",
             Self::Dev => "app.donnabot.dev.host",
+            Self::Open => "app.mexerica.open.host",
         }
     }
 
@@ -69,6 +80,7 @@ impl Environment {
         match self {
             Self::Main => "app.donnabot.update",
             Self::Dev => "app.donnabot.dev.update",
+            Self::Open => "app.mexerica.open.update",
         }
     }
 
@@ -77,6 +89,7 @@ impl Environment {
         match self {
             Self::Main => "donnabot-host.service",
             Self::Dev => "donnabot-dev-host.service",
+            Self::Open => "mexerica-open-host.service",
         }
     }
 
@@ -85,6 +98,7 @@ impl Environment {
         match self {
             Self::Main => "donnabot-host-update",
             Self::Dev => "donnabot-dev-host-update",
+            Self::Open => "mexerica-open-host-update",
         }
     }
 
@@ -94,6 +108,7 @@ impl Environment {
         match self {
             Self::Main => "donnabot-cua",
             Self::Dev => "donnabot-dev-cua",
+            Self::Open => "mexerica-open-cua",
         }
     }
 
@@ -102,6 +117,7 @@ impl Environment {
         match self {
             Self::Main => "app.donnabot.credentials",
             Self::Dev => "app.donnabot.dev.credentials",
+            Self::Open => "app.mexerica.open.credentials",
         }
     }
 
@@ -110,6 +126,7 @@ impl Environment {
         match self {
             Self::Main => "DonnabotHost",
             Self::Dev => "DonnabotDevHost",
+            Self::Open => "MexericaOpenHost",
         }
     }
 
@@ -119,6 +136,7 @@ impl Environment {
         match self {
             Self::Main => "donnabot-hostw.exe",
             Self::Dev => "donnabot-dev-hostw.exe",
+            Self::Open => "mexerica-open-hostw.exe",
         }
     }
 
@@ -132,6 +150,7 @@ impl Environment {
         match self {
             Self::Main => "donnabot",
             Self::Dev => "donnabot-dev",
+            Self::Open => "mexerica-open",
         }
     }
 

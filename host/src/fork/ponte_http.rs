@@ -8,7 +8,9 @@ use axum::{
 use std::{net::SocketAddr, sync::Arc};
 
 pub(crate) fn autenticar(hub: &Hub, headers: &HeaderMap, peer: SocketAddr) -> Option<Caller> {
-    if !peer.ip().to_canonical().is_loopback() {
+    if !peer.ip().to_canonical().is_loopback()
+        || (crate::environment::Environment::is_open() && peer != crate::open_hub::SOCKET_PEER)
+    {
         return None;
     }
     let given = headers.get("authorization")?.to_str().ok()?.strip_prefix("Bearer ")?;

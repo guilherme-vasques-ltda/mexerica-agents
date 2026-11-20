@@ -86,6 +86,9 @@ pub async fn poll(hub: Arc<Hub>) {
 }
 
 pub async fn refresh(hub: &Hub) {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
     crate::fork::codex_usage::refresh(hub).await;
     if let Some(windows) = claude_cli_usage(&hub.store).await {
         merge(hub, "claude", "Claude", "claude", windows);
@@ -185,7 +188,7 @@ async fn claude_usage_output(
             crate::fork::motor_exec::command(bin, home)
                 .env_clear()
                 .envs(env)
-                // Porte Codync b365471a: não iniciar MCPs durante a consulta local.
+                // Não iniciar MCPs durante a consulta local.
                 .args([
                     "-p",
                     "/usage",
