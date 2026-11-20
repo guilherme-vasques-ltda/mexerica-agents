@@ -10,20 +10,20 @@ import { useApp } from '../../../store/context'
 import type { BotStore } from '../../../store/bot-store'
 import { useEstadoDaPagina } from '../../settings/estado-pagina'
 import { computadorDaPagina, spaceDaPagina } from '../nunca-fazer/modelo'
-import { CampoInstrucao, contar, LIMITE, type Escopo, type InstrucoesLink } from './campo'
+import { CampoInstrucao, contar, LIMITE, type Escopo, type FonteLink } from './campo'
 import './instrucoes.css'
 
 /** `guardarComo`: a chave do rascunho em Ajustes; o modelo guarda o texto editado e a página volta com ele (estado-pagina.ts). */
-function Campo({ link, escopo, guardarComo }: { link: InstrucoesLink; escopo: Escopo; guardarComo: string }) {
-  const [modelo] = useEstadoDaPagina(`instrucoes/${guardarComo}`, () => new CampoInstrucao(link, escopo))
+function Campo({ fonte, escopo, guardarComo }: { fonte: FonteLink; escopo: Escopo; guardarComo: string }) {
+  const [modelo] = useEstadoDaPagina(`instrucoes/${guardarComo}`, () => new CampoInstrucao(fonte, escopo))
   const campo = useModel(modelo)
   const id = useId()
   const t = useT()
   const idioma = useIdioma()
   const chave = escopo.tipo === 'space' ? 'space' : 'geral'
   // Com rascunho sujo do modelo que já leu, a releitura do Hub não apaga o texto digitado.
-  useEffect(() => { void modelo.ler(modelo.revisao > 0 && modelo.sujo) }, [modelo])
-  const alerta = campo.fase === 'conflito' || campo.fase === 'falha' || campo.excede
+  useEffect(() => { void modelo.ler(modelo.sujo) }, [modelo])
+  const alerta = campo.fase === 'conflito' || campo.fase === 'falha' || campo.excede || campo.invalido
   return (
     <div className="instrucoes-campo">
       <label htmlFor={id} className="instrucoes-titulo">{t(`instrucoes.${chave}.titulo`)}</label>
@@ -38,27 +38,29 @@ function Campo({ link, escopo, guardarComo }: { link: InstrucoesLink; escopo: Es
       </div>
       <div className="instrucoes-acoes">
         {campo.podeRepetir ? <Button kind="secondary" onClick={() => void modelo.tentarDeNovo()}>{t('instrucoes.acao.tentarDeNovo')}</Button> : null}
-        <Button disabled={!campo.sujo || campo.excede || campo.fase !== 'pronto'} onClick={() => void modelo.salvar()}>{t('instrucoes.acao.salvar')}</Button>
+        <Button disabled={!campo.sujo || campo.excede || campo.invalido || campo.fase !== 'pronto'} onClick={() => void modelo.salvar()}>{t('instrucoes.acao.salvar')}</Button>
       </div>
     </div>
   )
 }
 
-function PaginaDoHub({ store: fonte }: { store: BotStore }) {
+function PaginaDoHub({ store: origem }: { store: BotStore }) {
   const t = useT()
   const app = useApp()
-  const store = useModel(fonte)
+  const store = useModel(origem)
   const client = store.connection.kind === 'online' ? store.connectedClient : null
   const spaceId = spaceDaPagina(app.spaceMirrors.active, store.computer.id, store.hello?.hostId, store.spaces?.personalSpaceId)
   const nome = store.spaces?.spaces.find((s) => s.id === spaceId)?.name ?? ''
   if (!client) return <Text tone="secondary">{t('instrucoes.semConexao')}</Text>
-  const hub = `${store.computer.id}|${store.hello?.hostId ?? ''}|${store.principalEpoch}`
+  // A identidade do rascunho é o computador e o Hub; a reconexão troca o link (fonte), não o texto digitado.
+  const hub = `${store.computer.id}|${store.hello?.hostId ?? ''}`
+  const fonte: FonteLink = () => origem.connectedClient
   return <>
     <CardSection>
-      <Campo key={`${hub}|geral`} guardarComo={`${hub}|geral`} link={client} escopo={{ tipo: 'geral' }} />
+      <Campo key={`${hub}|geral`} guardarComo={`${hub}|geral`} fonte={fonte} escopo={{ tipo: 'geral' }} />
     </CardSection>
     {spaceId ? <CardSection title={nome || null}>
-      <Campo key={`${hub}|${spaceId}`} guardarComo={`${hub}|${spaceId}`} link={client} escopo={{ tipo: 'space', spaceId }} />
+      <Campo key={`${hub}|${spaceId}`} guardarComo={`${hub}|${spaceId}`} fonte={fonte} escopo={{ tipo: 'space', spaceId }} />
     </CardSection> : null}
   </>
 }

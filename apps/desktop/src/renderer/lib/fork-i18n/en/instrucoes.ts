@@ -29,5 +29,5 @@ export const textos: Traducao<typeof fonte> = {
   "instrucoes.falha.hubAntigo": "Update the Hub to use instructions.",
   "instrucoes.semConexao": "No connection to the Hub. The instructions show up when it is back.",
   "instrucoes.ordem.titulo": "Order:",
-  "instrucoes.ordem.texto": "what you write on the bot itself outweighs \"In this Space\", which outweighs \"For all my bots\". They are guidance: they don't grant permission, tools, models or accounts.",
+  "instrucoes.ordem.texto": "what you write on the bot itself outweighs \"In this Space\", which outweighs \"For all my bots\". They are guidance: they don't grant permission, tools, models or accounts. Don't write passwords or keys here: the bots read this text.",
 }

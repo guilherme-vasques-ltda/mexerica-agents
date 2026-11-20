@@ -15,6 +15,8 @@ export type ChaveEstado =
   | 'instrucoes.falha.hubAntigo'
 
 export interface InstrucoesLink { call(method: string, body?: unknown, timeoutMs?: number): Promise<unknown> }
+/** O link vivo do Hub a cada chamada: uma reconexão troca o link sem trocar o campo nem descartar o que foi digitado. */
+export type FonteLink = () => InstrucoesLink | null
 
 export interface Campo { texto: string; revision: number }
 export interface Estado { geral: Campo; space: Campo }
@@ -37,6 +39,10 @@ export function lerEstado(answer: unknown): Estado {
 /** Mesma limpeza do Hub: pontas aparadas, quebra de linha \n. */
 export const limpar = (texto: string) => texto.replace(/\r\n/g, '\n').trim()
 export const contar = (texto: string) => [...limpar(texto)].length
+/** Caractere de controle ou invisível (menos quebra de linha e tabulação), que o Hub recusa: o campo avisa antes de enviar. */
+// eslint-disable-next-line no-control-regex
+const INVISIVEL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\uFFF9-\uFFFB]/
+export const invisivel = (texto: string) => INVISIVEL.test(limpar(texto))
 
 /** A chave do texto da falha, pelo status e pelo código do Hub; a view traduz. */
 export function chaveDaFalha(e: unknown): ChaveEstado {
@@ -66,17 +72,29 @@ export class CampoInstrucao extends Observable {
   falha: ChaveEstado | null = null
   #leitura = 0
 
-  readonly link: InstrucoesLink
+  /** A falha vigente veio de uma leitura (nada foi lido): Tentar de novo só relê, nunca grava. */
+  #falhouNaLeitura = false
+  /** Já houve uma leitura bem-sucedida: a revisão guardada é a que a pessoa viu ao começar a editar. */
+  #lido = false
+
+  readonly fonte: FonteLink
   readonly escopo: Escopo
 
-  constructor(link: InstrucoesLink, escopo: Escopo) {
+  constructor(fonte: FonteLink, escopo: Escopo) {
     super()
-    this.link = link
+    this.fonte = fonte
     this.escopo = escopo
+  }
+
+  #link(): InstrucoesLink {
+    const link = this.fonte()
+    if (!link) throw Object.assign(new Error('sem_conexao'), { status: 0 })
+    return link
   }
 
   get sujo() { return limpar(this.texto) !== this.salvo }
   get excede() { return contar(this.texto) > LIMITE }
+  get invalido() { return invisivel(this.texto) }
 
   #corpoDaLeitura() { return this.escopo.tipo === 'space' ? { spaceId: this.escopo.spaceId } : {} }
 
@@ -89,14 +107,25 @@ export class CampoInstrucao extends Observable {
   async ler(manterTexto = false) {
     const minha = ++this.#leitura
     try {
-      const estado = lerEstado(await this.link.call('instrucaoGeral', this.#corpoDaLeitura()))
+      const estado = lerEstado(await this.#link().call('instrucaoGeral', this.#corpoDaLeitura()))
       if (minha !== this.#leitura) return
+      const campo = this.escopo.tipo === 'space' ? estado.space : estado.geral
+      // Rascunho de uma revisão antiga e o Hub já está em outra: avisa em vez de adotar a nova em silêncio e gravar por cima.
+      const mudouPorFora = manterTexto && this.#lido && this.sujo && campo.revision !== this.revisao && this.fase !== 'conflito' && this.fase !== 'salvando'
       this.#aplicar(estado)
+      this.#lido = true
+      if (mudouPorFora) {
+        this.fase = 'conflito'
+        this.changed()
+        return
+      }
       if (!manterTexto) this.texto = this.salvo
       this.fase = 'pronto'
       this.falha = null
+      this.#falhouNaLeitura = false
     } catch (e) {
       if (minha !== this.#leitura) return
+      this.#falhouNaLeitura = true
       this.fase = 'falha'
       const chave = chaveDaFalha(e)
       this.falha = chave === 'instrucoes.falha.envio' ? 'instrucoes.falha.leitura' : chave
@@ -110,20 +139,21 @@ export class CampoInstrucao extends Observable {
   }
 
   async salvar() {
-    if (this.excede || this.fase === 'salvando') return
+    if (this.excede || this.invalido || this.fase === 'salvando') return
     const texto = limpar(this.texto)
     this.fase = 'salvando'
     this.falha = null
     this.changed()
     try {
       const corpo = { escopo: this.escopo.tipo, ...(this.escopo.tipo === 'space' ? { spaceId: this.escopo.spaceId } : {}), texto, expectedRevision: this.revisao }
-      this.#aplicar(lerEstado(await this.link.call('instrucaoGeralSalvar', corpo, 15_000)))
+      this.#aplicar(lerEstado(await this.#link().call('instrucaoGeralSalvar', corpo, 15_000)))
       if (limpar(this.texto) === texto) this.texto = this.salvo
       this.fase = 'pronto'
     } catch (e) {
       if (conflito(e)) {
         this.fase = 'conflito'
       } else {
+        this.#falhouNaLeitura = false
         this.fase = 'falha'
         this.falha = chaveDaFalha(e)
       }
@@ -135,7 +165,7 @@ export class CampoInstrucao extends Observable {
 
   /** Conflito: relê a revisão nova, mantém o texto da pessoa e grava. Falha: tenta gravar de novo (ou relê, se nada foi lido). */
   async tentarDeNovo() {
-    if (this.fase === 'conflito' || (this.fase === 'falha' && this.falha !== 'instrucoes.falha.leitura')) {
+    if (this.fase === 'conflito' || (this.fase === 'falha' && !this.#falhouNaLeitura)) {
       await this.ler(true)
       if ((this.fase as Fase) === 'pronto') await this.salvar()
     } else {
@@ -150,6 +180,7 @@ export class CampoInstrucao extends Observable {
     if (this.fase === 'conflito') return 'instrucoes.estado.conflito'
     if (this.fase === 'falha') return this.falha ?? 'instrucoes.falha.envio'
     if (this.excede) return 'instrucoes.falha.limite'
+    if (this.invalido) return 'instrucoes.falha.invalido'
     if (this.sujo) return 'instrucoes.estado.naoSalvo'
     return this.salvo ? 'instrucoes.estado.salvo' : 'instrucoes.estado.vazio'
   }

@@ -23,7 +23,7 @@ function hub() {
 
 test('o campo geral lê e grava pela RPC do dono, com a revisão esperada', async () => {
   const h = hub()
-  const campo = new CampoInstrucao(h.link, { tipo: 'geral' })
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
   await campo.ler()
   assert.equal(campo.estado, 'instrucoes.estado.vazio')
   campo.editar('  Respostas curtas.\r\n')
@@ -38,7 +38,7 @@ test('o campo geral lê e grava pela RPC do dono, com a revisão esperada', asyn
 
 test('o campo do Space lê e grava o próprio escopo, sem tocar no geral', async () => {
   const h = hub()
-  const campo = new CampoInstrucao(h.link, { tipo: 'space', spaceId: 'p' })
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'space', spaceId: 'p' })
   await campo.ler()
   assert.deepEqual(h.calls[0], { method: 'instrucaoGeral', body: { spaceId: 'p' } })
   campo.editar('Tom formal.')
@@ -50,7 +50,7 @@ test('o campo do Space lê e grava o próprio escopo, sem tocar no geral', async
 
 test('texto acima do limite não é enviado e conta por caractere Unicode', async () => {
   const h = hub()
-  const campo = new CampoInstrucao(h.link, { tipo: 'geral' })
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
   await campo.ler()
   campo.editar('é'.repeat(LIMITE))
   assert.equal(campo.excede, false)
@@ -63,7 +63,7 @@ test('texto acima do limite não é enviado e conta por caractere Unicode', asyn
 
 test('conflito: tentar de novo relê a revisão nova e grava o texto da pessoa', async () => {
   const h = hub()
-  const campo = new CampoInstrucao(h.link, { tipo: 'geral' })
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
   await campo.ler()
   h.state.geral = { texto: 'Vindo de outro lugar.', revision: 5 }
   campo.editar('Meu texto.')
@@ -80,7 +80,7 @@ test('falha de leitura mantém o rascunho e Tentar de novo só relê', async () 
   const h = hub()
   let cai = true
   const link = { call: async (m: string, b?: unknown) => { if (cai) throw Object.assign(new Error('x'), { status: 0 }); return h.link.call(m, b as Record<string, unknown>) } }
-  const campo = new CampoInstrucao(link, { tipo: 'geral' })
+  const campo = new CampoInstrucao(() => link, { tipo: 'geral' })
   await campo.ler()
   assert.equal(campo.estado, 'instrucoes.falha.leitura')
   campo.editar('Rascunho.')
@@ -98,4 +98,75 @@ test('as falhas do Hub viram chaves de texto', () => {
   assert.equal(chaveDaFalha(new Error('invalid_field: invisível')), 'instrucoes.falha.invalido')
   assert.equal(chaveDaFalha(new Error('space_not_found')), 'instrucoes.falha.spaceSumiu')
   assert.equal(chaveDaFalha(new Error('qualquer outra')), 'instrucoes.falha.envio')
+})
+
+test('falha de leitura por Hub antigo ou sem acesso: Tentar de novo só relê, nunca grava vazio sobre o que existe', async () => {
+  const h = hub()
+  h.state.geral = { texto: 'Já existia.', revision: 3 }
+  let nega = true
+  const link = { call: async (m: string, b?: unknown) => { if (nega) throw Object.assign(new Error('forbidden'), { status: 403 }); return h.link.call(m, b as Record<string, unknown>) } }
+  const campo = new CampoInstrucao(() => link, { tipo: 'geral' })
+  await campo.ler()
+  assert.equal(campo.estado, 'instrucoes.falha.soDono')
+  nega = false
+  await campo.tentarDeNovo()
+  assert.equal(campo.texto, 'Já existia.')
+  assert.equal(h.state.geral.texto, 'Já existia.')
+  assert.equal(h.calls.filter((c) => c.method === 'instrucaoGeralSalvar').length, 0)
+})
+
+test('rascunho com caractere de controle não é enviado; tabulação e quebra de linha valem', async () => {
+  const h = hub()
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await campo.ler()
+  campo.editar('a\u0007b')
+  assert.equal(campo.invalido, true)
+  assert.equal(campo.estado, 'instrucoes.falha.invalido')
+  await campo.salvar()
+  assert.equal(h.calls.filter((c) => c.method === 'instrucaoGeralSalvar').length, 0)
+  campo.editar('- item\n\t- recuado')
+  assert.equal(campo.invalido, false)
+})
+
+test('a reconexão troca o link sem perder o rascunho: a fonte é lida a cada chamada', async () => {
+  const antigo = hub()
+  const novo = hub()
+  let atual: typeof antigo.link | null = antigo.link
+  const campo = new CampoInstrucao(() => atual, { tipo: 'geral' })
+  await campo.ler()
+  campo.editar('Rascunho que sobrevive.')
+  atual = null
+  await campo.salvar()
+  assert.equal(campo.fase, 'falha')
+  assert.equal(campo.texto, 'Rascunho que sobrevive.')
+  atual = novo.link
+  await campo.tentarDeNovo()
+  assert.equal(novo.state.geral.texto, 'Rascunho que sobrevive.')
+  assert.equal(campo.estado, 'instrucoes.estado.salvo')
+})
+
+test('reabrir com rascunho e o Hub mudado por fora avisa o conflito em vez de gravar por cima', async () => {
+  const h = hub()
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await campo.ler()
+  campo.editar('Meu rascunho.')
+  h.state.geral = { texto: 'Mudou em outra janela.', revision: 4 }
+  await campo.ler(campo.sujo)
+  assert.equal(campo.fase, 'conflito')
+  assert.equal(campo.estado, 'instrucoes.estado.conflito')
+  assert.equal(campo.texto, 'Meu rascunho.')
+  assert.equal(h.calls.filter((c) => c.method === 'instrucaoGeralSalvar').length, 0)
+  await campo.tentarDeNovo()
+  assert.equal(h.state.geral.texto, 'Meu rascunho.')
+  assert.equal(campo.estado, 'instrucoes.estado.salvo')
+})
+
+test('reabrir com rascunho e o Hub igual mantém o rascunho sem conflito', async () => {
+  const h = hub()
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await campo.ler()
+  campo.editar('Rascunho.')
+  await campo.ler(campo.sujo)
+  assert.equal(campo.fase, 'pronto')
+  assert.equal(campo.texto, 'Rascunho.')
 })

@@ -62,11 +62,11 @@ fn lido(c: &Connection, space: &str) -> Result<(String, i64)> {
     .unwrap_or_default())
 }
 
-/// Aparado nas pontas, quebras de linha `\n`; outros caracteres de controle ou invisíveis são recusados.
+/// Aparado nas pontas, quebras de linha `\n`; tabulação vale (listas recuadas); outros caracteres de controle ou invisíveis são recusados.
 fn limpa(texto: &str) -> Result<String> {
     let texto = texto.replace("\r\n", "\n");
     let texto = texto.trim();
-    if texto.chars().any(|c| c != '\n' && crate::fork::funcao::invisivel(c)) {
+    if texto.chars().any(|c| c != '\n' && c != '\t' && crate::fork::funcao::invisivel(c)) {
         bail!("invalid_field: o texto tem um caractere invisível ou de controle. Apague-o e tente de novo.");
     }
     ensure!(texto.chars().count() <= LIMITE, "limit_exceeded: o campo pode ter até {LIMITE} caracteres.");
@@ -86,6 +86,7 @@ fn estado(c: &Connection, space: &str) -> Result<Value> {
 
 pub(crate) fn call(hub: &Hub, caller: &Caller, method: &str, body: Value) -> Result<Value> {
     if !matches!(caller, Caller::Local) {
+        tracing::warn!(method, "instruções do dono: chamada recusada, só o dono neste computador lê e grava");
         return Err(Forbidden.into());
     }
     let invalido = |_| anyhow!("invalid_field: pedido de instruções inválido");

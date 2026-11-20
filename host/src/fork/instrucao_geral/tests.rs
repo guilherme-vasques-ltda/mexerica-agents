@@ -140,12 +140,13 @@ async fn limite_e_texto_invalido_sao_recusados_sem_gravar() {
     assert!(acima.to_string().contains("limit_exceeded"), "{acima}");
     let multibyte = "é".repeat(LIMITE);
     gravar(&hub, "geral", None, &multibyte).await.unwrap();
+    gravar(&hub, "geral", None, "- item\n\t- recuado").await.unwrap();
     for invisivel in ["a\u{200B}b", "a\u{0007}b", "a\u{202E}b"] {
         let erro = gravar(&hub, "geral", None, invisivel).await.unwrap_err();
         assert!(erro.to_string().contains("invalid_field"), "{erro}");
     }
     let estado = ler(&hub, &bot.space_id).await;
-    assert_eq!(estado["geral"]["texto"], multibyte, "o recusado não sobrescreve");
+    assert_eq!(estado["geral"]["texto"], "- item\n\t- recuado", "o recusado não sobrescreve");
     assert_eq!(estado["limite"], LIMITE);
     std::fs::remove_dir_all(dir).unwrap();
 }

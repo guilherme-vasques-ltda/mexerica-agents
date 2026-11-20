@@ -29,5 +29,5 @@ export const textos: Traducao<typeof fonte> = {
   "instrucoes.falha.hubAntigo": "Actualiza el Hub para usar las instrucciones.",
   "instrucoes.semConexao": "Sin conexión con el Hub. Las instrucciones aparecen cuando vuelva.",
   "instrucoes.ordem.titulo": "Orden:",
-  "instrucoes.ordem.texto": "lo que escribes en el propio bot vale más que «En este Space», que vale más que «Para todos mis bots». Son orientaciones: no dan permiso, herramienta, modelo ni cuenta.",
+  "instrucoes.ordem.texto": "lo que escribes en el propio bot vale más que «En este Space», que vale más que «Para todos mis bots». Son orientaciones: no dan permiso, herramienta, modelo ni cuenta. No escribas contraseñas ni claves aquí: los bots leen este texto.",
 }

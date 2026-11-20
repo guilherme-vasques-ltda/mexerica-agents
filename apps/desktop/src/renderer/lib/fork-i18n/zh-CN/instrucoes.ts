@@ -29,5 +29,5 @@ export const textos: Traducao<typeof fonte> = {
   "instrucoes.falha.hubAntigo": "请更新 Hub 以使用指令。",
   "instrucoes.semConexao": "未连接到 Hub。连接恢复后会显示指令。",
   "instrucoes.ordem.titulo": "顺序：",
-  "instrucoes.ordem.texto": "你写在机器人本身的内容优先于“在此空间”，“在此空间”又优先于“适用于我的所有机器人”。这些只是指引：不授予权限、工具、模型或账户。",
+  "instrucoes.ordem.texto": "你写在机器人本身的内容优先于“在此空间”，“在此空间”又优先于“适用于我的所有机器人”。这些只是指引：不授予权限、工具、模型或账户。请勿在此写入密码或密钥：机器人会读取这段文字。",
 }

@@ -26,5 +26,5 @@ export const textos = {
   "instrucoes.falha.hubAntigo": "Atualize o Hub para usar as instruções.",
   "instrucoes.semConexao": "Sem conexão com o Hub. As instruções aparecem quando ele voltar.",
   "instrucoes.ordem.titulo": "Ordem:",
-  "instrucoes.ordem.texto": "o que você escreve no próprio bot vale mais que «Neste Space», que vale mais que «Para todos os meus bots». São orientações: não liberam permissão, ferramenta, modelo nem conta.",
+  "instrucoes.ordem.texto": "o que você escreve no próprio bot vale mais que «Neste Space», que vale mais que «Para todos os meus bots». São orientações: não liberam permissão, ferramenta, modelo nem conta. Não escreva senhas nem chaves aqui: os bots leem este texto.",
 } as const
