@@ -7,7 +7,8 @@
 // dados fictícios.
 
 const FINALIDADE = "aviso_privado";
-const hora = (iso) => Number(iso.slice(11, 13));
+const hora = (iso, fuso) => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: fuso }).format(new Date(iso)));
+const calado = (h, ini, fim) => (ini <= fim ? h >= ini && h < fim : h >= ini || h < fim);
 const horasAte = (alvo, agora) => (Date.parse(alvo) - Date.parse(agora)) / 3_600_000;
 const distintos = (lista) => [...new Set(lista)].sort();
 
@@ -25,7 +26,7 @@ const regras = {
     pendente: d.ultimaPerguntaDe === "aluno",
     silencioProprio: d.respostaPosterior ? "respondido" : null,
     interromper: false,
-    origem: { afirmacao: "última mensagem do grupo " + d.grupo + " é de aluno", confirmado: [d.respostaPosterior ? "resposta posterior registrada" : "sem resposta registrada"] },
+    origem: { afirmacao: "última pergunta do grupo " + d.grupo + " é de aluno", confirmado: [d.respostaPosterior ? "resposta posterior registrada" : "sem resposta registrada"] },
     incerteza: { nivel: "confirmado", motivo: null },
     naoConfirmado: [],
     vedadas: ["responder_pelo_dono", "expor_mensagens"],
@@ -99,7 +100,7 @@ export function ensaiar(cena, { agora, preferencias, historico = [], leitor }) {
   const resumo = { tipo: "resumo", canal: "privado", quando: preferencias.resumoManha };
   if (!r.interromper) return { ...saida, oferta: resumo };
 
-  const h = hora(agora);
-  if (h >= preferencias.silencioInicio || h < preferencias.silencioFim) return { ...saida, oferta: resumo, silencio: { motivo: "fora_de_hora", ate: preferencias.resumoManha } };
+  const h = hora(agora, preferencias.fuso);
+  if (calado(h, preferencias.silencioInicio, preferencias.silencioFim)) return { ...saida, oferta: resumo, silencio: { motivo: "fora_de_hora", ate: preferencias.resumoManha } };
   return { ...saida, oferta: { tipo: "interromper", canal: "privado", quando: "agora" } };
 }

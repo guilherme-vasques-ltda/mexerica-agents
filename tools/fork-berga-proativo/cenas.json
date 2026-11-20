@@ -5,7 +5,8 @@
     "preferencias": {
       "silencioInicio": 22,
       "silencioFim": 7,
-      "resumoManha": "07:30"
+      "resumoManha": "07:30",
+      "fuso": "America/Sao_Paulo"
     }
   },
   "cenas": [

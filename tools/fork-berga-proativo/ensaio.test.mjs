@@ -94,6 +94,21 @@ for (const e of extras) {
   });
 }
 
+test("fuso: agora em UTC é avaliado no fuso das preferências", () => {
+  const multa = cena("multa");
+  assert.equal(rodar(multa, { patch: { agora: "2026-11-19T02:30:00Z" } }).saida.silencio?.motivo, "fora_de_hora");
+  assert.equal(rodar(multa, { patch: { agora: "2026-11-18T18:00:00Z" } }).saida.oferta.tipo, "interromper");
+});
+
+test("janela de silêncio que não cruza a meia-noite só cala dentro dela", () => {
+  const multa = cena("multa");
+  const prefs = { ...contexto.preferencias, silencioInicio: 1, silencioFim: 5 };
+  const proxima = mesclar(multa, { dados: { prazo: "2026-11-18T20:00:00-03:00" } });
+  const roda = (agora) => ensaiar(proxima, { agora, preferencias: prefs, leitor: (x) => x.dados });
+  assert.equal(roda("2026-11-18T15:00:00-03:00").oferta.tipo, "interromper");
+  assert.equal(roda("2026-11-18T03:00:00-03:00").silencio?.motivo, "fora_de_hora");
+});
+
 test("origem informa prazo da multa e data da renovação", () => {
   assert.equal(rodar(cena("multa")).saida.origem.prazoInformado, cena("multa").dados.prazo);
   assert.equal(rodar(cena("renovacao")).saida.origem.dataInformada, cena("renovacao").dados.dataRenovacao);
