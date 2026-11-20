@@ -29,7 +29,7 @@ pub(super) fn ensure_no_model_release(before: &State, after: &State) -> Result<(
     Ok(())
 }
 
-/// Heartbeat: o modelo não declara, não altera (declaração, horário, tempo limite), não apaga nem liga uma checagem
+/// Heartbeat: o modelo não declara, não altera (declaração, nome, horário, tempo limite, chave de webhook), não apaga nem liga uma checagem
 /// silenciosa; isso é gesto do dono no app. Pausar é permitido.
 pub(super) fn ensure_no_model_heartbeat(before: &State, after: &State) -> Result<()> {
     let same = |a: &super::Routine, b: &super::Routine| a.id == b.id && a.bot_id == b.bot_id;
@@ -37,6 +37,8 @@ pub(super) fn ensure_no_model_heartbeat(before: &State, after: &State) -> Result
         let kept = after.routines.iter().find(|r| same(r, old)).is_some_and(|r| {
             !r.deleted
                 && r.heartbeat == old.heartbeat
+                && r.name == old.name
+                && r.webhook_key == old.webhook_key
                 && r.triggers == old.triggers
                 && r.timeout_seconds == old.timeout_seconds
                 && (old.enabled || !r.enabled)

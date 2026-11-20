@@ -21,7 +21,7 @@ Campo desconhecido é recusado: não há onde esconder uma permissão de enviar 
 intervalo): webhook, evento e teste manual são recusados. O texto de instrução da rotina é trocado por um texto
 fixo, que não pede nenhuma ação.
 
-O modelo (o bot) não declara, não altera (declaração, horário, tempo limite), não apaga nem liga uma checagem; ele só pode pausá-la. Uma rotina comum só vira checagem se não tiver execução em andamento e se não tiver sido criada por um bot. Duplicar uma checagem pelo app mantém a declaração, e a cópia nasce pausada.
+O modelo (o bot) não declara, não altera (declaração, nome, horário, tempo limite, chave de webhook), não apaga nem liga uma checagem; ele só pode pausá-la. Uma rotina comum só vira checagem se não tiver execução em andamento e se não for uma rotina descendente de bot (com agenda e orçamento próprios). Duplicar uma checagem pelo app mantém a declaração, e a cópia nasce pausada.
 
 ## O que a checagem nunca faz
 

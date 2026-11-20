@@ -366,3 +366,32 @@ fn recuo_nunca_passa_do_maior_entre_seis_horas_e_o_intervalo_declarado() {
         }
     }
 }
+
+#[test]
+fn marcador_igual_depois_de_falha_le_o_conteudo_de_novo() {
+    let fonte = Ficticia::com(&[("7", "v1", "aguardando")]);
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    let boa = avalia(&fonte, &Estado::default(), 1_000_000);
+    *fonte.falha.lock().unwrap() = Some(Motivo::Fora);
+    let falhou = avalia(&fonte, &boa.estado, 2_000_000);
+    *fonte.falha.lock().unwrap() = None;
+    let leituras = fonte.leituras.load(Ordering::SeqCst);
+    let volta = avalia(&fonte, &falhou.estado, 20_000_000);
+    assert_eq!(fonte.leituras.load(Ordering::SeqCst), leituras + 1, "só o marcador respondeu antes: relê");
+    assert_eq!(volta.estado.falhas_seguidas, 0);
+}
+
+#[test]
+fn outra_declaracao_descarta_o_estado_anterior() {
+    let fonte = Ficticia::com(&[("7", "v1", "aguardando"), ("8", "v1", "em andamento")]);
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    let primeira = avalia(&fonte, &Estado::default(), 1_000_000);
+    assert!(primeira.aviso.is_some());
+    let outro_criterio = Declaracao::parse(
+        &json!({"fonte":"pedidos.ficticio","escopo":"fila de compras","criterio":{"estados":["em andamento"]}}),
+    )
+    .unwrap();
+    let saida = avaliar(&fonte, &outro_criterio, &primeira.estado, 20_000_000);
+    assert_eq!(saida.resultado, Resultado::DecisaoPendente, "critério novo, mesmo marcador: reavalia");
+    assert!(saida.aviso.is_some());
+}

@@ -34,13 +34,23 @@ pub(crate) fn pode_checar(estado: &Estado, declaracao: &Declaracao, agora: i64) 
 }
 
 pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Estado, agora: i64) -> Saida {
+    // O que se sabia vale só para esta mesma declaração (fonte, escopo e critério): com outra, recomeça do zero.
+    let config = resumir(&[&declaracao.fonte, &declaracao.escopo, &declaracao.criterio.estados.join("\0")]);
+    let zerado;
+    let anterior = if anterior.config.as_deref() == Some(config.as_str()) {
+        anterior
+    } else {
+        zerado = Estado { config: Some(config.clone()), ..Estado::default() };
+        &zerado
+    };
     let marcador = match fonte.marcador(&declaracao.escopo) {
         Ok(marcador) => marcador.map(|bruto| resumir(&[&bruto])),
         Err(motivo) => return falha(declaracao, anterior, motivo, agora),
     };
     // Marcador igual dispensa a leitura, a menos que ainda haja pendência por avisar (aviso limitado a
     // `MAX_NO_AVISO` por vez): sem isso, o resto nunca chegaria ao dono.
-    if marcador.is_some() && marcador == anterior.marcador && anterior.restantes == 0 {
+    // Depois de uma falha, o marcador sozinho não prova que a leitura voltou: relê o conteúdo.
+    if marcador.is_some() && marcador == anterior.marcador && anterior.restantes == 0 && anterior.falhas_seguidas == 0 {
         let mut estado = anterior.clone();
         estado.falhas_seguidas = 0;
         estado.ultimo_motivo = None;
@@ -82,6 +92,7 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
     avisadas.extend(mostradas.iter().map(|(impressao, _)| (*impressao).clone()));
     avisadas.sort();
     let estado = Estado {
+        config: anterior.config.clone(),
         marcador,
         assinatura: Some(assinatura),
         avisadas,

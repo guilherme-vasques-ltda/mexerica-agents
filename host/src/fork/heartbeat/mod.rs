@@ -171,6 +171,9 @@ pub(crate) struct UltimaChecagem {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Estado {
+    /// Resumo da declaração a que este estado pertence; outra declaração descarta o estado.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marcador: Option<String>,
     /// Resumo do conteúdo lido (itens e versões), para detectar mudança também quando a fonte não tem marcador.

@@ -155,7 +155,10 @@ fn guarda_do_modelo_recusa_declarar_alterar_e_ligar_mas_deixa_pausar() {
     assert!(ok(&estado_com(true, true), &State::default()).is_err(), "sumir da lista também");
     let mut renomeada = estado_com(true, true);
     renomeada.routines[0].name = "Outro".into();
-    assert!(ok(&estado_com(true, true), &renomeada).is_ok(), "o nome não importa");
+    assert!(ok(&estado_com(true, true), &renomeada).is_err(), "renomear é do dono");
+    let mut chave = estado_com(true, true);
+    chave.routines[0].webhook_key = "outra".into();
+    assert!(ok(&estado_com(true, true), &chave).is_err(), "girar a chave é do dono");
     let mut outra = estado_com(true, true);
     outra.routines[0].heartbeat.as_mut().unwrap().escopo = "outro".into();
     assert!(ok(&estado_com(true, true), &outra).is_err(), "alterar a declaração é do dono");
@@ -275,6 +278,7 @@ fn webhook_recebido_nao_enfileira_execucao_de_checagem() {
     let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
     let chave = hub.routines.state.locked().routines[0].webhook_key.clone();
     let cabecalhos = std::collections::BTreeMap::from([("authorization".to_owned(), format!("Bearer {chave}"))]);
-    let _ = hub.routines.receive(&hub, &id, &cabecalhos, br#"{"text":"oi"}"#);
-    assert!(hub.routines.state.locked().runs.iter().all(|r| r.status == Status::Cancelled));
+    let resposta = hub.routines.receive(&hub, &id, &cabecalhos, br#"{"text":"oi"}"#).unwrap();
+    assert!(resposta["ignored"].is_string(), "a entrega autenticada é ignorada: {resposta}");
+    assert!(hub.routines.state.locked().runs.is_empty());
 }
