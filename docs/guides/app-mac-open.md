@@ -32,3 +32,6 @@ metadados próprios de `app.mexerica.open`, como preferências, caches, estado
 da janela ou o registro do esquema; eles não pertencem aos outros apps.
 A separação não isola usuários do macOS nem torna seguro executar código
 não revisado.
+
+A edição Open não muda o ícone, a presença no Dock ou a abertura ao iniciar
+a sessão. Esses controles não aparecem em Ajustes.

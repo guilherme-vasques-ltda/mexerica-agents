@@ -205,10 +205,10 @@ function PageContent({ page, aba, onPage }: { page: SettingsPage; aba: string | 
 export function GeneralSettings() {
   const app = useApp()
   const t = useT()
+  const cap = capacidades(window.codync)
   const [showInDock, setShowInDock] = useState(true)
   // A página monta a cada visita: lê estas chaves ao abrir, porque a bandeja também as muda.
-  useEffect(() => { void window.codync.app.showInDock().then(setShowInDock) }, [])
-  const cap = capacidades(window.codync)
+  useEffect(() => { if (cap.dock) void window.codync.app.showInDock().then(setShowInDock) }, [cap.dock])
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
   useEffect(() => { if (cap.launchAtLogin) void window.codync.app.launchAtLogin().then(setLaunchAtLogin) }, [cap.launchAtLogin])
   const [island, setIsland] = useState(false)
@@ -223,8 +223,8 @@ export function GeneralSettings() {
       <IdiomaAjuste />
       <Superficie>
       <AtalhoBerga />
-      {window.codync.platform === 'darwin' || islandSupported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
-        {window.codync.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>{t('ajustes.geral.dock')}</Switch> : null}
+      {cap.dock || islandSupported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
+        {cap.dock ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>{t('ajustes.geral.dock')}</Switch> : null}
         {islandSupported ? (
           <Switch on={island} onChange={(on) => void window.codync.island.setEnabled(on).then(setIsland)}>
             {t(islandLabel(window.codync.platform))}
