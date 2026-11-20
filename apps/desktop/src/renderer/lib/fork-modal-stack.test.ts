@@ -1,3 +1,4 @@
+// Adaptado de Codync 219935410dffccb950f90d0565bd1d9f1661bd5b (Apache-2.0): testes de stackModals. Modificado pela DONNA Bot em 2026-11-06.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { stackModals, type PageLayer } from './fork-modal-stack.ts'

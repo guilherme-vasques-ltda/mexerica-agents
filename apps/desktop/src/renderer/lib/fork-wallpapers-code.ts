@@ -3,7 +3,7 @@ import { ptBR } from './fork-i18n/pt-BR.ts'
 // DON-909: fundos desenhados em código (docs/reference/redesenho/papeis-codigo.md). Cada fundo é um SVG
 // montado aqui e entregue como data URL, então entra pelo mesmo caminho dos JPGs (lib/appearance.ts):
 // `--wp-image`, miniatura, prévia, Desfoque, Suavizar e a medição do piso por canvas. Estático, sem
-// dependências, sem movimento. As receitas e a composição Petróleo da Mexerica (#0C706E/#2DD4BF, docs/guides/marca.md) são deste fork.
+// dependências, sem movimento. A composição Petróleo da Mexerica (#0C706E/#2DD4BF, docs/guides/marca.md) é deste fork.
 //
 // `boundsOf` dá a caixa de cor de cada variante pela própria receita (toda camada é composta sobre a caixa
 // das anteriores; bordas e transparências entram como alfa 0), um limite que vale para qualquer raster.

@@ -21,8 +21,7 @@ a LICENSE das skills de Exa e Supabase (MIT); skills de terceiros embutidas no c
 skills do Hub, com a licença que cada uma traz; pi-mono (MIT), vendorizado no motor; fontes DM Sans,
 Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto ao
 lado de cada arquivo); o pacote npm lucide (ISC); e as logos dos serviços do
-catálogo de conectores (marcas de seus titulares). THIRD_PARTY.md registra só
-material de terceiros presente nesta cópia. O inventário de dependências, com a cobertura e os
+catálogo de conectores (marcas de seus titulares). O inventário de dependências, com a cobertura e os
 limites que ele declara, está em packaging/avisos/INVENTARIO-DEPENDENCIAS.md.
 
 --- Aviso original preservado integralmente ---
