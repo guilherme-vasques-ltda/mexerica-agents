@@ -30,7 +30,8 @@ início da rodada: se o Boat recusar um job depois, esse job fica na fila ou fal
 
 - **secrets:** Gitleaks 8.30.1 (binário com SHA-256 fixo) nos commits do PR, com a
   configuração `.gitleaks.toml` da `main` e o executor `tools/ci-gitleaks.mjs` da `main`.
-  Nada do PR afrouxa a política. Só localização e regra são impressas, nunca o valor.
+  Depois da instalação, nada do PR afrouxa a política. Só localização e regra são
+  impressas, nunca o valor.
 - **vazamento:** `tools/ci-vazamento.mjs` confere linhas adicionadas, nomes de arquivo e
   mensagens de commit contra regras públicas (caminho pessoal, IP privado, host interno,
   identificador de serviço, referência de cofre, arquivo sensível) e contra termos pessoais
@@ -47,8 +48,10 @@ início da rodada: se o Boat recusar um job depois, esse job fica na fila ou fal
   Mexerica. `MEXERICA_EXIGIR_BWRAP=1` faz o job reprovar se o isolamento real não puder rodar.
 - **desktop:** garante `/usr/bin/ssh` (os testes de túnel o chamam de verdade), `npm ci`, typecheck, `npm test` (inclui o gate de textos e os testes de
   avisos) e `npm run test:open` quando a variante Open existe na árvore.
-- **semgrep:** Semgrep OSS 1.184.0 instalado com hashes fixos e as regras de
-  `.github/security/semgrep.yml`. Os achados são só aviso, mas a análise precisa concluir.
+- **semgrep:** Semgrep OSS 1.184.0 instalado com os hashes de
+  `.github/security/semgrep-requirements.txt` e as regras de `.github/security/semgrep.yml`,
+  os dois lidos da `main` (só no PR que os introduz vêm do próprio PR). Os achados são só
+  aviso, mas a análise precisa concluir.
 - **dependency-audit:** `npm audit` e `cargo audit` só como aviso. Não entra no `ci-ok`.
 
 ## Regras do ci-ok
@@ -82,7 +85,10 @@ início da rodada: se o Boat recusar um job depois, esse job fica na fila ou fal
 - O evento `pull_request` usa o workflow do próprio PR. Quem pode criar branch no
   repositório pode mudar o workflow, o `ci-ok` e o uso do secret. O `ci-ok` só prova algo
   quando quem escreve no repositório é confiável; mudanças em `.github/` e `tools/ci-*`
-  pedem revisão cuidadosa.
+  pedem revisão cuidadosa. Fechar essa porta exige um workflow obrigatório definido fora do
+  PR (regra de organização que aponta para um arquivo fixo), não este arquivo.
+- Gitleaks e Semgrep mostram caminhos de arquivo nos logs. Em repositório público os logs
+  são públicos; o `vazamento` já esconde caminhos com dado pessoal.
 - Os jobs rodam código do PR numa VM descartável com `sudo`, como nos runners do GitHub; a
   prova de dois UIDs precisa de root. O isolamento entre jobs é do fornecedor.
 - Downloads diretos (Gitleaks, cargo-audit, cargo-nextest, wheels do Semgrep) são

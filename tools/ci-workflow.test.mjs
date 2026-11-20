@@ -121,3 +121,12 @@ test('changes reprova se o diff falhar e cobre configuração do Cargo', () => {
   assert.ok(!changes.includes('done < <('), 'sem substituição de processo, que engole o erro');
   for (const p of ['Cargo.toml', 'Cargo.lock', '.cargo/*', 'rustfmt.toml', 'clippy.toml']) assert.ok(changes.includes(p), p);
 });
+
+test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
+  const sem = body('semgrep');
+  assert.ok(sem.includes('git show "$source:.github/security/semgrep.yml"'));
+  assert.ok(sem.includes('git show "$source:.github/security/semgrep-requirements.txt"'));
+  assert.ok(sem.includes('-r "$RUNNER_TEMP/semgrep-politica/requirements.txt"'));
+  assert.ok(sem.includes('--config "$RUNNER_TEMP/semgrep-politica/semgrep.yml"'));
+  assert.ok(!/-r \.github\/|--config \.github\//.test(sem), 'nada lido direto do checkout do PR');
+});

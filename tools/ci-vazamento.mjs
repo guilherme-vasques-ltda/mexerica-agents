@@ -43,9 +43,9 @@ function privateIP(value) {
   }
   return false;
 }
-export function publicRules(line, policy, path = '') {
+export function publicRules(line, policy, path = '', marker = true) {
   const found = new Set();
-  const mark = /\bvazamento-ok:\s*\S+/i.test(line);
+  const mark = marker && /\bvazamento-ok:\s*\S+/i.test(line);
   for (const m of line.matchAll(/(?:\/(?:Users|home)\/|\b[A-Za-z]:\\+Users\\+)(<[^>]+>|\$\{?USER\}?|[^\s/\\"'`<>:,;]+)/gi)) {
     if (!policy.genericUsers.some((v) => normalize(v) === normalize(m[1]))) found.add('caminho-pessoal');
   }
@@ -105,8 +105,8 @@ export function termExceptions(policy) {
   });
 }
 // `content` é true só para linhas de conteúdo de arquivo; caminhos e mensagens de commit nunca são exceptuados.
-export function scanLine(path, number, line, policy, terms = [], content = false) {
-  const ids = publicRules(line, policy, path);
+export function scanLine(path, number, line, policy, terms = [], content = false, marker = true) {
+  const ids = publicRules(line, policy, path, marker);
   const personal = terms.length ? personalText(line, policy) : '';
   const exempt = content && terms.length ? new Set(termExceptions(policy).filter((e) => e.arquivo === path).map((e) => e.sha256)) : new Set();
   if (terms.some((t) => !exempt.has(termHash(t)) && personal.includes(normalizeTerm(t)))) ids.push('termo-pessoal');
@@ -117,7 +117,7 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
   if (!['pr', 'arvore'].includes(mode)) throw new Error('Modo inválido');
   if (mode === 'pr') sha(base);
   const findings = [], limits = { binary: 0, sensitive: 0, submodule: 0 };
-  const add = (path, n, line, content = false) => findings.push(...scanLine(path, n, line, policy, terms, content));
+  const add = (path, n, line, content = false, marker = true) => findings.push(...scanLine(path, n, line, policy, terms, content, marker));
   // Listing object IDs avoids reading working-tree symlinks, filters and untracked secrets.
   const entries = git(cwd, ['ls-tree', '-rz', head]).split('\0').filter(Boolean);
   const changed = mode === 'pr' ? new Set(git(cwd, ['diff', '--name-only', '--no-renames', '-z', base, head]).split('\0')) : null;
@@ -131,8 +131,8 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
       findings.push({ path, rule: 'arquivo-sensivel', fingerprint: fingerprint('arquivo-sensivel', path, path) });
       continue;
     }
-    // A path itself may contain an identifier. Never allow it to escape in reports.
-    add(path, 1, path);
+    // A path itself may contain an identifier. Never allow it to escape in reports; the marker never exempts a path.
+    add(path, 1, path, false, false);
     const data = git(cwd, ['cat-file', 'blob', oid], true);
     if (binaryFile(data)) { limits.binary++; continue; }
     if (mode === 'arvore') {
@@ -168,7 +168,7 @@ export function summarize(findings) {
 }
 export function safePath(path, terms = [], policy) {
   // Em nomes de arquivo o marcador não dispensa regra: o caminho vai para log e relatório.
-  return scanLine('', 0, path.replace(/vazamento-ok:/gi, ''), policy, terms).length || /[\x00-\x1f\x7f]/.test(path) ? '[caminho-omitido]' : path;
+  return scanLine('', 0, path, policy, terms, false, false).length || /[\x00-\x1f\x7f]/.test(path) ? '[caminho-omitido]' : path;
 }
 export function maskTerms(raw, emit) {
   const terms = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);

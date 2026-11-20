@@ -100,6 +100,15 @@ test('inventário: árvore ignora impressão conhecida, pr sempre acusa', () => 
   assert.equal(fingerprint('ip-privado', 'x', ' ÁGAVE   X '), fingerprint('ip-privado', 'x', 'agave x'));
 }));
 
+test('marcador não dispensa regra em nome de arquivo, mesmo sem outro achado', () => fixture(({ cwd, write, commit, base }) => {
+  const name = 'capturas/Users/pessoa-ficticia/vazamento-ok: fixture.txt';
+  write(name, 'texto limpo\n');
+  const head = commit();
+  const hits = scan({ cwd, mode: 'pr', base, head, policy }).findings.filter((f) => f.path === name);
+  assert.deepEqual(hits.map((f) => f.rule), ['caminho-pessoal']);
+  assert.equal(publicRules('/Users/pessoa-ficticia/x vazamento-ok: exemplo', policy).length, 0, 'em conteúdo o marcador continua valendo');
+}));
+
 test('binários com NUL ficam fora; arquivos sensíveis geram achado sem ler conteúdo', () => fixture(({ cwd, write, commit }) => {
   write('imagem.png', Buffer.from([0, 1, 2, 3]));
   // Valores fictícios, sem consultar arquivos ou ambiente da máquina.
