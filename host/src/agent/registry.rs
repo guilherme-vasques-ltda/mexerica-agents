@@ -143,6 +143,22 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     None
 }
 
+/// A versão não fixa que impede o lançamento: instalar Node ou uv não a resolve, então ela é dita antes de pedir a
+/// ferramenta. Como em `launch_kind`, a ferramenta presente decide sozinha; sem nenhuma, só a recusa em todas explica.
+fn versao_que_impede(d: &Value) -> Option<anyhow::Error> {
+    let on_path = crate::agent::backends::on_path;
+    let npx = d["npx"]
+        .is_object()
+        .then(|| (on_path("npx"), pacote_npm_fixo(d["npx"]["package"].as_str().unwrap_or_default())));
+    let uvx = d["uvx"]
+        .is_object()
+        .then(|| (on_path("uvx"), pacote_uv_fixo(d["uvx"]["package"].as_str().unwrap_or_default())));
+    let mut candidatos: Vec<_> = [npx, uvx].into_iter().flatten().collect();
+    let todas_recusadas = !candidatos.is_empty() && candidatos.iter().all(|(_, versao)| versao.is_err());
+    let indice = candidatos.iter().position(|(presente, _)| *presente).or(todas_recusadas.then_some(0))?;
+    candidatos.swap_remove(indice).1.err()
+}
+
 /// A pasta de instalação nasce do id e da versão; nomes que `pasta_instalacao` recusaria não aparecem como disponíveis.
 fn nomes_de_instalacao_validos(agente: &Value) -> bool {
     let versao = agente["version"].as_str().and_then(safe_component).unwrap_or("latest");
@@ -284,11 +300,8 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             })
         }
         _ => {
-            // Uma versão não fixa não se resolve instalando a ferramenta: diga isso antes de pedir Node ou uv.
-            if d["npx"].is_object() {
-                pacote_npm_fixo(d["npx"]["package"].as_str().unwrap_or_default())?;
-            } else if d["uvx"].is_object() {
-                pacote_uv_fixo(d["uvx"]["package"].as_str().unwrap_or_default())?;
+            if let Some(erro) = versao_que_impede(d) {
+                return Err(erro);
             }
             if needs_node(agent) {
                 bail!("{name} needs Node.js on this computer: add it in Extensions");
@@ -713,6 +726,17 @@ mod tests {
         agente.as_object_mut().unwrap().remove("version");
         agente["distribution"]["binary"][plataforma].as_object_mut().unwrap().remove("archive");
         assert!(launch_kind(&agente).is_none(), "sem archive");
+    }
+
+    #[tokio::test]
+    async fn pedir_node_so_quando_ha_um_lancamento_possivel_com_a_ferramenta() {
+        let on_path = crate::agent::backends::on_path;
+        if on_path("npx") || on_path("uvx") {
+            return;
+        }
+        let agente = json!({"id": "exemplo", "distribution": {"npx": {"package": "pacote@1.2.3"}, "uvx": {"package": "pacote"}}});
+        let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+        assert!(erro.to_string().contains("needs Node.js"), "{erro}");
     }
 
     #[tokio::test]
