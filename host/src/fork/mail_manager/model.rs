@@ -251,12 +251,12 @@ pub(super) fn address(raw: &str) -> Result<String> {
     let ok = !local.is_empty()
         && domain.contains('.')
         && domain.split('.').all(|label| !label.is_empty())
-        && raw.len() <= 254
         && raw.chars().all(|c| !c.is_whitespace() && !c.is_control() && !matches!(c, '<' | '>' | ',' | ';' | '"'));
-    if !ok {
-        return invalid("endereço com caractere ou domínio inválido");
+    let address = format!("{local}@{}", domain.to_lowercase());
+    if !ok || address.len() > 254 {
+        return invalid("endereço com caractere, domínio ou tamanho inválido");
     }
-    Ok(format!("{local}@{}", domain.to_lowercase()))
+    Ok(address)
 }
 
 /// Assunto em uma linha, sem caractere de controle.

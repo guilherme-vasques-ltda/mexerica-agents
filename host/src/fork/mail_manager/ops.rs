@@ -212,18 +212,17 @@ pub(crate) fn trash(
     effect.run(c, &("trash", &mailbox, &id), || mail.trash(&mailbox, &id).map(|()| None).map_err(backend))
 }
 
-/// "Re: " antes do assunto original, cortado numa fronteira de caractere para caber no
-/// limite. Assunto que já começa com "Re:" fica como está.
+/// "Re: " antes do assunto original (salvo se ele já começa com "Re:"), cortado numa
+/// fronteira de caractere para caber no limite.
 fn reply_subject(original: &str) -> String {
     let title = original.trim();
-    if title.to_lowercase().starts_with("re:") {
-        return title.to_owned();
-    }
-    let mut end = title.len().min(SUBJECT_MAX - "Re: ".len());
-    while !title.is_char_boundary(end) {
+    let mut subject = if title.to_lowercase().starts_with("re:") { title.to_owned() } else { format!("Re: {title}") };
+    let mut end = subject.len().min(SUBJECT_MAX);
+    while !subject.is_char_boundary(end) {
         end -= 1;
     }
-    format!("Re: {}", &title[..end])
+    subject.truncate(end);
+    subject
 }
 
 fn recipients(to: &[&str]) -> Result<Vec<String>> {

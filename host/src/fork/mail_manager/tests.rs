@@ -695,4 +695,9 @@ fn assunto_da_resposta_cabe_no_limite() {
     fx.mail.boxes.get_mut(&fx.a).unwrap()[0].subject = already.clone();
     reply(&c, &mut fx.mail, &z, &a_ref, None, "ok", "k2").unwrap();
     assert_eq!(fx.mail.sent[1].1.subject, already);
+    // Já com "Re:" e longo demais: corta no limite sem quebrar caractere.
+    fx.mail.boxes.get_mut(&fx.a).unwrap()[0].subject = format!("Re: {}", "é".repeat(600));
+    reply(&c, &mut fx.mail, &z, &a_ref, None, "ok", "k3").unwrap();
+    let cut = &fx.mail.sent[2].1.subject;
+    assert!(cut.starts_with("Re: é") && cut.len() <= 998, "{}", cut.len());
 }
