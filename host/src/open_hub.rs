@@ -1,6 +1,7 @@
 use crate::{Cli, Sub, environment::Environment};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde_json::Value;
 
 pub(crate) const SOCKET_PEER: std::net::SocketAddr =
     std::net::SocketAddr::V4(std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 0));
@@ -36,58 +37,27 @@ pub(crate) fn require_executor() -> std::io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn check_method(method: &str) -> Result<()> {
-    if Environment::is_open()
-        && (method.starts_with("donnaWorkplace")
-            || crate::fork::engine_setup::methods(method)
-            || crate::fork::whatsapp::api::handles(method)
-            || crate::fork::whatsapp::leitura::handles(method)
-            || matches!(
-                method,
-                "installHostUpdate"
-                    | "setHostAutomaticUpdates"
-                    | "registerDevice"
-                    | "unregisterDevice"
-                    | "registerActivity"
-                    | "unregisterActivity"
-                    | "pairing"
-                    | "setCloud"
-                    | "setApproval"
-                    | "claimSign"
-                    | "bootstrapInstallGrant"
-                    | "controlHealth"
-                    | crate::fork::personal_bootstrap::STATUS_METHOD
-                    | "decideAccessRequest"
-                    | "unclaim"
-                    | "requestScreenPermission"
-                    | "setScreenEnabled"
-                    | "screenPrepare"
-                    | "screenOffer"
-                    | "screenTakeover"
-                    | "donnaScreenAccess"
-                    | "computerCall"
-                    | "computersCall"
-                    | "setAnalytics"
-                    | "agentSetup"
-                    | "agentAuth"
-                    | "agentAuthenticate"
-                    | "agentModels"
-                    | "setAgentEnv"
-                    | "engineGoKeySave"
-                    | "donnaEngineAccounts"
-                    | "listDirs"
-                    | "send"
-                    | "retrySubscription"
-                    | "queuedSendNow"
-                    | "sessionContinue"
-                    | "runRoutine"
-                    | "donnaTaskStart"
-                    | "donnaTaskSchedule"
-            ))
-    {
-        return Err(crate::api::devices::Forbidden.into());
+pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
+    if !Environment::is_open() {
+        return Ok(());
     }
-    Ok(())
+    match method {
+        "hello"
+        | "refreshBackends"
+        | "teamSettings"
+        | "usage"
+        | "history"
+        | "markRead"
+        | "donnaSpaces"
+        | "donnaSpaceCreate"
+        | "donnaSpaceUpdate"
+        | "donnaSpaceReorder"
+        | "donnaOwnerPresentation"
+        | "deleteBot"
+        | "reorderBots" => Ok(()),
+        "createBot" | "updateBot" if body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")) => Ok(()),
+        _ => Err(crate::api::devices::Forbidden.into()),
+    }
 }
 
 #[cfg(unix)]

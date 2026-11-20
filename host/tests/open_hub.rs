@@ -161,6 +161,24 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let renamed =
         rpc(&session_client, &credential, "updateBot", json!({"id":bot["bot"]["id"],"name":"Fixture Renamed"})).await;
     assert_eq!(renamed["bot"]["name"], "Fixture Renamed");
+    let external = root.0.join("outside");
+    fs::create_dir(&external).unwrap();
+    for (method, body) in [
+        ("createBot", json!({"name":"Fixture External","backend":"codex","cwd":external})),
+        ("updateBot", json!({"id":bot["bot"]["id"],"cwd":external})),
+    ] {
+        assert_eq!(
+            session_client
+                .post(format!("http://localhost/api/{method}"))
+                .bearer_auth(&credential)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+    }
     for method in [
         "send",
         "requestScreenPermission",
@@ -172,6 +190,12 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "donnaWhatsappPair",
         "donnaWhatsappWacliRetry",
         "listDirs",
+        "installConnector",
+        "importConnectors",
+        "connectorVerify",
+        "saveRoutine",
+        "credentialSaveLogin",
+        "unlistedFixtureMethod",
     ] {
         assert_eq!(
             session_client
@@ -181,7 +205,8 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
                 .await
                 .unwrap()
                 .status(),
-            reqwest::StatusCode::FORBIDDEN
+            reqwest::StatusCode::FORBIDDEN,
+            "{method} must be rejected by the Open API"
         );
     }
     let stream = session_client.get("http://localhost/events").bearer_auth(&credential).send().await.unwrap();

@@ -82,7 +82,7 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
-    crate::open_hub::check_method(method)?;
+    crate::open_hub::check_request(method, &b)?;
     // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368.
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).

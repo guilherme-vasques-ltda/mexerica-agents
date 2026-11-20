@@ -24,7 +24,7 @@ export function requestOpenHub(socketPath: string, path: string, token: string, 
       },
     }, resolve)
     req.on('error', reject)
-    req.setTimeout(45_000, () => req.destroy())
+    if (body === null) req.setTimeout(45_000, () => req.destroy())
     req.end(body ?? undefined)
   })
 }

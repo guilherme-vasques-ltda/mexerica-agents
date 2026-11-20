@@ -17,7 +17,9 @@ A janela abre sem conta da Mexerica e inicia o Hub incluído no pacote. O Hub
 encerra com o app e não instala um serviço do macOS nem se conecta a um relay.
 Esta versão ainda não executa motores: a Open não usa contas, executores ou
 credenciais de outros perfis. WhatsApp e a seleção de pastas externas
-também ficam indisponíveis. O fluxo de criação de Space pela interface
+também ficam indisponíveis. O Hub só aceita as chamadas aprovadas para a
+Open, como ler o estado e editar bots e Spaces locais; as demais são
+recusadas. O fluxo de criação de Space pela interface
 exige uma conta de motor, por isso termina na seleção da conta. O pacote
 leva o helper de fala, mas a janela não o executa nem pede microfone.
 

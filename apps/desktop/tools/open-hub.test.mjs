@@ -54,5 +54,6 @@ test('o transporte usa o socket privado e não segue redirecionamento', async (t
   t.after(() => new Promise((resolve) => server.close(resolve)))
   const response = await requestOpenHub(socketPath, '/api/createSpace', 'synthetic-fixture', '{}', AbortSignal.timeout(3000))
   assert.equal(response.statusCode, 302)
+  assert.ok(!response.socket.timeout, 'o transporte RPC deixa o prazo ao sinal do chamador')
   response.resume()
 })
