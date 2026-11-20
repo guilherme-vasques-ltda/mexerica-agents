@@ -418,12 +418,14 @@ test('abertura recusada, de conexão desconhecida, nunca cria estado nem desaloj
   assert.equal((await cita(r, { frameSequence: 2 })).kind, 'ok', 'o estado da conexão ativa seguiu intacto')
 })
 
-test('recusa explícita do Hub na troca não derruba a inscrição anterior: ela segue valendo', async () => {
+test('recusa explícita do Hub na troca não derruba a inscrição anterior: ela e os quadros já válidos seguem valendo', async () => {
   const r = await comPessoa()
+  await r.quadro(2)
   r.hub.browserStreamSubscribe = () => ({ kind: 'err', status: 403, message: 'x' })
   assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'err')
-  await r.quadro(2)
-  assert.equal((await cita(r, { frameSequence: 2 })).kind, 'ok')
+  assert.equal((await cita(r, { frameSequence: 2 })).kind, 'ok', 'o quadro que a pessoa está vendo ainda vale')
+  await r.quadro(3)
+  assert.equal((await cita(r, { frameSequence: 3 })).kind, 'ok')
 })
 
 test('outra janela não recebe os quadros da inscrição anterior antes de confirmar a própria', async () => {

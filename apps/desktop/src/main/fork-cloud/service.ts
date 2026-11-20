@@ -139,15 +139,19 @@ class HubSwitch {
   get open() { return !this.busy && !this.blocked && this.session !== null && this.owner !== null }
   /** `document` é a geração do documento na janela: o Electron pode reaproveitar o objeto do frame ao trocar de documento. */
   ownedBy(sender: unknown, frame: unknown, document: number) { return this.owner !== null && this.owner.sender === sender && this.owner.frame === frame && this.owner.document === document }
+  /** `since` antes da tentativa em curso: uma recusa explícita (o Hub não trocou) o restaura, e os quadros ainda válidos seguem valendo. */
+  private previous = 0
   begin(mark: number): boolean {
     if (this.busy) return false
     this.busy = true
+    this.previous = this.since
     this.since = mark
     return true
   }
   settle(outcome: 'confirmed' | 'refused' | 'uncertain', session: string, mark: number, sender: unknown, frame: unknown, document: number) {
     this.busy = false
     if (outcome === 'uncertain') this.blocked = true
+    if (outcome === 'refused') this.since = this.previous
     if (outcome !== 'confirmed') return
     this.session = session
     this.blocked = false
