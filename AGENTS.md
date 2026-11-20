@@ -28,13 +28,13 @@ Rode só a verificação da parte que você mudou:
 
 ```sh
 # Motor
-cd motor && npm ci && npm run typecheck && npm test
+(cd motor && npm ci && npm run typecheck && npm test)
 
 # App de desktop
-cd apps/desktop && npm ci && npm run typecheck && npm test
+(cd apps/desktop && npm ci && npm run typecheck && npm test)
 
 # Hub (inclua --workspace para cobrir também host/crates/memory)
-cd host && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+(cd host && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)
 ```
 
 - O pacote do app ainda se chama `donnabot-desktop` e os binários do Hub `donnabot-*`: nomes
@@ -56,7 +56,8 @@ cd host && cargo fmt --check && cargo clippy --all-targets -- -D warnings && car
 - **Código novo do fork:** módulos e arquivos próprios (prefixo `fork-` ou pasta `fork/`), com
   só ganchos curtos no código herdado do Codync. Facilita acompanhar o upstream.
 - **Campo novo do Hub para o app:** incremente `MIRROR_SCHEMA` em
-  `apps/desktop/src/shared/fork-mirror-cache.ts`, para que um app antigo não grave cache sem o campo.
+  `apps/desktop/src/shared/fork-mirror-cache.ts`: o app passa a ignorar o cache gravado com o schema
+  anterior (`isCurrentMirrorSchema`) em vez de tratá-lo como atual sem o campo novo.
 - **Textos de tela das partes próprias:** use o catálogo em
   `apps/desktop/src/renderer/lib/fork-i18n/` (idiomas pt-BR, en, es, fr, zh-CN e ar-AE, com as
   mesmas chaves em todos). `apps/desktop/tools/textos-gate.ts` roda dentro de `npm test` e reprova
