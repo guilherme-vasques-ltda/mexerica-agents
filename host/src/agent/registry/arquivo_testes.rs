@@ -238,6 +238,7 @@ fn publica_tar_gzip_com_hash_valido_e_executavel_regular() {
     {
         use std::os::unix::fs::PermissionsExt;
         assert_ne!(fs::metadata(destino.join(cmd)).unwrap().permissions().mode() & 0o111, 0);
+        assert_eq!(fs::metadata(destino.join(MARCADOR)).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }
 

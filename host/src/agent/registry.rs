@@ -143,6 +143,11 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     None
 }
 
+/// Pede Node só quando o pacote npx é lançável com ele; senão, o que falta é o uv.
+fn pede_node(d: &Value) -> bool {
+    d["npx"].is_object() && pacote_npm_fixo(d["npx"]["package"].as_str().unwrap_or_default()).is_ok()
+}
+
 /// A versão não fixa que impede o lançamento: instalar Node ou uv não a resolve, então ela é dita antes de pedir a
 /// ferramenta. Como em `launch_kind`, a ferramenta presente decide sozinha; sem nenhuma, só a recusa em todas explica.
 fn versao_que_impede(d: &Value) -> Option<anyhow::Error> {
@@ -303,7 +308,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             if let Some(erro) = versao_que_impede(d) {
                 return Err(erro);
             }
-            if needs_node(agent) {
+            if pede_node(d) {
                 bail!("{name} needs Node.js on this computer: add it in Extensions");
             }
             bail!("{name} has no build for this computer (needs uv)")
@@ -728,6 +733,14 @@ mod tests {
         assert!(launch_kind(&agente).is_none(), "sem archive");
     }
 
+    #[test]
+    fn pede_node_so_quando_o_pacote_npx_e_lancavel() {
+        let d = |npx: &str, uvx: &str| json!({"npx": {"package": npx}, "uvx": {"package": uvx}});
+        assert!(pede_node(&d("pacote@1.2.3", "pacote")));
+        assert!(!pede_node(&d("pacote@latest", "pacote==1.2.3")));
+        assert!(!pede_node(&json!({"uvx": {"package": "pacote==1.2.3"}})));
+    }
+
     #[tokio::test]
     async fn pedir_node_so_quando_ha_um_lancamento_possivel_com_a_ferramenta() {
         let on_path = crate::agent::backends::on_path;
@@ -737,6 +750,9 @@ mod tests {
         let agente = json!({"id": "exemplo", "distribution": {"npx": {"package": "pacote@1.2.3"}, "uvx": {"package": "pacote"}}});
         let erro = command(&agente, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
         assert!(erro.to_string().contains("needs Node.js"), "{erro}");
+        let invertido = json!({"id": "exemplo", "distribution": {"npx": {"package": "pacote@latest"}, "uvx": {"package": "pacote==1.2.3"}}});
+        let erro = command(&invertido, |_, _| panic!("não deve iniciar a instalação")).await.err().unwrap();
+        assert!(erro.to_string().contains("needs uv"), "{erro}");
     }
 
     #[tokio::test]

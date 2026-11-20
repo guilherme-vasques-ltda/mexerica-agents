@@ -165,7 +165,14 @@ pub(super) fn publicar(
         fs::set_permissions(&exe, permissoes)?;
     }
     let hash_exe = hash_executavel(&exe)?.context("O executável do agente excede o limite de tamanho.")?;
-    let mut marcador = File::create_new(pasta.join(MARCADOR))?;
+    let mut opcoes = fs::OpenOptions::new();
+    opcoes.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opcoes.mode(0o600);
+    }
+    let mut marcador = opcoes.open(pasta.join(MARCADOR))?;
     write!(marcador, "{hash}{hash_exe}")?;
     drop(marcador);
     substituir(pasta, destino, pai)
