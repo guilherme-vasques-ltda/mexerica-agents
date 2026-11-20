@@ -310,7 +310,12 @@ fn serving_pid(hub: &User, port: u16, host: &Path) -> Result<bool> {
     }
     let mut listening = Vec::new();
     for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
-        for line in fs::read_to_string(table)?.lines().skip(1) {
+        let text = match fs::read_to_string(table) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        };
+        for line in text.lines().skip(1) {
             let fields: Vec<&str> = line.split_whitespace().collect();
             let local_port =
                 fields.get(1).and_then(|a| a.rsplit(':').next()).and_then(|p| u16::from_str_radix(p, 16).ok());
