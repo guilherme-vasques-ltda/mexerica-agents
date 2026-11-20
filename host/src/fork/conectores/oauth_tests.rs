@@ -1,7 +1,4 @@
 //! D70: fluxo real HTTP do Hub e provedor sintético local; barreiras, sem sleep.
-//! MODIFICADO pela DONNA Bot em 2026-11-04: casos de renovação adaptados de
-//! host/src/market/oauth/tests.rs, Codync e82c417424e06d1da71a865845f230d665b59ff1.
-//! leepokai; Co-Authored-By: Claude Opus 5.5. Apache-2.0; `THIRD_PARTY.md`.
 //! Fixtures/guardas e provas canônicas próprias da Mexerica; sem matriz ampla.
 use crate::{api, hub::Hub, market, remote::identity::Identity, store::Store};
 use axum::{Json, Router, http::StatusCode, routing};
@@ -1528,9 +1525,6 @@ async fn upstream02_runtime_expected_snapshot_adopts_same_grant_rotation_without
     assert!(cached.iter().any(|value| value == &rotated.oauth.as_ref().unwrap().access_token));
 }
 
-// MODIFICADO pela DONNA Bot em 2026-11-04: fronteira adaptada do teste
-// a_temporary_refresh_failure_keeps_the_grant, Codync e82c417424e06d1da71a865845f230d665b59ff1.
-// Autoria upstream: leepokai; coautoria Claude Opus 5.5. Apache-2.0; THIRD_PARTY.md.
 #[tokio::test]
 async fn upstream03_temporary_refresh_keeps_canonical_login_and_pair_without_invalid_headers() {
     let f = Fixture::new().await;

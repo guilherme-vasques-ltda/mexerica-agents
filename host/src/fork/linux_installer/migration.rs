@@ -1,16 +1,26 @@
 //! Orquestra cópia e volta. Só a F3 conhece e reescreve referências do banco.
+use super::identity::as_user;
 use super::root::{
-    BASE, BIN, CONFIG, MOTOR, User, WORK, checked, directory, install, owner_mode, place, safe, service, system, unit,
-    user, user_command, write_atomic,
+    BASE, BIN, CONFIG, MOTOR, User, WORK, as_hub, checked, directory, inside, install, open_sources, owner_mode, place,
+    safe, service, system, unit, user, user_command, write_atomic,
 };
-use anyhow::{Context, Result, ensure};
+use crate::fork::motor_exec::fd::Directory;
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
+    ffi::{CString, OsStr, OsString},
     fs,
-    os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
-    path::{Path, PathBuf},
+    io::Read,
+    os::{
+        fd::AsRawFd,
+        unix::{
+            ffi::OsStrExt,
+            fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+        },
+    },
+    path::{Component, Path, PathBuf},
     time::Duration,
 };
 
@@ -31,7 +41,7 @@ enum Kind {
     Skills,
     Profile,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Manifest {
     hub_uid: u32,
     data: PathBuf,
@@ -112,7 +122,7 @@ fn data_modes(root: &Path) -> Result<BTreeMap<String, u32>> {
             return Ok(());
         }
         ensure!(meta.is_dir() || meta.is_file(), "arquivo especial recusado nos modos da cópia");
-        result.insert(path.strip_prefix(root)?.to_str().context("nome não UTF-8")?.to_owned(), meta.mode() & 0o7777);
+        result.insert(path.strip_prefix(root)?.to_str().context("nome não UTF-8")?.to_owned(), meta.mode() & 0o777);
         if meta.is_dir() {
             for entry in fs::read_dir(path)? {
                 visit(root, &entry?.path(), result)?;
@@ -179,12 +189,84 @@ fn parents(path: &Path, root: &Path, uid: u32, gid: u32, mode: u32) -> Result<()
     Ok(())
 }
 
+fn fd_owner(file: &fs::File, uid: u32, gid: u32) -> Result<()> {
+    // SAFETY: descritor vivo aberto sem seguir link.
+    ensure!(unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } == 0, "fchown: {}", std::io::Error::last_os_error());
+    Ok(())
+}
+
+fn anchored_parents(path: &Path, root: &Path, uid: u32, gid: u32) -> Result<Directory> {
+    let mut dir = Directory::open(root)?;
+    for component in path.strip_prefix(root)?.components() {
+        let Component::Normal(name) = component else { bail!("componente inválido no destino") };
+        dir = dir.child(name, Some(0o700))?;
+        fd_owner(&dir.0, uid, gid)?;
+        dir.mode(0o700)?;
+    }
+    Ok(dir)
+}
+
+fn copy_profile(
+    from: &Directory,
+    name: &OsStr,
+    to: &Directory,
+    target: &OsStr,
+    hub_uid: u32,
+    (uid, gid): (u32, u32),
+) -> Result<()> {
+    match from.child(name, None) {
+        Ok(source) => {
+            ensure!(source.0.metadata()?.uid() == hub_uid, "perfil com pasta de outro dono recusado");
+            let destination = to.child(target, Some(0o700))?;
+            fd_owner(&destination.0, uid, gid)?;
+            destination.mode(0o700)?;
+            for entry in source.names()? {
+                copy_profile(&source, &entry, &destination, &entry, hub_uid, (uid, gid))?;
+            }
+            Ok(())
+        }
+        Err(error)
+            if error.root_cause().downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error)
+                == Some(libc::ENOTDIR) =>
+        {
+            ensure!(
+                !target.is_empty() && !target.as_bytes().contains(&b'/') && target != "." && target != "..",
+                "nome de destino inválido"
+            );
+            let mut input = from.file(name, libc::O_RDONLY, 0)?;
+            ensure!(input.metadata()?.uid() == hub_uid, "perfil com arquivo de outro dono recusado");
+            let temp = OsString::from(format!(".donna-{}", uuid::Uuid::new_v4()));
+            let (temp_c, target_c) = (CString::new(temp.as_bytes())?, CString::new(target.as_bytes())?);
+            let mut created = false;
+            let result = (|| {
+                let mut output = to.file(&temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL, 0o600)?;
+                created = true;
+                std::io::copy(&mut input, &mut output)?;
+                output.sync_all()?;
+                fd_owner(&output, uid, gid)?;
+                output.set_permissions(fs::Permissions::from_mode(0o600))?;
+                let dir = to.0.as_raw_fd();
+                // SAFETY: nomes de um componente, ambos relativos ao mesmo diretório ancorado.
+                let renamed = unsafe { libc::renameat(dir, temp_c.as_ptr(), dir, target_c.as_ptr()) };
+                ensure!(renamed == 0, "renameat: {}", std::io::Error::last_os_error());
+                Ok(())
+            })();
+            if result.is_err() && created {
+                // SAFETY: remove só o temporário criado acima, relativo ao diretório ancorado.
+                unsafe { libc::unlinkat(to.0.as_raw_fd(), temp_c.as_ptr(), 0) };
+            }
+            result
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn no_acl(path: &Path) -> Result<()> {
     use std::os::unix::ffi::OsStrExt;
-    let path_c = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+    let path_c = CString::new(path.as_os_str().as_bytes())?;
     for name in [c"system.posix_acl_access", c"system.posix_acl_default"] {
         // SAFETY: caminhos e nomes terminados em NUL; consulta sem buffer de saída.
-        let size = unsafe { libc::getxattr(path_c.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
+        let size = unsafe { libc::lgetxattr(path_c.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
         let error = std::io::Error::last_os_error();
         ensure!(
             size == -1 && matches!(error.raw_os_error(), Some(libc::ENODATA | libc::ENOTSUP)),
@@ -195,19 +277,19 @@ fn no_acl(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn private_backup(path: &Path, hub: &User) -> Result<()> {
+fn private_backup(path: &Path, hub_uid: u32) -> Result<()> {
     safe(path)?;
     no_acl(path)?;
     let meta = fs::symlink_metadata(path)?;
     let expected = if meta.is_dir() { 0o700 } else { 0o600 };
     ensure!(
-        meta.uid() == hub.uid && meta.mode() & 0o7777 == expected,
+        meta.uid() == hub_uid && meta.mode() & 0o7777 == expected,
         "permissão privada da cópia inválida: {}",
         path.display()
     );
     if meta.is_dir() {
         for entry in fs::read_dir(path)? {
-            private_backup(&entry?.path(), hub)?;
+            private_backup(&entry?.path(), hub_uid)?;
         }
     } else {
         ensure!(meta.is_file(), "cópia contém arquivo especial");
@@ -218,8 +300,10 @@ fn private_backup(path: &Path, hub: &User) -> Result<()> {
 fn validate_backup(path: &Path) -> Result<()> {
     safe(path)?;
     ensure!(
-        path.parent() == Some(Path::new("/var/backups"))
-            && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("donnabot-")),
+        path.file_name().is_some_and(|n| {
+            n.to_string_lossy().starts_with("donnabot-")
+                && path.as_os_str() == Path::new("/var/backups").join(n).as_os_str()
+        }),
         "backup deve ser /var/backups/donnabot-<identificador>, fora de qualquer árvore liberada"
     );
     safe(Path::new("/var/backups"))?;
@@ -232,15 +316,23 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
     let output = checked(user_command(hub, host)?.arg("migrar-raizes").arg("--data-dir").arg(data).arg("--inventario"))
         .context("F3 deve estar integrada: migrar-raizes --inventario; nada foi parado nem alterado")?;
     let items: Vec<CopyItem> = serde_json::from_slice(&output.stdout).context("inventário F3 inválido")?;
-    for item in &items {
-        safe(&item.source)?;
+    for (i, item) in items.iter().enumerate() {
         safe(&item.destination)?;
+        ensure!(
+            items[..i].iter().all(|other| other.destination != item.destination),
+            "destino repetido no inventário: {}",
+            item.destination.display()
+        );
         ensure!(
             !matches!(item.kind, Kind::Workspace) || !data.starts_with(&item.source),
             "workspace contém dados privados do Hub; origem de cópia recusada"
         );
         let root = match item.kind {
-            Kind::Profile => MOTOR,
+            Kind::Profile => {
+                // O root abre a origem do perfil por descritor: só dentro da home do Hub.
+                inside(&hub.home, &item.source)?;
+                MOTOR
+            }
             _ => WORK,
         };
         ensure!(item.destination.starts_with(root) && item.destination != Path::new(root), "destino fora da raiz F3");
@@ -253,17 +345,55 @@ fn f3_inventory(hub: &User, host: &Path, data: &Path) -> Result<Vec<CopyItem>> {
             "destino já existe: {}; não sobrescrever dados",
             item.destination.display()
         );
-        hashes(&item.source)?; // valida árvore inteira antes da parada
     }
+    // Valida a árvore inteira antes da parada, lendo só o que o Hub já lê.
+    as_hub(hub, &[], || {
+        items.iter().try_for_each(|item| {
+            safe(&item.source)?;
+            hashes(&item.source)?;
+            if matches!(item.kind, Kind::Profile) {
+                owned_by(&item.source, hub.uid)?;
+            }
+            Ok(())
+        })
+    })?;
     Ok(items)
+}
+
+/// Mesma regra de dono de `copy_profile`, conferida antes de parar o Hub.
+fn owned_by(path: &Path, uid: u32) -> Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    ensure!(meta.uid() == uid, "perfil com item de outro dono recusado: {}", path.display());
+    if meta.is_dir() {
+        for entry in fs::read_dir(path)? {
+            owned_by(&entry?.path(), uid)?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, backup: &Path, port: u16) -> Result<()> {
     validate_backup(backup)?;
-    ensure!(!backup.exists(), "backup já existe; não será recriado");
+    let record = record_path(backup);
+    ensure!(
+        fs::symlink_metadata(backup).is_err() && fs::symlink_metadata(&record).is_err(),
+        "backup já existe; não será recriado"
+    );
     ensure!(!Path::new(CONFIG).exists(), "instalação já separada; use reinstalação, não migração");
-    safe(data)?;
-    ensure!(data.is_dir() && fs::metadata(data)?.uid() == hub.uid, "data_dir deve pertencer ao Hub");
+    inside(&hub.home, data)?;
+    // As origens que a instalação vai copiar são abertas como Hub antes da parada e copiadas assim.
+    let sources = open_sources(hub, host, helper)?;
+    as_hub(hub, &[], || {
+        // A cópia é gravada com a identidade do Hub: /var/backups precisa ser atravessável por ela.
+        match fs::symlink_metadata(backup) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => bail!("o Hub não alcança /var/backups: {error}"),
+            Ok(_) => bail!("backup já existe; não será recriado"),
+        }
+        safe(data)?;
+        ensure!(data.is_dir() && fs::metadata(data)?.uid() == hub.uid, "data_dir deve pertencer ao Hub");
+        Ok(())
+    })?;
     let _ = f3_inventory(hub, host, data)?; // pré-validação sem parar serviço
     // /health só usa loopback, sem segredo, e precisa confirmar o Hub e a inatividade.
     let health: serde_json::Value = reqwest::Client::new()
@@ -278,51 +408,72 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         "Hub deve responder e estar busy:false antes da migração"
     );
     let link = hub.home.join(".local/bin/donnabot-host");
-    let old_binary = link.canonicalize().context("binário antigo no caminho conhecido pelo app ausente")?;
+    let (old_binary, link_target) = as_hub(hub, &[], || {
+        let old_binary = link.canonicalize().context("binário antigo no caminho conhecido pelo app ausente")?;
+        safe(&old_binary)?;
+        hashes_excluding(data, &[], Some(data))?;
+        Ok((old_binary, fs::read_link(&link).ok()))
+    })?;
+    inside(&hub.home, &old_binary)?;
     ensure!(
         health["binaryPath"].as_str() == old_binary.to_str(),
         "Hub ativo e link do app apontam para binários distintos"
     );
-    safe(&old_binary)?;
-    let link_target = fs::read_link(&link).ok();
-    hashes_excluding(data, &[], Some(data))?;
     let result = (|| {
         service(hub, &["stop", "donnabot-host.service"])?;
         // O guard é solto ao sair da tentativa, antes de qualquer recuperação do serviço.
-        let lock = fs::OpenOptions::new().read(true).write(true).open(data.join("host.lock"))?;
+        let lock = as_hub(hub, &[], || {
+            Ok(fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(data.join("host.lock"))?)
+        })?;
         ensure!(crate::lock_file(&lock, crate::FLOCK_WAIT)?, "Hub ainda está ativo; migração recusada");
         let items = f3_inventory(hub, host, data)?;
         directory(backup, hub.uid, hub.gid, 0o700)?;
         no_acl(backup)?;
-        copy_excluding(data, &backup.join("data"), hub.uid, hub.gid, 0o700, 0o600, (&[], Some(data)))?;
-        ensure!(
-            hashes_excluding(data, &[], Some(data))? == hashes(&backup.join("data"))?,
-            "hash/contagem diverge no backup do data_dir"
-        );
-        place(&old_binary, &backup.join("host"), hub.uid, hub.gid, 0o600)?;
-        let unit_present = unit(hub).exists();
-        if unit_present {
-            place(&unit(hub), &backup.join("unit"), hub.uid, hub.gid, 0o600)?;
-        }
-        directory(&backup.join("profiles-work"), hub.uid, hub.gid, 0o700)?;
-        for (i, item) in items.iter().enumerate() {
-            copy_tree(&item.source, &backup.join("profiles-work").join(i.to_string()), hub.uid, hub.gid, 0o700, 0o600)?;
-        }
-        private_backup(backup, hub)?;
+        // Tudo o que é lido ou gravado em árvores do Hub usa a identidade de arquivos do Hub.
+        let (unit_present, binary_mode, modes, backup_hashes) = as_hub(hub, &[], || {
+            copy_excluding(data, &backup.join("data"), hub.uid, hub.gid, 0o700, 0o600, (&[], Some(data)))?;
+            ensure!(
+                hashes_excluding(data, &[], Some(data))? == hashes(&backup.join("data"))?,
+                "hash/contagem diverge no backup do data_dir"
+            );
+            place(&old_binary, &backup.join("host"), hub.uid, hub.gid, 0o600)?;
+            let unit_present = unit(hub).exists();
+            if unit_present {
+                place(&unit(hub), &backup.join("unit"), hub.uid, hub.gid, 0o600)?;
+            }
+            directory(&backup.join("profiles-work"), hub.uid, hub.gid, 0o700)?;
+            for (i, item) in items.iter().enumerate() {
+                copy_tree(
+                    &item.source,
+                    &backup.join("profiles-work").join(i.to_string()),
+                    hub.uid,
+                    hub.gid,
+                    0o700,
+                    0o600,
+                )?;
+            }
+            private_backup(backup, hub.uid)?;
+            Ok((unit_present, fs::metadata(&old_binary)?.mode() & 0o777, data_modes(data)?, hashes(backup)?))
+        })?;
         let manifest = Manifest {
             hub_uid: hub.uid,
             data: data.into(),
             binary: old_binary.clone(),
-            binary_mode: fs::metadata(&old_binary)?.mode() & 0o777,
-            data_modes: data_modes(data)?,
+            binary_mode,
+            data_modes: modes,
             unit_present,
             link_target,
-            hashes: hashes(backup)?,
+            hashes: backup_hashes,
         };
-        write_atomic(&backup.join("manifest.json"), &serde_json::to_vec_pretty(&manifest)?, hub.uid, hub.gid, 0o600)?;
+        // Destinos e modos da volta ficam num registro do root, fora da cópia gravável pelo Hub.
+        write_atomic(&record, &serde_json::to_vec_pretty(&manifest)?, 0, 0, 0o600)?;
         // Só agora o caminho antigo já está salvo e pode virar link estável.
-        fs::remove_file(&link)?;
-        install(hub, host, helper, data, port, false)?;
+        as_hub(hub, &[], || Ok(fs::remove_file(&link)?))?;
+        install(hub, sources, data, port, false)?;
         let config = fs::read_to_string(CONFIG)?;
         let gid: u32 = config.lines().find_map(|s| s.strip_prefix("work_gid=")).context("work_gid ausente")?.parse()?;
         let motor_text = checked(Command::new(system("getent")?).args(["passwd", "donnabot-motor"]))?;
@@ -330,18 +481,6 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         let uid: u32 = motor_text.split(':').nth(2).context("motor inválido")?.parse()?;
         let motor = user(uid)?;
         for (i, item) in items.iter().enumerate() {
-            let (root, owner, group, dm, fm) = match item.kind {
-                Kind::Profile => (MOTOR, uid, motor.gid, 0o700, 0o600),
-                Kind::Workspace => (WORK, hub.uid, gid, 0o2770, 0o660),
-                Kind::Uploads | Kind::Skills => (WORK, hub.uid, gid, 0o2750, 0o640),
-            };
-            parents(
-                item.destination.parent().context("destino sem pai")?,
-                Path::new(root),
-                owner,
-                group,
-                if root == WORK { 0o2770 } else { 0o700 },
-            )?;
             let excluded: Vec<_> = if matches!(item.kind, Kind::Workspace) {
                 items
                     .iter()
@@ -351,15 +490,46 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
             } else {
                 Vec::new()
             };
-            copy_excluding(&item.source, &item.destination, owner, group, dm, fm, (&excluded, None))?;
-            ensure!(
-                hashes_excluding(&item.source, &excluded, None)? == hashes(&item.destination)?,
-                "hash/contagem diverge na cópia {i}"
-            );
-            ensure!(
-                hashes(&item.source)? == hashes(&backup.join("profiles-work").join(i.to_string()))?,
-                "hash diverge do backup {i}"
-            );
+            let source_hashes = as_hub(hub, &[], || {
+                ensure!(
+                    hashes(&item.source)? == hashes(&backup.join("profiles-work").join(i.to_string()))?,
+                    "hash diverge do backup {i}"
+                );
+                hashes_excluding(&item.source, &excluded, None)
+            })?;
+            let destination_hashes = if matches!(item.kind, Kind::Profile) {
+                // A raiz do motor não é do Hub: cópia ancorada em descritores, origem só do Hub.
+                inside(&hub.home, &item.source)?;
+                let destination_parent = anchored_parents(
+                    item.destination.parent().context("destino sem pai")?,
+                    Path::new(MOTOR),
+                    uid,
+                    motor.gid,
+                )?;
+                copy_profile(
+                    &Directory::open(item.source.parent().context("origem sem pai")?)?,
+                    item.source.file_name().context("origem sem nome")?,
+                    &destination_parent,
+                    item.destination.file_name().context("destino sem nome")?,
+                    hub.uid,
+                    (uid, motor.gid),
+                )?;
+                as_user(uid, motor.gid, &[], || hashes(&item.destination))?
+            } else {
+                let (dm, fm) = if matches!(item.kind, Kind::Workspace) { (0o2770, 0o660) } else { (0o2750, 0o640) };
+                as_hub(hub, &[gid], || {
+                    parents(
+                        item.destination.parent().context("destino sem pai")?,
+                        Path::new(WORK),
+                        hub.uid,
+                        gid,
+                        0o2770,
+                    )?;
+                    copy_excluding(&item.source, &item.destination, hub.uid, gid, dm, fm, (&excluded, None))?;
+                    hashes(&item.destination)
+                })?
+            };
+            ensure!(source_hashes == destination_hashes, "hash/contagem diverge na cópia {i}");
         }
         checked(
             user_command(hub, Path::new(BIN).join("donnabot-host"))?
@@ -381,7 +551,7 @@ use std::process::Command;
 
 fn recover_before_manifest(result: Result<()>, backup: &Path, restart: impl FnOnce() -> Result<()>) -> Result<()> {
     if let Err(error) = result {
-        if !backup.join("manifest.json").exists() {
+        if fs::symlink_metadata(record_path(backup)).is_err() {
             let recovery = match restart() {
                 Ok(()) => "Hub antigo religado".to_owned(),
                 Err(restart_error) => format!(
@@ -421,83 +591,148 @@ fn deactivate_config(
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
                 .open(inactive)?
                 .sync_all()?;
-            crate::fork::motor_exec::fd::Directory::open(inactive.parent().context("configuração inativa sem pai")?)?
-                .0
-                .sync_all()?;
+            Directory::open(inactive.parent().context("configuração inativa sem pai")?)?.0.sync_all()?;
             // Só remove a origem depois de persistir conteúdo, modo e entrada do destino.
             fs::remove_file(source)?;
-            crate::fork::motor_exec::fd::Directory::open(source.parent().context("configuração sem pai")?)?
-                .0
-                .sync_all()?;
+            Directory::open(source.parent().context("configuração sem pai")?)?.0.sync_all()?;
             Ok(())
         }
         Err(error) => Err(error.into()),
     }
 }
 
-pub(super) fn rollback(hub: &User, backup: &Path) -> Result<()> {
-    validate_backup(backup)?;
+fn record_path(backup: &Path) -> PathBuf {
+    let mut name = backup.file_name().unwrap_or_default().to_owned();
+    name.push(".manifesto.json");
+    backup.with_file_name(name)
+}
+
+fn trusted_manifest(hub_uid: u32, home: &Path, backup: &Path, owner: u32) -> Result<Manifest> {
+    let record = record_path(backup);
+    safe(&record)?;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&record)
+        .context("registro protegido da cópia ausente; volta recusada")?;
+    let meta = file.metadata()?;
+    ensure!(
+        meta.is_file() && meta.uid() == owner && meta.mode() & 0o7777 == 0o600 && meta.nlink() == 1,
+        "registro da cópia sem dono e modo protegidos; volta recusada"
+    );
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let manifest: Manifest = serde_json::from_slice(&bytes)?;
+    ensure!(manifest.hub_uid == hub_uid, "cópia pertence a outro Hub");
+    inside(home, &manifest.data)?;
+    inside(home, &manifest.binary)?;
+    ensure!(
+        manifest.binary_mode & !0o777 == 0
+            && manifest.data_modes.iter().all(|(relative, mode)| {
+                let relative = Path::new(relative);
+                mode & !0o777 == 0 && relative.components().all(|c| matches!(c, Component::Normal(_)))
+            }),
+        "modo especial ou caminho fora do data_dir no registro"
+    );
+    Ok(manifest)
+}
+
+fn checked_manifest(hub_uid: u32, home: &Path, backup: &Path) -> Result<Manifest> {
+    trusted_manifest(hub_uid, home, backup, 0)
+}
+
+fn verify_backup(hub_uid: u32, backup: &Path, manifest: &Manifest) -> Result<()> {
     no_acl(backup)?;
-    let meta = fs::metadata(backup)?;
-    ensure!(meta.uid() == hub.uid && meta.mode() & 0o7777 == 0o700, "backup deve ser Hub 0700");
-    private_backup(backup, hub)?;
-    let manifest: Manifest = serde_json::from_slice(&fs::read(backup.join("manifest.json"))?)?;
-    ensure!(manifest.hub_uid == hub.uid, "cópia pertence a outro Hub");
-    let mut actual = hashes(backup)?;
-    actual.remove("manifest.json");
-    ensure!(actual == manifest.hashes, "hashes da cópia divergiram; nada restaurado");
-    safe(&manifest.data)?;
+    let meta = fs::symlink_metadata(backup)?;
+    ensure!(meta.is_dir() && meta.uid() == hub_uid && meta.mode() & 0o7777 == 0o700, "backup deve ser Hub 0700");
+    private_backup(backup, hub_uid)?;
+    ensure!(hashes(backup)? == manifest.hashes, "hashes da cópia divergiram; nada restaurado");
+    ensure!(manifest.data.is_dir(), "data_dir atual ausente");
+    Ok(())
+}
+
+fn restore_hub_files(hub: &User, backup: &Path, manifest: &Manifest) -> Result<PathBuf> {
     let stable = hub.home.join(".local/bin/donnabot-host");
-    if manifest.binary == stable {
-        safe(stable.parent().context("link sem pai")?)?;
-    } else {
+    safe(stable.parent().context("link sem pai")?)?;
+    if manifest.binary != stable {
         safe(&manifest.binary)?;
     }
-    ensure!(manifest.data.is_dir(), "data_dir atual ausente");
-    if unit(hub).exists() {
-        service(hub, &["stop", "donnabot-host.service"])?;
-    }
-    let lock = fs::OpenOptions::new().read(true).write(true).open(manifest.data.join("host.lock"))?;
-    ensure!(crate::lock_file(&lock, crate::FLOCK_WAIT)?, "Hub ainda ativo; volta recusada");
+    safe(&manifest.data)?;
     let after = manifest.data.with_file_name(format!("donnabot-pos-troca-{}", uuid::Uuid::new_v4()));
     directory(&after, hub.uid, hub.gid, 0o700)?;
     // O diretório ativo e seu host.lock nunca mudam de inode durante a volta.
     super::rollback_data::restore(&manifest.data, &backup.join("data"), &after, |source, destination| {
         copy_tree(source, destination, hub.uid, hub.gid, 0o700, 0o600)
     })?;
+    // Conteúdo restaurado confere com o registro do root, não com a cópia gravável.
+    let expected: BTreeMap<String, String> = manifest
+        .hashes
+        .iter()
+        .filter_map(|(key, value)| {
+            let relative = key.strip_prefix("data/")?;
+            let relative = if relative.is_empty() { "/" } else { relative };
+            (relative != "host.lock").then(|| (relative.to_owned(), value.clone()))
+        })
+        .collect();
     ensure!(
-        hashes_excluding(&backup.join("data"), &[backup.join("data/host.lock")], None)?
-            == hashes_excluding(&manifest.data, &[manifest.data.join("host.lock")], Some(&manifest.data))?,
+        expected == hashes_excluding(&manifest.data, &[manifest.data.join("host.lock")], Some(&manifest.data))?,
         "hash diverge na restauração de dados"
     );
     if manifest.binary == stable && stable.is_symlink() {
         ensure!(fs::read_link(&stable)? == Path::new(BIN).join("donnabot-host"), "link estável mudou de destino");
         fs::remove_file(&stable)?;
     }
-    for (relative, mode) in &manifest.data_modes {
-        let path = manifest.data.join(relative);
-        ensure!(path.starts_with(&manifest.data), "modo fora do data_dir");
-        owner_mode(&path, hub.uid, hub.gid, *mode)?;
+    for (relative, mode) in manifest.data_modes.iter().rev() {
+        owner_mode(&manifest.data.join(relative), hub.uid, hub.gid, *mode)?;
     }
     place(&backup.join("host"), &manifest.binary, hub.uid, hub.gid, manifest.binary_mode)?;
-    ensure!(digest(&backup.join("host"))? == digest(&manifest.binary)?, "hash do binário restaurado diverge");
-    let link = hub.home.join(".local/bin/donnabot-host");
-    if let Some(target) = manifest.link_target {
-        if fs::symlink_metadata(&link).is_ok() {
-            fs::remove_file(&link)?;
+    ensure!(manifest.hashes.get("host") == Some(&digest(&manifest.binary)?), "hash do binário restaurado diverge");
+    if let Some(target) = &manifest.link_target {
+        if fs::symlink_metadata(&stable).is_ok() {
+            fs::remove_file(&stable)?;
         }
-        std::os::unix::fs::symlink(target, &link)?;
+        std::os::unix::fs::symlink(target, &stable)?;
+        ensure!(
+            stable.canonicalize()? == manifest.binary,
+            "link do app restaurado não leva ao binário conferido: {}",
+            manifest.binary.display()
+        );
     } else {
-        if link.is_symlink() {
-            fs::remove_file(&link)?;
+        if stable.is_symlink() {
+            fs::remove_file(&stable)?;
         }
-        place(&backup.join("host"), &link, hub.uid, hub.gid, manifest.binary_mode)?;
+        place(&backup.join("host"), &stable, hub.uid, hub.gid, manifest.binary_mode)?;
+        ensure!(manifest.hashes.get("host") == Some(&digest(&stable)?), "hash do link do app diverge");
     }
     if manifest.unit_present {
         place(&backup.join("unit"), &unit(hub), hub.uid, hub.gid, 0o600)?;
+        ensure!(manifest.hashes.get("unit") == Some(&digest(&unit(hub))?), "hash da unidade restaurada diverge");
     } else if unit(hub).exists() {
         fs::remove_file(unit(hub))?;
     }
+    Ok(after)
+}
+
+pub(super) fn rollback(hub: &User, backup: &Path) -> Result<()> {
+    validate_backup(backup)?;
+    let manifest = checked_manifest(hub.uid, &hub.home, backup)?;
+    let unit_present = as_hub(hub, &[], || {
+        verify_backup(hub.uid, backup, &manifest)?;
+        Ok(unit(hub).exists())
+    })?;
+    if unit_present {
+        service(hub, &["stop", "donnabot-host.service"])?;
+    }
+    let lock = as_hub(hub, &[], || {
+        Ok(fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(manifest.data.join("host.lock"))?)
+    })?;
+    ensure!(crate::lock_file(&lock, crate::FLOCK_WAIT)?, "Hub ainda ativo; volta recusada");
+    // Nada nas árvores do Hub é gravado com poderes de root.
+    let after = as_hub(hub, &[], || restore_hub_files(hub, backup, &manifest))?;
     if Path::new(CONFIG).exists() {
         // Ajudante permanece inerte e sem configuração, conforme plano de volta.
         checked(user_command(hub, Path::new(BIN).join("donnabot-motor-exec"))?.arg("cleanup"))?;
@@ -522,9 +757,207 @@ pub(super) fn rollback(hub: &User, backup: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::{
-        fs::{PermissionsExt, symlink},
+        fs::{OpenOptionsExt, PermissionsExt, symlink},
         net::UnixListener,
     };
+
+    fn private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+        use std::io::Write;
+        fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?.write_all(bytes)?;
+        Ok(())
+    }
+
+    fn private_dir(path: &Path) -> Result<()> {
+        fs::create_dir(path)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+
+    struct Volta {
+        dir: PathBuf,
+        home: PathBuf,
+        backup: PathBuf,
+        manifest: Manifest,
+    }
+
+    fn volta_ficticia() -> Result<Volta> {
+        let dir = std::env::temp_dir().join(format!("donna-f4-volta-{}", uuid::Uuid::new_v4()));
+        let home = dir.join("home");
+        let data = home.join("dados");
+        fs::create_dir_all(&data)?;
+        let backup = dir.join("donnabot-teste");
+        private_dir(&backup)?;
+        private_dir(&backup.join("data"))?;
+        private_file(&backup.join("data/codync.db"), b"banco ficticio")?;
+        private_file(&backup.join("host"), b"binario ficticio")?;
+        // SAFETY: getter da identidade corrente, sem efeitos colaterais.
+        let uid = unsafe { libc::geteuid() };
+        let manifest = Manifest {
+            hub_uid: uid,
+            data,
+            binary: home.join(".local/bin/donnabot-host"),
+            binary_mode: 0o755,
+            data_modes: BTreeMap::from([(String::new(), 0o700), ("codync.db".into(), 0o600)]),
+            unit_present: false,
+            link_target: None,
+            hashes: hashes(&backup)?,
+        };
+        Ok(Volta { dir, home, backup, manifest })
+    }
+
+    #[test]
+    fn volta_recusa_manifesto_alterado_pela_conta_do_hub_depois_do_backup() -> Result<()> {
+        let Volta { dir, home, backup, manifest } = volta_ficticia()?;
+        let uid = manifest.hub_uid;
+        let record = record_path(&backup);
+        private_file(&record, &serde_json::to_vec(&manifest)?)?;
+        let alterados = [
+            Manifest { data: PathBuf::from("/etc"), ..manifest.clone() },
+            Manifest { binary: PathBuf::from("/etc/donnabot-volta-teste"), ..manifest.clone() },
+            Manifest { binary_mode: 0o4755, ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("../../etc".into(), 0o600)]), ..manifest.clone() },
+        ];
+        let mut ignorados = Vec::new();
+        for alterado in &alterados {
+            // A conta do Hub grava a cópia dentro do backup; a volta segue só o registro do root.
+            let _ = fs::remove_file(backup.join("manifest.json"));
+            private_file(&backup.join("manifest.json"), &serde_json::to_vec(alterado)?)?;
+            let lido = trusted_manifest(uid, &home, &backup, uid)?;
+            ignorados.push(
+                lido.data == manifest.data
+                    && lido.binary == manifest.binary
+                    && lido.binary_mode == manifest.binary_mode
+                    && lido.data_modes == manifest.data_modes,
+            );
+        }
+        let _ = fs::remove_file(backup.join("manifest.json"));
+        private_file(&backup.join("manifest.json"), &serde_json::to_vec(&manifest)?)?;
+        fs::remove_file(&record)?;
+        let sem_registro = checked_manifest(uid, &home, &backup)
+            .is_err_and(|e| format!("{e:#}").contains("registro protegido da cópia ausente"));
+        fs::remove_dir_all(&dir)?;
+        assert_eq!(ignorados, [true; 4], "destinos e modos alterados no backup não podem orientar a volta");
+        assert!(sem_registro, "sem registro protegido do root, a volta é recusada");
+        Ok(())
+    }
+
+    #[test]
+    fn volta_usa_so_registro_protegido_e_confina_destinos_a_home() -> Result<()> {
+        let Volta { dir, home, backup, manifest } = volta_ficticia()?;
+        let uid = manifest.hub_uid;
+        let record = record_path(&backup);
+        let gravar = |manifest: &Manifest| -> Result<()> {
+            let _ = fs::remove_file(&record);
+            private_file(&record, &serde_json::to_vec(manifest)?)
+        };
+        gravar(&manifest)?;
+        let alterado = Manifest { binary: PathBuf::from("/etc/donnabot-volta-teste"), ..manifest.clone() };
+        private_file(&backup.join("manifest.json"), &serde_json::to_vec(&alterado)?)?;
+        assert_eq!(trusted_manifest(uid, &home, &backup, uid)?.binary, manifest.binary);
+        assert!(trusted_manifest(uid, &home, &backup, uid + 1).is_err(), "registro de outro dono recusado");
+        fs::set_permissions(&record, fs::Permissions::from_mode(0o644))?;
+        assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro com modo aberto recusado");
+        fs::remove_file(&record)?;
+        let real = dir.join("registro-real");
+        private_file(&real, &serde_json::to_vec(&manifest)?)?;
+        symlink(&real, &record)?;
+        assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro por link recusado");
+        fs::remove_file(&record)?;
+        gravar(&manifest)?;
+        fs::hard_link(&record, dir.join("segundo-nome"))?;
+        assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro com hardlink recusado");
+        fs::remove_file(dir.join("segundo-nome"))?;
+        for fora in [
+            Manifest { data: PathBuf::from("/etc"), ..manifest.clone() },
+            Manifest { data: home.clone(), ..manifest.clone() },
+            Manifest { binary: home.join("../fora"), ..manifest.clone() },
+            Manifest { binary_mode: 0o4755, ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("../../etc".into(), 0o600)]), ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("codync.db".into(), 0o4600)]), ..manifest.clone() },
+            Manifest { data_modes: BTreeMap::from([("/etc".into(), 0o600)]), ..manifest.clone() },
+            Manifest { hub_uid: uid + 1, ..manifest.clone() },
+        ] {
+            gravar(&fora)?;
+            assert!(trusted_manifest(uid, &home, &backup, uid).is_err(), "registro fora das raízes recusado");
+        }
+        gravar(&manifest)?;
+        assert!(trusted_manifest(uid, &home, &backup, uid).is_ok());
+        assert!(inside(Path::new("/"), Path::new("/etc/x")).is_err());
+        let slash = Path::new("/var/backups/donnabot-teste/");
+        assert!(validate_backup(slash).is_err(), "barra final no backup recusada");
+        assert_eq!(record_path(slash), Path::new("/var/backups/donnabot-teste.manifesto.json"));
+        fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn volta_recusa_copia_alterada_depois_do_registro() -> Result<()> {
+        let Volta { dir, backup, manifest, .. } = volta_ficticia()?;
+        let uid = manifest.hub_uid;
+        verify_backup(uid, &backup, &manifest)?;
+        fs::write(backup.join("host"), b"binario trocado")?;
+        assert!(verify_backup(uid, &backup, &manifest).is_err());
+        fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn perfil_copiado_por_descritor_recusa_link_e_preserva_conteudo() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("donna-f4-perfil-{}", uuid::Uuid::new_v4()));
+        let source = dir.join("home/.codex-ficticio");
+        fs::create_dir_all(source.join("sessions"))?;
+        fs::write(source.join("auth.json"), b"{}")?;
+        fs::write(source.join("sessions/a.jsonl"), b"linha")?;
+        fs::write(dir.join("home/.claude.json"), b"{}")?;
+        let motor = dir.join("motor");
+        fs::create_dir(&motor)?;
+        // SAFETY: getters da identidade corrente, sem efeitos colaterais.
+        let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+        let destination = anchored_parents(&motor.join("contas/a"), &motor, uid, gid)?;
+        let from = Directory::open(&dir.join("home"))?;
+        copy_profile(&from, OsStr::new(".codex-ficticio"), &destination, OsStr::new(".codex"), uid, (uid, gid))?;
+        copy_profile(&from, OsStr::new(".claude.json"), &destination, OsStr::new(".claude.json"), uid, (uid, gid))?;
+        let copied = motor.join("contas/a/.codex");
+        assert_eq!(hashes(&source)?, hashes(&copied)?);
+        assert_eq!(fs::metadata(copied.join("sessions/a.jsonl"))?.mode() & 0o7777, 0o600);
+        assert_eq!(fs::metadata(copied.join("sessions"))?.mode() & 0o7777, 0o700);
+        assert_eq!(fs::read(motor.join("contas/a/.claude.json"))?, b"{}");
+        symlink("/etc/hostname", source.join("sessions/link"))?;
+        let again = anchored_parents(&motor.join("contas/b"), &motor, uid, gid)?;
+        assert!(
+            copy_profile(&from, OsStr::new(".codex-ficticio"), &again, OsStr::new(".codex"), uid, (uid, gid)).is_err()
+        );
+        assert!(!motor.join("contas/b/.codex/sessions/link").exists());
+        assert!(
+            copy_profile(&from, OsStr::new(".codex-ficticio"), &again, OsStr::new(".x"), uid + 1, (uid, gid)).is_err()
+        );
+        assert!(
+            copy_profile(&from, OsStr::new(".claude.json"), &again, OsStr::new(".y"), uid + 1, (uid, gid)).is_err()
+        );
+        assert!(copy_profile(&from, OsStr::new(".claude.json"), &again, OsStr::new("../z"), uid, (uid, gid)).is_err());
+        let fifo = CString::new(dir.join("home/fila").as_os_str().as_bytes())?;
+        // SAFETY: caminho terminado em NUL dentro da pasta temporária do teste.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(copy_profile(&from, OsStr::new("fila"), &again, OsStr::new("fila"), uid, (uid, gid)).is_err());
+        assert!(again.names()?.iter().all(|n| !n.to_string_lossy().starts_with(".donna-")), "temporário removido");
+        assert!(as_user(0, gid, &[], || Ok(())).is_err());
+        assert!(as_user(uid.max(1), 0, &[], || Ok(())).is_err());
+        assert!(as_user(uid.max(1), gid.max(1), &[0], || Ok(())).is_err());
+        fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn identidade_do_hub_mantem_grupos_suplementares_e_recusa_root() -> Result<()> {
+        // SAFETY: getter da identidade corrente, sem efeitos colaterais.
+        let hub = user(unsafe { libc::geteuid() })?;
+        let groups = super::super::identity::user_groups(&hub.name, hub.gid)?;
+        assert!(groups.contains(&hub.gid));
+        let root = user(0)?;
+        assert!(super::super::identity::user_groups(&root.name, root.gid)?.contains(&0));
+        assert!(as_user(hub.uid.max(1), hub.gid.max(1), &[0], || Ok(())).is_err(), "grupo root nunca entra");
+        Ok(())
+    }
 
     #[test]
     fn desativa_config_com_exdev_sem_perder_conteudo_dono_ou_modo() -> Result<()> {
@@ -567,12 +1000,13 @@ mod tests {
         })
         .unwrap_err();
         assert!(error.to_string().contains("systemctl --user start donnabot-host.service"));
-        fs::write(backup.join("manifest.json"), b"{}")?;
+        fs::write(record_path(&backup), b"{}")?;
         let error = recover_before_manifest(Err(anyhow::anyhow!("falha ficticia depois")), &backup, || {
             panic!("não reiniciar serviço sobre troca iniciada")
         })
         .unwrap_err();
         assert!(error.to_string().contains("Use migrar-motor voltar"));
+        fs::remove_file(record_path(&backup))?;
         fs::remove_dir_all(backup)?;
         Ok(())
     }

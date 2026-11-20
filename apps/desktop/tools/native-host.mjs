@@ -10,10 +10,11 @@ import { copyFileSync, mkdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import macArch from './mac-arch.cjs'
 
 if (!['darwin', 'win32'].includes(process.platform)) process.exit(0)
 const env = process.argv[2]
-if (!['dev', 'main'].includes(env)) throw new Error(`unknown environment ${env}`)
+if (!['dev', 'main'].includes(env) && (env !== 'open' || process.platform !== 'darwin')) throw new Error(`unknown environment ${env}`)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const host = join(root, '../../host')
 const out = join(root, 'build/native')
@@ -33,9 +34,15 @@ if (process.platform === 'win32') {
   for (const exe of ['donnabot-host.exe', 'donnabot-hostw.exe']) copyFileSync(built(target, exe), join(out, env === 'dev' && exe === 'donnabot-hostw.exe' ? 'donnabot-dev-hostw.exe' : exe))
   run(process.execPath, [join(root, '../../packaging/cua-driver/fetch.mjs'), 'windows-x86_64', out])
 } else {
-  const native = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
-  const targets = env === 'dev' ? [native] : ['aarch64-apple-darwin', 'x86_64-apple-darwin']
-  for (const target of targets) build(target)
-  run('lipo', ['-create', '-output', join(out, 'donnabot-host'), ...targets.map((t) => built(t, 'donnabot-host'))])
+  if (env === 'open') {
+    const target = macArch() === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
+    run(cargo, ['build', '--locked', '--profile', profile, '--manifest-path', join(host, 'Cargo.toml'), '--target', target, '--bin', 'donnabot-host'])
+    copyFileSync(built(target, 'donnabot-host'), join(out, 'mexerica-open-hub'))
+  } else {
+    const native = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
+    const targets = env === 'dev' ? [native] : ['aarch64-apple-darwin', 'x86_64-apple-darwin']
+    for (const target of targets) build(target)
+    run('lipo', ['-create', '-output', join(out, 'donnabot-host'), ...targets.map((t) => built(t, 'donnabot-host'))])
+  }
 }
 console.log(`host: ${env}`)

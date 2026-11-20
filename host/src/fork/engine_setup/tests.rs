@@ -228,6 +228,23 @@ async fn duas_contas_perfis_estaveis_login_correlacionado_uso_e_reconnect_identi
 }
 
 #[tokio::test]
+async fn encerramento_recusa_login_admitido_depois_da_espera() {
+    let f = Fixture::new();
+    f.cli(Backend::Codex);
+    let account = f.create("codex", "cli", "closing").await;
+    shutdown_open(&f.hub).await;
+    let refused = call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineSetupStart",
+        json!({"engineAccountId":account["id"],"expectedRevision":account["revision"],"action":"login","clientRequestId":"after-shutdown"}),
+    )
+    .await;
+    assert!(refused.unwrap_err().to_string().starts_with("setup_cancelled"));
+    assert_eq!(f.account(&account["id"])["revision"], account["revision"]);
+}
+
+#[tokio::test]
 async fn cancelar_stale_restart_e_caller_nao_promovem_nem_expoem_desafio() {
     let f = Fixture::new();
     let cli = f.cli(Backend::Codex);

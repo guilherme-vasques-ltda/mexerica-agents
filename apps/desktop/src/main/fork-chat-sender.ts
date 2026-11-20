@@ -2,7 +2,7 @@ import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 
 // O remetente de um IPC sensível é o frame principal da janela local conhecida (antes em fork-app-icon.ts, D169;
 // o seletor de ícone saiu na D457 e a voz continua usando a mesma regra). URL sozinha não concede acesso.
-function isLocalRendererURL(rendererURL: string): boolean {
+export function isLocalRendererURL(rendererURL: string): boolean {
   try {
     const url = new URL(rendererURL)
     return url.protocol === 'file:' && url.host === ''

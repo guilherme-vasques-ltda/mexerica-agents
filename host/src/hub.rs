@@ -222,14 +222,18 @@ impl Hub {
         self.store.conector_recover()?;
         crate::fork::conectores::whatsapp_human::recover(self)?;
         self.store.expire_pending()?;
-        crate::screen::fork_permission::restore_pending(self)?;
+        if !crate::environment::Environment::is_open() {
+            crate::screen::fork_permission::restore_pending(self)?;
+        }
         // MB-1b D1: perguntas de bot/conversa excluídos, fechados ou limpos antes de uma queda.
         crate::fork::owner_question::sweep(self);
         // R1: pedido aberto vira interrompido (antes do envio ou incerto); nada é reenviado.
         crate::fork::retornos::recuperar(&self.store)?;
         // Trabalho do gerador não salvo não sobrevive ao recomeço; manifestos ficam.
         crate::fork_avatars::gerador::conjuntos::limpar_orfaos(&self.store);
-        crate::chat::memory::import_old_memory(self);
+        if !crate::environment::Environment::is_open() {
+            crate::chat::memory::import_old_memory(self);
+        }
         self.routines.restore(&self.store)?;
         crate::fork::tarefas_runtime::restore(self)?;
         crate::market::turn_on_installed_once(&self.store)?;
@@ -243,6 +247,9 @@ impl Hub {
                 self.spawn_bot(row.config);
             }
         }
+        if crate::environment::Environment::is_open() {
+            return Ok(());
+        }
         crate::routines::start(self);
         crate::fork::tarefas_runtime::start(self);
         crate::fork::resumo_diario::start(self);
@@ -253,6 +260,9 @@ impl Hub {
     }
 
     fn spawn_bot(self: &Arc<Self>, cfg: BotConfig) {
+        if crate::environment::Environment::is_open() {
+            return;
+        }
         let id = cfg.id.clone();
         let (pending_questions, pending_questions_rev) = crate::fork::owner_question::load(&self.store, &id);
         self.runtime
@@ -609,7 +619,9 @@ impl Hub {
             if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
                 crate::chat::memory::changed(self, Some(&id));
             }
-            self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
+            if !crate::environment::Environment::is_open() {
+                self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
+            }
         }
         self.emit_bot(&id);
         Ok(self.bot_value(&id).unwrap_or(Value::Null))

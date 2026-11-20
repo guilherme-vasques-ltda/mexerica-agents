@@ -104,6 +104,7 @@ function defaultVoz(): VozBridge {
     testar: chave,
     usarReserva: chave,
     credencial: async () => ({ ok: false, categoria: 'sem-chave' }),
+    definirAtalho: async () => ({ ok: false, motivo: 'indisponivel' }),
     onChange: none,
   }
 }
