@@ -34,7 +34,7 @@ fez; para saber o que esta cópia contém, vale a lista abaixo, conferida em 19/
 - Anomalia (Apache-2.0) em `apps/desktop/src/renderer/views/fork/times/modelo-marketing.ts`; Tucano, terminal de login (Apache-2.0), em `host/src/fork/terminal_login.rs` e `host/src/agent/term.rs`; papéis de parede em código (Opensource UI, MIT) em `apps/desktop/src/renderer/lib/fork-wallpapers-code.ts`; ChaCha20-Poly1305 via `@noble/ciphers` (MIT) em `apps/desktop/src/main/fork-cloud/crypto.ts`.
 - As logos dos serviços do catálogo de conectores em `apps/desktop/src/renderer/assets/marcas/` (55 arquivos; marcas de seus titulares, só para identificar o serviço).
 - Electron (MIT), WebRTC de `stasel/WebRTC` (BSD-3-Clause) e o driver Cua (MIT): os textos de licença estão em `packaging/avisos/` e `packaging/cua-driver/`; o helper do Mac está em `apps/screen-macos/`.
-- Portes do Codync posteriores à v2.20.3 (por exemplo `host/src/fork/codex_usage/mod.rs` e `host/src/market/vault_unlock.rs`), com commit e autor na tabela abaixo.
+- Portes do Codync posteriores à v2.20.3, com commit e autor nas seções "Codync — lote 2, item 1" (uso do Codex, `host/src/fork/codex_usage/mod.rs`) e "Codync — lote 2, item 2" (desbloqueio do chaveiro, `host/src/market/vault_unlock.rs`), mais abaixo.
 - Código derivado do Codync v2.20.3 e as modificações listadas em `MODIFICACOES.md`.
 
 **Não está nesta cópia** (os registros abaixo ficam apenas como histórico da origem e não indicam que o material seja distribuído aqui):
