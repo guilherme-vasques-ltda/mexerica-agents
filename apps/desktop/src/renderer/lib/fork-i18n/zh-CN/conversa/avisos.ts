@@ -72,4 +72,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "此机器人未选择账户：它使用此电脑的默认登录（如有）。如需选择特定账户，请前往 AI 账户。",
   "conversa.avisos.falha.cabecalho.naoSei": "账户：无法确认",
   "conversa.avisos.falha.cabecalho.dica": "打开 AI 账户",
+  "conversa.avisos.motorMudo.minutos.other": "{n} 分钟",
+  "conversa.avisos.motorMudo.texto": "机器人已有 {tempo}没有任何动静。如果看起来卡住了，请点击“停止”；否则请耐心等待。",
+  "conversa.avisos.motorMudo.voltou": "机器人已恢复响应或本轮已结束，此提示不再有效。",
 }

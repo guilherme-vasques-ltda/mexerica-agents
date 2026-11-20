@@ -72,4 +72,9 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "Este bot no tiene una cuenta elegida: usa el inicio de sesión predeterminado de este equipo, si existe. Para elegir una cuenta concreta, ve a Cuentas de IA.",
   "conversa.avisos.falha.cabecalho.naoSei": "Cuenta: no pude confirmarla",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Cuentas de IA",
+  "conversa.avisos.motorMudo.minutos.one": "{n} minuto",
+  "conversa.avisos.motorMudo.minutos.many": "{n} minutos",
+  "conversa.avisos.motorMudo.minutos.other": "{n} minutos",
+  "conversa.avisos.motorMudo.texto": "El bot lleva {tempo} sin dar señales. Si parece atascado, usa Detener; si no, solo espera.",
+  "conversa.avisos.motorMudo.voltou": "El bot volvió a dar señales o el turno terminó; este aviso ya no aplica.",
 }

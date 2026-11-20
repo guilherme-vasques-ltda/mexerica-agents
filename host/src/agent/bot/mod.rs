@@ -31,6 +31,7 @@ mod fork_custo;
 mod fork_fallback;
 mod fork_fila;
 mod fork_genui;
+mod fork_motor_mudo;
 mod fork_owner_question;
 mod fork_profile_skills;
 mod fork_queue;
@@ -357,6 +358,7 @@ fn new_actor(hub: Arc<Hub>, cfg: BotConfig) -> Actor {
         restart_after_turn: false,
         fast_support,
         idle_checked: Instant::now(),
+        mudo: fork_motor_mudo::Vigia::new(),
     }
 }
 
@@ -651,6 +653,8 @@ struct Actor {
     fast_support: FastModeSupport,
     /// When idle sessions and agents were last looked for.
     idle_checked: Instant,
+    /// GUI-192: vigia do silêncio do motor durante o pedido aberto.
+    mudo: fork_motor_mudo::Vigia,
 }
 
 #[cfg(test)]
@@ -749,6 +753,7 @@ impl Actor {
                         self.cancel_deadline = None;
                         if let Some(c) = self.conn.take() { c.kill().await; }
                     }
+                    self.mudo_conferir();
                     self.release_idle().await;
                     // The idle check may have queued a compaction.
                     if self.turn.is_none() && !self.queue.is_empty() {

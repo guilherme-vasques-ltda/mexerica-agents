@@ -72,4 +72,12 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "لم يُختر حساب لهذا البوت: يستخدم تسجيل الدخول الافتراضي لهذا الكمبيوتر، إن وُجد. لاختيار حساب محدد، انتقل إلى حسابات الذكاء الاصطناعي.",
   "conversa.avisos.falha.cabecalho.naoSei": "الحساب: لم أستطع التأكد",
   "conversa.avisos.falha.cabecalho.dica": "فتح حسابات الذكاء الاصطناعي",
+  "conversa.avisos.motorMudo.minutos.zero": "{n} دقيقة",
+  "conversa.avisos.motorMudo.minutos.one": "دقيقة واحدة ({n})",
+  "conversa.avisos.motorMudo.minutos.two": "دقيقتان ({n})",
+  "conversa.avisos.motorMudo.minutos.few": "{n} دقائق",
+  "conversa.avisos.motorMudo.minutos.many": "{n} دقيقة",
+  "conversa.avisos.motorMudo.minutos.other": "{n} دقيقة",
+  "conversa.avisos.motorMudo.texto": "لم يُظهر البوت أي نشاط منذ {tempo}. إذا بدا عالقًا فاستخدم إيقاف، وإلا فانتظر فحسب.",
+  "conversa.avisos.motorMudo.voltou": "عاد البوت إلى الاستجابة أو انتهى الدور؛ لم يعد هذا التنبيه صالحًا.",
 }

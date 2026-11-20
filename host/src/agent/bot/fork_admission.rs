@@ -652,6 +652,7 @@ impl Actor {
         self.context_compaction_guard()?;
         self.cost_dispatch(&session)?;
         let answer = acp.send("session/prompt", params).await?;
+        self.mudo_armar();
         drop(account_guard);
         if let Err(error) = self.checkpoint_waiting_session() {
             tracing::warn!(%error, "consumo do handoff será salvo novamente antes de outra tentativa");

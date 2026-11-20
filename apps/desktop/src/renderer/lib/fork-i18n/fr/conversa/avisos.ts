@@ -72,4 +72,9 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "Ce bot n’a pas de compte choisi : il utilise la connexion par défaut de cet ordinateur, s’il y en a une. Pour choisir un compte précis, allez dans Comptes d’IA.",
   "conversa.avisos.falha.cabecalho.naoSei": "Compte : non confirmé",
   "conversa.avisos.falha.cabecalho.dica": "Ouvrir Comptes d’IA",
+  "conversa.avisos.motorMudo.minutos.one": "{n} minute",
+  "conversa.avisos.motorMudo.minutos.many": "{n} minutes",
+  "conversa.avisos.motorMudo.minutos.other": "{n} minutes",
+  "conversa.avisos.motorMudo.texto": "Le bot n’a donné aucun signe depuis {tempo}. S’il semble bloqué, utilisez Arrêter ; sinon, il suffit d’attendre.",
+  "conversa.avisos.motorMudo.voltou": "Le bot a repris ou le tour est terminé ; cet avis n’est plus valable.",
 }

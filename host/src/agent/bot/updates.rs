@@ -95,6 +95,9 @@ fn mark_delivery_error(hub: &crate::hub::Hub, entry_id: &str, error: &anyhow::Er
 
 impl Actor {
     pub(super) async fn on_incoming(&mut self, inc: Option<Incoming>) {
+        if matches!(inc, Some(Incoming::Notification { .. } | Incoming::Request { .. })) {
+            self.mudo_sinal();
+        }
         match inc {
             None | Some(Incoming::Closed { .. }) => {
                 let tail = match inc {
