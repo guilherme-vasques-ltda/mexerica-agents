@@ -74,23 +74,29 @@ export function useEntradaVoz(contexto: () => Omit<ContextoEntradaVoz, 'conversa
   const [recusa, setRecusa] = useState<MotivoRecusaVoz | null>(null)
   const vivo = useRef({ contexto, iniciar, encerrar })
   vivo.current = { contexto, iniciar, encerrar }
+  const espera = useRef<() => void>(() => {})
 
-  useEffect(() => window.codync.app.onCommand((c) => {
-    if (c.kind !== 'voiceToggle') return
-    const decidir = () => decidirEntradaVoz({ ...vivo.current.contexto(), conversaVisivel: conversaVisivel() && c.modal !== true })
-    const aplicar = (decisao: ReturnType<typeof decidir>) => {
-      if (decisao.acao === 'iniciar') { setRecusa(null); vivo.current.iniciar() }
-      else if (decisao.acao === 'encerrar') { setRecusa(null); vivo.current.encerrar() }
-      else setRecusa(decisao.motivo)
-    }
-    const decisao = decidir()
-    if (decisao.acao !== 'iniciar' || document.hasFocus()) return aplicar(decisao)
-    // O main acabou de trazer a janela à frente: dá um instante para o foco chegar. Sem foco (diálogo do sistema na frente,
-    // o sistema negou o foco), a chamada não abre por baixo de outra janela.
-    const fim = setTimeout(() => { window.removeEventListener('focus', chegou); setRecusa('oculta') }, FOCO_MS)
-    const chegou = () => { clearTimeout(fim); aplicar(decidir()) }
-    window.addEventListener('focus', chegou, { once: true })
-  }), [])
+  useEffect(() => {
+    const sair = window.codync.app.onCommand((c) => {
+      if (c.kind !== 'voiceToggle') return
+      espera.current()
+      const decidir = () => decidirEntradaVoz({ ...vivo.current.contexto(), conversaVisivel: conversaVisivel() && c.modal !== true })
+      const aplicar = (decisao: ReturnType<typeof decidir>) => {
+        if (decisao.acao === 'iniciar') { setRecusa(null); vivo.current.iniciar() }
+        else if (decisao.acao === 'encerrar') { setRecusa(null); vivo.current.encerrar() }
+        else setRecusa(decisao.motivo)
+      }
+      const decisao = decidir()
+      if (decisao.acao !== 'iniciar' || document.hasFocus()) return aplicar(decisao)
+      // O main acabou de trazer a janela à frente: dá um instante para o foco chegar. Sem foco (diálogo do sistema na frente,
+      // o sistema negou o foco), a chamada não abre por baixo de outra janela.
+      const fim = setTimeout(() => { espera.current(); setRecusa('oculta') }, FOCO_MS)
+      const chegou = () => { espera.current(); if (document.hasFocus()) aplicar(decidir()); else setRecusa('oculta') }
+      espera.current = () => { clearTimeout(fim); window.removeEventListener('focus', chegou); espera.current = () => {} }
+      window.addEventListener('focus', chegou)
+    })
+    return () => { sair(); espera.current() }
+  }, [])
 
   useEffect(() => {
     if (!recusa) return
