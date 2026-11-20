@@ -738,6 +738,23 @@ fn cumulative_limits_and_atomic_no_replace_are_enforced() {
     assert!(fs::read_dir(dest).unwrap().next().is_none());
 }
 
+#[test]
+fn swapping_exchanges_existing_directories() {
+    let _isolamento = TEST_ISOLATION.blocking_lock();
+    let f = Fixture::new();
+    private_dir(&f.0.skills_root).unwrap();
+    let source = f.0.skills_root.join("stage");
+    let dest = f.0.skills_root.join("existing");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&dest).unwrap();
+    fs::write(source.join("data.txt"), "new").unwrap();
+    fs::write(dest.join("data.txt"), "old").unwrap();
+    rename_swap(&source, &dest).unwrap();
+    assert_eq!(fs::read_to_string(dest.join("data.txt")).unwrap(), "new");
+    assert_eq!(fs::read_to_string(source.join("data.txt")).unwrap(), "old");
+    assert_eq!(fs::read_dir(&f.0.skills_root).unwrap().count(), 2);
+}
+
 // SPACE-SKILLS-1: dispatch/SQLite reais, dados e identidade descartáveis; não inicia Hub/motor.
 pub(super) struct ScopeFixture {
     pub(super) hub: std::sync::Arc<crate::hub::Hub>,

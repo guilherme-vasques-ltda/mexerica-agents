@@ -611,9 +611,22 @@ fn rename_flagged(source: &Path, dest: &Path, swap: bool) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        // Sem troca atômica no Windows; a publicação nova usa o rename, que não substitui pasta existente.
-        ensure!(!swap, "Troca atômica de pastas indisponível nesta plataforma");
-        Ok(fs::rename(source, dest)?)
+        // O rename do Windows pode substituir pasta vazia e não tem troca atômica. O lock de filesystem
+        // serializa os escritores do Hub; a troca sai em passos e desfaz o primeiro se o segundo falhar.
+        if !swap {
+            ensure!(
+                fs::symlink_metadata(dest).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
+                "Destino existente; nenhuma versão será sobrescrita"
+            );
+            return Ok(fs::rename(source, dest)?);
+        }
+        let old = dest.with_file_name(format!(".old-{}", uuid::Uuid::new_v4()));
+        fs::rename(dest, &old)?;
+        if let Err(error) = fs::rename(source, dest) {
+            fs::rename(&old, dest).context("Troca de pastas interrompida; versão anterior mantida em .old-*")?;
+            return Err(error.into());
+        }
+        Ok(fs::rename(&old, source)?)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
