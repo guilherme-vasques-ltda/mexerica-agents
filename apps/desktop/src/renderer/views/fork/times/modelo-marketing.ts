@@ -1,8 +1,7 @@
 // Modelo Equipe Marketing (D353; Linear: DON-835): o Hype como chefe e Feed, Prosa, Rank, Canal, Traço e Pixel como
 // membros. Só compõe caminhos que já existem: bots que faltam nascem pelo createBot normal e a equipe vai como uma
 // mudança comum de Times (prévia, depois Salvar). Nenhum campo novo, nenhum poder novo: o chefe só vira Gerente da
-// área, como em qualquer Novo time. Regras de conduta adaptadas do bloco COMMON da Anomalia (Apache-2.0) para
-// PT-BR; procedência em THIRD_PARTY.md.
+// área, como em qualquer Novo time.
 import { addArea, memberOf, moveBot, type TimesBot, type TimesGraph } from '../../../../shared/fork-times.ts'
 import { chooseNewBotPermission } from '../../../../shared/bot-autonomy.ts'
 import { NEW_BOT_BACKEND, fillNewBotDefaults } from '../../../../shared/new-bot-defaults.ts'

@@ -185,7 +185,7 @@ async fn claude_usage_output(
             crate::fork::motor_exec::command(bin, home)
                 .env_clear()
                 .envs(env)
-                // Porte Codync b365471a: não iniciar MCPs durante a consulta local.
+                // Não iniciar MCPs durante a consulta local.
                 .args([
                     "-p",
                     "/usage",

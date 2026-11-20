@@ -2,9 +2,7 @@
 //! history dreaming reads. An entry with one is refused instead ([`crate::check`]); a note keeps the rest of its text
 //! with [`MARK`] in the credential's place.
 //!
-//! The patterns are adapted from ai-memory's privacy strip (`crates/ai-memory-core/src/sanitize.rs`, commit
-//! a295983), Copyright (c) 2026 Fabio Akita, MIT License; see `THIRD_PARTY.md`. Changed here: a neutral mark that
-//! keeps the label (`password: [removido]`); a word boundary before `sk-`, so "desk-" isn't a key; environment
+//! A neutral mark keeps the label (`password: [removido]`); a word boundary before `sk-`, so "desk-" isn't a key; environment
 //! variables in capitals only, and with them header fields, only when the value looks like a secret (eight characters
 //! or more, one a digit), so `primary_key: id` stays; no credential-file paths (`~/.ssh`), which are no secret in
 //! notes about a person; and Brazilian Portuguese labels, each only with its value.

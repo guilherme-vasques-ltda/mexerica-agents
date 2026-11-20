@@ -1,6 +1,4 @@
-// Donnabot (D85): a tela central "Rotinas", com as rotinas de todos os bots, no formato da
-// "Automações" do OpenMausBot (cabeçalho de TriggersPage.tsx, Apache-2.0, commit
-// 615fe65e17f88d99f12d34682750d9ae2fa402bc, adaptado): Voltar, "Buscar rotinas", filtros por seção
+// Donnabot (D85): a tela central "Rotinas", com as rotinas de todos os bots: Voltar, "Buscar rotinas", filtros por seção
 // e por bot, Lista ou Calendário e "+ Nova". A lista de rotinas de cada bot (painel de detalhes)
 // continua.
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -83,7 +81,7 @@ function Page({ header, children }: { header?: ReactNode; children: ReactNode })
   const back = useRef<HTMLButtonElement>(null)
   // DON-917: a tela toda está no catálogo; declara o idioma escolhido (e a direção) e re-renderiza quando ele muda.
   const idioma = useIdioma()
-  // Como no OpenMausBot, o foco vai para Voltar ao abrir.
+  // O foco vai para Voltar ao abrir.
   useEffect(() => back.current?.focus({ preventScroll: true }), [])
   return (
     <div className="rc-page idioma-superficie" {...superficieIdioma(idioma)}>

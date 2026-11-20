@@ -1,4 +1,5 @@
 //! Endereços anunciados no pareamento e no hello; não configura a rede.
+//! Adaptado de Codync 57537a1e5d52f27c595af7415cc4f69a79dff080 e bb242a7df4a9479fac622657a70f4007cb690fe3 (Apache-2.0); ver THIRD_PARTY.md.
 
 use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr};

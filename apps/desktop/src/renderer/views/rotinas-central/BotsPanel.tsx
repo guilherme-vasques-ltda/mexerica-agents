@@ -1,7 +1,5 @@
-// Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc),
-// src/components/routines/CalendarSidebar.tsx (alterado): CSS e controles do Donnabot, a função do
-// bot é a tag do Hub (D169, a descrição fica para o leitor), um clique filtra pelo bot e "Agendar" é a
-// alternativa de teclado ao arrastar.
+// Painel "Meus bots" do calendário: a função do bot é a tag do Hub (D169, a descrição fica para o
+// leitor), um clique filtra pelo bot e "Agendar" é a alternativa de teclado ao arrastar.
 import { useMemo, useState, type DragEvent } from 'react'
 import type { Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
