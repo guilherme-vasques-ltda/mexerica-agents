@@ -120,4 +120,4 @@ jobs:
         if: ${{ always() }}
         run: |
           minutos=$(( ($(date +%s) - MACOS_INICIO + 59) / 60 ))
-          printf 'Minutos no macOS (Namespace): %s, cerca de US$ %s a US$ 0,09 por minuto\n' "$minutos" "$(awk "BEGIN { printf \"%.2f\", $minutos * 0.09 }")" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Minutos no macOS: %s\n' "$minutos" >> "$GITHUB_STEP_SUMMARY"

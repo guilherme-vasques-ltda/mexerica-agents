@@ -81,8 +81,7 @@ no PR como a sonda do Boat e não trava a fila enquanto estabiliza.
 - **Gasto:** filtro de caminhos, cancelamento da rodada antiga do mesmo PR, limite de 75
   minutos e cache do npm e do Cargo pelo cache do GitHub (escopo por branch: o cache de um PR
   não chega à `main` nem a outro PR). Não usa volume de cache da Namespace, que é
-  compartilhado por rótulo entre todas as rodadas. O resumo do job mostra os minutos gastos e
-  a estimativa em dólar.
+  compartilhado por rótulo entre todas as rodadas. O resumo do job mostra os minutos gastos.
 - **Segurança:** `permissions: {}` no topo e só `contents: read` no job; nenhum secret;
   actions de uma lista fechada por SHA (checkout, setup-node, rust-cache e upload-artifact).
   A mesma lista está em Settings → Actions do repositório, que recusa qualquer outra action:
