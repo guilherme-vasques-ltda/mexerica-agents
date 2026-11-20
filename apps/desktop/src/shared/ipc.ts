@@ -81,6 +81,8 @@ export type WindowCommand =
   /** ⌘, ("Ajustes…" no menu do app): abre a tela de Ajustes (ajustes-tela-01). */
   | { kind: 'openSettings' }
   | { kind: 'toggleDetails' }
+  /** o atalho global da chamada de voz (abre ou encerra, na conversa à vista). */
+  | { kind: 'voiceToggle' }
   | { kind: 'refresh' }
   | { kind: 'respondPermission'; ref: string; entryId: string; optionId: string }
   /** `replyId`: a Ilha espera o resultado (aceito ou barrado pelo aviso de senha colada) por `island.sendResult`. */

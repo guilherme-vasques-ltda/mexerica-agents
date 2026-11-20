@@ -6,6 +6,8 @@ export interface Capacidades {
   ssh: boolean
   cofreLocal: boolean
   perfilConta: boolean
+  /** atalho global da chamada de voz (só o app de desktop; o navegador e a demo não registram atalho do sistema). */
+  atalhoVoz: boolean
 }
 
 type BridgeCapacidades = Pick<CodyncBridge, 'web'> & { platform?: string }
@@ -21,5 +23,6 @@ export function capacidades(bridge?: BridgeCapacidades | null): Capacidades {
     ssh: desktop,
     cofreLocal: desktop,
     perfilConta: desktop,
+    atalhoVoz: desktop,
   }
 }

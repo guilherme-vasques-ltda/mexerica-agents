@@ -1,5 +1,6 @@
 import { useSpaceShortcuts } from './fork/spaces/use-space-shortcuts'
 import { useAtalhoBerga } from './fork/atalho-berga/use-atalho'
+import { useSincronizarAtalhoVoz } from './fork/voz/entrada-voz'
 import { focoBerga } from './fork/atalho-berga/foco'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -104,6 +105,7 @@ function ChatShell() {
   const [showAccess, setShowAccess] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   useSSHAttachments(app)
+  useSincronizarAtalhoVoz()
   // D171: o Hub pela nuvem, só com `cloudAccess` e anexo qualificado pelo Main; o SSH vem primeiro.
   useForkCloudAttachments(app)
   const ssh = useSSH()
