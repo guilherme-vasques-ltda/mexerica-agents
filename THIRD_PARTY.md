@@ -16,6 +16,7 @@ Conferido em 20/11/2026 contra a árvore deste repositório e, para cada trecho 
 Não é parecer jurídico.
 
 - Código derivado do Codync v2.20.3 (modificações em `MODIFICACOES.md`) e trechos de commits posteriores do Codync (tabela abaixo).
+- Padrões de redação do ai-memory (MIT) em `host/crates/memory/src/redact.rs` e receitas de fundos do Opensource UI (MIT) em `apps/desktop/src/renderer/lib/fork-wallpapers-code.ts`.
 - Código do OpenMausBot (Apache-2.0) em `apps/desktop/src/renderer/lib/routine-calendar.ts`.
 - Fixture de teste com o esquema do wacli (MIT) em `host/src/fork/whatsapp/wacli_fixture.sql`.
 - `LICENSE` de Exa e de Supabase (MIT), empacotada pelo Hub com as skills de conector em `host/catalogo/skills/`.
@@ -38,6 +39,8 @@ Registre abaixo cada cópia de código ou de ativo de terceiros, inclusive com a
 | [Codync](https://github.com/leepokai/Codync) | `219935410dffccb950f90d0565bd1d9f1661bd5b` | `apps/desktop/src/renderer/lib/modal-stack.ts` (`stackModals`) e `modal-stack.test.ts` | `apps/desktop/src/renderer/lib/fork-modal-stack.ts` e `fork-modal-stack.test.ts` (modificados) | [Apache-2.0](https://github.com/leepokai/Codync/blob/219935410dffccb950f90d0565bd1d9f1661bd5b/LICENSE) | 2026-11-06 |
 | [Codync](https://github.com/leepokai/Codync) | `57537a1e5d52f27c595af7415cc4f69a79dff080`, `bb242a7df4a9479fac622657a70f4007cb690fe3` | `host/src/service/addresses.rs` | `host/src/fork/pairing_addresses.rs` (modificado) | [Apache-2.0](https://github.com/leepokai/Codync/blob/57537a1e5d52f27c595af7415cc4f69a79dff080/LICENSE), [LICENSE do segundo commit](https://github.com/leepokai/Codync/blob/bb242a7df4a9479fac622657a70f4007cb690fe3/LICENSE) | 2026-11-06 |
 | [Codync](https://github.com/leepokai/Codync) | `25202822c17e12d0581cd043e331b11afea3ff8e` | `host/src/market/vault.rs` (desbloqueio do chaveiro) | `host/src/market/vault_unlock.rs` (modificado) | [Apache-2.0](https://github.com/leepokai/Codync/blob/25202822c17e12d0581cd043e331b11afea3ff8e/LICENSE) | 2026-11-06 |
+| [ai-memory](https://github.com/akitaonrails/ai-memory) — Fabio Akita | `a295983828901aa612d37dabd6045500346d457a` | `crates/ai-memory-core/src/sanitize.rs` (padrões de redação) | `host/crates/memory/src/redact.rs` (modificado) | MIT (aviso abaixo) | 2026-10-20 |
+| [Opensource UI](https://github.com/bidyut10/opensourceui) — Bidyut Kundu | `892f486fdf0d46a44b21ddf3fa32a41a3a71173a` | `components/background-gradient/*` | `apps/desktop/src/renderer/lib/fork-wallpapers-code.ts` (receitas dos fundos) | MIT (aviso abaixo) | 2026-11-06 |
 | [OpenMausBot](https://github.com/milind-soni/OpenMausBot) | `615fe65e17f88d99f12d34682750d9ae2fa402bc` | `src/lib/routine-calendar.ts` (datas, encaixe, colunas de sobreposição, rótulo GMT) | `apps/desktop/src/renderer/lib/routine-calendar.ts` (modificado) | Apache-2.0 (aviso abaixo) | 2026-10-21 |
 | [tstack](https://github.com/t3dotgg/tstack) — Theo Browne | `1085050f3baed1ac724caa4a8166145fb2ac88af` | `skills/babysit-pr/scripts/pr-wait` | `.claude/skills/acompanhar-pr/scripts/pr-wait` (cópia sem alteração) | MIT (aviso abaixo) | 2026-11-04 |
 | [tstack](https://github.com/t3dotgg/tstack) — Theo Browne | `1085050f3baed1ac724caa4a8166145fb2ac88af` | `skills/sol-loop`, `babysit-pr`, `file-pr`, `full-send`, `full-stop` e `leaving-pr-comments` (`SKILL.md`, texto adaptado) | `AGENTS.md` (Rodadas de revisão, escopo e PR), `.claude/skills/{abrir-pr,acompanhar-pr,full-stop}/SKILL.md`, `.github/pull_request_template.md` (reescritos em PT-BR para as regras da Mexerica) | MIT (aviso abaixo) | 2026-11-04 |
@@ -50,6 +53,58 @@ Registre abaixo cada cópia de código ou de ativo de terceiros, inclusive com a
 Antes de distribuir ou entrar em uso de empresa, revise as licenças registradas.
 
 ## Avisos de licença
+
+### ai-memory
+
+```text
+MIT License
+
+Copyright (c) 2026 Fabio Akita
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Opensource UI
+
+```text
+MIT License
+
+Copyright (c) 2026 Bidyut Kundu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ### security-audit-skill
 

@@ -16,7 +16,7 @@ e suas condições; não são serviços operados ou oferecidos pela Mexerica.
 
 Componentes de terceiros presentes nesta cópia, com licença, titular e aviso
 por arquivo registrados em THIRD_PARTY.md: código do OpenMausBot (Apache-2.0) e de
-commits do Codync posteriores à v2.20.3 (Apache-2.0); a fixture com o esquema do wacli (MIT);
+commits do Codync posteriores à v2.20.3 (Apache-2.0); padrões de redação do ai-memory e receitas de fundos do Opensource UI (MIT); a fixture com o esquema do wacli (MIT);
 a LICENSE das skills de Exa e Supabase (MIT); skills de terceiros embutidas no catálogo de
 skills do Hub, com a licença que cada uma traz; pi-mono (MIT), vendorizado no motor; fontes DM Sans,
 Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto ao
