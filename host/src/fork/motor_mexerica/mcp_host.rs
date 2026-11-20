@@ -24,6 +24,10 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 const CALL_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_PAGES: usize = 20;
 const MAX_TOOLS: usize = 256;
+/// Prazo da consulta `browser_status` v3 que o Hub faz entre turnos.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
+/// Servidor interno do Hub que oferece as ferramentas de navegador.
+const MEMORY: &str = "memory";
 
 type Waiters = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
 
@@ -88,12 +92,19 @@ impl Server {
 /// Servidores MCP abertos pelo Hub para um motor, e a tabela nome→(servidor, ferramenta).
 pub(crate) struct McpHost {
     servers: Vec<Server>,
+    catalog: std::sync::Mutex<Catalog>,
+}
+
+/// Tabela nome→rota e lista de ferramentas declaradas ao motor. Muda só no `refresh_browser`, entre turnos.
+#[derive(Default)]
+struct Catalog {
     routes: HashMap<String, Route>,
     specs: Vec<ToolSpec>,
 }
 
 /// Destino de uma ferramenta exposta: o servidor que o PRÓPRIO Hub abriu e o
 /// nome original. É daqui — nunca de dado do motor — que sai a identidade.
+#[derive(Clone)]
 struct Route {
     index: usize,
     original: String,
@@ -147,20 +158,93 @@ impl McpHost {
         cwd: &std::path::Path,
         hub_exe: Option<&std::path::Path>,
     ) -> Result<Self> {
-        let mut host = Self { servers: Vec::new(), routes: HashMap::new(), specs: Vec::new() };
+        let mut host = Self { servers: Vec::new(), catalog: std::sync::Mutex::new(Catalog::default()) };
         for definition in definitions.as_array().map(Vec::as_slice).unwrap_or_default() {
             host.add(definition, cwd, hub_exe).await?;
         }
         Ok(host)
     }
 
-    pub(crate) fn specs(&self) -> &[ToolSpec] {
-        &self.specs
+    pub(crate) fn specs(&self) -> Vec<ToolSpec> {
+        self.catalog.lock().map(|catalog| catalog.specs.clone()).unwrap_or_default()
+    }
+
+    fn route(&self, name: &str) -> Option<Route> {
+        self.catalog.lock().ok()?.routes.get(name).cloned()
+    }
+
+    /// Cliente do Hub no contrato v3 do navegador: consulta `browser_status` v3 pelo servidor `memory` (o que
+    /// marca o vínculo como negociado se o navegador estiver disponível) e lista as ferramentas de novo. Só roda
+    /// entre turnos. Devolve `true` se o conjunto de ferramentas mudou e o motor precisa de `set_tools`.
+    pub(crate) async fn refresh_browser(&self) -> Result<bool> {
+        let Some((index, server)) =
+            self.servers.iter().enumerate().find(|(_, server)| server.own && server.name == MEMORY)
+        else {
+            return Ok(false);
+        };
+        let status = json!({"name": crate::fork::browser::STATUS_TOOL, "arguments": {"version": 3, "target": "host"}});
+        if let Err(error) = server.request("tools/call", status, STATUS_TIMEOUT).await {
+            tracing::debug!(%error, "consulta de navegador v3 recusada; lista de ferramentas mantida");
+        }
+        let listed = Self::discover(server, true, None).await?;
+        let mut catalog = self.catalog.lock().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?;
+        let prefix = format!("mcp__{MEMORY}__");
+        let names = |specs: &[ToolSpec]| -> std::collections::BTreeSet<String> {
+            specs.iter().filter(|spec| spec.name.starts_with(&prefix)).map(|spec| spec.name.clone()).collect()
+        };
+        let before = names(&catalog.specs);
+        catalog.routes.retain(|_, route| route.index != index);
+        catalog.specs.retain(|spec| !spec.name.starts_with(&prefix));
+        for (exposed, original, spec) in listed {
+            ensure!(catalog.routes.len() < MAX_TOOLS, "ferramentas demais para o motor");
+            ensure!(
+                catalog.routes.insert(exposed.clone(), Route { index, original }).is_none(),
+                "ferramenta repetida: {exposed}"
+            );
+            catalog.specs.push(spec);
+        }
+        Ok(before != names(&catalog.specs))
+    }
+
+    /// Lista as ferramentas de um servidor já iniciado: (nome exposto, nome original, declaração).
+    async fn discover(
+        server: &Server,
+        own: bool,
+        account_label: Option<String>,
+    ) -> Result<Vec<(String, String, ToolSpec)>> {
+        let mut found = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..MAX_PAGES {
+            let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
+            let page = server.request("tools/list", params, SETUP_TIMEOUT).await?;
+            for tool in page["tools"].as_array().into_iter().flatten() {
+                let original = tool["name"].as_str().context("ferramenta MCP sem nome")?;
+                let exposed = exposed_name(&server.name, original)
+                    .with_context(|| format!("nome de ferramenta MCP inválido: {}/{original}", server.name))?;
+                found.push((
+                    exposed.clone(),
+                    original.to_owned(),
+                    ToolSpec {
+                        name: exposed,
+                        description: tool["description"].as_str().unwrap_or_default().to_owned(),
+                        input_schema: tool["inputSchema"].clone(),
+                        origin: if own {
+                            ToolOrigin::Hub
+                        } else {
+                            ToolOrigin::Connector { account_label: account_label.clone() }
+                        },
+                    },
+                ));
+            }
+            let Some(next) = page["nextCursor"].as_str() else { return Ok(found) };
+            cursor = Some(next.to_owned());
+        }
+        bail!("o servidor MCP {} paginou ferramentas demais", server.name)
     }
 
     /// Identidade e classe de uma ferramenta exposta, pela tabela que o Hub montou.
     pub(crate) fn classify(&self, name: &str) -> Option<ToolClass> {
-        let route = self.routes.get(name)?;
+        let route = self.route(name)?;
         let server = self.servers.get(route.index)?;
         Some(ToolClass { server: server.name.clone(), tool: route.original.clone(), hub: server.own })
     }
@@ -230,37 +314,19 @@ impl McpHost {
             .await?;
         server.write(json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).await?;
         let index = self.servers.len();
-        let mut cursor: Option<String> = None;
-        for _ in 0..MAX_PAGES {
-            let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
-            let page = server.request("tools/list", params, SETUP_TIMEOUT).await?;
-            for tool in page["tools"].as_array().into_iter().flatten() {
-                let original = tool["name"].as_str().context("ferramenta MCP sem nome")?;
-                let exposed = exposed_name(&name, original)
-                    .with_context(|| format!("nome de ferramenta MCP inválido: {name}/{original}"))?;
-                ensure!(self.routes.len() < MAX_TOOLS, "ferramentas demais para o motor");
-                ensure!(
-                    self.routes.insert(exposed.clone(), Route { index, original: original.to_owned() },).is_none(),
-                    "ferramenta repetida: {exposed}"
-                );
-                self.specs.push(ToolSpec {
-                    name: exposed,
-                    description: tool["description"].as_str().unwrap_or_default().to_owned(),
-                    input_schema: tool["inputSchema"].clone(),
-                    origin: if own {
-                        ToolOrigin::Hub
-                    } else {
-                        ToolOrigin::Connector { account_label: definition["accountLabel"].as_str().map(str::to_owned) }
-                    },
-                });
-            }
-            let Some(next) = page["nextCursor"].as_str() else {
-                self.servers.push(server);
-                return Ok(());
-            };
-            cursor = Some(next.to_owned());
+        let label = definition["accountLabel"].as_str().map(str::to_owned);
+        let listed = Self::discover(&server, own, label).await?;
+        let catalog = self.catalog.get_mut().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?;
+        for (exposed, original, spec) in listed {
+            ensure!(catalog.routes.len() < MAX_TOOLS, "ferramentas demais para o motor");
+            ensure!(
+                catalog.routes.insert(exposed.clone(), Route { index, original }).is_none(),
+                "ferramenta repetida: {exposed}"
+            );
+            catalog.specs.push(spec);
         }
-        bail!("o servidor MCP {name} paginou ferramentas demais")
+        self.servers.push(server);
+        Ok(())
     }
 }
 
@@ -342,10 +408,10 @@ fn spawn_reader(stdout: tokio::process::ChildStdout, waiters: Waiters) {
 impl ToolRunner for McpHost {
     fn call<'a>(&'a self, _call_id: &'a str, name: &'a str, input: Value) -> ToolFuture<'a> {
         Box::pin(async move {
-            let Some(Route { index, original, .. }) = self.routes.get(name) else {
+            let Some(Route { index, original }) = self.route(name) else {
                 return Err("ferramenta desconhecida".to_owned());
             };
-            let server = &self.servers[*index];
+            let server = &self.servers[index];
             let arguments = if input.is_object() { input } else { json!({}) };
             let result = server
                 .request("tools/call", json!({"name": original, "arguments": arguments}), CALL_TIMEOUT)

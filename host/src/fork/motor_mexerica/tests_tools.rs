@@ -114,7 +114,7 @@ async fn ferramenta_do_hub_vai_e_volta_pelo_cliente_mcp_do_hub() {
     crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
     let mut engine = Engine::spawn(store, "faux", &[(FAUX_ENV, "1")]).unwrap();
     engine.set_system_prompt("Você é um bot da Mexerica.").await.unwrap();
-    engine.set_tools(mcp.specs()).await.unwrap();
+    engine.set_tools(&mcp.specs()).await.unwrap();
     let turn = engine
         .prompt_with("faux", "faux-1", r#"/ferramenta mcp__fake__eco {"texto":"oi"}"#, &mcp, &mut |_| {})
         .await
@@ -353,7 +353,7 @@ rl.on('line', (line) => {{
     let definicoes = json!([{"name": "fake", "command": node, "args": [script], "env": []}]);
     let mcp = McpHost::start(&definicoes, &case.dir).await.unwrap();
     let mut engine = Engine::spawn(novo_store(), "faux", &[(FAUX_ENV, "1")]).unwrap();
-    engine.set_tools(mcp.specs()).await.unwrap();
+    engine.set_tools(&mcp.specs()).await.unwrap();
     let pid = engine.pid().unwrap();
     // O tools/call fica em andamento; largar o futuro do turno tem de mandar
     // notifications/cancelled ao servidor (P2-4).

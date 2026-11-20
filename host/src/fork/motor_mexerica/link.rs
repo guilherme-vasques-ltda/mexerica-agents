@@ -284,7 +284,7 @@ impl Link {
             engine.set_system_prompt(&prompt).await?;
         }
         if let Some(mcp) = &session.mcp {
-            engine.set_tools(mcp.specs()).await?;
+            engine.set_tools(&mcp.specs()).await?;
         }
         *slot = Some(engine);
         Ok(())
@@ -315,6 +315,15 @@ impl Link {
             self.ensure_engine(&session, &current_provider).await?;
             let mut owned = session.engine.lock().await.take().context("a sessão já tem um turno em curso")?;
             *session.pid.locked() = owned.pid();
+            // O Hub é o cliente MCP deste motor: negocia o navegador v3 e relista as ferramentas ANTES do prompt
+            // (o motor só aceita `set_tools` fora de um turno). Falha na consulta mantém a lista anterior.
+            if let Some(mcp) = &session.mcp {
+                match mcp.refresh_browser().await {
+                    Ok(true) => owned.set_tools(&mcp.specs()).await?,
+                    Ok(false) => {}
+                    Err(error) => tracing::warn!(%error, "não foi possível atualizar as ferramentas de navegador"),
+                }
+            }
             let provider = session.provider.locked().clone();
             let model = session.model.locked().clone();
             ensure!(!model.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");

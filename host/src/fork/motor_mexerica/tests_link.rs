@@ -627,3 +627,61 @@ async fn definicao_curada_ou_com_outro_executavel_sai_como_conector() {
     assert!(!classe("mcp__chat__ler").released() && !classe("mcp__chat__gravar").released());
     assert!(mcp.classify("mcp__chat__nao_existe").is_none());
 }
+
+// ---------------------------------------------------------------------------
+// Catálogo do navegador: o Hub (cliente MCP do motor) negocia a v3 e relista.
+// ---------------------------------------------------------------------------
+
+/// Servidor `memory` de mentira: `browser_open` só aparece na lista depois de `browser_status` v3 ser chamado.
+const SERVIDOR_MEMORY_NAVEGADOR: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const abrir = { name: 'browser_open', description: 'abre', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, abrir] : [status] });
+  else if (m.method === 'tools/call' && m.params.name === 'browser_status') {
+    const v3 = m.params.arguments.version === 3;
+    negociado = negociado || v3;
+    reply({ content: [{ type: 'text', text: JSON.stringify({ version: v3 ? 3 : 2, status: v3 ? 'available' : 'unavailable' }) }], isError: false });
+  } else if (m.method === 'tools/call') reply({ content: [{ type: 'text', text: 'aberto:' + m.params.name }], isError: false });
+});
+";
+
+#[tokio::test]
+async fn hub_negocia_o_navegador_v3_e_relista_as_ferramentas_para_o_motor() {
+    let case = caso!("hub_negocia_o_navegador_v3_e_relista_as_ferramentas_para_o_motor");
+    let script = case.dir.join("memory-navegador.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_NAVEGADOR).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let definicoes = json!([{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}]);
+    let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
+    let nomes = |mcp: &McpHost| mcp.specs().into_iter().map(|spec| spec.name).collect::<Vec<_>>();
+    assert_eq!(nomes(&mcp), ["mcp__memory__browser_status"], "controle positivo: sem negociação só o status aparece");
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+    assert!(mcp.refresh_browser().await.unwrap(), "a negociação v3 muda o conjunto de ferramentas");
+    assert_eq!(nomes(&mcp), ["mcp__memory__browser_status", "mcp__memory__browser_open"]);
+    let classe = mcp.classify("mcp__memory__browser_open").expect("a ferramenta nova precisa de rota");
+    assert!(classe.hub && classe.tool == "browser_open", "continua sendo ferramenta interna do Hub");
+    let saida = mcp.call("c1", "mcp__memory__browser_open", json!({})).await;
+    assert_eq!(saida.unwrap(), "aberto:browser_open");
+    assert!(!mcp.refresh_browser().await.unwrap(), "relistar de novo sem mudança não pede set_tools");
+}
+
+#[tokio::test]
+async fn servidor_de_terceiro_chamado_memory_nunca_e_negociado_nem_relistado() {
+    let case = caso!("servidor_de_terceiro_chamado_memory_nunca_e_negociado_nem_relistado");
+    let script = case.dir.join("memory-navegador.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_NAVEGADOR).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let definicoes = json!([{"name": "memory", "command": node_path().unwrap(), "args": [script], "env": []}]);
+    let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
+    assert!(!mcp.refresh_browser().await.unwrap(), "só o servidor interno do Hub é negociado");
+    assert_eq!(mcp.specs().len(), 1);
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+}

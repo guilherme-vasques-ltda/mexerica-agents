@@ -102,6 +102,8 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
     add_instruction_guide(server, &mut available_tools);
     // Envelope G1b: nonce desta ponte + id JSON-RPC do motor; o modelo controla só `arguments`.
     let nonce: Arc<str> = uuid::Uuid::new_v4().to_string().into();
+    // O catálogo `memory` muda uma vez: quando o navegador v3 é negociado pelo vínculo. O cliente é avisado uma vez.
+    let announced = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Requests still running, by id: a cancelled one stops, and its host call with it (a team change's card expires).
     let mut running = std::collections::HashMap::<String, tokio::task::AbortHandle>::new();
     while let Some(line) = lines.next_line().await? {
@@ -118,6 +120,7 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
         let key = id.to_string();
         let (replies, token, bot, available_tools) =
             (replies.clone(), token.clone(), bot.clone(), available_tools.clone());
+        let announced = Arc::clone(&announced);
         let invocation = format!("{nonce}:{key}");
         let request = tokio::spawn(async move {
             let params = &msg["params"];
@@ -134,7 +137,7 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                         .map(|version| {
                             json!({
                                 "protocolVersion": version.as_str(),
-                                "capabilities": {"tools": {}},
+                                "capabilities": {"tools": {"listChanged": matches!(server, Server::Memory)}},
                                 "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
                                 "instructions": instructions,
                             })
@@ -157,15 +160,32 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                 "tools/call" => Ok(call_invoked(port, &token, &bot, params, server, &invocation).await),
                 method => Err(json!({"code": -32601, "message": format!("unknown method {method}")})),
             };
+            let negotiated = matches!(server, Server::Memory)
+                && msg["method"] == "tools/call"
+                && params["name"] == crate::fork::browser::STATUS_TOOL
+                && reply.as_ref().is_ok_and(browser_negotiated);
             let _ = replies.send(match reply {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": error}),
             });
+            if negotiated && !announced.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                let _ = replies.send(json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}));
+            }
         });
         running.insert(key, request.abort_handle());
     }
     // The agent is gone: replies still pending have no one to read them.
     Ok(())
+}
+
+/// A resposta de `browser_status` diz que o navegador v3 está disponível: a partir daí o catálogo do Hub inclui as
+/// ferramentas de página e o cliente precisa listar de novo.
+fn browser_negotiated(result: &Value) -> bool {
+    result["isError"] != true
+        && result["content"][0]["text"]
+            .as_str()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .is_some_and(|status| status["version"] == 3 && status["status"] == "available")
 }
 
 fn instruction_guide(server: Server) -> Option<&'static str> {
@@ -383,3 +403,27 @@ pub async fn serve_local(connector: String, port: u16, context: String) -> Resul
 #[cfg(test)]
 #[path = "guard_hub/mcp/internal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod catalogo_do_navegador_tests {
+    use super::*;
+
+    fn answer(status: &Value, is_error: bool) -> Value {
+        json!({"content": [{"type": "text", "text": status.to_string()}], "isError": is_error})
+    }
+
+    #[test]
+    fn so_a_resposta_v3_disponivel_avisa_o_cliente_para_listar_de_novo() {
+        assert!(browser_negotiated(&answer(&json!({"version": 3, "status": "available"}), false)));
+        for refusal in [
+            answer(&json!({"version": 3, "status": "unavailable"}), false),
+            answer(&json!({"version": 2, "status": "available"}), false),
+            answer(&json!({"version": 3, "status": "available"}), true),
+            json!({"content": [{"type": "text", "text": "isto não é JSON"}], "isError": false}),
+            json!({"isError": false}),
+            Value::Null,
+        ] {
+            assert!(!browser_negotiated(&refusal), "{refusal}");
+        }
+    }
+}
