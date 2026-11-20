@@ -180,10 +180,15 @@ export class CampoInstrucao extends Observable {
 
   get podeRepetir() { return this.fase === 'conflito' || this.fase === 'falha' }
 
-  /** Conflito: relê a revisão nova, mantém o texto da pessoa e grava. Falha: tenta gravar de novo (ou relê, se nada foi lido). */
+  /**
+   * Conflito: a pessoa decidiu gravar por cima, então relê a revisão nova, mantém o texto dela e grava. Falha de envio: grava de
+   * novo com a MESMA revisão esperada (se o Hub mudou nesse meio tempo, vira conflito em vez de sobrescrever). Falha de leitura: só relê.
+   */
   async tentarDeNovo() {
-    if (this.fase === 'conflito' || (this.fase === 'falha' && !this.#falhouNaLeitura)) {
+    if (this.fase === 'conflito') {
       if (await this.#reler(true)) await this.salvar()
+    } else if (this.fase === 'falha' && !this.#falhouNaLeitura) {
+      await this.salvar()
     } else {
       await this.#reler(false)
     }

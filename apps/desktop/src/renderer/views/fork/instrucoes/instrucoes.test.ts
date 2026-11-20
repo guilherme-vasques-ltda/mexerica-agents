@@ -258,3 +258,22 @@ test('falha de uma leitura que começa durante a gravação não derruba a fase 
   await gravacao
   assert.equal(campo.estado, 'instrucoes.estado.salvo')
 })
+
+test('falha de envio e outra pessoa grava antes: Tentar de novo vira conflito, não sobrescreve', async () => {
+  const h = hub()
+  let cai = false
+  const link = { call: async (m: string, b?: unknown) => { if (cai && m === 'instrucaoGeralSalvar') throw Object.assign(new Error('x'), { status: 0 }); return h.link.call(m, b as Record<string, unknown>) } }
+  const campo = new CampoInstrucao(() => link, { tipo: 'geral' })
+  await campo.ler()
+  campo.editar('Meu texto.')
+  cai = true
+  await campo.salvar()
+  assert.equal(campo.fase, 'falha')
+  cai = false
+  h.state.geral = { texto: 'De outra janela.', revision: 7 }
+  await campo.tentarDeNovo()
+  assert.equal(campo.fase, 'conflito')
+  assert.equal(h.state.geral.texto, 'De outra janela.')
+  await campo.tentarDeNovo()
+  assert.equal(h.state.geral.texto, 'Meu texto.')
+})
