@@ -28,10 +28,10 @@ export function registerVozIPC(chat: () => BrowserWindow | null, rendererURL: st
     plataforma: process.platform as 'darwin' | 'win32' | 'linux',
     enviar: (comando) => {
       const janela = chat()
-      // Renderer caído: o registro não fica preso sem quem o solte. Janela modal (cofre seguro) à frente: nada de abrir a chamada por baixo.
+      // Renderer caído: o registro não fica preso sem quem o solte. Janela modal (cofre seguro) à frente: o chat recusa abrir a chamada por baixo, mas ainda deixa encerrar uma em curso.
       if (janela && !janela.isDestroyed() && janela.webContents.isCrashed()) return atalho.liberar()
-      if (janela && !janela.isDestroyed() && janela.getChildWindows().some((w) => w.isModal() && w.isVisible())) return
-      enviar(comando)
+      const modal = !!janela && !janela.isDestroyed() && janela.getChildWindows().some((w) => w.isModal() && w.isVisible())
+      enviar({ ...comando, modal })
     },
   })
   ipcMain.handle('voz:atalho', (event, pedido: unknown) => isChatSender(event as IpcMainInvokeEvent, chat(), rendererURL) ? atalho.definir(pedido) : { ok: false, motivo: 'invalido' })

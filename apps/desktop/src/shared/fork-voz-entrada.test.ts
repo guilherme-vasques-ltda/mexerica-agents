@@ -72,6 +72,10 @@ test('gravar a combinação: a tecla impressa vale (AZERTY), e a posição físi
   assert.equal(aceleradorDoEvento({ ...ev, key: '˙', code: 'KeyH', metaKey: true, ctrlKey: false, altKey: true }, 'darwin'), 'Command+Alt+Shift+H')
 })
 
+test('gravar a combinação: teclado numérico não vira tecla da linha de cima', () => {
+  assert.equal(aceleradorDoEvento({ code: 'Numpad1', key: '1', metaKey: false, ctrlKey: true, altKey: true, shiftKey: false }, 'win32'), null)
+})
+
 test('nomes herdados de Object não valem como modificador', () => {
   assert.deepEqual(validarAtalho('constructor+Command+Shift+Z', 'darwin'), { ok: false, motivo: 'invalido' })
 })

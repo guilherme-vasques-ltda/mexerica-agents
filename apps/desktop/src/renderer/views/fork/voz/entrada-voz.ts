@@ -77,7 +77,7 @@ export function useEntradaVoz(contexto: () => Omit<ContextoEntradaVoz, 'conversa
   useEffect(() => window.codync.app.onCommand((c) => {
     if (c.kind !== 'voiceToggle') return
     const atual = vivo.current
-    const decisao = decidirEntradaVoz({ ...atual.contexto(), conversaVisivel: conversaVisivel() })
+    const decisao = decidirEntradaVoz({ ...atual.contexto(), conversaVisivel: conversaVisivel() && c.modal !== true })
     if (decisao.acao === 'iniciar') { setRecusa(null); atual.iniciar() }
     else if (decisao.acao === 'encerrar') { setRecusa(null); atual.encerrar() }
     else setRecusa(decisao.motivo)

@@ -83,7 +83,7 @@ export type WindowCommand =
   | { kind: 'openSettings' }
   | { kind: 'toggleDetails' }
   /** o atalho global da chamada de voz (abre ou encerra, na conversa à vista). */
-  | { kind: 'voiceToggle' }
+  | { kind: 'voiceToggle'; modal?: boolean }
   | { kind: 'refresh' }
   | { kind: 'respondPermission'; ref: string; entryId: string; optionId: string }
   /** `replyId`: a Ilha espera o resultado (aceito ou barrado pelo aviso de senha colada) por `island.sendResult`. */

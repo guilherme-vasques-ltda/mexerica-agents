@@ -110,7 +110,7 @@ export function criarGuardaPressao(agora: () => number, janelaMs = 1200) {
 export function aceleradorDoEvento(e: { key?: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }, plataforma: Plataforma): string | null {
   const impressa = e.key !== undefined && /^[A-Za-z0-9]$/.test(e.key) ? e.key.toUpperCase() : null
   const tecla = impressa ?? /^Key([A-Z])$/.exec(e.code)?.[1] ?? /^Digit(\d)$/.exec(e.code)?.[1] ?? (/^F\d{1,2}$/.test(e.code) ? e.code : null)
-  if (!tecla || (e.metaKey && plataforma !== 'darwin')) return null
+  if (e.code.startsWith('Numpad') || !tecla || (e.metaKey && plataforma !== 'darwin')) return null
   return [e.metaKey && 'Command', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', tecla].filter(Boolean).join('+')
 }
 
