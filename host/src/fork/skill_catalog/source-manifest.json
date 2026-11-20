@@ -2,7 +2,7 @@
   {
     "id": "security-audit",
     "sourceName": "security-audit",
-    "sourceDescription": "Security guidance and vulnerability review for codebases, APIs, services, CLI tools, libraries, and daemons. Use for security questions, focused reviews, vulnerability research, security audits, or pen tests. Run the complete workflow only for explicit codebase audit or pen-test requests, full/comprehensive/end-to-end reviews, or requested report artifacts.",
+    "catalogDescription": "Security guidance and vulnerability review for codebases, APIs, services, CLI tools, libraries, and daemons. Use for security questions, focused reviews, vulnerability research, security audits, or pen tests. Run the complete workflow only for explicit codebase audit or pen-test requests, full/comprehensive/end-to-end reviews, or requested report artifacts.",
     "origin": {
       "repo": "cloudflare/security-audit-skill",
       "revision": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
@@ -346,7 +346,7 @@
   {
     "id": "hallmark",
     "sourceName": "hallmark",
-    "sourceDescription": "Guia parcial para planejar páginas e direção visual, sem temas, fotos ou geradores.",
+    "catalogDescription": "Guia parcial para planejar páginas e direção visual, sem temas, fotos ou geradores.",
     "origin": {
       "repo": "Nutlope/hallmark",
       "revision": "7ec868225c6caa040558c321ee0fefa0e73f83a8",
@@ -362,7 +362,7 @@
     },
     "sourceFrontmatter": {
       "name": "hallmark",
-      "description": "Guia parcial para planejar páginas e direção visual, sem temas, fotos ou geradores.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "argument-hint": "<prompt> | redesign <path> | audit <path>",
       "version": "2.0.0",
       "metadata": {
@@ -578,7 +578,7 @@
   {
     "id": "impeccable",
     "sourceName": "impeccable",
-    "sourceDescription": "Use when the user wants to design, redesign, shape, critique, audit, polish, simplify, harden, animate, or otherwise improve a frontend interface: websites, landing pages, dashboards, product UI, components, forms, settings, onboarding, empty states, and native iOS or Android screens. Handles UX review, hierarchy, layout, typography, color, motion, UX copy, accessibility, responsive behavior, edge cases, and capturing or documenting design systems (DESIGN.md, tokens). Also for making bland UI bolder, loud UI quieter, or ambitious visual effects. Not for backend-only or non-UI tasks.",
+    "catalogDescription": "Use when the user wants to design, redesign, shape, critique, audit, polish, simplify, harden, animate, or otherwise improve a frontend interface: websites, landing pages, dashboards, product UI, components, forms, settings, onboarding, empty states, and native iOS or Android screens. Handles UX review, hierarchy, layout, typography, color, motion, UX copy, accessibility, responsive behavior, edge cases, and capturing or documenting design systems (DESIGN.md, tokens). Also for making bland UI bolder, loud UI quieter, or ambitious visual effects. Not for backend-only or non-UI tasks.",
     "origin": {
       "repo": "pbakaus/impeccable",
       "revision": "936867543ac2576920d663cc9803597f6044f3ac",
@@ -766,7 +766,7 @@
   {
     "id": "skill-creator",
     "sourceName": "skill-creator",
-    "sourceDescription": "Roteiro parcial para escrever habilidades textuais com escopo e exemplos claros.",
+    "catalogDescription": "Roteiro parcial para escrever habilidades textuais com escopo e exemplos claros.",
     "origin": {
       "repo": "anthropics/skills",
       "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
@@ -782,7 +782,7 @@
     },
     "sourceFrontmatter": {
       "name": "skill-creator",
-      "description": "Roteiro parcial para escrever habilidades textuais com escopo e exemplos claros."
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)"
     },
     "installId": "skill-creator",
     "previousInstallId": "skill-creator-donna",
@@ -826,7 +826,7 @@
   {
     "id": "frontend-design",
     "sourceName": "frontend-design",
-    "sourceDescription": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
+    "catalogDescription": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.",
     "origin": {
       "repo": "anthropics/skills",
       "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
@@ -903,7 +903,7 @@
   {
     "id": "pdf",
     "sourceName": "pdf",
-    "sourceDescription": "PDF file handling skill from Anthropic's catalog; not distributed here for license reasons.",
+    "catalogDescription": "PDF file handling skill from Anthropic's catalog; not distributed here for license reasons.",
     "origin": {
       "repo": "anthropics/skills",
       "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
@@ -957,7 +957,7 @@
   {
     "id": "xlsx",
     "sourceName": "xlsx",
-    "sourceDescription": "Spreadsheet file handling skill from Anthropic's catalog; not distributed here for license reasons.",
+    "catalogDescription": "Spreadsheet file handling skill from Anthropic's catalog; not distributed here for license reasons.",
     "origin": {
       "repo": "anthropics/skills",
       "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
@@ -1052,7 +1052,7 @@
   {
     "id": "find-skills",
     "sourceName": "find-skills",
-    "sourceDescription": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
+    "catalogDescription": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
     "origin": {
       "repo": "vercel-labs/skills",
       "revision": "a80e4c9d12d607631249d4d7d059f835d4b2f13a",
@@ -1136,7 +1136,7 @@
   {
     "id": "grilling",
     "sourceName": "grilling",
-    "sourceDescription": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.",
+    "catalogDescription": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.",
     "origin": {
       "repo": "mattpocock/skills",
       "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
@@ -1222,7 +1222,7 @@
   {
     "id": "handoff",
     "sourceName": "handoff",
-    "sourceDescription": "Preparar um resumo com fontes, pendências e próximos passos para passagem de contexto.",
+    "catalogDescription": "Preparar um resumo com fontes, pendências e próximos passos para passagem de contexto.",
     "origin": {
       "repo": "mattpocock/skills",
       "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
@@ -1238,7 +1238,7 @@
     },
     "sourceFrontmatter": {
       "name": "handoff",
-      "description": "Preparar um resumo com fontes, pendências e próximos passos para passagem de contexto.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "argument-hint": "What will the next session be used for?",
       "disable-model-invocation": true
     },
@@ -1268,7 +1268,7 @@
   {
     "id": "research",
     "sourceName": "research",
-    "sourceDescription": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.",
+    "catalogDescription": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.",
     "origin": {
       "repo": "mattpocock/skills",
       "revision": "5beb35b040e3de97e54fa9e386d7e42d15c295c2",
@@ -1354,7 +1354,7 @@
   {
     "id": "brainstorming",
     "sourceName": "brainstorming",
-    "sourceDescription": "You MUST use this before any creative work - creating features, building components, adding functionality, modifying behavior, or planning anything new, in software or out of it (a talk, a business, a renovation).",
+    "catalogDescription": "You MUST use this before any creative work - creating features, building components, adding functionality, modifying behavior, or planning anything new, in software or out of it (a talk, a business, a renovation).",
     "origin": {
       "repo": "obra/superpowers",
       "revision": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
@@ -1446,7 +1446,7 @@
   {
     "id": "copywriting",
     "sourceName": "copywriting",
-    "sourceDescription": "When the user wants to write, rewrite, or improve marketing copy for any page, including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"hero section copy,\" \"this copy is weak,\" \"this sounds like AI,\" \"AI slop,\" \"make it sound human,\" or \"help me describe my product.\" Drafts never use AI tells like \"it's not X, it's Y\" reveals, \"no X, no Y, no Z\" lists, or sentences that trail into extra comma clauses. For email copy, see emails. For popup copy, see popups. For editing existing copy, see copy-editing. For the offer underneath the copy (bonuses, guarantees, value framing), see offers. Claims must be supportable, and a declined claim names the evidence that would unlock it. Diagnoses the input first (blank brief, real voice, or point edit) and changes only what it calls for.",
+    "catalogDescription": "When the user wants to write, rewrite, or improve marketing copy for any page, including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"hero section copy,\" \"this copy is weak,\" \"this sounds like AI,\" \"AI slop,\" \"make it sound human,\" or \"help me describe my product.\" Drafts never use AI tells like \"it's not X, it's Y\" reveals, \"no X, no Y, no Z\" lists, or sentences that trail into extra comma clauses. For email copy, see emails. For popup copy, see popups. For editing existing copy, see copy-editing. For the offer underneath the copy (bonuses, guarantees, value framing), see offers. Claims must be supportable, and a declined claim names the evidence that would unlock it. Diagnoses the input first (blank brief, real voice, or point edit) and changes only what it calls for.",
     "origin": {
       "repo": "coreyhaines31/marketingskills",
       "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
@@ -1650,7 +1650,7 @@
   {
     "id": "content-strategy",
     "sourceName": "content-strategy",
-    "sourceDescription": "When the user wants to plan a content strategy, decide what content to create, or figure out what topics to cover. Also use when the user mentions \"content strategy,\" \"what should I write about,\" \"content ideas,\" \"blog strategy,\" \"topic clusters,\" \"content planning,\" \"editorial calendar,\" \"content marketing,\" \"content roadmap,\" \"what content should I create,\" \"blog topics,\" \"content pillars,\" or \"I don't know what to write.\" Use this whenever someone needs help deciding what content to produce, not just writing it. For writing individual pieces, see copywriting. For SEO-specific audits, see seo-audit. For social media content specifically, see social.",
+    "catalogDescription": "When the user wants to plan a content strategy, decide what content to create, or figure out what topics to cover. Also use when the user mentions \"content strategy,\" \"what should I write about,\" \"content ideas,\" \"blog strategy,\" \"topic clusters,\" \"content planning,\" \"editorial calendar,\" \"content marketing,\" \"content roadmap,\" \"what content should I create,\" \"blog topics,\" \"content pillars,\" or \"I don't know what to write.\" Use this whenever someone needs help deciding what content to produce, not just writing it. For writing individual pieces, see copywriting. For SEO-specific audits, see seo-audit. For social media content specifically, see social.",
     "origin": {
       "repo": "coreyhaines31/marketingskills",
       "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
@@ -1780,7 +1780,7 @@
   {
     "id": "marketing-psychology",
     "sourceName": "marketing-psychology",
-    "sourceDescription": "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or leverage how people think and make decisions in a marketing context. For applying psychology to specific pages, see cro; for pricing tactics, see pricing; for copy framing, see copywriting.",
+    "catalogDescription": "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or leverage how people think and make decisions in a marketing context. For applying psychology to specific pages, see cro; for pricing tactics, see pricing; for copy framing, see copywriting.",
     "origin": {
       "repo": "coreyhaines31/marketingskills",
       "revision": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
@@ -1876,7 +1876,7 @@
   {
     "id": "orca-reference",
     "sourceName": "orchestration",
-    "sourceDescription": "Ideias de coordenação para Donna; referência técnica, sem instalação de Orca ou stub.",
+    "catalogDescription": "Ideias de coordenação para Donna; referência técnica, sem instalação de Orca ou stub.",
     "origin": {
       "repo": "stablyai/orca",
       "revision": "c90d0f93c0f2f2c3ec243046c36059a1f4ec5cd2",
@@ -1892,7 +1892,7 @@
     },
     "sourceFrontmatter": {
       "name": "orchestration",
-      "description": "Ideias de coordenação para Donna; referência técnica, sem instalação de Orca ou stub."
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)"
     },
     "installId": "orchestration",
     "previousInstallId": "orca-reference-donna",
@@ -1919,7 +1919,7 @@
   {
     "id": "browser-use",
     "sourceName": "browser-use",
-    "sourceDescription": "Apoio textual para usar a ferramenta de navegação autorizada quando ela estiver disponível.",
+    "catalogDescription": "Apoio textual para usar a ferramenta de navegação autorizada quando ela estiver disponível.",
     "origin": {
       "repo": "browser-use/browser-use",
       "revision": "3df5806a0d097a1546d92c49bcf1b28c9972c3bd",
@@ -1935,7 +1935,7 @@
     },
     "sourceFrontmatter": {
       "name": "browser-use",
-      "description": "Apoio textual para usar a ferramenta de navegação autorizada quando ela estiver disponível.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "homepage": "https://browser-use.com",
       "metadata": {
         "openclaw": {
@@ -1983,7 +1983,7 @@
   {
     "id": "hyperframes",
     "sourceName": "hyperframes",
-    "sourceDescription": "Read first to make, edit, animate or render any video with HyperFrames (HTML rendered to video), including launch films, explainers, music videos, charts, maps, vertical clips, title cards, captions and overlays. Holds the render contract, the work loop and what each kind of video needs.",
+    "catalogDescription": "Read first to make, edit, animate or render any video with HyperFrames (HTML rendered to video), including launch films, explainers, music videos, charts, maps, vertical clips, title cards, captions and overlays. Holds the render contract, the work loop and what each kind of video needs.",
     "origin": {
       "repo": "heygen-com/hyperframes",
       "revision": "9aadc0b9b99d92afd25215228878cee23ea47a0f",
@@ -2645,7 +2645,7 @@
   {
     "id": "firecrawl-build-scrape",
     "sourceName": "firecrawl-build-scrape",
-    "sourceDescription": "Integrar extração de páginas com Firecrawl — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Integrar extração de páginas com Firecrawl — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2661,7 +2661,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-build-scrape",
-      "description": "Integrar extração de páginas com Firecrawl — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2711,7 +2711,7 @@
   {
     "id": "firecrawl-build-search",
     "sourceName": "firecrawl-build-search",
-    "sourceDescription": "Integrar busca com Firecrawl — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Integrar busca com Firecrawl — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2727,7 +2727,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-build-search",
-      "description": "Integrar busca com Firecrawl — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2773,7 +2773,7 @@
   {
     "id": "firecrawl-build-interact",
     "sourceName": "firecrawl-build-interact",
-    "sourceDescription": "Integrar interação web com Firecrawl — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Integrar interação web com Firecrawl — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2789,7 +2789,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-build-interact",
-      "description": "Integrar interação web com Firecrawl — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2835,7 +2835,7 @@
   {
     "id": "firecrawl-deep-research",
     "sourceName": "firecrawl-deep-research",
-    "sourceDescription": "Pesquisa aprofundada com fontes — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Pesquisa aprofundada com fontes — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/firecrawl-workflows",
       "revision": "d2a986240f9d786ae54fc33fcfd9ad37308e9cc3",
@@ -2851,7 +2851,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-deep-research",
-      "description": "Pesquisa aprofundada com fontes — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "license": "ISC",
       "metadata": {
         "author": "firecrawl",
@@ -2892,7 +2892,7 @@
   {
     "id": "firecrawl",
     "sourceName": "firecrawl",
-    "sourceDescription": "Firecrawl: guia de uso autorizado — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Firecrawl: guia de uso autorizado — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2908,7 +2908,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl",
-      "description": "Firecrawl: guia de uso autorizado — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "allowed-tools": [
         "Bash(firecrawl *)",
         "Bash(npx firecrawl-cli *)"
@@ -2941,7 +2941,7 @@
   {
     "id": "firecrawl-search",
     "sourceName": "firecrawl-search",
-    "sourceDescription": "Pesquisar com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Pesquisar com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -2957,7 +2957,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-search",
-      "description": "Pesquisar com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "allowed-tools": [
         "Bash(firecrawl *)",
         "Bash(npx firecrawl-cli *)"
@@ -2988,7 +2988,7 @@
   {
     "id": "firecrawl-scrape",
     "sourceName": "firecrawl-scrape",
-    "sourceDescription": "Ler páginas com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
+    "catalogDescription": "Ler páginas com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
     "origin": {
       "repo": "firecrawl/skills",
       "revision": "2bf714d9f45e85085036a533ceb943c8577aef2b",
@@ -3004,7 +3004,7 @@
     },
     "sourceFrontmatter": {
       "name": "firecrawl-scrape",
-      "description": "Ler páginas com Firecrawl autorizado — apoio textual condicional, sem operação externa.",
+      "descriptionOmitted": "texto original do fornecedor omitido; o catálogo usa texto próprio (ver catalogDescription)",
       "allowed-tools": [
         "Bash(firecrawl *)",
         "Bash(npx firecrawl-cli *)"
@@ -3036,7 +3036,7 @@
   {
     "id": "boat",
     "sourceName": "boat",
-    "sourceDescription": "Manage Boat (boat.dev, formerly Box by Ascii) cloud sandboxes via API, CLI, and SSH. Use for provisioning, environments, secrets, templates, snapshots, stop/resume/fork, or running BB and coding agents on Boat.",
+    "catalogDescription": "Manage Boat (boat.dev, formerly Box by Ascii) cloud sandboxes via API, CLI, and SSH. Use for provisioning, environments, secrets, templates, snapshots, stop/resume/fork, or running BB and coding agents on Boat.",
     "origin": {
       "repo": "davidondrej/skills",
       "revision": "8605863f211961c96208fe625d4024609cd7dbd5",
@@ -3137,7 +3137,7 @@
   {
     "id": "stop-slop",
     "sourceName": "stop-slop",
-    "sourceDescription": "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text to eliminate predictable AI tells.",
+    "catalogDescription": "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text to eliminate predictable AI tells.",
     "origin": {
       "repo": "hardikpandya/stop-slop",
       "revision": "8da1f030185bdfe8471220585162991eaeb970e9",
@@ -3311,7 +3311,7 @@
   {
     "id": "copy-review-panel",
     "sourceName": "copy-review-panel",
-    "sourceDescription": "Review marketing drafts through five editorial perspectives, scoring each 0-20 and the total 0-100 before presenting candidates to the owner.",
+    "catalogDescription": "Review marketing drafts through five editorial perspectives, scoring each 0-20 and the total 0-100 before presenting candidates to the owner.",
     "origin": {
       "repo": "Yuzzyuk/marketing-os",
       "revision": "bb67dff5f04b390e861ee11433166e4519e7f4c0",

@@ -128,7 +128,7 @@ fn original_language_metadata_and_bytes_match_all_pinned_sources() {
     for p in all {
         let s = sources.iter().find(|s| s["id"] == p.metadata.id).unwrap();
         assert_eq!(p.metadata.name, s["sourceName"]);
-        assert_eq!(p.metadata.description, s["sourceDescription"]);
+        assert_eq!(p.metadata.description, s["catalogDescription"]);
         assert_eq!(p.install_id, s["sourceName"]);
         assert_eq!(serde_json::to_value(&p.metadata.origin).unwrap(), s["origin"]);
         if let Some(previous) = s["previousDigest"].as_str() {
