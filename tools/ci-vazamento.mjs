@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
-import { crc32 } from 'node:zlib';
+import { crc32, inflateSync } from 'node:zlib';
 
 const RULES = '.github/security/vazamento.json';
 const INVENTORY = '.github/security/vazamento-inventario.json';
@@ -121,25 +121,38 @@ export function termExceptions(policy) {
 // Data URI de PNG em base64: o base64 de uma imagem tem letras ao acaso que formam termos curtos. Só um PNG completo
 // (IHDR primeiro, IDAT, IEND no fim exato e CRC de todos os chunks), num bloco base64 canônico que termina em aspas,
 // parêntese, espaço ou fim de linha, tira o base64 cru da comparação de termos curtos. Termos com 8+ caracteres seguem
-// comparados na linha inteira, e os trechos ASCII legíveis do PNG entram para todos. Base64 de texto acrescenta o texto
+// comparados na linha inteira; os textos dos chunks tEXt/zTXt/iTXt e os trechos ASCII legíveis do PNG entram para todos. Base64 de texto acrescenta o texto
 // decodificado sem tirar o cru. Qualquer outro caso segue cru, como antes.
 const DATA_URI = /data:([\w.+-]*\/[\w.+-]+)?(?:;[\w.+-]+(?:=[\w.+-]*)?)*;base64,([A-Za-z0-9+/]+={0,2})(?=$|["')\s])/gi;
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 const LONG_TERM = 8;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// Devolve os textos dos chunks tEXt, zTXt e iTXt (inteiros, de qualquer tamanho) ou null se não for um PNG completo.
 function completePng(mime, b) {
-  if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
+  if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  const texts = [];
   let idat = false;
   for (let i = 8; i + 12 <= b.length;) {
     const end = i + 12 + b.readUInt32BE(i);
     const type = b.toString('latin1', i + 4, i + 8);
-    if (end > b.length || (crc32(b.subarray(i + 4, end - 4)) >>> 0) !== b.readUInt32BE(end - 4)) return false;
-    if (i === 8 && (type !== 'IHDR' || end - i !== 25)) return false;
+    if (end > b.length || (crc32(b.subarray(i + 4, end - 4)) >>> 0) !== b.readUInt32BE(end - 4)) return null;
+    if (i === 8 && (type !== 'IHDR' || end - i !== 25)) return null;
+    const data = b.subarray(i + 8, end - 4);
+    const inflate = (z) => inflateSync(z, { maxOutputLength: 4 * 1024 * 1024 });
+    try {
+      if (type === 'tEXt') texts.push(data.toString('latin1'));
+      if (type === 'zTXt') { const k = data.indexOf(0); texts.push(data.toString('latin1', 0, k), inflate(data.subarray(k + 2)).toString('latin1')); }
+      if (type === 'iTXt') {
+        const k = data.indexOf(0), lang = data.indexOf(0, k + 3), tr = data.indexOf(0, lang + 1);
+        const value = data.subarray(tr + 1);
+        texts.push(data.toString('utf8', 0, tr), (data[k + 1] ? inflate(value) : value).toString('utf8'));
+      }
+    } catch { return null; }
     if (type === 'IDAT') idat = true;
-    if (type === 'IEND') return idat && end === b.length;
+    if (type === 'IEND') return idat && end === b.length ? texts : null;
     i = end;
   }
-  return false;
+  return null;
 }
 // Visão para termos curtos (sem o base64 do PNG) e para termos longos (linha inteira); as duas recebem o texto
 // decodificado e os trechos legíveis do PNG.
@@ -150,9 +163,10 @@ function termViews(line, onMedia) {
   const short = line.replace(DATA_URI, (whole, mime, block) => {
     const bytes = Buffer.from(block, 'base64');
     if (block.length % 4 === 1 || bytes.toString('base64') !== block.padEnd(Math.ceil(block.length / 4) * 4, '=')) return whole;
-    if (completePng(mime, bytes)) {
+    const texts = completePng(mime, bytes);
+    if (texts) {
       media = true;
-      extra.push((bytes.toString('latin1').match(/[\x20-\x7e]{8,}/g) ?? []).join(' '));
+      extra.push(...texts.map((t) => t.replace(/\0/g, ' ')), (bytes.toString('latin1').match(/[\x20-\x7e]{8,}/g) ?? []).join(' '));
       return whole.slice(0, whole.length - block.length);
     }
     if (!bytes.includes(0)) {

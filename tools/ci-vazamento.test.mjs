@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { crc32 } from 'node:zlib';
+import { crc32, deflateSync } from 'node:zlib';
 import { fingerprint, publicRules, scanLine, scan, maskTerms, safePath, loadPolicy, notify, termExceptions } from './ci-vazamento.mjs';
 
 const policy = JSON.parse(readFileSync(new URL('../.github/security/vazamento.json', import.meta.url), 'utf8'));
@@ -604,6 +604,10 @@ test('data URI: termo longo continua comparado no base64 cru; metadado legível 
   assert.equal(b64Hit(svgWith(pngWith('CactoFicticioAAA')), ['CactoFicticio']), true);
   const meta = pngWith('AAAA', [chunk('tEXt', Buffer.from('Author\0Cacto Ficticio'))]);
   assert.equal(b64Hit(svgWith(meta), ['Cácto Fictício']), true);
+  for (const extra of [chunk('tEXt', Buffer.from('Author\0Cacto\n')), chunk('zTXt', Buffer.concat([Buffer.from('Author\0\0'), deflateSync(Buffer.from('Cacto'))])), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\0\0pt\0Autor\0'), Buffer.from('Cácto')])), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\x01\0pt\0Autor\0'), deflateSync(Buffer.from('Cacto'))]))]) {
+    assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [extra]))), true, 'metadado curto do PNG');
+  }
+  assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [chunk('zTXt', Buffer.from('Author\0\0nao-e-zlib'))]))), true, 'zTXt inválido deixa o bloco cru');
 });
 
 test('data URI: PNG incompleto, outro formato, CRC errado, bloco sem fim claro ou base64 inválido seguem crus', () => {
