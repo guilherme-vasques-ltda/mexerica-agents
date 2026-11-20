@@ -734,7 +734,8 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     sender.on('did-start-navigation', (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) { navigating.add(sender); bump() } })
     // Todo commit principal que troca o documento avança a geração; falha de subquadro não encerra a navegação principal.
     sender.on('did-navigate', () => { navigating.delete(sender); bump() })
-    sender.on('did-fail-load', (_event: unknown, _code: unknown, _description: unknown, _url: unknown, isMainFrame?: boolean) => { if (isMainFrame !== false && navigating.delete(sender)) bump() })
+    // Só falha da janela principal e que não seja ERR_ABORTED (-3, navegação substituída por outra) libera; o resto espera o fim real.
+    sender.on('did-fail-load', (_event: unknown, code: unknown, _description: unknown, _url: unknown, isMainFrame?: boolean) => { if (isMainFrame === true && code !== -3 && navigating.delete(sender)) bump() })
     sender.on('did-stop-loading', () => { if (navigating.delete(sender)) bump() })
   }
   const authorityOf = (connectionId: string): HubSwitch | null => {

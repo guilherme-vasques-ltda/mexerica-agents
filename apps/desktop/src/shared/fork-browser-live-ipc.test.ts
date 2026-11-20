@@ -122,7 +122,7 @@ function montar() {
     comandosNoHub: () => recebidoPeloHub.map((c) => c.method), outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => emitir('did-start-navigation', detalhes),
     /** O documento novo entrou: fim da navegação. */
     navegou: () => emitir('did-navigate', {}),
-    falhou: (principal: boolean) => emitir('did-fail-load', {}, -3, 'x', 'file:///x', principal),
+    falhou: (principal: boolean, codigo = -105) => emitir('did-fail-load', {}, codigo, 'x', 'file:///x', principal),
     carregando, destruida,
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
@@ -537,4 +537,15 @@ test('janela fechada durante a inscrição: a tentativa sempre é liberada, sem 
   assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent', 'resultado incerto: ninguém comanda até uma confirmação nova')
   assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok', 'a troca não ficou ocupada')
   assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'ok')
+})
+
+test('navegação substituída (ERR_ABORTED, -3) não libera a janela: só a falha real da principal ou o fim da carga', async () => {
+  const r = await comPessoa()
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.falhou(true, -3)
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'notSent', 'a primeira foi abortada pela segunda: a janela segue em navegação')
+  r.falhou(true)
+  r.abrirQuadrosEm('b'.repeat(32), connectionId)
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok', 'falha real da principal encerra a navegação')
 })
