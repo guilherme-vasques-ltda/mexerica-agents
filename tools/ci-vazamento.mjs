@@ -131,21 +131,32 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 function completePng(mime, b) {
   if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
   const texts = [];
-  let idat = false;
+  let idat = false, budget = 4 * 1024 * 1024;
+  const inflate = (z) => { const out = inflateSync(z, { maxOutputLength: budget }); budget -= out.length; return out; };
+  const field = (data, from) => { const k = data.indexOf(0, from); if (k < from + (from ? 0 : 1) || (from === 0 && k > 79)) throw new Error('chunk de texto inválido'); return k; };
   for (let i = 8; i + 12 <= b.length;) {
     const end = i + 12 + b.readUInt32BE(i);
     const type = b.toString('latin1', i + 4, i + 8);
     if (end > b.length || (crc32(b.subarray(i + 4, end - 4)) >>> 0) !== b.readUInt32BE(end - 4)) return null;
     if (i === 8 && (type !== 'IHDR' || end - i !== 25)) return null;
     const data = b.subarray(i + 8, end - 4);
-    const inflate = (z) => inflateSync(z, { maxOutputLength: 4 * 1024 * 1024 });
     try {
-      if (type === 'tEXt') texts.push(data.toString('latin1'));
-      if (type === 'zTXt') { const k = data.indexOf(0); texts.push(data.toString('latin1', 0, k), inflate(data.subarray(k + 2)).toString('latin1')); }
+      if (type === 'tEXt') {
+        const k = field(data, 0);
+        if (data.indexOf(0, k + 1) !== -1) return null;
+        texts.push(data.toString('latin1', 0, k), data.toString('latin1', k + 1));
+      }
+      if (type === 'zTXt') {
+        const k = field(data, 0);
+        if (data[k + 1] !== 0) return null;
+        texts.push(data.toString('latin1', 0, k), inflate(data.subarray(k + 2)).toString('latin1'));
+      }
       if (type === 'iTXt') {
-        const k = data.indexOf(0), lang = data.indexOf(0, k + 3), tr = data.indexOf(0, lang + 1);
-        const value = data.subarray(tr + 1);
-        texts.push(data.toString('utf8', 0, tr), (data[k + 1] ? inflate(value) : value).toString('utf8'));
+        const k = field(data, 0);
+        if (data.length < k + 3 || data[k + 1] > 1 || data[k + 2] !== 0) return null;
+        const lang = field(data, k + 3), tr = field(data, lang + 1), value = data.subarray(tr + 1);
+        texts.push(data.toString('utf8', 0, k), data.toString('utf8', k + 3, lang), data.toString('utf8', lang + 1, tr),
+          strictUtf8.decode(data[k + 1] ? inflate(value) : value));
       }
     } catch { return null; }
     if (type === 'IDAT') idat = true;

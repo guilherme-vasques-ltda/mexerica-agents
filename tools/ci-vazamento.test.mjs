@@ -605,9 +605,17 @@ test('data URI: termo longo continua comparado no base64 cru; metadado legível 
   const meta = pngWith('AAAA', [chunk('tEXt', Buffer.from('Author\0Cacto Ficticio'))]);
   assert.equal(b64Hit(svgWith(meta), ['Cácto Fictício']), true);
   for (const extra of [chunk('tEXt', Buffer.from('Author\0Cacto\n')), chunk('zTXt', Buffer.concat([Buffer.from('Author\0\0'), deflateSync(Buffer.from('Cacto'))])), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\0\0pt\0Autor\0'), Buffer.from('Cácto')])), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\x01\0pt\0Autor\0'), deflateSync(Buffer.from('Cacto'))]))]) {
-    assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [extra]))), true, 'metadado curto do PNG');
+    const block = pngWith('AAAA', [extra]);
+    assert.ok(!/cacto/i.test(block));
+    assert.equal(b64Hit(svgWith(block)), true, 'metadado curto do PNG');
   }
-  assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [chunk('zTXt', Buffer.from('Author\0\0nao-e-zlib'))]))), true, 'zTXt inválido deixa o bloco cru');
+  const bomb = chunk('zTXt', Buffer.concat([Buffer.from('a\0\0'), deflateSync(Buffer.alloc(3 * 1024 * 1024))]));
+  for (const extra of [chunk('zTXt', Buffer.from('Author\0\0nao-e-zlib')), chunk('tEXt', Buffer.from('\0sem-chave')), chunk('tEXt', Buffer.from('Author\0a\0b')), chunk('tEXt', Buffer.from('sem-separador')),
+    chunk('iTXt', Buffer.from('Author\0\x02\0pt\0Autor\0x')), chunk('iTXt', Buffer.from('Author\0\0\0pt')), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\0\0pt\0Autor\0'), Buffer.from([0xff])])), bomb]) {
+    const extras = extra === bomb ? [bomb, bomb] : [extra];
+    assert.equal(b64Hit(svgWith(pngWith('CactoAAA', extras))), true, 'chunk de texto inválido ou acima do orçamento deixa o bloco cru');
+  }
+  assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [bomb]))), false, 'um zTXt dentro do orçamento é aceito');
 });
 
 test('data URI: PNG incompleto, outro formato, CRC errado, bloco sem fim claro ou base64 inválido seguem crus', () => {
