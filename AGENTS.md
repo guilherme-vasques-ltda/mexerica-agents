@@ -89,13 +89,12 @@ Rode só a verificação da parte que você mudou:
   como gancho curto, com justificativa registrada em `motor/vendor/pi-mono/PATCHES.md`. A origem
   e o commit estão em `UPSTREAM.md` na mesma pasta.
 - Preserve [LICENSE](LICENSE), [NOTICE](NOTICE) e a atribuição ao Codync em qualquer mudança.
-- Ao copiar código, skill ou ativo de outra fonte para dentro do repositório (inclusive portar um
-  trecho substancial quase linha a linha), acrescente uma linha em [THIRD_PARTY.md](THIRD_PARTY.md)
-  (origem, commit, arquivos, licença e data) e mantenha o aviso de licença junto. Ideia, estrutura
-  ou fatos reescritos por nós, sem cópia, não ganham entrada. Ao remover o material copiado,
-  remova a entrada. Aproveite código só de fontes Apache-2.0, MIT ou BSD; de AGPL, GPL, PolyForm,
-  FSL ou fonte sem licença, aproveite apenas ideias.
-- Ao acrescentar uma dependência, confira a licença antes. Só material de terceiros que entra de
-  fato no repositório ou no instalador recebe crédito em THIRD_PARTY.md.
+- Material de terceiros copiado para dentro do repositório ou do instalador (código, skill, ativo,
+  dependência empacotada) ganha uma linha em [THIRD_PARTY.md](THIRD_PARTY.md) (origem, commit,
+  arquivos, licença e data), com o aviso de licença junto. O que escrevemos a partir de uma ideia,
+  de uma estrutura ou de uma tradução não ganha entrada. Ao remover o material copiado, remova a
+  entrada. Aproveite código só de fontes Apache-2.0, MIT ou BSD; de AGPL, GPL, PolyForm, FSL ou
+  fonte sem licença, aproveite apenas ideias.
+- Ao acrescentar uma dependência, confira a licença antes de usá-la.
 - As modificações desta cópia em relação ao projeto de origem estão em
   [MODIFICACOES.md](MODIFICACOES.md); condições de uso das marcas em [TRADEMARK.md](TRADEMARK.md).
