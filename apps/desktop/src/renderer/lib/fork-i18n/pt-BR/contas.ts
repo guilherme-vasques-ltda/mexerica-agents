@@ -193,6 +193,7 @@ export const textos = {
   "contas.falha.auth_output_limit": "O login produziu saída demais e foi encerrado.",
   "contas.falha.auth_failed": "O provedor recusou o login. Tente de novo.",
   "contas.falha.cli_incompatible": "O programa ainda não estava preparado no Hub. Comece de novo para preparar.",
+  "contas.falha.open_codex_unavailable": "Não deu para abrir o Codex no perfil da Open. Confira o executável e a versão configurados para a Open.",
   "contas.falha.account_busy": "Um bot desta conta estava trabalhando. Espere o turno terminar e tente de novo.",
   "contas.falha.account_unverified": "O login terminou, mas o Hub não confirmou a conta e a assinatura.",
   "contas.falha.identity_changed": "Você entrou em outra conta. Para outra pessoa ou outro plano, adicione uma conta nova.",

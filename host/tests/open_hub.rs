@@ -179,12 +179,63 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             reqwest::StatusCode::FORBIDDEN
         );
     }
+    assert_eq!(
+        rpc(&session_client, &credential, "donnaEngineAccounts", json!({"refresh":true})).await["accounts"],
+        json!([])
+    );
+    for (backend, kind) in [("claude", "cli"), ("codex", "api")] {
+        assert_eq!(
+            session_client
+                .post("http://localhost/api/donnaEngineAccountCreate")
+                .bearer_auth(&credential)
+                .json(&json!({"backend":backend,"kind":kind,"label":"Open","clientRequestId":"refused"}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::BAD_REQUEST
+        );
+    }
+    let account = rpc(
+        &session_client,
+        &credential,
+        "donnaEngineAccountCreate",
+        json!({"backend":"codex","kind":"cli","label":"Open","clientRequestId":"create-open"}),
+    )
+    .await;
+    assert_eq!(account["state"], "unverified");
+    let operation = rpc(&session_client, &credential, "donnaEngineSetupStart", json!({
+        "engineAccountId":account["id"],"expectedRevision":account["revision"],"action":"login","clientRequestId":"login-open"
+    })).await;
+    let final_state = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let reply = rpc(
+                &session_client,
+                &credential,
+                "donnaEngineSetupAction",
+                json!({
+                    "operationId":operation["operationId"],"generation":operation["generation"],"action":"read"
+                }),
+            )
+            .await;
+            if reply["phase"] == "failed" {
+                break reply;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        final_state["errorCode"],
+        if cfg!(target_os = "macos") { "open_codex_unavailable" } else { "open_codex_platform" }
+    );
+    assert!(final_state["challenge"].is_null());
     for method in [
         "send",
         "requestScreenPermission",
         "setCloud",
         "installHostUpdate",
-        "donnaEngineSetupStart",
         "credentialStatus",
         "donnaWhatsappSave",
         "donnaWhatsappPair",
@@ -195,6 +246,10 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "connectorVerify",
         "saveRoutine",
         "credentialSaveLogin",
+        "donnaEngineAccountUsage",
+        "donnaEngineFallback",
+        "donnaEngineFallbackSave",
+        "donnaEngineFallbackAction",
         "unlistedFixtureMethod",
     ] {
         assert_eq!(

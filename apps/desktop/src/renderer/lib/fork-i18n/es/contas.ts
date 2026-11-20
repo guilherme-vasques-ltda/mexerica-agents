@@ -196,6 +196,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.auth_output_limit": "El inicio de sesión produjo demasiada salida y se cerró.",
   "contas.falha.auth_failed": "El proveedor rechazó el inicio de sesión. Inténtalo de nuevo.",
   "contas.falha.cli_incompatible": "El programa aún no estaba preparado en el Hub. Empieza de nuevo para prepararlo.",
+  "contas.falha.open_codex_unavailable": "No se pudo iniciar Codex en el perfil de Open. Comprueba el ejecutable y la versión configurados para Open.",
   "contas.falha.account_busy": "Un bot de esta cuenta estaba trabajando. Espera a que termine su turno e inténtalo de nuevo.",
   "contas.falha.account_unverified": "El inicio de sesión terminó, pero el Hub no confirmó la cuenta y la suscripción.",
   "contas.falha.identity_changed": "Iniciaste sesión en otra cuenta. Para otra persona u otro plan, añade una cuenta nueva.",

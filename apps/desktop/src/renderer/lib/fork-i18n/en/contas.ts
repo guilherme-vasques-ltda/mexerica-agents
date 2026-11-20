@@ -196,6 +196,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.auth_output_limit": "The sign-in produced too much output and was stopped.",
   "contas.falha.auth_failed": "The provider rejected the sign-in. Try again.",
   "contas.falha.cli_incompatible": "The program wasn’t set up on the Hub yet. Start over to set it up.",
+  "contas.falha.open_codex_unavailable": "Codex couldn’t start in the Open profile. Check the executable and version configured for Open.",
   "contas.falha.account_busy": "A bot on this account was working. Wait for its turn to finish and try again.",
   "contas.falha.account_unverified": "The sign-in finished, but the Hub didn’t confirm the account and subscription.",
   "contas.falha.identity_changed": "You signed in to a different account. For another person or plan, add a new account.",

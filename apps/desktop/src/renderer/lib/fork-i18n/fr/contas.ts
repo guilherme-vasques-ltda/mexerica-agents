@@ -196,6 +196,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.falha.auth_output_limit": "La connexion a produit trop de sortie et a été arrêtée.",
   "contas.falha.auth_failed": "Le fournisseur a refusé la connexion. Réessayez.",
   "contas.falha.cli_incompatible": "Le programme n’était pas encore préparé sur le Hub. Recommencez pour le préparer.",
+  "contas.falha.open_codex_unavailable": "Impossible de démarrer Codex dans le profil Open. Vérifiez le fichier exécutable et la version configurés pour Open.",
   "contas.falha.account_busy": "Un bot de ce compte travaillait. Attendez la fin de son tour et réessayez.",
   "contas.falha.account_unverified": "La connexion s’est terminée, mais le Hub n’a pas confirmé le compte et l’abonnement.",
   "contas.falha.identity_changed": "Vous vous êtes connecté à un autre compte. Pour une autre personne ou un autre forfait, ajoutez un nouveau compte.",

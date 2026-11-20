@@ -2,14 +2,14 @@ import { spawn } from 'node:child_process'
 import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, rmdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { app, ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import { app, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../../shared/fork-idioma'
 import { privateDirectory, validatePrivateFile } from '../../shared/fork-private-files'
 import { hostCallError } from '../../shared/host-call-error'
 import type { CallError, HostSnapshot } from '../../shared/ipc'
 import { open } from './isolation'
-import { openApiPath, openStreamPath, readOpenEventData, readOpenResponse, requestOpenHub } from './hub-transport'
+import { isOpenCodexDeviceURL, openApiPath, openCodexDeviceDeadline, openStreamPath, readOpenEventData, readOpenResponse, requestOpenHub } from './hub-transport'
 
 const origin = `http://127.0.0.1:${open.port}`
 const unavailable: CallError = { status: 0, message: traduzir(SOURCE_LANGUAGE, 'navegacao.janela.hub.parado') }
@@ -32,6 +32,7 @@ function readToken(home: string) {
 export function registerOpenHub(profile: string, temp: string, chatURL: string, window: () => BrowserWindow | null) {
   let snapshot: HostSnapshot = { state: { kind: 'starting' }, local: null, dev: false, logPath: '' }
   let connection: { socket: string; token: string; signal: AbortSignal } | null = null
+  let codexDeviceDeadline = 0
   let lifetime: AbortController | null = null
   let processExit: Promise<void> | null = null
   let closing = false
@@ -56,6 +57,7 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
     const failed = () => {
       controller.abort()
       connection = null
+      codexDeviceDeadline = 0
       if (sessionDir) {
         const socket = join(sessionDir, 's')
         try { if (lstatSync(socket).isSocket()) unlinkSync(socket) } catch {}
@@ -115,6 +117,11 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
   }
 
   ipcMain.handle('host:snapshot', (event) => allowed(event) ? snapshot : null)
+  ipcMain.on('app:openExternal', (event, url: unknown) => {
+    if (allowed(event) && connection && Date.now() < codexDeviceDeadline && isOpenCodexDeviceURL(url)) {
+      void shell.openExternal(url).catch(() => {})
+    }
+  })
   ipcMain.on('host:restart', (event) => { if (allowed(event) && snapshot.state.kind === 'failed') void start() })
   ipcMain.handle('host:call', async (event, baseURL: unknown, _token: unknown, method: unknown, body: unknown, timeout: unknown) => {
     const path = openApiPath(method)
@@ -128,7 +135,11 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
       const text = await readOpenResponse(response)
       const status = response.statusCode ?? 0
       if (status < 200 || status >= 300) return { ok: false, error: hostCallError(status, text) }
-      return { ok: true, value: text ? JSON.parse(text) as unknown : {} }
+      const value: unknown = text ? JSON.parse(text) : {}
+      if (!target.signal.aborted && (method === 'donnaEngineSetupStart' || method === 'donnaEngineSetupAction')) {
+        codexDeviceDeadline = openCodexDeviceDeadline(value, Date.now())
+      }
+      return { ok: true, value }
     } catch {
       return { ok: false, error: unavailable }
     }

@@ -15,6 +15,8 @@ mod guard_hub;
 mod hub;
 mod market;
 mod mcp;
+#[cfg(unix)]
+mod open_codex;
 mod open_hub;
 mod remote;
 mod routines;

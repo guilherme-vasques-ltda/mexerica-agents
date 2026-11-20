@@ -116,6 +116,11 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     Ok(Child { group, inner })
 }
 
+#[cfg(unix)]
+pub(crate) fn start_open_codex(launch: crate::open_codex::AppServer) -> io::Result<Child> {
+    Ok(Child { group: None, inner: launch.spawn()? })
+}
+
 pub(crate) async fn output(command: &mut Command) -> io::Result<Output> {
     command.stdin(Stdio::null()).stdout(Stdio::piped());
     spawn(command)?.wait_with_output().await

@@ -53,9 +53,11 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
         | "donnaSpaceUpdate"
         | "donnaSpaceReorder"
         | "donnaOwnerPresentation"
+        | "donnaEngineAccounts"
         | "deleteBot"
         | "reorderBots" => Ok(()),
         "createBot" | "updateBot" if body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")) => Ok(()),
+        _ if crate::fork::engine_setup::open_login_method(method) => Ok(()),
         _ => Err(crate::api::devices::Forbidden.into()),
     }
 }
@@ -282,6 +284,7 @@ mod unix {
             result = axum::serve(unix, socket_router).into_future() => result,
             result = axum::serve(tcp, axum::Router::new()).into_future() => result,
         };
+        crate::fork::engine_setup::shutdown_open(&hub).await;
         hub.shutdown().await;
         crate::agent::acp::stopped().await;
         drop(socket_file);
