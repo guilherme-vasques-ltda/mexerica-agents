@@ -68,6 +68,7 @@ struct Operation {
     output: String,
     cancel: watch::Sender<bool>,
     input: mpsc::Sender<process::Control>,
+    worker_lifetime: watch::Receiver<()>,
 }
 struct ProfileStaging(Option<std::path::PathBuf>);
 impl Drop for ProfileStaging {
@@ -79,6 +80,8 @@ impl Drop for ProfileStaging {
 }
 
 static OPERATIONS: Mutex<Option<HashMap<String, Operation>>> = Mutex::new(None);
+/// Hubs em encerramento: lido e gravado só com OPERATIONS retido, para nenhuma operação entrar depois da espera.
+static CLOSING: Mutex<Vec<Weak<Hub>>> = Mutex::new(Vec::new());
 
 /// Barreiras determinísticas de teste (D372/R1), só para a chave indicada (`clientRequestId` do setup ou id da conta
 /// em desconectar/remover). `Antes`: depois dos preflights, fora da cerca. `Cerca`: dentro da cerca de runtime (no
@@ -213,13 +216,43 @@ pub(crate) fn methods(method: &str) -> bool {
     )
 }
 
+pub(crate) fn open_login_method(method: &str) -> bool {
+    matches!(
+        method,
+        "donnaEngineAccountCreate"
+            | "donnaEngineAccountRename"
+            | "donnaEngineAccountDisconnect"
+            | "donnaEngineAccountRemove"
+            | "donnaEngineSetupStart"
+            | "donnaEngineSetupAction"
+    )
+}
+
+pub(crate) fn is_open_account(account: &accounts::Account) -> bool {
+    account.backend == Backend::Codex
+        && account.managed.is_some()
+        && matches!(account.launch, LaunchReference::CliProfile { .. })
+}
+
 pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
+    let open = crate::environment::Environment::is_open();
+    if open {
+        require_local(caller)?;
+        ensure!(open_login_method(method), "open_codex_unavailable");
+    }
     let authority = access::resolve(hub, caller)?;
     let value = match method {
         "donnaEngineSetupStart" => {
             start_authorized(hub, parse(body)?, authority.clone(), Duration::from_secs(600)).await
         }
-        "donnaEngineSetupAction" => action_authorized(hub, parse(body)?, &authority),
+        "donnaEngineSetupAction" => {
+            let request: OperationAction = parse(body)?;
+            ensure!(
+                !open || matches!(request.action, ActionKind::Read { .. } | ActionKind::Cancel),
+                "open_codex_unavailable"
+            );
+            action_authorized(hub, request, &authority)
+        }
         "donnaEngineFallback" | "donnaEngineFallbackSave" | "donnaEngineFallbackAction" => {
             crate::fork::fallback_contas::api::call(hub, &authority, method, body)
         }
@@ -233,6 +266,10 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
             let value = match method {
                 "donnaEngineAccountCreate" => {
                     let request: Create = parse(body)?;
+                    ensure!(
+                        !open || (request.backend == Backend::Codex && request.kind == "cli"),
+                        "open_codex_unavailable"
+                    );
                     if !matches!(authority, access::Authority::Local) {
                         ensure!(request.kind == "cli", "remote_api_unavailable: use o login oficial do provedor.");
                     }
@@ -250,6 +287,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     let name = managed::label(&request.label)?;
                     let mut registry = Registry::load(&hub.store)?;
                     let account = registry.account_mut(&request.engine_account_id, request.expected_revision)?;
+                    ensure!(!open || is_open_account(account), "open_codex_unavailable");
                     account.rename(name)?;
                     authority.persist(hub, &registry)?;
                     registry.dto_for(&hub.store, &request.engine_account_id)?
@@ -282,6 +320,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                         #[cfg(test)]
                         barreira(id, Barreira::Cerca);
                         let mut registry = Registry::load(&hub.store)?;
+                        ensure!(!open || is_open_account(registry.account(id)?), "open_codex_unavailable");
                         if remove {
                             // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
                             if registry.account(id)?.managed.is_none() {
@@ -379,6 +418,31 @@ fn clear(op: &mut Operation, phase: Phase, error: Option<&'static str>) {
     op.terminal = false;
     let _ = op.cancel.send(true);
 }
+
+pub(crate) async fn shutdown_open(hub: &Arc<Hub>) {
+    let waiting: Vec<_> = {
+        let mut operations = OPERATIONS.locked();
+        CLOSING.locked().push(Arc::downgrade(hub));
+        operations
+            .as_mut()
+            .into_iter()
+            .flat_map(|ops| ops.values_mut())
+            .filter(|op| op.hub.ptr_eq(&Arc::downgrade(hub)))
+            .map(|op| {
+                if op.phase.active() {
+                    clear(op, Phase::Cancelled, None);
+                }
+                op.worker_lifetime.clone()
+            })
+            .collect()
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(3), async {
+        for mut worker in waiting {
+            let _ = worker.changed().await;
+        }
+    })
+    .await;
+}
 #[cfg(test)]
 fn action(hub: &Arc<Hub>, request: OperationAction) -> Result<Value> {
     action_authorized(hub, request, &access::Authority::Local)
@@ -459,6 +523,8 @@ async fn start_authorized(
     authority: access::Authority,
     ttl: Duration,
 ) -> Result<Value> {
+    let open = crate::environment::Environment::is_open();
+    ensure!(!open || request.action == Step::Login, "open_codex_unavailable");
     managed::request_id(&request.client_request_id)?;
     let _mutation = accounts::MUTATION.lock().await;
     ensure!(authority.current(hub), "setup_authority_lost");
@@ -493,15 +559,17 @@ async fn start_authorized(
     let (cancel, rx_cancel) = watch::channel(false);
     let (tx_input, rx_input) = mpsc::channel(4);
     let (tx_event, mut rx_event) = mpsc::channel(8);
+    let (worker_done, worker_lifetime) = watch::channel(());
     let deadline = tokio::time::Instant::now() + ttl;
     // D372 (R1): aceitar a tentativa é um só trecho sob o runtime retido (ordem runtime → OPERATIONS → Authority):
     // ociosidade final, metadados e perfil novo (com limpeza RAII imediata), capacidade, primeira escrita pela
     // Authority original e só então a operação visível. Recusa antes do commit não grava nada nem consome o pedido;
     // um preparo na conta espera o runtime e encontra a operação ativa.
-    let (answer, generation, backend, profile, mut cleanup) =
+    let (answer, generation, backend, profile, cleanup) =
         hub.with_idle_engine_account(&request.engine_account_id, || {
             let mut registry = Registry::load(&hub.store)?;
             let account = registry.account_mut(&request.engine_account_id, request.expected_revision)?;
+            ensure!(!open || is_open_account(account), "open_codex_unavailable");
             let LaunchReference::CliProfile { directory, .. } = &account.launch else {
                 bail!("api_form_required: use o formulário seguro de API.")
             };
@@ -527,6 +595,7 @@ async fn start_authorized(
                 (old_directory, ProfileStaging(None))
             };
             let mut guard = OPERATIONS.locked();
+            ensure!(!CLOSING.locked().iter().any(|closing| closing.ptr_eq(&Arc::downgrade(hub))), "setup_cancelled");
             let ops = guard.get_or_insert_with(HashMap::new);
             let now = crate::store::now_ms();
             ops.retain(|_, op| op.hub.strong_count() > 0 && (op.phase.active() || op.expires + 600_000 > now));
@@ -557,6 +626,7 @@ async fn start_authorized(
                 output: String::new(),
                 cancel,
                 input: tx_input,
+                worker_lifetime,
             });
             Ok((dto(&id, op, None), generation, backend, profile, cleanup))
         })?;
@@ -602,32 +672,46 @@ async fn start_authorized(
         store_root.join("bin")
     };
     tokio::spawn(async move {
+        let _worker_done = worker_done;
+        // Declarado depois: o perfil provisório some antes de o encerramento ver o worker concluído.
+        let mut cleanup = cleanup;
         let outcome = until_deadline(deadline, rx_cancel.clone(), async {
-            let executable = match request.action {
-                Step::Install => {
-                    let hub = weak.upgrade().ok_or_else(|| anyhow!("setup_cancelled"))?;
-                    ensure!(
-                        !hub.store.bots()?.iter().any(|b| !b.deleted && b.config.backend == backend.id() && {
-                            let runtime = hub.runtime(&b.config.id);
-                            runtime.preparing_turn_token.is_some()
-                                || matches!(
-                                    runtime.status,
-                                    crate::hub::BotStatus::Working | crate::hub::BotStatus::NeedsInput
-                                )
-                        }),
-                        "account_busy"
-                    );
-                    drop(hub);
-                    install::install(&binaries, backend, &profile).await?
+            let (executable, mut proof) = if open {
+                #[cfg(unix)]
+                {
+                    let (executable, proof) = process::login_open_codex(&profile, tx_event).await?;
+                    (executable, Some(proof))
                 }
-                Step::Login => install::existing(&binaries, backend, &profile)
-                    .await
-                    .ok_or_else(|| anyhow!("cli_incompatible: prepare o conector antes de entrar."))?,
-            };
-            let mut proof = if request.action == Step::Login {
-                Some(process::login(backend, &executable, &profile, tx_event, rx_input, rx_cancel).await?)
+                #[cfg(not(unix))]
+                anyhow::bail!("open_codex_platform")
             } else {
-                None
+                let executable = match request.action {
+                    Step::Install => {
+                        let hub = weak.upgrade().ok_or_else(|| anyhow!("setup_cancelled"))?;
+                        ensure!(
+                            !hub.store.bots()?.iter().any(|b| !b.deleted && b.config.backend == backend.id() && {
+                                let runtime = hub.runtime(&b.config.id);
+                                runtime.preparing_turn_token.is_some()
+                                    || matches!(
+                                        runtime.status,
+                                        crate::hub::BotStatus::Working | crate::hub::BotStatus::NeedsInput
+                                    )
+                            }),
+                            "account_busy"
+                        );
+                        drop(hub);
+                        install::install(&binaries, backend, &profile).await?
+                    }
+                    Step::Login => install::existing(&binaries, backend, &profile)
+                        .await
+                        .ok_or_else(|| anyhow!("cli_incompatible: prepare o conector antes de entrar."))?,
+                };
+                let proof = if request.action == Step::Login {
+                    Some(process::login(backend, &executable, &profile, tx_event, rx_input, rx_cancel).await?)
+                } else {
+                    None
+                };
+                (executable, proof)
             };
             if let Some(proof) = &mut proof
                 && backend == Backend::Claude
@@ -729,6 +813,8 @@ async fn start_authorized(
                     "auth_failed",
                     "auth_shutdown_failed",
                     "cli_incompatible",
+                    "open_codex_platform",
+                    "open_codex_unavailable",
                     "account_busy",
                     "account_unverified",
                     "identity_changed",
