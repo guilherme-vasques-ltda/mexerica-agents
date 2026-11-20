@@ -22,6 +22,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[cfg(unix)]
+pub(crate) mod historico;
+#[cfg(unix)]
 pub(crate) mod link;
 pub(crate) mod mcp_host;
 pub(crate) mod tools;
@@ -55,12 +57,50 @@ pub(crate) fn hub_vault(hub: Arc<crate::hub::Hub>) -> VaultSource {
 }
 
 /// Slot do cofre por provedor: `motor-mexerica/<provider>`.
-fn credential_slot(provider_id: &str) -> String {
+pub(crate) fn credential_slot(provider_id: &str) -> String {
     format!("motor-mexerica/{provider_id}")
 }
 
+/// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
+#[cfg(unix)]
+const PROVIDERS: [&str; 4] = ["google", "openai", "faux", "faux2"];
+
+const OWNER_SEPARATOR: char = '\u{1f}';
+
+/// O dono de uma conversa guardada: o bot e a identidade com que a sessão abriu (Space, conta, revisão e perfil de
+/// login). Outra identidade nunca reabre a conversa.
+pub(crate) fn conversation_owner(bot: &str, identity: &str) -> String {
+    format!("{bot}{OWNER_SEPARATOR}{identity}")
+}
+
+/// Apaga a conversa guardada de UMA sessão do bot (a sessão foi invalidada). Sem o motor (fora do Unix) não há
+/// conversa guardada, e o ator chama isto sem `cfg` espalhado.
+#[cfg(unix)]
+pub(crate) fn forget_conversation(bot: &str, session: &str) {
+    historico::forget_session(bot, session);
+}
+
+#[cfg(not(unix))]
+pub(crate) fn forget_conversation(_bot: &str, _session: &str) {}
+
 fn enabled_value(flag: Option<&std::ffi::OsStr>) -> bool {
     flag.is_some_and(|v| v == "1")
+}
+
+/// Ambiente extra do motor aberto pelo ator do bot: vazio em produção; só as provas
+/// ligam o provedor falso (ator real sobre o motor real).
+#[cfg(not(test))]
+pub(crate) fn actor_extra_env() -> &'static [(&'static str, &'static str)] {
+    &[]
+}
+
+/// Só para provas: o ator do bot abre o motor com o provedor falso e o adaptador não abre os servidores MCP do Hub.
+#[cfg(test)]
+pub(crate) static ACTOR_FAUX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+pub(crate) fn actor_extra_env() -> &'static [(&'static str, &'static str)] {
+    if ACTOR_FAUX.load(std::sync::atomic::Ordering::Relaxed) { &[(FAUX_ENV, "1")] } else { &[] }
 }
 
 /// Desligada por padrão: só `MEXERICA_MOTOR=1` registra o motor.
@@ -77,7 +117,7 @@ pub(crate) fn entry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../motor/mexerica/rpc.ts")
 }
 
-fn node_path() -> Option<PathBuf> {
+pub(crate) fn node_path() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(path) = std::env::var_os("DONNABOT_MEX_NODE_TEST") {
         return Some(path.into());
@@ -138,6 +178,8 @@ pub(crate) struct Engine {
     stderr: Option<tokio::task::JoinHandle<Vec<u8>>>,
     vault: Option<tokio::task::JoinHandle<Result<()>>>,
     provider: String,
+    /// Geração da credencial com que o cofre deste processo foi preso (ver `link::pinned`); vazia = não preso.
+    pub(super) credential: String,
     /// Um turno largado no meio deixa eventos velhos no stdout: prompt novo com a marca presa é recusado.
     turn_open: bool,
     /// Nomes declarados por `set_tools`: um `tool_request` fora da lista nunca chega ao executor.
@@ -289,6 +331,7 @@ impl Engine {
             stderr: Some(stderr_task),
             vault: Some(vault),
             provider: provider.to_owned(),
+            credential: String::new(),
             turn_open: false,
             tools: std::collections::HashSet::new(),
             _home: home,
@@ -368,6 +411,20 @@ impl Engine {
         self.send(json!({"id": id, "type": "set_system_prompt", "prompt": prompt})).await?;
         let res = self.response(&id).await?;
         ensure!(res["success"] == true, "set_system_prompt recusado: {}", res["error"].as_str().unwrap_or_default());
+        Ok(())
+    }
+
+    /// Devolve ao processo novo a conversa que o Hub guardou (cancelamento,
+    /// troca de provedor ou queda mataram o processo antigo). Vai depois do
+    /// prompt de sistema e das ferramentas, antes do prompt. Fora de um turno.
+    pub(crate) async fn restore_history(&mut self, messages: &[Value]) -> Result<()> {
+        self.next_id += 1;
+        let id = format!("hist-{}", self.next_id);
+        // Cada mensagem cruza a fronteira como o texto JSON que o Hub mediu: o motor mede esses mesmos bytes.
+        let wire: Vec<String> = messages.iter().map(Value::to_string).collect();
+        self.send(json!({"id": id, "type": "restore_history", "messages": wire})).await?;
+        let res = self.response(&id).await?;
+        ensure!(res["success"] == true, "restore_history recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
     }
 

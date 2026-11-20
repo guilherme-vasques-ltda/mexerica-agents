@@ -12,7 +12,6 @@ import {
 	type Model,
 	type MutableModels,
 	type Provider,
-	type TextContent,
 } from "@earendil-works/pi-ai";
 import {
 	stream as googleStream,
@@ -102,28 +101,51 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 	for (const provider of providers) models.setProvider(provider);
 
 	if (process.env["MEXERICA_MOTOR_FAUX"] !== "1") return undefined;
+	// Dois provedores falsos (`faux` e `faux2`) para provar a troca de provedor.
+	const userText = (m: { content?: unknown }): string => {
+		const blocks = typeof m.content === "string" ? [{ type: "text", text: m.content }] : ((m.content ?? []) as { type: string; text?: string }[]);
+		return blocks
+			.filter((b) => b.type === "text")
+			.map((b) => b.text ?? "")
+			.join("\n");
+	};
 	const faux = fauxProvider();
-	// Eco do último texto do usuário, reenfileirado a cada turno. Duas extensões
+	const faux2 = fauxProvider({ provider: "faux2" });
+	// Eco do último texto do usuário, reenfileirado a cada turno. Extensões
 	// de teste: `/ferramenta <nome> <json>` faz o "modelo" chamar essa ferramenta
-	// e, de volta com o resultado, ele o repete (`ferramenta respondeu: ...`).
+	// e, de volta com o resultado, ele o repete (`ferramenta respondeu: ...`); `/cadeia <N> <nome> <json>`
+	// chama a ferramenta N vezes em sequência (um turno longo) antes de responder;
+	// `/historico` responde com todos os textos de usuário que o modelo recebeu;
+	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu.
+	let chained = 0;
 	const echo: FauxResponseFactory = async (context) => {
 		faux.appendResponses([echo]);
+		faux2.appendResponses([echo]);
 		const tail = context.messages.at(-1);
+		const lastUser = context.messages.filter((m) => m.role === "user").at(-1);
+		const chain = /^\/cadeia (\d+) (\S+) ([\s\S]*)$/.exec(lastUser ? userText(lastUser) : "");
+		if (tail?.role === "user") chained = 0;
+		if (tail?.role === "toolResult" && chain && ++chained < Number(chain[1])) {
+			return fauxAssistantMessage(fauxToolCall(chain[2]!, JSON.parse(chain[3]!)), { stopReason: "toolUse" });
+		}
 		if (tail?.role === "toolResult") {
 			const out = tail.content.map((b) => (b.type === "text" ? b.text : "")).join("");
 			return fauxAssistantMessage(`${tail.isError ? "ferramenta falhou" : "ferramenta respondeu"}: ${out}`);
 		}
-		const last = [...context.messages].reverse().find((m) => m.role === "user");
-		const blocks = typeof last?.content === "string" ? [{ type: "text", text: last.content }] : (last?.content ?? []);
-		const text = blocks
-			.filter((b): b is TextContent => b.type === "text")
-			.map((b) => b.text)
-			.join("\n");
-		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text);
+		const users = context.messages.filter((m) => m.role === "user");
+		const text = users.length === 0 ? "" : userText(users[users.length - 1]!);
+		if (text.includes("/contexto")) {
+			const kept = context.messages.filter((m) => m.role !== "system");
+			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))}`);
+		}
+		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
+		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);
 		if (call) return fauxAssistantMessage(fauxToolCall(call[1]!, JSON.parse(call[2]!)), { stopReason: "toolUse" });
 		return fauxAssistantMessage(`eco: ${text}`);
 	};
 	faux.setResponses([echo]);
+	faux2.setResponses([echo]);
 	models.setProvider(faux.provider);
+	models.setProvider(faux2.provider);
 	return faux;
 }

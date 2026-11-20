@@ -1,7 +1,7 @@
 //! Gateway stdio em observação. Não emite grants, não usa score nem baixa pesos.
 pub mod contexto;
 mod entrada;
-pub(crate) use entrada::notification_method;
+pub(crate) use entrada::{notification_method, redigir_json};
 pub(crate) mod http;
 mod ponte_remota;
 mod remoto;

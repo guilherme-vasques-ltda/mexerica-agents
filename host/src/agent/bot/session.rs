@@ -43,12 +43,15 @@ impl Actor {
         }
         if sid.is_none()
             && let Some(old) = self.session_for(slot)
-            && let Err(error) = crate::fork::sessoes::bindings::revoke(&self.hub.store, &self.cfg.id, Some(&old))
         {
-            tracing::error!(%error, "falha ao revogar vínculo de sessão");
-            // Sem revogação persistida, o processo antigo não pode continuar recebendo ferramentas.
-            self.stop_requested = true;
-            return; // A revogação precisa confirmar antes de esquecer o slot.
+            if let Err(error) = crate::fork::sessoes::bindings::revoke(&self.hub.store, &self.cfg.id, Some(&old)) {
+                tracing::error!(%error, "falha ao revogar vínculo de sessão");
+                // Sem revogação persistida, o processo antigo não pode continuar recebendo ferramentas.
+                self.stop_requested = true;
+                return; // A revogação precisa confirmar antes de esquecer o slot.
+            }
+            // A conversa guardada do Motor Mexerica é da sessão invalidada: só ela é apagada, as outras ficam.
+            crate::fork::motor_mexerica::forget_conversation(&self.cfg.id, &old);
         }
         let Some(slot) = slot else {
             self.session_id = sid.map(str::to_owned);
@@ -89,9 +92,29 @@ impl Actor {
         slots
     }
 
+    /// Com que identidade a conversa guardada do Motor Mexerica é aberta e reaberta: Space, dono da sessão, conta
+    /// com a revisão e perfil de login. Outra identidade nunca reabre a conversa (o adaptador a une ao bot).
+    fn conversation_identity(&self) -> String {
+        let login_profile = if self.account_revision.is_none() {
+            crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        format!(
+            "{}|{}|{}|{login_profile}",
+            self.cfg.space_id,
+            self.cfg.session_owner(),
+            account_stamp(&self.cfg, self.account_revision)
+        )
+    }
+
     /// Session workspace and MCP servers. Memory is readable without writable additionalDirectories.
     fn session_params(&self, servers: &Value, session: Option<&str>) -> Value {
         let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
+        if self.cfg.backend == crate::fork::motor_mexerica::ENGINE_ID {
+            params["conversationIdentity"] = self.conversation_identity().into();
+        }
         crate::fork::native_scheduling::apply_session(&mut params, &self.cfg.backend);
         if let Some(sid) = session {
             params["sessionId"] = sid.into();
@@ -380,7 +403,7 @@ impl Actor {
             let mut last_err = None;
             let mut spawned = None;
             if interno {
-                match start_mexerica(&self.hub, &[]).await {
+                match start_mexerica(&self.hub, &self.cfg.id, crate::fork::motor_mexerica::actor_extra_env()).await {
                     Ok(conn) => spawned = Some(conn),
                     Err(e) => last_err = Some(e),
                 }

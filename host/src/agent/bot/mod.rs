@@ -871,4 +871,7 @@ mod cadeias_tests;
 mod whatsapp_passos_tests;
 
 #[cfg(test)]
+#[cfg(unix)]
+mod motor_conversa_tests;
+#[cfg(test)]
 mod skills_tests;
