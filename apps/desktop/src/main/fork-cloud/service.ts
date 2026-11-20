@@ -719,12 +719,16 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   // Entre o início da navegação e a troca efetiva o documento que está saindo ainda pode falar por IPC: nada do navegador do bot
   // abre, comanda nem confirma nesse intervalo, e a geração avança nas duas pontas (a posse nunca passa ao documento seguinte).
   const navigating = new WeakSet<object>()
+  const loading = (sender: IpcMainEvent['sender']) => navigating.has(sender) || (sender as { isLoadingMainFrame?: () => boolean }).isLoadingMainFrame?.() === true
   const watchDocument = (sender: IpcMainEvent['sender']) => {
     if (watched.has(sender)) return
     watched.add(sender)
     const bump = () => documents.set(sender, documentOf(sender) + 1)
     sender.on('did-start-navigation', (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) { navigating.add(sender); bump() } })
-    for (const settled of ['did-navigate', 'did-fail-load', 'did-stop-loading'] as const) sender.on(settled as 'did-navigate', () => { if (navigating.delete(sender)) bump() })
+    // Todo commit principal que troca o documento avança a geração; falha de subquadro não encerra a navegação principal.
+    sender.on('did-navigate', () => { navigating.delete(sender); bump() })
+    sender.on('did-fail-load', (_event: unknown, _code: unknown, _description: unknown, _url: unknown, isMainFrame?: boolean) => { if (isMainFrame !== false && navigating.delete(sender)) bump() })
+    sender.on('did-stop-loading', () => { if (navigating.delete(sender)) bump() })
   }
   const authorityOf = (connectionId: string): HubSwitch | null => {
     if (!service.dataConnection(connectionId)) return null
@@ -760,7 +764,8 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   const seen=()=>visible() ? read.resume() : read.pause()
   const watch=(w: BrowserWindow)=>{ for (const e of ['show','hide','minimize','restore'] as const) w.on(e as 'show',()=>setImmediate(seen)); w.once('closed',()=>setImmediate(seen)) }
   BrowserWindow.getAllWindows().forEach(watch)
-  const created=(_: unknown, w: BrowserWindow)=>watch(w)
+  windows().forEach(w => watchDocument(w.webContents))
+  const created=(_: unknown, w: BrowserWindow)=>{ watch(w); watchDocument(w.webContents) }
   const focused=()=>{ if (!visible()) read.pause(); else if (!read.resume()) read.now() }
   const away=()=>read.pause(), back=()=>{ if (visible() && !read.resume()) read.now() }
   const signedIn=()=>read.now()
@@ -786,7 +791,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const mine = () => [...frames.values()].filter(entry => entry.event.sender === event.sender && entry.event.senderFrame === frame && entry.connectionId === connectionId)
     let hub: HubSwitch | null = null
     if (typeof method === 'string' && method.startsWith('browserStream')) {
-      if (typeof connectionId !== 'string' || mine().length === 0 || navigating.has(event.sender)) return { kind: 'notSent', reason: 'notReady' }
+      if (typeof connectionId !== 'string' || mine().length === 0 || loading(event.sender)) return { kind: 'notSent', reason: 'notReady' }
       hub = authorityOf(connectionId)
       if (!hub || (method !== 'browserStreamSubscribe' && !(hub.open && hub.ownedBy(event.sender, frame, documentOf(event.sender))))) return { kind: 'notSent', reason: 'notReady' }
     }
@@ -799,7 +804,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
       result = await service.call(connectionId, method, body, args[3], method === 'browserStreamInput' ? input => mine().some(entry => entry.proof.fresh(input)) : undefined)
     } finally {
       // Se o documento mudou durante a troca, o Hub trocou a inscrição mas ninguém a herda: fica bloqueado até uma confirmação nova.
-      if (subscribing) { const outcome = subscribeOutcome(result, body); hub!.settle(outcome === 'confirmed' && (documentOf(event.sender) !== document || navigating.has(event.sender)) ? 'uncertain' : outcome, subscribeSession(body), service.markOrder(), event.sender, frame, document) }
+      if (subscribing) { const outcome = subscribeOutcome(result, body); hub!.settle(outcome === 'confirmed' && (documentOf(event.sender) !== document || loading(event.sender)) ? 'uncertain' : outcome, subscribeSession(body), service.markOrder(), event.sender, frame, document) }
     }
     if (!live(event) || event.senderFrame !== frame) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
@@ -842,7 +847,7 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const mapKey = key(event, id)
     if (frames.has(mapKey)) return
     watchDocument(event.sender)
-    if (navigating.has(event.sender)) {
+    if (loading(event.sender)) {
       event.sender.send('forkCloud:frames:end', id, transportError(0, 'Assinatura indisponível.')) // textos-ok: diagnóstico do transporte
       return
     }

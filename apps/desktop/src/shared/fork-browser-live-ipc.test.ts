@@ -37,11 +37,12 @@ function montar() {
   /** Milissegundos que o IPC leva: os quadros (processo principal → tela) e cada envio de clique (tela → processo principal), pela ordem do envio desde o começo do teste. */
   const atraso = { quadro: 0, clique: [] as number[] }
   const eventosDaJanela = new Map<string, Listener[]>()
+  const carregando = { principal: false }
   const emitir = (canal: string, ...args: unknown[]) => (eventosDaJanela.get(canal) ?? []).forEach((cb) => cb(...args))
   const enviados = { n: 0 }
   const frame = { url }
   const sender = {
-    id: 1, mainFrame: frame, isDestroyed: () => false, once() {}, removeListener() {},
+    id: 1, mainFrame: frame, isDestroyed: () => false, once() {}, removeListener() {}, isLoadingMainFrame: () => carregando.principal,
     on: (canal: string, cb: Listener) => { (eventosDaJanela.get(canal) ?? eventosDaJanela.set(canal, []).get(canal)!).push(cb) },
     send: (canal: string, ...args: unknown[]) => {
       if (canal === 'forkCloud:frames:data') { enviados.n += 1; passa(atraso.quadro) }
@@ -120,6 +121,8 @@ function montar() {
     comandosNoHub: () => recebidoPeloHub.map((c) => c.method), outraJanela: (m: string, b: unknown) => handles.get('forkCloud:call')!(outroEvento, connectionId, m, b, 5000) as Promise<ForkCloudCallResult>, hubManda: (f: BrowserFrame) => sink!.onFrame(f), assinado: () => sink !== null, navegar: (detalhes: Record<string, unknown>) => emitir('did-start-navigation', detalhes),
     /** O documento novo entrou: fim da navegação. */
     navegou: () => emitir('did-navigate', {}),
+    falhou: (principal: boolean) => emitir('did-fail-load', {}, -3, 'x', 'file:///x', principal),
+    carregando,
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -492,4 +495,27 @@ test('recarregar e reabrir a mesma sessão: o Hub recusa a repetida (403) e a po
   r.hub.browserStreamSubscribe = () => ({ kind: 'err', status: 403, message: 'x' })
   assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'err', 'como o Hub real: a mesma sessão ainda inscrita é recusada')
   assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'recusado, o documento novo não ganha a posse; a recuperação é por nova conexão')
+})
+
+test('falha de carga de subquadro não encerra a navegação principal; falha da principal encerra', async () => {
+  const r = await comPessoa()
+  const comando = { controller: 'agent' }
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.falhou(false)
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'notSent', 'subquadro falhou: a principal ainda está navegando')
+  r.falhou(true)
+  r.abrirQuadrosEm('a'.repeat(32), connectionId)
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'a navegação acabou, mas a posse do documento anterior não volta')
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok', 'terminada a navegação, o documento atual inscreve')
+})
+
+test('janela já carregando a página principal quando vê a primeira abertura é tratada como em navegação; todo commit principal avança a geração', async () => {
+  const r = await comPessoa()
+  const comando = { controller: 'agent' }
+  r.carregando.principal = true
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'carregando a principal: nada comanda')
+  r.carregando.principal = false
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok')
+  r.navegou()
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'commit principal sem início observado também troca a geração: a posse não passa')
 })
