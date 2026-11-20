@@ -38,7 +38,7 @@ use crate::{
 use anyhow::{Result, anyhow, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{LazyLock, Mutex};
 
 /// Verbos de leitura: uma ferramenta só parece segura se tiver um deles e nenhum verbo de escrita.
@@ -409,30 +409,10 @@ fn registrar_com(
     completa: bool,
     geracao: Option<i64>,
 ) -> Result<()> {
-    fechar_se_falhar(
-        conta,
-        (|| {
-            let mut db = store.db.locked();
-            let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            instalar_em(&tx, conta, tools, mediados, completa, geracao)?;
-            Ok(tx.commit()?)
-        })(),
-    )
-}
-
-/// Contas cuja invalidação ou instalação não pôde ser gravada: o banco não diz a verdade sobre elas, então nada passa
-/// em nenhuma ponte até uma gravação dar certo.
-static BLOQUEADAS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
-
-fn fechar_se_falhar<T>(conta: &str, resultado: Result<T>) -> Result<T> {
-    if let Ok(mut bloqueadas) = BLOQUEADAS.lock() {
-        if resultado.is_err() {
-            bloqueadas.insert(conta.to_owned());
-        } else {
-            bloqueadas.remove(conta);
-        }
-    }
-    resultado
+    let mut db = store.db.locked();
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    instalar_em(&tx, conta, tools, mediados, completa, geracao)?;
+    Ok(tx.commit()?)
 }
 
 /// Instala o inventário da conta na transação do chamador (sem confirmar). `true`: esta resposta foi aceita (lista
@@ -550,15 +530,7 @@ pub(crate) fn encerrar_descoberta(ponte: &str, conta: &str) -> Option<i64> {
 }
 
 pub(crate) fn invalidar(store: &Store, conta: &str) -> Result<()> {
-    fechar_se_falhar(
-        conta,
-        (|| {
-            let mut db = store.db.locked();
-            let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            invalidar_em(&tx, conta)?;
-            Ok(tx.commit()?)
-        })(),
-    )
+    invalidar_em(&store.db.locked(), conta)
 }
 
 fn inventario_completo(c: &Connection, conta: &str) -> Result<bool> {
@@ -595,9 +567,6 @@ fn recibo(c: &Connection, conta: &str, bot: &str, ferramenta: &str, evento: &str
 }
 
 fn decidir_chamada(store: &Store, bot: &str, conta: &str, pol: &Politica, nome: &str) -> Result<Estado> {
-    if BLOQUEADAS.lock().map_or(true, |b| b.contains(conta)) {
-        return Ok(Estado::Desligada(Motivo::SemInventario));
-    }
     let db = store.db.locked();
     // Sem uma lista completa vista, ou com a conta fora do bot, nenhuma decisão antiga vale.
     let no_bot = Store::bot_on(&db, bot)?.is_some_and(|b| !b.deleted && b.config.connectors.iter().any(|c| c == conta));
@@ -693,7 +662,7 @@ pub(crate) fn filtrar_lista(
         return Ok(());
     }
     let pol = politica(conta)?.ok_or_else(|| anyhow!("conta sem ficha"))?;
-    fechar_se_falhar(&conta.id, filtrar_lista_com(store, bot, &conta.id, &pol, pedido, bruto, mediado, geracao))
+    filtrar_lista_com(store, bot, &conta.id, &pol, pedido, bruto, mediado, geracao)
 }
 
 #[allow(

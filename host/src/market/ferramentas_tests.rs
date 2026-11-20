@@ -927,41 +927,6 @@ fn erro_do_fornecedor_na_descoberta_fecha_a_admissao_e_preserva_as_liberacoes() 
 }
 
 #[test]
-fn gravacao_de_invalidacao_que_falha_fecha_a_conta_em_toda_ponte_ate_uma_gravacao_dar_certo() {
-    // Conta própria: o bloqueio é global por conta, e os outros testes usam a conta "conta" em paralelo.
-    let conta = "conta-bloqueada";
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
-    for bot in ["b", "outro"] {
-        store.save_bot(&config_do_bot(bot, &[conta])).unwrap();
-    }
-    let pol = pol(&COM_LISTA);
-    let tools = lista(&["list_orders", "create_refund"]);
-    let completa =
-        || registrar_com(&store, conta, &tools, &nomes_de(&tools), true, Some(ger_de(&store, conta))).unwrap();
-    completa();
-    let digest = digest_de(&ferramenta("create_refund", "a"));
-    gravar_liberacao(
-        &store.db.locked(),
-        &PedidoLigar { bot: "b", conta, ferramenta: "create_refund", digest: &digest },
-    )
-    .unwrap();
-    assert_eq!(decidir_chamada(&store, "b", conta, &pol, "create_refund").unwrap(), Estado::Ligada);
-    // O banco não aceitou gravar a invalidação: o inventário gravado não diz a verdade, então nada passa, em nenhum bot.
-    assert!(fechar_se_falhar::<()>(conta, Err(anyhow!("disco cheio"))).is_err());
-    for bot in ["b", "outro"] {
-        assert_eq!(
-            decidir_chamada(&store, bot, conta, &pol, "create_refund").unwrap(),
-            Estado::Desligada(Motivo::SemInventario)
-        );
-        assert!(chamar(&store, bot, conta, Some(&pol), "create_refund"));
-    }
-    assert_eq!(contar_liberacoes(&store), 1, "a liberação da pessoa fica");
-    // Uma gravação que dá certo (lista completa nova) reabre.
-    completa();
-    assert_eq!(decidir_chamada(&store, "b", conta, &pol, "create_refund").unwrap(), Estado::Ligada);
-}
-
-#[test]
 fn resposta_nao_aceita_nao_mostra_nada_nem_com_o_inventario_aberto_por_outra_lista() {
     let store = store();
     let pol = pol(&COM_LISTA);
