@@ -1,0 +1,110 @@
+{
+  "cursor": {
+    "versao": "2026.11.17",
+    "conferido_em": "2026-11-19",
+    "plataformas": {
+      "darwin-aarch64": {
+        "url": "https://downloads.cursor.com/lab/2026.11.17-f532c45/darwin/arm64/agent-cli-package.tar.gz",
+        "bytes": 175060759,
+        "sha256": "2e4a679c498d98eb2706ad7d90ccd256e5eb2f6cb3fe2cb4a9dd7f2dbd3efce0",
+        "url_checksum_fornecedor": "https://downloads.cursor.com/lab/2026.11.17-f532c45/darwin/arm64/agent-cli-package.tar.gz.sha256",
+        "cmd": "dist-package/cursor-agent",
+        "bytes_extraidos": 617158144
+      },
+      "darwin-x86_64": {
+        "url": "https://downloads.cursor.com/lab/2026.11.17-f532c45/darwin/x64/agent-cli-package.tar.gz",
+        "bytes": 182751592,
+        "sha256": "291995e57b14290abf0d7a154055a1460a24b89770754812ad70b4f723bd8fa6",
+        "url_checksum_fornecedor": "https://downloads.cursor.com/lab/2026.11.17-f532c45/darwin/x64/agent-cli-package.tar.gz.sha256",
+        "cmd": "dist-package/cursor-agent",
+        "bytes_extraidos": 630570496
+      },
+      "linux-aarch64": {
+        "url": "https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/arm64/agent-cli-package.tar.gz",
+        "bytes": 175517480,
+        "sha256": "dff929e5e5ace2ced880290095df5938545267d73fd1d84be669be75dbdc1558",
+        "url_checksum_fornecedor": "https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/arm64/agent-cli-package.tar.gz.sha256",
+        "cmd": "dist-package/cursor-agent",
+        "bytes_extraidos": 552366080
+      },
+      "linux-x86_64": {
+        "url": "https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/x64/agent-cli-package.tar.gz",
+        "bytes": 177002823,
+        "sha256": "189ed41d8963cd22dcdafbbd62f072cc55ac08374c922dbd04aee525f4018ab6",
+        "url_checksum_fornecedor": "https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/x64/agent-cli-package.tar.gz.sha256",
+        "cmd": "dist-package/cursor-agent",
+        "bytes_extraidos": 562728960
+      },
+      "windows-aarch64": {
+        "url": "https://downloads.cursor.com/lab/2026.11.17-f532c45/windows/arm64/agent-cli-package.zip",
+        "bytes": 77171303,
+        "sha256": "87e620238ede1f0afae644e9632beea85caa272068634eed202c85cc367b37cf",
+        "url_checksum_fornecedor": "https://downloads.cursor.com/lab/2026.11.17-f532c45/windows/arm64/agent-cli-package.zip.sha256",
+        "cmd": "dist-package/cursor-agent.cmd",
+        "bytes_extraidos": 263586033
+      },
+      "windows-x86_64": {
+        "url": "https://downloads.cursor.com/lab/2026.11.17-f532c45/windows/x64/agent-cli-package.zip",
+        "bytes": 79925097,
+        "sha256": "74c2bc22d0f1b8e424fa8bc5cf8ffc756ebc0e89706be5cdbfd56c57e4b9eaf8",
+        "url_checksum_fornecedor": "https://downloads.cursor.com/lab/2026.11.17-f532c45/windows/x64/agent-cli-package.zip.sha256",
+        "cmd": "dist-package/cursor-agent.cmd",
+        "bytes_extraidos": 266629022
+      }
+    }
+  },
+  "devin": {
+    "versao": "3000.14.30821",
+    "conferido_em": "2026-11-19",
+    "plataformas": {
+      "darwin-aarch64": {
+        "url": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-aarch64-apple-darwin.tar.gz",
+        "bytes": 80496229,
+        "sha256": "46ef1a75d8bd851665179e136b7e39ad597d3d7913b95d67fd2b88e9c8af0061",
+        "url_checksum_fornecedor": "https://static.devin.ai/cli/3000.14.30821/manifest.json",
+        "cmd": "bin/devin",
+        "bytes_extraidos": 232160256
+      },
+      "darwin-x86_64": {
+        "url": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-x86_64-apple-darwin.tar.gz",
+        "bytes": 87867075,
+        "sha256": "e0ffc5fb0bc367270f20f15686bba74a2851959e782a37c016c68b91229ec0db",
+        "url_checksum_fornecedor": "https://static.devin.ai/cli/3000.14.30821/manifest.json",
+        "cmd": "bin/devin",
+        "bytes_extraidos": 245143040
+      },
+      "linux-aarch64": {
+        "url": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-aarch64-unknown-linux.tar.gz",
+        "bytes": 82712471,
+        "sha256": "3deb8af6b026060e975ed371936e139818020e5dc5abbcba07cde039f473a5a5",
+        "url_checksum_fornecedor": "https://static.devin.ai/cli/3000.14.30821/manifest.json",
+        "cmd": "bin/devin",
+        "bytes_extraidos": 231505920
+      },
+      "linux-x86_64": {
+        "url": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-x86_64-unknown-linux.tar.gz",
+        "bytes": 88661435,
+        "sha256": "4dc43e3e4388bace60fe2aa8010cbb399402e724892d7175845b1cdef00e7ddb",
+        "url_checksum_fornecedor": "https://static.devin.ai/cli/3000.14.30821/manifest.json",
+        "cmd": "bin/devin",
+        "bytes_extraidos": 257863680
+      },
+      "windows-aarch64": {
+        "url": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-aarch64-pc-windows.zip",
+        "bytes": 78611782,
+        "sha256": "94a412821542021d5472c23ba167b9fd283e1e39852455647a8998312f0b9c72",
+        "url_checksum_fornecedor": "https://static.devin.ai/cli/3000.14.30821/manifest.json",
+        "cmd": "bin/devin.exe",
+        "bytes_extraidos": 219480859
+      },
+      "windows-x86_64": {
+        "url": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-x86_64-pc-windows.zip",
+        "bytes": 87687963,
+        "sha256": "23e723a68f4bebe4c5f57f42e0f9d8b069c91407d62584afefa05e246c51cf4d",
+        "url_checksum_fornecedor": "https://static.devin.ai/cli/3000.14.30821/manifest.json",
+        "cmd": "bin/devin.exe",
+        "bytes_extraidos": 254202139
+      }
+    }
+  }
+}

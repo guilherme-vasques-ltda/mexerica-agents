@@ -2,6 +2,8 @@
 pub mod autoridade;
 pub mod bootstrap;
 pub(crate) mod cadeias;
+#[cfg(unix)]
+pub(crate) mod open_codex;
 pub(crate) mod webhook;
 pub(crate) mod webhook_chain;
 

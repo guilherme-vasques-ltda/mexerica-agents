@@ -6,25 +6,22 @@ apresentação promocional herdada. Não transfere titularidade da base.
 
 O texto Apache-2.0 aplicável permanece integral em LICENSE. Materiais
 específicos conservam as condições e os avisos de THIRD_PARTY.md e dos
-respectivos arquivos. Este aviso não muda essas licenças.
+respectivos arquivos. Este aviso não muda essas licenças. A arte da Mexerica
+segue a regra de brand/LICENCA-DA-ARTE.md: só as Mexeriquinhas e as 19 opções
+de ícone das rodadas 2 e 3 são Apache-2.0; o restante tem direitos reservados (sem licença de reuso)
+e só vale dentro da Mexerica como distribuída.
 
 Os nomes e serviços do projeto de origem citados abaixo identificam a base
 e suas condições; não são serviços operados ou oferecidos pela Mexerica.
 
 Componentes de terceiros presentes nesta cópia, com licença, titular e aviso
-por arquivo registrados em THIRD_PARTY.md: código adaptado de OpenMausBot
-(Apache-2.0); trechos e fixtures de ai-memory e wacli (MIT); skills adaptadas
-de Exa e Supabase (MIT); textos de skills de terceiros embutidos no catálogo de
-skills do Hub (por exemplo security-audit-skill, MIT, e skills de marketing,
-com as licenças que cada uma traz); pi-mono (MIT), vendorizado no motor; fontes DM Sans,
+por arquivo registrados em THIRD_PARTY.md: código do OpenMausBot (Apache-2.0) e de
+commits do Codync posteriores à v2.20.3 (Apache-2.0); padrões de redação do ai-memory e receitas de fundos do Opensource UI (MIT); a fixture com o esquema do wacli (MIT);
+a LICENSE das skills de Exa e Supabase (MIT); skills de terceiros embutidas no catálogo de
+skills do Hub, com a licença que cada uma traz; pi-mono (MIT), vendorizado no motor; fontes DM Sans,
 Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto ao
-lado de cada arquivo); o pacote npm lucide (ISC); adaptações de Anomalia e
-Tucano (Apache-2.0) e de Opensource UI (MIT); e as logos dos serviços do
-catálogo de conectores (marcas de seus titulares). THIRD_PARTY.md também
-registra material do projeto de origem que não faz parte desta cópia (por
-exemplo, a pasta .claude/ com skills de tstack, de emilkowalski/skills e a
-product-launch-film); a seção "Escopo desta cópia"
-separa uma coisa da outra. O inventário de dependências, com a cobertura e os
+lado de cada arquivo); o pacote npm lucide (ISC); e as logos dos serviços do
+catálogo de conectores (marcas de seus titulares). O inventário de dependências, com a cobertura e os
 limites que ele declara, está em packaging/avisos/INVENTARIO-DEPENDENCIAS.md.
 
 --- Aviso original preservado integralmente ---

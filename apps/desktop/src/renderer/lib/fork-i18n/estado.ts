@@ -21,7 +21,9 @@ export function definirIdiomaDePartida(fonte: () => AppLanguage | null): void {
 }
 
 export function idiomaAtual(): AppLanguage {
-  return idiomaPref.get() ?? idiomaDePartida() ?? FALLBACK_LANGUAGE
+  const bridge = typeof window === 'undefined' ? undefined : window.codync
+  const open = bridge?.appScheme === 'mexerica-open' ? bridge.suggestedLanguage : null
+  return idiomaPref.get() ?? idiomaDePartida() ?? (isAppLanguage(open) ? open : FALLBACK_LANGUAGE)
 }
 
 /**

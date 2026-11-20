@@ -477,7 +477,6 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
                   if (!canAttach) return
                   if (!hasFiles || (types.includes('text/plain') && !captured.length)) return
                   e.preventDefault()
-                  // Adaptado de Codync 6dcee39da4e475d233bc9c245a9505bd0c10f27b (Apache-2.0).
                   void readPasted(captured, () => window.codync.app.readClipboardFiles()).then(append())
                 }}
               />

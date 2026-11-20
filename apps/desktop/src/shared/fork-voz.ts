@@ -60,7 +60,13 @@ export interface VozBridge {
   credencial(provider: VozProvedorAparelho, model: string, voice: string): Promise<ResultadoCredencial>
   /** O estado mudou no main. Sem dados: releia por `estado()`. Devolve a remoção. */
   onChange(listener: () => void): () => void
+  /** registra (ou solta) o atalho global que abre/encerra a chamada. Não abre microfone; só pede ao chat. */
+  definirAtalho(pedido: PedidoAtalhoVoz): Promise<ResultadoAtalhoVoz>
 }
+
+/** `ativo: false` solta o atalho; o `acelerador` é validado de novo no main (shared/fork-voz-entrada). */
+export interface PedidoAtalhoVoz { ativo: boolean; acelerador: string }
+export type ResultadoAtalhoVoz = { ok: true; acelerador: string | null } | { ok: false; motivo: 'invalido' | 'reservado' | 'em-uso' | 'indisponivel' }
 
 export const ehProvedorAparelho = (v: unknown): v is VozProvedorAparelho => v === 'openai' || v === 'gemini' || v === 'xai'
 

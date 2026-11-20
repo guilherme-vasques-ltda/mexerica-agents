@@ -1,5 +1,3 @@
-// Adaptado de Codync 6dcee39da4e475d233bc9c245a9505bd0c10f27b, por leepokai
-// e coautoria histórica Claude Opus 5.5. Licença Apache-2.0; veja THIRD_PARTY.md.
 type Picked = { name: string; data: Uint8Array }
 
 export async function readPicked(files: File[]): Promise<Picked[]> {

@@ -117,11 +117,25 @@ fn command() -> Result<tokio::process::Command> {
 }
 pub(crate) async fn invoke(request: Request) -> Result<Reply> {
     static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    if let Request::Registry { agent } = &request
+        && let Some(chave) = crate::agent::registry::chave_instalacao_binaria(agent)?
+    {
+        let reserva = crate::agent::registry::reservar_instalacao_binaria(chave).await;
+        return tokio::spawn(async move {
+            let _reserva = reserva;
+            trocar_pedido(&request).await
+        })
+        .await?;
+    }
     let _install = match &request {
         Request::Engine { action: EngineAction::Existing, .. } => None,
         _ => Some(INSTALL.lock().await),
     };
-    tokio::time::timeout(std::time::Duration::from_secs(25 * 60), transport::exchange(command()?, &request))
+    trocar_pedido(&request).await
+}
+
+async fn trocar_pedido(request: &Request) -> Result<Reply> {
+    tokio::time::timeout(std::time::Duration::from_secs(25 * 60), transport::exchange(command()?, request))
         .await
         .context("instalação do motor excedeu o prazo")?
 }

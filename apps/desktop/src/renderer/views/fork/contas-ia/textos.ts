@@ -237,7 +237,7 @@ const ERROS = [
 /** Motivos da fase final sem sucesso (`errorCode` da operação). */
 const FALHAS = [
   'setup_cancelled', 'setup_expired', 'auth_url_invalid', 'auth_correlation_invalid', 'auth_capability_unavailable',
-  'auth_protocol_invalid', 'auth_output_limit', 'auth_failed', 'cli_incompatible', 'account_busy', 'account_unverified',
+  'auth_protocol_invalid', 'auth_output_limit', 'auth_failed', 'cli_incompatible', 'open_codex_unavailable', 'account_busy', 'account_unverified',
   'identity_changed', 'account_conflict', 'install_integrity_invalid', 'setup_failed',
 ] as const
 

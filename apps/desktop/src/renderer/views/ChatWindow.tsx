@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useSpaceShortcuts } from './fork/spaces/use-space-shortcuts'
 import { useAtalhoBerga } from './fork/atalho-berga/use-atalho'
+import { useSincronizarAtalhoVoz } from './fork/voz/entrada-voz'
 import { focoBerga } from './fork/atalho-berga/foco'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -50,7 +51,7 @@ import { OpenBotSettings, type BotSettingsHandle, type BotSettingsSection } from
 import { extensoesScreen } from './fork/extensoes/tela'
 import { ApprovalSheet } from './settings/ApprovalSheet'
 import { SearchPalette } from './SearchPalette'
-import { AccountEntryGate, ResetDataDialog } from './AccountEntryGate'
+import { AccountEntryGate } from './AccountEntryGate'
 import { ComputerAccessView } from './computer-access/ComputerAccessView'
 import { HostStateView } from './HostStateView'
 import { StartupRecovery } from './StartupRecovery'
@@ -103,8 +104,8 @@ function ChatShell() {
   const idioma = useIdioma()
   const [accessSetup, setAccessSetup] = usePref(prefs.computerAccessSetup)
   const [showAccess, setShowAccess] = useState(false)
-  const [confirmReset, setConfirmReset] = useState(false)
   useSSHAttachments(app)
+  useSincronizarAtalhoVoz()
   // D171: o Hub pela nuvem, só com `cloudAccess` e anexo qualificado pelo Main; o SSH vem primeiro.
   useForkCloudAttachments(app)
   const ssh = useSSH()
@@ -125,8 +126,6 @@ function ChatShell() {
             // Fork: sem "Computer access" (sem host local, D76), o comando não abre a folha.
             if (showsComputerAccess(app.host.state)) setShowAccess(true)
             return
-          case 'confirmReset':
-            return setConfirmReset(true)
           case 'reviewApprovals':
             return app.reviewApprovals()
           case 'setTextSize':
@@ -196,7 +195,6 @@ function ChatShell() {
         <ModalHeader icon="hand.raised" title={t('navegacao.janela.acessoComputador')} closeTitle={t('navegacao.janela.fechar')} />
         <ComputerAccessView onContinue={(ready) => { finishAccess(ready, false); setShowAccess(false) }} />
       </Sheet>
-      <ResetDataDialog open={confirmReset} onClose={() => setConfirmReset(false)} />
       {/* Approving a device: the person types the code the device shows; Approve opens only when it matches (spec §4.2 B). Closing puts it off. */}
       <Sheet language={superficieIdioma(idioma)} open={approval !== null || app.confirmation !== null} onClose={() => (app.confirmation ? app.dismissConfirmation() : approval && app.deferApproval(approval))}>
         {app.confirmation ? <ApprovalSheet key={app.confirmation.approval.id} approval={app.confirmation.approval} confirmCode={app.confirmation.code} />

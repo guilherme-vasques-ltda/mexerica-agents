@@ -23,6 +23,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.conta.googleLigado': 'This Google account is already linked to another Mexerica account.',
   'marca.conta.naoConfirmou': 'We couldn’t confirm the sign-in. Try again: Mexerica only opens with a confirmed account.',
   'marca.conta.apagarTudo': 'Signs out of every account and deletes the bots, chats, keys and settings on this computer. Mexerica starts again from the welcome screen.',
+  'marca.conta.apagarFalhou': 'Could not delete all data. Try again.',
   'marca.conta.semLogin': 'Sign-in isn’t available in this version, and Mexerica only opens with an account.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'Protected box unavailable.',

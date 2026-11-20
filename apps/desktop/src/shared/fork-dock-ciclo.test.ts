@@ -43,7 +43,7 @@ function loadAuthModule(app: unknown, ipcMain: unknown, browserOpens: string[]) 
  * abertura (R10/R11). O primeiro plano é modelado (o app ativo, oculto, quem está à frente) só com os fatos medidos nas
  * fixtures e lidos no Electron fixado (`browser_mac.mm`/`native_window_mac.mm` 44.5.1), indicados em cada ponto.
  */
-async function appRig({ saved = musgo as unknown, raw = null as string | null, showInDock = false, agent = false, showIsland = false, appIcon = undefined as string | undefined, env = {} as Record<string, string> } = {}) {
+async function appRig({ saved = musgo as unknown, raw = null as string | null, showInDock = false, agent = false, showIsland = false, appIcon = undefined as string | undefined, env = {} as Record<string, string>, dialogo = {} as { showMessageBox?: (janela: unknown, opcoes: Electron.MessageBoxOptions) => Promise<{ response: number }> } } = {}) {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'd169-r10-'))
   const file = path.join(dir, 'app-icon-v1.json')
   // D457: a preferência antiga do seletor (uma variante do "d", um arquivo inválido ou nenhum) fica no disco, intocada.
@@ -222,10 +222,10 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     './fork-cloud/service': { registerForkCloudService: () => assert.fail('cloud fixture is disabled') },
     'node:child_process': { execFileSync: () => '' }, 'node:os': { hostname: () => 'teste' }, 'node:path': path, 'node:url': nodeURL,
     electron: {
-      app, autoUpdater: {}, BrowserWindow: ChatWindow, clipboard: { writeText() {} }, dialog: {}, ipcMain, shell: {},
+      app, autoUpdater: {}, BrowserWindow: ChatWindow, clipboard: { writeText() {} }, dialog: dialogo, ipcMain, shell: {},
       Menu: { buildFromTemplate: (template: unknown) => template, setApplicationMenu() {} },
       nativeImage: { createEmpty: () => ({ png: 'reset', isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }) }), createFromPath: () => ({ png: 'icone-escolhido', isEmpty: () => false, getSize: () => ({ width: 256, height: 256 }) }) },
-      nativeTheme: { shouldUseDarkColors: false, on() {} }, session: { defaultSession: { setPermissionRequestHandler() {} } },
+      nativeTheme: { shouldUseDarkColors: false, on() {} }, session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDisplayMediaRequestHandler() {} } },
     },
     './host-controller': { devPort: null, HostController: Inert, prefs: { get: (key: string) => prefs.get(key), set: (key: string, value: unknown) => { prefWrites.push([key, value]); prefs.set(key, value) } } }, './file-saves': { registerFileSaves: none }, './host-proxy': { registerHostProxy: none },
     './files': { readClipboardFiles: none, readFiles: none }, './tray': { Tray: MenuBar }, './dock': dockModule, './account': { AccountService: Inert },
@@ -995,6 +995,42 @@ test('MX-9 (R1-01 do #523): a página Ícone do app é um radiogroup do manifest
   assert.doesNotMatch(main, /app-icon-v1|LogoEditor/)
 })
 
+
+test('apagar dados exige diálogo nativo e continua restrito ao frame enquanto aguarda', async () => {
+  const chamadas: { janela: unknown, opcoes: Electron.MessageBoxOptions }[] = []
+  let resposta = deferred<{ response: number }>()
+  const app = await appRig({ dialogo: { showMessageBox: (janela, opcoes) => {
+    chamadas.push({ janela, opcoes })
+    return resposta.promise
+  } } })
+  try {
+    await app.boot()
+    const apagar = app.handle('app:resetAllData')!
+    const janela = app.chat()
+    const sender = janela.webContents
+    const senderFrame = sender.mainFrame
+    await apagar({ sender: app.panel().webContents, senderFrame })
+    await apagar({ sender, senderFrame: { url: senderFrame.url } })
+    assert.equal(chamadas.length, 0)
+
+    const cancelado = apagar({ sender, senderFrame })
+    assert.equal(chamadas.length, 1)
+    assert.equal(chamadas[0]?.janela, janela)
+    assert.equal(chamadas[0]?.opcoes.defaultId, 0)
+    assert.equal(chamadas[0]?.opcoes.cancelId, 0)
+    await apagar({ sender, senderFrame })
+    assert.equal(chamadas.length, 1)
+    resposta.resolve({ response: 0 })
+    await cancelado
+
+    resposta = deferred<{ response: number }>()
+    const navegou = apagar({ sender, senderFrame })
+    assert.equal(chamadas.length, 2)
+    senderFrame.url = 'https://example.test/'
+    resposta.resolve({ response: 1 })
+    await navegou
+  } finally { await app.done() }
+})
 
 test('Chaveiro: index real prepara antes de registrar conta, nuvem e voz', async () => {
   const rig = await appRig()
