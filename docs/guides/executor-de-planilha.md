@@ -86,5 +86,5 @@ inode) é registrada antes de qualquer byte. Após a queda:
 - A pasta de estado do executor fica na conta do próprio usuário. Quem já pode escrever nela
   (ou em pastas acima dela) é considerado fora do modelo de ameaça desta fatia; o estado não
   é aberto por descritor como a pasta liberada.
-- Números inteiros acima de 9007199254740992 são recusados (perderiam precisão): passe como texto.
+- Números inteiros acima de 9007199254740992 são recusados (perderiam precisão), inclusive quando escritos como decimal ou exponencial: passe como texto.
 - Parar por revogação depende da mensagem do Hub no canal; a verificação não é tipada.

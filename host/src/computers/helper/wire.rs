@@ -58,8 +58,8 @@ pub fn channel_url(base: &str) -> Result<String> {
     Ok(format!("{url}/channel?v=1"))
 }
 
-async fn next_text(ws: &mut Socket, wait: Duration) -> Result<Value> {
-    let end = tokio::time::Instant::now() + wait;
+/// `end` é um prazo absoluto: quadros de controle ou de outros ids não o renovam.
+async fn next_text(ws: &mut Socket, end: tokio::time::Instant) -> Result<Value> {
     loop {
         let msg = tokio::time::timeout_at(end, ws.next()).await.context("o Hub não respondeu a tempo")?;
         match msg {
@@ -91,7 +91,7 @@ impl Session {
         let hello = json!({"t":"hello","v":1,"dk":crypto::b64(&dk),"ek":crypto::b64(&ek),"n":crypto::b64(&n),
             "sig":crypto::b64(&crypto::sign(key,&crypto::hs1_input(&cid,&dk,&ek,&n))),"pair":pair});
         ws.send(Message::Text(hello.to_string().into())).await?;
-        let welcome = next_text(&mut ws, Duration::from_secs(20)).await?;
+        let welcome = next_text(&mut ws, tokio::time::Instant::now() + Duration::from_secs(20)).await?;
         if welcome["t"] == "reject" {
             bail!("o Hub recusou a conexão: {}", welcome["message"].as_str().unwrap_or("sem motivo"));
         }
@@ -117,9 +117,9 @@ impl Session {
         Ok(())
     }
 
-    async fn recv(&mut self, wait: Duration) -> Result<Value> {
+    async fn recv(&mut self, end: tokio::time::Instant) -> Result<Value> {
         loop {
-            let v = next_text(&mut self.ws, wait).await?;
+            let v = next_text(&mut self.ws, end).await?;
             if v["t"] != "f" {
                 continue;
             }
@@ -137,7 +137,7 @@ impl Session {
         // Um prazo só para a chamada inteira: quadros de outros ids não renovam o tempo.
         let end = tokio::time::Instant::now() + wait;
         loop {
-            let v = self.recv(end.saturating_duration_since(tokio::time::Instant::now())).await?;
+            let v = self.recv(end).await?;
             if v["id"] != id {
                 continue;
             }

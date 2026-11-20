@@ -298,6 +298,7 @@ async fn run(home: &Home) -> Result<()> {
         capabilities(home)["locais"]
     );
     loop {
+        let started = std::time::Instant::now();
         let one = async {
             same_binding(home, &link)?;
             let mut session = Session::connect(&link.url, &key, &sign_pub, false).await?;
@@ -317,6 +318,10 @@ async fn run(home: &Home) -> Result<()> {
                 }
                 return Ok(());
             }
+        }
+        // Uma sessão que durou se desfez por uma oscilação: a próxima tentativa volta a ser rápida.
+        if started.elapsed() > Duration::from_secs(60) {
+            backoff = 1;
         }
         // Vínculo local removido ou trocado: este processo acabou (e solta o trinco de `run` para o novo).
         same_binding(home, &link)?;

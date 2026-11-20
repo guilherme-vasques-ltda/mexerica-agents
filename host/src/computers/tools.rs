@@ -291,7 +291,10 @@ fn spec(name: &str, a: &Value) -> Result<(&'static str, Value, i64)> {
                 .filter_map(|r| r.as_array())
                 .flatten()
                 .any(|c| {
-                    c.as_i64().is_some_and(|i| i.unsigned_abs() > 1 << 53) || c.as_u64().is_some_and(|u| u > 1 << 53)
+                    c.as_i64().is_some_and(|i| i.unsigned_abs() > 1 << 53)
+                        || c.as_u64().is_some_and(|u| u > 1 << 53)
+                        // Decimal ou exponencial (9007199254740993.0, 9.007199254740993e15) já chega arredondado.
+                        || c.as_f64().is_some_and(|f| f.is_finite() && f.fract() == 0.0 && f.abs() > 9_007_199_254_740_992.0)
                 });
             ensure!(
                 !imprecise,
