@@ -35,6 +35,8 @@ pub struct Harness {
     pub signed_in: Option<SignInCheck>,
 }
 
+// Versão fixada (GUI-145): `Npm` aceita `pacote@versão`; o npm confere no registro o hash
+// de integridade daquela versão exata, e atualizar a versão é edição aqui.
 #[derive(Clone, Copy)]
 pub enum Install {
     /// A vendor install script (`curl … | bash`), Unix only.
@@ -102,11 +104,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["claude"],
         local: None,
         registry: Some("claude-acp"),
-        setup: "Install Claude Code and run `claude auth login`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://claude.ai/install.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\"",
-        }),
+        setup: "Install Claude Code (npm, exact version pinned by the Hub) and run `claude auth login`.",
+        install: Some(Install::Npm("@anthropic-ai/claude-code@2.1.329")),
         login: "{bin} auth login",
         signed_in: Some(SignInCheck { args: "auth status", ok: claude_signed_in }),
     },
@@ -116,11 +115,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["codex"],
         local: None,
         registry: Some("codex-acp"),
-        setup: "Install Codex CLI and run `codex login --device-auth`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://chatgpt.com/codex/install.ps1 | iex\"",
-        }),
+        setup: "Install Codex CLI (npm, exact version pinned by the Hub) and run `codex login --device-auth`.",
+        install: Some(Install::Npm("@openai/codex@0.171.0")),
         login: "{bin} login --device-auth",
         signed_in: Some(SignInCheck { args: "login status", ok: exit_ok }),
     },
@@ -170,8 +166,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["opencode"],
         local: Some("{bin} acp"),
         registry: Some("opencode"),
-        setup: "Install OpenCode (curl -fsSL https://opencode.ai/install | bash) and run `opencode auth login`.",
-        install: Some(Install::Script("curl -fsSL https://opencode.ai/install | bash")),
+        setup: "Install OpenCode (npm, exact version pinned by the Hub) and run `opencode auth login`.",
+        install: Some(Install::Npm("opencode-ai@1.19.6")),
         login: "{bin} auth login",
         signed_in: None,
     },
@@ -206,11 +202,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["copilot"],
         local: Some("{bin} --acp --stdio"),
         registry: Some("github-copilot-cli"),
-        setup: "Install Copilot CLI (curl -fsSL https://gh.io/copilot-install | bash) and run `copilot login`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://gh.io/copilot-install | bash",
-            windows: "winget install --id GitHub.Copilot -e",
-        }),
+        setup: "Install Copilot CLI (npm, exact version pinned by the Hub) and run `copilot login`.",
+        install: Some(Install::Npm("@github/copilot@1.0.114")),
         login: "{bin} login --device-code",
         signed_in: None,
     },
@@ -220,11 +213,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["qwen"],
         local: Some("{bin} --acp"),
         registry: Some("qwen-code"),
-        setup: "Install Qwen Code (its standalone installer), run `qwen` and type /auth.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex\"",
-        }),
+        setup: "Install Qwen Code (npm, exact version pinned by the Hub), run `qwen` and type /auth.",
+        install: Some(Install::Npm("@qwen-code/qwen-code@0.28.0")),
         login: "{bin}",
         signed_in: None,
     },
@@ -792,13 +782,21 @@ pub async fn launch_candidates(
     Ok(out)
 }
 
+/// `@escopo/nome@1.2.3` → `@escopo/nome`; pacote sem versão fica como está.
+fn pacote_sem_versao(pkg: &str) -> &str {
+    pkg.rsplit_once('@')
+        .filter(|(_, versao)| !versao.is_empty() && versao.starts_with(|c: char| c.is_ascii_digit()))
+        .map_or(pkg, |(nome, _)| nome)
+}
+
 /// The registry build that *is* the harness's CLI (same npm package), so it can
 /// sign in without the CLI installed. Adapters (claude-acp…) don't count.
 fn registry_cli(h: &Harness) -> Option<Value> {
     let Some(Install::Npm(pkg)) = h.install else { return None };
     let agent = registry::agent(h.registry?)?;
     let npx = agent["distribution"]["npx"]["package"].as_str()?;
-    (npx == pkg || npx.strip_prefix(pkg).is_some_and(|v| v.starts_with('@'))).then_some(agent)
+    (npx == pacote_sem_versao(pkg) || npx.strip_prefix(pacote_sem_versao(pkg)).is_some_and(|v| v.starts_with('@')))
+        .then_some(agent)
 }
 
 /// Codync's own sign-in command for `id` can run now.
@@ -833,6 +831,43 @@ pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GUI-145, fatia 2: os cinco com canal fixável saem do script do fornecedor e passam a
+    /// instalar por npm com versão exata (o registro confere o hash daquela versão); nenhum
+    /// segue na trava de confirmação, que é só para script de fornecedor.
+    #[test]
+    fn motores_com_canal_fixavel_instalam_por_npm_com_versao_exata() {
+        for (id, pacote) in [
+            ("claude", "@anthropic-ai/claude-code@2.1.329"),
+            ("codex", "@openai/codex@0.171.0"),
+            ("opencode", "opencode-ai@1.19.6"),
+            ("copilot", "@github/copilot@1.0.114"),
+            ("qwen", "@qwen-code/qwen-code@0.28.0"),
+        ] {
+            let h = harness(id).unwrap();
+            let install = h.install.unwrap();
+            assert!(matches!(install, Install::Npm(p) if p == pacote), "{id}");
+            let Some(Install::Npm(pkg)) = h.install else { unreachable!() };
+            let (_, versao) = pkg.rsplit_once('@').unwrap();
+            assert!(
+                !versao.is_empty() && versao.starts_with(|c: char| c.is_ascii_digit()),
+                "{id}: versão exata, não etiqueta móvel"
+            );
+            assert!(!install.is_script(), "{id}: sem script de fornecedor");
+            assert!(
+                install.command().is_some_and(|c| c.ends_with(pkg) && !c.contains("latest")),
+                "{id}: o comando instala a versão fixada"
+            );
+        }
+    }
+
+    #[test]
+    fn pacote_sem_versao_descasca_somente_a_versao() {
+        assert_eq!(pacote_sem_versao("@anthropic-ai/claude-code@2.1.329"), "@anthropic-ai/claude-code");
+        assert_eq!(pacote_sem_versao("opencode-ai@1.19.6"), "opencode-ai");
+        assert_eq!(pacote_sem_versao("@kilocode/cli"), "@kilocode/cli");
+        assert_eq!(pacote_sem_versao("cline"), "cline");
+    }
 
     #[test]
     fn cursor_confere_status_sem_prompt() {
