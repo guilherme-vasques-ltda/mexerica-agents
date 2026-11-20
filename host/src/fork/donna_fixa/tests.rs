@@ -1044,6 +1044,13 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
         ("marketGoogleAppRemover", json!({}), true),
         ("marketContaDesconectar", json!({"id":"$conector"}), true),
         ("marketBotContasDefinir", json!({"botId":"donna","ligar":["$conector"]}), true),
+        // Fatia 2: ligar ação perigosa recusa antes de gravar sem conta do catálogo ligada; desligar grava pelo ponto do dono.
+        (
+            "marketFerramentaLigar",
+            json!({"botId":"donna","conta":"$conector","ferramenta":"x","digest":"d","confirmo":true}),
+            false,
+        ),
+        ("marketFerramentaDesligar", json!({"botId":"donna","conta":"$conector","ferramenta":"x"}), true),
         ("importConnectors", json!({"config":"{\"mcpServers\":{\"Importado\":{\"command\":\"imp-mcp\"}}}"}), true),
         ("credentialSaveLogin", json!({"site":"exemplo.com","username":"novo","password":"segredo"}), true),
         ("credentialLabelLogin", json!({"id":"$login","label":"Rótulo"}), true),

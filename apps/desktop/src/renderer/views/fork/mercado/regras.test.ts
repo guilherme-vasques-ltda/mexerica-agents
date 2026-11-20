@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  agruparContas, agruparPorCategoria, alternarGrupo, alternarVarios, blocosDeBots, botsParaLigar, categoriasDoCatalogo, codigoDaRecusa, contarPorCategoria, cofreTrancado, escolhasDeBots, estadoDoServico, filtrarServicos, gruposVisiveis, jeitoDaConta, jeitoEscolhido, jeitoRecomendado, linhasDoBot, listaDeNomes,
+  acoesQueAPessoaDecide, agruparContas, agruparPorCategoria, alternarGrupo, alternarVarios, blocosDeBots, botsParaLigar, categoriasDoCatalogo, codigoDaRecusa, contarPorCategoria, cofreTrancado, escolhasDeBots, estadoDoServico, filtrarServicos, gruposVisiveis, jeitoDaConta, jeitoEscolhido, jeitoRecomendado, linhasDoBot, listaDeNomes,
   mostraPersonalizar, motivosDoEmBreve, nomeCurto, nomeSugerido, padraoSeguro, perigosasDoTipo, planoDeNomes, seOPedidoNaoDiz, skillsDaFicha, temAcoesPerigosas, visaoDoCatalogo,
 } from './regras.ts'
 import { catalogo, conta, grupo, servico, tipo } from './dados-de-teste.ts'
@@ -247,6 +247,15 @@ test('o que vai ao Hub nunca leva o principal, mesmo marcado por engano', () => 
 
 test('a recusa do principal vem do código estável do Hub', () => {
   assert.equal(codigoDaRecusa(new Error('principal_sem_contas: o bot principal do Space não usa contas.')), 'principal_sem_contas')
+})
+
+test('as ações que a pessoa decide: tudo menos o permitido, em ordem de rótulo; a recusa do Hub tem código estável', () => {
+  const f = (nome: string, estado: 'permitida' | 'ligada' | 'desligada', rotulo: string | null = null, motivo: 'perigosa' | 'nova' | 'alterada' | null = null) => ({ nome, rotulo, estado, motivo, digest: 'd' })
+  const dados = { botId: 'b', conta: 'c', inventarioPronto: true, ferramentas: [f('list_orders', 'permitida'), f('x_novo', 'desligada', null, 'nova'), f('create_refund', 'ligada', 'Reembolsar'), f('delete_all', 'desligada', 'Apagar tudo', 'perigosa')] }
+  assert.deepEqual(acoesQueAPessoaDecide(dados).map((x) => x.nome), ['delete_all', 'create_refund', 'x_novo'])
+  assert.deepEqual(acoesQueAPessoaDecide({ ...dados, ferramentas: [f('list_orders', 'permitida')] }), [])
+  assert.equal(codigoDaRecusa(new Error('ferramenta_mudou: a ação mudou.')), 'ferramenta_mudou')
+  assert.equal(codigoDaRecusa(new Error('confirmacao_obrigatoria: confirme.')), 'confirmacao_obrigatoria')
 })
 
 test('o catálogo vem por categoria, na ordem do Hub; categoria que o Hub não conhece vai depois', () => {

@@ -20,6 +20,9 @@ pub(crate) const METHODS: &[&str] = &[
     "marketContaDesconectar",
     "marketBotContas",
     "marketBotContasDefinir",
+    "marketFerramentas",
+    "marketFerramentaLigar",
+    "marketFerramentaDesligar",
     "marketGoogleApp",
     "marketGoogleAppSalvar",
     "marketGoogleAppRemover",
@@ -143,8 +146,43 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
         }
         "marketBotContas" => contas::vinculos(store, texto(b, "botId")?)?,
         "marketBotContasDefinir" => definir_vinculo(hub, caller, b).await?,
+        "marketFerramentas" => super::ferramentas::listar(store, texto(b, "botId")?, texto(b, "conta")?)?,
+        "marketFerramentaLigar" => ligar_ferramenta(hub, caller, b)?,
+        "marketFerramentaDesligar" => desligar_ferramenta(hub, caller, b)?,
         _ => unreachable!(),
     }))
+}
+
+/// Fatia 2: a PESSOA liga uma ação perigosa (ou nova, ou alterada) de uma conta num bot, com confirmação, presa ao
+/// digest que ela viu. Só o dono, com a autoridade original reconferida na transação; o bot e o conteúdo externo
+/// nunca chegam aqui (`Caller::Ponte` não tem autoridade de controle).
+fn ligar_ferramenta(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value> {
+    crate::fork::autoridade::Autoridade::capturar(hub, caller)?;
+    let pedido = super::ferramentas::PedidoLigar {
+        bot: texto(b, "botId")?,
+        conta: texto(b, "conta")?,
+        ferramenta: texto(b, "ferramenta")?,
+        digest: texto(b, "digest")?,
+    };
+    super::ferramentas::conferir_ligar(&hub.store, &pedido, b["confirmo"] == true)?;
+    crate::fork::donna_fixa::pedido::gravar(&hub.store, |tx| super::ferramentas::gravar_liberacao(tx, &pedido))?;
+    if let Err(error) = hub.send_cmd(pedido.bot, Cmd::RefreshTools) {
+        tracing::warn!(%error, bot = pedido.bot, "ação ligada; atualização das ferramentas do bot pendente");
+    }
+    super::ferramentas::listar(&hub.store, pedido.bot, pedido.conta)
+}
+
+/// Desligar não precisa de confirmação (é o lado seguro), mas segue só do dono.
+fn desligar_ferramenta(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value> {
+    crate::fork::autoridade::Autoridade::capturar(hub, caller)?;
+    let (bot, conta, ferramenta) = (texto(b, "botId")?, texto(b, "conta")?, texto(b, "ferramenta")?);
+    crate::fork::donna_fixa::pedido::gravar(&hub.store, |tx| {
+        super::ferramentas::gravar_desligamento(tx, bot, conta, ferramenta)
+    })?;
+    if let Err(error) = hub.send_cmd(bot, Cmd::RefreshTools) {
+        tracing::warn!(%error, bot, "ação desligada; atualização das ferramentas do bot pendente");
+    }
+    super::ferramentas::listar(&hub.store, bot, conta)
 }
 
 /// Liga/desliga contas, escolhe a conta padrão e o "perguntar qual conta" de UM bot. Passa pelo caminho do dono

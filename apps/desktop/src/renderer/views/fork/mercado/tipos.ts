@@ -135,3 +135,30 @@ export interface PedidoDefinirVinculo {
   padrao?: Record<string, string | null>
   perguntar?: Record<string, boolean>
 }
+
+/**
+ * Fatia 2: as ferramentas de uma conta para um bot (`marketFerramentas`). `permitida`: passa sem liberação;
+ * `ligada`: a pessoa ligou neste bot; `desligada`: perigosa, nova ou alterada pelo fornecedor, só a pessoa liga.
+ */
+export type EstadoDaFerramenta = 'permitida' | 'ligada' | 'desligada'
+export type MotivoDaFerramenta = 'perigosa' | 'nova' | 'alterada'
+
+export interface FerramentaDaConta {
+  nome: string
+  /** O rótulo da ficha (`Reembolsar`); sem ele, a tela mostra o nome técnico. */
+  rotulo: string | null
+  estado: EstadoDaFerramenta
+  motivo: MotivoDaFerramenta | null
+  /** A impressão digital que a pessoa viu: o Hub só liga a ferramenta se ela ainda for esta. */
+  digest: string
+}
+
+export interface FerramentasDaConta {
+  botId: string
+  conta: string
+  /** `false` até o Hub ver a lista completa de ferramentas da conta (verificação ou primeiro uso). */
+  inventarioPronto: boolean
+  ferramentas: FerramentaDaConta[]
+}
+
+export interface PedidoLigarFerramenta { botId: string; conta: string; ferramenta: string; digest: string; confirmo: true }
