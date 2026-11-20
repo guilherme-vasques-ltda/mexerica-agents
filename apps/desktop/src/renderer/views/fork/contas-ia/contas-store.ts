@@ -222,8 +222,13 @@ export class ContasStore extends Observable {
   }
 
   private async reload(client: HostClient) {
+    // Mesmo contador do `load`: uma leitura começada antes não sobrescreve a lista relida aqui.
+    const read = ++this.reads
     const { accounts } = await this.api.accounts(client, {})
-    this.accounts = ordered(accounts)
+    if (read === this.reads) {
+      this.accounts = ordered(accounts)
+      this.loading = false
+    }
   }
 
   /** Um pedido por vez; conflito de revisão relê a lista para a pessoa conferir. */
@@ -238,7 +243,8 @@ export class ContasStore extends Observable {
       try {
         return await run(client)
       } catch (error) {
-        if (['account_conflict', 'account_invalid', 'account_not_found'].includes(errorCode(error) ?? '')) await this.reload(client).catch(() => {})
+        // Desconexão gravada com saída do programa não confirmada: a lista relida mostra a conta já desconectada.
+        if (['account_conflict', 'account_invalid', 'account_not_found', 'logout_failed', 'cli_unavailable'].includes(errorCode(error) ?? '')) await this.reload(client).catch(() => {})
         throw error
       }
     } finally {

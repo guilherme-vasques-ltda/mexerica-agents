@@ -316,11 +316,23 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     barreira(id, Barreira::Antes);
                     // D372 (R1): leitura final de ocupação e escrita sob o runtime retido; um preparo na conta espera
                     // o commit (e a ativação/permit/lançamento recusam a conta desconectada) ou já ocupou o runtime.
-                    let registry = hub.with_idle_engine_account(id, || {
+                    let (registry, perfil) = hub.with_idle_engine_account(id, || {
                         #[cfg(test)]
                         barreira(id, Barreira::Cerca);
                         let mut registry = Registry::load(&hub.store)?;
                         ensure!(!open || is_open_account(registry.account(id)?), "open_codex_unavailable");
+                        // Perfil isolado de conta Claude com login feito pelo programa oficial, lido antes de a
+                        // conta sair do cadastro. Sem executável gravado, nunca houve login nesta conta.
+                        let perfil = registry.account(id).ok().and_then(|account| match &account.launch {
+                            LaunchReference::CliProfile { executable, directory }
+                                if account.backend == Backend::Claude
+                                    && account.managed.is_some()
+                                    && !executable.as_os_str().is_empty() =>
+                            {
+                                Some((executable.clone(), directory.clone()))
+                            }
+                            _ => None,
+                        });
                         if remove {
                             // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
                             if registry.account(id)?.managed.is_none() {
@@ -353,10 +365,34 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             meta.revision += 1;
                             authority.persist(hub, &registry)?;
                         }
-                        Ok(registry)
+                        Ok((registry, perfil))
                     })?;
                     #[cfg(test)]
                     barreira(id, Barreira::Depois);
+                    // O cadastro já mudou: a lista relida mostra a conta desconectada mesmo se a saída falhar abaixo.
+                    accounts::invalidate();
+                    // Com a conta já desconectada ou removida (nenhum turno novo a usa), o próprio programa
+                    // oficial apaga a credencial do perfil isolado, que pode estar no chaveiro do sistema.
+                    if let Some((executable, directory)) = perfil {
+                        let saida = async {
+                            managed::validate_profile(&hub.store, id, &directory)?;
+                            ensure!(
+                                crate::fork::motor_install::executable(&executable),
+                                "cli_unavailable: a conta foi desconectada, mas o Claude Code dela não está disponível para apagar o login."
+                            );
+                            process::claude_logout(&executable, &directory).await
+                        };
+                        match saida.await {
+                            Err(error) if remove => {
+                                // A conta já saiu da lista e não há botão para tentar de novo: fica o registro.
+                                tracing::warn!(
+                                    error = format!("{error:#}"),
+                                    "login do Claude não apagado ao remover a conta"
+                                );
+                            }
+                            resultado => resultado?,
+                        }
+                    }
                     if remove { json!({}) } else { registry.dto_for(&hub.store, id)? }
                 }
                 _ => bail!("invalid_field: método de setup desconhecido."),

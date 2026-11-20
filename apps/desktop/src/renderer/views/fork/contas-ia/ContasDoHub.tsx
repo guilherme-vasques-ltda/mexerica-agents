@@ -20,7 +20,7 @@ import { ConectarConta } from './ConectarConta'
 import { contasFor, type ContasStore } from './contas-store'
 import { NovaConta } from './NovaConta'
 import { SeEstaContaAcabar } from './SeEstaContaAcabar'
-import { accountKind, accountView, botNames, engineName, engineRegistry, errorMessage, rowActions, testResult, validLabel, whenText, type AccountAction } from './regras'
+import { accountKind, accountView, viaProgramaOficial, botNames, engineName, engineRegistry, errorMessage, rowActions, testResult, validLabel, whenText, type AccountAction } from './regras'
 import { useTextosContas } from './use-textos'
 import { superficieIdioma, useIdioma } from '../../../lib/fork-i18n/estado'
 import { formatarNumero, traduzir } from '../../../lib/fork-i18n/index.ts'
@@ -181,6 +181,7 @@ function ContaLinha({ store, contas, account, local, onAction, onOpen, onChanged
           <HStack as="span" gap={6} shrink>
             <Text tone="text" weight="medium" truncate dir="auto" title={isolado(view.title)}>{view.title}</Text>
             <MarketBadge label={pending ? textos.conectando : view.state} tone={pending ? 'secondary' : view.tone} icon={pending ? undefined : view.tone === 'added' ? 'checkmark' : view.attention ? 'exclamationmark' : undefined} />
+            {viaProgramaOficial(account, kind) ? <MarketBadge label={textos.programaOficial} title={textos.programaOficialDetalhe} /> : null}
           </HStack>
           <Text size="caption" tone="secondary" truncate title={subtitle}>{subtitle}</Text>
         </VStack>
@@ -309,7 +310,9 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
             <HStack gap={8}>
               <MarketBadge label={view.state} tone={view.tone} icon={view.tone === 'added' ? 'checkmark' : view.attention ? 'exclamationmark' : undefined} />
               {view.billing ? <Text size="caption" tone="secondary">{view.billing}</Text> : null}
+              {viaProgramaOficial(account, kind) ? <MarketBadge label={textos.programaOficial} /> : null}
             </HStack>
+            {viaProgramaOficial(account, kind) ? <Text size="caption" tone="secondary">{textos.programaOficialDetalhe}</Text> : null}
             <Text tone="secondary">{managed ? view.detail : textos.perfilAntigoDetalhe}</Text>
           </VStack>
 
@@ -430,7 +433,7 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
               if (account.botIds.length) setComBots(true)
               else setConfirm('remove')
             }}>{textos.remover}</button>
-            {account.state !== 'disconnected' ? <Button kind="secondary" disabled={busy} onClick={() => setConfirm('disconnect')}>{textos.desconectar}</Button> : null}
+            {account.state !== 'disconnected' || viaProgramaOficial(account, kind) ? <Button kind="secondary" disabled={busy} onClick={() => setConfirm('disconnect')}>{textos.desconectar}</Button> : null}
             <Button kind="secondary" disabled={busy || renaming} onClick={() => { setLabel(account.label); setRenaming(true) }}>{textos.renomear}</Button>
           </>
         ) : null}

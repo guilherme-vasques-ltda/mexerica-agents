@@ -775,6 +775,18 @@ pub async fn launch_candidates(
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::launch_candidates();
     }
+    if id == "claude" && !crate::fork::claude_ponte::legado() {
+        let Some(programa) = which("claude") else {
+            return Err(acp::Failure::error(
+                acp::FailureKind::NotSetUp,
+                format!("Claude Code isn't set up on this computer. {}", harness(id).map_or("", |h| h.setup)),
+            ));
+        };
+        return Ok(vec![registry::Cmd {
+            program: crate::fork::claude_ponte::comando(Some(&programa))?,
+            args: String::new(),
+        }]);
+    }
     let mut out: Vec<registry::Cmd> = local_candidate(id).into_iter().collect();
     let h = harness(id);
     let reg_id = h.map_or(Some(id), |h| h.registry);
