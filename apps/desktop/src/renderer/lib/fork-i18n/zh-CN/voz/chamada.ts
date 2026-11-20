@@ -46,4 +46,8 @@ export const textos: Traducao<typeof fonte> = {
   "voz.chamada.falha.microfone": "无法使用麦克风：{erro}",
   "voz.chamada.falha.audioFila": "音频队列已满。",
   "voz.chamada.falha.audioFrequencia": "音频采样率无效。",
+  "voz.chamada.entrada.recusa.grupo": "语音通话只能与机器人进行，不能在频道中进行。",
+  "voz.chamada.entrada.recusa.sessao": "语音通话属于主对话。请回到主标签页后重试。",
+  "voz.chamada.entrada.recusa.senha": "此聊天中有一条粘贴密码的警告尚未处理。请先处理后再通话。",
+  "voz.chamada.entrada.recusa.indisponivel": "实时语音目前不可用。请检查“设置 → 语音”。",
 }
