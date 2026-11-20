@@ -18,10 +18,9 @@ const LABELS = ['boat-small', 'boat', 'boat-large', 'instabox-small', 'instabox-
 const RUNS_ON = new Set([
   'boat-small',
   'instabox-small',
-  '${{ needs.route.outputs.light }}',
-  '${{ needs.route.outputs.medium }}',
-  '${{ needs.route.outputs.heavy }}',
-  "${{ needs.route.outputs.light || 'instabox-small' }}",
+  "${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}",
+  "${{ github.run_attempt == 1 && needs.route.outputs.medium || 'instabox-medium' }}",
+  "${{ github.run_attempt == 1 && needs.route.outputs.heavy || 'instabox-large' }}",
 ]);
 
 test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fora', () => {

@@ -63,7 +63,7 @@ jobs:
 
   secrets:
     needs: route
-    runs-on: ${{ needs.route.outputs.light }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -98,7 +98,7 @@ jobs:
 
   vazamento:
     needs: [route, secrets]
-    runs-on: ${{ needs.route.outputs.light }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -131,7 +131,7 @@ jobs:
   # Informativo: falha de auditoria aparece no PR, mas nao entra no ci-ok.
   dependency-audit:
     needs: [route, secrets]
-    runs-on: ${{ needs.route.outputs.light }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
     timeout-minutes: 10
     continue-on-error: true
     permissions:
@@ -155,7 +155,7 @@ jobs:
 
   changes:
     needs: [route, secrets]
-    runs-on: ${{ needs.route.outputs.light }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -204,7 +204,7 @@ jobs:
 
   ferramentas-ci:
     needs: [route, secrets]
-    runs-on: ${{ needs.route.outputs.light }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -228,7 +228,7 @@ jobs:
   hub:
     needs: [route, changes]
     if: ${{ needs.changes.outputs.host == 'true' && needs.changes.outputs.heavy == 'true' }}
-    runs-on: ${{ needs.route.outputs.heavy }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.heavy || 'instabox-large' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -308,7 +308,7 @@ jobs:
   desktop:
     needs: [route, changes]
     if: ${{ needs.changes.outputs.desktop == 'true' && needs.changes.outputs.heavy == 'true' }}
-    runs-on: ${{ needs.route.outputs.medium }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.medium || 'instabox-medium' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -341,7 +341,7 @@ jobs:
     name: ci-ok
     if: ${{ always() }}
     needs: [route, secrets, vazamento, changes, ferramentas-ci, hub, desktop]
-    runs-on: ${{ needs.route.outputs.light || 'instabox-small' }}
+    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
     timeout-minutes: 5
     permissions: {}
     steps:

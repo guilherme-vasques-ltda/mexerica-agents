@@ -12,7 +12,9 @@ repositório por app do GitHub.
 2. `route` roda em `instabox-small` e lê os jobs da própria rodada (só `actions: read`).
    Se o passo "Set up runner" da sonda passar em até 60 s, a rodada usa o Boat. Se a sonda
    for recusada, ficar na fila ou o PR já estiver numa nova tentativa, a rodada usa a Instabox.
-3. Todos os outros jobs leem os rótulos publicados pelo `route`:
+3. Todos os outros jobs leem os rótulos publicados pelo `route`. Em qualquer nova tentativa
+   (inclusive "Re-run failed jobs", que não roda o `route` de novo), cada job escolhe a
+   Instabox direto, sem reaproveitar a rota Boat da primeira tentativa:
 
 | Classe | Boat | Instabox | Jobs |
 |---|---|---|---|
