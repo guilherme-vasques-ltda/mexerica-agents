@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 /// Current schema version (kv `schema`).
-const SCHEMA: i64 = 6;
+const SCHEMA: i64 = 7;
 
 /// 3: authorized devices (keys, not push tickets) with their push and Live Activity
 /// tickets. The old ticket-only `devices` table is dropped; phones re-register on connect.
@@ -16,6 +16,7 @@ const SCHEMA: i64 = 6;
 /// per-bot ones go.
 /// 5: threads merge into their chats (quote replies took their place, see [`migrate_5`]).
 /// 6: the dividers that announced a fresh agent session go; the chat no longer shows session resets.
+/// 7: a `clientNonce` is unique per conversation (see [`migrate_7`]).
 fn migrate(c: &Connection) -> Result<()> {
     let version: i64 =
         c.query_row("SELECT CAST(v AS INTEGER) FROM kv WHERE k = 'schema'", [], |r| r.get(0)).optional()?.unwrap_or(0);
@@ -31,7 +32,10 @@ fn migrate(c: &Connection) -> Result<()> {
     if version < 5 {
         migrate_5(c)?;
     }
-    migrate_6(c)
+    if version < 6 {
+        migrate_6(c)?;
+    }
+    migrate_7(c)
 }
 
 fn migrate_3(c: &Connection) -> Result<()> {
@@ -127,6 +131,26 @@ fn migrate_6(c: &Connection) -> Result<()> {
         "BEGIN;
          DELETE FROM entries WHERE kind = 'notice' AND json_extract(data, '$.style') = 'divider';
          INSERT INTO kv(k, v) VALUES('schema', '6') ON CONFLICT(k) DO UPDATE SET v = '6';
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
+/// A chave antiduplicata do envio passa a ser única por conversa. Base antiga com a mesma chave repetida conserva
+/// todas as linhas: a mais antiga fica com a chave e as seguintes a guardam em `duplicateClientNonce`, sem apagar
+/// nada nem supor que não tiveram efeito.
+fn migrate_7(c: &Connection) -> Result<()> {
+    c.execute_batch(
+        "BEGIN;
+         UPDATE entries SET data = json_set(data, '$.clientNonce', '',
+                '$.duplicateClientNonce', json_extract(data, '$.clientNonce'))
+          WHERE kind = 'user' AND json_valid(data) AND COALESCE(json_extract(data, '$.clientNonce'), '') <> ''
+            AND EXISTS(SELECT 1 FROM entries o WHERE o.kind = 'user' AND o.bot_id = entries.bot_id
+                AND o.seq < entries.seq AND json_valid(o.data)
+                AND json_extract(o.data, '$.clientNonce') = json_extract(entries.data, '$.clientNonce'));
+         CREATE UNIQUE INDEX IF NOT EXISTS entries_client_nonce ON entries(bot_id, json_extract(data, '$.clientNonce'))
+          WHERE kind = 'user' AND json_extract(data, '$.clientNonce') <> '';
+         INSERT INTO kv(k, v) VALUES('schema', '7') ON CONFLICT(k) DO UPDATE SET v = '7';
          COMMIT;",
     )?;
     Ok(())
@@ -300,10 +324,55 @@ mod tests {
         }
         let s = Store::open(&db).unwrap();
         assert!(s.devices().unwrap().is_empty());
-        assert_eq!(s.kv_get("schema").as_deref(), Some("6"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("7"));
         drop(s);
         let s = Store::open(&db).unwrap();
         assert!(s.devices().unwrap().is_empty(), "reopening keeps the new table");
+    }
+
+    #[test]
+    fn base_antiga_com_chave_repetida_conserva_todas_as_linhas_e_ganha_indice_unico() {
+        let db = temp_db();
+        Store::open(&db).unwrap();
+        {
+            let c = Connection::open(&db).unwrap();
+            c.execute_batch(
+                "DROP INDEX entries_client_nonce;
+                 UPDATE kv SET v = '6' WHERE k = 'schema';
+                 INSERT INTO entries(id, bot_id, rev, kind, turn, data, created_at, updated_at) VALUES
+                   ('a1', 'a', 1, 'user', 1, '{\"text\":\"oi\",\"clientNonce\":\"n\"}', 0, 0),
+                   ('a2', 'a', 2, 'user', 2, '{\"text\":\"oi\",\"clientNonce\":\"n\"}', 0, 0),
+                   ('a3', 'a', 3, 'user', 3, '{\"text\":\"oi de novo\",\"clientNonce\":\"n\"}', 0, 0),
+                   ('b1', 'b', 4, 'user', 1, '{\"text\":\"oi\",\"clientNonce\":\"n\"}', 0, 0),
+                   ('s1', 'a', 5, 'user', 4, '{\"text\":\"sem chave\",\"clientNonce\":\"\"}', 0, 0),
+                   ('s2', 'a', 6, 'user', 5, '{\"text\":\"sem chave\",\"clientNonce\":\"\"}', 0, 0);",
+            )
+            .unwrap();
+        }
+        let s = Store::open(&db).unwrap();
+        assert_eq!(s.kv_get("schema").as_deref(), Some("7"));
+        let nonce = |id: &str| {
+            let data = s.entry(id).unwrap().data;
+            (data["clientNonce"].as_str().unwrap().to_owned(), data["duplicateClientNonce"].as_str().map(str::to_owned))
+        };
+        assert_eq!(nonce("a1"), ("n".into(), None), "a mais antiga fica com a chave");
+        assert_eq!(nonce("a2"), (String::new(), Some("n".into())));
+        assert_eq!(nonce("a3"), (String::new(), Some("n".into())));
+        assert_eq!(nonce("b1"), ("n".into(), None), "outra conversa pode usar a mesma chave");
+        assert_eq!((nonce("s1").0, nonce("s2").0), (String::new(), String::new()));
+        assert_eq!(s.find_by_nonce("a", "n").unwrap().id, "a1");
+        let again = s.insert_entry(
+            &crate::store::Lane::main("a"),
+            crate::store::EntryKind::User,
+            6,
+            &serde_json::json!({"text":"oi","clientNonce":"n"}),
+        );
+        assert!(again.is_err(), "o índice único recusa a segunda linha com a mesma chave");
+        let c = Connection::open(&db).unwrap();
+        let rows: i64 = c
+            .query_row("SELECT COUNT(*) FROM entries WHERE id IN ('a1','a2','a3','b1','s1','s2')", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 6, "nenhuma linha apagada");
     }
 
     #[test]
@@ -323,7 +392,7 @@ mod tests {
         let s = Store::open(&db).unwrap();
         let chat: Vec<String> = s.history("b", i64::MAX, 10).unwrap().into_iter().map(|e| e.id).collect();
         assert_eq!(chat, ["info"]);
-        assert_eq!(s.kv_get("schema").as_deref(), Some("6"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("7"));
     }
 
     #[test]
@@ -393,7 +462,7 @@ mod tests {
         std::fs::copy(&wal, dir.join("copy.db-wal")).unwrap();
 
         let reopened = Store::open(&copy).unwrap();
-        assert_eq!(reopened.kv_get("schema").as_deref(), Some("6"), "migrated from the WAL's schema 5");
+        assert_eq!(reopened.kv_get("schema").as_deref(), Some("7"), "migrated from the WAL's schema 5");
         let ids: Vec<String> = reopened.history("b", i64::MAX, 10).unwrap().into_iter().map(|e| e.id).collect();
         assert_eq!(ids.len(), 1, "the divider left the chat, the message stayed: {ids:?}");
         let found = reopened.search_messages("b", &["SWIFT".to_owned(), "strict".to_owned()], None, 10).unwrap();

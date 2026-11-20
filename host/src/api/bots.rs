@@ -302,11 +302,6 @@ pub(super) async fn call(
                 bail!("empty message");
             }
             let nonce = b["clientNonce"].as_str().unwrap_or_default();
-            if !nonce.is_empty()
-                && let Some(e) = hub.store.find_by_nonce(bot, nonce)
-            {
-                return Ok(ControlFlow::Break(json!({"entry": e})));
-            }
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match b["replyTo"].as_str().filter(|id| !id.is_empty()) {
@@ -324,7 +319,12 @@ pub(super) async fn call(
             let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
-            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments});
+            // O que o reenvio com a mesma chave precisa repetir; anexos por nome e tamanho, já que cada tentativa sobe
+            // o arquivo de novo com outro id.
+            let files: Vec<Value> = attachments.iter().map(|a| json!({"name": a["name"], "size": a["size"]})).collect();
+            let intent =
+                json!({"text": text, "attachments": files, "replyTo": reply.as_ref().map(|r| r["id"].clone())});
+            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
             // A fila D72 precisa sobreviver até ao crash entre salvar a entrada e entregá-la ao ator.
             if !row.config.is_group()
@@ -352,8 +352,10 @@ pub(super) async fn call(
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let e = crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)
-                .ok_or_else(|| anyhow!("couldn't save the message"))?;
+            let e = match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
+                crate::fork::owner_question::Human::New(e) => e,
+                crate::fork::owner_question::Human::Replayed(e) => return Ok(ControlFlow::Break(json!({"entry": e}))),
+            };
             crate::fork::sessoes::api::title_first_message(hub, &lane, text);
             // Before the turn starts, so its reply lands unread.
             if let Err(error) = hub.mark_read(bot) {

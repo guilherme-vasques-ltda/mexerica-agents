@@ -235,6 +235,33 @@ impl Store {
         c.query_row(&format!("SELECT {ENTRY_COLS} FROM entries WHERE id = ?1"), [id], row_entry).optional()
     }
 
+    /// Reenvio com a mesma chave na mesma conversa: devolve a mensagem original quando a intenção é a mesma e recusa
+    /// com `nonce_intent_conflict` quando mudou. Mensagem antiga sem intenção gravada compara o texto.
+    pub(crate) fn replay_on(c: &rusqlite::Connection, chat: &str, data: &Value) -> Result<Option<Entry>> {
+        let nonce = data["clientNonce"].as_str().unwrap_or_default();
+        if nonce.is_empty() {
+            return Ok(None);
+        }
+        let Some(existing) = c
+            .query_row(
+                &format!(
+                    "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user' AND json_extract(data, '$.clientNonce') = ?2"
+                ),
+                params![chat, nonce],
+                row_entry,
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        let same = match existing.data.get("intent") {
+            Some(intent) => *intent == data["intent"],
+            None => existing.data["text"] == data["text"],
+        };
+        ensure!(same, "nonce_intent_conflict");
+        Ok(Some(existing))
+    }
+
     pub fn find_by_nonce(&self, bot_id: &str, nonce: &str) -> Option<Entry> {
         let c = self.db.locked();
         let row = c.query_row(

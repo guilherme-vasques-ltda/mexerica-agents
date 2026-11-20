@@ -20,6 +20,8 @@ import {
 } from '@shared/models'
 import { FileDownloads } from './file-downloads'
 import { ErroFrase } from '../lib/fork-i18n/erro-frase'
+import { traduzir } from '../lib/fork-i18n/index.ts'
+import { idiomaAtual } from '../lib/fork-i18n/estado.ts'
 import { BotSync, sleep } from './bot-sync'
 import type { SessionIntent } from './fork-sessions'
 import { botEditorUpdate } from '@shared/bot-autonomy'
@@ -190,6 +192,8 @@ export class BotStore extends BotSync {
         // Recusa tipada (ex.: mismatch) fica registrada como motivo, além da bolha "não enviada".
         if (error instanceof ErroFrase) this.acaoRecusada = error.frase
         if (this.outgoingFiles.has(nonce)) this.lastError = `Couldn't send the files: ${error instanceof Error ? error.message : error}`
+        // A fila cheia não cria nada no Hub: a bolha fica "não enviada", com os anexos guardados para tentar de novo.
+        if (error instanceof Error && error.message.startsWith('queue_full')) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
         this.markLocal(nonce, botId, 'failed')
       }
     })()
