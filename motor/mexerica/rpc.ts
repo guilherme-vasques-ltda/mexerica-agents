@@ -18,6 +18,7 @@ import { parseHistory } from "./src/history.ts";
 import { boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
 import { registerProviders } from "./src/providers.ts";
+import { comPrazoDeSilencio } from "./src/silencio.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
 
 type Command = { id?: string; type: string } & Record<string, unknown>;
@@ -48,8 +49,10 @@ const models = createModels({
 registerProviders(models);
 
 const hubTools = new HubTools(write);
+// Um único fetch para todos os pedidos (o cliente da Anthropic é reaproveitado enquanto o fetch é o mesmo).
+const fetchDoFornecedor = comPrazoDeSilencio((input, init) => globalThis.fetch(input, init));
 const agent = new Agent({
-	streamFn: (model, context, options) => models.streamSimple(model, context, options),
+	streamFn: (model, context, options) => models.streamSimple(model, context, { ...options, fetch: fetchDoFornecedor }),
 	toolExecution: "parallel",
 	// Os tetos da conversa valem em cada chamada ao provedor, também no meio de um turno gigante. O corte vale
 	// também para a lista do próprio laço (ela é a mesma que chega aqui), que então não cresce sem limite.

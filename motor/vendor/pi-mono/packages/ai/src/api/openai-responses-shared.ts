@@ -797,6 +797,8 @@ export async function processResponsesStream<TApi extends Api>(
 			}
 		} else if (event.type === "response.completed" || event.type === "response.incomplete") {
 			finalizeResponse(event.response);
+			// Mexerica (PATCHES.md): the terminal event ends the response; a proxy may never close the connection.
+			break;
 		} else if (event.type === "error") {
 			throw new Error(`Error Code ${event.code}: ${event.message}` || "Unknown error");
 		} else if (event.type === "response.failed") {
