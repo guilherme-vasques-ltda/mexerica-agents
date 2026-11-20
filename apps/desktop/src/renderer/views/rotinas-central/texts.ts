@@ -98,7 +98,10 @@ export const texts = {
   get filteredEmpty() { return t('rotinas.central.vazioFiltros') },
   get clearFilters() { return t('rotinas.central.limparFiltros') },
   // Lista.
-  get sections() { return { scheduled: t('rotinas.central.secao.scheduled'), onDemand: t('rotinas.central.secao.onDemand'), paused: t('rotinas.central.secao.paused') } },
+  get sections() { return { scheduled: t('rotinas.central.secao.scheduled'), manual: t('rotinas.central.secao.manual'), onDemand: t('rotinas.central.secao.onDemand'), paused: t('rotinas.central.secao.paused') } },
+  get manual() { return t('rotinas.central.manual') },
+  get manualHint() { return t('rotinas.central.manualDica') },
+  runNow: (nome: string) => t('rotinas.central.rodarAgoraNome', { nome: isolado(nome) }),
   nextRun: (quando: string) => t('rotinas.central.proxima', { quando }),
   dayAt: (dia: string, hora: string) => t('rotinas.central.diaAs', { dia, hora }),
   get noNextRun() { return t('rotinas.central.semProxima') },

@@ -184,6 +184,18 @@ const RoutinesPage = memo(function RoutinesPage() {
       setBusy(null)
     }
   }
+  const run = async (routine: OverviewRoutine) => {
+    setBusy(routine.id)
+    try {
+      await (await store.ready()).call('runRoutine', { botId: routine.botId, id: routine.id })
+      setActionError(null)
+      overview.reload()
+    } catch (e) {
+      setActionError(rawError(e))
+    } finally {
+      setBusy(null)
+    }
+  }
   const setSection = (sectionId: string) => {
     setFilters((f) => ({ ...f, sectionId, botId: f.botId === ALL || sectionId === ALL || !sectionSnapshot || inGroup(sectionSnapshot, f.botId, sectionId) ? f.botId : ALL }))
   }
@@ -301,7 +313,7 @@ const RoutinesPage = memo(function RoutinesPage() {
           ) : (
             <>
               {overview.error ? <LoadState loading={false} error={overview.error} retry={overview.reload} /> : null}
-              <RoutineList globalPause={store.isOffline ? null : pause.paused} routines={routines} runs={data.runs} bots={bots} invalid={invalid} busy={busy} disabled={disabled} onOpen={open} onToggle={(r, on) => void toggle(r, on)} copyId={copyId} copyRow={copyRow} />
+              <RoutineList globalPause={store.isOffline ? null : pause.paused} routines={routines} runs={data.runs} bots={bots} invalid={invalid} busy={busy} disabled={disabled} onOpen={open} onToggle={(r, on) => void toggle(r, on)} onRun={(r) => void run(r)} copyId={copyId} copyRow={copyRow} />
             </>
           )}
         </div>

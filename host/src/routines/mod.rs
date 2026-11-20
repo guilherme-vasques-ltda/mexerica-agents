@@ -405,6 +405,7 @@ fn duplicate_body(source: &Routine) -> Value {
         "name": format!("{} (cópia)", source.name),
         "instruction": source.instruction,
         "triggers": source.triggers,
+        "manual": source.triggers.is_empty(),
         "enabled": false,
         "timeoutSeconds": source.timeout_seconds,
         "heartbeat": source.heartbeat,
@@ -870,7 +871,7 @@ fn required<'a>(body: &'a Value, key: &str) -> Result<&'a str> {
 fn public(r: &Routine) -> Value {
     json!({"id":r.id,"botId":r.bot_id,"name":r.name,"instruction":r.instruction,"triggers":r.triggers,"enabled":r.enabled,"createdAt":r.created_at,"updatedAt":r.updated_at,
         "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"heartbeat":r.heartbeat,"heartbeatStatus":r.heartbeat_state.as_ref().map(crate::fork::heartbeat::Estado::public),"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
-        "triggerDescriptions":r.triggers.iter().map(Trigger::description).collect::<Vec<_>>(),"agenda":calendar::agenda(&r.triggers),"nextRunAt": if r.enabled {r.next_runs.iter().flatten().min().copied()} else {None}})
+        "manual":r.triggers.is_empty(),"triggerDescriptions":r.triggers.iter().map(Trigger::description).collect::<Vec<_>>(),"agenda":calendar::agenda(&r.triggers),"nextRunAt": if r.enabled {r.next_runs.iter().flatten().min().copied()} else {None}})
 }
 fn public_run(run: &Run) -> Value {
     json!({"id":run.id,"routineId":run.routine_id,"botId":run.bot_id,"status":run.status,
@@ -1084,7 +1085,7 @@ pub fn tools_for(slot: Option<&str>) -> Value {
     let mut tools = vec![
         json!({"name":"list_routines","description":"Lista as rotinas deste bot e seu histórico, com o estado atual, os motivos de interrupção já confirmados e o desfecho de cada execução (outcome: o que o bot declarou ou a falha que o Hub observou; declaração não prova efeito externo).","inputSchema":{"type":"object","properties":{}}}),
     ];
-    tools.push(json!({"name":"save_routine","description":"Create or replace a routine. Omit id to create; include id to update. triggers is an OR list. Use cron for recurring clock schedules; interval is for explicitly requested elapsed-duration semantics or existing schedules: interval {type:interval,seconds}; once {type:once,at:Unix milliseconds}; cron {type:cron,expression:five cron fields,timeZone:IANA zone}; webhook {type:webhook}; event {type:event,source:slack/github/origin/microsoftTeams/linear/sentry/pagerduty/email,event:event name or *,filters:field-to-value map}. Events require a configured webhook sender. Minimum interval is one second. D538/D544: todos os bots, inclusive o Berga, podem criar suas próprias rotinas e recordações (once), sem plugin ou concessão por bot. O bot só acessa suas tarefas, dentro do seu Space; criação dispensa pedido humano, mas gasta cota e gera aviso/cartão ao dono; edição exige pedido do dono na sessão de origem. Criação a partir de conteúdo de fora (D125) nasce pausada e o modelo não liga nem roda: só o dono libera no app. Para criar omita id (null é inválido).","inputSchema":{"type":"object","properties":{"id":id,"name":{"type":"string"},"instruction":{"type":"string"},"enabled":{"type":"boolean"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":86400},"triggers":{"type":"array","items":{"type":"object"}}},"required":["name","instruction","triggers"]}}));
+    tools.push(json!({"name":"save_routine","description":"Create or replace a routine. Omit id to create; include id to update. triggers is an OR list. Use cron for recurring clock schedules; interval is for explicitly requested elapsed-duration semantics or existing schedules: interval {type:interval,seconds}; once {type:once,at:Unix milliseconds}; cron {type:cron,expression:five cron fields,timeZone:IANA zone}; webhook {type:webhook}; event {type:event,source:slack/github/origin/microsoftTeams/linear/sentry/pagerduty/email,event:event name or *,filters:field-to-value map}. Uma rotina que só roda quando o dono manda (botão Rodar agora ou run_routine) leva manual:true e triggers vazio ou ausente; sem manual:true, lista vazia é recusada, então nunca omita os gatilhos por esquecimento. Events require a configured webhook sender. Minimum interval is one second. D538/D544: todos os bots, inclusive o Berga, podem criar suas próprias rotinas e recordações (once), sem plugin ou concessão por bot. O bot só acessa suas tarefas, dentro do seu Space; criação dispensa pedido humano, mas gasta cota e gera aviso/cartão ao dono; edição exige pedido do dono na sessão de origem. Criação a partir de conteúdo de fora (D125) nasce pausada e o modelo não liga nem roda: só o dono libera no app. Para criar omita id (null é inválido).","inputSchema":{"type":"object","properties":{"id":id,"name":{"type":"string"},"instruction":{"type":"string"},"enabled":{"type":"boolean"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":86400},"triggers":{"type":"array","items":{"type":"object"}},"manual":{"type":"boolean","description":"true só quando o dono pediu uma rotina sem horário nem gatilho, que roda apenas quando ele mandar; exige triggers vazio ou ausente."}},"required":["name","instruction"]}}));
     tools.push(json!({"name":"duplicate_routine","description":"Duplicate one of this bot's routines. Creates a disabled copy named \"<name> (cópia)\" with the same instruction, clock and event triggers; webhook triggers keep working under a fresh secret and the original keeps working. The copy never inherits runs, errors or computed schedules. Like any creation it spends quota and notifies the owner. Needs the routine id.","inputSchema":{"type":"object","properties":{"id":id},"required":["id"]}}));
     for (name, description) in [
         ("set_routine_enabled", "Pause or resume a routine; enabled boolean is required."),
@@ -1508,6 +1509,105 @@ mod tests {
         assert_eq!(trigger.next(next - 60_000).unwrap(), Some(next), "é ocorrência válida da nova agenda");
         assert_eq!(s.runs.len(), 1);
         assert!(s.runs[0].status == Status::Pending);
+    }
+
+    fn manual_body() -> Value {
+        json!({"name":"Botão","instruction":"Somente tarefa sintética","manual":true,"triggers":[]})
+    }
+
+    #[test]
+    fn manual_routine_is_saved_and_never_scheduled_even_after_reload() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let saved = routines.change(&store, |s| save_in(s, "bot", &manual_body())).unwrap();
+        assert!(matches!(saved.triggers.as_slice(), []));
+        assert!(matches!(saved.next_runs.as_slice(), []));
+        assert!(saved.enabled);
+        let listed = public(&saved);
+        assert_eq!(listed["manual"], true);
+        assert_eq!(listed["triggers"], json!([]));
+        assert_eq!(listed["agenda"], "Só quando eu mandar");
+        assert_eq!(listed["nextRunAt"], Value::Null);
+        assert!(!routines.keeps_awake());
+        routines.schedule_due(&store, i64::MAX / 2).unwrap();
+        assert!(routines.state.locked().runs.is_empty());
+        let reloaded = Routines::default();
+        reloaded.restore(&store).unwrap();
+        assert!(!reloaded.keeps_awake());
+        reloaded.schedule_due(&store, i64::MAX / 2).unwrap();
+        let state = reloaded.state.locked();
+        assert!(state.runs.is_empty());
+        assert_eq!(state.routines.len(), 1);
+        assert!(state.routines[0].triggers.is_empty() && state.routines[0].next_runs.is_empty());
+    }
+
+    #[test]
+    fn manual_routine_stays_manual_through_pause_resume_and_rename() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let id = routines.change(&store, |s| save_in(s, "bot", &manual_body())).unwrap().id;
+        routines.set_enabled(&store, "bot", &id, false).unwrap();
+        routines.set_enabled(&store, "bot", &id, true).unwrap();
+        routines.set_paused(&store, true).unwrap();
+        routines.set_paused(&store, false).unwrap();
+        let mut renamed = manual_body();
+        renamed["id"] = json!(id);
+        renamed["name"] = json!("Botão novo");
+        routines.change(&store, |s| save_in(s, "bot", &renamed)).unwrap();
+        routines.schedule_due(&store, i64::MAX / 2).unwrap();
+        let state = routines.state.locked();
+        assert_eq!(state.routines[0].name, "Botão novo");
+        assert!(matches!(state.routines[0].next_runs.as_slice(), []));
+        assert!(state.runs.is_empty());
+    }
+
+    #[test]
+    fn empty_trigger_list_is_refused_without_the_explicit_manual_intent() {
+        let refused = |body: Value| format!("{:#}", Checked::parse(&body).err().expect("deve recusar"));
+        let base = json!({"name":"Botão","instruction":"Somente tarefa sintética"});
+        let with = |extra: Value| {
+            let mut body = base.clone();
+            for (key, value) in extra.as_object().unwrap() {
+                body[key] = value.clone();
+            }
+            body
+        };
+        assert_eq!(refused(with(json!({"triggers":[]}))), "A rotina precisa de pelo menos um gatilho.");
+        assert_eq!(refused(with(json!({"triggers":[],"manual":false}))), "A rotina precisa de pelo menos um gatilho.");
+        assert_eq!(refused(with(json!({"triggers":[],"manual":"true"}))), "A rotina precisa de pelo menos um gatilho.");
+        assert!(refused(base.clone()).contains("invalid triggers"));
+        assert_eq!(refused(with(json!({"schedule":{"kind":"keep"}}))), "A rotina precisa de pelo menos um gatilho.");
+        assert!(
+            refused(with(json!({"manual":true,"triggers":[{"type":"webhook"}]})))
+                .contains("não tem horário nem gatilho")
+        );
+        assert!(matches!(Checked::parse(&with(json!({"manual":true}))).unwrap().triggers.as_slice(), []));
+        assert!(matches!(
+            Checked::parse(&with(json!({"schedule":{"kind":"manual"}}))).unwrap().triggers.as_slice(),
+            []
+        ));
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let error = routines.change(&store, |s| save_in(s, "bot", &with(json!({"triggers":[]})))).err().unwrap();
+        assert!(format!("{error:#}").contains("pelo menos um gatilho"));
+        assert!(routines.state.locked().routines.is_empty());
+    }
+
+    #[test]
+    fn manual_routine_can_become_scheduled_and_back_and_duplicates_as_manual() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let id = routines.change(&store, |s| save_in(s, "bot", &manual_body())).unwrap().id;
+        let scheduled = json!({"id":id,"name":"Botão","instruction":"Somente tarefa sintética","triggers":[{"type":"interval","seconds":60}]});
+        let saved = routines.change(&store, |s| save_in(s, "bot", &scheduled)).unwrap();
+        assert!(saved.next_runs[0].is_some());
+        assert_eq!(public(&saved)["manual"], false);
+        let mut back = manual_body();
+        back["id"] = json!(id);
+        let saved = routines.change(&store, |s| save_in(s, "bot", &back)).unwrap();
+        assert!(matches!(saved.next_runs.as_slice(), []));
+        let copy = routines.change(&store, |s| duplicate_in(s, "bot", &id)).unwrap();
+        assert!(copy.triggers.is_empty() && copy.next_runs.is_empty() && !copy.enabled);
     }
 }
 

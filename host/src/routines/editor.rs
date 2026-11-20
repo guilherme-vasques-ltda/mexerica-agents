@@ -47,11 +47,16 @@ impl Default for ScheduleDraft {
 }
 
 impl ScheduleDraft {
-    fn hydrate(triggers: &[Trigger], zone: String, now: i64) -> Self {
+    /// `kind` de uma rotina só quando o dono manda: sem gatilho algum.
+    pub const MANUAL: &'static str = "manual";
+
+    fn hydrate(triggers: &[Trigger], zone: String, now: i64, manual: bool) -> Self {
         let mut draft = Self { original: triggers.to_owned(), zone, at: now + 3_600_000, ..Self::default() };
         let [trigger] = triggers else {
             if !triggers.is_empty() {
                 draft.kind = "keep".into();
+            } else if manual {
+                draft.kind = Self::MANUAL.into();
             }
             return draft;
         };
@@ -136,6 +141,7 @@ impl ScheduleDraft {
     pub fn triggers(&self) -> Result<Vec<Trigger>> {
         Ok(match self.kind.as_str() {
             "keep" => self.original.clone(),
+            Self::MANUAL => Vec::new(),
             "interval" => {
                 let amount = self.amount.parse::<i64>().context("enter a whole number for the interval")?;
                 if amount <= 0 || ![1, 60, 3600, 86400].contains(&self.unit) {
@@ -203,13 +209,19 @@ pub fn preview(body: &Value, now: i64) -> Result<Value> {
             &serde_json::from_value::<Vec<Trigger>>(triggers)?,
             body["timeZone"].as_str().unwrap_or("UTC").into(),
             now,
+            body["manual"] == true,
         )
     };
     let triggers = draft.triggers()?;
     // Dado já salvo nunca erra: o rascunho volta como foi salvo, e repetido e teto só
-    // a gravação nova recusa (Checked::parse). Vazio não é dado salvo.
+    // a gravação nova recusa (Checked::parse). Vazio só vale quando o rascunho é manual.
     if triggers.is_empty() {
-        bail!("A rotina precisa de pelo menos um gatilho.");
+        if draft.kind != ScheduleDraft::MANUAL {
+            bail!("{}", super::check::NO_TRIGGER);
+        }
+        return Ok(
+            json!({"draft":draft,"triggers":triggers,"summary":"Only when you run it","nextRunAt":null,"warning":null}),
+        );
     }
     for trigger in &triggers {
         // Existing expired one-shots may be edited without changing their date.
@@ -349,5 +361,18 @@ mod tests {
         ] {
             assert!(preview(&json!({"draft":draft}), NOW).is_err());
         }
+    }
+
+    #[test]
+    fn manual_draft_previews_with_no_triggers_and_no_next_run() {
+        let result = preview(&json!({"draft":{"kind":"manual"}}), NOW).unwrap();
+        assert_eq!(result["triggers"], json!([]));
+        assert_eq!(result["nextRunAt"], Value::Null);
+        let reread = preview(&json!({"triggers":[],"manual":true}), NOW).unwrap();
+        assert_eq!(reread["draft"]["kind"], "manual");
+        let empty = preview(&json!({"draft":{"kind":"keep"}}), NOW);
+        assert!(empty.is_err(), "sem a intenção, vazio continua recusado");
+        let schedule = json!({"type":"cron","expression":"0 9 * * *","timeZone":"UTC"});
+        assert_eq!(preview(&json!({"triggers":[schedule]}), NOW).unwrap()["triggers"][0]["expression"], "0 9 * * *");
     }
 }

@@ -6,7 +6,7 @@ import { HStack, Spacer, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useScreenViewed } from '../../store/analytics'
 import { useStore } from '../../store/context'
-import { errorText, rawError, isActiveRun, type Routine, type RoutineListing, type RoutineRun } from './routine'
+import { errorText, rawError, isActiveRun, isManual, type Routine, type RoutineListing, type RoutineRun } from './routine'
 import { awaitingRelease } from './routine-duplicate'
 import { outcomeLabel, runOutcomeText } from './run-outcome'
 import { RoutineEditorView } from './RoutineEditorView'
@@ -39,6 +39,7 @@ export function routineLine(routine: Routine, runs: RoutineRun[], idioma: AppLan
     return { text: t('rotinas.painel.ultima', { estado: outcome.label.toLocaleLowerCase(localeDe(idioma)) }), detail: outcome.sentence ? outcomeLabel(outcome) : undefined }
   }
   if (awaitingRelease(routine)) return { text: t('rotinas.central.aguardaLiberacao') }
+  if (isManual(routine)) return { text: t('rotinas.central.manual') }
   return { text: routine.triggerDescriptions.join(' · ') }
 }
 
@@ -171,6 +172,7 @@ export function RoutinesView({ botId, initialId, onClose, previewLimit }: { botI
                 })()}
               </button>
               <HStack as="span" align="stretch" aria-label={routine.name}>
+                {isManual(routine) && routine.enabled ? <IconButton title={t('rotinas.central.rodarAgoraNome', { nome: routine.name })} icon="play.circle" disabled={busy || store.isOffline} onClick={() => void action('runRoutine', routine)} /> : null}
                 <Switch label={t('rotinas.painel.ativar', { nome: routine.name })} on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
               </HStack>
             </HStack>

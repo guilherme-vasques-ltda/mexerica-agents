@@ -68,32 +68,34 @@ export function LoadState({ loading, error, retry }: { loading: boolean; error: 
 }
 
 /** Rotinas sem horário (webhook/evento) e as frequentes demais para a grade, acima do calendário. */
-export function OnDemandBand({ onDemand, frequent, bots, onOpen }: {
+export function OnDemandBand({ onDemand, manual, frequent, bots, onOpen }: {
   onDemand: OverviewRoutine[]
+  manual: OverviewRoutine[]
   frequent: OverviewRoutine[]
   bots: Map<string, Bot>
   onOpen: (routine: OverviewRoutine) => void
 }) {
-  if (!onDemand.length && !frequent.length) return null
+  if (!onDemand.length && !manual.length && !frequent.length) return null
   const chips = (routines: OverviewRoutine[], icon: string) =>
     routines.map((routine) => (
       <button
         key={routine.id}
         className={`rc-chip ${routine.enabled ? '' : 'paused'}`}
         style={botStyle(bots.get(routine.botId))}
-        title={routine.summary}
-        aria-label={`${routine.name}, ${botName(bots, routine.botId)}, ${routine.summary}${routine.enabled ? '' : `, ${awaitingRelease(routine) ? texts.awaitingRelease : texts.paused}`}${runsOnName(routine.runsOn) ? `, ${texts.runsOnLabel(runsOnName(routine.runsOn)!)}` : ''}`}
+        title={manual.includes(routine) ? texts.manual : routine.summary}
+        aria-label={`${routine.name}, ${botName(bots, routine.botId)}, ${manual.includes(routine) ? texts.manual : routine.summary}${routine.enabled ? '' : `, ${awaitingRelease(routine) ? texts.awaitingRelease : texts.paused}`}${runsOnName(routine.runsOn) ? `, ${texts.runsOnLabel(runsOnName(routine.runsOn)!)}` : ''}`}
         onClick={() => onOpen(routine)}
       >
         <Icon name={icon} size={10} />
         <span className="rc-chip-name" dir="auto">{routine.name}</span>
         <RunsOnBadge runsOn={routine.runsOn} compact />
-        <span className="rc-chip-detail"><bdi dir="auto">{botName(bots, routine.botId)}</bdi> · {routine.summary}</span>
+        <span className="rc-chip-detail"><bdi dir="auto">{botName(bots, routine.botId)}</bdi> · {manual.includes(routine) ? texts.manual : routine.summary}</span>
       </button>
     ))
   return (
     <div className="rc-band">
       {onDemand.length ? <BandRow label={texts.onDemand} hint={texts.onDemandHint}>{chips(onDemand, 'link')}</BandRow> : null}
+      {manual.length ? <BandRow label={texts.manual} hint={texts.manualHint}>{chips(manual, 'play.circle')}</BandRow> : null}
       {frequent.length ? <BandRow label={texts.frequent} hint={texts.frequentHint}>{chips(frequent, 'clock.arrow.circlepath')}</BandRow> : null}
     </div>
   )
