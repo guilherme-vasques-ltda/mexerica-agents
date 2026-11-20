@@ -131,27 +131,28 @@ function subscribeOutcome(result: ForkCloudCallResult, body: unknown): 'confirme
 class HubSwitch {
   private busy = false
   private blocked = false
-  private owner: { sender: unknown; frame: unknown } | null = null
+  private owner: { sender: unknown; frame: unknown; document: number } | null = null
   /** Sessão da inscrição confirmada. */
   session: string | null = null
   /** Ordem de chegada marcada na última troca: quadro com ordem menor veio de uma inscrição que já pode ter sido trocada. */
   since = 0
   get open() { return !this.busy && !this.blocked && this.session !== null && this.owner !== null }
-  ownedBy(sender: unknown, frame: unknown) { return this.owner !== null && this.owner.sender === sender && this.owner.frame === frame }
+  /** `document` é a geração do documento na janela: o Electron pode reaproveitar o objeto do frame ao trocar de documento. */
+  ownedBy(sender: unknown, frame: unknown, document: number) { return this.owner !== null && this.owner.sender === sender && this.owner.frame === frame && this.owner.document === document }
   begin(mark: number): boolean {
     if (this.busy) return false
     this.busy = true
     this.since = mark
     return true
   }
-  settle(outcome: 'confirmed' | 'refused' | 'uncertain', session: string, mark: number, sender: unknown, frame: unknown) {
+  settle(outcome: 'confirmed' | 'refused' | 'uncertain', session: string, mark: number, sender: unknown, frame: unknown, document: number) {
     this.busy = false
     if (outcome === 'uncertain') this.blocked = true
     if (outcome !== 'confirmed') return
     this.session = session
     this.blocked = false
     this.since = mark
-    this.owner = { sender, frame }
+    this.owner = { sender, frame, document }
   }
 }
 
@@ -165,11 +166,16 @@ class DispatchedFrames {
   private readonly hub: () => HubSwitch | null
   private readonly sender: unknown
   private readonly frame: unknown
-  constructor(hub: () => HubSwitch | null, sender: unknown, frame: unknown) { this.hub = hub; this.sender = sender; this.frame = frame }
+  private readonly document: () => number
+  constructor(hub: () => HubSwitch | null, sender: unknown, frame: unknown, document: () => number) { this.hub = hub; this.sender = sender; this.frame = frame; this.document = document }
   private key(frame: InputFrame) { return JSON.stringify([frame.session, frame.target, frame.targetGeneration, frame.sequence]) }
-  private valid(frame: InputFrame, arrival: FrameArrival) {
+  /** O quadro pode ir a esta janela: ela é a dona da inscrição confirmada, o quadro é da sessão confirmada e chegou depois da última troca. */
+  mayReceive(frame: InputFrame, arrival: FrameArrival) {
     const hub = this.hub()
-    return hub !== null && hub.open && hub.ownedBy(this.sender, this.frame) && frame.session === hub.session && arrival.order > hub.since && performance.now() - arrival.at <= STALE_AFTER_MS
+    return hub !== null && hub.open && hub.ownedBy(this.sender, this.frame, this.document()) && frame.session === hub.session && arrival.order > hub.since
+  }
+  private valid(frame: InputFrame, arrival: FrameArrival) {
+    return this.mayReceive(frame, arrival) && performance.now() - arrival.at <= STALE_AFTER_MS
   }
   record(frame: InputFrame, arrival: FrameArrival) {
     if (!this.valid(frame, arrival)) return
@@ -706,6 +712,15 @@ export function registerForkCloudService(account: AccountService, factory: Facto
   const frames = new Map<string, FrameEntry>()
   // Um estado só, da conexão atual e válida: id desconhecido nunca cria estado nem desaloja o da conexão ativa.
   let authority: { connectionId: string; hub: HubSwitch } | null = null
+  // Geração do documento de cada janela: a troca de documento da janela principal a avança (o objeto do frame pode ser reaproveitado).
+  const documents = new WeakMap<object, number>()
+  const watched = new WeakSet<object>()
+  const documentOf = (sender: object) => documents.get(sender) ?? 0
+  const watchDocument = (sender: IpcMainEvent['sender']) => {
+    if (watched.has(sender)) return
+    watched.add(sender)
+    sender.on('did-start-navigation', (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) documents.set(sender, documentOf(sender) + 1) })
+  }
   const authorityOf = (connectionId: string): HubSwitch | null => {
     if (!service.dataConnection(connectionId)) return null
     if (authority?.connectionId !== connectionId) authority = { connectionId, hub: new HubSwitch() }
@@ -768,16 +783,18 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     if (typeof method === 'string' && method.startsWith('browserStream')) {
       if (typeof connectionId !== 'string' || mine().length === 0) return { kind: 'notSent', reason: 'notReady' }
       hub = authorityOf(connectionId)
-      if (!hub || (method !== 'browserStreamSubscribe' && !(hub.open && hub.ownedBy(event.sender, frame)))) return { kind: 'notSent', reason: 'notReady' }
+      if (!hub || (method !== 'browserStreamSubscribe' && !(hub.open && hub.ownedBy(event.sender, frame, documentOf(event.sender))))) return { kind: 'notSent', reason: 'notReady' }
     }
     const subscribing = method === 'browserStreamSubscribe' && hub !== null
     // Uma troca de inscrição por vez na conexão.
     if (subscribing && !hub!.begin(service.markOrder())) return { kind: 'notSent', reason: 'notReady' }
+    const document = documentOf(event.sender)
     let result: ForkCloudCallResult = { kind: 'unknown', reason: 'closed' }
     try {
       result = await service.call(connectionId, method, body, args[3], method === 'browserStreamInput' ? input => mine().some(entry => entry.proof.fresh(input)) : undefined)
     } finally {
-      if (subscribing) hub!.settle(subscribeOutcome(result, body), subscribeSession(body), service.markOrder(), event.sender, frame)
+      // Se o documento mudou durante a troca, o Hub trocou a inscrição mas ninguém a herda: fica bloqueado até uma confirmação nova.
+      if (subscribing) { const outcome = subscribeOutcome(result, body); hub!.settle(outcome === 'confirmed' && documentOf(event.sender) !== document ? 'uncertain' : outcome, subscribeSession(body), service.markOrder(), event.sender, frame, document) }
     }
     if (!live(event) || event.senderFrame !== frame) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
@@ -824,10 +841,20 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const changed = () => endFrames(mapKey, null, false)
     // Só a troca de documento da janela principal encerra: âncora (mesmo documento) e subquadro não mexem na tela aberta.
     const navigated = (details?: { isMainFrame?: boolean; isSameDocument?: boolean }) => { if (details?.isMainFrame !== false && details?.isSameDocument !== true) changed() }
+    watchDocument(event.sender)
     event.sender.on('did-start-navigation', navigated); event.sender.once('destroyed', changed)
     const cleanup = () => { event.sender.removeListener('did-start-navigation', navigated); event.sender.removeListener('destroyed', changed) }
-    const gate = createFrameGate<BrowserFrame>((value, waited) => { if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false); event.sender.send('forkCloud:frames:data', id, value, waited); const arrival = service.frameArrival(value); if (arrival !== undefined) entry.proof.record({ session: value.session, target: value.target, targetGeneration: value.targetGeneration, sequence: value.sequence }, arrival) })
-    const entry: FrameEntry = { event, connectionId, sub: null, proof: new DispatchedFrames(() => authorityOf(connectionId), event.sender, event.senderFrame), gate, cleanup }
+    // O quadro só vai a esta janela se ela é a dona da inscrição confirmada e o quadro é da sessão confirmada; senão é descartado
+    // (e a fila segue), porque negar a prova de clique não protege uma imagem já entregue.
+    const gate = createFrameGate<BrowserFrame>((value, waited) => {
+      if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false)
+      const arrival = service.frameArrival(value)
+      const identity = { session: value.session, target: value.target, targetGeneration: value.targetGeneration, sequence: value.sequence }
+      if (arrival === undefined || !entry.proof.mayReceive(identity, arrival)) return gate.consumed()
+      event.sender.send('forkCloud:frames:data', id, value, waited)
+      entry.proof.record(identity, arrival)
+    })
+    const entry: FrameEntry = { event, connectionId, sub: null, proof: new DispatchedFrames(() => authorityOf(connectionId), event.sender, event.senderFrame, () => documentOf(event.sender)), gate, cleanup }
     frames.set(mapKey, entry)
     entry.sub = service.subscribeFrames(connectionId, { onFrame: value => gate.offer(value), onEnd: error => endFrames(mapKey, error, true) })
     if (entry.sub) { if (live(event)) event.sender.send('forkCloud:frames:opened', id); return }

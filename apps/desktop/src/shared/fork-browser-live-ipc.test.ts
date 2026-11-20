@@ -37,12 +37,13 @@ function montar() {
   /** Milissegundos que o IPC leva: os quadros (processo principal → tela) e cada envio de clique (tela → processo principal), pela ordem do envio desde o começo do teste. */
   const atraso = { quadro: 0, clique: [] as number[] }
   const navegacao: Listener[] = []
+  const enviados = { n: 0 }
   const frame = { url }
   const sender = {
     id: 1, mainFrame: frame, isDestroyed: () => false, once() {}, removeListener() {},
     on: (canal: string, cb: Listener) => { if (canal === 'did-start-navigation') navegacao.push(cb) },
     send: (canal: string, ...args: unknown[]) => {
-      if (canal === 'forkCloud:frames:data') passa(atraso.quadro)
+      if (canal === 'forkCloud:frames:data') { enviados.n += 1; passa(atraso.quadro) }
       for (const cb of ouvintesTela.get(canal) ?? []) cb({}, ...args)
     },
   }
@@ -111,7 +112,7 @@ function montar() {
   const vistos: BrowserFrame[] = []
   sessao.subscribe({ onState: () => {}, onFrame: (f) => vistos.push(f) })
   return {
-    passa, atraso, sessao, ponte, hub, conexao,
+    passa, atraso, sessao, ponte, hub, conexao, vistos, enviados,
     janelaDois: { abrirQuadros: () => { ouvintesMain.get('forkCloud:frames:open')!(outroEvento, 'f'.repeat(32), connectionId); return true } },
     abrirQuadrosEm: (id: string, conexaoId: string) => ouvintesMain.get('forkCloud:frames:open')!(evento, id, conexaoId),
     ponte2: (conexaoId: string, m: string, b: unknown) => handles.get('forkCloud:call')!(evento, conexaoId, m, b, 5000) as Promise<ForkCloudCallResult>,
@@ -340,7 +341,9 @@ test('durante a troca da inscrição, e depois de um resultado incerto, nenhum q
 
   const a = inscrever()
   await settle()
-  await r.quadro(2)
+  r.chega(quadro(2))
+  await settle()
+  assert.equal(r.vistos.at(-1)?.sequence, 1, 'durante a troca a tela não recebe o quadro da inscrição que está sendo trocada')
   assert.equal((await cita(r, { frameSequence: 2 })).kind, 'notSent', 'durante a troca: quadro da inscrição anterior não autoriza')
   assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent', 'durante a troca: nenhum comando sai')
   respostas[0]!(confirmada)
@@ -353,7 +356,9 @@ test('durante a troca da inscrição, e depois de um resultado incerto, nenhum q
   await settle()
   respostas[1]!({ kind: 'unknown', reason: 'timeout' })
   assert.equal((await incerta).kind, 'unknown')
-  await r.quadro(4)
+  r.chega(quadro(4))
+  await settle()
+  assert.equal(r.vistos.at(-1)?.sequence, 3, 'resultado incerto: a tela também não recebe')
   assert.equal((await cita(r, { frameSequence: 4 })).kind, 'notSent', 'resultado incerto mantém o bloqueio')
   assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent')
 
@@ -412,4 +417,42 @@ test('recusa explícita do Hub na troca não derruba a inscrição anterior: ela
   assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'err')
   await r.quadro(2)
   assert.equal((await cita(r, { frameSequence: 2 })).kind, 'ok')
+})
+
+test('outra janela não recebe os quadros da inscrição anterior antes de confirmar a própria', async () => {
+  const r = await comPessoa()
+  r.sessao.pause()
+  r.janelaDois.abrirQuadros()
+  const antes = r.enviados.n
+  r.hubManda(quadro(2))
+  await settle()
+  assert.equal(r.enviados.n, antes, 'o JPEG da sessão ativa no Hub não vai à janela que ainda não é a dona')
+  r.hub.browserStreamSubscribe = (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } })
+  assert.equal((await r.outraJanela('browserStreamSubscribe', { session: 's2', target: 'aba1' })).kind, 'ok')
+  r.hubManda({ ...quadro(3), session: 's2' })
+  await settle()
+  assert.equal(r.enviados.n, antes + 1, 'confirmada a própria inscrição, recebe os quadros dela')
+})
+
+test('a posse não sobrevive à troca de documento, mesmo com o mesmo objeto de frame, e confirmação tardia não a transfere', async () => {
+  const r = await comPessoa()
+  const comando = { controller: 'agent' }
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok')
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.abrirQuadrosEm('c'.repeat(32), connectionId)
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'documento novo, mesmo frame: não herda a posse')
+
+  const respostas: ((v: ForkCloudCallResult) => void)[] = []
+  r.hub.browserStreamSubscribe = () => new Promise((resolve) => respostas.push(resolve))
+  const inscricao = r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
+  await settle()
+  r.navegar({ isMainFrame: true, isSameDocument: false })
+  r.abrirQuadrosEm('d'.repeat(32), connectionId)
+  respostas[0]!({ kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } })
+  await inscricao
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'notSent', 'a confirmação chegou depois da troca de documento: ninguém herda')
+
+  r.hub.browserStreamSubscribe = (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } })
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok')
+  assert.equal((await r.ponte.call('browserStreamControl', comando, 5000)).kind, 'ok', 'controle: inscrevendo e confirmando no documento novo, comanda')
 })
