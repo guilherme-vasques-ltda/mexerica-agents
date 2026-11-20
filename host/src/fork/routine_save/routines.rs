@@ -29,16 +29,25 @@ pub(super) fn ensure_no_model_release(before: &State, after: &State) -> Result<(
     Ok(())
 }
 
-/// Heartbeat: o modelo não declara, não altera, não remove nem liga uma checagem silenciosa; isso é gesto do dono no app.
+/// Heartbeat: o modelo não declara, não altera (declaração, horário, tempo limite), não apaga nem liga uma checagem
+/// silenciosa; isso é gesto do dono no app. Pausar é permitido.
 pub(super) fn ensure_no_model_heartbeat(before: &State, after: &State) -> Result<()> {
-    for routine in after.routines.iter().filter(|r| !r.deleted) {
-        let old = before.routines.iter().find(|old| old.id == routine.id && old.bot_id == routine.bot_id);
-        let unchanged = match (&routine.heartbeat, old.and_then(|old| old.heartbeat.as_ref())) {
-            (None, None) => true,
-            (Some(now), Some(was)) => now == was && old.is_some_and(|old| old.enabled || !routine.enabled),
-            _ => false,
-        };
-        anyhow::ensure!(unchanged, crate::fork::heartbeat::SO_O_DONO);
+    let same = |a: &super::Routine, b: &super::Routine| a.id == b.id && a.bot_id == b.bot_id;
+    for old in before.routines.iter().filter(|old| old.heartbeat.is_some() && !old.deleted) {
+        let kept = after.routines.iter().find(|r| same(r, old)).is_some_and(|r| {
+            !r.deleted
+                && r.heartbeat == old.heartbeat
+                && r.triggers == old.triggers
+                && r.timeout_seconds == old.timeout_seconds
+                && (old.enabled || !r.enabled)
+        });
+        anyhow::ensure!(kept, crate::fork::heartbeat::SO_O_DONO);
+    }
+    for routine in after.routines.iter().filter(|r| !r.deleted && r.heartbeat.is_some()) {
+        anyhow::ensure!(
+            before.routines.iter().any(|old| same(old, routine) && old.heartbeat.is_some()),
+            crate::fork::heartbeat::SO_O_DONO
+        );
     }
     Ok(())
 }
@@ -266,7 +275,11 @@ impl Routines {
         // até o commit. Retry devolve a cópia já criada; sem TOCTOU com edição.
         let source = if replay.is_none() {
             match body.get("duplicateOf").and_then(Value::as_str) {
-                Some(source_id) => Some(duplicate_source(&next, &cfg.id, source_id)?),
+                Some(source_id) => {
+                    let found = duplicate_source(&next, &cfg.id, source_id)?;
+                    anyhow::ensure!(found.heartbeat.is_none(), crate::fork::heartbeat::SO_O_DONO);
+                    Some(found)
+                }
                 None => None,
             }
         } else {

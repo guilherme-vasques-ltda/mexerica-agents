@@ -9,7 +9,8 @@ pub(crate) const MAX_ITENS: usize = 1000;
 const FALHAS_ATE_ALERTA: u32 = 3;
 const RECUO_MAX_S: u64 = 6 * 3600;
 const MAX_TEXTO: usize = 160;
-const MAX_NO_AVISO: usize = 5;
+/// Pendências novas mostradas por aviso. As que não couberem ficam como novas e saem no aviso seguinte.
+pub(crate) const MAX_NO_AVISO: usize = 5;
 
 /// O que o dono lê: o fato e a escolha de cada pendência nova, ou a falha que pede atenção.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,12 +35,15 @@ pub(crate) fn pode_checar(estado: &Estado, declaracao: &Declaracao, agora: i64) 
 
 pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Estado, agora: i64) -> Saida {
     let marcador = match fonte.marcador(&declaracao.escopo) {
-        Ok(marcador) => marcador,
+        Ok(marcador) => marcador.map(|bruto| resumir(&[&bruto])),
         Err(motivo) => return falha(declaracao, anterior, motivo, agora),
     };
-    if marcador.is_some() && marcador == anterior.marcador {
+    // Marcador igual dispensa a leitura, a menos que ainda haja pendência por avisar (aviso limitado a
+    // `MAX_NO_AVISO` por vez): sem isso, o resto nunca chegaria ao dono.
+    if marcador.is_some() && marcador == anterior.marcador && anterior.restantes == 0 {
         let mut estado = anterior.clone();
         estado.falhas_seguidas = 0;
+        estado.ultimo_motivo = None;
         estado.nao_antes = 0;
         estado.ultima = Some(UltimaChecagem {
             em: agora,
@@ -60,8 +64,12 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
         .filter(|item| declaracao.criterio.estados.contains(&item.estado.trim().to_lowercase()))
         .map(|item| (impressao(item), item))
         .collect();
-    let novas: Vec<&Item> =
-        abertas.iter().filter(|(impressao, _)| !anterior.avisadas.contains(impressao)).map(|(_, item)| *item).collect();
+    let novas: Vec<(&String, &Item)> = abertas
+        .iter()
+        .filter(|(impressao, _)| !anterior.avisadas.contains(*impressao))
+        .map(|(i, item)| (i, *item))
+        .collect();
+    let mostradas = &novas[..novas.len().min(MAX_NO_AVISO)];
     let resultado = if !novas.is_empty() {
         Resultado::DecisaoPendente
     } else if mudou {
@@ -69,54 +77,74 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
     } else {
         Resultado::SemMudanca
     };
+    // Só vira «avisada» a pendência que o dono de fato leu neste aviso.
+    let mut avisadas: Vec<String> = anterior.avisadas.iter().filter(|i| abertas.contains_key(*i)).cloned().collect();
+    avisadas.extend(mostradas.iter().map(|(impressao, _)| (*impressao).clone()));
+    avisadas.sort();
     let estado = Estado {
         marcador,
         assinatura: Some(assinatura),
-        avisadas: abertas.keys().cloned().collect(),
+        avisadas,
         ultima: Some(UltimaChecagem { em: agora, resultado, abertas: abertas.len() }),
         falhas_seguidas: 0,
+        ultimo_motivo: None,
         nao_antes: 0,
+        restantes: novas.len() - mostradas.len(),
     };
     let aviso = (!novas.is_empty()).then(|| Aviso::Decisao {
-        itens: novas.iter().take(MAX_NO_AVISO).map(|item| (limpar(&item.fato), limpar(&item.escolha))).collect(),
-        alem: novas.len().saturating_sub(MAX_NO_AVISO),
+        itens: mostradas.iter().map(|(_, item)| (limpar(&item.fato), limpar(&item.escolha))).collect(),
+        alem: novas.len() - mostradas.len(),
     });
     Saida { resultado, estado, aviso }
 }
 
 /// A fonte falhou: nada do que se sabia muda (marcador, assinatura e pendências avisadas ficam como estavam), o
-/// contador sobe e a próxima consulta recua. Só avisa quando a falha pede ação, ou quando persiste.
+/// contador sobe e a próxima consulta recua. Avisa quando a falha pede ação e é nova (primeira da sequência ou
+/// de outro motivo), ou quando uma falha passageira persiste por `FALHAS_ATE_ALERTA` checagens.
 fn falha(declaracao: &Declaracao, anterior: &Estado, motivo: Motivo, agora: i64) -> Saida {
     let falhas = anterior.falhas_seguidas.saturating_add(1);
     let base = declaracao.intervalo_minimo_s;
-    let segundos = base.saturating_mul(1 << falhas.saturating_sub(1).min(6)).min(RECUO_MAX_S).max(base);
+    let segundos = base.saturating_mul(1 << falhas.saturating_sub(1).min(6)).min(RECUO_MAX_S.max(base));
     let milis = i64::try_from(segundos.saturating_mul(1000)).unwrap_or(i64::MAX);
     let mut estado = anterior.clone();
     estado.falhas_seguidas = falhas;
+    estado.ultimo_motivo = Some(motivo);
     estado.nao_antes = agora.saturating_add(milis);
     estado.ultima = Some(UltimaChecagem {
         em: agora,
         resultado: Resultado::FonteIndisponivel,
         abertas: anterior.ultima.map_or(0, |u| u.abertas),
     });
-    let alertar = if motivo.exige_acao() { falhas == 1 } else { falhas == FALHAS_ATE_ALERTA };
+    let ja_avisada_por_acao = anterior.ultimo_motivo.is_some_and(Motivo::exige_acao);
+    let alertar = if motivo.exige_acao() {
+        anterior.ultimo_motivo != Some(motivo)
+    } else {
+        falhas == FALHAS_ATE_ALERTA && !ja_avisada_por_acao
+    };
     Saida { resultado: Resultado::FonteIndisponivel, estado, aviso: alertar.then_some(Aviso::Falha { motivo }) }
 }
 
 fn assinar(itens: &[Item]) -> String {
-    let mut linhas: Vec<String> = itens.iter().map(|i| format!("{}\0{}\0{}", i.id, i.versao, i.estado)).collect();
+    let mut linhas: Vec<String> = itens.iter().map(|i| resumir(&[&i.id, &i.versao, &i.estado])).collect();
     linhas.sort();
-    hex(&Sha256::digest(linhas.join("\n").as_bytes()))
+    resumir(&linhas.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
 /// Identifica uma pendência pelo item e pelo estado, não pelo conteúdo: o mesmo pedido aberto não vira aviso novo
 /// só porque o texto mudou; ele volta a ser novo se sair da fonte e reaparecer.
 fn impressao(item: &Item) -> String {
-    hex(&Sha256::digest(format!("{}\0{}", item.id, item.estado.trim().to_lowercase()).as_bytes()))[..32].to_owned()
+    resumir(&[&item.id, &item.estado.trim().to_lowercase()])[..32].to_owned()
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut texto, byte| {
+/// Resumo SHA-256 de uma lista de campos, cada um precedido do seu tamanho: campos diferentes nunca dão a mesma
+/// sequência de bytes, qualquer que seja o conteúdo. A fonte não controla o que fica guardado.
+pub(super) fn resumir(campos: &[&str]) -> String {
+    let mut sha = Sha256::new();
+    for campo in campos {
+        sha.update((campo.len() as u64).to_le_bytes());
+        sha.update(campo.as_bytes());
+    }
+    sha.finalize().iter().fold(String::new(), |mut texto, byte| {
         let _ = write!(texto, "{byte:02x}");
         texto
     })

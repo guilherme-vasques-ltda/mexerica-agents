@@ -320,6 +320,7 @@ impl Routines {
             !state.paused
                 && state.routines.iter().any(|r| {
                     r.creation_origin.is_none()
+                        && r.heartbeat.is_none()
                         && !r.deleted
                         && r.enabled
                         && r.next_runs.iter().flatten().any(|at| *at <= now)

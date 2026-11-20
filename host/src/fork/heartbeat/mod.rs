@@ -136,8 +136,9 @@ impl Motivo {
 /// A fonte só se lê. A interface não tem escrita, envio nem exclusão: observar e executar são coisas separadas,
 /// e a checagem não herda do bot nenhuma permissão de enviar ou apagar.
 pub(crate) trait Fonte: Send + Sync {
-    /// Marcador barato e verificável do estado atual do escopo (versão, data da última alteração, contagem);
-    /// `None` quando a fonte não tem. Marcador igual ao da última leitura dispensa ler o conteúdo.
+    /// Marcador barato do estado atual do escopo (versão, data da última alteração). Ele precisa mudar a cada
+    /// alteração do escopo, inclusive troca de um item por outro: marcador igual dispensa ler o conteúdo, então
+    /// uma fonte que não garante isso (uma simples contagem, por exemplo) deve devolver `None`.
     fn marcador(&self, escopo: &str) -> Result<Option<String>, Motivo>;
     /// O conteúdo do escopo, no máximo `avaliar::MAX_ITENS` itens.
     fn ler(&self, escopo: &str) -> Result<Vec<Item>, Motivo>;
@@ -182,6 +183,12 @@ pub(crate) struct Estado {
     pub ultima: Option<UltimaChecagem>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub falhas_seguidas: u32,
+    /// O motivo da última falha da sequência, para distinguir uma falha nova que pede ação de uma repetição.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ultimo_motivo: Option<Motivo>,
+    /// Pendências novas que ainda não couberam num aviso.
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub restantes: usize,
     /// Enquanto a fonte falha, não consulta antes deste instante (recuo).
     #[serde(default, skip_serializing_if = "is_zero_i64")]
     pub nao_antes: i64,
@@ -189,6 +196,11 @@ pub(crate) struct Estado {
 
 #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&T) -> bool")]
 const fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&T) -> bool")]
+const fn is_zero_usize(v: &usize) -> bool {
     *v == 0
 }
 

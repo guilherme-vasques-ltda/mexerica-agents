@@ -124,7 +124,9 @@ fn marcador_novo_com_o_mesmo_conteudo_continua_sem_mudanca() {
     *fonte.marcador.lock().unwrap() = Some("m2".into());
     let segunda = avalia(&fonte, &primeira.estado, 2000);
     assert_eq!(segunda.resultado, Resultado::SemMudanca);
-    assert_eq!(segunda.estado.marcador.as_deref(), Some("m2"));
+    let guardado = segunda.estado.marcador.as_deref().unwrap();
+    assert_ne!(segunda.estado.marcador, primeira.estado.marcador);
+    assert!(guardado.len() == 64 && !guardado.contains("m2"), "só o resumo do marcador é guardado");
 }
 
 #[test]
@@ -291,4 +293,76 @@ fn estado_vai_e_volta_do_json_sem_conteudo() {
     let json = serde_json::to_value(&saida.estado).unwrap();
     assert_eq!(serde_json::from_value::<Estado>(json).unwrap(), saida.estado);
     assert_eq!(serde_json::from_value::<Estado>(json!({})).unwrap(), Estado::default());
+}
+
+#[test]
+fn marcador_enorme_vira_resumo_de_tamanho_fixo() {
+    let fonte = Ficticia::default();
+    *fonte.marcador.lock().unwrap() = Some("x".repeat(1_000_000));
+    let saida = avalia(&fonte, &Estado::default(), 1);
+    assert_eq!(saida.estado.marcador.unwrap().len(), 64);
+}
+
+#[test]
+fn campos_diferentes_nunca_dao_o_mesmo_resumo() {
+    use super::avaliar::resumir;
+    assert_ne!(resumir(&["ab", "c"]), resumir(&["a", "bc"]));
+    assert_ne!(resumir(&["a b", "c"]), resumir(&["a", "b c"]));
+    assert_ne!(resumir(&["a", "b"]), resumir(&["ab"]));
+}
+
+#[test]
+fn mais_de_cinco_pendencias_saem_cinco_por_vez_sem_esconder_nenhuma() {
+    let fonte = Ficticia::default();
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    let itens: Vec<_> = (0..8).map(|n| (n.to_string(), "v1", "aguardando")).collect();
+    let itens: Vec<(&str, &str, &str)> = itens.iter().map(|(id, v, e)| (id.as_str(), *v, *e)).collect();
+    fonte.define(&itens);
+    let mut estado = Estado::default();
+    let mut vistos = 0;
+    let mut avisos = 0;
+    for volta in 1..=5 {
+        let saida = avalia(&fonte, &estado, volta * 1000);
+        if let Some(Aviso::Decisao { itens, alem }) = &saida.aviso {
+            avisos += 1;
+            vistos += itens.len();
+            assert!(itens.len() <= 5);
+            assert_eq!(saida.estado.restantes, *alem);
+        }
+        estado = saida.estado;
+    }
+    assert_eq!((vistos, avisos), (8, 2), "oito pendências em dois avisos, com o marcador sempre igual");
+    assert_eq!(estado.restantes, 0);
+}
+
+#[test]
+fn falha_passageira_seguida_de_perda_de_acesso_alerta_na_hora() {
+    let fonte = Ficticia::default();
+    *fonte.falha.lock().unwrap() = Some(Motivo::Fora);
+    let primeira = avalia(&fonte, &Estado::default(), 1_000_000);
+    assert!(primeira.aviso.is_none());
+    *fonte.falha.lock().unwrap() = Some(Motivo::SemAcesso);
+    let segunda = avalia(&fonte, &primeira.estado, 10_000_000);
+    assert_eq!(segunda.aviso, Some(Aviso::Falha { motivo: Motivo::SemAcesso }), "a perda de acesso é nova e pede ação");
+    let terceira = avalia(&fonte, &segunda.estado, 20_000_000);
+    assert!(terceira.aviso.is_none(), "repetir o mesmo motivo não alerta de novo");
+}
+
+#[test]
+fn recuo_nunca_passa_do_maior_entre_seis_horas_e_o_intervalo_declarado() {
+    let fonte = Ficticia::default();
+    *fonte.falha.lock().unwrap() = Some(Motivo::Fora);
+    for (intervalo, teto_ms) in [(300_u64, 6 * 3600 * 1000), (7 * 86_400, 7 * 86_400 * 1000)] {
+        let d = Declaracao::parse(
+            &json!({"fonte":"a","escopo":"x","criterio":{"estados":["a"]},"intervaloMinimoS":intervalo}),
+        )
+        .unwrap();
+        let mut estado = Estado::default();
+        for volta in 0..30 {
+            let agora = volta * 1_000_000_000;
+            estado = avaliar(&fonte, &d, &estado, agora).estado;
+            let espera = estado.nao_antes - agora;
+            assert!(espera >= i64::try_from(intervalo * 1000).unwrap() && espera <= teto_ms, "{intervalo}: {espera}");
+        }
+    }
 }

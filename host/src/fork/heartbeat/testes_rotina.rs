@@ -1,6 +1,6 @@
 //! O Heartbeat dentro das Rotinas: quem declara, quando liga e o que nunca roda. Só rotinas e dados fictícios.
 use super::tests::routine;
-use super::{Routine, State, Status, bound_save, new_run};
+use super::{Routine, State, Status, Trigger, bound_save, new_run};
 use crate::fork::heartbeat::{INSTRUCAO, SO_NO_HORARIO, SO_O_DONO};
 use crate::{LockExt, hub::Hub, store::Store};
 use serde_json::{Value, json};
@@ -143,6 +143,19 @@ fn guarda_do_modelo_recusa_declarar_alterar_e_ligar_mas_deixa_pausar() {
     assert!(ok(&estado_com(true, false), &estado_com(true, true)).is_err(), "ligar é do dono");
     assert!(ok(&estado_com(false, true), &estado_com(true, false)).is_err(), "declarar é do dono");
     assert!(ok(&estado_com(true, false), &estado_com(false, false)).is_err(), "remover é do dono");
+    let mut horario = estado_com(true, true);
+    horario.routines[0].triggers = vec![Trigger::Interval { seconds: 1 }];
+    assert!(ok(&estado_com(true, true), &horario).is_err(), "mudar o horário é do dono");
+    let mut tempo = estado_com(true, true);
+    tempo.routines[0].timeout_seconds += 1;
+    assert!(ok(&estado_com(true, true), &tempo).is_err(), "mudar o tempo limite é do dono");
+    let mut apagada = estado_com(true, true);
+    apagada.routines[0].deleted = true;
+    assert!(ok(&estado_com(true, true), &apagada).is_err(), "apagar é do dono");
+    assert!(ok(&estado_com(true, true), &State::default()).is_err(), "sumir da lista também");
+    let mut renomeada = estado_com(true, true);
+    renomeada.routines[0].name = "Outro".into();
+    assert!(ok(&estado_com(true, true), &renomeada).is_ok(), "o nome não importa");
     let mut outra = estado_com(true, true);
     outra.routines[0].heartbeat.as_mut().unwrap().escopo = "outro".into();
     assert!(ok(&estado_com(true, true), &outra).is_err(), "alterar a declaração é do dono");
@@ -185,4 +198,83 @@ fn agendador_ainda_nao_cria_execucao_com_ia_para_checagem() {
         .unwrap();
     hub.routines.schedule_due(&hub.store, 10_000).unwrap();
     assert!(hub.routines.state.locked().runs.is_empty());
+}
+
+#[test]
+fn dono_duplica_a_checagem_com_a_declaracao_e_pausada() {
+    let hub = hub();
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    let copia = hub.routines.duplicate(&hub, "bot", &id).unwrap()["routine"].clone();
+    assert_eq!(copia["heartbeat"]["fonte"], "pedidos.ficticio");
+    assert_eq!(copia["enabled"], false);
+    assert_eq!(copia["instruction"], INSTRUCAO);
+}
+
+#[test]
+fn converter_rotina_comum_cancela_pendentes_e_recusa_execucao_ja_reservada() {
+    let hub = hub();
+    let comum =
+        salva(&hub, &json!({"name":"Café","instruction":"Avisar","triggers":[{"type":"interval","seconds":300}]}));
+    let id = comum["id"].as_str().unwrap().to_owned();
+    let empilha = |status: Status| {
+        hub.routines
+            .change(&hub.store, |s| {
+                let r = s.routines.iter().find(|r| r.id == id).unwrap().clone();
+                let mut run = new_run(&r, Value::Null, None);
+                run.status = status;
+                s.runs.push(run);
+                Ok(())
+            })
+            .unwrap();
+    };
+    let converte = || hub.routines.save(&hub, "bot", &corpo(&json!({"id": id, "enabled": true})));
+    empilha(Status::Starting);
+    assert!(converte().is_err(), "execução reservada ainda poderia chegar à IA");
+    hub.routines
+        .change(&hub.store, |s| {
+            s.runs.clear();
+            Ok(())
+        })
+        .unwrap();
+    empilha(Status::Pending);
+    assert!(converte().is_ok());
+    assert!(hub.routines.state.locked().runs.iter().all(|r| r.status == Status::Cancelled));
+}
+
+#[test]
+fn rotina_criada_pelo_bot_nao_vira_checagem() {
+    let hub = hub();
+    let id = salva(&hub, &json!({"name":"Café","instruction":"Avisar","triggers":[{"type":"interval","seconds":300}]}))
+        ["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    hub.routines
+        .change(&hub.store, |s| {
+            s.routines.iter_mut().find(|r| r.id == id).unwrap().creation_origin =
+                Some(crate::fork::cadeias::descendencia_rotina::fixture_origin(
+                    crate::fork::cadeias::modelo::Recibo {
+                        chain_id: "c".into(),
+                        admission_id: "a".into(),
+                        run_id: "r".into(),
+                        bot_id: "bot".into(),
+                        level: 1,
+                        ordinal: 1,
+                    },
+                    "personal",
+                ));
+            Ok(())
+        })
+        .unwrap();
+    assert!(hub.routines.save(&hub, "bot", &corpo(&json!({"id": id, "enabled": true}))).is_err());
+}
+
+#[test]
+fn webhook_recebido_nao_enfileira_execucao_de_checagem() {
+    let hub = hub();
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    let chave = hub.routines.state.locked().routines[0].webhook_key.clone();
+    let cabecalhos = std::collections::BTreeMap::from([("authorization".to_owned(), format!("Bearer {chave}"))]);
+    let _ = hub.routines.receive(&hub, &id, &cabecalhos, br#"{"text":"oi"}"#);
+    assert!(hub.routines.state.locked().runs.iter().all(|r| r.status == Status::Cancelled));
 }

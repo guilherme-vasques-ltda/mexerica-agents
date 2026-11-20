@@ -272,6 +272,22 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
     if heartbeat.is_some() && triggers.iter().any(|t| matches!(t, Trigger::Webhook | Trigger::Event { .. })) {
         bail!(crate::fork::heartbeat::SO_NO_HORARIO);
     }
+    if heartbeat.is_some()
+        && let Some(old) = old.as_ref().filter(|old| old.heartbeat.is_none())
+    {
+        // Converter uma rotina comum: sem origem de bot (a descendente tem agenda e orçamento próprios) e sem
+        // execução já reservada, que ainda poderia chegar à IA.
+        anyhow::ensure!(
+            old.creation_origin.is_none(),
+            "Uma rotina criada pelo bot não vira checagem silenciosa; crie uma nova."
+        );
+        anyhow::ensure!(
+            !s.runs.iter().any(|run| run.routine_id == old.id
+                && matches!(run.status, Status::Starting | Status::Running | Status::Recovering)),
+            "Esta rotina está em execução; espere terminar para convertê-la em checagem silenciosa."
+        );
+        cancel_pending(s, &old.id);
+    }
     // Uma checagem silenciosa nasce pausada: só liga quando o dono diz `enabled: true`, de propósito.
     let explicit_enable = old.as_ref().is_some_and(|r| r.heartbeat.is_some()) || body["enabled"] == true;
     let instruction = if heartbeat.is_some() { crate::fork::heartbeat::INSTRUCAO.to_owned() } else { instruction };
@@ -337,6 +353,7 @@ fn duplicate_body(source: &Routine) -> Value {
         "triggers": source.triggers,
         "enabled": false,
         "timeoutSeconds": source.timeout_seconds,
+        "heartbeat": source.heartbeat,
     })
 }
 

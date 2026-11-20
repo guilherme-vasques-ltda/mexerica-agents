@@ -21,14 +21,15 @@ Campo desconhecido é recusado: não há onde esconder uma permissão de enviar 
 intervalo): webhook, evento e teste manual são recusados. O texto de instrução da rotina é trocado por um texto
 fixo, que não pede nenhuma ação.
 
-O modelo (o bot) não declara, não altera nem liga uma checagem; ele só pode pausá-la ou apagá-la.
+O modelo (o bot) não declara, não altera (declaração, horário, tempo limite), não apaga nem liga uma checagem; ele só pode pausá-la. Uma rotina comum só vira checagem se não tiver execução em andamento e se não tiver sido criada por um bot. Duplicar uma checagem pelo app mantém a declaração, e a cópia nasce pausada.
 
 ## O que a checagem nunca faz
 
 - Não chama a IA.
 - Não envia, exclui nem publica nada: a fonte é lida por uma interface sem nenhum método de escrita e a
   checagem não herda permissão do bot.
-- Não guarda o conteúdo da fonte: só marcadores e impressões digitais.
+- Não guarda o conteúdo da fonte: só resumos (hash) do marcador e das pendências.
+- O marcador da fonte precisa mudar a cada alteração do escopo; marcador igual dispensa ler o conteúdo. Uma fonte que não garante isso (uma simples contagem, por exemplo) deve devolver «sem marcador», e a checagem compara o conteúdo.
 
 ## Os quatro resultados
 
@@ -36,10 +37,10 @@ O modelo (o bot) não declara, não altera nem liga uma checagem; ele só pode p
 |---|---|---|
 | Sem mudança | A fonte não mudou desde a última leitura (marcador igual, ou conteúdo igual). Com marcador igual, o conteúdo nem é lido. | Nada. |
 | Mudança sem decisão | O conteúdo mudou, mas nenhuma pendência nova pede decisão. | Só o histórico. |
-| Decisão pendente | Há pendência nova no critério. Um aviso curto com o fato e a escolha. | Um aviso. A mesma pendência em quatro checagens seguidas gera um aviso, não quatro. |
-| Fonte indisponível | A fonte não respondeu (sem acesso, fora do ar, limite). | Falha visível, nunca «sem mudança». Avisa na hora se exige ação (sem acesso); se for passageira, só quando persistir por três checagens. |
+| Decisão pendente | Há pendência nova no critério. Um aviso curto com o fato e a escolha (até 5 pendências por aviso; as que não couberam saem no aviso seguinte). | Um aviso. A mesma pendência em quatro checagens seguidas gera um aviso, não quatro. |
+| Fonte indisponível | A fonte não respondeu (sem acesso, fora do ar, limite). | Falha visível, nunca «sem mudança». Avisa na hora se exige ação (sem acesso) ou se o motivo passa a exigir ação; se for passageira, só quando persistir por três checagens. |
 
-Enquanto a fonte falha, a checagem espera cada vez mais entre as tentativas (até 6 horas) e não apaga o que já
+Enquanto a fonte falha, a checagem espera cada vez mais entre as tentativas (até 6 horas, ou o intervalo declarado, se for maior) e não apaga o que já
 sabia: ao voltar, uma pendência já avisada não é avisada de novo. Uma pendência que sai da fonte e volta é
 decisão nova.
 
