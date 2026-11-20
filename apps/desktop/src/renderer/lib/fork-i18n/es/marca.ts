@@ -23,6 +23,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.conta.googleLigado': 'Esta cuenta de Google ya está vinculada a otra cuenta de Mexerica.',
   'marca.conta.naoConfirmou': 'No se pudo confirmar el inicio de sesión. Inténtalo de nuevo: Mexerica solo se abre con la cuenta confirmada.',
   'marca.conta.apagarTudo': 'Cierra todas las sesiones y elimina los bots, las conversaciones, las claves y los ajustes de esta computadora. Mexerica vuelve a empezar desde la pantalla de bienvenida.',
+  'marca.conta.apagarFalhou': 'No se pudieron borrar todos los datos. Vuelve a intentarlo.',
   'marca.conta.semLogin': 'El inicio de sesión no está disponible en esta versión, y Mexerica solo se abre con una cuenta.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'Caja protegida no disponible.',
