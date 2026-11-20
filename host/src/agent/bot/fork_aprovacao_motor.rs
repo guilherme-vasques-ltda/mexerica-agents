@@ -6,13 +6,13 @@
 //! - Cline pergunta por padrão em ACP, mas a opção de sessão `auto_approve` liga a aprovação automática. O Hub nunca
 //!   a repassa do bot e confere que está desligada em toda sessão (nova ou retomada); se não conseguir, derruba o motor.
 use super::Actor;
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
 use serde_json::{Value, json};
 
 const KILO_PERMISSION: &str = r#"{
     "*": "ask",
     "read": {"*": "allow", "*.env": "ask", "*.env.*": "ask", "*.env.example": "allow"},
-    "grep": "allow", "glob": "allow", "list": "allow", "todoread": "allow", "todowrite": "allow",
+    "glob": "allow", "list": "allow", "todoread": "allow", "todowrite": "allow",
     "question": "deny", "suggest": "deny", "plan_enter": "deny", "plan_exit": "deny",
     "repo_clone": "deny", "repo_overview": "deny"
 }"#;
@@ -48,9 +48,15 @@ fn auto_approve(res: &Value) -> Option<&Value> {
 }
 
 impl Actor {
-    /// Cline: `auto_approve` precisa estar desligada. Só `false` conta como desligada; qualquer outra coisa liga.
+    /// Cline: `auto_approve` precisa estar desligada. Só `false` conta como desligada; qualquer outra coisa, inclusive
+    /// a opção ausente, liga: sem prova de que está desligada, o motor cai.
     pub(super) async fn lock_cline_approval(&mut self, sid: &str, res: Value) -> Result<Value> {
-        let Some(option) = auto_approve(&res) else { return Ok(res) };
+        let Some(option) = auto_approve(&res) else {
+            if let Some(conn) = self.conn.take() {
+                conn.kill().await;
+            }
+            bail!("o Cline não informou se a aprovação automática está desligada");
+        };
         if option["currentValue"] == false {
             return Ok(res);
         }
@@ -91,7 +97,12 @@ mod tests {
             "o curinga vem primeiro; o último que casa vence"
         );
         assert_eq!(rules["*"], "ask");
-        assert!(rules.get("edit").is_none() && rules.get("bash").is_none(), "edição e comando seguem o curinga");
+        for ferramenta in ["edit", "bash", "grep"] {
+            assert!(
+                rules.get(ferramenta).is_none(),
+                "{ferramenta} segue o curinga: grep lê o conteúdo de .env sem passar pela regra de read"
+            );
+        }
         assert!(env.contains(&("KILO_DISABLE_PROJECT_CONFIG".into(), "1".into())));
         assert!(launch_env("cline").is_empty() && launch_env("claude").is_empty());
     }

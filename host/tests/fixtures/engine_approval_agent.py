@@ -79,11 +79,11 @@ model = "m1"
 
 
 def cline_options():
-    return [
-        {"id": "model", "category": "model", "type": "select", "currentValue": model,
-         "options": [{"value": "m1", "name": "m1"}]},
-        {"id": "auto_approve", "type": "boolean", "currentValue": auto_approve},
-    ]
+    options = [{"id": "model", "category": "model", "type": "select", "currentValue": model,
+                "options": [{"value": "m1", "name": "m1"}]}]
+    if "--sem-opcao" not in args:
+        options.append({"id": "auto_approve", "type": "boolean", "currentValue": auto_approve})
+    return options
 
 
 TOOLS = [

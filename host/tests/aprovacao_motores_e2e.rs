@@ -216,11 +216,12 @@ async fn cline_lancado_com_aprovacao_automatica_volta_a_perguntar() {
     );
 }
 
-#[tokio::test]
-async fn cline_que_nao_desliga_a_aprovacao_automatica_nao_executa_nada() {
+/// Cline com a aprovação automática ligada que o Hub não consegue desligar, ou que nem informa o estado: o turno
+/// não começa e nada executa.
+async fn cline_recusado(flags: &str) {
     let falsos = Falsos::nova();
     let host = falsos.hub().await;
-    let comando = format!("{} --acp --auto-approve true --stubborn", falsos.binario("cline").display());
+    let comando = format!("{} --acp --auto-approve true {flags}", falsos.binario("cline").display());
     let bot = criar_bot(&host, "cline", json!({"command": comando})).await;
     enviar(&host, &bot, "faça as alterações").await;
     let fim = Instant::now() + Duration::from_secs(15);
@@ -229,9 +230,19 @@ async fn cline_que_nao_desliga_a_aprovacao_automatica_nao_executa_nada() {
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
     let pedidos = std::fs::read_to_string(pasta(&host, &bot).join("requests.jsonl")).unwrap_or_default();
-    assert!(pedidos.contains("auto_approve"), "o Hub devia tentar desligar: {pedidos}");
+    assert!(pedidos.contains("session/new"), "o motor nem chegou a abrir a sessão: {pedidos}");
     assert!(!pedidos.contains("session/prompt"), "o turno não pode começar com a aprovação automática ligada");
     for ferramenta in ["read", "edit", "bash", "manage_update_bot"] {
         assert!(!executou(&host, &bot, ferramenta), "{ferramenta} executou");
     }
+}
+
+#[tokio::test]
+async fn cline_que_nao_desliga_a_aprovacao_automatica_nao_executa_nada() {
+    cline_recusado("--stubborn").await;
+}
+
+#[tokio::test]
+async fn cline_que_nao_informa_a_aprovacao_automatica_nao_executa_nada() {
+    cline_recusado("--sem-opcao").await;
 }
