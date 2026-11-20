@@ -23,8 +23,11 @@ repositório por app do GitHub.
 | Pesada | `boat-large` | `instabox-large` | hub |
 
 Se o `route` falhar, o `ci-ok` roda em `instabox-small` e reprova. A sonda só vale para o
-início da rodada: se o Boat recusar um job depois, esse job fica na fila ou falha e a saída é
-"Re-run failed jobs", que já vai para a Instabox.
+início da rodada. Se o Boat recusar um job depois:
+
+- job que **falhou**: "Re-run failed jobs", que já vai para a Instabox;
+- job **preso na fila** (o GitHub espera até 24 h por runner próprio): cancelar a rodada e
+  usar "Re-run all jobs". "Re-run failed jobs" não pega job que não falhou.
 
 ## O que cada job faz
 
@@ -35,8 +38,10 @@ início da rodada: se o Boat recusar um job depois, esse job fica na fila ou fal
 - **vazamento:** `tools/ci-vazamento.mjs` confere linhas adicionadas, nomes de arquivo e
   mensagens de commit contra regras públicas (caminho pessoal, IP privado, host interno,
   identificador de serviço, referência de cofre, arquivo sensível) e contra termos pessoais
-  vindos do secret `VAZAMENTO_TERMOS`. É o único job que recebe um secret, e só no passo cujo
-  executor veio da `main`. Sem o secret, o job falha fechado.
+  vindos do secret `VAZAMENTO_TERMOS`. Olha o resultado final e também cada commit do PR,
+  porque um commit intermediário fica no histórico. É o único job que recebe um secret, e só
+  no passo cujo executor veio da `main`. Sem o secret, o job falha fechado para qualquer
+  autor; PRs do Dependabot leem o secret de Dependabot de mesmo nome.
 - **changes:** compara a `main` com o merge do PR e decide se Hub e Desktop precisam rodar.
   Mudança em `.github/` ou `tools/ci-*` roda tudo; configuração do Cargo, do rustfmt ou do
   Clippy na raiz roda o Hub. O Desktop só é dispensado quando o PR muda apenas Hub, motor ou
@@ -93,8 +98,8 @@ início da rodada: se o Boat recusar um job depois, esse job fica na fila ou fal
   prova de dois UIDs precisa de root. O isolamento entre jobs é do fornecedor.
 - Downloads diretos (Gitleaks, cargo-audit, cargo-nextest, wheels do Semgrep) são
   conferidos por hash. Node, Rust e pacotes do sistema vêm da imagem ou dos instaladores.
-- O `vazamento` olha o resultado final do PR e as mensagens de commit, não cada commit
-  intermediário. Antes de abrir o repositório, faça uma varredura própria do histórico.
+- O `vazamento` cobre os commits de cada PR, mas não o histórico que já está na `main`.
+  Antes de abrir o repositório, faça uma varredura própria do histórico inteiro.
 
 ## Repositório público
 
