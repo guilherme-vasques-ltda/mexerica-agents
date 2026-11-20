@@ -137,7 +137,8 @@ export class CampoInstrucao extends Observable {
       this.changed()
       return true
     } catch (e) {
-      if (minha !== this.#leitura) return false
+      // Leitura superada, ou uma gravação em curso: a falha dela não pode apagar o estado da gravação.
+      if (minha !== this.#leitura || this.fase === 'salvando') return false
       this.#falhouNaLeitura = true
       this.fase = 'falha'
       const chave = chaveDaFalha(e)

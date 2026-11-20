@@ -234,3 +234,27 @@ test('digitar enquanto uma releitura volta com o Hub mudado vira conflito, não 
   assert.equal(campo.texto, 'D digitado durante a leitura.')
   assert.equal(h.calls.filter((c) => c.method === 'instrucaoGeralSalvar').length, 0)
 })
+
+test('falha de uma leitura que começa durante a gravação não derruba a fase salvando', async () => {
+  const h = hub()
+  let libera: (() => void) | null = null
+  let leituraFalha = false
+  const link = {
+    call: (m: string, b?: unknown) => {
+      if (m === 'instrucaoGeralSalvar') return new Promise((resolve, reject) => { libera = () => h.link.call(m, b as Record<string, unknown>).then(resolve, reject) })
+      if (leituraFalha) return Promise.reject(Object.assign(new Error('x'), { status: 0 }))
+      return h.link.call(m, b as Record<string, unknown>)
+    },
+  }
+  const campo = new CampoInstrucao(() => link, { tipo: 'geral' })
+  await campo.ler()
+  campo.editar('Rascunho.')
+  const gravacao = campo.salvar()
+  assert.equal(campo.fase, 'salvando')
+  leituraFalha = true
+  await campo.ler()
+  assert.equal(campo.fase, 'salvando')
+  libera!()
+  await gravacao
+  assert.equal(campo.estado, 'instrucoes.estado.salvo')
+})
