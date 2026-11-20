@@ -129,16 +129,16 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
         return fixo.selecionar(agent, platform()).ok().map(|_| Launch::Download);
     }
     if let Some(alvo) = alvo_binario(agent) {
-        return alvo_lancavel(alvo).then_some(Launch::Download);
+        return (id_instalacao(agent).is_ok() && alvo_lancavel(alvo)).then_some(Launch::Download);
     }
     let d = &agent["distribution"];
     let on_path = crate::agent::backends::on_path;
     let pacote = |ferramenta: &str| d[ferramenta]["package"].as_str().unwrap_or_default();
-    if d["npx"].is_object() && on_path("npx") && pacote_npm_fixo(pacote("npx")).is_ok() {
-        return Some(Launch::Npx);
+    if d["npx"].is_object() && on_path("npx") {
+        return pacote_npm_fixo(pacote("npx")).is_ok().then_some(Launch::Npx);
     }
-    if d["uvx"].is_object() && on_path("uvx") && pacote_uv_fixo(pacote("uvx")).is_ok() {
-        return Some(Launch::Uvx);
+    if d["uvx"].is_object() && on_path("uvx") {
+        return pacote_uv_fixo(pacote("uvx")).is_ok().then_some(Launch::Uvx);
     }
     None
 }
@@ -281,8 +281,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             let on_path = crate::agent::backends::on_path;
             if d["npx"].is_object() && on_path("npx") {
                 pacote_npm_fixo(d["npx"]["package"].as_str().unwrap_or_default())?;
-            }
-            if d["uvx"].is_object() && on_path("uvx") {
+            } else if d["uvx"].is_object() && on_path("uvx") {
                 pacote_uv_fixo(d["uvx"]["package"].as_str().unwrap_or_default())?;
             }
             if needs_node(agent) {
@@ -684,6 +683,10 @@ mod tests {
             assert!(launch_kind(&uvx(pacote)).is_none(), "{pacote}");
         }
         assert_eq!(launch_kind(&uvx("pacote==1.2.3")), on_path("uvx").then_some(Launch::Uvx));
+        if on_path("npx") {
+            let ambos = json!({"id": "exemplo", "distribution": {"npx": {"package": "pacote"}, "uvx": {"package": "pacote==1.2.3"}}});
+            assert!(launch_kind(&ambos).is_none(), "npx sem versão não cai para o uvx");
+        }
         let Some(plataforma) = platform() else { return };
         let mut agente = json!({
             "id": "exemplo",
@@ -694,6 +697,9 @@ mod tests {
         assert!(launch_kind(&agente).is_none(), "cmd fora da pasta");
         agente["distribution"]["binary"][plataforma]["cmd"] = json!("agente");
         assert_eq!(launch_kind(&agente), Some(Launch::Download));
+        agente["id"] = json!("../fora");
+        assert!(launch_kind(&agente).is_none(), "id que não é componente de caminho");
+        agente["id"] = json!("exemplo");
         agente["distribution"]["binary"][plataforma].as_object_mut().unwrap().remove("archive");
         assert!(launch_kind(&agente).is_none(), "sem archive");
     }
