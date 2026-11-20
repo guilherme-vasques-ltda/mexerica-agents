@@ -97,6 +97,7 @@ jobs:
           test "$(lipo -archs "$hub")" = arm64
           test "$(lipo -archs "$speech")" = arm64
           codesign --verify --strict "$hub"
+          codesign --verify --strict "$speech"
           printf 'Hub embutido: %s\n' "$(lipo -archs "$hub")" >> "$GITHUB_STEP_SUMMARY"
       # So no disparo manual: zip e SHA256SUMS ficam como artefato do proprio Actions, sem release nem upload externo.
       - name: Gerar zip e SHA256SUMS

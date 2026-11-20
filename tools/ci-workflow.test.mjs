@@ -191,7 +191,7 @@ test('macOS: roda as provas nativas, empacota e confere assinatura e arquitetura
   const job = macJobs.macos.join('\n');
   assert.match(job, /cargo test --locked --bin donnabot-host fork::open_codex/);
   assert.match(job, /CODYNC_ENV: open\n(?:.*\n)*?        run: cargo test --locked --test open_hub/);
-  for (const cmd of ['npm ci --no-audit --no-fund', 'npm run test:open', 'npm run dist:mac:open', 'codesign --verify --deep --strict "$OPEN_APP"', 'test "$(lipo -archs "$hub")" = arm64']) assert.ok(job.includes(cmd), cmd);
+  for (const cmd of ['npm ci --no-audit --no-fund', 'npm run test:open', 'npm run dist:mac:open', 'codesign --verify --deep --strict "$OPEN_APP"', 'test "$(lipo -archs "$hub")" = arm64', 'codesign --verify --strict "$hub"', 'codesign --verify --strict "$speech"']) assert.ok(job.includes(cmd), cmd);
   assert.match(job, /shasum -a 256 --check/, 'rustup-init conferido por hash');
 });
 
