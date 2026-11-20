@@ -47,7 +47,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => {
     if (!app.isReady()) return
     if (window) bringToFront(window, () => app.focus({ steal: true }))
-    else openWindow()
+    else { openWindow(); app.focus({ steal: true }) }
   })
   void app.whenReady().then(() => {
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !isOpenAsset(assetRoot, details.url) }))

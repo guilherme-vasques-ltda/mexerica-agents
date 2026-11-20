@@ -1,5 +1,5 @@
-import { lstatSync, readdirSync } from 'node:fs'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { lstatSync, readdirSync, readlinkSync, type Stats } from 'node:fs'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../../shared/fork-idioma.ts'
@@ -8,13 +8,31 @@ import profile from '../../../config/open.json' with { type: 'json' }
 
 export const open = Object.freeze(profile)
 
-const chromiumLocks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket']
+const chromiumLinks = new Map([
+  ['SingletonLock', /^[^/]+-\d+$/],
+  ['SingletonCookie', /^[^/]+$/],
+  ['SingletonSocket', /^(?:\/[^/]+)+\/org\.chromium\.Chromium\.[A-Za-z0-9]+\/SingletonSocket$/],
+])
 
-function assertPrivateTree(path: string, locks = false) {
+/** Links que o Chromium cria na pasta de dados da instância aberta: o destino não é arquivo do perfil. */
+function isChromiumLink(root: string, entry: string, child: string, item: Stats) {
+  const pattern = chromiumLinks.get(entry)
+  if (!pattern || !item.isSymbolicLink() || item.nlink !== 1 || item.uid !== process.getuid?.()) return false
+  const target = readlinkSync(child)
+  if (!pattern.test(target)) return false
+  if (entry !== 'SingletonSocket') return true
+  const remote = dirname(target)
+  let meta: Stats
+  try { meta = lstatSync(remote) } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' }
+  if (!meta.isDirectory() || meta.uid !== item.uid || (meta.mode & 0o777) !== 0o700) return false
+  try { return readlinkSync(join(remote, 'SingletonCookie')) === readlinkSync(join(root, 'SingletonCookie')) } catch { return false }
+}
+
+function assertPrivateTree(path: string, root = '') {
   for (const entry of readdirSync(path)) {
     const child = join(path, entry)
     const item = lstatSync(child)
-    if (locks && chromiumLocks.includes(entry) && item.uid === process.getuid?.() && (item.isSymbolicLink() || (entry === 'SingletonSocket' && item.isSocket()))) continue
+    if (root && isChromiumLink(root, entry, child, item)) continue
     if (item.uid !== process.getuid?.() || (item.mode & 0o022) !== 0) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados'))
     if (item.isDirectory()) assertPrivateTree(child)
     else if (!item.isFile() || item.nlink !== 1) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilArquivo'))
@@ -24,7 +42,7 @@ function assertPrivateTree(path: string, locks = false) {
 export function openPaths(home: string, appData: string) {
   const userData = privateDirectory(join(appData, open.userDataFolder))
   const homeConfig = privateDirectory(join(home, open.dataFolder))
-  assertPrivateTree(userData, true)
+  assertPrivateTree(userData, userData)
   assertPrivateTree(homeConfig)
   return { userData, homeConfig }
 }
