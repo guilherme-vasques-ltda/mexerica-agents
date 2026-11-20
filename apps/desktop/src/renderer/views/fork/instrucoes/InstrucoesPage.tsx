@@ -21,8 +21,8 @@ function Campo({ fonte, escopo, guardarComo }: { fonte: FonteLink; escopo: Escop
   const t = useT()
   const idioma = useIdioma()
   const chave = escopo.tipo === 'space' ? 'space' : 'geral'
-  // Com rascunho sujo do modelo que já leu, a releitura do Hub não apaga o texto digitado.
-  useEffect(() => { void modelo.ler(modelo.sujo) }, [modelo])
+  // A releitura do Hub nunca apaga o texto digitado: um rascunho sujo fica, e uma mudança por fora vira conflito.
+  useEffect(() => { void modelo.ler() }, [modelo])
   const alerta = campo.fase === 'conflito' || campo.fase === 'falha' || campo.excede || campo.invalido
   return (
     <div className="instrucoes-campo">

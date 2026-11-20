@@ -106,41 +106,45 @@ export class CampoInstrucao extends Observable {
     this.revisao = campo.revision
   }
 
-  /** A leitura passiva da página (abrir, voltar): um conflito pendente continua pendente até a pessoa decidir em Tentar de novo. */
-  async ler(manterTexto = false) {
-    if (manterTexto && this.fase === 'conflito') return
-    await this.#reler(manterTexto)
+  /** A leitura passiva da página (abrir, voltar): nunca descarta rascunho, e um conflito pendente continua pendente até a pessoa decidir em Tentar de novo. */
+  async ler() {
+    if (this.fase === 'conflito') return
+    await this.#reler(false)
   }
 
-  async #reler(manterTexto: boolean) {
+  /** `aceitar`: a pessoa mandou gravar por cima (Tentar de novo); sem isso, o Hub ter mudado sob um rascunho vira conflito. Devolve se a leitura deixou o campo pronto. */
+  async #reler(aceitar: boolean): Promise<boolean> {
     const minha = ++this.#leitura
-    const antes = this.texto
     try {
       const estado = lerEstado(await this.#link().call('instrucaoGeral', this.#corpoDaLeitura()))
-      if (minha !== this.#leitura) return
+      // Leitura superada (outra leitura ou uma gravação começou): quem veio depois decide.
+      if (minha !== this.#leitura || this.fase === 'salvando') return false
       const campo = this.escopo.tipo === 'space' ? estado.space : estado.geral
-      // Rascunho de uma revisão antiga e o Hub já está em outra: avisa em vez de adotar a nova em silêncio e gravar por cima.
-      const mudouPorFora = manterTexto && this.#lido && this.sujo && campo.revision !== this.revisao && this.fase !== 'conflito' && this.fase !== 'salvando'
+      // Avaliado agora, não quando a leitura começou: vale também o que a pessoa digitou enquanto ela voltava.
+      const rascunho = this.sujo
+      const mudouPorFora = this.#lido && campo.revision !== this.revisao
       this.#aplicar(estado)
       this.#lido = true
-      if (mudouPorFora) {
+      this.#falhouNaLeitura = false
+      this.falha = null
+      if (!rascunho) this.texto = this.salvo
+      if (rascunho && mudouPorFora && !aceitar) {
         this.fase = 'conflito'
         this.changed()
-        return
+        return false
       }
-      // Só troca o texto se a pessoa não digitou enquanto a leitura voltava.
-      if (!manterTexto && this.texto === antes) this.texto = this.salvo
       this.fase = 'pronto'
-      this.falha = null
-      this.#falhouNaLeitura = false
+      this.changed()
+      return true
     } catch (e) {
-      if (minha !== this.#leitura) return
+      if (minha !== this.#leitura) return false
       this.#falhouNaLeitura = true
       this.fase = 'falha'
       const chave = chaveDaFalha(e)
       this.falha = chave === 'instrucoes.falha.envio' ? 'instrucoes.falha.leitura' : chave
+      this.changed()
+      return false
     }
-    this.changed()
   }
 
   editar(texto: string) {
@@ -178,10 +182,9 @@ export class CampoInstrucao extends Observable {
   /** Conflito: relê a revisão nova, mantém o texto da pessoa e grava. Falha: tenta gravar de novo (ou relê, se nada foi lido). */
   async tentarDeNovo() {
     if (this.fase === 'conflito' || (this.fase === 'falha' && !this.#falhouNaLeitura)) {
-      await this.#reler(true)
-      if ((this.fase as Fase) === 'pronto') await this.salvar()
+      if (await this.#reler(true)) await this.salvar()
     } else {
-      await this.ler(this.sujo)
+      await this.#reler(false)
     }
   }
 

@@ -151,7 +151,7 @@ test('reabrir com rascunho e o Hub mudado por fora avisa o conflito em vez de gr
   await campo.ler()
   campo.editar('Meu rascunho.')
   h.state.geral = { texto: 'Mudou em outra janela.', revision: 4 }
-  await campo.ler(campo.sujo)
+  await campo.ler()
   assert.equal(campo.fase, 'conflito')
   assert.equal(campo.estado, 'instrucoes.estado.conflito')
   assert.equal(campo.texto, 'Meu rascunho.')
@@ -166,7 +166,7 @@ test('reabrir com rascunho e o Hub igual mantém o rascunho sem conflito', async
   const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
   await campo.ler()
   campo.editar('Rascunho.')
-  await campo.ler(campo.sujo)
+  await campo.ler()
   assert.equal(campo.fase, 'pronto')
   assert.equal(campo.texto, 'Rascunho.')
 })
@@ -179,7 +179,7 @@ test('reabrir a página com conflito pendente não o apaga: só Tentar de novo d
   campo.editar('Meu rascunho.')
   await campo.salvar()
   assert.equal(campo.fase, 'conflito')
-  await campo.ler(campo.sujo)
+  await campo.ler()
   assert.equal(campo.fase, 'conflito', 'a releitura passiva mantém o aviso')
   assert.equal(h.state.geral.texto, 'Mudou em outra janela.')
   await campo.tentarDeNovo()
@@ -207,4 +207,30 @@ test('sem leitura bem-sucedida o campo não é editável (não há revisão para
   const bom = new CampoInstrucao(() => h.link, { tipo: 'geral' })
   await bom.ler()
   assert.equal(bom.lido, true)
+})
+
+test('dois Tentar de novo em seguida: só a leitura mais nova grava, uma vez', async () => {
+  const h = hub()
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await campo.ler()
+  h.state.geral = { texto: 'Mudou fora.', revision: 4 }
+  campo.editar('Meu rascunho.')
+  await campo.salvar()
+  assert.equal(campo.fase, 'conflito')
+  await Promise.all([campo.tentarDeNovo(), campo.tentarDeNovo()])
+  assert.equal(h.state.geral.texto, 'Meu rascunho.')
+  assert.equal(h.calls.filter((c) => c.method === 'instrucaoGeralSalvar' && c.body.expectedRevision === 4).length, 1)
+})
+
+test('digitar enquanto uma releitura volta com o Hub mudado vira conflito, não gravação silenciosa', async () => {
+  const h = hub()
+  const campo = new CampoInstrucao(() => h.link, { tipo: 'geral' })
+  await campo.ler()
+  h.state.geral = { texto: 'B', revision: 2 }
+  const leitura = campo.ler()
+  campo.editar('D digitado durante a leitura.')
+  await leitura
+  assert.equal(campo.fase, 'conflito')
+  assert.equal(campo.texto, 'D digitado durante a leitura.')
+  assert.equal(h.calls.filter((c) => c.method === 'instrucaoGeralSalvar').length, 0)
 })
