@@ -411,3 +411,15 @@ fn rotulos_com_o_separador_nao_se_confundem_e_outra_declaracao_nao_herda_o_recuo
     assert!(!pode_checar(&falhou, &um, 1_000_001), "a mesma declaração espera");
     assert!(pode_checar(&falhou, &dois, 1_000_001), "outra declaração não herda a espera");
 }
+
+#[test]
+fn reduzir_o_intervalo_vale_na_hora_mesmo_depois_de_falha() {
+    let fonte = Ficticia::default();
+    *fonte.falha.lock().unwrap() = Some(Motivo::Fora);
+    let longo = |s: u64| {
+        Declaracao::parse(&json!({"fonte":"a","escopo":"x","criterio":{"estados":["a"]},"intervaloMinimoS":s})).unwrap()
+    };
+    let estado = avaliar(&fonte, &longo(7 * 86_400), &Estado::default(), 0).estado;
+    assert!(!pode_checar(&estado, &longo(7 * 86_400), 120_000));
+    assert!(pode_checar(&estado, &longo(60), 120_000), "intervalo menor: a espera antiga não vale mais");
+}

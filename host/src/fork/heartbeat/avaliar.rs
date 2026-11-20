@@ -33,8 +33,21 @@ pub(crate) fn pode_checar(estado: &Estado, declaracao: &Declaracao, agora: i64) 
     if estado.config.as_deref() != Some(config(declaracao).as_str()) {
         return true;
     }
-    let intervalo_ms = i64::try_from(declaracao.intervalo_minimo_s.saturating_mul(1000)).unwrap_or(i64::MAX);
-    agora >= estado.nao_antes && estado.ultima.is_none_or(|ultima| agora.saturating_sub(ultima.em) >= intervalo_ms)
+    let Some(ultima) = estado.ultima else { return true };
+    // A espera sai da declaração de agora, não do que ficou gravado: mudar o intervalo vale já.
+    let espera_ms = if estado.falhas_seguidas > 0 {
+        espera_ms(declaracao.intervalo_minimo_s, estado.falhas_seguidas)
+    } else {
+        i64::try_from(declaracao.intervalo_minimo_s.saturating_mul(1000)).unwrap_or(i64::MAX)
+    };
+    agora.saturating_sub(ultima.em) >= espera_ms
+}
+
+/// Quanto esperar depois de `falhas` falhas seguidas: o intervalo dobra a cada falha, até o maior entre seis horas
+/// e o próprio intervalo.
+fn espera_ms(base: u64, falhas: u32) -> i64 {
+    let segundos = base.saturating_mul(1 << falhas.saturating_sub(1).min(6)).min(RECUO_MAX_S.max(base));
+    i64::try_from(segundos.saturating_mul(1000)).unwrap_or(i64::MAX)
 }
 
 /// Resumo da declaração (fonte, escopo e cada estado do critério, um a um): a identidade a que o estado pertence.
@@ -125,9 +138,7 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
 /// de outro motivo), ou quando uma falha passageira persiste por `FALHAS_ATE_ALERTA` checagens.
 fn falha(declaracao: &Declaracao, anterior: &Estado, motivo: Motivo, agora: i64) -> Saida {
     let falhas = anterior.falhas_seguidas.saturating_add(1);
-    let base = declaracao.intervalo_minimo_s;
-    let segundos = base.saturating_mul(1 << falhas.saturating_sub(1).min(6)).min(RECUO_MAX_S.max(base));
-    let milis = i64::try_from(segundos.saturating_mul(1000)).unwrap_or(i64::MAX);
+    let milis = espera_ms(declaracao.intervalo_minimo_s, falhas);
     let mut estado = anterior.clone();
     estado.falhas_seguidas = falhas;
     estado.ultimo_motivo = Some(motivo);
