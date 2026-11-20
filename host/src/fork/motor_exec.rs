@@ -4,6 +4,8 @@ use tokio::process::Command;
 
 mod child;
 #[cfg(unix)]
+pub(crate) use child::start_open_codex;
+#[cfg(unix)]
 pub(crate) mod fd;
 #[cfg(unix)]
 pub(crate) mod login_cleanup;
@@ -15,6 +17,9 @@ pub(crate) const HELPER: &str = "/opt/donnabot/bin/donnabot-motor-exec";
 pub(crate) const HELPER_GERIDO: &str = "/opt/donnabot/releases/ativo/donnabot-motor-exec";
 
 pub(crate) fn helper_path() -> std::path::PathBuf {
+    if crate::environment::Environment::is_open() {
+        return std::path::PathBuf::new();
+    }
     #[cfg(test)]
     if let Some(path) = std::env::var_os("DONNABOT_MOTOR_TEST_HELPER") {
         return path.into();
@@ -28,6 +33,9 @@ pub(crate) fn helper_path() -> std::path::PathBuf {
 }
 
 pub(crate) fn configured() -> bool {
+    if crate::environment::Environment::is_open() {
+        return false;
+    }
     #[cfg(test)]
     if std::env::var_os("DONNABOT_MOTOR_TEST_HELPER").is_some() {
         return true;
@@ -86,6 +94,7 @@ pub(crate) fn refuse(operation: &str) -> anyhow::Result<()> {
 }
 
 pub(crate) fn kill_group(pid: u32) -> std::io::Result<()> {
+    crate::open_hub::require_executor()?;
     let status = std::process::Command::new(helper_path()).args(["kill-group", &pid.to_string()]).status()?;
     if status.success() { Ok(()) } else { Err(std::io::Error::other("ajudante não encerrou o grupo do motor")) }
 }
@@ -145,8 +154,9 @@ mod tests {
     }
 }
 
-pub(crate) fn pty(program: impl AsRef<std::ffi::OsStr>, cwd: &Path) -> portable_pty::CommandBuilder {
-    pty_with(program.as_ref(), launch_cwd(cwd), configured(), &helper_path())
+pub(crate) fn pty(program: impl AsRef<std::ffi::OsStr>, cwd: &Path) -> std::io::Result<portable_pty::CommandBuilder> {
+    crate::open_hub::require_executor()?;
+    Ok(pty_with(program.as_ref(), launch_cwd(cwd), configured(), &helper_path()))
 }
 
 fn pty_with(program: &std::ffi::OsStr, cwd: &Path, separate: bool, helper: &Path) -> portable_pty::CommandBuilder {

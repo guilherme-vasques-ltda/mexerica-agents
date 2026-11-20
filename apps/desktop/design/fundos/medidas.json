@@ -6,7 +6,7 @@
   "renderer": "Pillow 9.4.0 (libwebp) decode sRGB; extremos por canal e pisos pela mesma receita de legibility.ts; arquivos finais WebP q80 (MX-79, tools/otimizar-imagens.py)",
   "veil": 0,
   "saturation": 1.4,
-  "tokensSha256": "d9d1e0fef4e66661a9ecf7f50a3fc4b82d20e772e0c04bc03aa3aa7a7be1dec9",
+  "tokensSha256": "425851ddddd64ed41deea4658951427e6de83b85e05a477da18461b1ecadbb76",
   "images": [
     {
       "id": "cafeteria",

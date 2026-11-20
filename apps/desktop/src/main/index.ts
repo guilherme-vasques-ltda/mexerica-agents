@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell } from 'electron'
+import { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import type { HostSnapshot, WindowCommand } from '../shared/ipc'
 import { createAppIconController, registerAppIconIPC } from './fork-app-icon-controller'
 import { devPort, HostController, prefs } from './host-controller'
@@ -41,6 +41,7 @@ import { reportHostSetupFailure } from './analytics'
 import { traduzir } from '../renderer/lib/fork-i18n/index.ts'
 import { launchAtLogin, openedAtLogin, setLaunchAtLogin, updateLoginItem } from './login-item'
 import { openExternalURL, openSystemSettingsURL, registerWindowNavigation } from './navigation'
+import { origemDoChat, permiteNoChat } from './seguranca-renderer'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -72,6 +73,46 @@ function rendererURL(page: string) {
   return !app.isPackaged && process.env.ELECTRON_RENDERER_URL
     ? `${process.env.ELECTRON_RENDERER_URL}/?window=${page}`
     : `${pathToFileURL(join(__dirname, '../renderer/index.html')).href}?window=${page}`
+}
+
+const urlDoChat = rendererURL('chat')
+
+function conteudoDoChat(conteudo: WebContents | null): boolean {
+  return !!chat && !chat.isDestroyed() && chat.webContents === conteudo
+}
+
+function pedidoDoChat(event: IpcMainInvokeEvent): BrowserWindow | null {
+  const janela = chat
+  if (!janela || janela.isDestroyed() || event.sender !== janela.webContents) return null
+  const frame = event.senderFrame
+  return origemDoChat(urlDoChat, {
+    janelaPrincipal: true,
+    framePrincipal: frame !== null && frame === janela.webContents.mainFrame,
+    url: frame?.url,
+  }) ? janela : null
+}
+
+function registrarPermissoes() {
+  const sessao = session.defaultSession
+  sessao.setPermissionRequestHandler((conteudo, permissao, responder, detalhes) => {
+    responder(permiteNoChat(urlDoChat, {
+      janelaPrincipal: conteudoDoChat(conteudo),
+      framePrincipal: detalhes.isMainFrame,
+      url: detalhes.requestingUrl,
+    }, permissao, 'mediaTypes' in detalhes ? detalhes.mediaTypes : undefined, 'securityOrigin' in detalhes ? detalhes.securityOrigin : undefined))
+  })
+  sessao.setPermissionCheckHandler((conteudo, permissao, origem, detalhes) => {
+    const solicitante = {
+      janelaPrincipal: conteudoDoChat(conteudo),
+      framePrincipal: detalhes.isMainFrame,
+      url: detalhes.requestingUrl,
+    }
+    const tipos = detalhes.mediaType ? [detalhes.mediaType] : []
+    return permiteNoChat(urlDoChat, solicitante, permissao, tipos, origem)
+      && (permissao !== 'media' || detalhes.securityOrigin === undefined
+        || permiteNoChat(urlDoChat, solicitante, permissao, tipos, detalhes.securityOrigin))
+  })
+  sessao.setDisplayMediaRequestHandler((_pedido, responder) => responder({}))
 }
 
 const background = () => (nativeTheme.shouldUseDarkColors ? '#0A0A0A' : '#FFFFFF')
@@ -115,7 +156,7 @@ function openChat() {
   // Closing hides: the window keeps the stores (and the menu bar's data) alive.
   chat.on('close', (e) => quitLifecycle.closeToBackground(e, () => chat?.hide()))
   chat.on('closed', () => (chat = null))
-  void chat.loadURL(rendererURL('chat'))
+  void chat.loadURL(urlDoChat)
   return chat
 }
 
@@ -190,7 +231,7 @@ function registerIPC(tray: Tray) {
   registerHostProxy()
   registerMexeriquinhaProtocol(host)
   if (appIcon) registerAppIconIPC(appIcon, () => chat, rendererURL('chat'))
-  registerVozIPC(() => chat, rendererURL('chat'))
+  registerVozIPC(() => chat, rendererURL('chat'), (comando) => send(comando))
   ipcMain.on('app:hostPort', (e) => (e.returnValue = identity.port))
   ipcMain.on('app:name', (e) => (e.returnValue = app.getName()))
   ipcMain.on('app:scheme', (e) => (e.returnValue = identity.scheme))
@@ -244,7 +285,30 @@ function registerIPC(tray: Tray) {
   })
   ipcMain.handle('app:launchAtLogin', () => launchAtLogin())
   ipcMain.handle('app:setLaunchAtLogin', (_e, on: boolean) => setLaunchAtLogin(on))
-  ipcMain.handle('app:resetAllData', async () => {
+  let apagando = false
+  ipcMain.handle('app:resetAllData', async (event) => {
+    const janela = pedidoDoChat(event)
+    if (!janela || apagando) return
+    const frame = event.senderFrame
+    apagando = true
+    try {
+      const idioma = idiomaDoApp()
+      const { response } = await dialog.showMessageBox(janela, {
+        type: 'warning',
+        message: traduzir(idioma, 'navegacao.conta.apagarDados'),
+        detail: traduzir(idioma, 'marca.conta.apagarTudo'),
+        buttons: [traduzir(idioma, 'navegacao.janela.cancelar'), traduzir(idioma, 'navegacao.conta.apagarTudo')],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      })
+      if (response === 1 && pedidoDoChat(event) === janela && event.senderFrame === frame) await apagarTodosOsDados()
+    } finally {
+      apagando = false
+    }
+  })
+
+  async function apagarTodosOsDados() {
     // Tell paired devices first: connected ones see "No access" at once, and the account drops
     // this computer instead of keeping an unreachable older copy of it.
     await host.call('unclaim', {}, 30_000).catch(() => {})
@@ -259,7 +323,7 @@ function registerIPC(tray: Tray) {
     app.relaunch()
     quitLifecycle.beginQuit()
     app.exit(0)
-  })
+  }
 }
 
 if (yieldsToInstall()) {
@@ -268,7 +332,7 @@ if (yieldsToInstall()) {
   if (!app.isPackaged) console.error(`${app.getName()} is already running. Quit it first, or run another copy beside it: npm run dev -- --name <name>`)
   app.quit()
 } else {
-  registerWindowNavigation(rendererURL('chat'))
+  registerWindowNavigation(urlDoChat)
   registerSchemes(keepDockHiddenAfterLink)
   app.on('second-instance', (_e, argv) => {
     const url = urlFromArgv(argv)
@@ -297,6 +361,7 @@ if (yieldsToInstall()) {
     // aqui, uma vez, o mesmo pedido, antes da ilha e do chat; o pacote comum já chega ativo e o CODYNC_SHOW_INACTIVE não.
     if (isMac && !process.env.CODYNC_SHOW_INACTIVE && !app.isActive()) app.focus({ steal: true })
     updateLoginItem()
+    registrarPermissoes()
     // A janela primeiro: a criação e a carga dela correm em paralelo com o resto do arranque
     // (ilha, bandeja e registros de IPC). `island:supported` é sendSync: o preload do chat o
     // chama ao carregar, então só esse handler precisa existir antes do loadURL. O resto
@@ -321,8 +386,6 @@ if (yieldsToInstall()) {
       const factory = registerForkCloud(account)
       if (factory) registerForkCloudService(account, factory, localSSH, generalWindows, [rendererURL('chat'), rendererURL('pairing'), rendererURL('island')], () => [chat, pairing].some(w => !!w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()))
     }
-    // Calls use the microphone (realtime voice); nothing else asks for permissions.
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'media' || permission === 'clipboard-sanitized-write'))
     account.on('change', () => {
       if (!accountConfirmed()) pairing?.hide()
       if (!surfacesAllowed()) tray.clear()

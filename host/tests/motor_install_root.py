@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """D330 F3b, somente VM descartável: SCRIPT HELPER HOST TEST_BIN --vm-descartavel."""
 import io
+from base64 import b64encode
+from hashlib import sha512
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -10,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from threading import Thread
 
 assert os.geteuid() == 0 and len(sys.argv) == 5 and sys.argv[4] == '--vm-descartavel'
 helper = Path('/opt/donnabot/bin/donnabot-motor-exec')
@@ -19,6 +23,8 @@ assert not helper.exists() and not config.exists() and not base.exists(), 'VM j�
 created = []
 command_env = {"PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/"}
 private = Path(tempfile.mkdtemp(prefix='d330-f3b-hub-'))
+registro = None
+servidor = None
 try:
     for name in ['d330-f3b-hub', 'd330-f3b-motor']:
         subprocess.run(['/usr/sbin/useradd', '--system', '--no-create-home', name], env=command_env, check=True)
@@ -83,6 +89,37 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:msg.id,result}));
             entry.mode = 0o755 if name == 'acp.js' else 0o644
             archive.addfile(entry, io.BytesIO(data))
     os.chown(package, motor.pw_uid, motor.pw_gid)
+    pacote = json.loads(files['package.json'])
+    nome, versao = pacote['name'], pacote['version']
+    conteudo = package.read_bytes()
+
+    class RegistroLocal(BaseHTTPRequestHandler):
+        def log_message(self, formato, *args):
+            pass
+
+        def do_GET(self):
+            if self.path == '/' + nome:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(ficha)
+            elif self.path == '/fixture.tgz':
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/octet-stream')
+                self.end_headers()
+                self.wfile.write(conteudo)
+            else:
+                self.send_error(404)
+
+    registro = ThreadingHTTPServer(('127.0.0.1', 0), RegistroLocal)
+    url = f'http://127.0.0.1:{registro.server_port}'
+    pacote['dist'] = {'tarball': url + '/fixture.tgz', 'integrity': 'sha512-' + b64encode(sha512(conteudo).digest()).decode()}
+    ficha = json.dumps({'name': nome, 'versions': {versao: pacote}}).encode()
+    npmrc = home / 'npm-globalrc'
+    npmrc.write_text(f'registry={url}/\naudit=false\nfund=false\n')
+    os.chown(npmrc, motor.pw_uid, motor.pw_gid)
+    servidor = Thread(target=registro.serve_forever, daemon=True)
+    servidor.start()
     def as_hub():
         os.setgroups([motor.pw_gid])
         os.setresgid(hub.pw_gid, hub.pw_gid, hub.pw_gid)
@@ -93,7 +130,7 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:msg.id,result}));
         'HOME': str(private),
         'MEXERICA_HOME': str(private),
         'DONNABOT_MOTOR_PROOF_HOST': str(Path(sys.argv[2]).resolve()),
-        'DONNABOT_PROOF_PACKAGE': 'file:' + str(package),
+        'DONNABOT_PROOF_PACKAGE': f'{nome}@{versao}',
         'DONNABOT_PROOF_OLD': str(private / 'old-cli'),
         'DONNABOT_PROOF_SECRET': 'FALSO_TESTE',
     }
@@ -104,6 +141,10 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:msg.id,result}));
         assert (private/name).read_text() == 'sentinela fictícia do Hub'
     print('PASS raiz publicada pertence ao motor; sentinelas privadas do Hub intactas',flush=True)
 finally:
+    if registro is not None:
+        if servidor is not None and servidor.is_alive():
+            registro.shutdown()
+        registro.server_close()
     if len(created) == 2 and config.exists() and helper.exists() and 'as_hub' in locals():
         subprocess.run([str(helper), 'cleanup'], env=command_env, preexec_fn=as_hub, check=True, timeout=15)
     config.unlink(missing_ok=True)

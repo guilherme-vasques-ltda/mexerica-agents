@@ -67,7 +67,8 @@ pub(super) fn remove_session(dir: &Path) {
 
 /// Ambiente mínimo: nenhum proxy, token ou config herdados; `HOME` na pasta do bot
 /// para o wacli nunca achar o `~/.wacli` do usuário.
-pub(super) fn command(binary: &Path, dir: &Path) -> Command {
+fn command(binary: &Path, dir: &Path) -> std::io::Result<Command> {
+    crate::open_hub::require_executor()?;
     let mut command = Command::new(binary);
     command.env_clear();
     for key in ["PATH", "LANG", "LC_ALL", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP"] {
@@ -97,7 +98,7 @@ pub(super) fn command(binary: &Path, dir: &Path) -> Command {
             });
         }
     }
-    command
+    Ok(command)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,21 +108,21 @@ pub(super) enum Method {
 }
 
 /// Pareamento: histórico mínimo (pesquisa §2.1, LGPD e disco).
-pub(super) fn auth(binary: &Path, dir: &Path, method: Method, phone: Option<&str>) -> Command {
-    let mut command = command(binary, dir);
+pub(super) fn auth(binary: &Path, dir: &Path, method: Method, phone: Option<&str>) -> std::io::Result<Command> {
+    let mut command = command(binary, dir)?;
     command.args(["--events", "auth"]);
     match (method, phone) {
         (Method::Code, Some(phone)) => command.arg("--phone").arg(phone),
         _ => command.args(["--qr-format", "text"]),
     };
     command.args(["--history-days", "1", "--history-max-per-chat", "20"]).stderr(Stdio::piped());
-    command
+    Ok(command)
 }
 
 /// O processo que fica de pé com o número conectado. Com `hook` (R3), o wacli avisa o
 /// Hub em `127.0.0.1` a cada mensagem gravada; o aviso só acorda a leitura do `wacli.db`.
-pub(super) fn sync(binary: &Path, dir: &Path, hook: Option<&super::inbox::Hook>) -> Command {
-    let mut command = command(binary, dir);
+pub(super) fn sync(binary: &Path, dir: &Path, hook: Option<&super::inbox::Hook>) -> std::io::Result<Command> {
+    let mut command = command(binary, dir)?;
     command
         .args(["--events", "sync", "--follow", "--stale-threshold", "60s", "--max-reconnect", "0"])
         // R4c: rede de segurança do próprio wacli para envios delegados a este `sync`
@@ -136,7 +137,7 @@ pub(super) fn sync(binary: &Path, dir: &Path, hook: Option<&super::inbox::Hook>)
             "--webhook-allow-private",
         ]);
     }
-    command
+    Ok(command)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -194,7 +195,7 @@ pub(super) struct Session {
 /// `cmd/wacli/auth_status_readonly.go:16-55`. Qualquer falha conta como "não conectado".
 pub(super) async fn session(binary: &Path, dir: &Path) -> Session {
     let none = Session { authenticated: false, phone: None };
-    let mut command = command(binary, dir);
+    let Ok(mut command) = command(binary, dir) else { return none };
     command.args(["--read-only", "auth", "status", "--json"]).stdout(Stdio::piped());
     let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(15), command.output()).await else {
         return none;
@@ -223,7 +224,7 @@ fn linked_phone(data: &Value) -> Option<String> {
 /// do `WhatsApp`, `cmd/wacli/media_download.go:63-79`). Devolve os bytes que o wacli diz ter
 /// gravado (`data.bytes`, `:18-30`). O conteúdo nunca vai para log.
 pub(super) async fn download(binary: &Path, dir: &Path, chat: &str, id: &str, output: &Path) -> Result<i64> {
-    let mut command = command(binary, dir);
+    let mut command = command(binary, dir)?;
     command
         .args(["--read-only", "--json", "media", "download", "--chat", chat, "--id", id, "--output"])
         .arg(output)
@@ -259,7 +260,7 @@ pub(super) async fn send_text(binary: &Path, dir: &Path, jid: &str, reply_to: &s
     if reply_to.is_empty() || reply_to.starts_with('-') {
         return Sent::NotStarted;
     }
-    let mut command = command(binary, dir);
+    let Ok(mut command) = command(binary, dir) else { return Sent::NotStarted };
     command
         .args(["--json", "--timeout", "60s", "send", "text", "--no-preview"])
         .arg(format!("--to={jid}"))
@@ -282,7 +283,7 @@ pub(super) async fn send_text(binary: &Path, dir: &Path, jid: &str, reply_to: &s
 
 /// `auth logout`: avisa o `WhatsApp` e tira o aparelho. Falha = o dono tira no celular.
 pub(super) async fn logout(binary: &Path, dir: &Path) -> bool {
-    let mut command = command(binary, dir);
+    let Ok(mut command) = command(binary, dir) else { return false };
     command.args(["auth", "logout"]);
     matches!(tokio::time::timeout(Duration::from_secs(20), command.status()).await, Ok(Ok(s)) if s.success())
 }
@@ -292,7 +293,7 @@ pub(super) async fn logout(binary: &Path, dir: &Path) -> bool {
 /// e chamadas dela. Só a cópia local; nada no `WhatsApp`. Precisa da trava do store, então o
 /// `sync` do bot tem de estar parado.
 pub(super) async fn cleanup_chat(binary: &Path, dir: &Path, chat: &str) -> bool {
-    let mut command = command(binary, dir);
+    let Ok(mut command) = command(binary, dir) else { return false };
     command.args(["chats", "cleanup", "--jid", chat, "--confirm"]);
     matches!(tokio::time::timeout(Duration::from_secs(20), command.status()).await, Ok(Ok(s)) if s.success())
 }

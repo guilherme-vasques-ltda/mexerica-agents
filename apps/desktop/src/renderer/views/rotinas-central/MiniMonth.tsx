@@ -1,6 +1,5 @@
-// Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc),
-// src/components/routines/MiniMonth.tsx (alterado): semana a partir do domingo, no idioma do app, CSS do
-// Donnabot, o período visível marcado e foco móvel pelas setas (um só Tab para o mês).
+// Minicalendário: semana a partir do domingo, no idioma do app, o período visível marcado e foco móvel
+// pelas setas (um só Tab para o mês).
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { IconButton } from '../../components/Controls'
 import { addDays, addMonths, monthGrid, startOfDay, startOfMonth, weekdayInitials, weekdayNames } from '../../lib/routine-calendar'

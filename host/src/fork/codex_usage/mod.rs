@@ -1,5 +1,4 @@
 //! Consumo global atual do Codex, sem turno, sessão ou fallback para rollouts.
-//! Adaptado de Codync ded969dc / e9980b3b (Apache-2.0; `THIRD_PARTY.md`).
 use crate::{
     LockExt,
     hub::Hub,

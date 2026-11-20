@@ -13,12 +13,7 @@
 //!
 //! The authorization code alone is useless: the PKCE verifier never leaves this host.
 
-// MODIFICADO pela DONNA Bot em 2026-11-03: porte seletivo dos commits Codync
-// 653e42d2850dcc85da52cbf37ebd315f21cb65f9 e bdc60bd96b500c0a1b0a178124297a23688163a9.
-// CAS adaptado ao vínculo/autoridade Donna; procedência e créditos em THIRD_PARTY.md.
-// Em 2026-11-04: porte seletivo e82c417424e06d1da71a865845f230d665b59ff1;
-// transporte separado e ganchos para oauth_refresh Donna. leepokai e Claude Opus 5.5; Apache-2.0.
-// Em 2026-11-04: alvo esperado e Context/Setup originais do proxy, adaptação autoral Donna.
+// MODIFICADO pela DONNA Bot em 2026-11-04: alvo esperado e Context/Setup originais do proxy, adaptação autoral Donna.
 // Em 2026-11-05 (M2-A): cliente sem redirects e URLs por papel via `oauth_urls`, ganchos curtos.
 // Em 2026-11-05 (M2-B): emissor original sem aparar barra e `issuer` exato nos metadados.
 // Em 2026-11-05 (M3-A): metadados aceitos declaram PKCE S256 antes de DCR/Grant/link.

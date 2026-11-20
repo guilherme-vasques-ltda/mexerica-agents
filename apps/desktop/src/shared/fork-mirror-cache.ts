@@ -62,9 +62,10 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 53: Marketplace — o `marketCatalogo` passa a mandar `skills[]` das fichas como `{id, titulo, resumo}` (antes vinha
 // vazia). O catálogo é lido sob demanda e não entra no mirror; o bump só segue a regra de campo novo do Hub. App antigo
 // ignora a lista; o novo não mostra a seção quando ela não vem.
-// Schema 54: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
+// Schema 54: `donnaTaskSessions` inclui a confirmação de atenção da tarefa; o dado só existe na leitura atual.
+// Schema 55: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
 // silenciosa) ou `null`; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
-export const MIRROR_SCHEMA = 54
+export const MIRROR_SCHEMA = 55
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

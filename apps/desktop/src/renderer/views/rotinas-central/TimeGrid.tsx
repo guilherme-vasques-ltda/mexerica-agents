@@ -1,6 +1,4 @@
-// Adaptado de OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc),
-// src/components/RoutineCalendarPage.tsx (`CalendarGrid` e `CalendarEventCard`, alterado): sem
-// chamadas, redimensionar nem marcadores de limite; CSS do Donnabot; a linha da hora atual se
+// Grade de horas do calendário: sem chamadas, redimensionar nem marcadores de limite; a linha da hora atual se
 // atualiza; clicar num horário vazio cria; e um cursor de teclado (setas + Enter) faz o mesmo
 // que arrastar um bot ou clicar.
 import { useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'

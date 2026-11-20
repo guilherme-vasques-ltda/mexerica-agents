@@ -1,7 +1,5 @@
 // Textos da tela central "Rotinas" (D85). DON-917: vêm do catálogo (fork-i18n, módulo `rotinas`) no idioma do app,
 // lido a cada uso: a tela assina o idioma (`useIdioma` em RoutinesCentralView) e re-renderiza quando ele muda.
-// Os de "Meus bots", "Hoje", "Dia/Semana" e "Lista" seguiram as chaves `routines.*`/`automations.*` de
-// src/locales/pt-br.json do OpenMausBot (Apache-2.0, commit 615fe65e17f88d99f12d34682750d9ae2fa402bc), com ajustes.
 import type { AppLanguage } from '../../../shared/fork-idioma.ts'
 import { localeDe } from '../../lib/fork-i18n/index.ts'
 import { idiomaAtual, tradutor, type Tradutor } from '../../lib/fork-i18n/estado'
@@ -68,7 +66,7 @@ export const texts = {
   /** "quinta-feira, 29 de outubro, 09:00": dia e hora juntos, na ordem do idioma. */
   dayTime: (dia: string, hora: string) => t('rotinas.central.diaHora', { dia, hora }),
   get monthGrid() { return t('rotinas.central.gradeMes') },
-  // Barra lateral (CalendarSidebar/MiniMonth do OpenMausBot).
+  // Barra lateral.
   get sidebar() { return t('rotinas.central.lateral') },
   get showSidebar() { return t('rotinas.central.mostrarLateral') },
   get hideSidebar() { return t('rotinas.central.fecharLateral') },

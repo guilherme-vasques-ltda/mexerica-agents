@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { showsAccountControls } from '@shared/fork-features'
-import { idiomaDoDocumento, superficieIdioma, tradutor } from '../lib/fork-i18n/index.ts'
 import { Dialog } from '../components/Overlay'
+import { idiomaDoDocumento, superficieIdioma, tradutor } from '../lib/fork-i18n/index.ts'
 import { useAccount } from '../store/account'
 import { AccountWelcomeView } from './AccountWelcomeView'
 import { ConfirmarSairWeb } from './fork/account/ConfirmarSairWeb'
@@ -42,41 +42,32 @@ export function accountEntry(account: AccountEntryState, controls: boolean): Acc
 export function AccountEntryGate({ children }: { children: ReactNode }) {
   const account = useAccount()
   const entry = accountEntry(account, showsAccountControls())
-  return (
-    <>
-      {entry === 'confirmed' ? children : <LockedWindow entry={entry} />}
-      <ConfirmarSairWeb />
-    </>
-  )
-}
-
-/** A janela antes da conta: as boas-vindas e o "Reset all data…" da bandeja. Nenhum outro comando chega aqui. */
-function LockedWindow({ entry }: { entry: Exclude<AccountEntry, 'confirmed'> }) {
-  const [confirmReset, setConfirmReset] = useState(false)
-  useEffect(() => window.codync.app.onCommand((c) => { if (c.kind === 'confirmReset') setConfirmReset(true) }), [])
-  return (
-    <div className="chat-window">
-      <AccountWelcomeView entry={entry} />
-      <div className="window-drag drag" />
-      <ResetDataDialog open={confirmReset} onClose={() => setConfirmReset(false)} />
-    </div>
-  )
-}
-
-/** "Apagar todos os dados" (bandeja → Reset all data…): o mesmo no portão e no app. */
-export function ResetDataDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  // A porta não lê preferências (account-entry.test): o idioma é o que o <html> mostra.
+  const [falhouAoApagar, setFalhouAoApagar] = useState(false)
   const idioma = idiomaDoDocumento()
   const t = tradutor(idioma)
+  useEffect(() => window.codync.app.onCommand((comando) => {
+    if (comando.kind !== 'confirmReset') return
+    setFalhouAoApagar(false)
+    void window.codync.app.resetAllData().catch(() => setFalhouAoApagar(true))
+  }), [])
   return (
-    <Dialog
-      open={open}
-      title={t('navegacao.conta.apagarDados')}
-      message={t('marca.conta.apagarTudo')}
-      cancel={t('navegacao.janela.cancelar')}
-      language={superficieIdioma(idioma)}
-      actions={[{ title: t('navegacao.conta.apagarTudo'), destructive: true, action: () => void window.codync.app.resetAllData() }]}
-      onClose={onClose}
-    />
+    <>
+      {entry === 'confirmed' ? children : (
+        <div className="chat-window">
+          <AccountWelcomeView entry={entry} />
+          <div className="window-drag drag" />
+        </div>
+      )}
+      <ConfirmarSairWeb />
+      <Dialog
+        open={falhouAoApagar}
+        title={t('navegacao.janela.erro')}
+        message={t('marca.conta.apagarFalhou')}
+        actions={[]}
+        cancel={t('navegacao.janela.ok')}
+        language={superficieIdioma(idioma)}
+        onClose={() => setFalhouAoApagar(false)}
+      />
+    </>
   )
 }

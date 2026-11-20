@@ -6,8 +6,8 @@ import './account-exit.css'
 /**
  * Web: o Sair apaga as chaves do aparelho no navegador (decisão do dono, 16/11/2026), então a pessoa lê o que
  * acontece ANTES de sair. Um diálogo só, montado no portão da conta, vale para o menu da conta, Ajustes e a
- * recuperação de saída. Cancelar recebe o foco e Esc cancela (Dialog). O idioma é o do documento, como no
- * `ResetDataDialog`: o portão não lê preferências.
+ * recuperação de saída. Cancelar recebe o foco e Esc cancela (Dialog). O idioma é o do documento:
+ * o portão não lê preferências.
  */
 export function ConfirmarSairWeb() {
   const account = useAccount()

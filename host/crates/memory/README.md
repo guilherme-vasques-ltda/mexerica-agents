@@ -38,6 +38,6 @@ Todo Cargo do Host, inclusive desta biblioteca, roda apenas no servidor pelo flu
 
 ## Alterações do fork e origem
 
-O fork acrescenta padrões em português do Brasil em `check`/`evidence`, redação de segredos e comparação textual, além da busca sem acentos. Padrões de `ai-memory` adaptados sob MIT estão registrados em [THIRD_PARTY.md](../../../THIRD_PARTY.md). Migrações do fork usam a chave `donnabot` em `memory_meta`, separada da evolução da base.
+O fork acrescenta padrões em português do Brasil em `check`/`evidence`, redação de segredos e comparação textual, além da busca sem acentos. Migrações do fork usam a chave `donnabot` em `memory_meta`, separada da evolução da base.
 
 A origem Codync, Po Kai Lee e contribuidores permanece em [NOTICE](../../../NOTICE). A licença Apache-2.0 está em [LICENSE](LICENSE) desta biblioteca e em [LICENSE da raiz](../../../LICENSE); avisos específicos de material adaptado continuam aplicáveis. Nenhuma licença ou copyright foi substituído nesta edição.
