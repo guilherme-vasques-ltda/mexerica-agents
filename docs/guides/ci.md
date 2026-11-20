@@ -2,8 +2,9 @@
 
 O workflow [CI](../../.github/workflows/ci.yml) roda em todo pull request e publica o
 check **`ci-ok`**, que a proteção da `main` vai exigir. Nenhum job roda em runner
-hospedado pelo GitHub: todos usam runners do **Boat** e da **Instabox**, conectados ao
-repositório por app do GitHub.
+hospedado pelo GitHub: os jobs do CI usam runners do **Boat** e da **Instabox**, e o
+workflow [macOS](../../.github/workflows/macos.yml) usa máquinas macOS da **Namespace**.
+Os três fornecedores se conectam ao repositório por app do GitHub.
 
 ## Boat primeiro, Instabox no limite
 
@@ -60,6 +61,36 @@ início da rodada. Se o Boat recusar um job depois:
   aviso, mas a análise precisa concluir.
 - **dependency-audit:** `npm audit` e `cargo audit` só como aviso. Não entra no `ci-ok`.
 
+## macOS (Namespace)
+
+O workflow `macOS` tem um único job, `macos`, que roda em `nscloud-macos-tahoe-arm64-6x14`
+(macOS Tahoe, Apple Silicon, 6 vCPU e 14 GB). Ele ainda **não entra no `ci-ok`**: aparece
+no PR como a sonda do Boat e não trava a fila enquanto estabiliza.
+
+- **Quando roda:** em PR pronto (não rascunho, não fork) que muda `apps/desktop/`, `host/`,
+  `motor/`, `packaging/`, a toolchain ou o Cargo da raiz, ou o próprio workflow; e por
+  disparo manual (Actions → macOS → Run workflow). O disparo manual só existe depois que o
+  workflow está na `main`.
+- **O que faz:** os testes nativos do Codex da Open no Hub (`fork::open_codex` e
+  `open_hub` com `CODYNC_ENV=open`), `npm ci`, `npm run test:open` e
+  `npm run dist:mac:open`. Depois confere a assinatura ad hoc do pacote e que o Hub e o
+  helper de fala embutidos são `arm64`.
+- **Artefato:** só no disparo manual, gera `Mexerica-Open-macos-arm64.zip` e
+  `SHA256SUMS` e os guarda como artefato do próprio Actions por 3 dias. Não há release,
+  tag nem envio para fora do GitHub.
+- **Gasto:** filtro de caminhos, cancelamento da rodada antiga do mesmo PR, limite de 75
+  minutos e cache do npm e do Cargo pelo cache do GitHub (escopo por branch: o cache de um PR
+  não chega à `main` nem a outro PR). Não usa volume de cache da Namespace, que é
+  compartilhado por rótulo entre todas as rodadas. O resumo do job mostra os minutos gastos e
+  a estimativa em dólar.
+- **Segurança:** `permissions: {}` no topo e só `contents: read` no job; nenhum secret;
+  actions de uma lista fechada por SHA (checkout, setup-node, rust-cache e upload-artifact);
+  o rustup, se faltar na imagem, é baixado com SHA-256 fixo. `tools/ci-workflow.test.mjs`
+  confere tudo isso.
+
+Para entrar no `ci-ok`, falta: rodadas estáveis em PRs reais, um tempo de rodada aceitável
+e mover o job (ou o check dele) para a lista do selo, num PR à parte.
+
 ## Regras do ci-ok
 
 - Roda sempre (`if: always()`), sem checkout e sem permissões.
@@ -72,15 +103,15 @@ início da rodada. Se o Boat recusar um job depois:
 
 ## Segurança do workflow
 
-- Só o evento `pull_request`. Não há `pull_request_target`, `push`, `schedule` nem
-  `workflow_dispatch`.
+- O CI só tem o evento `pull_request`. Não há `pull_request_target`, `push`, `schedule`
+  nem `workflow_dispatch`. O workflow macOS acrescenta só o disparo manual, sem entradas.
 - `permissions: {}` no topo e permissões explícitas por job, só leitura.
 - Actions fixadas por SHA completo. Todo checkout usa `persist-credentials: false`.
 - Concorrência por PR com cancelamento da rodada anterior. Todo job tem `timeout-minutes`.
 - `tools/ci-workflow.test.mjs` reprova rótulo de runner fora da lista, action sem SHA,
   job sem permissões ou timeout, secret fora do job `vazamento` e gatilho proibido.
-- O fornecedor da VM (Boat ou Instabox) pode ler o código privado e, no job `vazamento`, o
-  secret em memória. Isolamento e exclusão da VM são declarações do fornecedor.
+- O fornecedor da VM (Boat, Instabox ou Namespace) pode ler o código privado e, no job
+  `vazamento`, o secret em memória. Isolamento e exclusão da VM são declarações do fornecedor.
 - No PR que introduz `tools/ci-gitleaks.mjs` e `tools/ci-vazamento.mjs`, a `main` ainda não
   tem os executores. Só nesse caso, e só em `pull_request`, eles vêm do próprio PR, e o
   passo de vazamento roda só com as regras públicas, sem o secret. Esse PR depende de

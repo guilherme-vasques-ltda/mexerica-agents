@@ -1,4 +1,4 @@
-# Rótulos dos runners Boat e Instabox aceitos pelo actionlint. Runner hospedado pelo GitHub não é usado.
+# Rótulos dos runners Boat, Instabox e Namespace (macOS) aceitos pelo actionlint. Runner hospedado pelo GitHub não é usado.
 self-hosted-runner:
   labels:
     - boat-small
@@ -7,3 +7,4 @@ self-hosted-runner:
     - instabox-small
     - instabox-medium
     - instabox-large
+    - nscloud-macos-tahoe-arm64-6x14
