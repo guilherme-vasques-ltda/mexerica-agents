@@ -31,7 +31,7 @@ impl Fixture {
         Self { scope, open, executable }
     }
 
-    fn select(&self, executable: &Path, version: &str, digest: String) {
+    fn select(&self, executable: &Path, version: &str, digest: &str) {
         let reference = serde_json::json!({"executable": executable, "version": version, "sha256": digest});
         private_fs::create_atomic(&self.open.join(SELECTION), reference.to_string().as_bytes()).unwrap();
     }
@@ -53,17 +53,17 @@ fn selection_requires_a_private_explicit_path_and_pinned_version_and_content() {
     assert!(Selection::load(&missing.open).is_err());
 
     let fixture = Fixture::new();
-    fixture.select(&fixture.executable, VERSION, digest());
+    fixture.select(&fixture.executable, VERSION, &digest());
     assert_eq!(Selection::load(&fixture.open).unwrap().executable, fixture.executable);
     std::fs::write(&fixture.executable, b"replacement").unwrap();
     assert!(Selection::load(&fixture.open).is_err());
 
     let wrong_version = Fixture::new();
-    wrong_version.select(&wrong_version.executable, "0.1.0", digest());
+    wrong_version.select(&wrong_version.executable, "0.1.0", &digest());
     assert!(Selection::load(&wrong_version.open).is_err());
 
     let permissive = Fixture::new();
-    permissive.select(&permissive.executable, VERSION, digest());
+    permissive.select(&permissive.executable, VERSION, &digest());
     std::fs::set_permissions(permissive.open.join(SELECTION), std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(Selection::load(&permissive.open).is_err());
 }
@@ -76,11 +76,11 @@ fn selection_never_follows_a_link_or_accepts_a_personal_profile_as_an_installati
     let other = personal.join("codex");
     std::fs::rename(&fixture.executable, &other).unwrap();
     symlink(&other, &fixture.executable).unwrap();
-    fixture.select(&fixture.executable, VERSION, digest());
+    fixture.select(&fixture.executable, VERSION, &digest());
     assert!(Selection::load(&fixture.open).is_err());
 
     let explicit_personal = Fixture::new();
-    explicit_personal.select(&other, VERSION, digest());
+    explicit_personal.select(&other, VERSION, &digest());
     assert!(Selection::load(&explicit_personal.open).is_err());
 }
 
