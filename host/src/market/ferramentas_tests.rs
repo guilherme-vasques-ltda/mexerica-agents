@@ -690,6 +690,8 @@ async fn bot_e_conteudo_externo_nunca_ligam_nada_so_o_dono_pelo_app() {
     // A ponte do bot (a mesma que carrega o texto do fornecedor) não tem estes métodos, e um aparelho sem controle
     // também não: nem chegam ao Hub.
     let tela = Caller::Device { key: "k".into(), scopes: vec![crate::store::Scope::Screen], autoridade: None };
+    // Uma liberação que a pessoa já fez continua de pé quando um aparelho sem controle tenta desligá-la.
+    chamar_api(&hub, &Caller::Local, "marketFerramentaLigar", corpo.clone()).await.unwrap();
     for metodo in ["marketFerramentaLigar", "marketFerramentaDesligar"] {
         assert!(!crate::fork::ponte_credencial::PERMITIDOS.contains(&metodo), "{metodo} aberto à ponte do bot");
         assert!(crate::api::devices::permit(&tela, metodo).is_err(), "{metodo} aberto a aparelho sem controle");
@@ -702,7 +704,7 @@ async fn bot_e_conteudo_externo_nunca_ligam_nada_so_o_dono_pelo_app() {
         .locked()
         .query_row("SELECT COUNT(*) FROM mexerica_ferramenta_liberacoes", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(liberacoes, 0);
+    assert_eq!(liberacoes, 1, "só a ligação feita pela pessoa; nada do aparelho sem controle");
 }
 
 #[tokio::test]

@@ -530,7 +530,10 @@ pub(crate) fn encerrar_descoberta(ponte: &str, conta: &str) -> Option<i64> {
 }
 
 pub(crate) fn invalidar(store: &Store, conta: &str) -> Result<()> {
-    invalidar_em(&store.db.locked(), conta)
+    let mut db = store.db.locked();
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    invalidar_em(&tx, conta)?;
+    Ok(tx.commit()?)
 }
 
 fn inventario_completo(c: &Connection, conta: &str) -> Result<bool> {

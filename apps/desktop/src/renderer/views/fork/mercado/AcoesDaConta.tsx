@@ -1,6 +1,6 @@
 // Ações perigosas (fatia 2): as ferramentas de UMA conta que o Hub deixa desligadas num bot (escrevem, enviam, publicam,
 // apagam ou mexem em dinheiro, ou são novas ou mudaram). Só a pessoa liga, com confirmação; o Hub confere de novo.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/Controls'
 import { HStack, VStack } from '../../../components/Stack'
 import { Text } from '../../../components/Text'
@@ -20,12 +20,17 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
   // A confirmação guarda o que a pessoa viu ao abri-la (digest e época do vínculo); recarregar a lista a descarta.
   const [confirmando, setConfirmando] = useState<{ nome: string; digest: string; vinculo: number } | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const leitura = useRef(0)
 
   const ler = useCallback(async () => {
+    const minha = ++leitura.current
     setFalhou(false); setConfirmando(null)
-    try { setDados(await ferramentasDoBot(store, botId, conta.id)) } catch { setFalhou(true) }
+    try {
+      const lida = await ferramentasDoBot(store, botId, conta.id)
+      if (minha === leitura.current) setDados(lida)
+    } catch { if (minha === leitura.current) setFalhou(true) }
   }, [store, botId, conta.id])
-  useEffect(() => { setDados(null); setConfirmando(null); setErro(null); void ler() }, [ler])
+  useEffect(() => { setDados(null); setConfirmando(null); setErro(null); void ler(); return () => { leitura.current += 1 } }, [ler])
 
   const aplicar = async (op: () => Promise<FerramentasDaConta>) => {
     setSalvando(true); setErro(null)
