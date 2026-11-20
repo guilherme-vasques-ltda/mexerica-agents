@@ -29,13 +29,24 @@ pub(crate) struct Saida {
 
 /// A fonte já foi consultada há pouco, ou está em recuo depois de falhar: não consulta de novo.
 pub(crate) fn pode_checar(estado: &Estado, declaracao: &Declaracao, agora: i64) -> bool {
+    // Outra declaração não herda a espera nem o intervalo da anterior.
+    if estado.config.as_deref() != Some(config(declaracao).as_str()) {
+        return true;
+    }
     let intervalo_ms = i64::try_from(declaracao.intervalo_minimo_s.saturating_mul(1000)).unwrap_or(i64::MAX);
     agora >= estado.nao_antes && estado.ultima.is_none_or(|ultima| agora.saturating_sub(ultima.em) >= intervalo_ms)
 }
 
+/// Resumo da declaração (fonte, escopo e cada estado do critério, um a um): a identidade a que o estado pertence.
+fn config(declaracao: &Declaracao) -> String {
+    let mut campos = vec![declaracao.fonte.as_str(), declaracao.escopo.as_str()];
+    campos.extend(declaracao.criterio.estados.iter().map(String::as_str));
+    resumir(&campos)
+}
+
 pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Estado, agora: i64) -> Saida {
     // O que se sabia vale só para esta mesma declaração (fonte, escopo e critério): com outra, recomeça do zero.
-    let config = resumir(&[&declaracao.fonte, &declaracao.escopo, &declaracao.criterio.estados.join("\0")]);
+    let config = config(declaracao);
     let zerado;
     let anterior = if anterior.config.as_deref() == Some(config.as_str()) {
         anterior

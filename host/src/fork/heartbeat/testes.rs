@@ -395,3 +395,19 @@ fn outra_declaracao_descarta_o_estado_anterior() {
     assert_eq!(saida.resultado, Resultado::DecisaoPendente, "critério novo, mesmo marcador: reavalia");
     assert!(saida.aviso.is_some());
 }
+
+#[test]
+fn rotulos_com_o_separador_nao_se_confundem_e_outra_declaracao_nao_herda_o_recuo() {
+    let um = Declaracao::parse(&json!({"fonte":"a","escopo":"x","criterio":{"estados":["a\u{0}b"]}})).unwrap();
+    let dois = Declaracao::parse(&json!({"fonte":"a","escopo":"x","criterio":{"estados":["a","b"]}})).unwrap();
+    let fonte = Ficticia::default();
+    *fonte.marcador.lock().unwrap() = Some("m1".into());
+    fonte.define(&[("1", "v1", "a")]);
+    let primeira = avaliar(&fonte, &um, &Estado::default(), 1_000_000);
+    let outra = avaliar(&fonte, &dois, &primeira.estado, 2_000_000);
+    assert_eq!(outra.resultado, Resultado::DecisaoPendente, "critério novo, mesmo marcador: reavalia");
+    *fonte.falha.lock().unwrap() = Some(Motivo::Fora);
+    let falhou = avaliar(&fonte, &um, &Estado::default(), 1_000_000).estado;
+    assert!(!pode_checar(&falhou, &um, 1_000_001), "a mesma declaração espera");
+    assert!(pode_checar(&falhou, &dois, 1_000_001), "outra declaração não herda a espera");
+}

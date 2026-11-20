@@ -138,7 +138,9 @@ impl Motivo {
 pub(crate) trait Fonte: Send + Sync {
     /// Marcador barato do estado atual do escopo (versão, data da última alteração). Ele precisa mudar a cada
     /// alteração do escopo, inclusive troca de um item por outro: marcador igual dispensa ler o conteúdo, então
-    /// uma fonte que não garante isso (uma simples contagem, por exemplo) deve devolver `None`.
+    /// uma fonte que não garante isso (uma simples contagem, por exemplo) deve devolver `None`. O marcador também
+    /// precisa vir de uma consulta que prove o mesmo acesso ao conteúdo que `ler` usa: se consultar a versão ainda
+    /// funciona com o acesso perdido, a falha nunca seria vista; nesse caso, devolva `None` ou erro.
     fn marcador(&self, escopo: &str) -> Result<Option<String>, Motivo>;
     /// O conteúdo do escopo, no máximo `avaliar::MAX_ITENS` itens.
     fn ler(&self, escopo: &str) -> Result<Vec<Item>, Motivo>;
