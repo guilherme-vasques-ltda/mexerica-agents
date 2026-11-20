@@ -10,6 +10,7 @@ import Speech
 
 @MainActor
 final class Recognizer {
+    private static let localSpeechUnavailable = "On-device speech recognition is unavailable for this language right now. Choose another on-device language or try again later."
     private let engine = AVAudioEngine()
     private let recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -20,19 +21,26 @@ final class Recognizer {
         recognizer = locale.map { SFSpeechRecognizer(locale: Locale(identifier: $0)) } ?? SFSpeechRecognizer()
     }
 
+    private var localSpeech: OnDeviceSpeech {
+        OnDeviceSpeech(
+            supportsOnDeviceRecognition: recognizer?.supportsOnDeviceRecognition == true,
+            isAvailable: recognizer?.isAvailable == true
+        )
+    }
+
     func start() async {
+        guard let recognizer, localSpeech.canStart else {
+            return fail(Self.localSpeechUnavailable)
+        }
         guard await AVCaptureDevice.requestAccess(for: .audio) else {
             return fail("Allow the microphone for Codync in System Settings to talk to your bots.")
         }
         guard await Self.speechAuthorized() else {
             return fail("Allow Speech Recognition for Codync in System Settings to talk to your bots.")
         }
-        guard let recognizer, recognizer.isAvailable else {
-            return fail("Speech recognition isn't available for this language right now.")
+        guard let request = localSpeech.makeRequest() else {
+            return fail(Self.localSpeechUnavailable)
         }
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
         self.request = request
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -122,7 +130,10 @@ final class Recognizer {
 
 let arguments = CommandLine.arguments
 if arguments.contains("--locales") {
-    let ids = SFSpeechRecognizer.supportedLocales().map(\.identifier).sorted()
+    let ids = SFSpeechRecognizer.supportedLocales()
+        .filter { SFSpeechRecognizer(locale: $0)?.supportsOnDeviceRecognition == true }
+        .map(\.identifier)
+        .sorted()
     FileHandle.standardOutput.write((try? JSONSerialization.data(withJSONObject: ids)) ?? Data("[]".utf8))
     exit(0)
 }
