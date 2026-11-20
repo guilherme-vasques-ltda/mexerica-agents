@@ -53,6 +53,11 @@ pub(crate) fn create(
     ensure!(!invocation.is_empty() && invocation.len() <= 256, "genui_invalid_invocation");
     let snapshot = chart.snapshot()?;
     let hash = crate::agent::registry::sha256_hex(snapshot.as_bytes());
+    let used_by_question: bool =
+        tx.query_row("SELECT EXISTS(SELECT 1 FROM donna_genui_questions WHERE invocation=?1)", [invocation], |r| {
+            r.get(0)
+        })?;
+    ensure!(!used_by_question, "genui_invocation_conflict");
     let existing = tx
         .query_row(
             "SELECT id,payload_hash,origin_entry,chat,session,space,entry_id,marker_entry

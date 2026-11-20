@@ -302,6 +302,11 @@ pub(crate) fn create(
     ensure!(!invocation.is_empty() && invocation.len() <= 256, "genui_invalid_invocation");
     let raw = payload.snapshot()?;
     let hash = crate::agent::registry::sha256_hex(raw.as_bytes());
+    let used_by_chart: bool =
+        tx.query_row("SELECT EXISTS(SELECT 1 FROM donna_genui_charts WHERE invocation=?1)", [invocation], |r| {
+            r.get(0)
+        })?;
+    ensure!(!used_by_chart, "genui_invocation_conflict");
     let existing: Option<String> = tx
         .query_row("SELECT id FROM donna_genui_questions WHERE invocation=?1", [invocation], |r| r.get(0))
         .optional()?;

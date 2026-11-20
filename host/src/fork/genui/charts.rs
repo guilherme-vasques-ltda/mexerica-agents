@@ -85,6 +85,12 @@ pub(crate) struct ValidatedChart {
 impl ValidatedChart {
     pub(crate) fn parse(raw: &str) -> Result<Self> {
         ensure!(raw.len() <= MAX_BYTES, "genui_chart_too_large");
+        // Serde também aceitaria listas posicionais nas structs; o contrato só admite objetos.
+        let shape: Value = serde_json::from_str(raw).map_err(|_| anyhow::anyhow!("genui_chart_invalid_payload"))?;
+        let objects = shape.is_object()
+            && shape["data"].is_object()
+            && shape["data"]["series"].as_array().is_none_or(|all| all.iter().all(Value::is_object));
+        ensure!(objects, "genui_chart_invalid_payload");
         let payload: Payload = serde_json::from_str(raw).map_err(|_| anyhow::anyhow!("genui_chart_invalid_payload"))?;
         ensure!(payload.version == 1, "genui_chart_unsupported_version");
         text(&payload.title, 160)?;

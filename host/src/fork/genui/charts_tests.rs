@@ -64,6 +64,15 @@ fn catalogo_fechado_e_descritor_da_ferramenta() {
 }
 
 #[test]
+fn listas_posicionais_no_lugar_de_objetos_sao_recusadas() {
+    let mut value = payload("bar_chart", 2);
+    value["data"]["series"] = json!([["volume", "Quantidade", [1, 2]]]);
+    assert_eq!(error(&value), "genui_chart_invalid_payload");
+    let raw = r#"["version","component","title","summary","data"]"#;
+    assert_eq!(ValidatedChart::parse(raw).unwrap_err().to_string(), "genui_chart_invalid_payload");
+}
+
+#[test]
 fn campos_extras_inclusive_autoridade_e_recursos_sao_recusados_sem_eco() {
     for key in [
         "html",

@@ -372,6 +372,19 @@ async fn grafico_publica_apos_commit_com_replay_unico_e_sem_estado_de_resposta()
 }
 
 #[tokio::test]
+async fn mesma_invocacao_nao_vale_para_grafico_e_escolha_ao_mesmo_tempo() {
+    let f = Fixture::new();
+    let context = f.context();
+    show_chart(&f.hub, &context, "ponte:x", &chart("Vendas")).unwrap();
+    let error = show(&f.hub, &context, "ponte:x", &choice("Escolha")).unwrap_err().to_string();
+    assert_eq!(error, "genui_invocation_conflict");
+    show(&f.hub, &context, "ponte:y", &choice("Escolha")).unwrap();
+    let error = show_chart(&f.hub, &context, "ponte:y", &chart("Vendas")).unwrap_err().to_string();
+    assert_eq!(error, "genui_invocation_conflict");
+    assert_eq!(charts_rows(&f.hub), 1);
+}
+
+#[tokio::test]
 async fn grafico_reaberto_apos_reinicio_vem_do_banco_sem_nova_chamada() {
     let f = Fixture::new();
     let shown = show_chart(&f.hub, &f.context(), "ponte:1", &chart("Vendas")).unwrap();
