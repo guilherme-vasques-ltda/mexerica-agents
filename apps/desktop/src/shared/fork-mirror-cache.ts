@@ -65,8 +65,6 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 54: `donnaTaskSessions` inclui a confirmação de atenção da tarefa; o dado só existe na leitura atual.
 // Schema 55: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
 // silenciosa) ou `null`; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
-// Schema 55: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
-// silenciosa) ou `null`; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
 // Schema 56: Heartbeat — a rotina traz `heartbeatStatus` (última checagem e situação da fonte) quando é uma checagem
 // silenciosa; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
 export const MIRROR_SCHEMA = 56
