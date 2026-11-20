@@ -10,6 +10,8 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, ops::ControlFlow, sync::Arc};
 
+const OPEN_EDITABLE_FIELDS: [&str; 5] = ["name", "description", "avatarConfig", "mexeriquinha", "title"];
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Read {
@@ -28,7 +30,18 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if !matches!(method, "donnaBotEditor" | "donnaBotEditorSave") {
         return Ok(ControlFlow::Continue(body));
     }
-    authorization::require_owner(caller)?;
+    if crate::environment::Environment::is_open() {
+        crate::fork::engine_setup::require_local(caller)?;
+        if method == "donnaBotEditorSave"
+            && !body["patch"]
+                .as_object()
+                .is_some_and(|fields| fields.keys().all(|key| OPEN_EDITABLE_FIELDS.contains(&key.as_str())))
+        {
+            return Err(crate::api::devices::Forbidden.into());
+        }
+    } else {
+        authorization::require_owner(caller)?;
+    }
     let mut body = body;
     if let Some(object) = body.as_object_mut() {
         object.remove("spaceId");
@@ -141,17 +154,30 @@ fn save(
 /// Reenvia somente a configuração canônica. Um ator indisponível será restaurado pelo Hub ao reiniciar.
 /// Read/retry reconcilia antes do próximo envio; não há outra cópia persistente do perfil.
 fn reconcile(hub: &Hub, cfg: &BotConfig) -> &'static str {
-    if hub.send_cmd(&cfg.id, Cmd::Reconfigure(Box::new(cfg.clone()))).is_ok() { "next_turn" } else { "apply_pending" }
+    if crate::environment::Environment::is_open()
+        || hub.send_cmd(&cfg.id, Cmd::Reconfigure(Box::new(cfg.clone()))).is_ok()
+    {
+        "next_turn"
+    } else {
+        "apply_pending"
+    }
 }
 
 fn response(hub: &Hub, cfg: &BotConfig, application: &str) -> Result<Value> {
     // D366: para o Berga, o Hub só oferece aparência e motor; a tela apenas reflete.
     let fixed = hub.store.team_settings()?.primary_bot_id.as_deref() == Some(cfg.id.as_str());
     let can_delete = !fixed && !crate::fork::spaces::is_space_principal(&hub.store.db.locked(), &cfg.id)?;
-    let editable = if fixed {
-        crate::fork::donna_fixa::editable(&validation::EDITABLE_FIELDS)
+    let open = crate::environment::Environment::is_open();
+    let fields: &[&str] = if open { &OPEN_EDITABLE_FIELDS } else { &validation::EDITABLE_FIELDS };
+    let editable = if fixed { crate::fork::donna_fixa::editable(fields) } else { fields.to_vec() };
+    let (engine_accounts, engine_runtime, workspace_issue) = if open {
+        (json!([]), Value::Null, None)
     } else {
-        validation::EDITABLE_FIELDS.to_vec()
+        (
+            super::super::engine_accounts::managed::editor_accounts(&hub.store)?,
+            super::super::engine_accounts::managed::editor_runtime(&hub.store, cfg)?,
+            crate::fork::pasta::aviso(cfg),
+        )
     };
     Ok(json!({
         "botId":cfg.id,
@@ -162,9 +188,9 @@ fn response(hub: &Hub, cfg: &BotConfig, application: &str) -> Result<Value> {
             "unavailableSections":["autonomy","folder","tools","memory","voice","routines","export"]
         },
         "permissions":{"canEdit":true,"canDelete":can_delete},
-        "costInfo":null,"speedStatus":null,"engineAccounts":super::super::engine_accounts::managed::editor_accounts(&hub.store)?,"engineRuntime":super::super::engine_accounts::managed::editor_runtime(&hub.store,cfg)?,
+        "costInfo":null,"speedStatus":null,"engineAccounts":engine_accounts,"engineRuntime":engine_runtime,
         "application":application,
-        "workspaceIssue":crate::fork::pasta::aviso(cfg),
+        "workspaceIssue":workspace_issue,
         "message":if application == "apply_pending" {"Salvo, aplicação pendente."} else {"Aplica no próximo turno."}
     }))
 }

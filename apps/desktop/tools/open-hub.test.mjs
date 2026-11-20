@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { test } from 'node:test'
-import { openApiPath, openStreamPath, readOpenEventData, requestOpenHub } from '../src/main/fork-open/hub-transport.ts'
+import { isLoginPageURL, openApiPath, loginPageDeadline, openStreamPath, readOpenEventData, requestOpenHub } from '../src/main/fork-open/hub-transport.ts'
 
 test('o SSE mantém separadores Unicode dentro do JSON, mesmo entre pedaços UTF-8', async () => {
   const messages = [{ name: 'Um\u2028dois\u2029três' }, { name: 'Outra linha' }]
@@ -14,6 +14,24 @@ test('o SSE mantém separadores Unicode dentro do JSON, mesmo entre pedaços UTF
   const received = []
   for await (const data of readOpenEventData(stream)) received.push(JSON.parse(data))
   assert.deepEqual(received, messages)
+})
+
+test('a Open só pode abrir a página exata de autorização do Codex', () => {
+  assert.equal(isLoginPageURL('https://auth.openai.com/codex/device'), true)
+  for (const url of [
+    'https://auth.openai.com/codex/device?next=other',
+    'https://auth.openai.com/codex/device#fragment',
+    'https://auth.openai.com:443/codex/device',
+    'https://auth.openai.com.example.invalid/codex/device',
+    'http://auth.openai.com/codex/device',
+    ['https://auth.openai.com/codex/device'],
+  ]) assert.equal(isLoginPageURL(url), false)
+  const challenge = { kind: 'device_code', url: 'https://auth.openai.com/codex/device' }
+  const operation = { phase: 'awaiting_authorization', expiresAt: 2000, challenge }
+  assert.equal(loginPageDeadline(operation, 1500), 2000)
+  assert.equal(loginPageDeadline(operation, 2000), 0)
+  assert.equal(loginPageDeadline({ ...operation, phase: 'cancelled' }, 1500), 0)
+  assert.equal(loginPageDeadline({ ...operation, challenge: { ...challenge, url: 'https://example.invalid' } }, 1500), 0)
 })
 
 test('a ponte só aceita métodos e streams do Hub Open', () => {

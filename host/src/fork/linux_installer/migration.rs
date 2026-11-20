@@ -1,8 +1,8 @@
 //! Orquestra cópia e volta. Só a F3 conhece e reescreve referências do banco.
-use super::identity::{as_user, user_groups};
+use super::identity::as_user;
 use super::root::{
-    BASE, BIN, CONFIG, MOTOR, User, WORK, checked, directory, install, owner_mode, place, safe, service, system, unit,
-    user, user_command, write_atomic,
+    BASE, BIN, CONFIG, MOTOR, User, WORK, as_hub, checked, directory, inside, install, open_sources, owner_mode, place,
+    safe, service, system, unit, user, user_command, write_atomic,
 };
 use crate::fork::motor_exec::fd::Directory;
 use anyhow::{Context, Result, bail, ensure};
@@ -187,12 +187,6 @@ fn parents(path: &Path, root: &Path, uid: u32, gid: u32, mode: u32) -> Result<()
         directory(&current, uid, gid, mode)?;
     }
     Ok(())
-}
-
-fn as_hub<T: Send>(hub: &User, extra: &[u32], work: impl FnOnce() -> Result<T> + Send) -> Result<T> {
-    let mut groups = user_groups(&hub.name, hub.gid)?;
-    groups.extend_from_slice(extra);
-    as_user(hub.uid, hub.gid, &groups, work)
 }
 
 fn fd_owner(file: &fs::File, uid: u32, gid: u32) -> Result<()> {
@@ -387,6 +381,8 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
     );
     ensure!(!Path::new(CONFIG).exists(), "instalação já separada; use reinstalação, não migração");
     inside(&hub.home, data)?;
+    // As origens que a instalação vai copiar são abertas como Hub antes da parada e copiadas assim.
+    let sources = open_sources(hub, host, helper)?;
     as_hub(hub, &[], || {
         // A cópia é gravada com a identidade do Hub: /var/backups precisa ser atravessável por ela.
         match fs::symlink_metadata(backup) {
@@ -477,7 +473,7 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         write_atomic(&record, &serde_json::to_vec_pretty(&manifest)?, 0, 0, 0o600)?;
         // Só agora o caminho antigo já está salvo e pode virar link estável.
         as_hub(hub, &[], || Ok(fs::remove_file(&link)?))?;
-        install(hub, host, helper, data, port, false)?;
+        install(hub, sources, data, port, false)?;
         let config = fs::read_to_string(CONFIG)?;
         let gid: u32 = config.lines().find_map(|s| s.strip_prefix("work_gid=")).context("work_gid ausente")?.parse()?;
         let motor_text = checked(Command::new(system("getent")?).args(["passwd", "donnabot-motor"]))?;
@@ -609,17 +605,6 @@ fn record_path(backup: &Path) -> PathBuf {
     let mut name = backup.file_name().unwrap_or_default().to_owned();
     name.push(".manifesto.json");
     backup.with_file_name(name)
-}
-
-fn inside(home: &Path, path: &Path) -> Result<()> {
-    let plain = |p: &Path| p.is_absolute() && !p.components().any(|c| matches!(c, Component::ParentDir));
-    ensure!(plain(home) && home != Path::new("/"), "home do Hub inválida para migração e volta");
-    ensure!(
-        plain(path) && path.starts_with(home) && path != home,
-        "caminho fora da home do Hub recusado: {}",
-        path.display()
-    );
-    Ok(())
 }
 
 fn trusted_manifest(hub_uid: u32, home: &Path, backup: &Path, owner: u32) -> Result<Manifest> {
@@ -966,10 +951,10 @@ mod tests {
     fn identidade_do_hub_mantem_grupos_suplementares_e_recusa_root() -> Result<()> {
         // SAFETY: getter da identidade corrente, sem efeitos colaterais.
         let hub = user(unsafe { libc::geteuid() })?;
-        let groups = user_groups(&hub.name, hub.gid)?;
+        let groups = super::super::identity::user_groups(&hub.name, hub.gid)?;
         assert!(groups.contains(&hub.gid));
         let root = user(0)?;
-        assert!(user_groups(&root.name, root.gid)?.contains(&0));
+        assert!(super::super::identity::user_groups(&root.name, root.gid)?.contains(&0));
         assert!(as_user(hub.uid.max(1), hub.gid.max(1), &[0], || Ok(())).is_err(), "grupo root nunca entra");
         Ok(())
     }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,11 +9,17 @@ import { createRequire } from 'node:module'
 import { environmentProfile } from '../src/shared/environment.ts'
 import { PORTA_PRINCIPAL, PORTA_DEV } from '../src/main/fork-oauth-loopback.ts'
 import { SANDBOX_PORTS } from '../src/shared/dev-sandbox.ts'
-import { open, openPaths, isOpenAsset } from '../src/main/fork-open/isolation.ts'
+import { open, openPaths, isOpenAsset, bringToFront } from '../src/main/fork-open/isolation.ts'
 import { traduzir } from '../src/renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../src/shared/fork-idioma.ts'
 
 const require = createRequire(import.meta.url)
+
+function hardLinkToSymlink(source, target) {
+  const link = spawnSync('ln', ['-P', source, target], { encoding: 'utf8' })
+  assert.equal(link.status, 0, link.stderr)
+  assert.equal(lstatSync(target).nlink, 2)
+}
 
 test('a Open usa apenas identificadores próprios, no pacote e em execução', () => {
   const config = require('./open-builder.cjs')
@@ -71,6 +78,80 @@ test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) 
   writeFileSync(unsafeFile, '', { mode: 0o600 })
   chmodSync(unsafeFile, 0o622)
   assert.throws(() => openPaths(home, appData), { message: traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados') })
+})
+
+test('a segunda execução passa pela guarda com as travas da instância aberta, sem afrouxar o perfil', (t) => {
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const appData = join(home, 'Application Support')
+  mkdirSync(appData, { mode: 0o700 })
+  const { userData, homeConfig } = openPaths(home, appData)
+  const personal = join(appData, 'Donnabot')
+  mkdirSync(personal, { mode: 0o700 })
+  const remote = join(home, 'scoped_dirAb12Cd')
+  const socket = join(remote, 'SingletonSocket')
+  const reset = (links = {}) => {
+    rmSync(remote, { recursive: true, force: true })
+    mkdirSync(remote, { mode: 0o700 })
+    symlinkSync('5678', join(remote, 'SingletonCookie'))
+    for (const [name, target] of Object.entries({ SingletonLock: 'host-1234', SingletonCookie: '5678', SingletonSocket: socket, ...links })) {
+      rmSync(join(userData, name), { force: true })
+      symlinkSync(target, join(userData, name))
+    }
+  }
+  reset()
+  assert.doesNotThrow(() => openPaths(home, appData))
+  rmSync(remote, { recursive: true })
+  assert.doesNotThrow(() => openPaths(home, appData))
+  const refused = [
+    { SingletonLock: personal },
+    { SingletonLock: 'host-sem-pid' },
+    { SingletonCookie: personal },
+    { SingletonSocket: join(personal, 'SingletonSocket') },
+    { SingletonSocket: join(remote, 'outro') },
+    { SingletonSocket: join(home, 'scoped_dir', 'SingletonSocket') },
+  ]
+  for (const links of refused) {
+    reset(links)
+    assert.throws(() => openPaths(home, appData), undefined, JSON.stringify(links))
+  }
+  reset()
+  rmSync(join(remote, 'SingletonCookie'))
+  symlinkSync('9999', join(remote, 'SingletonCookie'))
+  assert.throws(() => openPaths(home, appData))
+  reset()
+  chmodSync(remote, 0o755)
+  assert.throws(() => openPaths(home, appData))
+  reset()
+  rmSync(remote, { recursive: true })
+  symlinkSync(personal, remote, 'dir')
+  assert.throws(() => openPaths(home, appData))
+  rmSync(remote)
+  reset()
+  hardLinkToSymlink(join(userData, 'SingletonLock'), join(home, 'outro-nome'))
+  assert.throws(() => openPaths(home, appData))
+  rmSync(join(home, 'outro-nome'))
+  const nested = join(userData, 'Network')
+  mkdirSync(nested, { mode: 0o700 })
+  symlinkSync('host-1234', join(nested, 'SingletonLock'))
+  assert.throws(() => openPaths(home, appData))
+  rmSync(nested, { recursive: true })
+  symlinkSync('host-1234', join(homeConfig, 'SingletonLock'))
+  assert.throws(() => openPaths(home, appData))
+  rmSync(join(homeConfig, 'SingletonLock'))
+  symlinkSync(personal, join(userData, 'Cookies'), 'dir')
+  assert.throws(() => openPaths(home, appData))
+})
+
+test('a segunda execução traz a janela existente para a frente', () => {
+  const calls = []
+  const window = { isMinimized: () => true, restore: () => calls.push('restore'), show: () => calls.push('show'), focus: () => calls.push('focus') }
+  bringToFront(window, () => calls.push('app'))
+  assert.deepEqual(calls, ['restore', 'show', 'focus', 'app'])
+  calls.length = 0
+  window.isMinimized = () => false
+  bringToFront(window, () => calls.push('app'))
+  assert.deepEqual(calls, ['show', 'focus', 'app'])
 })
 
 test('a janela só pede arquivos empacotados, sem rede nem esquemas externos', () => {

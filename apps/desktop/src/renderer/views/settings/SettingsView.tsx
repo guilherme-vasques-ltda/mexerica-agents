@@ -106,7 +106,8 @@ export function SettingsView({ page: requested, aba: abaPedida, onPage, onAba }:
   const tx = semParametros(t)
   const titulo = (p: (typeof pages)[number]) => tx(p.chave)
   const current = pages.find((p) => p.id === page)!
-  const abas = abasVisiveis(page, abasDe[page], cap, app.managedStores.length)
+  const abas = page === 'ai-accounts' && window.codync.appScheme === 'mexerica-open'
+    ? undefined : abasVisiveis(page, abasDe[page], cap, app.managedStores.length)
   // Uma aba que este aparelho não mostra (ex.: Chaves na Web) cai na primeira, nunca numa página vazia.
   const aba = abas && abaPedida && !abas.some((a) => a.id === abaPedida) ? abas[0].id : abaPedida
   // O cabeçalho do primeiro grupo é o Space ativo; "Pessoal" só quando ele é o ativo (nenhum Space aberto).

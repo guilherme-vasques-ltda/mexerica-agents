@@ -1,4 +1,3 @@
-// Adaptado de Codync 6dcee39da4e475d233bc9c245a9505bd0c10f27b (Apache-2.0); veja THIRD_PARTY.md.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readPicked, readPasted } from './fork-composer-files.ts'
