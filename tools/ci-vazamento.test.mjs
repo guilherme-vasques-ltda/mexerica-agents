@@ -616,6 +616,8 @@ test('data URI: termo longo continua comparado no base64 cru; metadado legível 
     assert.equal(b64Hit(svgWith(pngWith('CactoAAA', extras))), true, 'chunk de texto inválido ou acima do orçamento deixa o bloco cru');
   }
   assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [bomb]))), false, 'um zTXt dentro do orçamento é aceito');
+  const heavy = svgWith(pngWith('CactoAAA', [bomb]));
+  assert.equal(b64Hit(heavy + heavy), true, 'o orçamento é da linha inteira, não de cada PNG');
 });
 
 test('data URI: PNG incompleto, outro formato, CRC errado, bloco sem fim claro ou base64 inválido seguem crus', () => {

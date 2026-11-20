@@ -128,11 +128,12 @@ const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 const LONG_TERM = 8;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 // Devolve os textos dos chunks tEXt, zTXt e iTXt (inteiros, de qualquer tamanho) ou null se não for um PNG completo.
-function completePng(mime, b) {
+// `budget` é compartilhado por todos os PNGs da linha: descompressão acima dele deixa o bloco cru.
+function completePng(mime, b, budget) {
   if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
   const texts = [];
-  let idat = false, budget = 4 * 1024 * 1024;
-  const inflate = (z) => { const out = inflateSync(z, { maxOutputLength: budget }); budget -= out.length; return out; };
+  let idat = false;
+  const inflate = (z) => { const out = inflateSync(z, { maxOutputLength: budget.left }); budget.left -= out.length; return out; };
   const field = (data, from) => { const k = data.indexOf(0, from); if (k < from + (from ? 0 : 1) || (from === 0 && k > 79)) throw new Error('chunk de texto inválido'); return k; };
   for (let i = 8; i + 12 <= b.length;) {
     const end = i + 12 + b.readUInt32BE(i);
@@ -155,7 +156,7 @@ function completePng(mime, b) {
         const k = field(data, 0);
         if (data.length < k + 3 || data[k + 1] > 1 || data[k + 2] !== 0) return null;
         const lang = field(data, k + 3), tr = field(data, lang + 1), value = data.subarray(tr + 1);
-        texts.push(data.toString('utf8', 0, k), data.toString('utf8', k + 3, lang), data.toString('utf8', lang + 1, tr),
+        texts.push(data.toString('latin1', 0, k), data.toString('latin1', k + 3, lang), strictUtf8.decode(data.subarray(lang + 1, tr)),
           strictUtf8.decode(data[k + 1] ? inflate(value) : value));
       }
     } catch { return null; }
@@ -169,12 +170,12 @@ function completePng(mime, b) {
 // decodificado e os trechos legíveis do PNG.
 function termViews(line, onMedia) {
   if (!/;base64,/i.test(line)) return { short: line, long: line };
-  const extra = [];
+  const extra = [], budget = { left: 4 * 1024 * 1024 };
   let media = false;
   const short = line.replace(DATA_URI, (whole, mime, block) => {
     const bytes = Buffer.from(block, 'base64');
     if (block.length % 4 === 1 || bytes.toString('base64') !== block.padEnd(Math.ceil(block.length / 4) * 4, '=')) return whole;
-    const texts = completePng(mime, bytes);
+    const texts = completePng(mime, bytes, budget);
     if (texts) {
       media = true;
       extra.push(...texts.map((t) => t.replace(/\0/g, ' ')), (bytes.toString('latin1').match(/[\x20-\x7e]{8,}/g) ?? []).join(' '));
