@@ -333,7 +333,10 @@ export class BrowserLiveSession {
     if (this.started || this.current.status !== 'connecting') return
     this.started = true
     if (!(await this.attach())) {
-      if (this.current.status === 'connecting') this.started = false
+      if (this.current.status !== 'connecting') return
+      this.started = false
+      // Painel fechado e reaberto durante a abertura local: aquela abertura foi invalidada, então abre de novo.
+      if (!this.paused) await this.start()
       return
     }
     await this.subscribeAtHub()
@@ -432,7 +435,7 @@ export class BrowserLiveSession {
   async resume(): Promise<void> {
     if (!this.paused || this.current.status === 'closed') return
     this.paused = false
-    if (this.current.status === 'connecting') return
+    if (this.current.status === 'connecting') return this.start()
     if (!(await this.attach())) return
     if (this.owns()) return this.ack()
     this.displayed = null
@@ -538,12 +541,14 @@ export class BrowserLiveSession {
     if (blocked) return blocked
     let sequence = this.inputSequence + 1
     let result = await attempt(sequence)
+    let retried = false
     const accepted = (value: ForkCloudCallResult) => value.kind === 'ok' && record(value.value)?.accepted === true
     // Depois de um resultado incerto o Hub pode ter avançado a sequência: uma única nova tentativa com a seguinte.
     if (this.lostInput && result.kind === 'ok' && !accepted(result) && this.current.status === 'live') {
       blocked = this.blockedInput(frame, epoch, generation)
       if (blocked) return blocked
       sequence += 1
+      retried = true
       result = await attempt(sequence)
     }
     if (accepted(result)) {
@@ -558,7 +563,8 @@ export class BrowserLiveSession {
     if (result.kind === 'ok') return { ok: false, reason: 'refused' }
     if (result.kind === 'notSent') return { ok: false, reason: 'refused' }
     this.lostInput = true
-    if (result.reason === 'closed') this.close('connectionLost')
+    // Incerteza também na nova tentativa: o Hub pode estar em qualquer uma das duas sequências e repetir os mesmos números nunca mais o alcança; a tela fecha para reinscrever e ressincronizar.
+    if (result.reason === 'closed' || retried) this.close('connectionLost')
     return { ok: false, reason: 'unknown' }
   }
 }

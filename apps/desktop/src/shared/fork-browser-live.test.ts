@@ -274,6 +274,53 @@ test('resultado incerto da entrada não repete sozinho; a próxima tenta a sequ�
   assert.deepEqual(m.chamadas.filter((c) => c.method === 'browserStreamInput').map((c) => c.body.sequence), [1, 1, 2, 3])
 })
 
+test('incerteza também na nova tentativa fecha a tela: repetir as mesmas sequências nunca alcançaria o Hub', async () => {
+  let n = 0
+  const m = montar({ browserStreamInput: (b) => (++n === 1 || n === 3 ? { kind: 'unknown', reason: 'timeout' } : { kind: 'ok', value: { accepted: false, sequence: b.sequence } }) })
+  await aoVivoComPessoa(m)
+  assert.deepEqual(await m.sessao.click(5, 5, 100, 100), { ok: false, reason: 'unknown' })
+  assert.equal(m.sessao.state.status, 'live', 'uma incerteza só: a tela segue e a próxima tenta a sequência seguinte')
+  assert.deepEqual(await m.sessao.click(5, 5, 100, 100), { ok: false, reason: 'unknown' })
+  assert.deepEqual(m.chamadas.filter((c) => c.method === 'browserStreamInput').map((c) => c.body.sequence), [1, 1, 2])
+  assert.deepEqual(m.sessao.state, { ...m.sessao.state, status: 'closed', reason: 'connectionLost' })
+  assert.deepEqual(await m.sessao.click(5, 5, 100, 100), { ok: false, reason: 'notLive' }, 'nada mais sai depois de fechar')
+  assert.equal(m.chamadas.filter((c) => c.method === 'browserStreamInput').length, 3)
+})
+
+test('painel fechado e reaberto durante a abertura local não deixa a sessão sem inscrição', async () => {
+  const canal = canalFalso()
+  let abre: (ok: boolean) => void = () => {}
+  const m = montar({}, canal, 's1', new Promise<boolean>((r) => (abre = r)))
+  const inicio = m.sessao.start()
+  m.sessao.pause()
+  const volta = m.sessao.resume()
+  abre(true)
+  await inicio
+  await volta
+  await m.tick()
+  assert.deepEqual([m.sessao.state.status, m.sessao.state.reason], ['live', null])
+  assert.equal(m.chamadas.filter((c) => c.method === 'browserStreamSubscribe').length, 1)
+  assert.equal(canal.ocupado, true, 'o consumidor local voltou')
+  m.mostrar(quadro(1))
+  assert.deepEqual(m.vistos.map((f) => f.sequence), [1])
+})
+
+test('painel fechado durante a abertura local e reaberto depois também inscreve', async () => {
+  const canal = canalFalso()
+  let abre: (ok: boolean) => void = () => {}
+  const m = montar({}, canal, 's1', new Promise<boolean>((r) => (abre = r)))
+  const inicio = m.sessao.start()
+  m.sessao.pause()
+  abre(true)
+  await inicio
+  assert.equal(m.sessao.state.status, 'connecting')
+  assert.equal(m.chamadas.length, 0, 'pausada: nada vai ao Hub')
+  await m.sessao.resume()
+  await m.tick()
+  assert.equal(m.sessao.state.status, 'live')
+  assert.equal(m.chamadas.filter((c) => c.method === 'browserStreamSubscribe').length, 1)
+})
+
 test('trocar de aba avança a geração, descarta quadro e entrada pendente da anterior', async () => {
   const m = montar()
   await aoVivoComPessoa(m)

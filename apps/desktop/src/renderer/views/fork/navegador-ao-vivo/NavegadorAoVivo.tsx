@@ -34,8 +34,10 @@ export function NavegadorAoVivo({ bridge, scope, session, target, conexao, botNa
 
   const aoClicar = (event: MouseEvent<HTMLDivElement>) => {
     if (!clicavel) return
-    const caixa = event.currentTarget.getBoundingClientRect()
-    void clicar(event.clientX - caixa.left, event.clientY - caixa.top, caixa.width, caixa.height)
+    const quadro = event.currentTarget
+    const caixa = quadro.getBoundingClientRect()
+    // O canvas ocupa só a área interna: a borda do quadro não entra na posição nem no tamanho enviados ao Hub.
+    void clicar(event.clientX - caixa.left - quadro.clientLeft, event.clientY - caixa.top - quadro.clientTop, quadro.clientWidth, quadro.clientHeight)
   }
 
   return <section className={`aovivo is-${faixa.kind}`} aria-label={t('ajustes.navegadorAoVivo.titulo', { bot: botName })} {...superficieIdioma(idioma)}>

@@ -60,9 +60,9 @@ function montar() {
   }
   let sink: { onFrame: (f: BrowserFrame) => void; onEnd: (e: unknown) => void } | null = null
   const conexao = {
-    framesNegotiated: true,
+    framesNegotiated: true as boolean,
     getAttachment: () => ({ connectionId }),
-    subscribeFrames: (s: NonNullable<typeof sink>) => { sink = s; return { id: 1, cancel() { sink = null } } },
+    subscribeFrames: (s: NonNullable<typeof sink>) => { if (sink) return null; sink = s; return { id: 1, cancel() { sink = null } } },
     call: async (method: string, body: Record<string, any>) => { recebidoPeloHub.push({ method, body }); return hub[method]!(body) },
   }
 
@@ -101,7 +101,7 @@ function montar() {
   const vistos: BrowserFrame[] = []
   sessao.subscribe({ onState: () => {}, onFrame: (f) => vistos.push(f) })
   return {
-    passa, atraso, sessao, ponte, hub,
+    passa, atraso, sessao, ponte, hub, conexao,
     entradasNoHub: () => recebidoPeloHub.filter((c) => c.method === 'browserStreamInput'),
     /** O Hub manda o quadro, que só chega à tela se a fila do processo principal o despachar. */
     chega: (f: BrowserFrame) => sink!.onFrame(f),
@@ -242,4 +242,17 @@ test('a identidade do quadro é estrutural: sessão e alvo com quebra de linha n
   await settle()
   assert.equal((await cita(r, { session: 'a', target: 'b\nc', frameSequence: 5 })).kind, 'notSent', 'outro par de identificadores')
   assert.equal((await cita(r, { session: 'a\nb', target: 'c', frameSequence: 5 })).kind, 'ok', 'controle: o par real')
+})
+
+test('consumidor de quadros já em uso é 409; capacidade não negociada é 501; conexão encerrada é 0', async () => {
+  const r = await comPessoa()
+  const fins: Array<{ status: number } | null> = []
+  const segundo = r.ponte.subscribeFrames(() => {}, (e) => fins.push(e))
+  assert.equal(await segundo.opened, false)
+  assert.equal(fins.at(-1)?.status, 409, 'slot ocupado com a capacidade negociada: não pede para atualizar o app')
+
+  r.conexao.framesNegotiated = false
+  const sem = r.ponte.subscribeFrames(() => {}, (e) => fins.push(e))
+  assert.equal(await sem.opened, false)
+  assert.equal(fins.at(-1)?.status, 501, 'sem capacidade negociada')
 })

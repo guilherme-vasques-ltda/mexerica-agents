@@ -733,8 +733,9 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     frames.set(mapKey, entry)
     entry.sub = service.subscribeFrames(connectionId, { onFrame: value => gate.offer(value), onEnd: error => endFrames(mapKey, error, true) })
     if (entry.sub) { if (live(event)) event.sender.send('forkCloud:frames:opened', id); return }
-    const unsupported = service.dataConnection(connectionId) !== null
-    endFrames(mapKey, transportError(unsupported ? 501 : 0, 'Assinatura indisponível.'), true) // textos-ok: diagnóstico do transporte
+    const connection = service.dataConnection(connectionId)
+    // 0: conexão encerrada; 501: capacidade não negociada; 409: negociada, mas o consumidor único de quadros já está em uso.
+    endFrames(mapKey, transportError(!connection ? 0 : connection.framesNegotiated ? 409 : 501, 'Assinatura indisponível.'), true) // textos-ok: diagnóstico do transporte
   })
   ipcMain.on('forkCloud:frames:consumed', (event, ...args: unknown[]) => {
     if (args.length !== 1) return
