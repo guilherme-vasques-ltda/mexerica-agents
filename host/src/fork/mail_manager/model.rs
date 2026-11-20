@@ -239,9 +239,10 @@ pub(crate) trait MailBackend {
 /// Tamanho máximo do assunto, em bytes.
 pub(super) const SUBJECT_MAX: usize = 998;
 
-/// Endereço simples `local@dominio`, sem espaço nem caractere de controle (impede injeção
-/// de cabeçalho). Só o domínio vai para minúsculas: a parte local mantém a caixa, como
-/// pede o SMTP. Qualquer outra forma é inválida.
+/// Endereço simples `local@dominio` em ASCII, sem espaço nem caractere de controle
+/// (impede injeção de cabeçalho). Só o domínio vai para minúsculas: a parte local mantém a
+/// caixa, como pede o SMTP. Endereço internacional (não ASCII) fica fora deste recorte e,
+/// como qualquer outra forma, é inválido.
 pub(super) fn address(raw: &str) -> Result<String> {
     let raw = raw.trim();
     let mut parts = raw.split('@');
@@ -251,8 +252,8 @@ pub(super) fn address(raw: &str) -> Result<String> {
     let ok = !local.is_empty()
         && domain.contains('.')
         && domain.split('.').all(|label| !label.is_empty())
-        && raw.chars().all(|c| !c.is_whitespace() && !c.is_control() && !matches!(c, '<' | '>' | ',' | ';' | '"'));
-    let address = format!("{local}@{}", domain.to_lowercase());
+        && raw.chars().all(|c| c.is_ascii_graphic() && !matches!(c, '<' | '>' | ',' | ';' | '"'));
+    let address = format!("{local}@{}", domain.to_ascii_lowercase());
     if !ok || address.len() > 254 {
         return invalid("endereço com caractere, domínio ou tamanho inválido");
     }

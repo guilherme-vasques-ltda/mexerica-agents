@@ -673,6 +673,10 @@ fn endereco_preserva_a_parte_local_e_recusa_dominio_com_rotulo_vazio() {
         connect_mailbox(&c, "Dupla", &["dupla@x.example.invalid", "Dupla@x.example.invalid"]),
         Err(MailError::Invalid)
     );
+    // Endereço internacional fica fora deste recorte: recusado, sem chance de duplicata.
+    for unicode in ["Ção@x.example.invalid", "σ@x.example.invalid", "mesa@exemplo-ç.example.invalid"] {
+        assert_eq!(connect_mailbox(&c, "Unicode", &[unicode]), Err(MailError::Invalid), "{unicode}");
+    }
     let admin = mailboxes(&c).unwrap();
     assert_eq!(admin.iter().find(|m| m.id == mesa).unwrap().addresses, vec!["Mesa@setor.example.invalid".to_owned()]);
     let x = bot(1);

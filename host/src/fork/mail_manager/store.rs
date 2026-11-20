@@ -62,7 +62,7 @@ pub(crate) fn connect_mailbox(c: &Connection, label: &str, addresses: &[&str]) -
         let taken: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM mail_manager_addresses WHERE canonical=?1)",
-                [a.to_lowercase()],
+                [a.to_ascii_lowercase()],
                 |r| r.get(0),
             )
             .map_err(db_error)?;
@@ -71,7 +71,7 @@ pub(crate) fn connect_mailbox(c: &Connection, label: &str, addresses: &[&str]) -
         }
         tx.execute(
             "INSERT INTO mail_manager_addresses(canonical,address,mailbox_id) VALUES(?1,?2,?3)",
-            params![a.to_lowercase(), a, id],
+            params![a.to_ascii_lowercase(), a, id],
         )
         .map_err(db_error)?;
     }
