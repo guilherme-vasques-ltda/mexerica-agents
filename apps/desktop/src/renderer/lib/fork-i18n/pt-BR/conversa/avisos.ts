@@ -67,6 +67,8 @@ export const textos = {
   "conversa.avisos.falha.cabecalho.conta": "Conta: {conta} · {motor} · {estado}",
   "conversa.avisos.falha.cabecalho.sem": "Conta: login padrão deste computador",
   "conversa.avisos.falha.cabecalho.semDica": "Este bot não tem uma conta escolhida: ele usa o login padrão deste computador, se houver um. Para escolher uma conta específica, vá em Contas de IA.",
+  "conversa.avisos.falha.cabecalho.semOpen": "Conta: a do Codex conectada mais recente",
+  "conversa.avisos.falha.cabecalho.semOpenDica": "Na Open, os bots respondem com a conta do Codex conectada mais recentemente. Para conectar ou trocar, vá em Contas de IA.",
   "conversa.avisos.falha.cabecalho.naoSei": "Conta: não consegui confirmar",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Contas de IA",
 } as const

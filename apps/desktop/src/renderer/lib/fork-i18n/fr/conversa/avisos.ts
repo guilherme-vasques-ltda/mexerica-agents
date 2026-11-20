@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.conta": "Compte : {conta} · {motor} · {estado}",
   "conversa.avisos.falha.cabecalho.sem": "Compte : connexion par défaut de cet ordinateur",
   "conversa.avisos.falha.cabecalho.semDica": "Ce bot n’a pas de compte choisi : il utilise la connexion par défaut de cet ordinateur, s’il y en a une. Pour choisir un compte précis, allez dans Comptes d’IA.",
+  "conversa.avisos.falha.cabecalho.semOpen": "Compte : le compte Codex connecté le plus récemment",
+  "conversa.avisos.falha.cabecalho.semOpenDica": "Dans Open, les bots répondent avec le compte Codex connecté le plus récemment. Pour le connecter ou le changer, allez dans Comptes d’IA.",
   "conversa.avisos.falha.cabecalho.naoSei": "Compte : non confirmé",
   "conversa.avisos.falha.cabecalho.dica": "Ouvrir Comptes d’IA",
 }

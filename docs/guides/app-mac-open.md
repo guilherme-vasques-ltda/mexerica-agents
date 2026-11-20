@@ -57,6 +57,8 @@ outra instalação nem compartilhe o arquivo criado.
 
 Com a conta conectada, escreva na conversa principal de um bot, como o Berga
 no Pessoal. Se houver mais de uma conta conectada, a Open usa a mais recente.
+Sem conta conectada, a mensagem fica como não enviada, com o motivo ao lado;
+conecte a conta em Ajustes → Contas de IA e use Reenviar.
 Cada resposta roda o Codex no mesmo isolamento do login, com as ferramentas
 desligadas: ele não executa comandos, não lê arquivos fora do perfil da Open,
 não pesquisa na internet e não abre outros programas. Se o Codex tentar usar

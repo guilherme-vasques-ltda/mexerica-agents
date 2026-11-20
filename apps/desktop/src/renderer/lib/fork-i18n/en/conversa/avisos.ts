@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.conta": "Account: {conta} · {motor} · {estado}",
   "conversa.avisos.falha.cabecalho.sem": "Account: this computer’s default login",
   "conversa.avisos.falha.cabecalho.semDica": "This bot has no account chosen: it uses this computer’s default login, if there is one. To pick a specific account, go to AI Accounts.",
+  "conversa.avisos.falha.cabecalho.semOpen": "Account: the most recently connected Codex account",
+  "conversa.avisos.falha.cabecalho.semOpenDica": "In Open, bots reply with the most recently connected Codex account. To connect or change it, go to AI Accounts.",
   "conversa.avisos.falha.cabecalho.naoSei": "Account: couldn't confirm",
   "conversa.avisos.falha.cabecalho.dica": "Open AI Accounts",
 }

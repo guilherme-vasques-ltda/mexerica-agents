@@ -460,6 +460,8 @@ export interface EntryData {
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
   clientNonce?: string
+  /** Só na bolha local que não foi enviada: o motivo da recusa da Open, como chave de texto. */
+  recusa?: string
   contentOrigin?: ContentOrigin
   pasted?: string[]
   /** DON-907 (D431): a posição na fila depois de uma reordenação (`queuedMove`); sem ela, vale `seq`. */

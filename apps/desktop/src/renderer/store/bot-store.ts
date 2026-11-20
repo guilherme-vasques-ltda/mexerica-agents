@@ -24,6 +24,7 @@ import { BotSync, sleep } from './bot-sync'
 import type { SessionIntent } from './fork-sessions'
 import { botEditorUpdate } from '@shared/bot-autonomy'
 import { bloqueioSenha, destinoSenha, type ResultadoEnvio } from './fork-senha-bloqueio'
+import { erroDoEnvio, recusaOpen } from '../views/fork/spaces/erro-envio'
 
 export { builtInBackendName, type Connection } from './bot-mirror'
 
@@ -190,7 +191,7 @@ export class BotStore extends BotSync {
         // Recusa tipada (ex.: mismatch) fica registrada como motivo, além da bolha "não enviada".
         if (error instanceof ErroFrase) this.acaoRecusada = error.frase
         if (this.outgoingFiles.has(nonce)) this.lastError = `Couldn't send the files: ${error instanceof Error ? error.message : error}`
-        this.markLocal(nonce, botId, 'failed')
+        this.markLocal(nonce, botId, 'failed', recusaOpen(erroDoEnvio(error)))
       }
     })()
     return 'aceito'
@@ -224,12 +225,12 @@ export class BotStore extends BotSync {
     this.scheduleSave()
   }
 
-  private markLocal(nonce: string, botId: string, status: string) {
+  private markLocal(nonce: string, botId: string, status: string, recusa: string | null = null) {
     const list = this.entries.get(botId)
     const i = list?.findIndex((e) => e.id === `local-${nonce}`) ?? -1
     if (!list || i < 0) return
     const next = [...list]
-    next[i] = { ...next[i]!, data: { ...next[i]!.data, status } }
+    next[i] = { ...next[i]!, data: { ...next[i]!.data, status, ...(recusa ? { recusa } : {}) } }
     this.entries.set(botId, next)
     this.changed()
     this.scheduleSave()

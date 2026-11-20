@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.conta": "Cuenta: {conta} · {motor} · {estado}",
   "conversa.avisos.falha.cabecalho.sem": "Cuenta: inicio de sesión predeterminado de este equipo",
   "conversa.avisos.falha.cabecalho.semDica": "Este bot no tiene una cuenta elegida: usa el inicio de sesión predeterminado de este equipo, si existe. Para elegir una cuenta concreta, ve a Cuentas de IA.",
+  "conversa.avisos.falha.cabecalho.semOpen": "Cuenta: la de Codex conectada más recientemente",
+  "conversa.avisos.falha.cabecalho.semOpenDica": "En Open, los bots responden con la cuenta de Codex conectada más recientemente. Para conectarla o cambiarla, ve a Cuentas de IA.",
   "conversa.avisos.falha.cabecalho.naoSei": "Cuenta: no pude confirmarla",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Cuentas de IA",
 }

@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.conta": "الحساب: {conta} · {motor} · {estado}",
   "conversa.avisos.falha.cabecalho.sem": "الحساب: تسجيل الدخول الافتراضي لهذا الكمبيوتر",
   "conversa.avisos.falha.cabecalho.semDica": "لم يُختر حساب لهذا البوت: يستخدم تسجيل الدخول الافتراضي لهذا الكمبيوتر، إن وُجد. لاختيار حساب محدد، انتقل إلى حسابات الذكاء الاصطناعي.",
+  "conversa.avisos.falha.cabecalho.semOpen": "الحساب: آخر حساب Codex تم ربطه",
+  "conversa.avisos.falha.cabecalho.semOpenDica": "في Open، تردّ البوتات باستخدام آخر حساب Codex تم ربطه. للربط أو التغيير، انتقل إلى حسابات الذكاء الاصطناعي.",
   "conversa.avisos.falha.cabecalho.naoSei": "الحساب: لم أستطع التأكد",
   "conversa.avisos.falha.cabecalho.dica": "فتح حسابات الذكاء الاصطناعي",
 }

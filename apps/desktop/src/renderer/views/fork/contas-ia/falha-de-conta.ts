@@ -168,9 +168,10 @@ export function resumoUso(usage: AccountUsage | null | 'erro', t: Tradutor, idio
 
 /** A linha "Conta: …" do cabeçalho da conversa e da configuração do bot. `null` = ainda não dá para dizer (lista a caminho). */
 export function linhaDaConta(
-  { t, contas, accountId, backend, falhou, usoResumo }: { t: Tradutor; contas: readonly ContaFalha[] | null; accountId: string | null; backend: string | null; falhou?: boolean; usoResumo?: ResumoUso | null },
+  { t, contas, accountId, backend, falhou, usoResumo, open = false }: { t: Tradutor; contas: readonly ContaFalha[] | null; accountId: string | null; backend: string | null; falhou?: boolean; usoResumo?: ResumoUso | null; open?: boolean },
 ): { texto: string; ok: boolean; dica?: string; perto?: boolean; base?: string; uso?: string } | null {
   const C = 'conversa.avisos.falha.cabecalho.' as const
+  if (!accountId && open) return { texto: t(`${C}semOpen`), ok: true, dica: t(`${C}semOpenDica`) }
   if (!accountId) return { texto: t(`${C}sem`), ok: true, dica: t(`${C}semDica`) }
   if (!contas) return falhou ? { texto: t(`${C}naoSei`), ok: false } : null
   const conta = contas.find((c) => c.id === accountId)
