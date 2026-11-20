@@ -45,7 +45,7 @@ ACP_LOCAL = {
     "grok": (["agent", "stdio"], "grok"),
     "devin": (["acp"], "standard"),
     "kimi": (["acp"], "standard"),
-    "cline": (["--acp"], "standard"),
+    "cline": (["--acp"], "cline"),
 }
 # Motores sem modo ACP próprio entram pelo adaptador do registro (`npx -y <pacote>`): pacote -> (agente, modo).
 ACP_NPX = {

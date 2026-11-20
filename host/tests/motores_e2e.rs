@@ -45,7 +45,7 @@ const MOTORES: [Motor; 9] = [
     Motor { id: "opencode", binario: "opencode", modo: "standard", lancamento: Lancamento::Cli(&["acp"]) },
     Motor { id: "devin", binario: "devin", modo: "standard", lancamento: Lancamento::Cli(&["acp"]) },
     Motor { id: "kimi", binario: "kimi", modo: "standard", lancamento: Lancamento::Cli(&["acp"]) },
-    Motor { id: "cline", binario: "cline", modo: "standard", lancamento: Lancamento::Cli(&["--acp"]) },
+    Motor { id: "cline", binario: "cline", modo: "cline", lancamento: Lancamento::Cli(&["--acp"]) },
 ];
 
 /// Motores com comando de conferência já ligado em `backends.rs` (`signed_in`).

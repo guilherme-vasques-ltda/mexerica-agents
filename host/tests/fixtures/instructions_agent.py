@@ -97,7 +97,7 @@ for line in sys.stdin:
             if config_file.exists() and "mcp_servers" in tomllib.loads(config_file.read_text()):
                 (pathlib.Path(os.environ["MEXERICA_HOME"]) / "efeito-config").write_text("executado")
         capabilities = {"loadSession": mode in ("claude", "grok"), "sessionCapabilities": {"additionalDirectories": {}}}
-        if mode in ("standard", "grok"):
+        if mode in ("standard", "grok", "cline"):
             capabilities["sessionCapabilities"]["systemPrompt"] = {}
         if mode == "claude":
             capabilities["_meta"] = {"claudeCode": {}}
@@ -173,6 +173,9 @@ for line in sys.stdin:
         if method in ("session/new", "session/load"):
             assert params["_meta"]["claudeCode"]["options"]["permissionMode"] == "default"
         result["configOptions"] = [{"id": "permission-policy", "category": "mode", "currentValue": permission_mode}]
+    if mode == "cline" and method in ("session/new", "session/load", "session/set_config_option"):
+        # O Cline real informa em toda sessão se a aprovação automática está ligada (acp/config-options.ts).
+        result["configOptions"] = [{"id": "auto_approve", "type": "boolean", "currentValue": False}]
     if mode == "codex" and method in ("session/new", "session/load", "session/set_config_option"):
         result["configOptions"] = [{"id": "permission-policy", "category": "mode", "currentValue": permission_mode}]
     if "id" in request:
