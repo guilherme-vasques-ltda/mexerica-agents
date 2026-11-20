@@ -297,7 +297,7 @@ jobs:
       - name: Testar executores e contrato do workflow em VM sem secrets
         env:
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
-        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs
+        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs tools/ci-bastidor.test.mjs
 
   hub:
     needs: [route, changes]
