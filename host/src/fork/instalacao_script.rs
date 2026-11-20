@@ -22,9 +22,12 @@ const AVISO_UNIX: &str = "Este comando baixa o instalador do fornecedor e o exec
 const PERGUNTA_UNIX: &str = "Rodar agora? [s/N]";
 #[cfg(unix)]
 const CANCELADO_UNIX: &str = "Cancelado: nada foi executado.";
-/// O `cmd` não garante UTF-8, então a mensagem do Windows é ASCII.
+/// O `cmd` não garante UTF-8, então as mensagens do Windows são ASCII; o `choice` já
+/// acrescenta o "[S,N]?" ao final da pergunta.
 #[cfg(any(windows, test))]
-const PERGUNTA_WINDOWS: &str = "Rodar este comando agora? [S/N]";
+const AVISO_WINDOWS: &str = "Este comando baixa o instalador do fornecedor e o executa no computador; a Mexerica nao confere o conteudo antes de rodar.";
+#[cfg(any(windows, test))]
+const PERGUNTA_WINDOWS: &str = "Rodar este comando agora?";
 #[cfg(any(windows, test))]
 const CANCELADO_WINDOWS: &str = "Cancelado: nada foi executado.";
 
@@ -55,7 +58,9 @@ fn linha_unix(comando: &str) -> String {
 /// e cada desfecho tem seu ramo: só o ERRORLEVEL 1, o "S", executa; N, interrupção e erro
 /// cancelam com saída 130. O comando vem solto no fim, sem parênteses em volta: os
 /// instaladores Windows chamam o PowerShell com parênteses dentro das aspas, e um bloco
-/// aberto seria fechado antes da hora. A mensagem é ASCII porque o `cmd` não garante UTF-8.
+/// aberto seria fechado antes da hora. Invariante para quem acrescentar instaladores no
+/// futuro: o comando não pode ter pipe, `&` ou `%` fora de aspas (todos os atuais respeitam).
+/// As mensagens são ASCII porque o `cmd` não garante UTF-8.
 #[cfg(windows)]
 pub fn linha_com_confirmacao(comando: &str) -> String {
     linha_windows(comando)
@@ -67,7 +72,8 @@ pub fn linha_com_confirmacao(comando: &str) -> String {
 #[cfg(any(windows, test))]
 fn linha_windows(comando: &str) -> String {
     format!(
-        "choice /c SN /m \"{PERGUNTA_WINDOWS}\" \
+        "echo {AVISO_WINDOWS} \
+         & choice /c SN /m \"{PERGUNTA_WINDOWS}\" \
          & if errorlevel 2 (echo {CANCELADO_WINDOWS} & exit 130) \
          else if not errorlevel 1 (echo {CANCELADO_WINDOWS} & exit 130) \
          else {comando}"
@@ -77,13 +83,16 @@ fn linha_windows(comando: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::process::Stdio;
+    #[cfg(unix)]
     use tokio::io::{AsyncWriteExt, BufWriter};
 
     /// Script de instalação real da lista, para os testes de forma e de comportamento.
     #[cfg(unix)]
     const EXEMPLO: &str = "curl -fsSL https://ampcode.com/install.sh | bash";
 
+    #[cfg(unix)]
     async fn rodar(linha: &str, resposta: &[u8]) -> (Option<i32>, String) {
         let mut child = crate::shell::line(linha).tokio().stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let mut entrada = BufWriter::new(child.stdin.take().unwrap());
@@ -154,6 +163,8 @@ mod tests {
     fn wrapper_windows_executa_somente_com_s() {
         let linha = linha_windows("echo comando-do-fornecedor");
         assert!(linha.contains("choice /c SN"), "{linha}");
+        // O aviso vem antes da pergunta; o `choice` é que acrescenta o "[S,N]?".
+        assert!(linha.contains(&format!("echo {AVISO_WINDOWS} & choice /c SN")), "{linha}");
         // `&` e nunca `&&`: a resposta de `choice` é o ERRORLEVEL (1 = S, 2 = N), não um código
         // de sucesso; com `&&` o "S" (1) nunca executaria e a interrupção (0) executaria.
         assert!(linha.contains("\" & if "), "{linha}");
