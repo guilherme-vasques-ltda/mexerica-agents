@@ -1,0 +1,20 @@
+﻿grupo,variante,fonte,fonte_largura,fonte_altura,recorte_x,recorte_y,original_px,tamanhos_ampliados
+01_principal,principal_laranja_mascote_maior,00_fontes_originais/01_principal_fonte.png,1283,1226,86,96,1053,
+02_selecionados,selecionado_laranja,00_fontes_originais/02_selecionados_fonte.png,1774,887,79,60,775,1024
+02_selecionados,selecionado_creme,00_fontes_originais/02_selecionados_fonte.png,1774,887,918,61,775,1024
+03_simples,simples_01_creme_aproximado,00_fontes_originais/03_simples_fonte.png,1774,887,42,38,387,"512, 1024"
+03_simples,simples_02_laranja,00_fontes_originais/03_simples_fonte.png,1774,887,476,38,387,"512, 1024"
+03_simples,simples_03_verde_aproximado,00_fontes_originais/03_simples_fonte.png,1774,887,912,38,387,"512, 1024"
+03_simples,simples_04_dourado,00_fontes_originais/03_simples_fonte.png,1774,887,1346,38,388,"512, 1024"
+03_simples,simples_05_verde,00_fontes_originais/03_simples_fonte.png,1774,887,42,461,387,"512, 1024"
+03_simples,simples_06_creme,00_fontes_originais/03_simples_fonte.png,1774,887,476,461,387,"512, 1024"
+03_simples,simples_07_gomo,00_fontes_originais/03_simples_fonte.png,1774,887,911,461,388,"512, 1024"
+03_simples,simples_08_laranja_intenso,00_fontes_originais/03_simples_fonte.png,1774,887,1346,461,388,"512, 1024"
+04_efeitos,efeito_01_pessego,00_fontes_originais/04_efeitos_fonte.png,1774,887,43,34,392,"512, 1024"
+04_efeitos,efeito_02_por_do_sol,00_fontes_originais/04_efeitos_fonte.png,1774,887,473,34,393,"512, 1024"
+04_efeitos,efeito_03_verde,00_fontes_originais/04_efeitos_fonte.png,1774,887,906,34,392,"512, 1024"
+04_efeitos,efeito_04_rosa,00_fontes_originais/04_efeitos_fonte.png,1774,887,1337,32,396,"512, 1024"
+04_efeitos,efeito_05_violeta,00_fontes_originais/04_efeitos_fonte.png,1774,887,43,456,392,"512, 1024"
+04_efeitos,efeito_06_dourado,00_fontes_originais/04_efeitos_fonte.png,1774,887,473,455,393,"512, 1024"
+04_efeitos,efeito_07_turquesa,00_fontes_originais/04_efeitos_fonte.png,1774,887,906,456,392,"512, 1024"
+04_efeitos,efeito_08_vermelho,00_fontes_originais/04_efeitos_fonte.png,1774,887,1337,454,396,"512, 1024"
