@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Group chats (Grok Bot's design): several bots and the user in one conversation.
 //!
 //! A group is a roster row (`BotKind::Group`) with a member list and its own

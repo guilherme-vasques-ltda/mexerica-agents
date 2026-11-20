@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { Observable } from '../../lib/observable'
 import { ErroComMensagem, motivoDaFalha } from '../fork/voz/falha-segura'
 import { ErroComChave, textoAgora, type Mensagem } from '../fork/bot-settings/mensagem'

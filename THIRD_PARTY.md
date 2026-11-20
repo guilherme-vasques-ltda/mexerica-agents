@@ -13,6 +13,41 @@ no README principal. A exclusão do CODE_OF_CONDUCT retira o documento Contribut
 Covenant 3.0 (CC BY-SA 4.0); nenhum trecho dele foi incorporado aos textos novos.
 O relato de segurança e a confidencialidade permanecem em SECURITY.md/AGENTS.md.
 
+## Escopo desta cópia
+
+Este arquivo veio do projeto de origem (o repositório maior de onde esta cópia foi extraída) e foi mantido como registro de
+procedência. **Ele descreve também material que não está nesta cópia.** O texto de cada seção diz o que o projeto de origem
+fez; para saber o que esta cópia contém, vale a lista abaixo, conferida em 19/11/2026 comparando os destinos citados com a
+árvore deste repositório (só conferência de caminhos; não é parecer jurídico).
+
+**Está nesta cópia** (os avisos e licenças valem para estes arquivos):
+
+- Código adaptado de OpenMausBot (Apache-2.0) no calendário de rotinas do desktop (`apps/desktop/src/renderer/lib/routine-calendar.ts` e `apps/desktop/src/renderer/views/rotinas-central/`).
+- Trechos adaptados de ai-memory (MIT) em `host/crates/memory/src/`.
+- Fixture de teste derivada do esquema do wacli (MIT) em `host/src/fork/whatsapp/wacli_fixture.sql`.
+- Skills adaptadas de Exa e de Supabase (MIT) em `host/catalogo/skills/`.
+- pi-mono (MIT) vendorizado em `motor/vendor/pi-mono/`, com as dependências npm do motor (Anthropic, OpenAI, Google).
+- Fontes da interface (SIL OFL 1.1, texto ao lado de cada arquivo) em `apps/desktop/src/renderer/assets/fonts/`.
+- Pacote npm `lucide` (ISC), dependência do desktop.
+- Biblioteca própria de avatares em `apps/desktop/src/renderer/lib/donnabot-avatars/` (sem o diretório `demo/`).
+- O catálogo de skills do Hub em `host/src/fork/skill_catalog/`: o `registry.json` (compilado no Hub) embute os textos, as referências e os arquivos `LICENSE` das skills do catálogo, entre elas as de marketing (`copywriting`, `stop-slop`, `copy-review-panel`) e outras de terceiros (por exemplo `security-audit` da Cloudflare, `impeccable`, `frontend-design`, `find-skills`, `hyperframes`); o `source-manifest.json` registra a procedência de cada arquivo.
+- Anomalia (Apache-2.0) em `apps/desktop/src/renderer/views/fork/times/modelo-marketing.ts`; Tucano, terminal de login (Apache-2.0), em `host/src/fork/terminal_login.rs` e `host/src/agent/term.rs`; papéis de parede em código (Opensource UI, MIT) em `apps/desktop/src/renderer/lib/fork-wallpapers-code.ts`; ChaCha20-Poly1305 via `@noble/ciphers` (MIT) em `apps/desktop/src/main/fork-cloud/crypto.ts`.
+- As logos dos serviços do catálogo de conectores em `apps/desktop/src/renderer/assets/marcas/` (55 arquivos; marcas de seus titulares, só para identificar o serviço).
+- Electron (MIT), WebRTC de `stasel/WebRTC` (BSD-3-Clause) e o driver Cua (MIT): os textos de licença estão em `packaging/avisos/` e `packaging/cua-driver/`; o helper do Mac está em `apps/screen-macos/`.
+- Portes do Codync posteriores à v2.20.3, com commit e autor nas seções "Codync — lote 2, item 1" (uso do Codex, `host/src/fork/codex_usage/mod.rs`) e "Codync — lote 2, item 2" (desbloqueio do chaveiro, `host/src/market/vault_unlock.rs`), mais abaixo.
+- Código derivado do Codync v2.20.3 e as modificações listadas em `MODIFICACOES.md`.
+
+**Não está nesta cópia** (os registros abaixo ficam apenas como histórico da origem e não indicam que o material seja distribuído aqui):
+
+- A pasta `.claude/` inteira: as skills do projeto de origem (tstack `pr-wait` e as skills `abrir-pr`, `acompanhar-pr` e `full-stop`; a pasta `.claude/skills/security-audit/` da Cloudflare, cujo texto o catálogo embute no `registry.json`; as 13 skills de emilkowalski/skills com `LICENSE-MIT-emilkowalski.txt`; `product-launch-film` e as fontes Geist do seu `template/assets/fonts/`) e `skills-lock.json`. O `AGENTS.md` do projeto de origem também não está aqui.
+- O bundle `apps/desktop/src/renderer/lib/donnabot-avatars/demo/demo.js` (React 18.3.1 minificado) e o diretório `demo/`.
+- Os documentos `redesenho/` e `docs/propostas/` e as propostas de design geradas (`gerar.mjs`, HTML, PNGs derivados).
+- A evidência de revisão do módulo Spaces (`research/reports/evidencias/`). Os pacotes de texto das skills de marketing não estão como arquivos soltos; só como conteúdo do `registry.json`, acima.
+- Documentos e arquivos citados só por nome (por exemplo `docs/plans/`, `web/content/docs/` e a maior parte de `docs/features/`) e arquivos do projeto de origem que não foram copiados.
+
+Se uma linha abaixo citar um destino que não existe nesta cópia, vale o que está dito aqui. Quem redistribuir esta cópia
+deve conferir os componentes contra a árvore realmente distribuída.
+
 Registre abaixo cada nova cópia de código de referência, inclusive adaptações,
 conforme D75.
 
@@ -241,6 +276,22 @@ de `LICENSE` deste repositório. O repositório não tem `NOTICE` no commit cita
 `modelo-marketing.ts` leva a origem no topo; `REGRAS_MARKETING` é adaptação
 (tradução para PT-BR) do bloco `COMMON` citado na tabela.
 
+### SF Symbols (Apple) — gerados do sistema, nunca versionados
+
+Nenhum símbolo, imagem ou fonte do SF Symbols está neste repositório. No macOS, o build executa
+`apps/desktop/tools/export-symbols.swift`, que lê os nomes de `apps/desktop/src/renderer/components/symbols.json`
+e desenha cada símbolo a partir do AppKit do próprio sistema em máscaras PNG, gravadas em
+`src/renderer/public/symbols/` (ignorado pelo Git) e embutidas só no app para plataformas Apple. Linux e Windows usam os
+ícones Lucide (abaixo), sem SF Symbols.
+
+- **Origem:** SF Symbols da Apple, via AppKit, no Mac de quem compila.
+- **Condição de uso registrada no código:** segundo o comentário do exportador, SF Symbols só podem ser distribuídos em apps
+  para plataformas Apple; por isso as máscaras são geradas no build e não são versionadas. Este repositório não traz o texto da
+  licença da Apple: quem distribuir um instalador de Mac deve conferir os termos vigentes do SF Symbols.
+- **Logotipo da Apple:** o símbolo `apple.logo` **não** é exportado (marca de terceiros). O botão do provedor Apple usa
+  `provedor.apple`, ícone genérico de conta da Lucide. `tools/verify-build.cjs` recusa o pacote de macOS se `apple.logo` voltar
+  ao manifesto exportado.
+
 ### Lucide
 
 ```text
@@ -306,11 +357,84 @@ nos arquivos. Licença: SIL Open Font License 1.1, com o texto completo ao lado 
 | Manrope | `manrope-latin-wght-normal.woff2` | https://github.com/sharanda/manrope | Copyright 2019 The Manrope Project Authors |
 | IBM Plex Sans | `ibm-plex-sans-latin-wght-normal.woff2` | https://github.com/IBM/plex | Copyright 2019 IBM Corp. |
 
-## Marcas de serviços do catálogo de conectores
+## Marcas de serviços do catálogo de conectores (2026-11-17)
 
-Esta cópia **não distribui** logos de serviços de terceiros. Todo serviço do catálogo de conectores aparece com o globo neutro
-(`views/marketplace/marcas.ts` não mapeia nenhum arquivo). Marcas e logos pertencem a seus titulares e não são cobertas pela
-licença Apache-2.0 deste repositório. Um logo só pode ser adicionado com comprovação do direito de uso; ver também [TRADEMARK.md](TRADEMARK.md).
+Cada serviço do catálogo de conectores (Marketplace) aparece com a logo do próprio fornecedor, em vez do globo genérico.
+Os arquivos ficam no app, em `apps/desktop/src/renderer/assets/marcas/`, e são mapeados por `views/marketplace/marcas.ts`
+(id da ficha do Hub → arquivo). **Nada é baixado em execução**: cada arquivo foi baixado uma vez, em 17/11/2026, da fonte
+oficial do próprio fornecedor listada abaixo, sem alteração (nem recorte nem recolorização). Sem arquivo para o serviço, o
+app mostra o globo.
+
+**Uso e titularidade.** Todas são marcas e logos de seus titulares (os fornecedores da tabela abaixo, como Linear, Composio, Slack/Salesforce, Google,
+Microsoft, GitHub e Meta/Instagram), que **não** são cobertas pela
+licença Apache-2.0 deste repositório nem por qualquer outra licença que a Mexerica possa conceder. Servem só para
+**identificar o serviço** que o usuário escolhe conectar (uso nominativo), sempre ao lado do nome do serviço, sem sugerir
+parceria, patrocínio ou endosso da Mexerica pelo fornecedor nem o inverso. Nenhum arquivo é usado como ícone do app, de
+loja ou de material de marketing. Se um titular pedir a retirada ou as regras de marca dele mudarem, o arquivo sai e o
+serviço volta ao globo. Fornecedor que publica regras próprias de uso de marca (por exemplo Slack, Google, Microsoft e
+Meta) tem essas regras como as que valem; antes de usar a marca fora da identificação do conector (divulgação, loja, site),
+conferir a política do titular. Ver também [TRADEMARK.md](TRADEMARK.md).
+
+| Serviço | Arquivo | Origem (baixada em 2026-11-17; de Context7 em diante, em 2026-11-18) | SHA-256 |
+| --- | --- | --- | --- |
+| Linear | `linear.svg` | https://linear.app/static/favicon.svg?v=2 (ícone oficial do site; página de marca: https://linear.app/brand) | `6d49f8079f8cf91617657bd059ba1e186f2d3ecdcd9a4a366e0a6d5071c558e6` |
+| Dono A | `dono-a.svg` | `/logo_bk.svg` do site oficial do serviço da ficha `host/src/fork/conectores/fichas/ficha-dono-a.json` (mesmo domínio das fontes da ficha; é o mesmo desenho do ícone de aba do site) | `f49e31c31ad28a5a033e741b7754f0808b1cb715d76b1bbd96b1e5e6c548c8d7` |
+| Composio | `composio.png` | https://composio.dev/apple-touch-icon.png (ícone oficial do site) | `924f588685ca9887ccf937952878404da76837b6297884731bb9b175879e6548` |
+| Slack | `slack.png` | https://a.slack-edge.com/80588/marketing/img/icons/icon_slack_hash_colored.png (ícone da Slack nos materiais do próprio site; página de marca: https://slack.com/media-kit) | `cfd9f050bf26ea547af438722c5a93be002c721f0f32a3c996595eab7af1b36d` |
+| Gmail | `gmail.png` | https://fonts.gstatic.com/s/i/productlogos/gmail_2020q4/v8/web-64dp/logo_gmail_2020q4_color_2x_web_64dp.png (logo de produto publicado pelo Google) | `860f3d32b1733bf7ca01c827b3e032ca0e55c8d4fa0d8482395e333f4e42ef9c` |
+| Google Drive | `google-drive.png` | https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/web-64dp/logo_drive_2020q4_color_2x_web_64dp.png (logo de produto publicado pelo Google) | `11d3364e146a17cedd74c6a76d70f0b33b1d74a9136525e042d86d53acc56918` |
+| Google Agenda | `google-agenda.png` | https://fonts.gstatic.com/s/i/productlogos/calendar_2020q4/v13/web-64dp/logo_calendar_2020q4_color_2x_web_64dp.png (logo de produto publicado pelo Google) | `3834801ccb9e2fccaf81912e3fb46772b94673ff60624f340ba30ede23805f2c` |
+| Outlook | `outlook.png` | https://res.cdn.office.net/assets/mail/pwa/v1/pngs/apple-touch-icon.png (ícone do Outlook na web, servido pela Microsoft) | `2344bf99eba344e5340c3a4ffca47a65ca036e7d5764e4f1fbcb8179d0fc11d4` |
+| Instagram | `instagram.webp` | https://static.cdninstagram.com/rsrc.php/yr/r/rzWiSjZRxk5.webp (ícone do site oficial, declarado no <link rel="icon"> de https://www.instagram.com/) | `5ea73220ab5bda046e21d3f0cba26eafadeb3cc2bbd07a91978774048c84b6ee` |
+| Context7 | `context7.svg` | https://context7.com/brand (kit de marca/imprensa do fornecedor). Regra de uso: Página Brand Assets do Context7; sem regra escrita além dos arquivos. | `e057ac467afe0d9177a0ca6393226368dea8fdea427e52a82f20286070a2b84a` |
+| Exa | `exa.svg` | https://exa.ai/brand (kit de marca/imprensa do fornecedor). Regra de uso: Brand Guidelines da Exa; usar o logo azul sem alterações. | `a59e80ffefefffe15172857ac631b4e5b710c1946045fa4b5ddbf2d42d3d2bcf` |
+| Neon | `neon.svg` | https://neon.com/brand (kit de marca/imprensa do fornecedor). Regra de uso: Brand kit oficial da Neon: usar a variante de cor adequada ao fundo, sem distorcer. | `2b1aaef0b2de5d30b9a00778a0a9b9df2255be08a939a9521f3c93a46de521cf` |
+| Wispr Flow | `wispr-flow.png` | https://wisprflow.ai/media-kit (kit de marca/imprensa do fornecedor). Regra de uso: Media kit oficial da Wispr Flow (Logo Kit.zip): sem SVG do símbolo no kit; usar a versão escura/clara conforme o fundo. Regra de uso não publicada além do kit. | `71fcb5a4fe0662abc2190de9c66f5fe47dc22d441672e46c3ff48949404aacc9` |
+| GitHub | `github.png` | https://brand.github.com/foundations/logo (kit de marca/imprensa do fornecedor). Regra de uso: Brand Toolkit do GitHub: Invertocat só em preto/branco (ou cinza/verde em poucos casos); sem sombras, gradientes, sem distorcer; o Invertocat isolado só onde a marca já está estabelecida. Kit só em PNG/PDF. | `2a2f5cbcc74c7fa83c40127dd8b0e42c23f1157131aebe28492aa1ac27bbdc6d` |
+| ClickUp | `clickup.svg` | https://clickup.com/brand (kit de marca/imprensa do fornecedor). Regra de uso: Brand Assets & Guidelines do ClickUp (e Trademark Guidelines): não mudar cor, não girar, não esticar, não remover o símbolo. | `a8b08e70df4a7d7c949a423b4f3caa04671e209617c8b73bc24cff846ae2e017` |
+| Firecrawl | `firecrawl.svg` | https://www.firecrawl.dev/press-brand (kit de marca/imprensa do fornecedor). Regra de uso: Página Press & Brand do Firecrawl (brand-assets.zip). Arquivo é o wordmark colorido para fundo claro, não só o ícone. | `e0aaaeda85bac4b9f2ba254ec276e8c78350377106c37babb631bdef3d293056` |
+| Render | `render.svg` | https://render.com/press (kit de marca/imprensa do fornecedor). Regra de uso: Brand Kit oficial da Render (inclui _Render-Logo-Guidelines.pdf). Versão preta do logomark para fundo claro. | `c5f3790ed18ab18658cffae2bab49cc7e699955f534de013107f14f2f8398aed` |
+| Supabase | `supabase.svg` | https://supabase.com/brand (kit de marca/imprensa do fornecedor). Regra de uso: Brand Guidelines do Supabase: não alterar cores, forma nem proporção; manter espaço livre. | `eb9ffcd100ad26228a578100ba7cbfc5b383e4995338d122abdc6a3b4d210ed3` |
+| Todoist | `todoist.svg` | https://www.todoist.com/press (kit de marca/imprensa do fornecedor). Regra de uso: Kit de imprensa oficial com Todoist Brand Guidelines.pdf (dentro do zip): ler o PDF antes de uso em material público. | `9adff05124fc2e773bcf4c7fff454ce341899d1806782dee543405bd77d53383` |
+| Lovable | `lovable.png` | https://lovablebrand.lovable.app/brand/logo (kit de marca/imprensa do fornecedor). Regra de uso: Brand Hub da Lovable: cores aprovadas, sem esticar, sem efeitos, sem fundo poluído. Só PNG (2160x2198); sem SVG oficial. O arquivo do kit (2160 px) foi apenas reduzido a 256 px, sem recorte nem recolorização. | `dc0cb097d416f6207a9fedddc98ebcf233986726316be51935b4541fed368237` |
+| Metricool | `metricool.png` | https://metricool.com/wp-content/uploads/cropped-web-app-manifest-512x512-1-180x180.png (ícone oficial do site, declarado no <link rel="apple-touch-icon"> de https://metricool.com/; o site não publica kit de marca) | `2c8004a9b64b73d7d4a8de60f3703f248db67820e539c2c1e7cf99d74116905f` |
+| Short.io | `short-io.png` | https://short.io/favicon.png (ícone oficial do site, declarado no <link rel="icon"> de https://short.io/; o site não publica kit de marca) | `7367b2a4fb3d9c8fe36d55121fe9de80fe437caf55767dbd39ee72d595e5786f` |
+| Airtable | `airtable.png` | https://airtable.com/company/trademark-guidelines (diretrizes de marca; o arquivo é o "Full color logo (primary)" da tabela oficial "Airtable Logos" ligada nelas, baixado em 2026-11-18). Regra de uso: o logo não pode ser modificado, distorcido nem redesenhado, e o titular precisa ser citado: Airtable e a marca Airtable são marcas registradas da Formagrid Inc, dba Airtable. Arquivo sem nenhuma alteração. | `12833c437e7a7d0c1e6c6547fd47cc150590bf6794e6750cb5e9fbc4a2f49f89` |
+| Atlassian (Jira e Confluence) | `atlassian.svg` | https://www.atlassian.com/company/news/press-kit (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: O press kit oficial diz que os logos e lockups oficiais da Atlassian para programas, propriedades e produtos ficam na biblioteca de logos (atlassian.design/resources/logo-library); a página da biblioteca não entregou texto legível sem JavaScript. Logo obtida do SVG oficial do próprio site atlassian.com, uso nominativo para indicar integração, sem alterar cores ou forma. | `9537c3c727e6b7ddf30a2c6846b6b2cbbec6f8742380640f0323db7d3ee5ed2e` |
+| Attio | `attio.svg` | https://attio.com/press (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Guidelines e assets para citar o Attio em cobertura de imprensa e materiais de terceiros (logo pack em SVG/PNG, variantes claro/escuro) | `56d1f7a7c43b0b28e576531fa1b5d260a1ed654f1e5ce18507db6fb8e6906e6e` |
+| Brevo | `brevo.svg` | https://www.brevo.com/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial, uso nominativo | `b6a8f454586580a1d79f86cb10b694f316c6bcc0af6e8b88d813d23d85f81f67` |
+| Browser Use | `browser-use.svg` | https://docs.browser-use.com (logo servida pelo CDN oficial Mintlify do site de docs) (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (docs), uso nominativo | `d6de051064eea8cdbe948b15082a552ec5ac319fed8e9cb92a7b8bfc001b9c5c` |
+| Cal.com | `cal-com.svg` | https://cal.com/brand (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Use os assets e guidelines para representar o Cal.com adequadamente (brand kit disponível em cal.com/brand com zip de assets) | `449335d3618b314f15b07225057e44721697c0b22c89769f794c55249e1ac2ef` |
+| Calendly | `calendly.svg` | https://calendly.com/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca imprensa (calendly.com/press) não publica kit nem regras legíveis; logo (símbolo) obtida do arquivo SVG oficial servido pelo próprio site Calendly, uso nominativo para indicar integração, sem alterar cores ou forma. | `ef2004d8cc8278f8036e3a0a3f57aa1ce11a28289aa64f16356ae74712b7bcfd` |
+| Camtasia (TechSmith) | `camtasia.svg` | https://camtasia.techsmith.com/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial do Camtasia, uso nominativo | `07c2ceaef2cb23430803ddd9593a738d4e36e5e72f5e4b7ff92c716b023ac987` |
+| Cloudflare | `cloudflare.svg` | https://www.cloudflare.com/brand/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Brand guidelines oficiais: usar as cores oficiais do logo (logomarca laranja tangerina #F6821F e manga #FBAD41, logotipo preto) sem alterar cores; em fundos coloridos usar a versão branca; espaço livre mínimo de 100% da altura da logomarca e tamanho mínimo de 100 px de largura na versão horizontal. Logo baixada do próprio site oficial cloudflare.com. | `c9ec1d5d5e4b0924666756a70179395c26b010372f8d7eec3539575281cebf1b` |
+| Coda (Superhuman Docs) | `coda.png` | https://coda.io/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `4fc7c9baa8c1e306cbdcff58e039b7b58c6931e17c8204caa5489393428ad980` |
+| Descript | `descript.svg` | https://static-cdn.descript.com/descript-website/images/descript-nav-logo-light.svg (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo (wordmark) tirada do site oficial, uso nominativo | `879e70492770525e8a0c92d7dcdb8c02cbfff6331a2165f2b18924058ddcd5b8` |
+| Expo | `expo.png` | https://static.expo.dev/static/brand/app-icon-512x512.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo (app icon oficial do brand kit do site), uso nominativo | `d4e7fddf65a27109120b4c1c2ba66741ad9974dcbee3be65244b27b794c20f70` |
+| Fal AI | `fal.png` | https://fal.ai (favicon oficial do site) (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `3f9867ae04060e02e05ee86447693702aae87dc68354cd664d3ecea44ff4097f` |
+| Granola | `granola.svg` | https://www.granola.ai/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Não há página de marca ou press kit público (granola.ai/brand e /press retornam 404); logo extraída do SVG oficial do cabeçalho do site Granola, uso nominativo para indicar integração, sem alterar cores ou forma. | `de41e1d214b70b8ca349197f1a6169b7cc90e98dff701b52f1bead345ea4af3b` |
+| Higgsfield | `higgsfield.png` | https://higgsfield.ai/icon.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `77edee005ae63f7881f930b815392b6cfa607f960ffb419d1c9df52e37fd50c1` |
+| Jungle Scout | `jungle-scout.svg` | https://www.junglescout.com/press/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial (wordmark SVG), uso nominativo | `c17ab51911d50143325cc5518f0770a7de96e283100e99ece7ccf7cd5516969c` |
+| mem0 | `mem0.svg` | https://docs.mem0.ai/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial de documentação, uso nominativo | `e03d0e3ca82aae25268abc15e0fbc84932d51c19a2d5134ae9033fb1a4cc4e54` |
+| monday.com | `monday.svg` | https://monday.com/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Não foi encontrada página de marca ou press kit pública (monday.com/brand, /press e /press-kit retornam 404); logo (símbolo oficial) obtida do SVG do próprio site monday.com, uso nominativo para indicar integração, sem alterar cores ou forma. | `5b960ad220d6109e9d3388dbda51877cc2bf7c549000f9b0ace6291e97ea41f8` |
+| Notion | `notion.png` | https://www.notion.so/images/logo-ios.png (ícone oficial do site, baixado em 2026-11-18; página de marca: https://notion.notion.site/Logos-6331ef1fc18241f8bae8a4b923b05ce4). Regra de uso: a página de marca oferece o bloco (block) para espaços pequenos, como ícone de rede social ou favicon, e variantes mono; usado o bloco, sem nenhuma alteração do arquivo. | `59c42a0afd20dc9dd0cf598e105e774a484bf10cdbec1ffc3a33c9cb59579b47` |
+| OpenRouter | `openrouter.png` | https://openrouter.ai/apple-touch-icon.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (apple-touch-icon), uso nominativo | `ec915bd303e5d8501f02a37029fa01ede150b507357ef4c9739efb720d0df445` |
+| PayPal | `paypal.svg` | https://www.paypal.com/us/webapps/mpp/logo-center (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: O centro de logos oficial da PayPal bloqueia acesso automatizado (HTTP 403), então as regras de uso não puderam ser lidas; logo (wordmark) baixada do CDN oficial paypalobjects.com usado pelo próprio PayPal, uso nominativo para indicar integração, sem alterar cores ou forma. | `f766ba6d9471acc787c0808b8c30f38494d12b287ccfb2ff610fd617cfa2a432` |
+| Pipedrive | `pipedrive.png` | https://www.pipedrive.com/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial (apple-touch-icon), uso nominativo | `a7a36b1b088b2e582f3a9dc4587b3c50c0c22242bb73abf8ca3363ab104bf872` |
+| Plaud | `plaud.svg` | https://docs.plaud.ai/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Não há página pública de marca ou press kit localizada; logo oficial (lockup Plaud) obtida do tema da documentação oficial da Plaud (mintcdn servido por docs.plaud.ai), uso nominativo para indicar integração, sem alterar cores ou forma. | `eb7fc0b5d8ef961c858d912b5e3a558729faa18c4b74967622c25b3c269e7ce5` |
+| Railway | `railway.png` | https://railway.com/brand/logo-dark.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (railway.com/brand/logo-dark.png), uso nominativo | `c1dab72a00129e66d40b6989bf41840f9f79b03f88e52ffd43d2590e7e3000af` |
+| Resend | `resend.png` | https://resend.com/static/favicons/favicon-marketing@180x180.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `71ab800939b1c3db40136b2c66f5d76eb840e72f77728e55f3cb1092ef91948a` |
+| Semrush | `semrush.svg` | https://www.semrush.com/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `c71deb8dd523399cef29496fa350a942d7d0445dcad0fea398818f474d5208db` |
+| Sentry | `sentry.svg` | https://sentry.io/brand/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca oficial existe, mas o texto carrega por JavaScript e não foi legível sem navegador; logo extraída do CDN oficial do próprio site Sentry (mask-icon logo-sentry.svg), uso nominativo para indicar integração, sem alterar cores ou forma. | `4131091b0100dc2c1346672261c0de5d1ae8f6aa4092ff518f6046f149089b47` |
+| Stripe | `stripe.svg` | https://stripe.com/newsroom/brand-assets (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Kit oficial de logos do Stripe Newsroom: o wordmark vem em três cores — usar slate e blurple em fundo claro e branco em fundo escuro; não usar outra cor. Marcas e logos sujeitos ao Stripe's Marks Usage Agreement. | `4448c4b4f954285d2b2aeb6d92391c85fdc290e008c2679d2c006d6d72ae1ae9` |
+| Tally | `tally.svg` | https://tally.so/favicon.svg (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `fefba3256dcca1455cc4db0076dd3e9494c50edb6768b4a15ea8c9f5ea10d408` |
+| TikTok Ads (TikTok for Business) | `tiktok-ads.png` | https://business-api.tiktok.com/portal/docs (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Página de marca não encontrada: logo tirada do site oficial (favicon do portal de desenvolvedores da Business API), uso nominativo | `5e9c735171956561f39711ea2c6b593ad1d288e53cad060237d0f986202ffb36` |
+| TinyFish | `tinyfish.svg` | https://www.tinyfish.ai/ (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: Não há página pública de marca (tinyfish.ai/brand retorna 404), mas o site serve um pacote oficial de logos em /TF-Logos; usada a versão horizontal oficial TF_Horizontal.svg, uso nominativo para indicar integração, sem alterar cores ou forma. | `09e9a90125aabe330dd84a1fb124ab47e6cda7b6e30e2b9b027e6d0865cdb240` |
+| vidIQ | `vidiq.png` | https://vidiq.com/favicons/apple-icon-180x180.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `2dc2ec6330afb8bd9f26d98db3cc9fb6e90c4060fde6eb85bc4109f39b30d97f` |
+| Wix | `wix.png` | https://www.wix.com/favicon.ico (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon 192px), uso nominativo | `295a1f6f927fd11a3842a4c9f508b4152eca150cb4c54d6cfb64736fad659b80` |
+
+O dono A não publica uma página de marca; o arquivo é o logo que o site oficial dela serve. Em caso de dúvida do titular,
+vale o pedido dele (ver acima).
 
 ### Fontes e sons da skill product-launch-film (2026-11-08)
 
@@ -734,3 +858,42 @@ SOFTWARE.
 
 A cópia íntegra permanece em `motor/vendor/pi-mono/LICENSE` e a origem exata em
 `motor/vendor/pi-mono/UPSTREAM.md`.
+
+## Avisos distribuídos nos instaladores
+
+Os arquivos abaixo são copiados para dentro de cada instalador (pasta `resources/avisos/` do app) pela configuração
+`extraResources` de `apps/desktop/electron-builder.yml`: `LICENSE`, `NOTICE`, `THIRD_PARTY.md`, `TRADEMARK.md`,
+`MODIFICACOES.md`, `MODIFICACOES-ARQUIVOS.md`, os textos OFL das fontes, e os arquivos de `packaging/avisos/` descritos aqui.
+**Esta configuração não foi exercitada num empacotamento real** nesta etapa (o binário do Electron não é baixado no ambiente de
+revisão); quem gerar o primeiro instalador deve conferir que `resources/avisos/` aparece no pacote de cada sistema.
+
+### Electron e Chromium
+
+O app desktop roda sobre o Electron 44.11.4 (MIT; copyright dos contribuidores do Electron e da GitHub Inc., como no texto da licença). O texto da licença
+está em `packaging/avisos/electron-LICENSE.txt` (cópia do arquivo `LICENSE` do pacote npm `electron`). O Electron embute o Chromium e
+dezenas de bibliotecas de terceiros, cujos avisos o projeto publica no arquivo `LICENSES.chromium.html`, que acompanha o
+binário do Electron baixado no empacotamento. **Não há prova nesta etapa de que esse arquivo entre no `.app` do Mac**; essa
+conferência fica pendente para a etapa de geração de instaladores e atualização e deve ser feita antes de distribuir um
+instalador.
+
+### WebRTC (helper de tela do Mac)
+
+O helper de tela do Mac (`apps/screen-macos`, projeto `apps/Mexerica.xcodeproj`) usa o pacote `stasel/WebRTC` na versão exata 153.0.0
+(Swift Package; fixação em `apps/Mexerica.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`, revisão
+`4266157cd08f92115de885ab12d87196a8db87e1`), que redistribui o WebRTC do Google compilado. O texto da licença desse pacote (BSD-3-Clause,
+com os avisos do WebRTC do Google) está em `packaging/avisos/webrtc-stasel-LICENSE.md`, copiado do repositório
+`https://github.com/stasel/WebRTC` nessa revisão.
+
+### Dependências de produção
+
+`packaging/avisos/INVENTARIO-DEPENDENCIAS.md` lista as dependências de produção do app Electron e do Motor (a partir do `package-lock.json`),
+os crates de produção e de compilação do Hub (a partir do `Cargo.lock`) e as bibliotecas que o empacotador do app embute no código do
+renderer mesmo quando o lock as marca como de desenvolvimento (React, React DOM, Scheduler, Lucide, QRCode, dijkstrajs, xterm e o código de
+suporte do Vite; medido num build Linux, não num instalador). **Cobertura e limites estão no começo do inventário.** Ele não lista tudo
+o que um instalador leva: não cobre o Electron e o Chromium, as bibliotecas nativas de macOS e Windows, o helper do Mac nem
+os assets que não vêm do npm, e traz só o identificador SPDX declarado por cada pacote, sem o texto integral de cada licença nem os avisos
+de copyright de cada autor. Para distribuir um instalador, esses textos e avisos ainda precisam ser reunidos e conferidos contra o pacote
+real, antes de distribuir. Licenças permissivas (MIT, Apache-2.0,
+BSD, ISC, Zlib, Unicode) são a grande maioria. Pontos de atenção: o crate `option-ext` (MPL-2.0, licença de arquivo: os arquivos do
+crate são usados sem modificação e seu código-fonte está público em crates.io) e o pacote `argparse` 2.0.1 (Python-2.0, licença permissiva da Python Software Foundation,
+dependência de produção do app Electron). Os crates `r-efi` oferecem MIT ou Apache-2.0 além de LGPL; vale a opção permissiva.

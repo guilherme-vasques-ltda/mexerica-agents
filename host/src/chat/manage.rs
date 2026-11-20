@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! D67/D125: só a principal gerencia em turno humano sem exposição externa; Desfazer é persistente.
 mod folder;
 mod turn_guard;

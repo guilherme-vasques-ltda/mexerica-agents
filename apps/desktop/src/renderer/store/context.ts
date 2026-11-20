@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { createContext, useContext } from 'react'
 import { listEqual, useModel, useSelector } from '../lib/observable'
 import type { AppModel } from './app-model'

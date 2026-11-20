@@ -18,7 +18,7 @@ export const providerName: Record<SignInProvider, string> = { apple: 'Apple', x:
 export function ProviderMark({ provider, size }: { provider: SignInProvider; size: number }) {
   switch (provider) {
     case 'apple':
-      return <Icon name="apple.logo" size={size} scaled={false} />
+      return <Icon name="provedor.apple" size={size} scaled={false} />
     case 'google':
       return <img src={googleLogo} alt="" width={size} height={size} />
     case 'x':

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { Button } from '../components/Controls'
 import { avisoDoStore } from '../lib/fork-aviso-desatualizado.ts'
 import { useT } from '../lib/fork-i18n/estado'

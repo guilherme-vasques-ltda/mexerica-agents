@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Authorized devices and their push and Live Activity tickets.
 
 use super::{Store, logged, now_ms};

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { isGroup, needsInput } from '@shared/models'
 import { onlyQuestionsPending } from '@shared/fork-owner-question'
 import type { BotStore } from '../../store/bot-store'

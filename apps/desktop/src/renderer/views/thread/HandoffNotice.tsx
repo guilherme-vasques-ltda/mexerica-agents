@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useState } from 'react'
 import { canKeepConversation, type Entry, type HandoffCard } from '@shared/models'
 import { Button, CardForm, CardSection, Disclosure, IconButton, Spinner } from '../../components/Controls'

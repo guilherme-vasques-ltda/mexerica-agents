@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { UpdateState } from './ipc'
 import type { AppLanguage } from './fork-idioma.ts'
 import { traduzir } from '../renderer/lib/fork-i18n/index.ts'

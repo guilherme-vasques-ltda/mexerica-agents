@@ -1,5 +1,7 @@
 # Mexerica — ativos da marca do app
 
+> **Nesta cópia pública** os arquivos desta pasta são imagens neutras geradas por código, só para o app compilar; a arte própria da Mexerica não está incluída e só volta com decisão do titular. O texto abaixo descreve os ativos do projeto de origem.
+
 Ativos que o app usa. **Ícone do app (D457/D464):** o ícone do pacote oficial do dono (PR #542,
 `brand/assets/logo/`: mexerica de feltro sobre laranja), copiado byte a
 byte; é o único ícone do app, sem variações nem seletor. Origem e SHA-256 de cada arquivo:

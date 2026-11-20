@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Small, host-local bot delegation. The recipient uses its own ACP session;
 //! native subagents remain the harness's responsibility.
 

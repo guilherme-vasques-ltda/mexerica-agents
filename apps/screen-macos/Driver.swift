@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import Foundation
 
 /// The computer-use driver bots act through (`cua-driver`, shipped in Contents/Helpers; see

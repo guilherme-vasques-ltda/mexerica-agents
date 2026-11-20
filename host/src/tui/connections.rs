@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Connection requests remain actionable in a terminal. Secrets stay in masked setup fields.
 use super::app::{After, App, Editor, Entry, Overlay};
 use super::manage::{Fields, Input, Submit};

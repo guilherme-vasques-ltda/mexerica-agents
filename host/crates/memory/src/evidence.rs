@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! What counts as the user's own words.
 
 /// The runs of a user's message that they wrote themselves: pasted text, fenced code, quoted lines and forwarded

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { acompanharVinculoEnvio, type AcompanhamentoEnvioVoz } from '../views/fork/voz/operador-voz'
 import { registrarEstadoEmMemoria } from '@shared/estado-so-em-memoria'
 import { originDevice, originDraft, originPasted, originReport, type OriginReport } from '@shared/guard-hub'

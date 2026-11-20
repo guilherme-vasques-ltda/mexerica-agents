@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { readFileSync } from 'node:fs'
 import { createContext, Script } from 'node:vm'
 import ts from 'typescript'

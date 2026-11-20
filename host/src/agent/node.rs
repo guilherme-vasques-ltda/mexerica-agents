@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Node.js for the agents whose ACP adapter comes from npm (Claude, Codex, Gemini, …) and for
 //! installing npm CLIs: the computer's own when it has one, else a checksum-pinned official
 //! build that Codync adds into `~/.codync/node` when the user asks (an agent's setup, or

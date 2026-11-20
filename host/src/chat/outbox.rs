@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! How a bot talks to the user, Grok Bot's way: in its chat the user sees
 //! only the messages the bot sends with the built-in `chat` MCP server's `send_message`,
 //! each one its own bubble. What the agent writes as its reply stays in the trace, unless

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The chat pane: header, transcript viewport and composer.
 
 use ratatui::buffer::Buffer;

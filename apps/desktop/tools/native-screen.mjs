@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // Builds Donnabot Screen (Remote screen capture and input) into build/native/DonnabotScreen.app for the
 // Mac app to bundle, unsigned (electron-builder signs it; the cua-driver the Xcode target embeds
 // keeps its own signature). Without it the app registers a launch agent pointing at a missing

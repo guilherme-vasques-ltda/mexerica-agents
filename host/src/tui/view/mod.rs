@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Drawing. Black and white: color comes only from the bots; amber means
 //! "needs you" and red means an error. Every state also has its own glyph.
 
