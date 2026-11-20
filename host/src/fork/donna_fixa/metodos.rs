@@ -131,6 +131,11 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("setAgentEnv", LocalOnly),
     // Slot Go exclusivo; exige o vínculo original engine.accounts.
     ("engineGoKeySave", Dono),
+    // Planos de código (OpenCode como motor): `LOCAL_ONLY` e `require_local`; nunca devolvem a chave.
+    ("planosCodigo", LocalOnly),
+    ("planoCodigoTestar", LocalOnly),
+    ("planoCodigoSalvar", LocalOnly),
+    ("planoCodigoRemover", LocalOnly),
     ("setAnalytics", LocalOnly),
     ("setHostAutomaticUpdates", LocalOnly),
     ("setScreenEnabled", LocalOnly),

@@ -239,10 +239,18 @@ impl Actor {
         memory::engine::check_workspace(&self.cfg)?;
         let selected = crate::fork::engine_accounts::managed::resolve_for_bot(&self.hub.store, &self.cfg)?;
         let revision = selected.as_ref().map(|launch| launch.revision);
-        let login_profile = if selected.is_none() {
-            crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)?
+        // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono.
+        let plano = if selected.is_none() {
+            crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await?
         } else {
-            String::new()
+            None
+        };
+        let login_profile = match &plano {
+            Some(plano) => plano.carimbo.clone(),
+            None if selected.is_none() => {
+                crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)?
+            }
+            None => String::new(),
         };
         if self.cfg.context.is_some() {
             let key = format!("donna.space.engine.{}", self.cfg.session_owner());
@@ -359,6 +367,8 @@ impl Actor {
             // interno lê a chave do cofre pelo canal fd 3, nunca do ambiente.
             let mut env = if selected.is_some() || interno {
                 Vec::new()
+            } else if let Some(plano) = &plano {
+                plano.env.clone()
             } else {
                 crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?
             };
@@ -367,7 +377,7 @@ impl Actor {
             }
             own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
             crate::agent::harness::apply(&mut env, &self.cfg.backend, &crate::agent::harness::compile());
-            if selected.is_none() {
+            if selected.is_none() && plano.is_none() {
                 env.extend(crate::fork::terminal_login::runtime_env(
                     &self.hub.store,
                     &self.cfg.backend,

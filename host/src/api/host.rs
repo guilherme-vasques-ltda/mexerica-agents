@@ -142,11 +142,16 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 backend,
                 b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
             )?;
-            if env.is_empty() {
+            let mut catalog = if env.is_empty() {
                 crate::agent::auth::models(&hub.store, backend).await?
             } else {
                 crate::agent::auth::models_with_env(&hub.store, backend, &env).await?
+            };
+            // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode.
+            if backend == "opencode" {
+                crate::fork::planos_codigo::acrescentar_modelos(&hub.store, &mut catalog)?;
             }
+            catalog
         }
         "agentAuth" | "agentAuthenticate" | "setAgentEnv" => {
             let backend = str_arg(&b, "backend")?;

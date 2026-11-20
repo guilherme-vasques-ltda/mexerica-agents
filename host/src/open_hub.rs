@@ -38,9 +38,14 @@ pub(crate) fn require_executor() -> std::io::Result<()> {
 }
 
 pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
-    if !Environment::is_open() {
+    if !Environment::is_open() || open_allows(method, body) {
         return Ok(());
     }
+    Err(crate::api::devices::Forbidden.into())
+}
+
+/// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
+fn open_allows(method: &str, body: &Value) -> bool {
     match method {
         "hello"
         | "refreshBackends"
@@ -54,9 +59,29 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
         | "donnaSpaceReorder"
         | "donnaOwnerPresentation"
         | "deleteBot"
-        | "reorderBots" => Ok(()),
-        "createBot" | "updateBot" if body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")) => Ok(()),
-        _ => Err(crate::api::devices::Forbidden.into()),
+        | "reorderBots" => true,
+        "createBot" | "updateBot" => body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_allows;
+    use serde_json::json;
+
+    #[test]
+    fn open_recusa_os_metodos_de_planos_de_codigo_e_de_chaves() {
+        for method in crate::fork::planos_codigo::METHODS.into_iter().chain([
+            "engineGoKeySave",
+            "setAgentEnv",
+            "agentAuthenticate",
+        ]) {
+            assert!(!open_allows(method, &json!({})), "{method} não pode existir na Open");
+        }
+        assert!(open_allows("hello", &json!({})));
+        assert!(open_allows("createBot", &json!({})));
+        assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
     }
 }
 

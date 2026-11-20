@@ -1,0 +1,358 @@
+//! Provas dos planos de código com servidores de mentira: nenhuma rede, nenhuma chave real.
+use super::acesso::{Falha, listar_modelos_de_prova};
+use super::*;
+use crate::{LockExt, remote::identity::Identity};
+use std::path::Path;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+
+const CHAVE: &str = "chave-ficticia-do-plano-123";
+
+/// Um servidor de mentira que responde sempre a mesma resposta HTTP e guarda os pedidos que recebeu.
+async fn servidor(resposta: Vec<u8>) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+    let escuta = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/inference/go/v1/models", escuta.local_addr().unwrap());
+    let pedidos = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let guardados = pedidos.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut conexao, _)) = escuta.accept().await else { return };
+            let (resposta, guardados) = (resposta.clone(), guardados.clone());
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 8192];
+                let n = conexao.read(&mut buffer).await.unwrap_or(0);
+                guardados.locked().push(String::from_utf8_lossy(&buffer[..n]).into_owned());
+                let _ = conexao.write_all(&resposta).await;
+                let _ = conexao.shutdown().await;
+            });
+        }
+    });
+    (url, pedidos)
+}
+
+fn http(status: &str, extra: &str, corpo: &str) -> Vec<u8> {
+    format!("HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n{extra}connection: close\r\n\r\n{corpo}", corpo.len())
+        .into_bytes()
+}
+
+async fn testar(resposta: Vec<u8>) -> Result<Vec<acesso::Modelo>, Falha> {
+    let (url, _) = servidor(resposta).await;
+    listar_modelos_de_prova("opencode-go", &url, CHAVE, Duration::from_secs(5)).await
+}
+
+#[tokio::test]
+async fn lista_so_modelos_de_conversa_com_o_prefixo_do_plano_e_manda_a_chave_como_bearer() {
+    let corpo = r#"{"object":"list","data":[
+        {"id":"glm-5.3","name":"GLM 5.3","type":"chat"},
+        {"id":"kimi-k3"},
+        {"id":"glm-5.3","name":"repetido"},
+        {"id":"imagem-1","type":"image"},
+        {"id":"com/barra"},
+        {"id":"com espaço"},
+        {"id":""},
+        {"nome":"sem id"}]}"#;
+    let (url, pedidos) = servidor(http("200 OK", "", corpo)).await;
+    let modelos = listar_modelos_de_prova("opencode-go", &url, CHAVE, Duration::from_secs(5)).await.unwrap();
+    let ids: Vec<_> = modelos.iter().map(|m| (m.id.as_str(), m.name.as_str())).collect();
+    assert_eq!(ids, [("opencode-go/glm-5.3", "GLM 5.3"), ("opencode-go/kimi-k3", "opencode-go/kimi-k3")]);
+    let pedido = pedidos.locked()[0].to_ascii_lowercase();
+    assert!(pedido.starts_with("get /inference/go/v1/models"), "{pedido}");
+    assert!(pedido.contains(&format!("authorization: bearer {}", CHAVE.to_ascii_lowercase())), "{pedido}");
+    assert!(pedido.contains("user-agent: mexerica/"), "{pedido}");
+}
+
+#[tokio::test]
+async fn recusa_do_fornecedor_e_falha_sao_classificadas_so_pelo_status() {
+    for (status, esperado) in [
+        ("401 Unauthorized", Falha::ChaveInvalida),
+        ("403 Forbidden", Falha::SemPermissao),
+        ("402 Payment Required", Falha::Limite),
+        ("429 Too Many Requests", Falha::Limite),
+        ("500 Internal Server Error", Falha::FornecedorFalhou),
+        ("404 Not Found", Falha::FornecedorFalhou),
+    ] {
+        // O corpo do erro repete a chave: ele nunca é lido.
+        let corpo = format!(r#"{{"error":"{CHAVE}"}}"#);
+        assert_eq!(testar(http(status, "", &corpo)).await.unwrap_err(), esperado, "{status}");
+    }
+    assert_eq!(Falha::ChaveInvalida.estado(), "recusada");
+    assert_eq!(Falha::SemPermissao.estado(), "recusada");
+    for falha in [Falha::Limite, Falha::FornecedorFalhou, Falha::SemResposta, Falha::RespostaInvalida] {
+        assert_eq!(falha.estado(), "nao_verificado", "{falha:?} não diz nada sobre a chave");
+    }
+}
+
+#[tokio::test]
+async fn resposta_quebrada_ou_enorme_e_invalida() {
+    assert_eq!(testar(http("200 OK", "", "isto não é json")).await.unwrap_err(), Falha::RespostaInvalida);
+    assert_eq!(testar(http("200 OK", "", r#"{"data":"não é lista"}"#)).await.unwrap_err(), Falha::RespostaInvalida);
+    let enorme = format!(r#"{{"data":[{{"id":"{}"}}]}}"#, "x".repeat(2 << 20));
+    assert_eq!(testar(http("200 OK", "", &enorme)).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn resposta_lenta_vira_sem_resposta() {
+    let escuta = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/models", escuta.local_addr().unwrap());
+    tokio::spawn(async move {
+        let (_conexao, _) = escuta.accept().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+    let falha = listar_modelos_de_prova("opencode-go", &url, CHAVE, Duration::from_millis(300)).await.unwrap_err();
+    assert_eq!(falha, Falha::SemResposta);
+}
+
+#[tokio::test]
+async fn redirecionamento_nao_leva_a_chave_a_outro_endereco() {
+    let (alvo, pedidos_do_alvo) = servidor(http("200 OK", "", r#"{"data":[{"id":"x"}]}"#)).await;
+    let redireciona = http("302 Found", &format!("location: {alvo}\r\n"), "");
+    assert_eq!(testar(redireciona).await.unwrap_err(), Falha::FornecedorFalhou);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(pedidos_do_alvo.locked().is_empty(), "o destino do redirecionamento não pode receber a chave");
+}
+
+#[test]
+fn o_endereco_de_cada_plano_e_https_do_fornecedor_e_nunca_vem_do_app() {
+    for plano in PLANOS {
+        let url = reqwest::Url::parse(plano.lista).unwrap();
+        assert_eq!(url.scheme(), "https", "{}", plano.id);
+        assert_eq!(url.host_str(), Some("opencode.ai"), "{}", plano.id);
+        assert!(url.username().is_empty() && url.query().is_none());
+    }
+    let pedido = serde_json::from_value::<Pedido>(json!({"plano": "opencode-go", "url": "http://127.0.0.1"}));
+    assert!(pedido.is_err(), "o pedido não aceita endereço");
+}
+
+#[test]
+fn o_plano_de_um_modelo_vem_do_prefixo() {
+    assert_eq!(plano_do_modelo("opencode-go/glm-5.3").map(|p| p.id), Some("opencode-go"));
+    assert!(plano_do_modelo("opencode-go/").is_none());
+    assert!(plano_do_modelo("opencode-go").is_none());
+    assert!(plano_do_modelo("openai/gpt-6").is_none());
+    assert!(plano_do_modelo("").is_none());
+}
+
+#[test]
+fn chave_colada_fora_do_formato_e_recusada_sem_repetir_a_chave() {
+    assert_eq!(chave(Some("  chave-ficticia-boa-789 ")).unwrap().as_str(), "chave-ficticia-boa-789");
+    for ruim in [
+        "curta",
+        "chave com espaço no meio",
+        "chave-com\ncontrole",
+        "chave-com-\"aspas",
+        "chave-com-\\barra",
+        "chave-acentuação",
+        &"x".repeat(5000),
+    ] {
+        let erro = chave(Some(ruim)).unwrap_err().to_string();
+        assert!(erro.starts_with("chave_formato"), "{erro}");
+        assert!(!erro.contains(ruim), "o erro repetiu a chave");
+    }
+    assert!(chave(None).is_err());
+}
+
+#[test]
+fn metodos_dos_planos_sao_so_deste_computador() {
+    use crate::api::devices::{Caller, permit};
+    use crate::store::Scope;
+    let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control, Scope::Screen], autoridade: None };
+    for metodo in METHODS {
+        assert!(permit(&Caller::Local, metodo).is_ok());
+        assert!(permit(&aparelho, metodo).is_err(), "{metodo} não pode vir de um aparelho pareado");
+    }
+}
+
+fn hub_de_prova() -> Arc<Hub> {
+    let dir = crate::store::private_fixture_dir("planos-codigo");
+    let store = Store::open(&dir.join("test.db")).unwrap();
+    *store.secret_key.locked() = Some(Zeroizing::new(vec![7; 32]));
+    Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 1)
+}
+
+fn bot(id: &str, backend: &str, modelo: &str, space: &str) -> crate::store::BotConfig {
+    serde_json::from_value(json!({"id": id, "name": "Teste", "backend": backend, "model": modelo,
+        "spaceId": space, "notify": false}))
+    .unwrap()
+}
+
+const CORPO_OK: &str = r#"{"data":[{"id":"glm-5.3","name":"GLM 5.3"},{"id":"kimi-k3"}]}"#;
+
+#[tokio::test]
+async fn chave_aceita_vai_cifrada_ao_cofre_e_a_lista_nunca_leva_a_chave() {
+    let hub = hub_de_prova();
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    let acesso = salvar(&hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap();
+    assert_eq!(acesso["ok"], true, "{acesso}");
+    assert_eq!(acesso["estado"], "modelos_no_catalogo");
+    assert_eq!(crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap().as_deref(), Some(CHAVE));
+    let cifrado = hub.store.kv_read("plano-codigo/opencode-go").unwrap().unwrap();
+    assert!(!cifrado.contains(CHAVE), "a chave tem de ficar cifrada no banco");
+    assert!(!acesso.to_string().contains(CHAVE));
+
+    let lista = listar(&hub.store).unwrap();
+    assert!(!lista.to_string().contains(CHAVE));
+    let go = &lista["planos"][0];
+    assert_eq!(
+        (go["id"].clone(), go["grupo"].clone(), go["configurada"].clone()),
+        (json!("opencode-go"), json!("planos"), json!(true))
+    );
+    assert_eq!(go["modelos"][0]["id"], "opencode-go/glm-5.3");
+    assert_eq!(go["avisos"], json!(["saldo_extra"]));
+
+    let mut catalogo = json!({"models": [{"id": "opencode-go/glm-5.3", "name": "já listado"}]});
+    acrescentar_modelos(&hub.store, &mut catalogo).unwrap();
+    let ids: Vec<_> = catalogo["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["opencode-go/glm-5.3", "opencode-go/kimi-k3"], "sem repetir o que o OpenCode já lista");
+}
+
+#[tokio::test]
+async fn chave_recusada_nao_e_salva_e_falha_de_rede_tambem_nao() {
+    let hub = hub_de_prova();
+    for (resposta, erro, estado) in [
+        (http("401 Unauthorized", "", &format!(r#"{{"e":"{CHAVE}"}}"#)), "chave_invalida", "recusada"),
+        (http("500 Internal Server Error", "", ""), "fornecedor_falhou", "nao_verificado"),
+    ] {
+        let (url, _) = servidor(resposta).await;
+        let acesso = salvar(&hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap();
+        assert_eq!(acesso, json!({"ok": false, "erro": erro, "estado": estado}));
+        assert!(!acesso.to_string().contains(CHAVE));
+        assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None, "só a chave aceita entra no cofre");
+    }
+    assert_eq!(listar(&hub.store).unwrap()["planos"][0]["configurada"], false);
+}
+
+#[tokio::test]
+async fn testar_sem_chave_no_cofre_diz_sem_chave() {
+    let hub = hub_de_prova();
+    let acesso = call(&hub, &Caller::Local, "planoCodigoTestar", json!({"plano": "opencode-go"})).await.unwrap();
+    assert_eq!(acesso["erro"], "sem_chave");
+    assert_eq!(acesso["ok"], false);
+}
+
+#[tokio::test]
+async fn pedidos_invalidos_ou_de_aparelho_pareado_sao_recusados_sem_repetir_a_chave() {
+    use crate::store::Scope;
+    let hub = hub_de_prova();
+    let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control], autoridade: None };
+    let erro = call(&hub, &aparelho, "planoCodigoSalvar", json!({"plano": "opencode-go", "chave": CHAVE}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(!erro.contains(CHAVE));
+    for corpo in [
+        json!({"plano": "outro", "chave": CHAVE}),
+        json!({"chave": CHAVE}),
+        json!({"plano": "opencode-go", "chave": CHAVE, "x": 1}),
+    ] {
+        let erro = call(&hub, &Caller::Local, "planoCodigoSalvar", corpo).await.unwrap_err().to_string();
+        assert!(!erro.contains(CHAVE), "{erro}");
+    }
+    assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
+}
+
+async fn com_chave(hub: &Arc<Hub>) {
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    assert_eq!(salvar(hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap()["ok"], true);
+}
+
+#[tokio::test]
+async fn ambiente_so_para_bot_do_opencode_com_modelo_de_plano() {
+    let hub = hub_de_prova();
+    com_chave(&hub).await;
+    for cfg in [
+        bot("b1", "codex", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL),
+        bot("b2", "opencode", "openai/gpt-6", crate::fork::spaces::PERSONAL),
+    ] {
+        hub.store.save_bot(&cfg).unwrap();
+        assert!(ambiente_do_bot(&hub, &cfg).await.unwrap().is_none(), "{}", cfg.id);
+    }
+    let mut sem_modelo = bot("b3", "opencode", "x", crate::fork::spaces::PERSONAL);
+    sem_modelo.model = None;
+    assert!(ambiente_do_bot(&hub, &sem_modelo).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn ambiente_do_plano_tem_perfil_proprio_e_a_chave_so_na_variavel_do_plano() {
+    let hub = hub_de_prova();
+    com_chave(&hub).await;
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().expect("modelo de plano");
+    let env: std::collections::BTreeMap<_, _> = ambiente.env.iter().cloned().collect();
+    assert_eq!(env["OPENCODE_API_KEY"], CHAVE);
+    let casa = std::path::PathBuf::from(&env["HOME"]);
+    assert!(casa.starts_with(hub.store.engine_setup_root.join("planos").join("opencode-go")), "{casa:?}");
+    assert_ne!(Some(casa.clone().into_os_string()), std::env::var_os("HOME"), "a casa do plano não é a do dono");
+    for nome in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"] {
+        assert!(Path::new(&env[nome]).starts_with(&casa), "{nome}");
+        assert!(Path::new(&env[nome]).is_dir(), "{nome}");
+    }
+    let chaves: Vec<_> = ambiente.env.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(chaves.iter().filter(|k| k.contains("KEY")).count(), 1, "{chaves:?}");
+    assert!(!ambiente.carimbo.contains(CHAVE));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&casa).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+    for arquivo in walk(&casa) {
+        assert!(
+            !std::fs::read(&arquivo).unwrap().windows(CHAVE.len()).any(|janela| janela == CHAVE.as_bytes()),
+            "{arquivo:?}"
+        );
+    }
+}
+
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut arquivos = Vec::new();
+    for entrada in std::fs::read_dir(dir).unwrap().flatten() {
+        let caminho = entrada.path();
+        if caminho.is_dir() { arquivos.extend(walk(&caminho)) } else { arquivos.push(caminho) }
+    }
+    arquivos
+}
+
+#[tokio::test]
+async fn ambiente_fecha_sem_chave_fora_do_space_pessoal_e_para_bot_apagado() {
+    let hub = hub_de_prova();
+    let pessoal = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&pessoal).unwrap();
+    let erro = ambiente_do_bot(&hub, &pessoal).await.err().expect("sem chave").to_string();
+    assert!(erro.starts_with("plano_sem_chave"), "{erro}");
+
+    com_chave(&hub).await;
+    let outro_space = bot("b2", "opencode", "opencode-go/glm-5.3", "space-compartilhado");
+    let erro = ambiente_do_bot(&hub, &outro_space).await.err().expect("outro Space").to_string();
+    assert!(erro.starts_with("plano_so_pessoal"), "{erro}");
+    let nao_gravado = bot("b4", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    assert!(ambiente_do_bot(&hub, &nao_gravado).await.is_err(), "bot que não existe no banco não recebe chave");
+
+    assert!(ambiente_do_bot(&hub, &pessoal).await.unwrap().is_some());
+    hub.store.delete_bot("b1").unwrap();
+    assert!(ambiente_do_bot(&hub, &pessoal).await.is_err(), "bot apagado não recebe chave");
+}
+
+#[tokio::test]
+async fn trocar_ou_remover_a_chave_muda_o_carimbo_e_remover_apaga_chave_lista_e_perfil() {
+    let hub = hub_de_prova();
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    com_chave(&hub).await;
+    let primeiro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap().carimbo;
+    com_chave(&hub).await;
+    let segundo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap().carimbo;
+    assert_ne!(primeiro, segundo, "chave trocada reinicia o processo do OpenCode");
+
+    let perfil = hub.store.engine_setup_root.join("planos").join("opencode-go");
+    assert!(perfil.is_dir());
+    let resposta = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"})).await.unwrap();
+    assert_eq!(resposta, json!({"ok": true}));
+    assert_eq!(crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap(), None);
+    assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), None);
+    assert!(!perfil.exists(), "o perfil do plano some com a chave");
+    assert!(ambiente_do_bot(&hub, &cfg).await.is_err());
+    let lista = listar(&hub.store).unwrap();
+    assert_eq!(lista["planos"][0]["configurada"], false);
+    assert_eq!(lista["planos"][0]["modelos"], Value::Null);
+}
