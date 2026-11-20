@@ -1,9 +1,26 @@
 # CI (ci-ok)
 
 O workflow [CI](../../.github/workflows/ci.yml) roda em todo pull request e publica o
-check **`ci-ok`**, que a proteção da `main` vai exigir. Nenhum job roda em runner
-hospedado pelo GitHub: todos usam runners da **Instabox**, conectada ao repositório por app
-do GitHub.
+check **`ci-ok`**, que a proteção da `main` vai exigir. Enquanto o repositório for privado,
+nenhum job roda em runner hospedado pelo GitHub: todos usam runners da **Instabox**,
+conectada ao repositório por app do GitHub.
+
+## Trocar a máquina sem editar o workflow
+
+A máquina de cada classe de job vem de uma variável do repositório (Settings → Secrets and
+variables → Actions → Variables). Sem a variável, vale o padrão da Instabox:
+
+| Variável | Jobs | Padrão | Valores aceitos |
+|---|---|---|---|
+| `CI_MAQUINA_LEVE` | leves, vazamento, ci-ok | `instabox-small` | `instabox-small`; com o repositório público, `ubuntu-24.04` |
+| `CI_MAQUINA_MEDIA` | desktop | `instabox-medium` | `instabox-medium`; com o repositório público, `ubuntu-24.04` |
+| `CI_MAQUINA_PESADA` | hub | `instabox-large` | `instabox-large`; com o repositório público, `ubuntu-24.04` |
+
+- Use `ubuntu-24.04`, nunca `ubuntu-latest`: o Semgrep e o Hub conferem Ubuntu 24.04 x64, e o
+  `latest` muda de versão sozinho.
+- O primeiro passo de todo job recusa máquina do GitHub enquanto o repositório for privado,
+  mesmo que a variável aponte para ela. No dia de abrir, basta trocar as três variáveis.
+- A variável só escolhe a máquina; as checagens e o `ci-ok` não mudam.
 
 ## Máquinas por rodada
 

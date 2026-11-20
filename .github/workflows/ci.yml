@@ -1,4 +1,4 @@
-# CI do mexerica-agents: roda so em runners da Instabox, nunca em runner hospedado pelo GitHub.
+# CI do mexerica-agents: runners da Instabox por padrao; maquina do GitHub so com o repositorio publico.
 # O job ci-ok junta tudo e e a checagem obrigatoria da main. Guia: docs/guides/ci.md.
 name: CI
 
@@ -17,7 +17,7 @@ jobs:
   # selecao e Semgrep) rodam antes de qualquer codigo do PR (ferramentas-ci e auditoria).
   leves:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: instabox-small
+    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -30,6 +30,13 @@ jobs:
       SEMGREP_SEND_METRICS: 'off'
       SEMGREP_ENABLE_VERSION_CHECK: '0'
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -146,12 +153,14 @@ jobs:
       # Informativo: falha de auditoria aparece no resumo, mas nao reprova o job nem o ci-ok.
       - name: Auditoria - instalar cargo-audit 0.22.2 com SHA256 fixo
         continue-on-error: true
+        timeout-minutes: 2
         run: |
           curl --fail --silent --show-error --location --retry 3 https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz -o "$RUNNER_TEMP/cargo-audit.tgz"
           echo "ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39  $RUNNER_TEMP/cargo-audit.tgz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/cargo-audit.tgz" -C "$RUNNER_TEMP"
       - name: Auditoria - npm audit high e cargo audit (somente aviso)
         continue-on-error: true
+        timeout-minutes: 5
         env:
           CARGO_AUDIT_BIN: ${{ runner.temp }}/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit
         run: node tools/ci-security-audit.mjs
@@ -159,11 +168,18 @@ jobs:
   # Unico job com secret: fica sozinho na maquina, sem rodar codigo do PR.
   vazamento:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: instabox-small
+    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -207,7 +223,7 @@ jobs:
   hub:
     needs: leves
     if: ${{ needs.leves.outputs.host == 'true' && needs.leves.outputs.heavy == 'true' }}
-    runs-on: instabox-large
+    runs-on: ${{ vars.CI_MAQUINA_PESADA || 'instabox-large' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -215,6 +231,13 @@ jobs:
       run:
         working-directory: host
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -287,7 +310,7 @@ jobs:
   desktop:
     needs: leves
     if: ${{ needs.leves.outputs.desktop == 'true' && needs.leves.outputs.heavy == 'true' }}
-    runs-on: instabox-medium
+    runs-on: ${{ vars.CI_MAQUINA_MEDIA || 'instabox-medium' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -299,6 +322,13 @@ jobs:
       # O gate de textos compara com a base do evento, ja presente no historico completo.
       MEXERICA_CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -327,10 +357,17 @@ jobs:
     name: ci-ok
     if: ${{ always() }}
     needs: [leves, vazamento, hub, desktop]
-    runs-on: instabox-small
+    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 5
     permissions: {}
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - name: Recusar fork sem executar codigo em runner de terceiro
         if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |

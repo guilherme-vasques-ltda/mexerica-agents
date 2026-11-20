@@ -1,4 +1,4 @@
-// Contrato do workflow de CI: só runners da Instabox, permissões explícitas, actions por SHA e ci-ok sem atalho.
+// Contrato do workflow de CI: Instabox por padrão (variável só troca a máquina), nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,7 +14,11 @@ for (const line of lines.slice(jobsStart + 1)) {
   if (current) jobs[current].push(line);
 }
 const body = (name) => jobs[name].join('\n');
-const RUNS_ON = new Set(['instabox-small', 'instabox-medium', 'instabox-large']);
+const RUNS_ON = new Set([
+  "${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}",
+  "${{ vars.CI_MAQUINA_MEDIA || 'instabox-medium' }}",
+  "${{ vars.CI_MAQUINA_PESADA || 'instabox-large' }}",
+]);
 
 test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fora', () => {
   assert.ok(!/[^\x00-\x7F]/.test(ci), 'ci.yml deve ser ASCII');
@@ -26,7 +30,7 @@ test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fo
   assert.match(ci, /^concurrency:\n  group: ci-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true$/m);
 });
 
-test('todo job roda na Instabox, com permissões e timeout explícitos', () => {
+test('todo job roda na Instabox por padrão, com permissões e timeout explícitos', () => {
   assert.deepEqual(Object.keys(jobs), ['leves', 'vazamento', 'hub', 'desktop', 'ci-ok']);
   for (const [name, job] of Object.entries(jobs)) {
     const runsOn = job.filter((l) => /^    runs-on:/.test(l));
@@ -37,7 +41,16 @@ test('todo job roda na Instabox, com permissões e timeout explícitos', () => {
     assert.ok(!/container:|services:/.test(job.join('\n')), `${name}: sem container/services`);
   }
   assert.ok(!/ubuntu-|windows-|macos-|self-hosted|blacksmith|buildjet|depot-|boat|nscloud/i.test(ci), 'nenhum rótulo de runner do GitHub ou de outro fornecedor');
-  assert.ok(!/run_attempt|needs\.route|vars\./.test(ci), 'rótulo fixo, sem rota por tentativa nem variável');
+  assert.ok(!/run_attempt|needs\.route/.test(ci), 'sem rota por tentativa');
+  assert.deepEqual([...new Set([...ci.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))].sort(), ['CI_MAQUINA_LEVE', 'CI_MAQUINA_MEDIA', 'CI_MAQUINA_PESADA'], 'só as variáveis de máquina');
+});
+
+test('todo job recusa máquina do GitHub enquanto o repositório for privado, como primeiro passo', () => {
+  for (const [name] of Object.entries(jobs)) {
+    const first = body(name).split('\n    steps:\n')[1].replace(/^(?:      #.*\n)+/, '').split('\n      - ')[0];
+    assert.match(first, /^      - name: Recusar maquina do GitHub em repositorio privado\n        if: \$\{\{ runner\.environment == 'github-hosted' && github\.event\.repository\.private \}\}\n/, `${name}: guarda no primeiro passo`);
+    assert.match(first, /exit 1/);
+  }
 });
 
 test('leves: verificadores da main antes de qualquer código do PR; auditoria só como aviso', () => {
@@ -47,7 +60,10 @@ test('leves: verificadores da main antes de qualquer código do PR; auditoria s�
   const pr = ['node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs', 'node tools/ci-security-audit.mjs'].map(at);
   assert.ok([...trusted, ...pr].every((i) => i >= 0), 'todas as checagens presentes');
   assert.ok(Math.max(...trusted) < Math.min(...pr), 'código do PR só depois dos verificadores da main');
-  for (const st of steps.filter((s) => s.includes('Auditoria -'))) assert.match(st, /continue-on-error: true/);
+  for (const st of steps.filter((s) => s.includes('Auditoria -'))) {
+    assert.match(st, /continue-on-error: true/);
+    assert.match(st, /timeout-minutes: [1-5]\n/, 'auditoria com tempo curto para não derrubar o job');
+  }
   assert.equal(steps.filter((s) => s.includes('continue-on-error')).length, 2, 'só a auditoria é aviso');
   assert.ok(!/continue-on-error/.test(body('leves').split('\n    steps:')[0]), 'o job leves não é aviso');
 });
