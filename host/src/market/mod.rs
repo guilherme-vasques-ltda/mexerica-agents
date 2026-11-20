@@ -20,6 +20,7 @@ pub(crate) mod contas_api;
 pub(crate) mod contas_escolha;
 pub(crate) mod contas_migracao;
 mod contas_recibos;
+pub(crate) mod ferramentas;
 pub(crate) mod google_app;
 pub mod logins;
 pub mod oauth;
