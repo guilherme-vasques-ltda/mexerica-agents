@@ -359,10 +359,10 @@ pub(crate) async fn call_page(
         match (name, url) {
             (OPEN, Some(url)) => {
                 // Sem ler a configuração do time não dá para esconder a pasta de trabalho: nada abre.
-                let team = hub
-                    .store
-                    .team_settings()
-                    .map_err(|_| anyhow!("browser_containment_unavailable: configuração do time ilegível"))?;
+                let team = hub.store.team_settings().map_err(|error| {
+                    tracing::warn!(%error, "não foi possível ler a configuração do time para abrir o navegador");
+                    anyhow!("browser_containment_unavailable: configuração do time ilegível")
+                })?;
                 let hidden = team.workspace_root.map(PathBuf::from);
                 let hidden = hidden.into_iter().filter(|path| path.is_absolute()).collect();
                 hub.browser.open(&scope, &owner, hidden, &url, valid).await

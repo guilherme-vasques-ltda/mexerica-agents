@@ -55,8 +55,9 @@ fn high_fd(fd: i32) -> Result<OwnedFd> {
 
 const PRIVILEGED_GROUPS: [&str; 3] = ["docker", "adm", "systemd-journal"];
 
-/// Nome do grupo pelo mesmo caminho do sistema (arquivo local e serviços de nomes). Ausência comprovada é
-/// `Ok(None)`; qualquer outra falha é erro, nunca permissão.
+/// Nome do grupo pelo mesmo caminho do sistema (arquivo local e serviços de nomes). Ausência comprovada (retorno
+/// zero sem resultado) é `Ok(None)`; qualquer código de erro, inclusive os que um serviço de nomes que não
+/// responde pode devolver (ENOENT, ESRCH, EBADF, EPERM), é erro, nunca permissão.
 fn group_name(gid: libc::gid_t) -> Result<Option<String>> {
     let mut buffer = vec![0u8; 1024];
     loop {
@@ -74,7 +75,6 @@ fn group_name(gid: libc::gid_t) -> Result<Option<String>> {
                 return Ok(Some(name.to_string_lossy().into_owned()));
             }
             libc::ERANGE if buffer.len() < (1 << 20) => buffer.resize(buffer.len() * 2, 0),
-            libc::ENOENT | libc::ESRCH | libc::EBADF | libc::EPERM => return Ok(None),
             code => return Err(std::io::Error::from_raw_os_error(code).into()),
         }
     }

@@ -99,7 +99,10 @@ fn probe() -> Result<(), &'static str> {
     match super::supervisor::real::privileged_group() {
         Ok(None) => {}
         Ok(Some(_)) => return Err("privileged_group"),
-        Err(_) => return Err("containment_unavailable"),
+        Err(error) => {
+            tracing::warn!(%error, "não foi possível verificar os grupos do usuário do Hub");
+            return Err("containment_unavailable");
+        }
     }
     super::bridge::ensure_namespaces_available().map_err(|_| "containment_unavailable")
 }
