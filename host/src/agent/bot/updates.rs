@@ -99,8 +99,9 @@ impl Actor {
             Some(Incoming::Notification { method, params }) => {
                 method == "session/update" && params["sessionId"].as_str() == self.turn_session.as_deref()
             }
-            Some(Incoming::Request { method, .. }) => {
-                method == "session/request_permission" || method == crate::fork::bot_skills::read::METHOD
+            Some(Incoming::Request { method, params, .. }) => {
+                (method == "session/request_permission" || method == crate::fork::bot_skills::read::METHOD)
+                    && params["sessionId"].as_str() == self.turn_session.as_deref()
             }
             _ => false,
         };

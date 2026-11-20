@@ -117,7 +117,10 @@ impl Actor {
         if let Some(mut entry) = self.hub.store.entry(id) {
             entry.data["motorMudo"]["estado"] = "voltou".into();
             entry.data["text"] = TEXTO_VOLTOU.into();
-            self.hub.set_entry(id, &entry.data);
+            if self.hub.set_entry(id, &entry.data).is_none() {
+                tracing::warn!("não foi possível fechar o aviso de motor mudo; o registro fica para a próxima partida");
+                return;
+            }
         }
         if let Err(error) = self.hub.store.kv_delete(&self.mudo_chave()) {
             tracing::warn!(%error, "não foi possível limpar o registro do aviso de motor mudo");
