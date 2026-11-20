@@ -1,5 +1,6 @@
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { concat, type ChannelKeys, type DeviceSigner, type Protocol } from './protocol.ts'
+import { decodeFrame, FRAME_MAX_WIRE, FRAMES_CAPABILITY, FrameCodecError, isFrameBytes, type BrowserFrame } from './browser-frames.ts'
 
 /**
  * Canal E2E do aparelho (docs/reference/remote-relay.md §6.2–§6.5) depois do aperto de mão:
@@ -53,6 +54,12 @@ export class ChannelBroken extends Error {
 
 const dec = new TextDecoder()
 
+/** Quem recebe os quadros do navegador: um só por canal, sempre o mais recente primeiro (o Hub já descarta os intermediários). */
+export interface FrameSink {
+  onFrame: (frame: BrowserFrame) => void
+  onEnd: (error: { status: number; message: string } | null) => void
+}
+
 interface Pending {
   resolve: (r: CallResult) => void
   timer: ReturnType<typeof setTimeout>
@@ -78,10 +85,15 @@ export function createChannel(proto: Protocol) {
     private readonly subs = new Map<number, Sub>()
     private readonly keys: ChannelKeys
     private readonly wire: ChannelWire
+    private binary = false
+    private frameSink: FrameSink | null = null
+    /** O Hub aceitou `browserFramesV1`; sem isso, qualquer quadro recebido quebra o canal. */
+    readonly framesNegotiated: boolean
 
-    constructor(keys: ChannelKeys, wire: ChannelWire) {
+    constructor(keys: ChannelKeys, wire: ChannelWire, framesNegotiated = false) {
       this.keys = keys
       this.wire = wire
+      this.framesNegotiated = framesNegotiated
     }
 
     get isOpen() {
@@ -101,11 +113,17 @@ export function createChannel(proto: Protocol) {
       this.recvC += 1
       this.partsSize += opened.chunk.length
       if (this.partsSize > MAX_INCOMING) throw new ChannelBroken(4013, 'message.tooLarge')
+      if (this.parts.length === 0) this.binary = isFrameBytes(opened.chunk)
+      // Quadro acima do teto é recusado antes de juntar os pedaços ou copiar o JPEG.
+      if (this.binary && this.partsSize > FRAME_MAX_WIRE) throw new ChannelBroken(4013, 'message.tooLarge')
       this.parts.push(opened.chunk)
       if (!opened.final) return
       const bytes = concat(...this.parts)
+      const binary = this.binary
       this.parts = []
       this.partsSize = 0
+      this.binary = false
+      if (binary) return this.dispatchFrame(bytes)
       let message: unknown
       try {
         message = JSON.parse(dec.decode(bytes))
@@ -113,6 +131,18 @@ export function createChannel(proto: Protocol) {
         throw new ChannelBroken(4002, 'message.unreadable')
       }
       this.dispatch(message)
+    }
+
+    private dispatchFrame(bytes: Uint8Array) {
+      // Hub que não negociou, quadro corrompido ou gigante: o canal inteiro é descartado (falha fechada).
+      if (!this.framesNegotiated) throw new ChannelBroken(4002, 'frame.notNegotiated')
+      let frame: BrowserFrame
+      try {
+        frame = decodeFrame(bytes)
+      } catch (error) {
+        throw new ChannelBroken(error instanceof FrameCodecError && error.kind === 'tooLarge' ? 4013 : 4002, 'frame.unreadable')
+      }
+      this.frameSink?.onFrame(frame)
     }
 
     private dispatch(m: unknown) {
@@ -150,6 +180,8 @@ export function createChannel(proto: Protocol) {
 
     call(method: string, body: unknown = null, timeoutMs = 20_000): Promise<CallResult> {
       if (this.closed) return Promise.resolve({ kind: 'notSent', reason: 'notReady' })
+      // O Hub só inscreve e controla o navegador ao vivo com `browserFramesV1` aceito neste canal.
+      if (method.startsWith('browserStream') && !this.framesNegotiated) return Promise.resolve({ kind: 'notSent', reason: 'notReady' })
       if (this.pending.size >= MAX_REQUESTS) return Promise.resolve({ kind: 'notSent', reason: 'busy' })
       const id = this.nextId++
       return new Promise<CallResult>((resolve) => {
@@ -181,10 +213,31 @@ export function createChannel(proto: Protocol) {
       }
     }
 
-    /** Fecha o canal: chamadas em voo viram `unknown`, assinaturas terminam. Idempotente. */
-    close() {
+    /**
+     * Liga o consumidor dos quadros do navegador. `null` quando o canal está fechado, o Hub não aceitou a
+     * capacidade ou já há um consumidor. Quadro sem consumidor é descartado.
+     */
+    subscribeFrames(sink: FrameSink): Subscription | null {
+      if (this.closed || !this.framesNegotiated || this.frameSink) return null
+      this.frameSink = sink
+      return {
+        id: 0,
+        cancel: () => {
+          if (this.frameSink === sink) this.frameSink = null
+        },
+      }
+    }
+
+    /**
+     * Fecha o canal: chamadas em voo viram `unknown`, assinaturas terminam. Idempotente.
+     * `denied` (acesso revogado ou encerrado) chega às assinaturas de quadros como 403, e não como queda comum.
+     */
+    close(denied = false) {
       if (this.closed) return
       this.closed = true
+      const sink = this.frameSink
+      this.frameSink = null
+      sink?.onEnd({ status: denied ? 403 : 0, message: traduzir('pt-BR', 'nuvem.protocolo.conexaoEncerrada') })
       for (const [id, p] of this.pending) {
         clearTimeout(p.timer)
         this.pending.delete(id)
@@ -217,16 +270,19 @@ export function createChannel(proto: Protocol) {
     private settled: HandshakeOutcome | null = null
     readonly outcome: Promise<HandshakeOutcome>
     private readonly wire: ChannelWire & { sendRaw(message: object): void }
+    private readonly offeredFrames: boolean
 
-    constructor(signer: DeviceSigner, hostSignPub: Uint8Array, wire: ChannelWire & { sendRaw(message: object): void }) {
+    /** `frames`: oferece `browserFramesV1` no `hello`; só este canal de dados do app negocia quadros. */
+    constructor(signer: DeviceSigner, hostSignPub: Uint8Array, wire: ChannelWire & { sendRaw(message: object): void }, opts: { frames?: boolean } = {}) {
       this.wire = wire
-      this.started = deviceHello(signer, hostSignPub)
+      this.offeredFrames = opts.frames === true
+      this.started = deviceHello(signer, hostSignPub, this.offeredFrames ? { caps: [FRAMES_CAPABILITY] } : {})
       this.outcome = new Promise((resolve) => (this.settle = resolve))
       wire.sendRaw(this.started.hello)
     }
 
     /** Mensagem do canal recebida durante o aperto de mão; true quando foi consumida. */
-    receive(m: { t?: unknown; code?: unknown; message?: unknown; ek?: unknown; sig?: unknown }): boolean {
+    receive(m: { t?: unknown; code?: unknown; message?: unknown; ek?: unknown; sig?: unknown; caps?: unknown }): boolean {
       if (!this.settle) return false
       if (m.t === 'reject') {
         const known: RejectCode[] = ['unauthorized', 'revoked', 'leaseExpired', 'badSignature', 'unsupportedVersion', 'pairingClosed', 'rateLimited']
@@ -237,7 +293,8 @@ export function createChannel(proto: Protocol) {
       if (m.t !== 'welcome') return false
       try {
         const keys = this.started.finish(m)
-        this.finish({ kind: 'ready', channel: new Channel(keys, this.wire) })
+        const accepted = this.offeredFrames && Array.isArray(m.caps) && m.caps.includes(FRAMES_CAPABILITY)
+        this.finish({ kind: 'ready', channel: new Channel(keys, this.wire, accepted) })
       } catch (error) {
         this.finish({ kind: 'identityMismatch', message: error instanceof HandshakeError ? error.message : HANDSHAKE_INVALID })
       }

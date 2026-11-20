@@ -14,7 +14,7 @@ const dec = new TextDecoder()
  * O Hub responde um `hello`: confere a assinatura do aparelho e assina o transcript. `signWith`
  * simula um impostor que conhece o `computerId` mas não a chave do Hub.
  */
-export function hostAccept(host: DeviceSigner, hello: { dk: string; ek: string; n: string; sig: string }, signWith: DeviceSigner = host) {
+export function hostAccept(host: DeviceSigner, hello: { dk: string; ek: string; n: string; sig: string; caps?: string[] }, signWith: DeviceSigner = host, acceptCaps = false) {
   const cid = cidRaw(host.publicKey)
   const dk = unb64url(hello.dk, 32)!
   const ekD = unb64url(hello.ek, 32)!
@@ -22,7 +22,7 @@ export function hostAccept(host: DeviceSigner, hello: { dk: string; ek: string; 
   if (!verifyEd25519(dk, unb64url(hello.sig, 64)!, hs1Input(cid, dk, ekD, n))) throw new Error('hello não confere')
   const eph = ephemeral()
   const th = transcriptHash(cid, dk, ekD, n, eph.pub)
-  return { welcome: { t: 'welcome', v: 1, ek: b64url(eph.pub), sig: b64url(signWith.sign(th)) }, keys: channelKeys(eph.dh(ekD), th), dk: hello.dk }
+  return { welcome: { t: 'welcome', v: 1, ek: b64url(eph.pub), sig: b64url(signWith.sign(th)), ...(acceptCaps && hello.caps?.length ? { caps: hello.caps } : {}) }, keys: channelKeys(eph.dh(ekD), th), dk: hello.dk }
 }
 
 /** Quadros do lado do Hub: sela h2d e abre d2h com contadores próprios. */
@@ -37,6 +37,17 @@ export class HostCodec {
 
   seal(message: unknown): { t: 'f'; c: number; d: string }[] {
     const bytes = enc.encode(JSON.stringify(message))
+    const out: { t: 'f'; c: number; d: string }[] = []
+    for (let at = 0; at === 0 || at < bytes.length; at += CHUNK) {
+      const final = at + CHUNK >= bytes.length
+      out.push({ t: 'f', c: this.sendC, d: sealFrame(this.keys.h2d, this.sendC, final, bytes.subarray(at, at + CHUNK)) })
+      this.sendC += 1
+    }
+    return out
+  }
+
+  /** Mensagem interna binária (quadro `MXJ1`), selada e repartida em pedaços como qualquer outra. */
+  sealBytes(bytes: Uint8Array): { t: 'f'; c: number; d: string }[] {
     const out: { t: 'f'; c: number; d: string }[] = []
     for (let at = 0; at === 0 || at < bytes.length; at += CHUNK) {
       const final = at + CHUNK >= bytes.length
@@ -108,6 +119,6 @@ export class FakeSocket implements SocketLike {
   lastHello() {
     const hello = this.messages().filter((m) => m.t === 'hello').pop()
     if (!hello) throw new Error('nenhum hello enviado')
-    return hello as { dk: string; ek: string; n: string; sig: string }
+    return hello as { dk: string; ek: string; n: string; sig: string; caps?: string[] }
   }
 }

@@ -5,6 +5,9 @@ import { randomBytes } from 'node:crypto'
 import { app, BrowserWindow, ipcMain, powerMonitor, type IpcMainInvokeEvent, type IpcMainEvent } from 'electron'
 import type { ForkCloudIntent, ForkCloudResult, ForkCloudState, ForkCloudKind, ForkCloudCallResult } from '../../shared/fork-cloud'
 import type { Subscription } from './channel'
+import type { FrameSink } from '../../shared/relay-protocol/channel.ts'
+import { createFrameGate, STALE_AFTER_MS } from '../../shared/fork-browser-live'
+import type { BrowserFrame } from '../../shared/relay-protocol/browser-frames.ts'
 import type { CapturedSSHLocal } from '../../shared/fork-cloud-local'
 import type { AccountService } from '../fork-account/service'
 import type { registerForkCloud } from './register'
@@ -107,6 +110,10 @@ export class ForkCloudService {
   private foundEpoch = -1
   private foundBinding: string | null = null
   private state: ForkCloudState
+  /** Quando cada quadro chegou do Hub (relógio monotônico deste processo). Só o recebimento: não autoriza entrada. */
+  private readonly frameArrivedAt = new WeakMap<BrowserFrame, number>()
+  /** Quadros realmente despachados ao app pela assinatura atual, por conexão, com a hora da CHEGADA (só os que ainda estão em 6 s; no máximo 2 conexões). */
+  private readonly frameArrivals = new Map<string, Map<string, number>>()
   private readonly epochChanged = () => { this.managedPaused=false; this.invalidate(); this.set('signedOut') }
 
   constructor(private readonly account: AccountService, private readonly factory: Factory, private readonly local: LocalSource, private readonly onChange: (value: ForkCloudResult) => void = () => {}) {
@@ -358,6 +365,7 @@ export class ForkCloudService {
     try { const serialized = JSON.stringify(body); if (serialized === undefined) return { kind: 'notSent', reason: 'notReady' }; if (Buffer.byteLength(serialized, 'utf8') > 1024 * 1024) return { kind: 'notSent', reason: 'tooLarge' } } catch { return { kind: 'notSent', reason: 'notReady' } }
     const connection = this.dataConnection(id)
     if (!connection) return { kind: 'notSent', reason: 'notReady' }
+    if (method === 'browserStreamInput' && !this.inputFrameFresh(id as string, body)) return { kind: 'notSent', reason: 'notReady' }
     try { return await connection.call(method, body, timeout) } catch { return { kind: 'unknown', reason: 'closed' } }
   }
   subscribe(id: unknown, body: unknown, onEvent: (value: unknown) => void, onEnd: (error: { status: number; message: string } | null) => void): Subscription | null {
@@ -366,6 +374,46 @@ export class ForkCloudService {
     const connection = this.dataConnection(id)
     if (!connection) return null
     return connection.subscribe(request, onEvent, onEnd)
+  }
+  /** Quadros do navegador do bot (B2): só com a conexão atual e a capacidade aceita pelo Hub. */
+  subscribeFrames(id: unknown, sink: FrameSink): Subscription | null {
+    const connection = this.dataConnection(id)
+    if (!connection?.framesNegotiated || typeof id !== 'string') return null
+    const subscription = connection.subscribeFrames({
+      onFrame: (frame) => { this.frameArrivedAt.set(frame, performance.now()); sink.onFrame(frame) },
+      onEnd: (error) => { this.frameArrivals.delete(id); sink.onEnd(error) },
+    })
+    return subscription && { ...subscription, cancel: () => { this.frameArrivals.delete(id); subscription.cancel() } }
+  }
+  /** Identidade estrutural do quadro: uma lista JSON, sem separador que os identificadores possam conter. */
+  private frameKey(frame: { session: string; target: string; targetGeneration: number; sequence: number }) { return JSON.stringify([frame.session, frame.target, frame.targetGeneration, frame.sequence]) }
+  /**
+   * Chamado só depois de o quadro ter saído pelo IPC para a assinatura atual: um quadro recebido que a fila descartou ou
+   * ainda retém não chega aqui e nunca autoriza entrada. A idade segue contando desde a chegada, não desde o despacho.
+   */
+  frameDispatched(connectionId: string, frame: BrowserFrame) {
+    const arrival = this.frameArrivedAt.get(frame)
+    if (arrival === undefined) return
+    let arrivals = this.frameArrivals.get(connectionId)
+    if (!arrivals) {
+      if (this.frameArrivals.size >= 2) this.frameArrivals.delete(this.frameArrivals.keys().next().value as string)
+      this.frameArrivals.set(connectionId, arrivals = new Map())
+    }
+    arrivals.set(this.frameKey(frame), arrival)
+    // Despacho em ordem de chegada: o que passou do prazo está no começo e nunca mais autoriza nada.
+    for (const [key, at] of arrivals) { if (performance.now() - at <= STALE_AFTER_MS) break; arrivals.delete(key) }
+  }
+  /**
+   * O processo principal é a autoridade final do prazo do quadro: o clique só sai ao Hub se o quadro que ele cita (sessão,
+   * aba, geração e sequência) foi mesmo despachado ao app por esta conexão e chegou há no máximo 6 s, contados aqui, neste relógio,
+   * imediatamente antes do envio. A idade calculada pelo renderer não autoriza nada (ela não vê o IPC nos dois sentidos).
+   */
+  private inputFrameFresh(connectionId: string, body: unknown): boolean {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return false
+    const { session, target, targetGeneration, frameSequence } = body as Record<string, unknown>
+    if (typeof session !== 'string' || typeof target !== 'string' || typeof targetGeneration !== 'number' || typeof frameSequence !== 'number') return false
+    const arrival = this.frameArrivals.get(connectionId)?.get(this.frameKey({ session, target, targetGeneration, sequence: frameSequence }))
+    return arrival !== undefined && performance.now() - arrival <= STALE_AFTER_MS
   }
 
   async invoke(input: unknown, callerCurrent: () => boolean = () => true): Promise<ForkCloudResult> {
@@ -583,12 +631,22 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     subscriptions.delete(id); entry.cleanup(); try { entry.sub?.cancel() } catch {}
     if (notify && live(entry.event)) entry.event.sender.send('forkCloud:events:end', id.slice(id.indexOf(':') + 1), error)
   }
+  type FrameEntry = { event: IpcMainEvent; connectionId: string; sub: Subscription | null; gate: ReturnType<typeof createFrameGate<BrowserFrame>>; cleanup: () => void }
+  const frames = new Map<string, FrameEntry>()
+  const transportError = (status: number, message: string) => ({ status, message })
+  const endFrames = (id: string, error: { status: number; message: string } | null, notify: boolean) => {
+    const entry = frames.get(id)
+    if (!entry) return
+    frames.delete(id); entry.cleanup(); entry.gate.clear(); try { entry.sub?.cancel() } catch {}
+    if (notify && live(entry.event)) entry.event.sender.send('forkCloud:frames:end', id.slice(id.indexOf(':') + 1), error)
+  }
   let poll: ManagedPoll | null = null, attached = false
   const service = new ForkCloudService(account, factory, local, value => {
     // A dropped connection is retried by the next read, not after a long backoff.
     if (attached && !value.attachment) poll?.now()
     attached = !!value.attachment
     for (const [id, entry] of subscriptions) if (entry.connectionId !== value.attachment?.connectionId || !live(entry.event)) end(id, { status: 0, message: 'Conexão encerrada.' }, true)
+    for (const [id, entry] of frames) if (entry.connectionId !== value.attachment?.connectionId || !live(entry.event)) endFrames(id, transportError(0, 'Conexão encerrada.'), true) // textos-ok: diagnóstico do transporte
     for (const window of windows()) {
       if (window.isDestroyed() || window.webContents.isDestroyed()) continue
       const frame = window.webContents.mainFrame
@@ -654,14 +712,54 @@ export function registerForkCloudService(account: AccountService, factory: Facto
     const mapKey = key(event, id), entry = subscriptions.get(mapKey)
     if (entry && entry.event.sender === event.sender && entry.event.senderFrame === event.senderFrame) end(mapKey, null, false)
   })
+  // B2: quadros binários do navegador do bot. Um quadro por vez até a tela confirmar; fila de no máximo um.
+  ipcMain.on('forkCloud:frames:open', (event, ...args: unknown[]) => {
+    if (args.length !== 2) return
+    const [id, connectionId] = args
+    if (!live(event) || typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) return
+    if (typeof connectionId !== 'string') {
+      event.sender.send('forkCloud:frames:end', id, transportError(400, 'Assinatura inválida.')) // textos-ok: diagnóstico do transporte
+      return
+    }
+    const mapKey = key(event, id)
+    if (frames.has(mapKey)) return
+    const frame = event.senderFrame
+    const current = () => live(event) && event.senderFrame === frame && !!service.dataConnection(connectionId)
+    const changed = () => endFrames(mapKey, null, false)
+    event.sender.on('did-start-navigation', changed); event.sender.once('destroyed', changed)
+    const cleanup = () => { event.sender.removeListener('did-start-navigation', changed); event.sender.removeListener('destroyed', changed) }
+    const gate = createFrameGate<BrowserFrame>((value, waited) => { if (!current() || !frames.has(mapKey)) return endFrames(mapKey, null, false); event.sender.send('forkCloud:frames:data', id, value, waited); service.frameDispatched(connectionId, value) })
+    const entry: FrameEntry = { event, connectionId, sub: null, gate, cleanup }
+    frames.set(mapKey, entry)
+    entry.sub = service.subscribeFrames(connectionId, { onFrame: value => gate.offer(value), onEnd: error => endFrames(mapKey, error, true) })
+    if (entry.sub) { if (live(event)) event.sender.send('forkCloud:frames:opened', id); return }
+    const unsupported = service.dataConnection(connectionId) !== null
+    endFrames(mapKey, transportError(unsupported ? 501 : 0, 'Assinatura indisponível.'), true) // textos-ok: diagnóstico do transporte
+  })
+  ipcMain.on('forkCloud:frames:consumed', (event, ...args: unknown[]) => {
+    if (args.length !== 1) return
+    const [id] = args
+    if (!live(event) || typeof id !== 'string') return
+    const entry = frames.get(key(event, id))
+    if (entry && entry.event.sender === event.sender && entry.event.senderFrame === event.senderFrame) entry.gate.consumed()
+  })
+  ipcMain.on('forkCloud:frames:cancel', (event, ...args: unknown[]) => {
+    if (args.length !== 1) return
+    const [id] = args
+    if (!live(event) || typeof id !== 'string') return
+    const mapKey = key(event, id), entry = frames.get(mapKey)
+    if (entry && entry.event.sender === event.sender && entry.event.senderFrame === event.senderFrame) endFrames(mapKey, null, false)
+  })
   app.once('will-quit', () => {
     read.stop(); account.off('epoch',signedIn)
     app.off('browser-window-created',created); app.off('browser-window-focus',focused)
     for (const e of ['lock-screen','suspend'] as const) powerMonitor.off(e as 'suspend',away)
     for (const e of ['unlock-screen','resume'] as const) powerMonitor.off(e as 'resume',back)
     for (const id of subscriptions.keys()) end(id, null, false)
+    for (const id of frames.keys()) endFrames(id, null, false)
     ipcMain.removeHandler('forkCloud:invoke'); ipcMain.removeHandler('forkCloud:call')
     ipcMain.removeAllListeners('forkCloud:events:open'); ipcMain.removeAllListeners('forkCloud:events:cancel'); service.dispose()
+    ipcMain.removeAllListeners('forkCloud:frames:open'); ipcMain.removeAllListeners('forkCloud:frames:consumed'); ipcMain.removeAllListeners('forkCloud:frames:cancel')
   })
   return service
 }

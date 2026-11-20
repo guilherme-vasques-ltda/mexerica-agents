@@ -3,6 +3,7 @@ import { accountProfileBridge } from './fork-account-profile'
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { sshBridge } from './ssh'
 import type { CallError, CodyncBridge, HostSnapshot, TraySummary, WindowCommand } from '../shared/ipc'
+import type { BrowserFrame } from '../shared/relay-protocol/browser-frames'
 
 let streamId = 0
 const streams = new Map<string, { onData: (line: string) => void; onEnd: (error: CallError | null) => void }>()
@@ -80,6 +81,23 @@ const bridge: CodyncBridge = {
       ipcRenderer.on('forkCloud:events:data', data); ipcRenderer.on('forkCloud:events:end', end)
       ipcRenderer.send('forkCloud:events:open', id, connectionId, body)
       return () => { if (!active) return; active = false; ipcRenderer.removeListener('forkCloud:events:data', data); ipcRenderer.removeListener('forkCloud:events:end', end); ipcRenderer.send('forkCloud:events:cancel', id) }
+    },
+    subscribeFrames(connectionId, onFrame, onEnd) {
+      const id = globalThis.crypto.randomUUID().replaceAll('-', '')
+      let active = true
+      let open = (_value: boolean) => {}
+      const opened = new Promise<boolean>(resolve => { open = resolve })
+      const stop = () => { ipcRenderer.removeListener('forkCloud:frames:data', data); ipcRenderer.removeListener('forkCloud:frames:end', end); ipcRenderer.removeListener('forkCloud:frames:opened', ready) }
+      const data = (_e: IpcRendererEvent, received: string, frame: BrowserFrame, waited: unknown) => { if (active && received === id) onFrame(frame, typeof waited === 'number' && Number.isFinite(waited) && waited >= 0 ? waited : Number.POSITIVE_INFINITY) }
+      const end = (_e: IpcRendererEvent, received: string, error: CallError | null) => { if (!active || received !== id) return; active = false; stop(); open(false); onEnd(error) }
+      const ready = (_e: IpcRendererEvent, received: string) => { if (active && received === id) open(true) }
+      ipcRenderer.on('forkCloud:frames:data', data); ipcRenderer.on('forkCloud:frames:end', end); ipcRenderer.on('forkCloud:frames:opened', ready)
+      ipcRenderer.send('forkCloud:frames:open', id, connectionId)
+      return {
+        opened,
+        cancel: () => { if (!active) return; active = false; stop(); open(false); ipcRenderer.send('forkCloud:frames:cancel', id) },
+        consumed: () => { if (active) ipcRenderer.send('forkCloud:frames:consumed', id) },
+      }
     },
   },
   account: {

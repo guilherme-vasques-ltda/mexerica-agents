@@ -8,6 +8,7 @@ import { readPin } from './pins'
 import type { Principal } from './principal'
 import { RelayLink, type LinkState, type SocketFactory } from './relay-socket'
 import type { Channel, CallResult, Subscription } from './channel'
+import type { FrameSink } from '../../shared/relay-protocol/channel.ts'
 
 /** Uma conexão pertence a uma única época e não reabre ao retornar à mesma conta. */
 export class Connection {
@@ -82,7 +83,7 @@ export class Connection {
       const host = unb64url(pin.signKey, 32)
       if (!host || !this.current()) { this.stop(); return false }
       this.link = new RelayLink({ cloudURL: this.principal.deployment.origin, computerId: this.computerId, hostSignPub: host, signer, socket: this.socket,
-        isAuthorized: () => this.current(),
+        isAuthorized: () => this.current(), browserFrames: true,
         onChannel: (channel) => { if (!channel) { this.clearChannel(); if (this.current()) this.publish('reconnecting') } else if (this.current()) void this.qualify(channel); else channel.close() },
         onState: (state) => this.changed(state),
       })
@@ -129,6 +130,27 @@ export class Connection {
     const result = await channel.call(method, body, timeoutMs)
     if (!this.current() || this.channel !== channel) return result.kind === 'notSent' ? result : { kind: 'unknown', reason: 'closed' }
     return result
+  }
+  /** O Hub aceitou `browserFramesV1` neste canal. */
+  get framesNegotiated(): boolean { return this.current() && this.channel?.framesNegotiated === true }
+  /** Quadros binários do navegador do bot: só com o canal atual e a capacidade aceita pelo Hub. */
+  subscribeFrames(sink: FrameSink): Subscription | null {
+    const channel = this.channel
+    if (!this.current() || !channel || !this.attachment) return null
+    let raw: Subscription | null = null
+    let ended = false
+    const guard = () => !ended && this.current() && this.channel === channel
+    try {
+      raw = channel.subscribeFrames({
+        onFrame: (frame) => { if (guard()) sink.onFrame(frame) },
+        onEnd: (error) => { if (ended) return; ended = true; if (raw) this.subscriptions.delete(raw); if (this.current() && this.channel === channel) sink.onEnd(error) },
+      })
+    } catch { return null }
+    if (!raw) return null
+    const inner = raw
+    const sub: Subscription = { id: inner.id, cancel: () => { if (ended) return; ended = true; this.subscriptions.delete(sub); inner.cancel() } }
+    this.subscriptions.add(sub)
+    return sub
   }
   subscribe(body: unknown, onEvent: (value: unknown) => void, onEnd: (error: { status: number; message: string } | null) => void): Subscription | null {
     const channel = this.channel
