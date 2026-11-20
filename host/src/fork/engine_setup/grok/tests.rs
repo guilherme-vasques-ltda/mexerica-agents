@@ -622,3 +622,25 @@ async fn programa_sem_nome_de_grok_nao_serve_e_login_antigo_que_nao_sai_trava_o_
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 }
+
+#[test]
+fn duas_paginas_ou_dois_codigos_diferentes_derrubam_o_login() {
+    let conflicts = |text: &[u8]| {
+        let mut screen = Screen::default();
+        screen.push(text).unwrap();
+        screen.challenge().is_err()
+    };
+    assert!(conflicts(b"https://auth.x.ai/device\nThen enter this code: AAAA-1111\nThen enter this code: BBBB-2222\n"));
+    assert!(conflicts(b"https://auth.x.ai/device?user_code=AAAA-1111\nhttps://auth.x.ai/device?user_code=BBBB-2222\n"));
+    assert!(conflicts(b"https://auth.x.ai/device\nhttps://accounts.x.ai/device\nThen enter this code: AAAA-1111\n"));
+    assert!(conflicts(b"https://auth.x.ai/device\nhttps://auth.x.ai/logout\nThen enter this code: AAAA-1111\n"));
+    // Repetir a mesma página e o mesmo código, também com e sem consulta, é normal.
+    let mut ok = Screen::default();
+    ok.push(b"https://auth.x.ai/device\nCode: AAAA-1111\nOr open https://auth.x.ai/device?user_code=AAAA-1111\nThen enter this code: AAAA-1111\n")
+        .unwrap();
+    let shown = ok.challenge().unwrap().unwrap();
+    assert_eq!(
+        (shown.url.as_str(), shown.code.as_deref()),
+        ("https://auth.x.ai/device?user_code=AAAA-1111", Some("AAAA-1111"))
+    );
+}

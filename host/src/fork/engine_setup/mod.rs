@@ -726,7 +726,7 @@ async fn start_authorized(
                     meta.catalog = None;
                 }
                 meta.revision += 1;
-                op.revision = meta.revision;
+                let revision = meta.revision;
                 if request.action == Step::Login {
                     account.bind_catalog();
                 }
@@ -734,9 +734,11 @@ async fn start_authorized(
                 if request.action == Step::Login
                     && let Some(home) = &superseded
                 {
+                    ensure!(op.authority.current(&hub), "setup_authority_lost");
                     grok::erase(&hub.store, &request.engine_account_id, home)?;
                 }
                 op.authority.persist(&hub, &registry)?;
+                op.revision = revision;
                 cleanup.0 = None;
                 accounts::invalidate();
                 clear(op, Phase::Connected, None);

@@ -53,6 +53,8 @@ test('opções: padrão do Hub primeiro, só contas gerenciadas do mesmo motor, 
   ])
   assert.deepEqual(accountOptions(tradutor('pt-BR'), e, 'claude', null).map((o) => o.id), ['', id('c')])
   assert.deepEqual(accountOptions(tradutor('pt-BR'), e, 'gemini', null), [])
+  // O Grok tem conta em Contas de IA, mas ainda não é oferecido a bots.
+  assert.deepEqual(accountOptions(tradutor('pt-BR'), e, 'grok', null), [])
   assert.deepEqual(accountOptions(tradutor('pt-BR'), e, 'codex', id('x')).at(-1), { id: id('x'), label: 'Conta indisponível neste Hub' })
   // D70, R1 do #572 (item 6): em inglês, o estado da conta também sai no idioma (nada de "Hub default · Conectada").
   assert.deepEqual(accountOptions(tradutor('en'), e, 'codex', null).map((o) => o.label), ['Hub default · Not confirmed', 'Pessoal · Connected', 'Trabalho · Disconnected'])

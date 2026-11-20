@@ -70,33 +70,40 @@ impl Screen {
     }
 
     /// Endereço e código só saem de linhas completas, para nunca mostrar um código cortado ao meio.
-    /// Fail-closed: código do texto diferente do código da URL, ou qualquer dúvida, não mostra nada.
+    /// Fail-closed: duas páginas diferentes, dois códigos diferentes (no texto ou na consulta das URLs) ou qualquer
+    /// dúvida derrubam o login em vez de mostrar um dos dois.
     fn challenge(&self) -> Result<Option<Challenge>> {
         let Some((done, _)) = self.text.rsplit_once('\n') else { return Ok(None) };
-        let Some(url) = done
+        let urls: Vec<&str> = done
             .split_whitespace()
             .filter(|word| word.starts_with("https://"))
             .map(|word| word.trim_end_matches(['.', ',', ';', ')', '>', '"', '\'']))
-            .find(|word| transport::challenge(Backend::Grok, "device_code", word, None).is_ok())
-        else {
-            return Ok(None);
-        };
-        // Consulta na URL: o valor precisa ter o formato estrito do código; senão, a URL inteira é recusada.
-        let Ok(parsed) = reqwest::Url::parse(url) else { return Ok(None) };
-        let from_url = match parsed.query_pairs().next() {
-            Some((_, code)) => Some(user_code(&code).ok_or_else(|| anyhow!("auth_url_invalid"))?),
-            None => None,
-        };
-        let from_text = done.lines().filter(|line| !line.contains("http")).find_map(|line| {
+            .filter(|word| transport::challenge(Backend::Grok, "device_code", word, None).is_ok())
+            .collect();
+        let Some(&first) = urls.first() else { return Ok(None) };
+        // Todas as URLs são da mesma página; a que traz a consulta (se houver) é a que a tela abre.
+        let page =
+            |raw: &str| reqwest::Url::parse(raw).map(|url| (url.host_str().map(str::to_owned), url.path().to_owned()));
+        let reference = page(first).map_err(|_| anyhow!("auth_url_invalid"))?;
+        let mut codes = Vec::new();
+        let mut shown = first;
+        for raw in &urls {
+            ensure!(page(raw).ok().as_ref() == Some(&reference), "auth_correlation_invalid");
+            let url = reqwest::Url::parse(raw).map_err(|_| anyhow!("auth_url_invalid"))?;
+            if let Some((_, code)) = url.query_pairs().next() {
+                codes.push(user_code(&code).ok_or_else(|| anyhow!("auth_url_invalid"))?);
+                shown = raw;
+            }
+        }
+        for line in done.lines().filter(|line| !line.contains("http")) {
             let labelled = if line.to_lowercase().contains("code") { line.rsplit_once(':') } else { None };
-            labelled.and_then(|(_, rest)| user_code(rest)).or_else(|| paired_code(line.trim()))
-        });
-        let code = match (from_text, from_url) {
-            (Some(text), Some(url)) if text != url => bail!("auth_correlation_invalid"),
-            (Some(code), _) | (None, Some(code)) => code,
-            (None, None) => return Ok(None),
-        };
-        Ok(Some(transport::challenge(Backend::Grok, "device_code", url, Some(&code))?))
+            if let Some(code) = labelled.and_then(|(_, rest)| user_code(rest)).or_else(|| paired_code(line.trim())) {
+                codes.push(code);
+            }
+        }
+        let Some(code) = codes.first().cloned() else { return Ok(None) };
+        ensure!(codes.iter().all(|other| *other == code), "auth_correlation_invalid");
+        Ok(Some(transport::challenge(Backend::Grok, "device_code", shown, Some(&code))?))
     }
 
     fn expired(&self) -> bool {
