@@ -57,6 +57,12 @@ impl Install {
                 .map(|exe| format!("{} npm install -g {pkg}", shell::quote(&exe.to_string_lossy()))),
         }
     }
+
+    /// Vendor install script (`Script`/`Scripts`): code downloaded over https that this Hub
+    /// never checks before running. It runs only after the terminal confirms (GUI-145).
+    pub fn is_script(self) -> bool {
+        matches!(self, Self::Script(_) | Self::Scripts { .. })
+    }
 }
 
 /// `<bin> <args>`, judged by exit code and stdout.
