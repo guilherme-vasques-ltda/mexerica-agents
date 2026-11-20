@@ -43,13 +43,17 @@ pub(super) fn ensure_no_model_heartbeat(before: &State, after: &State) -> Result
                 && r.timeout_seconds == old.timeout_seconds
                 && (old.enabled || !r.enabled)
         });
+        if !kept {
+            tracing::warn!(routine = %old.id, bot = %old.bot_id, "o modelo tentou alterar, apagar ou ligar uma checagem silenciosa; recusado");
+        }
         anyhow::ensure!(kept, crate::fork::heartbeat::SO_O_DONO);
     }
     for routine in after.routines.iter().filter(|r| !r.deleted && r.heartbeat.is_some()) {
-        anyhow::ensure!(
-            before.routines.iter().any(|old| same(old, routine) && old.heartbeat.is_some()),
-            crate::fork::heartbeat::SO_O_DONO
-        );
+        let declared_before = before.routines.iter().any(|old| same(old, routine) && old.heartbeat.is_some());
+        if !declared_before {
+            tracing::warn!(routine = %routine.id, bot = %routine.bot_id, "o modelo tentou declarar uma checagem silenciosa; recusado");
+        }
+        anyhow::ensure!(declared_before, crate::fork::heartbeat::SO_O_DONO);
     }
     Ok(())
 }
