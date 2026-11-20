@@ -13,7 +13,7 @@ Origem: cenas de aceite fictícias do desenho do Berga proativo.
 ## Como rodar (manual)
 
 ```sh
-node --test tools/berga-proativo/ensaio.test.mjs
+node --test tools/fork-berga-proativo/ensaio.test.mjs
 ```
 
 Não está ligado ao CI: ligar é um passo à parte, numa mudança própria do fluxo de testes.

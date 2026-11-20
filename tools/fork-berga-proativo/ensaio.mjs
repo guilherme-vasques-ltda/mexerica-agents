@@ -25,7 +25,7 @@ const regras = {
     pendente: d.ultimaPerguntaDe === "aluno",
     silencioProprio: d.respostaPosterior ? "respondido" : null,
     interromper: false,
-    origem: { afirmacao: "última mensagem do grupo " + d.grupo + " é de aluno", confirmado: ["sem resposta registrada"] },
+    origem: { afirmacao: "última mensagem do grupo " + d.grupo + " é de aluno", confirmado: [d.respostaPosterior ? "resposta posterior registrada" : "sem resposta registrada"] },
     incerteza: { nivel: "confirmado", motivo: null },
     naoConfirmado: [],
     vedadas: ["responder_pelo_dono", "expor_mensagens"],

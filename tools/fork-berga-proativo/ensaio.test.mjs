@@ -55,6 +55,7 @@ for (const c of cenas) {
         return;
       }
       assert.equal(saida.silencio?.motivo, v.silencio);
+      if (nome === "respondido" && c.id === "alunos") assert.deepEqual(saida.origem.confirmado, ["resposta posterior registrada"]);
       if (nome === "acesso_revogado" || nome === "finalidade_outra") {
         assert.equal(leitor.chamadas, 0, "sem concessão válida não pode ler a fonte");
         assert.equal(saida.oferta, null);
