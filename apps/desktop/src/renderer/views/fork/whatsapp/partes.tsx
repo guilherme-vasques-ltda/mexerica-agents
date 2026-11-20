@@ -11,19 +11,19 @@ import { AVISO_FIXO, FRASE_ESTADOS, relerEmMs, type Estados } from './regras'
 import './whatsapp.css'
 
 /** Uma leitura por Hub, compartilhada pelas telas (D350); relê quando a conexão ou a identidade do Hub muda. */
-export function useWhatsapp(store: BotStore) {
+export function useWhatsapp(store: BotStore, enabled = true) {
   useModel(store)
   const estado = useMemo(() => estadoDe(store, () => spaceAllows(store.spaceId, 'connectors') ? store.connectedClient : null), [store])
   useModel(estado)
   const client = store.connectedClient
-  useEffect(() => { if (spaceAllows(store.spaceId, 'connectors')) void estado.ler() }, [estado, client, store.principalEpoch, store.whatsappEpoch])
+  useEffect(() => { if (enabled && spaceAllows(store.spaceId, 'connectors')) void estado.ler() }, [enabled, estado, client, store.principalEpoch, store.whatsappEpoch])
   // R7: o fim do download não gera aviso do Hub; enquanto baixa, relê.
   const espera = relerEmMs(estado.leitura)
   useEffect(() => {
-    if (espera === null || !spaceAllows(store.spaceId, 'connectors')) return
+    if (!enabled || espera === null || !spaceAllows(store.spaceId, 'connectors')) return
     const t = setTimeout(() => void estado.ler(), espera)
     return () => clearTimeout(t)
-  }, [estado, espera, estado.leitura])
+  }, [enabled, estado, espera, estado.leitura])
   return estado
 }
 
