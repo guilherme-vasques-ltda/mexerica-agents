@@ -153,6 +153,23 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
     for (const commit of commits) {
       git(cwd, ['show', '-s', '--format=%B', sha(commit)]).split('\n').forEach((line, i) => add(`commit/${commit}`, i + 1, line));
     }
+    // Commits intermediários ficam no histórico depois de um merge normal: cada um é varrido também.
+    const own = git(cwd, ['rev-list', '--no-merges', `${base}..${head}`]).trim().split('\n').filter(Boolean);
+    for (const commit of own) {
+      for (const path of git(cwd, ['diff-tree', '--no-commit-id', '-r', '-z', '--name-only', '--no-renames', '--diff-filter=AM', sha(commit)]).split('\0').filter(Boolean)) {
+        if (sensitiveFile(path)) findings.push({ path, rule: 'arquivo-sensivel', fingerprint: fingerprint('arquivo-sensivel', path, path) });
+        else add(path, 1, path, false, false);
+      }
+      const patch = git(cwd, ['-c', 'core.quotePath=false', 'show', '--format=', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0', sha(commit)]);
+      let path = null, n = 0, hunk = false;
+      for (const line of patch.split('\n')) {
+        if (line.startsWith('diff --git ')) { path = null; hunk = false; continue; }
+        if (!hunk && line.startsWith('+++ ')) { path = line === '+++ /dev/null' ? null : line.slice(4).replace(/^"?b\//, '').replace(/"$/, ''); continue; }
+        const match = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+        if (match) { n = Number(match[1]); hunk = true; continue; }
+        if (hunk && path && !sensitiveFile(path) && line.startsWith('+')) add(path, n++, line.slice(1), true);
+      }
+    }
   }
   const unique = [...new Map(findings.map((f) => [`${f.path}:${f.line}:${f.rule}:${f.fingerprint}`, f])).values()];
   return { findings: unique.filter((f) => mode !== 'arvore' || !inventory.includes(f.fingerprint)), limits };
@@ -244,13 +261,12 @@ export async function main(args = process.argv.slice(2)) {
   const pullRequest = process.env.GITHUB_EVENT_NAME === 'pull_request';
   const fork = pullRequest && event.pull_request.head.repo.fork === true &&
     event.pull_request.head.repo.full_name !== event.repository.full_name;
-  const dependabot = pullRequest && event.pull_request.user?.login === 'dependabot[bot]' &&
-    event.pull_request.user?.type === 'Bot';
   const trusted = sha(process.env.VAZAMENTO_TRUSTED_MAIN_SHA);
   // Instalação inicial: a main ainda não tem o executor, então ele veio do PR e não recebe o secret.
   const inicial = pullRequest && !hasFile(cwd, trusted, 'tools/ci-vazamento.mjs');
-  if (!terms.length && !fork && !dependabot && !inicial) throw new Error('Secret obrigatório ausente');
-  if (!terms.length) console.log(`termos pessoais: não verificados (${dependabot ? 'Dependabot' : fork ? 'fork' : 'instalação inicial'})`);
+  // Sem exceção por autor: o Dependabot recebe a lista pelo secret de Dependabot de mesmo nome.
+  if (!terms.length && !fork && !inicial) throw new Error('Secret obrigatório ausente');
+  if (!terms.length) console.log(`termos pessoais: não verificados (${fork ? 'fork' : 'instalação inicial'})`);
   const range = eventRange(cwd, event, process.env.GITHUB_EVENT_NAME, process.env.GITHUB_SHA);
   const { policy, inventory } = loadPolicy(cwd, trusted, range.head, process.env.GITHUB_EVENT_NAME === 'pull_request');
   if (mode === 'arvore' && event.repository.private !== true && inventory.length) throw new Error('Inventário público deve estar vazio');

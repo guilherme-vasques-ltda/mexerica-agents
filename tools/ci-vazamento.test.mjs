@@ -310,13 +310,11 @@ test('UTF-8 inválido não esconde referência de cofre em pr ou arvore', () => 
 }));
 
 
-test('A1: Dependabot sem secret usa regras públicas; PR normal continua fechado', () => fixture((ctx) => {
+test('A1: sem secret nenhum autor passa, Dependabot incluído; com a lista o Dependabot é verificado', () => fixture((ctx) => {
   ctx.write('novo.md', 'texto limpo\n');
   const head = ctx.commit();
-  const bot = cli({ ...ctx, head, author: 'dependabot[bot]' });
-  assert.equal(bot.status, 0);
-  assert.match(bot.stdout, /termos pessoais: não verificados \(Dependabot\)/);
-  for (const author of ['fixture', 'outro[bot]', 'dependabot']) {
+  assert.equal(cli({ ...ctx, head, author: 'dependabot[bot]', terms: 'Cácto Fictício' }).status, 0);
+  for (const author of ['dependabot[bot]', 'fixture', 'outro[bot]', 'dependabot']) {
     assert.equal(cli({ ...ctx, head, author }).status, 2);
   }
   for (const eventName of ['push', 'merge_group', 'workflow_dispatch', 'schedule']) {
@@ -324,7 +322,7 @@ test('A1: Dependabot sem secret usa regras públicas; PR normal continua fechado
   }
   ctx.write('novo.md', `${vault}\n`);
   const bad = ctx.commit();
-  assert.equal(cli({ ...ctx, head: bad, author: 'dependabot[bot]' }).status, 1);
+  assert.equal(cli({ ...ctx, head: bad, author: 'dependabot[bot]', terms: 'Cácto Fictício' }).status, 1);
   ctx.write('novo.md', 'Cácto Fictício\n');
   const personal = ctx.commit();
   assert.equal(cli({ ...ctx, head: personal, author: 'dependabot[bot]', terms: 'Cácto Fictício' }).status, 1);
@@ -400,13 +398,20 @@ test('B2: usuários genéricos Linux não ocultam caminho pessoal desconhecido',
   assert.ok(ids('/home/' + 'pessoa-ficticia' + '/projeto').includes('caminho-pessoal'));
 });
 
-test('B4: exceção Dependabot exige autor Bot, não apenas o login', () => fixture((ctx) => {
+test('B4: Dependabot sem a lista reprova fechado em qualquer tipo de autor', () => fixture((ctx) => {
   ctx.write('novo.md', 'texto limpo\n'); const head = ctx.commit();
-  assert.equal(cli({ ...ctx, head, author: 'dependabot[bot]', authorType: 'User' }).status, 2);
-  assert.equal(cli({ ...ctx, head, author: 'dependabot[bot]', authorType: '' }).status, 2);
-  const bot = cli({ ...ctx, head, author: 'dependabot[bot]', authorType: 'Bot' });
-  assert.equal(bot.status, 0);
-  assert.match(bot.stdout, /termos pessoais: não verificados \(Dependabot\)/);
+  for (const authorType of ['User', '', 'Bot']) assert.equal(cli({ ...ctx, head, author: 'dependabot[bot]', authorType }).status, 2);
+}));
+
+test('B5: commits intermediários do PR são varridos, mesmo que o último apague o conteúdo', () => fixture(({ cwd, git, write, commit, base }) => {
+  write('nota.md', `${vault}\n`);
+  write('chave.pem', 'fixture\n');
+  commit('intermediario');
+  git('rm', '-q', 'chave.pem'); write('nota.md', 'texto limpo\n');
+  const head = commit('limpa');
+  const rules = scan({ cwd, mode: 'pr', base, head, policy }).findings.map((f) => `${f.path}:${f.rule}`);
+  assert.ok(rules.includes('nota.md:cofre'), rules.join());
+  assert.ok(rules.includes('chave.pem:arquivo-sensivel'), rules.join());
 }));
 
 // Exceção estreita de termo (só hash, só arquivo exato, só conteúdo). Termos fictícios.
