@@ -21,6 +21,7 @@ use std::{
 use tokio::sync::mpsc;
 
 const RAW_LIMIT: usize = 256 * 1024;
+const TAIL: usize = 16 * 1024;
 
 /// Saída do programa como texto: sequências de controle somem e o retorno de carro vira quebra de linha.
 #[derive(Default)]
@@ -28,12 +29,15 @@ struct Screen {
     text: String,
     raw: usize,
     escape: u8,
+    /// Depois de o desafio ir para a tela, a espera pode redesenhar linhas por minutos: o limite de saída deixa de valer
+    /// e só a cauda do texto fica guardada, para conferir se aparece outro código ou o motivo do fim.
+    settled: bool,
 }
 
 impl Screen {
     fn push(&mut self, bytes: &[u8]) -> Result<()> {
         self.raw += bytes.len();
-        ensure!(self.raw <= RAW_LIMIT, "auth_output_limit");
+        ensure!(self.settled || self.raw <= RAW_LIMIT, "auth_output_limit");
         for &b in bytes {
             match self.escape {
                 // ESC: OSC, DCS, SOS, PM e APC são strings até BEL ou ST; CSI até o byte final; ESC ( e afins levam mais um byte.
@@ -65,6 +69,12 @@ impl Screen {
                 _ => {}
             }
         }
+        if self.settled {
+            if self.text.len() > TAIL {
+                self.text.drain(..self.text.len() - TAIL);
+            }
+            return Ok(());
+        }
         ensure!(self.text.len() <= 32 * 1024, "auth_output_limit");
         Ok(())
     }
@@ -74,12 +84,12 @@ impl Screen {
     /// dúvida derrubam o login em vez de mostrar um dos dois.
     fn challenge(&self) -> Result<Option<Challenge>> {
         let Some((done, _)) = self.text.rsplit_once('\n') else { return Ok(None) };
-        let urls: Vec<&str> = done
-            .split_whitespace()
-            .filter(|word| word.starts_with("https://"))
-            .map(|word| word.trim_end_matches(['.', ',', ';', ')', '>', '"', '\'']))
-            .filter(|word| transport::challenge(Backend::Grok, "device_code", word, None).is_ok())
-            .collect();
+        let mut urls: Vec<&str> = Vec::new();
+        for word in official_urls(done) {
+            // URL em site da xAI que não passa na validação derruba o login, em vez de ser ignorada.
+            transport::challenge(Backend::Grok, "device_code", word, None)?;
+            urls.push(word);
+        }
         let Some(&first) = urls.first() else { return Ok(None) };
         // Todas as URLs são da mesma página; a que traz a consulta (se houver) é a que a tela abre.
         let page =
@@ -95,20 +105,48 @@ impl Screen {
                 shown = raw;
             }
         }
-        for line in done.lines().filter(|line| !line.contains("http")) {
-            let labelled = if line.to_lowercase().contains("code") { line.rsplit_once(':') } else { None };
-            if let Some(code) = labelled.and_then(|(_, rest)| user_code(rest)).or_else(|| paired_code(line.trim())) {
-                codes.push(code);
-            }
-        }
+        codes.extend(text_codes(done));
         let Some(code) = codes.first().cloned() else { return Ok(None) };
         ensure!(codes.iter().all(|other| *other == code), "auth_correlation_invalid");
         Ok(Some(transport::challenge(Backend::Grok, "device_code", shown, Some(&code))?))
     }
 
+    /// Depois do desafio na tela: qualquer outro código impresso (no texto ou na consulta de uma URL da xAI) derruba o login.
+    /// Outras páginas da xAI, como a da conta no texto de sucesso, não contam.
+    fn code_conflict(&self, shown: &str) -> bool {
+        let text = self.text.rsplit_once('\n').map_or("", |(done, _)| done);
+        let from_urls = official_urls(text).any(|raw| {
+            reqwest::Url::parse(raw).is_ok_and(|url| {
+                url.query_pairs().next().is_some_and(|(_, code)| user_code(&code).is_none_or(|code| code != shown))
+            })
+        });
+        from_urls || text_codes(text).iter().any(|code| code != shown)
+    }
+
     fn expired(&self) -> bool {
         self.text.to_lowercase().contains("expired")
     }
+}
+
+/// Palavras que são endereço https em site da xAI (os dois sites de login), sem pontuação no fim.
+fn official_urls(text: &str) -> impl Iterator<Item = &str> {
+    text.split_whitespace()
+        .filter(|word| word.starts_with("https://"))
+        .map(|word| word.trim_end_matches(['.', ',', ';', ')', '>', '"', '\'']))
+        .filter(|word| {
+            reqwest::Url::parse(word).is_ok_and(|url| matches!(url.host_str(), Some("auth.x.ai" | "accounts.x.ai")))
+        })
+}
+
+/// Códigos de pareamento impressos como texto: depois de um rótulo com "code:" ou numa linha inteira ABCD-EFGH.
+fn text_codes(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| !line.contains("http"))
+        .filter_map(|line| {
+            let labelled = if line.to_lowercase().contains("code") { line.rsplit_once(':') } else { None };
+            labelled.and_then(|(_, rest)| user_code(rest)).or_else(|| paired_code(line.trim()))
+        })
+        .collect()
 }
 
 /// O servidor só emite maiúsculas, dígitos e hífen no código de pareamento.
@@ -124,7 +162,7 @@ fn user_code(raw: &str) -> Option<String> {
 fn paired_code(line: &str) -> Option<String> {
     let (left, right) = line.split_once('-')?;
     let block = |part: &str| {
-        (3..=8).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        (4..=8).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
     };
     (block(left) && block(right)).then(|| line.to_owned())
 }
@@ -144,6 +182,18 @@ impl Drop for LoginPty {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Registra só o código do motivo (nunca a saída do programa) de uma recusa na leitura do login.
+fn refused<T>(result: Result<T>) -> Result<T> {
+    if let Err(error) = &result {
+        tracing::warn!(reason = %error, "login do Grok recusado");
+    }
+    result
+}
+
+fn refuse(consistent: bool) -> Result<()> {
+    refused(if consistent { Ok(()) } else { Err(anyhow!("auth_correlation_invalid")) })
 }
 
 pub(super) async fn login(
@@ -177,7 +227,7 @@ pub(super) async fn login(
         }
     });
     let mut screen = Screen::default();
-    let mut offered: Option<(String, Option<String>)> = None;
+    let mut offered: Option<String> = None;
     let mut output_closed = false;
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let status = loop {
@@ -185,15 +235,13 @@ pub(super) async fn login(
             bytes = rx.recv(), if !output_closed => match bytes {
                 Some(bytes) => {
                     screen.push(&bytes)?;
-                    // Continua conferindo a saída: qualquer mudança no que já foi mostrado derruba o login.
-                    if let Some(challenge) = screen.challenge()? {
-                        let shown = (challenge.url.clone(), challenge.code.clone());
-                        if let Some(first) = &offered {
-                            ensure!(*first == shown, "auth_correlation_invalid");
-                        } else {
-                            events.send(Event::Challenge(challenge)).await?;
-                            offered = Some(shown);
-                        }
+                    // Continua conferindo a saída: outro código depois do que foi mostrado derruba o login.
+                    if let Some(shown) = &offered {
+                        refuse(!screen.code_conflict(shown))?;
+                    } else if let Some(challenge) = refused(screen.challenge())? {
+                        offered = challenge.code.clone();
+                        events.send(Event::Challenge(challenge)).await?;
+                        screen.settled = true;
                     }
                 }
                 None => output_closed = true,
@@ -206,8 +254,8 @@ pub(super) async fn login(
     // Última saída do programa, para distinguir código vencido de recusa.
     while let Ok(Some(bytes)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
         screen.push(&bytes)?;
-        if let (Some(first), Some(challenge)) = (&offered, screen.challenge()?) {
-            ensure!(*first == (challenge.url, challenge.code), "auth_correlation_invalid");
+        if let Some(shown) = &offered {
+            refuse(!screen.code_conflict(shown))?;
         }
     }
     if !status.success() {
@@ -298,7 +346,7 @@ pub(super) fn erase(store: &Store, id: &str, home: &Path) -> Result<()> {
 /// em curso dos bots da conta; remover exige a conta sem bots e já apaga o login local. A mutação confere tudo de novo
 /// e recusa se algo mudou no meio.
 pub(super) async fn before_mutation(hub: &Arc<Hub>, method: &str, body: &Value) -> Result<()> {
-    let Ok(request) = super::parse::<super::Mutation>(body.clone()) else { return Ok(()) };
+    let request = super::parse::<super::Mutation>(body.clone())?;
     let id = request.engine_account_id.as_str();
     let home = {
         let mut registry = Registry::load(&hub.store)?;

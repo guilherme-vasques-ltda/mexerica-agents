@@ -654,3 +654,41 @@ async fn a_open_nao_trata_conta_grok_como_conta_sua() {
     assert_eq!(grok.backend, Backend::Grok);
     assert!(!super::super::is_open_account(grok), "só o Codex gerenciado é conta da Open");
 }
+
+#[test]
+fn depois_do_desafio_so_outro_codigo_derruba_e_a_espera_longa_nao_estoura() {
+    let mut screen = Screen::default();
+    screen.push(b"https://auth.x.ai/device\nThen enter this code: ABCD-EFGH\n").unwrap();
+    assert_eq!(screen.challenge().unwrap().unwrap().code.as_deref(), Some("ABCD-EFGH"));
+    screen.settled = true;
+    // A mesma página com a consulta do mesmo código, ou outra página da xAI no texto de sucesso, não derrubam.
+    screen
+        .push(b"Open https://auth.x.ai/device?user_code=ABCD-EFGH\nSigned in. See https://accounts.x.ai/account\n")
+        .unwrap();
+    assert!(!screen.code_conflict("ABCD-EFGH"));
+    // Espera redesenhada por muito tempo: sem estourar o limite, guardando só a cauda.
+    for _ in 0..2000 {
+        screen.push(&b"\rWaiting for authorization... \x1b[2K|".repeat(20)).unwrap();
+    }
+    assert!(screen.text.len() <= 16 * 1024 + 2048);
+    assert!(!screen.code_conflict("ABCD-EFGH"));
+    // Outro código, no texto ou numa URL da xAI, derruba.
+    screen.push(b"\nThen enter this code: WXYZ-2468\n").unwrap();
+    assert!(screen.code_conflict("ABCD-EFGH"));
+    let mut other = Screen::default();
+    other.push(b"https://auth.x.ai/device?user_code=WXYZ-2468\n").unwrap();
+    assert!(other.code_conflict("ABCD-EFGH"));
+}
+
+#[test]
+fn url_da_xai_malformada_derruba_e_siglas_nao_viram_codigo() {
+    let mut malformed = Screen::default();
+    malformed.push(b"https://auth.x.ai/device?user_code=AAAA-1111&user_code=BBBB-2222\nhttps://auth.x.ai/device\nThen enter this code: AAAA-1111\n").unwrap();
+    assert!(malformed.challenge().is_err(), "a URL da xAI inválida não pode ser ignorada");
+    for line in [&b"SHA-256"[..], b"AES-256", b"UTF-8", b"ISO-9001"] {
+        let mut text = b"https://auth.x.ai/device\n".to_vec();
+        text.extend_from_slice(line);
+        text.extend_from_slice(b"\n");
+        assert!(screen(&[&text]).is_none(), "{line:?}");
+    }
+}

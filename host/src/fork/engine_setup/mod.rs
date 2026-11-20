@@ -818,7 +818,10 @@ async fn start_authorized(
                 if request.action == Step::Login
                     && let Some(home) = &superseded
                 {
-                    ensure!(op.authority.current(&hub), "setup_authority_lost");
+                    if !op.authority.current(&hub) {
+                        tracing::warn!("login do Grok interrompido: autoridade da operação perdida");
+                        bail!("setup_authority_lost");
+                    }
                     grok::erase(&hub.store, &request.engine_account_id, home)?;
                 }
                 op.authority.persist(&hub, &registry)?;
