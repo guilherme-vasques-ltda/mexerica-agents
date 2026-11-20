@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The new bot dialog: the bot's face in its color, a name, then color and shape.
 
 use ratatui::buffer::Buffer;

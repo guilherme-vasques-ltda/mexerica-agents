@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The actor claims work only when it reaches the front of its queue. A run talks in
 //! the bot's chat from a session of its own (`session_slot`); the durable outbox
 //! reports its outcome separately, so restarting never needs to rerun a task merely

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! When to compact a conversation, or roll it over into a new one that starts from a handoff.
 //!
 //! The harness writes the summary, because it knows the work; the caller decides when, because it knows how full the

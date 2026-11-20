@@ -7,8 +7,10 @@ import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import { build, type Plugin } from 'esbuild'
 import { CATALOGOS } from '../../../lib/fork-i18n/index.ts'
+import { islandLabel } from '../../../../shared/island.ts'
 
 const pt = CATALOGOS['pt-BR'] as Record<string, string>
+let efeitos: (() => void)[] | undefined
 
 // Os hooks de estado do app (`useSyncExternalStore` sem snapshot de servidor) ganham, só neste bundle, o `getSnapshot`
 // também no servidor; sem DOM, o resto é o código real.
@@ -18,7 +20,7 @@ const reactNoServidor: Plugin = {
     b.onResolve({ filter: /^react$/ }, (args) => (args.namespace === 'react-servidor' ? undefined : { path: 'react', namespace: 'react-servidor' }))
     b.onLoad({ filter: /.*/, namespace: 'react-servidor' }, () => ({
       contents: `const R = require(${JSON.stringify(createRequire(import.meta.url).resolve('react'))});
-        module.exports = { ...R, useSyncExternalStore: (s, g, gs) => R.useSyncExternalStore(s, g, gs ?? g) };`,
+        module.exports = { ...R, useSyncExternalStore: (s, g, gs) => R.useSyncExternalStore(s, g, gs ?? g), useEffect: agendarEfeito };`,
       loader: 'js', resolveDir: new URL('.', import.meta.url).pathname,
     }))
   },
@@ -54,6 +56,7 @@ window.codync = { platform: 'darwin', appScheme: 'donnabot', appVersion: '0.0.0'
 const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0]!.text, {
   module, exports: module.exports, require: createRequire(import.meta.url), window, document, matchMedia: media, localStorage: storage,
+  agendarEfeito: (efeito: () => void) => { efeitos?.push(efeito) },
   navigator: { platform: 'MacIntel', language: 'pt-BR' }, fetch: () => new Promise(() => {}), TextEncoder, URLSearchParams, URL, Intl, console, setTimeout, clearTimeout, queueMicrotask,
   requestAnimationFrame: () => 0, __importMeta: { glob: () => ({}), env: { BASE_URL: '/', DEV: false, PROD: true, MODE: 'test' } },
 })
@@ -161,4 +164,40 @@ test('Abrir ao iniciar a sessão e cartão Sistema: Desktop mostra; Web esconde 
   aparelho('web', { island: { supported: true, enabled: async () => false } })
   const comIlha = renderiza(m.GeneralSettings, { ativa: true })
   assert.ok(comIlha.includes(sistema) && !comIlha.includes(aoIniciar))
+})
+
+test('Ajustes Gerais não consulta a ilha indisponível e segue consultando quando suportada', () => {
+  const rotulo = pt[islandLabel('darwin')]!
+  for (const supported of [false, true]) {
+    let consultas = 0
+    aparelho('desktop', { island: { supported, enabled: async () => { consultas++; return false } } })
+    efeitos = []
+    try {
+      const html = renderiza(m.GeneralSettings)
+      for (const efeito of efeitos) efeito()
+      assert.equal(consultas, supported ? 1 : 0)
+      assert.equal(html.includes(rotulo), supported)
+    } finally { efeitos = undefined }
+  }
+})
+
+test('Open: Dock, início de sessão e ícone não aparecem nem consultam a ponte', () => {
+  let consultas = 0
+  const app = {
+    showInDock: async () => { consultas++; return true },
+    launchAtLogin: async () => { consultas++; return false },
+  }
+  aparelho('desktop', { appScheme: 'mexerica-open', app })
+  efeitos = []
+  try {
+    const geral = renderiza(m.GeneralSettings)
+    for (const efeito of efeitos) efeito()
+    assert.equal(consultas, 0)
+    assert.ok(!geral.includes(pt['ajustes.geral.dock']!))
+    assert.ok(!geral.includes(pt['ajustes.geral.aoIniciar']!))
+    assert.ok(!geral.includes(pt['ajustes.geral.sistema']!))
+    const direto = renderiza(m.SettingsView, { page: 'app-icon', aba: null, onPage: nada, onAba: nada })
+    assert.ok(!direto.includes(pt['aparencia.icone.pagina']!))
+    assert.match(direto, /<h2[^>]*>Geral<\/h2>/)
+  } finally { efeitos = undefined }
 })

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import {
   FINISHED_MS, focusOf, isActive, islandFrame, islandMode, islandRect, othersOf, transitions, workingCount,
   type IslandBot, type IslandNotice, type IslandPermission, type IslandScreen, type IslandSummary, type IslandTab,

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { Leitor } from '../fork/voz/leitores'
 import { pediuEncerramento, pediuSilencio } from '../fork/voz/encerrar'
 import { errorMessage, micPCM16k, SPEECH_CHUNK, spokenText, VoiceEngine, VoiceSettings, wav, type VoiceProvider } from './voice'

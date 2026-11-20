@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The bot's ACP sessions: starting its agent, new/load, routine runs' sessions.
 
 use super::fast_mode::Listing;

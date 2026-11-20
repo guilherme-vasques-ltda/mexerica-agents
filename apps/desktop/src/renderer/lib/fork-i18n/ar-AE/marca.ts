@@ -3,6 +3,9 @@ import type { textos as fonte } from '../pt-BR/marca.ts'
 
 // PR (c), D443: marca (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'marca.open.perfilMetadados': 'بيانات وصفية غير آمنة في ملف تعريف Open.',
+  'marca.open.perfilArquivo': 'لا يسمح ملف تعريف Open بالروابط أو الملفات الخاصة.',
+  'marca.open.pacoteInvalido': 'حزمة Open غير صالحة.',
   "marca.dados.legado": "أزل DONNABOT_HOME/CODYNC_HOME واضبط MEXERICA_HOME لتطبيق Mexerica.",
   "marca.dados.vazio": "لا يمكن أن تكون MEXERICA_HOME فارغة.",
   "marca.dados.ancestral": "لا يمكن استخدام المجلد الشخصي أو أي مجلد أب له كمجلد بيانات.",

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! What a user message asks the agent: the note on the message it replies to, its text with a
 //! `/skill …` command expanded, then the paths of the files attached to it.
 

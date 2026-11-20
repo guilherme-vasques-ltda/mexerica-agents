@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Long-form memory files on a real host with disposable data: a bot's own edits checked at the end of its turn,
 //! the cards of a bot that asks first, the user's compare-and-swap edits, versions, the index, and forgetting.
 

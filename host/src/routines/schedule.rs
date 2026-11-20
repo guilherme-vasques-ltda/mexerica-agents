@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Validated schedules. Calendar schedules retain their IANA time zone across restarts.
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};

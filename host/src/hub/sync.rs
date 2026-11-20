@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Bot snapshots shared by full, incremental and live synchronization.
 
 use super::Hub;

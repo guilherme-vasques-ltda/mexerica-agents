@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The new bot dialog: a name and looks. The agent and everything else take the host's defaults.
 
 use crate::store::Permission;

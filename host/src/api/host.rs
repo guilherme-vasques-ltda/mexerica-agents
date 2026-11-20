@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Methods about this computer itself: host updates, hello/sync, agents and setup
 //! terminals, usage, folders, voice and the remote screen.
 

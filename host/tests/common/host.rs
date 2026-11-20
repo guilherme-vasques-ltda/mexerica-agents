@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A real host on disposable data, and what the end-to-end tests ask of it.
 
 // Each test binary compiles `common` and uses only part of this.

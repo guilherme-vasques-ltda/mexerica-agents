@@ -11,8 +11,8 @@
   "site": "https://www.titanos.com.br",
   "docs": "https://www.titanos.com.br/docs/mcp",
   "links": {
-    "privacidade": "https://www.titanos.com.br/",
-    "termos": "https://www.titanos.com.br/"
+    "privacidade": "https://www.titanos.com.br/privacidade",
+    "termos": "https://www.titanos.com.br/termos-de-uso"
   },
   "conferidaEm": "2026-11-17",
   "fontes": [

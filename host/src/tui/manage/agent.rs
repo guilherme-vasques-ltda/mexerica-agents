@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Agent sign-in and its setup terminal.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

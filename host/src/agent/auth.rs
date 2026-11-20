@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Signing agents in the ACP way, so every agent that speaks ACP can be set up
 //! from Codync, not just the ones we know by name.
 //!

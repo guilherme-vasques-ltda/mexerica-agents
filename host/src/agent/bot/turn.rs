@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Starting a turn and wrapping it up: final reply, notices, replies to waiters, alerts and memory.
 
 use super::{Actor, Conn, Done, Instructions, NoticeStyle, Queued, Reacted, Seg};

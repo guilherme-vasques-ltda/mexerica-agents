@@ -1,3 +1,4 @@
+/* Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md. */
 .handoff-line { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-callout); color: var(--context-ink-2, var(--ink-2)); min-width: 0; }
 .handoff-line span { overflow-wrap: anywhere; }
 .handoff-folded { max-width: 620px; }

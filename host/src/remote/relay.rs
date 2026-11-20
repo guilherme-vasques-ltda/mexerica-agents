@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The outbound WebSocket to this computer's relay in the Codync cloud (spec §7, §9.6).
 //!
 //! Every connection runs the same order: register (once per URL) → connect with

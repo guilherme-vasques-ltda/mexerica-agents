@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A real host driving scripted ACP agents: Stop on an agent that ignores it, room turns
 //! that a newer group message replaced, a reaction as the whole reply, and Fast mode across session resumes.
 

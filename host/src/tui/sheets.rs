@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Drawing the `manage` sheets: memory, routines, marketplace, agent sign-in, fields.
 
 // Drawing code reads best with x / y / w / t (theme) / r (rect).

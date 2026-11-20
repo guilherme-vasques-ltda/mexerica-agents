@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import type { PairingInfo } from '@shared/models'

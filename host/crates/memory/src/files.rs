@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Long-form memory: one Markdown note per topic, in a folder per layer (the shared one, and each bot's own).
 //!
 //! The file on disk is the live copy, read and edited by the bot with its own tools. The crate keeps each file's

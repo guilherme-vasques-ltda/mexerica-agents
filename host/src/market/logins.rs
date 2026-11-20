@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Saved sign-ins for websites and apps. A bot asks for one with `request_login` (a
 //! secure card the user fills in), then `type_login` types it into the focused field;
 //! the password reaches the screen, never the bot. Stored encrypted in the vault.
