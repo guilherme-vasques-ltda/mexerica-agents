@@ -3,6 +3,9 @@ import type { textos as fonte } from '../pt-BR/marca.ts'
 
 // PR (c), D443: marca (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'marca.open.perfilMetadados': 'Open 配置文件中的元数据不安全。',
+  'marca.open.perfilArquivo': 'Open 配置文件不允许链接或特殊文件。',
+  'marca.open.pacoteInvalido': 'Open 应用包无效。',
   "marca.dados.legado": "请移除 DONNABOT_HOME/CODYNC_HOME，并为 Mexerica 配置 MEXERICA_HOME。",
   "marca.dados.vazio": "MEXERICA_HOME 不能为空。",
   "marca.dados.ancestral": "不能将用户主目录或其上级目录用作数据目录。",

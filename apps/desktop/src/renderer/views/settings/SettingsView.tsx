@@ -212,7 +212,8 @@ export function GeneralSettings() {
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
   useEffect(() => { if (cap.launchAtLogin) void window.codync.app.launchAtLogin().then(setLaunchAtLogin) }, [cap.launchAtLogin])
   const [island, setIsland] = useState(false)
-  useEffect(() => { void window.codync.island.enabled().then(setIsland) }, [])
+  const islandSupported = window.codync.island.supported
+  useEffect(() => { if (islandSupported) void window.codync.island.enabled().then(setIsland) }, [islandSupported])
 
   return (
     <CardForm>
@@ -222,9 +223,9 @@ export function GeneralSettings() {
       <IdiomaAjuste />
       <Superficie>
       <AtalhoBerga />
-      {window.codync.platform === 'darwin' || window.codync.island.supported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
+      {window.codync.platform === 'darwin' || islandSupported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
         {window.codync.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>{t('ajustes.geral.dock')}</Switch> : null}
-        {window.codync.island.supported ? (
+        {islandSupported ? (
           <Switch on={island} onChange={(on) => void window.codync.island.setEnabled(on).then(setIsland)}>
             {t(islandLabel(window.codync.platform))}
           </Switch>
