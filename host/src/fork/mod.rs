@@ -65,6 +65,7 @@ pub(crate) mod historico;
 pub(crate) mod idioma_app;
 #[cfg(target_os = "linux")]
 pub(crate) mod instalacao_gerida;
+pub(crate) mod instalacao_script;
 pub(crate) mod instrucao_geral;
 pub(crate) mod lider_canal;
 #[allow(dead_code, reason = "Base de permissões publicada antes do painel e do transporte; sem runtime novo.")]
