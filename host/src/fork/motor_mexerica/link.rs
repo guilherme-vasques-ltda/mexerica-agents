@@ -62,6 +62,8 @@ pub(crate) struct Link {
     /// Respostas do adaptador aos pedidos do bot (`Pending` do [`acp::Acp`]).
     pending: Mutex<acp::Pending>,
     next_out: AtomicU64,
+    /// So as provas do ator com o motor real dispensam os servidores MCP: o executavel deles seria o binario de testes.
+    skip_mcp: std::sync::atomic::AtomicBool,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -193,9 +195,15 @@ impl Link {
             outgoing: Mutex::new(HashMap::new()),
             pending: Mutex::new(acp::Pending::default()),
             next_out: AtomicU64::new(1),
+            skip_mcp: std::sync::atomic::AtomicBool::new(false),
             stop,
             task: Mutex::new(None),
         })
+    }
+
+    /// Dispensa os servidores MCP deste adaptador (so a prova do ator com o motor real).
+    pub(crate) fn skip_mcp_servers(&self) {
+        self.skip_mcp.store(true, Ordering::Relaxed);
     }
 
     /// Liga o adaptador ao transporte: `read` recebe os quadros JSON-RPC do
@@ -379,7 +387,7 @@ impl Link {
         // Falha ao abrir os servidores recusa a sessão: sem isso o bot seguiria sem ferramentas e sem aviso.
         // Só a prova do ator com o motor real (`actor_extra_env` vazio fora dela) dispensa os servidores: o
         // executável deles seria o binário de testes, não um Hub.
-        let servers = if super::actor_extra_env().is_empty() { params["mcpServers"].clone() } else { json!([]) };
+        let servers = if self.skip_mcp.load(Ordering::Relaxed) { json!([]) } else { params["mcpServers"].clone() };
         let mcp = McpHost::start(&servers, &cwd)
             .await
             .map(|host| Some(Arc::new(host)))
@@ -440,10 +448,13 @@ impl Link {
         };
         if !needs {
             // O recorte do Hub tirou voltas que o processo vivo ainda tem: ele recebe a cópia.
+            // O processo sai do slot enquanto recebe a copia: se a retomada falhar ou for cancelada, ele morre com o
+            // futuro e o proximo turno sobe outro, que recebe a conversa inteira.
             if session.history.take_resync()
-                && let Some(engine) = slot.as_mut()
+                && let Some(mut engine) = slot.take()
             {
                 engine.restore_history(&session.history.snapshot()).await?;
+                *slot = Some(engine);
             }
             return Ok(());
         }
@@ -477,6 +488,8 @@ impl Link {
         let model_id = params["modelId"].as_str().context("session/set_model sem modelId")?;
         let (provider, model) = provider_of(model_id)?;
         let session = self.sessions.locked().get(sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
+        ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
+        let _busy = BusyGuard(&session.busy);
         self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
         let mut engine = session.engine.lock().await;
         let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
@@ -500,6 +513,7 @@ impl Link {
         let mut cancel = session.cancel.subscribe();
         loop {
             let current_provider = session.provider.locked().clone();
+            ensure!(!current_provider.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
             // Uma leitura do cofre por turno: a mesma identidade decide a retomada, a proteção e a credencial servida.
             let creds = Credentials::read(&self.vault);
             let ready = tokio::select! {
@@ -545,6 +559,7 @@ impl Link {
                 _ = cancel.changed() => {
                     // Cancelar o turno mata o processo do motor.
                     let _ = owned.kill().await;
+                    *session.pid.locked() = None;
                     session.history.remember(finished.locked().take());
                     false
                 }

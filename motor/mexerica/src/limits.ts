@@ -56,12 +56,13 @@ function project(message: AgentMessage, budget: number): AgentMessage {
 	for (const block of Array.isArray(source.content) ? source.content : []) {
 		if (!isObject(block)) continue;
 		if (block.type === "text" && typeof block.text === "string") {
+			if (budget <= 0) continue;
 			const text = truncate(block.text, budget);
 			budget -= Buffer.byteLength(text);
 			content.push({ type: "text", text });
 		} else if (block.type === "toolCall") {
 			const size = bytesOf(block.arguments);
-			content.push({ ...block, arguments: size <= budget ? block.arguments : {} });
+			content.push({ type: "toolCall", id: block.id, name: block.name, arguments: size <= budget ? block.arguments : {} });
 			budget -= Math.min(size, budget);
 		}
 	}

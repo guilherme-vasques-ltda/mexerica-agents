@@ -25,22 +25,30 @@ fn result(id: &str, text: &str) -> Value {
         "content": [{"type": "text", "text": text}], "timestamp": 3})
 }
 
-/// Toda chamada guardada tem os resultados dela e todo resultado tem a chamada: nada pela metade.
+/// Cada chamada guardada tem um resultado só, do mesmo nome e na mesma volta; nada fica pela metade.
 fn assert_paired(messages: &[Value]) {
-    let calls: Vec<&str> = messages
-        .iter()
-        .filter_map(|m| m["content"].as_array())
-        .flatten()
-        .filter(|b| b["type"] == "toolCall")
-        .filter_map(|b| b["id"].as_str())
-        .collect();
-    for message in messages.iter().filter(|m| m["role"] == "toolResult") {
-        let id = message["toolCallId"].as_str().unwrap();
-        assert!(calls.contains(&id), "resultado {id} sem a chamada: guardado pela metade");
+    let mut open: Vec<(String, String)> = Vec::new();
+    for message in messages {
+        if message["role"] == "toolResult" {
+            let id = message["toolCallId"].as_str().unwrap().to_owned();
+            let name = message["toolName"].as_str().unwrap().to_owned();
+            let position = open
+                .iter()
+                .position(|call| *call == (id.clone(), name.clone()))
+                .unwrap_or_else(|| panic!("resultado {id} sem a chamada aberta na mesma volta"));
+            open.remove(position);
+            continue;
+        }
+        assert!(open.is_empty(), "chamadas sem resultado: {open:?}");
+        open = message["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|block| block["type"] == "toolCall")
+            .map(|block| (block["id"].as_str().unwrap().to_owned(), block["name"].as_str().unwrap().to_owned()))
+            .collect();
     }
-    for id in &calls {
-        assert!(messages.iter().any(|m| m["toolCallId"] == *id), "chamada {id} sem o resultado");
-    }
+    assert!(open.is_empty(), "chamadas sem resultado: {open:?}");
 }
 
 fn texts_of(messages: &[Value]) -> Vec<String> {
@@ -79,7 +87,7 @@ fn copia_enxuta_so_leva_texto_e_chamadas_de_ferramenta() {
     assert!(clean.get("details").is_none());
 
     for ignored in [
-        json!({"role": "assistant", "content": [{"type": "text", "text": "x"}], "stopReason": "error", "errorMessage": "chave sk-abcdefghijklmnop falhou"}),
+        json!({"role": "assistant", "content": [{"type": "text", "text": "x"}], "stopReason": "error", "errorMessage": format!("chave {} falhou", ["s", "k-abcdefghijklmnop"].concat())}),
         json!({"role": "assistant", "content": [{"type": "text", "text": "x"}], "stopReason": "aborted"}),
         json!({"role": "system", "content": "prompt"}),
         json!({"role": "user", "content": [{"type": "image", "data": "AAAA"}]}),
@@ -95,14 +103,20 @@ fn credenciais_do_chat_e_das_ferramentas_saem_antes_de_guardar() {
     let akia = ["AKI", "AABCDEFGHIJKLMNOP"].concat();
     let aws = format!("{akia} e {}", ["AIza", "Sy", "A-abcdefghijklmnopqrstuvwxyz012345"].concat());
     let jwt = format!("jwt {}", ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "abcdefghijklmnop"].join("."));
+    let use_sk = format!("use {} para entrar", ["s", "k-", "abcdefghijklmnopqrstuvwx"].concat());
+    let bearer = ["Authorization: Bear", "er abcdefghijklmnopqrstuvwxyz0123"].concat();
+    let token = format!("token {}", ["gh", "p_", "abcdefghijklmnopqrstuvwxyz", "0123456789"].concat());
+    let valor = ["=zzz-", "valor-secreto"].concat();
+    let senha = ["senha: Tr0ub4dor&3 e api_", "key", valor.as_str()].concat();
+    let pem = ["-----BEGIN RSA PRIV", "ATE KEY-----\nMIIBOgIBAAJBAKj\n-----END RSA PRIV", "ATE KEY-----"].concat();
     let samples = [
-        "use sk-abcdefghijklmnopqrstuvwx para entrar",
-        "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123",
-        "token ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        use_sk.as_str(),
+        bearer.as_str(),
+        token.as_str(),
         aws.as_str(),
         jwt.as_str(),
-        "senha: Tr0ub4dor&3 e api_key=zzz-valor-secreto",
-        "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK\n-----END RSA PRIVATE KEY-----",
+        senha.as_str(),
+        pem.as_str(),
         "chave-do-outro-provedor-123456 colada no chat",
     ];
     for sample in samples {
@@ -114,11 +128,11 @@ fn credenciais_do_chat_e_das_ferramentas_saem_antes_de_guardar() {
         ] {
             let wire = sanitize(&message, &known).unwrap().to_string();
             for secret in [
-                "sk-abcdefghijklmnopqrstuvwx",
+                ["sk", "-abcdefghijklmnopqrstuvwx"].concat().as_str(),
                 "abcdefghijklmnopqrstuvwxyz0123",
-                "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+                ["gh", "p_abcdefghijklmnopqrstuvwxyz0123456789"].concat().as_str(),
                 akia.as_str(),
-                "AIzaSyA-abcdefghijklmnopqrstuvwxyz012345",
+                ["AI", "zaSyA-abcdefghijklmnopqrstuvwxyz012345"].concat().as_str(),
                 "eyJhbGciOiJIUzI1NiJ9",
                 "Tr0ub4dor&3",
                 "zzz-valor-secreto",
@@ -437,6 +451,14 @@ fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
     log.push(&result("c1", "ok"));
     let (kept, dropped) = log.take();
     assert!(!dropped && kept.len() == 3, "a volta fechada fica inteira");
+
+    let mut log = TurnLog::new(Vec::new());
+    log.push(&user("pedido"));
+    log.push(&call("c1", &json!({})));
+    log.push(&user("outra mensagem chegou antes do resultado"));
+    let (kept, dropped) = log.take();
+    assert!(dropped, "uma mensagem nova fecha a volta: a chamada sem resultado sai na hora");
+    assert_eq!(texts_of(&kept), ["pedido", "outra mensagem chegou antes do resultado"]);
 }
 
 #[tokio::test]
@@ -510,24 +532,26 @@ fn arquivo_so_reabre_para_o_mesmo_dono_e_apaga_so_a_sessao_invalidada() {
 #[test]
 fn o_prazo_sem_uso_conta_da_ultima_atividade_e_vale_na_hora() {
     let mut archive = Archive::new();
-    let ttl = Duration::from_millis(150);
-    insert(&mut archive, "bot-prazo", "parada").unwrap();
-    insert(&mut archive, "bot-prazo", "ativa").unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    let ttl = Duration::from_secs(3600);
+    let stale = Duration::from_secs(7200);
+    insert(&mut archive, "bot-prazo", "parada").unwrap().backdate(stale);
+    insert(&mut archive, "bot-prazo", "ativa").unwrap().backdate(stale);
     drop(lookup(&mut archive, "bot-prazo", "ativa")); // a atividade (reabertura) renova o prazo
-    std::thread::sleep(Duration::from_millis(100));
     purge_with(&mut archive, 0, ttl);
-    assert!(!archive.contains_key(&("bot-prazo".to_owned(), "parada".to_owned())), "200 ms sem atividade: expirou");
-    assert!(archive.contains_key(&("bot-prazo".to_owned(), "ativa".to_owned())), "100 ms desde a atividade: fica");
+    assert!(
+        !archive.contains_key(&("bot-prazo".to_owned(), "parada".to_owned())),
+        "sem atividade além do prazo: expirou"
+    );
+    assert!(archive.contains_key(&("bot-prazo".to_owned(), "ativa".to_owned())), "a reabertura renovou o prazo: fica");
 
     let history = History::default();
-    std::thread::sleep(Duration::from_millis(60));
-    assert!(history.idle() >= Duration::from_millis(60));
+    history.backdate(stale);
+    assert!(history.idle() >= stale);
     history.remember((Vec::new(), false));
-    assert!(history.idle() < Duration::from_millis(60), "guardar um turno é atividade");
-    std::thread::sleep(Duration::from_millis(60));
+    assert!(history.idle() < ttl, "guardar um turno é atividade");
+    history.backdate(stale);
     history.touch();
-    assert!(history.idle() < Duration::from_millis(60), "fechar a sessão também");
+    assert!(history.idle() < ttl, "fechar a sessão também");
 }
 
 #[test]
