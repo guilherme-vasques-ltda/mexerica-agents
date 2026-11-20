@@ -1,11 +1,11 @@
 //! GUI-192: aviso quando o motor fica mudo no meio de um turno.
 //!
 //! O Hub só avisa; nunca encerra o processo nem repete o turno. O silêncio conta desde o último sinal do motor
-//! (qualquer mensagem dele para o Hub: texto, raciocínio, passo de ferramenta, uso, pedido de permissão), e só
+//! (uma atualização da sessão do turno, um pedido de permissão ou de leitura de skill), e só
 //! vale enquanto o pedido `session/prompt` está aberto e nada justifica a quietude: cartão de permissão pendente,
-//! espera do limite da conta, ferramenta em execução (pode ser longa e muda), compactação ou parada já pedida.
+//! espera do limite da conta, ferramenta em execução (pode ser longa e muda), compactação (do Hub ou do próprio motor) ou parada já pedida.
 //! Rotina fica de fora: tem prazo próprio e o Hub a encerra ao estourar.
-use super::{Actor, EntryKind};
+use super::{Actor, CompactionUsage, EntryKind};
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -106,10 +106,29 @@ impl Actor {
         let Aviso::Ativo(id) = &self.mudo.aviso else { return };
         let id = id.clone();
         self.mudo.aviso = Aviso::Encerrado;
-        let Some(mut entry) = self.hub.store.entry(&id) else { return };
-        entry.data["motorMudo"]["estado"] = "voltou".into();
-        entry.data["text"] = TEXTO_VOLTOU.into();
-        self.hub.set_entry(&id, &entry.data);
+        self.mudo_fechar_aviso(&id);
+    }
+
+    fn mudo_chave(&self) -> String {
+        format!("motor_mudo.ativo.{}", self.cfg.id)
+    }
+
+    fn mudo_fechar_aviso(&self, id: &str) {
+        if let Some(mut entry) = self.hub.store.entry(id) {
+            entry.data["motorMudo"]["estado"] = "voltou".into();
+            entry.data["text"] = TEXTO_VOLTOU.into();
+            self.hub.set_entry(id, &entry.data);
+        }
+        if let Err(error) = self.hub.store.kv_delete(&self.mudo_chave()) {
+            tracing::warn!(%error, "não foi possível limpar o registro do aviso de motor mudo");
+        }
+    }
+
+    /// Hub reiniciado com um aviso ativo: o ator novo não o conhece, então o registro durável o fecha na partida.
+    pub(super) fn mudo_restaurar(&self) {
+        if let Some(id) = self.hub.store.kv_get(&self.mudo_chave()).filter(|id| !id.is_empty()) {
+            self.mudo_fechar_aviso(&id);
+        }
     }
 
     /// Chamado a cada batida do relógio do ator.
@@ -124,7 +143,11 @@ impl Actor {
             permissao_pendente: !self.perms.is_empty(),
             espera_de_limite: self.waiting_for_reset(),
             ferramenta_em_curso: self.ferramenta_em_curso(),
-            compactando: self.compacting.is_some(),
+            compactando: self.compacting.is_some()
+                || self
+                    .conn
+                    .as_ref()
+                    .is_some_and(|conn| matches!(conn.compaction_usage, CompactionUsage::Running { .. })),
             parando: self.stop_requested || self.cancel_deadline.is_some(),
             rotina: self.active_routine.is_some(),
         };
@@ -143,6 +166,9 @@ impl Actor {
             tracing::error!("não foi possível salvar o aviso de motor mudo");
             return;
         };
+        if let Err(error) = self.hub.store.kv_set(&self.mudo_chave(), &entry.id) {
+            tracing::warn!(%error, "não foi possível registrar o aviso de motor mudo");
+        }
         self.mudo.aviso = Aviso::Ativo(entry.id);
     }
 

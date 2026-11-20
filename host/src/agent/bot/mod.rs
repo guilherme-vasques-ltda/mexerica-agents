@@ -681,6 +681,7 @@ impl Actor {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<PromptDone>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
+        self.mudo_restaurar();
         if let Err(error) = self.restore_dispatch() {
             tracing::error!(%error, "recuperação de despacho bloqueada; evidência preservada");
         }

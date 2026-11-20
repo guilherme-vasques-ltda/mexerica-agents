@@ -95,7 +95,16 @@ fn mark_delivery_error(hub: &crate::hub::Hub, entry_id: &str, error: &anyhow::Er
 
 impl Actor {
     pub(super) async fn on_incoming(&mut self, inc: Option<Incoming>) {
-        if matches!(inc, Some(Incoming::Notification { .. } | Incoming::Request { .. })) {
+        let progresso = match &inc {
+            Some(Incoming::Notification { method, params }) => {
+                method == "session/update" && params["sessionId"].as_str() == self.turn_session.as_deref()
+            }
+            Some(Incoming::Request { method, .. }) => {
+                method == "session/request_permission" || method == crate::fork::bot_skills::read::METHOD
+            }
+            _ => false,
+        };
+        if progresso {
             self.mudo_sinal();
         }
         match inc {

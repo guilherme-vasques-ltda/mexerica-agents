@@ -163,3 +163,22 @@ async fn cartao_de_permissao_pendente_nao_recebe_aviso() {
     host.call("stop", json!({"botId": bot})).await;
     esperar_ocioso(&host, &bot).await;
 }
+
+#[tokio::test]
+async fn aviso_ativo_nao_sobra_depois_de_reiniciar_o_hub() {
+    if python_missing() {
+        return;
+    }
+    let (mut host, bot) = bot_com("mudo").await;
+    host.call("send", json!({"botId": bot, "text": "oi"})).await;
+    let aviso = esperar(&host, &bot, Duration::from_secs(30), |e| {
+        e["kind"] == "notice" && e["data"]["motorMudo"]["estado"] == "mudo"
+    })
+    .await;
+    host.restart(|_| {}).await;
+    let depois = esperar(&host, &bot, Duration::from_secs(30), |e| {
+        e["id"] == aviso["id"] && e["data"]["motorMudo"]["estado"] == "voltou"
+    })
+    .await;
+    assert!(!depois["data"]["text"].as_str().unwrap().contains("sem dar sinal"), "{depois}");
+}
