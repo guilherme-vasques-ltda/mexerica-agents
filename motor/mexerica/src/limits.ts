@@ -102,6 +102,8 @@ export function boundInPlace(message: AgentMessage): void {
 	// Uma mensagem com chamadas de ferramenta é a que o laço vai EXECUTAR agora: os argumentos dela não mudam antes disso
 	// (o corte dela vem em seguida, no fim da volta, por `fitMessages`).
 	if (role(message) === "assistant" && callIds(message).length > 0) return;
+	// A mensagem de sistema leva as declarações das ferramentas (toolsAdded) que o provedor usa: nunca é cortada aqui.
+	if (role(message) === "system") return;
 	measured.delete(message);
 	const bounded = shrink(message);
 	if (bounded === message) return;

@@ -146,7 +146,7 @@ test("o processo vivo manda ao provedor só o que cabe nos tetos, em turnos giga
 	const grande = "g".repeat(200_000);
 	for (let i = 0; i < 10; i++) await turno(proc, String(i), "faux", grande);
 	const resposta = await turno(proc, "x", "faux", "/contexto " + "c".repeat(200_000));
-	const [, mensagens, bytes] = /^contexto: (\d+) (\d+) orfaos=0$/.exec(resposta) ?? [];
+	const [, mensagens, bytes] = /^contexto: (\d+) (\d+) orfaos=0 ferramentas=\d+$/.exec(resposta) ?? [];
 	assert.ok(mensagens, resposta);
 	assert.ok(Number(bytes) <= MAX_HISTORY_BYTES, "o contexto do provedor passou do teto: " + bytes + " bytes");
 	assert.ok(Number(mensagens) <= 21, "e as voltas mais antigas saíram: " + mensagens);
@@ -328,7 +328,7 @@ test("o corte do processo vivo espera a volta de ferramentas fechar e nunca deix
 	proc.send({ id: "c", type: "prompt", message: "/contexto" });
 	const fim = await proc.waitFor((v) => v.type === "agent_end" && proc.lines.filter((x) => x.type === "agent_end").length > 1);
 	const resposta = textoFinal(fim);
-	assert.match(resposta, /orfaos=0$/, "o contexto do provedor não tem resultado sem a chamada: " + resposta);
+	assert.match(resposta, /orfaos=0 ferramentas=\d+$/, "o contexto do provedor não tem resultado sem a chamada: " + resposta);
 	await encerrar(proc);
 });
 
@@ -351,5 +351,18 @@ test("o restore_history também respeita os tetos depois de reserializar", async
 	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
 	proc.send({ id: "r", type: "restore_history", messages: fio([texto("a"), texto("b", "assistant")]) });
 	assert.equal((await proc.waitFor((v) => v.id === "r")).success, true);
+	await encerrar(proc);
+});
+
+test("um catálogo grande de ferramentas chega inteiro ao provedor (a mensagem de sistema não é cortada)", async () => {
+	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
+	proc.send({ id: "m", type: "set_model", provider: "faux", modelId: "faux-1" });
+	await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+	const tools = Array.from({ length: 40 }, (_, i) => ({ name: "ferramenta_" + i, description: "d".repeat(8192), inputSchema: { type: "object", properties: {} }, origin: { kind: "hub" } }));
+	proc.send({ id: "t", type: "set_tools", tools });
+	await proc.waitFor((v) => v.id === "t" && v.success === true);
+	proc.send({ id: "c", type: "prompt", message: "/contexto" });
+	const fim = await proc.waitFor((v) => v.type === "agent_end");
+	assert.match(textoFinal(fim), /ferramentas=40$/, "as 40 declarações, mais de 320 KiB juntas, chegam ao provedor: " + textoFinal(fim));
 	await encerrar(proc);
 });

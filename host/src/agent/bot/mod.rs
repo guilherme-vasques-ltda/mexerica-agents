@@ -873,6 +873,7 @@ mod whatsapp_passos_tests;
 
 #[cfg(test)]
 #[cfg(unix)]
+#[path = "../../fork/motor_mexerica/conversa_ator_tests.rs"]
 mod motor_conversa_tests;
 #[cfg(test)]
 mod skills_tests;
