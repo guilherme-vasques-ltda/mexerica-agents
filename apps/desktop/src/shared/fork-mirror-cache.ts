@@ -72,7 +72,9 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
 // Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
 // motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
-export const MIRROR_SCHEMA = 62
+// Schema 63: a lista de chaves de API do motor traz `enderecos` (endereços próprios já salvos, sem a chave); cache
+// anterior não tem o campo e a tela mostraria a lista vazia até a próxima leitura. App antigo ignora o campo.
+export const MIRROR_SCHEMA = 63
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
