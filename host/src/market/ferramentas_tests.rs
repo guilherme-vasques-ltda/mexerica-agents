@@ -1023,3 +1023,19 @@ async fn setup_e_bot_tratam_igual_o_erro_do_fornecedor_e_se_recuperam_com_lista_
     assert_eq!(estado_de_conta(&hub, "b1", &conta, nome), Estado::Ligada);
     assert!(nomes_mediados(&recuperada).unwrap().contains(nome));
 }
+
+#[test]
+fn registrar_descoberta_recusa_conta_sem_servico() {
+    let hub = hub();
+    let mut conta = conectar_linear(&hub);
+    // MCP do próprio usuário: conta sem ficha de catálogo.
+    conta.servico = None;
+    let tools = tools_do_linear();
+    let completa = json!({"result": {"tools": tools.clone()}});
+    let mediada = mediar(&completa);
+    iniciar_descoberta(&hub.store, "ponte-setup", &conta.id).unwrap();
+    let anotada = encerrar_descoberta("ponte-setup", &conta.id);
+    let erro = registrar_descoberta(&hub.store, &conta, &json!({}), &completa, &mediada, anotada).unwrap_err();
+    assert!(erro.to_string().contains("conta sem serviço"), "{erro}");
+    assert!(!inventario_completo(&hub.store.db.locked(), &conta.id).unwrap(), "nada foi instalado");
+}
