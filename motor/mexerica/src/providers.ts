@@ -105,8 +105,9 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 		if (text.includes("/contexto")) {
 			const kept = context.messages.filter((m) => m.role !== "system");
 			const asked = new Set(kept.flatMap((m) => (m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall").map((b) => b.id) : [])));
+			const declared = context.messages.flatMap((m) => (m.role === "system" ? ((m as { toolsAdded?: unknown[] }).toolsAdded ?? []) : [])).length;
 			const orphans = kept.filter((m) => m.role === "toolResult" && !asked.has(m.toolCallId)).length;
-			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans}`);
+			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans} ferramentas=${declared}`);
 		}
 		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
 		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);
@@ -122,6 +123,7 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 
 /** «Testar acesso» do provedor falso (só testes do Hub): uma chave que começa com `recusada` é inválida. */
 export function fauxAcesso(provider: string, key: string, modelos: readonly Model<Api>[]) {
+	if (!key) return { ok: false, erro: "sem_chave" };
 	if (key.startsWith("recusada")) return { ok: false, erro: "chave_invalida", status: 401 };
 	const proprios = modelos.filter((m) => m.provider === provider);
 	return { ok: true, modelos: proprios.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) };

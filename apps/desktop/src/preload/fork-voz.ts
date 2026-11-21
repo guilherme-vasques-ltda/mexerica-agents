@@ -13,6 +13,7 @@ export const vozBridge: VozBridge = {
   testar: (provider) => ipcRenderer.invoke('voz:testar', provider),
   usarReserva: (provider) => ipcRenderer.invoke('voz:usarReserva', provider),
   credencial: (provider, model, voice) => ipcRenderer.invoke('voz:credencial', provider, model, voice),
+  definirAtalho: (pedido) => ipcRenderer.invoke('voz:atalho', pedido),
   onChange: (listener) => {
     // Só "leia de novo": nada do evento chega ao renderer.
     const handler = () => listener()

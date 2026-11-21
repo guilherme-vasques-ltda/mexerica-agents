@@ -132,7 +132,14 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 function completePng(mime, b, budget) {
   if ((mime ?? '').toLowerCase() !== 'image/png' || !b.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
   const texts = [], idat = [];
-  const inflate = (z) => { const out = inflateSync(z, { maxOutputLength: budget.left }); budget.left -= out.length; return out; };
+  const inflate = (z) => {
+    if (budget.left <= 0) throw new Error('orçamento esgotado');
+    try {
+      const out = inflateSync(z, { maxOutputLength: budget.left });
+      budget.left -= out.length;
+      return out;
+    } catch (error) { budget.left = 0; throw error; }
+  };
   const field = (data, from) => { const k = data.indexOf(0, from); if (k < from + (from ? 0 : 1) || (from === 0 && k > 79)) throw new Error('chunk de texto inválido'); return k; };
   for (let i = 8; i + 12 <= b.length;) {
     const end = i + 12 + b.readUInt32BE(i);
@@ -162,7 +169,8 @@ function completePng(mime, b, budget) {
     if (type === 'IDAT') idat.push(data.subarray(0, 2));
     if (type === 'IEND') {
       const z = Buffer.concat(idat).subarray(0, 2);
-      return z.length === 2 && (z[0] & 0x0f) === 8 && (z[0] * 256 + z[1]) % 31 === 0 && end === b.length ? texts : null;
+      const zlib = z.length === 2 && (z[0] & 0x0f) === 8 && z[0] >>> 4 <= 7 && (z[1] & 0x20) === 0 && (z[0] * 256 + z[1]) % 31 === 0;
+      return zlib && end === b.length ? texts : null;
     }
     i = end;
   }
@@ -180,7 +188,8 @@ function termViews(line, onMedia) {
     const texts = completePng(mime, bytes, budget);
     if (texts) {
       media = true;
-      extra.push(...texts.map((t) => t.replace(/\0/g, ' ')), (bytes.toString('latin1').match(/[\x20-\x7e]{8,}/g) ?? []).join(' '));
+      for (const text of texts) extra.push(text.replace(/\0/g, ' '));
+      extra.push((bytes.toString('latin1').match(/[\x20-\x7e]{8,}/g) ?? []).join(' '));
       return whole.slice(0, whole.length - block.length);
     }
     if (!bytes.includes(0)) {

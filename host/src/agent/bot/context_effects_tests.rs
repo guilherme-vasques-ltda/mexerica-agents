@@ -38,6 +38,7 @@ async fn mx106_leitura_de_rotina_marca_sessao_memoria_e_gestao_antes_da_criacao(
     a.turn_session = Some("acp-mx106".into());
     a.conn = Some(Conn {
         ponte: None,
+        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,
@@ -216,6 +217,7 @@ async fn pending_permission_opts(
     let mut actor = actor(f);
     actor.conn = Some(Conn {
         ponte: None,
+        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp: acp.clone(),
         rx,

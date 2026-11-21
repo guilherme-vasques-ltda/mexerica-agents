@@ -3,13 +3,14 @@
 import { matchesWords, searchWords } from '../../../lib/busca.ts'
 import type { TimesGraph } from '../../../../shared/fork-times.ts'
 import type { PedidoPersonalizado } from './api.ts'
-import type { BotDaConta, Catalogo, PassoDoGuia, Conta, ContaResumo, Grupo, Perigosa, Servico, SkillSugerida, TipoConexao, TipoId, VinculosDoBot } from './tipos.ts'
+import type { BotDaConta, Catalogo, PassoDoGuia, Conta, ContaResumo, FerramentaDaConta, FerramentasDaConta, Grupo, Perigosa, Servico, SkillSugerida, TipoConexao, TipoId, VinculosDoBot } from './tipos.ts'
 
 /** Os códigos estáveis de recusa do Hub (`docs/features/marketplace.md`, "API do Marketplace"). */
 export const CODIGOS_DE_RECUSA = [
   'nome_obrigatorio', 'nome_primeira_obrigatorio', 'nome_repetido', 'nome_invalido', 'ficha_vencida',
   'servico_desconhecido', 'tipo_desconhecido', 'tipo_indisponivel', 'liberacao_desconhecida', 'liberacao_indisponivel',
   'liberacao_obrigatoria', 'conta_de_outro_space', 'conta_padrao_invalida', 'ficha_indisponivel', 'ligar_e_desligar', 'principal_sem_contas',
+  'confirmacao_obrigatoria', 'ferramenta_mudou', 'vinculo_mudou', 'vinculo_obrigatorio', 'ferramenta_desconhecida', 'ferramenta_fora_da_ficha', 'conta_sem_ficha', 'conta_desligada_no_bot',
   'app_proprio_ausente', 'app_google_invalido', 'cofre_trancado',
 ] as const
 export type CodigoDeRecusa = (typeof CODIGOS_DE_RECUSA)[number]
@@ -336,6 +337,10 @@ export function linhasDoBot(catalogo: Catalogo | null, contas: readonly Conta[],
 
 /** A coluna "Ações perigosas" só existe quando algum serviço da tabela tem alguma (hoje nenhuma ficha tem). */
 export const temAcoesPerigosas = (linhas: readonly LinhaDoBot[]) => linhas.some((l) => l.perigosas.length > 0)
+
+/** As ferramentas que a pessoa decide (fatia 2): o que o Hub deixou desligado ou ela ligou; as permitidas não aparecem. */
+export const acoesQueAPessoaDecide = (dados: FerramentasDaConta): FerramentaDaConta[] =>
+  dados.ferramentas.filter((f) => f.estado !== 'permitida').sort((a, b) => (a.rotulo ?? a.nome).localeCompare(b.rotulo ?? b.nome))
 
 /** "Pessoal e Estúdio" / "Pessoal, Estúdio e Loja": as contas ligadas, pelo nome curto. */
 export function listaDeNomes(nomes: readonly string[], e: string): string {

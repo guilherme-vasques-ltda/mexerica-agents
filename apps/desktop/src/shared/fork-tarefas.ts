@@ -434,7 +434,7 @@ export interface ListGroup { state: ProjectTaskState; rows: TaskEntry[]; count: 
 /**
  * Grupos da Lista. Sem filtro: cada tarefa principal entra no grupo do próprio estado, com as subtarefas logo abaixo
  * (estado próprio de cada uma na linha). Com filtro: só as tarefas que batem, cada uma no grupo do seu estado, sem
- * recuo. “Esperando você” é um atalho (tarefas Em conferência, de qualquer nível), não um estado.
+ * recuo. “Para conferir” é um atalho (tarefas Em conferência, de qualquer nível), não um estado.
  */
 export function listGroups(entries: readonly TaskEntry[], filter: TaskFilter): { waiting: TaskEntry[]; groups: ListGroup[] } {
   const filtered = isFiltered(filter)
@@ -601,13 +601,15 @@ export const SESSION_STATES = ['idle', 'working', 'waiting_owner', 'done', 'not_
 export type LinkedSessionState = (typeof SESSION_STATES)[number] | 'unknown'
 export interface LinkedSession { botId: string; sessionId: string | null; title: string; state: LinkedSessionState; parentSessionId: string | null }
 
-export function parseSessions(v: unknown): { sessions: LinkedSession[]; agenda: TaskAgenda | null } {
+export function parseSessions(v: unknown, origin: { hubId: string; spaceId: string; projectId: string; taskId: string }): { sessions: LinkedSession[]; agenda: TaskAgenda | null; attention: 'owner' | null } {
   const o = need(isObj(v), v as Obj, 'answer')
+  need(o.version === 1, null, 'version')
+  for (const key of ['hubId', 'spaceId', 'projectId', 'taskId'] as const) need(o[key] === origin[key], null, key)
   const sessions = arr(o, 'sessions').map((x) => {
     const s = need(isObj(x), x as Obj, 'session')
     const state = str(s, 'state')
     const opt = (k: string) => need(s[k] === null || s[k] === undefined || typeof s[k] === 'string', (s[k] ?? null) as string | null, `session.${k}`)
     return { botId: str(s, 'botId'), sessionId: opt('sessionId'), title: typeof s.title === 'string' ? s.title : '', state: (SESSION_STATES as readonly string[]).includes(state) ? state as LinkedSessionState : 'unknown', parentSessionId: opt('parentSessionId') }
   })
-  return { sessions, agenda: o.agenda === null || o.agenda === undefined ? null : parseAgenda(o.agenda) }
+  return { sessions, agenda: o.agenda === null || o.agenda === undefined ? null : parseAgenda(o.agenda), attention: o.attention === 'owner' ? 'owner' : null }
 }

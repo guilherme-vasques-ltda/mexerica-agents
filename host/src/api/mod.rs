@@ -153,6 +153,10 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if crate::fork::motor_mexerica::CHATGPT_METHODS.contains(&method) {
         return crate::fork::motor_mexerica::entrar_chatgpt_call(hub, caller, method, b).await;
     }
+    // Planos de código (chave colada, OpenCode como motor): só este computador, nunca devolvem a chave.
+    if crate::fork::planos_codigo::METHODS.contains(&method) {
+        return crate::fork::planos_codigo::call(hub, caller, method, b).await;
+    }
     // C6: catálogo interno da ponte `chat` da extra selada; só lê, nunca executa (exceção fechada).
     if crate::fork::sessoes::contexto_ferramenta::is_catalog(method, &b) {
         return crate::fork::sessoes::contexto_ferramenta::catalog(hub, caller, &b);

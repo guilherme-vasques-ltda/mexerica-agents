@@ -3,6 +3,7 @@
 // fechada sem credencial, chave fora de argv/saída/stderr e fim do turno quando
 // o canal do cofre morre.
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,6 +12,7 @@ import { ENTRY, encerrar, startEngine, turnoTerminou } from "./helpers.ts";
 
 const SECRET = "chave-de-teste-nao-pode-vazar";
 
+const resumo = (valor: string) => `sha256-${createHash("sha256").update(valor).digest("hex").slice(0, 16)}`;
 const chamadasFetch = (log: string) =>
 	(existsSync(log) ? readFileSync(log, "utf8") : "")
 		.split("\n")
@@ -42,8 +44,9 @@ test("a credencial do cofre chega ao transporte do provedor certo", async () => 
 	assert.equal(calls.length, 1, `esperava exatamente 1 chamada de rede, vieram ${calls.length}`);
 	const headers = calls[0]!.headers;
 	assert.match(calls[0]!.url, /generativelanguage\.googleapis\.com/);
-	assert.ok(
-		JSON.stringify(headers).includes(SECRET),
+	assert.equal(
+		headers["x-goog-api-key"],
+		resumo(SECRET),
 		"a credencial do fd 3 não chegou ao cabeçalho do provedor",
 	);
 	// O erro do provedor ecoa a chave no corpo: a saída não pode contê-la.
@@ -108,7 +111,7 @@ test("OpenAI recebe a chave do cofre no transporte simulado", async () => {
 		const calls = chamadasFetch(log);
 		assert.equal(calls.length, 1);
 		assert.match(calls[0]!.url, /^https:\/\/api\.openai\.com\//);
-		assert.ok(JSON.stringify(calls[0]!.headers).includes(SECRET));
+		assert.equal(calls[0]!.headers["authorization"], resumo(`Bearer ${SECRET}`));
 		assert.ok(!JSON.stringify(proc.lines).includes(SECRET));
 	} finally {
 		await encerrar(proc);

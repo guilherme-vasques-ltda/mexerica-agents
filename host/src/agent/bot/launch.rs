@@ -104,11 +104,8 @@ pub(crate) async fn launch_commands(
     cfg: &BotConfig,
     progress: impl Fn(&str, Option<ActivityKind>),
 ) -> Result<Vec<String>> {
-    if cfg.backend == "omp" {
-        return Err(EngineNotReady(
-            "O motor oh-my-pi não está disponível. Escolha outro motor nas configurações do bot.".into(),
-        )
-        .into());
+    if crate::fork::motores_retirados::retirado(&cfg.backend) {
+        return Err(EngineNotReady(crate::fork::motores_retirados::msg_lancar(&cfg.backend)).into());
     }
     crate::agent::launcher::check(cfg).map_err(|e| EngineNotReady::wrap(&e))?;
     if cfg.backend == "codex" && cfg.fork_editor.engine_account_id.is_none() {
@@ -224,12 +221,14 @@ pub(crate) async fn start_mexerica(
         let vault = crate::fork::motor_mexerica::chaves::owner_vault(hub.clone(), cfg);
         let link = crate::fork::motor_mexerica::link::Link::new(vault, &cfg.id, extra_env);
         link.use_limits(crate::fork::motor_mexerica::chaves::fonte_de_limites(hub.clone()));
+        #[cfg(test)]
         if !extra_env.is_empty() {
             link.skip_mcp_servers();
         }
         let (acp, rx) = Acp::spawn_link(link);
         Ok(Conn {
             ponte: None,
+            plano: None,
             curated: crate::fork::conectores::Pool::default(),
             acp,
             rx,
@@ -364,6 +363,7 @@ async fn start_agent_mode(
     };
     Ok(Conn {
         ponte: None,
+        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,
@@ -402,6 +402,24 @@ mod tests {
             serde_json::from_value(json!({"id":"omp-antigo", "name":"Antigo", "backend":"omp"})).unwrap();
         let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();
         assert!(erro.contains("oh-my-pi") && erro.contains("Escolha outro motor"));
+    }
+
+    #[tokio::test]
+    async fn motor_retirado_e_recusado_antes_de_executar() {
+        let nomes = crate::fork::motores_retirados::RETIRADOS.iter().copied().chain([
+            "qwen-code",
+            "pi-acp",
+            "mistral-vibe",
+            "KILO",
+        ]);
+        for id in nomes {
+            let cfg: BotConfig =
+                serde_json::from_value(json!({"id":"antigo", "name":"Antigo", "backend": id})).unwrap();
+            let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();
+            assert!(erro.starts_with("O motor "), "{id}: {erro}");
+            assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+            assert!(erro.ends_with("Escolha outro motor nas configurações do bot."), "{id}: {erro}");
+        }
     }
 
     #[test]

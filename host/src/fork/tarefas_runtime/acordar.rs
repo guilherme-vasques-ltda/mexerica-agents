@@ -58,7 +58,7 @@ fn attempt_nonce(f: &Fire) -> String {
 pub(crate) fn nonce_accepted(c: &Connection, nonce: &str) -> Result<bool> {
     Ok(c.query_row(
         "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='user'
-         AND json_extract(data,'$.clientNonce')=?1)",
+         AND json_valid(data) AND json_extract(data,'$.clientNonce')=?1)",
         params![nonce],
         |r| r.get(0),
     )?)
@@ -419,6 +419,9 @@ async fn conclude(hub: &Arc<Hub>, f: &Fire, ok: bool, error: Option<String>) -> 
         let tx = db.unchecked_transaction()?;
         let (state, bump) = if ok {
             ("started", false)
+        } else if error.as_deref().is_some_and(|e| e.contains("queue_full")) {
+            // Fila da conversa cheia: tenta de novo mais tarde sem gastar tentativa.
+            ("scheduled", false)
         } else if f.attempts + 1 >= MAX_ATTEMPTS {
             ("failed", true)
         } else {
@@ -543,12 +546,25 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
         Step::Fire(fire) => fire,
     };
     let space = fire.space_id.clone();
-    let ok = perform(hub, &fire).await.is_ok();
-    let error = if ok { None } else { Some("send_failed".to_owned()) };
+    let result = perform(hub, &fire).await;
+    let ok = result.is_ok();
+    // Fila da conversa cheia: a agenda fica `scheduled` e tenta de novo sem gastar tentativa.
+    let waiting = result.as_ref().err().is_some_and(crate::fork::owner_question::queue_full);
+    let error = match (ok, waiting) {
+        (true, _) => None,
+        (false, true) => Some("queue_full".to_owned()),
+        (false, false) => Some("send_failed".to_owned()),
+    };
     conclude(hub, &fire, ok, error).await?;
+    // O recibo segue o contrato do app (`started`/`failed`); com a fila cheia a agenda tenta de novo sozinha.
+    let (state, reason) = match (ok, waiting) {
+        (true, _) => ("started", Value::Null),
+        (false, true) => ("failed", json!("queue_full")),
+        (false, false) => ("failed", json!("send_unavailable")),
+    };
     let answer = json!({
         "receipt": {"clientRequestId": request.as_str()},
-        "start": {"state": if ok { "started" } else { "failed" }, "reason": if ok { Value::Null } else { json!("send_unavailable") }},
+        "start": {"state": state, "reason": reason},
     });
     // Recibo final com o resultado real (o claim não grava recibo).
     let hub = hub.clone();
