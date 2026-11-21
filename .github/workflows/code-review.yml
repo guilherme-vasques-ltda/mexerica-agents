@@ -26,7 +26,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      review: ${{ steps.project.outputs.review }}
+      ready: ${{ steps.upload.outcome == 'success' }}
     steps:
       - name: Check configuration
         id: config
@@ -37,6 +37,7 @@ jobs:
           OCR_LLM_PROTOCOL: ${{ vars.OCR_LLM_PROTOCOL || 'openai' }}
           OCR_EFFORT: ${{ vars.OCR_EFFORT || 'medium' }}
           OCR_LANGUAGE: ${{ vars.OCR_LANGUAGE || 'Portuguese' }}
+          OCR_MAX_TOKENS_BUDGET: ${{ vars.OCR_MAX_TOKENS_BUDGET || '500000' }}
         run: |
           if ! test -n "$OCR_LLM_URL" || ! test -n "$OCR_LLM_AUTH_TOKEN" || ! test -n "$OCR_LLM_MODEL"; then
             echo 'Open Code Review: configuration unavailable; skipping.'
@@ -44,6 +45,10 @@ jobs:
           fi
           if [[ "$BASE_REF" != main || ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_NUMBER" =~ ^[1-9][0-9]{0,8}$ || ! "$OCR_LLM_PROTOCOL" =~ ^(openai|openai-responses|anthropic)$ || ! "$OCR_EFFORT" =~ ^(low|medium|high)$ || ! "$OCR_LANGUAGE" =~ ^(Portuguese|English)$ || "$OCR_LLM_URL" != https://* ]]; then
             echo 'Open Code Review: invalid configuration or event.'
+            exit 1
+          fi
+          if [[ ! "$OCR_MAX_TOKENS_BUDGET" =~ ^[1-9][0-9]{0,6}$ ]] || (( OCR_MAX_TOKENS_BUDGET > 2000000 )); then
+            echo 'Open Code Review: invalid budget.'
             exit 1
           fi
           echo 'ready=true' >> "$GITHUB_OUTPUT"
@@ -77,11 +82,14 @@ jobs:
           if ! (
             set -o pipefail
             test "$(git rev-parse HEAD)" = "$BASE_SHA" &&
-            git -c gc.auto=0 fetch --no-tags --no-recurse-submodules origin "refs/pull/$PR_NUMBER/head" &&
-            test "$(git rev-parse --verify 'FETCH_HEAD^{commit}')" = "$HEAD_SHA" &&
-            merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" &&
+            git init --template= "$work/repo" &&
+            git -C "$work/repo" fetch --no-tags --no-recurse-submodules "$GITHUB_WORKSPACE" "$BASE_SHA" &&
+            git -C "$work/repo" update-ref --no-deref HEAD "$BASE_SHA" &&
+            git -C "$work/repo" -c gc.auto=0 fetch --no-tags --no-recurse-submodules "https://github.com/$GITHUB_REPOSITORY.git" "refs/pull/$PR_NUMBER/head" &&
+            test "$(git -C "$work/repo" rev-parse --verify 'FETCH_HEAD^{commit}')" = "$HEAD_SHA" &&
+            merge_base="$(git -C "$work/repo" merge-base "$BASE_SHA" "$HEAD_SHA")" &&
             [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] &&
-            diff_bytes="$(git diff --no-ext-diff --no-textconv "$merge_base" "$HEAD_SHA" -- | head -c 262145 | wc -c)" &&
+            diff_bytes="$(git -C "$work/repo" diff --no-ext-diff --no-textconv "$merge_base" "$HEAD_SHA" -- | head -c 262145 | wc -c)" &&
             test "$diff_bytes" -le 262144 &&
             printf '%s\n' "$merge_base" > "$work/merge-base" &&
             curl --fail --silent --location --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 67108864 https://github.com/alibaba/open-code-review/releases/download/v1.14.0/opencodereview-linux-amd64 -o "$work/ocr" &&
@@ -90,6 +98,16 @@ jobs:
           ) > /dev/null 2>&1; then
             echo 'Open Code Review: could not verify inputs.'
             exit 1
+          fi
+      - name: Prepare filesystem isolation
+        if: steps.trusted.outputs.ready == 'true'
+        timeout-minutes: 1
+        run: |
+          if ! command -v bwrap > /dev/null; then
+            if ! (sudo -n apt-get update -qq && sudo -n apt-get install -y -qq bubblewrap) > /dev/null 2>&1; then
+              echo 'Open Code Review: isolation unavailable.'
+              exit 1
+            fi
           fi
       - name: Review diff
         if: steps.trusted.outputs.ready == 'true'
@@ -100,37 +118,53 @@ jobs:
           OCR_LLM_PROTOCOL: ${{ vars.OCR_LLM_PROTOCOL || 'openai' }}
           OCR_EFFORT: ${{ vars.OCR_EFFORT || 'medium' }}
           OCR_LANGUAGE: ${{ vars.OCR_LANGUAGE || 'Portuguese' }}
+          OCR_MAX_TOKENS_BUDGET: ${{ vars.OCR_MAX_TOKENS_BUDGET || '500000' }}
         run: |
           umask 077
+          python3 -I tools/ci-code-review.py validate-url
           work="$RUNNER_TEMP/mexerica-ocr"
           private_home="$work/profile"
           mkdir -- "$private_home" "$private_home/.opencodereview" "$work/tmp"
           printf '{"language":"%s","telemetry":{"enabled":false}}\n' "$OCR_LANGUAGE" > "$private_home/.opencodereview/config.json"
           if ! (
             ulimit -f 4096 || exit 1
-            exec timeout --kill-after=5s 240s env -i HOME="$private_home" TMPDIR="$work/tmp" PATH=/usr/bin:/bin \
-              GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null OCR_NO_UPDATE=1 \
-              OCR_LLM_URL="$OCR_LLM_URL" OCR_LLM_TOKEN="$OCR_LLM_TOKEN" OCR_LLM_MODEL="$OCR_LLM_MODEL" \
-              OCR_LLM_PROTOCOL="$OCR_LLM_PROTOCOL" OCR_LLM_TIMEOUT=25 \
-              "$work/ocr" review --from "$(<"$work/merge-base")" --to "$HEAD_SHA" \
-              --audience agent --format json --effort "$OCR_EFFORT" --concurrency 1 --timeout 2 --max-tokens-budget 20000
+            exec timeout --kill-after=5s 240s bwrap --unshare-all --share-net --die-with-parent --cap-drop ALL \
+              --clearenv --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin \
+              --ro-bind /etc/ssl/certs /etc/ssl/certs --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
+              --proc /proc --dev /dev --bind "$work/tmp" /tmp --bind "$private_home" /profile \
+              --ro-bind "$work/repo" /review --ro-bind "$work/ocr" /ocr --chdir /review \
+              --setenv HOME /profile --setenv TMPDIR /tmp --setenv PATH /usr/bin:/bin \
+              --setenv GIT_CONFIG_NOSYSTEM 1 --setenv GIT_CONFIG_GLOBAL /dev/null --setenv OCR_NO_UPDATE 1 \
+              --setenv OCR_LLM_URL "$OCR_LLM_URL" --setenv OCR_LLM_TOKEN "$OCR_LLM_TOKEN" --setenv OCR_LLM_MODEL "$OCR_LLM_MODEL" \
+              --setenv OCR_LLM_PROTOCOL "$OCR_LLM_PROTOCOL" --setenv OCR_LLM_TIMEOUT 25 \
+              /ocr review --from "$(<"$work/merge-base")" --to "$HEAD_SHA" \
+              --audience agent --format json --effort "$OCR_EFFORT" --concurrency 1 --timeout 2 --max-tokens-budget "$OCR_MAX_TOKENS_BUDGET"
           ) > "$work/result.json" 2> "$work/stderr.log"; then
             echo 'Open Code Review: review unavailable.'
             exit 1
           fi
       - name: Validate review output
         if: steps.trusted.outputs.ready == 'true'
-        id: project
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -I tools/ci-code-review.py project
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+        run: umask 077; python3 -I tools/ci-code-review.py project
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
+        if: steps.trusted.outputs.ready == 'true'
+        with:
+          name: ocr-projection-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mexerica-ocr/review.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Remove review files
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/mexerica-ocr"
 
   publish:
     needs: review
-    if: ${{ github.event.pull_request.head.repo.fork == false && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false && needs.review.outputs.review != '' }}
+    if: ${{ github.event.pull_request.head.repo.fork == false && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false && needs.review.outputs.ready == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
@@ -141,8 +175,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ocr-projection-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mexerica-ocr-publish
       - name: Publish verified findings
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEW: ${{ needs.review.outputs.review }}
         run: python3 -I tools/ci-code-review.py publish
+      - name: Remove downloaded projection
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/mexerica-ocr-publish"

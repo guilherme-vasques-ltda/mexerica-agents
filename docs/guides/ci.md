@@ -87,19 +87,23 @@ configuração estiver ausente, o job pula a revisão. Ele precisa dos Secrets `
 `OCR_LLM_AUTH_TOKEN` e da Variable `OCR_LLM_MODEL`. As Variables opcionais são
 `OCR_LLM_PROTOCOL` (`openai`, `openai-responses` ou `anthropic`, padrão `openai`),
 `OCR_EFFORT` (`low`, `medium` ou `high`, padrão `medium`) e `OCR_LANGUAGE` (`Portuguese` ou
-`English`, padrão `Portuguese`).
+`English`, padrão `Portuguese`) e `OCR_MAX_TOKENS_BUDGET` (inteiro positivo até 2.000.000,
+padrão 500.000).
 
 **Ao ativar, o provedor configurado recebe o diff e pode receber trechos adicionais do
 código para contexto.** Use um endpoint HTTPS confiável que não redirecione requisições
 e imponha seu próprio limite de gasto: o orçamento do revisor é avaliado entre chamadas.
 Mantenedores com permissão de push são parte da fronteira de
 confiança, pois `pull_request` pode usar o workflow modificado numa branch interna.
-O revisor usa a base como árvore de trabalho e lê o head apenas por objetos Git. Nenhuma
-saída bruta é publicada ou enviada como artefato; o job de publicação, sem segredos do
-provedor, recebe apenas índices, posições e classificações, e reconfere o SHA e o diff
-antes de publicar. Os comentários indicam categoria e severidade em texto fixo para
-verificação manual; não copiam a explicação do modelo nem aprovam o PR. Diffs ou resultados
-fora dos limites e posições que o GitHub não confirma não geram comentários.
+O revisor usa um repositório isolado, separado do checkout confiável, e lê o head apenas
+por objetos Git. Nenhuma saída bruta é publicada ou enviada como artifact. Só achados
+filtrados passam num artifact da própria execução, retido por um dia. O publicador não
+recebe segredos do provedor e reconfere o formato, os SHAs, o diff e as linhas. Os
+comentários incluem categoria, severidade e explicação em texto simples, sem links,
+menções ou sugestões de código. O filtro é conservador e descarta textos que não pode
+publicar com segurança. Há limite de 20 achados e 1.500 caracteres por comentário. Uma
+revisão parcial só pode publicar se a CLI confirmar que a única causa foi o orçamento;
+nesse caso o resumo avisa. O revisor não aprova o PR.
 
 ## macOS
 
