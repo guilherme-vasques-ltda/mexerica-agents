@@ -53,6 +53,27 @@ async fn desligar_grava_o_ultimo_trecho_e_a_varredura_marca_o_corte() {
 }
 
 #[tokio::test]
+async fn desligar_com_a_conclusao_salva_nao_grava_texto_tardio() {
+    let (hub, mut actor, dir) = fixture();
+    actor.append(SegKind::Text, "congelado");
+    actor.append(SegKind::Text, " e tardio");
+    let id = actor.last_text.clone().unwrap();
+    actor.waiting = Some(
+        serde_json::from_value(json!({
+            "input": {"chat": "b", "entries": [], "text": "", "hidden": false, "handoff": null, "routine": null,
+                      "transient": false, "backend": "claude", "model": null, "command": null, "session": null},
+            "phase": "completing", "resumeAt": null, "retryAt": 0, "backend": "claude", "model": null,
+            "command": null, "notice": null, "observedAt": 0
+        }))
+        .unwrap(),
+    );
+    let (done, _rx) = mpsc::unbounded_channel();
+    assert!(!actor.on_cmd(Cmd::Shutdown, &done).await, "o ator sai do laço");
+    assert_eq!(hub.store.entry(&id).unwrap().data["text"], "congelado", "a conclusão salva não muda no desligamento");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn texto_fechado_antes_da_ferramenta_que_nao_terminou_tambem_fica_interrompido() {
     let (hub, mut actor, dir) = fixture();
     actor.append(SegKind::Text, "Vou olhar o arquivo.");

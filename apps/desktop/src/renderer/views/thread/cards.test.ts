@@ -122,6 +122,15 @@ test('resposta interrompida leva a ferramenta cortada depois dela, sem deixar pa
   assert.deepEqual([...streaming.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
 })
 
+test('passo concluído antes do corte fica na bolha da resposta interrompida', () => {
+  const text = entry('cut', 'agent', 1, 1, { author: 'A', final: false, interrupted: true, text: 'Vou ler e editar.' })
+  const read = entry('read', 'tool', 1, 2, { author: 'A', title: 'Ler', status: 'completed' })
+  const edit = entry('edit', 'tool', 1, 3, { author: 'A', title: 'Editar', status: 'failed', interrupted: true })
+  const { byReply, pending } = stepsByReply([text, read, edit])
+  assert.deepEqual(byReply.get('cut')?.steps.map((s) => s.id), ['read', 'edit'])
+  assert.equal(pending.size, 0)
+})
+
 test('turno sem final não vira atividade do pedido seguinte; histórico final e autores são preservados', () => {
   const old = [entry('done-tool', 'tool', 1, 1), entry('done-reply', 'agent', 1, 2, { final: true })]
   // Interrupção e (pass) realmente ficam sem final:true; não sintetizar uma resposta final.

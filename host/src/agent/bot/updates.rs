@@ -116,6 +116,7 @@ impl Actor {
                     && params["sessionId"].as_str() == self.turn_session.as_deref()
                     && self.turn.is_some()
                     && !self.waiting_for_reset()
+                    && !self.completing()
                 {
                     self.on_update(&params["update"]);
                 }

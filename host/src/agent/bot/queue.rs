@@ -385,7 +385,9 @@ impl Actor {
                         self.on_update(&params["update"]);
                     }
                 }
-                self.flush(true);
+                if !self.completing() {
+                    self.flush(true);
+                }
                 return false;
             }
         }
