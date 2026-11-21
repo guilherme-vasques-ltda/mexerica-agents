@@ -356,94 +356,61 @@ async fn slot_em_texto_claro_nao_e_aceito_nem_migrado() {
 }
 
 #[tokio::test]
-async fn trocar_ou_remover_a_chave_muda_o_carimbo_revoga_as_sessoes_e_apaga_chave_lista_e_perfil() {
+async fn com_chave_salva_colar_outra_e_recusado_e_nada_do_que_esta_salvo_muda() {
     let hub = hub_de_prova();
-    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
-    hub.store.save_bot(&cfg).unwrap();
     com_chave(&hub).await;
-    let primeiro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-    let repasse = repasse_do_hub(&hub).await.unwrap();
-    assert_eq!(repasse.sessoes_vivas(), 1);
-    let perfil = hub.store.engine_setup_root.join("planos").join("opencode-go");
-    assert!(perfil.is_dir());
+    let chave_guardada = crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap();
+    let modelos = hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap();
+    let revisao = hub.store.kv_read("plano-codigo.revisao/opencode-go").unwrap();
 
-    // Com a sessão viva, troca e remoção são recusadas: a recusa é a confirmação de que há
-    // conversa aberta. Chave, lista de modelos e perfil ficam intactos.
-    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
-    let erro = salvar(&hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap_err().to_string();
-    assert!(erro.starts_with("plano_em_uso"), "{erro}");
-    let erro = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"}))
-        .await
-        .unwrap_err()
-        .to_string();
-    assert!(erro.starts_with("plano_em_uso"), "{erro}");
-    assert_eq!(crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap().as_deref(), Some(CHAVE));
-    assert!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap().is_some());
-    assert!(perfil.is_dir());
-
-    // Largada a concessão da sessão velha, as duas operações passam.
-    let carimbo_velho = primeiro.carimbo.clone();
-    drop(primeiro);
-    let segundo = salvar(&hub, &PLANOS[0], &url, Zeroizing::new("outra-chave-ficticia-456".into())).await.unwrap();
-    assert_eq!(segundo["ok"], true, "{segundo}");
-    assert_eq!(
-        crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap().as_deref(),
-        Some("outra-chave-ficticia-456")
-    );
-    let novo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-    assert_ne!(carimbo_velho, novo.carimbo, "chave trocada reinicia o processo do OpenCode");
-    drop(novo);
-
-    let resposta = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"})).await.unwrap();
-    assert_eq!(resposta, json!({"ok": true}));
-    assert_eq!(repasse.sessoes_vivas(), 0, "sem concessão viva a remoção passa e não sobra sessão");
-    assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
-    assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), None);
-    assert!(!perfil.exists(), "o perfil do plano some com a chave");
-    assert!(ambiente_do_bot(&hub, &cfg).await.is_err());
-    let lista = listar(&hub.store).unwrap();
-    assert_eq!(lista["planos"][0]["configurada"], false);
-    assert_eq!(lista["planos"][0]["modelos"], Value::Null);
-}
-
-#[tokio::test]
-async fn a_troca_e_a_remocao_sao_recusadas_com_abertura_em_curso_sem_processo() {
-    let hub = hub_de_prova();
-    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
-    hub.store.save_bot(&cfg).unwrap();
-    com_chave(&hub).await;
-    // Abertura em curso: a concessão saiu do cofre, o processo do OpenCode ainda não existe.
-    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-    let repasse = repasse_do_hub(&hub).await.unwrap();
-    assert_eq!(repasse.usos_do_plano(&PLANOS[0]), 1);
-    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    // O fornecedor aceitaria a chave nova: a recusa vem antes, sem testar na rede.
+    let (url, pedidos) = servidor(http("200 OK", "", CORPO_OK)).await;
     let erro = salvar(&hub, &PLANOS[0], &url, Zeroizing::new("outra-chave-ficticia-456".into()))
         .await
         .unwrap_err()
         .to_string();
-    assert!(erro.starts_with("plano_em_uso"), "abertura em curso também trava a troca: {erro}");
+    assert!(erro.starts_with("plano_chave_ja_salva"), "{erro}");
+    assert!(pedidos.locked().is_empty(), "a chave nova não é nem testada na rede");
+    assert_eq!(
+        crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap(),
+        chave_guardada,
+        "a chave salva não muda"
+    );
+    assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), modelos);
+    assert_eq!(hub.store.kv_read("plano-codigo.revisao/opencode-go").unwrap(), revisao);
+}
+
+#[tokio::test]
+async fn com_chave_salva_remover_e_recusado_e_nada_e_apagado() {
+    let hub = hub_de_prova();
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    com_chave(&hub).await;
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let perfil = hub.store.engine_setup_root.join("planos").join("opencode-go");
+    assert!(perfil.is_dir());
+    let chave_guardada = crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap();
+    let modelos = hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap();
+    let revisao = hub.store.kv_read("plano-codigo.revisao/opencode-go").unwrap();
+
     let erro = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"}))
         .await
         .unwrap_err()
         .to_string();
-    assert!(erro.starts_with("plano_em_uso"), "{erro}");
-    // A concessão que se largou tira o uso: a troca passa na chamada seguinte.
-    drop(ambiente);
-    assert_eq!(repasse.usos_do_plano(&PLANOS[0]), 0);
-    let acesso = salvar(&hub, &PLANOS[0], &url, Zeroizing::new("outra-chave-ficticia-456".into())).await.unwrap();
-    assert_eq!(acesso["ok"], true, "{acesso}");
-}
+    assert!(erro.starts_with("plano_chave_ja_salva"), "{erro}");
+    assert_eq!(crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap(), chave_guardada);
+    assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), modelos);
+    assert_eq!(hub.store.kv_read("plano-codigo.revisao/opencode-go").unwrap(), revisao);
+    assert!(perfil.is_dir(), "o perfil do plano fica");
 
-#[tokio::test]
-async fn uma_concessao_pedida_antes_da_troca_nunca_fica_viva() {
-    let hub = hub_de_prova();
-    com_chave(&hub).await;
+    // A sessão viva segue valendo: o código continua vivo enquanto a concessão existir.
     let repasse = repasse_do_hub(&hub).await.unwrap();
-    let geracao = repasse.geracao(&PLANOS[0]);
-    com_chave(&hub).await;
-    let erro = repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into()), geracao).err().expect("geração velha");
-    assert!(erro.to_string().starts_with("plano_em_troca"), "{erro}");
-    assert_eq!(repasse.sessoes_vivas(), 0);
+    assert_eq!(repasse.sessoes_vivas(), 1);
+    let outro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    assert_eq!(outro.carimbo, ambiente.carimbo, "a revisão não mudou: o carimbo é o mesmo");
+    drop(outro);
+    drop(ambiente);
+    assert_eq!(repasse.sessoes_vivas(), 0, "largar a concessão revoga o código, como sempre");
 }
 
 #[tokio::test]
@@ -587,5 +554,35 @@ async fn codigo_em_escapes_no_nome_do_campo_nao_passa_do_leitor_do_acp() {
     };
     assert!(!params.to_string().contains(&codigo), "o código em escapes vira nome de campo no parse: {params}");
     assert!(params.to_string().contains("mxs_[oculto]"), "{params}");
+    acp.kill_and_wait().await;
+}
+
+#[tokio::test]
+async fn dois_nomes_de_campo_no_formato_do_codigo_chegam_os_dois_pelo_leitor_do_acp() {
+    let um = format!("mxs_{}", "ab12".repeat(16));
+    let dois = format!("mxs_{}", "cd56".repeat(16));
+    let pasta = crate::store::private_fixture_dir("planos-acp-dois-nomes-de-campo");
+    let roteiro = pasta.join("motor.sh");
+    std::fs::write(
+        &roteiro,
+        format!(
+            "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"{um}\":1,\"{dois}\":2}}}}'\n\
+             read linha\n\
+             sleep 5\n"
+        ),
+    )
+    .unwrap();
+    let (acp, mut entrada) =
+        crate::agent::acp::Acp::spawn(&format!("sh {}", roteiro.display()), &pasta.to_string_lossy(), &[]).unwrap();
+    let Some(crate::agent::acp::Incoming::Notification { params, .. }) =
+        tokio::time::timeout(Duration::from_secs(5), entrada.recv()).await.unwrap()
+    else {
+        panic!("notificação esperada");
+    };
+    // Dois nomes de campo literais distintos no formato do código: nenhum campo pode sumir na colisão.
+    assert_eq!(params["mxs_[oculto]"], 1, "o primeiro nome mascarado fica com a base: {params}");
+    assert_eq!(params["mxs_[oculto]#2"], 2, "o segundo ganha o sufixo de índice: {params}");
+    assert_eq!(params.as_object().unwrap().len(), 2, "nenhum campo foi perdido: {params}");
+    assert!(!params.to_string().contains(&um) && !params.to_string().contains(&dois), "{params}");
     acp.kill_and_wait().await;
 }

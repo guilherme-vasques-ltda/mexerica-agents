@@ -88,7 +88,7 @@ fn slot_revisao(plano: &Plano) -> String {
     format!("plano-codigo.revisao/{}", plano.id)
 }
 
-/// Uma operação de chave por vez: um teste lento não grava por cima de uma remoção ou troca feitas enquanto esperava.
+/// Uma operação de chave por vez: um teste lento não grava por cima de outra gravação feita enquanto esperava.
 static OPERACAO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const MAX_CHAVE: usize = 512;
 const MIN_CHAVE: usize = 8;
@@ -141,10 +141,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
         }
         "planoCodigoSalvar" => salvar(hub, plano, plano.lista, chave(pedido.chave.as_deref())?).await,
         "planoCodigoRemover" => {
-            let _operacao = OPERACAO.lock().await;
-            let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
-            remover(hub, plano).await?;
-            Ok(json!({"ok": true}))
+            bail!("plano_chave_ja_salva: Trocar ou remover a chave do plano ainda não está disponível nesta versão.")
         }
         _ => bail!("{method} não é um método de plano de código"),
     }
@@ -159,20 +156,28 @@ fn resultado(lista: Result<Vec<acesso::Modelo>, acesso::Falha>) -> Value {
     }
 }
 
-/// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada. Recusada também a
-/// troca com conversa viva ou abertura em curso do plano: quem solta a concessão fecha a porta para a troca.
+/// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada. Com chave já salva no
+/// plano, colar outra é recusado sem tocar em nada do que está salvo (nem testar a chave nova na rede): trocar ou
+/// remover ainda não está disponível nesta versão.
 async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Zeroizing<String>) -> Result<Value> {
     ensure!(!cfg!(windows), "plano_indisponivel: os planos de código só funcionam em Linux e macOS nesta versão.");
     let _operacao = OPERACAO.lock().await;
+    // Falha rápido, antes de qualquer teste na rede: com chave salva, colar outra não muda nada.
+    ensure!(
+        hub.store.kv_read(&slot_chave(plano))?.is_none(),
+        "plano_chave_ja_salva: Trocar ou remover a chave do plano ainda não está disponível nesta versão."
+    );
     let acesso = resultado(acesso::listar_modelos(plano.provedor, lista, &candidata).await);
     if acesso["ok"] != true {
         return Ok(acesso);
     }
     crate::market::vault::unlock(hub.clone()).await?;
     let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
-    // A troca fica reservada durante a gravação: sessão nova não abre no meio, e quem leu a chave
-    // antes (a geração) vale como recusa, nunca como chave velha viva.
-    let _troca = repasse_do_hub(hub).await?.reservar_troca(plano)?;
+    // A mesma checagem outra vez, já com o cofre e a guarda da mutação: uma chave gravada no meio não é pisada.
+    ensure!(
+        hub.store.kv_read(&slot_chave(plano))?.is_none(),
+        "plano_chave_ja_salva: Trocar ou remover a chave do plano ainda não está disponível nesta versão."
+    );
     gravar(&hub.store, plano, &candidata, &acesso)?;
     Ok(acesso)
 }
@@ -195,33 +200,12 @@ fn gravar(store: &Store, plano: &Plano, chave: &str, acesso: &Value) -> Result<(
     Ok(())
 }
 
-/// Remove a chave, a lista de modelos e o perfil do plano. Recusada com conversa viva ou abertura em curso: quem
-/// solta a concessão fecha a porta para a remoção. O próximo turno já não acha chave, e o processo do OpenCode que
-/// sobrar só tem um código morto.
-async fn remover(hub: &Arc<Hub>, plano: &'static Plano) -> Result<()> {
-    let _troca = repasse_do_hub(hub).await?.reservar_troca(plano)?;
-    {
-        let proxima = (revisao(&hub.store, plano)? + 1).to_string();
-        let mut db = hub.store.db.locked();
-        let transacao = db.transaction()?;
-        transacao
-            .execute("DELETE FROM kv WHERE k IN (?1, ?2)", rusqlite::params![slot_chave(plano), slot_modelos(plano)])?;
-        transacao.execute(
-            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=?2",
-            rusqlite::params![slot_revisao(plano), proxima],
-        )?;
-        transacao.commit()?;
-    }
-    perfil::apagar(&hub.store, plano);
-    Ok(())
-}
-
 /// O repasse local deste Hub, iniciado na primeira vez que alguém precisa dele.
 pub(crate) async fn repasse_do_hub(hub: &Arc<Hub>) -> Result<Arc<Repasse>> {
     Ok(hub.planos.get_or_try_init(Repasse::iniciar).await?.clone())
 }
 
-/// Número que muda a cada troca ou remoção da chave: entra no carimbo da sessão e reinicia o processo do OpenCode.
+/// Número que muda a cada gravação da chave: entra no carimbo da sessão e reinicia o processo do OpenCode.
 fn revisao(store: &Store, plano: &Plano) -> Result<u64> {
     Ok(store.kv_read(&slot_revisao(plano))?.and_then(|v| v.parse().ok()).unwrap_or(0))
 }

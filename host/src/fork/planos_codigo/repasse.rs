@@ -25,7 +25,7 @@ use axum::{
 use futures::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Write as _,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -75,12 +75,6 @@ impl Sessao {
 #[derive(Default)]
 struct Estado {
     sessoes: HashMap<Hash, Arc<Sessao>>,
-    geracoes: HashMap<&'static str, u64>,
-    /// Quantas concessões vivas cada plano tem (sessão aberta ou abertura em curso): trocar ou
-    /// remover a chave de um plano assim é recusado.
-    usos: HashMap<&'static str, usize>,
-    /// Planos com troca ou remoção em andamento: abrir sessão nova neles é recusado.
-    em_troca: HashSet<&'static str>,
 }
 
 /// O repasse de um Hub: um servidor em loopback e as sessões vivas.
@@ -94,12 +88,11 @@ pub(crate) struct Repasse {
 }
 
 /// O direito de uma sessão de OpenCode usar o plano. Vive do início da abertura até o processo sair: ao sair de
-/// escopo, o código é revogado (os pedidos em andamento são cortados) e o uso do plano sai da conta.
+/// escopo, o código é revogado (os pedidos em andamento são cortados).
 pub(crate) struct Concessao {
     repasse: Arc<Repasse>,
     hash: Hash,
     codigo: Zeroizing<String>,
-    sessao: Arc<Sessao>,
 }
 
 impl Concessao {
@@ -120,25 +113,6 @@ impl Drop for Concessao {
         if let Some(sessao) = estado.sessoes.remove(&self.hash) {
             sessao.revogar();
         }
-        if let Some(usos) = estado.usos.get_mut(self.sessao.plano.id) {
-            *usos = usos.saturating_sub(1);
-            if *usos == 0 {
-                estado.usos.remove(self.sessao.plano.id);
-            }
-        }
-    }
-}
-
-/// A troca (ou remoção) da chave de um plano em andamento: guardada viva durante a gravação, impede abrir sessão
-/// nova no plano e, ao sair de escopo, devolve o plano à normalidade.
-pub(crate) struct Troca {
-    repasse: Arc<Repasse>,
-    plano: &'static str,
-}
-
-impl Drop for Troca {
-    fn drop(&mut self) {
-        self.repasse.estado.locked().em_troca.remove(self.plano);
     }
 }
 
@@ -173,18 +147,7 @@ impl Repasse {
         Ok(repasse)
     }
 
-    /// Número que sobe a cada troca ou remoção da chave de um plano. Quem vai conceder lê o número ANTES de ler a
-    /// chave e o devolve em `conceder`: uma troca no meio recusa a concessão em vez de deixar uma chave velha viva.
-    pub(crate) fn geracao(&self, plano: &Plano) -> u64 {
-        self.estado.locked().geracoes.get(plano.id).copied().unwrap_or(0)
-    }
-
-    pub(crate) fn conceder(
-        self: &Arc<Self>,
-        plano: &'static Plano,
-        chave: Zeroizing<String>,
-        geracao: u64,
-    ) -> Result<Concessao> {
+    pub(crate) fn conceder(self: &Arc<Self>, plano: &'static Plano, chave: Zeroizing<String>) -> Result<Concessao> {
         let mut codigo = [0u8; 32];
         getrandom::fill(&mut codigo).map_err(|_| anyhow::anyhow!("sem aleatório para o código da sessão"))?;
         let mut texto = String::from("mxs_");
@@ -194,11 +157,6 @@ impl Repasse {
         let codigo = Zeroizing::new(texto);
         let hash = hash_do_codigo(&codigo);
         let mut estado = self.estado.locked();
-        ensure!(
-            estado.geracoes.get(plano.id).copied().unwrap_or(0) == geracao,
-            "plano_em_troca: a chave do plano mudou enquanto a sessão abria."
-        );
-        ensure!(!estado.em_troca.contains(plano.id), "plano_em_troca: o plano está em troca de chave; tente de novo.");
         ensure!(estado.sessoes.len() < MAX_SESSOES, "plano_sessoes: sessões demais abertas.");
         #[cfg(test)]
         let base_de_prova = self.base_de_prova.locked().clone();
@@ -206,25 +164,9 @@ impl Repasse {
         let base_de_prova = None;
         let (revogada, _) = watch::channel(false);
         let sessao = Arc::new(Sessao { plano, chave, base_de_prova, revogada });
-        estado.sessoes.insert(hash, sessao.clone());
-        *estado.usos.entry(plano.id).or_insert(0) += 1;
+        estado.sessoes.insert(hash, sessao);
         drop(estado);
-        Ok(Concessao { repasse: self.clone(), hash, codigo, sessao })
-    }
-
-    /// Troca ou remoção da chave de um plano: recusada enquanto o plano tiver qualquer sessão viva ou abertura em
-    /// curso (a recusa é a confirmação de que há gente usando). Sem sessões, reserva a troca, sobe a geração do
-    /// plano — a corrida de quem leu a chave antes continua valendo como recusa — e devolve a guarda que mantém o
-    /// plano em troca até o fim da gravação.
-    pub(crate) fn reservar_troca(self: &Arc<Self>, plano: &Plano) -> Result<Troca> {
-        let mut estado = self.estado.locked();
-        ensure!(
-            !estado.em_troca.contains(plano.id) && estado.usos.get(plano.id).is_none_or(|&usos| usos == 0),
-            "plano_em_uso: encerre as conversas deste plano e tente de novo."
-        );
-        estado.em_troca.insert(plano.id);
-        *estado.geracoes.entry(plano.id).or_insert(0) += 1;
-        Ok(Troca { repasse: self.clone(), plano: plano.id })
+        Ok(Concessao { repasse: self.clone(), hash, codigo })
     }
 
     fn sessao(&self, codigo: &str) -> Option<Arc<Sessao>> {
@@ -234,11 +176,6 @@ impl Repasse {
     #[cfg(test)]
     pub(crate) fn sessoes_vivas(&self) -> usize {
         self.estado.locked().sessoes.len()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn usos_do_plano(&self, plano: &Plano) -> usize {
-        self.estado.locked().usos.get(plano.id).copied().unwrap_or(0)
     }
 
     #[cfg(test)]

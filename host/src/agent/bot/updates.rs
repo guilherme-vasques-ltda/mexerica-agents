@@ -822,10 +822,11 @@ impl Actor {
             }
             return;
         }
-        if let Seg::Open { buf, dirty, solta, .. } = &mut self.seg {
+        if let Seg::Open { buf, dirty, .. } = &mut self.seg {
+            // `solta` só é calculado na criação do segmento e ao publicar (o `flush` recalcula): recalcular a cada
+            // delta custaria quadratico no tamanho do texto.
             buf.push_str(text);
             *dirty = true;
-            *solta = crate::fork::planos_codigo::mascarar_saida(buf, false).len() != buf.len();
         }
     }
 
