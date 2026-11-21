@@ -392,6 +392,7 @@ impl Fixture {
             restart_after_turn: false,
             fast_support,
             idle_checked: Instant::now(),
+            mudo: fork_motor_mudo::Vigia::new(),
         }
     }
 

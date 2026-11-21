@@ -81,4 +81,9 @@ export const textos = {
   "conversa.avisos.open.falhou": "O Codex não conseguiu responder agora. Tente de novo.",
   "conversa.avisos.falha.cabecalho.naoSei": "Conta: não consegui confirmar",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Contas de IA",
+  "conversa.avisos.motorMudo.minutos.one": "{n} minuto",
+  "conversa.avisos.motorMudo.minutos.many": "{n} minutos",
+  "conversa.avisos.motorMudo.minutos.other": "{n} minutos",
+  "conversa.avisos.motorMudo.texto": "O bot está há {tempo} sem dar sinal. Se parecer travado, use Parar; se não, é só esperar.",
+  "conversa.avisos.motorMudo.voltou": "O bot voltou a dar sinal ou o turno terminou; este aviso não vale mais.",
 } as const

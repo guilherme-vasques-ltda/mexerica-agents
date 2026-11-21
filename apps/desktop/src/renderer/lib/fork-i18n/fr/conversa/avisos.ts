@@ -84,4 +84,9 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.falhou": "Codex n’a pas pu répondre pour le moment. Réessayez.",
   "conversa.avisos.falha.cabecalho.naoSei": "Compte : non confirmé",
   "conversa.avisos.falha.cabecalho.dica": "Ouvrir Comptes d’IA",
+  "conversa.avisos.motorMudo.minutos.one": "{n} minute",
+  "conversa.avisos.motorMudo.minutos.many": "{n} minutes",
+  "conversa.avisos.motorMudo.minutos.other": "{n} minutes",
+  "conversa.avisos.motorMudo.texto": "Le bot n’a donné aucun signe depuis {tempo}. S’il semble bloqué, utilisez Arrêter ; sinon, il suffit d’attendre.",
+  "conversa.avisos.motorMudo.voltou": "Le bot a repris ou le tour est terminé ; cet avis n’est plus valable.",
 }

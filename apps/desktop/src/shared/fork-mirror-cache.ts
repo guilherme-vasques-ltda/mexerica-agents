@@ -84,7 +84,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // fora do mirror; o bump só segue a regra de campo novo do Hub.
 // Schema 66: Heartbeat — a rotina traz `heartbeatStatus` (última checagem e situação da fonte) quando é uma checagem
 // silenciosa; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
-export const MIRROR_SCHEMA = 66
+// Schema 67: o aviso de motor mudo traz `Entry.data.motorMudo` ({estado, segundos}); cache anterior não tem o campo.
+export const MIRROR_SCHEMA = 67
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

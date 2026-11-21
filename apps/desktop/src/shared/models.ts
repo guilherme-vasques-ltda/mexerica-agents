@@ -421,6 +421,8 @@ export interface EntryData {
    * `alreadyStarted` = o cancelamento chegou depois de a retomada ter sido autorizada.
    */
   subscriptionWait?: { resumeAt?: number | null; retry?: boolean; waitId?: string; cancelled?: boolean; snoozed?: boolean; autoResume?: boolean; ready?: boolean; alreadyStarted?: boolean }
+  /** O motor do bot ficou `segundos` sem dar sinal no meio de um turno (`mudo`); `voltou` quando ele respondeu de novo ou o turno acabou. */
+  motorMudo?: { estado: 'mudo' | 'voltou'; segundos: number }
   /**
    * MX-263: o aviso é a espera de uma execução de rotina. Preserva os controles da espera (não
    * usa `routineId` no topo, que o app roteia para o botão "abrir a rotina") e o texto do Hub.

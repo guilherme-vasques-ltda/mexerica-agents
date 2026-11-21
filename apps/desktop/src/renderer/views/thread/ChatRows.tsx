@@ -43,6 +43,8 @@ import { bubbleRect, ReceiptPopover, ReceiptTrigger } from '../fork/recibo/Recib
 import type { ReceiptAnchor } from '../fork/recibo/presentation'
 import { AvisoDeEspera } from '../fork/conversa/LimitesDeUso'
 import { alvoDaEspera, paradaDaEspera } from '../fork/conversa/limites'
+import { AvisoMotorMudo } from '../fork/conversa/AvisoMotorMudo'
+import { lerMotorMudo } from '../fork/conversa/motor-mudo'
 import { superficieIdioma, tradutor, useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { AcaoDaMensagemFalha, AvisoDeFalhaDeConta, BotaoAbrirContas } from '../fork/contas-ia/FalhaDeConta'
 import { ehAvisoDePreparo, lerReason } from '../fork/contas-ia/falha-de-conta'
@@ -284,6 +286,7 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   }
   // DON-907 C4: a espera do limite com "Não retomar"/"Retomar agora", quando o Hub anuncia a espera (fork/conversa).
   if (alvoDaEspera(entry)) return <AvisoDeEspera entry={entry} />
+  if (lerMotorMudo(entry)) return <AvisoMotorMudo entry={entry} />
   switch (entry.data.style) {
     case 'error': {
       // Hub novo: `reason` vira a frase com a conta e o botão. Hub antigo: o texto de sempre; no aviso de preparo, só o botão para as contas.
