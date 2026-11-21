@@ -6,6 +6,10 @@ type Fetch = typeof globalThis.fetch;
 /** Prazo padrão: maior que a pausa de raciocínio de um modelo, menor que deixar o turno parado sem fim. */
 export const SILENCIO_MS = 180_000;
 
+/** O fetch dos fornecedores nunca segue redirecionamento: num redirecionamento para outro domínio, cabeçalhos como
+ * `x-api-key` e `x-goog-api-key` iriam junto com a chave. Um redirecionamento vira erro do pedido. */
+export const semRedirecionar: Fetch = (input, init) => globalThis.fetch(input, { ...init, redirect: "error" });
+
 export class SilencioDoFornecedor extends Error {
 	constructor(prazoMs: number) {
 		super(`o fornecedor ficou ${Math.round(prazoMs / 1000)} s sem responder; o pedido foi encerrado`);
@@ -22,6 +26,7 @@ export function comPrazoDeSilencio(base: Fetch, prazoMs = SILENCIO_MS): Fetch {
 		const silencio = new SilencioDoFornecedor(prazoMs);
 		const rearmar = () => {
 			clearTimeout(relogio);
+			if (corte.signal.aborted) return;
 			relogio = setTimeout(() => corte.abort(silencio), prazoMs);
 		};
 		// Cancelar de fora (inclusive o leitor que sai no evento final sem drenar o corpo) também desarma o prazo.

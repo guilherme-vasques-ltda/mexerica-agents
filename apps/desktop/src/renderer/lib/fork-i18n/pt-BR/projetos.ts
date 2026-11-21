@@ -238,7 +238,7 @@ export const textos = {
   // MX-142 TEC-722-17: regras dos bots (decisões 2–4), Concluída declarada e jornada do Geral.
   'projetos.tarefas.declarada': "Concluída (declarada)",
   'projetos.tarefas.declaradaPor': "Declarada por {bot}; a prova está na evidência.",
-  'projetos.tarefas.regraBotDono': "Bot responsável: muda estado, nota e evidência só da própria subtarefa. Para marcar Concluída, precisa deixar a prova.",
+  'projetos.tarefas.regraBotDono': "Bot responsável: atualiza andamento e nota só da própria subtarefa e envia para Em conferência. Só você conclui, reabre ou edita a evidência.",
   'projetos.tarefas.regraBotsOutros': "Supervisor e coordenador: podem mudar a subtarefa de outro bot; a mudança fica registrada na atividade.",
   'projetos.tarefas.regraBotsCriam': "Qualquer bot pode criar subtarefa para outro, até 100 tarefas e 3 níveis.",
   'projetos.tarefas.geral': "Geral",

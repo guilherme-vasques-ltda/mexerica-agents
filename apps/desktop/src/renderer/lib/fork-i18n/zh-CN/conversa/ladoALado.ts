@@ -1,0 +1,35 @@
+import type { Traducao } from '../../index.ts'
+import type { textos as fonte } from '../../pt-BR/conversa/ladoALado.ts'
+
+// conversa/ladoALado (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos: Traducao<typeof fonte> = {
+  'conversa.ladoALado.titulo': "并排视图",
+  'conversa.ladoALado.entrar': "打开并排视图",
+  'conversa.ladoALado.sair': "返回单个对话",
+  'conversa.ladoALado.abrirNoMenu': "并排打开",
+  'conversa.ladoALado.regiao': "并排视图面板",
+  'conversa.ladoALado.contagem': "{atual}/{maximo}",
+  'conversa.ladoALado.adicionar': "添加对话",
+  'conversa.ladoALado.adicionarCurto': "添加",
+  'conversa.ladoALado.semConversas': "此 space 中没有其他可用对话",
+  'conversa.ladoALado.principal': "主面板",
+  'conversa.ladoALado.painelDe': "{nome}的面板",
+  'conversa.ladoALado.painelDeSessao': "{nome}的面板 · {sessao}",
+  'conversa.ladoALado.trocar': "更换对话",
+  'conversa.ladoALado.moverEsquerda': "向左移动",
+  'conversa.ladoALado.moverDireita': "向右移动",
+  'conversa.ladoALado.soEsta': "仅打开此对话",
+  'conversa.ladoALado.fecharPainel': "关闭{nome}的面板",
+  'conversa.ladoALado.fecharAviso': "关闭提示",
+  'conversa.ladoALado.vazioTitulo': "选择另一个对话",
+  'conversa.ladoALado.vazioDetalhe': "在下方或侧栏中选择一个对话，以便并排查看。",
+  'conversa.ladoALado.avisoLimite': "已达到并排对话数量上限 {maximo}。请先关闭一个面板再打开新的。",
+  'conversa.ladoALado.avisoRemovida': "一个对话因不再可用而移出了并排视图。",
+  'conversa.ladoALado.avisoRemovidas': "{n} 个对话因不再可用而移出了并排视图。",
+  'conversa.ladoALado.janelaEstreitaUnico': "窗口太窄，无法并排显示对话。请加宽窗口或收起侧栏。",
+  'conversa.ladoALado.janelaEstreitaParcial': "当前宽度只能容纳 {cabem}/{total} 个面板。请加宽窗口或收起侧栏以查看全部。",
+  'conversa.ladoALado.recolherBarra': "收起侧栏",
+  'conversa.ladoALado.anuncioAdicionada': "{nome}已加入并排视图。",
+  'conversa.ladoALado.anuncioFechada': "{nome}的面板已关闭。",
+  'conversa.ladoALado.atalhoPainel': "按 F6 在面板之间切换",
+}

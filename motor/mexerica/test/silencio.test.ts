@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeContext, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses.ts";
-import { comPrazoDeSilencio, SilencioDoFornecedor } from "../src/silencio.ts";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { comPrazoDeSilencio, semRedirecionar, SilencioDoFornecedor } from "../src/silencio.ts";
 
 const MODEL: Model<"openai-responses"> = {
 	id: "gpt-5", name: "GPT-5", api: "openai-responses", provider: "openai", baseUrl: "https://api.example.invalid/v1",
@@ -79,6 +81,35 @@ test("sair sem drenar o corpo, cancelando de fora, não deixa o prazo armado", a
 	}
 });
 
+test("cancelar entre a leitura e a continuação não arma um prazo novo", async () => {
+	let cancelado = false;
+	let armadosDepois = 0;
+	const { setTimeout: armar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		if (cancelado) armadosDepois++;
+		return armar(...args);
+	}) as typeof setTimeout;
+	try {
+		const dono = new AbortController();
+		type Leitura = { done: boolean; value?: Uint8Array };
+		let entregar!: (leitura: Leitura) => void;
+		const corpo = { getReader: () => ({ read: () => new Promise<Leitura>((resolve) => (entregar = resolve)), cancel: async () => {} }) };
+		const fetch = comPrazoDeSilencio(async () => ({ body: corpo, status: 200, statusText: "", headers: new Headers() }) as unknown as Response, 60_000);
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		await new Promise((resolve) => setImmediate(resolve));
+		entregar({ done: false, value: new Uint8Array([1]) });
+		queueMicrotask(() => {
+			cancelado = true;
+			dono.abort();
+		});
+		await resposta.body!.getReader().read().catch(() => {});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(armadosDepois, 0, "nenhum prazo é armado depois do cancelamento");
+	} finally {
+		globalThis.setTimeout = armar;
+	}
+});
+
 test("resposta lenta mas viva não é cortada", async () => {
 	const partes = [
 		{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } },
@@ -125,5 +156,39 @@ test("pedido já cancelado não deixa rejeição solta", async () => {
 		assert.deepEqual(soltas, []);
 	} finally {
 		process.off("unhandledRejection", anotar);
+	}
+});
+
+const ouvir = (servidor: Server) =>
+	new Promise<number>((resolve) => servidor.listen(0, "127.0.0.1", () => resolve((servidor.address() as AddressInfo).port)));
+
+test("redirecionamento nunca leva a chave a outro endereço", async () => {
+	const recebidos: (string | undefined)[] = [];
+	const outro = createServer((pedido, resposta) => {
+		recebidos.push(pedido.headers["x-api-key"] as string | undefined);
+		resposta.end("{}");
+	});
+	const portaOutro = await ouvir(outro);
+	let pedidosNoFornecedor = 0;
+	const fornecedor = createServer((_pedido, resposta) => {
+		pedidosNoFornecedor += 1;
+		resposta.writeHead(307, { location: `http://127.0.0.1:${portaOutro}/roubar` });
+		resposta.end();
+	});
+	const porta = await ouvir(fornecedor);
+	try {
+		const url = `http://127.0.0.1:${porta}/v1/messages`;
+		const init = { method: "POST", headers: { "x-api-key": "chave-ficticia-de-teste" }, body: "{}" };
+		// Sem a trava, o fetch segue o 307 e manda o cabeçalho da chave ao outro endereço.
+		await globalThis.fetch(url, init);
+		assert.deepEqual(recebidos, ["chave-ficticia-de-teste"]);
+		recebidos.length = 0;
+		pedidosNoFornecedor = 0;
+		await assert.rejects(comPrazoDeSilencio(semRedirecionar, 2000)(url, init));
+		assert.equal(pedidosNoFornecedor, 1, "o pedido protegido tinha de chegar ao fornecedor antes de virar erro");
+		assert.deepEqual(recebidos, [], "o pedido com a chave não pode chegar ao outro endereço");
+	} finally {
+		fornecedor.close();
+		outro.close();
 	}
 });

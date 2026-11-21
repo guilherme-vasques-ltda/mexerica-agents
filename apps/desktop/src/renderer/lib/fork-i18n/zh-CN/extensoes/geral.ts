@@ -14,6 +14,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.pagina.credentials": "凭据",
   "extensoes.plugins.sobre": "Hub 的可选功能。点击某个插件即可查看它的选项。",
   "extensoes.plugins.whatsapp": "你的机器人可以阅读并回复 WhatsApp 对话，每个机器人使用自己的号码。",
+  "extensoes.plugins.mailManager": "预览中的邮箱，以及每个机器人可以在其中做什么：查看、发送和删除。",
   "extensoes.plugins.abrir": "打开插件 {nome}",
   "extensoes.plugins.voltar": "返回插件列表",
   "extensoes.cred.sobre": "机器人使用的密码、密钥和登录信息。这些值保存在 Hub 中，绝不会显示在屏幕上。",

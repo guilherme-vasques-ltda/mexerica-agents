@@ -14,6 +14,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.pagina.credentials": "Credentials",
   "extensoes.plugins.sobre": "Optional features of your Hub. Click a plugin to see its options.",
   "extensoes.plugins.whatsapp": "Your bots read and reply to WhatsApp chats, each with its own number.",
+  "extensoes.plugins.mailManager": "Mailboxes in preview, with what each bot can do in them: view, send, and delete.",
   "extensoes.plugins.abrir": "Open the {nome} plugin",
   "extensoes.plugins.voltar": "Back to the plugin list",
   "extensoes.cred.sobre": "Passwords, keys and logins your bots use. Values are stored on the Hub and never shown on screen.",
