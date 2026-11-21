@@ -864,6 +864,9 @@ mod fork_sessoes_tests;
 mod waiting_tests;
 
 #[cfg(test)]
+mod cartao_projecao_tests;
+
+#[cfg(test)]
 #[path = "context_effects_tests.rs"]
 mod context_effects_tests;
 

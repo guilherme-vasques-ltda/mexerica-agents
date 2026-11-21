@@ -54,6 +54,8 @@ export function textosEm(idioma: AppLanguage) {
     ocultarRotulo: (modelo: string) => t('contas.ocultarRotulo', { modelo: iso(modelo) }),
     mostrarRotulo: (modelo: string) => t('contas.mostrarRotulo', { modelo: iso(modelo) }),
     oculto: t('contas.oculto'),
+    programaOficial: t('contas.programaOficial'),
+    programaOficialDetalhe: t('contas.programaOficialDetalhe'),
     ocultarSemHub: t('contas.ocultarSemHub'),
     ocultosTitulo: t('contas.ocultosTitulo'),
     ocultarEmUsoTitulo: (modelo: string) => t('contas.ocultarEmUsoTitulo', { modelo: iso(modelo) }),
@@ -232,7 +234,7 @@ const ERROS = [
   'request_conflict', 'account_busy', 'account_in_use', 'account_invalid', 'account_not_found', 'account_incompatible',
   'accounts_unavailable', 'legacy_preserved', 'profile_invalid', 'setup_in_progress', 'api_form_required',
   'operation_expired', 'operation_stale', 'operation_limit', 'auth_code_invalid', 'auth_input_unavailable', 'invalid_field',
-  'request_pending',
+  'request_pending', 'logout_failed',
 ] as const
 /** Motivos da fase final sem sucesso (`errorCode` da operação). */
 const FALHAS = [

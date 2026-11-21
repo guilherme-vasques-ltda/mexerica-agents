@@ -2445,3 +2445,130 @@ async fn uso_uma_leitura_por_vez_com_validade_e_timeout() {
     assert_eq!(usage(&f.hub, id.clone(), None).await.unwrap()["state"], "unavailable");
     assert_eq!(leituras_do_cli(&cli), 3, "falha recente não relê");
 }
+
+/// O código colado vai só para o programa oficial (nem cadastro, nem eventos, nem operação, nem arquivos do
+/// perfil), «Testar acesso» é `claude auth status` e «Desconectar» apaga a credencial do perfil isolado pelo próprio
+/// programa (`claude auth logout`), confirmando a saída antes de marcar a conta como desconectada.
+#[cfg(unix)]
+#[tokio::test]
+async fn claude_codigo_so_vai_ao_programa_e_desconectar_apaga_a_credencial_do_perfil() {
+    for ignorar in [false, true] {
+        let f = Fixture::new();
+        let cli = f.cli(Backend::Claude);
+        let base = cli.parent().unwrap().to_path_buf();
+        let mut eventos = f.hub.events.subscribe();
+        let account = f.create("claude", "cli", "gui232-claude").await;
+        let id = account["id"].as_str().unwrap().to_owned();
+        let op = f.start(&account, "gui232-login").await;
+        f.phase(&op, "awaiting_authorization").await;
+        f.action(&op, json!({"action":"submit_code","code":"FIXTURE-CODE"})).unwrap();
+        let fim = f.phase(&op, "connected").await;
+        let registry = Registry::load(&f.hub.store).unwrap();
+        let conta = registry.account(&id).unwrap().clone();
+        assert_eq!(conta.state, State::Connected);
+        let LaunchReference::CliProfile { directory, .. } = &conta.launch else { panic!("perfil próprio") };
+        assert!(directory.join(".fixture-auth").is_file(), "a credencial fica só no perfil, escrita pelo programa");
+        let mut vistos = vec![fim.to_string(), f.hub.store.kv_read(accounts::SLOT).unwrap().unwrap_or_default()];
+        while let Ok(evento) = eventos.try_recv() {
+            vistos.push(evento.to_string());
+        }
+        for entrada in walkdir(directory) {
+            vistos.push(String::from_utf8_lossy(&std::fs::read(entrada).unwrap()).into_owned());
+        }
+        assert!(vistos.iter().all(|v| !v.contains("FIXTURE-CODE")), "o código de login não sai do programa");
+        if ignorar {
+            std::fs::write(base.join("scenario"), "logout_ignored").unwrap();
+        }
+        let revision = conta.managed.as_ref().unwrap().revision;
+        // Revisão vencida recusa antes de qualquer saída do programa; remover também nunca roda o logout.
+        let vencida = json!({"engineAccountId": id, "expectedRevision": revision + 7});
+        assert!(call(&f.hub, &Caller::Local, "donnaEngineAccountDisconnect", vencida.clone()).await.is_err());
+        assert!(call(&f.hub, &Caller::Local, "donnaEngineAccountRemove", vencida).await.is_err());
+        assert!(!base.join("logout-calls").exists(), "nenhum logout antes das conferências");
+        let pedido = json!({"engineAccountId": id, "expectedRevision": revision});
+        let resultado = call(&f.hub, &Caller::Local, "donnaEngineAccountDisconnect", pedido).await;
+        assert_eq!(std::fs::read_to_string(base.join("logout-calls")).unwrap().lines().count(), 1);
+        let depois = || Registry::load(&f.hub.store).unwrap().account(&id).unwrap().clone();
+        assert_eq!(depois().state, State::Disconnected, "a conta para de ser usada antes de sair do programa");
+        if ignorar {
+            let erro = resultado.unwrap_err().to_string();
+            assert!(erro.contains("logout_failed"), "sem confirmação da saída, o dono é avisado: {erro}");
+            assert!(directory.join(".fixture-auth").is_file());
+            // Desconectar de novo repete a saída pelo programa; agora ela se confirma.
+            std::fs::remove_file(base.join("scenario")).unwrap();
+            let revision = depois().managed.as_ref().unwrap().revision;
+            call(
+                &f.hub,
+                &Caller::Local,
+                "donnaEngineAccountDisconnect",
+                json!({"engineAccountId": id, "expectedRevision": revision}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(std::fs::read_to_string(base.join("logout-calls")).unwrap().lines().count(), 2);
+        } else {
+            resultado.unwrap();
+        }
+        assert!(!directory.join(".fixture-auth").exists(), "credencial local apagada pelo programa");
+    }
+}
+
+/// «Remover» uma conta Claude de perfil próprio também depende de o programa oficial apagar o login: se a saída não
+/// se confirma, a conta fica na lista (desconectada, nunca reabilitada) e o dono recebe o erro, para repetir.
+#[cfg(unix)]
+#[tokio::test]
+async fn remover_conta_claude_nao_esconde_o_logout_que_falhou() {
+    let f = Fixture::new();
+    let cli = f.cli(Backend::Claude);
+    let base = cli.parent().unwrap().to_path_buf();
+    let account = f.create("claude", "cli", "remover-claude").await;
+    let id = account["id"].as_str().unwrap().to_owned();
+    let op = f.start(&account, "remover-login").await;
+    f.phase(&op, "awaiting_authorization").await;
+    f.action(&op, json!({"action":"submit_code","code":"FIXTURE-CODE"})).unwrap();
+    f.phase(&op, "connected").await;
+    let conta = || Registry::load(&f.hub.store).unwrap().account(&id).cloned();
+    let LaunchReference::CliProfile { directory, .. } = &conta().unwrap().launch else { panic!("perfil próprio") };
+    let directory = directory.clone();
+    std::fs::write(base.join("scenario"), "logout_ignored").unwrap();
+    let revision = conta().unwrap().managed.as_ref().unwrap().revision;
+    let erro = call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountRemove",
+        json!({"engineAccountId": id, "expectedRevision": revision}),
+    )
+    .await
+    .expect_err("sem confirmação do logout a remoção não é dada como feita")
+    .to_string();
+    assert!(erro.contains("logout_failed"), "o dono é avisado: {erro}");
+    let ficou = conta().expect("a conta continua na lista para repetir a saída");
+    assert_eq!(ficou.state, State::Disconnected);
+    assert!(!ficou.managed.as_ref().unwrap().enabled, "a conta não é reabilitada");
+    assert!(directory.join(".fixture-auth").is_file(), "a credencial ainda está no perfil");
+    std::fs::remove_file(base.join("scenario")).unwrap();
+    let revision = ficou.managed.as_ref().unwrap().revision;
+    call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountRemove",
+        json!({"engineAccountId": id, "expectedRevision": revision}),
+    )
+    .await
+    .unwrap();
+    assert!(conta().is_err(), "com a saída confirmada a conta sai da lista");
+    assert!(!directory.join(".fixture-auth").exists(), "credencial apagada pelo programa");
+}
+
+fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entrada in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = entrada.path();
+        if p.is_dir() {
+            out.extend(walkdir(&p));
+        } else if p.is_file() {
+            out.push(p);
+        }
+    }
+    out
+}

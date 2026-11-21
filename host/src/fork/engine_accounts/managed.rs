@@ -614,6 +614,9 @@ pub(crate) fn editor_runtime(store: &Store, bot: &BotConfig) -> Result<Value> {
 }
 
 pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<String>> {
+    if backend == "claude" && !crate::fork::claude_ponte::legado() {
+        return Ok(vec![crate::fork::claude_ponte::comando(None)?]);
+    }
     let names: &[&str] = if backend == "codex" { &["codex-acp"] } else { &["claude-agent-acp", "claude-code-acp"] };
     for name in names {
         if let Some(path) = crate::agent::backends::which(name) {

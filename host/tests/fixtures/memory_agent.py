@@ -104,6 +104,8 @@ for line in sys.stdin:
             result["agentInfo"]["name"] = "outro-conector"
         elif mode == "--adapter-other":
             del result["agentCapabilities"]["_meta"]
+        elif mode.startswith("--adapter-ponte="):
+            result["agentInfo"] = {"name": "mexerica-claude-ponte", "version": mode.split("=", 1)[1]}
     elif method in ("session/new", "session/load"):
         session = params.get("sessionId", str(uuid.uuid4()))
         system = params.get("_meta", {}).get("systemPrompt", "")
