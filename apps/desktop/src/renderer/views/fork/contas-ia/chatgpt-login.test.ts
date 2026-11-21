@@ -76,12 +76,19 @@ test('o cliente emitido no retorno do primeiro registro segue ao Hub; repetido o
   }
 })
 
+test('«entrar com outra conta» pede o registro dinâmico de novo', async () => {
+  const { client, corpos } = hub(() => ({ ok: true, conta: { rotulo: null, planoHabilitado: true } }))
+  const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK))
+  await entrarComChatGPT(client, ouvinte, false, 'pessoal-1', true).fim
+  assert.deepEqual(corpos[0], { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424, spaceId: 'pessoal-1', novaConta: true } })
+})
+
 test('depois do retorno o cancelar não faz mais nada e o login conclui', async () => {
   let cancelar: () => void = () => {}
   let avisou = false
   const { client } = hub(() => { cancelar(); return { ok: true, conta: { rotulo: null, planoHabilitado: true } } })
   const { ouvinte, registro } = ponte(() => Promise.resolve(VOLTA_OK))
-  const entrada = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', undefined, () => { avisou = true })
+  const entrada = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', false, undefined, () => { avisou = true })
   cancelar = entrada.cancelar
   assert.deepEqual(await entrada.fim, { ok: true, rotulo: null, planoHabilitado: true })
   assert.ok(avisou, 'a tela é avisada de que já está concluindo')
@@ -136,7 +143,7 @@ test('cancelar desliga o ouvinte e a espera termina como cancelado', async () =>
 test('sem retorno a tempo a espera termina como tempo e desliga o ouvinte', async () => {
   const { client } = hub(() => ({ ok: true, conta: { rotulo: null, planoHabilitado: false } }))
   const { ouvinte, registro } = ponte(() => new Promise<string>(() => {}))
-  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', 20)
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', false, 20)
   const falha = await fim.then(() => null, (e: unknown) => e)
   assert.ok(falha instanceof FalhaChatGPT && falha.tipo === 'tempo')
   assert.ok(registro.includes('fechar:7'))

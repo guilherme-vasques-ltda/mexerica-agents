@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { build, type Plugin } from 'esbuild'
 
@@ -17,11 +18,11 @@ const reactNoServidor: Plugin = {
     b.onLoad({ filter: /.*/, namespace: 'react-servidor' }, () => ({
       contents: `const R = require(${JSON.stringify(createRequire(import.meta.url).resolve('react'))});
         module.exports = { ...R, useSyncExternalStore: (s, g, gs) => R.useSyncExternalStore(s, g, gs ?? g) };`,
-      loader: 'js', resolveDir: new URL('.', import.meta.url).pathname,
+      loader: 'js', resolveDir: fileURLToPath(new URL('.', import.meta.url)),
     }))
   },
 }
-const raiz = new URL('../../../', import.meta.url).pathname
+const raiz = fileURLToPath(new URL('../../../', import.meta.url))
 const bundle = await build({
   stdin: {
     contents: `export { EntrarComChatGPT, PlanoDoChatGPT } from './views/fork/contas-ia/EntrarComChatGPT';
@@ -32,7 +33,7 @@ const bundle = await build({
   },
   bundle: true, platform: 'node', format: 'cjs', write: false, jsx: 'automatic', logLevel: 'silent', plugins: [reactNoServidor],
   resolveExtensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.css'],
-  alias: { '@shared': new URL('../../../../shared', import.meta.url).pathname },
+  alias: { '@shared': fileURLToPath(new URL('../../../../shared', import.meta.url)) },
   loader: { '.css': 'empty', '.png': 'empty', '.jpg': 'empty', '.svg': 'empty', '.webp': 'empty', '.mp3': 'empty', '.json': 'json' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta': '__importMeta' },
 })
@@ -106,6 +107,17 @@ test('ocupado: aguardando o navegador e cancelar, sem os botões da conta', () =
   assert.ok(html.includes('Aguardando o navegador…'), 'o aviso de espera aparece')
   assert.ok(html.includes('Cancelar'), 'o botão de cancelar existe')
   assert.ok(!html.includes('Entrar com ChatGPT'), 'o botão de entrar some enquanto espera')
+})
+
+test('conectado com outra conta disponível: o botão de entrar com outra conta aparece ao lado do sair', () => {
+  const html = plano({ conectado: true, rotulo: 'pessoa@example.invalid', planoHabilitado: true, precisaEntrar: false }, { outraConta: nadaFn })
+  assert.ok(html.includes('Entrar com outra conta'), 'o botão de outra conta existe')
+})
+
+test('saindo: sem o aviso de aguardar o navegador e sem o botão de cancelar', () => {
+  const html = plano({ conectado: true, rotulo: 'pessoa@example.invalid', planoHabilitado: true, precisaEntrar: false }, { ocupado: true, saindo: true })
+  assert.ok(!html.includes('Aguardando o navegador…'), 'sair não mostra espera de navegador')
+  assert.ok(!html.includes('Cancelar'), 'sair não oferece cancelar')
 })
 
 test('sair sem confirmação: a frase avisa e aponta as Configurações do ChatGPT', () => {

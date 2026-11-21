@@ -313,6 +313,8 @@ export const textos = {
   "contas.chatgpt.planoHabilitado": "Plano habilitado",
   "contas.chatgpt.planoNaoHabilitado": "O uso do plano não está habilitado neste app.",
   "contas.chatgpt.ativar": "Ativar o uso do plano",
+  "contas.chatgpt.outraConta": "Entrar com outra conta",
+  "contas.chatgpt.somentePessoal": "A sessão do ChatGPT vale só para os bots do Pessoal deste computador.",
   "contas.chatgpt.sair": "Sair",
   "contas.chatgpt.precisaEntrar": "A conta precisa entrar de novo.",
   "contas.chatgpt.entrarDeNovo": "Entrar de novo",

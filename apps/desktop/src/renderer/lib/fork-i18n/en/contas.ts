@@ -313,6 +313,8 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.planoHabilitado": "Plan enabled",
   "contas.chatgpt.planoNaoHabilitado": "Plan usage isn't enabled for this app.",
   "contas.chatgpt.ativar": "Enable plan usage",
+  "contas.chatgpt.outraConta": "Sign in with another account",
+  "contas.chatgpt.somentePessoal": "The ChatGPT session only serves the bots of this computer's personal Space.",
   "contas.chatgpt.sair": "Sign out",
   "contas.chatgpt.precisaEntrar": "This account needs to sign in again.",
   "contas.chatgpt.entrarDeNovo": "Sign in again",

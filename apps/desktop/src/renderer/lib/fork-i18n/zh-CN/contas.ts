@@ -310,6 +310,8 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.planoHabilitado": "套餐已启用",
   "contas.chatgpt.planoNaoHabilitado": "此应用尚未启用套餐使用。",
   "contas.chatgpt.ativar": "启用套餐使用",
+  "contas.chatgpt.outraConta": "用另一个账户登录",
+  "contas.chatgpt.somentePessoal": "ChatGPT 会话仅供此电脑「个人」空间的机器人使用。",
   "contas.chatgpt.sair": "退出登录",
   "contas.chatgpt.precisaEntrar": "此账号需要重新登录。",
   "contas.chatgpt.entrarDeNovo": "重新登录",

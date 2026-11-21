@@ -18,7 +18,6 @@ use super::*;
 use crate::LockExt;
 use crate::api::devices::{Caller, permit};
 use crate::remote::crypto;
-use base64::Engine as _;
 use std::sync::atomic::Ordering;
 
 /// Serializa as provas que leem ou escrevem a tentativa e o endereço injetado.
@@ -37,10 +36,55 @@ const SUB: &str = "sub-ficticio-1";
 const ROTULO: &str = "conta@example.invalid";
 const ESCOPO_CHEIO: &str = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 
-/// Chave RSA fictícia só das provas: par de 2048 bits gerado para este arquivo (DER PKCS nº 1),
-/// sem uso real. O JWKS de mentira publica o módulo e o expoente; os ID tokens são assinados pelo
-/// par completo.
-const DER_CHAVE: &str = "MIIEowIBAAKCAQEA9k/kwTPpMiizHfRjDzmT8cawfCZ58kAffzgHMV2WpkhsNn03dufwU3i2qjs3a31S+NtZbofTqg+NuTeQev18LjrnX/PLZ5D72Nxiqk02lJN6T3ZE2v75lEX0+bMh4y0BQFgLkoMKqJMJ7xsgtzmCWt3pWNcrP1C6R7MQGhiVnfhTMnmLTPac/hIjSCJgbparyfQUxUZpYVs6yLPfFaHjuuN6crnFy0bFto2YLyHWUpQgdCBK+ejKvw9B13zuDhgFuihIc//EFv9ZIuKk0Mv8N/lNG4cy3OTMVgtCwN+CejDP6ebcjSxTuPjCbiJjfBvgkkx2lIdYDkUze7UyTDleiQIDAQABAoIBABzbKkZfga6QfxTUzeAkPjVWh37b9nBk28Ed5sB9TDS/NPzt5C1oKcsVpXdsXZHttOaWXV6qHKgxOfNyKNkye4sM9+X8Bp84/eWfmBLciIw/z4CiBJoQF1wsFUbwRK7mgF2HPb/UiKShfp9GXdRUBqCvm8f+g+tfK/D8xOJRxqwisddKtepnt0okLiUOPhOjBTTqgMV4UfD85qIZkDqH4bIoaANi+fKy3tfZbRuDrIf88AxfPDlI543TKr3+ZTQ4EMRztRcPv66VozfP56WxjlUCn8ha2fvcWbjPo2KoXcuyvRYKv/acD0TjJxfP7jl7oIaZzA3LLYEGhM5ATqVKrcMCgYEA/I5vw+pPlkggD7UIGn0tlGjHJSiDj5HUMTBMugLB9MIjSKZ0Q3v9AOGaaQ0jiI+wfWbYXcMr5gD3Sy/pLLdeVbwD8hoHbuKUa7LA/99xVlw/Diw0PospbwpKR88qX57YL7m2fuOu0gTbhtnmdCBxEPyOq4U03OHh2MIRSFAmFYsCgYEA+aupLZJKDfqIWpCHI26GofWuwsRrVastlJcOnUyIIm3ofqBjI7opyrLJcMDXBNivbp2bTtzogt5P3xkgeL9wunvn8leQSjDHOg5Fne6V3onsLY2JUzjofyOTLtlUyGJ7sVyLuYxZEpihmqPupTISUUwZRmRBTiX63/+KIeQ/JrsCgYAe/Lb32cLkFHtikfqpjVxPTj/I7lyd++2GD4AKfpYfmsZLfqjbMtZLCmMwqn0Gn2KvMDQx5OV49fthjUJVyzXW3Re617i7wS8mu6r0egzk5LKT4ZaTae2ugxu0DdYMH2g1Cts6XGMxv4jT1d5xtx1IUUSMBO8Efu5/8ue98J+LmwKBgH63HyAf9THvC7FbVRsoh3A/7ziu1AMg4/tcR3CSXS2MNsm9wVNqsrdL0m1FklvFVhSALUjzWZbCGiuS5yYhk6cyJ+CZjIP7CcJvZ+nmI25U9eeQxDfW1Dli5tqKNzuUsE6uN8QudS65BJwlw4NYTG+yfcl6LKLrJ870NTlKTLrtAoGBANdN52w2TzlHx3qKt2ScFDcKrcXxox37B12Aa5/MsUTqJB9qJsInssyHcQJm7TWD9KijxqULzcCxTNAFMtW0iNIXp9kNIsRRB+d51nOYNGfobGfbabtjt85gHE70xyaYzda4jSnnSt1J3sOeUIhGWBKYzwmPyZiFcI6z0HF4dltE";
+/// Chave RSA efêmera só das provas: gerada na hora pelo `openssl` do sistema, uma por processo de
+/// teste, nunca escrita no repositório. O JWKS de mentira publica o módulo e o expoente; os ID
+/// tokens são assinados pelo par completo.
+fn chave_de_prova() -> &'static (ring::rsa::KeyPair, String, String) {
+    use std::process::Command;
+    use std::sync::OnceLock;
+    static CHAVE: OnceLock<(ring::rsa::KeyPair, String, String)> = OnceLock::new();
+    CHAVE.get_or_init(|| {
+        let gerada = Command::new("openssl").args(["genrsa", "2048"]).output().expect("openssl para a chave de prova");
+        assert!(gerada.status.success(), "geração da chave de prova falhou");
+        let caminho = std::env::temp_dir().join(format!("mexerica-chave-de-prova-{}.pem", std::process::id()));
+        std::fs::write(&caminho, &gerada.stdout).expect("escrever a chave de prova");
+        let rodar = |args: &[&str]| {
+            Command::new("openssl")
+                .args(["rsa", "-in"])
+                .arg(&caminho)
+                .args(args)
+                .output()
+                .expect("openssl para a chave de prova")
+        };
+        let der = rodar(&["-outform", "DER"]);
+        assert!(der.status.success(), "conversão da chave de prova falhou");
+        // O `openssl` novo devolve PKCS nº 8 e o antigo PKCS nº 1: os dois formatos servem.
+        let par = ring::rsa::KeyPair::from_pkcs8(&der.stdout)
+            .or_else(|_| ring::rsa::KeyPair::from_der(&der.stdout))
+            .expect("chave de prova gerada legível");
+        // Módulo (hexadecimal) e expoente (decimal) do par: o JWKS de mentira publica os dois em base64url.
+        let modulo = rodar(&["-noout", "-modulus"]);
+        assert!(modulo.status.success(), "leitura do módulo da chave de prova falhou");
+        let hex = String::from_utf8(modulo.stdout).expect("módulo legível");
+        let hex = hex.trim().strip_prefix("Modulus=").expect("linha do módulo");
+        let bytes: Vec<u8> =
+            (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+        let texto = rodar(&["-noout", "-text"]);
+        assert!(texto.status.success(), "leitura do expoente da chave de prova falhou");
+        let texto = String::from_utf8(texto.stdout).expect("texto da chave legível");
+        let expoente: u64 = texto
+            .lines()
+            .find_map(|linha| linha.trim().strip_prefix("publicExponent: "))
+            .and_then(|valor| valor.split_whitespace().next())
+            .and_then(|valor| valor.parse().ok())
+            .expect("expoente da chave de prova");
+        let sem_zeros = expoente.to_be_bytes();
+        let sem_zeros = sem_zeros.iter().skip_while(|byte| **byte == 0).copied().collect::<Vec<u8>>();
+        let _ = std::fs::remove_file(&caminho);
+        (par, crypto::b64(&bytes), crypto::b64(&sem_zeros))
+    })
+}
+
 const KID: &str = "chave-de-prova";
 const N_CHAVE: &str = "9k_kwTPpMiizHfRjDzmT8cawfCZ58kAffzgHMV2WpkhsNn03dufwU3i2qjs3a31S-NtZbofTqg-NuTeQev18LjrnX_PLZ5D72Nxiqk02lJN6T3ZE2v75lEX0-bMh4y0BQFgLkoMKqJMJ7xsgtzmCWt3pWNcrP1C6R7MQGhiVnfhTMnmLTPac_hIjSCJgbparyfQUxUZpYVs6yLPfFaHjuuN6crnFy0bFto2YLyHWUpQgdCBK-ejKvw9B13zuDhgFuihIc__EFv9ZIuKk0Mv8N_lNG4cy3OTMVgtCwN-CejDP6ebcjSxTuPjCbiJjfBvgkkx2lIdYDkUze7UyTDleiQ";
 const E_CHAVE: &str = "AQAB";
@@ -49,15 +93,15 @@ fn agora() -> i64 {
     crate::store::now_ms() / 1000
 }
 
-/// JWKS de mentira com a chave fictícia das provas.
+/// JWKS de mentira com a chave efêmera das provas.
 fn jwks_de_prova() -> Value {
-    json!({"keys": [{"kty": "RSA", "kid": KID, "n": N_CHAVE, "e": E_CHAVE}]})
+    let (_, n, e) = chave_de_prova();
+    json!({"keys": [{"kty": "RSA", "kid": KID, "n": n, "e": e}]})
 }
 
-/// Assina o ID token de mentira com a chave fictícia.
+/// Assina o ID token de mentira com a chave efêmera das provas.
 fn id_token_de_prova(cabecalho: &Value, afirmacoes: &Value) -> String {
-    let der = base64::engine::general_purpose::STANDARD.decode(DER_CHAVE).expect("DER da chave de prova legível");
-    let par = ring::rsa::KeyPair::from_der(&der).expect("chave de prova válida");
+    let (par, _, _) = chave_de_prova();
     let cab = crypto::b64(&serde_json::to_vec(cabecalho).unwrap());
     let cor = crypto::b64(&serde_json::to_vec(afirmacoes).unwrap());
     let mensagem = format!("{cab}.{cor}");
@@ -105,8 +149,11 @@ enum RespostaTroca {
     Nenhuma,
     Corpo(Value),
     Redireciona,
-    /// 200 com corpo acima do teto.
+    /// 200 com corpo acima do teto: resposta completa, só o tamanho a difere da aceita.
     Gigante,
+    /// Espera o sinal antes de responder com o corpo dado: para provar corridas com o «Sair» e com
+    /// um segundo login durante a troca.
+    Pausa(Value),
 }
 
 /// Resposta da renovação no servidor de mentira.
@@ -127,6 +174,8 @@ enum ModoRevogacao {
 
 /// O que o servidor de mentira recebeu e como responde.
 struct Ficho {
+    /// Solta a troca em pausa.
+    soltar: tokio::sync::Notify,
     trocas: std::sync::Mutex<Vec<Value>>,
     renovacoes: std::sync::Mutex<Vec<Value>>,
     revogacoes: std::sync::Mutex<Vec<Value>>,
@@ -138,6 +187,7 @@ struct Ficho {
 
 fn ficho() -> Arc<Ficho> {
     Arc::new(Ficho {
+        soltar: tokio::sync::Notify::new(),
         trocas: std::sync::Mutex::new(Vec::new()),
         renovacoes: std::sync::Mutex::new(Vec::new()),
         revogacoes: std::sync::Mutex::new(Vec::new()),
@@ -158,12 +208,27 @@ async fn servidor_de_mentira(registros: Arc<Ficho>) -> String {
         let grant = form.get("grant_type").cloned().unwrap_or_default();
         if grant == "authorization_code" {
             registros.trocas.lock().unwrap().push(serde_json::to_value(&form).unwrap());
-            match &*registros.resposta_troca.lock().unwrap() {
+            // A resposta sai da guarda antes do `await` da pausa: a guarda não atravessa um await.
+            let resposta = registros.resposta_troca.lock().unwrap().clone();
+            match resposta {
                 RespostaTroca::Nenhuma => (StatusCode::OK, Json(json!({"note": "sem os campos"}))).into_response(),
-                RespostaTroca::Corpo(corpo) => (StatusCode::OK, Json(corpo.clone())).into_response(),
+                RespostaTroca::Corpo(corpo) => (StatusCode::OK, Json(corpo)).into_response(),
                 RespostaTroca::Redireciona => (StatusCode::FOUND, [("location", "/seguir".to_owned())]).into_response(),
-                RespostaTroca::Gigante => {
-                    (StatusCode::OK, format!("{{\"access_token\": \"{}\"}}", "a".repeat(80_000))).into_response()
+                RespostaTroca::Gigante => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "access_token": ACCESS,
+                        "refresh_token": REFRESH,
+                        "id_token": "id-token-ficticio",
+                        "expires_in": 3600,
+                        "scope": ESCOPO_CHEIO,
+                        "enchimento": "a".repeat(80_000),
+                    })),
+                )
+                    .into_response(),
+                RespostaTroca::Pausa(corpo) => {
+                    registros.soltar.notified().await;
+                    (StatusCode::OK, Json(corpo.clone())).into_response()
                 }
             }
         } else if grant == "refresh_token" {
@@ -261,7 +326,6 @@ fn conta_conectada(expira_em: i64) -> Value {
         "escopos": ESCOPO_CHEIO,
         "access_token": ACCESS_VELHO,
         "refresh_token": REFRESH_VELHO,
-        "id_token": "id-token-antigo-ficticio",
         "expira_em": expira_em,
     })
 }
@@ -335,11 +399,11 @@ async fn url_de_autorizacao_do_registro_leva_todos_os_parametros_e_o_desafio_do_
     assert!(pares.contains(&("prompt".into(), "consent".into())), "{pares:?}");
 }
 
-/// Reautorização: o `client_id` guardado, sem `agent_name_hint`, com as dicas; o registro novo não
-/// leva dica nenhuma.
+/// Reautorização: o `client_id` guardado, sem `agent_name_hint`, com a dica do rótulo; o registro
+/// novo não leva dica nenhuma.
 #[test]
-fn url_de_reautorizacao_usa_o_cliente_guardado_e_as_dicas_somente_nela() {
-    let dicas = Some((CLIENTE, Some("id-token-antigo-ficticio"), Some(ROTULO)));
+fn url_de_reautorizacao_usa_o_cliente_guardado_e_a_dica_do_rotulo_somente_nela() {
+    let dicas = Some((CLIENTE, Some(ROTULO)));
     let url = login::url_autorizacao(
         19424,
         "verificador-ficticio",
@@ -352,12 +416,13 @@ fn url_de_reautorizacao_usa_o_cliente_guardado_e_as_dicas_somente_nela() {
     .unwrap();
     let consultas = pares(&url);
     assert!(consultas.contains(&("client_id".into(), CLIENTE.into())), "{consultas:?}");
-    assert!(consultas.contains(&("id_token_hint".into(), "id-token-antigo-ficticio".into())), "{consultas:?}");
     assert!(consultas.contains(&("login_hint".into(), ROTULO.into())), "{consultas:?}");
+    // O ID token guardado nunca sai do Hub: a dica é só o rótulo da conta.
+    assert!(!consultas.iter().any(|(k, _)| k == "id_token_hint"), "{consultas:?}");
     assert!(!consultas.iter().any(|(k, _)| k == "agent_name_hint"), "{consultas:?}");
     assert!(!consultas.iter().any(|(k, _)| k == "prompt"), "{consultas:?}");
-    // Dicas sem e-mail: só o `id_token_hint`.
-    let so_token = Some((CLIENTE, Some("id-token-antigo-ficticio"), None));
+    // Sem rótulo guardado: nenhuma dica.
+    let so_token = Some((CLIENTE, None));
     let consultas = pares(
         &login::url_autorizacao(
             19424,
@@ -370,7 +435,6 @@ fn url_de_reautorizacao_usa_o_cliente_guardado_e_as_dicas_somente_nela() {
         )
         .unwrap(),
     );
-    assert!(consultas.iter().any(|(k, v)| k == "id_token_hint" && v == "id-token-antigo-ficticio"), "{consultas:?}");
     assert!(!consultas.iter().any(|(k, _)| k == "login_hint"), "{consultas:?}");
 }
 
@@ -903,6 +967,11 @@ async fn renovacao_grava_o_refresh_novo_antes_de_devolver_e_uma_so_vez() {
     let conta = conta_guardada(&hub);
     assert_eq!(conta["refresh_token"], REFRESH_NOVO, "{conta}");
     assert_eq!(conta["access_token"], ACCESS_NOVO, "{conta}");
+    // A resposta da renovação não declara `scope`: o plano fica desabilitado até uma nova entrada
+    // reconfirmar os escopos com o emissor.
+    let estado = login::estado(&hub).await.unwrap();
+    assert_eq!(estado["conectado"], true, "{estado}");
+    assert_eq!(estado["planoHabilitado"], false, "{estado}");
     // Longe do prazo, renovação nenhuma.
     semear_conta(&hub, &conta_conectada(agora() + 3600));
     assert_eq!(login::token_fresco(&hub).await.unwrap().as_deref().map(String::as_str), Some(ACCESS_VELHO));
@@ -1028,6 +1097,95 @@ async fn sair_revoga_e_apaga_os_tokens_de_qualquer_jeito() {
     // Sem sessão: nada a revogar.
     let sair = login::sair(&hub).await.unwrap();
     assert_eq!(sair, json!({"ok": true, "revogado": true}));
+}
+
+/// O «Sair» durante a troca (o servidor de mentira segura a resposta) não grava nada depois.
+#[tokio::test]
+async fn sair_durante_a_troca_em_andamento_nao_grava_depois() {
+    let _serie = SERIE.lock().await;
+    let hub = hub_de_prova();
+    let registros = ficho();
+    let base = servidor_de_mentira(registros.clone()).await;
+    *login::BASE_EM_TESTE.locked() = Some(base);
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
+    let (state, nonce, _) = tentativa_atual();
+    *registros.resposta_troca.lock().unwrap() = RespostaTroca::Pausa(json!({
+        "access_token": ACCESS,
+        "refresh_token": REFRESH,
+        "id_token": id_token_de_prova(&cabecalho_de_prova(), &afirmacoes_de_prova(&nonce, SUB)),
+        "expires_in": 3600,
+        "scope": ESCOPO_CHEIO,
+    }));
+    let pedido =
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE});
+    let tarefa = tokio::spawn({
+        let hub = hub.clone();
+        async move { login::concluir(&hub, &pedido).await.unwrap() }
+    });
+    while registros.trocas.lock().unwrap().is_empty() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    // O «Sair» de verdade, com a troca em andamento: quem chegou tarde não grava.
+    login::sair(&hub).await.unwrap();
+    registros.soltar.notify_waiters();
+    let resposta = tarefa.await.unwrap();
+    assert_eq!(resposta, json!({"ok": false, "erro": "sessao_encerrada"}), "{resposta}");
+    assert!(hub.store.kv_read(login::SLOT_CONTA).unwrap().is_none(), "a conta foi gravada depois do «Sair»");
+    *login::BASE_EM_TESTE.locked() = None;
+}
+
+/// Um segundo login durante a troca do primeiro: a conclusão do primeiro não grava por cima.
+#[tokio::test]
+async fn segundo_login_durante_a_troca_anula_a_conclusao_do_primeiro() {
+    let _serie = SERIE.lock().await;
+    let hub = hub_de_prova();
+    let registros = ficho();
+    let base = servidor_de_mentira(registros.clone()).await;
+    *login::BASE_EM_TESTE.locked() = Some(base);
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
+    let (state, nonce, _) = tentativa_atual();
+    *registros.resposta_troca.lock().unwrap() = RespostaTroca::Pausa(json!({
+        "access_token": ACCESS,
+        "refresh_token": REFRESH,
+        "id_token": id_token_de_prova(&cabecalho_de_prova(), &afirmacoes_de_prova(&nonce, SUB)),
+        "expires_in": 3600,
+        "scope": ESCOPO_CHEIO,
+    }));
+    let pedido =
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE});
+    let tarefa = tokio::spawn({
+        let hub = hub.clone();
+        async move { login::concluir(&hub, &pedido).await.unwrap() }
+    });
+    while registros.trocas.lock().unwrap().is_empty() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    // O segundo login troca a tentativa em curso: a conclusão do primeiro não pode mais gravar.
+    login::entrar(&hub, &json!({"loopbackPort": 19425, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
+    registros.soltar.notify_waiters();
+    let resposta = tarefa.await.unwrap();
+    assert_eq!(resposta, json!({"ok": false, "erro": "sessao_encerrada"}), "{resposta}");
+    assert!(hub.store.kv_read(login::SLOT_CONTA).unwrap().is_none(), "o primeiro login gravou por cima");
+    *login::BASE_EM_TESTE.locked() = None;
+}
+
+/// «Entrar com outra conta»: ignora o registro guardado e faz o registro dinâmico de novo, sem dica.
+#[tokio::test]
+async fn entrar_com_outra_conta_ignora_o_registro_guardado() {
+    let _serie = SERIE.lock().await;
+    *login::BASE_EM_TESTE.locked() = None;
+    let hub = hub_de_prova();
+    semear_conta(&hub, &conta_conectada(agora() + 3600));
+    let resposta = login::entrar(
+        &hub,
+        &json!({"loopbackPort": 19424, "novaConta": true, "spaceId": crate::fork::spaces::PERSONAL}),
+    )
+    .await
+    .unwrap();
+    let consultas = pares(resposta["url"].as_str().unwrap());
+    assert!(consultas.contains(&("client_id".into(), "dynamic_agent_client".into())), "{consultas:?}");
+    assert!(consultas.contains(&("agent_name_hint".into(), "Mexerica".into())), "{consultas:?}");
+    assert!(!consultas.iter().any(|(k, _)| k == "login_hint"), "{consultas:?}");
 }
 
 /// O login só acontece com o Space pessoal aberto: sem o campo ou com outro Space, recusa fechado.

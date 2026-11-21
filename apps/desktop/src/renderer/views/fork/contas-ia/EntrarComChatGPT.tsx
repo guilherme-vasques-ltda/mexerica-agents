@@ -30,6 +30,7 @@ export function EntrarComChatGPT() {
   const [avisoDeSair, setAvisoDeSair] = useState(false)
   const [ocupado, setOcupado] = useState(false)
   const [concluindo, setConcluindo] = useState(false)
+  const [saindo, setSaindo] = useState(false)
   const ocupadoRef = useRef(false)
   const cancelarRef = useRef<(() => void) | null>(null)
 
@@ -47,7 +48,7 @@ export function EntrarComChatGPT() {
     if (visivel && online) void reler()
   }, [visivel, online, store.hello?.hostId])
 
-  const entrar = (consentir: boolean) => {
+  const entrar = (consentir: boolean, novaConta = false) => {
     const client = liveClient(store)
     const space = store.spaceId ?? store.spaces?.personalSpaceId
     // A sessão é do dono, só usada pelos bots do Space pessoal: sem saber qual é o Pessoal, ou com outro Space
@@ -56,7 +57,7 @@ export function EntrarComChatGPT() {
     if (!client || !space || pessoal === undefined || space !== pessoal || ocupadoRef.current) return
     setErro(null)
     setAvisoDeSair(false)
-    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir, space, undefined, () => setConcluindo(true))
+    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir, space, novaConta, undefined, () => setConcluindo(true))
     cancelarRef.current = cancelar
     ocupadoRef.current = true
     setOcupado(true)
@@ -81,22 +82,37 @@ export function EntrarComChatGPT() {
     setErro(null)
     ocupadoRef.current = true
     setOcupado(true)
+    setSaindo(true)
     void sairDoChatGPT(client)
-      .then((r) => setAvisoDeSair(r.revogado !== true))
+      .then((r) => {
+        setAvisoDeSair(r.revogado !== true)
+        // A leitura de conferência vem a seguir; a tela já não mostra a conta antiga como conectada.
+        setEstado({ conectado: false, rotulo: undefined, planoHabilitado: false, precisaEntrar: true })
+      })
       .catch(() => setErro('contas.chatgpt.erro.sair'))
       .finally(() => {
         ocupadoRef.current = false
         setOcupado(false)
+        setSaindo(false)
         void reler()
       })
   }
+
+  // Fora do Space pessoal a sessão não começa: em vez de botões que nada fazem, o motivo na tela.
+  const pessoal = store.spaces?.personalSpaceId
+  const foraDoPessoal = pessoal === undefined || (store.spaceId ?? pessoal) !== pessoal
 
   if (!visivel) return null
   return (
     <div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
       <CardSection title={t('contas.chatgpt.titulo')} footer={t('contas.chatgpt.rodape')}>
         {!online ? <Text tone="secondary">{t('contas.apiDireta.semConexao')}</Text> : null}
-        {online && falhou && !estado ? <Text size="caption" tone="secondary" role="status">{t('contas.chatgpt.erro.estado')}</Text> : null}
+        {online && falhou && !estado ? (
+          <HStack gap={12}>
+            <Text size="caption" tone="secondary" role="status">{t('contas.chatgpt.erro.estado')}</Text>
+            <button className="settings-quiet-button" onClick={() => void reler()}>{t('ajustes.atualizacoes.tentar')}</button>
+          </HStack>
+        ) : null}
         {online && !estado && !falhou ? <Spinner size={12} /> : null}
         {online ? (
           <PlanoDoChatGPT
@@ -107,7 +123,10 @@ export function EntrarComChatGPT() {
             avisoDeSair={avisoDeSair}
             entrar={() => entrar(false)}
             ativar={() => entrar(true)}
+            outraConta={() => entrar(false, true)}
             sair={sair}
+            saindo={saindo}
+            foraDoPessoal={foraDoPessoal}
             cancelar={() => cancelarRef.current?.()}
           />
         ) : null}
@@ -117,7 +136,7 @@ export function EntrarComChatGPT() {
 }
 
 /** A parte que só desenha: o estado da conta, os avisos e os botões; quem decide é o componente de cima. */
-export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair, entrar, ativar, sair, cancelar }: {
+export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair, entrar, ativar, outraConta, sair, saindo, foraDoPessoal, cancelar }: {
   estado: EstadoChatGPT | null
   ocupado: boolean
   concluindo?: boolean
@@ -125,7 +144,10 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
   avisoDeSair: boolean
   entrar: () => void
   ativar: () => void
+  outraConta?: () => void
   sair: () => void
+  saindo?: boolean
+  foraDoPessoal?: boolean
   cancelar: () => void
 }) {
   const t = useT()
@@ -138,12 +160,14 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
           <Text size="caption" className="selectable">{(t as unknown as (chave: ChaveTexto) => string)(erro)}</Text>
         </HStack>
       ) : null}
-      {ocupado ? (
+      {ocupado && !saindo ? (
         <HStack gap={12}>
           <Text size="caption" tone="secondary">{t('contas.chatgpt.aguardando')}</Text>
           {concluindo ? null : <button className="settings-quiet-button" onClick={cancelar}>{t('contas.chatgpt.cancelar')}</button>}
         </HStack>
       ) : null}
+      {ocupado && saindo ? <Spinner size={12} /> : null}
+      {foraDoPessoal && estado ? <Text size="caption" tone="secondary">{t('contas.chatgpt.somentePessoal')}</Text> : null}
       <div className="settings-row">
         <VStack grow className="settings-stack">
           {conectado ? (
@@ -156,9 +180,10 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
             </>
           ) : estado?.precisaEntrar ? <Text size="caption" tone="secondary">{t('contas.chatgpt.precisaEntrar')}</Text> : null}
         </VStack>
-        {ocupado ? null : conectado ? (
+        {ocupado || foraDoPessoal ? null : conectado ? (
           <HStack gap={12}>
             {!estado?.planoHabilitado ? <button className="settings-quiet-button" onClick={ativar}>{t('contas.chatgpt.ativar')}</button> : null}
+            {outraConta ? <button className="settings-quiet-button" onClick={outraConta}>{t('contas.chatgpt.outraConta')}</button> : null}
             <button className="settings-quiet-button" onClick={sair}>{t('contas.chatgpt.sair')}</button>
           </HStack>
         ) : estado?.precisaEntrar ? (

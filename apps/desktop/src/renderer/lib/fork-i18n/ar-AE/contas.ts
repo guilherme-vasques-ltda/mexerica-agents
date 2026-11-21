@@ -325,6 +325,8 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.planoHabilitado": "الخطة مفعّلة",
   "contas.chatgpt.planoNaoHabilitado": "استخدام الخطة غير مفعّل في هذا التطبيق.",
   "contas.chatgpt.ativar": "تفعيل استخدام الخطة",
+  "contas.chatgpt.outraConta": "تسجيل الدخول بحساب آخر",
+  "contas.chatgpt.somentePessoal": "جلسة ChatGPT تخدم فقط روبوتات المساحة الشخصية لهذا الكمبيوتر.",
   "contas.chatgpt.sair": "تسجيل الخروج",
   "contas.chatgpt.precisaEntrar": "هذا الحساب يحتاج إلى تسجيل الدخول مرة أخرى.",
   "contas.chatgpt.entrarDeNovo": "تسجيل الدخول مرة أخرى",

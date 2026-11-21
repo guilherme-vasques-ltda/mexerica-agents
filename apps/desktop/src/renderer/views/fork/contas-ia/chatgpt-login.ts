@@ -47,7 +47,8 @@ const ESPERA_MAX_MS = 10 * 60_000 - 2_000
 
 /** Lê o estado da conta no Hub; a renovação que faltar por pouco o Hub mesmo resolve antes de responder. */
 export const lerEstadoChatGPT = (client: HostClient) =>
-  client.call<EstadoChatGPT>('chatgptEstado', {}, 15_000)
+  // A leitura pode renovar o access no caminho (um pedido ao emissor de até 15 s): o prazo cobre isso com folga.
+  client.call<EstadoChatGPT>('chatgptEstado', {}, 30_000)
 
 /** Sai: o Hub revoga o que der e apaga os tokens deste computador de qualquer jeito. */
 export const sairDoChatGPT = (client: HostClient) =>
@@ -64,6 +65,7 @@ export function entrarComChatGPT(
   ouvinte: PonteDoOuvinte,
   consentir: boolean,
   space: string,
+  novaConta = false,
   esperaMs = ESPERA_MAX_MS,
   aoConcluir?: () => void,
 ) {
@@ -79,7 +81,7 @@ export function entrarComChatGPT(
       let url: string
       try {
         url = (await client.call<{ url: string }>('chatgptEntrar',
-          { loopbackPort: aberto.porta, spaceId: space, ...(consentir ? { consentir: true } : {}) }, 15_000)).url
+          { loopbackPort: aberto.porta, spaceId: space, ...(consentir ? { consentir: true } : {}), ...(novaConta ? { novaConta: true } : {}) }, 15_000)).url
       } catch { throw new FalhaChatGPT('falha') }
       if (cancelado) throw new FalhaChatGPT('cancelado')
       let temporizador: ReturnType<typeof setTimeout> | undefined

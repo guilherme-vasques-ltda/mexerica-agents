@@ -4,13 +4,14 @@
 //! `nonce` nascem aqui, e o navegador volta ao ouvinte local do app (`conectores::oauth_desktop`),
 //! que repassa `{state, code}` (ou `{state, erro}`) pelo canal autenticado, com o `client_id`
 //! emitido quando é um registro novo. Os endereços do emissor são fixos; o primeiro registro usa
-//! o cliente dinâmico e os logins seguintes o `client_id` guardado, com as dicas (`id_token_hint`,
-//! `login_hint`) só na URL de autorização — nunca em log nem em erro. O ID token é conferido
+//! o cliente dinâmico e os logins seguintes o `client_id` guardado, com a dica (`login_hint`, o
+//! rótulo da conta) só na URL de autorização — nunca em log nem em erro. O ID token é conferido
 //! fail-closed (`entrar_chatgpt_jwt`): assinatura RS256 contra o JWKS, emissor exato, público
 //! igual ao `client_id` emitido, prazo e `nonce`; o `sub` validado é a identidade da conta. O
 //! registro (com os tokens) vai cifrado ao cofre pelo mesmo caminho das outras credenciais; o
-//! `ext_agent_host_id` é opaco e fica em kv simples. Nenhum método devolve token, e nenhum erro
-//! repete o código, o verificador, o `state` nem o `id_token_hint`. A renovação é serializada e
+//! `ext_agent_host_id` é opaco e fica em kv simples. O ID token nunca fica guardado: conferido e
+//! descartado. Nenhum método devolve token, e nenhum erro repete o código, o verificador nem o
+//! `state`. A renovação é serializada e
 //! grava o refresh novo antes de devolver o access; o «Sair» revoga e apaga os tokens de qualquer
 //! jeito. Só este computador, e só com o motor ligado.
 
@@ -61,6 +62,8 @@ pub(super) const VALIDADE: Duration = Duration::from_secs(10 * 60);
 const PRAZO: Duration = Duration::from_secs(15);
 /// Teto do corpo de cada resposta do emissor.
 const MAX_CORPO: usize = 64 * 1024;
+/// Um ano em segundos: teto de qualquer validade declarada pelo emissor.
+const ANO_EM_SEGUNDOS: i64 = 31_536_000;
 /// Renova o access quando faltam menos de cinco minutos para expirar.
 const MARGEM_RENOVACAO: i64 = 5 * 60;
 /// Recusa fixa do `state`: nunca ecoa o valor recebido.
@@ -79,6 +82,7 @@ const INVALIDANTES: [&str; 6] = [
 /// ouvinte do app que abriu o login. `reautorizacao` é `None` no primeiro registro e guarda o
 /// `client_id` (com o `sub` esperado e as dicas) nos logins de uma conta já registrada.
 pub(super) struct Tentativa {
+    pub(super) id: u64,
     pub(super) state: [u8; 32],
     pub(super) nonce: String,
     pub(super) verifier: Zeroizing<String>,
@@ -93,7 +97,6 @@ pub(super) struct Tentativa {
 struct Reautorizacao {
     client_id: String,
     sub: String,
-    id_token_hint: Option<String>,
     login_hint: Option<String>,
 }
 
@@ -111,8 +114,6 @@ struct Conta {
     access_token: Option<String>,
     #[serde(default)]
     refresh_token: Option<String>,
-    #[serde(default)]
-    id_token: Option<String>,
     /// Segundos de época da validade do access token.
     #[serde(default)]
     expira_em: Option<i64>,
@@ -132,6 +133,10 @@ impl Conta {
 pub(super) static TENTATIVA: Mutex<Option<Tentativa>> = Mutex::new(None);
 /// Geração da sessão: o «Sair» a incrementa e uma entrada que começou antes dele não grava depois.
 pub(super) static SESSAO: AtomicU64 = AtomicU64::new(0);
+/// Identificador da tentativa atual: um segundo login troca e a conclusão do primeiro não grava mais nada.
+pub(super) static ID_TENTATIVA: AtomicU64 = AtomicU64::new(0);
+/// Série do identificador do Hub: dois primeiros logins nunca geram identificadores diferentes.
+static SERIE_HOST_ID: Mutex<()> = Mutex::new(());
 /// Renovação serializada: duas renovações simultâneas nunca usam o mesmo refresh.
 static RENOVACAO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -166,31 +171,45 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
 
 /// Passo 1: exige a porta do ouvinte do app, gera o PKCE, o `state` e o `nonce`, guarda a
 /// tentativa (a nova substitui qualquer pendente) e devolve só a URL de autorização. A conta
-/// guardada decide registro novo (cliente dinâmico) ou reautorização (cliente emitido, com as
-/// dicas). A URL pode levar o `id_token_hint`: nunca vai a log nem a erro.
+/// guardada decide registro novo (cliente dinâmico) ou reautorização (cliente emitido, com a
+/// dica do rótulo); «Entrar com outra conta» ignora a guardada e registra de novo.
 pub(super) async fn entrar(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     assegurar_space_pessoal(body)?;
     let Ok(Some(porta)) = crate::fork::conectores::oauth_desktop::do_pedido(body) else {
         bail!("porta_invalida: o retorno deste login cai no ouvinte do app; informe uma das portas dele.")
     };
     let consentir = body.get("consentir") == Some(&Value::Bool(true));
+    // «Entrar com outra conta»: ignora o registro guardado e faz o registro dinâmico de novo.
+    let nova_conta = body.get("novaConta") == Some(&Value::Bool(true));
+    // A geração é lida antes do cofre: um «Sair» durante a espera não publica tentativa com a geração nova.
+    let geracao = SESSAO.load(Ordering::SeqCst);
     let conta = ler_conta_destravada(hub).await?;
-    let reautorizacao = conta.as_ref().and_then(reautorizacao_da_conta);
+    let reautorizacao = if nova_conta { None } else { conta.as_ref().and_then(reautorizacao_da_conta) };
     let host_id = host_id(&hub.store)?;
     let verifier = crypto::b64(&crypto::random::<32>());
     let nonce = crypto::b64(&crypto::random::<32>());
     let state = crypto::random::<32>();
-    *TENTATIVA.locked() = Some(Tentativa {
-        state,
-        nonce: nonce.clone(),
-        verifier: Zeroizing::new(verifier.clone()),
-        porta,
-        geracao: SESSAO.load(Ordering::SeqCst),
-        reautorizacao: reautorizacao.clone(),
-        criada_em: Instant::now(),
-    });
-    let dicas =
-        reautorizacao.as_ref().map(|r| (r.client_id.as_str(), r.id_token_hint.as_deref(), r.login_hint.as_deref()));
+    let id = ID_TENTATIVA.fetch_add(1, Ordering::SeqCst) + 1;
+    {
+        // Publicação sob a guarda, com a geração reconferida: o «Sair» de dentro da espera não passa.
+        let mut guard = TENTATIVA.locked();
+        if SESSAO.load(Ordering::SeqCst) != geracao {
+            bail!(
+                "sessao_encerrada: o «Sair» aconteceu enquanto o login era preparado; comece de novo neste computador."
+            );
+        }
+        *guard = Some(Tentativa {
+            id,
+            state,
+            nonce: nonce.clone(),
+            verifier: Zeroizing::new(verifier.clone()),
+            porta,
+            geracao,
+            reautorizacao: reautorizacao.clone(),
+            criada_em: Instant::now(),
+        });
+    }
+    let dicas = reautorizacao.as_ref().map(|r| (r.client_id.as_str(), r.login_hint.as_deref()));
     Ok(json!({"url": url_autorizacao(porta, &verifier, &crypto::b64(&state), &nonce, &host_id, dicas, consentir)?}))
 }
 
@@ -213,7 +232,6 @@ fn reautorizacao_da_conta(conta: &Conta) -> Option<Reautorizacao> {
     conta.client_id.starts_with(PREFIXO_CLIENTE).then(|| Reautorizacao {
         client_id: conta.client_id.clone(),
         sub: conta.sub.clone(),
-        id_token_hint: conta.id_token.clone(),
         login_hint: conta.rotulo.clone(),
     })
 }
@@ -226,7 +244,7 @@ pub(super) fn url_autorizacao(
     state: &str,
     nonce: &str,
     host_id: &str,
-    reautorizacao: Option<(&str, Option<&str>, Option<&str>)>,
+    reautorizacao: Option<(&str, Option<&str>)>,
     consentir: bool,
 ) -> Result<String> {
     let desafio = crypto::b64(&crypto::sha256(&[verifier.as_bytes()]));
@@ -239,7 +257,7 @@ pub(super) fn url_autorizacao(
                 q.append_pair("client_id", CLIENTE_DINAMICO);
                 q.append_pair("agent_name_hint", AGENTE);
             }
-            Some((client_id, _, _)) => {
+            Some((client_id, _)) => {
                 q.append_pair("client_id", client_id);
             }
         }
@@ -252,10 +270,7 @@ pub(super) fn url_autorizacao(
         q.append_pair("nonce", nonce);
         q.append_pair("code_challenge", &desafio);
         q.append_pair("code_challenge_method", "S256");
-        if let Some((_, Some(id_token_hint), _)) = reautorizacao {
-            q.append_pair("id_token_hint", id_token_hint);
-        }
-        if let Some((_, _, Some(login_hint))) = reautorizacao {
+        if let Some((_, Some(login_hint))) = reautorizacao {
             q.append_pair("login_hint", login_hint);
         }
         if consentir {
@@ -358,7 +373,6 @@ async fn gravar(hub: &Arc<Hub>, tentativa: &Tentativa, client_id: &str, troca: T
         escopos: Some(troca.escopos),
         access_token: Some(troca.access_token),
         refresh_token: Some(troca.refresh_token),
-        id_token: Some(troca.id_token),
         expira_em: Some(crate::store::now_ms() / 1000 + troca.expires_in),
     };
     let resposta = json!({
@@ -366,7 +380,9 @@ async fn gravar(hub: &Arc<Hub>, tentativa: &Tentativa, client_id: &str, troca: T
         "conta": {"rotulo": conta.rotulo.clone(), "planoHabilitado": conta.plano_habilitado()}
     });
     let _serie = RENOVACAO.lock().await;
-    if SESSAO.load(Ordering::SeqCst) != tentativa.geracao {
+    // O «Sair» derruba a geração; um segundo login troca o identificador da tentativa. Um dos dois
+    // não confere: quem chegou tarde não grava por cima de ninguém.
+    if SESSAO.load(Ordering::SeqCst) != tentativa.geracao || ID_TENTATIVA.load(Ordering::SeqCst) != tentativa.id {
         return Ok(json!({"ok": false, "erro": "sessao_encerrada"}));
     }
     crate::market::vault::unlock(hub.clone()).await?;
@@ -422,7 +438,12 @@ async fn trocar(tentativa: &Tentativa, client_id: &str, code: &str) -> Result<Tr
         access_token: campo(&valor, "access_token")?,
         refresh_token: campo(&valor, "refresh_token")?,
         id_token: campo(&valor, "id_token")?,
-        expires_in: valor["expires_in"].as_i64().ok_or(Falha::RespostaInvalida)?,
+        // Validade declarada pelo emissor: recusa ausente, não positiva ou maior que um ano (prazo
+        // que não faria sentido e estouraria a soma).
+        expires_in: valor["expires_in"]
+            .as_i64()
+            .filter(|segundos| *segundos > 0 && *segundos <= ANO_EM_SEGUNDOS)
+            .ok_or(Falha::RespostaInvalida)?,
         escopos: escopos.to_owned(),
     })
 }
@@ -541,9 +562,11 @@ async fn renovar(hub: &Arc<Hub>) -> Result<Option<Zeroizing<String>>> {
             crate::store::now_ms() / 1000
                 + valor["expires_in"]
                     .as_i64()
+                    .filter(|segundos| *segundos > 0 && *segundos <= ANO_EM_SEGUNDOS)
                     .ok_or_else(|| anyhow!("resposta_invalida: a renovação não declara a validade."))?,
         ),
-        escopos: valor["scope"].as_str().map(str::to_owned).or_else(|| conta.escopos.clone()),
+        // Sem `scope` na resposta, o plano fica desabilitado: só uma nova entrada reconfirma os escopos.
+        escopos: valor["scope"].as_str().map(str::to_owned),
         ..conta
     };
     // O refresh novo fica guardado antes do access voltar a quem chamou; sem ele o antigo morreu na rotação.
@@ -569,7 +592,6 @@ fn apagar_tokens(store: &Store, conta: &Conta) -> Result<()> {
         escopos: None,
         access_token: None,
         refresh_token: None,
-        id_token: None,
         expira_em: None,
     };
     gravar_conta(store, &sem_tokens)
@@ -609,13 +631,27 @@ async fn revogar(client_id: &str, refresh_token: &str) -> bool {
         ("token_type_hint", "refresh_token".to_owned()),
         ("client_id", client_id.to_owned()),
     ];
-    let Ok(resposta) = cliente.post(&destino).form(&pedido).timeout(PRAZO).send().await else { return false };
-    resposta.status().is_success()
+    // Falha passageira (rede ou 5xx) tem uma segunda chance; 4xx é recusa definitiva.
+    for _ in 0..2 {
+        let Ok(resposta) = cliente.post(&destino).form(&pedido).timeout(PRAZO).send().await else {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            continue;
+        };
+        if resposta.status().is_success() {
+            return true;
+        }
+        if resposta.status().as_u16() < 500 {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    false
 }
 
 /// Identificador opaco e estável deste Hub: um `urn:uuid:` v4 aleatório, gerado uma vez e
 /// guardado em kv; nunca derivado de hardware nem de dado pessoal.
 fn host_id(store: &Store) -> Result<String> {
+    let _serie = SERIE_HOST_ID.locked();
     if let Some(id) = store.kv_read(KV_HOST_ID)? {
         return Ok(id);
     }
