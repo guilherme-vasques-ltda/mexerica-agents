@@ -43,4 +43,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.recibo.campo.motor": "Moteur",
   "conversa.recibo.campo.esforco": "Effort",
   "conversa.recibo.tentarDeNovo": "Réessayer",
+  "conversa.recibo.uso.titulo": "Utilisation de ce tour",
+  "conversa.recibo.uso.entrada": "Entrée",
+  "conversa.recibo.uso.cacheLido": "Cache lu",
+  "conversa.recibo.uso.cacheGravado": "Cache écrit",
+  "conversa.recibo.uso.saida": "Sortie",
+  "conversa.recibo.uso.naoInformado": "non communiqué",
+  "conversa.recibo.uso.informado": "Chiffres communiqués par le moteur à la fin du tour. Mexerica n’estime rien : ce que le moteur ne communique pas apparaît comme « non communiqué ».",
+  "conversa.recibo.uso.semMedida": "Ce tour n’a pas de mesure d’utilisation : il est antérieur à cet enregistrement, ou le moteur n’a pas encore répondu.",
+  "conversa.recibo.uso.nenhum": "Le moteur n’a pas communiqué l’utilisation de ce tour.",
 }

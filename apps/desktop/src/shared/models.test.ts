@@ -41,6 +41,14 @@ test('the composer offers Fast mode until the agent says it has none, and while 
   assert.match(fastModeDetail(tradutor('en'), refused), /requires extra usage/)
 })
 
+test('resposta cortada aparece na conversa; o trecho de trabalho segue só na trilha e nenhuma das duas vira citável', () => {
+  const agent = (data: Entry['data']) => ({ id: 'a', botId: 'b', kind: 'agent', rev: 1, turn: 1, createdAt: 0, data }) as Entry
+  assert.equal(isChat(agent({ text: 'Pronto.', final: true })), true)
+  assert.equal(isChat(agent({ text: 'Comecei a ver os ext', final: false, interrupted: true })), true)
+  assert.equal(isChat(agent({ text: 'Vou olhar o arquivo.', final: false })), false)
+  assert.equal(isReplyable(agent({ text: 'Comecei a ver os ext', final: false, interrupted: true })), false)
+})
+
 test('a bot memory write shows with its undo; note lines and summaries stay out of the chat', () => {
   const notice = (data: Entry['data']) => ({ id: 'n', botId: 'b', kind: 'notice', rev: 1, turn: 1, createdAt: 0, data }) as Entry
   assert.equal(isChat(notice({ text: 'Lembrei: gosta de chá', memory: { status: 'done', rev: 7 } })), true)
@@ -120,7 +128,7 @@ test('preferência de navegador antiga assume integrado e PC persiste em normali
 
 test('o schema atual invalida caches 29 até o anterior e conserva preferência sem transformar cache em autorização', () => {
   const stamp = mirrorCacheStamp('fixture-app', 'fixture-hub')
-  assert.equal(stamp, 'donnabot-mirror-v58/fixture-app/fixture-hub')
+  assert.equal(stamp, 'donnabot-mirror-v63/fixture-app/fixture-hub')
   // MEX-1391: o cache do schema 51 não tem `contaTroca` nem os códigos novos de falha de preparo.
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v51/fixture-app/fixture-hub'), false)
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v50/fixture-app/fixture-hub'), false)

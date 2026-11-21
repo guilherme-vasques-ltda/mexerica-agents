@@ -1,4 +1,4 @@
-// GUI-192: o aviso de motor mudo na conversa — leitura do dado do Hub e frase em cada idioma do app.
+// O aviso de motor mudo na conversa — leitura do dado do Hub e frase em cada idioma do app.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Entry } from '@shared/models'

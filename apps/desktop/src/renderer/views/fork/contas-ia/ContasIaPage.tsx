@@ -1,6 +1,7 @@
 import { CardForm } from '../../../components/Controls'
 import { Text } from '../../../components/Text'
 import { StoreContext, useApp } from '../../../store/context'
+import { ApiDireta } from './ApiDireta'
 import { ContasDoHub } from './ContasDoHub'
 import { MotoresDoHub } from './MotoresDoHub'
 import { useTextosContas } from './use-textos'
@@ -39,6 +40,7 @@ export function ContasIaPage({ aba = null }: { aba?: 'contas' | 'motores' | null
       {stores.map((store) => (
         <StoreContext.Provider key={store.computer.id} value={store}>
           {open || aba !== 'motores' ? <ContasDoHub /> : null}
+          {open || aba !== 'motores' ? <ApiDireta /> : null}
           {!open && aba !== 'contas' ? <MotoresDoHub /> : null}
         </StoreContext.Provider>
       ))}

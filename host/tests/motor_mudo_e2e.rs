@@ -1,4 +1,4 @@
-//! GUI-192: o Hub avisa, sem matar nada, quando o motor fica mudo no meio de um turno. Um Hub real com motores de
+//! O Hub avisa, sem matar nada, quando o motor fica mudo no meio de um turno. Um Hub real com motores de
 //! mentira (`tests/fixtures/silent_agent.py`) e o limite encurtado para 3 s.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

@@ -43,4 +43,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.recibo.campo.motor": "Engine",
   "conversa.recibo.campo.esforco": "Effort",
   "conversa.recibo.tentarDeNovo": "Try again",
+  "conversa.recibo.uso.titulo": "Usage this turn",
+  "conversa.recibo.uso.entrada": "Input",
+  "conversa.recibo.uso.cacheLido": "Cache read",
+  "conversa.recibo.uso.cacheGravado": "Cache written",
+  "conversa.recibo.uso.saida": "Output",
+  "conversa.recibo.uso.naoInformado": "not reported",
+  "conversa.recibo.uso.informado": "Numbers reported by the engine at the end of the turn. Mexerica does not estimate: anything the engine does not report shows as “not reported”.",
+  "conversa.recibo.uso.semMedida": "This turn has no usage measure: it predates this record, or the engine has not answered yet.",
+  "conversa.recibo.uso.nenhum": "The engine did not report usage for this turn.",
 }

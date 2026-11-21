@@ -1,4 +1,4 @@
-// GUI-192: o aviso de motor mudo. O Hub grava o estado e o tempo (dados); a frase sai do catálogo no idioma do app.
+// O aviso de motor mudo. O Hub grava o estado e o tempo (dados); a frase sai do catálogo no idioma do app.
 import type { Entry } from '@shared/models'
 import type { Tradutor } from '../../../lib/fork-i18n/estado'
 

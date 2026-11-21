@@ -1,0 +1,364 @@
+{
+  "aviso": "Dados 100% fictícios. Nada aqui vem de conta, e-mail, grupo ou fornecedor reais.",
+  "contexto": {
+    "agora": "2026-11-18T15:00:00-03:00",
+    "preferencias": {
+      "silencioInicio": 22,
+      "silencioFim": 7,
+      "resumoManha": "07:30",
+      "fuso": "America/Sao_Paulo"
+    }
+  },
+  "cenas": [
+    {
+      "id": "multa",
+      "titulo": "Possível multa recebida por e-mail",
+      "fonte": {
+        "tipo": "email_ficticio",
+        "concessao": {
+          "ativa": true,
+          "finalidade": "aviso_privado"
+        }
+      },
+      "dados": {
+        "chave": "multa-001",
+        "versao": 1,
+        "afirmacao": "possivel_multa",
+        "remetenteVerificado": false,
+        "prazo": "2026-11-19T12:00:00-03:00",
+        "resolvido": null,
+        "retirado": false,
+        "conteudoPrivado": "TEXTO-BRUTO-FICTICIO-multa"
+      },
+      "esperado": {
+        "oferta": "interromper",
+        "incerteza": "nao_confirmado",
+        "naoConfirmado": [
+          "autenticidade",
+          "divida"
+        ],
+        "vedadas": [
+          "abrir_link",
+          "pagar"
+        ]
+      }
+    },
+    {
+      "id": "alunos",
+      "titulo": "Mensagens de alunos aguardando retorno",
+      "fonte": {
+        "tipo": "grupo_ficticio",
+        "concessao": {
+          "ativa": true,
+          "finalidade": "aviso_privado"
+        }
+      },
+      "dados": {
+        "chave": "alunos-turma-a",
+        "versao": 1,
+        "grupo": "Turma A (fictícia)",
+        "ultimaPerguntaDe": "aluno",
+        "horasSemResposta": 30,
+        "respostaPosterior": false,
+        "retirado": false,
+        "resolvido": null,
+        "conteudoPrivado": "TEXTO-BRUTO-FICTICIO-alunos"
+      },
+      "esperado": {
+        "oferta": "resumo",
+        "incerteza": "confirmado",
+        "naoConfirmado": [],
+        "vedadas": [
+          "responder_pelo_dono",
+          "expor_mensagens"
+        ]
+      }
+    },
+    {
+      "id": "excedente",
+      "titulo": "Fornecedor avisa uso excedente",
+      "fonte": {
+        "tipo": "fornecedor_ficticio",
+        "concessao": {
+          "ativa": true,
+          "finalidade": "aviso_privado"
+        }
+      },
+      "dados": {
+        "chave": "excedente-f1",
+        "versao": 1,
+        "limite": 100,
+        "consumoAtual": 120,
+        "faturasCitadas": [
+          "F1",
+          "F1",
+          "F2"
+        ],
+        "liquidado": false,
+        "bloqueioPrevisto": true,
+        "retirado": false,
+        "resolvido": null,
+        "conteudoPrivado": "TEXTO-BRUTO-FICTICIO-excedente"
+      },
+      "esperado": {
+        "oferta": "interromper",
+        "incerteza": "confirmado",
+        "naoConfirmado": [
+          "valor_devido"
+        ],
+        "vedadas": [
+          "pagar",
+          "cancelar"
+        ]
+      }
+    },
+    {
+      "id": "renovacao",
+      "titulo": "Renovação prevista no pedido",
+      "fonte": {
+        "tipo": "pedido_ficticio",
+        "concessao": {
+          "ativa": true,
+          "finalidade": "aviso_privado"
+        }
+      },
+      "dados": {
+        "chave": "renovacao-p1",
+        "versao": 1,
+        "dataRenovacao": "2026-11-17",
+        "origemDoDado": "pedido antigo (fictício)",
+        "evidenciaAssinaturaAtiva": false,
+        "retirado": false,
+        "resolvido": null,
+        "conteudoPrivado": "TEXTO-BRUTO-FICTICIO-renovacao"
+      },
+      "esperado": {
+        "oferta": "resumo",
+        "incerteza": "incerto",
+        "naoConfirmado": [
+          "assinatura_ativa",
+          "autorizacao_de_pagamento"
+        ],
+        "vedadas": [
+          "pagar",
+          "renovar"
+        ]
+      }
+    },
+    {
+      "id": "alertas",
+      "titulo": "Alertas de serviço após atualização",
+      "fonte": {
+        "tipo": "alertas_ficticios",
+        "concessao": {
+          "ativa": true,
+          "finalidade": "aviso_privado"
+        }
+      },
+      "dados": {
+        "chave": "alertas-u1",
+        "versao": 1,
+        "alertas": [
+          "a1",
+          "a1",
+          "a2"
+        ],
+        "severidade": "alta",
+        "recuperado": false,
+        "retirado": false,
+        "resolvido": null,
+        "conteudoPrivado": "TEXTO-BRUTO-FICTICIO-alertas",
+        "confirmacaoIndependente": true
+      },
+      "esperado": {
+        "oferta": "interromper",
+        "incerteza": "incerto",
+        "naoConfirmado": [
+          "causa",
+          "impacto"
+        ],
+        "vedadas": [
+          "alterar_producao"
+        ]
+      }
+    }
+  ],
+  "variantes": {
+    "respondido": {
+      "silencio": "respondido",
+      "patchPorCena": {
+        "multa": {
+          "dados": {
+            "resolvido": "pago_pelo_dono"
+          }
+        },
+        "alunos": {
+          "dados": {
+            "respostaPosterior": true
+          }
+        },
+        "excedente": {
+          "dados": {
+            "liquidado": true
+          }
+        },
+        "renovacao": {
+          "dados": {
+            "resolvido": "renovacao_confirmada_pelo_dono"
+          }
+        },
+        "alertas": {
+          "dados": {
+            "resolvido": "tratado_pelo_dono"
+          }
+        }
+      }
+    },
+    "cancelado": {
+      "patch": {
+        "dados": {
+          "retirado": true
+        }
+      },
+      "silencio": "cancelado"
+    },
+    "fora_de_hora": {
+      "patch": {
+        "agora": "2026-11-18T23:30:00-03:00"
+      },
+      "silencio": "fora_de_hora"
+    },
+    "acesso_revogado": {
+      "patch": {
+        "fonte": {
+          "concessao": {
+            "ativa": false
+          }
+        }
+      },
+      "silencio": "acesso_revogado"
+    },
+    "repetido": {
+      "historico": true,
+      "silencio": "repetido"
+    },
+    "finalidade_outra": {
+      "patch": {
+        "fonte": {
+          "concessao": {
+            "finalidade": "outra_finalidade"
+          }
+        }
+      },
+      "silencio": "sem_finalidade"
+    }
+  },
+  "extras": [
+    {
+      "id": "alertas+recuperado",
+      "cena": "alertas",
+      "patch": {
+        "dados": {
+          "recuperado": true
+        }
+      },
+      "silencio": "recuperado"
+    },
+    {
+      "id": "alertas+falso_alarme",
+      "cena": "alertas",
+      "patch": {
+        "dados": {
+          "confirmacaoIndependente": false
+        }
+      },
+      "silencio": "falso_alarme"
+    },
+    {
+      "id": "alertas+zero",
+      "cena": "alertas",
+      "patch": {
+        "dados": {
+          "alertas": []
+        }
+      },
+      "silencio": "nada_pendente"
+    },
+    {
+      "id": "multa+versao_nova_sem_mudar_relevancia",
+      "cena": "multa",
+      "historico": true,
+      "patch": {
+        "dados": {
+          "versao": 2
+        }
+      },
+      "silencio": "repetido"
+    },
+    {
+      "id": "multa+prazo_mudou",
+      "cena": "multa",
+      "historico": true,
+      "patch": {
+        "dados": {
+          "versao": 2,
+          "prazo": "2026-11-18T18:00:00-03:00"
+        }
+      },
+      "oferta": "interromper"
+    },
+    {
+      "id": "excedente+consumo_subiu",
+      "cena": "excedente",
+      "historico": true,
+      "patch": {
+        "dados": {
+          "versao": 2,
+          "consumoAtual": 150
+        }
+      },
+      "oferta": "interromper"
+    },
+    {
+      "id": "renovacao+futura_sem_prova",
+      "cena": "renovacao",
+      "patch": {
+        "dados": {
+          "dataRenovacao": "2026-11-25"
+        }
+      },
+      "oferta": "resumo",
+      "incerteza": "nao_confirmado"
+    },
+    {
+      "id": "renovacao+com_prova",
+      "cena": "renovacao",
+      "patch": {
+        "dados": {
+          "dataRenovacao": "2026-11-25",
+          "evidenciaAssinaturaAtiva": true
+        }
+      },
+      "oferta": "resumo",
+      "incerteza": "confirmado"
+    },
+    {
+      "id": "multa+entrou_nas_24h_apos_resumo",
+      "cena": "multa",
+      "historico": true,
+      "historicoAgora": "2026-11-17T09:00:00-03:00",
+      "oferta": "interromper"
+    },
+    {
+      "id": "excedente+bloqueio_previsto_apos_resumo",
+      "cena": "excedente",
+      "historico": true,
+      "historicoPatch": {
+        "dados": {
+          "bloqueioPrevisto": false
+        }
+      },
+      "oferta": "interromper"
+    }
+  ]
+}

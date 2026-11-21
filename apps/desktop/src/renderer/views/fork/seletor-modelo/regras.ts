@@ -233,6 +233,8 @@ export interface ContaMotor {
   models: readonly { id: string }[]
   /** Entrega 3: os modelos que a pessoa ocultou nesta conta (Contas de IA); ausente ou vazio, nenhum. */
   hiddenModelIds?: readonly string[]
+  /** Como a conta é cobrada (`subscription`, `paid_api`, `unverified`); ausente, desconhecida. Alimenta o selo da conexão. */
+  billing?: string
   /** Só na função de fundo: o Automático (modelo vazio) tem receita que o Hub resolve nesta conta; `false` o bloqueia. Ausente: serve (conversa). */
   automatico?: boolean
 }

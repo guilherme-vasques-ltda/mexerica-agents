@@ -121,6 +121,12 @@ pub(crate) fn start_open_codex(launch: crate::fork::open_codex::AppServer) -> io
     Ok(Child { group: None, inner: launch.spawn()? })
 }
 
+/// Um app-server fictício do protocolo, para os testes da conversa da Open.
+#[cfg(all(test, unix))]
+pub(crate) fn fixture(inner: tokio::process::Child) -> Child {
+    Child { group: None, inner }
+}
+
 pub(crate) async fn output(command: &mut Command) -> io::Result<Output> {
     command.stdin(Stdio::null()).stdout(Stdio::piped());
     spawn(command)?.wait_with_output().await

@@ -302,8 +302,35 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         if cfg!(target_os = "macos") { "open_codex_unavailable" } else { "open_codex_platform" }
     );
     assert!(final_state["challenge"].is_null());
+    let berga = rpc(&session_client, &credential, "teamSettings", json!({})).await["primaryBotId"].clone();
+    let personal = &created["spaces"][0]["id"];
+    let conversation = json!({"hubId": first["hostId"], "spaceId": personal, "conversationId": berga});
+    let listed = rpc(&session_client, &credential, "donnaConversations", conversation.clone()).await;
+    assert!(listed["conversations"].as_array().unwrap().iter().any(|c| c["id"] == berga));
+    let before = rpc(&session_client, &credential, "donnaConversationHistory", conversation.clone()).await;
+    let message = json!({"hubId": first["hostId"], "spaceId": personal, "conversationId": berga, "botId": berga, "text": "Oi", "clientNonce": "open-chat"});
+    let refused =
+        session_client.post("http://localhost/api/send").bearer_auth(&credential).json(&message).send().await.unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert!(refused.text().await.unwrap().contains("open_chat_account_required"));
+    for (key, value) in [("attachments", json!(["upload-fixture"])), ("sessionId", json!("session-fixture"))] {
+        let mut body = message.clone();
+        body[key] = value;
+        let status = session_client
+            .post("http://localhost/api/send")
+            .bearer_auth(&credential)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{key}");
+    }
+    let after = rpc(&session_client, &credential, "donnaConversationHistory", conversation).await;
+    assert_eq!(after["entries"], before["entries"], "a refused message is not saved");
+    rpc(&session_client, &credential, "stop", json!({"botId": berga})).await;
     for method in [
-        "send",
+        "donnaConversationSend",
         "requestScreenPermission",
         "setCloud",
         "installHostUpdate",

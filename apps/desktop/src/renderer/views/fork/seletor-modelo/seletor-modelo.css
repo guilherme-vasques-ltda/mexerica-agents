@@ -169,6 +169,12 @@
   font-size: 0.8em;
   font-weight: 600;
 }
+.seletor-selo {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--ink-2);
+}
 .seletor-linha-nota { margin: 2px 0 0; padding: 6px 8px 6px 26px; color: var(--ink-2); font-size: 0.86em; }
 .seletor-estrela {
   width: 26px;

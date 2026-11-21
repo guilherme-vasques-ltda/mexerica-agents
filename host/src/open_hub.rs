@@ -38,9 +38,14 @@ pub(crate) fn require_executor() -> std::io::Result<()> {
 }
 
 pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
-    if !Environment::is_open() {
+    if !Environment::is_open() || open_allows(method, body) {
         return Ok(());
     }
+    Err(crate::api::devices::Forbidden.into())
+}
+
+/// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
+pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
     match method {
         "hello"
         | "refreshBackends"
@@ -57,11 +62,41 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
         | "donnaEngineAccess"
         | "donnaBotEditor"
         | "donnaBotEditorSave"
+        | "donnaConversations"
+        | "donnaConversationHistory"
+        | "donnaConversationRead"
+        | "stop"
         | "deleteBot"
-        | "reorderBots" => Ok(()),
-        "createBot" | "updateBot" if body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")) => Ok(()),
-        _ if crate::fork::engine_setup::open_login_method(method) => Ok(()),
-        _ => Err(crate::api::devices::Forbidden.into()),
+        | "reorderBots" => true,
+        "createBot" | "updateBot" => body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")),
+        // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
+        "send" => ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)),
+        _ if crate::fork::engine_setup::open_login_method(method) => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_allows;
+    use serde_json::json;
+
+    #[test]
+    fn open_recusa_os_metodos_de_planos_de_codigo_e_de_chaves() {
+        for method in crate::fork::planos_codigo::METHODS.into_iter().chain([
+            "engineGoKeySave",
+            "setAgentEnv",
+            "agentAuthenticate",
+        ]) {
+            assert!(!open_allows(method, &json!({})), "{method} não pode existir na Open");
+        }
+        assert!(open_allows("hello", &json!({})));
+        assert!(open_allows("createBot", &json!({})));
+        assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
+        assert!(open_allows("send", &json!({"text": "oi"})));
+        assert!(open_allows("send", &json!({"attachments": null, "sessionId": null})));
+        assert!(!open_allows("send", &json!({"attachments": ["arquivo"]})));
+        assert!(!open_allows("send", &json!({"sessionId": "extra"})));
     }
 }
 
@@ -184,6 +219,17 @@ mod unix {
         Ok(())
     }
 
+    /// Pasta de ajudantes que o Codex recria a cada início em `.codex/tmp`; fica com links quando ele é morto à força.
+    fn codex_helpers(path: &Path) -> bool {
+        fn name(path: Option<&Path>) -> &str {
+            path.and_then(Path::file_name).and_then(|name| name.to_str()).unwrap_or_default()
+        }
+        let folder = name(Some(path));
+        (folder == "arg0" || folder.strip_prefix("arg0-").is_some_and(|os| os.bytes().all(|b| b.is_ascii_lowercase())))
+            && name(path.parent()) == "tmp"
+            && name(path.parent().and_then(Path::parent)) == ".codex"
+    }
+
     fn validate_data(root: &Path) -> Result<()> {
         let mut pending = vec![root.to_path_buf()];
         while let Some(dir) = pending.pop() {
@@ -192,7 +238,10 @@ mod unix {
                 let kind = entry.file_type()?;
                 let metadata = entry.metadata()?;
                 ensure!(metadata.uid() == private_fs::uid(), "wrong owner in Mexerica Open data");
-                if kind.is_dir() {
+                if kind.is_dir() && codex_helpers(&entry.path()) {
+                    // O Codex recria a pasta a cada início e a limpa sozinha; deixada com links por um encerramento
+                    // forçado, ela é inofensiva e a abertura só a tolera, sem apagar nada.
+                } else if kind.is_dir() {
                     ensure!(metadata.mode() & 0o022 == 0, "writable directory in Mexerica Open data");
                     pending.push(entry.path());
                 } else {
@@ -204,6 +253,22 @@ mod unix {
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn startup_tolerates_codex_helper_links_and_still_refuses_any_other_link() {
+        use std::os::unix::fs::{DirBuilderExt, symlink};
+        let root = std::env::temp_dir().join(format!("open-data-{}", uuid::Uuid::new_v4()));
+        let tmp = root.join("engine-setup/accounts/a1/h1/.codex/tmp");
+        let helpers = tmp.join("arg0-macos/codex-sessao");
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&helpers).unwrap();
+        symlink("/usr/bin/true", helpers.join("apply_patch")).unwrap();
+        validate_data(&root).unwrap();
+        assert!(helpers.join("apply_patch").exists(), "a abertura só tolera a pasta de ajudantes e não apaga nada");
+        symlink("/usr/bin/true", tmp.join("apply_patch")).unwrap();
+        assert!(validate_data(&root).is_err(), "link fora da pasta de ajudantes continua recusado");
+        let _ = fs::remove_dir_all(&root);
     }
 
     struct SocketFile {
@@ -288,6 +353,7 @@ mod unix {
             result = axum::serve(tcp, axum::Router::new()).into_future() => result,
         };
         crate::fork::engine_setup::shutdown_open(&hub).await;
+        crate::fork::open_chat::shutdown(&hub).await;
         hub.shutdown().await;
         crate::agent::acp::stopped().await;
         drop(socket_file);

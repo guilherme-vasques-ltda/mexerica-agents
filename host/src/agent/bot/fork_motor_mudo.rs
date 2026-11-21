@@ -1,4 +1,4 @@
-//! GUI-192: aviso quando o motor fica mudo no meio de um turno.
+//! Aviso quando o motor fica mudo no meio de um turno.
 //!
 //! O Hub só avisa; nunca encerra o processo nem repete o turno. O silêncio conta desde o último sinal do motor
 //! (uma atualização da sessão do turno, um pedido de permissão ou de leitura de skill), e só

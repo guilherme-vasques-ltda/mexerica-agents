@@ -9,6 +9,18 @@ fn name(word: &str) -> String {
 }
 
 pub fn check(cfg: &BotConfig) -> Result<()> {
+    // Comando próprio que abre o binário conhecido de um motor retirado: recusado para qualquer
+    // motor, antes das demais regras. Só os binários desses motores; um executável arbitrário não
+    // é bloqueado aqui.
+    if let Some(command) = cfg.command.as_deref().map(str::trim).filter(|c| !c.is_empty())
+        && let Some(executavel) = shlex::split(command).and_then(|palavras| palavras.into_iter().next())
+    {
+        let nome = name(&executavel);
+        let abre_retirado = crate::agent::backends::HARNESSES
+            .iter()
+            .any(|h| crate::fork::motores_retirados::retirado(h.id) && h.bins.contains(&nome.as_str()));
+        ensure!(!abre_retirado, "Este comando abre um motor que não está disponível nesta versão da Mexerica.");
+    }
     if !matches!(cfg.backend.as_str(), "codex" | "custom") {
         return Ok(());
     }
@@ -130,7 +142,6 @@ mod tests {
             "uvx pacote",
             "python3 -m pacote",
             "~/bin/agente --acp",
-            "junie --acp=true",
             "droid exec --output-format acp-daemon",
             "node /adapter/index.js literal",
             "npx -y @google/gemini-cli --experimental-acp",
@@ -138,6 +149,42 @@ mod tests {
             "npx -y @agentclientprotocol/codex-acp@2.2.2",
         ] {
             assert!(check(&cfg(command)).is_ok(), "{command}");
+        }
+    }
+
+    /// Só o binário conhecido de um motor retirado é recusado; qualquer outro executável segue
+    /// pelas regras comuns do comando próprio, sem declaração de bloqueio arbitrário.
+    #[test]
+    fn comando_proprio_que_abre_binario_de_motor_retirado_e_recusado_em_qualquer_backend() {
+        const MSG: &str = "Este comando abre um motor que não está disponível nesta versão da Mexerica.";
+        for backend in ["custom", "codex", "claude"] {
+            for command in [
+                "kilo",
+                "/caminho/qualquer/kilo",
+                "junie --acp=true",
+                "cline --acp",
+                "goose acp",
+                "amp login",
+                "mcode acp",
+                "qwen --acp",
+                "vibe",
+                "vibe-acp",
+                "OMP",
+                "pi",
+                "Kilo.EXE",
+            ] {
+                let cfg: BotConfig =
+                    serde_json::from_value(json!({"id":"a", "name":"Teste", "backend":backend, "command":command}))
+                        .unwrap();
+                let erro = check(&cfg).unwrap_err().to_string();
+                assert_eq!(erro, MSG, "{backend}: {command}");
+            }
+        }
+        for command in ["meu-agente --acp", "codex-acp", "grok agent stdio"] {
+            let cfg: BotConfig =
+                serde_json::from_value(json!({"id":"a", "name":"Teste", "backend":"custom", "command":command}))
+                    .unwrap();
+            check(&cfg).unwrap_or_else(|e| panic!("{command}: {e}"));
         }
     }
 

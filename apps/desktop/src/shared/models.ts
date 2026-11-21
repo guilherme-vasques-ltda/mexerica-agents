@@ -421,7 +421,7 @@ export interface EntryData {
    * `alreadyStarted` = o cancelamento chegou depois de a retomada ter sido autorizada.
    */
   subscriptionWait?: { resumeAt?: number | null; retry?: boolean; waitId?: string; cancelled?: boolean; snoozed?: boolean; autoResume?: boolean; ready?: boolean; alreadyStarted?: boolean }
-  /** GUI-192: o motor do bot ficou `segundos` sem dar sinal no meio de um turno (`mudo`); `voltou` quando ele respondeu de novo ou o turno acabou. */
+  /** O motor do bot ficou `segundos` sem dar sinal no meio de um turno (`mudo`); `voltou` quando ele respondeu de novo ou o turno acabou. */
   motorMudo?: { estado: 'mudo' | 'voltou'; segundos: number }
   /**
    * MX-263: o aviso é a espera de uma execução de rotina. Preserva os controles da espera (não
@@ -459,9 +459,15 @@ export interface EntryData {
   /** Continuação interna criada pelo Hub, não uma mensagem da pessoa. */
   from?: string
   final?: boolean
+  /** A resposta foi cortada (parada, erro ou Hub desligado) antes do fim; o texto vai até o corte. */
+  interrupted?: boolean
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
   clientNonce?: string
+  /** Só na bolha local que não foi enviada: o motivo da recusa da Open, como chave de texto. */
+  recusa?: string
+  /** Código fixo de um aviso do Hub, traduzido pela janela quando ela o conhece. */
+  code?: string
   contentOrigin?: ContentOrigin
   pasted?: string[]
   /** DON-907 (D431): a posição na fila depois de uma reordenação (`queuedMove`); sem ela, vale `seq`. */
@@ -570,7 +576,7 @@ export function isChat(e: Entry): boolean {
       // O marcador de sessão é só para apps antigos; este app mostra a sessão no topo da conversa.
       return (!e.data.memory || memoryShown(e.data.memory)) && (!e.data.memoryFile || !!migratedMemoryNote(e.data)) && !e.data.compaction && e.data.handoff?.status !== 'kept' && !e.data.sessionMarker
     case 'agent':
-      return e.data.final === true
+      return e.data.final === true || e.data.interrupted === true
     default:
       return false
   }
