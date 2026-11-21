@@ -3,7 +3,7 @@ import { vozBridge } from './fork-voz'
 import { accountProfileBridge } from './fork-account-profile'
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { sshBridge } from './ssh'
-import type { CallError, CodyncBridge, HostSnapshot, TraySummary, WindowCommand } from '../shared/ipc'
+import type { CallError, CodyncBridge, HostSnapshot, ReleaseNoticeState, TraySummary, WindowCommand } from '../shared/ipc'
 import type { BrowserFrame } from '../shared/relay-protocol/browser-frames'
 
 let streamId = 0
@@ -159,6 +159,14 @@ const bridge: CodyncBridge = {
     install: () => ipcRenderer.send('updates:install'),
     setAutoCheck: (on) => ipcRenderer.send('updates:autoCheck', on),
     setAutoDownload: (on) => ipcRenderer.send('updates:autoDownload', on),
+  },
+  // Nível 1 de atualizações: canais escritos de propósito (mesma regra de forkCofre, MX-209).
+  releaseNotice: {
+    state: () => ipcRenderer.invoke('releaseNotice:state') as Promise<ReleaseNoticeState>,
+    check: () => ipcRenderer.invoke('releaseNotice:check') as Promise<ReleaseNoticeState>,
+    dismiss: () => ipcRenderer.invoke('releaseNotice:dismiss') as Promise<ReleaseNoticeState>,
+    openDownload: () => ipcRenderer.invoke('releaseNotice:openDownload') as Promise<boolean>,
+    onChange: (cb) => listen('releaseNotice:change', cb),
   },
   files: {
     begin: (file) => ipcRenderer.invoke('files:begin', file),

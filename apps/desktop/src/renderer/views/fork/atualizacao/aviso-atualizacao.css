@@ -1,0 +1,39 @@
+/* Nível 1 de atualizações: um aviso calmo e discreto no canto da janela — pílula compacta, só
+   tokens do tema, sem cor de erro. Propriedades lógicas: o canto acompanha o idioma (RTL incluso). */
+.aviso-atualizacao {
+  position: fixed;
+  inset-inline-end: 16px;
+  inset-block-end: 16px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  animation: aviso-atualizacao-entra var(--fade) var(--ease-out);
+}
+.aviso-atualizacao-texto {
+  font-size: var(--text-callout);
+  color: var(--ink);
+}
+.aviso-atualizacao .styled-button {
+  flex: none;
+}
+.aviso-atualizacao-dispensar {
+  flex: none;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.aviso-atualizacao-dispensar:hover {
+  color: var(--ink);
+}
+@keyframes aviso-atualizacao-entra {
+  from { opacity: 0; }
+}
