@@ -211,8 +211,7 @@ mod unix {
                 let metadata = entry.metadata()?;
                 ensure!(metadata.uid() == private_fs::uid(), "wrong owner in Mexerica Open data");
                 if kind.is_dir() && codex_helpers(&entry.path()) {
-                    // A limpeza é de `drop_idle_codex_helpers`, só depois da trava do perfil.
-                    continue;
+                    // Tolerada aqui; quem a limpa é `drop_idle_codex_helpers`, só depois da trava do perfil.
                 } else if kind.is_dir() {
                     ensure!(metadata.mode() & 0o022 == 0, "writable directory in Mexerica Open data");
                     pending.push(entry.path());
