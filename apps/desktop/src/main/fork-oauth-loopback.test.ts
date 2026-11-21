@@ -53,6 +53,18 @@ test('o pedido do Hub só vale com redirect_uri exato do app, https e um único 
   assert.equal(lerPedido(42, 19424), null)
 })
 
+test('o pedido do Hub também vale com callback_url (OpenRouter), sozinho e exato do app; com redirect_uri junto não passa', () => {
+  const auth = (porta: number, extra = '') => `https://openrouter.ai/auth?callback_url=${encodeURIComponent(redirectDoApp(porta))}&state=estado-1${extra}`
+  assert.deepEqual(lerPedido(auth(19424), 19424), { state: 'estado-1' }, 'callback_url aceito no lugar do redirect_uri')
+  assert.equal(lerPedido(auth(19424), 19425), null, 'porta diferente')
+  assert.equal(lerPedido(auth(19424, `&redirect_uri=${encodeURIComponent(redirectDoApp(19424))}`), 19424), null, 'os dois juntos recusam')
+  assert.equal(lerPedido(auth(19424, `&callback_url=${encodeURIComponent(redirectDoApp(19424))}`), 19424), null, 'callback repetido')
+  assert.equal(lerPedido(`https://x.test/a?callback_url=${encodeURIComponent(redirectDoApp(19425))}&state=s`, 19424), null, 'callback de outra porta do app')
+  assert.equal(lerPedido(auth(19424, '&state=outro'), 19424), null, 'state repetido')
+  assert.equal(lerPedido(`https://x.test/a?callback_url=${encodeURIComponent(redirectDoApp(19424))}`, 19424), null, 'sem state')
+  assert.equal(lerPedido(`https://x.test/a?callback_url=http%3A%2F%2Fatacante.test%2Foauth%2Fcallback&state=s`, 19424), null, 'callback que não é o do app')
+})
+
 test('retorno certo: chega ao app, o navegador espera o desfecho e vê a página em português; depois o ouvinte some', async () => {
   const { retorno, abertas } = montar()
   const aberto = await retorno.abrir()

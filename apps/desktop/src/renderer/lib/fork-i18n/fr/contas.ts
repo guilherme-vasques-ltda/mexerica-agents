@@ -298,4 +298,9 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.respostaInvalida": "Le fournisseur a renvoyé une réponse inattendue.",
   "contas.apiDireta.erro.semChave": "Aucune clé enregistrée pour ce fournisseur.",
   "contas.apiDireta.erro.desconhecido": "Impossible de tester pour le moment : {motivo}",
+  "contas.apiDireta.openrouter.entrar": "Se connecter avec OpenRouter",
+  "contas.apiDireta.openrouter.aguardando": "En attente du navigateur…",
+  "contas.apiDireta.openrouter.erro.cancelado": "La connexion avec OpenRouter a été annulée.",
+  "contas.apiDireta.openrouter.erro.tempo": "La connexion avec OpenRouter a pris trop de temps.",
+  "contas.apiDireta.openrouter.erro.falha": "Impossible de terminer la connexion avec OpenRouter.",
 }

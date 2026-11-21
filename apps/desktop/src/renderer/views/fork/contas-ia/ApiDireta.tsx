@@ -11,6 +11,7 @@ import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 import { amostraDeModelos, chaveDoErro, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { entrarComOpenRouter, fraseDaFalha, FalhaOpenRouter } from './openrouter-login'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
 import '../../settings/settings.css'
 
@@ -51,18 +52,25 @@ export function ApiDireta() {
   )
 }
 
-function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorDaChave; aoMudar: () => Promise<void> }) {
+/** Uma linha de fornecedor da API direta: colar a chave ou, no OpenRouter, entrar pelo navegador. */
+export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorDaChave; aoMudar: () => Promise<void> }) {
   const store = useStore()
   const t = useT()
   const [editando, setEditando] = useState(false)
   const [chave, setChave] = useState('')
   const [ocupado, setOcupado] = useState(false)
-  const [resultado, setResultado] = useState<Acesso | { ok: false; motivo: string } | null>(null)
+  const [resultado, setResultado] = useState<Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } | null>(null)
+  const [loginAberto, setLoginAberto] = useState(false)
   const ocupadoRef = useRef(false)
+  const cancelarLoginRef = useRef<(() => void) | null>(null)
   // Sair da tela no meio da digitação não deixa a chave em estado nenhum.
   useEffect(() => () => setChave(''), [])
 
-  const rodar = (trabalho: () => Promise<Acesso | { ok: boolean }>, depois?: (r: Acesso) => void) => {
+  const rodar = (
+    trabalho: () => Promise<Acesso | { ok: boolean }>,
+    depois?: (r: Acesso) => void,
+    mapearFalha?: (e: unknown) => { ok: false; frase: ChaveTexto } | undefined,
+  ) => {
     const client = liveClient(store)
     if (!client || ocupadoRef.current) return
     ocupadoRef.current = true
@@ -78,10 +86,12 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
         esquecerModelos(store.computer.id, 'mexerica')
         return aoMudar()
       })
-      .catch((e: unknown) => setResultado({ ok: false, motivo: e instanceof Error ? e.message : String(e) }))
+      .catch((e: unknown) => setResultado(mapearFalha?.(e) ?? { ok: false, motivo: e instanceof Error ? e.message : String(e) }))
       .finally(() => {
         ocupadoRef.current = false
         setOcupado(false)
+        setLoginAberto(false)
+        cancelarLoginRef.current = null
       })
   }
   const client = () => liveClient(store)!
@@ -89,8 +99,20 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
     if (!chave.trim()) return
     rodar(() => salvarChave(client(), f.id, chave, () => setChave('')), (r) => r.ok && setEditando(false))
   }
+  const entrar = () => {
+    const client = liveClient(store)
+    if (!client || ocupadoRef.current) return
+    setEditando(false)
+    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno)
+    cancelarLoginRef.current = cancelar
+    setLoginAberto(true)
+    rodar(() => fim, undefined, (e) => (e instanceof FalhaOpenRouter ? { ok: false, frase: fraseDaFalha(e.tipo) } : undefined))
+  }
   const cancelar = () => { setChave(''); setEditando(false); setResultado(null) }
   const quantos = f.modelos?.length ?? 0
+  const botaoEntrar = f.id === 'openrouter' ? (
+    <button className="settings-quiet-button" onClick={entrar}>{t('contas.apiDireta.openrouter.entrar')}</button>
+  ) : null
 
   return (
     <VStack gap={8}>
@@ -102,14 +124,23 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
           </HStack>
           {f.configurada && f.modelos ? <Text size="caption" tone="tertiary">{t.plural('contas.apiDireta.modelos', quantos)}</Text> : null}
         </VStack>
-        {ocupado ? <Spinner /> : editando ? null : f.configurada ? (
+        {ocupado ? loginAberto ? (
+          <HStack gap={12}>
+            <Text size="caption" tone="secondary">{t('contas.apiDireta.openrouter.aguardando')}</Text>
+            <button className="settings-quiet-button" onClick={() => cancelarLoginRef.current?.()}>{t('contas.apiDireta.cancelar')}</button>
+          </HStack>
+        ) : <Spinner /> : editando ? null : f.configurada ? (
           <HStack gap={12}>
             <button className="settings-quiet-button" onClick={() => rodar(() => testarChave(client(), f.id))}>{t('contas.apiDireta.testar')}</button>
+            {botaoEntrar}
             <button className="settings-quiet-button" onClick={() => { setEditando(true); setResultado(null) }}>{t('contas.apiDireta.trocar')}</button>
             <button className="settings-quiet-button" onClick={() => rodar(() => removerChave(client(), f.id))}>{t('contas.apiDireta.remover')}</button>
           </HStack>
         ) : (
-          <button className="settings-quiet-button" onClick={() => { setEditando(true); setResultado(null) }}>{t('contas.apiDireta.adicionar')}</button>
+          <HStack gap={12}>
+            {botaoEntrar}
+            <button className="settings-quiet-button" onClick={() => { setEditando(true); setResultado(null) }}>{t('contas.apiDireta.adicionar')}</button>
+          </HStack>
         )}
       </div>
       {editando ? (
@@ -140,7 +171,8 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
   )
 }
 
-function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } }) {
+/** O bloco de resultado de Testar acesso, partilhado pelas chaves coladas e pelo login do OpenRouter. */
+export function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } }) {
   const t = useT()
   let texto: string
   if (resultado.ok) {
@@ -148,8 +180,12 @@ function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; moti
     texto = resultado.modelos.length === 0
       ? t('contas.apiDireta.okSemModelos')
       : restantes > 0 ? t('contas.apiDireta.okComMais', { nomes, n: restantes }) : t('contas.apiDireta.ok', { nomes })
+  } else if ('frase' in resultado) {
+    texto = (t as unknown as (chave: ChaveTexto) => string)(resultado.frase)
+  } else if ('motivo' in resultado) {
+    texto = t('contas.apiDireta.erro.desconhecido', { motivo: resultado.motivo })
   } else {
-    texto = 'motivo' in resultado ? t('contas.apiDireta.erro.desconhecido', { motivo: resultado.motivo }) : (t as unknown as (chave: ChaveTexto) => string)(chaveDoErro(resultado.erro))
+    texto = (t as unknown as (chave: ChaveTexto) => string)(chaveDoErro(resultado.erro))
   }
   return (
     <HStack as="span" gap={5} role="status" className={`settings-key-result ${resultado.ok ? '' : 'failed'}`}>

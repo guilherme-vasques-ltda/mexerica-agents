@@ -68,6 +68,9 @@ const LOCAL_ONLY: &[&str] = &[
     "motorChaveTestar",
     "motorChaveSalvar",
     "motorChaveRemover",
+    // OpenRouter sign-in (the code swap) too.
+    "openrouterEntrar",
+    "openrouterEntrarConcluir",
     "pairing",
     "computerCall",
     "computerTools",

@@ -295,4 +295,9 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.respostaInvalida": "The provider sent an unexpected answer.",
   "contas.apiDireta.erro.semChave": "There's no saved key for this provider.",
   "contas.apiDireta.erro.desconhecido": "Couldn't test right now: {motivo}",
+  "contas.apiDireta.openrouter.entrar": "Sign in with OpenRouter",
+  "contas.apiDireta.openrouter.aguardando": "Waiting for the browser…",
+  "contas.apiDireta.openrouter.erro.cancelado": "The OpenRouter sign-in was cancelled.",
+  "contas.apiDireta.openrouter.erro.tempo": "The OpenRouter sign-in took too long.",
+  "contas.apiDireta.openrouter.erro.falha": "Could not finish signing in to OpenRouter.",
 }

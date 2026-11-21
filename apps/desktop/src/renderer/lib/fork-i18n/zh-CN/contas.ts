@@ -292,4 +292,9 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.respostaInvalida": "提供商返回了意外的内容。",
   "contas.apiDireta.erro.semChave": "此提供商没有已保存的密钥。",
   "contas.apiDireta.erro.desconhecido": "暂时无法测试：{motivo}",
+  "contas.apiDireta.openrouter.entrar": "通过 OpenRouter 登录",
+  "contas.apiDireta.openrouter.aguardando": "正在等待浏览器…",
+  "contas.apiDireta.openrouter.erro.cancelado": "OpenRouter 登录已取消。",
+  "contas.apiDireta.openrouter.erro.tempo": "OpenRouter 登录等待时间过长。",
+  "contas.apiDireta.openrouter.erro.falha": "无法完成 OpenRouter 登录。",
 }

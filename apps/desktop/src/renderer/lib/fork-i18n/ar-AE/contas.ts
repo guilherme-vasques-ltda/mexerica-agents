@@ -307,4 +307,9 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.respostaInvalida": "أعاد المزوّد ردًا غير متوقع.",
   "contas.apiDireta.erro.semChave": "لا يوجد مفتاح محفوظ لهذا المزوّد.",
   "contas.apiDireta.erro.desconhecido": "تعذّر الاختبار الآن: {motivo}",
+  "contas.apiDireta.openrouter.entrar": "تسجيل الدخول عبر OpenRouter",
+  "contas.apiDireta.openrouter.aguardando": "في انتظار المتصفح…",
+  "contas.apiDireta.openrouter.erro.cancelado": "تم إلغاء تسجيل الدخول عبر OpenRouter.",
+  "contas.apiDireta.openrouter.erro.tempo": "استغرق تسجيل الدخول عبر OpenRouter وقتًا طويلاً.",
+  "contas.apiDireta.openrouter.erro.falha": "تعذّر إكمال تسجيل الدخول عبر OpenRouter.",
 }

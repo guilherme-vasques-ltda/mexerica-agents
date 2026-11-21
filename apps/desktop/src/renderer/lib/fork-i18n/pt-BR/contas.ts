@@ -295,4 +295,9 @@ export const textos = {
   "contas.apiDireta.erro.respostaInvalida": "O fornecedor respondeu algo inesperado.",
   "contas.apiDireta.erro.semChave": "Não há chave salva para este fornecedor.",
   "contas.apiDireta.erro.desconhecido": "Não deu para testar agora: {motivo}",
+  "contas.apiDireta.openrouter.entrar": "Entrar com OpenRouter",
+  "contas.apiDireta.openrouter.aguardando": "Aguardando o navegador…",
+  "contas.apiDireta.openrouter.erro.cancelado": "O login com o OpenRouter foi cancelado.",
+  "contas.apiDireta.openrouter.erro.tempo": "O login com o OpenRouter demorou demais.",
+  "contas.apiDireta.openrouter.erro.falha": "Não foi possível concluir o login com o OpenRouter.",
 } as const

@@ -298,4 +298,9 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.respostaInvalida": "El proveedor respondió algo inesperado.",
   "contas.apiDireta.erro.semChave": "No hay una clave guardada para este proveedor.",
   "contas.apiDireta.erro.desconhecido": "No se pudo probar ahora: {motivo}",
+  "contas.apiDireta.openrouter.entrar": "Entrar con OpenRouter",
+  "contas.apiDireta.openrouter.aguardando": "Esperando el navegador…",
+  "contas.apiDireta.openrouter.erro.cancelado": "El inicio de sesión con OpenRouter se canceló.",
+  "contas.apiDireta.openrouter.erro.tempo": "El inicio de sesión con OpenRouter tardó demasiado.",
+  "contas.apiDireta.openrouter.erro.falha": "No se pudo terminar el inicio de sesión con OpenRouter.",
 }
