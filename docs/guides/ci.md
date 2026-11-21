@@ -48,12 +48,12 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
   o código do PR:
   1. **seleção:** compara a `main` com o merge do PR e decide se Hub e Desktop precisam rodar.
      Mudança em `.github/workflows/ci.yml` roda tudo, porque ela define os jobs pesados;
-     configuração do Cargo, do rustfmt ou do Clippy na raiz roda o Hub. O Desktop só é dispensado
-     quando o PR muda apenas Hub, motor ou `apps/screen-linux`. PR que muda só os outros
-     workflows (como o do macOS), `.github/` fora do `ci.yml`, `tools/ci-*` ou este guia roda só
-     o `leves` e o `vazamento`: Hub e Desktop ficam pulados e o `ci-ok` aceita o pulado. Os
-     testes do Desktop leem outros documentos e arquivos de `tools/`, então mudar um deles
-     continua ligando o Desktop. Se o `git diff` falhar, o job reprova em vez de publicar seleção
+     configuração do Cargo, do rustfmt ou do Clippy na raiz roda o Hub. O Desktop é dispensado
+     em dois casos: quando o PR muda apenas Hub, motor ou `apps/screen-linux`, e quando muda
+     apenas `.github/` fora do `ci.yml` (como o workflow do macOS), `tools/ci-*` ou este guia.
+     Nesse segundo caso o Hub também é dispensado: roda só o `leves` e o `vazamento`, e o
+     `ci-ok` aceita os pulados. Os testes do Desktop leem outros documentos e arquivos de
+     `tools/`, então mudar um deles continua ligando o Desktop. Se o `git diff` falhar, o job reprova em vez de publicar seleção
      vazia. Rascunho e PR empilhado (base diferente da `main`) não ligam Hub nem Desktop.
   2. **segredos:** Gitleaks 8.30.1 (binário com SHA-256 fixo) nos commits do PR, com a
      configuração `.gitleaks.toml` da `main` e o executor `tools/ci-gitleaks.mjs` da `main`.
