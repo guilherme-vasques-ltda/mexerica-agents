@@ -321,6 +321,46 @@ async fn o_ambiente_do_plano_tem_perfil_proprio_e_nunca_a_chave_so_o_codigo_da_s
 }
 
 #[tokio::test]
+async fn filtro_do_motor_tira_o_perfil_mas_o_ambiente_do_plano_vence() {
+    let hub = hub_de_prova();
+    com_chave(&hub).await;
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().expect("modelo de plano");
+    let nomes = ["HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
+
+    // O filtro do motor tira casa e XDG_*: é por isso que o ambiente do plano entra depois dele.
+    let mut so_o_filtro = vec![
+        ("HOME".to_owned(), "/casa/do/dono".to_owned()),
+        ("XDG_CONFIG_HOME".to_owned(), "/config/do/dono".to_owned()),
+    ];
+    crate::agent::harness::apply(&mut so_o_filtro, "opencode", "");
+    assert!(
+        nomes.iter().all(|nome| !so_o_filtro.iter().any(|(k, _)| k == nome)),
+        "o filtro do motor tira casa e XDG_* do dono"
+    );
+
+    let mut env = vec![
+        ("HOME".to_owned(), "/casa/do/dono".to_owned()),
+        ("XDG_CONFIG_HOME".to_owned(), "/config/do/dono".to_owned()),
+        ("XDG_DATA_HOME".to_owned(), "/dados/do/dono".to_owned()),
+    ];
+    aplicar_ambiente(&mut env, "opencode", "", Some(&ambiente));
+    for (nome, valor) in &ambiente.env {
+        let valores: Vec<_> = env.iter().filter(|(k, _)| k == nome).map(|(_, v)| v.as_str()).collect();
+        assert_eq!(valores, [valor.as_str()], "{nome} tem de valer uma vez, com o valor do plano");
+    }
+    assert!(!env.iter().any(|(_, v)| v.contains("/do/dono")), "a casa e as pastas do dono não valem no plano");
+    let codigo = env.iter().find(|(k, _)| k == "OPENCODE_API_KEY").unwrap().1.as_str();
+    assert!(codigo.starts_with("mxs_") && !codigo.contains(CHAVE), "só o código de sessão, nunca a chave");
+    assert_eq!(
+        env.iter().find(|(k, _)| k == "OPENCODE_DISABLE_PROJECT_CONFIG").map(|(_, v)| v.as_str()),
+        Some("1"),
+        "a configuração do projeto não vale no plano"
+    );
+}
+
+#[tokio::test]
 async fn ambiente_fecha_sem_chave_fora_do_space_pessoal_com_comando_proprio_e_para_bot_apagado() {
     let hub = hub_de_prova();
     let pessoal = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
