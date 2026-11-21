@@ -799,20 +799,32 @@ impl Actor {
         let same = matches!(&self.seg, Seg::Open { kind: k, .. } if *k == kind);
         if !same {
             self.close_seg();
+            let shown = crate::fork::planos_codigo::mascarar_saida(text, false).into_owned();
             let (k, data) = match kind {
-                SegKind::Text => (EntryKind::Agent, self.reply_data(text, true)),
-                SegKind::Thought => (EntryKind::Thought, json!({"text": text})),
+                SegKind::Text => (EntryKind::Agent, self.reply_data(&shown, true)),
+                SegKind::Thought => (EntryKind::Thought, json!({"text": shown})),
             };
             if let Some(e) = self.add(k, self.turn.unwrap_or(0), data) {
                 if kind == SegKind::Text {
                     self.last_text = Some(e.id.clone());
                 }
-                self.seg =
-                    Seg::Open { kind, entry_id: e.id, buf: text.to_owned(), flushed: Instant::now(), dirty: false };
+                // A criação já publica: `dirty` só diz que os dados mudaram desde a última escrita. `solta` é o
+                // outro assunto: o fim retido que o fechamento solta.
+                let retido = shown.len() != text.len();
+                self.seg = Seg::Open {
+                    kind,
+                    entry_id: e.id,
+                    buf: text.to_owned(),
+                    flushed: Instant::now(),
+                    dirty: false,
+                    solta: retido,
+                };
             }
             return;
         }
         if let Seg::Open { buf, dirty, .. } = &mut self.seg {
+            // `solta` só é calculado na criação do segmento e ao publicar (o `flush` recalcula): recalcular a cada
+            // delta custaria quadratico no tamanho do texto.
             buf.push_str(text);
             *dirty = true;
         }
@@ -824,15 +836,19 @@ impl Actor {
     }
 
     /// Texto de resposta ainda aberto leva `streaming`: se o Hub cair antes de fechá-lo, a varredura do início
-    /// (`Store::interrupt_open_work`) o marca como interrompido. Gravação que falha não conta como gravada.
+    /// (`Store::interrupt_open_work`) o marca como interrompido. Gravação que falha não conta como gravada. O texto
+    /// montado de vários pedaços passa pela máscara do código de sessão; uma publicação intermediária segura o fim que
+    /// ainda pode ser o começo de um código, e o fechamento solta o resto.
     fn flush_in_execution(&mut self, force: bool, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
-        let Seg::Open { kind, entry_id, buf, flushed, dirty } = &self.seg else { return Ok(()) };
-        if !*dirty || !(force || flushed.elapsed() >= Duration::from_millis(300)) {
+        let Seg::Open { kind, entry_id, buf, flushed, dirty, solta } = &self.seg else { return Ok(()) };
+        if !(*dirty && (force || flushed.elapsed() >= Duration::from_millis(300)) || (force && *solta)) {
             return Ok(());
         }
+        let text = crate::fork::planos_codigo::mascarar_saida(buf, force).into_owned();
+        let retido = text.len() != buf.len();
         let data = match kind {
-            SegKind::Text => self.reply_data(buf, true),
-            SegKind::Thought => json!({"text": buf, "author": self.cfg.id}),
+            SegKind::Text => self.reply_data(&text, true),
+            SegKind::Thought => json!({"text": text, "author": self.cfg.id}),
         };
         if self.hub.set_entry_in_execution(entry_id, &data, execution).is_none() {
             if execution.is_some() {
@@ -840,9 +856,12 @@ impl Actor {
             }
             return Ok(());
         }
-        if let Seg::Open { flushed, dirty, .. } = &mut self.seg {
+        if let Seg::Open { flushed, dirty, solta, .. } = &mut self.seg {
             *flushed = Instant::now();
+            // Sem texto novo o `flush` comum não república o mesmo texto: `dirty` só volta com delta; o sufixo retido
+            // fica para o fechamento soltar.
             *dirty = false;
+            *solta = retido;
         }
         Ok(())
     }
@@ -850,10 +869,11 @@ impl Actor {
     /// Fecha o trecho aberto gravando o texto inteiro; a resposta fechada perde `streaming`. Falha ao gravar o fim é
     /// erro: quem fecha o turno não promove a versão antiga.
     fn seal_seg_in_execution(&mut self, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
-        let Seg::Open { kind, entry_id, buf, dirty, .. } = &self.seg else { return Ok(()) };
+        let Seg::Open { kind, entry_id, buf, dirty, solta, .. } = &self.seg else { return Ok(()) };
+        let text = crate::fork::planos_codigo::mascarar_saida(buf, true).into_owned();
         let data = match kind {
-            SegKind::Text => self.reply_data(buf, false),
-            SegKind::Thought if *dirty => json!({"text": buf, "author": self.cfg.id}),
+            SegKind::Text => self.reply_data(&text, false),
+            SegKind::Thought if *dirty || *solta => json!({"text": text, "author": self.cfg.id}),
             SegKind::Thought => {
                 self.seg = Seg::None;
                 return Ok(());
@@ -929,7 +949,7 @@ pub fn merge_tool_content(data: &mut Value, content: &Value) {
         }
     }
     if !out.is_empty() {
-        data["output"] = acp::truncate(&out, 6000).into();
+        data["output"] = acp::truncate(&crate::fork::planos_codigo::mascarar_codigo(&out), 6000).into();
     }
     if !diffs.is_empty() {
         data["diffs"] = diffs.into();

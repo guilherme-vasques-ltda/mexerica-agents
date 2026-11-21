@@ -70,9 +70,9 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // App antigo ignora os campos; o novo não mostra o bloco quando eles não vêm.
 // Schema 61: resposta cortada (parada, erro ou Hub desligado) chega com `Entry.data.interrupted` e passa a aparecer na
 // conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
-// Schema 63: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
+// Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
 // motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
-export const MIRROR_SCHEMA = 63
+export const MIRROR_SCHEMA = 62
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

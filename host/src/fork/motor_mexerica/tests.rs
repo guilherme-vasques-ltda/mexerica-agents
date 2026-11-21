@@ -77,6 +77,34 @@ fn listagem_respeita_flag_nos_dois_estados() {
     }
 }
 
+/// O leitor é o mesmo do motor e dos servidores MCP: o teto de 8 MiB vale para os dois.
+#[tokio::test]
+async fn leitor_aceita_linha_no_teto_e_recusa_acima_dele() {
+    use mcp_host::{MAX_LINE, read_line};
+    let mut buf = Vec::new();
+
+    let mut no_teto = vec![b'a'; MAX_LINE];
+    no_teto.extend_from_slice(b"\nproxima\n");
+    let mut leitor = BufReader::new(&no_teto[..]);
+    assert_eq!(read_line(&mut leitor, &mut buf).await.unwrap(), MAX_LINE + 1, "8 MiB de conteúdo mais a quebra passam");
+    assert_eq!(read_line(&mut leitor, &mut buf).await.unwrap(), 8, "a linha seguinte segue intacta");
+    assert_eq!(buf, b"proxima\n");
+
+    let mut acima = vec![b'a'; MAX_LINE + 1];
+    acima.extend_from_slice(b"\n");
+    let mut leitor = BufReader::new(&acima[..]);
+    let error = read_line(&mut leitor, &mut buf).await.unwrap_err();
+    assert!(error.to_string().contains("acima de"), "{error:#}");
+    assert!(buf.len() <= MAX_LINE + 1, "o buffer não cresce além do teto: {}", buf.len());
+
+    let sem_quebra = vec![b'a'; MAX_LINE + 4096];
+    let mut leitor = BufReader::new(&sem_quebra[..]);
+    assert!(read_line(&mut leitor, &mut buf).await.is_err(), "linha gigante sem quebra também é recusada");
+
+    let mut leitor = BufReader::new(&b""[..]);
+    assert_eq!(read_line(&mut leitor, &mut buf).await.unwrap(), 0, "fim da saída segue sendo 0");
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn sem_identidade_separada_recusa_spawn() {

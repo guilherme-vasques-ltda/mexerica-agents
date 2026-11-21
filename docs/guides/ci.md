@@ -77,29 +77,39 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
 
 ## macOS
 
-O workflow `macOS` tem um único job, `macos`. Ele ainda **não entra no `ci-ok`**: aparece
-no PR como um check à parte e não trava a fila enquanto estabiliza.
+O workflow `macOS` tem o job de build, `macos`, e um job de recusa, `maquina-mac`. Eles
+ainda **não entram no `ci-ok`**: aparecem no PR como um check à parte e não travam a fila
+enquanto estabilizam.
 
-- **Máquina:** por padrão, `nscloud-macos-tahoe-arm64-6x14` (Namespace: macOS Tahoe, Apple
-  Silicon, 6 vCPU e 14 GB). O job só vai para a máquina macOS do GitHub (`macos-15`, Apple
-  Silicon) quando as duas condições valem ao mesmo tempo: o evento confirma que o repositório é
-  público e a variável `CI_MAQUINA_MAC` vale `macos-15` (Settings → Secrets and variables →
-  Actions → Variables; uma variável de mesmo nome na organização também conta). Qualquer outro
-  caso, inclusive variável vazia ou com outro valor, fica na Namespace. A escolha acontece antes
-  de alocar a máquina. Como segunda barreira, o primeiro passo reprova se o job cair numa
-  máquina do GitHub sem o evento confirmar repositório público.
-
+- **Máquina:** a escolha acontece antes de alocar a máquina e depende da visibilidade que o
+  evento informa.
+  - **Repositório privado:** sempre `nscloud-macos-tahoe-arm64-6x14` (Namespace: macOS Tahoe,
+    Apple Silicon, 6 vCPU e 14 GB). A variável `CI_MAQUINA_MAC` não muda nada.
+  - **Repositório público:** só a máquina macOS do GitHub (`macos-15`, Apple Silicon), e só se
+    a variável `CI_MAQUINA_MAC` vale `macos-15` (Settings → Secrets and variables → Actions →
+    Variables; uma variável de mesmo nome na organização também conta). Vazia ou com outro
+    valor, o `macos` não roda e o `maquina-mac` falha com a explicação, sem build e sem
+    máquina paga.
+  - Duas barreiras no início do `macos`: reprova máquina do GitHub sem o evento confirmar
+    repositório público, e reprova máquina que não é do GitHub com o repositório público.
 - **Quando roda:** em PR pronto (não rascunho, não fork) que muda `apps/desktop/`, `host/`,
   `motor/`, `packaging/`, a toolchain ou o Cargo da raiz, ou o próprio workflow; e por
-  disparo manual (Actions → macOS → Run workflow). O disparo manual só existe depois que o
-  workflow está na `main`.
+  disparo manual (Actions → macOS → Run workflow) **a partir da `main`**. Disparo escolhendo
+  outro branch deixa os jobs pulados. Exceção: o Actions compara texto sem diferenciar
+  maiúsculas, então um branch como `MAIN` passa na condição e liga a máquina; o primeiro passo
+  compara a ref exata e reprova antes do checkout e do build. Isso vale para o workflow da
+  `main`: o disparo usa o YAML do branch escolhido.
 - **O que faz:** os testes nativos do Codex da Open no Hub (`fork::open_codex` e
   `open_hub` com `CODYNC_ENV=open`), `npm ci`, `npm run test:open` e
   `npm run dist:mac:open`. Depois confere a assinatura ad hoc do pacote e que o Hub e o
   helper de fala embutidos são `arm64`.
-- **Artefato:** só no disparo manual, gera `Mexerica-Open-macos-arm64.zip` e
-  `SHA256SUMS` e os guarda como artefato do próprio Actions por 3 dias. Não há release,
-  tag nem envio para fora do GitHub.
+- **Artefato:** só no disparo manual da `main`, gera
+  `Mexerica-Open-macos-arm64-teste-ci-<commit>.zip` e `SHA256SUMS` e os guarda como artefato
+  `mexerica-open-macos-arm64-teste-ci-<commit>` do próprio Actions por 3 dias. É um **teste de
+  CI, não uma versão oficial**: a assinatura ad hoc e o hash só provam a integridade daquela
+  rodada, não autoria nem aprovação. O resumo do job diz isso e mostra commit e ref. Não
+  compartilhar nem instalar sobre a versão de uso. Não há release, tag nem envio para fora do
+  GitHub.
 - **Gasto:** filtro de caminhos, cancelamento da rodada antiga do mesmo PR, limite de 75
   minutos e cache do npm e do Cargo pelo cache do GitHub (escopo por branch: o cache de um PR
   não chega à `main` nem a outro PR). Não usa volume de cache da Namespace, que é
