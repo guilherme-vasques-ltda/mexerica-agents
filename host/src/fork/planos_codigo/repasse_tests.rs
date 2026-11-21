@@ -17,6 +17,15 @@ fn escapar(texto: &str) -> String {
     })
 }
 
+/// Apaga a pasta da prova ao sair do escopo, passe ou falhe.
+struct Limpeza(std::path::PathBuf);
+
+impl Drop for Limpeza {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 const CHAVE_DO_COFRE: &str = "chave-ficticia-do-plano-123";
 
 struct Upstream {
@@ -365,7 +374,7 @@ async fn revogar_corta_o_pedido_em_andamento_antes_e_depois_dos_cabecalhos() {
             resposta.bytes().await
         });
         tokio::time::sleep(Duration::from_millis(300)).await;
-        m.repasse.revogar_plano(&PLANOS[0]).await;
+        m.repasse.revogar_plano(&PLANOS[0]).await.unwrap();
         let desfecho =
             tokio::time::timeout(Duration::from_secs(3), tarefa).await.expect("o pedido foi cortado").unwrap();
         assert!(inicio.elapsed() < Duration::from_secs(3));
@@ -551,39 +560,57 @@ async fn uma_revogacao_sem_ninguem_escutando_continua_marcada_para_quem_chega_de
     let m = montar(&up).await;
     let tardia = m.repasse.sessao_tardia(m.concessao.codigo()).unwrap();
     assert!(!tardia.marcada());
-    m.repasse.revogar_plano(&PLANOS[0]).await;
+    m.repasse.revogar_plano(&PLANOS[0]).await.unwrap();
     assert!(tardia.marcada(), "quem se inscreve depois da revogação a enxerga");
     assert_eq!(m.pedido("chat/completions", "authorization").body("{}").send().await.unwrap().status(), 404);
 }
 
+/// Um agente de mentira que ignora TERM e HUP, não sai ao fechar o stdin e deixa um filho no mesmo grupo.
+fn processo_teimoso() -> (Arc<crate::agent::acp::Acp>, tokio::sync::mpsc::UnboundedReceiver<crate::agent::acp::Incoming>)
+{
+    let pasta = crate::store::private_fixture_dir("planos-processo-teimoso");
+    let roteiro = pasta.join("teimoso.sh");
+    std::fs::write(&roteiro, "trap '' TERM HUP\nsleep 300 &\nwhile :; do sleep 1; done\n").unwrap();
+    crate::agent::acp::Acp::spawn(&format!("sh {}", roteiro.display()), &pasta.to_string_lossy(), &[]).unwrap()
+}
+
+fn viva(alvo: &str) -> bool {
+    std::process::Command::new("kill").args(["-0", "--", alvo]).output().is_ok_and(|saida| saida.status.success())
+}
+
 #[tokio::test]
-async fn trocar_a_chave_encerra_o_processo_que_recebeu_o_codigo_e_uma_concessao_velha_nao_prende() {
+async fn trocar_a_chave_so_volta_com_o_processo_e_o_grupo_inteiro_mortos_mesmo_se_ele_ignora_o_pedido_de_saida() {
     let up = upstream(|mut conexao, _| async move {
         let _ = conexao.write_all(&json_ok("{}")).await;
     })
     .await;
     let m = montar(&up).await;
-    let (acp, _entrada) =
-        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
+    let (acp, _entrada) = processo_teimoso();
     let pid = acp.pid().unwrap();
-    let viva = |pid: u32| {
-        std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .output()
-            .is_ok_and(|saida| saida.status.success())
-    };
     assert!(m.concessao.prender(&acp));
-    assert!(viva(pid));
-    m.repasse.revogar_plano(&PLANOS[0]).await;
-    let limite = Instant::now() + Duration::from_secs(5);
-    while viva(pid) && Instant::now() < limite {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    assert!(!viva(pid), "o processo do OpenCode termina junto com a troca");
+    assert!(viva(&pid.to_string()) && viva(&format!("-{pid}")));
+    m.repasse.revogar_plano(&PLANOS[0]).await.unwrap();
+    assert!(!viva(&pid.to_string()), "o processo já morreu quando a troca volta");
+    assert!(!viva(&format!("-{pid}")), "o grupo inteiro também");
     let (outro, _entrada) =
         crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
     assert!(!m.concessao.prender(&outro), "uma sessão já revogada não prende processo");
     outro.kill_and_wait().await;
+}
+
+#[tokio::test]
+async fn o_prazo_de_quem_chama_nao_cancela_o_encerramento_forcado() {
+    let (acp, _entrada) = processo_teimoso();
+    let pid = acp.pid().unwrap();
+    let chamada = acp.encerrar_confirmado(Duration::from_secs(1), Duration::from_secs(8));
+    let inicio = Instant::now();
+    let resultado = tokio::time::timeout(Duration::from_millis(100), chamada).await;
+    assert!(resultado.is_err(), "quem chama desistiu cedo: {resultado:?} em {:?}", inicio.elapsed());
+    let limite = Instant::now() + Duration::from_secs(6);
+    while viva(&format!("-{pid}")) && Instant::now() < limite {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(!viva(&format!("-{pid}")), "o encerramento forçado seguiu sem quem chamou");
 }
 
 #[tokio::test]
@@ -630,6 +657,7 @@ async fn opencode_de_verdade_nem_ele_nem_o_mcp_filho_nem_o_shell_enxergam_a_chav
     // A chave de fixture vai num arquivo: se estivesse no texto do comando, o fornecedor de mentira a devolveria e a
     // cerca do repasse cortaria a resposta.
     std::fs::write(dump.join("chave.txt"), CHAVE_DO_COFRE).unwrap();
+    let _limpeza = Limpeza(dump.clone());
     let sonda = |quem: &str, pid: &str| {
         format!(
             "printenv OPENCODE_API_KEY > {d}/{quem}.codigo; {pid} | grep -cF -f {d}/chave.txt > {d}/{quem}.conta; true",
@@ -736,5 +764,4 @@ async fn opencode_de_verdade_nem_ele_nem_o_mcp_filho_nem_o_shell_enxergam_a_chav
         "o repasse pôs a chave de verdade"
     );
     assert!(!pedidos.contains("mxs_"), "o código de sessão não segue ao fornecedor");
-    let _ = std::fs::remove_dir_all(&dump);
 }

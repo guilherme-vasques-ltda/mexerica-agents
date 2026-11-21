@@ -322,12 +322,14 @@ impl Acp {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let line = crate::fork::planos_codigo::mascarar_codigo(&line);
-                    let Ok(msg) = serde_json::from_str::<Value>(&line) else {
+                    let Ok(mut msg) = serde_json::from_str::<Value>(&line) else {
                         if !protected && !background {
                             tracing::debug!(target: "agent", stdout = %line, "ignoring non-JSON output");
                         }
                         continue;
                     };
+                    // Os textos já interpretados (escapes desfeitos): é aqui que um código escrito em escapes de JSON aparece.
+                    crate::fork::planos_codigo::mascarar_json(&mut msg);
                     let method = msg["method"].as_str().map(str::to_owned);
                     match (method, msg.get("id").cloned()) {
                         (Some(method), Some(id)) if !id.is_null() => {
@@ -486,6 +488,41 @@ impl Acp {
         }
     }
 
+    /// Encerra o agente e tudo o que ele abriu, e só devolve `true` com a saída confirmada: fecha o stdin, espera
+    /// `cortesia`, mata o grupo inteiro e espera até `limite` pela confirmação. Roda numa tarefa própria, então o prazo
+    /// de quem chama não cancela o encerramento forçado.
+    pub(crate) async fn encerrar_confirmado(self: &Arc<Self>, cortesia: Duration, limite: Duration) -> bool {
+        let acp = self.clone();
+        tokio::spawn(async move { acp.encerrar_agora(cortesia, limite).await }).await.unwrap_or(false)
+    }
+
+    async fn encerrar_agora(&self, cortesia: Duration, limite: Duration) -> bool {
+        if let Ok(mut stdin) = self.stdin.try_lock() {
+            stdin.take();
+        }
+        if let Some(link) = &self.link {
+            link.shutdown().await;
+        }
+        let Some(pid) = self.pid else { return true };
+        let guarda = tokio::time::timeout(cortesia, self.child.lock()).await;
+        let mut child = guarda.ok().and_then(|mut guarda| guarda.take());
+        let cortesia_ate = Instant::now() + cortesia;
+        let mut saiu = false;
+        if let Some(child) = child.as_mut() {
+            saiu = tokio::time::timeout_at(cortesia_ate, child.wait()).await.is_ok();
+        }
+        if !saiu || outlived(pid, cortesia_ate).await {
+            kill_group(pid).await;
+        }
+        let limite_ate = Instant::now() + limite;
+        if let Some(child) = child.as_mut() {
+            saiu = saiu || tokio::time::timeout_at(limite_ate, child.wait()).await.is_ok();
+        } else {
+            saiu = true;
+        }
+        saiu && !outlived(pid, limite_ate).await
+    }
+
     /// Stops the agent and everything it started, without waiting for it. Closing its stdin
     /// lets it exit by itself first: Claude Code killed during an OAuth refresh loses the new
     /// refresh token, and the user's login with it.
@@ -544,24 +581,7 @@ async fn reap(mut child: Child) {
     let deadline = Instant::now() + EXIT_GRACE;
     let exited = tokio::time::timeout_at(deadline, child.wait()).await.is_ok();
     if !exited || outlived(pid, deadline).await {
-        let mut tree = if cfg!(windows) {
-            let mut c = Command::new("taskkill");
-            c.args(["/T", "/F", "/PID", &pid.to_string()]);
-            c
-        } else {
-            let mut c = if crate::fork::motor_exec::configured() {
-                let mut c = Command::new(crate::fork::motor_exec::helper_path());
-                c.args(["kill-group", &pid.to_string()]);
-                c
-            } else {
-                let mut c = Command::new("/bin/kill");
-                c.args(["-KILL", "--", &format!("-{pid}")]);
-                c
-            };
-            c.env_clear();
-            c
-        };
-        let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
+        kill_group(pid).await;
     }
     // Already exited is fine; anything else is worth a log line.
     if let Err(error) = child.kill().await
@@ -569,6 +589,28 @@ async fn reap(mut child: Child) {
     {
         tracing::debug!(%error, "couldn't kill agent process");
     }
+}
+
+/// Kills the agent's process group (Windows: process tree).
+async fn kill_group(pid: u32) {
+    let mut tree = if cfg!(windows) {
+        let mut c = Command::new("taskkill");
+        c.args(["/T", "/F", "/PID", &pid.to_string()]);
+        c
+    } else {
+        let mut c = if crate::fork::motor_exec::configured() {
+            let mut c = Command::new(crate::fork::motor_exec::helper_path());
+            c.args(["kill-group", &pid.to_string()]);
+            c
+        } else {
+            let mut c = Command::new("/bin/kill");
+            c.args(["-KILL", "--", &format!("-{pid}")]);
+            c
+        };
+        c.env_clear();
+        c
+    };
+    let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
 }
 
 /// Whether part of the exited agent's process group is still running at `deadline`.

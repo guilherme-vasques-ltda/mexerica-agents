@@ -42,7 +42,8 @@ const PRAZO_TOTAL: Duration = Duration::from_secs(30 * 60);
 const PRAZO_DE_CONEXAO: Duration = Duration::from_secs(15);
 const MAX_SESSOES: usize = 256;
 const MAX_PEDIDOS: usize = 32;
-const PRAZO_DE_ENCERRAMENTO: Duration = Duration::from_secs(5);
+const PRAZO_DE_CORTESIA: Duration = Duration::from_secs(2);
+const PRAZO_DE_ENCERRAMENTO: Duration = Duration::from_secs(8);
 
 type Hash = [u8; 32];
 
@@ -206,8 +207,10 @@ impl Repasse {
     }
 
     /// Troca ou remoção da chave: todas as sessões do plano morrem, os pedidos em andamento são cortados e os processos
-    /// do OpenCode que receberam o código são encerrados antes de a operação voltar.
-    pub(crate) async fn revogar_plano(&self, plano: &Plano) {
+    /// do OpenCode que receberam o código são encerrados (grupo inteiro, saída confirmada) antes de a operação voltar.
+    /// Se algum não confirmar a saída, devolve erro: o código já está revogado de qualquer jeito, e a chave não está em
+    /// risco, só o processo.
+    pub(crate) async fn revogar_plano(&self, plano: &Plano) -> Result<()> {
         let processos: Vec<Arc<Acp>> = {
             let mut estado = self.estado.locked();
             *estado.geracoes.entry(plano.id).or_insert(0) += 1;
@@ -219,11 +222,15 @@ impl Repasse {
                 .collect();
             mortas.iter().filter_map(|hash| estado.sessoes.remove(hash)).filter_map(|sessao| sessao.revogar()).collect()
         };
-        for processo in processos {
-            if tokio::time::timeout(PRAZO_DE_ENCERRAMENTO, processo.kill_and_wait()).await.is_err() {
-                tracing::warn!(plano = plano.id, "o processo do plano demorou a encerrar");
-            }
-        }
+        let confirmacoes = futures::future::join_all(
+            processos.iter().map(|processo| processo.encerrar_confirmado(PRAZO_DE_CORTESIA, PRAZO_DE_ENCERRAMENTO)),
+        )
+        .await;
+        ensure!(
+            confirmacoes.iter().all(|saiu| *saiu),
+            "plano_processo_vivo: o código do plano foi revogado, mas o processo do OpenCode não confirmou a saída."
+        );
+        Ok(())
     }
 
     fn sessao(&self, codigo: &str) -> Option<Arc<Sessao>> {

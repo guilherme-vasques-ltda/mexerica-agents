@@ -29,10 +29,10 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
 
 ## Onde a chave vive
 
-- A chave fica cifrada no cofre do Hub, no slot `plano-codigo/<plano>`. Nunca volta ao app, a registro, a log nem a
-  mensagem de erro. O endereço do teste é fixo no catálogo (https, do fornecedor) e o pedido não aceita endereço; o
+- A chave fica cifrada no cofre do Hub, no slot `plano-codigo/<plano>`. O Hub não a devolve ao app, nem a registra, nem a
+  põe em mensagem de erro. O endereço do teste é fixo no catálogo (https, do fornecedor) e o pedido não aceita endereço; o
   redirecionamento não é seguido. Uma resposta de sucesso que repete a chave é recusada, não é devolvida nem guardada.
-- O OpenCode nunca recebe a chave. O Hub mantém um repasse local (`host/src/fork/planos_codigo/repasse.rs`): um servidor
+- O OpenCode não recebe a chave. O Hub mantém um repasse local (`host/src/fork/planos_codigo/repasse.rs`): um servidor
   só em loopback, em porta efêmera. A cada sessão o Hub cria um código aleatório (`mxs_…`) e o entrega ao OpenCode em
   `OPENCODE_API_KEY`, junto com o endereço do repasse no lugar do endereço do fornecedor (`OPENCODE_CONFIG_CONTENT`).
   O repasse confere o código, troca-o pela chave guardada e encaminha o pedido ao endereço fixo do plano.
@@ -48,17 +48,23 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
 - Por isso a chave não está no ambiente do OpenCode, nem no de um servidor MCP filho, nem no de um comando de shell:
   eles só enxergam o código de sessão. Conferido com o OpenCode 1.19.6 de verdade e um fornecedor de mentira
   (`repasse_tests.rs`, teste marcado `ignored` porque precisa do programa instalado:
-  `cargo test -- --ignored opencode_de_verdade`): as três sondas leem só `OPENCODE_API_KEY` e contam as linhas do
-  ambiente que contêm a chave (zero). Outras versões precisam ser reconferidas.
-- O código não vai a log nem a erro: toda linha de saída do motor passa por uma máscara (`mxs_[oculto]`) antes de ser
-  registrada ou interpretada.
+  `cargo test -- --ignored opencode_de_verdade`): as sondas leem só `OPENCODE_API_KEY` e contam as linhas do ambiente
+  que contêm a chave (zero). A sonda do próprio processo do OpenCode lê `/proc` e só roda em Linux; nos outros sistemas
+  a prova cobre o shell e o MCP filho. Outras versões precisam ser reconferidas.
+- O código de sessão é mascarado (`mxs_[oculto]`) onde texto do motor sai do processo do Hub: a linha de saída, cada texto
+  do JSON já interpretado (escapes desfeitos, mensagens de erro inclusive), o texto de um segmento de conversa montado de
+  vários pedaços (o fim que ainda pode ser o começo de um código fica retido até o próximo pedaço) e a saída de
+  ferramentas. Limite: um código que o motor escreva de outro jeito que não o literal (por exemplo em base64) não é
+  reconhecido; ele vale só enquanto o processo dura.
 - O OpenCode do plano roda num perfil próprio (`engine_setup_root/planos/<plano>/home`: casa, configuração, dados,
   estado e cache só do plano), com a configuração de projeto desligada (`OPENCODE_DISABLE_PROJECT_CONFIG`). Um bot com
   comando próprio de execução não recebe o ambiente do plano: o lançamento falha. Sem chave, fora do Space pessoal ou
   no executor isolado, também falha: o Hub nunca cai no ambiente do dono.
 - Trocar ou remover a chave revoga o código na hora, corta os pedidos em andamento (também a leitura do corpo, e uma
   revogação nunca se perde: ela fica marcada para quem chegar depois) e encerra o processo do OpenCode que o recebeu
-  antes de a operação voltar. Uma geração por plano fecha a corrida com uma abertura em curso: um processo que nasceu
+  antes de a operação voltar: pede a saída, espera 2 s, mata o grupo inteiro e espera até 8 s pela confirmação, numa
+  tarefa que o prazo de quem chamou não cancela. Se o processo não confirmar a saída, a operação devolve erro dizendo
+  isso (o código já está revogado de qualquer jeito: a chave não corre risco, só o processo). Uma geração por plano fecha a corrida com uma abertura em curso: um processo que nasceu
   com um código já revogado é encerrado.
 - O código vive no ambiente do processo, então vive com ele: quando a última conversa do processo fecha, o processo é
   encerrado (a próxima conversa abre outro, com outro código). Uma exceção: um processo mantido vivo por um comando de

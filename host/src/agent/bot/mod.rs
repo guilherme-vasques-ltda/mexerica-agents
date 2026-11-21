@@ -866,6 +866,10 @@ mod waiting_tests;
 mod context_effects_tests;
 
 #[cfg(test)]
+#[path = "mascara_codigo_tests.rs"]
+mod mascara_codigo_tests;
+
+#[cfg(test)]
 #[path = "../../fork/cadeias/ator_testes.rs"]
 mod cadeias_tests;
 

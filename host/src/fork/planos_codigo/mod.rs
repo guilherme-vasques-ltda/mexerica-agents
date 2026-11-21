@@ -8,7 +8,9 @@
 //! plano.
 mod acesso;
 mod cerca;
+mod mascara;
 mod perfil;
+pub(crate) use mascara::{mascarar_codigo, mascarar_json, mascarar_saida};
 pub(crate) mod repasse;
 #[cfg(test)]
 mod repasse_tests;
@@ -168,7 +170,7 @@ async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Z
     let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
     gravar(&hub.store, plano, &candidata, &acesso)?;
     // Depois da gravação: as sessões abertas com a chave velha morrem e os pedidos em andamento são cortados.
-    repasse_do_hub(hub).await?.revogar_plano(plano).await;
+    repasse_do_hub(hub).await?.revogar_plano(plano).await?;
     Ok(acesso)
 }
 
@@ -205,34 +207,9 @@ async fn remover(hub: &Arc<Hub>, plano: &'static Plano) -> Result<()> {
         )?;
         transacao.commit()?;
     }
-    repasse_do_hub(hub).await?.revogar_plano(plano).await;
+    let revogado = repasse_do_hub(hub).await?.revogar_plano(plano).await;
     perfil::apagar(&hub.store, plano);
-    Ok(())
-}
-
-/// Troca o código de sessão (`mxs_` e 64 dígitos hexadecimais) por `mxs_[oculto]` em texto que o Hub vai registrar ou
-/// repassar a partir da saída de um motor: o código vale só enquanto a sessão dura, mas não deve parar em log nem em erro.
-pub(crate) fn mascarar_codigo(texto: &str) -> std::borrow::Cow<'_, str> {
-    const MARCA: &str = "mxs_";
-    if !texto.contains(MARCA) {
-        return std::borrow::Cow::Borrowed(texto);
-    }
-    let mut saida = String::with_capacity(texto.len());
-    let mut resto = texto;
-    while let Some(posicao) = resto.find(MARCA) {
-        saida.push_str(&resto[..posicao]);
-        let depois = &resto[posicao + MARCA.len()..];
-        let digitos = depois.bytes().take_while(u8::is_ascii_hexdigit).count();
-        if digitos >= 64 {
-            saida.push_str("mxs_[oculto]");
-            resto = &depois[64..];
-        } else {
-            saida.push_str(MARCA);
-            resto = depois;
-        }
-    }
-    saida.push_str(resto);
-    std::borrow::Cow::Owned(saida)
+    revogado
 }
 
 /// O repasse local deste Hub, iniciado na primeira vez que alguém precisa dele.

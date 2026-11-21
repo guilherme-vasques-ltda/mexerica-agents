@@ -434,5 +434,52 @@ fn o_codigo_de_sessao_e_mascarado_em_texto_que_o_hub_registra() {
     assert_eq!(mascarar_codigo(&format!("erro com {codigo} no meio")), "erro com mxs_[oculto] no meio");
     assert_eq!(mascarar_codigo(&format!("{codigo}{codigo}")), "mxs_[oculto]mxs_[oculto]");
     assert_eq!(mascarar_codigo("mxs_curto e mxs_"), "mxs_curto e mxs_", "o que não é um código inteiro não muda");
-    assert!(!mascarar_codigo(&format!(r#"{{"error":{{"message":"{codigo}"}}}}"#)).contains(&codigo));
+    let mut json = json!({"error": {"message": format!("falhou {codigo}"), "data": [codigo.clone(), 1]}});
+    mascarar_json(&mut json);
+    assert!(!json.to_string().contains(&codigo));
+}
+
+#[test]
+fn texto_de_conversa_segura_so_o_fim_que_pode_ser_o_comeco_de_um_codigo() {
+    let codigo = format!("mxs_{}", "ab12".repeat(16));
+    for corte in [1, 3, 4, 5, 20, 67] {
+        let texto = format!("abc {}", &codigo[..corte]);
+        assert_eq!(mascarar_saida(&texto, false), "abc ", "corte {corte}");
+        assert_eq!(mascarar_saida(&texto, true), texto, "no fim o que sobra não é código");
+    }
+    assert_eq!(mascarar_saida(&format!("abc {codigo}"), false), "abc mxs_[oculto]");
+    assert_eq!(mascarar_saida("abc m", false), "abc ");
+    assert_eq!(mascarar_saida("abc mxs_[oculto] xyz", false), "abc mxs_[oculto] xyz");
+    assert_eq!(mascarar_saida("ação mxs", false), "ação ");
+}
+
+#[tokio::test]
+async fn codigo_em_escapes_de_json_e_em_mensagem_de_erro_do_motor_nao_chega_ao_erro_nem_ao_texto() {
+    let codigo = format!("mxs_{}", "ab12".repeat(16));
+    let escapado = format!("\\u006dxs_{}", &codigo[4..]);
+    let pasta = crate::store::private_fixture_dir("planos-motor-de-mentira");
+    let roteiro = pasta.join("motor.sh");
+    std::fs::write(
+        &roteiro,
+        format!(
+            "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"texto\":\"{escapado}\"}}}}'\n\
+             read linha\n\
+             printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{{\"code\":-1,\"message\":\"falhou {escapado}\"}}}}'\n\
+             sleep 5\n"
+        ),
+    )
+    .unwrap();
+    let (acp, mut entrada) =
+        crate::agent::acp::Acp::spawn(&format!("sh {}", roteiro.display()), &pasta.to_string_lossy(), &[]).unwrap();
+    let Some(crate::agent::acp::Incoming::Notification { params, .. }) =
+        tokio::time::timeout(Duration::from_secs(5), entrada.recv()).await.unwrap()
+    else {
+        panic!("notificação esperada");
+    };
+    assert!(!params.to_string().contains(&codigo), "o código escrito em escapes não passa do parse: {params}");
+    assert!(params.to_string().contains("mxs_[oculto]"));
+    let erro = acp.request("x", json!({})).await.unwrap_err().to_string();
+    assert!(!erro.contains(&codigo), "{erro}");
+    assert!(erro.contains("mxs_[oculto]"), "{erro}");
+    acp.kill_and_wait().await;
 }

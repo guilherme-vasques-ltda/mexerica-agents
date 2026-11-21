@@ -799,9 +799,10 @@ impl Actor {
         let same = matches!(&self.seg, Seg::Open { kind: k, .. } if *k == kind);
         if !same {
             self.close_seg();
+            let shown = crate::fork::planos_codigo::mascarar_saida(text, false).into_owned();
             let (k, data) = match kind {
-                SegKind::Text => (EntryKind::Agent, json!({"text": text, "final": false})),
-                SegKind::Thought => (EntryKind::Thought, json!({"text": text})),
+                SegKind::Text => (EntryKind::Agent, json!({"text": shown, "final": false})),
+                SegKind::Thought => (EntryKind::Thought, json!({"text": shown})),
             };
             if let Some(e) = self.add(k, self.turn.unwrap_or(0), data) {
                 if kind == SegKind::Text {
@@ -828,9 +829,12 @@ impl Actor {
             && *dirty
             && (force || flushed.elapsed() >= Duration::from_millis(300))
         {
+            // O texto montado de vários pedaços passa pela máscara do código de sessão; uma publicação intermediária
+            // segura o fim que ainda pode ser o começo de um código (toda publicação forçada fecha o segmento).
+            let text = crate::fork::planos_codigo::mascarar_saida(buf, force);
             let data = match kind {
-                SegKind::Text => json!({"text": buf, "final": false, "author": self.cfg.id}),
-                SegKind::Thought => json!({"text": buf, "author": self.cfg.id}),
+                SegKind::Text => json!({"text": text, "final": false, "author": self.cfg.id}),
+                SegKind::Thought => json!({"text": text, "author": self.cfg.id}),
             };
             let written = self.hub.set_entry_in_execution(entry_id, &data, execution);
             if execution.is_some() && written.is_none() {
@@ -874,7 +878,7 @@ pub fn merge_tool_content(data: &mut Value, content: &Value) {
         }
     }
     if !out.is_empty() {
-        data["output"] = acp::truncate(&out, 6000).into();
+        data["output"] = acp::truncate(&crate::fork::planos_codigo::mascarar_codigo(&out), 6000).into();
     }
     if !diffs.is_empty() {
         data["diffs"] = diffs.into();
