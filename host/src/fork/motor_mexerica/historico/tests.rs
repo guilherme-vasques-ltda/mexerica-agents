@@ -47,6 +47,11 @@ fn assert_paired(messages: &[Value]) {
             .filter(|block| block["type"] == "toolCall")
             .map(|block| (block["id"].as_str().unwrap().to_owned(), block["name"].as_str().unwrap().to_owned()))
             .collect();
+        let mut seen: Vec<&String> = Vec::new();
+        for (id, _) in &open {
+            assert!(!seen.contains(&id), "id de chamada repetido no mesmo lote: {id}");
+            seen.push(id);
+        }
     }
     assert!(open.is_empty(), "chamadas sem resultado: {open:?}");
 }
@@ -94,6 +99,23 @@ fn copia_enxuta_so_leva_texto_e_chamadas_de_ferramenta() {
     ] {
         assert!(sanitize(&ignored, &[]).is_none(), "{ignored}");
     }
+}
+
+#[test]
+fn o_teto_de_blocos_conta_somente_blocos_de_texto() {
+    let images: Vec<Value> = (0..MAX_BLOCKS).map(|_| json!({"type": "image", "data": "AAAA"})).collect();
+    let mut user_content = images.clone();
+    user_content.push(json!({"type": "text", "text": "depois das imagens"}));
+    let user_message = json!({"role": "user", "content": user_content, "timestamp": 1});
+    let clean = sanitize(&user_message, &[]).expect("o teto de blocos não é gasto por imagens");
+    assert_eq!(clean["content"], json!([{"type": "text", "text": "depois das imagens"}]));
+
+    let mut result_content = images;
+    result_content.push(json!({"type": "text", "text": "eco:feito"}));
+    let tool_result = json!({"role": "toolResult", "toolCallId": "c1", "toolName": "eco", "isError": false,
+        "content": result_content, "timestamp": 3});
+    let clean = sanitize(&tool_result, &[]).expect("o teto de blocos não é gasto por imagens");
+    assert_eq!(clean["content"], json!([{"type": "text", "text": "eco:feito"}]));
 }
 
 #[test]
@@ -386,7 +408,7 @@ fn o_receptor_do_motor_aceita_o_historico_que_o_hub_fechou_exatamente_no_teto() 
         let mut node = std::process::Command::new(crate::fork::motor_mexerica::node_path().unwrap())
             .args([
                 "-e",
-                "import(process.argv[1]).then(m=>{let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log('ok '+m.parseHistory(JSON.parse(s)).length)}catch(e){console.log('erro '+e.message)}})})",
+                "import(process.argv[1]).then(m=>{let s='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log('ok '+m.parseHistory(JSON.parse(s)).length)}catch(e){console.log('erro '+e.message)}})})",
             ])
             .arg(history)
             .stdin(std::process::Stdio::piped())
@@ -419,8 +441,8 @@ fn resultado_so_entra_para_chamada_aberta_uma_vez_e_com_o_mesmo_nome() {
     let roles: Vec<&str> = kept.iter().map(|m| m["role"].as_str().unwrap()).collect();
     assert_eq!(
         roles,
-        ["user", "assistant", "toolResult"],
-        "sem o segundo resultado do mesmo id; a chamada c2, cujo resultado de outro nome foi recusado, fica aberta e sai"
+        ["user", "assistant", "toolResult", "assistant", "toolResult"],
+        "sem o segundo resultado do mesmo id; a chamada c2, cujo resultado de outro nome foi recusado, ganha o resultado desconhecido"
     );
     assert_eq!(kept[2]["content"][0]["text"], "primeiro");
 
@@ -432,7 +454,7 @@ fn resultado_so_entra_para_chamada_aberta_uma_vez_e_com_o_mesmo_nome() {
 }
 
 #[test]
-fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
+fn volta_de_ferramentas_que_nao_terminou_ganha_resultado_desconhecido() {
     let two = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
         "timestamp": 2, "content": [
             {"type": "toolCall", "id": "a", "name": "eco", "arguments": {}},
@@ -443,7 +465,13 @@ fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
     log.push(&result("a", "so um chegou"));
     let (kept, dropped) = log.take();
     assert!(dropped, "a volta aberta marca a cópia para a ressincronização");
-    assert_eq!(texts_of(&kept), ["pedido"], "nem a chamada nem o resultado que chegou ficam");
+    assert_paired(&kept);
+    let roles: Vec<&str> = kept.iter().map(|m| m["role"].as_str().unwrap()).collect();
+    assert_eq!(roles, ["user", "assistant", "toolResult", "toolResult"]);
+    assert_eq!(kept[2]["content"][0]["text"], "so um chegou", "o resultado que chegou fica como veio");
+    assert_eq!(kept[3]["toolCallId"], "b");
+    assert_eq!(kept[3]["isError"], true);
+    assert!(kept[3]["content"][0]["text"].as_str().unwrap().contains("resultado desconhecido"));
 
     let mut log = TurnLog::new(Vec::new());
     log.push(&user("pedido"));
@@ -457,8 +485,10 @@ fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
     log.push(&call("c1", &json!({})));
     log.push(&user("outra mensagem chegou antes do resultado"));
     let (kept, dropped) = log.take();
-    assert!(dropped, "uma mensagem nova fecha a volta: a chamada sem resultado sai na hora");
-    assert_eq!(texts_of(&kept), ["pedido", "outra mensagem chegou antes do resultado"]);
+    assert!(dropped, "uma mensagem nova fecha a volta: a chamada sem resultado é fechada na hora");
+    assert_paired(&kept);
+    assert_eq!(kept[2]["toolCallId"], "c1");
+    assert_eq!(kept[3]["role"], "user");
 }
 
 #[tokio::test]

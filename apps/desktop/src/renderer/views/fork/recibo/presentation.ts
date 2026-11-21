@@ -2,7 +2,8 @@
 import type { Entry } from '../../../../shared/models.ts'
 import type { RoutingReceipt } from '../../../../shared/fork-roteamento.ts'
 import type { ReceiptLoad, ReceiptRequest } from '../../../store/fork-recibo.ts'
-import type { Tradutor } from '../../../lib/fork-i18n/index.ts'
+import { formatarNumero, type Tradutor } from '../../../lib/fork-i18n/index.ts'
+import type { AppLanguage } from '../../../../shared/fork-idioma.ts'
 
 /** A resposta que abre um turno do bot. `request` nulo: turno sem pedido humano (rotina, grupo), sem recibo. */
 export interface ReceiptAnchor {
@@ -84,10 +85,35 @@ export function changedModel(t: Tradutor, current: ReceiptLoad | undefined, prev
   return a !== b ? a ?? modelOf(t, now) : null
 }
 
-/** O ícone aparece com recibo, na fila ou com erro de leitura; nunca sem recibo nem antes de ler. */
+/** O ícone aparece com recibo, na fila, com erro de leitura ou com uso do turno; nunca sem nada a mostrar nem antes de ler. */
 export function showsIcon(load: ReceiptLoad | undefined): boolean {
   if (!load || load.status === 'loading') return false
-  return load.status === 'error' || load.response.state !== 'notRouted'
+  if (load.status === 'error' || load.response.state !== 'notRouted') return true
+  const usage = load.response.usage
+  return !!usage && [usage.input, usage.cacheRead, usage.cacheWrite, usage.output].some((v) => contagem(v) !== null)
+}
+
+const contagem = (v: unknown): number | null => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null
+
+export type UsoLinhaId = 'entrada' | 'cacheLido' | 'cacheGravado' | 'saida'
+/**
+ * O uso do turno que o motor informou (nunca estimado pela Mexerica). `informado`: ao menos um número veio do motor, e
+ * cada linha sem número é "não informado" (`valor` null). `naoInformado`: o motor não informou nenhum. `semMedida`: o
+ * turno não tem registro de uso (anterior ao registro ou ainda em andamento).
+ */
+export type UsoView =
+  | { kind: 'semMedida' | 'naoInformado' }
+  | { kind: 'informado'; linhas: { id: UsoLinhaId; valor: string | null }[] }
+
+
+/** Nada (null) enquanto o recibo não foi lido, na fila ou vindo de um Hub antigo, que não manda `usage`. */
+export function usoDoTurno(idioma: AppLanguage, load: ReceiptLoad | undefined): UsoView | null {
+  if (load?.status !== 'loaded' || load.response.state === 'pending' || load.response.usage === undefined) return null
+  if (load.response.usage === null) return { kind: 'semMedida' }
+  const { input, cacheRead, cacheWrite, output } = load.response.usage
+  const valores: [UsoLinhaId, number | null][] = [['entrada', contagem(input)], ['cacheLido', contagem(cacheRead)], ['cacheGravado', contagem(cacheWrite)], ['saida', contagem(output)]]
+  if (valores.every(([, v]) => v === null)) return { kind: 'naoInformado' }
+  return { kind: 'informado', linhas: valores.map(([id, v]) => ({ id, valor: v === null ? null : formatarNumero(idioma, v) })) }
 }
 
 export function receiptView(t: Tradutor, load: ReceiptLoad | undefined, accounts: readonly AccountName[] | null | 'failed', botName: string, hasRequest = true): ReceiptView {

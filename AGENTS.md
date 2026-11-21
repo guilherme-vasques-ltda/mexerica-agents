@@ -62,6 +62,9 @@ Rode só a verificação da parte que você mudou:
   `apps/desktop/src/renderer/lib/fork-i18n/` (idiomas pt-BR, en, es, fr, zh-CN e ar-AE, com as
   mesmas chaves em todos). `apps/desktop/tools/textos-gate.ts` roda dentro de `npm test` e reprova
   texto visível novo fora dos catálogos (salvo as exceções previstas no próprio gate) e chave faltando em algum idioma.
+- **Texto publicado (PR, commit, branch, comentário):** só o que mudou, por quê, como foi testado e o que ficou
+  sem provar; nada de bastidor, crédito de autoria ou revisão por IA, código de tarefa interno ou selo de plataforma.
+  Antes de publicar, rode `node tools/ci-bastidor.mjs local` (veja [docs/guides/bastidor.md](docs/guides/bastidor.md)).
 - **Testes:** cubra as fronteiras de segurança e o fluxo alterado; não enfraqueça nem apague teste
   para fazê-lo passar.
 
