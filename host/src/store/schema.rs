@@ -227,6 +227,7 @@ impl Store {
         crate::fork::sessoes::migrate(&c)?;
         super::conectores::migrate(&c)?;
         crate::market::migrate_recibos(&c)?;
+        crate::market::ferramentas::migrate(&c)?;
         crate::fork::background_space_selection::migrate(&c)?;
         let secret_key = if path == Path::new(":memory:") {
             let mut key = vec![0; 32];

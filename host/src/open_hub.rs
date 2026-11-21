@@ -58,9 +58,14 @@ fn open_allows(method: &str, body: &Value) -> bool {
         | "donnaSpaceUpdate"
         | "donnaSpaceReorder"
         | "donnaOwnerPresentation"
+        | "donnaEngineAccounts"
+        | "donnaEngineAccess"
+        | "donnaBotEditor"
+        | "donnaBotEditorSave"
         | "deleteBot"
         | "reorderBots" => true,
         "createBot" | "updateBot" => body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")),
+        _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
     }
 }
@@ -307,6 +312,7 @@ mod unix {
             result = axum::serve(unix, socket_router).into_future() => result,
             result = axum::serve(tcp, axum::Router::new()).into_future() => result,
         };
+        crate::fork::engine_setup::shutdown_open(&hub).await;
         hub.shutdown().await;
         crate::agent::acp::stopped().await;
         drop(socket_file);

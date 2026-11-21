@@ -28,6 +28,7 @@ import { useReading } from './reading'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { CallView } from '../call/CallView'
 import { useCallAvailability } from '../call/use-call-availability'
+import { TEXTO_RECUSA, useEntradaVoz } from '../fork/voz/entrada-voz'
 import { afterChange, jumpPill, markKey } from '../fork/novas/leitura'
 import { useVisibleRows } from '../fork/novas/visible-rows'
 import { useAbrirNaLinha, useVisita } from '../fork/novas/useVisita'
@@ -140,6 +141,12 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   }, [])
 
   const voiceAvailable = useCallAvailability(store, panel.open)
+  // o atalho global abre ou encerra a MESMA chamada do botão, só na conversa principal de um bot à vista.
+  const recusaVoz = useEntradaVoz(
+    () => ({ grupo: !!bot && isGroup(bot), coberta: telaOn || (panel.open && !panel.pinned), sessaoAberta: openSession !== null, disponivel: voiceAvailable && !!bot, senhaBloqueada: vozBloqueada, emChamada: calling }),
+    () => setCalling(true),
+    () => setCalling(false),
+  )
   const { togglePin, show: showPanel } = panel
   const togglePinRef = useRef(togglePin)
   togglePinRef.current = togglePin
@@ -298,6 +305,11 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
             </>
           )}
         </div>
+        {recusaVoz && recusaVoz !== 'oculta' && !calling ? (
+          <div className="call-overlay">
+            <Text as="div" tone="secondary" className="call-line" role="status" dir="auto">{t(TEXTO_RECUSA[recusaVoz])}</Text>
+          </div>
+        ) : null}
         {calling ? (
           <div className="call-overlay">
             <CallView botId={botId} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => setCalling(false)} />
