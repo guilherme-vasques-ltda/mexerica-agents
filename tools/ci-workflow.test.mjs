@@ -1,7 +1,10 @@
 // Contrato do workflow de CI: Instabox por padrão (variável só troca a máquina), nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const lines = ci.split('\n');
@@ -151,4 +154,44 @@ test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
   assert.ok(sem.includes('-r "$RUNNER_TEMP/semgrep-politica/requirements.txt"'));
   assert.ok(sem.includes('--config "$RUNNER_TEMP/semgrep-politica/semgrep.yml"'));
   assert.ok(!/-r \.github\/|--config \.github\//.test(sem), 'nada lido direto do checkout do PR');
+});
+
+test('seleção por caminhos: o laço do workflow marca Hub e Desktop pelos arquivos que os testes leem', () => {
+  const lines = body('leves').split('\n');
+  const start = lines.indexOf('          host=false');
+  const end = lines.indexOf('          done < "$RUNNER_TEMP/alterados.z"');
+  assert.ok(start > 0 && end > start, 'laço de seleção encontrado');
+  const script = lines.slice(start, end + 1).map((l) => l.slice(10)).join('\n') + '\nprintf "%s %s" "$host" "$desktop"\n';
+  const select = (paths) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ci-selecao-'));
+    try {
+      writeFileSync(join(dir, 'alterados.z'), paths.map((p) => p + '\0').join(''));
+      const r = spawnSync('bash', ['-c', script], { env: { PATH: process.env.PATH, RUNNER_TEMP: dir }, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout;
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  };
+  assert.equal(select(['host/src/fork/conectores/fichas/exemplo.json']), 'true true', 'fichas de conector rodam o Desktop');
+  assert.equal(select(['rust-toolchain']), 'true true', 'nome legado do toolchain roda o Hub');
+  assert.equal(select(['rust-toolchain.toml']), 'true true');
+  assert.equal(select(['host/src/main.rs']), 'true false', 'só Hub dispensa o Desktop');
+  assert.equal(select(['motor/package.json']), 'true false');
+  assert.equal(select(['apps/desktop/src/main/index.ts']), 'false true');
+  assert.equal(select(['docs/guides/ci.md']), 'false true');
+  assert.equal(select(['.github/workflows/ci.yml']), 'true true');
+  assert.equal(select(['tools/ci-vazamento.mjs']), 'true true');
+});
+
+test('leves e vazamento não ligam cache automático do setup-node', () => {
+  for (const job of ['leves', 'vazamento']) {
+    const setup = body(job).split('uses: actions/setup-node@')[1].split('\n      - ')[0];
+    assert.match(setup, /package-manager-cache: false/, job);
+  }
+});
+
+test('Semgrep: Python em modo isolado e fora da árvore analisada', () => {
+  const leves = body('leves');
+  assert.match(leves, /- name: Semgrep - validar plataforma e instalar Semgrep OSS fixado\n        working-directory: \$\{\{ runner\.temp \}\}/);
+  for (const cmd of ["python3 -I -c 'import sys", 'python3 -I -m venv', 'cd "$RUNNER_TEMP"\n          python3 -I - <<']) assert.ok(leves.includes(cmd), cmd);
+  assert.ok(!/python3 (?!-I)/.test(leves), 'nenhum python3 sem -I');
 });

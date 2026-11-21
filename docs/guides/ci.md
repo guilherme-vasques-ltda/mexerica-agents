@@ -1,7 +1,8 @@
 # CI (ci-ok)
 
 O workflow [CI](../../.github/workflows/ci.yml) roda em todo pull request e publica o
-check **`ci-ok`**, que a proteção da `main` vai exigir. Enquanto o repositório for privado,
+check **`ci-ok`**. Quem faz o merge confere o selo; o GitHub não o impõe, porque um PR pode
+redefinir o próprio workflow (veja Limites conhecidos). Enquanto o repositório for privado,
 nenhum job roda em runner hospedado pelo GitHub: todos usam runners da **Instabox**,
 conectada ao repositório por app do GitHub.
 
@@ -19,8 +20,12 @@ variables → Actions → Variables). Sem a variável, vale o padrão da Instabo
 - Use `ubuntu-24.04`, nunca `ubuntu-latest`: o Semgrep e o Hub conferem Ubuntu 24.04 x64, e o
   `latest` muda de versão sozinho.
 - O primeiro passo de todo job recusa máquina do GitHub enquanto o repositório for privado,
-  mesmo que a variável aponte para ela. No dia de abrir, basta trocar as três variáveis.
+  mesmo que a variável aponte para ela.
 - A variável só escolhe a máquina; as checagens e o `ci-ok` não mudam.
+- Trocar as variáveis muda onde o teste roda, e só isso. **Não é o procedimento para abrir o
+  repositório.** Um PR pode pedir outros rótulos no próprio workflow, então antes de abrir é
+  preciso, fora do workflow, tirar este repositório do alcance dos runners de terceiros e
+  exigir aprovação para rodar workflows de quem é de fora.
 
 ## Máquinas por rodada
 
@@ -100,11 +105,13 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
 
 ## Limites conhecidos
 
-- O evento `pull_request` usa o workflow do próprio PR. Quem pode criar branch no
-  repositório pode mudar o workflow, o `ci-ok` e o uso do secret. O `ci-ok` só prova algo
-  quando quem escreve no repositório é confiável; mudanças em `.github/` e `tools/ci-*`
-  pedem revisão cuidadosa. Fechar essa porta exige um workflow obrigatório definido fora do
-  PR (regra de organização que aponta para um arquivo fixo), não este arquivo.
+- O evento `pull_request` usa o workflow do próprio PR, de fork ou não. Quem abre o PR pode
+  redefinir o workflow, a recusa de fork, o `ci-ok` e o uso do secret. Por isso o `ci-ok` só
+  prova algo quando quem escreve no repositório é confiável, mudanças em `.github/` e
+  `tools/ci-*` pedem leitura humana, e PR de fora só deve rodar depois de aprovado por quem
+  mantém o repositório. Uma checagem que o PR não consegue redefinir precisa vir de fora deste
+  arquivo (workflow obrigatório da organização a partir de referência protegida, ou um app
+  dedicado como fonte obrigatória do check).
 - Gitleaks e Semgrep mostram caminhos de arquivo nos logs. Em repositório público os logs
   são públicos; o `vazamento` já esconde caminhos com dado pessoal.
 - Os jobs rodam código do PR numa VM descartável com `sudo`, como nos runners do GitHub; a
@@ -120,9 +127,10 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
 ## Repositório público
 
 Runner próprio em repositório público executa código de quem abre o PR. O workflow recusa
-forks, mas o workflow que roda é o do fork. Antes de abrir o repositório, revise: aprovação obrigatória de workflows de
-contribuidores externos em Settings → Actions, o comportamento da Instabox com repositórios
-públicos e o custo das máquinas que o `ci-ok` de forks liga.
+forks, mas o workflow que roda é o do fork, que pode tirar essa recusa. Por isso, antes de
+abrir o repositório: exigir aprovação para rodar workflows de todos os colaboradores de fora
+(Settings → Actions) e tirar o repositório do alcance dos runners de terceiros, no painel de
+cada fornecedor. Só depois troque as variáveis de máquina.
 
 ## Rodar localmente
 

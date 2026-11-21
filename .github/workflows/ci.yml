@@ -44,6 +44,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
+          package-manager-cache: false
       - name: Selecionar alvos pelo diff entre a base e o merge do PR
         id: selection
         env:
@@ -64,14 +65,14 @@ jobs:
             esac
             # Hub: codigo, motor, toolchain e arquivos de outras pastas lidos pelos testes do Hub.
             case "$path" in
-              host/*|motor/*|apps/screen-linux/*|rust-toolchain.toml|Cargo.toml|Cargo.lock|.cargo/*|rustfmt.toml|.rustfmt.toml|clippy.toml|.clippy.toml|docs/features/manual-do-harness.md|docs/reference/fixtures/remote-relay-vectors.json) host=true ;;
+              host/*|motor/*|apps/screen-linux/*|rust-toolchain|rust-toolchain.toml|Cargo.toml|Cargo.lock|.cargo/*|rustfmt.toml|.rustfmt.toml|clippy.toml|.clippy.toml|docs/features/manual-do-harness.md|docs/reference/fixtures/remote-relay-vectors.json) host=true ;;
               apps/desktop/src/renderer/lib/donnabot-avatars/schema/avatar-config.schema.json|apps/desktop/src/renderer/lib/donnabot-avatars/presets/roles.json) host=true ;;
               apps/desktop/src/shared/fork-avatar-data.json|apps/desktop/src/shared/fork-mexeriquinha-data.json|apps/desktop/src/shared/fork-mexeriquinha.schema.json|apps/desktop/src/shared/fork-mexeriquinha-wire-fixture.json) host=true ;;
               apps/desktop/src/renderer/lib/mexeriquinhas/prompts/*|apps/desktop/src/renderer/lib/mexeriquinhas/assets/base/referencia.png) host=true ;;
             esac
             # Desktop: os testes leem arquivos de varias pastas; so mudancas exclusivas de Hub e motor dispensam.
             case "$path" in
-              host/src/fork/skill_catalog/registry.json|host/src/fork/personal_link/*) desktop=true ;;
+              host/src/fork/skill_catalog/registry.json|host/src/fork/personal_link/*|host/src/fork/conectores/fichas/*) desktop=true ;;
               host/*|motor/*|apps/screen-linux/*) ;;
               *) desktop=true ;;
             esac
@@ -119,18 +120,21 @@ jobs:
           mkdir -p "$RUNNER_TEMP/semgrep-politica"
           git show "$source:.github/security/semgrep.yml" > "$RUNNER_TEMP/semgrep-politica/semgrep.yml"
           git show "$source:.github/security/semgrep-requirements.txt" > "$RUNNER_TEMP/semgrep-politica/requirements.txt"
+      # Python em modo isolado (-I) e fora da arvore analisada: nada do checkout entra no sys.path.
       - name: Semgrep - validar plataforma e instalar Semgrep OSS fixado
+        working-directory: ${{ runner.temp }}
         run: |
           . /etc/os-release
           test "$ID" = ubuntu && test "$VERSION_ID" = 24.04
           test "$(uname -m)" = x86_64
-          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
-          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3 -I -m venv "$RUNNER_TEMP/semgrep-venv"
           "$RUNNER_TEMP/semgrep-venv/bin/pip" --disable-pip-version-check install --only-binary=:all: --require-hashes -r "$RUNNER_TEMP/semgrep-politica/requirements.txt"
       - name: Semgrep - executar (achados informativos, falha bloqueante)
         run: |
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config "$RUNNER_TEMP/semgrep-politica/semgrep.yml" --metrics=off --disable-version-check --jobs 2 --exclude '*.lock' --exclude '*-lock.json' --exclude '*.svg' --exclude '*.min.js' --exclude xterm.js --json --output "$RUNNER_TEMP/semgrep.json" > "$RUNNER_TEMP/semgrep.log" 2>&1
-          python3 - <<'PYTHON'
+          cd "$RUNNER_TEMP"
+          python3 -I - <<'PYTHON'
           import json, os
           with open(os.environ['RUNNER_TEMP'] + '/semgrep.json') as f:
               data = json.load(f)
@@ -187,6 +191,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
+          package-manager-cache: false
       - name: Escolher a fonte do executor de vazamento
         id: fonte
         env:
