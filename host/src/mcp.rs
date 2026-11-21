@@ -145,14 +145,14 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                         .map_err(crate::fork::conectores::mcp_version::Erro::json)
                 }
                 "ping" => Ok(json!({})),
-                "tools/list" => Ok(match server {
-                    Server::Computer => computer_tools(port, &token).await,
+                "tools/list" => match server {
+                    Server::Computer => Ok(computer_tools(port, &token).await),
                     Server::Memory => memory_tools(port, &token, &bot).await,
                     Server::Chat if sealed_session(server) => {
-                        session_tools(available_tools, session_catalog(port, &token, &bot).await)
+                        Ok(session_tools(available_tools, session_catalog(port, &token, &bot).await))
                     }
-                    _ => json!({"tools": available_tools}),
-                }),
+                    _ => Ok(json!({"tools": available_tools})),
+                },
                 "tools/call" if params["name"] == "ajuda_instrucoes" && instruction_guide(server).is_some() => {
                     let guide = format!("{instructions}\n{}", instruction_guide(server).unwrap_or_default());
                     Ok(json!({"content":[{"type":"text","text":guide}]}))
@@ -204,16 +204,22 @@ fn add_instruction_guide(server: Server, available_tools: &mut Value) {
     }
 }
 
-/// Anúncio depende do motor efetivo revalidado no Hub. Falha fecha a lista.
-async fn memory_tools(port: u16, token: &str, bot: &str) -> Value {
+/// Anúncio depende do motor efetivo revalidado no Hub. Lista vazia só quando o Hub respondeu que não há ferramentas;
+/// recusa, falha ou resposta fora do formato é erro JSON-RPC, para o cliente manter a lista que já tinha.
+async fn memory_tools(port: u16, token: &str, bot: &str) -> Result<Value, Value> {
     let result = call(port, token, bot, &json!({"name":"__tools","arguments":{}}), Server::Memory).await;
+    let unavailable =
+        |why: &str| json!({"code": -32603, "message": format!("catálogo de ferramentas indisponível: {why}")});
+    if result["isError"] == true {
+        return Err(unavailable("o Hub recusou a consulta"));
+    }
     let tools = result["content"][0]["text"]
         .as_str()
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
         .and_then(|v| v.get("tools").cloned())
         .filter(Value::is_array)
-        .unwrap_or_else(|| json!([]));
-    json!({"tools":tools})
+        .ok_or_else(|| unavailable("resposta fora do formato"))?;
+    Ok(json!({"tools":tools}))
 }
 
 /// The `computer` tools the host offers; none when it can't be reached.
@@ -425,5 +431,40 @@ mod catalogo_do_navegador_tests {
         ] {
             assert!(!browser_negotiated(&refusal), "{refusal}");
         }
+    }
+
+    async fn hub_que_responde(status: u16, body: Value) -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let status = axum::http::StatusCode::from_u16(status).unwrap();
+        let router = axum::Router::new()
+            .route("/api/{method}", axum::routing::post(move || async move { (status, axum::Json(body)) }));
+        (port, tokio::spawn(async move { axum::serve(listener, router).await.unwrap() }))
+    }
+
+    #[tokio::test]
+    async fn lista_de_memoria_so_e_vazia_quando_o_hub_diz_que_e_vazia() {
+        let (port, hub) = hub_que_responde(200, json!({"tools": []})).await;
+        let vazia = memory_tools(port, "token", "bot").await;
+        hub.abort();
+        assert_eq!(vazia.unwrap(), json!({"tools": []}), "lista vazia legítima continua valendo");
+
+        for (status, corpo) in [
+            (500, json!({"error": "falhou"})),
+            (401, json!({"error": "vencida"})),
+            (200, json!({"nao_e_lista": true})),
+            (200, json!({"tools": "x"})),
+        ] {
+            let (port, hub) = hub_que_responde(status, corpo.clone()).await;
+            let result = memory_tools(port, "token", "bot").await;
+            hub.abort();
+            let error = result.expect_err(&format!("{status} {corpo} virou lista vazia válida"));
+            assert_eq!(error["code"], -32603);
+        }
+
+        let inalcancavel = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = inalcancavel.local_addr().unwrap().port();
+        drop(inalcancavel);
+        assert!(memory_tools(port, "token", "bot").await.is_err(), "ponte fora do ar virou lista vazia válida");
     }
 }

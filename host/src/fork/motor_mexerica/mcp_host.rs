@@ -24,6 +24,10 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 const CALL_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_PAGES: usize = 20;
 const MAX_TOOLS: usize = 256;
+/// Teto de bytes (descrição e esquema) lidos de um servidor numa listagem, e prazo total dela: um conector
+/// não faz o Hub alocar nem esperar sem limite.
+const MAX_DISCOVERY_BYTES: usize = 4 * 1024 * 1024;
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(60);
 /// Prazo da consulta `browser_status` v3 que o Hub faz entre turnos.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
 /// Servidor interno do Hub que oferece as ferramentas de navegador.
@@ -186,9 +190,8 @@ impl McpHost {
         if let Err(error) = server.request("tools/call", status, STATUS_TIMEOUT).await {
             tracing::debug!(%error, "consulta de navegador v3 recusada; lista de ferramentas mantida");
         }
-        let listed = Self::discover(server, true, None).await?;
-        // A substituição é montada inteira numa cópia e só entra se couber: refresh que falha (ferramentas demais)
-        // preserva o catálogo que já funcionava.
+        // A substituição é montada inteira numa cópia e só entra se a listagem completa couber e for válida:
+        // refresh que falha (erro da ponte, página malformada, ferramentas demais) preserva o catálogo que já funcionava.
         let mut catalog = self.catalog.lock().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?.clone();
         let prefix = format!("mcp__{MEMORY}__");
         let names = |specs: &[ToolSpec]| -> std::collections::BTreeSet<String> {
@@ -197,8 +200,8 @@ impl McpHost {
         let before = names(&catalog.specs);
         catalog.routes.retain(|_, route| route.index != index);
         catalog.specs.retain(|spec| !spec.name.starts_with(&prefix));
+        let listed = Self::discover(server, true, None, MAX_TOOLS.saturating_sub(catalog.routes.len())).await?;
         for (exposed, original, spec) in listed {
-            ensure!(catalog.routes.len() < MAX_TOOLS, "ferramentas demais para o motor");
             ensure!(
                 catalog.routes.insert(exposed.clone(), Route { index, original }).is_none(),
                 "ferramenta repetida: {exposed}"
@@ -210,18 +213,42 @@ impl McpHost {
         Ok(changed)
     }
 
-    /// Lista as ferramentas de um servidor já iniciado: (nome exposto, nome original, declaração).
+    /// Lista as ferramentas de um servidor já iniciado: (nome exposto, nome original, declaração). `room` é quantas
+    /// ainda cabem no catálogo: a leitura para na página que passaria dele (ou do teto de bytes), antes de copiar
+    /// qualquer ferramenta, e uma página sem a lista de ferramentas é erro, não lista vazia.
     async fn discover(
         server: &Server,
         own: bool,
         account_label: Option<String>,
+        room: usize,
+    ) -> Result<Vec<(String, String, ToolSpec)>> {
+        tokio::time::timeout(DISCOVERY_TIMEOUT, Self::discover_pages(server, own, account_label, room))
+            .await
+            .map_err(|_| anyhow!("o servidor MCP {} não terminou de listar as ferramentas no prazo", server.name))?
+    }
+
+    async fn discover_pages(
+        server: &Server,
+        own: bool,
+        account_label: Option<String>,
+        room: usize,
     ) -> Result<Vec<(String, String, ToolSpec)>> {
         let mut found = Vec::new();
+        let mut bytes = 0usize;
         let mut cursor: Option<String> = None;
         for _ in 0..MAX_PAGES {
             let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
             let page = server.request("tools/list", params, SETUP_TIMEOUT).await?;
-            for tool in page["tools"].as_array().into_iter().flatten() {
+            let tools = page["tools"].as_array().with_context(|| {
+                format!("o servidor MCP {} respondeu tools/list sem a lista de ferramentas", server.name)
+            })?;
+            ensure!(found.len() + tools.len() <= room, "ferramentas demais para o motor");
+            bytes += tools
+                .iter()
+                .map(|tool| tool["description"].as_str().map_or(0, str::len) + tool["inputSchema"].to_string().len())
+                .sum::<usize>();
+            ensure!(bytes <= MAX_DISCOVERY_BYTES, "o servidor MCP {} listou ferramentas demais em bytes", server.name);
+            for tool in tools {
                 let original = tool["name"].as_str().context("ferramenta MCP sem nome")?;
                 let exposed = exposed_name(&server.name, original)
                     .with_context(|| format!("nome de ferramenta MCP inválido: {}/{original}", server.name))?;
@@ -240,8 +267,11 @@ impl McpHost {
                     },
                 ));
             }
-            let Some(next) = page["nextCursor"].as_str() else { return Ok(found) };
-            cursor = Some(next.to_owned());
+            match &page["nextCursor"] {
+                Value::Null => return Ok(found),
+                Value::String(next) => cursor = Some(next.clone()),
+                _ => bail!("o servidor MCP {} respondeu tools/list com cursor inválido", server.name),
+            }
         }
         bail!("o servidor MCP {} paginou ferramentas demais", server.name)
     }
@@ -319,10 +349,9 @@ impl McpHost {
         server.write(json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).await?;
         let index = self.servers.len();
         let label = definition["accountLabel"].as_str().map(str::to_owned);
-        let listed = Self::discover(&server, own, label).await?;
         let catalog = self.catalog.get_mut().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?;
+        let listed = Self::discover(&server, own, label, MAX_TOOLS.saturating_sub(catalog.routes.len())).await?;
         for (exposed, original, spec) in listed {
-            ensure!(catalog.routes.len() < MAX_TOOLS, "ferramentas demais para o motor");
             ensure!(
                 catalog.routes.insert(exposed.clone(), Route { index, original }).is_none(),
                 "ferramenta repetida: {exposed}"
