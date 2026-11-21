@@ -206,11 +206,18 @@ test("o código do motor não tem caminho para abrir processo, MCP, rede ou ler 
 	const fontes = ["rpc.ts", ...readdirSync(join(raiz, "src")).map((f) => `src/${f}`)];
 	// Só o cofre (fd 3) usa `node:net`; ninguém abre processo, HTTP, DNS nem cliente MCP.
 	const proibido = /child_process|node:(http|https|http2|tls|dgram|dns|cluster|worker_threads)\b|@modelcontextprotocol|\bmcp[-_]client|coding-agent\/src\/(core|config)|settings-manager|(?<![.\w])(spawn|exec|execFile|execSync)\(/i;
+	// Exceção única e nomeada: `src/destino.ts` é o transporte do endereço próprio (pedido ao fornecedor por HTTP, com
+	// o portão de rede: DNS e endereço da conexão conferidos). Processo, MCP e config do Pi continuam proibidos nele.
+	const transporte = /child_process|node:(http2|dgram|cluster|worker_threads)\b|@modelcontextprotocol|\bmcp[-_]client|coding-agent\/src\/(core|config)|settings-manager|(?<![.\w])(spawn|exec|execFile|execSync)\(/i;
 	for (const fonte of fontes) {
 		const texto = readFileSync(join(raiz, fonte), "utf8");
-		assert.ok(!proibido.test(texto), `${fonte} usa recurso proibido (${proibido.exec(texto)?.[0]})`);
-		if (fonte !== "src/vault-channel.ts") assert.ok(!/node:net\b/.test(texto), `${fonte} importa node:net`);
+		const regra = fonte === "src/destino.ts" ? transporte : proibido;
+		assert.ok(!regra.test(texto), `${fonte} usa recurso proibido (${regra.exec(texto)?.[0]})`);
+		if (fonte !== "src/vault-channel.ts" && fonte !== "src/destino.ts") assert.ok(!/node:net\b/.test(texto), `${fonte} importa node:net`);
 	}
+	// O transporte com rede própria só é usado pelo endereço próprio.
+	const usos = fontes.filter((f) => f !== "src/destino.ts" && /fetchGuardado/.test(readFileSync(join(raiz, f), "utf8")));
+	assert.deepEqual(usos, ["rpc.ts"]);
 	assert.ok(statSync(join(raiz, "src/hub-tools.ts")).isFile());
 });
 

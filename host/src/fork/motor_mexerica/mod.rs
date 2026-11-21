@@ -30,6 +30,8 @@ pub(crate) mod historico;
 #[cfg(unix)]
 pub(crate) mod link;
 pub(crate) mod mcp_host;
+#[cfg(unix)]
+pub(crate) mod proprio;
 pub(crate) mod tools;
 pub(crate) use tools::{ToolRunner, ToolSpec};
 
@@ -51,6 +53,9 @@ pub(crate) const REQUIRED_ENV: &str = "MEXERICA_MOTOR_TESTS_REQUIRED";
 pub(crate) type VaultSource = Arc<dyn Fn(&str) -> Result<Option<String>> + Send + Sync>;
 /// Limites (`contextWindow`, `maxTokens`) de `(fornecedor, modelo)`; `{}` quando não há.
 pub(crate) type LimitsSource = Arc<dyn Fn(&str, &str) -> Result<Value> + Send + Sync>;
+/// Nomes (`proprio-…`) dos endereços próprios registrados no cofre; cada um entra na leitura de proteção do
+/// turno, mesmo sem ser o provedor desta conversa.
+pub(crate) type PropriosSource = Arc<dyn Fn() -> Result<Vec<String>> + Send + Sync>;
 
 /// Fonte do cofre sobre um `Store` próprio (provas e testes).
 pub(crate) fn store_vault(store: Arc<Store>) -> VaultSource {
@@ -63,8 +68,8 @@ pub(crate) fn hub_vault(hub: Arc<crate::hub::Hub>) -> VaultSource {
 }
 
 /// Métodos do app para as chaves do motor (veja `chaves`).
-pub(crate) const CHAVE_METHODS: [&str; 4] =
-    ["motorChaves", "motorChaveTestar", "motorChaveSalvar", "motorChaveRemover"];
+pub(crate) const CHAVE_METHODS: [&str; 5] =
+    ["motorChaves", "motorChaveTestar", "motorChaveSalvar", "motorChaveRemover", "motorEnderecoSalvar"];
 
 pub(crate) async fn chaves_call(
     hub: &Arc<crate::hub::Hub>,
@@ -701,6 +706,10 @@ async fn serve_vault(vault_source: VaultSource, socket: tokio::net::UnixStream, 
         let reply = match req["method"].as_str() {
             Some("credential.read") if req["params"]["providerId"].as_str() == Some(provider.as_str()) => {
                 match vault_source(&slot) {
+                    Ok(Some(raw)) if proprio::eh_proprio(&provider) => match proprio::credencial_do_motor(&raw) {
+                        Ok(credencial) => json!({"id": id, "result": credencial}),
+                        Err(_) => json!({"id": id, "error": {"message": "registro do endereço próprio ilegível"}}),
+                    },
                     Ok(Some(key)) => json!({"id": id, "result": {"type": "api_key", "key": key}}),
                     Ok(None) => json!({"id": id, "result": null}),
                     Err(e) => json!({"id": id, "error": {"message": format!("{e:#}")}}),

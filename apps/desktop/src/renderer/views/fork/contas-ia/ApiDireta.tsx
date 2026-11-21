@@ -10,7 +10,8 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { amostraDeModelos, aoMudarChaves, chaveDoErro, chavesMudaram, estadoDoTeste, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { amostraDeModelos, aoMudarChaves, chaveDoErro, chavesMudaram, estadoDoTeste, listarConexoes, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type EnderecoProprio, type FornecedorDaChave } from './api-direta'
+import { EnderecosProprios } from './EnderecoProprio'
 import { entrarComOpenRouter, fraseDaFalha, FalhaOpenRouter } from './openrouter-login'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
 import { ehOpen } from './conexoes'
@@ -27,6 +28,7 @@ export function ApiDireta() {
   const online = store.connection.kind === 'online' && !store.mismatch
   const visivel = !ehOpen(window.codync) && mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
+  const [enderecos, setEnderecos] = useState<EnderecoProprio[]>([])
   const [falhou, setFalhou] = useState(false)
   const geracao = useRef(0)
 
@@ -35,16 +37,23 @@ export function ApiDireta() {
     if (!client) return
     const minha = ++geracao.current
     try {
-      const lista = await listarChaves(client)
+      const lista = await listarConexoes(client)
       if (minha !== geracao.current) return
-      setFornecedores(lista)
+      setFornecedores(lista.fornecedores)
+      setEnderecos(lista.enderecos)
       setFalhou(false)
     } catch {
       if (minha !== geracao.current) return
+      setFornecedores(null)
+      setEnderecos([])
       setFalhou(true)
     }
   }
   useEffect(() => {
+    geracao.current += 1
+    setFornecedores(null)
+    setEnderecos([])
+    setFalhou(false)
     if (visivel && online) void reler()
   }, [visivel, online, store.hello?.hostId])
   useEffect(() => (visivel && online ? aoMudarChaves(() => void reler()) : undefined), [visivel, online, store])
@@ -59,6 +68,7 @@ export function ApiDireta() {
         {online && fornecedores && !fornecedores.some((f) => f.configurada) ? <Text size="caption" tone="secondary">{t('contas.apiDireta.vazio')}</Text> : null}
         {online ? fornecedores?.filter((f) => f.configurada).map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} />) : null}
       </CardSection>
+      {online && fornecedores ? <EnderecosProprios enderecos={enderecos} aoMudar={reler} /> : null}
     </div>
   )
 }
@@ -200,7 +210,7 @@ const ESTADOS = {
 } as const
 
 /** O resultado do «Testar acesso» ou do login: o estado, a frase do detalhe e, quando há lista de modelos, o aviso de que ela não prova acesso. */
-function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } }) {
+export function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } }) {
   const t = useT()
   const estado = 'motivo' in resultado || 'frase' in resultado ? 'nao_verificado' : estadoDoTeste(resultado)
   let detalhe: string
@@ -209,6 +219,8 @@ function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; moti
     detalhe = resultado.modelos.length === 0
       ? t('contas.apiDireta.okSemModelos')
       : restantes > 0 ? t('contas.apiDireta.okComMais', { nomes, n: restantes }) : t('contas.apiDireta.ok', { nomes })
+  } else if ('salvo' in resultado && resultado.salvo) {
+    detalhe = t('contas.apiDireta.okNaoConfirmado')
   } else {
     detalhe = 'frase' in resultado
       ? (t as unknown as (chave: ChaveTexto) => string)(resultado.frase)

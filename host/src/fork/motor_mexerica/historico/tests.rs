@@ -603,3 +603,27 @@ fn arquivo_tem_teto_de_verdade_mesmo_com_sessoes_vivas() {
         assert!(archive.len() <= MAX_SESSIONS);
     }
 }
+
+#[test]
+fn has_content_falha_fechado_com_mutex_envenenado_e_restart_nao_pre_vincula_proprio() {
+    let history = History::default();
+    assert!(!history.has_content());
+    history.remember((vec![sanitize(&user("algo"), &[]).unwrap()], false));
+    assert!(history.has_content());
+
+    history.restart_for("proprio-abcdef12", "geracao-1");
+    assert!(!history.has_content());
+    // Depois do recomeço em endereço próprio, outro provedor conversa primeiro: o endereço próprio
+    // não pode ficar pré-vinculado como recebedor antes de realmente atender um turno.
+    history.remember((vec![sanitize(&user("privado-no-faux"), &[]).unwrap()], false));
+    assert!(!history.received_by("proprio-abcdef12"));
+
+    let poisoned = Arc::new(History::default());
+    let clone = poisoned.clone();
+    let _ = std::panic::catch_unwind(move || {
+        let _guard = clone.state.lock().unwrap();
+        panic!("envenena o mutex");
+    });
+    assert!(poisoned.has_content(), "falha de lock deve presumir conteúdo (fail-closed)");
+    assert!(poisoned.would_reset_credential("faux", "geracao-1"));
+}

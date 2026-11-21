@@ -71,7 +71,7 @@ test("A7: resposta termina no evento final mesmo se a conexão não fechar", asy
 });
 
 
-test("A6: trecho sem o campo de texto não vira a palavra «undefined»", { todo: "reproduz na cópia do Pi; só servidor fora do padrão manda isso, e a correção vem com o endpoint próprio" }, async () => {
+test("A6: trecho sem o campo de texto não vira a palavra «undefined»", async () => {
 	const fetch = (async () => respostaSse(eventosDeTexto({ delta: null }))) as typeof globalThis.fetch;
 	const { eventos, mensagem } = await rodar(fetch, [usuario("oi")]);
 	const parciais = eventos.flatMap((e) => (e.type === "text_delta" ? [String(e.delta), JSON.stringify(e.partial.content)] : []));
@@ -79,7 +79,7 @@ test("A6: trecho sem o campo de texto não vira a palavra «undefined»", { todo
 	assert.deepEqual(mensagem.content.map((b) => (b.type === "text" ? b.text : b.type)), ["olá"]);
 });
 
-test("A8: a fase do texto anunciada no início sobrevive ao replay", { todo: "reproduz na cópia do Pi; avisar o projeto de origem antes de corrigir aqui" }, async () => {
+test("A8: a fase do texto anunciada no início sobrevive ao replay", async () => {
 	const corpos: unknown[] = [];
 	let chamada = 0;
 	const fetch = (async (_input: unknown, init?: RequestInit) => {

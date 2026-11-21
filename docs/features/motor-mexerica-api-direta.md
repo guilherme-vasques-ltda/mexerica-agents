@@ -32,6 +32,35 @@ Nenhum modelo é fixo no código: a lista vem do fornecedor e o modelo escolhido
   Space ou apagado não recebe chave, e o turno falha fechado.
 - Remover apaga a chave e a lista. O pedido seguinte do motor já não acha a chave.
 
+## Endereço próprio
+
+Um serviço qualquer que fale Chat Completions, Responses ou Anthropic Messages, com endereço, chave e, quando o
+serviço não lista modelos, o modelo digitado pela pessoa (método `motorEnderecoSalvar`, só deste computador).
+
+- **Um registro só.** Chave e destino ficam juntos num registro cifrado no slot `motor-mexerica/proprio-<id>`. O índice
+  dos endereços (só os ids) fica fora do cofre. O app recebe nome, endereço, formato e a opção local, nunca a chave.
+- **Portão de rede no motor** (`motor/mexerica/src/destino.ts`), em cada teste e em cada conexão:
+  - só HTTPS; HTTP só com a opção «serviço nesta máquina ou na minha rede»;
+  - sem usuário e senha, consulta ou fragmento no endereço;
+  - cada endereço que o nome resolve é conferido, em IPv4 e IPv6 (inclusive IPv4 dentro de IPv6), e o endereço da
+    conexão aberta é conferido de novo;
+  - rede privada, a própria máquina e CGNAT só com a opção local;
+  - link-local (onde ficam os metadados de nuvem), endereços de metadados conhecidos, multicast e reservados nunca;
+  - redirecionamento é erro: chave, cabeçalho e conversa não seguem para outro endereço.
+- **Lista de modelos.** `GET {base}/models` nos formatos OpenAI; `GET {base}/v1/models` com `x-api-key` e
+  `anthropic-version` no formato Messages. Serviço sem lista (404/405) responde `sem_lista`: o endereço só é salvo com
+  o modelo digitado, no estado «acesso ainda não confirmado».
+- **Estados do «Testar acesso».** Todo resultado traz `estado`:
+  - `modelos_no_catalogo`: a lista veio;
+  - `acesso_nao_confirmado`: o serviço não lista modelos;
+  - `recusada`: o fornecedor recusou a chave;
+  - `nao_verificado`: qualquer outra falha, inclusive `destino_recusado`.
+- **A conversa não troca de destino sozinha.** Trocar o destino de um endereço muda a geração da credencial, e a
+  conversa guardada recomeça. Trocar o modelo de um bot para um endereço próprio que ainda não recebeu aquela conversa
+  também a recomeça lá: nada da conversa anterior é transferido sem consentimento.
+- **Testes:** `motor/mexerica/test/endereco-proprio.test.ts` (portão de rede, os três formatos contra serviços locais
+  de mentira, redirecionamento), `host/src/fork/motor_mexerica/tests_chaves.rs` (salvar só depois do teste, sem lista,
+  destino recusado, o app nunca vê a chave) e `tests_link.rs` (a conversa não segue para o endereço novo).
 ## Entrar com OpenRouter no navegador
 
 Na linha do OpenRouter, «Entrar com OpenRouter» é uma alternativa a colar a chave (OAuth PKCE do fornecedor). O Hub gera
