@@ -3,7 +3,7 @@ import { request } from 'node:http'
 import { createServer } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import { test } from 'node:test'
-import { CAMINHO, LoginEncerrado, PORTA_DEV, PORTA_PRINCIPAL, redirectDoApp, RetornoDoLogin, lerPedido, type Opcoes } from './fork-oauth-loopback.ts'
+import { CAMINHO, CAMINHO_AUTH, LoginEncerrado, PORTA_DEV, PORTA_PRINCIPAL, redirectDoApp, RetornoDoLogin, lerPedido, type Opcoes } from './fork-oauth-loopback.ts'
 
 const pedido = (porta: number, extra = '') => `https://login.exemplo.test/authorize?response_type=code&client_id=c&redirect_uri=${encodeURIComponent(redirectDoApp(porta))}&state=estado-1${extra}`
 
@@ -36,6 +36,10 @@ test('as portas do app são as duas da lista do Hub e nunca as do Hub nem do Cod
   assert.equal(CAMINHO, '/oauth/callback')
 })
 
+test('o caminho exigido pelo login do ChatGPT é o segundo que o ouvinte atende', () => {
+  assert.equal(CAMINHO_AUTH, '/auth/callback')
+})
+
 test('o pedido do Hub só vale com redirect_uri exato do app, https e um único state', () => {
   assert.deepEqual(lerPedido(pedido(19424), 19424), { state: 'estado-1' })
   assert.deepEqual(lerPedido(`http://127.0.0.1:9/authorize?redirect_uri=${encodeURIComponent(redirectDoApp(19424))}&state=s`, 19424), { state: 's' })
@@ -63,6 +67,46 @@ test('o pedido do Hub também vale com callback_url (OpenRouter), sozinho e exat
   assert.equal(lerPedido(auth(19424, '&state=outro'), 19424), null, 'state repetido')
   assert.equal(lerPedido(`https://x.test/a?callback_url=${encodeURIComponent(redirectDoApp(19424))}`, 19424), null, 'sem state')
   assert.equal(lerPedido(`https://x.test/a?callback_url=http%3A%2F%2Fatacante.test%2Foauth%2Fcallback&state=s`, 19424), null, 'callback que não é o do app')
+})
+
+test('o pedido pode pedir o caminho /auth/callback (login do ChatGPT), exato na porta do app; outro caminho, host ou esquema recusa', () => {
+  const auth = (porta: number, extra = '') => `https://auth.exemplo.test/authorize?redirect_uri=${encodeURIComponent(redirectDoApp(porta, CAMINHO_AUTH))}&state=estado-1${extra}`
+  assert.deepEqual(lerPedido(auth(19424), 19424), { state: 'estado-1' }, 'caminho do ChatGPT aceito no redirect_uri')
+  assert.deepEqual(lerPedido(auth(19425), 19425), { state: 'estado-1' }, 'e na outra porta do app')
+  assert.deepEqual(
+    lerPedido(`https://auth.exemplo.test/authorize?callback_url=${encodeURIComponent(redirectDoApp(19424, CAMINHO_AUTH))}&state=estado-1`, 19424),
+    { state: 'estado-1' }, 'também como callback_url')
+  assert.equal(lerPedido(auth(19424), 19425), null, 'porta diferente')
+  assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(`http://127.0.0.1:19424${CAMINHO_AUTH}`)}&redirect_uri=${encodeURIComponent(redirectDoApp(19424, CAMINHO_AUTH))}&state=s`, 19424), null, 'redirect repetido')
+  assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(`http://localhost:19424${CAMINHO_AUTH}`)}&state=s`, 19424), null, 'host localhost não é o do app')
+  assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(`https://127.0.0.1:19424${CAMINHO_AUTH}`)}&state=s`, 19424), null, 'esquema https no retorno não é o do app')
+  for (const ruim of ['/callback', '/auth/callback/', '/auth/callbackx', '/oauth/callback/auth/callback']) {
+    assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(`http://127.0.0.1:19424${ruim}`)}&state=s`, 19424), null, `caminho ${ruim} não é um dos dois do app`)
+  }
+  assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(redirectDoApp(19424, CAMINHO_AUTH))}&state=`, 19424), null, 'state vazio')
+  assert.equal(lerPedido(auth(19424).replace('https://', 'http://'), 19424), null, 'http fora do loopback')
+})
+
+test('o navegador tem de voltar pelo caminho que o pedido pediu; o outro caminho do app não passa', async () => {
+  const { retorno } = montar()
+  const { porta, tentativa: t } = (await retorno.abrir())!
+  const pedidoAuth = `https://auth.exemplo.test/authorize?redirect_uri=${encodeURIComponent(redirectDoApp(porta, CAMINHO_AUTH))}&state=estado-1`
+  const voltou = retorno.esperar(t, pedidoAuth)
+  // O caminho comum do app também é atendido, mas não para este pedido.
+  assert.equal((await chamar(porta, `${CAMINHO}?state=estado-1&code=x`)).status, 404)
+  const certo = chamar(porta, `${CAMINHO_AUTH}?state=estado-1&code=x`)
+  assert.match(await voltou, /code=x/)
+  retorno.responder(t, { ok: true, nome: 'ChatGPT' })
+  assert.equal((await certo).status, 200)
+
+  const { retorno: outro } = montar()
+  const { porta: p, tentativa: t2 } = (await outro.abrir())!
+  const pedidoComum = `https://login.exemplo.test/authorize?redirect_uri=${encodeURIComponent(redirectDoApp(p))}&state=estado-1`
+  const espera = outro.esperar(t2, pedidoComum)
+  espera.catch(() => {})
+  assert.equal((await chamar(p, `${CAMINHO_AUTH}?state=estado-1&code=x`)).status, 404, 'pedido no caminho comum não aceita retorno no do ChatGPT')
+  outro.encerrar(t2)
+  await assert.rejects(espera, LoginEncerrado)
 })
 
 test('retorno certo: chega ao app, o navegador espera o desfecho e vê a página em português; depois o ouvinte some', async () => {

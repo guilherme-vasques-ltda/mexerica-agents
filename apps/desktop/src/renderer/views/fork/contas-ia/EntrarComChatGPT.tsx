@@ -1,0 +1,163 @@
+import { useEffect, useRef, useState } from 'react'
+import { CardSection, Spinner } from '../../../components/Controls'
+import { HStack, VStack } from '../../../components/Stack'
+import { Text } from '../../../components/Text'
+import { useModel } from '../../../lib/observable'
+import { useStore } from '../../../store/context'
+import { liveClient } from '../../settings/parts'
+import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
+import { isolado } from '../../../../shared/bidi.ts'
+import { MarketBadge } from '../../marketplace/pieces'
+import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
+import { mostrarApiDireta } from './api-direta'
+import { entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT } from './chatgpt-login'
+import '../../settings/settings.css'
+
+/**
+ * Conexões de IA → Plano do ChatGPT: entrar com a conta do ChatGPT para os bots usarem o plano dela. O Hub guarda
+ * os tokens cifrados no cofre deste computador e nunca os devolve; aqui só se mostra o estado e se pedem as
+ * intenções (entrar, ativar o uso do plano, sair).
+ */
+export function EntrarComChatGPT() {
+  const store = useModel(useStore())
+  const t = useT()
+  const idioma = useIdioma()
+  const online = store.connection.kind === 'online' && !store.mismatch
+  const visivel = mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
+  const [estado, setEstado] = useState<EstadoChatGPT | null>(null)
+  const [falhou, setFalhou] = useState(false)
+  const [erro, setErro] = useState<ChaveTexto | null>(null)
+  const [avisoDeSair, setAvisoDeSair] = useState(false)
+  const [ocupado, setOcupado] = useState(false)
+  const ocupadoRef = useRef(false)
+  const cancelarRef = useRef<(() => void) | null>(null)
+
+  const reler = async () => {
+    const client = liveClient(store)
+    if (!client) return
+    try {
+      setEstado(await lerEstadoChatGPT(client))
+      setFalhou(false)
+    } catch {
+      setFalhou(true)
+    }
+  }
+  useEffect(() => {
+    if (visivel && online) void reler()
+  }, [visivel, online, store.hello?.hostId])
+
+  const entrar = (consentir: boolean) => {
+    const client = liveClient(store)
+    if (!client || ocupadoRef.current) return
+    setErro(null)
+    setAvisoDeSair(false)
+    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir)
+    cancelarRef.current = cancelar
+    ocupadoRef.current = true
+    setOcupado(true)
+    void fim
+      .then((r) => {
+        if (r.ok) setEstado({ conectado: true, rotulo: r.rotulo ?? undefined, planoHabilitado: r.planoHabilitado, precisaEntrar: false })
+      })
+      .catch((e: unknown) => setErro(e instanceof FalhaChatGPT ? fraseDaFalha(e.tipo) : 'contas.chatgpt.erro.falha'))
+      .finally(() => {
+        ocupadoRef.current = false
+        setOcupado(false)
+        cancelarRef.current = null
+        void reler()
+      })
+  }
+
+  const sair = () => {
+    const client = liveClient(store)
+    if (!client || ocupadoRef.current) return
+    setErro(null)
+    ocupadoRef.current = true
+    setOcupado(true)
+    void sairDoChatGPT(client)
+      .then((r) => setAvisoDeSair(r.revogado !== true))
+      .catch(() => setErro('contas.chatgpt.erro.sair'))
+      .finally(() => {
+        ocupadoRef.current = false
+        setOcupado(false)
+        void reler()
+      })
+  }
+
+  if (!visivel) return null
+  return (
+    <div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
+      <CardSection title={t('contas.chatgpt.titulo')} footer={t('contas.chatgpt.rodape')}>
+        {!online ? <Text tone="secondary">{t('contas.apiDireta.semConexao')}</Text> : null}
+        {online && falhou && !estado ? <Text size="caption" tone="secondary" role="status">{t('contas.chatgpt.erro.estado')}</Text> : null}
+        {online && !estado && !falhou ? <Spinner size={12} /> : null}
+        {online ? (
+          <PlanoDoChatGPT
+            estado={estado}
+            ocupado={ocupado}
+            erro={erro}
+            avisoDeSair={avisoDeSair}
+            entrar={() => entrar(false)}
+            ativar={() => entrar(true)}
+            sair={sair}
+            cancelar={() => cancelarRef.current?.()}
+          />
+        ) : null}
+      </CardSection>
+    </div>
+  )
+}
+
+/** A parte que só desenha: o estado da conta, os avisos e os botões; quem decide é o componente de cima. */
+export function PlanoDoChatGPT({ estado, ocupado, erro, avisoDeSair, entrar, ativar, sair, cancelar }: {
+  estado: EstadoChatGPT | null
+  ocupado: boolean
+  erro: ChaveTexto | null
+  avisoDeSair: boolean
+  entrar: () => void
+  ativar: () => void
+  sair: () => void
+  cancelar: () => void
+}) {
+  const t = useT()
+  const conectado = estado?.conectado === true
+  return (
+    <VStack gap={8}>
+      {avisoDeSair ? <Text size="caption" role="status">{t('contas.chatgpt.saiuSemConfirmacao')}</Text> : null}
+      {erro ? (
+        <HStack as="span" gap={5} role="status" className="settings-key-result failed">
+          <Text size="caption" className="selectable">{(t as unknown as (chave: ChaveTexto) => string)(erro)}</Text>
+        </HStack>
+      ) : null}
+      {ocupado ? (
+        <HStack gap={12}>
+          <Text size="caption" tone="secondary">{t('contas.chatgpt.aguardando')}</Text>
+          <button className="settings-quiet-button" onClick={cancelar}>{t('contas.chatgpt.cancelar')}</button>
+        </HStack>
+      ) : null}
+      <div className="settings-row">
+        <VStack grow className="settings-stack">
+          {conectado ? (
+            <>
+              <HStack gap={6}>
+                <Text tone="text" dir="auto">{isolado(estado?.rotulo ?? '')}</Text>
+                {estado?.planoHabilitado ? <MarketBadge label={t('contas.chatgpt.planoHabilitado')} tone="added" icon="checkmark" /> : null}
+              </HStack>
+              {!estado?.planoHabilitado ? <Text size="caption" tone="secondary">{t('contas.chatgpt.planoNaoHabilitado')}</Text> : null}
+            </>
+          ) : estado?.precisaEntrar ? <Text size="caption" tone="secondary">{t('contas.chatgpt.precisaEntrar')}</Text> : null}
+        </VStack>
+        {ocupado ? null : conectado ? (
+          <HStack gap={12}>
+            {!estado?.planoHabilitado ? <button className="settings-quiet-button" onClick={ativar}>{t('contas.chatgpt.ativar')}</button> : null}
+            <button className="settings-quiet-button" onClick={sair}>{t('contas.chatgpt.sair')}</button>
+          </HStack>
+        ) : estado?.precisaEntrar ? (
+          <button className="settings-quiet-button" onClick={entrar}>{t('contas.chatgpt.entrarDeNovo')}</button>
+        ) : estado ? (
+          <button className="settings-quiet-button" onClick={entrar}>{t('contas.chatgpt.entrar')}</button>
+        ) : null}
+      </div>
+    </VStack>
+  )
+}

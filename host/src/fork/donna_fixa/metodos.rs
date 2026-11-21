@@ -143,6 +143,11 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     // Entrar com OpenRouter (OAuth PKCE): `LOCAL_ONLY` e `require_local`; a chave nunca volta ao app.
     ("openrouterEntrar", LocalOnly),
     ("openrouterEntrarConcluir", LocalOnly),
+    // Entrar com ChatGPT (OAuth PKCE): `LOCAL_ONLY` e `require_local`; os tokens nunca voltam ao app.
+    ("chatgptEntrar", LocalOnly),
+    ("chatgptEntrarConcluir", LocalOnly),
+    ("chatgptEstado", LocalOnly),
+    ("chatgptSair", LocalOnly),
     // gerador Mexeriquinhas 2b: todo o grupo exige Caller::Local (host/src/fork_avatars/gerador).
     ("mexeriquinhaGeradorEstado", LocalOnly),
     ("mexeriquinhaGeradorChave", LocalOnly),

@@ -1,0 +1,119 @@
+// Entrar com ChatGPT (Plano do ChatGPT): o Hub prepara o login no navegador e o retorno chega ao ouvinte do
+// app (main/fork-oauth-loopback.ts); aqui só a regra da tela, pura e testável — a view não faz regra de negócio.
+// Os tokens nunca passam por aqui: o Hub os guarda cifrados no cofre e devolve só o estado da conta.
+import type { HostClient } from '../../../client/host-client'
+import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
+import { lerRetornoLogin } from '../meus-mcp/retorno-login.ts'
+
+/** O ouvinte de retorno do app (main/fork-oauth-loopback-ipc.ts), como o renderer o vê. */
+export interface PonteDoOuvinte {
+  abrir(): Promise<{ porta: number; tentativa: number } | null>
+  esperar(tentativa: number, url: string): Promise<string>
+  responder(tentativa: number, resultado: { ok: boolean; nome?: string; detalhe?: string }): void
+  fechar(tentativa: number): void
+}
+
+/** O estado da conta que o Hub devolve; nenhum token, só o que a tela mostra. */
+export interface EstadoChatGPT {
+  conectado: boolean
+  rotulo?: string
+  planoHabilitado: boolean
+  precisaEntrar: boolean
+}
+
+/** O desfecho do login: a conta como ficou, ou a recusa com código estável do Hub. */
+export type DesfechoChatGPT =
+  | { ok: true; rotulo: string | null; planoHabilitado: boolean }
+  | { ok: false; erro: string }
+
+/** O login não chegou ao fim: a pessoa desistiu, o prazo acabou ou o fluxo não conseguiu continuar. */
+export class FalhaChatGPT extends Error {
+  readonly tipo: 'cancelado' | 'tempo' | 'falha'
+  constructor(tipo: FalhaChatGPT['tipo']) {
+    super(tipo) // textos-ok: código técnico interno, nunca mostrado
+    this.tipo = tipo
+  }
+}
+
+/** A frase de cada falha do login, para o bloco de avisos da seção. */
+export const fraseDaFalha = (tipo: FalhaChatGPT['tipo']): ChaveTexto =>
+  tipo === 'cancelado' ? 'contas.chatgpt.erro.cancelado'
+    : tipo === 'tempo' ? 'contas.chatgpt.erro.tempo'
+      : 'contas.chatgpt.erro.falha'
+
+const PRAZO_MS = 60_000
+/** O ouvinte corta a espera em 10 minutos; aqui corta um pouco antes, para a frase ser a de tempo e não a genérica. */
+const ESPERA_MAX_MS = 10 * 60_000 - 2_000
+
+/** Lê o estado da conta no Hub; a renovação que faltar por pouco o Hub mesmo resolve antes de responder. */
+export const lerEstadoChatGPT = (client: HostClient) =>
+  client.call<EstadoChatGPT>('chatgptEstado', {}, 15_000)
+
+/** Sai: o Hub revoga o que der e apaga os tokens deste computador de qualquer jeito. */
+export const sairDoChatGPT = (client: HostClient) =>
+  client.call<{ ok: true; revogado: boolean }>('chatgptSair', {}, PRAZO_MS)
+
+/**
+ * O login inteiro: liga o ouvinte do app, pede a URL ao Hub (com `consentir` quando a pessoa escolhe ativar o uso
+ * do plano), espera o navegador voltar, entrega o retorno ao Hub (que confere o state, consome a tentativa, troca o
+ * código e guarda tudo no cofre) e mostra o desfecho ao navegador. `cancelar` desiste: desliga o ouvinte e a
+ * espera termina como «cancelado».
+ */
+export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, consentir: boolean, esperaMs = ESPERA_MAX_MS) {
+  let tentativa: number | null = null
+  let cancelado = false
+  const fim = (async (): Promise<DesfechoChatGPT> => {
+    const aberto = await ouvinte.abrir().catch(() => null)
+    if (!aberto) throw new FalhaChatGPT('falha')
+    tentativa = aberto.tentativa
+    try {
+      if (cancelado) throw new FalhaChatGPT('cancelado')
+      let url: string
+      try {
+        url = (await client.call<{ url: string }>('chatgptEntrar',
+          { loopbackPort: aberto.porta, ...(consentir ? { consentir: true } : {}) }, 15_000)).url
+      } catch { throw new FalhaChatGPT('falha') }
+      if (cancelado) throw new FalhaChatGPT('cancelado')
+      let temporizador: ReturnType<typeof setTimeout> | undefined
+      const espera = ouvinte.esperar(aberto.tentativa, url)
+      const prazo = new Promise<never>((_, recusar) => { temporizador = setTimeout(() => recusar(new FalhaChatGPT('tempo')), esperaMs) })
+      // Quem perder a corrida rejeita depois, sem ninguém esperando: não pode derrubar o processo.
+      espera.catch(() => {})
+      prazo.catch(() => {})
+      let volta: string
+      try {
+        volta = await Promise.race([espera, prazo])
+      } catch (e) {
+        if (e instanceof FalhaChatGPT) throw e
+        throw new FalhaChatGPT(cancelado ? 'cancelado' : 'falha')
+      } finally {
+        clearTimeout(temporizador)
+      }
+      let retorno: ReturnType<typeof lerRetornoLogin>
+      try { retorno = lerRetornoLogin(volta) } catch { throw new FalhaChatGPT('falha') }
+      // O cliente emitido volta no retorno do primeiro registro; repetido ou vazio, o retorno é recusado.
+      const clientes = new URL(volta).searchParams.getAll('client_id')
+      if (clientes.length > 1 || clientes[0] === '') throw new FalhaChatGPT('falha')
+      // O erro do fornecedor vale antes de qualquer código no mesmo retorno.
+      const corpo = retorno.error !== null
+        ? { state: retorno.state, erro: retorno.error }
+        : { state: retorno.state, code: retorno.code ?? '', ...(clientes.length === 1 ? { client_id: clientes[0] } : {}) }
+      let desfecho: { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string }
+      try {
+        desfecho = await client.call('chatgptEntrarConcluir', corpo, PRAZO_MS)
+      } catch { throw new FalhaChatGPT('falha') }
+      ouvinte.responder(aberto.tentativa, desfecho.ok ? { ok: true, nome: 'ChatGPT' } : { ok: false })
+      if (!desfecho.ok && desfecho.erro === 'entrada_negada') throw new FalhaChatGPT('cancelado')
+      return desfecho.ok
+        ? { ok: true, rotulo: desfecho.conta?.rotulo ?? null, planoHabilitado: desfecho.conta?.planoHabilitado === true }
+        : { ok: false, erro: desfecho.erro ?? '' }
+    } finally {
+      ouvinte.fechar(aberto.tentativa)
+    }
+  })()
+  const cancelar = () => {
+    cancelado = true
+    if (tentativa !== null) ouvinte.fechar(tentativa)
+  }
+  return { fim, cancelar }
+}

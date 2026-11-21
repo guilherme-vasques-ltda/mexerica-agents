@@ -149,6 +149,10 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if crate::fork::motor_mexerica::ENTRAR_METHODS.contains(&method) {
         return crate::fork::motor_mexerica::entrar_openrouter_call(hub, caller, method, b).await;
     }
+    // Entrar com ChatGPT (OAuth PKCE): só este computador; os tokens vão direto ao cofre, nunca ao app.
+    if crate::fork::motor_mexerica::CHATGPT_METHODS.contains(&method) {
+        return crate::fork::motor_mexerica::entrar_chatgpt_call(hub, caller, method, b).await;
+    }
     // C6: catálogo interno da ponte `chat` da extra selada; só lê, nunca executa (exceção fechada).
     if crate::fork::sessoes::contexto_ferramenta::is_catalog(method, &b) {
         return crate::fork::sessoes::contexto_ferramenta::catalog(hub, caller, &b);

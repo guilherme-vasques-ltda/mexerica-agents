@@ -71,6 +71,11 @@ const LOCAL_ONLY: &[&str] = &[
     // OpenRouter sign-in (the code swap) too.
     "openrouterEntrar",
     "openrouterEntrarConcluir",
+    // ChatGPT sign-in (OAuth code swap, renewal and sign-out) too.
+    "chatgptEntrar",
+    "chatgptEntrarConcluir",
+    "chatgptEstado",
+    "chatgptSair",
     "pairing",
     "computerCall",
     "computerTools",

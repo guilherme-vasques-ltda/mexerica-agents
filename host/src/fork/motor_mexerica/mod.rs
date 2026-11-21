@@ -24,6 +24,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 pub(crate) mod chaves;
 #[cfg(unix)]
+pub(crate) mod entrar_chatgpt;
+#[cfg(unix)]
+pub(crate) mod entrar_chatgpt_jwt;
+#[cfg(unix)]
 pub(crate) mod entrar_openrouter;
 #[cfg(unix)]
 pub(crate) mod historico;
@@ -100,6 +104,27 @@ pub(crate) async fn entrar_openrouter_call(
     #[cfg(unix)]
     {
         entrar_openrouter::call(hub, caller, method, body).await
+    }
+}
+
+/// Métodos do app para entrar com `ChatGPT` (veja `entrar_chatgpt`).
+pub(crate) const CHATGPT_METHODS: [&str; 4] =
+    ["chatgptEntrar", "chatgptEntrarConcluir", "chatgptEstado", "chatgptSair"];
+
+pub(crate) async fn entrar_chatgpt_call(
+    hub: &Arc<crate::hub::Hub>,
+    caller: &crate::api::devices::Caller,
+    method: &str,
+    body: Value,
+) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (hub, caller, method, body);
+        bail!("motor_desligado: o Motor Mexerica não roda nesta plataforma.")
+    }
+    #[cfg(unix)]
+    {
+        entrar_chatgpt::call(hub, caller, method, body).await
     }
 }
 
@@ -712,3 +737,6 @@ mod tests_chaves;
 
 #[cfg(test)]
 mod tests_entrar_openrouter;
+
+#[cfg(test)]
+mod tests_entrar_chatgpt;
