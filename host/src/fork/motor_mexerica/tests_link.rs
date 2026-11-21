@@ -685,3 +685,94 @@ async fn servidor_de_terceiro_chamado_memory_nunca_e_negociado_nem_relistado() {
     assert_eq!(mcp.specs().len(), 1);
     assert!(mcp.classify("mcp__memory__browser_open").is_none());
 }
+
+/// Servidor `memory` de mentira cujo `browser_status` nunca responde (a negociação v3 fica pendurada).
+const SERVIDOR_MEMORY_PENDURADO: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: [status] });
+});
+";
+
+#[tokio::test]
+async fn cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno() {
+    let case = caso!("cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno");
+    let script = case.dir.join("memory-pendurado.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_PENDURADO).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let link = Link::new(store_vault(novo_store()), &[(FAUX_ENV, "1")]);
+    link.set_hub_exe_for_tests(hub.clone());
+    let (acp, _rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let res = acp
+        .request(
+            "session/new",
+            json!({
+                "cwd": case.dir,
+                "mcpServers": [{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}],
+                "systemPrompt": "Você é um bot da Mexerica.",
+            }),
+        )
+        .await
+        .unwrap();
+    let sid = res["sessionId"].as_str().unwrap().to_owned();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let started = Instant::now();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), answer.response())
+        .await
+        .expect("o cancelamento tem de interromper a negociação do navegador, não esperar o prazo dela")
+        .unwrap();
+    assert_eq!(result["stopReason"], "cancelled");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    acp.kill_and_wait().await;
+}
+
+/// Servidor `memory` de mentira cuja lista passa de 256 ferramentas depois da negociação v3.
+const SERVIDOR_MEMORY_ENORME: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const antiga = { name: 'ler_memoria', description: 'lê', inputSchema: { type: 'object' } };
+const muitas = Array.from({ length: 300 }, (_, i) => ({ name: 'extra_' + i, description: 'x', inputSchema: { type: 'object' } }));
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, antiga, ...muitas] : [status, antiga] });
+  else if (m.method === 'tools/call' && m.params.name === 'browser_status') {
+    negociado = m.params.arguments.version === 3;
+    reply({ content: [{ type: 'text', text: JSON.stringify({ version: 3, status: 'available' }) }], isError: false });
+  } else if (m.method === 'tools/call') reply({ content: [{ type: 'text', text: 'ok:' + m.params.name }], isError: false });
+});
+";
+
+#[tokio::test]
+async fn relistagem_que_estoura_o_limite_preserva_o_catalogo_que_funcionava() {
+    let case = caso!("relistagem_que_estoura_o_limite_preserva_o_catalogo_que_funcionava");
+    let script = case.dir.join("memory-enorme.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_ENORME).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let definicoes = json!([{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}]);
+    let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status", "mcp__memory__ler_memoria"]);
+    assert!(mcp.refresh_browser().await.is_err(), "a lista nova não cabe no limite do motor");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes, "o catálogo anterior foi trocado por uma lista parcial");
+    let saida = mcp.call("c1", "mcp__memory__ler_memoria", json!({})).await;
+    assert_eq!(saida.unwrap(), "ok:ler_memoria", "a ferramenta antiga perdeu a rota");
+}

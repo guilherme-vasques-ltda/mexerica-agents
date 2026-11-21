@@ -96,7 +96,7 @@ pub(crate) struct McpHost {
 }
 
 /// Tabela nome→rota e lista de ferramentas declaradas ao motor. Muda só no `refresh_browser`, entre turnos.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Catalog {
     routes: HashMap<String, Route>,
     specs: Vec<ToolSpec>,
@@ -187,7 +187,9 @@ impl McpHost {
             tracing::debug!(%error, "consulta de navegador v3 recusada; lista de ferramentas mantida");
         }
         let listed = Self::discover(server, true, None).await?;
-        let mut catalog = self.catalog.lock().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?;
+        // A substituição é montada inteira numa cópia e só entra se couber: refresh que falha (ferramentas demais)
+        // preserva o catálogo que já funcionava.
+        let mut catalog = self.catalog.lock().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?.clone();
         let prefix = format!("mcp__{MEMORY}__");
         let names = |specs: &[ToolSpec]| -> std::collections::BTreeSet<String> {
             specs.iter().filter(|spec| spec.name.starts_with(&prefix)).map(|spec| spec.name.clone()).collect()
@@ -203,7 +205,9 @@ impl McpHost {
             );
             catalog.specs.push(spec);
         }
-        Ok(before != names(&catalog.specs))
+        let changed = before != names(&catalog.specs);
+        *self.catalog.lock().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))? = catalog;
+        Ok(changed)
     }
 
     /// Lista as ferramentas de um servidor já iniciado: (nome exposto, nome original, declaração).

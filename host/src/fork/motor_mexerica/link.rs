@@ -52,6 +52,9 @@ pub(crate) struct Link {
     next_out: AtomicU64,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Só testes: o executável que conta como "o Hub" ao abrir os servidores MCP da sessão.
+    #[cfg(test)]
+    hub_exe: Mutex<Option<PathBuf>>,
 }
 
 /// Provedor do modelo `provider/model` ou do nome (`gemini-*` → google,
@@ -88,6 +91,8 @@ impl Link {
             next_out: AtomicU64::new(1),
             stop,
             task: Mutex::new(None),
+            #[cfg(test)]
+            hub_exe: Mutex::new(None),
         })
     }
 
@@ -237,10 +242,16 @@ impl Link {
         super::ensure_runnable()?;
         let cwd = params["cwd"].as_str().map_or_else(|| PathBuf::from("/"), PathBuf::from);
         // Falha ao abrir os servidores recusa a sessão: sem isso o bot seguiria sem ferramentas e sem aviso.
-        let mcp = McpHost::start(&params["mcpServers"], &cwd)
-            .await
-            .map(|host| Some(Arc::new(host)))
-            .context("abrindo os servidores MCP do Motor Mexerica")?;
+        #[cfg(test)]
+        let hub_exe = self.hub_exe.locked().clone();
+        #[cfg(test)]
+        let started = match hub_exe {
+            Some(hub) => McpHost::start_as(&params["mcpServers"], &cwd, Some(&hub)).await,
+            None => McpHost::start(&params["mcpServers"], &cwd).await,
+        };
+        #[cfg(not(test))]
+        let started = McpHost::start(&params["mcpServers"], &cwd).await;
+        let mcp = started.map(|host| Some(Arc::new(host))).context("abrindo os servidores MCP do Motor Mexerica")?;
         let sid = uuid::Uuid::new_v4().to_string();
         let (cancel, _) = watch::channel(false);
         let session = Arc::new(Session {
@@ -315,13 +326,31 @@ impl Link {
             self.ensure_engine(&session, &current_provider).await?;
             let mut owned = session.engine.lock().await.take().context("a sessão já tem um turno em curso")?;
             *session.pid.locked() = owned.pid();
+            // Inscrito ANTES de qualquer espera: um cancelamento durante a atualização das ferramentas vale.
+            let mut cancel = session.cancel.subscribe();
             // O Hub é o cliente MCP deste motor: negocia o navegador v3 e relista as ferramentas ANTES do prompt
             // (o motor só aceita `set_tools` fora de um turno). Falha na consulta mantém a lista anterior.
             if let Some(mcp) = &session.mcp {
-                match mcp.refresh_browser().await {
-                    Ok(true) => owned.set_tools(&mcp.specs()).await?,
-                    Ok(false) => {}
-                    Err(error) => tracing::warn!(%error, "não foi possível atualizar as ferramentas de navegador"),
+                let refreshed = tokio::select! {
+                    _ = cancel.changed() => None,
+                    result = async {
+                        match mcp.refresh_browser().await {
+                            Ok(true) => owned.set_tools(&mcp.specs()).await,
+                            Ok(false) => Ok(()),
+                            Err(error) => {
+                                tracing::warn!(%error, "não foi possível atualizar as ferramentas de navegador");
+                                Ok(())
+                            }
+                        }
+                    } => Some(result),
+                };
+                match refreshed {
+                    None => {
+                        // Cancelar o turno mata o processo do motor; nenhuma chamada ao modelo começa.
+                        let _ = owned.kill().await;
+                        return Ok(json!({"stopReason": "cancelled"}));
+                    }
+                    Some(result) => result?,
                 }
             }
             let provider = session.provider.locked().clone();
@@ -336,7 +365,6 @@ impl Link {
                 seen.store(true, Ordering::Relaxed);
                 conn.forward_event(&sid_events, event);
             };
-            let mut cancel = session.cancel.subscribe();
             let alive = tokio::select! {
                 _ = cancel.changed() => {
                     // Cancelar o turno mata o processo do motor.
@@ -520,6 +548,11 @@ impl Link {
             cancel,
         });
         Box::new(CardRunner { link: self.clone(), session, sid: "sessao-de-prova".to_owned() })
+    }
+
+    /// O executável que conta como "o Hub" ao abrir os servidores MCP das próximas sessões.
+    pub(super) fn set_hub_exe_for_tests(&self, hub: PathBuf) {
+        *self.hub_exe.locked() = Some(hub);
     }
 
     /// Entrega ao adaptador a resposta do bot a um pedido nosso (`mxp-N`).
