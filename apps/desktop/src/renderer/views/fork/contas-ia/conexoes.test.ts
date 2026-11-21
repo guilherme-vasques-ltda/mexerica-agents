@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { agrupar, buscar, chavesDaTela, chavesDisponiveis, ehOpen, planosDaTela, type ContextoDaTela } from './conexoes.ts'
 
-const nome = (engine: string) => (engine === 'codex' ? 'Codex' : 'Claude Code')
+const nome = (engine: string) => (engine === 'codex' ? 'Codex' : engine === 'claude' ? 'Claude Code' : 'Grok Build')
 const fornecedores = [{ id: 'anthropic', nome: 'Anthropic' }, { id: 'openai', nome: 'OpenAI' }, { id: 'xai', nome: 'xAI' }]
 const completa: ContextoDaTela = { open: false, isLoopback: true, backends: [{ id: 'codex' }, { id: 'mexerica' }] }
 const itens = (ctx: ContextoDaTela) => [...planosDaTela(ctx.open, nome as never), ...chavesDaTela(ctx, fornecedores)]
@@ -10,7 +10,7 @@ const itens = (ctx: ContextoDaTela) => [...planosDaTela(ctx.open, nome as never)
 test('edição completa: Planos com Codex e Claude, e Chaves de API com o que o Hub lista', () => {
   const grupos = agrupar(itens(completa))
   assert.deepEqual(grupos.map((g) => g.grupo), ['planos', 'chaves'])
-  assert.deepEqual(grupos[0]!.itens.map((i) => i.id), ['plano:codex', 'plano:claude'])
+  assert.deepEqual(grupos[0]!.itens.map((i) => i.id), ['plano:codex', 'plano:claude', 'plano:grok'])
   assert.deepEqual(grupos[1]!.itens.map((i) => i.id), ['chave:anthropic', 'chave:openai', 'chave:xai'])
 })
 

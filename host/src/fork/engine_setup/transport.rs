@@ -23,6 +23,11 @@ pub(crate) fn challenge(backend: Backend, kind: &'static str, raw: &str, code: O
             matches!(domain, "claude.ai" | "platform.claude.com" | "console.anthropic.com")
                 && matches!(url.path(), "/oauth/authorize" | "/oauth/authorize/")
         }
+        Backend::Grok => {
+            matches!(domain, "auth.x.ai" | "accounts.x.ai")
+                && url.query_pairs().count() <= 1
+                && url.query_pairs().all(|(key, value)| key == "user_code" && validate_code(&value).is_ok())
+        }
     };
     ensure!(
         allowed
@@ -35,6 +40,8 @@ pub(crate) fn challenge(backend: Backend, kind: &'static str, raw: &str, code: O
     );
     if let Some(code) = code {
         validate_code(code)?;
+        // O endereço que a tela abre nunca leva um código diferente do que ela mostra.
+        ensure!(url.query_pairs().all(|(_, value)| value == code), "auth_url_invalid");
     }
     Ok(Challenge { kind, url: url.to_string(), display_domain: domain.into(), code: code.map(str::to_owned) })
 }
