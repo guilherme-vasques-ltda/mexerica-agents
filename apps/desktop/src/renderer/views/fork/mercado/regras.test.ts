@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   acoesQueAPessoaDecide, agruparContas, agruparPorCategoria, alternarGrupo, alternarVarios, blocosDeBots, botsParaLigar, categoriasDoCatalogo, codigoDaRecusa, contarPorCategoria, cofreTrancado, escolhasDeBots, estadoDoServico, filtrarServicos, gruposVisiveis, jeitoDaConta, jeitoEscolhido, jeitoRecomendado, linhasDoBot, listaDeNomes,
-  mostraPersonalizar, motivosDoEmBreve, nomeCurto, nomeSugerido, padraoSeguro, podeLigar, temCaracteresOcultos, perigosasDoTipo, planoDeNomes, seOPedidoNaoDiz, skillsDaFicha, temAcoesPerigosas, visaoDoCatalogo,
+  mostraPersonalizar, motivosDoEmBreve, nomeCurto, nomeSugerido, padraoSeguro, podeLigar, temCaracteresOcultos, textoNaoLido, perigosasDoTipo, planoDeNomes, seOPedidoNaoDiz, skillsDaFicha, temAcoesPerigosas, visaoDoCatalogo,
 } from './regras.ts'
 import { catalogo, conta, grupo, servico, tipo } from './dados-de-teste.ts'
 
@@ -250,7 +250,7 @@ test('a recusa do principal vem do código estável do Hub', () => {
 })
 
 test('as ações que a pessoa decide: tudo menos o permitido, em ordem de rótulo; a recusa do Hub tem código estável', () => {
-  const f = (nome: string, estado: 'permitida' | 'ligada' | 'desligada', rotulo: string | null = null, motivo: 'perigosa' | 'nova' | 'alterada' | null = null) => ({ nome, rotulo, estado, motivo, digest: 'd', descricao: 'texto', campos: null, mudou: null })
+  const f = (nome: string, estado: 'permitida' | 'ligada' | 'desligada', rotulo: string | null = null, motivo: 'perigosa' | 'nova' | 'alterada' | null = null) => ({ nome, rotulo, estado, motivo, digest: 'd', descricao: 'texto', campos: null, apresentacao: 'a', mudou: null })
   const dados = { botId: 'b', conta: 'c', inventarioPronto: true, vinculo: 0, ferramentas: [f('list_orders', 'permitida'), f('x_novo', 'desligada', null, 'nova'), f('create_refund', 'ligada', 'Reembolsar'), f('delete_all', 'desligada', 'Apagar tudo', 'perigosa')] }
   assert.deepEqual(acoesQueAPessoaDecide(dados).map((x) => x.nome), ['delete_all', 'create_refund', 'x_novo'])
   assert.deepEqual(acoesQueAPessoaDecide({ ...dados, ferramentas: [f('list_orders', 'permitida')] }), [])
@@ -260,15 +260,23 @@ test('as ações que a pessoa decide: tudo menos o permitido, em ordem de rótul
 })
 
 test('sem texto lido, ou com texto grande demais ou fora do padrão, a ação não tem botão de ligar', () => {
-  const f = (estado: 'permitida' | 'ligada' | 'desligada', motivo: 'perigosa' | 'alterada' | 'descricao_invalida' | null, descricao: string | null = 'texto') => ({ nome: 'x', rotulo: null, estado, motivo, digest: 'd', descricao, campos: null, mudou: null })
+  const f = (estado: 'permitida' | 'ligada' | 'desligada', motivo: 'perigosa' | 'alterada' | 'descricao_invalida' | 'descricao_desconhecida' | null, descricao: string | null = 'texto', apresentacao: string | null = 'a') => ({ nome: 'x', rotulo: null, estado, motivo, digest: 'd', descricao, campos: null, apresentacao, mudou: null })
   assert.equal(podeLigar(f('desligada', 'perigosa')), true)
   assert.equal(podeLigar(f('desligada', 'alterada')), true)
   assert.equal(podeLigar(f('desligada', 'perigosa', '')), true, 'sem descrição do fornecedor ainda dá para ler e decidir')
   assert.equal(podeLigar(f('desligada', 'perigosa', null)), false, 'texto ainda não lido pelo Hub')
   assert.equal(podeLigar(f('desligada', 'descricao_invalida')), false)
+  assert.equal(podeLigar(f('desligada', 'descricao_desconhecida')), false)
+  assert.equal(podeLigar(f('desligada', 'perigosa', 'texto', null)), false, 'sem a impressão do texto, não há o que devolver ao Hub')
+  assert.equal(podeLigar({ ...f('desligada', 'perigosa'), descricao: undefined, apresentacao: undefined } as unknown as Parameters<typeof podeLigar>[0]), false, 'Hub antigo sem os campos')
+  assert.equal(textoNaoLido(f('desligada', 'descricao_desconhecida')), true)
+  assert.equal(textoNaoLido(f('desligada', 'perigosa', null)), true)
+  assert.equal(textoNaoLido(f('desligada', 'perigosa')), false)
+  assert.equal(textoNaoLido(f('desligada', 'descricao_invalida', null)), false)
   assert.equal(podeLigar(f('ligada', null)), false)
   assert.equal(codigoDaRecusa(new Error('descricao_invalida: grande demais.')), 'descricao_invalida')
   assert.equal(codigoDaRecusa(new Error('descricao_desconhecida: verifique a conta.')), 'descricao_desconhecida')
+  assert.equal(codigoDaRecusa(new Error('app_desatualizado: atualize o app.')), 'app_desatualizado')
 })
 
 test('caracteres invisíveis ou de direção no texto de uma ação são apontados', () => {

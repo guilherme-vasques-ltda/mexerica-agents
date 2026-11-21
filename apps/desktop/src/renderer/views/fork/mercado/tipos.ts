@@ -141,7 +141,7 @@ export interface PedidoDefinirVinculo {
  * `ligada`: a pessoa ligou neste bot; `desligada`: perigosa, nova ou alterada pelo fornecedor, só a pessoa liga.
  */
 export type EstadoDaFerramenta = 'permitida' | 'ligada' | 'desligada'
-export type MotivoDaFerramenta = 'perigosa' | 'nova' | 'alterada' | 'descricao_invalida'
+export type MotivoDaFerramenta = 'perigosa' | 'nova' | 'alterada' | 'descricao_invalida' | 'descricao_desconhecida'
 /** As partes de uma ação que o fornecedor pode mudar depois que a pessoa a ligou. */
 export type ParteDaFerramenta = 'descricao' | 'entrada' | 'titulo' | 'saida' | 'anotacoes'
 
@@ -157,6 +157,8 @@ export interface FerramentaDaConta {
   descricao: string | null
   /** O texto que o modelo lê em cada campo da ação, como `[campo, texto]`. */
   campos: [string, string][] | null
+  /** A impressão do texto mostrado (descrição e campos): o app a devolve ao ligar, e o Hub só liga se ainda for esta. */
+  apresentacao: string | null
   /** Ligada antes e mudada pelo fornecedor: o que mudou (vazio quando o Hub não sabe dizer). */
   mudou: ParteDaFerramenta[] | null
 }
@@ -171,4 +173,4 @@ export interface FerramentasDaConta {
   ferramentas: FerramentaDaConta[]
 }
 
-export interface PedidoLigarFerramenta { botId: string; conta: string; ferramenta: string; digest: string; vinculo: number; confirmo: true }
+export interface PedidoLigarFerramenta { botId: string; conta: string; ferramenta: string; digest: string; vinculo: number; apresentacao: string; confirmo: true }

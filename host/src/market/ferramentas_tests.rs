@@ -169,6 +169,12 @@ fn mediar(bruto: &Value) -> Value {
     )
 }
 
+/// A impressão do texto que a tela mostra para esta ferramenta, que o app devolve ao ligar.
+fn texto_visto(store: &Store, bot: &str, conta: &str, nome: &str) -> Value {
+    let lista = listar(store, bot, conta).unwrap();
+    lista["ferramentas"].as_array().unwrap().iter().find(|f| f["nome"] == nome).unwrap()["apresentacao"].clone()
+}
+
 fn liberar(store: &Store, bot: &str, nome: &str, digest: &str) {
     let pedido = PedidoLigar { bot, conta: "conta", ferramenta: nome, digest };
     gravar_liberacao(&store.db.locked(), &pedido).unwrap();
@@ -393,7 +399,7 @@ fn aviso_de_lista_mudada_invalida_a_decisao_ate_uma_lista_nova() {
     assert!(!chamar(&store, "b", "conta", Some(&pol), "list_orders"));
     invalidar(&store, "conta").unwrap();
     assert!(chamar(&store, "b", "conta", Some(&pol), "list_orders"), "depois do aviso nada passa");
-    let mut mediado = json!({"message": {"result": {"tools": lista(&["list_orders"])}}});
+    let mut mediado = mediar(&json!({"result": {"tools": lista(&["list_orders"])}}));
     let bruto = json!({"result": {"tools": lista(&["list_orders"]), "nextCursor": "p2"}});
     filtrar_lista_com(&store, "b", "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
     assert_eq!(mediado["message"]["result"]["tools"], json!([]), "lista parcial não devolve nada");
@@ -416,7 +422,7 @@ fn o_que_o_guard_reteve_nunca_entra_no_inventario_nem_pode_ser_chamado() {
     };
     assert_eq!(linhas, ["list_orders"], "só o que a mediação deixou passar fica guardado");
     assert!(chamar(&store, "b", "conta", Some(&pol), "get_order"));
-    let mut mediado = json!({"message": {"result": {"tools": lista(&["list_orders"])}}});
+    let mut mediado = mediar(&json!({"result": {"tools": lista(&["list_orders"])}}));
     filtrar_lista_com(
         &store,
         "b",
@@ -457,7 +463,7 @@ fn nome_repetido_na_mesma_lista_e_ambiguo_e_nada_passa() {
     registrar_lista(&store, &tools);
     assert_eq!(estado_de(&store, "b", &pol, "list_orders"), Estado::Desligada(Motivo::SemInventario));
     assert_eq!(estado_de(&store, "b", &pol, "get_order"), Estado::Permitida);
-    let mut mediado = json!({"message": {"result": {"tools": tools.clone()}}});
+    let mut mediado = mediar(&json!({"result": {"tools": tools.clone()}}));
     filtrar_lista_com(
         &store,
         "b",
@@ -504,10 +510,10 @@ fn tools_list_esconde_o_que_o_bot_nao_pode_usar_e_chamada_direta_pelo_nome_e_rec
     assert_eq!(recusas, 5);
     // Ligada neste bot, a perigosa aparece e passa; no outro bot continua escondida.
     liberar(&store, "b", "issue_invoice", &digest_de(&ferramenta("issue_invoice", "a")));
-    let mut mediado = json!({"message": bruto.clone()});
+    let mut mediado = mediar(&bruto);
     filtrar_lista_com(&store, "b", "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
     assert_eq!(nomes(&mediado), ["list_orders", "issue_invoice"]);
-    let mut outro = json!({"message": bruto.clone()});
+    let mut outro = mediar(&bruto);
     filtrar_lista_com(&store, "outro", "conta", &pol, &json!({}), &bruto, &mut outro, Some(ger(&store))).unwrap();
     assert_eq!(nomes(&outro), ["list_orders"]);
     assert!(chamar(&store, "outro", "conta", Some(&pol), "issue_invoice"));
@@ -630,7 +636,8 @@ async fn a_pessoa_liga_com_confirmacao_presa_ao_digest_e_so_no_bot_escolhido() {
     let tools = tools_do_linear();
     registrar_na_conta(&hub, &conta, &tools);
     let digest = digest_de(&tools[1]);
-    let ligar = |bot: &str, digest: &str, confirmo: Value| json!({"botId": bot, "conta": conta.id, "ferramenta": "list_issues", "digest": digest, "vinculo": 0, "confirmo": confirmo});
+    let visto = texto_visto(&hub.store, "b1", &conta.id, "list_issues");
+    let ligar = |bot: &str, digest: &str, confirmo: Value| json!({"botId": bot, "conta": conta.id, "ferramenta": "list_issues", "digest": digest, "vinculo": 0, "confirmo": confirmo, "apresentacao": visto});
     let local = Caller::Local;
     // Sem confirmação (ausente, falsa ou de outro tipo): recusado e nada gravado.
     for confirmo in [Value::Null, json!(false), json!("sim"), json!(1)] {
@@ -695,7 +702,8 @@ async fn bot_e_conteudo_externo_nunca_ligam_nada_so_o_dono_pelo_app() {
     let _rx = bot(&hub, "b1", &[conta.id.as_str()]);
     let tools = tools_do_linear();
     registrar_na_conta(&hub, &conta, &tools);
-    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "vinculo": 0, "confirmo": true});
+    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "vinculo": 0, "confirmo": true,
+        "apresentacao": texto_visto(&hub.store, "b1", &conta.id, "list_issues")});
     // A ponte do bot (a mesma que carrega o texto do fornecedor) não tem estes métodos, e um aparelho sem controle
     // também não: nem chegam ao Hub.
     let tela = Caller::Device { key: "k".into(), scopes: vec![crate::store::Scope::Screen], autoridade: None };
@@ -723,7 +731,8 @@ async fn tirar_a_conta_do_bot_ou_desconectar_apaga_o_que_a_pessoa_ligou() {
     let _rx = bot(&hub, "b1", &[conta.id.as_str()]);
     let tools = tools_do_linear();
     registrar_na_conta(&hub, &conta, &tools);
-    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "vinculo": 0, "confirmo": true});
+    let corpo = json!({"botId": "b1", "conta": conta.id, "ferramenta": "list_issues", "digest": digest_de(&tools[1]), "vinculo": 0, "confirmo": true,
+        "apresentacao": texto_visto(&hub.store, "b1", &conta.id, "list_issues")});
     chamar_api(&hub, &Caller::Local, "marketFerramentaLigar", corpo.clone()).await.unwrap();
     let contar = || -> i64 {
         hub.store
@@ -787,7 +796,7 @@ async fn so_conta_do_catalogo_passa_pelo_filtro_e_comando_local_do_catalogo_e_re
     let mut sumida = conta;
     sumida.servico = Some("nao-existe".into());
     assert!(recusar_chamada(&hub.store, "b1", &sumida, "tools/call", &chamada));
-    let mut mediado = json!({"message": {"result": {"tools": []}}});
+    let mut mediado = mediar(&json!({"result": {"tools": []}}));
     assert!(
         filtrar_lista(&hub.store, "b1", &sumida, &json!({}), &json!({"result": {"tools": []}}), &mut mediado, None)
             .is_err()
@@ -804,7 +813,7 @@ fn recibo_nao_guarda_nome_estranho_do_fornecedor() {
 }
 
 fn mediada(nomes: &[&str]) -> Value {
-    json!({"message": {"result": {"tools": lista(nomes)}}})
+    mediar(&json!({"result": {"tools": lista(nomes)}}))
 }
 
 #[test]
@@ -971,7 +980,7 @@ async fn setup_e_bot_tratam_igual_o_erro_do_fornecedor_e_se_recuperam_com_lista_
     let conta = conectar_linear(&hub);
     let _rx = bot(&hub, "b1", &[conta.id.as_str()]);
     let tools = tools_do_linear();
-    let mediada = json!({"message": {"result": {"tools": tools.clone()}}});
+    let mediada = mediar(&json!({"result": {"tools": tools.clone()}}));
     let completa = json!({"result": {"tools": tools.clone()}});
     let erro = json!({"jsonrpc": "2.0", "id": 5, "error": {"code": -32000, "message": "indisponível"}});
     let nome = "list_issues";

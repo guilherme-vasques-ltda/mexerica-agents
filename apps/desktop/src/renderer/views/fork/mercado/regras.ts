@@ -10,7 +10,7 @@ export const CODIGOS_DE_RECUSA = [
   'nome_obrigatorio', 'nome_primeira_obrigatorio', 'nome_repetido', 'nome_invalido', 'ficha_vencida',
   'servico_desconhecido', 'tipo_desconhecido', 'tipo_indisponivel', 'liberacao_desconhecida', 'liberacao_indisponivel',
   'liberacao_obrigatoria', 'conta_de_outro_space', 'conta_padrao_invalida', 'ficha_indisponivel', 'ligar_e_desligar', 'principal_sem_contas',
-  'confirmacao_obrigatoria', 'ferramenta_mudou', 'vinculo_mudou', 'vinculo_obrigatorio', 'ferramenta_desconhecida', 'ferramenta_fora_da_ficha', 'conta_sem_ficha', 'conta_desligada_no_bot', 'descricao_invalida', 'descricao_desconhecida',
+  'confirmacao_obrigatoria', 'ferramenta_mudou', 'vinculo_mudou', 'vinculo_obrigatorio', 'ferramenta_desconhecida', 'ferramenta_fora_da_ficha', 'conta_sem_ficha', 'conta_desligada_no_bot', 'descricao_invalida', 'descricao_desconhecida', 'app_desatualizado',
   'app_proprio_ausente', 'app_google_invalido', 'cofre_trancado',
 ] as const
 export type CodigoDeRecusa = (typeof CODIGOS_DE_RECUSA)[number]
@@ -343,7 +343,13 @@ export const acoesQueAPessoaDecide = (dados: FerramentasDaConta): FerramentaDaCo
   dados.ferramentas.filter((f) => f.estado !== 'permitida').sort((a, b) => (a.rotulo ?? a.nome).localeCompare(b.rotulo ?? b.nome))
 
 /** Sem o texto lido pelo Hub, ou com texto grande demais ou fora do padrão, não há botão de ligar: o Hub também recusa. */
-export const podeLigar = (f: FerramentaDaConta) => f.estado === 'desligada' && f.motivo !== 'descricao_invalida' && f.descricao !== null
+export const podeLigar = (f: FerramentaDaConta) =>
+  f.estado === 'desligada' && f.motivo !== 'descricao_invalida' && f.motivo !== 'descricao_desconhecida' &&
+  typeof f.descricao === 'string' && typeof f.apresentacao === 'string'
+
+/** O Hub ainda não leu o texto desta ação (ou ele não veio): a tela diz por que não há botão de ligar. */
+export const textoNaoLido = (f: FerramentaDaConta) =>
+  f.estado === 'desligada' && f.motivo !== 'descricao_invalida' && (f.motivo === 'descricao_desconhecida' || typeof f.descricao !== 'string' || typeof f.apresentacao !== 'string')
 
 /** Caracteres que não aparecem na tela ou mudam a direção da escrita: a pessoa é avisada antes de ligar. */
 export const temCaracteresOcultos = (texto: string) => /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/u.test(texto)

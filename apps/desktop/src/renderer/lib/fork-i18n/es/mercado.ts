@@ -270,6 +270,8 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.parte.anotacoes": "los avisos del proveedor sobre ella",
   "mercado.acoes.confirmar.descricao": "Lo que el bot va a leer sobre esta acción, escrito por el proveedor:",
   "mercado.acoes.confirmar.semDescricao": "El proveedor no escribió nada sobre esta acción.",
+  "mercado.erro.app_desatualizado": "Actualiza la app para ver el texto de esta acción antes de activarla.",
+  "mercado.acoes.estado.descricao_desconhecida": "Desactivada · el Hub aún no leyó el texto de esta acción",
   "mercado.erro.descricao_desconhecida": "El Hub aún no leyó el texto de esta acción. Verifica la cuenta y abre la lista de nuevo.",
   "mercado.acoes.descricaoDesconhecida": "El Hub aún no leyó el texto de esta acción. Verifica la cuenta para poder activarla.",
   "mercado.acoes.confirmar.campos": "Y lo que va a leer en cada campo de la acción:",

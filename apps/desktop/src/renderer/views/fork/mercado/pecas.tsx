@@ -41,6 +41,7 @@ export const ChaveDoErro: Record<CodigoDeRecusa, ChaveTexto> = {
   app_google_invalido: 'google.erro.app_google_invalido',
   descricao_invalida: 'mercado.erro.descricao_invalida',
   descricao_desconhecida: 'mercado.erro.descricao_desconhecida',
+  app_desatualizado: 'mercado.erro.app_desatualizado',
   cofre_trancado: 'google.erro.cofre_trancado',
 }
 

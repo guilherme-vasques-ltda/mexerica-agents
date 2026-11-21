@@ -264,6 +264,8 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.parte.anotacoes": "服务商对它的提示",
   "mercado.acoes.confirmar.descricao": "机器人将读到的关于此操作的说明（由服务商撰写）：",
   "mercado.acoes.confirmar.semDescricao": "服务商没有为此操作写任何说明。",
+  "mercado.erro.app_desatualizado": "请先更新应用，查看此操作的说明后再开启。",
+  "mercado.acoes.estado.descricao_desconhecida": "已关闭 · Hub 还没有读取此操作的说明",
   "mercado.erro.descricao_desconhecida": "Hub 还没有读取此操作的说明。请检查账号并重新打开列表。",
   "mercado.acoes.descricaoDesconhecida": "Hub 还没有读取此操作的说明。请先检查账号，然后才能开启。",
   "mercado.acoes.confirmar.campos": "以及它在此操作每个字段中将读到的内容：",
