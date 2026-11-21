@@ -383,20 +383,45 @@ async fn texto_dos_campos_do_schema_aparece_na_confirmacao_e_conta_como_mudanca(
     assert!(erro.to_string().starts_with("descricao_invalida"), "{erro}");
 }
 
+#[tokio::test]
+async fn ferramenta_com_ref_para_alvo_removido_pela_projecao_fica_indisponivel() {
+    let hub = hub();
+    let conta = conta_com_bot(&hub);
+    let mut tool = acao("create_row", &json!("Cria uma linha."));
+    tool["inputSchema"] = json!({
+        "type": "object",
+        "properties": {
+            "rows": {"type": "array", "prefixItems": [{"type": "string"}]},
+            "item": {"$ref": "#/properties/rows/prefixItems/0"}
+        }
+    });
+    // O Guard aceita a referência contra o schema bruto (o `prefixItems` existe), mas a projeção o remove: o `$ref`
+    // ficaria sem alvo no schema entregue ao modelo, então a ferramenta não chega ao modelo nem pode ser ligada.
+    assert_eq!(listar_para_o_bot(&hub, &conta, from_ref(&tool)), Vec::<Value>::new());
+    let vista = tela(&hub, &conta, "create_row").await.unwrap();
+    assert_eq!((vista["motivo"].clone(), vista["campos"].clone()), (json!("descricao_invalida"), Value::Null));
+    let erro = ligar(&hub, &conta, "create_row", &digest(&tool)).await.unwrap_err();
+    assert!(erro.to_string().starts_with("descricao_invalida"), "{erro}");
+}
+
 /// Todo texto de um schema: valores de texto (menos os tipos sob a palavra-chave `"type"`, que é vocabulário fechado)
 /// e os nomes de campos, separados. Palavra de tipo como texto do fornecedor (uma `description`, um `enum`) é texto
-/// como outro qualquer e precisa chegar à confirmação.
-fn textos_do_schema(schema: &Value, nomes: &mut Vec<String>, textos: &mut Vec<String>) {
+/// como outro qualquer e precisa chegar à confirmação. Dentro de `not`, os nomes de `"required"` também são texto
+/// lido pela pessoa e entram na lista.
+fn textos_do_schema(schema: &Value, nomes: &mut Vec<String>, textos: &mut Vec<String>, negado: bool) {
     match schema {
         Value::String(t) => textos.push(t.clone()),
-        Value::Array(itens) => itens.iter().for_each(|i| textos_do_schema(i, nomes, textos)),
+        Value::Array(itens) => itens.iter().for_each(|i| textos_do_schema(i, nomes, textos, negado)),
         Value::Object(mapa) => {
             for (chave, valor) in mapa {
                 if matches!(chave.as_str(), "properties" | "patternProperties" | "$defs" | "definitions") {
                     nomes.extend(valor.as_object().into_iter().flatten().map(|(n, _)| n.clone()));
                 }
-                if !matches!(chave.as_str(), "type" | "required") {
-                    textos_do_schema(valor, nomes, textos);
+                let negado = negado || chave.as_str() == "not";
+                // `"type"` é vocabulário fechado em qualquer nível; `"required"` é texto lido apenas dentro de `not`.
+                let ignora = chave.as_str() == "type" || (chave.as_str() == "required" && !negado);
+                if !ignora {
+                    textos_do_schema(valor, nomes, textos, negado);
                 }
             }
         }
@@ -422,7 +447,8 @@ async fn nenhum_texto_do_schema_que_chega_ao_modelo_fica_fora_do_que_a_tela_rece
             "lista": {"type": "array", "items": {"type": "string", "format": "email", "const": "fixo"}},
             "palavras": {"type": "string", "description": "string", "enum": ["string", "number"]},
             "short": {"type": "string", "description": "short"},
-            "shorttitle": {"type": "string", "description": "short title"}
+            "shorttitle": {"type": "string", "description": "short title"},
+            "regra_negada": {"not": {"required": ["blocked"]}}
         },
         "$defs": {"Filtro": {"type": "object", "description": "Filtro composto.", "additionalProperties": {"type": "string", "description": "Valor livre."}}},
         "additionalProperties": false
@@ -434,7 +460,7 @@ async fn nenhum_texto_do_schema_que_chega_ao_modelo_fica_fora_do_que_a_tela_rece
     let schema = &modelo[0]["inputSchema"];
     let mut nomes = Vec::new();
     let mut textos = Vec::new();
-    textos_do_schema(schema, &mut nomes, &mut textos);
+    textos_do_schema(schema, &mut nomes, &mut textos, false);
     // Comparação exata dos pares decodificados: texto parecido ou sobreposto ("short" e "short title") não cobre um
     // pelo outro, e um texto que se perder faz a asserção falhar. Nome de campo chega como rótulo, sozinho ou como
     // trecho do caminho do rótulo.
@@ -456,6 +482,9 @@ async fn nenhum_texto_do_schema_que_chega_ao_modelo_fica_fora_do_que_a_tela_rece
     for nome in &nomes {
         assert!(no_rotulo(nome), "campo fora da tela: {nome:?} em {campos:?}");
     }
+    // `required` dentro de `not` não é coberto por `properties` declarado: o nome preservado chega ao modelo e à tela.
+    assert_eq!(schema["properties"]["regra_negada"]["not"]["required"], json!(["blocked"]));
+    assert!(campos.iter().any(|[_, valor]| valor == "blocked"), "{campos:?}");
     let entregue = schema.to_string();
     for escondido in [
         "Instrução escondida",

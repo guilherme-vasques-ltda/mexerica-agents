@@ -429,7 +429,7 @@ const TIPOS: &[&str] = &["string", "number", "integer", "boolean", "object", "ar
 /// que a tela mostra (`campos_do_schema_limitado`); qualquer outra palavra-chave do fornecedor sai antes de chegar
 /// ao modelo.
 pub(crate) fn projetar_schema(schema: &Value) -> Value {
-    projetar_schema_com(schema, &propriedades_declaradas(schema))
+    projetar_schema_com(schema, &propriedades_declaradas(schema), false)
 }
 
 /// Os nomes de campos declarados no schema todo, inclusive em ramos (`allOf`, `anyOf`, `oneOf`, `items`, `$defs`):
@@ -460,7 +460,7 @@ fn propriedades_declaradas(schema: &Value) -> BTreeSet<String> {
     nomes
 }
 
-fn projetar_schema_com(schema: &Value, declaradas: &BTreeSet<String>) -> Value {
+fn projetar_schema_com(schema: &Value, declaradas: &BTreeSet<String>, negado: bool) -> Value {
     let Value::Object(mapa) = schema else {
         return if schema.is_boolean() { schema.clone() } else { json!({}) };
     };
@@ -468,21 +468,28 @@ fn projetar_schema_com(schema: &Value, declaradas: &BTreeSet<String>) -> Value {
     let mut saida = serde_json::Map::new();
     for (chave, valor) in mapa {
         let projetado = match (chave.as_str(), valor) {
-            ("properties" | "patternProperties" | "$defs" | "definitions", Value::Object(filhos)) => {
-                Value::Object(filhos.iter().map(|(n, f)| (n.clone(), projetar_schema_com(f, declaradas))).collect())
-            }
+            ("properties" | "patternProperties" | "$defs" | "definitions", Value::Object(filhos)) => Value::Object(
+                filhos.iter().map(|(n, f)| (n.clone(), projetar_schema_com(f, declaradas, negado))).collect(),
+            ),
             ("items" | "anyOf" | "oneOf" | "allOf", Value::Array(itens)) => {
-                Value::Array(itens.iter().map(|i| projetar_schema_com(i, declaradas)).collect())
+                Value::Array(itens.iter().map(|i| projetar_schema_com(i, declaradas, negado)).collect())
             }
-            ("items" | "additionalProperties" | "not", v) if v.is_object() || v.is_boolean() => {
-                projetar_schema_com(v, declaradas)
+            ("not", v) if v.is_object() || v.is_boolean() => projetar_schema_com(v, declaradas, true),
+            ("items" | "additionalProperties", v) if v.is_object() || v.is_boolean() => {
+                projetar_schema_com(v, declaradas, negado)
             }
             ("type", Value::String(t)) if TIPOS.contains(&t.as_str()) => valor.clone(),
             ("type", Value::Array(ts)) if ts.iter().all(|t| t.as_str().is_some_and(|t| TIPOS.contains(&t))) => {
                 valor.clone()
             }
+            // Dentro de `not`, o nome de `required` não depende de `properties` declarado: o Guard já validou o
+            // identificador, e apagá-lo enfraqueceria a negação. Fora de `not`, nome que nenhum ramo declara não passa.
             ("required", Value::Array(nomes)) => Value::Array(
-                nomes.iter().filter(|n| n.as_str().is_some_and(|n| declaradas.contains(n))).cloned().collect(),
+                nomes
+                    .iter()
+                    .filter(|n| if negado { n.is_string() } else { n.as_str().is_some_and(|n| declaradas.contains(n)) })
+                    .cloned()
+                    .collect(),
             ),
             ("enum", Value::Array(itens)) => Value::Array(itens.iter().filter(|i| escalar(i)).cloned().collect()),
             ("const", v) if escalar(v) => v.clone(),
@@ -541,6 +548,7 @@ fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(Strin
         saida: &mut Vec<(String, String)>,
         total: &mut usize,
         limite: usize,
+        negado: bool,
     ) -> bool {
         let Value::Object(mapa) = schema else { return true };
         for (chave, valor) in mapa {
@@ -549,7 +557,7 @@ fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(Strin
                     for (nome, filho) in valor.as_object().into_iter().flatten() {
                         caminho.push(nome.clone());
                         let antes = saida.len();
-                        if !andar(filho, caminho, saida, total, limite) {
+                        if !andar(filho, caminho, saida, total, limite, negado) {
                             caminho.pop();
                             return false;
                         }
@@ -569,7 +577,7 @@ fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(Strin
                     Value::Array(itens) => {
                         for (i, item) in itens.iter().enumerate() {
                             caminho.push(format!("{chave}[{i}]"));
-                            if !andar(item, caminho, saida, total, limite) {
+                            if !andar(item, caminho, saida, total, limite, negado) {
                                 caminho.pop();
                                 return false;
                             }
@@ -578,20 +586,35 @@ fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(Strin
                     }
                     v => {
                         caminho.push(chave.clone());
-                        if !andar(v, caminho, saida, total, limite) {
+                        if !andar(v, caminho, saida, total, limite, negado) {
                             caminho.pop();
                             return false;
                         }
                         caminho.pop();
                     }
                 },
-                "additionalProperties" | "not" => {
+                "not" => {
                     caminho.push(chave.clone());
-                    if !andar(valor, caminho, saida, total, limite) {
+                    if !andar(valor, caminho, saida, total, limite, true) {
                         caminho.pop();
                         return false;
                     }
                     caminho.pop();
+                }
+                "additionalProperties" => {
+                    caminho.push(chave.clone());
+                    if !andar(valor, caminho, saida, total, limite, negado) {
+                        caminho.pop();
+                        return false;
+                    }
+                    caminho.pop();
+                }
+                // `required` dentro de `not` guarda nomes que nenhum `properties` declara; eles também precisam
+                // chegar à tela, dentro do mesmo teto.
+                "required" if negado => {
+                    if !texto(valor, caminho, chave, saida, total, limite) {
+                        return false;
+                    }
                 }
                 "type" | "required" => {}
                 _ => {
@@ -605,7 +628,50 @@ fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(Strin
     }
     let mut saida = Vec::new();
     let mut total = 0;
-    if andar(schema, &mut Vec::new(), &mut saida, &mut total, limite) { Some(saida) } else { None }
+    if andar(schema, &mut Vec::new(), &mut saida, &mut total, limite, false) { Some(saida) } else { None }
+}
+
+/// Referência local (`$ref: "#..."`) resolvida contra o schema já projetado, andando só por palavras-chave
+/// estruturais que a projeção mantém. Alvo que a projeção removeu (por exemplo `prefixItems`) não resolve.
+fn ref_local_valida(referencia: &str, raiz: &Value) -> bool {
+    let Some(ponteiro) = referencia.strip_prefix('#') else { return false };
+    if ponteiro.is_empty() {
+        return true;
+    }
+    let Some(caminho) = ponteiro.strip_prefix('/') else { return false };
+    let mut partes = caminho.split('/');
+    let mut alvo = raiz;
+    while let Some(palavra) = partes.next() {
+        alvo = match palavra {
+            "properties" | "patternProperties" | "$defs" | "definitions" | "allOf" | "anyOf" | "oneOf" => {
+                let Some(chave) = partes.next() else { return false };
+                let Some(valor) = alvo.pointer(&format!("/{palavra}/{chave}")) else { return false };
+                valor
+            }
+            "items" | "additionalProperties" | "not" => {
+                let Some(valor) = alvo.get(palavra) else { return false };
+                valor
+            }
+            _ => return false,
+        };
+    }
+    alvo.is_object() || alvo.is_boolean()
+}
+
+/// Todo `$ref` do schema projetado resolve dentro dele. Um `$ref` que apontava para o que a projeção removeu deixaria
+/// o modelo com uma referência sem alvo, então a ferramenta fica indisponível, como com o texto acima do teto.
+fn refs_locais_validos(schema: &Value, raiz: &Value) -> bool {
+    match schema {
+        Value::Object(mapa) => mapa.iter().all(|(chave, valor)| {
+            if chave.as_str() == "$ref" {
+                valor.as_str().is_some_and(|r| ref_local_valida(r, raiz))
+            } else {
+                refs_locais_validos(valor, raiz)
+            }
+        }),
+        Value::Array(itens) => itens.iter().all(|i| refs_locais_validos(i, raiz)),
+        _ => true,
+    }
 }
 
 /// O texto de uma ferramenta como a mediação do Guard o entrega ao bot, já sem segredos e escapado, com o schema na
@@ -629,8 +695,13 @@ pub(crate) fn descricoes_mediadas(mediado: &Value) -> BTreeMap<String, TextoMedi
         .filter_map(|t| {
             let nome = t["name"].as_str()?.to_owned();
             let descricao = crate::guard_hub::mcp::sem_envelope(t["description"].as_str()?)?.to_owned();
-            // Acima do teto, nada do texto é montado nem digerido: a ferramenta fica inválida, sem lista de campos.
-            let Some(campos) = campos_do_schema_limitado(&projetar_schema(&t["inputSchema"]), CAMPOS_MAX) else {
+            // Acima do teto ou com `$ref` apontando para o que a projeção removeu, nada do texto é montado nem
+            // digerido: a ferramenta fica inválida, sem lista de campos.
+            let projetado = projetar_schema(&t["inputSchema"]);
+            let campos = refs_locais_validos(&projetado, &projetado)
+                .then(|| campos_do_schema_limitado(&projetado, CAMPOS_MAX))
+                .flatten();
+            let Some(campos) = campos else {
                 return Some((
                     nome,
                     TextoMediado {
@@ -1258,7 +1329,15 @@ const APP_DESATUALIZADO: &str = "app_desatualizado: atualize o app para ver o te
 /// de um app que não mostra o texto e é recusado; diferente da atual, o texto mudou desde que a pessoa o leu. Roda na
 /// transação que grava a liberação.
 pub(crate) fn conferir_apresentacao(tx: &Connection, pedido: &PedidoLigar<'_>, vista: Option<&str>) -> Result<()> {
-    let vista = vista.ok_or_else(|| anyhow!("{APP_DESATUALIZADO}"))?;
+    let Some(vista) = vista else {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "confirmação de ferramenta sem a apresentação vista pelo usuário; pedido recusado"
+        );
+        return Err(anyhow!("{APP_DESATUALIZADO}"));
+    };
     let atual: Option<String> = tx
         .query_row(
             "SELECT apresentacao FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2",
@@ -1267,7 +1346,15 @@ pub(crate) fn conferir_apresentacao(tx: &Connection, pedido: &PedidoLigar<'_>, v
         )
         .optional()?
         .flatten();
-    ensure!(atual.as_deref() == Some(vista), "{FERRAMENTA_MUDOU}");
+    if atual.as_deref() != Some(vista) {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "confirmação de ferramenta com apresentação divergente da atual; pedido recusado"
+        );
+        return Err(anyhow!("{FERRAMENTA_MUDOU}"));
+    }
     Ok(())
 }
 
