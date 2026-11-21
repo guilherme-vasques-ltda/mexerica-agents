@@ -1,7 +1,0 @@
-# Rótulos dos runners da Instabox e da Namespace (macOS) aceitos pelo actionlint. Runner hospedado pelo GitHub não é usado.
-self-hosted-runner:
-  labels:
-    - instabox-small
-    - instabox-medium
-    - instabox-large
-    - nscloud-macos-tahoe-arm64-6x14

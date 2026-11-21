@@ -393,22 +393,20 @@ test('workflow: só ASCII, permissões de leitura, ação fixada por SHA, sem ch
   assert.deepEqual([...bastidor.matchAll(/^      ([a-z-]+): (read|write)$/gm)].map((m) => m[1] + ':' + m[2]), ['contents:read', 'pull-requests:read']);
   assert.ok(!/: write\b/.test(bastidor));
   assert.match(bastidor, /^    timeout-minutes: [1-9][0-9]*$/m);
-  assert.match(bastidor, /if: \$\{\{ runner\.environment == 'github-hosted' && github\.event\.repository\.private \}\}/);
   assert.ok(bastidor.includes('Accept: application/vnd.github.sha') && bastidor.includes('--data-urlencode "ref=$sha"'), 'verificador e regras do mesmo commit');
   assert.ok(!bastidor.includes('404'), 'sem caminho alternativo para o código do PR');
   assert.ok(!/github\.(head_ref|event\.pull_request\.head\.ref)/.test(bastidor), 'nunca usa a ref do PR');
 });
 
-test('workflow: máquina vinda de variável, concorrência por PR e pull_request_target justificado', () => {
+test('workflow: máquina fixa do GitHub, concorrência por PR e pull_request_target justificado', () => {
   assert.match(bastidor, /^on:\n  pull_request_target:\n    types: \[opened, edited, reopened, synchronize\]\n\n/m);
   assert.match(bastidor, /^# Unico workflow do repositorio em pull_request_target, e so por isto:/m);
   assert.match(bastidor, /group: bastidor-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true/);
   assert.equal((bastidor.match(/^    runs-on: (.+)$/gm) ?? []).length, 1);
   assert.match(bastidor, /^    environment: bastidor$/m, 'segredo de ambiente, restrito à branch protegida');
-  assert.ok(bastidor.includes("    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}"));
-  assert.ok(!/ubuntu-|windows-|macos-|self-hosted|boat|nscloud/i.test(bastidor), 'rótulo de máquina fora do padrão');
-  assert.deepEqual([...new Set([...bastidor.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))], ['CI_MAQUINA_LEVE']);
-  assert.match(bastidor, /enquanto ela apontar para maquina paga, o repositorio nao pode ser publico/);
+  assert.ok(bastidor.includes('    runs-on: ubuntu-24.04'));
+  assert.ok(!/self-hosted|blacksmith|buildjet|depot-|boat|instabox|nscloud/i.test(bastidor), 'nenhum rótulo de máquina de terceiro');
+  assert.deepEqual([...new Set([...bastidor.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))], [], 'sem variável de máquina');
 });
 
 test('workflow: o segredo só chega ao verificador em PR do próprio repositório, nunca em fork, e nunca ao shell', () => {
