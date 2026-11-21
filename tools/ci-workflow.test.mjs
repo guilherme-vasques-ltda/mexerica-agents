@@ -369,6 +369,19 @@ test('hub: devolve a origem de /etc/localtime ao dono root antes da suíte', () 
   assert.match(st, /continua fora do contrato do sandbox/, 'verifica de novo no fim');
 });
 
+test('hub: garante o bubblewrap de verdade (mapa de UID) antes da suíte', () => {
+  const steps = body('hub').split('\n      - ').map((st) => st.replace(/^(?:      #.*\n)+/, ''));
+  const bwrap = steps.findIndex((st) => st.startsWith('name: Garantir bubblewrap'));
+  const suite = steps.findIndex((st) => st.startsWith('name: Executar toda a suite do Hub (nextest)'));
+  assert.ok(bwrap > 0 && bwrap < suite, 'passo antes da suíte');
+  const st = steps[bwrap];
+  assert.match(st, /sudo -n apparmor_parser -r \/etc\/apparmor\.d\/bwrap/);
+  assert.match(st, /sudo -n sysctl -w kernel\.apparmor_restrict_unprivileged_userns=0/);
+  assert.match(st, /bwrap --unshare-user --ro-bind \/ \/ true/);
+  assert.match(st, /::error::bwrap nao consegue criar o mapa de UID/);
+  assert.match(st, /\[ -f \/etc\/apparmor\.d\/bwrap \]/, 'perfil oficial primeiro');
+});
+
 test('leves e vazamento não ligam cache automático do setup-node', () => {
   for (const job of ['leves', 'vazamento']) {
     const setup = body(job).split('uses: actions/setup-node@')[1].split('\n      - ')[0];

@@ -278,6 +278,24 @@ jobs:
             if [ "$(id -u)" = 0 ]; then apt-get update -qq && apt-get install -y -qq bubblewrap; else sudo -n apt-get update -qq && sudo -n apt-get install -y -qq bubblewrap; fi
           fi
           bwrap --version
+          # Ubuntu 24.04 restringe user namespace sem privilegio via AppArmor; sem ajuste o bwrap
+          # falha ao criar o mapa de UID. Carrega o perfil oficial primeiro; se continuar
+          # bloqueado, libera o sysctl so nesta VM descartavel.
+          probe() { bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev true 2> /dev/null; }
+          if ! probe; then
+            if [ -f /etc/apparmor.d/bwrap ] && command -v apparmor_parser > /dev/null; then
+              sudo -n apparmor_parser -r /etc/apparmor.d/bwrap
+            fi
+            if ! probe && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+              sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+          fi
+          # Prova minima em segundos: o bwrap precisa criar o mapa de UID. Se nao der, o job
+          # reprova aqui, em vez de falhar dentro da suite inteira.
+          if ! bwrap --unshare-user --ro-bind / / true 2> /dev/null; then
+            echo '::error::bwrap nao consegue criar o mapa de UID nesta VM (AppArmor/user namespace); os testes reais de isolamento nao podem rodar.'
+            exit 1
+          fi
       # A imagem Ubuntu do GitHub Actions entrega /usr/share e a origem de /etc/localtime com o
       # usuario do job como dono, e o sandbox recusa montar origem que nao seja de root. O passo
       # devolve a cadeia de /etc/localtime ao dono root, sem escrita de grupo ou de terceiros, e
