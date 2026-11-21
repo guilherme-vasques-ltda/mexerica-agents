@@ -187,10 +187,11 @@ const ACTIONS = new Set([
   'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
   'Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
   'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
+  'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333',
 ]);
 
-test('só bastidor.yml, ci.yml, macos.yml e release.yml existem como workflows', () => {
-  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'macos.yml', 'release.yml']);
+test('só bastidor.yml, ci.yml, cua-driver-pin.yml, macos.yml, release.yml e vazamento-semanal.yml existem como workflows', () => {
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'cua-driver-pin.yml', 'macos.yml', 'release.yml', 'vazamento-semanal.yml']);
 });
 
 test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
@@ -886,4 +887,94 @@ test('versao: a CLI da versão funciona de ponta a ponta, com --package e --chec
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// Workflows agendados: conferencia do pin do cua-driver e varredura semanal de vazamento.
+// Rodam so em runner fixo do GitHub, sem gatilho que traga codigo de fora; o semanal guarda
+// o executor e a politica da main e so notifica em destino privado confirmado com credenciais proprias.
+const cuaPin = readFileSync(new URL('../.github/workflows/cua-driver-pin.yml', import.meta.url), 'utf8');
+const semanal = readFileSync(new URL('../.github/workflows/vazamento-semanal.yml', import.meta.url), 'utf8');
+const AGENDADOS = [['cua-driver-pin.yml', cuaPin], ['vazamento-semanal.yml', semanal]];
+const jobsDe = (texto) => {
+  const linhas = texto.split('\n');
+  const saida = {};
+  let atual = null;
+  for (const linha of linhas.slice(linhas.indexOf('jobs:') + 1)) {
+    const cabecalho = /^  ([a-z][a-z-]*):$/.exec(linha);
+    if (cabecalho) { atual = cabecalho[1]; saida[atual] = []; continue; }
+    if (atual) saida[atual].push(linha);
+  }
+  return saida;
+};
+
+test('agendados: ASCII, so schedule e disparo manual, runner fixo do GitHub, permissoes sem escrita', () => {
+  for (const [nome, texto] of AGENDADOS) {
+    assert.ok(!/[^\x00-\x7F]/.test(texto), `${nome} deve ser ASCII`);
+    assert.match(texto, /^on:\n  schedule:\n    - cron: '[0-9*,/ -]+'\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n/m, `${nome}: gatilhos e permissao de topo fora do contrato`);
+    for (const acionador of ['pull_request', 'pull_request_target', 'workflow_run', 'issue_comment', 'push:', 'merge_group', 'workflow_call', 'inputs:']) {
+      assert.ok(!texto.includes(acionador), `${nome}: gatilho proibido: ${acionador}`);
+    }
+    assert.ok(!/self-hosted|blacksmith|buildjet|depot-|boat|instabox|nscloud/i.test(texto), `${nome}: nenhum runner de terceiro ou self-hosted`);
+    assert.ok(!/\bvars\.CI_MAQUINA|\$\{\{ runner\.environment/.test(texto), `${nome}: sem variavel de maquina`);
+    const jobs = jobsDe(texto);
+    assert.ok(Object.keys(jobs).length > 0, `${nome}: sem jobs`);
+    for (const [job, linhas] of Object.entries(jobs)) {
+      const runsOn = linhas.filter((l) => /^    runs-on:/.test(l));
+      assert.equal(runsOn.length, 1, `${nome}.${job}: exatamente um runs-on`);
+      assert.equal(runsOn[0], '    runs-on: ubuntu-24.04', `${nome}.${job}: runs-on fora do contrato`);
+      assert.ok(linhas.some((l) => /^    permissions:/.test(l)), `${nome}.${job}: permissões explícitas`);
+      assert.ok(linhas.some((l) => /^    timeout-minutes: [1-9][0-9]*$/.test(l)), `${nome}.${job}: timeout-minutes`);
+      assert.ok(!/: write\b/.test(linhas.join('\n')), `${nome}.${job}: sem permissão de escrita`);
+      assert.ok(!/container:|services:/.test(linhas.join('\n')), `${nome}.${job}: sem container/services`);
+    }
+    const uses = [...texto.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
+    assert.ok(uses.length > 0, `${nome}: sem actions`);
+    for (const ref of uses) {
+      assert.match(ref, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${nome}: action sem SHA completo: ${ref}`);
+      assert.ok(ACTIONS.has(ref), `${nome}: action fora da lista fechada aprovada: ${ref}`);
+    }
+    for (const trecho of texto.split('uses: actions/checkout@').slice(1)) {
+      assert.match(trecho.split('\n      - ')[0], /persist-credentials: false/, `${nome}: checkout com credencial persistida`);
+    }
+  }
+});
+
+test('cua-driver-pin: leitura pura, sem segredos e compara so o driver.json', () => {
+  assert.ok(!/\$\{\{[^}]*\bsecrets\./.test(cuaPin), 'o pin do cua-driver nao recebe segredos');
+  assert.match(cuaPin, /sparse-checkout: packaging\/cua-driver\/driver\.json/);
+  assert.match(cuaPin, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.ok(!/VAZAMENTO|ISSUE_REPO/.test(cuaPin), 'sem credenciais de notificacao no pin');
+});
+
+test('vazamento-semanal: executor da main, credenciais nomeadas e aviso so quando a varredura reprova', () => {
+  const jobs = jobsDe(semanal);
+  assert.deepEqual(Object.keys(jobs), ['varredura', 'notificar']);
+  const varredura = jobs.varredura.join('\n');
+  assert.match(varredura, /^    if: github\.ref == 'refs\/heads\/main'$/m, 'varredura so na main');
+  assert.match(varredura, /git show "\$trusted_main:tools\/ci-vazamento\.mjs" > "\$RUNNER_TEMP\/trusted-ci-vazamento\.mjs"/, 'executor vem da main');
+  assert.equal((semanal.match(/VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/g) || []).length, 2, 'secret de termos declarado na checagem e na varredura');
+  assert.match(semanal, /551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb/, 'Gitleaks fixado por SHA256');
+  const credenciais = varredura.split('\n      - ').find((st) => st.startsWith('name: Recusar credenciais de aviso ausentes'));
+  assert.ok(credenciais, 'checagem fail-fast das credenciais de aviso');
+  assert.match(credenciais, /VAZAMENTO_ISSUE_REPO: \$\{\{ vars\.VAZAMENTO_ISSUE_REPO \}\}/);
+  assert.match(credenciais, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/);
+  assert.match(credenciais, /VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/, 'termos conferidos antes de qualquer download');
+  assert.match(credenciais, /test -n "\$VAZAMENTO_ISSUE_REPO"/);
+  assert.match(credenciais, /test -n "\$VAZAMENTO_ISSUE_TOKEN"/);
+  assert.match(credenciais, /test -n "\$VAZAMENTO_TERMOS"/);
+  const gitleaks = varredura.indexOf('name: Obter Gitleaks oficial fixado');
+  assert.ok(varredura.indexOf('name: Recusar credenciais de aviso ausentes') < gitleaks, 'credenciais conferidas antes do download do Gitleaks');
+  const marcador = varredura.split('\n      - ').find((st) => st.startsWith('name: Marcar varredura sem resumo'));
+  assert.ok(marcador, 'marcador de falha sem resumo');
+  assert.match(marcador, /^        if: \$\{\{ !cancelled\(\) \}\}\n/m);
+  assert.match(marcador, /if \[ ! -s "\$VAZAMENTO_REPORT" \]/, 'marcador so quando o resumo nao foi gravado');
+  assert.match(marcador, /"total":1/, 'marcador conta como ocorrencia para o aviso abrir issue');
+  const notificar = jobs.notificar.join('\n');
+  assert.match(notificar, /^    needs: varredura$/m);
+  assert.match(notificar, /!cancelled\(\) && github\.ref == 'refs\/heads\/main' && needs\.varredura\.result == 'failure'/, 'aviso so depois de varredura reprovada na main');
+  assert.match(notificar, /VAZAMENTO_ISSUE_REPO: \$\{\{ vars\.VAZAMENTO_ISSUE_REPO \}\}/, 'destino vem da variavel nomeada');
+  assert.match(notificar, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/, 'token vem do segredo nomeado');
+  assert.ok(!/GITHUB_TOKEN/.test(semanal), 'sem token de escrita do repositorio');
+  const segredos = [...semanal.matchAll(/\$\{\{[^}]*\bsecrets\.(\w+)/g)].map((m) => m[1]).sort();
+  assert.deepEqual(segredos, ['VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_TERMOS', 'VAZAMENTO_TERMOS'], 'so os segredos nomeados');
 });
