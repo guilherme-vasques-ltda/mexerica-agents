@@ -239,6 +239,7 @@ export const textos: Traducao<typeof fonte> = {
   // Entrega 3 (revisão do app): bots e modelos dentro da conta, com Ocultar.
   "contas.botsTitulo": "Bots sur ce compte",
   "contas.botsVazioDetalhe": "Pour relier un bot, ouvrez ses réglages et choisissez ce compte dans Moteur.",
+  "contas.botsOpen": "Dans Open, les bots répondent avec le compte Codex connecté le plus récemment. Rien à choisir.",
   "contas.botModeloPadrao": "Par défaut du moteur",
   "contas.modelosTitulo": "Modèles",
   "contas.modelosResumo": "Dans le sélecteur : {visiveis} sur {total}",

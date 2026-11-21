@@ -26,6 +26,7 @@ import { BotSync, sleep } from './bot-sync'
 import type { SessionIntent } from './fork-sessions'
 import { botEditorUpdate } from '@shared/bot-autonomy'
 import { bloqueioSenha, destinoSenha, type ResultadoEnvio } from './fork-senha-bloqueio'
+import { erroDoEnvio, recusaOpen, respostaEmAndamento } from '../views/fork/spaces/erro-envio'
 
 export { builtInBackendName, type Connection } from './bot-mirror'
 
@@ -201,7 +202,7 @@ export class BotStore extends BotSync {
         if (error instanceof ErroFrase) this.acaoRecusada = error.frase
         if (this.outgoingFiles.has(nonce)) this.lastError = `Couldn't send the files: ${error instanceof Error ? error.message : error}`
         if (filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
-        this.markLocal(nonce, botId, 'failed')
+        this.markLocal(nonce, botId, 'failed', recusaOpen(erroDoEnvio(error)))
       }
     })()
     return 'aceito'
@@ -235,12 +236,12 @@ export class BotStore extends BotSync {
     this.scheduleSave()
   }
 
-  private markLocal(nonce: string, botId: string, status: string) {
+  private markLocal(nonce: string, botId: string, status: string, recusa: string | null = null) {
     const list = this.entries.get(botId)
     const i = list?.findIndex((e) => e.id === `local-${nonce}`) ?? -1
     if (!list || i < 0) return
     const next = [...list]
-    next[i] = { ...next[i]!, data: { ...next[i]!.data, status } }
+    next[i] = { ...next[i]!, data: { ...next[i]!.data, status, ...(recusa ? { recusa } : {}) } }
     this.entries.set(botId, next)
     this.changed()
     this.scheduleSave()
@@ -488,16 +489,20 @@ export class BotStore extends BotSync {
     }, true)
   }
 
-  delete(bot: Bot) {
+  /** O bot, a conversa e o rascunho só saem da tela depois que o Hub confirma a exclusão; recusada, só o aviso muda. */
+  async delete(bot: Bot) {
     if (bot.id === this.principal.protectedId) return
-    return this.perform(c => {
-      this.composerDrafts.removeBot(bot.id)
-      this.bots.delete(bot.id)
-      this.entries.delete(bot.id)
-      this.onRosterChanged?.()
-      this.changed()
-      return c.call('deleteBot', { botId: bot.id })
-    }, true)
+    const result = await this.perform(c => c.call('deleteBot', { botId: bot.id }), true)
+    if (!result.ok) {
+      if (respostaEmAndamento(result.error)) this.lastError = traduzir(idiomaAtual(), 'bots.editor.apagar.resposta')
+      return result
+    }
+    this.composerDrafts.removeBot(bot.id)
+    this.bots.delete(bot.id)
+    this.entries.delete(bot.id)
+    this.onRosterChanged?.()
+    this.changed()
+    return result
   }
 
   /** Creates a group chat (or opens the one these bots already share) and selects it. */

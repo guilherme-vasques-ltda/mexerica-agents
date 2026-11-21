@@ -56,7 +56,15 @@ fn default_donna_is_primary_safe_and_durable_without_an_ai_account() {
         .query_row("SELECT kind,data FROM entries WHERE bot_id=?1", [&id], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
     assert_eq!(notice.0, "notice", "orientação do Hub, sem turno humano nem fala fabricada da IA");
-    assert_eq!(serde_json::from_str::<serde_json::Value>(&notice.1).unwrap()["text"], SETUP_NOTICE);
+    let data = serde_json::from_str::<serde_json::Value>(&notice.1).unwrap();
+    let text = data["text"].as_str().unwrap().to_owned();
+    if crate::environment::Environment::is_open() {
+        assert_eq!(text, OPEN_SETUP_NOTICE);
+        assert_eq!(data["code"], "open_setup", "a janela traduz o aviso pelo código");
+        assert!(!text.contains("Motor"), "a Open não manda escolher conta em Motor");
+    } else {
+        assert_eq!(text, SETUP_NOTICE);
+    }
     let rev = store.current_rev();
     drop(store);
     let store = f.open();

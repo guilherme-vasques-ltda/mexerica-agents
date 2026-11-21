@@ -325,7 +325,7 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
             </form>
           ) : null}
 
-          <section className="contas-secao" aria-label={textos.botsTitulo}>
+          {open ? <Text size="caption" tone="secondary">{traduzir(idioma, 'contas.botsOpen')}</Text> : <section className="contas-secao" aria-label={textos.botsTitulo}>
             <HStack gap={6} className="contas-secao-titulo">
               <Text size="caption" weight="semibold" tone="secondary">{textos.botsTitulo}</Text>
               {account.botIds.length ? <Text size="caption" tone="tertiary" tabular>{formatarNumero(idioma, account.botIds.length)}</Text> : null}
@@ -353,7 +353,7 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
                 </VStack>
               </HStack>
             )}
-          </section>
+          </section>}
 
           {!open ? <section className="contas-secao" aria-label={textos.modelosTitulo}>
             <HStack gap={6} className="contas-secao-titulo">

@@ -14,6 +14,33 @@ const SELECTION: &str = "codex-local.json";
 const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
+const ADMIN_POLICY: &str = "/private/etc/codex";
+/// Certificados públicos do macOS: o TLS do Codex usa este arquivo em vez do Chaveiro. O `.env` do perfil, que o Codex
+/// leria antes de iniciar e poderia trocar este caminho, fica fora do alcance do processo isolado.
+const CA_BUNDLE: &str = "/private/etc/ssl/cert.pem";
+/// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
+/// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
+pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
+    "sandbox_mode=\"read-only\"",
+    "approval_policy=\"never\"",
+    "features.shell_tool=false",
+    "features.unified_exec=false",
+    "features.view_image=false",
+    "features.multi_agent=false",
+    "features.apps=false",
+    "features.plugins=false",
+    "features.memories=false",
+    "features.image_generation=false",
+    "features.hooks=false",
+    "features.sleep_tool=false",
+    "features.tool_suggest=false",
+    "features.browser_use=false",
+    "features.computer_use=false",
+    "features.skill_mcp_dependency_install=false",
+    "tools.experimental_request_user_input.enabled=false",
+    "mcp_oauth_credentials_store=\"file\"",
+    "web_search=\"disabled\"",
+];
 const SANDBOX: &str = "/usr/bin/sandbox-exec";
 const POLICY: &str = r#"(version 1)
 (deny default)
@@ -36,13 +63,16 @@ const POLICY: &str = r#"(version 1)
   (path-ancestors "/private/var/db/dyld"))
 (allow file-read* (subpath (param "PROFILE")) (subpath "/usr/share") (subpath "/private/etc/codex"))
 (allow file-read-data (literal "/"))
-(allow file-read-metadata (literal "/") (literal "/dev") (literal "/private") (literal "/private/etc") (literal "/private/var") (literal "/private/var/run"))
+(allow file-read-metadata (literal "/") (literal "/dev") (literal "/etc") (literal "/private") (literal "/private/etc") (literal "/private/var") (literal "/private/var/run"))
 (allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))
 (allow file-write* (subpath (param "PROFILE")) (literal "/dev/null"))
+(deny file-read* file-write* (regex #"/\.[Cc][Oo][Dd][Ee][Xx]/\.[Ee][Nn][Vv]$"))
 "#;
 const LOGIN_NETWORK: &str = r#"
 (allow network-outbound (remote tcp "*:443"))
 (allow network-outbound (literal "/private/var/run/mDNSResponder"))
+(allow file-read-metadata (literal "/var"))
+(allow file-read-data file-read-metadata (literal "/private/etc/ssl/cert.pem"))
 (allow mach-lookup (global-name "com.apple.mDNSResponder") (global-name "com.apple.trustd.agent") (global-name "com.apple.system.opendirectoryd.libinfo"))
 "#;
 
@@ -169,6 +199,7 @@ fn command(executable: &Path, directory: &Path, login: bool) -> Result<Command> 
         .env("HOME", home)
         .env("CODEX_HOME", directory)
         .env("TMPDIR", tmp)
+        .env("SSL_CERT_FILE", CA_BUNDLE)
         .current_dir(home)
         .stdin(if login { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -189,15 +220,37 @@ impl AppServer {
     }
 }
 
-pub(crate) async fn app_server(directory: &Path) -> Result<AppServer> {
+pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer> {
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
     ensure!(cfg!(target_os = "macos"), "open_codex_platform");
-    let home = crate::service::home();
-    let open = home.parent().context("open_codex_unavailable")?;
     ensure!(crate::environment::Environment::is_open(), "open_codex_unavailable");
-    let selection = Selection::load(open).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
-    prepare_profile(open, directory).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
+    let profile = directory.to_owned();
+    let selection = tokio::task::spawn_blocking(move || {
+        let home = crate::service::home();
+        let open = home.parent().context("open_codex_unavailable")?;
+        let selection = Selection::load(open).inspect_err(|error| tracing::warn!(%error, "Codex da Open recusado"))?;
+        prepare_profile(open, &profile)
+            .inspect_err(|error| tracing::warn!(%error, "perfil do Codex da Open recusado"))?;
+        if !codex_home_clean(&profile) {
+            tracing::warn!("pasta do Codex da Open com .env, link ou arquivo com mais de um nome");
+            anyhow::bail!("open_codex_unavailable");
+        }
+        if !admin_policy_safe(Path::new(ADMIN_POLICY)) {
+            tracing::warn!(path = ADMIN_POLICY, "política do administrador do Codex aceita escrita de outros");
+            anyhow::bail!("open_codex_unavailable");
+        }
+        if !root_owned(Path::new(CA_BUNDLE)) {
+            tracing::warn!(path = CA_BUNDLE, "certificados do macOS não são só do root");
+            anyhow::bail!("open_codex_unavailable");
+        }
+        Ok::<_, anyhow::Error>(selection)
+    })
+    .await
+    .inspect_err(|error| tracing::warn!(%error, "a verificação do Codex da Open não terminou"))
+    .ok()
+    .and_then(Result::ok)
+    .context("open_codex_unavailable")?;
     let mut probe = command(&selection.executable, directory, false)?;
     let probe = async {
         let mut child = probe.arg("--version").spawn()?;
@@ -211,8 +264,55 @@ pub(crate) async fn app_server(directory: &Path) -> Result<AppServer> {
         anyhow::bail!("open_codex_unavailable");
     }
     let mut command = command(&selection.executable, directory, true)?;
-    command.args(["-c", "cli_auth_credentials_store=\"file\"", "app-server", "--listen", "stdio://"]);
+    command.args(["-c", "cli_auth_credentials_store=\"file\""]);
+    if chat {
+        let place = directory.parent().context("open_codex_unavailable")?.join("chat");
+        Directory::open(&place, true)?;
+        command.current_dir(place);
+        for setting in CHAT_OVERRIDES {
+            command.args(["-c", setting]);
+        }
+    }
+    command.args(["app-server", "--listen", "stdio://"]);
     Ok(AppServer { command, executable: selection.executable })
+}
+
+/// O arquivo e cada pasta acima dele são do root e não aceitam escrita de grupo nem de outros. Só lê as permissões
+/// Unix: ACLs não entram, e o arquivo pode mudar entre esta leitura e o uso pelo Codex.
+fn root_owned(path: &Path) -> bool {
+    path.ancestors().all(|part| {
+        fs::symlink_metadata(part).is_ok_and(|meta| {
+            meta.uid() == 0 && meta.mode() & 0o022 == 0 && if part == path { meta.is_file() } else { meta.is_dir() }
+        })
+    })
+}
+
+/// A pasta do Codex não tem `.env` (em qualquer caixa e de qualquer tipo), link nem arquivo com outro nome
+/// apontando para o mesmo conteúdo: o Codex leria esse `.env` antes de iniciar.
+fn codex_home_clean(directory: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(directory) else { return false };
+    entries.into_iter().all(|entry| {
+        entry.is_ok_and(|entry| {
+            !entry.file_name().to_str().is_none_or(|name| name.eq_ignore_ascii_case(".env"))
+                && fs::symlink_metadata(entry.path())
+                    .is_ok_and(|meta| !meta.file_type().is_symlink() && (!meta.is_file() || meta.nlink() == 1))
+        })
+    })
+}
+
+/// A política do administrador em /etc/codex vale só quando é do root e ninguém mais a altera.
+fn admin_policy_safe(directory: &Path) -> bool {
+    let safe = |meta: &fs::Metadata| meta.uid() == 0 && meta.mode() & 0o022 == 0;
+    match fs::symlink_metadata(directory) {
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        Ok(meta) if !meta.is_dir() || !safe(&meta) => false,
+        Ok(_) => ["managed_config.toml", "config.toml", "requirements.toml"].iter().all(|name| {
+            match fs::symlink_metadata(directory.join(name)) {
+                Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+                Ok(meta) => meta.is_file() && safe(&meta),
+            }
+        }),
+    }
 }
 
 pub(crate) fn confirm_profile(directory: &Path) -> Result<()> {

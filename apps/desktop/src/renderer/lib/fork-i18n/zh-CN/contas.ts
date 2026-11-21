@@ -235,6 +235,7 @@ export const textos: Traducao<typeof fonte> = {
   // Entrega 3 (revisão do app): bots e modelos dentro da conta, com Ocultar.
   "contas.botsTitulo": "此账号上的机器人",
   "contas.botsVazioDetalhe": "要关联机器人，请打开它的设置，在“引擎”中选择此账号。",
+  "contas.botsOpen": "在 Open 中，机器人会使用最近连接的 Codex 账号回复，无需选择。",
   "contas.botModeloPadrao": "引擎默认",
   "contas.modelosTitulo": "模型",
   "contas.modelosResumo": "选择器中显示：{visiveis}/{total}",
