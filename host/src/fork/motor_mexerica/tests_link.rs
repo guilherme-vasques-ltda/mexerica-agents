@@ -1309,3 +1309,33 @@ async fn systemprompt_invalido_recusa_a_sessao() {
     assert!(acp.request("session/new", params).await.is_err(), "objeto inválido não pode abrir sessão sem instruções");
     acp.kill_and_wait().await;
 }
+
+/// Servidor `memory` de mentira que responde `browser_status` com `isError` (o formato da ponte real) e cuja
+/// listagem ofereceria as ferramentas de página: falha também aqui não pode virar relistagem.
+const SERVIDOR_MEMORY_STATUS_ERRO_FERRAMENTA: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const abrir = { name: 'browser_open', description: 'abre', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, abrir] : [status] });
+  else reply({ content: [{ type: 'text', text: 'sem navegador' }], isError: true });
+});
+";
+
+#[tokio::test]
+async fn browser_status_com_iserror_tambem_interrompe_a_relistagem() {
+    let case = caso!("browser_status_com_iserror_tambem_interrompe_a_relistagem");
+    let mcp = memory_com_servidor(&case, SERVIDOR_MEMORY_STATUS_ERRO_FERRAMENTA).await;
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status"]);
+    assert!(mcp.refresh_browser().await.is_err(), "falha entregue como isError virou relistagem normal");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes);
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+}
