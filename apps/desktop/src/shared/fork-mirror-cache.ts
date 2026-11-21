@@ -68,7 +68,10 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 60: o recibo do turno (`donnaRoutingReceipt`) passa a trazer `usage` e o medidor (`donnaContext`) traz
 // `context.parts`. Ambos são lidos sob demanda e não entram no mirror; o bump só segue a regra de campo novo do Hub.
 // App antigo ignora os campos; o novo não mostra o bloco quando eles não vêm.
-export const MIRROR_SCHEMA = 60
+// Schema 61: Marketplace — o `marketFerramentas` traz, em cada ferramenta, `descricao` (o texto que o modelo lê, já
+// filtrado; `null` enquanto o Hub não o leu), `campos` (o texto de cada campo) e `mudou` (as partes que o fornecedor
+// mudou desde que a pessoa ligou). Lido sob demanda, fora do mirror; o bump só segue a regra de campo novo do Hub.
+export const MIRROR_SCHEMA = 61
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
