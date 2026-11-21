@@ -7,7 +7,7 @@ import { Text } from '../../../components/Text'
 import { useT } from '../../../lib/fork-i18n/estado'
 import { useStore } from '../../../store/context'
 import { desligarFerramenta, ferramentasDoBot, ligarFerramenta } from './estado'
-import { acoesQueAPessoaDecide } from './regras.ts'
+import { acoesQueAPessoaDecide, listaDeNomes, podeLigar, temCaracteresOcultos, textoNaoLido } from './regras.ts'
 import type { FerramentaDaConta, FerramentasDaConta } from './tipos.ts'
 import { Aviso, Carregando, Erro, frasesDaRecusa } from './pecas'
 
@@ -18,7 +18,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
   const [falhou, setFalhou] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   // A confirmação guarda o que a pessoa viu ao abri-la (digest e época do vínculo); recarregar a lista a descarta.
-  const [confirmando, setConfirmando] = useState<{ nome: string; digest: string; vinculo: number } | null>(null)
+  const [confirmando, setConfirmando] = useState<{ nome: string; digest: string; vinculo: number; apresentacao: string } | null>(null)
   const [salvando, setSalvando] = useState(false)
   const leitura = useRef(0)
 
@@ -27,7 +27,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
     setFalhou(false); setConfirmando(null)
     try {
       const lida = await ferramentasDoBot(store, botId, conta.id)
-      if (minha === leitura.current) setDados(lida)
+      if (minha === leitura.current) { setDados(lida); setConfirmando(null) }
     } catch { if (minha === leitura.current) setFalhou(true) }
   }, [store, botId, conta.id])
   useEffect(() => { setDados(null); setConfirmando(null); setErro(null); void ler(); return () => { leitura.current += 1 } }, [ler])
@@ -36,7 +36,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
     setSalvando(true); setErro(null)
     try { setDados(await op()); setConfirmando(null) } catch (e) { setErro(frasesDaRecusa(t, e)); await ler() } finally { setSalvando(false) }
   }
-  const ligar = (visto: { nome: string; digest: string; vinculo: number }) => aplicar(() => ligarFerramenta(store, { botId, conta: conta.id, ferramenta: visto.nome, digest: visto.digest, vinculo: visto.vinculo, confirmo: true }))
+  const ligar = (visto: { nome: string; digest: string; vinculo: number; apresentacao: string }) => aplicar(() => ligarFerramenta(store, { botId, conta: conta.id, ferramenta: visto.nome, digest: visto.digest, vinculo: visto.vinculo, apresentacao: visto.apresentacao, confirmo: true }))
   const desligar = (f: FerramentaDaConta) => aplicar(() => desligarFerramenta(store, botId, conta.id, f.nome))
 
   const titulo = <Text size="callout" weight="semibold" tone="text">{t('mercado.acoes.titulo', { conta: conta.nome })}</Text>
@@ -58,16 +58,27 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
               <VStack gap={0} grow shrink>
                 <Text size="body" tone="text" truncate>{nome}</Text>
                 <Text size="caption" tone="secondary">{f.estado === 'ligada' ? t('mercado.acoes.estado.ligada') : t(`mercado.acoes.estado.${f.motivo ?? 'perigosa'}` as 'mercado.acoes.estado.perigosa')}</Text>
+                {textoNaoLido(f) ? <Text size="caption" tone="secondary">{t('mercado.acoes.descricaoDesconhecida')}</Text> : null}
+                {f.mudou?.length ? <Text size="caption" tone="secondary">{t('mercado.acoes.mudou', { partes: listaDeNomes(f.mudou.map((p) => t(`mercado.acoes.parte.${p}` as 'mercado.acoes.parte.descricao')), t('mercado.bot.e')) })}</Text> : null}
               </VStack>
               {f.estado === 'ligada'
                 ? <Button kind="secondary" disabled={salvando} onClick={() => void desligar(f)}>{t('mercado.acoes.desligar')}</Button>
-                : <Button kind="secondary" disabled={salvando || aberta} onClick={() => setConfirmando({ nome: f.nome, digest: f.digest, vinculo: dados.vinculo })}>{t('mercado.acoes.ligar')}</Button>}
+                : podeLigar(f) ? <Button kind="secondary" disabled={salvando || aberta} onClick={() => f.apresentacao && setConfirmando({ nome: f.nome, digest: f.digest, vinculo: dados.vinculo, apresentacao: f.apresentacao })}>{t('mercado.acoes.ligar')}</Button> : null}
             </HStack>
             {aberta ? (
               <div className="mercado-aviso alerta" role="alertdialog" aria-label={t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}>
                 <VStack gap={8}>
                   <Text size="callout" weight="semibold" as="div">{t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}</Text>
                   <Text size="callout" as="div">{t('mercado.acoes.confirmar.texto', { conta: conta.nome })}</Text>
+                  <Text size="caption" tone="secondary" as="div">{t('mercado.acoes.confirmar.descricao')}</Text>
+                  <div className="mercado-acao-descricao"><Text size="caption" as="div">{f.descricao || t('mercado.acoes.confirmar.semDescricao')}</Text></div>
+                  {f.campos?.length ? (
+                    <>
+                      <Text size="caption" tone="secondary" as="div">{t('mercado.acoes.confirmar.campos')}</Text>
+                      <div className="mercado-acao-descricao">{f.campos.map(([campo, texto], i) => <Text key={i} size="caption" as="div">{texto ? t('mercado.acoes.confirmar.campo', { campo, texto }) : campo}</Text>)}</div>
+                    </>
+                  ) : null}
+                  {temCaracteresOcultos([f.descricao ?? '', ...(f.campos ?? []).flat()].join('\n')) ? <Aviso>{t('mercado.acoes.ocultos')}</Aviso> : null}
                   <HStack gap={8}>
                     <Button disabled={salvando} onClick={() => confirmando && void ligar(confirmando)}>{t('mercado.acoes.confirmar.sim')}</Button>
                     <Button kind="secondary" disabled={salvando} onClick={() => setConfirmando(null)}>{t('mercado.acoes.confirmar.cancelar')}</Button>

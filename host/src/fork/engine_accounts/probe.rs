@@ -25,10 +25,7 @@ pub(crate) struct Observation {
 
 impl Observation {
     pub(crate) fn cli(backend: Backend, executable: &Path) -> Self {
-        let (variable, default) = match backend {
-            Backend::Claude => ("CLAUDE_CONFIG_DIR", ".claude"),
-            Backend::Codex => ("CODEX_HOME", ".codex"),
-        };
+        let (variable, default) = (backend.profile_variable(), backend.profile_directory());
         let directory = if crate::fork::motor_exec::configured() {
             Path::new(crate::fork::motor_roots::MOTOR).join(default)
         } else {
@@ -87,6 +84,7 @@ pub(super) async fn discover_with(
                 match backend {
                     Backend::Claude => claude(&executable, &mut observation).await,
                     Backend::Codex => codex(&executable, &mut observation).await,
+                    Backend::Grok => grok(&mut observation).await,
                 }
             })
             .await;
@@ -159,13 +157,9 @@ pub(crate) fn command_at(observation: &Observation, cwd: &Path) -> Command {
         .stderr(Stdio::null())
         .stdout(Stdio::piped())
         .kill_on_drop(true);
-    let (key, _) = match observation.backend {
-        Backend::Codex => ("CODEX_HOME", ".codex"),
-        Backend::Claude => ("CLAUDE_CONFIG_DIR", ".claude"),
-    };
-    command.env(key, directory);
+    command.env(observation.backend.profile_variable(), directory);
     // Somente perfis criados pelo Hub recebem HOME próprio; o legado conserva seu HOME.
-    if directory.file_name().is_some_and(|name| name == ".codex" || name == ".claude")
+    if directory.file_name().is_some_and(|name| name == observation.backend.profile_directory())
         && directory.parent().is_some_and(|p| p.join(".donnabot-profile").is_file())
     {
         command.env("HOME", directory.parent().unwrap_or(directory)).env("DISABLE_AUTOUPDATER", "1");
@@ -207,6 +201,7 @@ async fn inspect_timeout(backend: Backend, executable: &Path, directory: &Path, 
         match backend {
             Backend::Claude => claude(executable, &mut observation).await,
             Backend::Codex => codex(executable, &mut observation).await,
+            Backend::Grok => grok(&mut observation).await,
         }
     })
     .await;
@@ -266,6 +261,60 @@ pub(crate) fn claude_status(observation: &mut Observation, status: &Value, succe
         });
     }
     // auth status não anuncia modelos/esforço. Não inventar catálogo a partir da marca/plano.
+}
+
+/// `grok models` não gera mensagem nem gasto. O Hub só lê o texto de estado do programa; o token da conta fica
+/// no perfil isolado e nunca é aberto por ele.
+async fn grok(observation: &mut Observation) -> Result<()> {
+    let mut child = crate::fork::motor_exec::spawn(command(observation).arg("models"))?;
+    let _group = crate::fork::engine_setup::ProcessGroup(child.id());
+    let mut bytes = Vec::new();
+    child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("status indisponível"))?
+        .take(256 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .await?;
+    if bytes.len() > 256 * 1024 {
+        bail!("status indisponível");
+    }
+    let success = child.wait().await?.success();
+    grok_status(observation, success, &String::from_utf8_lossy(&bytes));
+    Ok(())
+}
+
+pub(crate) fn grok_status(observation: &mut Observation, success: bool, output: &str) {
+    let signed_in =
+        backends::harness("grok").and_then(|h| h.signed_in).is_some_and(|check| (check.ok)(success, output));
+    if !signed_in {
+        let not_authenticated = output.contains("You are not authenticated.");
+        tracing::warn!(
+            motivo = if not_authenticated { "sem login" } else { "comando falhou ou saída inesperada" },
+            "grok: login não confirmado"
+        );
+        observation.state = if not_authenticated { State::Disconnected } else { State::Unavailable };
+        return;
+    }
+    // O programa não informa a pessoa dona do login sem abrir a credencial, que o Hub nunca lê: a identidade
+    // é a da própria conta do Mexerica (pasta de perfil), estável entre reconexões.
+    let LaunchReference::CliProfile { directory, .. } = &observation.launch else { return };
+    let Some(owner) = directory.ancestors().find_map(|path| {
+        let name = path.file_name()?.to_str()?;
+        (path.parent()?.file_name()? == "accounts" && super::valid_id(name)).then(|| name.to_owned())
+    }) else {
+        observation.state = State::Unverified;
+        return;
+    };
+    observation.identity = Some(format!("grok-profile:{owner}"));
+    // Lista fechada: só o texto exato do login de sessão vira assinatura; qualquer outro login (chave de API, outro
+    // método ou texto novo) fica sem comprovação.
+    let session = output.lines().any(|line| line.trim() == "You are logged in with grok.com.");
+    observation.billing = if session { Billing::Subscription } else { Billing::Unverified };
+    observation.state = if session { State::Connected } else { State::Unverified };
+    if session {
+        observation.subscription_proof = Some(SubscriptionProof::GrokModels { login: "session".into() });
+    }
 }
 
 async fn codex(_executable: &Path, observation: &mut Observation) -> Result<()> {

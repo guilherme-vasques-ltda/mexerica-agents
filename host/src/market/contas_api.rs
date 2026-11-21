@@ -170,6 +170,7 @@ fn ligar_ferramenta(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value>
     super::ferramentas::conferir_ligar(&hub.store, &pedido, b["confirmo"] == true)?;
     crate::fork::donna_fixa::pedido::gravar(&hub.store, |tx| {
         super::ferramentas::conferir_vinculo(tx, pedido.bot, pedido.conta, vinculo)?;
+        super::ferramentas::conferir_apresentacao(tx, &pedido, b["apresentacao"].as_str())?;
         super::ferramentas::gravar_liberacao(tx, &pedido)
     })?;
     if let Err(error) = hub.send_cmd(pedido.bot, Cmd::RefreshTools) {

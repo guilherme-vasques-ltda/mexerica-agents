@@ -20,6 +20,8 @@ export type Line = Record<string, unknown> & { type?: string };
 export interface EngineOpts {
 	/** Credencial servida pelo "cofre" falso; undefined responde null. */
 	serveKey?: string;
+	/** Credencial inteira servida no lugar de `serveKey` (endereço próprio: chave e endereço). */
+	serveCredential?: object;
 	/** Fecha o canal do cofre ao receber o primeiro pedido. */
 	closeVaultOnRequest?: boolean;
 	ignoreVaultRequest?: boolean;
@@ -72,7 +74,7 @@ export function startEngine(env: NodeJS.ProcessEnv, opts: EngineOpts = {}): Proc
 			vault.destroy();
 			return;
 		}
-		const key = opts.serveKey === undefined ? undefined : { type: "api_key", key: opts.serveKey };
+		const key = opts.serveCredential ?? (opts.serveKey === undefined ? undefined : { type: "api_key", key: opts.serveKey });
 		vault.write(serializeJsonLine({ id: req.id, result: key }));
 	});
 

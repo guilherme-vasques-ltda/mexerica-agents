@@ -192,8 +192,55 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
             PRIMARY KEY(bot, conta, nome));
          CREATE TABLE IF NOT EXISTS mexerica_ferramenta_recibos(
             id INTEGER PRIMARY KEY AUTOINCREMENT, em INTEGER NOT NULL, conta TEXT NOT NULL, bot TEXT NOT NULL,
-            ferramenta TEXT NOT NULL, evento TEXT NOT NULL, motivo TEXT NOT NULL);",
+            ferramenta TEXT NOT NULL, evento TEXT NOT NULL, motivo TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS mexerica_ferramenta_mudancas(
+            bot TEXT NOT NULL, conta TEXT NOT NULL, nome TEXT NOT NULL, partes TEXT, em INTEGER NOT NULL,
+            PRIMARY KEY(bot, conta, nome));",
     )?;
+    // Colunas do texto que a pessoa lê. Linha anterior a elas fica sem texto (ainda não lido: nada dela passa e ninguém a
+    // liga) e a conta perde o inventário até a próxima lista completa reclassificar tudo. As liberações continuam presas
+    // ao digest, que já cobria a descrição, e voltam a valer quando a lista confirmar o mesmo digest. Colunas e
+    // invalidação entram juntas: uma partida interrompida no meio não deixa colunas sem a invalidação.
+    c.execute_batch("SAVEPOINT ferramentas_texto")?;
+    let feito = (|| -> Result<()> {
+        let mut atualizou = false;
+        for (tabela, coluna, tipo) in [
+            ("mexerica_conta_ferramentas", "descricao", "TEXT"),
+            ("mexerica_conta_ferramentas", "campos", "TEXT"),
+            ("mexerica_conta_ferramentas", "apresentacao", "TEXT"),
+            ("mexerica_conta_ferramentas", "descricao_invalida", "INTEGER NOT NULL DEFAULT 0"),
+            ("mexerica_conta_ferramentas", "partes", "TEXT"),
+            ("mexerica_ferramenta_liberacoes", "partes", "TEXT"),
+            ("mexerica_ferramenta_liberacoes", "apresentacao", "TEXT"),
+        ] {
+            let existe: bool = c.query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{tabela}') WHERE name=?1)"),
+                [coluna],
+                |r| r.get(0),
+            )?;
+            if !existe {
+                c.execute_batch(&format!("ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"))?;
+                atualizou = true;
+            }
+        }
+        if atualizou {
+            let contas: Vec<String> = c
+                .prepare("SELECT conta FROM mexerica_conta_inventario")?
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            for conta in contas {
+                invalidar_em(c, &conta)?;
+            }
+        }
+        Ok(())
+    })();
+    match feito {
+        Ok(()) => c.execute_batch("RELEASE ferramentas_texto")?,
+        Err(error) => {
+            c.execute_batch("ROLLBACK TO ferramentas_texto; RELEASE ferramentas_texto")?;
+            return Err(error);
+        }
+    }
     Ok(())
 }
 
@@ -207,6 +254,10 @@ pub(crate) enum Motivo {
     ForaDaFicha,
     /// Nenhum `tools/list` foi visto para esta ferramenta.
     SemInventario,
+    /// A descrição passa do teto ou não é texto: não chega ao modelo e nem a pessoa a liga.
+    DescricaoInvalida,
+    /// O Hub ainda não leu o texto que o modelo receberia: nada passa e ninguém a liga até a próxima lista completa.
+    DescricaoDesconhecida,
 }
 
 impl Motivo {
@@ -216,6 +267,8 @@ impl Motivo {
             Self::Alterada => "alterada",
             Self::ForaDaFicha => "fora_da_ficha",
             Self::SemInventario => "sem_inventario",
+            Self::DescricaoInvalida => "descricao_invalida",
+            Self::DescricaoDesconhecida => "descricao_desconhecida",
         }
     }
 }
@@ -331,10 +384,17 @@ pub(crate) struct Visto {
     pub nome: String,
     pub digest: String,
     pub dica: bool,
+    pub descricao_invalida: bool,
+    /// Digest de cada parte (`PARTES`), em JSON: diz à pessoa o que o fornecedor mudou.
+    pub partes: String,
 }
 
+/// As partes da ferramenta que o digest cobre além do nome, na ordem em que a tela as cita.
+const PARTES: [&str; 5] = ["descricao", "entrada", "titulo", "saida", "anotacoes"];
+
 /// Nome técnico e `schema_digest` do que a pessoa vê e do que o fornecedor promete: título, descrição, entrada, saída
-/// e anotações. Mudou qualquer parte, a autorização antiga deixa de valer. Só o hash é guardado, nunca o texto.
+/// e anotações. Mudou qualquer parte, a autorização antiga deixa de valer. A comparação é exata: um espaço ou uma
+/// maiúscula a mais na descrição também é mudança. O texto bruto nunca é guardado (ver `descricoes_mediadas`).
 pub(crate) fn ler_ferramenta(tool: &Value) -> Option<Visto> {
     let nome = tool["name"].as_str()?.to_owned();
     let dicas = &tool["annotations"];
@@ -343,20 +403,382 @@ pub(crate) fn ler_ferramenta(tool: &Value) -> Option<Visto> {
         "saida": tool["outputSchema"], "anotacoes": dicas
     }));
     let dica = dicas["destructiveHint"] == true || dicas["readOnlyHint"] == false;
-    Some(Visto { nome, digest, dica })
+    let descricao_invalida = match tool.get("description") {
+        None => false,
+        Some(Value::String(texto)) => texto.len() > operacao::DESCRICAO_MAX,
+        Some(_) => true,
+    };
+    let campo = |parte: &str| match parte {
+        "descricao" => &tool["description"],
+        "entrada" => &tool["inputSchema"],
+        "titulo" => &tool["title"],
+        "saida" => &tool["outputSchema"],
+        _ => dicas,
+    };
+    let partes: BTreeMap<&str, String> = PARTES.iter().map(|p| (*p, operacao::digest(campo(p)))).collect();
+    Some(Visto { nome, digest, dica, descricao_invalida, partes: json!(partes).to_string() })
+}
+
+/// Teto do texto do schema de entrada que a pessoa lê (nomes de campos e todo texto que sobra na projeção), somado.
+const CAMPOS_MAX: usize = 16 * 1024;
+
+/// Tipos JSON Schema: vocabulário fechado, não é texto do fornecedor.
+const TIPOS: &[&str] = &["string", "number", "integer", "boolean", "object", "array", "null"];
+
+/// O schema de entrada que vai ao modelo, reduzido a uma lista fechada de palavras-chave. Fica só a estrutura e o texto
+/// que a tela mostra (`campos_do_schema_limitado`); qualquer outra palavra-chave do fornecedor sai antes de chegar
+/// ao modelo.
+pub(crate) fn projetar_schema(schema: &Value) -> Value {
+    projetar_schema_com(schema, &propriedades_declaradas(schema), false)
+}
+
+/// Os nomes de campos declarados no schema todo, inclusive em ramos (`allOf`, `anyOf`, `oneOf`, `items`, `$defs`):
+/// `required` só derruba o nome que nenhum ramo declara.
+fn propriedades_declaradas(schema: &Value) -> BTreeSet<String> {
+    fn andar(v: &Value, nomes: &mut BTreeSet<String>) {
+        match v {
+            Value::Array(itens) => itens.iter().for_each(|i| andar(i, nomes)),
+            Value::Object(mapa) => {
+                for (chave, valor) in mapa {
+                    match chave.as_str() {
+                        "properties" | "patternProperties" | "$defs" | "definitions" => {
+                            for (nome, filho) in valor.as_object().into_iter().flatten() {
+                                nomes.insert(nome.clone());
+                                andar(filho, nomes);
+                            }
+                        }
+                        "items" | "allOf" | "anyOf" | "oneOf" | "additionalProperties" | "not" => andar(valor, nomes),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut nomes = BTreeSet::new();
+    andar(schema, &mut nomes);
+    nomes
+}
+
+fn projetar_schema_com(schema: &Value, declaradas: &BTreeSet<String>, negado: bool) -> Value {
+    let Value::Object(mapa) = schema else {
+        return if schema.is_boolean() { schema.clone() } else { json!({}) };
+    };
+    let escalar = |v: &Value| matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Null);
+    let mut saida = serde_json::Map::new();
+    for (chave, valor) in mapa {
+        let projetado = match (chave.as_str(), valor) {
+            ("properties" | "patternProperties" | "$defs" | "definitions", Value::Object(filhos)) => Value::Object(
+                filhos.iter().map(|(n, f)| (n.clone(), projetar_schema_com(f, declaradas, negado))).collect(),
+            ),
+            ("items" | "anyOf" | "oneOf" | "allOf", Value::Array(itens)) => {
+                Value::Array(itens.iter().map(|i| projetar_schema_com(i, declaradas, negado)).collect())
+            }
+            ("not", v) if v.is_object() || v.is_boolean() => projetar_schema_com(v, declaradas, true),
+            ("items" | "additionalProperties", v) if v.is_object() || v.is_boolean() => {
+                projetar_schema_com(v, declaradas, negado)
+            }
+            ("type", Value::String(t)) if TIPOS.contains(&t.as_str()) => valor.clone(),
+            ("type", Value::Array(ts)) if ts.iter().all(|t| t.as_str().is_some_and(|t| TIPOS.contains(&t))) => {
+                valor.clone()
+            }
+            // Dentro de `not`, o nome de `required` não depende de `properties` declarado: o Guard já validou o
+            // identificador, e apagá-lo enfraqueceria a negação. Fora de `not`, nome que nenhum ramo declara não passa.
+            ("required", Value::Array(nomes)) => Value::Array(
+                nomes
+                    .iter()
+                    .filter(|n| if negado { n.is_string() } else { n.as_str().is_some_and(|n| declaradas.contains(n)) })
+                    .cloned()
+                    .collect(),
+            ),
+            ("enum", Value::Array(itens)) => Value::Array(itens.iter().filter(|i| escalar(i)).cloned().collect()),
+            ("const", v) if escalar(v) => v.clone(),
+            ("description" | "title" | "format" | "pattern" | "$ref", Value::String(_))
+            | (
+                "minimum" | "maximum" | "exclusiveMinimum" | "exclusiveMaximum" | "multipleOf" | "minLength"
+                | "maxLength" | "minItems" | "maxItems" | "minProperties" | "maxProperties",
+                Value::Number(_),
+            )
+            | ("uniqueItems" | "nullable", Value::Bool(_)) => valor.clone(),
+            _ => continue,
+        };
+        saida.insert(chave.clone(), projetado);
+    }
+    Value::Object(saida)
+}
+
+/// Todo texto de um schema já projetado, como `[campo, texto]`: nomes de campos (sozinhos, quando não há texto
+/// abaixo deles) e todo valor de texto que não seja um tipo do vocabulário fechado. É a lista que a tela mostra.
+/// Acima do teto somado (`limite`), para de andar na hora e devolve `None`: nada do resto é percorrido, serializado
+/// nem digerido.
+fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(String, String)>> {
+    fn rotulo(caminho: &[String], chave: &str) -> String {
+        let base = caminho.join(" › ");
+        match (base.is_empty(), chave) {
+            (_, "description") => base,
+            (true, _) => chave.to_owned(),
+            (false, _) => format!("{base} ({chave})"),
+        }
+    }
+    fn texto(
+        valor: &Value,
+        caminho: &[String],
+        chave: &str,
+        saida: &mut Vec<(String, String)>,
+        total: &mut usize,
+        limite: usize,
+    ) -> bool {
+        match valor {
+            Value::String(t) => {
+                let rotulo = rotulo(caminho, chave);
+                *total += rotulo.len() + t.len();
+                if *total > limite {
+                    return false;
+                }
+                saida.push((rotulo, t.clone()));
+                true
+            }
+            Value::Array(itens) => itens.iter().all(|i| texto(i, caminho, chave, saida, total, limite)),
+            _ => true,
+        }
+    }
+    fn andar(
+        schema: &Value,
+        caminho: &mut Vec<String>,
+        saida: &mut Vec<(String, String)>,
+        total: &mut usize,
+        limite: usize,
+        negado: bool,
+    ) -> bool {
+        let Value::Object(mapa) = schema else { return true };
+        for (chave, valor) in mapa {
+            match chave.as_str() {
+                "properties" | "patternProperties" | "$defs" | "definitions" => {
+                    for (nome, filho) in valor.as_object().into_iter().flatten() {
+                        caminho.push(nome.clone());
+                        let antes = saida.len();
+                        if !andar(filho, caminho, saida, total, limite, negado) {
+                            caminho.pop();
+                            return false;
+                        }
+                        if saida.len() == antes {
+                            let rotulo = caminho.join(" › ");
+                            *total += rotulo.len();
+                            if *total > limite {
+                                caminho.pop();
+                                return false;
+                            }
+                            saida.push((rotulo, String::new()));
+                        }
+                        caminho.pop();
+                    }
+                }
+                "items" | "anyOf" | "oneOf" | "allOf" => match valor {
+                    Value::Array(itens) => {
+                        for (i, item) in itens.iter().enumerate() {
+                            caminho.push(format!("{chave}[{i}]"));
+                            if !andar(item, caminho, saida, total, limite, negado) {
+                                caminho.pop();
+                                return false;
+                            }
+                            caminho.pop();
+                        }
+                    }
+                    v => {
+                        caminho.push(chave.clone());
+                        if !andar(v, caminho, saida, total, limite, negado) {
+                            caminho.pop();
+                            return false;
+                        }
+                        caminho.pop();
+                    }
+                },
+                "not" => {
+                    caminho.push(chave.clone());
+                    if !andar(valor, caminho, saida, total, limite, true) {
+                        caminho.pop();
+                        return false;
+                    }
+                    caminho.pop();
+                }
+                "additionalProperties" => {
+                    caminho.push(chave.clone());
+                    if !andar(valor, caminho, saida, total, limite, negado) {
+                        caminho.pop();
+                        return false;
+                    }
+                    caminho.pop();
+                }
+                // `required` dentro de `not` guarda nomes que nenhum `properties` declara; eles também precisam
+                // chegar à tela, dentro do mesmo teto.
+                "required" if negado => {
+                    if !texto(valor, caminho, chave, saida, total, limite) {
+                        return false;
+                    }
+                }
+                "type" | "required" => {}
+                _ => {
+                    if !texto(valor, caminho, chave, saida, total, limite) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+    let mut saida = Vec::new();
+    let mut total = 0;
+    if andar(schema, &mut Vec::new(), &mut saida, &mut total, limite, false) { Some(saida) } else { None }
+}
+
+/// Referência local (`$ref: "#..."`) resolvida contra o schema já projetado, andando só por palavras-chave
+/// estruturais que a projeção mantém. Alvo que a projeção removeu (por exemplo `prefixItems`) não resolve.
+fn ref_local_valida(referencia: &str, raiz: &Value) -> bool {
+    let Some(ponteiro) = referencia.strip_prefix('#') else { return false };
+    if ponteiro.is_empty() {
+        return true;
+    }
+    let Some(caminho) = ponteiro.strip_prefix('/') else { return false };
+    let mut partes = caminho.split('/');
+    let mut alvo = raiz;
+    while let Some(palavra) = partes.next() {
+        alvo = match palavra {
+            "properties" | "patternProperties" | "$defs" | "definitions" | "allOf" | "anyOf" | "oneOf" => {
+                let Some(chave) = partes.next() else { return false };
+                let Some(valor) = alvo.pointer(&format!("/{palavra}/{chave}")) else { return false };
+                valor
+            }
+            "items" | "additionalProperties" | "not" => {
+                let Some(valor) = alvo.get(palavra) else { return false };
+                valor
+            }
+            _ => return false,
+        };
+    }
+    alvo.is_object() || alvo.is_boolean()
+}
+
+/// Todo `$ref` do schema projetado resolve dentro dele. Um `$ref` que apontava para o que a projeção removeu deixaria
+/// o modelo com uma referência sem alvo, então a ferramenta fica indisponível, como com o texto acima do teto.
+/// Chaves de mapas de subschemas (`properties`, `patternProperties`, …) são nomes de campos ou padrões, e o conteúdo
+/// de `const`/`enum` são valores: nenhum deles é palavra-chave, então nenhum `$ref` é procurado neles.
+fn refs_locais_validos(schema: &Value, raiz: &Value) -> bool {
+    match schema {
+        Value::Object(mapa) => mapa.iter().all(|(chave, valor)| match chave.as_str() {
+            "$ref" => valor.as_str().is_some_and(|r| ref_local_valida(r, raiz)),
+            "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas" => {
+                valor.as_object().is_some_and(|filhos| filhos.values().all(|filho| refs_locais_validos(filho, raiz)))
+            }
+            "const" | "enum" => true,
+            _ => refs_locais_validos(valor, raiz),
+        }),
+        Value::Array(itens) => itens.iter().all(|i| refs_locais_validos(i, raiz)),
+        _ => true,
+    }
+}
+
+/// O texto de uma ferramenta como a mediação do Guard o entrega ao bot, já sem segredos e escapado, com o schema na
+/// projeção fechada. A comparação exata continua sobre o frame bruto (o digest); a pessoa lê, a liberação guarda
+/// (`apresentacao`) e o modelo recebe esta mesma projeção.
+pub(crate) struct TextoMediado {
+    descricao: String,
+    /// `[campo, texto]` em JSON.
+    campos: String,
+    /// Digest da projeção que a pessoa vê: descrição e campos.
+    apresentacao: String,
+    grande: bool,
+}
+
+/// Sem o envelope do Guard, a ferramenta fica sem texto conhecido: nada dela passa e ninguém a liga.
+pub(crate) fn descricoes_mediadas(mediado: &Value) -> BTreeMap<String, TextoMediado> {
+    mediado["message"]["result"]["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| {
+            let nome = t["name"].as_str()?.to_owned();
+            let descricao = crate::guard_hub::mcp::sem_envelope(t["description"].as_str()?)?.to_owned();
+            // Acima do teto ou com `$ref` apontando para o que a projeção removeu, nada do texto é montado nem
+            // digerido: a ferramenta fica inválida, sem lista de campos.
+            let projetado = projetar_schema(&t["inputSchema"]);
+            let campos = refs_locais_validos(&projetado, &projetado)
+                .then(|| campos_do_schema_limitado(&projetado, CAMPOS_MAX))
+                .flatten();
+            let Some(campos) = campos else {
+                return Some((
+                    nome,
+                    TextoMediado {
+                        descricao: String::new(),
+                        campos: String::new(),
+                        apresentacao: String::new(),
+                        grande: true,
+                    },
+                ));
+            };
+            let campos = json!(campos.iter().map(|(r, x)| [r, x]).collect::<Vec<_>>());
+            let apresentacao = operacao::digest(&json!({"descricao": descricao, "campos": campos}));
+            Some((nome, TextoMediado { descricao, campos: campos.to_string(), apresentacao, grande: false }))
+        })
+        .collect()
+}
+
+/// As partes que mudaram entre o que a pessoa ligou e o que o fornecedor mostra agora. Vazia quando uma das duas
+/// versões é anterior ao registro das partes: a tela diz só que a ação mudou. As chaves internas `_descricao_mediada`
+/// e `_campos_mediado` valem só quando presentes nas duas versões: a redação do Guard ou a projeção mudarem sem o
+/// bruto mudar conta como mudança de `descricao`/`entrada`, e linhas antigas, sem as chaves, não dão falso positivo.
+fn partes_que_mudaram(aprovadas: Option<&str>, atuais: Option<&str>) -> Vec<&'static str> {
+    let ler = |p: Option<&str>| p.and_then(|t| serde_json::from_str::<BTreeMap<String, String>>(t).ok());
+    let (Some(antes), Some(agora)) = (ler(aprovadas), ler(atuais)) else { return vec![] };
+    let mediada_mudou = |chave: &str| antes.get(chave).zip(agora.get(chave)).is_some_and(|(a, b)| a != b);
+    PARTES
+        .into_iter()
+        .filter(|p| match *p {
+            "descricao" => antes.get("descricao") != agora.get("descricao") || mediada_mudou("_descricao_mediada"),
+            "entrada" => antes.get("entrada") != agora.get("entrada") || mediada_mudou("_campos_mediado"),
+            _ => antes.get(*p) != agora.get(*p),
+        })
+        .collect()
 }
 
 struct Linha {
     digest: String,
     dica: bool,
+    descricao: Option<String>,
+    campos: Option<String>,
+    apresentacao: Option<String>,
+    descricao_invalida: bool,
+    partes: Option<String>,
 }
 
 fn linhas(c: &Connection, conta: &str) -> Result<BTreeMap<String, Linha>> {
-    let mut st = c.prepare("SELECT nome,digest,dica FROM mexerica_conta_ferramentas WHERE conta=?1")?;
+    let mut st = c.prepare(
+        "SELECT nome,digest,dica,descricao,campos,apresentacao,descricao_invalida,partes FROM mexerica_conta_ferramentas
+         WHERE conta=?1",
+    )?;
     let rows = st
         .query_map([conta], |r| {
-            Ok((r.get::<_, String>(0)?, Linha { digest: r.get(1)?, dica: r.get::<_, i64>(2)? != 0 }))
+            Ok((
+                r.get::<_, String>(0)?,
+                Linha {
+                    digest: r.get(1)?,
+                    dica: r.get::<_, i64>(2)? != 0,
+                    descricao: r.get(3)?,
+                    campos: r.get(4)?,
+                    apresentacao: r.get(5)?,
+                    descricao_invalida: r.get::<_, i64>(6)? != 0,
+                    partes: r.get(7)?,
+                },
+            ))
         })?
+        .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+    Ok(rows)
+}
+
+/// As ferramentas que a pessoa tinha ligado neste bot e que o fornecedor mudou depois, com as partes que ela viu.
+fn mudancas(c: &Connection, bot: &str, conta: &str) -> Result<BTreeMap<String, Option<String>>> {
+    let mut st = c.prepare("SELECT nome,partes FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2")?;
+    let rows = st
+        .query_map([bot, conta], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)))?
         .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
     Ok(rows)
 }
@@ -372,7 +794,14 @@ fn liberacoes(c: &Connection, bot: &str, conta: &str) -> Result<BTreeMap<String,
 fn estado(pol: &Politica, nome: &str, linha: &Linha, liberada: Option<&String>) -> Estado {
     let ligada = liberada == Some(&linha.digest);
     let fechada = |motivo| if ligada { Estado::Ligada } else { Estado::Desligada(motivo) };
-    match classe(pol, nome, linha.dica) {
+    let classe = classe(pol, nome, linha.dica);
+    if classe != Classe::Fora && linha.descricao_invalida {
+        return Estado::Desligada(Motivo::DescricaoInvalida);
+    }
+    if classe != Classe::Fora && linha.apresentacao.is_none() {
+        return Estado::Desligada(Motivo::DescricaoDesconhecida);
+    }
+    match classe {
         Classe::Fora => Estado::Desligada(Motivo::ForaDaFicha),
         Classe::Perigosa => fechada(if liberada.is_some() { Motivo::Alterada } else { Motivo::Perigosa }),
         Classe::Segura if pol.curadas.get(nome) == Some(&linha.digest) => Estado::Permitida,
@@ -386,6 +815,7 @@ fn estado(pol: &Politica, nome: &str, linha: &Linha, liberada: Option<&String>) 
 /// (`None`: ninguém anotou). Só uma lista completa, mediada e de geração ainda vigente substitui o inventário (de
 /// uma vez, numa transação). Qualquer outra o invalida e nada passa até uma lista completa nova. A primeira lista
 /// não concede nada além do que a ficha curou.
+#[cfg(test)]
 pub(crate) fn registrar(
     store: &Store,
     conta: &Connector,
@@ -401,6 +831,7 @@ pub(crate) fn registrar(
     registrar_com(store, &conta.id, tools, mediados.unwrap_or(&vazio), completa && mediados.is_some(), geracao)
 }
 
+#[cfg(test)]
 fn registrar_com(
     store: &Store,
     conta: &str,
@@ -409,9 +840,27 @@ fn registrar_com(
     completa: bool,
     geracao: Option<i64>,
 ) -> Result<()> {
+    // Nos testes, o texto lido é o que o Guard de verdade entregaria para esta lista.
+    let mediado = crate::guard_hub::mcp::mediar_para_teste(
+        &json!({"jsonrpc": "2.0", "id": 0, "result": {"tools": tools}}),
+        "tools/list",
+        &[],
+    );
+    registrar_textos(store, conta, tools, mediados, &descricoes_mediadas(&mediado), completa, geracao)
+}
+
+fn registrar_textos(
+    store: &Store,
+    conta: &str,
+    tools: &[Value],
+    mediados: &BTreeSet<String>,
+    textos: &BTreeMap<String, TextoMediado>,
+    completa: bool,
+    geracao: Option<i64>,
+) -> Result<()> {
     let mut db = store.db.locked();
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    instalar_em(&tx, conta, tools, mediados, completa, geracao)?;
+    instalar_em(&tx, conta, tools, mediados, textos, completa, geracao)?;
     Ok(tx.commit()?)
 }
 
@@ -423,6 +872,7 @@ fn instalar_em(
     conta: &str,
     tools: &[Value],
     mediados: &BTreeSet<String>,
+    textos: &BTreeMap<String, TextoMediado>,
     completa: bool,
     geracao: Option<i64>,
 ) -> Result<bool> {
@@ -449,20 +899,98 @@ fn instalar_em(
     for nome in existentes.keys().filter(|nome| !vistos.contains_key(*nome)) {
         tx.execute("DELETE FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2", params![conta, nome])?;
         tx.execute("DELETE FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2", params![conta, nome])?;
+        tx.execute("DELETE FROM mexerica_ferramenta_mudancas WHERE conta=?1 AND nome=?2", params![conta, nome])?;
         recibo(tx, conta, "*", nome, "invalidada", "retirada")?;
     }
     for (nome, visto) in &vistos {
+        let mediado = textos.get(nome);
+        let invalida = visto.descricao_invalida || mediado.is_some_and(|t| t.grande);
+        let (texto, campos, apresentacao) = match mediado.filter(|_| !invalida) {
+            Some(t) => (Some(&t.descricao), Some(&t.campos), Some(&t.apresentacao)),
+            None => (None, None, None),
+        };
+        // As partes gravadas levam, junto das públicas, a impressão do texto mediado (chaves internas `_...`): a
+        // redação do Guard ou a projeção mudarem sem o bruto mudar conta como mudança de `descricao`/`entrada`.
+        // `partes_que_mudaram` só compara as chaves internas quando as duas versões as têm.
+        let partes = match mediado.filter(|_| !invalida) {
+            Some(t) => {
+                let mut mapa: BTreeMap<String, String> = serde_json::from_str(&visto.partes).unwrap_or_default();
+                mapa.insert("_descricao_mediada".to_owned(), operacao::digest(&Value::String(t.descricao.clone())));
+                mapa.insert("_campos_mediado".to_owned(), operacao::digest(&Value::String(t.campos.clone())));
+                json!(mapa).to_string()
+            }
+            None => visto.partes.clone(),
+        };
         match existentes.get(nome) {
             Some(antiga) if antiga.digest == visto.digest => {
                 tx.execute(
-                    "UPDATE mexerica_conta_ferramentas SET dica=?3, visto_em=?4 WHERE conta=?1 AND nome=?2",
-                    params![conta, nome, i64::from(visto.dica), agora],
+                    "UPDATE mexerica_conta_ferramentas SET dica=?3, visto_em=?4, descricao=?5, descricao_invalida=?6,
+                     partes=?7, campos=?8, apresentacao=?9 WHERE conta=?1 AND nome=?2",
+                    params![
+                        conta,
+                        nome,
+                        i64::from(visto.dica),
+                        agora,
+                        texto,
+                        i64::from(invalida),
+                        partes,
+                        campos,
+                        apresentacao
+                    ],
+                )?;
+                // Mesmo bruto, outra projeção (o filtro passou a mostrar outro texto): o que a pessoa viu não é mais
+                // o que o modelo receberia, e a liberação cai como numa mudança do fornecedor.
+                tx.execute(
+                    "INSERT INTO mexerica_ferramenta_mudancas(bot,conta,nome,partes,em)
+                     SELECT bot,conta,nome,partes,?3 FROM mexerica_ferramenta_liberacoes
+                     WHERE conta=?1 AND nome=?2 AND apresentacao IS NOT NULL AND apresentacao IS NOT ?4
+                     ON CONFLICT(bot,conta,nome) DO UPDATE SET partes=excluded.partes, em=excluded.em",
+                    params![conta, nome, agora, apresentacao],
+                )?;
+                let caidas = tx.execute(
+                    "DELETE FROM mexerica_ferramenta_liberacoes
+                     WHERE conta=?1 AND nome=?2 AND apresentacao IS NOT NULL AND apresentacao IS NOT ?3",
+                    params![conta, nome, apresentacao],
+                )?;
+                if caidas > 0 {
+                    recibo(tx, conta, "*", nome, "invalidada", "alterada")?;
+                }
+                // Liberação de antes da projeção: o mesmo digest fixa nela o texto desta lista.
+                tx.execute(
+                    "UPDATE mexerica_ferramenta_liberacoes SET apresentacao=?3 WHERE conta=?1 AND nome=?2 AND digest=?4
+                     AND apresentacao IS NULL AND ?3 IS NOT NULL",
+                    params![conta, nome, apresentacao, visto.digest],
+                )?;
+                // Liberação de antes das partes: o mesmo digest confirma o que a pessoa ligou.
+                tx.execute(
+                    "UPDATE mexerica_ferramenta_liberacoes SET partes=?3 WHERE conta=?1 AND nome=?2 AND digest=?4
+                     AND partes IS NULL",
+                    params![conta, nome, partes, visto.digest],
                 )?;
             }
             Some(_) => {
                 tx.execute(
-                    "UPDATE mexerica_conta_ferramentas SET digest=?3, dica=?4, visto_em=?5 WHERE conta=?1 AND nome=?2",
-                    params![conta, nome, visto.digest, i64::from(visto.dica), agora],
+                    "UPDATE mexerica_conta_ferramentas SET digest=?3, dica=?4, visto_em=?5, descricao=?6,
+                     descricao_invalida=?7, partes=?8, campos=?9, apresentacao=?10 WHERE conta=?1 AND nome=?2",
+                    params![
+                        conta,
+                        nome,
+                        visto.digest,
+                        i64::from(visto.dica),
+                        agora,
+                        texto,
+                        i64::from(invalida),
+                        partes,
+                        campos,
+                        apresentacao
+                    ],
+                )?;
+                // O que a pessoa tinha ligado fica anotado, com as partes que ela viu, para a tela dizer o que mudou.
+                tx.execute(
+                    "INSERT INTO mexerica_ferramenta_mudancas(bot,conta,nome,partes,em)
+                     SELECT bot,conta,nome,partes,?3 FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2
+                     ON CONFLICT(bot,conta,nome) DO UPDATE SET partes=excluded.partes, em=excluded.em",
+                    params![conta, nome, agora],
                 )?;
                 let apagadas = tx.execute(
                     "DELETE FROM mexerica_ferramenta_liberacoes WHERE conta=?1 AND nome=?2",
@@ -474,8 +1002,20 @@ fn instalar_em(
             }
             None => {
                 tx.execute(
-                    "INSERT INTO mexerica_conta_ferramentas(conta,nome,digest,dica,visto_em) VALUES(?1,?2,?3,?4,?5)",
-                    params![conta, nome, visto.digest, i64::from(visto.dica), agora],
+                    "INSERT INTO mexerica_conta_ferramentas(conta,nome,digest,dica,visto_em,descricao,descricao_invalida,
+                     partes,campos,apresentacao) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                    params![
+                        conta,
+                        nome,
+                        visto.digest,
+                        i64::from(visto.dica),
+                        agora,
+                        texto,
+                        i64::from(invalida),
+                        partes,
+                        campos,
+                        apresentacao
+                    ],
                 )?;
             }
         }
@@ -620,7 +1160,18 @@ pub(crate) fn registrar_descoberta(
     geracao: Option<i64>,
 ) -> Result<()> {
     let tools = lista_do_frame(store, &conta.id, bruto)?;
-    registrar(store, conta, tools, nomes_mediados(mediado).as_ref(), lista_completa(pedido, bruto), geracao)
+    if conta.servico.is_none() {
+        tracing::warn!(conta = %conta.id, "descoberta recusada: conta sem serviço");
+        return Err(anyhow!("conta sem serviço"));
+    }
+    let Some(_pol) = politica(conta)? else {
+        tracing::warn!(conta = %conta.id, "descoberta recusada: conta sem ficha");
+        return Err(anyhow!("conta sem ficha"));
+    };
+    let mediados = nomes_mediados(mediado);
+    let completa = lista_completa(pedido, bruto) && mediados.is_some();
+    let textos = descricoes_mediadas(mediado);
+    registrar_textos(store, &conta.id, tools, &mediados.unwrap_or_default(), &textos, completa, geracao)
 }
 
 /// As ferramentas do frame bruto de um `tools/list`. Erro do fornecedor ou frame sem `result.tools` não é lista: a conta
@@ -682,12 +1233,21 @@ fn filtrar_lista_com(
     let tools = lista_do_frame(store, conta, bruto)?;
     let mediados = nomes_mediados(mediado);
     let mediados_ref = mediados.clone().unwrap_or_default();
+    // O texto mediado é projetado ANTES de abrir o banco: a projeção dos schemas não segura o lock.
+    let textos = descricoes_mediadas(mediado);
     // Instalar e decidir o que passa é uma transação só: só uma resposta aceita agora decide o que o bot vê, e só
     // pelos digests dela. Outra descoberta que reabra o inventário em seguida não empresta digest a esta resposta.
     let mut db = store.db.locked();
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let instalada =
-        instalar_em(&tx, conta, tools, &mediados_ref, lista_completa(pedido, bruto) && mediados.is_some(), geracao)?;
+    let instalada = instalar_em(
+        &tx,
+        conta,
+        tools,
+        &mediados_ref,
+        &textos,
+        lista_completa(pedido, bruto) && mediados.is_some(),
+        geracao,
+    )?;
     let passam: BTreeSet<String> = if instalada {
         let linhas = linhas(&tx, conta)?;
         let liberadas = liberacoes(&tx, bot, conta)?;
@@ -703,6 +1263,9 @@ fn filtrar_lista_com(
     drop(db);
     if let Some(lista) = mediado["message"]["result"]["tools"].as_array_mut() {
         lista.retain(|t| t["name"].as_str().is_some_and(|n| passam.contains(n)));
+        for tool in lista.iter_mut() {
+            tool["inputSchema"] = projetar_schema(&tool["inputSchema"]);
+        }
     }
     Ok(())
 }
@@ -726,18 +1289,27 @@ pub(crate) fn listar(store: &Store, bot: &str, conta_id: &str) -> Result<Value> 
     let db = store.db.locked();
     let linhas = linhas(&db, &conta.id)?;
     let liberadas = liberacoes(&db, bot, &conta.id)?;
+    let mudancas = mudancas(&db, bot, &conta.id)?;
     let pronto = inventario_completo(&db, &conta.id)?;
     let itens: Vec<Value> = linhas
         .iter()
         .filter_map(|(nome, linha)| {
+            let mudou =
+                mudancas.get(nome).map(|aprovadas| partes_que_mudaram(aprovadas.as_deref(), linha.partes.as_deref()));
             let (estado, motivo) = match estado(&pol, nome, linha, liberadas.get(nome)) {
                 Estado::Permitida => ("permitida", None),
                 Estado::Ligada => ("ligada", None),
                 Estado::Desligada(Motivo::ForaDaFicha) => return None,
+                Estado::Desligada(Motivo::Perigosa) if mudou.is_some() => {
+                    ("desligada", Some(Motivo::Alterada.codigo()))
+                }
                 Estado::Desligada(motivo) => ("desligada", Some(motivo.codigo())),
             };
+            let mudou = mudou.filter(|_| estado == "desligada");
+            let campos = linha.campos.as_deref().and_then(|c| serde_json::from_str::<Value>(c).ok());
             let rotulo = pol.tipo.perigosas.iter().find(|p| p.ferramenta == nome).map(|p| p.rotulo);
-            Some(json!({"nome": nome, "rotulo": rotulo, "estado": estado, "motivo": motivo, "digest": linha.digest}))
+            Some(json!({"nome": nome, "rotulo": rotulo, "estado": estado, "motivo": motivo, "digest": linha.digest,
+                "descricao": linha.descricao, "campos": campos, "apresentacao": linha.apresentacao, "mudou": mudou}))
         })
         .collect();
     Ok(json!({"botId": bot, "conta": conta.id, "inventarioPronto": pronto, "vinculo": epoca, "ferramentas": itens}))
@@ -751,6 +1323,47 @@ pub(crate) struct PedidoLigar<'a> {
 }
 
 const VINCULO_MUDOU: &str = "vinculo_mudou: a conta saiu deste bot e voltou desde que você abriu a lista; abra a lista de novo e confirme outra vez.";
+
+const DESCRICAO_INVALIDA: &str =
+    "descricao_invalida: o texto desta ação é grande demais ou não é texto; ela não pode ser ligada.";
+
+const DESCRICAO_DESCONHECIDA: &str =
+    "descricao_desconhecida: o Hub ainda não leu o texto desta ação; verifique a conta e abra a lista de novo.";
+
+const APP_DESATUALIZADO: &str = "app_desatualizado: atualize o app para ver o texto desta ação antes de ligá-la.";
+
+/// O app que confirma devolve a impressão do texto que mostrou (`apresentacao` de `listar`). Sem ela, o pedido vem
+/// de um app que não mostra o texto e é recusado; diferente da atual, o texto mudou desde que a pessoa o leu. Roda na
+/// transação que grava a liberação.
+pub(crate) fn conferir_apresentacao(tx: &Connection, pedido: &PedidoLigar<'_>, vista: Option<&str>) -> Result<()> {
+    let Some(vista) = vista else {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "confirmação de ferramenta sem a apresentação vista pelo usuário; pedido recusado"
+        );
+        return Err(anyhow!("{APP_DESATUALIZADO}"));
+    };
+    let atual: Option<String> = tx
+        .query_row(
+            "SELECT apresentacao FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2",
+            params![pedido.conta, pedido.ferramenta],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    if atual.as_deref() != Some(vista) {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "confirmação de ferramenta com apresentação divergente da atual; pedido recusado"
+        );
+        return Err(anyhow!("{FERRAMENTA_MUDOU}"));
+    }
+    Ok(())
+}
 
 const FERRAMENTA_MUDOU: &str =
     "ferramenta_mudou: a ferramenta mudou desde que você a viu; abra a lista de novo e confirme outra vez.";
@@ -780,6 +1393,24 @@ pub(crate) fn conferir_ligar(store: &Store, pedido: &PedidoLigar<'_>, confirmado
         classe(&pol, pedido.ferramenta, linha.dica) != Classe::Fora,
         "ferramenta_fora_da_ficha: a ficha desta conta não oferece essa ferramenta."
     );
+    if linha.descricao_invalida {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "ligação recusada: descrição inválida"
+        );
+        return Err(anyhow!("{DESCRICAO_INVALIDA}"));
+    }
+    if linha.apresentacao.is_none() {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "ligação recusada: descrição ainda não lida"
+        );
+        return Err(anyhow!("{DESCRICAO_DESCONHECIDA}"));
+    }
     ensure!(linha.digest == pedido.digest, "{FERRAMENTA_MUDOU}");
     Ok(())
 }
@@ -794,18 +1425,52 @@ pub(crate) fn gravar_liberacao(tx: &Connection, pedido: &PedidoLigar<'_>) -> Res
         inventario_completo(tx, pedido.conta)?,
         "ferramenta_desconhecida: essa conta ainda não mostrou a lista completa de ferramentas; verifique a conta."
     );
-    let atual: Option<String> = tx
+    let atual: Option<(String, bool, Option<String>, Option<String>)> = tx
         .query_row(
-            "SELECT digest FROM mexerica_conta_ferramentas WHERE conta=?1 AND nome=?2",
+            "SELECT digest,descricao_invalida,apresentacao,partes FROM mexerica_conta_ferramentas
+             WHERE conta=?1 AND nome=?2",
             params![pedido.conta, pedido.ferramenta],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    ensure!(atual.as_deref() == Some(pedido.digest), "{FERRAMENTA_MUDOU}");
+    let (digest, invalida, apresentacao, partes) = atual.ok_or_else(|| anyhow!("{FERRAMENTA_MUDOU}"))?;
+    ensure!(digest == pedido.digest, "{FERRAMENTA_MUDOU}");
+    if invalida {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "gravação de liberação recusada: descrição inválida"
+        );
+        return Err(anyhow!("{DESCRICAO_INVALIDA}"));
+    }
+    let Some(apresentacao) = apresentacao else {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "gravação de liberação recusada: descrição ainda não lida"
+        );
+        return Err(anyhow!("{DESCRICAO_DESCONHECIDA}"));
+    };
     tx.execute(
-        "INSERT INTO mexerica_ferramenta_liberacoes(bot,conta,nome,digest,em) VALUES(?1,?2,?3,?4,?5)
-         ON CONFLICT(bot,conta,nome) DO UPDATE SET digest=excluded.digest, em=excluded.em",
-        params![pedido.bot, pedido.conta, pedido.ferramenta, pedido.digest, crate::store::now_ms()],
+        "INSERT INTO mexerica_ferramenta_liberacoes(bot,conta,nome,digest,em,partes,apresentacao)
+         VALUES(?1,?2,?3,?4,?5,?6,?7)
+         ON CONFLICT(bot,conta,nome) DO UPDATE SET digest=excluded.digest, em=excluded.em, partes=excluded.partes,
+         apresentacao=excluded.apresentacao",
+        params![
+            pedido.bot,
+            pedido.conta,
+            pedido.ferramenta,
+            pedido.digest,
+            crate::store::now_ms(),
+            partes,
+            apresentacao
+        ],
+    )?;
+    tx.execute(
+        "DELETE FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2 AND nome=?3",
+        params![pedido.bot, pedido.conta, pedido.ferramenta],
     )?;
     recibo(tx, pedido.conta, pedido.bot, pedido.ferramenta, "ligada", "confirmada")
 }
@@ -828,6 +1493,10 @@ pub(crate) fn gravar_desligamento(tx: &Connection, bot: &str, conta: &str, ferra
         "DELETE FROM mexerica_ferramenta_liberacoes WHERE bot=?1 AND conta=?2 AND nome=?3",
         params![bot, conta, ferramenta],
     )?;
+    tx.execute(
+        "DELETE FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2 AND nome=?3",
+        params![bot, conta, ferramenta],
+    )?;
     if n > 0 {
         recibo(tx, conta, bot, ferramenta, "desligada", "pela_pessoa")?;
     }
@@ -839,6 +1508,7 @@ pub(crate) fn gravar_desligamento(tx: &Connection, bot: &str, conta: &str, ferra
 pub(crate) fn esquecer_liberacoes_do_bot(c: &Connection, bot: &str, contas: &[String]) -> Result<()> {
     for conta in contas {
         c.execute("DELETE FROM mexerica_ferramenta_liberacoes WHERE bot=?1 AND conta=?2", params![bot, conta])?;
+        c.execute("DELETE FROM mexerica_ferramenta_mudancas WHERE bot=?1 AND conta=?2", params![bot, conta])?;
         c.execute(
             "INSERT INTO mexerica_vinculo_epoca(bot,conta,n) VALUES(?1,?2,1) ON CONFLICT(bot,conta) DO UPDATE SET n=n+1",
             params![bot, conta],
@@ -850,7 +1520,12 @@ pub(crate) fn esquecer_liberacoes_do_bot(c: &Connection, bot: &str, contas: &[St
 /// Desconectar a conta apaga o inventário e as liberações dela, em todos os bots, na mesma transação que a tira do
 /// cofre. Os recibos ficam.
 pub(crate) fn esquecer_conta(c: &Connection, conta: &str) -> Result<()> {
-    for tabela in ["mexerica_conta_ferramentas", "mexerica_conta_inventario", "mexerica_ferramenta_liberacoes"] {
+    for tabela in [
+        "mexerica_conta_ferramentas",
+        "mexerica_conta_inventario",
+        "mexerica_ferramenta_liberacoes",
+        "mexerica_ferramenta_mudancas",
+    ] {
         c.execute(&format!("DELETE FROM {tabela} WHERE conta=?1"), [conta])?;
     }
     // A geração nunca volta atrás: um pedido anotado antes da desconexão não instala inventário na conta nova.
@@ -860,3 +1535,7 @@ pub(crate) fn esquecer_conta(c: &Connection, conta: &str) -> Result<()> {
 #[cfg(test)]
 #[path = "ferramentas_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ferramentas_descricao_tests.rs"]
+mod descricao_tests;

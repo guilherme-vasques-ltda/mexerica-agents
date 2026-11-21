@@ -1005,6 +1005,11 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             json!({"hubId":HUB_PORTA,"spaceId":crate::fork::spaces::PERSONAL,"projectId":uuid::Uuid::new_v4().to_string(),"taskId":uuid::Uuid::new_v4().to_string(),"clientRequestId":uuid::Uuid::new_v4().to_string(),"startAt":null}),
             true,
         ),
+        (
+            "donnaTaskProposalDecide",
+            json!({"hubId":HUB_PORTA,"spaceId":crate::fork::spaces::PERSONAL,"proposalId":uuid::Uuid::new_v4().to_string(),"expectedVersion":1,"clientRequestId":uuid::Uuid::new_v4().to_string(),"decision":"approve"}),
+            true,
+        ),
         ("donnaScreenAccess", json!({"botId":"donna","target":format!("host:{HUB_PORTA}"),"enabled":true}), true),
         ("updateBot", json!({"id":"donna","connectors":["porta"]}), true),
         ("donnaBotEditorSave", json!({"botId":"donna","patch":{"fastMode":true}}), true),

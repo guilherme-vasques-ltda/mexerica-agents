@@ -56,11 +56,9 @@ pub(crate) fn environment(directory: &Path, backend: Backend) -> Vec<(String, St
     }
     env.extend([
         ("HOME".into(), directory.parent().unwrap_or(directory).to_string_lossy().into_owned()),
-        (
-            if backend == Backend::Codex { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }.into(),
-            directory.to_string_lossy().into_owned(),
-        ),
+        (backend.profile_variable().into(), directory.to_string_lossy().into_owned()),
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
+        ("GROK_DISABLE_AUTOUPDATER".into(), "1".into()),
         ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
         ("BROWSER".into(), "/usr/bin/false".into()),
         ("TERM".into(), "dumb".into()),
@@ -261,6 +259,7 @@ pub(crate) async fn login(
         match backend {
             Backend::Codex => codex(executable, directory, events).await,
             Backend::Claude => claude(executable, directory, events, input).await,
+            Backend::Grok => super::grok::login(executable, directory, events).await,
         }
     };
     tokio::select! {
@@ -395,6 +394,39 @@ async fn claude(
     ensure!(offered, "auth_correlation_invalid");
     events.send(Event::Verifying).await?;
     Ok(probe::inspect(Backend::Claude, executable, directory).await)
+}
+
+/// «Desconectar» uma conta Claude de perfil próprio: `claude auth logout` no perfil isolado da conta, e só vale quando
+/// `claude auth status` confirma a saída. Quem apaga a credencial é o programa oficial (arquivo do perfil ou chaveiro
+/// do sistema); o Hub nunca a lê. O perfil global da pessoa não é tocado.
+pub(crate) async fn claude_logout(executable: &Path, directory: &Path) -> Result<()> {
+    // O motivo vai para o registro do Hub; a saída do programa não, porque pode trazer dados da conta.
+    let falhou = |motivo: &str| {
+        tracing::warn!(motivo, "o Claude Code não confirmou o logout da conta");
+        anyhow!(
+            "logout_failed: a conta foi desconectada, mas o Claude Code não confirmou que apagou o login; toque em Desconectar de novo."
+        )
+    };
+    let mut logout = command(executable, directory, Backend::Claude);
+    logout.args(["auth", "logout"]);
+    match tokio::time::timeout(Duration::from_secs(30), output_with_group(logout)).await {
+        Err(_) => return Err(falhou("tempo esgotado em auth logout")),
+        Ok(Err(_)) => return Err(falhou("auth logout não pôde ser executado")),
+        Ok(Ok(s)) if !s.status.success() => return Err(falhou("auth logout terminou com erro")),
+        Ok(Ok(_)) => {}
+    }
+    let mut status = command(executable, directory, Backend::Claude);
+    status.args(["auth", "status"]);
+    let saida = match tokio::time::timeout(Duration::from_secs(30), output_with_group(status)).await {
+        Err(_) => return Err(falhou("tempo esgotado em auth status")),
+        Ok(Err(_)) => return Err(falhou("auth status não pôde ser executado")),
+        Ok(Ok(s)) => s,
+    };
+    match serde_json::from_slice::<Value>(&saida.stdout) {
+        Ok(v) if v["loggedIn"] == false => Ok(()),
+        Ok(_) => Err(falhou("auth status ainda mostra a conta conectada")),
+        Err(_) => Err(falhou("auth status sem resposta legível")),
+    }
 }
 
 pub(crate) async fn claude_catalog(
@@ -553,7 +585,18 @@ mod effort_tests {
         std::fs::create_dir(&policy).unwrap();
         let _root = crate::fork::background_policy::test_policy_root(&policy);
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_agent.py");
-        for mode in ["--adapter-version-next", "--adapter-name-mismatch", "--adapter-other", "--adapter-current"] {
+        // Sem MEXERICA_CLAUDE_SDK=1, só a ponte do programa oficial desta versão do Hub passa; o adaptador
+        // antigo (`--adapter-current`) fica de fora como qualquer outro.
+        let ponte = format!("--adapter-ponte={}", env!("CARGO_PKG_VERSION"));
+        let outra_ponte = "--adapter-ponte=0.0.0".to_owned();
+        for mode in [
+            "--adapter-version-next",
+            "--adapter-name-mismatch",
+            "--adapter-other",
+            "--adapter-current",
+            &outra_ponte,
+            &ponte,
+        ] {
             let directory = std::env::temp_dir().join(format!("background-handshake-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir(&directory).unwrap();
             let log = directory.join("requests.log");
@@ -564,7 +607,7 @@ mod effort_tests {
             );
             let result = catalog_from_commands_mode(Path::new("/fixture/claude"), &directory, &[command], true).await;
             let requests = std::fs::read_to_string(&log).unwrap();
-            if mode == "--adapter-current" {
+            if mode == ponte {
                 assert!(result.unwrap().iter().any(|model| model.id == "haiku"));
                 assert!(requests.lines().any(|method| method == "session/new"));
             } else {

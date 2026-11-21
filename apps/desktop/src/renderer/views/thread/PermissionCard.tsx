@@ -65,8 +65,13 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const d = entry.data
   const screen = d.toolKind === 'screen_access' && !!d.screenAccess
   const pending = d.status === 'pending'
+  // Defesa para qualquer cartão: detalhe maior que o corte da tela (2000) não pode ser conferido inteiro,
+  // então o corte fica visível e aprovar não é oferecido.
+  const detalheCortado = !screen && !!d.detail && d.detail.length > 2000
   const hasDetail = !screen && (!!d.command || !!d.detail || !!d.diffs?.length)
   const options = sortedOptions(d.options ?? [])
+  // O corte tira só as opções de aprovar; recusar segue disponível.
+  const opcoes = detalheCortado ? options.filter((o) => !o.kind.startsWith('allow')) : options
   // The narrowest allow is the prominent one (`allow_once`, else the first allow the Hub offers).
   const prominent = (options.find((o) => o.kind === 'allow_once') ?? options.find((o) => o.kind.startsWith('allow')))?.optionId
   const store = useStoreRef()
@@ -103,6 +108,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
             {detail}
           </Text>
         ) : null}
+        {detalheCortado ? <p className="approval-note">{t('conversa.aprovacao.avisoDetalheCortado')}</p> : null}
         {baixa ? null : facts}
         {screen ? <>
           <p className="approval-note">{t('ajustes.telaPorComputador.aviso')}</p>
@@ -124,7 +130,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
         {pending ? (
           <>
             <div className="approval-actions">
-              {options.map((o) => o.kind.startsWith('allow') ? (
+              {opcoes.map((o) => o.kind.startsWith('allow') ? (
                 <HoldButton key={o.optionId} primary={o.optionId === prominent} label={optionLabel(t, o, screen)} disabled={answering !== null || semConexao} onConfirm={() => respond(o.optionId)}>
                   <HStack as="span" gap={6}>{o.optionId === prominent ? <Icon name="checkmark" size={13} weight="semibold" /> : null}{optionLabel(t, o, screen)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
                 </HoldButton>
@@ -135,7 +141,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
               ))}
             </div>
             {semConexao ? <p className="approval-note" role="status"><Icon name="wifi.slash" size={13} />{t('conversa.mensagens.queda.semAprovar')}</p> : null}
-            {!semConexao && options.some((o) => o.kind.startsWith('allow')) ? (
+            {!semConexao && opcoes.some((o) => o.kind.startsWith('allow')) ? (
               <p className="approval-note"><Icon name="hand.raised" size={13} />{t(reducedMotion ? 'conversa.aprovacao.dica.toque' : 'conversa.aprovacao.dica.segure')}</p>
             ) : null}
           </>

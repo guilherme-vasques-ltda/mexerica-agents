@@ -45,6 +45,7 @@ export const textos = {
   "conversa.aprovacao.status.permitiu": "Você permitiu",
   "conversa.aprovacao.status.recusou": "Você recusou",
   "conversa.aprovacao.detalhes": "Detalhes",
+  "conversa.aprovacao.avisoDetalheCortado": "Texto cortado; o que não aparece não pode ser conferido.",
   "conversa.aprovacao.dica.toque": "Toque para permitir. Recusar é um clique.",
   "conversa.aprovacao.dica.segure": "Segure para permitir; soltar antes cancela. Recusar é um clique.",
   "conversa.aprovacao.segurar.ative": "{opcao}: ative para confirmar",

@@ -157,7 +157,7 @@ pub enum Cmd {
     CancelGroup {
         chat: String,
     },
-    #[cfg(test)]
+    /// Para tudo o que o bot faz: turno em andamento e fila. Usado ao desconectar a conta do bot.
     Stop,
     UsageWaitChanged {
         wait_id: String,
@@ -862,6 +862,9 @@ mod fork_reinicio_tests;
 mod fork_sessoes_tests;
 #[cfg(test)]
 mod waiting_tests;
+
+#[cfg(test)]
+mod cartao_projecao_tests;
 
 #[cfg(test)]
 #[path = "context_effects_tests.rs"]

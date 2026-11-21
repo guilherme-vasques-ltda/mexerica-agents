@@ -389,7 +389,7 @@ impl Actor {
             let mut candidates = if interno {
                 Vec::new()
             } else {
-                launch_commands(&self.cfg, move |msg: &str, kind| {
+                launch_commands(&self.hub.store, &self.cfg, move |msg: &str, kind| {
                     let msg = msg.to_owned();
                     hub.set_runtime(&id, |r| r.set_activity(msg, kind));
                 })

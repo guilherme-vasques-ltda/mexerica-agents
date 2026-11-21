@@ -72,9 +72,19 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
 // Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
 // motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
-// Schema 63: Heartbeat — a rotina traz `heartbeatStatus` (última checagem e situação da fonte) quando é uma checagem
+// Schema 63: a lista de chaves de API do motor traz `enderecos` (endereços próprios já salvos, sem a chave); cache
+// anterior não tem o campo e a tela mostraria a lista vazia até a próxima leitura. App antigo ignora o campo.
+// Schema 64: conta por assinatura do Claude conduzida pelo programa oficial (Claude Code no perfil da própria conta) em
+// vez do adaptador legado; catálogo de motores e listagem de contas vêm com esse modo. Ambos são lidos sob demanda e
+// não entram no mirror; o bump só segue a regra de campo novo do Hub. App antigo ignora; o novo não mostra o selo
+// quando não vem.
+// Schema 65: Marketplace — o `marketFerramentas` traz, em cada ferramenta, `descricao` (o texto que o modelo lê, já
+// filtrado; `null` enquanto o Hub não o leu), `campos` (o texto de cada campo), `apresentacao` (a lista que a pessoa
+// confirma antes de ligar) e `mudou` (as partes que o fornecedor mudou desde que a pessoa ligou). Lido sob demanda,
+// fora do mirror; o bump só segue a regra de campo novo do Hub.
+// Schema 66: Heartbeat — a rotina traz `heartbeatStatus` (última checagem e situação da fonte) quando é uma checagem
 // silenciosa; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
-export const MIRROR_SCHEMA = 63
+export const MIRROR_SCHEMA = 66
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
