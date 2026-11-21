@@ -104,8 +104,11 @@ export function changesByReply(entries: readonly Entry[], hasOlderHistory = fals
     let approxRemoved = 0
     let partial = false
     let untrackedCommandCount = 0
+    let completedSteps = 0
 
     for (const { entry: te, stepIndex } of list) {
+      if (te.data.status !== 'completed') continue
+      completedSteps += 1
       const diffs = te.data.diffs
       if (diffs && diffs.length > 0) {
         for (const diff of diffs) {
@@ -162,7 +165,7 @@ export function changesByReply(entries: readonly Entry[], hasOlderHistory = fals
       sessionId: meta.sessionId,
       authorId: meta.authorId,
       files: [...fileMap.values()],
-      totalSteps: list.length,
+      totalSteps: completedSteps,
       approxAdded,
       approxRemoved,
       gaps: {
