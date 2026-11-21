@@ -323,6 +323,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.precisaEntrar": "Esta cuenta necesita entrar de nuevo.",
   "contas.chatgpt.entrarDeNovo": "Entrar de nuevo",
   "contas.chatgpt.saiuSemConfirmacao": "Saliste en este equipo. OpenAI no confirmó el cierre; puedes desconectar la app en Configuración de ChatGPT.",
+  "contas.chatgpt.trocouSemConfirmacao": "La cuenta nueva entró en este equipo. OpenAI no confirmó el cierre de la cuenta anterior; puedes desconectarla en Configuración de ChatGPT.",
   "contas.chatgpt.erro.estado": "No se pudo leer la cuenta ahora.",
   "contas.chatgpt.erro.cancelado": "El inicio de sesión con ChatGPT se canceló.",
   "contas.chatgpt.erro.tempo": "El inicio de sesión con ChatGPT tardó demasiado.",

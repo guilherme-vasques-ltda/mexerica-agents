@@ -317,6 +317,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.precisaEntrar": "此账号需要重新登录。",
   "contas.chatgpt.entrarDeNovo": "重新登录",
   "contas.chatgpt.saiuSemConfirmacao": "已在这台电脑上退出。OpenAI 未确认终止；你可以在 ChatGPT 设置中断开此应用。",
+  "contas.chatgpt.trocouSemConfirmacao": "新账号已在这台电脑上登录。OpenAI 未确认终止之前的账号；你可以在 ChatGPT 设置中断开它。",
   "contas.chatgpt.erro.estado": "暂时无法读取账号。",
   "contas.chatgpt.erro.cancelado": "ChatGPT 登录已取消。",
   "contas.chatgpt.erro.tempo": "ChatGPT 登录等待超时。",

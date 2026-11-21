@@ -71,7 +71,7 @@ const renderiza = (componente: unknown, props: Record<string, unknown> = {}, sto
 
 const nadaFn = () => {}
 const plano = (estado: Record<string, unknown> | null, extra: Record<string, unknown> = {}) =>
-  renderiza(m.PlanoDoChatGPT, { estado, ocupado: false, erro: null, avisoDeSair: false, entrar: nadaFn, ativar: nadaFn, sair: nadaFn, cancelar: nadaFn, ...extra })
+  renderiza(m.PlanoDoChatGPT, { estado, ocupado: false, erro: null, avisoDeSair: false, avisoDeTroca: false, entrar: nadaFn, ativar: nadaFn, sair: nadaFn, cancelar: nadaFn, ...extra })
 
 test('sem conta: só o botão de entrar com o ChatGPT, sem marca de terceiros', () => {
   const html = plano({ conectado: false, planoHabilitado: false, precisaEntrar: false })
@@ -137,6 +137,12 @@ test('conectado fora do Space pessoal: só o «Sair» fica; entrar, ativar e out
 test('sair sem confirmação: a frase avisa e aponta as Configurações do ChatGPT', () => {
   const html = plano(null, { avisoDeSair: true })
   assert.ok(html.includes('Saiu deste computador. A OpenAI não confirmou o encerramento; você pode desconectar o app em Configurações do ChatGPT.'))
+})
+
+test('trocar de conta sem confirmação: a frase própria avisa, sem dizer que saiu deste computador', () => {
+  const html = plano({ conectado: true, rotulo: 'pessoa@example.invalid', planoHabilitado: false, precisaEntrar: false }, { avisoDeTroca: true })
+  assert.ok(html.includes('A conta nova entrou neste computador. A OpenAI não confirmou o encerramento da conta anterior; você pode desconectá-la em Configurações do ChatGPT.'))
+  assert.ok(!html.includes('Saiu deste computador.'), 'a frase do «Sair» não serve para a conta conectada')
 })
 
 test('a seção existe com o Hub deste computador e o motor ligado, e some nos outros casos', () => {

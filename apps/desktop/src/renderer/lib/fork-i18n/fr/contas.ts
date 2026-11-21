@@ -323,6 +323,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.precisaEntrar": "Ce compte doit se reconnecter.",
   "contas.chatgpt.entrarDeNovo": "Se reconnecter",
   "contas.chatgpt.saiuSemConfirmacao": "Déconnecté sur cet ordinateur. OpenAI n'a pas confirmé la fin ; vous pouvez déconnecter l'app dans les réglages ChatGPT.",
+  "contas.chatgpt.trocouSemConfirmacao": "Le nouveau compte s'est connecté sur cet ordinateur. OpenAI n'a pas confirmé la fin du compte précédent ; vous pouvez le déconnecter dans les réglages ChatGPT.",
   "contas.chatgpt.erro.estado": "Impossible de lire le compte pour le moment.",
   "contas.chatgpt.erro.cancelado": "La connexion avec ChatGPT a été annulée.",
   "contas.chatgpt.erro.tempo": "La connexion avec ChatGPT a pris trop de temps.",

@@ -320,6 +320,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.precisaEntrar": "This account needs to sign in again.",
   "contas.chatgpt.entrarDeNovo": "Sign in again",
   "contas.chatgpt.saiuSemConfirmacao": "Signed out on this computer. OpenAI didn't confirm the ending; you can disconnect the app in ChatGPT Settings.",
+  "contas.chatgpt.trocouSemConfirmacao": "The new account signed in on this computer. OpenAI didn't confirm ending the previous account; you can disconnect it in ChatGPT Settings.",
   "contas.chatgpt.erro.estado": "Couldn't read the account right now.",
   "contas.chatgpt.erro.cancelado": "The ChatGPT sign-in was cancelled.",
   "contas.chatgpt.erro.tempo": "The ChatGPT sign-in took too long.",

@@ -332,6 +332,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.precisaEntrar": "هذا الحساب يحتاج إلى تسجيل الدخول مرة أخرى.",
   "contas.chatgpt.entrarDeNovo": "تسجيل الدخول مرة أخرى",
   "contas.chatgpt.saiuSemConfirmacao": "تم تسجيل الخروج على هذا الحاسوب. لم تؤكد OpenAI إنهاء الجلسة؛ يمكنك فصل التطبيق من إعدادات ChatGPT.",
+  "contas.chatgpt.trocouSemConfirmacao": "تم تسجيل الدخول بالحساب الجديد على هذا الحاسوب. لم تؤكد OpenAI إنهاء الحساب السابق؛ يمكنك فصله من إعدادات ChatGPT.",
   "contas.chatgpt.erro.estado": "تعذّر قراءة الحساب الآن.",
   "contas.chatgpt.erro.cancelado": "تم إلغاء تسجيل الدخول باستخدام ChatGPT.",
   "contas.chatgpt.erro.tempo": "استغرق تسجيل الدخول باستخدام ChatGPT وقتًا طويلًا.",

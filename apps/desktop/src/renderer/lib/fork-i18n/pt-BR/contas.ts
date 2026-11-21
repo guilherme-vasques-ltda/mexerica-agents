@@ -320,6 +320,7 @@ export const textos = {
   "contas.chatgpt.precisaEntrar": "A conta precisa entrar de novo.",
   "contas.chatgpt.entrarDeNovo": "Entrar de novo",
   "contas.chatgpt.saiuSemConfirmacao": "Saiu deste computador. A OpenAI não confirmou o encerramento; você pode desconectar o app em Configurações do ChatGPT.",
+  "contas.chatgpt.trocouSemConfirmacao": "A conta nova entrou neste computador. A OpenAI não confirmou o encerramento da conta anterior; você pode desconectá-la em Configurações do ChatGPT.",
   "contas.chatgpt.erro.estado": "Não deu para ler a conta agora.",
   "contas.chatgpt.erro.cancelado": "O login com o ChatGPT foi cancelado.",
   "contas.chatgpt.erro.tempo": "O login com o ChatGPT demorou demais.",
