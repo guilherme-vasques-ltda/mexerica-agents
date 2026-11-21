@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
@@ -119,4 +120,24 @@ test('ajuste: na versão mais recente, a frase calma; no erro, a frase de atenç
   assert.ok(textoVisivel(erro).includes(t('ajustes.atualizacoes.erro')))
   assert.match(erro, /var\(--text-attention, var\(--attention\)\)/, 'erro em tom de atenção, não de perigo')
   assert.doesNotMatch(erro, /danger/)
+})
+
+test('ajuste: versão atual que já vem com v não dobra o prefixo', () => {
+  const html = ajuste(estado({ status: 'idle', availableVersion: null, availableTag: null, releaseUrl: null, currentVersion: 'v0.1.0' }))
+  const visivel = textoVisivel(html)
+  assert.ok(visivel.includes('v0.1.0'))
+  assert.doesNotMatch(visivel, /vv/)
+})
+
+test('ajuste: erro da checagem manual aparece mesmo com o cache de versão nova na tela', () => {
+  const html = ajuste(estado({ status: 'error' }))
+  const visivel = textoVisivel(html)
+  assert.ok(visivel.includes(t('ajustes.atualizacoes.novaVersao', { versao: ltr('v0.2.0') })))
+  assert.ok(visivel.includes(t('ajustes.atualizacoes.erro')))
+})
+
+test('css: o botão de dispensar tem anel de foco visível pelo teclado', () => {
+  const css = readFileSync(new URL('./aviso-atualizacao.css', import.meta.url), 'utf8')
+  assert.match(css, /\.aviso-atualizacao-dispensar:focus-visible/)
+  assert.match(css, /var\(--focus-ring, var\(--accent\)\)/)
 })

@@ -93,9 +93,10 @@ test('validateRedirectUrl: só HTTPS nos dois hosts permitidos, sem porta nem cr
   const rejeitados = [
     'http://api.github.com/x', 'https://evil.example.invalid/x', 'https://github.com.evil.example.invalid/x',
     'https://r2.example.invalid/x', 'https://codync.dev/x', 'https://user@api.github.com/x',
-    'https://api.github.com:443/x', 'ftp://api.github.com/x', '', '  ', null, 42,
+    'https://api.github.com:443/x', '//api.github.com:443/x', '//api.github.com:8443/y', 'ftp://api.github.com/x', '', '  ', null, 42,
   ]
   for (const location of rejeitados) assert.equal(validateRedirectUrl(location, base), null, JSON.stringify(location))
+  assert.equal(validateRedirectUrl('//api.github.com/repos/a/b', base), 'https://api.github.com/repos/a/b', 'protocol-relative sem porta herda o HTTPS da base')
 })
 
 test('parseLatestReleasePayload: rascunho e pré-lançamento não são release a avisar', () => {

@@ -3,7 +3,7 @@
 // com persistência em disco. Nada aqui baixa ou instala: o máximo que o app faz é abrir a página da
 // release quando a pessoa pede.
 
-import { closeSync, constants, fchmodSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs'
+import { closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   AUTO_CHECK_COOLDOWN_MS,
@@ -12,6 +12,7 @@ import {
   MANUAL_CHECK_COOLDOWN_MS,
   MAX_RELEASE_RESPONSE_BYTES,
   RELEASE_FETCH_TIMEOUT_MS,
+  RELEASE_TAG_URL_PREFIX,
   isNewerRelease,
   parseLatestReleasePayload,
   parseStableSemver,
@@ -37,14 +38,16 @@ export interface FetchLatestReleaseOptions {
 
 /**
  * Busca `GITHUB_RELEASES_API_URL` com redirects manuais: cada `Location` precisa passar em
- * `validateRedirectUrl` (só api.github.com/github.com em HTTPS) e o limite é de 3 saltos. 404 é
- * "sem release a avisar" (ok, up-to-date); qualquer outra falha — rede, status, corpo grande demais,
- * payload ilegível — é `{ ok: false }`, nunca um aviso.
+ * `validateRedirectUrl` (só api.github.com/github.com em HTTPS) e o limite é de 3 saltos. O sinal de
+ * timeout vale para a busca inteira (saltos e leitura do corpo somam no prazo). 404 é "sem release a
+ * avisar" (ok, up-to-date); qualquer outra falha — rede, status, corpo grande demais, payload
+ * ilegível — é `{ ok: false }`, nunca um aviso. Corpo não lido é sempre cancelado.
  */
 export async function fetchLatestRelease(options: FetchLatestReleaseOptions): Promise<FetchLatestReleaseOutcome> {
   const fetcher = options.fetcher ?? fetch
   const timeoutMs = options.timeoutMs ?? RELEASE_FETCH_TIMEOUT_MS
   const maxBytes = options.maxBytes ?? MAX_RELEASE_RESPONSE_BYTES
+  const signal = AbortSignal.timeout(timeoutMs)
   let url = GITHUB_RELEASES_API_URL
   let redirects = 0
   let response: Response | undefined
@@ -60,13 +63,17 @@ export async function fetchLatestRelease(options: FetchLatestReleaseOptions): Pr
         redirect: 'manual',
         cache: 'no-store',
         credentials: 'omit',
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
       })
     } catch {
       return { ok: false }
     }
-    if (current.status === 404) return { ok: true, result: { kind: 'up-to-date' } }
+    if (current.status === 404) {
+      try { await current.body?.cancel() } catch {}
+      return { ok: true, result: { kind: 'up-to-date' } }
+    }
     if (REDIRECT_STATUSES.has(current.status)) {
+      try { await current.body?.cancel() } catch {}
       if (redirects >= MAX_REDIRECTS) return { ok: false }
       const next = validateRedirectUrl(current.headers.get('location'), url)
       if (!next) return { ok: false }
@@ -76,7 +83,10 @@ export async function fetchLatestRelease(options: FetchLatestReleaseOptions): Pr
     }
     response = current
   }
-  if (response.status !== 200) return { ok: false }
+  if (response.status !== 200) {
+    try { await response.body?.cancel() } catch {}
+    return { ok: false }
+  }
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
     try { await response.body?.cancel() } catch {}
@@ -146,26 +156,37 @@ function readCachedRelease(raw: unknown): CachedRelease | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
   if (typeof record.version !== 'string' || typeof record.tag !== 'string' || typeof record.url !== 'string') return null
-  if (!validateReleaseUrl(record.url)) return null
+  const parsed = parseStableSemver(record.version)
+  if (!parsed || record.version !== parsed.canonical || record.tag !== `v${parsed.canonical}`) return null
+  const url = validateReleaseUrl(record.url)
+  if (!url) return null
+  const tagDaUrl = parseStableSemver(url.slice(RELEASE_TAG_URL_PREFIX.length))
+  if (!tagDaUrl || tagDaUrl.canonical !== parsed.canonical) return null
   return { version: record.version, tag: record.tag, url: record.url }
 }
 
 /**
  * O estado do aviso em `userData`: um arquivo JSON regular, gravado com 0600 (sem symlink, sem
- * escrita de grupo ou de outros, requisitos do perfil Open). Leitura valida campo a campo e devolve
- * null para o que estiver corrompido; erro de disco na escrita sobe para quem chamou tratar.
+ * escrita de grupo ou de outros, requisitos do perfil Open). A leitura abre pelo fd com
+ * `O_NOFOLLOW` (sem janela entre o stat e o read) e valida campo a campo, devolvendo null para o
+ * que estiver corrompido; erro de disco na escrita sobe para quem chamou tratar.
  */
 export function createFileReleaseNoticeStore(filePath: string): ReleaseNoticeStore {
   return {
     load(): ReleaseNoticeStoreData {
       try {
-        if (!lstatSync(filePath).isFile()) return { ...EMPTY_STORE }
-        const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'))
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...EMPTY_STORE }
-        const record = parsed as Record<string, unknown>
-        const dismissedVersion = typeof record.dismissedVersion === 'string' && parseStableSemver(record.dismissedVersion) ? record.dismissedVersion : null
-        const lastCheckAt = typeof record.lastCheckAt === 'number' && Number.isFinite(record.lastCheckAt) && record.lastCheckAt >= 0 ? record.lastCheckAt : null
-        return { dismissedVersion, lastCheckAt, cachedRelease: readCachedRelease(record.cachedRelease) }
+        const fd = openSync(filePath, constants.O_RDONLY | (posix ? constants.O_NOFOLLOW : 0))
+        try {
+          if (!fstatSync(fd).isFile()) return { ...EMPTY_STORE }
+          const parsed: unknown = JSON.parse(readFileSync(fd, 'utf8'))
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...EMPTY_STORE }
+          const record = parsed as Record<string, unknown>
+          const dismissed = typeof record.dismissedVersion === 'string' ? parseStableSemver(record.dismissedVersion) : null
+          const lastCheckAt = typeof record.lastCheckAt === 'number' && Number.isFinite(record.lastCheckAt) && record.lastCheckAt >= 0 ? record.lastCheckAt : null
+          return { dismissedVersion: dismissed ? dismissed.canonical : null, lastCheckAt, cachedRelease: readCachedRelease(record.cachedRelease) }
+        } finally {
+          closeSync(fd)
+        }
       } catch {
         return { ...EMPTY_STORE }
       }
@@ -281,7 +302,10 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
     async check(options?: { manual?: boolean }) {
       const manual = options?.manual === true
       if (inFlight) {
-        if (manual) inFlightManual = true
+        if (manual) {
+          inFlightManual = true
+          if (state.status !== 'checking') setState({ status: 'checking' })
+        }
         return inFlight
       }
       if (!manual && withinCooldown(autoCooldownMs)) return state

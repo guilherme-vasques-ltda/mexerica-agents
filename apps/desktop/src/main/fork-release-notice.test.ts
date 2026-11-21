@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { GITHUB_RELEASES_API_URL, RELEASE_TAG_URL_PREFIX } from '../shared/fork-release-notice.ts'
+import { GITHUB_RELEASES_API_URL, RELEASE_TAG_URL_PREFIX, type ReleaseNoticeState } from '../shared/fork-release-notice.ts'
+import { loadMainModule } from '../shared/test-support/main-module.ts'
 import {
   createFileReleaseNoticeStore,
   createReleaseNoticeController,
@@ -70,6 +73,40 @@ test('fetch: tempo esgotado derruba a busca (o sinal de aborto chega ao fetcher)
     })
   }) as typeof fetch
   assert.deepEqual(await fetchLatestRelease({ currentVersion: 'v0.1.0', fetcher, timeoutMs: 50 }), { ok: false })
+})
+
+test('fetch: o prazo vale para a busca inteira — o mesmo sinal corta o segundo salto', async () => {
+  const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url) === GITHUB_RELEASES_API_URL) {
+      return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/guilherme-vasques-ltda/mexerica-agents/releases/99' } })
+    }
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('timeout')), { once: true })
+    })
+  }) as typeof fetch
+  assert.deepEqual(await fetchLatestRelease({ currentVersion: 'v0.1.0', fetcher, timeoutMs: 50 }), { ok: false })
+})
+
+test('fetch: 404 e redirect cancelam o corpo que não vai ser lido', async () => {
+  const corpo = () => {
+    const marca = { cancelado: false }
+    return { marca, body: { cancel: async () => { marca.cancelado = true } } }
+  }
+  const semRelease = corpo()
+  const quarentaEquatro = await fetchLatestRelease({
+    currentVersion: 'v0.1.0',
+    fetcher: async () => ({ status: 404, headers: new Headers(), body: semRelease.body, arrayBuffer: async () => new ArrayBuffer(0) }) as unknown as Response,
+  })
+  assert.deepEqual(quarentaEquatro, { ok: true, result: { kind: 'up-to-date' } })
+  assert.equal(semRelease.marca.cancelado, true)
+
+  const redirecionado = corpo()
+  const praFora = await fetchLatestRelease({
+    currentVersion: 'v0.1.0',
+    fetcher: async () => ({ status: 302, headers: new Headers({ location: 'https://evil.example.invalid/x' }), body: redirecionado.body, arrayBuffer: async () => new ArrayBuffer(0) }) as unknown as Response,
+  })
+  assert.deepEqual(praFora, { ok: false })
+  assert.equal(redirecionado.marca.cancelado, true)
 })
 
 test('fetch: corpo maior que o limite é recusado pelo Content-Length sem ler um byte', async () => {
@@ -149,13 +186,17 @@ test('checagem manual mostra erro; automática que já rodava é promovida quand
   const fetcher = (async () => {
     return await new Promise<Response>((resolve) => { soltar = () => resolve(resposta(500, {}, 'erro').resposta) })
   }) as typeof fetch
-  const mista = controlador({ fetcher })
+  const estados: string[] = []
+  const mista = controlador({ fetcher, onChange: (s) => estados.push(s.status) })
   const automatica = mista.check({ manual: false })
+  assert.deepEqual(estados, [], 'a automática não anuncia checking')
   const manualNoMeio = mista.check({ manual: true })
+  assert.deepEqual(estados, ['checking'], 'a manual que chegou por cima anuncia checking')
   soltar!()
   await automatica
   const depois = await manualNoMeio
   assert.equal(depois.status, 'error', 'a manual que chegou por cima promove o tratamento de erro')
+  assert.deepEqual(estados, ['checking', 'error'])
 })
 
 test('cooldown: automático respeita 6 h e manual 60 s, mas manual com erro retenta', async () => {
@@ -323,4 +364,64 @@ test('start agenda a checagem automática e stop cancela; dentro do cooldown nã
   })
   recente.start()
   assert.equal(agendadas.length, 0, 'checado há 1 s: nada a agendar')
+})
+
+test('cache do disco rejeita versão/tag adulteradas e normaliza a dispensa para o canônico', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'release-notice-'))
+  const arquivo = join(dir, 'release-notice.json')
+  try {
+    const comCache = (mudanca: Record<string, unknown>) =>
+      JSON.stringify({ dismissedVersion: null, lastCheckAt: 12, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL, ...mudanca } })
+    writeFileSync(arquivo, comCache({ tag: 'v9.9.9' }))
+    assert.equal(createFileReleaseNoticeStore(arquivo).load().cachedRelease, null, 'tag que não casa com a versão')
+    writeFileSync(arquivo, comCache({ version: 'v0.2.0' }))
+    assert.equal(createFileReleaseNoticeStore(arquivo).load().cachedRelease, null, 'versão não canônica')
+    writeFileSync(arquivo, comCache({ url: `${RELEASE_TAG_URL_PREFIX}v0.3.0` }))
+    assert.equal(createFileReleaseNoticeStore(arquivo).load().cachedRelease, null, 'URL que aponta para outra versão')
+
+    writeFileSync(arquivo, JSON.stringify({ dismissedVersion: 'v0.2.0', lastCheckAt: null, cachedRelease: null }))
+    assert.equal(createFileReleaseNoticeStore(arquivo).load().dismissedVersion, '0.2.0', 'dispensa normalizada para o canônico')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('adaptador: remetente negado não recebe o estado real e nenhum handler age', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'release-notice-'))
+  try {
+    writeFileSync(join(dir, 'release-notice.json'), JSON.stringify({ dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL } }))
+    const handlers = new Map<string, (event: unknown) => unknown>()
+    const ouvidas: string[] = []
+    const abertas: string[] = []
+    const enviadas: unknown[] = []
+    const janela = { isDestroyed: () => false, webContents: { send: (_canal: string, estado: unknown) => { enviadas.push(estado) } } }
+    const modulo = loadMainModule<{ registerReleaseNotice: (options: { windows: () => unknown[]; userDataDir: string; currentVersion: string; allowed: (event: unknown) => boolean }) => void }>('fork-release-notice', {
+      electron: {
+        app: { on: (evento: string) => { ouvidas.push(evento) } },
+        ipcMain: { handle: (canal: string, handler: (event: unknown) => unknown) => { handlers.set(canal, handler) } },
+        shell: { openExternal: async (url: string) => { abertas.push(url) } },
+      },
+      'node:fs': fs, 'node:path': path,
+    }, { process: { platform: 'linux' }, setTimeout: () => 0, clearTimeout: () => {}, URL })
+    modulo.registerReleaseNotice({ windows: () => [janela], userDataDir: dir, currentVersion: 'v0.1.0', allowed: (event) => (event as { ok: boolean }).ok })
+    assert.deepEqual([...handlers.keys()].sort(), ['releaseNotice:check', 'releaseNotice:dismiss', 'releaseNotice:openDownload', 'releaseNotice:state'])
+    assert.deepEqual(ouvidas, ['before-quit'])
+
+    const negado = { ok: false }
+    const permitido = { ok: true }
+    const estadoNegado = handlers.get('releaseNotice:state')!(negado) as ReleaseNoticeState
+    assert.equal(estadoNegado.supported, false, 'negado não recebe o estado real')
+    assert.equal(estadoNegado.availableVersion, null)
+    assert.equal(estadoNegado.currentVersion, 'v0.1.0')
+    const estadoReal = handlers.get('releaseNotice:state')!(permitido) as ReleaseNoticeState
+    assert.equal(estadoReal.supported, true)
+    assert.equal(estadoReal.availableVersion, '0.2.0', 'o cache do disco voltou')
+
+    assert.equal(await handlers.get('releaseNotice:openDownload')!(negado), false)
+    assert.deepEqual(abertas, [], 'negado não abre nada')
+    assert.equal(await handlers.get('releaseNotice:openDownload')!(permitido), true)
+    assert.deepEqual(abertas, [TAG_URL])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

@@ -23,7 +23,7 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
   const lastChecked = state.lastCheckAt !== null
     ? t('ajustes.atualizacoes.ultima', { quando: formatarData(idioma, state.lastCheckAt, { dateStyle: 'medium', timeStyle: 'short' }) })
     : null
-  const versaoAtual = `v${state.currentVersion}`
+  const versaoAtual = state.currentVersion.startsWith('v') ? state.currentVersion : `v${state.currentVersion}`
   return (
     <Superficie>
       <CardSection title={t('ajustes.atualizacoes.titulo')}>
@@ -41,7 +41,8 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
           </ValueRow>
         ) : state.status === 'up-to-date' ? (
           <Text size="footnote" tone="secondary">{t('ajustes.atualizacoes.atualizado')}</Text>
-        ) : state.status === 'error' ? (
+        ) : null}
+        {state.status === 'error' ? (
           <Text size="footnote" tone="attention" dir="auto">{t('ajustes.atualizacoes.erro')}</Text>
         ) : null}
       </CardSection>

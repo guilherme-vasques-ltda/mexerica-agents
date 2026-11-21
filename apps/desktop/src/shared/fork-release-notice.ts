@@ -88,8 +88,8 @@ export function validateReleaseUrl(raw: unknown, expectedTag?: string): string |
   return raw
 }
 
-/** Porta explícita na autoridade de uma URL absoluta (a WHATWG normaliza a porta padrão, então o parse não vê). */
-const PORTA_EXPLICITA = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*:\d+(?:[/?#]|$)/
+/** Porta explícita na autoridade de uma URL absoluta, inclusive protocol-relative (a WHATWG normaliza a porta padrão, então o parse não vê). */
+const PORTA_EXPLICITA = /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?\/\/[^/?#]*:\d+(?:[/?#]|$)/
 
 /** Um redirect aceito: só HTTPS, sem porta nem credencial, e apenas para os hosts permitidos. */
 export function validateRedirectUrl(location: unknown, baseUrl: string): string | null {

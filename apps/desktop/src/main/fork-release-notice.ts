@@ -27,7 +27,11 @@ export function registerReleaseNotice(options: RegisterReleaseNoticeOptions) {
     },
   })
   const admit = (event: IpcMainEvent | IpcMainInvokeEvent) => options.allowed?.(event) !== false
-  ipcMain.handle('releaseNotice:state', () => controller.getState())
+  const estadoNegado = (): ReleaseNoticeState => ({
+    supported: false, currentVersion: options.currentVersion, status: 'idle', availableVersion: null, availableTag: null,
+    releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
+  })
+  ipcMain.handle('releaseNotice:state', (event) => (admit(event) ? controller.getState() : estadoNegado()))
   ipcMain.handle('releaseNotice:check', (event) => (admit(event) ? controller.check({ manual: true }) : controller.getState()))
   ipcMain.handle('releaseNotice:dismiss', (event) => (admit(event) ? controller.dismiss() : controller.getState()))
   ipcMain.handle('releaseNotice:openDownload', (event) => (admit(event) ? controller.openDownload() : Promise.resolve(false)))
