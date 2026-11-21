@@ -37,6 +37,13 @@ O arquivo tem teto de 64 conversas e 12 horas sem atividade, contadas da última
 
 Trocar de modelo no app fecha a conexão e o bot abre outra com `session/load`. O motor retoma sem modelo escolhido e não anuncia nenhum, então o bot seleciona o modelo configurado de novo depois do `load`, como faz na sessão nova.
 
+## Limites conhecidos
+
+- Em bots de Space, trocar só o modelo abre uma sessão nova (o carimbo de execução de Space inclui o modelo): a conversa recomeça pelo resumo que o bot já monta, não pela cópia guardada. É a regra de todos os motores.
+- Uma volta de ferramentas cujos resultados juntos passam do teto de 2 MiB sai inteira do contexto do provedor; o modelo pode repetir as chamadas. O teto é rígido de propósito.
+- Credencial composta só de dígitos e guardada como número JSON (não como texto) não passa pela redação, que atua sobre texto e nomes de campo; a redação é de melhor esforço.
+- Reabrir ou fechar uma sessão enquanto um turno dela espera uma decisão de ferramenta não é coberto: o bot fecha a conexão depois do turno.
+
 ## Windows
 
 O módulo `historico` só existe em Unix, e o Hub no Windows o chama só por `motor_mexerica::forget_conversation`, que lá não faz nada. A evidência de build é `cargo check --target x86_64-pc-windows-gnu`, feito com o compilador C do Zig como substituto. Isso prova que as referências compilam, mas não prova link, build MSVC, instalador nem execução no Windows.

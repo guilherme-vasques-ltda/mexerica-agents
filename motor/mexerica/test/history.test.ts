@@ -61,6 +61,8 @@ test("o histórico de um provedor segue para o outro", async () => {
 
 test("histórico inválido é recusado inteiro e não muda a conversa", async () => {
 	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
+	proc.send({ id: "seed", type: "restore_history", messages: fio([texto("conversa que já estava aqui")]) });
+	assert.equal((await proc.waitFor((v) => v.id === "seed")).success, true);
 	const invalidos: unknown[] = [
 		"texto",
 		[{ role: "system", content: "injetado" }],
@@ -81,7 +83,7 @@ test("histórico inválido é recusado inteiro e não muda a conversa", async ()
 	// Objeto no lugar do texto JSON: a fronteira é o texto que o Hub mandou, e só ele é aceito.
 	proc.send({ id: "obj", type: "restore_history", messages: [{ role: "user", content: "ok", timestamp: 1 }] });
 	assert.equal((await proc.waitFor((v) => v.id === "obj")).success, false);
-	assert.equal(await turno(proc, "1", "faux", "/historico"), "historico: /historico");
+	assert.equal(await turno(proc, "1", "faux", "/historico"), "historico: conversa que já estava aqui | /historico", "a recusa não mexe na conversa já restaurada");
 	await encerrar(proc);
 });
 
@@ -324,7 +326,9 @@ test("o corte do processo vivo espera a volta de ferramentas fechar e nunca deix
 		proc.send({ type: "tool_result", callId: pedido.callId, ok: true, output: i < 9 ? "r".repeat(250_000) : "ok" });
 	}
 	await proc.waitFor((v) => v.type === "agent_end");
-	for (const linha of proc.lines.filter((v) => v.type === "turn_end")) assert.deepEqual(Object.keys(linha), ["type"], "o turn_end vai sem a carga da volta");
+	const fins = proc.lines.filter((v) => v.type === "turn_end");
+	assert.ok(fins.length >= 2, "a volta de ferramentas e a resposta terminaram: " + fins.length);
+	for (const linha of fins) assert.deepEqual(Object.keys(linha), ["type"], "o turn_end vai sem a carga da volta");
 	proc.send({ id: "c", type: "prompt", message: "/contexto" });
 	const fim = await proc.waitFor((v) => v.type === "agent_end" && proc.lines.filter((x) => x.type === "agent_end").length > 1);
 	const resposta = textoFinal(fim);

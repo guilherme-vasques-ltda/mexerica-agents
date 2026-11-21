@@ -404,7 +404,10 @@ impl Engine {
         // Cada mensagem cruza a fronteira como o texto JSON que o Hub mediu: o motor mede esses mesmos bytes.
         let wire: Vec<String> = messages.iter().map(Value::to_string).collect();
         self.send(json!({"id": id, "type": "restore_history", "messages": wire})).await?;
-        let res = self.response(&id).await?;
+        // Um motor que não responde não segura a sessão para sempre: o prazo vence e o processo é descartado.
+        let res = tokio::time::timeout(std::time::Duration::from_secs(60), self.response(&id))
+            .await
+            .map_err(|_| anyhow!("o motor não respondeu à retomada da conversa"))??;
         ensure!(res["success"] == true, "restore_history recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
     }

@@ -161,13 +161,23 @@ fn build(message: &Value, known: &[String], mut budget: usize) -> Option<Value> 
             let stop = stop_reason(&message["stopReason"])?;
             let mut content = Vec::new();
             let mut call_ids: Vec<String> = Vec::new();
-            for block in message["content"].as_array()?.iter().take(MAX_BLOCKS) {
+            let mut texts = 0;
+            for block in message["content"].as_array()? {
                 match block["type"].as_str() {
-                    Some("text") => content.extend(
-                        clean_text(block["text"].as_str()?, known, &mut budget)
-                            .map(|t| json!({"type": "text", "text": t})),
-                    ),
+                    Some("text") => {
+                        texts += 1;
+                        if texts <= MAX_BLOCKS {
+                            content.extend(
+                                clean_text(block["text"].as_str()?, known, &mut budget)
+                                    .map(|t| json!({"type": "text", "text": t})),
+                            );
+                        }
+                    }
                     Some("toolCall") => {
+                        // Cada chamada precisa do resultado dela: passar do teto de chamadas descarta a mensagem.
+                        if call_ids.len() >= MAX_BLOCKS {
+                            return None;
+                        }
                         let mut arguments = redigir_json(&block["arguments"], known);
                         if !arguments.is_object() || arguments.to_string().len() > budget {
                             arguments = json!({});

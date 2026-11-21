@@ -386,7 +386,7 @@ fn o_receptor_do_motor_aceita_o_historico_que_o_hub_fechou_exatamente_no_teto() 
         let mut node = std::process::Command::new(crate::fork::motor_mexerica::node_path().unwrap())
             .args([
                 "-e",
-                "import(process.argv[1]).then(m=>{let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log('ok '+m.parseHistory(JSON.parse(s)).length)}catch(e){console.log('erro '+e.message)}})})",
+                "import(process.argv[1]).then(m=>{let s='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log('ok '+m.parseHistory(JSON.parse(s)).length)}catch(e){console.log('erro '+e.message)}})})",
             ])
             .arg(history)
             .stdin(std::process::Stdio::piped())
@@ -459,6 +459,26 @@ fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
     let (kept, dropped) = log.take();
     assert!(dropped, "uma mensagem nova fecha a volta: a chamada sem resultado sai na hora");
     assert_eq!(texts_of(&kept), ["pedido", "outra mensagem chegou antes do resultado"]);
+}
+
+#[test]
+fn blocos_de_texto_e_chamadas_tem_tetos_separados() {
+    let mut blocks: Vec<Value> =
+        (0..MAX_BLOCKS + 6).map(|i| json!({"type": "text", "text": format!("t{i}")})).collect();
+    blocks.push(json!({"type": "toolCall", "id": "c1", "name": "eco", "arguments": {}}));
+    let many_texts = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
+        "timestamp": 2, "content": blocks});
+    let clean = sanitize(&many_texts, &[]).unwrap();
+    let kept = clean["content"].as_array().unwrap();
+    assert_eq!(kept.iter().filter(|b| b["type"] == "text").count(), MAX_BLOCKS, "o teto vale só para o texto");
+    assert_eq!(kept.last().unwrap()["id"], "c1", "a chamada depois de muito texto continua guardada");
+
+    let calls: Vec<Value> = (0..=MAX_BLOCKS)
+        .map(|i| json!({"type": "toolCall", "id": format!("c{i}"), "name": "eco", "arguments": {}}))
+        .collect();
+    let too_many = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
+        "timestamp": 2, "content": calls});
+    assert!(sanitize(&too_many, &[]).is_none(), "chamadas acima do teto: a mensagem não é guardada, nunca pela metade");
 }
 
 #[tokio::test]

@@ -88,7 +88,8 @@ function shrink(message: AgentMessage): AgentMessage {
 		budget = Math.max(budget - (size - MAX_MESSAGE_BYTES) - 1, 0);
 	}
 	const source = message as unknown as Json;
-	const bare = { role: source.role, content: typeof source.content === "string" ? "" : [], timestamp: source.timestamp } as unknown as AgentMessage;
+	// O motivo de parada fica: o laço e o Hub decidem o turno por ele (um diagnóstico de erro gigante não pode apagá-lo).
+	const bare = { role: source.role, content: typeof source.content === "string" ? "" : [], timestamp: source.timestamp, ...(typeof source.stopReason === "string" ? { stopReason: source.stopReason } : {}) } as unknown as AgentMessage;
 	measured.set(bare, bytesOf(bare));
 	return bare;
 }
