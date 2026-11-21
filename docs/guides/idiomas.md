@@ -11,7 +11,8 @@ telas ficam híbridas: as telas já traduzidas aparecem em inglês, e as legadas
 português até a tradução chegar. O `<body>` segue com `lang="pt-BR"` (`LIMITE_LEGADO`) até o inventário do legado
 zerar, porque é isso que os textos legados são de fato. A tradução do app inteiro chega por lotes; enquanto isso, fora do pt-BR, o app
 avisa que a entrada na conta e a maior parte das telas ainda estão em português. Os bots continuam respondendo
-em português, e isso também é avisado. Nada disso muda o idioma do Hub nem dos bots.
+em português, e isso também é avisado; o Berga segue o idioma do app, como abaixo. Nada
+  disso muda o idioma do Hub nem dos outros bots.
 
 ## Para quem usa
 

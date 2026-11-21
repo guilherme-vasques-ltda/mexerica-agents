@@ -12,15 +12,15 @@ The welcome screen (`AccountWelcomeView.tsx`, mounted by `AccountEntryGate.tsx`)
 
 On the desktop, `AccountService.signIn('apple')` starts Clerk's `oauth_apple` sign-in
 and opens its redirect in the system browser, which returns to
-`com.pokai.Codync://callback` (`apps/desktop/src/main/auth.ts`). This uses Clerk's
+`donnabot://callback`, the app's scheme (`apps/desktop/src/main/auth.ts`). This uses Clerk's
 Apple Services ID and needs no native Sign in with Apple entitlement. iOS continues
 using Clerk's native Apple authorization.
 
-The production Services ID `com.pokai.Codync.signin` is associated with primary
-App ID `com.pokai.Codync.ios` in Apple Developer. Keep that association: Apple's
-web and native authorization must represent the same identity rather than being
-joined by email. The desktop app's `com.pokai.Codync://callback` must also remain allowed
-in Clerk. See [Apple's web configuration guide](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/)
+The rule from the upstream's Apple configuration: its production Services ID is
+associated with the primary App ID so that web and native authorization represent
+the same identity rather than being joined by email. The same rule applies to
+this copy's own identifiers, and the desktop app's `donnabot://callback` must
+remain allowed in the Clerk instance used. See [Apple's web configuration guide](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/)
 and the Clerk guide for Apple OAuth (Social Connections).
 
 A configuração histórica de credenciais do upstream não comprova a configuração da Mexerica. Não copie credenciais nem identificadores de outra instância.
@@ -83,13 +83,13 @@ so no grant exists before the comparison.
 
 SSH computers use the system OpenSSH (`apps/desktop/src/main/ssh.ts`): `ssh -G` to
 resolve the target, `ssh-keygen -F` against `~/.ssh/known_hosts` and
-`~/.codync/ssh_known_hosts`, a fingerprint confirmation on first contact (no proxy),
-`codync-host info --json` for the identity and loopback token, then
-`ssh -N -L 127.0.0.1:<free port>:127.0.0.1:<remote port>` with keepalive and backoff.
+`ssh_known_hosts` in the app's data folder, a fingerprint confirmation on first contact (no proxy),
+`donnabot-host info --json` for the identity and loopback token, then
+`ssh -N -L localhost:<free port>:localhost:<remote port>` with keepalive and backoff.
 A changed host key or a different computer ID blocks the connection. Sign-in is key or
 ssh-agent only (`BatchMode`: nothing prompts for a password or passphrase); a refused key
 stops with a message instead of retrying. The remote command searches Homebrew,
-`~/.local/bin` and the Mac app bundle for `codync-host` too, since `sh -l` doesn't read
+`~/.local/bin` and the Mac app bundle for `donnabot-host` too, since `sh -l` doesn't read
 `~/.zprofile`. At launch the app kills tunnels a crashed or force-quit copy left behind
 (`pkill` on the `.codync/ssh_known_hosts` argument only Codync's tunnels carry).
 

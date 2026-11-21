@@ -30,11 +30,12 @@ enquanto o aviso estiver aberto.
 - Uma colagem nova de texto: **não é inserida**. Uma linha no aviso (nos 6 idiomas) pede para resolver o aviso e
   colar de novo. É uma pendência por vez.
 
-## A recusa nunca é silenciosa e nunca perde conteúdo
+## A recusa nunca é silenciosa
 
 `BotStore.send` e `BotStore.retry` devolvem `aceito` ou `bloqueado`. Toda recusa mostra o motivo, nos 6 idiomas, **no
 próprio cartão do aviso** ("Feche o aviso de senha antes de enviar."): é um aviso, não um erro, sem diálogo "Algo
-deu errado" e sem confirmação extra. Quem chamou **preserva o conteúdo**:
+deu errado" e sem confirmação extra. Quem chamou **preserva o conteúdo enquanto o aviso
+estiver aberto** (app fechado ou conversa trocada, os trechos se perdem, como na seção de limites):
 
 - **Reenviar (mensagem que falhou):** o bloqueio é conferido ANTES de tirar a entrada falha; barrado, ela continua na
   conversa com o botão Reenviar, e depois de resolver o aviso o reenvio sai com o mesmo nonce.

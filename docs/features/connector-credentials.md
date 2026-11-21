@@ -129,7 +129,8 @@ bot, service, destination field, purpose and status; they contain no credentials
 
 Legacy catalog-only cards remain pending and unavailable; the host does not
 install or select a substitute to complete them. Explicit cancellation remains
-available. Cards already bound to a connectorId retain the existing workflow.
+available through `cancel: true`, kept for older clients; current clients offer
+no way to cancel (see below). Cards already bound to a connectorId retain the existing workflow.
 On the desktop such a card shows no Connect button: it says the catalog was
 retired and points to Extensões → Meus MCP for the manual connection.
 
@@ -198,7 +199,7 @@ Não é a caixa protegida (`fork-secret-box`): outro contrato, que continua como
 (não aparece na conversa, vai para o cofre, o bot recebe só o nome), nunca que o bot não consiga ver a tela.
 
 **Quais conexões funcionam.** O processo principal só alcança Hubs que ele mesmo conhece, e escolhe pelo id do computador
-(o chat nunca envia endereço nem token): o Hub deste computador e computadores por túnel SSH em 127.0.0.1, inclusive
+(o chat nunca envia endereço nem token): o Hub deste computador e computadores por túnel SSH (loopback), inclusive
 dentro de um space (com `spaceId`/`hubId` conferidos pelo Hub). **Conexão pela nuvem (relay) falha fechada**: o envio por lá
 é assinado e de resultado incerto, e o valor não pode seguir por canal que o app não controla de ponta a ponta; o cartão
 mostra que não dá para digitar daqui, sem cair para um campo na conversa.

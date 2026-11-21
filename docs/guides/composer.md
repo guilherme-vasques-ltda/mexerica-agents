@@ -112,7 +112,7 @@ For a host-free visual check using the actual Electron renderer components:
 ```sh
 cd apps/desktop
 node tools/composer-check/serve.mjs
-# Open http://127.0.0.1:5198/tools/composer-check/
+# Open http://localhost:5198/tools/composer-check/
 ```
 
 The fixture never connects to the host or sends to a real bot. Check typing,

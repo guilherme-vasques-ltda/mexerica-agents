@@ -33,7 +33,7 @@ Ajustes → Aparência muda como o app do Mac se apresenta. Tudo fica só neste 
 ## Ainda não
 
 - Fotos HEIC (o padrão do iPhone e do Mac) ainda não abrem: exporte como JPEG antes de escolher.
-- Fundo por space: a Mexerica ainda não tem spaces; quando tiver, a escolha atual vira a do space Pessoal.
+- Fundo por space: o fundo escolhido vale para o app inteiro; uma escolha diferente por space ainda não existe.
 - Os menus nativos do macOS e a cor da janela antes de carregar seguem o tema do Mac, mesmo com Claro ou Escuro escolhido no app.
 
 ## Toques Mexerica

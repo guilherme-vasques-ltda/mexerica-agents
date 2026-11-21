@@ -246,7 +246,8 @@ isolamento nem substitui o fechamento futuro.
 
 1. Abrir uma sessão nova de um bot Codex de teste em **Pedir** e pedir um comando
    simples com rede, como `curl -I https://example.com`. Deve aparecer o cartão
-   de escalonamento antes de executar com rede; testar Negar e depois Permitir.
+   de escalonamento antes de executar com rede; testar Negar e depois Permitir. Use um bot de
+   teste sem regras `allow` que já cubram o comando, para o cartão aparecer de fato.
 2. Repetir em **Liberar**: o pedido deve aparecer em cartão. Reabrir uma
    conversa existente para conferir o modo também na recarga.
 3. Conferir que o Codex edita um arquivo de teste na própria pasta e que a
@@ -431,7 +432,9 @@ são reescritos por conta, preservando destinos distintos e a migração idempot
 
 ## Fronteira dos instaladores
 
-O instalador é um subprocesso do próprio host, iniciado pelo ajudante como motor.
+O instalador é um subprocesso do próprio host, iniciado pelo ajudante como motor —
+disponível após a migração das raízes; antes dela, a instalação segue recusada
+como acima.
 Download, integridade, extração, npm e promoção não executam no Hub. A consulta
 de descoberta/estado também ocorre como motor. O Hub confere a publicação na
 raiz do motor por uma operação com descritores sem links e mantém recusados os

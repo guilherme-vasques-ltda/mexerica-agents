@@ -17,10 +17,10 @@ entregues, salvo onde indicado:
 
 - **Mesma conversa**: a resposta autônoma só pode ir para a conversa da mensagem recebida.
   O envio já exige uma mensagem guardada da mesma conversa e conta, e reconfere isso na fila.
-- **Grupo marcado nasce desligado**: a decisão é que a marcação de um grupo não ligue a
-  resposta autônoma. Esta separação ainda falta: hoje a marcação de grupo permite resposta
-  autônoma quando o modo sozinho e a concessão para responder grupos estão ligados. A marca
-  de conversa individual mantém o comportamento atual.
+- **Grupo marcado nasce desligado**: marcar um grupo não liga por si a resposta autônoma. A
+  resposta autônoma por grupo é uma opção própria (abaixo, `donnaWhatsappGroupAuto`), que nasce
+  desligada, inclusive nas marcas anteriores, e o dono liga ou desliga por grupo no menu dele. A
+  marca de conversa individual mantém o comportamento atual.
 - **Permissão mínima do turno**: o turno autônomo que lê conteúdo de terceiros e responde
   deve ter somente as ferramentas necessárias ao WhatsApp, sem conector, computador ou
   cofre. O corte por execução ainda não existe; sua forma depende de decisão própria.

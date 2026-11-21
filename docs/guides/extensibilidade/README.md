@@ -93,7 +93,7 @@ O contrato vigente de cada produtor continua em
 [catálogo de skills](../../reference/catalogo-skills.md),
 [conectores e credenciais](../../features/connector-credentials.md),
 [marketplace e mediação](../../features/marketplace.md) e
-os contratos de plugins da DONNA.
+[plugins](plugins.md).
 As regras comuns estão em [segurança](seguranca.md).
 
 ## Próximas etapas e manutenção
@@ -108,8 +108,11 @@ houver mudança operacional, atualize os consumidores, descrições,
 manual e documentos pertinentes no mesmo PR. O histórico fica no Git; não há
 atualização automática nem publicação de wiki.
 
-Para manter a entrega coerente ao editar as fontes Markdown, gere o JSON com
-`node host/src/fork/skill_catalog/gerar-criador-de-skills.mjs`, confira com
-`--check` e inclua o JSON no mesmo PR. O compilador inclui somente esse artefato
-de `host/`; docs permanece fonte legível. Os gates existentes continuam
-selecionando o artefato embutido, sem mudança do hook/CI.
+Para manter a entrega coerente ao editar as fontes Markdown, o JSON embutido
+(`host/src/fork/skill_catalog/criador-de-skills.json`) é gerado por
+`host/src/fork/skill_catalog/gerar-criador-de-skills.mjs` a partir das fontes
+autorais (`SKILL.md` e `ADAPTATION.md`), que ficam fora deste repositório. Quem
+mantém o catálogo gera o JSON com as fontes correspondentes, confere com
+`--check` e inclui o artefato atualizado no mesmo PR. O compilador inclui
+somente esse artefato de `host/`; docs permanece fonte legível. Os gates
+existentes continuam selecionando o artefato embutido, sem mudança do hook/CI.

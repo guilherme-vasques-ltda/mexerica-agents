@@ -113,7 +113,7 @@ Routines are a compact grouped list: name, a one-line schedule (or the live run 
 
 On iPhone, the routine editor keeps the full-width save action in a fixed footer on the sheet background. When required fields are empty, the footer explains why saving is unavailable.
 
-New bot and New group chat (the + menu on every client) are one short sheet each, in the same layout: a large face on top (the avatar, or the picked members' group avatar), a centered optional name field, then the choices as wrapping centered grids (the avatar's shapes and colors; the computer's bots, each a face with its name under it), ringed when picked. The desktop puts Cancel and Create in a footer; the phones put Create in the sheet header. Everything else starts on the defaults and changes afterwards in Settings or the group editor; an unnamed bot is named by the host after its first conversations, an unnamed group after its bots. With more than one computer, the sheet also picks which one.
+New bot and New group chat (the + menu on every client) are one short sheet each, in the same layout (upstream description; the current desktop new-bot flow is the four-step assistant with the avatar studio, as the note above says): a large face on top (the avatar, or the picked members' group avatar), a centered optional name field, then the choices as wrapping centered grids (the avatar's shapes and colors; the computer's bots, each a face with its name under it), ringed when picked. The desktop puts Cancel and Create in a footer; the phones put Create in the sheet header. Everything else starts on the defaults and changes afterwards in Settings or the group editor; an unnamed bot is named by the host after its first conversations, an unnamed group after its bots. With more than one computer, the sheet also picks which one.
 
 New bots use automatically allocated personal workspaces. Settings offer Personal or an optional project folder; see [bot workspaces](../../features/bot-workspaces.md).
 
@@ -180,8 +180,9 @@ The expanded desktop roster ends in one floating row: the account avatar and a
 “Extensions” capsule with example service logos. A masked, layered blur softens
 roster content behind it; bottom scroll padding keeps the last bot reachable. The
 compact rail exposes the same action by tooltip and accessible name. This entry
-opens Extensions with Apps first, retaining agents, MCP connectors,
-skills and computer switching. Logos represent examples, not connected status.
+opens Extensions with Apps first (MCP connectors, skills and computer switching;
+agents live under Settings → AI accounts). Logos represent examples, not
+connected status.
 
 This is a desktop sidebar treatment across macOS, Linux and Windows. iOS keeps its
 native navigation and per-computer Extensions entry in Settings; the TUI

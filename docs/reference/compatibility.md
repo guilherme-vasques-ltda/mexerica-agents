@@ -152,18 +152,19 @@ Update this table in the release that changes a floor, with the reason.
 
 ## Trying it on a simulator
 
-Run a throwaway Debug host (it registers with the dev cloud) on its own data and port, never
-on `~/.codync` or 19222:
+Run a throwaway host on its own data and port, never on `~/.donnabot` or 19422:
 
 1. Build a copy with a patched floor or version into a separate target, then restore the
-   source: e.g. `MIN_APP = "9.0.0"` in `host/src/compat.rs` (app too old) or `"version": "2.2.0"`
+   source: e.g. `MIN_APP = "0.2.0"` in `host/src/compat.rs` (app too old — the 0.x line ranks
+   above every inherited 2.x/9.x release, so the test floor must be a higher 0.x) or `"version": "2.2.0"`
    in `hello` in `host/src/api/host.rs` (host too old), built with
    `CARGO_TARGET_DIR=<scratch>/hosttarget cargo build`.
-2. `CODYNC_HOME=<scratch>/hubhome <scratch>/hosttarget/debug/codync-host serve --port 19333`.
-3. Pair the simulator: `POST /api/pairing` with `<scratch>/hubhome/token`, then launch with
-   `SIMCTL_CHILD_CODYNC_PAIR_URL=<pairingUrl>`.
-4. Swap hosts on the same `CODYNC_HOME` (patched ↔ normal) to see the notice appear in the
+2. `MEXERICA_HOME=<scratch>/hubhome <scratch>/hosttarget/debug/donnabot-host serve --port 19437`
+   (the host refuses the Codync ports, 19222, 19223 and 19300–19399).
+3. Pair the simulator: `POST /api/pairing` with `<scratch>/hubhome/token`, then hand the
+   pairing URL to the client the way that client takes it.
+4. Swap hosts on the same `MEXERICA_HOME` (patched ↔ normal) to see the notice appear in the
    list and in place of an open chat's composer, and go away after the reconnect.
 
-The simulator has no App Store app, so *Update Codync* ends in a Safari error there; on a
+The simulator has no App Store app, so the update action ends in a browser error there; on a
 device it opens the App Store.

@@ -18,17 +18,17 @@ npm run dev
 Before launching a new build, quit only that variant. Production and Dev may coexist; see [Dev app isolation](dev-app.md). For a development rebuild:
 
 ```sh
-osascript -e 'tell application id "com.pokai.Codync.dev" to quit'
-pkill -x "Codync Dev"
+osascript -e 'tell application id "app.donnabot.mac.dev" to quit'
+pkill -x "Mexerica Dev"
 ```
 
 `pkill` can return nonzero when no process exists.
 
 The desktop app (`apps/desktop/src/main/host-controller.ts`) compares the running
 host's executable path and SHA-256 fingerprint with the host it would install (the
-bundled one in a packaged Mac app, else `CODYNC_HOST_BIN` or an installed
-`codync-host`), so reopening after a rebuild replaces the service even when the
-version number has not changed. **Restart host** runs `codync-host install` again,
+bundled one in a packaged Mac app, else `DONNABOT_HOST_BIN` or an installed
+`donnabot-host`), so reopening after a rebuild replaces the service even when the
+version number has not changed. **Restart host** runs `donnabot-host install` again,
 which waits for the old host's data lock to be released. If a manually started host
 still owns that data directory, installation fails instead of reporting a
 successful restart; stop that host in its terminal and retry. Hosts attached using
@@ -46,8 +46,8 @@ After rebuilding the host, restart the service (macOS launch agent shown; Linux
 uses the environment-specific systemd user unit). Stop only test hosts you started; do not kill another environment's host. For Dev:
 
 ```sh
-launchctl kickstart -k gui/$(id -u)/com.pokai.codync.dev.host
-pgrep -fl codync-host
+launchctl kickstart -k gui/$(id -u)/app.donnabot.dev.host
+pgrep -fl donnabot-host
 ```
 
 ## Component checks
@@ -76,7 +76,7 @@ Não há `build.rs` no Host ou no helper Linux; as fixtures lidas pelos testes R
 ficam dentro de `host/`. Consulte `AGENTS.md` antes de commitar; não use
 filtros de teste para liberar um gate obrigatório.
 
-Desenvolvimento do Hub: `cargo run --manifest-path host/Cargo.toml -- serve`. Avoid competing with an installed host on port 19222; isolated tests should use a temporary `MEXERICA_HOME` and another port. Stop test hosts when finished.
+Desenvolvimento do Hub: `cargo run --manifest-path host/Cargo.toml -- serve`. Avoid competing with an installed host on port 19422; isolated tests should use a temporary `MEXERICA_HOME` and another port. Stop test hosts when finished.
 
 ## Visual checks
 

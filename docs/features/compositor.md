@@ -2,7 +2,7 @@
 
 O compositor reúne o campo e as ações numa pílula arredondada. O botão **+** continua abrindo o seletor de anexos. O placeholder usa o nome do destino, traduzido no idioma escolhido.
 
-O botão circular usa a cor de destaque escolhida em Aparência. No claro, a ação grande usa tom vivo com ícone branco; a exceção de contraste vale apenas nesse par. Com texto enviável, envia a mensagem; vazio, mantém a seta visível, neutra e desabilitada. A voz fica em controle separado quando disponível. Os estados de parar, interromper e salvar edição continuam usando o mesmo controle e suas regras existentes. Não há folhinha nesse botão.
+O botão circular usa a cor de destaque escolhida em Aparência. No claro, a ação grande usa tom vivo com ícone branco; a exceção de contraste vale apenas nesse par. Com texto enviável, envia a mensagem; vazia, o botão principal é **Ao vivo** (conversa por voz) quando a voz está disponível, e a seta desabilitada quando não está, como no [guia da janela](janela-do-mac.md). Os estados de parar, interromper e salvar edição continuam usando o mesmo controle e suas regras existentes. Não há folhinha nesse botão.
 
 Os controles existentes de aprovação e modelo aparecem abaixo, em pílulas. O nível de aprovação não ganha poderes novos: o menu continua encaminhando as mudanças aos ajustes do bot. O modelo mostrado pertence à conversa e só pode ser trocado quando o Hub anuncia essa capacidade.
 

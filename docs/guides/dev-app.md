@@ -16,7 +16,7 @@ de cookies ou coleta de senha. A sessão Electron descrita neste guia pertence a
 app e não é um perfil do navegador integrado.
 
 O contrato v2 acrescenta a preferência `browserPreference` do bot original:
-`integrated` (padrão legado) ou `computer`. Ela é salva pelo dono, preservada em
+`integrated` (padrão legado), `computer` ou `off`. Ela é salva pelo dono, preservada em
 patch omisso e no mirror; o seletor de UI ainda não existe. Não concede
 CUA/tela nem inicia Chrome. O modo PC refere-se ao Chrome pessoal e às
 sessões existentes no PC autorizado; não promete isolamento por bot nem copia
@@ -87,9 +87,9 @@ Register the development app identifiers, App Group and Sign in with Apple capab
 
 Since 2026-10-10 the Clerk development instance lists `com.pokai.Codync.ios.dev` and `com.pokai.Codync.dev` under Native applications, with their `://callback` redirects. Without the iOS entry, Clerk rejects the Dev app's native Apple token: the log shows `sign_up.failed` with "You are not authorized to perform this request", and the app shows only "Couldn't sign in". Check the instance's Logs page first when sign-in fails.
 
-The cloud adds `/v1/oauth/callback/dev` for connector sign-in, returning `codync-dev://oauth`. The existing callback keeps returning `codync://oauth`. Deploy the added route to the development Worker before testing connector sign-in from a Dev client.
+The upstream cloud adds `/v1/oauth/callback/dev` for connector sign-in, returning `codync-dev://oauth`, and deploys that route to its development Worker before the test. In this copy the cloud connector flow is unavailable and fails closed.
 
-The push relay seals the app bundle identifier into new tickets and selects that APNs topic. Existing tickets and registrations without a bundle identifier retain the production topic. Only the production and Dev iOS identifiers are accepted; alert and Live Activity destinations stay separate. Deploy this additive relay change before testing Dev notifications. APNs sandbox/production is a signing/distribution choice, independent of which Codync cloud is used.
+The push relay seals the app bundle identifier into new tickets and selects that APNs topic. Existing tickets and registrations without a bundle identifier retain the production topic. Only the production and Dev iOS identifiers are accepted; alert and Live Activity destinations stay separate. The upstream deploys this additive relay change before testing Dev notifications. In this copy cloud push is unavailable. APNs sandbox/production is a signing/distribution choice, independent of which Codync cloud is used.
 
 ## Troubleshooting a running host shown as Offline
 

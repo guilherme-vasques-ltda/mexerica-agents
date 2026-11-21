@@ -452,7 +452,7 @@ before stopping actors.
 
 Every webhook routine has a key and two addresses (`routineWebhook`): the public
 `{cloud}/v1/hooks/{computerId}/{routineId}` through the configured Mexerica cloud (null while the
-cloud is off) and the local `http://127.0.0.1:<port>/hooks/routines/<id>`. Both run
+cloud is off) and the local `http://localhost:<port>/hooks/routines/<id>`. Both run
 the same checks (`host/src/routines/hooks.rs`); the protocol is
 the numbered sections of the remote relay protocol.
 
@@ -538,9 +538,10 @@ Os testes executados incluem `host/tests/routines_e2e.rs` (agendamento, credenci
 Research checked on 2026-09-26: [OpenClaw](https://docs.openclaw.ai/cli/webhooks)
 uses Tailscale Funnel and the [Hermes webhook adapter](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/messaging/webhooks.md)
 needs a reachable server URL. Codync instead reuses the host's outbound relay socket
-(above): no fixed IP, open port or per-user tunnel, mas o evento se perde se o Hub estiver desligado e o remetente não tentar novamente. A user's own Cloudflare Tunnel to the local endpoint also works
-but needs their own account, domain and `cloudflared`, and drops deliveries while the
-computer is off.
+(above): no fixed IP, open port or per-user tunnel, mas o evento se perde se o Hub estiver desligado e o remetente não tentar novamente. A user's own Cloudflare Tunnel to the local endpoint also
+works — it delivers the request, but local execution stays blocked until the
+chain-authority integration above — and needs their own account, domain and
+`cloudflared`, and drops deliveries while the computer is off.
 
 ## Usability comparison (2026-09-27)
 

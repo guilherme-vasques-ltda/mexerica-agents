@@ -37,7 +37,8 @@ O método `donnaSkillsDoutor` recebe `{ "botId": "…" }` e devolve:
 - `nativas`: três estados, do mais ao menos afirmado.
   - `nativa_vazando`: a fonte nomeada de skills ou regras (por exemplo
     `~/.claude/skills`, `AGENTS.md`) **existe com o tipo esperado** (arquivo para
-    `*.md`, pasta para as demais); o motor a lê.
+    `*.md`, pasta para as demais); a leitura efetiva depende da configuração do
+    motor (por exemplo, do fallback estar ativado).
   - `nativa_possivel`: existe algo que **pode** conter regras ou skills, sem
     conteúdo confirmado, com `motivo`: pasta lida inteira por cautela
     (`~/.config/opencode`, `.opencode`, `.gemini`, que podem ter só configuração),

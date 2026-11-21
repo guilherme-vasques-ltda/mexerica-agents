@@ -70,7 +70,10 @@ de tela precisam de sessão gráfica e não são entregues num servidor sem tela
 Logs do serviço: `journalctl --user -u donnabot-host.service`.
 
 A verificação herdada do Codync em contêineres e releases upstream não comprova
-a instalação deste fork.
+a instalação deste fork. O texto abaixo, em inglês, é o procedimento histórico do
+upstream, mantido como referência; para instalar esta cópia use o fluxo próprio
+acima e o [guia de instalação](instalacao-hub-linux.md), com
+`donnabot-host install --ajudante`.
 `codync-host` runs on any 64-bit Linux machine: a desktop, a home server, or a headless cloud VM (AWS, GCP, Azure, Hetzner, DigitalOcean…). It needs no display. Bots run on that machine and you message them from the iPhone, the desktop app or `codync-host tui`.
 
 ## Requirements
@@ -105,9 +108,9 @@ The phone connects over the encrypted device channel. The pairing link lists onl
 
 - **Tailscale (recommended for VMs):** install Tailscale on the VM and on the phone, then `codync-host pair`. The Tailscale name comes first in the link. You don't need to open port 19222 in the cloud firewall.
 - **Cloudflare cloud:** start the host with `CODYNC_CLOUD_URL=https://…` if you run your own Codync cloud. The production cloud isn't live yet.
-- **Desktop app over SSH:** the desktop app (macOS or Linux) can attach an SSH computer and tunnel to its loopback API ([Accounts and SSH](accounts-and-ssh.md)). From any terminal: `ssh -L 19222:127.0.0.1:19222 vm`, then `codync-host tui` locally.
+- **Desktop app over SSH:** the desktop app (macOS or Linux) can attach an SSH computer and tunnel to its loopback API ([Accounts and SSH](accounts-and-ssh.md)). From any terminal: `ssh -L 19222:localhost:19222 vm`, then `codync-host tui` locally.
 
-The host listens on `0.0.0.0:19222`. The local API (`/api/*`, `/events`, terminals; bearer token) answers **loopback callers only**, so a public address never exposes it. From outside, only `/health` (host id, computer id, version) and the end-to-end encrypted device channel answer, and the channel only serves devices holding this host's pairing keys. Keep 19222 closed in the cloud firewall anyway unless you deliberately pair over a VPN or private network.
+The host listens on all interfaces, port 19222. The local API (`/api/*`, `/events`, terminals; bearer token) answers **loopback callers only**, so a public address never exposes it. From outside, only `/health` (host id, computer id, version) and the end-to-end encrypted device channel answer, and the channel only serves devices holding this host's pairing keys. Keep 19222 closed in the cloud firewall anyway unless you deliberately pair over a VPN or private network.
 
 ## Limitations on a headless server
 
