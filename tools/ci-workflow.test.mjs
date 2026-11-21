@@ -1,7 +1,7 @@
-// Contrato do workflow de CI: Instabox por padrão (variável só troca a máquina), nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho.
+// Contrato dos workflows: CI na Instabox por padrão (variável só troca a máquina), macOS só na Namespace, nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -154,6 +154,85 @@ test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
   assert.ok(sem.includes('-r "$RUNNER_TEMP/semgrep-politica/requirements.txt"'));
   assert.ok(sem.includes('--config "$RUNNER_TEMP/semgrep-politica/semgrep.yml"'));
   assert.ok(!/-r \.github\/|--config \.github\//.test(sem), 'nada lido direto do checkout do PR');
+});
+
+// macOS: workflow à parte, só em máquina macOS da Namespace, fora do ci-ok.
+const mac = readFileSync(new URL('../.github/workflows/macos.yml', import.meta.url), 'utf8');
+const macLines = mac.split('\n');
+const macJobs = {};
+let macCurrent = null;
+for (const line of macLines.slice(macLines.indexOf('jobs:') + 1)) {
+  const header = /^  ([a-z][a-z-]*):$/.exec(line);
+  if (header) { macCurrent = header[1]; macJobs[macCurrent] = []; continue; }
+  if (macCurrent) macJobs[macCurrent].push(line);
+}
+const NSCLOUD = ['nscloud-macos-tahoe-arm64-6x14', 'nscloud-macos-sequoia-arm64-6x14'];
+const ACTIONS = new Set([
+  'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+  'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
+  'Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
+  'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
+]);
+
+test('só ci.yml e macos.yml existem como workflows', () => {
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['ci.yml', 'macos.yml']);
+});
+
+test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
+  assert.ok(!/[^\x00-\x7F]/.test(mac), 'macos.yml deve ser ASCII');
+  assert.match(mac, /^on:\n  pull_request:\n    types: \[[a-z_, ]+\]\n    paths:\n(?:      - '[^'\n]+'\n)+  workflow_dispatch:\n\n/m);
+  for (const trigger of ['pull_request_target', 'workflow_run', 'issue_comment', 'schedule', 'push:', 'merge_group', 'inputs:', 'workflow_call']) {
+    assert.ok(!mac.includes(trigger), `gatilho proibido: ${trigger}`);
+  }
+  assert.match(mac, /^permissions: \{\}$/m);
+  assert.match(mac, /^concurrency:\n  group: macos-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}\n  cancel-in-progress: true$/m);
+});
+
+test('macOS: um job, só Namespace macOS, leitura, timeout, sem secrets e sem fork', () => {
+  assert.deepEqual(Object.keys(macJobs), ['macos']);
+  const job = macJobs.macos.join('\n');
+  const runsOn = macJobs.macos.filter((l) => /^    runs-on:/.test(l));
+  assert.equal(runsOn.length, 1);
+  assert.ok(NSCLOUD.includes(runsOn[0].replace(/^    runs-on: /, '')), `runs-on fora da lista: ${runsOn[0]}`);
+  assert.ok(!/ubuntu-|windows-|self-hosted|boat|instabox|-with-cache|nscloud-cache/i.test(job), 'sem runner do GitHub nem volume de cache compartilhado');
+  assert.match(job, /^    permissions:\n      contents: read\n    [a-z]/m);
+  const timeout = /^    timeout-minutes: (\d+)$/m.exec(job);
+  assert.ok(timeout && Number(timeout[1]) <= 90, 'timeout de no máximo 90 minutos');
+  assert.ok(!/\bsecrets\./.test(mac), 'macOS não recebe secrets');
+  assert.ok(!/: write\b/.test(mac), 'sem permissão de escrita');
+  assert.ok(!/container:|services:/.test(job));
+  assert.match(job, /^    if: \$\{\{ github\.event_name == 'workflow_dispatch' \|\| \(github\.event\.pull_request\.head\.repo\.full_name == github\.repository && !github\.event\.pull_request\.draft\) \}\}$/m);
+  assert.ok(!body('ci-ok').includes('macos'), 'o job macOS fica fora do ci-ok');
+});
+
+test('macOS: actions da lista fechada por SHA; checkout sem credencial persistida', () => {
+  const uses = [...mac.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
+  assert.ok(uses.length > 0);
+  for (const ref of uses) assert.ok(ACTIONS.has(ref), `action fora da lista: ${ref}`);
+  for (const c of mac.split('uses: actions/checkout@').slice(1)) assert.match(c.split('\n      - ')[0], /persist-credentials: false/);
+});
+
+test('macOS: roda as provas nativas, empacota e confere assinatura e arquitetura', () => {
+  const job = macJobs.macos.join('\n');
+  assert.match(job, /cargo test --locked --bin donnabot-host fork::open_codex/);
+  assert.match(job, /CODYNC_ENV: open\n(?:.*\n)*?        run: cargo test --locked --test open_hub/);
+  for (const cmd of ['npm ci --no-audit --no-fund', 'npm run test:open', 'npm run dist:mac:open', 'codesign --verify --deep --strict "$OPEN_APP"', 'test "$(lipo -archs "$hub")" = arm64', 'codesign --verify --strict "$hub"', 'codesign --verify --strict "$speech"']) assert.ok(job.includes(cmd), cmd);
+  assert.match(job, /shasum -a 256 --check/, 'rustup-init conferido por hash');
+});
+
+test('macOS: zip e artefato só no disparo manual, com retenção curta', () => {
+  const steps = macJobs.macos.join('\n').split('\n      - ').slice(1);
+  const manual = "if: ${{ github.event_name == 'workflow_dispatch' }}";
+  const upload = steps.filter((st) => st.includes('actions/upload-artifact@'));
+  assert.equal(upload.length, 1);
+  assert.ok(upload[0].includes(manual));
+  const days = /retention-days: (\d+)/.exec(upload[0]);
+  assert.ok(days && Number(days[1]) >= 1 && Number(days[1]) <= 7);
+  assert.match(upload[0], /if-no-files-found: error/);
+  const zip = steps.filter((st) => st.includes('ditto -c -k'));
+  assert.equal(zip.length, 1);
+  assert.ok(zip[0].includes(manual) && zip[0].includes('SHA256SUMS'));
+  assert.ok(steps.some((st) => st.includes("if: ${{ always() }}") && st.includes('GITHUB_STEP_SUMMARY') && st.includes('Minutos')), 'resumo de minutos sempre');
 });
 
 test('seleção por caminhos: o laço do workflow marca Hub e Desktop pelos arquivos que os testes leem', () => {
