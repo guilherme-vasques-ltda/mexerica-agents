@@ -55,6 +55,8 @@ async fn http_recusa_dono_rotas_externas_e_bearer_invalido_sem_promover_a_local(
         "nuncaFazerEditar",
         "nuncaFazerRemover",
         "nuncaFazerReordenar",
+        "instrucaoGeral",
+        "instrucaoGeralSalvar",
         "pairing",
         "decideAccessRequest",
         "setApproval",
