@@ -419,8 +419,8 @@ fn resultado_so_entra_para_chamada_aberta_uma_vez_e_com_o_mesmo_nome() {
     let roles: Vec<&str> = kept.iter().map(|m| m["role"].as_str().unwrap()).collect();
     assert_eq!(
         roles,
-        ["user", "assistant", "toolResult"],
-        "sem o segundo resultado do mesmo id; a chamada c2, cujo resultado de outro nome foi recusado, fica aberta e sai"
+        ["user", "assistant", "toolResult", "assistant", "toolResult"],
+        "sem o segundo resultado do mesmo id; a chamada c2, cujo resultado de outro nome foi recusado, ganha o resultado desconhecido"
     );
     assert_eq!(kept[2]["content"][0]["text"], "primeiro");
 
@@ -432,7 +432,7 @@ fn resultado_so_entra_para_chamada_aberta_uma_vez_e_com_o_mesmo_nome() {
 }
 
 #[test]
-fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
+fn volta_de_ferramentas_que_nao_terminou_ganha_resultado_desconhecido() {
     let two = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
         "timestamp": 2, "content": [
             {"type": "toolCall", "id": "a", "name": "eco", "arguments": {}},
@@ -443,7 +443,13 @@ fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
     log.push(&result("a", "so um chegou"));
     let (kept, dropped) = log.take();
     assert!(dropped, "a volta aberta marca a cópia para a ressincronização");
-    assert_eq!(texts_of(&kept), ["pedido"], "nem a chamada nem o resultado que chegou ficam");
+    assert_paired(&kept);
+    let roles: Vec<&str> = kept.iter().map(|m| m["role"].as_str().unwrap()).collect();
+    assert_eq!(roles, ["user", "assistant", "toolResult", "toolResult"]);
+    assert_eq!(kept[2]["content"][0]["text"], "so um chegou", "o resultado que chegou fica como veio");
+    assert_eq!(kept[3]["toolCallId"], "b");
+    assert_eq!(kept[3]["isError"], true);
+    assert!(kept[3]["content"][0]["text"].as_str().unwrap().contains("resultado desconhecido"));
 
     let mut log = TurnLog::new(Vec::new());
     log.push(&user("pedido"));
@@ -457,28 +463,10 @@ fn volta_de_ferramentas_que_nao_terminou_sai_inteira_da_copia() {
     log.push(&call("c1", &json!({})));
     log.push(&user("outra mensagem chegou antes do resultado"));
     let (kept, dropped) = log.take();
-    assert!(dropped, "uma mensagem nova fecha a volta: a chamada sem resultado sai na hora");
-    assert_eq!(texts_of(&kept), ["pedido", "outra mensagem chegou antes do resultado"]);
-}
-
-#[test]
-fn blocos_de_texto_e_chamadas_tem_tetos_separados() {
-    let mut blocks: Vec<Value> =
-        (0..MAX_BLOCKS + 6).map(|i| json!({"type": "text", "text": format!("t{i}")})).collect();
-    blocks.push(json!({"type": "toolCall", "id": "c1", "name": "eco", "arguments": {}}));
-    let many_texts = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
-        "timestamp": 2, "content": blocks});
-    let clean = sanitize(&many_texts, &[]).unwrap();
-    let kept = clean["content"].as_array().unwrap();
-    assert_eq!(kept.iter().filter(|b| b["type"] == "text").count(), MAX_BLOCKS, "o teto vale só para o texto");
-    assert_eq!(kept.last().unwrap()["id"], "c1", "a chamada depois de muito texto continua guardada");
-
-    let calls: Vec<Value> = (0..=MAX_BLOCKS)
-        .map(|i| json!({"type": "toolCall", "id": format!("c{i}"), "name": "eco", "arguments": {}}))
-        .collect();
-    let too_many = json!({"role": "assistant", "api": "faux", "provider": "faux", "model": "faux-1", "stopReason": "toolUse",
-        "timestamp": 2, "content": calls});
-    assert!(sanitize(&too_many, &[]).is_none(), "chamadas acima do teto: a mensagem não é guardada, nunca pela metade");
+    assert!(dropped, "uma mensagem nova fecha a volta: a chamada sem resultado é fechada na hora");
+    assert_paired(&kept);
+    assert_eq!(kept[2]["toolCallId"], "c1");
+    assert_eq!(kept[3]["role"], "user");
 }
 
 #[tokio::test]

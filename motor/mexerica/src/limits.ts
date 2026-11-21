@@ -89,7 +89,13 @@ function shrink(message: AgentMessage): AgentMessage {
 	}
 	const source = message as unknown as Json;
 	// O motivo de parada fica: o laço e o Hub decidem o turno por ele (um diagnóstico de erro gigante não pode apagá-lo).
-	const bare = { role: source.role, content: typeof source.content === "string" ? "" : [], timestamp: source.timestamp, ...(typeof source.stopReason === "string" ? { stopReason: source.stopReason } : {}) } as unknown as AgentMessage;
+	// Uma mensagem do assistente com chamadas nunca perde os ids: o par com os resultados depende deles.
+	const calls = callIds(message);
+	const bareCalls = calls.map((id) => {
+		const block = (Array.isArray(source.content) ? (source.content as Json[]) : []).find((b) => b.type === "toolCall" && String(b.id) === id);
+		return { type: "toolCall", id, name: block?.name, arguments: {} };
+	});
+	const bare = { role: source.role, content: typeof source.content === "string" ? "" : bareCalls, timestamp: source.timestamp, ...(typeof source.stopReason === "string" ? { stopReason: source.stopReason } : {}) } as unknown as AgentMessage;
 	measured.set(bare, bytesOf(bare));
 	return bare;
 }

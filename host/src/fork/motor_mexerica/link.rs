@@ -63,6 +63,7 @@ pub(crate) struct Link {
     pending: Mutex<acp::Pending>,
     next_out: AtomicU64,
     /// So as provas do ator com o motor real dispensam os servidores MCP: o executavel deles seria o binario de testes.
+    #[cfg(test)]
     skip_mcp: std::sync::atomic::AtomicBool,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -195,6 +196,7 @@ impl Link {
             outgoing: Mutex::new(HashMap::new()),
             pending: Mutex::new(acp::Pending::default()),
             next_out: AtomicU64::new(1),
+            #[cfg(test)]
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
             stop,
             task: Mutex::new(None),
@@ -202,6 +204,7 @@ impl Link {
     }
 
     /// Dispensa os servidores MCP deste adaptador (so a prova do ator com o motor real).
+    #[cfg(test)]
     pub(crate) fn skip_mcp_servers(&self) {
         self.skip_mcp.store(true, Ordering::Relaxed);
     }
@@ -387,7 +390,11 @@ impl Link {
         // Falha ao abrir os servidores recusa a sessão: sem isso o bot seguiria sem ferramentas e sem aviso.
         // Só a prova do ator com o motor real (`actor_extra_env` vazio fora dela) dispensa os servidores: o
         // executável deles seria o binário de testes, não um Hub.
-        let servers = if self.skip_mcp.load(Ordering::Relaxed) { json!([]) } else { params["mcpServers"].clone() };
+        #[cfg(test)]
+        let skip = self.skip_mcp.load(Ordering::Relaxed);
+        #[cfg(not(test))]
+        let skip = false;
+        let servers = if skip { json!([]) } else { params["mcpServers"].clone() };
         let mcp = McpHost::start(&servers, &cwd)
             .await
             .map(|host| Some(Arc::new(host)))
