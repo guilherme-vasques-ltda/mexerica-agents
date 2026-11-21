@@ -133,9 +133,9 @@ function payloadToChart(raw: unknown): Chart {
   return Object.freeze(chart)
 }
 
-function guarded(raw: string, read: (value: unknown) => Chart): Parsed {
+function guarded(raw: string, read: (value: unknown) => Chart, maxBytes = MAX_BYTES): Parsed {
   try {
-    if (typeof raw !== 'string' || new TextEncoder().encode(raw).length > MAX_BYTES) return { ok: false, code: 'genui_chart_too_large' }
+    if (typeof raw !== 'string' || new TextEncoder().encode(raw).length > maxBytes) return { ok: false, code: 'genui_chart_too_large' }
     const parsed = parseClosedJson(raw, { unsignedIntegerFields: ['version'] })
     if (!parsed.ok) return { ok: false, code: 'genui_chart_invalid_payload' }
     return { ok: true, chart: read(parsed.value) }
@@ -154,7 +154,7 @@ export const parseChartSnapshot = (raw: string): Parsed => guarded(raw, (value) 
   const chart = payloadToChart(s.payload)
   ensure(s.requested === chart.requested && s.effective === chart.effective, 'genui_chart_invalid_snapshot')
   return chart
-})
+}, MAX_BYTES + 256)
 
 /** Increasing nonoverlapping expansion, matching the Hub's TwoSum comparison. Never collapse the
  * residue before comparing the exact sum with MAX_VALUE; MAX + 0.1 exceeds it in either order. */

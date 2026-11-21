@@ -171,6 +171,23 @@ test('snapshot só quando coerente com o payload', () => {
   assert.ok([chart, chart.labels, chart.series, chart.series[0], chart.series[0]!.values].every(Object.isFrozen))
 })
 
+test('snapshot aceita envelope até 256 bytes maior que o payload e recusa acima do limite', () => {
+  const p = payload('bar_chart', 430, Array(430).fill(1))
+  p.data.labels = Array.from({ length: 430 }, (_, i) => `L${String(i).padStart(3, '0')}_${'a'.repeat(138)}`)
+  let labelIndex = 0
+  while (new TextEncoder().encode(JSON.stringify(p)).length < 65_520) {
+    const label = p.data.labels[labelIndex]!
+    if (label.length < 160) p.data.labels[labelIndex] = `${label}a`
+    labelIndex = (labelIndex + 1) % p.data.labels.length
+  }
+  const payloadRaw = JSON.stringify(p)
+  assert.ok(new TextEncoder().encode(payloadRaw).length <= 64 * 1024)
+  const snapshotRaw = JSON.stringify({ requested: 'bar_chart', effective: 'bar_chart', payload: p })
+  assert.ok(new TextEncoder().encode(snapshotRaw).length > 64 * 1024)
+  assert.ok(parseChartSnapshot(snapshotRaw).ok)
+  assert.deepEqual(parseChartSnapshot(' '.repeat(64 * 1024 + 257)), { ok: false, code: 'genui_chart_too_large' })
+})
+
 test('null é Indisponível, nunca zero, e quebra a linha', () => {
   assert.deepEqual(segments([1, null, 0, 2, null, 3]), [[0], [2, 3], [5]])
   assert.deepEqual(segments([null, null]), [])
