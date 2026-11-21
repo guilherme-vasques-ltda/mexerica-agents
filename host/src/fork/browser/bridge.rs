@@ -110,7 +110,7 @@ pub(crate) fn launch_script(
         "mkdir -p {profile_q}\nmount --bind $stage/profile {profile_q}\nmkdir -p /tmp/.X11-unix\n[ ! -S $stage/x11/X{display} ] || {{ touch /tmp/.X11-unix/X{display}; mount --bind $stage/x11/X{display} /tmp/.X11-unix/X{display}; }}\numount $stage/profile 2>/dev/null || true\numount $stage/x11/X{display} 2>/dev/null || true\nrm -f $stage/x11/X{display}\nrmdir $stage/profile $stage/x11 $stage\n"
     );
     Ok(format!(
-        "#!/bin/sh\nset -e\nip link set lo up\n{mounts}{} __browser-bridge 0 {} {} 3<&- 4<&- &\nbridge_pid=$!\ni=0\nwhile [ ! -s {} ]; do i=$((i+1)); [ $i -gt 200 ] && exit 1; sleep 0.05; done\nport=$(cat {})\nexec unshare -Upf --mount-proc --map-user={uid} --map-group={gid} {} --proxy-server=http://127.0.0.1:$port {args}\n",
+        "#!/bin/sh\nset -e\nip link set lo up\n{mounts}{} __browser-bridge 0 {} {} 3<&- 4<&- &\nbridge_pid=$!\ni=0\nwhile [ ! -s {} ]; do i=$((i+1)); [ $i -gt 200 ] && exit 1; sleep 0.05; done\nport=$(cat {})\nexec unshare -Upf --kill-child --mount-proc --map-user={uid} --map-group={gid} {} --proxy-server=http://127.0.0.1:$port {args}\n",
         shell_quote(&host_binary.display().to_string()),
         shell_quote(&socket.display().to_string()),
         shell_quote(&port_file.display().to_string()),
@@ -224,7 +224,7 @@ mod tests {
         assert!(!script.contains("segredo"));
         // P2-1/P2-2: PID ns com /proc novo, /dev/shm novo, staging privado
         // dentro do ns e só o socket X<display> da sessão de volta.
-        assert!(script.contains("unshare -Upf --mount-proc"), "Chromium sem PID ns/proc novo: {script}");
+        assert!(script.contains("unshare -Upf --kill-child --mount-proc"), "Chromium sem PID ns/proc novo: {script}");
         assert!(script.contains("mount -t tmpfs -o mode=1777 tmpfs /dev/shm"), "sem tmpfs novo em /dev/shm");
         assert!(script.contains("mktemp -d /dev/shm/.mx-browser-stage.XXXXXX"), "staging previsível ou fora do ns");
         assert!(!script.contains("stage=/dev/shm/.mx-browser-stage\n"), "staging em caminho fixo compartilhado");

@@ -30,6 +30,11 @@ impl Actor {
             context["automaticPaused"] = json!(failures.paused());
             context["automaticFailures"] = json!(failures.consecutive);
             let size = context["size"].as_u64().ok_or_else(|| anyhow!("context_unavailable"))?;
+            let parts = target
+                .acp
+                .as_deref()
+                .and_then(|acp| crate::chat::context::parts(&self.hub.store, &target.lane.chat, acp, target.epoch));
+            context["parts"] = contexto::breakdown(context["used"].as_u64().unwrap_or(0), parts);
             context["trigger"] = json!(
                 self.compaction_policy(&codync_mem::compaction::Conversation { size, ..Default::default() })?.trigger()
             );
