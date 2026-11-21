@@ -9,6 +9,7 @@ import type {
   CallError,
   CodyncBridge,
   HostSnapshot,
+  ReleaseNoticeState,
   UpdateState,
 } from '../shared/ipc.ts'
 import type { SignInFailure } from '../shared/analytics.ts'
@@ -176,6 +177,15 @@ function defaultUpdates(): CodyncBridge['updates'] {
   return { state: async () => state, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} }
 }
 
+/** Nível 1 de atualizações: na web não há release local a avisar; a ponte devolve o estado vazio. */
+function defaultReleaseNotice(): CodyncBridge['releaseNotice'] {
+  const state: ReleaseNoticeState = {
+    supported: false, currentVersion: appVersion, status: 'idle', availableVersion: null, availableTag: null,
+    releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
+  }
+  return { state: async () => state, check: async () => state, dismiss: async () => state, openDownload: async () => false, onChange: none }
+}
+
 /** O primeiro idioma do navegador que o app tem (mesma regra do main: shared/fork-idioma). */
 export function suggestedLanguageOf(languages: readonly string[]): AppLanguage | null {
   return sugerirIdioma(languages)
@@ -228,6 +238,7 @@ export function createWebBridge(parts: WebBridgeParts = {}): CodyncBridge {
       request: async () => ({ ok: false, error: { status: 503, code: 'web', message: WEB_UNAVAILABLE } }),
     },
     updates: defaultUpdates(),
+    releaseNotice: defaultReleaseNotice(),
     files: parts.files ?? {
       begin: unavailable as CodyncBridge['files']['begin'],
       write: unavailable as CodyncBridge['files']['write'],

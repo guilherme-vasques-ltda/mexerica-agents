@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AtalhoBerga } from '../fork/atalho-berga/AtalhoBerga'
+import { AtualizacaoAjuste } from '../fork/atualizacao/AtualizacaoAjuste'
 import { IdiomaAjuste } from '../fork/idioma/IdiomaAjuste'
 import type { Screen } from '@shared/analytics'
 import { forkFeatures, showsAccountControls, showsComputerAccess } from '@shared/fork-features'
@@ -243,6 +244,7 @@ export function GeneralSettings() {
         ) : null}
       </CardSection> : null}
       </Superficie>
+      <AtualizacaoAjuste />
       {forkFeatures.analytics && <PrivacySettings />}
     </CardForm>
   )

@@ -6,7 +6,7 @@ import { Dialog, ModalHeader } from '../../components/Overlay'
 import { HStack, Spacer, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
-import { emptyDraft, errorText, rawError, repeatChoice, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview, type RoutineTrigger } from './routine'
+import { emptyDraft, errorText, isManual, rawError, repeatChoice, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview, type RoutineTrigger } from './routine'
 import { Field } from '../bots/parts'
 import { LabeledRow, RoutineScheduleFields } from './RoutineScheduleFields'
 import { RoutineWebhookPanel } from './RoutineWebhookPanel'
@@ -69,6 +69,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
     ...(keepsOriginal ? [{ id: 'keep', label: t('rotinas.editor.definidaPeloBot') }] : []),
     { id: 'cron', label: t('rotinas.editor.agenda') },
     { id: 'webhook', label: t('rotinas.editor.webhook') },
+    { id: 'manual', label: t('rotinas.editor.manual') },
   ]
   const pendingEdit = routine ? hasPendingEdit(routine, { name, instruction, timeout, scheduleKey: key }, savedKey) : false
   const canSave = !!name.trim() && !!instruction.trim() && !store.isOffline && !busy && !duplicating && loaded && checkedKey === key && previewError === null && !clockProblem
@@ -79,10 +80,11 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
       const triggers = routine?.triggers ?? initialTriggers ?? []
       const result = await client.call<RoutineSchedulePreview>('routineSchedule', {
         triggers,
+        manual: routine ? isManual(routine) : false,
         timeZone: currentZone(Intl.DateTimeFormat().resolvedOptions().timeZone),
       })
       const draft = { ...result.draft, calendarStyle: repeatChoice(result.draft.calendarStyle) }
-      if (!['cron', 'webhook'].includes(draft.kind)) draft.kind = 'keep'
+      if (!['cron', 'webhook', 'manual'].includes(draft.kind)) draft.kind = 'keep'
       // Every clock trigger becomes a pill, none cut; anything else stays as the host read it.
       const read = readClockTriggers(triggers)
       if (read) {
@@ -192,6 +194,8 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
         ) : (
           <Note icon="link" title={t('rotinas.editor.webhookRoda')} detail={t('rotinas.editor.salveUrl')} />
         )
+      case 'manual':
+        return <Note icon="play.circle" title={t('rotinas.editor.manual')} detail={t('rotinas.editor.manualDetalhe')} />
       default:
         return <Note icon="sparkles" title={shownPreview ? agendaDoHub(shownPreview, idioma) : (routine?.triggerDescriptions.join(' · ') ?? '')} detail={t('rotinas.editor.criadaPeloBot')} />
     }

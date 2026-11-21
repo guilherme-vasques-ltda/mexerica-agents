@@ -10,7 +10,6 @@ use crate::agent::bot::Cmd;
 use crate::chat::naming::MAX_NAME_CHARS;
 use crate::chat::profile::{MAX_INSTRUCTIONS_CHARS, checked_instructions};
 use crate::hub::Hub;
-use crate::routines::Trigger;
 use crate::store::{BotConfig, ManagementOrigin, Permission, TeamSettings, restrictive};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Map, Value, json};
@@ -57,7 +56,7 @@ pub fn tools() -> Value {
     let mut setup = json!({
         "name": {"type": "string", "description": format!("At most {MAX_NAME_CHARS} characters. \"Berga\" is reserved for the primary (D366, donna_reserved).")},
         "instructions": {"type": "string", "description": format!("Standing instructions: what the bot is for and rules that always apply, at most {MAX_INSTRUCTIONS_CHARS} characters. When the user approves your changes, their card shows at most {MAX_CARD_DETAIL} characters of the whole change, routines included.")},
-        "routines": {"type": "array", "items": {"type": "object"}, "description": format!("Up to {MAX_ROUTINES} routines to save for the bot, each as save_routine takes it (name, instruction, triggers, optionally enabled and timeoutSeconds). One with an id from list_team replaces that routine.")},
+        "routines": {"type": "array", "items": {"type": "object"}, "description": format!("Up to {MAX_ROUTINES} routines to save for the bot, each as save_routine takes it (name, instruction, triggers, optionally enabled and timeoutSeconds; a routine that runs only when the owner says so takes manual:true and no triggers, and an empty triggers list without manual:true is refused). One with an id from list_team replaces that routine.")},
     });
     let mut create = setup.clone();
     create["folder"] = json!({"type": "string", "description": "Existing absolute folder inside the user-configured workspaceRoot (default ~/Donnabot/workspaces). The primary folder and Mexerica data folder cannot be reused; other subfolders of workspaceRoot are allowed, even when the primary folder contains that root. Omit for a new private folder inside that root. Pastas privadas ~/.mexerica*, ~/.donnabot* e ~/.codync*, incluindo Dev, aliases e backups, não são pastas de trabalho."});
@@ -458,8 +457,7 @@ fn routines(hub: &Hub, bot: &str, args: &Value) -> Result<(Vec<Value>, Vec<Strin
         .iter()
         .map(|r| {
             let routine = hub.routines.check(bot, r)?;
-            let when: Vec<String> = routine.triggers.iter().map(Trigger::description).collect();
-            Ok(format!("• {} ({}): {}", routine.name, when.join("; "), routine.instruction))
+            Ok(format!("• {} ({}): {}", routine.name, routine.when(), routine.instruction))
         })
         .collect::<Result<_>>()?;
     Ok((list, lines))

@@ -1,4 +1,4 @@
-// Contrato dos workflows: CI na Instabox por padrão (variável só troca a máquina), macOS na Namespace ou, pela variável, no GitHub com o repositório público, nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho. O release é disparo manual nos runners grátis do GitHub e só cria rascunho.
+// Contrato dos workflows: CI e macOS sempre nos runners do GitHub (ubuntu-24.04 e macos-15), sem variável de máquina e sem fornecedor de terceiros, permissões explícitas, actions por SHA e ci-ok sem atalho. O release é disparo manual nos runners grátis do GitHub e só cria rascunho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
@@ -22,11 +22,8 @@ for (const line of lines.slice(jobsStart + 1)) {
   if (current) jobs[current].push(line);
 }
 const body = (name) => jobs[name].join('\n');
-const RUNS_ON = new Set([
-  "${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}",
-  "${{ vars.CI_MAQUINA_MEDIA || 'instabox-medium' }}",
-  "${{ vars.CI_MAQUINA_PESADA || 'instabox-large' }}",
-]);
+const GITHUB_LINUX = 'ubuntu-24.04';
+const FORNECEDORES = /self-hosted|blacksmith|buildjet|depot-|boat|instabox|nscloud/i;
 
 test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fora', () => {
   assert.ok(!/[^\x00-\x7F]/.test(ci), 'ci.yml deve ser ASCII');
@@ -38,27 +35,20 @@ test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fo
   assert.match(ci, /^concurrency:\n  group: ci-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true$/m);
 });
 
-test('todo job roda na Instabox por padrão, com permissões e timeout explícitos', () => {
+test('todo job roda em runner fixo do GitHub, com permissões e timeout explícitos', () => {
   assert.deepEqual(Object.keys(jobs), ['leves', 'vazamento', 'hub', 'desktop', 'ci-ok']);
   for (const [name, job] of Object.entries(jobs)) {
     const runsOn = job.filter((l) => /^    runs-on:/.test(l));
     assert.equal(runsOn.length, 1, `${name}: exatamente um runs-on`);
-    assert.ok(RUNS_ON.has(runsOn[0].replace(/^    runs-on: /, '')), `${name}: runs-on fora da lista: ${runsOn[0]}`);
+    assert.equal(runsOn[0].replace(/^    runs-on: /, ''), GITHUB_LINUX, `${name}: runs-on fora do contrato: ${runsOn[0]}`);
     assert.ok(job.some((l) => /^    permissions:/.test(l)), `${name}: permissions explícito`);
     assert.ok(job.some((l) => /^    timeout-minutes: [1-9][0-9]*$/.test(l)), `${name}: timeout-minutes`);
     assert.ok(!/container:|services:/.test(job.join('\n')), `${name}: sem container/services`);
   }
-  assert.ok(!/ubuntu-|windows-|macos-|self-hosted|blacksmith|buildjet|depot-|boat|nscloud/i.test(ci), 'nenhum rótulo de runner do GitHub ou de outro fornecedor');
+  assert.ok(!FORNECEDORES.test(ci), 'nenhum rótulo de runner de terceiro ou self-hosted');
+  assert.ok(!/\bvars\./.test(ci), 'nenhuma variável de máquina');
+  assert.ok(!/Recusar maquina do GitHub/.test(ci), 'nenhuma guarda contra runner do GitHub');
   assert.ok(!/run_attempt|needs\.route/.test(ci), 'sem rota por tentativa');
-  assert.deepEqual([...new Set([...ci.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))].sort(), ['CI_MAQUINA_LEVE', 'CI_MAQUINA_MEDIA', 'CI_MAQUINA_PESADA'], 'só as variáveis de máquina');
-});
-
-test('todo job recusa máquina do GitHub enquanto o repositório for privado, como primeiro passo', () => {
-  for (const [name] of Object.entries(jobs)) {
-    const first = body(name).split('\n    steps:\n')[1].replace(/^(?:      #.*\n)+/, '').split('\n      - ')[0];
-    assert.match(first, /^      - name: Recusar maquina do GitHub em repositorio privado\n        if: \$\{\{ runner\.environment == 'github-hosted' && github\.event\.repository\.private \}\}\n/, `${name}: guarda no primeiro passo`);
-    assert.match(first, /exit 1/);
-  }
 });
 
 test('leves: verificadores da main antes de qualquer código do PR; auditoria só como aviso', () => {
@@ -161,7 +151,7 @@ test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
   assert.ok(!/-r \.github\/|--config \.github\//.test(sem), 'nada lido direto do checkout do PR');
 });
 
-// macOS: workflow à parte, fora do ci-ok; privado na Namespace, público só em macos-15 com CI_MAQUINA_MAC=macos-15.
+// macOS: workflow à parte, fora do ci-ok; sempre no runner macos-15 do GitHub.
 const mac = readFileSync(new URL('../.github/workflows/macos.yml', import.meta.url), 'utf8');
 const macLines = mac.split('\n');
 const macJobs = {};
@@ -172,11 +162,7 @@ for (const line of macLines.slice(macLines.indexOf('jobs:') + 1)) {
   if (macCurrent) macJobs[macCurrent].push(line);
 }
 const MAC_ELIGIBLE = "((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft))";
-const MAC_IF = `\${{ (github.event.repository.visibility != 'public' || vars.CI_MAQUINA_MAC == 'macos-15') && ${MAC_ELIGIBLE} }}`;
-const MAC_INVALID_IF = `\${{ github.event.repository.visibility == 'public' && vars.CI_MAQUINA_MAC != 'macos-15' && ${MAC_ELIGIBLE} }}`;
-const MAC_RUNS_ON = "${{ github.event.repository.visibility == 'public' && 'macos-15' || 'nscloud-macos-tahoe-arm64-6x14' }}";
-const MAC_GUARD = "${{ runner.environment == 'github-hosted' && github.event.repository.visibility != 'public' }}";
-const MAC_GUARD_PAID = "${{ runner.environment != 'github-hosted' && github.event.repository.visibility == 'public' }}";
+const MAC_IF = `\${{ ${MAC_ELIGIBLE} }}`;
 // Avalia o texto exato da expressão do YAML: && e || devolvem o operando como no Actions, e == compara texto sem caixa.
 const CONTEXTS = [
   ['github.event.pull_request.head.repo.full_name', 'ctx.headRepo'],
@@ -185,7 +171,6 @@ const CONTEXTS = [
   ['github.event_name', 'ctx.event'],
   ['github.repository', 'ctx.repo'],
   ['github.ref', 'ctx.ref'],
-  ['vars.CI_MAQUINA_MAC', 'ctx.mac'],
   ['runner.environment', 'ctx.environment'],
 ];
 const evalExpr = (expr, ctx) => {
@@ -197,17 +182,6 @@ const evalExpr = (expr, ctx) => {
   return new Function('ctx', 'eq', `return ${js};`)(ctx, eq);
 };
 const VISIBILITIES = ['public', 'private', 'internal', '', undefined];
-const MAC_VALUES = ['', undefined, 'macos-15', 'MACOS-15', 'macos-26', 'ubuntu-24.04', 'nscloud-macos-tahoe-arm64-6x14'];
-const REPO = 'dono/repo';
-const EVENTS = {
-  'disparo na main': { event: 'workflow_dispatch', ref: 'refs/heads/main', repo: REPO, eligible: true },
-  'disparo em outro branch': { event: 'workflow_dispatch', ref: 'refs/heads/outro', repo: REPO, eligible: false },
-  // O Actions compara sem caixa: esta ref passa na condição do job, e o passo «Recusar disparo manual fora da main» a barra.
-  'disparo em MAIN': { event: 'workflow_dispatch', ref: 'refs/heads/MAIN', repo: REPO, eligible: true },
-  'PR interno': { event: 'pull_request', ref: 'refs/pull/1/merge', repo: REPO, headRepo: REPO, draft: false, eligible: true },
-  'PR interno em rascunho': { event: 'pull_request', ref: 'refs/pull/1/merge', repo: REPO, headRepo: REPO, draft: true, eligible: false },
-  'PR de fork': { event: 'pull_request', ref: 'refs/pull/1/merge', repo: REPO, headRepo: 'outro/repo', draft: false, eligible: false },
-};
 const ACTIONS = new Set([
   'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
   'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
@@ -229,23 +203,14 @@ test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem
   assert.match(mac, /^concurrency:\n  group: macos-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}\n  cancel-in-progress: true$/m);
 });
 
-test('macOS: job de recusa só no público com variável inválida, sem checkout e sem permissão', () => {
-  const job = `\n${macJobs['maquina-mac'].join('\n').trimEnd()}`;
-  assert.ok(job.includes(`\n    if: ${MAC_INVALID_IF}\n`));
-  assert.match(job, /^    runs-on: ubuntu-24\.04$/m);
-  assert.match(job, /^    permissions: \{\}$/m);
-  assert.match(job, /^    timeout-minutes: 5$/m);
-  assert.ok(!job.includes('uses:'), 'sem checkout nem actions');
-  assert.match(job, /\n        run: \|\n          echo '::error::[^'\n]+'\n          exit 1$/);
-});
-
-test('macOS: um job de build, máquina decidida antes de alocar, leitura, timeout, sem secrets e sem fork', () => {
-  assert.deepEqual(Object.keys(macJobs), ['maquina-mac', 'macos']);
+test('macOS: um job de build, runner macos-15 do GitHub, leitura, timeout, sem secrets e sem fork', () => {
+  assert.deepEqual(Object.keys(macJobs), ['macos']);
   const job = macJobs.macos.join('\n');
   const runsOn = macJobs.macos.filter((l) => /^    runs-on:/.test(l));
   assert.equal(runsOn.length, 1);
-  assert.equal(runsOn[0].replace(/^    runs-on: /, ''), MAC_RUNS_ON, `runs-on fora do contrato: ${runsOn[0]}`);
-  assert.ok(!/ubuntu-|windows-|self-hosted|boat|instabox|-with-cache|nscloud-cache/i.test(job), 'nenhum outro rótulo do GitHub, de outro fornecedor ou volume de cache compartilhado');
+  assert.equal(runsOn[0].replace(/^    runs-on: /, ''), 'macos-15', `runs-on fora do contrato: ${runsOn[0]}`);
+  assert.ok(!/ubuntu-|windows-|self-hosted|blacksmith|buildjet|depot-|boat|instabox|-with-cache|nscache|nscloud/i.test(job), 'nenhum rótulo de outro fornecedor ou volume de cache compartilhado');
+  assert.ok(!/\bvars\./.test(mac), 'nenhuma variável de máquina');
   assert.match(job, /^    permissions:\n      contents: read\n    [a-z]/m);
   const timeout = /^    timeout-minutes: (\d+)$/m.exec(job);
   assert.ok(timeout && Number(timeout[1]) <= 90, 'timeout de no máximo 90 minutos');
@@ -254,40 +219,6 @@ test('macOS: um job de build, máquina decidida antes de alocar, leitura, timeou
   assert.ok(!/container:|services:/.test(job));
   assert.ok(job.includes(`\n    if: ${MAC_IF}\n`));
   assert.ok(!body('ci-ok').includes('macos'), 'o job macOS fica fora do ci-ok');
-});
-
-test('macOS: privado sempre Namespace; público só macos-15 com a variável certa, senão falha sem build; disparo só da main', () => {
-  for (const [name, ev] of Object.entries(EVENTS)) {
-    for (const visibility of VISIBILITIES) {
-      for (const mac of MAC_VALUES) {
-        const ctx = { ...ev, visibility, mac };
-        const label = `${name} visibility=${visibility} mac=${mac}`;
-        const ok = String(mac ?? '').toLowerCase() === 'macos-15';
-        const build = Boolean(evalExpr(MAC_IF, ctx));
-        const refuse = Boolean(evalExpr(MAC_INVALID_IF, ctx));
-        assert.equal(build, ev.eligible && (visibility !== 'public' || ok), `build: ${label}`);
-        assert.equal(refuse, ev.eligible && visibility === 'public' && !ok, `recusa: ${label}`);
-        assert.ok(!(build && refuse), `nunca os dois: ${label}`);
-        assert.equal(evalExpr(MAC_RUNS_ON, ctx), visibility === 'public' ? 'macos-15' : 'nscloud-macos-tahoe-arm64-6x14', `máquina: ${label}`);
-      }
-    }
-  }
-});
-
-test('macOS: barreiras no início do job, uma contra máquina do GitHub no privado e outra contra máquina paga no público', () => {
-  const steps = macJobs.macos.join('\n').split('\n    steps:\n')[1].replace(/^(?:      #.*\n)+/, '').split('\n      - ');
-  assert.ok(steps[0].startsWith(`      - name: Recusar maquina do GitHub em repositorio privado\n        if: ${MAC_GUARD}\n`));
-  assert.ok(steps[1].replace(/^(?:      #.*\n)+/, '').startsWith(`name: Recusar maquina paga em repositorio publico\n        if: ${MAC_GUARD_PAID}\n`));
-  for (const st of steps.slice(0, 2)) assert.match(st, /\n        run: \|\n          echo '::error::[^'\n]+'\n          exit 1(?:\n      #.*)*$/);
-  for (const environment of ['github-hosted', 'self-hosted', '', undefined]) {
-    for (const visibility of VISIBILITIES) {
-      const ctx = { environment, visibility };
-      assert.equal(evalExpr(MAC_GUARD, ctx), environment === 'github-hosted' && visibility !== 'public', `privado: ${environment} ${visibility}`);
-      assert.equal(evalExpr(MAC_GUARD_PAID, ctx), environment !== 'github-hosted' && visibility === 'public', `público: ${environment} ${visibility}`);
-    }
-  }
-  const minutes = macJobs.macos.join('\n').split('\n      - ').find((st) => st.includes('Minutos'));
-  assert.match(minutes, /test -n "\$\{MACOS_INICIO:-\}" \|\| exit 0/, 'resumo de minutos não quebra se a guarda parar o job antes');
 });
 
 test('macOS: disparo manual fora da main exata para antes do checkout e do build', () => {

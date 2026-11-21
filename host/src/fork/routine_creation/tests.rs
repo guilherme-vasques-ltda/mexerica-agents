@@ -929,3 +929,44 @@ async fn d125_pausa_de_conteudo_de_fora_sobrevive_ao_reinicio() {
     .to_string();
     assert!(error.starts_with("routine_external_release:"), "{error}");
 }
+
+fn manual_task() -> Value {
+    json!({"name":"Botão","instruction":"Somente tarefa sintética","manual":true,"triggers":[]})
+}
+
+#[tokio::test]
+async fn rotina_manual_pelo_bot_exige_intencao_explicita_e_roda_sob_pedido() {
+    let f = Fixture::new();
+    for body in [
+        json!({"name":"Esquecida","instruction":"Somente tarefa sintética","triggers":[]}),
+        json!({"name":"Esquecida","instruction":"Somente tarefa sintética"}),
+        json!({"name":"Esquecida","instruction":"Somente tarefa sintética","triggers":[],"manual":false}),
+    ] {
+        assert!(f.call(&body).is_err(), "sem manual:true, lista vazia é recusada");
+    }
+    assert_eq!(f.count(), 0);
+    let created = f.call(&manual_task()).unwrap();
+    let id = created["routine"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(created["routine"]["nextRunAt"], Value::Null);
+    let listed = f.hub.routines.list("bot");
+    assert_eq!(listed["routines"][0]["manual"], true);
+    assert_eq!(listed["routines"][0]["triggers"], json!([]));
+    assert_eq!(listed["routines"][0]["agenda"], "Só quando eu mandar");
+    let run =
+        crate::routines::call_in_execution(&f.hub, "bot", "run_routine", &json!({"id":id}), &f.execution).unwrap();
+    assert_eq!(run["run"]["routineId"], id);
+    assert_eq!(f.hub.routines.list("bot")["runs"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn rotina_manual_do_app_roda_agora_e_nunca_agenda() {
+    let f = Fixture::new();
+    let saved = f.hub.routines.save(&f.hub, "bot", &manual_task()).unwrap();
+    let id = saved["routine"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(saved["routine"]["nextRunAt"], Value::Null);
+    assert!(!f.hub.routines.keeps_awake(), "nada agendado: o Hub não fica acordado por ela");
+    assert_eq!(f.hub.routines.list("bot")["runs"].as_array().unwrap().len(), 0);
+    let queued = f.hub.routines.enqueue(&f.hub.store, "bot", &id, json!({"source":"test"}), None, true).unwrap();
+    assert_eq!(queued["run"]["routineId"], id);
+    assert_eq!(f.hub.routines.list("bot")["runs"].as_array().unwrap().len(), 1);
+}

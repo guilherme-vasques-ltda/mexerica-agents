@@ -7,7 +7,7 @@ import { BotAvatar } from '../../components/Avatar'
 import { Switch } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { timeLabel } from '../../lib/routine-calendar'
-import { isActiveStatus, isOnDemand, type OverviewRoutine, type OverviewRun } from './model'
+import { isActiveStatus, isManual, isOnDemand, type OverviewRoutine, type OverviewRun } from './model'
 import { botName } from './parts'
 import { RunsOnBadge } from './RunsOnBadge'
 import { awaitingRelease } from '../routines/routine-duplicate'
@@ -21,7 +21,7 @@ function nextLabel(at: number) {
   return texts.dayAt(day, timeLabel(at, idioma()))
 }
 
-export function RoutineList({ globalPause, routines, runs, bots, invalid, busy, disabled, onOpen, onToggle, copyId, copyRow }: {
+export function RoutineList({ globalPause, routines, runs, bots, invalid, busy, disabled, onOpen, onToggle, onRun, copyId, copyRow }: {
   globalPause: boolean | null
   routines: OverviewRoutine[]
   runs: OverviewRun[]
@@ -32,10 +32,12 @@ export function RoutineList({ globalPause, routines, runs, bots, invalid, busy, 
   disabled: boolean
   onOpen: (routine: OverviewRoutine) => void
   onToggle: (routine: OverviewRoutine, enabled: boolean) => void
+  onRun: (routine: OverviewRoutine) => void
   copyId?: string | null
   copyRow?: Ref<HTMLButtonElement>
 }) {
-  const scheduled = routines.filter((r) => r.enabled && !isOnDemand(r)).sort((a, b) => (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity) || a.name.localeCompare(b.name))
+  const scheduled = routines.filter((r) => r.enabled && !isOnDemand(r) && !isManual(r)).sort((a, b) => (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity) || a.name.localeCompare(b.name))
+  const manual = routines.filter((r) => r.enabled && isManual(r)).sort((a, b) => a.name.localeCompare(b.name))
   const onDemand = routines.filter((r) => r.enabled && isOnDemand(r)).sort((a, b) => a.name.localeCompare(b.name))
   const paused = routines.filter((r) => !r.enabled).sort((a, b) => a.name.localeCompare(b.name))
   // As execuções vêm da mais antiga para a mais nova.
@@ -57,6 +59,7 @@ export function RoutineList({ globalPause, routines, runs, bots, invalid, busy, 
     if (awaitingRelease(routine)) return { text: texts.awaitingRelease, tone: 'warning' }
     if (!routine.enabled) return { text: texts.paused, tone: 'secondary' }
     if (globalPause !== false) return { text: globalPause ? texts.globalPaused : texts.pauseUnknown, tone: 'secondary' }
+    if (isManual(routine)) return { text: texts.manual, tone: 'secondary' }
     if (isOnDemand(routine)) return { text: texts.onDemand, tone: 'secondary' }
     return { text: routine.nextRunAt ? texts.nextRun(nextLabel(routine.nextRunAt)) : texts.noNextRun, tone: 'secondary' }
   }
@@ -78,12 +81,17 @@ export function RoutineList({ globalPause, routines, runs, bots, invalid, busy, 
                     {isOnDemand(routine) ? <span className="rc-pill"><Icon name="link" size={9} />{routine.triggers.some((t) => t.type === 'webhook') ? texts.webhook : texts.event}</span> : null}
                     <RunsOnBadge runsOn={routine.runsOn} />
                   </span>
-                  <span className="rc-row-summary"><bdi dir="auto">{botName(bots, routine.botId)}</bdi> · {routine.summary}</span>
+                  <span className="rc-row-summary"><bdi dir="auto">{botName(bots, routine.botId)}</bdi> · {isManual(routine) ? texts.manual : routine.summary}</span>
                   <span className={`rc-row-status tone-${line.tone}`} title={line.detail}>
                     {line.text}
                     {line.detail ? <span className="rc-sr-only">. {line.detail}</span> : null}
                   </span>
                 </button>
+                {isManual(routine) && routine.enabled ? (
+                  <button className="rc-row-run press" title={texts.runNow(routine.name)} aria-label={texts.runNow(routine.name)} disabled={disabled || busy !== null || globalPause !== false} onClick={() => onRun(routine)}>
+                    <Icon name="play.circle" size={16} />
+                  </button>
+                ) : null}
                 <Switch className="rc-row-switch" on={routine.enabled} label={texts.toggle(routine.name)} disabled={disabled || busy !== null} onChange={(on) => onToggle(routine, on)} />
               </li>
             )
@@ -95,6 +103,7 @@ export function RoutineList({ globalPause, routines, runs, bots, invalid, busy, 
   return (
     <div className="rc-list-wrap">
       {section(texts.sections.scheduled, scheduled)}
+      {section(texts.sections.manual, manual)}
       {section(texts.sections.onDemand, onDemand)}
       {section(texts.sections.paused, paused)}
     </div>

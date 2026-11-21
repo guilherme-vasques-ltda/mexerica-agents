@@ -7,7 +7,7 @@ import { inGroup } from '../../lib/bot-groups'
 import type { BotGroupsSnapshot } from '../../../shared/bot-groups'
 import { startOfDay } from '../../lib/routine-calendar'
 import type { BotStore } from '../../store/bot-store'
-import { rawError, type Routine, type RoutineTrigger } from '../routines/routine'
+import { isManual, rawError, type Routine, type RoutineTrigger } from '../routines/routine'
 import type { RunOutcome } from '../routines/run-outcome'
 import { currentZone } from '../routines/time-zones'
 
@@ -88,6 +88,8 @@ export const isActiveStatus = (status: string) => ['pending', 'starting', 'runni
 /** Só webhook ou evento: não tem horário, fica na faixa "Sob demanda". */
 export const isOnDemand = (routine: Routine) =>
   routine.triggers.length > 0 && routine.triggers.every((t) => t.type === 'webhook' || t.type === 'event')
+
+export { isManual }
 
 /**
  * Os bots que podem ter rotinas (o Hub recusa rotina em grupo), na ordem da barra lateral (a de

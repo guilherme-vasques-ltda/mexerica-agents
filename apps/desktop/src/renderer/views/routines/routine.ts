@@ -32,6 +32,9 @@ export interface Routine {
   externalReleasePending?: boolean
 }
 
+/** Rotina «só quando eu mandar»: a lista de gatilhos vazia (clientes antigos já a leem como lista). */
+export const isManual = (routine: Pick<Routine, 'triggers'>) => routine.triggers.length === 0
+
 export interface RoutineRun {
   id: string
   routineId: string
