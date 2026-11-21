@@ -28,21 +28,23 @@ function isChromiumLink(root: string, entry: string, child: string, item: Stats)
   try { return readlinkSync(join(remote, 'SingletonCookie')) === readlinkSync(join(root, 'SingletonCookie')) } catch { return false }
 }
 
-/** Pasta de ajudantes que o Codex recria a cada início em `.codex/tmp`; fica com links quando ele é morto à força. A
- * abertura só a tolera: quem a apaga é o Hub, depois de travar o perfil, e só a de um Codex que já saiu. */
-function isCodexHelpers(path: string, entry: string, item: Stats) {
+/** Pasta de ajudantes que o Codex recria a cada início no `.codex/tmp` do perfil de uma conta; fica com links quando
+ * ele é morto à força. Nada aqui apaga: a abertura só tolera, e só na localização real, dentro do perfil de uma
+ * conta do motor — uma pasta igual em outro lugar da pasta de dados continua sendo conferida. */
+function isCodexHelpers(path: string, entry: string, item: Stats, accounts: string) {
   return /^arg0(?:-[a-z]+)?$/.test(entry) && item.isDirectory() && item.uid === process.getuid?.()
     && basename(path) === 'tmp' && basename(dirname(path)) === '.codex'
+    && dirname(dirname(path)).startsWith(accounts + sep)
 }
 
-function assertPrivateTree(path: string, socketRoot?: string, root = '') {
+function assertPrivateTree(path: string, socketRoot?: string, accounts?: string, root = '') {
   for (const entry of readdirSync(path)) {
     const child = join(path, entry)
     const item = lstatSync(child)
     if (root && isChromiumLink(root, entry, child, item)) continue
-    if (socketRoot && isCodexHelpers(path, entry, item)) continue
+    if (accounts && isCodexHelpers(path, entry, item, accounts)) continue
     if (item.uid !== process.getuid?.() || (item.mode & 0o022) !== 0) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados'))
-    if (item.isDirectory()) assertPrivateTree(child, socketRoot)
+    if (item.isDirectory()) assertPrivateTree(child, socketRoot, accounts)
     else if (socketRoot && item.isSocket() && (item.mode & 0o077) === 0 && /^h-[A-Za-z0-9]{6}[/\\]s$/.test(relative(socketRoot, child))) continue
     else if (!item.isFile() || item.nlink !== 1) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilArquivo'))
   }
@@ -51,8 +53,9 @@ function assertPrivateTree(path: string, socketRoot?: string, root = '') {
 export function openPaths(home: string, appData: string) {
   const userData = privateDirectory(join(appData, open.userDataFolder))
   const homeConfig = privateDirectory(join(home, open.dataFolder))
-  assertPrivateTree(userData, undefined, userData)
-  assertPrivateTree(homeConfig, join(homeConfig, 'tmp'))
+  const accounts = join(homeConfig, 'home', open.dataFolder, 'engine-setup', 'accounts')
+  assertPrivateTree(userData, undefined, undefined, userData)
+  assertPrivateTree(homeConfig, join(homeConfig, 'tmp'), accounts)
   return { userData, homeConfig }
 }
 

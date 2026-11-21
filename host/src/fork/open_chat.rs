@@ -38,6 +38,7 @@ static CLOSING: Mutex<Vec<Weak<Hub>>> = Mutex::new(Vec::new());
 /// Reserva da conversa: um turno por bot, e nenhum depois do encerramento do Hub.
 pub(crate) struct Ticket {
     bot: String,
+    account: String,
     directory: PathBuf,
     cancel: watch::Receiver<bool>,
     done: watch::Sender<()>,
@@ -96,8 +97,11 @@ fn admit(
     ensure!(!running.contains_key(bot), "open_chat_busy");
     let (cancel_tx, cancel) = watch::channel(false);
     let (done, done_rx) = watch::channel(());
-    running.insert(bot.to_owned(), Running { hub: Arc::downgrade(hub), account, cancel: cancel_tx, done: done_rx });
-    Ok(Ticket { bot: bot.to_owned(), directory, cancel, done })
+    running.insert(
+        bot.to_owned(),
+        Running { hub: Arc::downgrade(hub), account: account.clone(), cancel: cancel_tx, done: done_rx },
+    );
+    Ok(Ticket { bot: bot.to_owned(), account, directory, cancel, done })
 }
 
 #[cfg(test)]
@@ -173,8 +177,10 @@ pub(crate) async fn shutdown(hub: &Arc<Hub>) {
     }
 }
 
-fn thread_key(lane: &Lane) -> String {
-    format!("open_chat.thread.{}.{}", lane.chat, lane.session.as_deref().unwrap_or("main"))
+/// Chave da thread por conversa e por conta: trocar de conta não sobrescreve a thread da conta anterior, e o
+/// prefixo da conversa continua o mesmo que a exclusão do bot apaga.
+fn thread_key(lane: &Lane, account: &str) -> String {
+    format!("open_chat.thread.{}.{}.{}", lane.chat, account, lane.session.as_deref().unwrap_or("main"))
 }
 
 /// Roda o turno em segundo plano; a resposta chega como entradas normais da conversa.
@@ -190,7 +196,7 @@ pub(crate) fn run(
     let hub = hub.clone();
     let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     tokio::spawn(async move {
-        let Ticket { bot, directory, mut cancel, done } = ticket;
+        let Ticket { bot, account, directory, mut cancel, done } = ticket;
         let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if !alive() {
             if let Some(running) = RUNNING.locked().as_mut() {
@@ -205,13 +211,19 @@ pub(crate) fn run(
             r.started_at = Some(crate::store::now_ms());
         });
         hub.emit_bot(&bot);
-        if let Some(entry) = hub.store.entry(&entry_id) {
-            let mut data = entry.data;
-            data["status"] = "sent".into();
-            hub.set_entry(&entry_id, &data);
-        }
         let mut reply = Stream::new(&hub, &lane, turn, &bot);
-        let outcome = turn_in_profile(&hub, &directory, &lane, &instructions, &text, &mut cancel, &mut reply).await;
+        let outcome = turn_in_profile(
+            &hub,
+            &directory,
+            &account,
+            &lane,
+            &instructions,
+            &text,
+            &entry_id,
+            &mut cancel,
+            &mut reply,
+        )
+        .await;
         reply.close();
         if alive() {
             if let Err(error) = outcome {
@@ -234,12 +246,15 @@ pub(crate) fn run(
 }
 
 #[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
 async fn turn_in_profile(
     hub: &Hub,
     directory: &std::path::Path,
+    account: &str,
     lane: &Lane,
     instructions: &str,
     text: &str,
+    entry_id: &str,
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
 ) -> Result<()> {
@@ -248,7 +263,7 @@ async fn turn_in_profile(
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     };
     let bot = reply.bot.clone();
-    let saved = hub.store.kv_read(&thread_key(lane))?;
+    let saved = hub.store.kv_read(&thread_key(lane, account))?;
     // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)
     // ou por o bot já não existir. A conferência de `deleted` sob a trava do banco cobre a janela entre a reserva
     // e este processo nascer.
@@ -266,7 +281,7 @@ async fn turn_in_profile(
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
         if saved.as_deref() != Some(thread)
-            && let Err(error) = hub.store.kv_set_if_bot(&bot, &thread_key(lane), thread)
+            && let Err(error) = hub.store.kv_set_if_bot(&bot, &thread_key(lane, account), thread)
         {
             tracing::warn!(%error, "conversa da Open não guardou a thread do Codex");
         }
@@ -276,8 +291,17 @@ async fn turn_in_profile(
         );
         Ok(())
     };
+    // A mensagem só passa a `sent` quando o Codex aceita o turno: antes disso, o envio não aconteceu.
+    let on_sent = || {
+        if let Some(entry) = hub.store.entry(entry_id) {
+            let mut data = entry.data;
+            data["status"] = "sent".into();
+            hub.set_entry(entry_id, &data);
+        }
+    };
     let outcome =
-        drive(&mut rpc, saved.as_deref(), instructions, text, cancel, before_text, |delta| reply.push(delta)).await;
+        drive(&mut rpc, saved.as_deref(), instructions, text, cancel, before_text, on_sent, |delta| reply.push(delta))
+            .await;
     match outcome {
         Ok(_) => {
             // O encerramento limpo confirma só o líder: o reap a seguir varre descendentes que tenham ficado no grupo.
@@ -298,7 +322,9 @@ async fn turn_in_profile(
 async fn turn_in_profile(
     _: &Hub,
     _: &std::path::Path,
+    _: &str,
     _: &Lane,
+    _: &str,
     _: &str,
     _: &str,
     _: &mut watch::Receiver<bool>,
@@ -395,7 +421,9 @@ impl Stream {
 }
 
 /// Um turno no app-server: retoma ou cria a thread, envia o texto e devolve o id da thread. Recusa qualquer pedido
-/// do servidor e qualquer item que não seja texto, interrompendo o turno.
+/// do servidor e qualquer item que não seja texto, interrompendo o turno. Uma resposta que chegue só no
+/// `item/completed`, sem deltas, também é gravada — uma vez, sem repetir o que os deltas já entregaram.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
@@ -403,6 +431,7 @@ pub(crate) async fn drive(
     text: &str,
     cancel: &mut watch::Receiver<bool>,
     before_text: impl FnOnce(&str) -> Result<()>,
+    on_sent: impl FnOnce(),
     mut on_delta: impl FnMut(&str) -> bool,
 ) -> Result<String> {
     rpc.set_line_limit(LINE_LIMIT);
@@ -444,6 +473,9 @@ pub(crate) async fn drive(
             )
             .await?;
         let turn_id = turn["turn"]["id"].as_str().unwrap_or_default().to_owned();
+        on_sent();
+        // Itens que já entregaram texto por deltas: o `item/completed` deles não repete o que já chegou.
+        let mut streamed = std::collections::HashSet::new();
         loop {
             let message = rpc.next().await?;
             if message.get("id").is_some() && message.get("method").is_some() {
@@ -461,9 +493,24 @@ pub(crate) async fn drive(
                     interrupt(rpc, &thread, &turn_id).await;
                     bail!("open_chat_tool_refused");
                 }
-                "item/agentMessage/delta" if !on_delta(params["delta"].as_str().unwrap_or_default()) => {
-                    interrupt(rpc, &thread, &turn_id).await;
-                    bail!("open_chat_too_long");
+                "item/agentMessage/delta" => {
+                    if let Some(id) = params["itemId"].as_str() {
+                        streamed.insert(id.to_owned());
+                    }
+                    if !on_delta(params["delta"].as_str().unwrap_or_default()) {
+                        interrupt(rpc, &thread, &turn_id).await;
+                        bail!("open_chat_too_long");
+                    }
+                }
+                "item/completed"
+                    if params["item"]["type"] == "agentMessage"
+                        && !streamed.contains(params["item"]["id"].as_str().unwrap_or_default()) =>
+                {
+                    // Resposta que veio inteira no fim do item, sem nenhum delta: entra uma vez, sob o mesmo limite.
+                    if !on_delta(params["item"]["text"].as_str().unwrap_or_default()) {
+                        interrupt(rpc, &thread, &turn_id).await;
+                        bail!("open_chat_too_long");
+                    }
                 }
                 "turn/completed" => {
                     ensure!(params["turn"]["status"] == "completed", "open_chat_failed");

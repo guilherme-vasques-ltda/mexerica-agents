@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{CLOSING, MAX_REPLY, RUNNING, Running, Stream, drive, notice, shutdown, with_idle_account};
+use super::{CLOSING, MAX_REPLY, RUNNING, Running, Stream, drive, notice, shutdown, thread_key, with_idle_account};
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
@@ -46,6 +46,13 @@ for line in sys.stdin:
             send({"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "i1"}}})
         elif mode == "request":
             send({"id": 77, "method": "item/commandExecution/requestApproval", "params": {}})
+        elif mode == "quiet":
+            item = {"type": "agentMessage", "id": "a1", "text": "Resposta inteira no fim do item."}
+            send({"method": "item/completed", "params": {"item": item}})
+            send({"method": "turn/completed", "params": {"turn": {"id": "turn-1", "status": "completed"}}})
+        elif mode == "big-quiet":
+            item = {"type": "agentMessage", "id": "a1", "text": "y" * 300000}
+            send({"method": "item/completed", "params": {"item": item}})
         else:
             for part in ["Olá", ", ", "mundo"]:
                 send({"method": "item/agentMessage/delta", "params": {"delta": part, "itemId": "a1"}})
@@ -90,6 +97,7 @@ async fn turn_keeping(
             kept = Some(id.to_owned());
             Ok(())
         },
+        || {},
         |delta| {
             text.push_str(delta);
             true
@@ -205,6 +213,96 @@ fn an_account_in_use_by_an_open_reply_refuses_changes_until_it_ends() {
     RUNNING.locked().as_mut().unwrap().remove("fence-bot");
 }
 
+#[tokio::test]
+async fn a_reply_that_comes_only_in_the_completed_item_is_kept_once() {
+    let (result, text, _) = turn("quiet", None).await;
+    assert_eq!(result.unwrap(), "thread-1");
+    assert_eq!(text, "Resposta inteira no fim do item.");
+}
+
+#[tokio::test]
+async fn a_completed_only_reply_past_the_limit_stops_the_turn() {
+    let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("log");
+    let child = tokio::process::Command::new("python3")
+        .args(["-I", "-c", FAKE])
+        .env("FAKE_MODE", "big-quiet")
+        .env("FAKE_LOG", &log)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+    let (_cancel_tx, mut cancel) = watch::channel(false);
+    let mut total = 0usize;
+    let result = drive(
+        &mut rpc,
+        None,
+        "Fixture instructions",
+        "Oi",
+        &mut cancel,
+        |_| Ok(()),
+        || {},
+        |delta| {
+            total += delta.len();
+            total <= MAX_REPLY
+        },
+    )
+    .await;
+    let _ = rpc.finish().await;
+    let sent: Vec<Value> =
+        std::fs::read_to_string(&log).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(result.unwrap_err().to_string(), "open_chat_too_long");
+    assert!(find(&sent, "turn/interrupt").is_some());
+}
+
+#[tokio::test]
+async fn the_message_is_marked_sent_only_after_the_codex_accepts_the_turn() {
+    for mode in ["ok", "loose"] {
+        let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("log");
+        let child = tokio::process::Command::new("python3")
+            .args(["-I", "-c", FAKE])
+            .env("FAKE_MODE", mode)
+            .env("FAKE_LOG", &log)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let (_cancel_tx, mut cancel) = watch::channel(false);
+        let mut marked = 0;
+        let result =
+            drive(&mut rpc, None, "Fixture instructions", "Oi", &mut cancel, |_| Ok(()), || marked += 1, |_| true)
+                .await;
+        let _ = rpc.finish().await;
+        let _ = std::fs::remove_dir_all(&dir);
+        if mode == "ok" {
+            result.unwrap();
+            assert_eq!(marked, 1, "a mensagem virou sent quando o Codex aceitou o turno");
+        } else {
+            assert_eq!(result.unwrap_err().to_string(), "open_chat_policy");
+            assert_eq!(marked, 0, "sem aceite não há mensagem sent");
+        }
+    }
+}
+
+#[test]
+fn the_thread_key_carries_the_account_and_keeps_the_deletion_prefix() {
+    let lane = crate::store::Lane::main("chat-1");
+    let a = thread_key(&lane, "conta-a");
+    let b = thread_key(&lane, "conta-b");
+    assert_ne!(a, b, "cada conta guarda a sua própria thread");
+    assert!(a.starts_with("open_chat.thread.chat-1."), "a exclusão do bot apaga pelas chaves da conversa");
+    let other = crate::store::Lane { chat: "chat-1".into(), session: Some("s".into()) };
+    assert_ne!(a, thread_key(&other, "conta-a"), "sessões diferentes seguem sem se misturar");
+}
+
 #[test]
 fn notices_carry_only_known_codes() {
     assert_eq!(notice("open_chat_cancelled").0, "open_chat_cancelled");
@@ -247,6 +345,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
         "Oi",
         &mut cancel,
         |_| Ok(()),
+        || {},
         |_| {
             pieces += 1;
             pieces < 2
@@ -285,6 +384,7 @@ async fn text_is_not_delivered_once_the_check_before_it_refuses() {
         "texto que não pode chegar",
         &mut cancel,
         |_| Err(anyhow::anyhow!("open_chat_cancelled")),
+        || panic!("a mensagem não pode virar sent sem o Codex aceitar o turno"),
         |_| true,
     )
     .await;
