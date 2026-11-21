@@ -24,6 +24,7 @@ const map: Record<string, IconNode> = {
   number: L.Hash,
   // Barra04: o título de Agentes (o SF Symbols não tem robô; no Mac também desenha o Lucide).
   'donna.bot': L.Bot,
+  'donna.ladoalado': L.Columns2,
   'puzzlepiece.extension': L.Puzzle,
   lightbulb: L.Lightbulb,
   paintpalette: L.Palette,

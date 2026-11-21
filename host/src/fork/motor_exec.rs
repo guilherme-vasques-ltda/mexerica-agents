@@ -3,6 +3,8 @@ use std::path::Path;
 use tokio::process::Command;
 
 mod child;
+#[cfg(all(test, unix))]
+pub(crate) use child::fixture;
 #[cfg(unix)]
 pub(crate) use child::start_open_codex;
 #[cfg(unix)]

@@ -349,9 +349,48 @@ test('seleção por caminhos: o laço do workflow marca Hub e Desktop pelos arqu
   assert.equal(select(['host/src/main.rs']), 'true false', 'só Hub dispensa o Desktop');
   assert.equal(select(['motor/package.json']), 'true false');
   assert.equal(select(['apps/desktop/src/main/index.ts']), 'false true');
-  assert.equal(select(['docs/guides/ci.md']), 'false true');
-  assert.equal(select(['.github/workflows/ci.yml']), 'true true');
-  assert.equal(select(['tools/ci-vazamento.mjs']), 'true true');
+  assert.equal(select(['docs/guides/ci.md']), 'false false', 'o guia do CI só roda leves');
+  assert.equal(select(['docs/features/marketplace.md']), 'false true', 'outros documentos continuam ligando o Desktop');
+  assert.equal(select(['.github/workflows/ci.yml']), 'true true', 'o próprio ci.yml muda os jobs pesados');
+  assert.equal(select(['tools/ci-vazamento.mjs']), 'false false', 'ferramentas de CI rodam só em leves');
+  assert.equal(select(['tools/ci-workflow.test.mjs', 'docs/guides/ci.md', '.github/workflows/macos.yml', '.github/actionlint.yaml']), 'false false', 'workflow do macOS, guia e ferramentas de CI não ligam Hub nem Desktop');
+  assert.equal(select(['.github/security/vazamento.json']), 'false false');
+  assert.equal(select(['tools/textos-legado.json']), 'false true', 'arquivo de ferramenta lido pelos testes do Desktop continua ligando o Desktop');
+  assert.equal(select(['docs/guides/idiomas.md']), 'false true', 'doc lido pelos testes do Desktop continua ligando o Desktop');
+  assert.equal(select(['docs/guides/ci.md', 'host/src/main.rs']), 'true false', 'um arquivo que liga o Hub não é anulado pelos que não ligam nada');
+  assert.equal(select(['.github/workflows/macos.yml', 'apps/desktop/src/main/index.ts']), 'false true');
+});
+
+test('hub: devolve a origem de /etc/localtime ao dono root antes da suíte', () => {
+  const steps = body('hub').split('\n      - ').map((st) => st.replace(/^(?:      #.*\n)+/, ''));
+  const tz = steps.findIndex((st) => st.startsWith('name: Devolver a origem de /etc/localtime ao dono root'));
+  const suite = steps.findIndex((st) => st.startsWith('name: Executar toda a suite do Hub (nextest)'));
+  assert.ok(tz > 0 && tz < suite, 'passo de timezone antes da suíte');
+  const st = steps[tz];
+  assert.ok(st.includes('readlink -f /etc/localtime'));
+  assert.ok(st.includes('sudo -n chown root:root'));
+  assert.ok(st.includes('sudo -n chmod g-w,o-w'));
+  // Sem sudo o passo falha fechado; sem violação ele não pede sudo.
+  assert.match(st, /fora" = 0[\s\S]*exit 0/);
+  assert.match(st, /sudo -n true \|\|/, 'sem sudo, erro claro');
+  assert.match(st, /continua fora do contrato do sandbox/, 'verifica de novo no fim');
+  assert.match(st, /\[ -e "\$alvo" \] \|\| \{ echo "origem de \/etc\/localtime ausente \(o sandbox ignora\): \$alvo"; exit 0; \}/, 'origem ausente e ignorada como no sandbox');
+});
+
+test('hub: garante o bubblewrap de verdade (mapa de UID) antes da suíte', () => {
+  const steps = body('hub').split('\n      - ').map((st) => st.replace(/^(?:      #.*\n)+/, ''));
+  const bwrap = steps.findIndex((st) => st.startsWith('name: Garantir bubblewrap'));
+  const suite = steps.findIndex((st) => st.startsWith('name: Executar toda a suite do Hub (nextest)'));
+  assert.ok(bwrap > 0 && bwrap < suite, 'passo antes da suíte');
+  const st = steps[bwrap];
+  assert.match(st, /sudo -n apparmor_parser -r \/etc\/apparmor\.d\/bwrap/);
+  assert.match(st, /sudo -n sysctl -w kernel\.apparmor_restrict_unprivileged_userns=0/);
+  assert.match(st, /bwrap --unshare-user --ro-bind \/ \/ true/);
+  assert.match(st, /::error::bwrap nao consegue criar o mapa de UID/);
+  assert.match(st, /\[ -f \/etc\/apparmor\.d\/bwrap \]/, 'perfil oficial primeiro');
+  assert.match(st, /apparmor_parser -r \/etc\/apparmor\.d\/bwrap \|\| echo '::warning::/, 'carregar o perfil e tolerante');
+  assert.ok(st.includes("[ \"${RUNNER_ENVIRONMENT:-}\" = 'github-hosted' ]"), 'sysctl so no runner do GitHub');
+  assert.match(st, /sysctl -w kernel\.apparmor_restrict_unprivileged_userns=0 \|\| echo '::warning::/, 'sysctl tolerante');
 });
 
 test('leves e vazamento não ligam cache automático do setup-node', () => {

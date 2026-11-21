@@ -2572,3 +2572,28 @@ fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
     out
 }
+
+/// A conversa da Open e a reconexão da conta se excluem nas duas ordens, pela API de setup real: com resposta em
+/// curso a reconexão recusa; com reconexão aberta a resposta nova recusa.
+#[tokio::test]
+async fn resposta_da_open_e_reconexao_se_excluem_nas_duas_ordens() {
+    let f = Fixture::new();
+    let cli = f.cli(Backend::Codex);
+    std::fs::write(cli.parent().unwrap().join("scenario"), "hang").unwrap();
+    let account = f.create("codex", "cli", "open-cerca").await;
+    let a = account["id"].as_str().unwrap().to_owned();
+    // A reserva da conversa confere a linha do bot: sem linha, não há turno a reservar.
+    let bot: crate::store::BotConfig =
+        serde_json::from_value(json!({"id":"open-cerca-bot","name":"Cerca","backend":"codex","cwd":f.root})).unwrap();
+    f.hub.store.save_bot(&bot).unwrap();
+    let body = |request: &str| json!({"engineAccountId":a,"expectedRevision":account["revision"],"action":"login","clientRequestId":request});
+    let reply = crate::fork::open_chat::admit_for_test(&f.hub, "open-cerca-bot", &a).unwrap();
+    let error = call(&f.hub, &Caller::Local, "donnaEngineSetupStart", body("open-cerca-1")).await.unwrap_err();
+    assert!(error.to_string().contains("account_busy"), "{error:#}");
+    assert!(fase_do_pedido("open-cerca-1").is_none(), "nenhuma operação aberta");
+    drop(reply);
+    let op = call(&f.hub, &Caller::Local, "donnaEngineSetupStart", body("open-cerca-2")).await.unwrap();
+    let refused = crate::fork::open_chat::admit_for_test(&f.hub, "open-cerca-bot", &a);
+    assert_eq!(refused.err().map(|error| error.to_string()).as_deref(), Some("open_chat_reconnecting"));
+    let _ = f.action(&op, json!({"action":"cancel"}));
+}
