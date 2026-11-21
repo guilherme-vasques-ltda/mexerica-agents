@@ -1,4 +1,4 @@
-// Contrato dos workflows: CI só em Boat/Instabox e macOS só na Namespace, permissões explícitas, actions por SHA e ci-ok sem atalho.
+// Contrato dos workflows: CI só em Boat/Instabox e macOS na Namespace ou, pela variável, no GitHub com o repositório público, permissões explícitas, actions por SHA e ci-ok sem atalho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -131,7 +131,7 @@ test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
   assert.ok(!/-r \.github\/|--config \.github\//.test(sem), 'nada lido direto do checkout do PR');
 });
 
-// macOS: workflow à parte, só em máquina macOS da Namespace, fora do ci-ok.
+// macOS: workflow à parte, fora do ci-ok; máquina pela variável CI_MAQUINA_MAC, Namespace por padrão.
 const mac = readFileSync(new URL('../.github/workflows/macos.yml', import.meta.url), 'utf8');
 const macLines = mac.split('\n');
 const macJobs = {};
@@ -141,7 +141,7 @@ for (const line of macLines.slice(macLines.indexOf('jobs:') + 1)) {
   if (header) { macCurrent = header[1]; macJobs[macCurrent] = []; continue; }
   if (macCurrent) macJobs[macCurrent].push(line);
 }
-const NSCLOUD = ['nscloud-macos-tahoe-arm64-6x14', 'nscloud-macos-sequoia-arm64-6x14'];
+const MAC_RUNS_ON = "${{ vars.CI_MAQUINA_MAC || 'nscloud-macos-tahoe-arm64-6x14' }}";
 const ACTIONS = new Set([
   'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
   'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
@@ -163,12 +163,12 @@ test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem
   assert.match(mac, /^concurrency:\n  group: macos-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}\n  cancel-in-progress: true$/m);
 });
 
-test('macOS: um job, só Namespace macOS, leitura, timeout, sem secrets e sem fork', () => {
+test('macOS: um job, máquina pela variável com padrão Namespace, leitura, timeout, sem secrets e sem fork', () => {
   assert.deepEqual(Object.keys(macJobs), ['macos']);
   const job = macJobs.macos.join('\n');
   const runsOn = macJobs.macos.filter((l) => /^    runs-on:/.test(l));
   assert.equal(runsOn.length, 1);
-  assert.ok(NSCLOUD.includes(runsOn[0].replace(/^    runs-on: /, '')), `runs-on fora da lista: ${runsOn[0]}`);
+  assert.equal(runsOn[0].replace(/^    runs-on: /, ''), MAC_RUNS_ON, `runs-on fora do contrato: ${runsOn[0]}`);
   assert.ok(!/ubuntu-|windows-|self-hosted|boat|instabox|-with-cache|nscloud-cache/i.test(job), 'sem runner do GitHub nem volume de cache compartilhado');
   assert.match(job, /^    permissions:\n      contents: read\n    [a-z]/m);
   const timeout = /^    timeout-minutes: (\d+)$/m.exec(job);
@@ -178,6 +178,14 @@ test('macOS: um job, só Namespace macOS, leitura, timeout, sem secrets e sem fo
   assert.ok(!/container:|services:/.test(job));
   assert.match(job, /^    if: \$\{\{ github\.event_name == 'workflow_dispatch' \|\| \(github\.event\.pull_request\.head\.repo\.full_name == github\.repository && !github\.event\.pull_request\.draft\) \}\}$/m);
   assert.ok(!body('ci-ok').includes('macos'), 'o job macOS fica fora do ci-ok');
+});
+
+test('macOS: recusa máquina do GitHub enquanto o repositório for privado, como primeiro passo', () => {
+  const steps = macJobs.macos.join('\n').split('\n    steps:\n')[1].replace(/^(?:      #.*\n)+/, '').split('\n      - ');
+  assert.match(steps[0], /^      - name: Recusar maquina do GitHub em repositorio privado\n        if: \$\{\{ runner\.environment == 'github-hosted' && github\.event\.repository\.private \}\}\n/);
+  assert.match(steps[0], /exit 1/);
+  const minutes = macJobs.macos.join('\n').split('\n      - ').find((st) => st.includes('Minutos'));
+  assert.match(minutes, /test -n "\$\{MACOS_INICIO:-\}" \|\| exit 0/, 'resumo de minutos não quebra se a guarda parar o job antes');
 });
 
 test('macOS: actions da lista fechada por SHA; checkout sem credencial persistida', () => {

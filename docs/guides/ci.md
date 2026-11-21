@@ -61,11 +61,19 @@ início da rodada. Se o Boat recusar um job depois:
   aviso, mas a análise precisa concluir.
 - **dependency-audit:** `npm audit` e `cargo audit` só como aviso. Não entra no `ci-ok`.
 
-## macOS (Namespace)
+## macOS
 
-O workflow `macOS` tem um único job, `macos`, que roda em `nscloud-macos-tahoe-arm64-6x14`
-(macOS Tahoe, Apple Silicon, 6 vCPU e 14 GB). Ele ainda **não entra no `ci-ok`**: aparece
+O workflow `macOS` tem um único job, `macos`. Ele ainda **não entra no `ci-ok`**: aparece
 no PR como a sonda do Boat e não trava a fila enquanto estabiliza.
+
+- **Máquina:** vem da variável de repositório `CI_MAQUINA_MAC` (Settings → Secrets and
+  variables → Actions → Variables). Vazia, o job roda em `nscloud-macos-tahoe-arm64-6x14`
+  (Namespace: macOS Tahoe, Apple Silicon, 6 vCPU e 14 GB). Com o repositório público, o valor
+  é `macos-15` (máquina macOS Apple Silicon do GitHub). Enquanto o repositório for privado, o
+  primeiro passo reprova se o job cair numa máquina do GitHub, mesmo que a variável aponte
+  para ela; a máquina já foi alocada nesse momento, então a variável deve continuar vazia.
+  Valor que não corresponde a nenhuma máquina disponível deixa o job na fila até o GitHub
+  cancelá-lo; como ele está fora do `ci-ok`, isso não trava merge, mas também não gera o zip.
 
 - **Quando roda:** em PR pronto (não rascunho, não fork) que muda `apps/desktop/`, `host/`,
   `motor/`, `packaging/`, a toolchain ou o Cargo da raiz, ou o próprio workflow; e por
