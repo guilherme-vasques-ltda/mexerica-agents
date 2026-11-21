@@ -392,9 +392,11 @@ test('E2: deleteBot recusado com resposta em andamento mantém o bot e avisa o m
       if (method === 'deleteBot') throw new Error('open_chat_busy')
       return original(method, body)
     }
+    space.composerDrafts.edit(bot.id, 'rascunho a manter', 'typed')
     await space.delete(bot)
     await f.flush()
     assert.equal(space.bots.get(bot.id)?.id, bot.id, 'o bot continua na lista')
+    assert.equal(space.composerDrafts.get(bot.id), 'rascunho a manter', 'o rascunho só sai quando o Hub confirma')
     assert.equal(space.lastError, 'Stop the reply before deleting the bot.')
     // Erro sem o código conhecido mantém o comportamento de sempre (o Error vem de outro realm).
     f.host.call = async (method, body) => {

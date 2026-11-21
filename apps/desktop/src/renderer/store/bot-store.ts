@@ -489,24 +489,19 @@ export class BotStore extends BotSync {
     }, true)
   }
 
-  delete(bot: Bot) {
+  /** O bot, a conversa e o rascunho só saem da tela depois que o Hub confirma a exclusão; recusada, só o aviso muda. */
+  async delete(bot: Bot) {
     if (bot.id === this.principal.protectedId) return
-    const result = this.perform(c => {
-      this.composerDrafts.removeBot(bot.id)
-      this.bots.delete(bot.id)
-      this.entries.delete(bot.id)
-      this.onRosterChanged?.()
-      this.changed()
-      return c.call('deleteBot', { botId: bot.id })
-    }, true)
-    // Recusa `open_chat_busy`: nada foi apagado — o bot volta à lista e o aviso explica por quê.
-    void result.then(r => {
-      if (r.ok || !respostaEmAndamento(r.error)) return
-      this.bots.set(bot.id, bot)
-      this.lastError = traduzir(idiomaAtual(), 'bots.editor.apagar.resposta')
-      this.onRosterChanged?.()
-      this.changed()
-    })
+    const result = await this.perform(c => c.call('deleteBot', { botId: bot.id }), true)
+    if (!result.ok) {
+      if (respostaEmAndamento(result.error)) this.lastError = traduzir(idiomaAtual(), 'bots.editor.apagar.resposta')
+      return result
+    }
+    this.composerDrafts.removeBot(bot.id)
+    this.bots.delete(bot.id)
+    this.entries.delete(bot.id)
+    this.onRosterChanged?.()
+    this.changed()
     return result
   }
 

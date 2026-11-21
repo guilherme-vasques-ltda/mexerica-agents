@@ -479,11 +479,6 @@ pub(crate) async fn drive(
     }
 }
 
-/// Verdadeiro quando nenhuma resposta da conversa da Open está em curso neste processo.
-pub(crate) fn idle() -> bool {
-    RUNNING.locked().as_ref().is_none_or(|running| running.values().all(|r| r.done.has_changed().is_err()))
-}
-
 async fn interrupt(rpc: &mut Rpc, thread: &str, turn: &str) {
     let _ =
         rpc.write(json!({"id": 9, "method": "turn/interrupt", "params": {"threadId": thread, "turnId": turn}})).await;
