@@ -10,6 +10,16 @@ export const RPC_LER = 'donnaContext'
 export const RPC_COMPRIMIR = 'donnaContextCompact'
 export const INTERVALO_MS = 2000
 
+export type ParteId = 'fixo' | 'memoria' | 'skills' | 'ferramentas' | 'conversa'
+export const PARTES_ID: readonly ParteId[] = ['fixo', 'memoria', 'skills', 'ferramentas', 'conversa']
+/**
+ * O peso de uma parte do contexto. O motor informa só o total usado; `estimado` = a Mexerica contou o texto que entregou
+ * (ou, na conversa, tirou as partes contadas do total) e estimou os tokens; `naoInformado` = não há número, e nenhum é inventado.
+ */
+export interface ParteContexto { id: ParteId; origem: 'estimado' | 'naoInformado'; tokens: number | null }
+/** `null`: Hub sem a divisão por parte (ou resposta que o app não entende): o balão diz isso em vez de esconder. */
+export interface PartesContexto { itens: ParteContexto[]; caracteresPorToken: number }
+
 /** O `context` da resposta do Hub, já conferido. */
 export interface LeituraContexto {
   used: number
@@ -27,6 +37,8 @@ export interface LeituraContexto {
   automaticPaused: boolean
   /** Falhas seguidas da compressão automática nesta conversa (zera com uma que dá certo). */
   automaticFailures: number
+  /** O que ocupa o espaço, parte a parte. */
+  partes: PartesContexto | null
 }
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null)
@@ -63,6 +75,23 @@ export function conferirContexto(raw: unknown, pedido: Pedido): Resposta | null 
   return { scopeId: r.scopeId, epoch: r.epoch, leitura: conferirMedida(r.context) }
 }
 
+/** Confere `context.parts`: as cinco partes, uma vez cada, na ordem do contrato; qualquer desvio descarta tudo. */
+export function conferirPartes(raw: unknown): PartesContexto | null {
+  if (!raw || typeof raw !== 'object') return null
+  const { items, charsPerToken } = raw as Record<string, unknown>
+  const porToken = num(charsPerToken)
+  if (!porToken || !Array.isArray(items) || items.length !== PARTES_ID.length) return null
+  const itens: ParteContexto[] = []
+  for (const [i, bruto] of items.entries()) {
+    const item = bruto as Record<string, unknown> | null
+    if (!item || item.id !== PARTES_ID[i]) return null
+    if (item.origin === 'naoInformado') itens.push({ id: PARTES_ID[i]!, origem: 'naoInformado', tokens: null })
+    else if (item.origin === 'estimado' && Number.isSafeInteger(item.tokens) && num(item.tokens) !== null) itens.push({ id: PARTES_ID[i]!, origem: 'estimado', tokens: item.tokens as number })
+    else return null
+  }
+  return { itens, caracteresPorToken: porToken }
+}
+
 function conferirMedida(raw: unknown): LeituraContexto | null {
   if (!raw || typeof raw !== 'object') return null
   const c = raw as Record<string, unknown>
@@ -83,6 +112,7 @@ function conferirMedida(raw: unknown): LeituraContexto | null {
     contextId: c.contextId,
     automaticPaused: c.automaticPaused === true,
     automaticFailures: Number.isSafeInteger(c.automaticFailures) && (c.automaticFailures as number) >= 0 ? (c.automaticFailures as number) : 0,
+    partes: conferirPartes(c.parts),
   }
 }
 

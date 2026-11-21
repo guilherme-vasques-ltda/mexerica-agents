@@ -99,6 +99,38 @@ test('texto parcial mantém passos ao vivo até a resposta final do mesmo autor'
   assert.equal(done.pending.size, 0)
 })
 
+test('resposta interrompida leva a ferramenta cortada depois dela, sem deixar passo ao vivo', () => {
+  const text = entry('cut', 'agent', 1, 1, { author: 'A', final: false, interrupted: true, text: 'Vou ler o arquivo.' })
+  const tool = entry('tool', 'tool', 1, 2, { author: 'A', title: 'Ler', status: 'failed', interrupted: true })
+  const { byReply, pending } = stepsByReply([text, tool])
+  assert.deepEqual(byReply.get('cut')?.steps.map((s) => s.id), ['tool'])
+  assert.equal(pending.size, 0)
+  // Nova tentativa do mesmo turno depois do reinício: o passo vivo não vai para a bolha interrompida.
+  const again = entry('again', 'tool', 1, 3, { author: 'A', title: 'Ler', status: 'in_progress' })
+  const resumed = stepsByReply([text, tool, again])
+  assert.equal(resumed.byReply.size, 0)
+  assert.deepEqual([...resumed.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
+  // A ferramenta da nova tentativa terminou antes de qualquer texto: os passos seguem ao vivo.
+  const done = { ...again, data: { ...again.data, status: 'completed' } }
+  const finished = stepsByReply([text, tool, done])
+  assert.equal(finished.byReply.size, 0)
+  assert.deepEqual([...finished.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
+  // E a resposta dela ainda está sendo escrita: os passos continuam ao vivo.
+  const writing = entry('retry', 'agent', 1, 4, { author: 'A', final: false, text: 'Agora sim' })
+  const streaming = stepsByReply([text, tool, done, writing])
+  assert.equal(streaming.byReply.size, 0)
+  assert.deepEqual([...streaming.pending.values()].flatMap((t) => t.steps.map((s) => s.id)), ['tool', 'again'])
+})
+
+test('passo concluído antes do corte fica na bolha da resposta interrompida', () => {
+  const text = entry('cut', 'agent', 1, 1, { author: 'A', final: false, interrupted: true, text: 'Vou ler e editar.' })
+  const read = entry('read', 'tool', 1, 2, { author: 'A', title: 'Ler', status: 'completed' })
+  const edit = entry('edit', 'tool', 1, 3, { author: 'A', title: 'Editar', status: 'failed', interrupted: true })
+  const { byReply, pending } = stepsByReply([text, read, edit])
+  assert.deepEqual(byReply.get('cut')?.steps.map((s) => s.id), ['read', 'edit'])
+  assert.equal(pending.size, 0)
+})
+
 test('turno sem final não vira atividade do pedido seguinte; histórico final e autores são preservados', () => {
   const old = [entry('done-tool', 'tool', 1, 1), entry('done-reply', 'agent', 1, 2, { final: true })]
   // Interrupção e (pass) realmente ficam sem final:true; não sintetizar uma resposta final.

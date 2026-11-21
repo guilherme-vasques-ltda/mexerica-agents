@@ -1,6 +1,6 @@
 // As chamadas do Marketplace ao Hub (corpo e tempo de espera). Sem regra: só envia a intenção e devolve a resposta.
 import type { HostClient } from '../../../client/host-client.ts'
-import type { AppGoogle, Catalogo, Conta, PedidoDefinirVinculo, ProximoPasso, ResultadoDesconectar, VinculosDoBot } from './tipos.ts'
+import type { AppGoogle, Catalogo, Conta, FerramentasDaConta, PedidoDefinirVinculo, PedidoLigarFerramenta, ProximoPasso, ResultadoDesconectar, VinculosDoBot } from './tipos.ts'
 
 const s = (n: number) => n * 1000
 
@@ -34,4 +34,7 @@ export const mercadoApi = {
   removerAppGoogle: (c: HostClient) => c.call<AppGoogle>('marketGoogleAppRemover', {}, s(30)),
   botContas: (c: HostClient, botId: string) => c.call<VinculosDoBot>('marketBotContas', { botId }, s(30)),
   definirBotContas: (c: HostClient, pedido: PedidoDefinirVinculo) => c.call<VinculosDoBot>('marketBotContasDefinir', pedido, s(30)),
+  ferramentas: (c: HostClient, botId: string, conta: string) => c.call<FerramentasDaConta>('marketFerramentas', { botId, conta }, s(30)),
+  ligarFerramenta: (c: HostClient, pedido: PedidoLigarFerramenta) => c.call<FerramentasDaConta>('marketFerramentaLigar', pedido, s(30)),
+  desligarFerramenta: (c: HostClient, botId: string, conta: string, ferramenta: string) => c.call<FerramentasDaConta>('marketFerramentaDesligar', { botId, conta, ferramenta }, s(30)),
 }

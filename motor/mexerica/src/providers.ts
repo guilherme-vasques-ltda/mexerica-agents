@@ -151,8 +151,9 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 		if (text.includes("/contexto")) {
 			const kept = context.messages.filter((m) => m.role !== "system");
 			const asked = new Set(kept.flatMap((m) => (m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall").map((b) => b.id) : [])));
+			const declared = context.messages.flatMap((m) => (m.role === "system" ? ((m as { toolsAdded?: unknown[] }).toolsAdded ?? []) : [])).length;
 			const orphans = kept.filter((m) => m.role === "toolResult" && !asked.has(m.toolCallId)).length;
-			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans}`);
+			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans} ferramentas=${declared}`);
 		}
 		if (text.includes("/pedido")) {
 			const sistema = context.messages.filter((m) => m.role === "system").map(userText);

@@ -7,13 +7,15 @@ use anyhow::{Result, bail, ensure};
 use std::time::Duration;
 
 pub(crate) const MAX_URL: usize = 2048;
-const NAV_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const NAV_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Só `parse_navigation_url` constrói: o campo privado impede criar um destino sem validação.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedNavigation {
     pub url: String,
     pub host: String,
     pub port: u16,
+    seal: (),
 }
 
 /// Só sintaxe e esquema; não resolve DNS. `http` é recusado porque o proxy
@@ -41,7 +43,7 @@ pub(crate) fn parse_navigation_url(raw: &str) -> Result<ValidatedNavigation> {
     );
     let port = url.port().unwrap_or(443);
     ensure!(port == 443, "browser_navigation_port_denied");
-    Ok(ValidatedNavigation { url: url.to_string(), host, port })
+    Ok(ValidatedNavigation { url: url.to_string(), host, port, seal: () })
 }
 
 /// Sintaxe + resolução única com a política de rede (#832): resposta DNS
@@ -60,12 +62,15 @@ pub(crate) async fn validate_navigation_url(raw: &str) -> Result<ValidatedNaviga
 }
 
 impl<W: tokio::io::AsyncWrite + Unpin + Send + 'static> super::cdp::Cdp<W> {
-    /// Único caminho de `Page.navigate`: valida no Hub antes de enviar.
-    pub(crate) async fn navigate_validated(&self, session: &str, raw_url: &str) -> Result<String> {
+    /// Único caminho de `Page.navigate`: valida no Hub e confere a autoridade da instância depois de toda espera assíncrona, imediatamente antes de enviar.
+    pub(crate) async fn navigate_validated(
+        &self,
+        session: &str,
+        raw_url: &str,
+        authorized: &(dyn Fn() -> bool + Sync),
+    ) -> Result<String> {
         let validated = validate_navigation_url(raw_url).await?;
-        let result = self
-            .command_session_from_gate(session, "Page.navigate", serde_json::json!({"url": validated.url}), NAV_TIMEOUT)
-            .await?;
+        let result = self.navigate(session, &validated, authorized).await?;
         if let Some(error) = result.get("errorText").and_then(|v| v.as_str()).filter(|t| !t.is_empty()) {
             bail!("browser_navigation_failed: {error}");
         }
@@ -75,9 +80,7 @@ impl<W: tokio::io::AsyncWrite + Unpin + Send + 'static> super::cdp::Cdp<W> {
     /// Único caminho de `Target.createTarget`: mesma validação da navegação.
     pub(crate) async fn create_target_validated(&self, raw_url: &str) -> Result<String> {
         let validated = validate_navigation_url(raw_url).await?;
-        let result = self
-            .command_from_gate("Target.createTarget", serde_json::json!({"url": validated.url}), NAV_TIMEOUT)
-            .await?;
+        let result = self.create_target(&validated).await?;
         result
             .get("targetId")
             .and_then(|v| v.as_str())

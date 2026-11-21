@@ -214,6 +214,8 @@ pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
 enum Outcome {
     Sent,
     Retry,
+    /// Fila da conversa cheia: espera a vez sem gastar tentativa.
+    Wait,
     Failed(&'static str),
 }
 
@@ -281,6 +283,9 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
                 if hub.store.find_by_nonce(&p.bot_id, &nonce).is_some() {
                     return Ok(Outcome::Sent);
                 }
+                if crate::fork::owner_question::queue_full(&error) {
+                    return Ok(Outcome::Wait);
+                }
                 tracing::warn!(%error, bot = %p.bot_id, "tarefas_runtime: entrega de aviso falhou");
                 Ok(if p.attempts + 1 >= MAX_ATTEMPTS { Outcome::Failed("delivery_failed") } else { Outcome::Retry })
             }
@@ -294,9 +299,10 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
             if p.attempts + 1 >= MAX_ATTEMPTS { Outcome::Failed("delivery_failed") } else { Outcome::Retry }
         }
     };
+    let wait = matches!(outcome, Outcome::Wait);
     let (status, reason) = match outcome {
         Outcome::Sent => ("sent", None),
-        Outcome::Retry => ("queued", None),
+        Outcome::Retry | Outcome::Wait => ("queued", None),
         Outcome::Failed(reason) => ("failed", Some(reason)),
     };
     let hub = hub.clone();
@@ -311,7 +317,7 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
     let _ = tokio::task::spawn_blocking(move || -> Result<()> {
         let db = hub.store.db.locked();
         let tx = db.unchecked_transaction()?;
-        tx.execute(
+        let settled = tx.execute(
             "UPDATE donna_task_deliveries SET status=?7,reason=?8,
              session_id=CASE WHEN ?7='sent' THEN COALESCE(session_id,?9) ELSE session_id END
              WHERE hub_id=?1 AND space_id=?2 AND project_id=?3 AND task_id=?4 AND comment_id=?5 AND bot_id=?6
@@ -328,7 +334,14 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
                 delivered_session
             ],
         )?;
-        if status == "queued" {
+        if wait && settled == 1 {
+            tx.execute(
+                "UPDATE donna_task_deliveries SET attempts=MAX(attempts-1,0)
+                 WHERE hub_id=?1 AND space_id=?2 AND project_id=?3 AND task_id=?4 AND comment_id=?5 AND bot_id=?6",
+                params![hub.host_id, p.space_id, p.project_id, p.task_id, p.comment_id, p.bot_id],
+            )?;
+        }
+        if status == "queued" && settled == 1 {
             // Backoff por tentativa: created_at funciona como "disponível em".
             tx.execute(
                 "UPDATE donna_task_deliveries SET created_at=?7,reason=NULL
@@ -474,7 +487,7 @@ pub(crate) fn restore_sending(c: &Connection, hub_id: &str) -> Result<()> {
         let delivered: Option<String> = c
             .query_row(
                 "SELECT session FROM entries WHERE bot_id=?1 AND kind='user'
-                 AND json_extract(data,'$.clientNonce')=?2 LIMIT 1",
+                 AND json_valid(data) AND json_extract(data,'$.clientNonce')=?2 LIMIT 1",
                 params![bot, attempt],
                 |r| r.get(0),
             )

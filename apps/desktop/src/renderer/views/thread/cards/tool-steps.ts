@@ -78,6 +78,8 @@ function summarize(steps: Step[], end: number): TurnSteps {
 export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, TurnSteps>; pending: Map<string, TurnSteps> } {
   const steps = new Map<string, Step[]>()
   const lastReply = new Map<string, Entry>()
+  const lastAgent = new Map<string, number>()
+  const cutAt = new Map<string, number>()
   // allEntries is in transcript order, including a new user entry before its first tool arrives.
   // A local optimistic user entry has turn 0, which also keeps earlier work out of its live list.
   const currentTurn = entries[entries.length - 1]?.turn
@@ -87,8 +89,10 @@ export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, 
       const list = steps.get(k) ?? []
       list.push({ id: e.id, title: e.data.title ?? '', kind: e.data.toolKind ?? 'other', state: stepState(e.data.status), at: e.createdAt })
       steps.set(k, list)
-    } else if (e.kind === 'agent' && e.data.final === true) {
-      lastReply.set(k, e)
+      if (e.data.interrupted === true) cutAt.set(k, Math.max(cutAt.get(k) ?? 0, e.createdAt))
+    } else if (e.kind === 'agent') {
+      lastAgent.set(k, e.createdAt)
+      if (e.data.final === true || e.data.interrupted === true) lastReply.set(k, e)
     }
   }
   const byReply = new Map<string, TurnSteps>()
@@ -96,7 +100,11 @@ export function stepsByReply(entries: readonly Entry[]): { byReply: Map<string, 
   for (const [k, list] of steps) {
     const reply = lastReply.get(k)
     // A reply that came before the turn's last step is not the end of the work: the steps stay live.
-    if (reply && reply.createdAt >= list[list.length - 1]!.at) byReply.set(reply.id, summarize(list, reply.createdAt))
+    // Uma resposta interrompida fecha o turno cortado: os passos até a última ferramenta cortada ficam na bolha. Passo
+    // ou texto depois disso é de uma nova tentativa do mesmo turno, que segue ao vivo.
+    const cut = reply?.data.interrupted === true && (lastAgent.get(k) ?? 0) <= reply.createdAt
+      && !list.some((s) => s.at > Math.max(reply.createdAt, cutAt.get(k) ?? 0))
+    if (reply && (reply.createdAt >= list[list.length - 1]!.at || cut)) byReply.set(reply.id, summarize(list, reply.createdAt))
     else if (k.startsWith(`${currentTurn}|`)) pending.set(k.slice(k.indexOf('|') + 1), summarize(list, list[list.length - 1]!.at))
   }
   return { byReply, pending }

@@ -249,18 +249,18 @@ test('issue contém só contagens e caminhos; nunca abre em destino público', a
 
 test('contrato do workflow: scanner aprovado, testes sem secret e ci-ok obrigatório', () => {
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  const job = ci.split('  vazamento:\n')[1].split('\n  dependency-audit:')[0];
-  assert.match(job, /needs: \[route, secrets\]/);
+  const job = ci.split('  vazamento:\n')[1].split('\n  hub:')[0];
+  assert.ok(!/^    needs:/m.test(job), 'vazamento não espera código do PR rodar antes');
   assert.match(job, /permissions:\n      contents: read/);
   assert.ok(!job.includes('issues: write'));
   assert.match(job, /git show "\$source:tools\/ci-vazamento.mjs"/);
   assert.match(job, /test "\$GITHUB_EVENT_NAME" = pull_request/);
   assert.ok(!job.includes('node --test'), 'VM do secret não executa testes do PR');
-  const testJob = ci.split('  ferramentas-ci:\n')[1].split('  hub:\n')[0];
+  const testJob = ci.split('  leves:\n')[1].split('\n  vazamento:')[0];
   assert.ok(testJob.includes('tools/ci-vazamento.test.mjs'));
   assert.ok(!testJob.includes('secrets.'), 'VM dos testes não recebe secrets');
   assert.ok(!testJob.includes('VAZAMENTO_TERMOS'));
-  assert.match(ci, /needs: \[route, secrets, vazamento, semgrep, changes,/);
+  assert.match(ci, /needs: \[leves, vazamento, hub, desktop\]/);
   assert.match(ci, /\.vazamento.result == "success"/);
 });
 
@@ -618,14 +618,19 @@ test('data URI: termo longo continua comparado no base64 cru; metadado legível 
   assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [bomb]))), false, 'um zTXt dentro do orçamento é aceito');
   const heavy = svgWith(pngWith('CactoAAA', [bomb]));
   assert.equal(b64Hit(heavy + heavy), true, 'o orçamento é da linha inteira, não de cada PNG');
+  const over = svgWith(pngWith('AAAA', [chunk('zTXt', Buffer.concat([Buffer.from('a\0\0'), deflateSync(Buffer.alloc(5 * 1024 * 1024))]))]));
+  assert.equal(b64Hit(over + svgWith(pngWith('CactoAAA', [chunk('zTXt', Buffer.concat([Buffer.from('a\0\0'), deflateSync(Buffer.from('x'))]))]))), true, 'falha por orçamento esgota o saldo da linha');
+  const many = pngWith('AAAA', Array.from({ length: 150000 }, () => chunk('tEXt', Buffer.from('k\0v'))));
+  assert.equal(b64Hit(svgWith(many)), false, 'muitos chunks de texto não estouram a pilha');
 });
 
 test('data URI: PNG incompleto, outro formato, CRC errado, bloco sem fim claro ou base64 inválido seguem crus', () => {
   const bad = Buffer.from(png, 'base64'); bad[bad.length - 1] ^= 1;
   const noIhdr = pngParts('CactoAAA', [], [chunk('ruSt', Buffer.alloc(13))]), noIdat = pngParts('CactoAAA', [], [ihdr], []);
   const emptyIdat = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.alloc(0))]), badZlib = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x78, 0x00, 0x01]))]);
+  const bigWindow = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x88, 0x1c, 0x01]))]), presetDict = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x78, 0x20, 0x01]))]);
   assert.equal(b64Hit(svgWith(pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.alloc(0)), idat]))), false, 'IDAT vazio seguido de IDAT com dados é aceito');
-  for (const line of [svgWith(png, 'image/x-desconhecido'), svgWith(png, 'image/jpeg'), svgWith(bad.toString('base64')), svgWith(png).replace('"/>', '!"/>'), svgWith(png).replace('"/>', ';x"/>'), svgWith(png.replace(/=*$/, '') + 'C'), svgWith('CactoAAA'), svgWith(noIhdr), svgWith(noIdat), svgWith(emptyIdat), svgWith(badZlib)]) {
+  for (const line of [svgWith(png, 'image/x-desconhecido'), svgWith(png, 'image/jpeg'), svgWith(bad.toString('base64')), svgWith(png).replace('"/>', '!"/>'), svgWith(png).replace('"/>', ';x"/>'), svgWith(png.replace(/=*$/, '') + 'C'), svgWith('CactoAAA'), svgWith(noIhdr), svgWith(noIdat), svgWith(emptyIdat), svgWith(badZlib), svgWith(bigWindow), svgWith(presetDict)]) {
     assert.equal(b64Hit(line), true, line.slice(0, 60));
   }
 });

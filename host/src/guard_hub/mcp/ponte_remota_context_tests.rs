@@ -271,3 +271,192 @@ async fn regra_recusa_http_antes_do_post() {
     assert!(unavailable.is_err());
     assert_eq!(posts.load(Ordering::SeqCst), 0);
 }
+
+/// Marketplace, fatia 2: Bridge real → router do Hub → admissão final. A conta é do catálogo (ficha do Linear), então
+/// o alvo não é o servidor sintético: o que se prova aqui é a decisão do Hub imediatamente antes do envio.
+async fn bridge_do_catalogo() -> (Fixture, Server, Bridge, crate::market::Connector) {
+    let f = Fixture::with_memory_profile(|store, cfg| {
+        cfg.connectors = vec!["fixture".into()];
+        let connector = serde_json::from_value(json!({
+            "id":"fixture","name":"Fixture","url":"https://mcp.linear.app/mcp/readonly",
+            "servico":"linear","tipo":"linear.oficial_oauth","liberacoes":["ler"]}))
+        .expect("conector fixture");
+        crate::market::save_connectors(store, &[connector]).expect("salvar conector fixture");
+    });
+    let connector = crate::market::connectors(&f.hub.store).expect("conectores fixture").remove(0);
+    let definition = connector_context::definition(
+        &f.hub,
+        &f.cfg,
+        Some("vinculo-A"),
+        &connector,
+        std::path::Path::new("/fixture/host"),
+        0,
+        &f.cfg.id,
+        f.cfg.session_owner(),
+        None,
+        f.body["sessionBinding"].as_str().expect("vínculo de sessão da fixture"),
+    )
+    .expect("definição real")
+    .expect("MCP configurado");
+    let context = definition["args"]
+        .as_array()
+        .expect("argumentos")
+        .windows(2)
+        .find(|p| p[0] == "--context")
+        .expect("contexto emitido")[1]
+        .as_str()
+        .expect("ID")
+        .to_owned();
+    let api = server(crate::api::router(f.hub.clone())).await;
+    let bridge = Bridge {
+        port: api.port,
+        token: Zeroizing::new("test".into()),
+        connector: "fixture".into(),
+        context,
+        id: uuid::Uuid::new_v4().to_string(),
+        acquired: false,
+        request: uuid::Uuid::new_v4().to_string(),
+        begin: false,
+        sequence: 1,
+        params: Value::Null,
+    };
+    (f, api, bridge, connector)
+}
+
+#[tokio::test]
+async fn admissao_final_barra_o_envio_de_acao_nao_ligada_desligada_depois_ou_de_lista_invalidada() {
+    use crate::market::ferramentas::{self, PedidoLigar};
+    let (f, _api, mut bridge, conta) = bridge_do_catalogo().await;
+    let ferramenta = |nome: &str, perigosa: bool| {
+        let mut tool = json!({"name": nome, "description": "d", "inputSchema": {"type": "object"}});
+        if perigosa {
+            tool["annotations"] = json!({"destructiveHint": true});
+        }
+        tool
+    };
+    let tools = [ferramenta("get_issue", false), ferramenta("list_issues", true), ferramenta("create_issue", false)];
+    let nomes: std::collections::BTreeSet<String> =
+        tools.iter().map(|t| t["name"].as_str().unwrap().to_owned()).collect();
+    let geracao = Some(ferramentas::geracao(&f.hub.store, "fixture").unwrap());
+    ferramentas::registrar(&f.hub.store, &conta, &tools, Some(&nomes), true, geracao).expect("inventário completo");
+    let tentar = async |bridge: &mut Bridge, nome: &str| {
+        bridge.params = json!({"name": nome, "arguments": {}});
+        bridge.admit(&Value::Null, "tools/call").await
+    };
+    // O pedido real nasce no alvo (`beginRequest`); a admissão final reusa o mesmo pedido.
+    bridge
+        .call(
+            "donnaGuardRuntime",
+            json!({"method":"tools/call","validateOnly":true,"beginRequest":true,"params":{"name":"inicio"}}),
+        )
+        .await
+        .expect("pedido registrado no Hub");
+    // A ficha do Linear não marca leitura alguma: nada passa até a pessoa ligar, nem o que parece leitura.
+    for nome in ["get_issue", "list_issues", "create_issue", "fantasma"] {
+        let erro = tentar(&mut bridge, nome).await.expect_err(nome);
+        assert!(erro.downcast_ref::<super::super::http::PolicyDenied>().is_some(), "{nome}: {erro}");
+    }
+    // A pessoa liga list_issues neste bot: passa. Desliga depois da decisão do alvo: a admissão final recusa.
+    let digest = ferramentas::ler_ferramenta(&tools[1]).unwrap().digest;
+    let pedido = PedidoLigar { bot: &f.cfg.id, conta: "fixture", ferramenta: "list_issues", digest: &digest };
+    ferramentas::gravar_liberacao(&f.hub.store.db.locked(), &pedido).expect("a pessoa liga");
+    assert!(tentar(&mut bridge, "list_issues").await.is_ok());
+    ferramentas::gravar_desligamento(&f.hub.store.db.locked(), &f.cfg.id, "fixture", "list_issues").expect("desligar");
+    assert!(tentar(&mut bridge, "list_issues").await.is_err(), "desligada antes do envio: não sai");
+    // Aviso de lista mudada: nada passa, nem o que a pessoa ligou, até uma lista completa nova.
+    ferramentas::gravar_liberacao(&f.hub.store.db.locked(), &pedido).expect("a pessoa liga de novo");
+    assert!(tentar(&mut bridge, "list_issues").await.is_ok());
+    ferramentas::invalidar(&f.hub.store, "fixture").unwrap();
+    assert!(tentar(&mut bridge, "list_issues").await.is_err());
+    let geracao = Some(ferramentas::geracao(&f.hub.store, "fixture").unwrap());
+    ferramentas::registrar(&f.hub.store, &conta, &tools, Some(&nomes), true, geracao).unwrap();
+    assert!(tentar(&mut bridge, "list_issues").await.is_ok(), "uma lista completa nova reabre o que a pessoa ligou");
+    // Outros métodos MCP não passam por esta admissão.
+    bridge.params = Value::Null;
+    assert!(bridge.admit(&Value::Null, "tools/list").await.is_ok());
+}
+
+/// Duas pontes do mesmo bot e da mesma conta: o aviso de lista mudada chega com um `tools/list` em voo em cada uma.
+/// Resposta atrasada (anotada antes do aviso) e resposta mediada retida não reabrem o inventário nem apagam o que a
+/// pessoa ligou; só uma descoberta pedida depois do aviso reabre. Conta de envios = admissões finais que passaram.
+#[tokio::test]
+async fn duas_pontes_resposta_atrasada_e_descoberta_retida_nao_reabrem_o_inventario_e_nenhum_envio_sai() {
+    use crate::market::ferramentas::{self, PedidoLigar};
+    let (f, _api, mut a, conta) = bridge_do_catalogo().await;
+    let mut b = Bridge {
+        port: a.port,
+        token: Zeroizing::new("test".into()),
+        connector: "fixture".into(),
+        context: a.context.clone(),
+        id: uuid::Uuid::new_v4().to_string(),
+        acquired: false,
+        request: uuid::Uuid::new_v4().to_string(),
+        begin: false,
+        sequence: 1,
+        params: Value::Null,
+    };
+    let tools = [json!({"name": "list_issues", "description": "d", "inputSchema": {"type": "object"}})];
+    let nomes: std::collections::BTreeSet<String> = ["list_issues".to_owned()].into();
+    let store = &f.hub.store;
+    let geracao = |store: &crate::store::Store| Some(ferramentas::geracao(store, "fixture").unwrap());
+    ferramentas::registrar(store, &conta, &tools, Some(&nomes), true, geracao(store)).unwrap();
+    let digest = ferramentas::ler_ferramenta(&tools[0]).unwrap().digest;
+    let pedido = PedidoLigar { bot: &f.cfg.id, conta: "fixture", ferramenta: "list_issues", digest: &digest };
+    ferramentas::gravar_liberacao(&store.db.locked(), &pedido).expect("a pessoa liga");
+    for ponte in [&mut a, &mut b] {
+        ponte
+            .call(
+                "donnaGuardRuntime",
+                json!({"method":"tools/call","validateOnly":true,"beginRequest":true,"params":{"name":"inicio"}}),
+            )
+            .await
+            .expect("pedido registrado no Hub");
+    }
+    let mut envios = 0;
+    let mut tentar = async |ponte: &mut Bridge| {
+        ponte.params = json!({"name": "list_issues", "arguments": {}});
+        let passou = ponte.admit(&Value::Null, "tools/call").await.is_ok();
+        envios += usize::from(passou);
+        passou
+    };
+    assert!(tentar(&mut a).await && tentar(&mut b).await, "ligada e com inventário: as duas pontes enviam");
+    // Cada ponte anota a geração antes de o tools/list sair; depois o fornecedor avisa a mudança.
+    ferramentas::iniciar_descoberta(store, &a.id, "fixture").unwrap();
+    ferramentas::iniciar_descoberta(store, &b.id, "fixture").unwrap();
+    ferramentas::invalidar(store, "fixture").unwrap();
+    assert!(!tentar(&mut a).await && !tentar(&mut b).await, "aviso de lista mudada: nada sai");
+    // A resposta da ponte B, pedida antes do aviso, chega atrasada: não reabre.
+    let atrasada = ferramentas::encerrar_descoberta(&b.id, "fixture");
+    ferramentas::registrar(store, &conta, &tools, Some(&nomes), true, atrasada).unwrap();
+    assert!(!tentar(&mut a).await && !tentar(&mut b).await, "resposta anterior ao aviso não revalida o inventário");
+    // A ponte A pede de novo depois do aviso, mas a resposta mediada vem retida (erro): só invalida.
+    ferramentas::iniciar_descoberta(store, &a.id, "fixture").unwrap();
+    let retida = ferramentas::encerrar_descoberta(&a.id, "fixture");
+    ferramentas::registrar(store, &conta, &tools, None, true, retida).unwrap();
+    assert!(!tentar(&mut a).await && !tentar(&mut b).await, "descoberta retida não vale como lista");
+    // A resposta da ponte A, sem ter sido anotada (ou já consumida), também não instala nada.
+    let sem_nota = ferramentas::encerrar_descoberta(&a.id, "fixture");
+    ferramentas::registrar(store, &conta, &tools, Some(&nomes), true, sem_nota).unwrap();
+    assert!(!tentar(&mut a).await && !tentar(&mut b).await, "sem geração anotada nada instala");
+    let ligadas: i64 =
+        store.db.locked().query_row("SELECT COUNT(*) FROM mexerica_ferramenta_liberacoes", [], |r| r.get(0)).unwrap();
+    assert_eq!(ligadas, 1, "a liberação da pessoa continua guardada");
+    // Uma descoberta pedida depois do aviso, completa e mediada, reabre: as duas pontes voltam a enviar.
+    ferramentas::iniciar_descoberta(store, &a.id, "fixture").unwrap();
+    let nova = ferramentas::encerrar_descoberta(&a.id, "fixture");
+    ferramentas::registrar(store, &conta, &tools, Some(&nomes), true, nova).unwrap();
+    assert!(tentar(&mut a).await && tentar(&mut b).await);
+    // O próprio fornecedor responde com erro à descoberta seguinte: a lista anterior deixa de valer nas duas pontes.
+    ferramentas::iniciar_descoberta(store, &a.id, "fixture").unwrap();
+    let erro = json!({"jsonrpc": "2.0", "id": 9, "error": {"code": -32000, "message": "indisponível"}});
+    assert!(ferramentas::lista_do_frame(store, "fixture", &erro).is_err());
+    assert!(!tentar(&mut a).await && !tentar(&mut b).await, "descoberta com erro do fornecedor fecha a admissão");
+    let nova = ferramentas::encerrar_descoberta(&a.id, "fixture");
+    ferramentas::registrar(store, &conta, &tools, Some(&nomes), true, nova).unwrap();
+    assert!(!tentar(&mut a).await && !tentar(&mut b).await, "a resposta anotada antes da falha não reabre");
+    ferramentas::iniciar_descoberta(store, &a.id, "fixture").unwrap();
+    let nova = ferramentas::encerrar_descoberta(&a.id, "fixture");
+    ferramentas::registrar(store, &conta, &tools, Some(&nomes), true, nova).unwrap();
+    assert!(tentar(&mut a).await && tentar(&mut b).await);
+    assert_eq!(envios, 6, "só as admissões com inventário vigente enviam");
+}
