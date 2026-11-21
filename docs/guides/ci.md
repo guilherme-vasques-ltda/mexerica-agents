@@ -66,14 +66,14 @@ início da rodada. Se o Boat recusar um job depois:
 O workflow `macOS` tem um único job, `macos`. Ele ainda **não entra no `ci-ok`**: aparece
 no PR como a sonda do Boat e não trava a fila enquanto estabiliza.
 
-- **Máquina:** vem da variável de repositório `CI_MAQUINA_MAC` (Settings → Secrets and
-  variables → Actions → Variables). Vazia, o job roda em `nscloud-macos-tahoe-arm64-6x14`
-  (Namespace: macOS Tahoe, Apple Silicon, 6 vCPU e 14 GB). Com o repositório público, o valor
-  é `macos-15` (máquina macOS Apple Silicon do GitHub). Enquanto o repositório for privado, o
-  primeiro passo reprova se o job cair numa máquina do GitHub, mesmo que a variável aponte
-  para ela; a máquina já foi alocada nesse momento, então a variável deve continuar vazia.
-  Valor que não corresponde a nenhuma máquina disponível deixa o job na fila até o GitHub
-  cancelá-lo; como ele está fora do `ci-ok`, isso não trava merge, mas também não gera o zip.
+- **Máquina:** por padrão, `nscloud-macos-tahoe-arm64-6x14` (Namespace: macOS Tahoe, Apple
+  Silicon, 6 vCPU e 14 GB). O job só vai para a máquina macOS do GitHub (`macos-15`, Apple
+  Silicon) quando as duas condições valem ao mesmo tempo: o evento confirma que o repositório é
+  público e a variável `CI_MAQUINA_MAC` vale `macos-15` (Settings → Secrets and variables →
+  Actions → Variables; uma variável de mesmo nome na organização também conta). Qualquer outro
+  caso, inclusive variável vazia ou com outro valor, fica na Namespace. A escolha acontece antes
+  de alocar a máquina. Como segunda barreira, o primeiro passo reprova se o job cair numa
+  máquina do GitHub sem o evento confirmar repositório público.
 
 - **Quando roda:** em PR pronto (não rascunho, não fork) que muda `apps/desktop/`, `host/`,
   `motor/`, `packaging/`, a toolchain ou o Cargo da raiz, ou o próprio workflow; e por
