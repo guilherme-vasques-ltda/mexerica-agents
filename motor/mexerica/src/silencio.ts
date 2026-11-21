@@ -18,19 +18,23 @@ export function comPrazoDeSilencio(base: Fetch, prazoMs = SILENCIO_MS): Fetch {
 		const corte = new AbortController();
 		// Como no construtor de `Request`: o `init.signal` explícito (até `null`) vale; sem ele, vale o do próprio `Request`.
 		const externo = init?.signal !== undefined ? (init.signal ?? undefined) : input instanceof Request ? input.signal : undefined;
-		const repassar = () => corte.abort(externo?.reason);
-		if (externo?.aborted) repassar();
-		else externo?.addEventListener("abort", repassar, { once: true });
 		let relogio: NodeJS.Timeout | undefined;
 		const silencio = new SilencioDoFornecedor(prazoMs);
 		const rearmar = () => {
 			clearTimeout(relogio);
 			relogio = setTimeout(() => corte.abort(silencio), prazoMs);
 		};
+		// Cancelar de fora (inclusive o leitor que sai no evento final sem drenar o corpo) também desarma o prazo.
+		const repassar = () => {
+			clearTimeout(relogio);
+			corte.abort(externo?.reason);
+		};
 		const soltar = () => {
 			clearTimeout(relogio);
 			externo?.removeEventListener("abort", repassar);
 		};
+		if (externo?.aborted) repassar();
+		else externo?.addEventListener("abort", repassar, { once: true });
 		// Uma promessa que perde para o corte, mesmo que quem está do outro lado ignore o sinal.
 		const ouCorte = <T>(promessa: Promise<T>): Promise<T> =>
 			new Promise<T>((resolve, reject) => {

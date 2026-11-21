@@ -51,6 +51,34 @@ test("cancelar pelo sinal de um Request, sem init, cancela o pedido de baixo", a
 	assert.equal(recebido?.aborted, true);
 });
 
+test("sair sem drenar o corpo, cancelando de fora, não deixa o prazo armado", async () => {
+	const ativos = new Set<unknown>();
+	const { setTimeout: armar, clearTimeout: desarmar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		const relogio = armar(...args);
+		ativos.add(relogio);
+		return relogio;
+	}) as typeof setTimeout;
+	globalThis.clearTimeout = ((relogio: Parameters<typeof clearTimeout>[0]) => {
+		ativos.delete(relogio);
+		desarmar(relogio);
+	}) as typeof clearTimeout;
+	try {
+		const inicio = new TextEncoder().encode("data: {}\n\n");
+		const fetch = comPrazoDeSilencio(async () => new Response(corpoQueTrava(inicio), { status: 200 }), 60_000);
+		const dono = new AbortController();
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		const leitor = resposta.body!.getReader();
+		await leitor.read();
+		assert.equal(ativos.size, 1, "o prazo do silêncio está armado enquanto a resposta corre");
+		dono.abort();
+		assert.equal(ativos.size, 0, "cancelar de fora desarma o prazo");
+	} finally {
+		globalThis.setTimeout = armar;
+		globalThis.clearTimeout = desarmar;
+	}
+});
+
 test("resposta lenta mas viva não é cortada", async () => {
 	const partes = [
 		{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } },
