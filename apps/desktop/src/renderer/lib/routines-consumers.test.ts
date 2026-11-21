@@ -30,7 +30,7 @@ test('lista e grade reais suspendem previsões e preservam execuções e enabled
     const at = day + 12 * 3600_000
     const routine = { id: 'r', botId: 'b', name: 'Rotina', enabled: true, summary: 'Diária', triggers: [{ type: 'cron' }], nextRunAt: at }
     const overview = { routines: [routine], occurrences: [{ routineId: 'r', botId: 'b', at, trigger: 0, enabled: true }], runs: [], dense: [] }
-    const list = (paused: boolean | null, runs: unknown[] = []) => renderToStaticMarkup(React.createElement(RoutineList, { globalPause: paused, routines: [routine], runs, bots: new Map(), invalid: new Set(), busy: null, disabled: false, onOpen() {}, onToggle() {} }))
+    const list = (paused: boolean | null, runs: unknown[] = []) => renderToStaticMarkup(React.createElement(RoutineList, { globalPause: paused, routines: [routine], runs, bots: new Map(), invalid: new Set(), busy: null, disabled: false, onOpen() {}, onToggle() {}, onRun() {} }))
     const grid = (paused: boolean | null) => {
       const items = calendarItems(overview, [routine], paused)
       assert.equal(items[0].paused, paused !== false)
@@ -72,7 +72,7 @@ test('I-023: lista e grade reais mostram o desfecho; ✓ só com declaração de
       const [item] = calendarItems({ routines: [routine], occurrences: [], runs: [r], dense: [] }, [routine])
       return `rc-card ${itemClass(item)} ${itemLabel(item, 'Bot')}`
     }
-    const list = (r: unknown) => renderToStaticMarkup(React.createElement(RoutineList, { globalPause: false, routines: [routine], runs: [r], bots: new Map(), invalid: new Set(), busy: null, disabled: false, onOpen() {}, onToggle() {} }))
+    const list = (r: unknown) => renderToStaticMarkup(React.createElement(RoutineList, { globalPause: false, routines: [routine], runs: [r], bots: new Map(), invalid: new Set(), busy: null, disabled: false, onOpen() {}, onToggle() {}, onRun() {} }))
     assert.match(grid(run({ version: 1, kind: 'noNews', source: 'declared' })), /rc-card[^"]* ok/)
     for (const old of [run(undefined), run({ version: 1, kind: 'unconfirmed', source: 'none', reason: 'noDeclaration' })]) {
       const html = grid(old)
@@ -115,7 +115,7 @@ test('DON-917: sem escolha a tela de Rotinas sai em inglês; ar-AE declara rtl e
       const { RoutineList } = await vite.ssrLoadModule('/src/renderer/views/rotinas-central/RoutineList.tsx')
       const { GlobalPause } = await vite.ssrLoadModule('/src/renderer/views/rotinas-central/GlobalPause.tsx')
       const routine = { id: 'r', botId: 'b', name: 'روتين ‏Daily', enabled: true, summary: 'Diária', triggers: [{ type: 'cron' }], nextRunAt: null }
-      const lista = renderToStaticMarkup(React.createElement(RoutineList, { globalPause: true, routines: [routine], runs: [], bots: new Map(), invalid: new Set(), busy: null, disabled: false, onOpen() {}, onToggle() {} }))
+      const lista = renderToStaticMarkup(React.createElement(RoutineList, { globalPause: true, routines: [routine], runs: [], bots: new Map(), invalid: new Set(), busy: null, disabled: false, onOpen() {}, onToggle() {}, onRun() {} }))
       // O nome é do usuário: a direção vem do próprio texto.
       assert.match(lista, /<span class="rc-row-name" dir="auto">/)
       // R1 do #570: o nome do bot na linha também é isolado.
