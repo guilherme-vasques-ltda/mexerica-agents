@@ -15,6 +15,7 @@ import { avisoResultado, avisoSemSuporte, INTERVALO_MS, ModeloContexto, porcento
 import { Icon } from '../../../components/Icon'
 import { Spinner } from '../../../components/Controls'
 import { CustoConversa } from '../custo/CustoConversa'
+import { PartesContexto } from './PartesContexto'
 import { AnelContexto } from '../compositor/AnelContexto'
 import '../idioma/escritas.css'
 import { AvisoBalao } from './AvisoBalao'
@@ -210,6 +211,7 @@ export function BarraContexto({ botId, sessionId, inicio = null }: {
                     <div><dt>{t('contexto.detalhes.espaco')}</dt><dd>{t('contexto.detalhes.espacoValor', { usado: tokensCurtos(idioma, leitura.used), total: tokensCurtos(idioma, leitura.size) })}</dd></div>
                     <div><dt>{t('contexto.detalhes.gatilho')}</dt><dd>{t('contexto.detalhes.gatilhoValor', { gatilho: tokensCurtos(idioma, leitura.trigger) })}</dd></div>
                   </dl>
+                  <PartesContexto leitura={leitura} idioma={idioma} t={t} />
                   <CustoConversa botId={botId} sessionId={sessionId} aberto={mostrar && detalhes} />
                   <p className="ctx-nota-glossario">{t('contexto.detalhes.glossario')}</p>
                 </div>

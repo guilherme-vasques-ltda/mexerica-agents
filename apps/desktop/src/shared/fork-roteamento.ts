@@ -38,6 +38,11 @@ export interface RoutingReceipt {
   reason: 'fixedSelection' | 'explicitSelection' | 'frozenSessionSelection'
   requiredFacts: { coverageBefore: RoutingUnattested; coverageAfter: RoutingUnattested; accountIdentityGenerationCatalog: RoutingUnattested }
 }
+/**
+ * Uso do turno que o motor informou ao Hub; `null` em um campo = o motor não informou (nunca zero nem estimativa).
+ * Na resposta, `usage` ausente = Hub antigo; `null` = turno sem medida (anterior ao registro ou ainda em andamento).
+ */
+export interface RoutingTurnUsage { input: number | null; cacheRead: number | null; cacheWrite: number | null; output: number | null }
 /** `pending`: ainda na fila; `notRouted`: enviada sem recibo (não roteada ou anterior ao Roteamento). */
-export type RoutingReceiptResponse = { hubId: string } & ({ state: 'routed'; receipt: RoutingReceipt } | { state: 'notRouted' | 'pending'; receipt: null })
+export type RoutingReceiptResponse = { hubId: string; usage?: RoutingTurnUsage | null } & ({ state: 'routed'; receipt: RoutingReceipt } | { state: 'notRouted' | 'pending'; receipt: null })
 export const ROUTING_PERSONAL = '00000000-0000-4000-8000-000000000001'

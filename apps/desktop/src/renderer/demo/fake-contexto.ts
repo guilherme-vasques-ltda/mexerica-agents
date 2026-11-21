@@ -47,6 +47,13 @@ export class FakeContexto {
     return e
   }
 
+  /** O peso de cada parte, no formato do Hub: texto contado e estimado; ferramentas sem número; conversa = o resto. */
+  private partes(used: number) {
+    const fixo = 6_800, memoria = 1_900, skills = 650
+    const parte = (id: string, tokens: number | null) => ({ id, origin: tokens === null ? 'naoInformado' : 'estimado', chars: null, tokens })
+    return { charsPerToken: 4, items: [parte('fixo', fixo), parte('memoria', memoria), parte('skills', skills), parte('ferramentas', null), parte('conversa', Math.max(0, used - fixo - memoria - skills))] }
+  }
+
   private comprimido(botId: string, at: number) {
     const e = this.estado(botId)
     e.epoch++
@@ -66,7 +73,7 @@ export class FakeContexto {
       // Só a principal tem medida na demo; uma extra volta sem `context`.
       if (cena === 'ausente' || sessionId !== botId) return { ...topo, epoch: 0 }
       const e = this.estado(botId)
-      return { ...topo, epoch: e.epoch, context: { used: e.used, size: SIZE, updatedAt: Date.now(), trigger: this.ajustes.triggerTokens ?? AUTO, lastCompaction: e.lastCompaction ?? undefined, canCompact: e.canCompact, busy: e.busy, contextId: `demo-${botId}`, automaticPaused: e.failures >= 2, automaticFailures: e.failures } }
+      return { ...topo, epoch: e.epoch, context: { used: e.used, size: SIZE, updatedAt: Date.now(), trigger: this.ajustes.triggerTokens ?? AUTO, lastCompaction: e.lastCompaction ?? undefined, canCompact: e.canCompact, busy: e.busy, contextId: `demo-${botId}`, automaticPaused: e.failures >= 2, automaticFailures: e.failures, parts: this.partes(e.used) } }
     }
     const e = this.estado(botId)
     if (!e.canCompact) throw fail('compaction_unsupported: este motor não comprime sob pedido')
