@@ -1468,6 +1468,73 @@ fn orfa_de_proposta_reatribuida_espera_a_vaga_do_novo_bot() {
 }
 
 #[test]
+fn orfas_trocadas_sem_entrega_nao_bloqueiam_uma_a_outro() {
+    let c = fixture();
+    proposal_bots(&c, &["b1", "b2"]);
+    // t1 era de b2 e foi reatribuída a b1; t2 era de b1 e foi a b2. Sem
+    // entrega provada, as reservas velhas não podem travar a recuperação.
+    proposal_tasks(&c, &[("t1", "b1", "backlog"), ("t2", "b2", "backlog")]);
+    proposal_agenda_row(&c, "t1", "b2", "starting", Some("prop-f"));
+    proposal_agenda_row(&c, "t2", "b1", "starting", Some("prop-f"));
+    let fires = acordar::claim_due(&c, HUB, 1_000_000_000_000).unwrap();
+    assert_eq!(fires.len(), 2);
+    let snapshot = agenda_snapshot(&c);
+    assert_eq!(snapshot["t1"].0, "starting");
+    assert_eq!(snapshot["t2"].0, "starting");
+}
+
+#[test]
+fn orfa_de_proposta_com_tarefa_em_review_e_recusada_sem_consumir_vaga() {
+    let c = fixture();
+    proposal_bots(&c, &["b1", "b2", "b3"]);
+    // t1 em review com linha de proposta órfã; o teto já está cheio com
+    // entregas reais. A recuperação não pode furar o teto: a linha órfã
+    // é recusada (o início automático não faz mais sentido) e libera a vaga.
+    proposal_tasks(&c, &[("t1", "b1", "review"), ("t2", "b2", "in_progress"), ("t3", "b3", "in_progress")]);
+    proposal_agenda_row(&c, "t1", "b1", "starting", Some("prop-g"));
+    proposal_agenda_row(&c, "t2", "b2", "started", Some("prop-g"));
+    proposal_agenda_row(&c, "t3", "b3", "started", Some("prop-g"));
+    let fires = acordar::claim_due(&c, HUB, 1_000_000_000_000).unwrap();
+    assert!(fires.is_empty());
+    assert_eq!(agenda_snapshot(&c)["t1"], ("refused".to_owned(), 0));
+}
+
+#[test]
+fn orfa_com_entrega_provada_continua_reservando_a_vaga_do_bot() {
+    let c = fixture();
+    proposal_bots(&c, &["b1", "b2"]);
+    // t1 órfã em `starting`, reatribuída a b1; b1 já entregou t2 (poke aceito).
+    // A entrega provada segue reservando a vaga de b1.
+    proposal_tasks(&c, &[("t1", "b1", "backlog"), ("t2", "b1", "in_progress")]);
+    proposal_agenda_row(&c, "t1", "b2", "starting", Some("prop-h"));
+    proposal_agenda_row(&c, "t2", "b1", "starting", Some("prop-h"));
+    // Vínculo de sessão exigido pelo guard de início; depois, a prova de
+    // entrega do poke de t2.
+    c.execute(
+        "INSERT INTO donna_task_sessions(hub_id,space_id,project_id,task_id,bot_id,session_id,created_at)
+         VALUES(?1,?2,?3,'t2','b1','sess-b1',1)",
+        params![HUB, SPACE, PROJECT],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO entries(bot_id,session,kind,data) VALUES('b1','sess-b1','user',?1)",
+        params![serde_json::json!({"clientNonce": "mx142-task-start-n-t2"}).to_string()],
+    )
+    .unwrap();
+    let fires = acordar::claim_due(&c, HUB, 1_000_000_000_000).unwrap();
+    // t1 (reatribuída a b1) NÃO é transferida: b1 tem entrega provada em t2.
+    // t2 é recuperada normalmente (o dedupe por nonce na hora do disparo não
+    // repete o poke já entregue).
+    assert_eq!(fires.len(), 1);
+    assert_eq!(fires[0].task_id, "t2");
+    assert_eq!(fires[0].bot_id, "b1");
+    let t1_bot: String =
+        c.query_row("SELECT bot_id FROM donna_task_agenda WHERE task_id='t1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(t1_bot, "b2");
+    assert_eq!(agenda_snapshot(&c)["t1"], ("starting".to_owned(), 0));
+}
+
+#[test]
 fn vaga_libera_quando_a_tarefa_va_para_review() {
     let c = fixture();
     proposal_bots(&c, &["b1", "b2", "b3"]);

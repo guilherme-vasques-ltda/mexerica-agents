@@ -587,17 +587,23 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
 /// por bot. Ativa é linha com `proposal_id`, estado starting/started e tarefa
 /// em `backlog/in_progress` no JSON do Projeto — review, done, blocked,
 /// cancelled e tarefa removida liberam a vaga.
-fn proposal_slot(c: &Connection, hub: &str, space: &str, bot: &str) -> Result<bool> {
+fn proposal_slot(c: &Connection, hub: &str, space: &str, bot: &str, now: i64) -> Result<bool> {
     let base = "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
          WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
            AND a.state IN ('starting','started')
+           AND (a.state='started' OR a.updated_at>?3 OR EXISTS(
+             SELECT 1 FROM entries e WHERE e.kind='user' AND json_valid(e.data)
+              AND json_extract(e.data,'$.clientNonce')='mx142-task-start-'||a.nonce))
            AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
            AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')";
-    let total: i64 = c.query_row(base, params![hub, space], |r| r.get(0))?;
+    let total: i64 = c.query_row(base, params![hub, space, now - STALE_STARTING_MS], |r| r.get(0))?;
     if total >= 2 {
         return Ok(false);
     }
-    let mine: i64 = c.query_row(&format!("{base} AND a.bot_id=?3"), params![hub, space, bot], |r| r.get(0))?;
+    let mine: i64 =
+        c.query_row(&format!("{base} AND a.bot_id=?4"), params![hub, space, now - STALE_STARTING_MS, bot], |r| {
+            r.get(0)
+        })?;
     Ok(mine < 1)
 }
 
@@ -660,10 +666,25 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
                 continue;
             }
         };
+        // Linha de proposta de tarefa que já avançou de estado é obsoleta:
+        // o início automático não faz mais sentido e a vaga é liberada.
+        if proposal_id.is_some() {
+            let row = store::load_task(&tx, hub, &space, &project, &task)?;
+            let task_state = row.task["state"].as_str().unwrap_or_default().to_owned();
+            if !matches!(task_state.as_str(), "backlog" | "in_progress") {
+                tx.execute(
+                    "UPDATE donna_task_agenda SET state='refused',last_error='inicio dispensado: a tarefa avancou de estado',updated_at=?5
+                     WHERE hub_id=?1 AND space_id=?2 AND project_id=?3 AND task_id=?4 AND nonce=?6",
+                    params![hub, space, project, task, now_ms(), nonce],
+                )?;
+                continue;
+            }
+        }
         // Teto de início por proposta: quem não cabe no Space fica `scheduled`
-        // e é reavaliada no próximo tick, sem gastar tentativa. Recuperação de
-        // `starting` órfã já ocupa vaga e segue sem exigir outra.
-        if proposal_id.is_some() && state == "scheduled" && !proposal_slot(&tx, hub, &space, &bot)? {
+        // e é reavaliada no próximo tick, sem gastar tentativa. Órfã sem
+        // entrega provada não segura vaga; entrega provada ou claim recente
+        // seguem contando, inclusive as claimadas neste mesmo laço.
+        if proposal_id.is_some() && state == "scheduled" && !proposal_slot(&tx, hub, &space, &bot, now)? {
             continue;
         }
         // Órfã de `starting` reatribuída a outro bot: a vaga do destino é
@@ -673,7 +694,7 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
         if proposal_id.is_some()
             && state == "starting"
             && agenda_bot != bot
-            && proposal_bot_busy(&tx, hub, &space, &bot, &task)?
+            && proposal_bot_busy(&tx, hub, &space, &bot, &task, now)?
         {
             continue;
         }
@@ -719,14 +740,17 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
 /// Vaga do BOT de destino numa transferência de órfã de proposta: conta as
 /// ativas dele, fora a própria linha que está sendo reatribuída.
-fn proposal_bot_busy(c: &Connection, hub: &str, space: &str, bot: &str, task: &str) -> Result<bool> {
+fn proposal_bot_busy(c: &Connection, hub: &str, space: &str, bot: &str, task: &str, now: i64) -> Result<bool> {
     let busy: i64 = c.query_row(
         "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
          WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
            AND a.state IN ('starting','started') AND a.bot_id=?3 AND a.task_id<>?4
+           AND (a.state='started' OR a.updated_at>?5 OR EXISTS(
+             SELECT 1 FROM entries e WHERE e.kind='user' AND json_valid(e.data)
+              AND json_extract(e.data,'$.clientNonce')='mx142-task-start-'||a.nonce))
            AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
            AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')",
-        params![hub, space, bot, task],
+        params![hub, space, bot, task, now - STALE_STARTING_MS],
         |r| r.get(0),
     )?;
     Ok(busy >= 1)
@@ -737,7 +761,7 @@ pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
     let result = run_due(hub, now).await;
     let changed: Result<Vec<String>> = {
         let hub = hub.clone();
-        tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
+        let queried = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
             let db = hub.store.db.locked();
             let spaces = db
                 .prepare("SELECT DISTINCT space_id FROM donna_task_agenda WHERE hub_id=?1 AND updated_at>=?2")?
@@ -745,8 +769,11 @@ pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
                 .collect::<rusqlite::Result<_>>()?;
             Ok(spaces)
         })
-        .await
-        .map_err(|error| anyhow!("tasks_unavailable: {error:#}"))?
+        .await;
+        match queried {
+            Ok(queried) => queried,
+            Err(error) => Err(anyhow!("tasks_unavailable: {error:#}")),
+        }
     };
     match (&result, &changed) {
         (Ok(()), Err(error)) => {
@@ -757,8 +784,11 @@ pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
         }
         _ => {}
     }
-    for space in changed.unwrap_or_default() {
-        let _ = hub.events.send(json!({"type": crate::fork::projetos::EVENT, "hubId": hub.host_id, "spaceId": space}));
+    if let Ok(spaces) = changed {
+        for space in spaces {
+            let _ =
+                hub.events.send(json!({"type": crate::fork::projetos::EVENT, "hubId": hub.host_id, "spaceId": space}));
+        }
     }
     result
 }

@@ -276,3 +276,158 @@ test('cartão não renderiza quando só há propostas recusadas ou aprovadas já
   })
   assert.equal(html, '')
 })
+
+test('stream reconectado com snapshot em cache e releitura falha mostra Tentar de novo e mantém ações desabilitadas', () => {
+  const html = render({
+    snapshot: snapshotSample,
+    write: null,
+    stale: true,
+    rereadFailed: true,
+    canDecide: false,
+    retryingRead: false,
+    botName: () => 'Bot',
+    t: tradutor('pt-BR'),
+    idioma: 'pt-BR',
+    onApprove: () => {},
+    onReject: () => {},
+    onRetry: () => {},
+    onDismissWrite: () => {},
+    onRetryRead: () => {},
+  })
+  assert.match(html, /Não foi possível atualizar agora\. Mostrando a última lista\./)
+  assert.match(html, /Tentar de novo/)
+  assert.doesNotMatch(html, /Sem conexão agora\. As ações esperam a reconexão\./)
+  assert.match(html, /<button[^>]*disabled=""[^>]*>Recusar<\/button>/)
+  assert.match(html, /<button[^>]*disabled=""[^>]*>Aprovar<\/button>/)
+  assert.match(html, /<input[^>]*type="checkbox"[^>]*disabled=""/)
+
+  const busy = render({
+    snapshot: snapshotSample,
+    write: null,
+    stale: true,
+    rereadFailed: true,
+    canDecide: false,
+    retryingRead: true,
+    botName: () => 'Bot',
+    t: tradutor('pt-BR'),
+    idioma: 'pt-BR',
+    onApprove: () => {},
+    onReject: () => {},
+    onRetry: () => {},
+    onDismissWrite: () => {},
+    onRetryRead: () => {},
+  })
+  assert.match(busy, /<button[^>]*disabled=""[^>]*aria-busy="true"[^>]*>Tentar de novo<\/button>/)
+
+  const paused = render({
+    snapshot: snapshotSample,
+    write: null,
+    stale: true,
+    rereadFailed: true,
+    canDecide: false,
+    botName: () => 'Bot',
+    t: tradutor('pt-BR'),
+    idioma: 'pt-BR',
+    onApprove: () => {},
+    onReject: () => {},
+    onRetry: () => {},
+    onDismissWrite: () => {},
+  })
+  assert.match(paused, /Sem conexão agora\. As ações esperam a reconexão\./)
+  assert.doesNotMatch(paused, /Tentar de novo/)
+})
+
+test('caixa de inclusão usa aria-describedby único por bloco de detalhes e omite quando não há detalhes', () => {
+  const multi: TaskProposalsSnapshot = {
+    version: 1,
+    hubId: 'hub-1',
+    spaceId: 'space-1',
+    limits: { perBot: 1, total: 2 },
+    proposals: [
+      {
+        id: 'p-1',
+        version: 1,
+        state: 'pending',
+        botId: 'berga',
+        projectId: 'proj-1',
+        projectName: 'Campanha',
+        title: 'Lista mista',
+        createdAt: 1000,
+        decidedAt: null,
+        items: [
+          {
+            id: 'item-a',
+            title: 'Com descrição e aceite',
+            description: 'Detalhe A',
+            acceptance: 'Aceite A',
+            assigneeBotId: 'b1',
+            included: true,
+            taskId: null,
+            taskState: null,
+            startState: null,
+          },
+          {
+            id: 'item-b',
+            title: 'Só aceite',
+            description: '   ',
+            acceptance: 'Aceite B',
+            assigneeBotId: 'b2',
+            included: true,
+            taskId: null,
+            taskState: null,
+            startState: null,
+          },
+          {
+            id: 'item-c',
+            title: 'Sem detalhes',
+            description: '   ',
+            acceptance: '',
+            assigneeBotId: 'b3',
+            included: true,
+            taskId: null,
+            taskState: null,
+            startState: null,
+          },
+        ],
+      },
+    ],
+  }
+
+  const baseProps = {
+    snapshot: multi,
+    write: null,
+    stale: false,
+    rereadFailed: false,
+    canDecide: true,
+    botName: () => 'Bot',
+    t: tradutor('pt-BR'),
+    idioma: 'pt-BR' as const,
+    onApprove: () => {},
+    onReject: () => {},
+    onRetry: () => {},
+    onDismissWrite: () => {},
+  }
+
+  const html = render(baseProps)
+  const inputs = [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((r) => r[0])
+  assert.equal(inputs.length, 3)
+
+  const descIdA = inputs[0]!.match(/aria-describedby="([^"]+)"/)?.[1]
+  const descIdB = inputs[1]!.match(/aria-describedby="([^"]+)"/)?.[1]
+  const descIdC = inputs[2]!.match(/aria-describedby="([^"]+)"/)?.[1]
+  assert.ok(descIdA, 'item A deve ter aria-describedby')
+  assert.ok(descIdB, 'item B deve ter aria-describedby')
+  assert.notEqual(descIdA, descIdB)
+  assert.equal(descIdC, undefined, 'item sem detalhes não deve ter aria-describedby')
+
+  const detailIds = [...html.matchAll(/<div class="prp-item-details" id="([^"]+)">/g)].map((r) => r[1])
+  assert.deepEqual(detailIds, [descIdA, descIdB])
+
+  // Dois cartões renderizados juntos (como no Lado a lado) mantêm ids únicos entre si.
+  const twoCardsHtml = m.renderToStaticMarkup(
+    m.createElement('div', null, m.createElement(m.PropostasCard as never, baseProps), m.createElement(m.PropostasCard as never, baseProps)),
+  )
+  const allDetailIds = [...twoCardsHtml.matchAll(/<div class="prp-item-details" id="([^"]+)">/g)].map((r) => r[1])
+  assert.equal(allDetailIds.length, 4)
+  assert.equal(new Set(allDetailIds).size, 4)
+})

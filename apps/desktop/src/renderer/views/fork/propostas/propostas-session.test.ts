@@ -418,9 +418,10 @@ test('queda de stream limpa verificação e só libera ações após leitura bem
   assert.equal(s.events, 'paused')
   assert.equal(s.stale, true)
   assert.equal(s.canDecide, false)
+  assert.equal(s.canRetryRead, false)
   assert.ok(s.snapshot !== null)
 
-  // Timer de reconexão dispara, mas a leitura após reconectar falha: continua bloqueado.
+  // Timer de reconexão dispara, mas a leitura após reconectar falha: continua bloqueado e expõe retryRead.
   failRead = true
   t.mock.timers.tick(2_000)
   await flushMicrotasks()
@@ -428,14 +429,27 @@ test('queda de stream limpa verificação e só libera ações após leitura bem
   assert.equal(s.rereadFailed, true)
   assert.equal(s.stale, true)
   assert.equal(s.canDecide, false)
+  assert.equal(s.canRetryRead, true)
 
-  // Leitura bem-sucedida após reconectar libera ações novamente.
-  failRead = false
-  s.reread()
+  // retryRead marca retryingRead mesmo com snapshot em cache e mantém bloqueado se falhar de novo.
+  s.retryRead()
+  assert.equal(s.retryingRead, true)
   await flushMicrotasks()
+  assert.equal(s.retryingRead, false)
+  assert.equal(s.rereadFailed, true)
+  assert.equal(s.canDecide, false)
+  assert.equal(s.canRetryRead, true)
+
+  // Leitura bem-sucedida após reconectar via retryRead libera ações novamente.
+  failRead = false
+  s.retryRead()
+  assert.equal(s.retryingRead, true)
+  await flushMicrotasks()
+  assert.equal(s.retryingRead, false)
   assert.equal(s.rereadFailed, false)
   assert.equal(s.stale, false)
   assert.equal(s.canDecide, true)
+  assert.equal(s.canRetryRead, false)
   s.close()
 })
 
@@ -556,4 +570,124 @@ test('close() preserva pedido incerto para mesma autoridade e escopo; limpa só 
   s.dismissWrite()
   assert.equal(s.write, null)
   s.close()
+})
+
+test('lostAccess() invalida leitura iniciada antes do 403; leitura nova restaura acesso', async () => {
+  const src = new Source()
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'p')
+  await tick()
+  assert.equal(s.canDecide, true)
+
+  let resolveOldRead!: (v: unknown) => void
+  src.handler = (method) => {
+    if (method === 'donnaTaskProposals') return new Promise((r) => { resolveOldRead = r })
+    return Promise.reject(new HostErr(403, 'forbidden'))
+  }
+
+  // Inicia uma leitura da lista antes do 403.
+  s.reread()
+  const denied = await s.decide({ id: 'prop-1', version: 1 }, 'approve')
+  assert.deepEqual(denied, { ok: false, status: 'rejected' })
+  assert.deepEqual(s.phase, { kind: 'error', reason: 'lostAccess' })
+  assert.equal(s.snapshot, null)
+  assert.equal(s.canDecide, false)
+
+  // Resposta atrasada capturada antes do 403 não restaura snapshot nem controles.
+  resolveOldRead(snap('h1', 'p', [proposal('prop-1')]))
+  await tick()
+  assert.deepEqual(s.phase, { kind: 'error', reason: 'lostAccess' })
+  assert.equal(s.snapshot, null)
+  assert.equal(s.canDecide, false)
+
+  // Nova tentativa paralela enquanto outra leitura antiga ainda estava pendente também não se confunde.
+  src.handler = async () => snap('h1', 'p', [proposal('prop-1')])
+  s.retryRead()
+  await tick()
+  assert.equal(s.phase.kind, 'ready')
+  assert.equal((s.snapshot as { proposals: { id: string }[] } | null)?.proposals[0]?.id, 'prop-1')
+  assert.equal(s.canDecide, true)
+
+  // Mesmo cenário com leitura nova iniciada imediatamente antes da antiga atrasada resolver.
+  let resolveSlowBefore403!: (v: unknown) => void
+  let resolveNewRead!: (v: unknown) => void
+  let readCall = 0
+  src.handler = (method) => {
+    if (method === 'donnaTaskProposals') {
+      readCall++
+      if (readCall === 1) return new Promise((r) => { resolveSlowBefore403 = r })
+      return new Promise((r) => { resolveNewRead = r })
+    }
+    return Promise.reject(new HostErr(403, 'forbidden'))
+  }
+  s.reread()
+  await s.decide({ id: 'prop-1', version: 1 }, 'reject')
+  assert.deepEqual(s.phase, { kind: 'error', reason: 'lostAccess' })
+  s.retryRead()
+  assert.equal(s.retryingRead, true)
+
+  // A leitura capturada antes do 403 resolve primeiro: não restaura nem apaga retryingRead da nova.
+  resolveSlowBefore403(snap('h1', 'p', [proposal('prop-antiga')]))
+  await tick()
+  assert.equal(s.snapshot, null)
+  assert.equal(s.canDecide, false)
+  assert.equal(s.retryingRead, true)
+
+  // A leitura nova resolve: restaura snapshot e acesso.
+  resolveNewRead(snap('h1', 'p', [proposal('prop-nova')]))
+  await tick()
+  assert.equal((s.phase as { kind: string }).kind, 'ready')
+  assert.equal((s.snapshot as { proposals: { id: string }[] } | null)?.proposals[0]?.id, 'prop-nova')
+  assert.equal(s.canDecide, true)
+  assert.equal(s.retryingRead, false)
+  s.close()
+})
+
+test('open()/close() com dois cartões mantém sessão viva até o último fechar', async () => {
+  const src = new Source()
+  const s = new PropostasSession(() => 42, ids())
+  const cardA = {}
+  const cardB = {}
+  const cardExtraTab = {}
+
+  s.open(src, 'p', cardA)
+  await tick()
+  assert.equal(s.phase.kind, 'ready')
+  assert.equal(s.canDecide, true)
+  assert.deepEqual(src.log, ['listen p', 'donnaTaskProposals {"hubId":"h1","spaceId":"p"}'])
+
+  // Segundo painel abrindo a conversa principal do mesmo store reaproveita a sessão viva.
+  s.open(src, 'p', cardB)
+  assert.equal(src.log.length, 2)
+
+  // Um terceiro painel montado em sessão extra (nunca abriu) não fecha os que ficaram.
+  s.close(cardExtraTab)
+  assert.equal(s.canDecide, true)
+
+  // Fechar um dos cartões não desliga a sessão compartilhada.
+  s.close(cardB)
+  assert.equal(s.phase.kind, 'ready')
+  assert.equal(s.canDecide, true)
+
+  src.log = []
+  src.emits.get('p')!({ type: 'donnaProjectsChanged', spaceId: 'p' })
+  await tick(300)
+  assert.equal(src.log.length, 1)
+
+  // Só fecha na última referência.
+  s.close(cardA)
+  assert.equal(s.canDecide, false)
+  assert.equal(s.stale, true)
+
+  src.log = []
+  src.emits.get('p')!({ type: 'donnaProjectsChanged', spaceId: 'p' })
+  await tick(300)
+  assert.equal(src.log.length, 0)
+
+  // Reabrir depois de fechar tudo volta a conectar normalmente.
+  s.open(src, 'p', cardA)
+  await tick()
+  assert.equal(s.canDecide, true)
+  assert.equal(src.log.length, 2)
+  s.close(cardA)
 })

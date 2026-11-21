@@ -8,6 +8,7 @@ import {
   resolveItemStartBadge,
   taskStateBadge,
   visibleProposals,
+  type ProposalItem,
   type TaskProposal,
   type TaskProposalsSnapshot,
 } from '@shared/fork-propostas'
@@ -153,6 +154,22 @@ export function PropostasCard({
                   </div>
                 ) : null}
               </div>
+            ) : rereadFailed && onRetryRead ? (
+              <div className="prp-banner" role="status">
+                <Icon name={stale ? 'exclamationmark.triangle' : 'info.circle'} size={13} />
+                <p>{t('propostas.releituraFalhou')}</p>
+                <div className="prp-banner-actions">
+                  <button
+                    type="button"
+                    className="prp-btn is-primary"
+                    disabled={retryingRead}
+                    aria-busy={retryingRead || undefined}
+                    onClick={onRetryRead}
+                  >
+                    {t('propostas.tentarDeNovo')}
+                  </button>
+                </div>
+              </div>
             ) : stale ? (
               <div className="prp-banner" role="status">
                 <Icon name="exclamationmark.triangle" size={13} />
@@ -182,40 +199,17 @@ export function PropostasCard({
                       <span>{t('propostas.avisoAntesOk')}</span>
                     </p>
                     <ul className="prp-items">
-                      {proposal.items.map((item) => {
-                        const checked = item.included && !omitted.has(item.id)
-                        const description = item.description.trim()
-                        const acceptance = item.acceptance.trim()
-                        const hasDetails = description.length > 0 || acceptance.length > 0
-                        return (
-                          <li key={item.id} className={`prp-item is-pending${checked ? '' : ' is-omitted'}`}>
-                            <label className="prp-check">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={!item.included || locked}
-                                aria-label={t('propostas.incluirLinha', { titulo: item.title })}
-                                onChange={(e) => toggleItem(proposal.id, item.id, e.target.checked)}
-                              />
-                              <span className="prp-item-main">
-                                <span className="prp-assignee">{botName(item.assigneeBotId)}</span>
-                                <span className="prp-item-title">{item.title}</span>
-                              </span>
-                            </label>
-                            {hasDetails ? (
-                              <div className="prp-item-details">
-                                {description ? <p className="prp-item-desc">{description}</p> : null}
-                                {acceptance ? (
-                                  <p className="prp-item-acceptance">
-                                    <span className="prp-item-detail-label">{t('propostas.aceite')}</span>
-                                    <span>{acceptance}</span>
-                                  </p>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </li>
-                        )
-                      })}
+                      {proposal.items.map((item) => (
+                        <PendingProposalItem
+                          key={item.id}
+                          item={item}
+                          checked={item.included && !omitted.has(item.id)}
+                          locked={locked}
+                          botLabel={botName(item.assigneeBotId)}
+                          t={t}
+                          onToggle={(include) => toggleItem(proposal.id, item.id, include)}
+                        />
+                      ))}
                     </ul>
                     <div className="prp-foot">
                       {snapshot ? (
@@ -284,6 +278,56 @@ export function PropostasCard({
         ) : null}
       </section>
     </div>
+  )
+}
+
+function PendingProposalItem({
+  item,
+  checked,
+  locked,
+  botLabel,
+  t,
+  onToggle,
+}: {
+  item: ProposalItem
+  checked: boolean
+  locked: boolean
+  botLabel: string
+  t: Tradutor
+  onToggle: (include: boolean) => void
+}) {
+  const detailsId = useId()
+  const description = item.description.trim()
+  const acceptance = item.acceptance.trim()
+  const hasDetails = description.length > 0 || acceptance.length > 0
+  return (
+    <li className={`prp-item is-pending${checked ? '' : ' is-omitted'}`}>
+      <label className="prp-check">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={!item.included || locked}
+          aria-label={t('propostas.incluirLinha', { titulo: item.title })}
+          aria-describedby={hasDetails ? detailsId : undefined}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        <span className="prp-item-main">
+          <span className="prp-assignee">{botLabel}</span>
+          <span className="prp-item-title">{item.title}</span>
+        </span>
+      </label>
+      {hasDetails ? (
+        <div className="prp-item-details" id={detailsId}>
+          {description ? <p className="prp-item-desc">{description}</p> : null}
+          {acceptance ? (
+            <p className="prp-item-acceptance">
+              <span className="prp-item-detail-label">{t('propostas.aceite')}</span>
+              <span>{acceptance}</span>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
   )
 }
 
@@ -364,17 +408,18 @@ export function PropostasDoBerga({
     && (!bot || !isGroup(bot))
   )
 
+  const holder = useMemo(() => ({}), [])
   const session = useMemo(() => propostasSessionFor(store), [store])
   useModel(session)
 
   useEffect(() => {
     if (!isPrincipalChat || !spaceId) {
-      session.close()
+      session.close(holder)
       return
     }
-    session.open(store as unknown as TowerSource, spaceId)
-    return () => session.close()
-  }, [session, store, isPrincipalChat, spaceId])
+    session.open(store as unknown as TowerSource, spaceId, holder)
+    return () => session.close(holder)
+  }, [session, store, isPrincipalChat, spaceId, holder])
 
   if (!isPrincipalChat || session.phase.kind === 'unavailable' || session.phase.kind === 'moved') return null
 
@@ -399,7 +444,7 @@ export function PropostasDoBerga({
       onReject={(proposal) => { void session.decide(proposal, 'reject') }}
       onRetry={() => { void session.retry() }}
       onDismissWrite={() => session.dismissWrite()}
-      onRetryRead={session.link === 'live' ? () => session.retryRead() : undefined}
+      onRetryRead={session.canRetryRead ? () => session.retryRead() : undefined}
     />
   )
 }

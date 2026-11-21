@@ -39,6 +39,9 @@ interface Origin { source: TowerSource; hostId: string; client: TowerLink; epoch
 interface ProposalStreamEvent { type: string; spaceId?: string; hubId?: string }
 interface WriteTicket { seq: number; source: TowerSource; hostId: string; spaceId: string }
 
+const DEFAULT_HOLDER = Symbol('default')
+export type ProposalSessionHolder = object | symbol
+
 function statusOf(e: unknown): number | null {
   return typeof e === 'object' && e && 'status' in e ? Number((e as { status: unknown }).status) : null
 }
@@ -134,9 +137,11 @@ export class PropostasSession extends Observable {
   private origin: Origin | null = null
   private gen = 0
   private verified = false
-  private reading: Origin | null = null
+  private reading: { origin: Origin; read: number } | null = null
   private reads = 0
   private dirty = false
+  private holders = new Set<ProposalSessionHolder>()
+  private active = false
   private initialRetries = 0
   private rereadTimer: ReturnType<typeof setTimeout> | null = null
   private relistenTimer: ReturnType<typeof setTimeout> | null = null
@@ -182,7 +187,16 @@ export class PropostasSession extends Observable {
     )
   }
 
-  open(source: TowerSource, spaceId: string) {
+  get canRetryRead() {
+    return this.link === 'live' && this.events === 'live' && (this.phase.kind === 'error' || this.rereadFailed)
+  }
+
+  open(source: TowerSource, spaceId: string, holder: ProposalSessionHolder = DEFAULT_HOLDER) {
+    this.holders.add(holder)
+    if (this.active && this.sourceRef === source && this.spaceId === spaceId && this.phase.kind !== 'moved') {
+      return
+    }
+    this.active = true
     this.release()
     this.initialRetries = 0
     this.retryingRead = false
@@ -204,7 +218,11 @@ export class PropostasSession extends Observable {
     this.connect(source)
   }
 
-  close() {
+  close(holder: ProposalSessionHolder = DEFAULT_HOLDER) {
+    const had = this.holders.delete(holder)
+    if (this.holders.size > 0) return
+    if (!this.active && !had) return
+    this.active = false
     this.release()
     this.gen++
     this.origin = null
@@ -236,10 +254,8 @@ export class PropostasSession extends Observable {
     this.initialRetries = 0
     const origin = this.origin
     if (origin && this.current(origin)) {
-      if (!this.snapshot) {
-        this.retryingRead = true
-        this.changed()
-      }
+      this.retryingRead = true
+      this.changed()
       void this.read(origin)
       return
     }
@@ -393,6 +409,8 @@ export class PropostasSession extends Observable {
       if (!this.current(origin)) return
       this.verified = false
       this.reads++
+      this.reading = null
+      this.dirty = false
       this.events = 'paused'
       if (this.offlineSince === null) this.offlineSince = this.now()
       this.changed()
@@ -412,6 +430,8 @@ export class PropostasSession extends Observable {
   private watch(source: TowerSource) {
     const hostId = source.hello?.hostId ?? null
     if (this.hostId && hostId && hostId !== this.hostId) {
+      this.active = false
+      this.holders.clear()
       this.release()
       this.gen++
       this.origin = null
@@ -486,6 +506,10 @@ export class PropostasSession extends Observable {
 
   private lostAccess() {
     this.dropWrite()
+    this.reads++
+    this.reading = null
+    this.dirty = false
+    this.retryingRead = false
     this.verified = false
     this.authority = 'ok'
     this.snapshot = null
@@ -529,13 +553,13 @@ export class PropostasSession extends Observable {
   }
 
   private async read(origin: Origin) {
-    if (this.reading === origin) {
+    if (this.reading?.origin === origin) {
       this.dirty = true
       return
     }
-    this.reading = origin
     this.dirty = false
     const read = ++this.reads
+    this.reading = { origin, read }
     const spaceId = this.spaceId!
     const fresh = () => this.current(origin) && read === this.reads && this.spaceId === spaceId
     try {
@@ -575,13 +599,13 @@ export class PropostasSession extends Observable {
         this.rereadFailed = true
       }
     } finally {
-      if (this.reading === origin) this.reading = null
-      if (this.current(origin)) {
+      if (this.reading?.read === read) this.reading = null
+      if (read === this.reads && this.current(origin)) {
         this.retryingRead = false
         this.changed()
       }
       const latest = this.origin
-      if (this.dirty && latest && this.current(latest)) this.scheduleRead(latest)
+      if (read === this.reads && this.dirty && latest && this.current(latest)) this.scheduleRead(latest)
     }
   }
 }

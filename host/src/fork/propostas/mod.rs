@@ -30,21 +30,17 @@ pub(crate) fn migrate(c: &rusqlite::Connection) -> Result<()> {
     )?;
     // A agenda do runtime ganha a coluna da proposta que agendou o início;
     // só quando a tabela já existe, na mesma régua do `request_id`.
-    let agenda_ready: bool = tx
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='donna_task_agenda')",
+    let agenda_ready: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='donna_task_agenda')",
+        [],
+        |r| r.get(0),
+    )?;
+    if agenda_ready {
+        let has_proposal_id: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('donna_task_agenda') WHERE name='proposal_id')",
             [],
             |r| r.get(0),
-        )
-        .unwrap_or(false);
-    if agenda_ready {
-        let has_proposal_id: bool = tx
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('donna_task_agenda') WHERE name='proposal_id')",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(false);
+        )?;
         if !has_proposal_id {
             tx.execute("ALTER TABLE donna_task_agenda ADD COLUMN proposal_id TEXT", [])?;
         }

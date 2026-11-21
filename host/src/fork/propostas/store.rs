@@ -287,11 +287,16 @@ pub(crate) fn propose(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Val
 
 fn propose_answer(c: &Connection, hub: &str, space: &str, proposal: &Proposal) -> Value {
     let mut value = json!({"proposal": view(c, hub, space, proposal).unwrap_or(Value::Null)});
-    value["message"] = json!(
-        "Proposta registrada e aguardando o ok do dono. Nada foi criado nem iniciado: \
-         as subtarefas só surgem depois da aprovação, e aí começam sozinhas, \
-         no máximo duas ao mesmo tempo no Space e uma por bot."
-    );
+    value["message"] = json!(match proposal.state.as_str() {
+        "approved" =>
+            "Esta proposta já foi aprovada pelo dono: as tarefas existem e o início \
+             segue a agenda, no máximo duas ao mesmo tempo no Space e uma por bot.",
+        "rejected" => "Esta proposta foi recusada pelo dono: nenhuma tarefa foi criada.",
+        _ =>
+            "Proposta registrada e aguardando o ok do dono. Nada foi criado nem iniciado: \
+             as subtarefas só surgem depois da aprovação, e aí começam sozinhas, \
+             no máximo duas ao mesmo tempo no Space e uma por bot.",
+    });
     value
 }
 

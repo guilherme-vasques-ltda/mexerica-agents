@@ -342,6 +342,22 @@ async fn lista_nunca_esconde_pendente_atras_do_historico_decidido() {
 }
 
 #[tokio::test]
+async fn replay_de_proposta_decidida_diz_o_estado_real() {
+    let f = Fixture::new();
+    f.default_project(PERSONAL).await;
+    let exec = f.exec("a");
+    let request = uuid::Uuid::new_v4().to_string();
+    let args = propose_args(&request, &items_2());
+    let out = f.propose("a", Some(&exec), args.clone()).await.unwrap();
+    let proposal = out["proposal"]["id"].as_str().unwrap().to_owned();
+    f.decide(&proposal, 1, &uuid::Uuid::new_v4().to_string(), "approve", None).await.unwrap();
+    let again = f.propose("a", Some(&exec), args.clone()).await.unwrap();
+    let message = again["message"].as_str().unwrap();
+    assert!(message.contains("já foi aprovada"), "{message}");
+    assert!(!message.contains("aguardando o ok do dono"), "{message}");
+}
+
+#[tokio::test]
 async fn recusar_deixa_um_desfecho_so() {
     let f = Fixture::new();
     let project = f.default_project(PERSONAL).await;
