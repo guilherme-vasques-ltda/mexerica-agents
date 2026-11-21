@@ -3,12 +3,12 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[test]
-fn d517_missing_socket_ignores_available_home_and_codync_fixture() {
+fn missing_socket_ignores_available_home_and_codync_fixture() {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("d517-startup-{}-{nonce}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("startup-fixture-{}-{nonce}", std::process::id()));
     std::fs::create_dir(&root).unwrap();
     let upstream = root.join(".codync");
     std::fs::create_dir(&upstream).unwrap();

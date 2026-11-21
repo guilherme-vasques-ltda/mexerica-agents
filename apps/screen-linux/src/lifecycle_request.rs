@@ -141,7 +141,7 @@ mod tests {
         let (out, _) = tokio::sync::mpsc::unbounded_channel();
         Arc::new(Helper {
             config: crate::fork_socket::Config::from_args(
-                ["--socket", "/tmp/d517-fixture/screen.sock"].map(std::ffi::OsString::from),
+                ["--socket", "/tmp/screen-linux-fixture/screen.sock"].map(std::ffi::OsString::from),
             )
             .unwrap(),
             portal: Arc::new(tokio::sync::Mutex::new(None)),
