@@ -316,6 +316,30 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     barreira(id, Barreira::Antes);
                     // D372 (R1): leitura final de ocupação e escrita sob o runtime retido; um preparo na conta espera
                     // o commit (e a ativação/permit/lançamento recusam a conta desconectada) ou já ocupou o runtime.
+                    // Tira a conta do cadastro: referência/slot próprios, sem logout global nem promessa de revogação remota.
+                    let remover_do_cadastro = |registry: &mut Registry, revisao: u64| -> Result<()> {
+                        // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
+                        if registry.account(id)?.managed.is_none() {
+                            registry.legacy_removable(id, revisao)?;
+                        } else {
+                            registry.account_mut(id, revisao)?;
+                        }
+                        ensure!(
+                            managed::bot_ids(&hub.store, id)?.is_empty(),
+                            "account_in_use: remova os vínculos dos bots primeiro."
+                        );
+                        let slot = if let LaunchReference::VaultProfile { slot } = &registry.account(id)?.launch {
+                            Some(slot.clone())
+                        } else {
+                            None
+                        };
+                        registry.accounts.retain(|a| a.id != id);
+                        authority.persist_removing(hub, registry, slot.as_deref(), Some(id))?;
+                        if let Err(error) = crate::fork::fallback_contas::esquecer_conta(&hub.store, id) {
+                            tracing::warn!(%error, "ordem de reserva não limpa após remover a conta");
+                        }
+                        Ok(())
+                    };
                     let (registry, perfil) = hub.with_idle_engine_account(id, || {
                         #[cfg(test)]
                         barreira(id, Barreira::Cerca);
@@ -333,29 +357,17 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             }
                             _ => None,
                         });
-                        if remove {
-                            // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
-                            if registry.account(id)?.managed.is_none() {
-                                registry.legacy_removable(id, request.expected_revision)?;
-                            } else {
-                                registry.account_mut(id, request.expected_revision)?;
-                            }
-                            ensure!(
-                                managed::bot_ids(&hub.store, id)?.is_empty(),
-                                "account_in_use: remova os vínculos dos bots primeiro."
-                            );
-                            // Remove só referência/slot próprios. Não faz logout global nem promete revogação remota.
-                            let slot = if let LaunchReference::VaultProfile { slot } = &registry.account(id)?.launch {
-                                Some(slot.clone())
-                            } else {
-                                None
-                            };
-                            registry.accounts.retain(|a| a.id != id);
-                            authority.persist_removing(hub, &registry, slot.as_deref(), Some(id))?;
-                            if let Err(error) = crate::fork::fallback_contas::esquecer_conta(&hub.store, id) {
-                                tracing::warn!(%error, "ordem de reserva não limpa após remover a conta");
-                            }
+                        if remove && perfil.is_none() {
+                            remover_do_cadastro(&mut registry, request.expected_revision)?;
                         } else {
+                            // Conta Claude com login no perfil: remover começa como desconectar (a conta deixa de ser
+                            // usada e fica na lista); ela só sai do cadastro depois de o programa confirmar o logout.
+                            if remove {
+                                ensure!(
+                                    managed::bot_ids(&hub.store, id)?.is_empty(),
+                                    "account_in_use: remova os vínculos dos bots primeiro."
+                                );
+                            }
                             let account = registry.account_mut(id, request.expected_revision)?;
                             account.state = State::Disconnected;
                             account.models.clear();
@@ -374,23 +386,20 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     // Com a conta já desconectada ou removida (nenhum turno novo a usa), o próprio programa
                     // oficial apaga a credencial do perfil isolado, que pode estar no chaveiro do sistema.
                     if let Some((executable, directory)) = perfil {
-                        let saida = async {
-                            managed::validate_profile(&hub.store, id, &directory)?;
-                            ensure!(
-                                crate::fork::motor_install::executable(&executable),
-                                "cli_unavailable: a conta foi desconectada, mas o Claude Code dela não está disponível para apagar o login."
-                            );
-                            process::claude_logout(&executable, &directory).await
-                        };
-                        match saida.await {
-                            Err(error) if remove => {
-                                // A conta já saiu da lista e não há botão para tentar de novo: fica o registro.
-                                tracing::warn!(
-                                    error = format!("{error:#}"),
-                                    "login do Claude não apagado ao remover a conta"
-                                );
-                            }
-                            resultado => resultado?,
+                        managed::validate_profile(&hub.store, id, &directory)?;
+                        ensure!(
+                            crate::fork::motor_install::executable(&executable),
+                            "cli_unavailable: a conta foi desconectada, mas o Claude Code dela não está disponível para apagar o login."
+                        );
+                        // Sem confirmação do logout, o erro chega ao dono e a conta continua na lista, desconectada.
+                        process::claude_logout(&executable, &directory).await?;
+                        if remove {
+                            let revisao = registry.account(id)?.dto().revision;
+                            hub.with_idle_engine_account(id, || {
+                                let mut registry = Registry::load(&hub.store)?;
+                                remover_do_cadastro(&mut registry, revisao)
+                            })?;
+                            accounts::invalidate();
                         }
                     }
                     if remove { json!({}) } else { registry.dto_for(&hub.store, id)? }

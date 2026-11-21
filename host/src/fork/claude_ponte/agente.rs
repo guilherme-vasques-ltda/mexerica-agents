@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -61,7 +61,7 @@ impl Config {
 }
 
 #[derive(Debug)]
-struct Erro {
+pub(super) struct Erro {
     code: i64,
     message: String,
     data: Option<Value>,
@@ -116,6 +116,10 @@ struct Sessao {
     traducao: Mutex<Traducao>,
     /// Há um turno em andamento: pedido de permissão fora dele é negado.
     turno_ativo: AtomicBool,
+    /// Número do turno em andamento (ou do último): cada pedido de permissão pertence a uma geração.
+    turno_atual: AtomicU64,
+    /// Último turno que recebeu `session/cancel`: dali em diante, nenhum pedido dele ganha autorização.
+    cancelado_ate: AtomicU64,
     /// Chamadas que já tiveram um pedido de permissão: o mesmo id não é decidido duas vezes.
     decididas: Mutex<HashSet<String>>,
     /// Avança a cada fim de turno: pedido de permissão ainda aberto daquele turno é negado.
@@ -238,15 +242,51 @@ fn interromper(pid: u32) {
     let _ = pid;
 }
 
+/// Teto de uma imagem (a API do Claude aceita até 5 MB por imagem) e das imagens de um mesmo pedido.
+const LIMITE_IMAGEM: usize = 5 * 1024 * 1024;
+const LIMITE_IMAGENS: usize = 20 * 1024 * 1024;
+
+/// Uma imagem só vai ao programa com tipo da lista documentada, base64 válido, bytes iniciais do tipo declarado e
+/// tamanho dentro dos tetos; o que não bater é recusado antes de qualquer envio.
+fn imagem(tipo: &str, dados: &str, total: &mut usize) -> Result<Value, Erro> {
+    use base64::Engine as _;
+    let recusar = |m: &str| Err(Erro::parametros(m));
+    if dados.len() > LIMITE_IMAGEM / 3 * 4 + 4 {
+        return recusar("imagem maior que o limite");
+    }
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(dados) else {
+        return recusar("imagem com dados que não são base64 válido");
+    };
+    let confere = match tipo {
+        "image/png" => bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
+        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
+        _ => return recusar("só imagens JPEG, PNG, GIF e WebP são suportadas"),
+    };
+    if !confere {
+        return recusar("os dados da imagem não correspondem ao tipo declarado");
+    }
+    *total += bytes.len();
+    if bytes.len() > LIMITE_IMAGEM || *total > LIMITE_IMAGENS {
+        return recusar("imagem maior que o limite");
+    }
+    Ok(json!({"type": "image", "source": {"type": "base64", "data": dados, "media_type": tipo}}))
+}
+
 /// Blocos ACP do pedido → blocos de mensagem do Claude.
-fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
+pub(super) fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
     let mut out = Vec::new();
     let mut contexto = Vec::new();
+    let mut total_imagens = 0;
     for b in prompt.as_array().into_iter().flatten() {
         match b["type"].as_str().unwrap_or_default() {
             "text" => out.push(json!({"type": "text", "text": b["text"].as_str().unwrap_or_default()})),
-            "image" if b["data"].as_str().is_some_and(|d| !d.is_empty()) => out.push(json!({"type": "image",
-                "source": {"type": "base64", "data": b["data"], "media_type": b["mimeType"]}})),
+            "image" => out.push(imagem(
+                b["mimeType"].as_str().unwrap_or_default(),
+                b["data"].as_str().unwrap_or_default(),
+                &mut total_imagens,
+            )?),
             "resource_link" => out.push(json!({"type": "text", "text": b["uri"].as_str().unwrap_or_default()})),
             "resource" => {
                 let uri = b["resource"]["uri"].as_str().unwrap_or_default();
@@ -256,14 +296,7 @@ fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
                         .push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{t}\n</context>")}));
                 } else if let Some(dados) = b["resource"]["blob"].as_str() {
                     let tipo = b["resource"]["mimeType"].as_str().unwrap_or_default();
-                    if !["image/jpeg", "image/png", "image/gif", "image/webp"].contains(&tipo) {
-                        return Err(Erro::parametros(
-                            "recurso binário que não é imagem JPEG, PNG, GIF ou WebP não é suportado",
-                        ));
-                    }
-                    contexto.push(
-                        json!({"type": "image", "source": {"type": "base64", "data": dados, "media_type": tipo}}),
-                    );
+                    contexto.push(imagem(tipo, dados, &mut total_imagens)?);
                 }
             }
             _ => {}
@@ -325,6 +358,26 @@ enum Passo {
 }
 
 impl Sessao {
+    /// Pedido de cancelamento: avisa quem espera e, de forma síncrona, fecha a autorização do turno atual.
+    fn cancelar_turno(&self) {
+        self.cancelar.send_modify(|v| *v += 1);
+        self.cancelado_ate.fetch_max(self.turno_atual.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+
+    /// Por que um pedido de permissão da geração `turno` não pode mais ser autorizado (`None`: ainda vale).
+    fn sem_autorizacao(&self, turno: u64) -> Option<&'static str> {
+        if !self.turno_ativo.load(Ordering::SeqCst) {
+            return Some("Nenhum turno em andamento.");
+        }
+        if self.cancelado_ate.load(Ordering::SeqCst) >= turno {
+            return Some("Turno cancelado.");
+        }
+        if self.turno_atual.load(Ordering::SeqCst) != turno {
+            return Some("Turno encerrado.");
+        }
+        None
+    }
+
     fn nova(id: String, opcoes: Opcoes, iniciada: bool) -> Self {
         let modelo = opcoes.modelo.clone().unwrap_or_else(|| "default".into());
         let esforco = opcoes.esforco.clone().unwrap_or_else(|| "default".into());
@@ -340,6 +393,8 @@ impl Sessao {
             cancelar: watch::channel(0).0,
             traducao: Mutex::new(traducao),
             turno_ativo: AtomicBool::new(false),
+            turno_atual: AtomicU64::new(0),
+            cancelado_ate: AtomicU64::new(0),
             decididas: Mutex::new(HashSet::new()),
             fim_turno: watch::channel(0).0,
         }
@@ -359,8 +414,10 @@ async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value 
     let Some(s) = sessao.upgrade() else { return negar("Sessão encerrada.") };
     let mut cancelado = s.cancelar.subscribe();
     let mut acabou = s.fim_turno.subscribe();
-    if !s.turno_ativo.load(Ordering::SeqCst) {
-        return negar("Nenhum turno em andamento.");
+    // O pedido pertence ao turno que está em andamento agora; cancelar ou terminar esse turno fecha a autorização.
+    let turno = s.turno_atual.load(Ordering::SeqCst);
+    if let Some(motivo) = s.sem_autorizacao(turno) {
+        return negar(motivo);
     }
     let (Some(nome), Some(entrada)) = (args["tool_name"].as_str(), args.get("input").filter(|v| v.is_object())) else {
         return negar("Pedido de permissão inválido.");
@@ -389,7 +446,10 @@ async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value 
         if let Some(id) = achado {
             break id;
         }
-        if tokio::time::Instant::now() >= limite || !s.turno_ativo.load(Ordering::SeqCst) {
+        if let Some(motivo) = s.sem_autorizacao(turno) {
+            return negar(motivo);
+        }
+        if tokio::time::Instant::now() >= limite {
             return negar("Não foi possível identificar a chamada.");
         }
         tokio::select! {
@@ -412,15 +472,13 @@ async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value 
         r = ponte.pedir("session/request_permission", pedido) =>
             r.is_some_and(|v| v["outcome"]["outcome"] == "selected" && v["outcome"]["optionId"] == "allow-once"),
     };
-    // A resposta pode chegar junto com o fim ou o cancelamento do turno: só aprova o turno que ainda pediu.
-    let ainda_ativo = s.turno_ativo.load(Ordering::SeqCst)
-        && !cancelado.has_changed().unwrap_or(true)
-        && !acabou.has_changed().unwrap_or(true);
+    // A resposta pode chegar junto com o fim ou o cancelamento do turno: só aprova a geração que ainda vale.
+    // Esta é a última conferência na ponte; a resposta HTTP que sai daqui não pode mais ser desfeita.
+    if let Some(motivo) = s.sem_autorizacao(turno) {
+        return negar(motivo);
+    }
     if !aprovado {
         return negar("O dono não aprovou esta ação.");
-    }
-    if !ainda_ativo {
-        return negar("Turno encerrado.");
     }
     json!({"behavior": "allow", "updatedInput": entrada})
 }
@@ -557,6 +615,7 @@ async fn turno(
 ) -> Result<Value, Erro> {
     let conteudo = blocos(prompt)?;
     let mut guarda = s.processo.lock().await;
+    s.turno_atual.fetch_add(1, Ordering::SeqCst);
     s.turno_ativo.store(true, Ordering::SeqCst);
     let _ativo = TurnoAtivo(s);
     // Cancelado enquanto esperava a vez: nada chega ao programa.
@@ -769,7 +828,7 @@ async fn abrir_sessao(ponte: &Arc<Ponte>, params: &Value, carregar: bool) -> Res
     let sessao = Arc::new(Sessao::nova(id.clone(), opcoes, carregar));
     let config = sessao.config();
     if let Some(antiga) = ponte.sessoes.locked().insert(id.clone(), sessao) {
-        antiga.cancelar.send_modify(|v| *v += 1);
+        antiga.cancelar_turno();
     }
     Ok(json!({"sessionId": id, "configOptions": config}))
 }
@@ -846,7 +905,7 @@ async fn atender(
             let id = params["sessionId"].as_str().unwrap_or_default();
             let sessao = ponte.sessoes.locked().remove(id);
             if let Some(s) = sessao {
-                s.cancelar.send_modify(|v| *v += 1);
+                s.cancelar_turno();
                 let processo = s.processo.lock().await.take();
                 if let Some(p) = processo {
                     encerrar(p).await;
@@ -918,7 +977,7 @@ where
             }
             (Some("session/cancel"), None) => {
                 if let Ok(s) = ponte.sessao(&msg["params"]) {
-                    s.cancelar.send_modify(|v| *v += 1);
+                    s.cancelar_turno();
                 }
             }
             (None, Some(id)) => {

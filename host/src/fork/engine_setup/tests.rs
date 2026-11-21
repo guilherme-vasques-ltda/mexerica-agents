@@ -2513,6 +2513,53 @@ async fn claude_codigo_so_vai_ao_programa_e_desconectar_apaga_a_credencial_do_pe
     }
 }
 
+/// «Remover» uma conta Claude de perfil próprio também depende de o programa oficial apagar o login: se a saída não
+/// se confirma, a conta fica na lista (desconectada, nunca reabilitada) e o dono recebe o erro, para repetir.
+#[cfg(unix)]
+#[tokio::test]
+async fn remover_conta_claude_nao_esconde_o_logout_que_falhou() {
+    let f = Fixture::new();
+    let cli = f.cli(Backend::Claude);
+    let base = cli.parent().unwrap().to_path_buf();
+    let account = f.create("claude", "cli", "remover-claude").await;
+    let id = account["id"].as_str().unwrap().to_owned();
+    let op = f.start(&account, "remover-login").await;
+    f.phase(&op, "awaiting_authorization").await;
+    f.action(&op, json!({"action":"submit_code","code":"FIXTURE-CODE"})).unwrap();
+    f.phase(&op, "connected").await;
+    let conta = || Registry::load(&f.hub.store).unwrap().account(&id).cloned();
+    let LaunchReference::CliProfile { directory, .. } = &conta().unwrap().launch else { panic!("perfil próprio") };
+    let directory = directory.clone();
+    std::fs::write(base.join("scenario"), "logout_ignored").unwrap();
+    let revision = conta().unwrap().managed.as_ref().unwrap().revision;
+    let erro = call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountRemove",
+        json!({"engineAccountId": id, "expectedRevision": revision}),
+    )
+    .await
+    .expect_err("sem confirmação do logout a remoção não é dada como feita")
+    .to_string();
+    assert!(erro.contains("logout_failed"), "o dono é avisado: {erro}");
+    let ficou = conta().expect("a conta continua na lista para repetir a saída");
+    assert_eq!(ficou.state, State::Disconnected);
+    assert!(!ficou.managed.as_ref().unwrap().enabled, "a conta não é reabilitada");
+    assert!(directory.join(".fixture-auth").is_file(), "a credencial ainda está no perfil");
+    std::fs::remove_file(base.join("scenario")).unwrap();
+    let revision = ficou.managed.as_ref().unwrap().revision;
+    call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountRemove",
+        json!({"engineAccountId": id, "expectedRevision": revision}),
+    )
+    .await
+    .unwrap();
+    assert!(conta().is_err(), "com a saída confirmada a conta sai da lista");
+    assert!(!directory.join(".fixture-auth").exists(), "credencial apagada pelo programa");
+}
+
 fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     for entrada in std::fs::read_dir(dir).into_iter().flatten().flatten() {

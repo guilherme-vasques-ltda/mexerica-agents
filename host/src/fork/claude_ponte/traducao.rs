@@ -153,8 +153,75 @@ pub(super) fn descrever(nome: &str, entrada: &Value, cwd: &str) -> (String, &'st
             json!([]),
             json!([]),
         ),
-        _ => (nome.to_owned(), "other", json!([]), json!([])),
+        _ => (nome.to_owned(), "other", json!([]), resumo_generico(nome, entrada)),
     }
+}
+
+/// Caracteres dos argumentos mostrados no cartão de uma ferramenta sem projeção própria.
+const LIMITE_ARGUMENTOS: usize = 3000;
+
+/// Chaves cujo valor não aparece no cartão.
+const CHAVES_SENSIVEIS: &[&str] = &[
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "senha",
+    "authorization",
+    "api_key",
+    "apikey",
+    "api-key",
+    "cookie",
+    "credential",
+    "bearer",
+    "private_key",
+];
+
+fn ocultar(valor: &Value) -> Value {
+    match valor {
+        Value::Object(mapa) => Value::Object(
+            mapa.iter()
+                .map(|(k, v)| {
+                    let minuscula = k.to_lowercase();
+                    let oculto = CHAVES_SENSIVEIS.iter().any(|s| minuscula.contains(s));
+                    (k.clone(), if oculto { json!("«oculto»") } else { ocultar(v) })
+                })
+                .collect(),
+        ),
+        Value::Array(itens) => Value::Array(itens.iter().map(ocultar).collect()),
+        outro => outro.clone(),
+    }
+}
+
+/// Cartão de uma ferramenta sem projeção própria (MCP genérica ou desconhecida): servidor, nome real e os argumentos
+/// que vão ser executados, com valores sensíveis ocultos e corte visível. O SHA-256 cobre os argumentos inteiros: a
+/// aprovação vale para eles, não para o trecho mostrado.
+fn resumo_generico(nome: &str, entrada: &Value) -> Value {
+    use sha2::{Digest, Sha256};
+    let (servidor, ferramenta) = match nome.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
+        Some((servidor, ferramenta)) => (Some(servidor), ferramenta),
+        None => (None, nome),
+    };
+    let digest = Sha256::digest(entrada.to_string().as_bytes()).iter().fold(String::with_capacity(64), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    });
+    let completo = serde_json::to_string_pretty(&ocultar(entrada)).unwrap_or_default();
+    let total = completo.chars().count();
+    let mut texto = String::new();
+    if let Some(servidor) = servidor {
+        let _ = writeln!(texto, "Servidor: {servidor}");
+    }
+    let _ = writeln!(texto, "Ferramenta: {ferramenta}");
+    let _ = writeln!(texto, "Argumentos (SHA-256 dos argumentos inteiros: {digest}):");
+    texto.extend(completo.chars().take(LIMITE_ARGUMENTOS));
+    if total > LIMITE_ARGUMENTOS {
+        let _ = write!(
+            texto,
+            "\n… [truncado: {LIMITE_ARGUMENTOS} de {total} caracteres mostrados; a aprovação vale para os argumentos inteiros]"
+        );
+    }
+    json!([{"type": "content", "content": {"type": "text", "text": texto}}])
 }
 
 /// Texto de um bloco `tool_result`: string ou lista de blocos de texto.

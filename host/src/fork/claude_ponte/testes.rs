@@ -476,6 +476,82 @@ async fn permissao_so_vale_para_a_chamada_anunciada_e_dentro_do_turno() {
 }
 
 #[tokio::test]
+async fn pedido_que_chega_depois_de_parar_e_negado_mesmo_com_a_chamada_anunciada() {
+    let amb = ambiente(true);
+    let mut c = Cliente::novo(amb.config());
+    let sessao = c.nova(&amb.cwd, opcoes_da_conversa()).await;
+    c.gatilho = Some((
+        "pedindo".into(),
+        json!({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": sessao}}),
+    ));
+    let r = c.falar(&sessao, "[[parar-e-pedir]]").await;
+    assert_eq!(r["result"]["stopReason"], "cancelled", "{r}");
+    let decisao: Value =
+        serde_json::from_str(&std::fs::read_to_string(amb.perfil.join("apos-parar.json")).unwrap()).unwrap();
+    assert_eq!(decisao["behavior"], "deny", "{decisao}");
+    assert_eq!(decisao["message"], "Turno cancelado.", "{decisao}");
+    assert!(c.permissoes.is_empty(), "nenhum cartão depois de Parar: {:?}", c.permissoes);
+}
+
+#[test]
+fn imagem_so_passa_com_tipo_e_bytes_conferidos_e_dentro_do_limite() {
+    use base64::Engine as _;
+    let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+    let png = [&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..], &[0; 64]].concat();
+    let jpeg = [&[0xFF, 0xD8, 0xFF, 0xE0][..], &[0; 64]].concat();
+    let gif = [&b"GIF89a"[..], &[0; 64]].concat();
+    let webp = [&b"RIFF"[..], &[0; 4], &b"WEBP"[..], &[0; 64]].concat();
+    let imagem = |tipo: &str, dados: &str| json!([{"type": "image", "mimeType": tipo, "data": dados}]);
+    let recurso = |tipo: &str, dados: &str| json!([{"type": "resource", "resource": {"uri": "file:///x", "mimeType": tipo, "blob": dados}}]);
+    for (tipo, bytes) in [("image/png", &png), ("image/jpeg", &jpeg), ("image/gif", &gif), ("image/webp", &webp)] {
+        assert!(super::agente::blocos(&imagem(tipo, &b64(bytes))).is_ok(), "{tipo} válida");
+        assert!(super::agente::blocos(&recurso(tipo, &b64(bytes))).is_ok(), "{tipo} válida como recurso");
+    }
+    let grande = [&png[..], &vec![0; 6 * 1024 * 1024]].concat();
+    for (tipo, dados) in [
+        ("image/png", b64(b"isto nao e uma imagem")),
+        ("image/jpeg", b64(&png)),
+        ("image/png", "@@@@não é base64@@@@".to_owned()),
+        ("image/svg+xml", b64(b"<svg xmlns='http://www.w3.org/2000/svg'/>")),
+        ("image/png", b64(&grande)),
+    ] {
+        assert!(super::agente::blocos(&imagem(tipo, &dados)).is_err(), "bloco image recusado: {tipo}");
+        assert!(super::agente::blocos(&recurso(tipo, &dados)).is_err(), "recurso recusado: {tipo}");
+    }
+    let varias: Vec<Value> =
+        (0..5).map(|_| imagem("image/png", &b64(&[&png[..], &vec![0; 4 * 1024 * 1024]].concat()))[0].clone()).collect();
+    assert!(super::agente::blocos(&Value::Array(varias)).is_err(), "o total de imagens do turno tem teto");
+}
+
+#[test]
+fn cartao_de_ferramenta_mcp_mostra_servidor_ferramenta_e_argumentos_sem_segredo() {
+    let t = super::traducao::Traducao::new("/tmp");
+    let entrada = json!({"destino": "https://api.exemplo.invalid/pedidos/7", "acao": "apagar", "api_key": "sk-segredo-123",
+        "aninhado": {"Authorization": "Bearer abc"}});
+    let chamada = t.chamada("toolu_1", "mcp__loja__apagar_pedido", &entrada);
+    let texto = chamada["content"][0]["content"]["text"].as_str().unwrap_or_default().to_owned();
+    for trecho in ["loja", "apagar_pedido", "https://api.exemplo.invalid/pedidos/7", "apagar"] {
+        assert!(texto.contains(trecho), "o cartão mostra {trecho}: {texto}");
+    }
+    assert!(!texto.contains("sk-segredo-123") && !texto.contains("Bearer abc"), "segredo oculto: {texto}");
+    assert_eq!(chamada["rawInput"], entrada, "a aprovação vale para a mesma entrada");
+    let enorme = json!({"corpo": "x".repeat(20_000), "destino": "https://api.exemplo.invalid/fim"});
+    let chamada = t.chamada("toolu_2", "mcp__loja__enviar", &enorme);
+    let texto = chamada["content"][0]["content"]["text"].as_str().unwrap_or_default().to_owned();
+    assert!(texto.len() < 6000, "cabe no cartão: {}", texto.len());
+    assert!(
+        texto.contains("truncado") && texto.contains("SHA-256"),
+        "corte visível e resumo dos argumentos inteiros: {texto}"
+    );
+    let outra = t.chamada(
+        "toolu_3",
+        "mcp__loja__enviar",
+        &json!({"corpo": "x".repeat(20_000), "destino": "https://api.exemplo.invalid/outro"}),
+    );
+    assert_ne!(chamada["content"], outra["content"], "o resumo muda com o que foi cortado");
+}
+
+#[tokio::test]
 async fn servidor_de_permissao_recusa_quem_nao_tem_o_segredo() {
     let decisor: super::permissao::Decisor = std::sync::Arc::new(|_| Box::pin(async { json!({"behavior": "allow"}) }));
     let servidor = super::permissao::iniciar(decisor).await.unwrap();

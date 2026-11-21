@@ -189,6 +189,21 @@ def main():
                     "content": [{"type": "tool_use", "id": "toolu_p%d" % turnos, "name": "TodoWrite", "input": entrada}]}})
             emitir({"type": "user", "parent_tool_use_id": None, "session_id": sessao, "message": {"role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": "toolu_p%d" % turnos, "content": "ok"}]}})
+        elif "[[parar-e-pedir]]" in texto:
+            entrada = {"command": "echo oi"}
+            emitir({"type": "assistant", "parent_tool_use_id": None, "session_id": sessao, "message": {"id": mid, "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "toolu_pp", "name": "Bash", "input": entrada}]}})
+            emitir({"type": "stream_event", "parent_tool_use_id": None, "session_id": sessao, "event": {"type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "pedindo"}}})
+            while not INTERROMPIDO:
+                time.sleep(0.02)
+            decisao = permissao.perguntar("Bash", entrada, "toolu_pp")
+            with open(caminho("apos-parar.json.tmp"), "w") as saida:
+                json.dump(decisao, saida)
+            os.replace(caminho("apos-parar.json.tmp"), caminho("apos-parar.json"))
+            emitir({"type": "result", "subtype": "error_during_execution", "is_error": True, "session_id": sessao, "usage": uso,
+                    "total_cost_usd": round(0.01 * turnos, 4), "modelUsage": resultado["modelUsage"]})
+            sys.exit(130)
         elif "[[dormir]]" in texto:
             emitir({"type": "stream_event", "parent_tool_use_id": None, "session_id": sessao, "event": {"type": "content_block_delta", "index": 0,
                     "delta": {"type": "text_delta", "text": "começando"}}})
