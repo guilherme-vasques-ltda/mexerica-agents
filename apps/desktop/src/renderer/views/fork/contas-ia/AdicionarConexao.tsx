@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Engine } from '../../../../shared/fork-engine-accounts.ts'
 import { Button, CardForm, CardSection, Spinner } from '../../../components/Controls'
 import { ModalHeader, SheetPage } from '../../../components/Overlay'
@@ -34,14 +34,20 @@ export function AdicionarConexao({ contas, onPlano, onClose }: { contas: ContasS
   const [consulta, setConsulta] = useState('')
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
   const [falhou, setFalhou] = useState(false)
+  // Cada leitura tem a sua vez: uma resposta antiga não sobrescreve a lista de uma leitura mais nova.
+  const geracao = useRef(0)
 
   const reler = async () => {
     const client = liveClient(store)
     if (!client) return
+    const minha = ++geracao.current
     try {
-      setFornecedores(await listarChaves(client))
+      const lista = await listarChaves(client)
+      if (geracao.current !== minha) return
+      setFornecedores(lista)
       setFalhou(false)
     } catch {
+      if (geracao.current !== minha) return
       setFalhou(true)
     }
   }
@@ -64,6 +70,9 @@ export function AdicionarConexao({ contas, onPlano, onClose }: { contas: ContasS
           </CardSection>
           {grupos.map(({ grupo, itens: doGrupo }) => (
             <CardSection key={grupo} title={t(grupo === 'planos' ? 'contas.conexoes.planos' : 'contas.conexoes.chaves')} footer={t(grupo === 'planos' ? 'contas.conexoes.planosRodape' : 'contas.conexoes.chavesRodape')}>
+              {grupo === 'chaves' && online && falhou && fornecedores ? (
+                <Text size="caption" tone="secondary" role="status">{t('contas.apiDireta.erroLista')}</Text>
+              ) : null}
               {doGrupo.map((item) => {
                 const fornecedor = item.fornecedor ? fornecedores?.find((f) => f.id === item.fornecedor) : undefined
                 if (fornecedor) return <LinhaDoFornecedor key={item.id} fornecedor={fornecedor} />
