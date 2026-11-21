@@ -59,7 +59,14 @@ export const sairDoChatGPT = (client: HostClient) =>
  * código e guarda tudo no cofre) e mostra o desfecho ao navegador. `cancelar` desiste enquanto o navegador não voltou:
  * desliga o ouvinte e a espera termina como «cancelado»; depois do retorno (`aoConcluir`) ele não faz mais nada.
  */
-export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, consentir: boolean, esperaMs = ESPERA_MAX_MS, aoConcluir?: () => void) {
+export function entrarComChatGPT(
+  client: HostClient,
+  ouvinte: PonteDoOuvinte,
+  consentir: boolean,
+  space: string,
+  esperaMs = ESPERA_MAX_MS,
+  aoConcluir?: () => void,
+) {
   let tentativa: number | null = null
   let cancelado = false
   let concluindo = false
@@ -72,7 +79,7 @@ export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, co
       let url: string
       try {
         url = (await client.call<{ url: string }>('chatgptEntrar',
-          { loopbackPort: aberto.porta, ...(consentir ? { consentir: true } : {}) }, 15_000)).url
+          { loopbackPort: aberto.porta, spaceId: space, ...(consentir ? { consentir: true } : {}) }, 15_000)).url
       } catch { throw new FalhaChatGPT('falha') }
       if (cancelado) throw new FalhaChatGPT('cancelado')
       let temporizador: ReturnType<typeof setTimeout> | undefined
@@ -90,6 +97,8 @@ export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, co
       } finally {
         clearTimeout(temporizador)
       }
+      // O retorno pode já estar em trânsito quando o Cancelar foi clicado: o login para aqui e o Hub nunca grava.
+      if (cancelado) throw new FalhaChatGPT('cancelado')
       let retorno: ReturnType<typeof lerRetornoLogin>
       try { retorno = lerRetornoLogin(volta) } catch { throw new FalhaChatGPT('falha') }
       // Daqui em diante o Hub troca o código e grava a conta: não há mais o que cancelar.
@@ -100,8 +109,8 @@ export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, co
       if (clientes.length > 1 || clientes[0] === '') throw new FalhaChatGPT('falha')
       // O erro do fornecedor vale antes de qualquer código no mesmo retorno.
       const corpo = retorno.error !== null
-        ? { state: retorno.state, erro: retorno.error }
-        : { state: retorno.state, code: retorno.code ?? '', ...(clientes.length === 1 ? { client_id: clientes[0] } : {}) }
+        ? { state: retorno.state, erro: retorno.error, spaceId: space }
+        : { state: retorno.state, code: retorno.code ?? '', spaceId: space, ...(clientes.length === 1 ? { client_id: clientes[0] } : {}) }
       let desfecho: { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string }
       try {
         desfecho = await client.call('chatgptEntrarConcluir', corpo, PRAZO_MS)

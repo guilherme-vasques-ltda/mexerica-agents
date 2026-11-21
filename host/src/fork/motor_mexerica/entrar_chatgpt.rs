@@ -169,6 +169,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
 /// guardada decide registro novo (cliente dinâmico) ou reautorização (cliente emitido, com as
 /// dicas). A URL pode levar o `id_token_hint`: nunca vai a log nem a erro.
 pub(super) async fn entrar(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
+    assegurar_space_pessoal(body)?;
     let Ok(Some(porta)) = crate::fork::conectores::oauth_desktop::do_pedido(body) else {
         bail!("porta_invalida: o retorno deste login cai no ouvinte do app; informe uma das portas dele.")
     };
@@ -191,6 +192,20 @@ pub(super) async fn entrar(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     let dicas =
         reautorizacao.as_ref().map(|r| (r.client_id.as_str(), r.id_token_hint.as_deref(), r.login_hint.as_deref()));
     Ok(json!({"url": url_autorizacao(porta, &verifier, &crypto::b64(&state), &nonce, &host_id, dicas, consentir)?}))
+}
+
+/// A sessão é do dono, só usada pelos bots do Space pessoal dele: o login também só acontece com
+/// o Space pessoal aberto (o app manda o Space aberto em todo pedido); sem o campo, recusa fechado.
+fn assegurar_space_pessoal(body: &Value) -> Result<()> {
+    let Some(space) = body.get("spaceId").and_then(Value::as_str) else {
+        tracing::warn!("login com `ChatGPT` recusado: o pedido chegou sem o Space aberto");
+        bail!("space_invalido: o login com `ChatGPT` vale só no Space pessoal deste computador.");
+    };
+    ensure!(
+        space == crate::fork::spaces::PERSONAL,
+        "space_invalido: o login com `ChatGPT` vale só no Space pessoal deste computador."
+    );
+    Ok(())
 }
 
 /// Conta já registrada para reautorização: só com `client_id` emitido; as dicas são as guardadas.
@@ -268,6 +283,7 @@ fn base_do_login() -> String {
 /// único, também no erro), decide o `client_id` da troca e valida o ID token antes de gravar o
 /// registro cifrado. Um `state` que não confere não derruba o login em andamento.
 pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
+    assegurar_space_pessoal(body)?;
     let Some(Ok(state)) = body.get("state").and_then(Value::as_str).map(crypto::unb64_n::<32>) else {
         bail!(ENTRADA_INVALIDA)
     };
@@ -277,7 +293,11 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
             guard.as_ref().is_some_and(|t| t.criada_em.elapsed() < VALIDADE && crypto::ct_eq(&t.state, &state));
         if confere { guard.take() } else { None }
     };
-    let Some(tentativa) = tentativa else { bail!(ENTRADA_INVALIDA) };
+    let Some(tentativa) = tentativa else {
+        // A recusa é registrada sem o `state`, o código nem a porta: uma fila delas denuncia retorno forjado.
+        tracing::warn!("retorno do login com `ChatGPT` recusado: nenhuma tentativa viva confere com o retorno");
+        bail!(ENTRADA_INVALIDA)
+    };
     tracing::debug!(porta = tentativa.porta, "retorno do login com `ChatGPT` reconhecido");
     // O emissor disse não: recusa fixa, sem ecoar o motivo recebido.
     if body.get("erro").and_then(Value::as_str).is_some() {

@@ -382,16 +382,17 @@ async fn entrar_exige_porta_do_ouvinte_e_guarda_tentativa_e_host_id_estaveis() {
     *login::BASE_EM_TESTE.locked() = None;
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
     for pedido in [
-        json!({}),
-        json!({"loopbackPort": null}),
-        json!({"loopbackPort": 8123}),
-        json!({"loopbackPort": "19424"}),
-        json!({"loopbackPort": 65536}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": null, "spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": 8123, "spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": "19424", "spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": 65536, "spaceId": crate::fork::spaces::PERSONAL}),
     ] {
         let erro = login::entrar(&hub, &pedido).await.unwrap_err().to_string();
         assert!(erro.starts_with("porta_invalida"), "{erro} para {pedido}");
     }
-    let resposta = login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    let resposta =
+        login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let url = resposta["url"].as_str().unwrap();
     assert!(url.starts_with("https://auth.openai.com/api/accounts/authorize?"), "{url}");
     let (state, nonce, verifier) = tentativa_atual();
@@ -405,7 +406,9 @@ async fn entrar_exige_porta_do_ouvinte_e_guarda_tentativa_e_host_id_estaveis() {
     let host_id = hub.store.kv_read(login::KV_HOST_ID).unwrap().unwrap();
     assert!(host_id.starts_with("urn:uuid:") && host_id.len() == 45, "{host_id}");
     assert_eq!(host_id.as_bytes()[23], b'4', "versão 4: {host_id}");
-    login::entrar(&hub, &json!({"loopbackPort": 19425, "consentir": true})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19425, "consentir": true, "spaceId": crate::fork::spaces::PERSONAL}))
+        .await
+        .unwrap();
     assert_eq!(hub.store.kv_read(login::KV_HOST_ID).unwrap().as_deref(), Some(host_id.as_str()));
     assert!(pares(resposta["url"].as_str().unwrap()).iter().any(|(k, _)| k == "ext_agent_host_id"));
     // A tentativa nova substitui qualquer pendente.
@@ -418,15 +421,15 @@ async fn state_errado_nao_consome_e_o_certo_consome_uma_vez_so() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, _, _) = tentativa_atual();
     // Ausente, ilegível ou de outra tentativa: recusa fixa, sem eco e sem consumir.
     let alheio = crypto::b64(&[7u8; 32]);
     for pedido in [
-        json!({}),
-        json!({"state": "estado-estranho", "code": "x"}),
-        json!({"state": alheio, "code": "x"}),
-        json!({"code": "x"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": "estado-estranho", "code": "x"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": alheio, "code": "x"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "code": "x"}),
     ] {
         let erro = login::concluir(&hub, &pedido).await.unwrap_err().to_string();
         assert!(erro.starts_with("entrada_invalida"), "{erro} para {pedido}");
@@ -434,10 +437,19 @@ async fn state_errado_nao_consome_e_o_certo_consome_uma_vez_so() {
     }
     assert!(login::TENTATIVA.locked().is_some(), "o retorno estranho derrubou o login em andamento");
     // O state certo consome (a troca sem injeção falha fechada) e o segundo uso não passa.
-    let acesso = login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+    let acesso = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+    )
+    .await
+    .unwrap();
     assert_eq!(acesso, json!({"ok": false, "erro": "sem_resposta"}));
     assert!(login::TENTATIVA.locked().is_none(), "o retorno com o state certo não consumiu a tentativa");
-    let erro = login::concluir(&hub, &json!({"state": state, "code": CODIGO})).await.unwrap_err().to_string();
+    let erro =
+        login::concluir(&hub, &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO}))
+            .await
+            .unwrap_err()
+            .to_string();
     assert!(erro.starts_with("entrada_invalida"), "{erro}");
 }
 
@@ -446,7 +458,7 @@ async fn tentativa_expira_em_dez_minutos() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let state = {
         let mut tentativa = login::TENTATIVA.locked();
         let t = tentativa.as_mut().unwrap();
@@ -454,7 +466,11 @@ async fn tentativa_expira_em_dez_minutos() {
             std::time::Instant::now().checked_sub(login::VALIDADE + std::time::Duration::from_secs(1)).unwrap();
         crypto::b64(&t.state)
     };
-    let erro = login::concluir(&hub, &json!({"state": state, "code": CODIGO})).await.unwrap_err().to_string();
+    let erro =
+        login::concluir(&hub, &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO}))
+            .await
+            .unwrap_err()
+            .to_string();
     assert!(erro.starts_with("entrada_invalida"), "{erro}");
 }
 
@@ -466,14 +482,21 @@ async fn retorno_negado_valida_o_state_e_nao_troca_o_codigo() {
     let registros = ficho();
     let base = servidor_de_mentira(registros.clone()).await;
     *login::BASE_EM_TESTE.locked() = Some(base);
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, _, _) = tentativa_atual();
-    let acesso = login::concluir(&hub, &json!({"state": state, "erro": "access_denied"})).await.unwrap();
+    let acesso = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "erro": "access_denied"}),
+    )
+    .await
+    .unwrap();
     assert_eq!(acesso, json!({"ok": false, "erro": "entrada_negada"}));
     // O `state` que não confere também não troca nada.
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let alheio = crypto::b64(&[9u8; 32]);
-    login::concluir(&hub, &json!({"state": alheio, "erro": "access_denied"})).await.unwrap_err();
+    login::concluir(&hub, &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": alheio, "erro": "access_denied"}))
+        .await
+        .unwrap_err();
     assert!(registros.trocas.lock().unwrap().is_empty(), "o retorno negado chegou à troca do código");
     *login::BASE_EM_TESTE.locked() = None;
 }
@@ -488,11 +511,11 @@ async fn registro_novo_sem_cliente_emitido_e_recusado() {
     let base = servidor_de_mentira(registros.clone()).await;
     *login::BASE_EM_TESTE.locked() = Some(base);
     for retorno in [
-        json!({"state": "-"}),
-        json!({"state": "-", "client_id": "cliente-sem-prefixo-1"}),
-        json!({"state": "-", "client_id": Value::Null}),
+        json!({"state": "-", "spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"state": "-", "spaceId": crate::fork::spaces::PERSONAL, "client_id": "cliente-sem-prefixo-1"}),
+        json!({"state": "-", "spaceId": crate::fork::spaces::PERSONAL, "client_id": Value::Null}),
     ] {
-        login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+        login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
         let (state, _, _) = tentativa_atual();
         let mut pedido = retorno;
         pedido["state"] = Value::String(state);
@@ -513,10 +536,10 @@ async fn reautorizacao_com_cliente_diferente_e_recusada_sem_trocar_credenciais()
     let registros = ficho();
     let base = servidor_de_mentira(registros.clone()).await;
     *login::BASE_EM_TESTE.locked() = Some(base);
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, _, _) = tentativa_atual();
     let acesso =
-        login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": "oaiapp_outro-9"})).await.unwrap();
+        login::concluir(&hub, &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": "oaiapp_outro-9"})).await.unwrap();
     assert_eq!(acesso, json!({"ok": false, "erro": "cliente_trocado"}));
     assert!(registros.trocas.lock().unwrap().is_empty(), "o cliente trocado chegou à troca");
     // Nada mudou no cofre.
@@ -595,7 +618,7 @@ async fn id_token_recusado_por_assinatura_chave_algoritmo_emissor_publico_prazo_
         "vencido",
         "nonce errado",
     ] {
-        login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+        login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
         let (state, nonce, _) = tentativa_atual();
         let token = token_do_caso(caso, &nonce);
         *registros.resposta_troca.lock().unwrap() = RespostaTroca::Corpo(json!({
@@ -605,8 +628,12 @@ async fn id_token_recusado_por_assinatura_chave_algoritmo_emissor_publico_prazo_
             "expires_in": 3600,
             "scope": ESCOPO_CHEIO,
         }));
-        let acesso =
-            login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+        let acesso = login::concluir(
+            &hub,
+            &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+        )
+        .await
+        .unwrap();
         assert_eq!(acesso, json!({"ok": false, "erro": "id_invalido"}), "caso {caso}");
         let texto = acesso.to_string();
         assert!(!texto.contains(ACCESS), "vazou o access no caso {caso}: {texto}");
@@ -633,11 +660,15 @@ async fn troca_que_falha_nao_repete_codigo_nem_verificador_e_nao_segue_redirecio
         (RespostaTroca::Redireciona, json!({"ok": false, "erro": "fornecedor_falhou", "status": 302})),
     ] {
         *registros.resposta_troca.lock().unwrap() = resposta.clone();
-        login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+        login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
         let (state, _, verifier) = tentativa_atual();
         verifiers.push(verifier);
-        let acesso =
-            login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+        let acesso = login::concluir(
+            &hub,
+            &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+        )
+        .await
+        .unwrap();
         assert_eq!(acesso, esperado, "resposta {resposta:?}");
         let texto = acesso.to_string();
         assert!(!texto.contains(CODIGO), "vazou o código: {texto}");
@@ -669,7 +700,7 @@ async fn reautorizacao_com_conta_diferente_e_recusada_sem_trocar_credenciais() {
     let registros = ficho();
     let base = servidor_de_mentira(registros.clone()).await;
     *login::BASE_EM_TESTE.locked() = Some(base);
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, nonce, _) = tentativa_atual();
     let token = id_token_de_prova(&cabecalho_de_prova(), &afirmacoes_de_prova(&nonce, "sub-outro-1"));
     *registros.resposta_troca.lock().unwrap() = RespostaTroca::Corpo(json!({
@@ -679,7 +710,12 @@ async fn reautorizacao_com_conta_diferente_e_recusada_sem_trocar_credenciais() {
         "expires_in": 3600,
         "scope": ESCOPO_CHEIO,
     }));
-    let acesso = login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+    let acesso = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+    )
+    .await
+    .unwrap();
     assert_eq!(acesso, json!({"ok": false, "erro": "conta_diferente"}));
     // As credenciais guardadas continuam as mesmas.
     let conta = conta_guardada(&hub);
@@ -697,7 +733,7 @@ async fn escopo_sem_uso_do_plano_registra_conectado_sem_inferencia() {
     let registros = ficho();
     let base = servidor_de_mentira(registros.clone()).await;
     *login::BASE_EM_TESTE.locked() = Some(base);
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, nonce, _) = tentativa_atual();
     let token = id_token_de_prova(&cabecalho_de_prova(), &afirmacoes_de_prova(&nonce, SUB));
     *registros.resposta_troca.lock().unwrap() = RespostaTroca::Corpo(json!({
@@ -707,7 +743,12 @@ async fn escopo_sem_uso_do_plano_registra_conectado_sem_inferencia() {
         "expires_in": 3600,
         "scope": "openid profile email offline_access resource.invoke",
     }));
-    let acesso = login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+    let acesso = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+    )
+    .await
+    .unwrap();
     assert_eq!(acesso["ok"], true, "{acesso}");
     assert_eq!(acesso["conta"]["rotulo"], ROTULO, "{acesso}");
     assert_eq!(acesso["conta"]["planoHabilitado"], false, "{acesso}");
@@ -742,8 +783,14 @@ async fn fluxo_feliz_grava_o_registro_cifrado_sem_devolver_token() {
     *login::BASE_EM_TESTE.locked() = Some(base);
 
     let log = logged(async {
-        let resposta =
-            login::call(&hub, &Caller::Local, "chatgptEntrar", json!({"loopbackPort": 19424})).await.unwrap();
+        let resposta = login::call(
+            &hub,
+            &Caller::Local,
+            "chatgptEntrar",
+            json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL}),
+        )
+        .await
+        .unwrap();
         let url = resposta["url"].as_str().unwrap();
         let pares = pares(url);
         assert!(pares.contains(&("client_id".into(), "dynamic_agent_client".into())), "{pares:?}");
@@ -768,7 +815,7 @@ async fn fluxo_feliz_grava_o_registro_cifrado_sem_devolver_token() {
             &hub,
             &Caller::Local,
             "chatgptEntrarConcluir",
-            json!({"state": state, "code": CODIGO, "client_id": CLIENTE}),
+            json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
         )
         .await
         .unwrap();
@@ -812,7 +859,14 @@ async fn fluxo_feliz_grava_o_registro_cifrado_sem_devolver_token() {
     assert_eq!(conta["client_id"], CLIENTE, "{conta}");
     // O login seguinte é reautorização: cliente emitido e o e-mail guardado, sem o nome do agente
     // e sem o id_token_hint, apagado no sair.
-    let resposta = login::call(&hub, &Caller::Local, "chatgptEntrar", json!({"loopbackPort": 19425})).await.unwrap();
+    let resposta = login::call(
+        &hub,
+        &Caller::Local,
+        "chatgptEntrar",
+        json!({"loopbackPort": 19425, "spaceId": crate::fork::spaces::PERSONAL}),
+    )
+    .await
+    .unwrap();
     let pares = pares(resposta["url"].as_str().unwrap());
     assert!(pares.contains(&("client_id".into(), CLIENTE.into())), "{pares:?}");
     assert!(!pares.iter().any(|(k, _)| k == "id_token_hint"), "{pares:?}");
@@ -976,19 +1030,38 @@ async fn sair_revoga_e_apaga_os_tokens_de_qualquer_jeito() {
     assert_eq!(sair, json!({"ok": true, "revogado": true}));
 }
 
+/// O login só acontece com o Space pessoal aberto: sem o campo ou com outro Space, recusa fechado.
+#[tokio::test]
+async fn login_com_chatgpt_so_no_space_pessoal() {
+    let _serie = SERIE.lock().await;
+    *login::BASE_EM_TESTE.locked() = None;
+    let hub = crate::fork::conectores::oauth_binding::tests::hub();
+    *login::TENTATIVA.locked() = None;
+    for pedido in [json!({"loopbackPort": 19424}), json!({"loopbackPort": 19424, "spaceId": "space-alheio"})] {
+        let erro = login::entrar(&hub, &pedido).await.unwrap_err().to_string();
+        assert!(erro.starts_with("space_invalido"), "{erro} para {pedido}");
+    }
+    let erro = login::concluir(&hub, &json!({"state": "qualquer", "code": "codigo"})).await.unwrap_err().to_string();
+    assert!(erro.starts_with("space_invalido"), "{erro}");
+    assert!(login::TENTATIVA.locked().is_none(), "a recusa não guarda tentativa");
+}
+
 /// O «Sair» derruba a entrada pendente: o retorno que chegar depois dele não grava nada.
 #[tokio::test]
 async fn sair_derruba_a_entrada_pendente() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
     let hub = hub_de_prova();
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, _, _) = tentativa_atual();
     login::sair(&hub).await.unwrap();
-    let erro = login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE}))
-        .await
-        .unwrap_err()
-        .to_string();
+    let erro = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
     assert!(erro.starts_with("entrada_invalida"), "{erro}");
     assert!(hub.store.kv_read(login::SLOT_CONTA).unwrap().is_none());
 }
@@ -1001,7 +1074,7 @@ async fn entrada_em_andamento_nao_grava_depois_do_sair() {
     let registros = ficho();
     let base = servidor_de_mentira(registros.clone()).await;
     *login::BASE_EM_TESTE.locked() = Some(base);
-    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    login::entrar(&hub, &json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).await.unwrap();
     let (state, nonce, _) = tentativa_atual();
     *registros.resposta_troca.lock().unwrap() = RespostaTroca::Corpo(json!({
         "access_token": ACCESS,
@@ -1011,7 +1084,12 @@ async fn entrada_em_andamento_nao_grava_depois_do_sair() {
         "scope": ESCOPO_CHEIO,
     }));
     login::SESSAO.fetch_add(1, Ordering::SeqCst);
-    let resposta = login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+    let resposta = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+    )
+    .await
+    .unwrap();
     assert_eq!(resposta, json!({"ok": false, "erro": "sessao_encerrada"}));
     assert!(hub.store.kv_read(login::SLOT_CONTA).unwrap().is_none());
     *login::BASE_EM_TESTE.locked() = None;
@@ -1043,7 +1121,15 @@ async fn metodos_de_entrar_com_chatgpt_sao_so_deste_computador_e_do_motor_ligado
     // O método em si recusa chamador que não é Local antes de tocar qualquer estado.
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
     for metodo in CHATGPT_METHODS {
-        let erro = login::call(&hub, &aparelho, metodo, json!({"loopbackPort": 19424})).await.unwrap_err().to_string();
+        let erro = login::call(
+            &hub,
+            &aparelho,
+            metodo,
+            json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
         assert!(erro.starts_with("remote_setup_unavailable"), "{metodo}: {erro}");
     }
     // No processo de provas a flag do motor fica desligada; recusa com o motor desligado.
@@ -1051,8 +1137,15 @@ async fn metodos_de_entrar_com_chatgpt_sao_so_deste_computador_e_do_motor_ligado
         return;
     }
     for metodo in CHATGPT_METHODS {
-        let erro =
-            login::call(&hub, &Caller::Local, metodo, json!({"loopbackPort": 19424})).await.unwrap_err().to_string();
+        let erro = login::call(
+            &hub,
+            &Caller::Local,
+            metodo,
+            json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
         assert!(erro.starts_with("motor_desligado"), "{metodo}: {erro}");
     }
 }

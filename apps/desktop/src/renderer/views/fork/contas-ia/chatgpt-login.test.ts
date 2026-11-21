@@ -51,11 +51,11 @@ const VOLTA_OK = 'http://127.0.0.1:19424/auth/callback?state=estado-1&code=codig
 test('o login inteiro: pede a URL ao Hub com a porta do ouvinte, entrega o retorno e devolve a conta', async () => {
   const { client, corpos } = hub(() => ({ ok: true, conta: { rotulo: 'pessoa@example.invalid', planoHabilitado: true } }))
   const { ouvinte, registro } = ponte(() => Promise.resolve(VOLTA_OK))
-  const { fim } = entrarComChatGPT(client, ouvinte, false)
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
   assert.deepEqual(await fim, { ok: true, rotulo: 'pessoa@example.invalid', planoHabilitado: true })
   assert.deepEqual(corpos, [
-    { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424 } },
-    { metodo: 'chatgptEntrarConcluir', corpo: { state: 'estado-1', code: 'codigo-ficticio' } },
+    { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424, spaceId: 'pessoal-1' } },
+    { metodo: 'chatgptEntrarConcluir', corpo: { state: 'estado-1', code: 'codigo-ficticio', spaceId: 'pessoal-1' } },
   ])
   assert.ok(registro[0] === 'esperar:7:' + URL_DO_HUB, 'o ouvinte recebe a URL do Hub com a tentativa certa')
   assert.ok(registro.includes('responder:7:true:ChatGPT'), 'o navegador vê o desfecho de sucesso')
@@ -65,12 +65,12 @@ test('o login inteiro: pede a URL ao Hub com a porta do ouvinte, entrega o retor
 test('o cliente emitido no retorno do primeiro registro segue ao Hub; repetido ou vazio, o retorno é recusado', async () => {
   const { client, corpos } = hub(() => ({ ok: true, conta: { rotulo: null, planoHabilitado: true } }))
   const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK + '&client_id=oaiapp_ficticio'))
-  await entrarComChatGPT(client, ouvinte, false).fim
-  assert.deepEqual(corpos[1], { metodo: 'chatgptEntrarConcluir', corpo: { state: 'estado-1', code: 'codigo-ficticio', client_id: 'oaiapp_ficticio' } })
+  await entrarComChatGPT(client, ouvinte, false, 'pessoal-1').fim
+  assert.deepEqual(corpos[1], { metodo: 'chatgptEntrarConcluir', corpo: { state: 'estado-1', code: 'codigo-ficticio', spaceId: 'pessoal-1', client_id: 'oaiapp_ficticio' } })
   for (const volta of [VOLTA_OK + '&client_id=a&client_id=b', VOLTA_OK + '&client_id=']) {
     const { client: c, corpos: cs } = hub(() => ({ ok: true }))
     const { ouvinte: o } = ponte(() => Promise.resolve(volta))
-    const falha = await entrarComChatGPT(c, o, false).fim.then(() => null, (e: unknown) => e)
+    const falha = await entrarComChatGPT(c, o, false, 'pessoal-1').fim.then(() => null, (e: unknown) => e)
     assert.ok(falha instanceof FalhaChatGPT && falha.tipo === 'falha', volta)
     assert.equal(cs.length, 1, 'o Hub não recebe o retorno recusado')
   }
@@ -81,7 +81,7 @@ test('depois do retorno o cancelar não faz mais nada e o login conclui', async 
   let avisou = false
   const { client } = hub(() => { cancelar(); return { ok: true, conta: { rotulo: null, planoHabilitado: true } } })
   const { ouvinte, registro } = ponte(() => Promise.resolve(VOLTA_OK))
-  const entrada = entrarComChatGPT(client, ouvinte, false, undefined, () => { avisou = true })
+  const entrada = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', undefined, () => { avisou = true })
   cancelar = entrada.cancelar
   assert.deepEqual(await entrada.fim, { ok: true, rotulo: null, planoHabilitado: true })
   assert.ok(avisou, 'a tela é avisada de que já está concluindo')
@@ -91,39 +91,39 @@ test('depois do retorno o cancelar não faz mais nada e o login conclui', async 
 test('o erro do fornecedor vale antes do código no mesmo retorno', async () => {
   const { client, corpos } = hub(() => ({ ok: false, erro: 'entrada_negada' }))
   const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK + '&error=access_denied'))
-  await entrarComChatGPT(client, ouvinte, false).fim.catch(() => null)
-  assert.deepEqual(corpos[1].corpo, { state: 'estado-1', erro: 'access_denied' })
+  await entrarComChatGPT(client, ouvinte, false, 'pessoal-1').fim.catch(() => null)
+  assert.deepEqual(corpos[1].corpo, { state: 'estado-1', erro: 'access_denied', spaceId: 'pessoal-1' })
 })
 
 test('ativar o uso do plano refaz o login pedindo consentimento; o escopo concedido decide o plano', async () => {
   const { client, corpos } = hub(() => ({ ok: true, conta: { rotulo: null, planoHabilitado: false } }))
   const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK))
-  const { fim } = entrarComChatGPT(client, ouvinte, true)
+  const { fim } = entrarComChatGPT(client, ouvinte, true, 'pessoal-1')
   assert.deepEqual(await fim, { ok: true, rotulo: null, planoHabilitado: false }, 'sem o escopo do plano, a conta fica com plano desabilitado')
-  assert.deepEqual(corpos[0], { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424, consentir: true } })
+  assert.deepEqual(corpos[0], { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424, spaceId: 'pessoal-1', consentir: true } })
 })
 
 test('o retorno com erro do fornecedor vai ao Hub como {state, erro} e o desfecho recusado segue ao navegador', async () => {
   let recebido: unknown
   const { client } = hub((corpo) => { recebido = corpo; return { ok: false, erro: 'fornecedor_falhou' } })
   const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/auth/callback?state=estado-1&error=access_denied'))
-  const { fim } = entrarComChatGPT(client, ouvinte, false)
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
   assert.deepEqual(await fim, { ok: false, erro: 'fornecedor_falhou' })
-  assert.deepEqual(recebido, { state: 'estado-1', erro: 'access_denied' })
+  assert.deepEqual(recebido, { state: 'estado-1', erro: 'access_denied', spaceId: 'pessoal-1' })
   assert.ok(registro.includes('responder:7:false:'), 'sem nome no desfecho de erro')
 })
 
 test('o Hub respondendo «entrada negada» vira login cancelado, sem culpar o fornecedor', async () => {
   const { client } = hub(() => ({ ok: false, erro: 'entrada_negada' }))
   const { ouvinte } = ponte(() => Promise.resolve('http://127.0.0.1:19424/auth/callback?state=estado-1&error=access_denied'))
-  const { fim } = entrarComChatGPT(client, ouvinte, false)
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
   await assert.rejects(fim, (e: unknown) => e instanceof FalhaChatGPT && e.tipo === 'cancelado')
 })
 
 test('cancelar desliga o ouvinte e a espera termina como cancelado', async () => {
   const { client } = hub(() => ({ ok: true, conta: { rotulo: null, planoHabilitado: false } }))
   const { ouvinte, registro, esperou } = ponte(() => new Promise<string>(() => {}))
-  const { fim, cancelar } = entrarComChatGPT(client, ouvinte, false)
+  const { fim, cancelar } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
   const desfecho = fim.catch((e: unknown) => e)
   await esperou
   cancelar()
@@ -136,7 +136,7 @@ test('cancelar desliga o ouvinte e a espera termina como cancelado', async () =>
 test('sem retorno a tempo a espera termina como tempo e desliga o ouvinte', async () => {
   const { client } = hub(() => ({ ok: true, conta: { rotulo: null, planoHabilitado: false } }))
   const { ouvinte, registro } = ponte(() => new Promise<string>(() => {}))
-  const { fim } = entrarComChatGPT(client, ouvinte, false, 20)
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', 20)
   const falha = await fim.then(() => null, (e: unknown) => e)
   assert.ok(falha instanceof FalhaChatGPT && falha.tipo === 'tempo')
   assert.ok(registro.includes('fechar:7'))
@@ -148,13 +148,13 @@ test('sem porta livre para o ouvinte, Hub que não responde ou concluir que falh
     abrir: async () => null, esperar: () => Promise.reject(new Error('nunca')),
     responder() {}, fechar() {},
   }
-  const { fim } = entrarComChatGPT(client, semOuvinte, false)
+  const { fim } = entrarComChatGPT(client, semOuvinte, false, 'pessoal-1')
   assert.equal(await fim.then(() => 'ok', (e: unknown) => (e as FalhaChatGPT).tipo), 'falha')
   assert.deepEqual(corpos, [], 'sem ouvinte o Hub nem é chamado')
 
   const hubFora: HostClient = { call: async () => { throw new Error('sem resposta') } } as unknown as HostClient
   const { ouvinte, registro } = ponte(() => new Promise<string>(() => {}))
-  const { fim: fim2 } = entrarComChatGPT(hubFora as HostClient, ouvinte, false)
+  const { fim: fim2 } = entrarComChatGPT(hubFora as HostClient, ouvinte, false, 'pessoal-1')
   assert.equal(await fim2.then(() => 'ok', (e: unknown) => (e as FalhaChatGPT).tipo), 'falha')
   assert.ok(registro.includes('fechar:7'), 'o ouvinte não fica aberto quando o Hub falhou')
 
@@ -165,7 +165,7 @@ test('sem porta livre para o ouvinte, Hub que não responde ou concluir que falh
     },
   } as unknown as HostClient
   const { ouvinte: ouvinte2, registro: registro2 } = ponte(() => Promise.resolve(VOLTA_OK))
-  const { fim: fim3 } = entrarComChatGPT(client2, ouvinte2, false)
+  const { fim: fim3 } = entrarComChatGPT(client2, ouvinte2, false, 'pessoal-1')
   assert.equal(await fim3.then(() => 'ok', (e: unknown) => (e as FalhaChatGPT).tipo), 'falha')
   assert.ok(registro2.includes('fechar:7'))
 })

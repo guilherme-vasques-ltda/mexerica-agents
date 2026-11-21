@@ -77,9 +77,8 @@ test('o pedido pode pedir o caminho /auth/callback (login do ChatGPT), exato na 
   const auth = (porta: number, extra = '') => `https://auth.exemplo.test/authorize?redirect_uri=${encodeURIComponent(redirectDoApp(porta, CAMINHO_AUTH))}&state=estado-1${extra}`
   assert.deepEqual(lerPedido(auth(19424), 19424), { state: 'estado-1' }, 'caminho do ChatGPT aceito no redirect_uri')
   assert.deepEqual(lerPedido(auth(19425), 19425), { state: 'estado-1' }, 'e na outra porta do app')
-  assert.deepEqual(
-    lerPedido(`https://auth.exemplo.test/authorize?callback_url=${encodeURIComponent(redirectDoApp(19424, CAMINHO_AUTH))}&state=estado-1`, 19424),
-    { state: 'estado-1' }, 'também como callback_url')
+  // O `callback_url` é só do login do OpenRouter (origem oficial): o retorno do ChatGPT vem por `redirect_uri`.
+  assert.equal(lerPedido(`https://auth.exemplo.test/authorize?callback_url=${encodeURIComponent(redirectDoApp(19424, CAMINHO_AUTH))}&state=estado-1`, 19424), null, 'callback_url de outra origem não passa')
   assert.equal(lerPedido(auth(19424), 19425), null, 'porta diferente')
   assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(`http://127.0.0.1:19424${CAMINHO_AUTH}`)}&redirect_uri=${encodeURIComponent(redirectDoApp(19424, CAMINHO_AUTH))}&state=s`, 19424), null, 'redirect repetido')
   assert.equal(lerPedido(`https://x.test/a?redirect_uri=${encodeURIComponent(`http://localhost:19424${CAMINHO_AUTH}`)}&state=s`, 19424), null, 'host localhost não é o do app')

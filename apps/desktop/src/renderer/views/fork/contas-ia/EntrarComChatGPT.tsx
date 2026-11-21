@@ -49,10 +49,14 @@ export function EntrarComChatGPT() {
 
   const entrar = (consentir: boolean) => {
     const client = liveClient(store)
-    if (!client || ocupadoRef.current) return
+    const space = store.spaceId ?? store.spaces?.personalSpaceId
+    // A sessão é do dono, só usada pelos bots do Space pessoal: sem saber qual é o Pessoal, ou com outro Space
+    // aberto, o login não começa.
+    const pessoal = store.spaces?.personalSpaceId
+    if (!client || !space || pessoal === undefined || space !== pessoal || ocupadoRef.current) return
     setErro(null)
     setAvisoDeSair(false)
-    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir, undefined, () => setConcluindo(true))
+    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir, space, undefined, () => setConcluindo(true))
     cancelarRef.current = cancelar
     ocupadoRef.current = true
     setOcupado(true)
