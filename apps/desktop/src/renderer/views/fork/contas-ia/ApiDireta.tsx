@@ -23,14 +23,19 @@ export function ApiDireta() {
   const visivel = mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
   const [falhou, setFalhou] = useState(false)
+  const geracao = useRef(0)
 
   const reler = async () => {
     const client = liveClient(store)
     if (!client) return
+    const minha = ++geracao.current
     try {
-      setFornecedores(await listarChaves(client))
+      const lista = await listarChaves(client)
+      if (minha !== geracao.current) return
+      setFornecedores(lista)
       setFalhou(false)
     } catch {
+      if (minha !== geracao.current) return
       setFalhou(true)
     }
   }

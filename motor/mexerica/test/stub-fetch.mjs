@@ -3,14 +3,18 @@
 // credencial recebida — como uma API que devolve a chave no corpo do erro.
 // Assim as provas conferem destino, credencial e contagem de chamadas sem rede.
 import { appendFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const log = process.env.MEXERICA_MOTOR_FETCH_LOG;
 const calls = [];
+// O log é artefato de saída: o VALOR do cabeçalho de credencial nunca entra nele, só o resumo que a prova confere.
+const OCULTOS = ["authorization", "x-api-key", "x-goog-api-key"];
+const ocultados = (headers) => Object.fromEntries(Object.entries(headers).map(([nome, valor]) => [nome, OCULTOS.includes(nome) ? `sha256-${createHash("sha256").update(String(valor)).digest("hex").slice(0, 16)}` : valor]));
 globalThis.fetch = async (input, init) => {
 	const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 	const headers = Object.fromEntries(new Headers(init?.headers ?? input?.headers ?? {}));
 	calls.push({ url, headers });
-	if (log) appendFileSync(log, JSON.stringify({ url, headers }) + "\n");
+	if (log) appendFileSync(log, JSON.stringify({ url, headers: ocultados(headers) }) + "\n");
 	const auth = headers.authorization ?? headers["x-goog-api-key"] ?? "sem-credencial";
 	if (process.env.MEXERICA_TEST_STDERR_SPLIT === "1") {
 		process.stderr.write(auth.slice(0, Math.floor(auth.length / 2)));

@@ -123,6 +123,7 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 
 /** «Testar acesso» do provedor falso (só testes do Hub): uma chave que começa com `recusada` é inválida. */
 export function fauxAcesso(provider: string, key: string, modelos: readonly Model<Api>[]) {
+	if (!key) return { ok: false, erro: "sem_chave" };
 	if (key.startsWith("recusada")) return { ok: false, erro: "chave_invalida", status: 401 };
 	const proprios = modelos.filter((m) => m.provider === provider);
 	return { ok: true, modelos: proprios.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) };

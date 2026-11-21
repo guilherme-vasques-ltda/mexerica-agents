@@ -417,8 +417,7 @@ impl Engine {
                 command[field] = n.into();
             }
         }
-        self.send(command).await?;
-        let res = self.response(&set_id).await?;
+        let res = self.call(&set_id, command, "set_model").await?;
         ensure!(res["success"] == true, "set_model recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
     }
@@ -428,8 +427,8 @@ impl Engine {
     pub(crate) async fn list_models(&mut self) -> Result<Value> {
         self.next_id += 1;
         let id = format!("list-{}", self.next_id);
-        self.send(json!({"id": id, "type": "list_models", "provider": self.provider})).await?;
-        let res = self.response(&id).await?;
+        let command = json!({"id": id, "type": "list_models", "provider": self.provider});
+        let res = self.call(&id, command, "list_models").await?;
         ensure!(
             res["success"] == true,
             "o motor recusou o teste de acesso: {}",

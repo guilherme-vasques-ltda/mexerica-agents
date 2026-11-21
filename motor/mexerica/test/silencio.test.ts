@@ -140,7 +140,9 @@ test("redirecionamento nunca leva a chave a outro endereço", async () => {
 		resposta.end("{}");
 	});
 	const portaOutro = await ouvir(outro);
+	let pedidosNoFornecedor = 0;
 	const fornecedor = createServer((_pedido, resposta) => {
+		pedidosNoFornecedor += 1;
 		resposta.writeHead(307, { location: `http://127.0.0.1:${portaOutro}/roubar` });
 		resposta.end();
 	});
@@ -152,7 +154,9 @@ test("redirecionamento nunca leva a chave a outro endereço", async () => {
 		await globalThis.fetch(url, init);
 		assert.deepEqual(recebidos, ["chave-ficticia-de-teste"]);
 		recebidos.length = 0;
+		pedidosNoFornecedor = 0;
 		await assert.rejects(comPrazoDeSilencio(semRedirecionar, 2000)(url, init));
+		assert.equal(pedidosNoFornecedor, 1, "o pedido protegido tinha de chegar ao fornecedor antes de virar erro");
 		assert.deepEqual(recebidos, [], "o pedido com a chave não pode chegar ao outro endereço");
 	} finally {
 		fornecedor.close();
