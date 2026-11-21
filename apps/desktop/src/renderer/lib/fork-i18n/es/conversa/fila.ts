@@ -25,4 +25,5 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.fila.erro.permissao': 'Este dispositivo ya no puede cambiar la cola.',
   'conversa.fila.erro.pendente': 'El ordenador no confirmó a tiempo. Revisa la cola.',
   'conversa.fila.erro.falhou': 'No se pudo cambiar la cola.',
+  'conversa.fila.erro.cheia': 'La cola de esta conversación está llena. Espera a que salgan algunos mensajes y vuelve a enviar.',
 }

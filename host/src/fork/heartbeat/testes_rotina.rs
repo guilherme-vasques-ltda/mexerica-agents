@@ -922,36 +922,59 @@ fn revogar_pausar_ou_trocar_no_meio_da_leitura_impede_a_chamada_seguinte() {
 
 #[test]
 fn recadastrar_a_mesma_fonte_nao_abre_chamada_em_paralelo() {
-    struct Travada(AtomicUsize);
+    use std::sync::{Condvar, Mutex};
+    struct Travada {
+        chamadas: Arc<AtomicUsize>,
+        liberar: Arc<(Mutex<bool>, Condvar)>,
+        terminou: Arc<AtomicUsize>,
+    }
     impl Fonte for Travada {
         fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            std::thread::sleep(std::time::Duration::from_millis(600));
+            self.chamadas.fetch_add(1, Ordering::SeqCst);
+            // A chamada só termina quando o teste liberar: nenhuma corrida de relógio decide o teste.
+            let mut liberada = self.liberar.0.lock().unwrap();
+            while !*liberada {
+                liberada = self.liberar.1.wait(liberada).unwrap();
+            }
+            self.terminou.fetch_add(1, Ordering::SeqCst);
             Ok(None)
         }
         fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
             Ok(vec![])
         }
     }
+    let liberar = Arc::new((Mutex::new(false), Condvar::new()));
+    let travada = Arc::new(Travada {
+        chamadas: Arc::new(AtomicUsize::new(0)),
+        liberar: liberar.clone(),
+        terminou: Arc::new(AtomicUsize::new(0)),
+    });
     let hub = hub();
     hub.routines.prazo_fonte_ms.store(100, Ordering::SeqCst);
-    let travada = Arc::new(Travada(AtomicUsize::new(0)));
     hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
     let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
     hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || PASSO);
-    assert_eq!(travada.0.load(Ordering::SeqCst), 1);
+    assert_eq!(travada.chamadas.load(Ordering::SeqCst), 1);
     hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
     hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 40 * PASSO);
-    assert_eq!(travada.0.load(Ordering::SeqCst), 1, "recadastro: a chamada anterior ainda não voltou");
+    assert_eq!(travada.chamadas.load(Ordering::SeqCst), 1, "recadastro: a chamada anterior ainda não voltou");
     hub.routines.retirar_fonte("bot", "pedidos.ficticio");
     hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
     hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 200 * PASSO);
-    assert_eq!(travada.0.load(Ordering::SeqCst), 1, "retirada e novo registro: a trava continua");
-    std::thread::sleep(std::time::Duration::from_millis(700));
+    assert_eq!(travada.chamadas.load(Ordering::SeqCst), 1, "retirada e novo registro: a trava continua");
+    // Solta a primeira chamada e espera ela terminar de verdade antes da última checagem.
+    *liberar.0.lock().unwrap() = true;
+    liberar.1.notify_all();
+    for _ in 0..1_000 {
+        if travada.terminou.load(Ordering::SeqCst) >= 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(travada.terminou.load(Ordering::SeqCst) >= 1, "a primeira chamada terminou");
     hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 1000 * PASSO);
-    assert_eq!(travada.0.load(Ordering::SeqCst), 2, "a chamada anterior voltou: pode consultar de novo");
+    assert_eq!(travada.chamadas.load(Ordering::SeqCst), 2, "a chamada anterior voltou: pode consultar de novo");
 }
-
 #[test]
 fn mudanca_entre_o_despacho_e_o_inicio_da_chamada_impede_a_leitura() {
     struct Conta(Arc<AtomicUsize>);
@@ -971,32 +994,36 @@ fn mudanca_entre_o_despacho_e_o_inicio_da_chamada_impede_a_leitura() {
         let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
         let chamadas = Arc::new(AtomicUsize::new(0));
         hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", Arc::new(Conta(chamadas.clone())));
-        let (h, i) = (hub.clone(), id.clone());
-        let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || match caso {
-            "pausa geral" => {
-                h.routines.set_paused(&h.store, true).unwrap();
+        // O gancho guarda só uma referência fraca: não mantém o Hub vivo depois do teste.
+        let (h, i) = (Arc::downgrade(&hub), id.clone());
+        let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            let Some(h) = h.upgrade() else { return };
+            match caso {
+                "pausa geral" => {
+                    h.routines.set_paused(&h.store, true).unwrap();
+                }
+                "desligar" => {
+                    h.routines.set_enabled(&h.store, "bot", &i, false).unwrap();
+                }
+                "editar o escopo" => {
+                    let mut nova = declaracao();
+                    nova["escopo"] = json!("outra fila");
+                    h.routines.save(&h, "bot", &corpo(&json!({"id": i, "heartbeat": nova, "enabled": true}))).unwrap();
+                }
+                "apagar" => {
+                    h.routines.remove(&h.store, "bot", &i).unwrap();
+                }
+                _ => std::thread::sleep(std::time::Duration::from_millis(400)),
             }
-            "desligar" => {
-                h.routines.set_enabled(&h.store, "bot", &i, false).unwrap();
-            }
-            "editar o escopo" => {
-                let mut nova = declaracao();
-                nova["escopo"] = json!("outra fila");
-                h.routines.save(&h, "bot", &corpo(&json!({"id": i, "heartbeat": nova, "enabled": true}))).unwrap();
-            }
-            "apagar" => {
-                h.routines.remove(&h.store, "bot", &i).unwrap();
-            }
-            _ => std::thread::sleep(std::time::Duration::from_millis(400)),
         });
         *hub.routines.entre_despacho_e_chamada.locked() = Some(mudar);
         checa(&hub, &id, 1);
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert_eq!(chamadas.load(Ordering::SeqCst), 0, "{caso}: a fonte não pode ser chamada");
         assert_eq!(avisos(&hub).len(), 0, "{caso}");
+        *hub.routines.entre_despacho_e_chamada.locked() = None;
     }
 }
-
 #[test]
 fn mudanca_depois_da_resposta_de_admissao_e_antes_da_chamada_impede_a_leitura() {
     struct Conta(Arc<AtomicUsize>);
@@ -1016,30 +1043,45 @@ fn mudanca_depois_da_resposta_de_admissao_e_antes_da_chamada_impede_a_leitura() 
         let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
         let chamadas = Arc::new(AtomicUsize::new(0));
         hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", Arc::new(Conta(chamadas.clone())));
-        let (h, i) = (hub.clone(), id.clone());
+        // O gancho guarda só uma referência fraca e conta as vezes que a tarefa chegou até ele.
+        let (h, i) = (Arc::downgrade(&hub), id.clone());
         let feito = std::sync::atomic::AtomicBool::new(false);
+        let fim = Arc::new(AtomicUsize::new(0));
+        let (caso_do_gancho, fim_do_gancho) = (caso, fim.clone());
         let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-            if feito.swap(true, Ordering::SeqCst) {
-                return;
+            if !feito.swap(true, Ordering::SeqCst)
+                && let Some(h) = h.upgrade()
+            {
+                match caso_do_gancho {
+                    "pausa geral" => {
+                        h.routines.set_paused(&h.store, true).unwrap();
+                    }
+                    "editar o escopo" => {
+                        let mut nova = declaracao();
+                        nova["escopo"] = json!("outra fila");
+                        h.routines
+                            .save(&h, "bot", &corpo(&json!({"id": i, "heartbeat": nova, "enabled": true})))
+                            .unwrap();
+                    }
+                    "apagar" => {
+                        h.routines.remove(&h.store, "bot", &i).unwrap();
+                    }
+                    _ => std::thread::sleep(std::time::Duration::from_millis(400)),
+                }
             }
-            match caso {
-                "pausa geral" => {
-                    h.routines.set_paused(&h.store, true).unwrap();
-                }
-                "editar o escopo" => {
-                    let mut nova = declaracao();
-                    nova["escopo"] = json!("outra fila");
-                    h.routines.save(&h, "bot", &corpo(&json!({"id": i, "heartbeat": nova, "enabled": true}))).unwrap();
-                }
-                "apagar" => {
-                    h.routines.remove(&h.store, "bot", &i).unwrap();
-                }
-                _ => std::thread::sleep(std::time::Duration::from_millis(400)),
-            }
+            fim_do_gancho.fetch_add(1, Ordering::SeqCst);
         });
         *hub.routines.depois_da_admissao.locked() = Some(mudar);
         checa(&hub, &id, 1);
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Espera a tarefa passar pelo gancho (inclusive o sono do prazo vencido) antes de conferir a fonte.
+        for _ in 0..1_000 {
+            if fim.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(fim.load(Ordering::SeqCst) > 0, "{caso}: a tarefa chegou ao gancho");
+        std::thread::sleep(std::time::Duration::from_millis(150));
         assert_eq!(chamadas.load(Ordering::SeqCst), 0, "{caso}: a fonte não pode ser chamada");
         assert_eq!(avisos(&hub).len(), 0, "{caso}");
         if caso == "prazo vencido" {
@@ -1047,21 +1089,28 @@ fn mudanca_depois_da_resposta_de_admissao_e_antes_da_chamada_impede_a_leitura() 
             assert_eq!(ultima.resultado, crate::fork::heartbeat::Resultado::FonteIndisponivel);
             assert!(execucoes(&hub).iter().all(|r| r.heartbeat_texto.is_none()), "expirar não alerta sobre permissão");
         }
+        *hub.routines.depois_da_admissao.locked() = None;
     }
 }
-
 #[test]
 fn mudanca_alheia_depois_da_admissao_so_repete_o_pedido_e_a_fonte_e_chamada() {
     let (hub, fonte, id) = com_fonte();
     fonte.define(&[("7", "v1", "aguardando")]);
-    let h = hub.clone();
+    let h = Arc::downgrade(&hub);
     let feito = std::sync::atomic::AtomicBool::new(false);
+    let pedidos = Arc::new(AtomicUsize::new(0));
+    let pedidos_no_gancho = pedidos.clone();
     let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-        if !feito.swap(true, Ordering::SeqCst) {
+        pedidos_no_gancho.fetch_add(1, Ordering::SeqCst);
+        if !feito.swap(true, Ordering::SeqCst)
+            && let Some(h) = h.upgrade()
+        {
             h.routines.state.locked().available_at = 0;
         }
     });
     *hub.routines.depois_da_admissao.locked() = Some(mudar);
     checa(&hub, &id, 1);
+    *hub.routines.depois_da_admissao.locked() = None;
+    assert!(pedidos.load(Ordering::SeqCst) >= 2, "a mudança alheia faz a tarefa pedir admissão de novo antes de ler");
     assert!(fonte.leituras.load(Ordering::SeqCst) > 0, "o estado de outra coisa mudou: a fonte ainda é lida");
 }

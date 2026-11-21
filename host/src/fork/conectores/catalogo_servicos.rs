@@ -9,7 +9,7 @@
 use anyhow::{Result, bail, ensure};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Decisão do dono (16/11/2026): ficha conferida há mais de 90 dias não conecta e o teste do catálogo reprova.
 pub(crate) const PRAZO_CONFERENCIA_DIAS: i64 = 90;
@@ -95,11 +95,23 @@ pub(crate) struct Grupo {
     pub url: Option<&'static str>,
     /// Ferramentas permitidas. Vazio = o fornecedor impõe o limite (URL ou escopo); preenchido = o Hub filtra.
     pub ferramentas: &'static [&'static str],
+    /// Leitura automática: só o par nome + digest curado aqui passa sem a pessoa ligar. O digest que o fornecedor
+    /// mostrar tem de ser exatamente o curado; nome sem digest curado nunca passa sozinho. Não vai para a tela.
+    #[serde(skip)]
+    pub curadas: &'static [Curada],
     /// Pré-marcado ao conectar (o padrão seguro, em geral só leitura).
     pub padrao: bool,
     pub disponivel: bool,
     /// Como o fornecedor garante que o grupo só lê; obrigatório em grupo disponível (conferido ao carregar a ficha).
     pub imposicao: Option<Imposicao>,
+}
+
+/// Definição curada de uma ferramenta de leitura: o nome e o `schema_digest` (nome, título, descrição, entrada, saída e
+/// anotações) que a ficha conferiu. Mudou qualquer parte no fornecedor, deixa de passar sozinha.
+#[derive(Debug)]
+pub(crate) struct Curada {
+    pub ferramenta: &'static str,
+    pub digest: &'static str,
 }
 
 /// Ferramenta que só a pessoa liga, por conta e por bot, com confirmação (fatia 2).
@@ -294,6 +306,28 @@ impl TipoConexao {
             .filter(|escopo| vistos.insert(**escopo))
             .map(|escopo| (*escopo).to_owned())
             .collect()
+    }
+
+    /// O jeito de conectar e todos os grupos ligados continuam disponíveis na ficha vigente (e há ao menos um).
+    /// Cada id salvo é conferido contra a ficha de agora: um grupo que sumiu ou ficou indisponível fecha o perfil
+    /// inteiro, mesmo que outro grupo do mesmo perfil continue válido.
+    pub(crate) fn perfil_disponivel(&self, liberacoes: &[String]) -> bool {
+        self.disponivel
+            && !liberacoes.is_empty()
+            && liberacoes.iter().all(|id| self.grupo(id).is_some_and(|g| g.disponivel))
+    }
+
+    /// Pares nome + digest curados pelos grupos ligados. O mesmo nome com dois digests diferentes é ambíguo: nenhum
+    /// dos dois passa.
+    pub(crate) fn ferramentas_curadas(&self, liberacoes: &[String]) -> BTreeMap<&'static str, &'static str> {
+        let mut vistas: BTreeMap<&'static str, Option<&'static str>> = BTreeMap::new();
+        for curada in self.ligados(liberacoes).flat_map(|g| g.curadas.iter()) {
+            let antiga = vistas.insert(curada.ferramenta, Some(curada.digest));
+            if antiga.is_some_and(|d| d != Some(curada.digest)) {
+                vistas.insert(curada.ferramenta, None);
+            }
+        }
+        vistas.into_iter().filter_map(|(nome, digest)| digest.map(|d| (nome, d))).collect()
     }
 
     /// `None`: o fornecedor impõe o limite (todos os grupos ligados têm lista vazia). `Some`: só estes nomes passam;

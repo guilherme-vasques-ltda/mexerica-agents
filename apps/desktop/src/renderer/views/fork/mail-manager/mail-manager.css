@@ -1,0 +1,51 @@
+/* Mail Manager: Ajustes → Extensões → Plugins. Só tokens do sistema visual (styles/tokens.css). */
+.mm-plugin { display: flex; flex-direction: column; gap: 12px; }
+.mm-cabeca { display: flex; gap: 12px; align-items: center; }
+.mm-cabeca > .switch { width: auto; flex: none; }
+.mm-cabeca-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mm-cabeca-texto h3 { margin: 0; font-size: var(--text-title3, 15px); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mm-cabeca-texto p { margin: 0; color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout, 13px); line-height: 1.45; }
+.mm-marca { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-primary, var(--ink)); }
+.mm-selo { font-size: var(--text-caption); color: var(--context-ink-2, var(--ink-2)); flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.mm-selo::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.mm-selo.on { color: var(--success); }
+
+.mm-aviso { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-radius: var(--radius-md, 10px); border: 1px solid color-mix(in srgb, var(--attention) 35%, transparent); background: var(--attention-soft); color: var(--text-primary, var(--ink)); font-size: var(--text-caption, 12px); line-height: 1.45; }
+.mm-aviso > svg, .mm-aviso > span:first-child { color: var(--attention); flex: none; margin-top: 1px; }
+.mm-aviso p { margin: 0; }
+.mm-aviso p + p { margin-top: 2px; }
+.mm-aviso b { color: var(--attention); }
+
+.mm-nota { color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-caption, 12px); line-height: 1.4; margin: 0; }
+.mm-carregando { color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-callout, 13px); }
+.mm-erro { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-radius: var(--radius-lg, 12px); background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); font-size: var(--text-callout, 13px); line-height: 1.45; }
+.mm-erro span { flex: 1; min-width: 200px; color: var(--text-primary, var(--ink)); }
+.mm-erro button { color: var(--accent); text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; font-size: inherit; }
+
+.mm-form { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.mm-campo { display: flex; flex-direction: column; gap: 6px; width: 100%; font-size: var(--text-callout, 13px); }
+.mm-campo input, .mm-campo textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--text-body, 14px); padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-md, 10px); background: var(--field); color: var(--text-primary, var(--ink)); }
+.mm-campo textarea { resize: vertical; }
+.mm-form-botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.mm-caixa { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.mm-caixa-cabeca { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mm-caixa-cabeca > .mm-nota { flex: 1; min-width: 80px; }
+.mm-caixa-cabeca > button { flex: none; }
+.mm-caixa-nome { font-weight: 600; font-size: var(--text-callout, 13px); }
+.mm-enderecos { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.mm-enderecos li { padding: 3px 10px; border-radius: var(--radius-pill); background: var(--group); font-size: var(--text-caption, 12px); color: var(--context-ink-2, var(--ink-2)); overflow-wrap: anywhere; }
+.mm-acessos { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 2px; border-top: 1px solid var(--line); }
+.mm-acessos-titulo { font-size: var(--text-caption, 12px); color: var(--context-ink-2, var(--ink-2)); }
+.mm-bot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.mm-bot-nome { font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: var(--text-callout, 13px); }
+.mm-bot-nome .pill { font-weight: 400; font-size: var(--text-caption); }
+.mm-bot-acoes { display: flex; gap: 6px; flex-wrap: wrap; margin-inline-start: auto; }
+.mm-toggle { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: var(--radius-pill); border: 1px solid var(--line-strong); background: var(--raised); color: var(--context-ink-2, var(--ink-2)); font-size: var(--text-caption, 12px); cursor: pointer; }
+.mm-toggle[aria-pressed="true"] { border-color: transparent; background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.mm-toggle:disabled { opacity: .5; cursor: default; }
+
+.mm-desligar { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; }
+.mm-desligar p { margin: 0; font-size: var(--text-caption, 12px); line-height: 1.45; color: var(--context-ink-2, var(--ink-2)); }
+.mm-desligar b { display: inline; color: var(--text-primary, var(--ink)); }
+@container (max-width: 700px) { .mm-desligar { grid-template-columns: 1fr; } }

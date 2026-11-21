@@ -48,6 +48,7 @@ fn artifact(backend: Backend) -> Result<Artifact> {
                 member: Some(member),
             }
         }
+        Backend::Grok => return Err(anyhow!("install_unavailable: o Grok Build não tem versão fixada.")),
         Backend::Claude => {
             let platform = if arm { "linux-arm64" } else { "linux-x64" };
             Artifact {
@@ -68,9 +69,11 @@ fn artifact(backend: Backend) -> Result<Artifact> {
 
 /// Só a versão auditada é reutilizada; não altera instalação global incompatível.
 pub(crate) async fn compatible(path: &Path, backend: Backend, directory: &Path) -> bool {
+    // O Grok Build não tem versão fixada: basta o programa responder a --version.
     let version = match backend {
-        Backend::Codex => "0.164.0",
-        Backend::Claude => "2.1.309",
+        Backend::Codex => Some("0.164.0"),
+        Backend::Claude => Some("2.1.309"),
+        Backend::Grok => None,
     };
     let output = async {
         let mut child =
@@ -80,7 +83,10 @@ pub(crate) async fn compatible(path: &Path, backend: Backend, directory: &Path) 
         child.stdout.take().ok_or_else(|| anyhow!("version_unavailable"))?.take(4097).read_to_end(&mut bytes).await?;
         ensure!(bytes.len() <= 4096 && child.wait().await?.success(), "version_unavailable");
         let text = String::from_utf8(bytes)?;
-        Ok::<_, anyhow::Error>(text.split_whitespace().any(|word| word == version))
+        let named = backend != Backend::Grok || text.to_lowercase().contains("grok");
+        Ok::<_, anyhow::Error>(
+            named && version.is_none_or(|version| text.split_whitespace().any(|word| word == version)),
+        )
     };
     matches!(tokio::time::timeout(Duration::from_secs(10), output).await, Ok(Ok(true)))
 }
@@ -90,7 +96,27 @@ pub(crate) fn installed_path(root: &Path, backend: Backend) -> Result<PathBuf> {
     Ok(root.join(format!("{}-{}-{}", backend.id(), a.version, std::env::consts::ARCH)).join(backend.id()))
 }
 
+/// Grok Build já instalado: o do Hub, se houver, ou o do computador. Nunca instala nem usa o executor isolado.
+async fn existing_grok(root: &Path, directory: &Path) -> Option<PathBuf> {
+    if crate::fork::motor_exec::configured() || motor_install::orchestrating() {
+        return None;
+    }
+    for path in
+        [Some(root.join("grok").join("grok")).filter(|path| path.is_file()), crate::agent::backends::which("grok")]
+            .into_iter()
+            .flatten()
+    {
+        if compatible(&path, Backend::Grok, directory).await {
+            return Some(path);
+        }
+    }
+    None
+}
+
 pub(crate) async fn existing(root: &Path, backend: Backend, directory: &Path) -> Option<PathBuf> {
+    if backend == Backend::Grok {
+        return existing_grok(root, directory).await;
+    }
     if motor_install::orchestrating() {
         if root != motor_install::binaries() {
             return None;
@@ -127,6 +153,9 @@ pub(crate) async fn existing(root: &Path, backend: Backend, directory: &Path) ->
 }
 
 pub(crate) async fn install(root: &Path, backend: Backend, directory: &Path) -> Result<PathBuf> {
+    if backend == Backend::Grok {
+        return existing_grok(root, directory).await.ok_or_else(|| anyhow!("grok_not_installed"));
+    }
     if motor_install::orchestrating() {
         ensure!(root == motor_install::binaries(), "instalação em raiz antiga do Hub recusada");
         return match motor_install::invoke(Request::Engine {
@@ -143,6 +172,7 @@ pub(crate) async fn install(root: &Path, backend: Backend, directory: &Path) -> 
     let _lock = match backend {
         Backend::Codex => CODEX.lock().await,
         Backend::Claude => CLAUDE.lock().await,
+        Backend::Grok => return Err(anyhow!("grok_not_installed")),
     };
     if let Some(path) = existing(root, backend, directory).await {
         return Ok(path);

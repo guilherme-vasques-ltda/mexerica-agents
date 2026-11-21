@@ -3,6 +3,7 @@
 // fechada sem credencial, chave fora de argv/saída/stderr e fim do turno quando
 // o canal do cofre morre.
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,11 +12,12 @@ import { ENTRY, encerrar, startEngine, turnoTerminou } from "./helpers.ts";
 
 const SECRET = "chave-de-teste-nao-pode-vazar";
 
+const resumo = (valor: string) => `sha256-${createHash("sha256").update(valor).digest("hex").slice(0, 16)}`;
 const chamadasFetch = (log: string) =>
 	(existsSync(log) ? readFileSync(log, "utf8") : "")
 		.split("\n")
 		.filter(Boolean)
-		.map((l) => JSON.parse(l) as { url: string; headers: Record<string, string> });
+		.map((l) => JSON.parse(l) as { url: string; headers: Record<string, string>; body?: string });
 
 test("conversa responde pelo provedor faux", async () => {
 	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
@@ -42,8 +44,9 @@ test("a credencial do cofre chega ao transporte do provedor certo", async () => 
 	assert.equal(calls.length, 1, `esperava exatamente 1 chamada de rede, vieram ${calls.length}`);
 	const headers = calls[0]!.headers;
 	assert.match(calls[0]!.url, /generativelanguage\.googleapis\.com/);
-	assert.ok(
-		JSON.stringify(headers).includes(SECRET),
+	assert.equal(
+		headers["x-goog-api-key"],
+		resumo(SECRET),
 		"a credencial do fd 3 não chegou ao cabeçalho do provedor",
 	);
 	// O erro do provedor ecoa a chave no corpo: a saída não pode contê-la.
@@ -51,6 +54,56 @@ test("a credencial do cofre chega ao transporte do provedor certo", async () => 
 	await encerrar(proc);
 	assert.ok(!proc.stderr().includes(SECRET), "a chave vazou no stderr do motor");
 	rmSync(dir, { recursive: true, force: true });
+});
+
+test("a credencial do cofre chega ao transporte da Meta Model API", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "motor-fetch-meta-"));
+	const log = join(dir, "fetch.jsonl");
+	const proc = startEngine({}, { serveKey: SECRET, fetchLog: log });
+	try {
+		proc.send({ id: "m", type: "set_model", provider: "meta", modelId: "muse-spark-1.3" });
+		await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		const done = await proc.waitFor(turnoTerminou);
+		assert.ok(done, "o turno tinha de terminar (o stub responde 401)");
+		const calls = chamadasFetch(log);
+		assert.equal(calls.length, 1, `esperava exatamente 1 chamada de rede, vieram ${calls.length}`);
+		assert.equal(calls[0]!.url, "https://api.meta.ai/v1/chat/completions");
+		assert.equal(calls[0]!.headers.authorization, resumo(`Bearer ${SECRET}`));
+		assert.ok(!JSON.stringify(proc.lines).includes(SECRET), "a chave vazou na saída RPC");
+		await encerrar(proc);
+		assert.ok(!proc.stderr().includes(SECRET), "a chave vazou no stderr do motor");
+	} finally {
+		if (!proc.child.killed) await encerrar(proc);
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("o pedido à Meta não leva esforço de raciocínio «none»", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "motor-fetch-meta-corpo-"));
+	const log = join(dir, "fetch.jsonl");
+	const proc = startEngine({ MEXERICA_TEST_SUCCESS_COMPLETIONS: "1" }, { serveKey: SECRET, fetchLog: log });
+	try {
+		proc.send({ id: "m", type: "set_model", provider: "meta", modelId: "muse-spark-1.3" });
+		await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		const end = await proc.waitFor((v) => v.type === "agent_end");
+		assert.match(JSON.stringify(end), /resposta simulada/);
+		const calls = chamadasFetch(log);
+		assert.equal(calls.length, 1, `esperava exatamente 1 chamada de rede, vieram ${calls.length}`);
+		assert.equal(calls[0]!.url, "https://api.meta.ai/v1/chat/completions");
+		const corpo = JSON.parse(calls[0]!.body ?? "{}") as Record<string, unknown>;
+		assert.equal(corpo.model, "muse-spark-1.3");
+		// Sem nível de raciocínio pedido, o pedido não pode levar esforço
+		// "none": a Meta só aceita "minimal" a "max" e recusa o resto com 400.
+		// O modelo montado pelo catálogo não pede raciocínio e a Meta usa o
+		// esforço padrão dela.
+		assert.equal(corpo.reasoning_effort, undefined, "o pedido à Meta levou reasoning_effort inesperado");
+		assert.ok(!JSON.stringify(corpo).includes('"none"'), "o pedido à Meta levou effort «none»");
+	} finally {
+		if (!proc.child.killed) await encerrar(proc);
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("sem credencial o prompt falha fechado e sem rede", async () => {
@@ -108,7 +161,7 @@ test("OpenAI recebe a chave do cofre no transporte simulado", async () => {
 		const calls = chamadasFetch(log);
 		assert.equal(calls.length, 1);
 		assert.match(calls[0]!.url, /^https:\/\/api\.openai\.com\//);
-		assert.ok(JSON.stringify(calls[0]!.headers).includes(SECRET));
+		assert.equal(calls[0]!.headers["authorization"], resumo(`Bearer ${SECRET}`));
 		assert.ok(!JSON.stringify(proc.lines).includes(SECRET));
 	} finally {
 		await encerrar(proc);

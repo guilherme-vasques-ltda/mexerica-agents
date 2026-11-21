@@ -2,6 +2,7 @@
 pub mod autoridade;
 pub mod bootstrap;
 pub(crate) mod cadeias;
+pub(crate) mod open_chat;
 #[cfg(unix)]
 pub(crate) mod open_codex;
 pub(crate) mod webhook;
@@ -31,6 +32,7 @@ pub(crate) mod bot_admission;
 pub mod bot_editor;
 pub(crate) mod bot_skills;
 pub(crate) mod browser;
+pub(crate) mod claude_ponte;
 pub(crate) mod claude_tools;
 pub(crate) mod codex_usage;
 pub(crate) mod compaction_prompt;
@@ -64,7 +66,11 @@ pub(crate) mod historico;
 pub(crate) mod idioma_app;
 #[cfg(target_os = "linux")]
 pub(crate) mod instalacao_gerida;
+pub(crate) mod instalacao_script;
+pub(crate) mod instrucao_geral;
 pub(crate) mod lider_canal;
+#[allow(dead_code, reason = "Base de permissões publicada antes do painel e do transporte; sem runtime novo.")]
+pub(crate) mod mail_manager;
 pub(crate) mod memory;
 pub(crate) mod memory_auto;
 pub(crate) mod memory_learning;
@@ -82,11 +88,13 @@ pub(crate) mod pasta;
 pub(crate) mod permission_card;
 pub(crate) mod personal_bootstrap;
 pub(crate) mod personal_link;
+pub(crate) mod planos_codigo;
 #[allow(dead_code, reason = "F1b/D247: seam privado antes do broker; sem produtor de autoridade.")]
 pub(crate) mod plugins;
 #[cfg(unix)]
 pub(crate) mod private_fs;
 pub(crate) mod projetos;
+pub(crate) mod propostas;
 #[cfg(target_os = "linux")]
 pub(crate) mod publicacao_atualizacao;
 pub(crate) mod push_textos;
@@ -128,6 +136,7 @@ pub(crate) mod runtime_audiencia;
 /// Migra os dados preparatórios do fork; nunca configura motores nem aprova ações.
 pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
+    instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;
     conectores::oauth_binding::migrate(&store.db.locked())?;
@@ -139,11 +148,13 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     projetos::migrate(&store.db.locked())?;
     tarefas::migrate(&store.db.locked())?;
     tarefas_runtime::migrate(&store.db.locked())?;
+    propostas::migrate(&store.db.locked())?;
     delegacao::migrate(&store.db.locked())?;
     donna_fixa::migrate(&store.db.locked())?;
     native_catalog::migrate(&store.db.locked())?;
     plugins::migrate(&store.db.locked())?;
     whatsapp::migrate(&store.db.locked())?;
+    mail_manager::migrate(&store.db.locked())?;
     cadeias::store::migrate(&store.db.locked())?;
     retornos::migrate(&store.db.locked())?;
     delegacao::pausa::migrate(&store.db.locked())?;
@@ -167,6 +178,7 @@ pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> 
     genui::storage::on_bot_deleted(c, id)?;
     plugins::on_bot_deleted(c, id)?;
     whatsapp::on_bot_deleted(c, id)?;
+    mail_manager::on_bot_deleted(c, id)?;
     roteamento::receipt::on_bot_deleted(c, id)?;
     crate::chat::memory::omitted::forget_bot(c, id)?;
     rules::store::forget_bot(c, id)
@@ -196,6 +208,7 @@ pub(crate) mod motor_roots;
 #[cfg(unix)]
 pub(crate) mod motor_uploads;
 pub(crate) mod motor_workspace_memory;
+pub(crate) mod motores_retirados;
 
 #[cfg(all(test, unix))]
 mod motor_roots_tests;

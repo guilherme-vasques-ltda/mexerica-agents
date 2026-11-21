@@ -256,7 +256,6 @@ impl Actor {
                     self.retry_waiting(done_tx).await;
                 }
             }
-            #[cfg(test)]
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id, reply, origem } => {
                 let _ = reply.send(self.answer_permission_from(&entry_id, option_id, origem.as_ref()).await);
@@ -356,12 +355,44 @@ impl Actor {
                     self.restart_agent().await;
                 }
             }
-            Cmd::Shutdown => return false,
+            Cmd::Shutdown => {
+                // O texto e as ferramentas que o motor já mandou vão para o disco; pedidos dele (aprovação, leitura)
+                // ficam sem resposta e o motor é encerrado. O corte é marcado depois, sem ator vivo.
+                let queued = self.conn.as_ref().map_or(0, |c| c.rx.len());
+                for _ in 0..queued {
+                    let Some(incoming) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) else { continue };
+                    let crate::agent::acp::Incoming::Notification { method, params } = incoming else {
+                        if let crate::agent::acp::Incoming::Request { method, .. } = incoming {
+                            tracing::warn!(
+                                bot = self.cfg.id,
+                                method,
+                                "pedido do motor sem resposta: o Hub está desligando"
+                            );
+                        }
+                        continue;
+                    };
+                    if method == "session/update"
+                        && self.turn.is_some()
+                        && !self.waiting_for_reset()
+                        && !self.completing()
+                        && params["sessionId"].as_str() == self.turn_session.as_deref()
+                        && matches!(
+                            params["update"]["sessionUpdate"].as_str(),
+                            Some("agent_message_chunk" | "tool_call" | "tool_call_update")
+                        )
+                    {
+                        self.on_update(&params["update"]);
+                    }
+                }
+                if !self.completing() {
+                    self.flush(true);
+                }
+                return false;
+            }
         }
         true
     }
 
-    #[cfg(test)]
     pub(super) async fn stop(&mut self) {
         // Congela o alcance do Stop antes de aguardar o encerramento do turno.
         self.cancel_queued = self

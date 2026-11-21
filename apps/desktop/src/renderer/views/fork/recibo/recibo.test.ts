@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { changedModel, receiptAnchors, receiptView, showsIcon } from './presentation.ts'
+import { changedModel, receiptAnchors, receiptView, showsIcon, usoDoTurno } from './presentation.ts'
 import { tradutor } from '../../../lib/fork-i18n/index.ts'
 import type { ReceiptLoad } from '../../../store/fork-recibo.ts'
 import type { RoutingReceipt } from '../../../../shared/fork-roteamento.ts'
@@ -127,4 +127,36 @@ test('recibo em inglês: frase acessível inteira e etiqueta traduzida', () => {
   assert.ok(view.kind === 'routed')
   assert.equal(view.label, 'Answered with gpt-6.1-sol, account Codex pessoal, high effort. Bot default. Open receipt')
   assert.equal(view.motorLink, "Open Byte's Engine")
+})
+
+const comUso = (state: 'routed' | 'notRouted' | 'pending', usage: unknown): ReceiptLoad => ({ status: 'loaded', response: { hubId: 'hub', state, receipt: null, usage } as never })
+
+test('uso do turno: só o que o motor informou; o que falta é "não informado", nunca zero', () => {
+  const uso = usoDoTurno('pt-BR', comUso('notRouted', { input: 12_345, cacheRead: 20, cacheWrite: null, output: 40 }))
+  assert.ok(uso?.kind === 'informado')
+  assert.deepEqual(uso.linhas.map((l) => [l.id, l.valor?.replace(/[\u00a0\u202f]/g, ' ') ?? null]), [['entrada', '12.345'], ['cacheLido', '20'], ['cacheGravado', null], ['saida', '40']])
+  assert.deepEqual(usoDoTurno('pt-BR', comUso('routed', { input: null, cacheRead: null, cacheWrite: null, output: null })), { kind: 'naoInformado' })
+  assert.deepEqual(usoDoTurno('pt-BR', comUso('routed', null)), { kind: 'semMedida' })
+  // Número inválido do Hub (negativo, fracionado, texto) não vira número na tela.
+  assert.deepEqual(usoDoTurno('pt-BR', comUso('routed', { input: -1, cacheRead: 1.5, cacheWrite: '7', output: Number.NaN })), { kind: 'naoInformado' })
+})
+
+test('uso do turno: Hub antigo (sem usage), na fila, em leitura ou com erro não mostram bloco', () => {
+  assert.equal(usoDoTurno('pt-BR', state('notRouted')), null)
+  assert.equal(usoDoTurno('pt-BR', comUso('pending', { input: 1, cacheRead: 1, cacheWrite: 1, output: 1 })), null)
+  assert.equal(usoDoTurno('pt-BR', { status: 'loading' }), null)
+  assert.equal(usoDoTurno('pt-BR', { status: 'error', code: 'x' }), null)
+  assert.equal(usoDoTurno('pt-BR', undefined), null)
+})
+
+test('ícone aparece em turno não roteado quando há uso medido, e só então', () => {
+  assert.equal(showsIcon(comUso('notRouted', { input: 1, cacheRead: null, cacheWrite: null, output: 2 })), true)
+  assert.equal(showsIcon(comUso('notRouted', null)), false)
+  assert.equal(showsIcon(state('notRouted')), false)
+})
+
+test('ícone não aparece em turno não roteado quando o motor não informou nenhuma contagem', () => {
+  assert.equal(showsIcon(comUso('notRouted', { input: null, cacheRead: null, cacheWrite: null, output: null })), false)
+  assert.equal(showsIcon(comUso('notRouted', { input: -1, cacheRead: 1.5, cacheWrite: 'x', output: null })), false)
+  assert.equal(showsIcon(comUso('routed', { input: null, cacheRead: null, cacheWrite: null, output: null })), true, 'roteado sempre tem recibo')
 })

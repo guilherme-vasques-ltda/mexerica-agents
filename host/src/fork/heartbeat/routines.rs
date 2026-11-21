@@ -64,6 +64,9 @@ struct ComPrazo<'a> {
     valida: Arc<AtomicBool>,
     epoca: Arc<AtomicU64>,
     admitir: &'a (dyn Fn() -> Option<u64> + Sync),
+    /// Só para registrar o motivo de uma negativa dentro da linha de execução da chamada.
+    rotina: String,
+    fonte_nome: String,
     #[cfg(test)]
     gancho: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -81,6 +84,7 @@ impl ComPrazo<'_> {
         let (envia, recebe) = mpsc::channel();
         let (fonte, ocupada, valida, epoca) =
             (self.fonte.clone(), self.ocupada.clone(), self.valida.clone(), self.epoca.clone());
+        let (rotina, fonte_nome) = (self.rotina.clone(), self.fonte_nome.clone());
         let abandono = abandonada.clone();
         #[cfg(test)]
         let gancho = self.gancho.clone();
@@ -103,6 +107,7 @@ impl ComPrazo<'_> {
                     break Ok(Err(Motivo::Fora));
                 }
                 if !valida.load(Ordering::Acquire) {
+                    tracing::warn!(routine = %rotina, fonte = %fonte_nome, "leitura não admitida: concessão retirada ou trocada durante a espera");
                     break Ok(Err(Motivo::SemAcesso));
                 }
                 if epoca.load(Ordering::SeqCst) != decisao {
@@ -123,7 +128,12 @@ impl ComPrazo<'_> {
                     let decisao = if Instant::now() >= limite {
                         Resposta::Expirada
                     } else {
-                        (self.admitir)().map_or(Resposta::Recusada, Resposta::Admitida)
+                        match (self.admitir)() {
+                            None => Resposta::Recusada,
+                            // A espera pelo estado pode ter passado do prazo: admissão atrasada não vira chamada.
+                            Some(epoca) if Instant::now() < limite => Resposta::Admitida(epoca),
+                            Some(_) => Resposta::Expirada,
+                        }
                     };
                     let _ = resposta.send(decisao);
                 }
@@ -197,6 +207,7 @@ impl Routines {
         };
         let anterior = self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), concessao);
         if let Some(anterior) = anterior {
+            tracing::warn!(bot = %bot, fonte = %nome, "concessão substituída: a leitura em andamento com a antiga é descartada");
             anterior.valida.store(false, Ordering::Release);
         }
     }
@@ -207,6 +218,7 @@ impl Routines {
         self.state.epoca.fetch_add(1, Ordering::SeqCst);
         let retirada = self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned()));
         if let Some(retirada) = retirada {
+            tracing::warn!(bot = %bot, fonte = %nome, "concessão retirada: a leitura em andamento é descartada");
             retirada.valida.store(false, Ordering::Release);
         }
         // A concessão retirada já não segura a fonte: some a trava de quem não tem mais chamada viva.
@@ -281,9 +293,11 @@ impl Routines {
         let decide = || {
             let s = self.state.locked();
             if s.paused || s.pausas != pausas {
+                tracing::warn!(routine = %id, fonte = %declaracao.fonte, "leitura não admitida: pausa geral");
                 return None;
             }
             if self.fontes.locked().get(&chave).map(|c| c.registro) != numero {
+                tracing::warn!(routine = %id, fonte = %declaracao.fonte, "leitura não admitida: concessão retirada ou trocada");
                 return None;
             }
             let viva = s.routines.iter().any(|r| {
@@ -293,6 +307,9 @@ impl Routines {
                     && r.updated_at == geracao
                     && r.heartbeat.as_ref() == Some(&declaracao)
             });
+            if !viva {
+                tracing::warn!(routine = %id, fonte = %declaracao.fonte, "leitura não admitida: rotina pausada, apagada ou editada");
+            }
             viva.then(|| self.state.epoca.load(Ordering::SeqCst))
         };
         let admitir = || {
@@ -305,6 +322,9 @@ impl Routines {
             }
             decide()
         };
+        if concedida.is_none() {
+            tracing::warn!(routine = %id, fonte = %declaracao.fonte, "checagem sem concessão registrada: a fonte é lida como sem acesso");
+        }
         let fonte: Box<dyn Fonte + '_> = concedida.map_or_else(
             || Box::new(Indisponivel(Motivo::SemAcesso)) as Box<dyn Fonte + '_>,
             |(_, _, fonte, ocupada, valida)| {
@@ -315,6 +335,8 @@ impl Routines {
                     valida,
                     epoca: self.state.epoca.clone(),
                     admitir: &admitir,
+                    rotina: id.to_owned(),
+                    fonte_nome: declaracao.fonte.clone(),
                     #[cfg(test)]
                     gancho: self.depois_da_admissao.locked().clone(),
                 }) as Box<dyn Fonte + '_>
@@ -330,10 +352,12 @@ impl Routines {
             // (mesmo que desfeita depois) ou concessão retirada ou trocada entre a leitura e a gravação: o resultado
             // é descartado. Tudo isso muda sob o mesmo lock que esta gravação segura, então nada passa no meio.
             if s.paused || s.pausas != pausas {
+                tracing::warn!(routine = %id, fonte = %declaracao.fonte, "resultado da checagem descartado: pausa geral");
                 return Ok(());
             }
             let atual = self.fontes.locked().get(&chave).map(|c| c.registro);
             if atual != numero {
+                tracing::warn!(routine = %id, fonte = %declaracao.fonte, "resultado da checagem descartado: concessão retirada ou trocada");
                 return Ok(());
             }
             let Some(routine) = s.routines.iter_mut().find(|r| {
@@ -343,6 +367,7 @@ impl Routines {
                     && r.updated_at == geracao
                     && r.heartbeat.as_ref() == Some(&declaracao)
             }) else {
+                tracing::warn!(routine = %id, fonte = %declaracao.fonte, "resultado da checagem descartado: rotina pausada, apagada ou editada");
                 return Ok(());
             };
             routine.heartbeat_state = Some(saida.estado.clone());

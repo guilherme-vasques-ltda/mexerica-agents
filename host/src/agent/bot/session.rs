@@ -44,12 +44,15 @@ impl Actor {
         }
         if sid.is_none()
             && let Some(old) = self.session_for(slot)
-            && let Err(error) = crate::fork::sessoes::bindings::revoke(&self.hub.store, &self.cfg.id, Some(&old))
         {
-            tracing::error!(%error, "falha ao revogar vínculo de sessão");
-            // Sem revogação persistida, o processo antigo não pode continuar recebendo ferramentas.
-            self.stop_requested = true;
-            return; // A revogação precisa confirmar antes de esquecer o slot.
+            if let Err(error) = crate::fork::sessoes::bindings::revoke(&self.hub.store, &self.cfg.id, Some(&old)) {
+                tracing::error!(%error, "falha ao revogar vínculo de sessão");
+                // Sem revogação persistida, o processo antigo não pode continuar recebendo ferramentas.
+                self.stop_requested = true;
+                return; // A revogação precisa confirmar antes de esquecer o slot.
+            }
+            // A conversa guardada do Motor Mexerica é da sessão invalidada: só ela é apagada, as outras ficam.
+            crate::fork::motor_mexerica::forget_conversation(&self.cfg.id, &old);
         }
         let Some(slot) = slot else {
             self.session_id = sid.map(str::to_owned);
@@ -90,14 +93,35 @@ impl Actor {
         slots
     }
 
+    /// Com que identidade a conversa guardada do Motor Mexerica é aberta e reaberta: Space, dono da sessão, conta
+    /// com a revisão e perfil de login. Outra identidade nunca reabre a conversa (o adaptador a une ao bot).
+    fn conversation_identity(&self) -> Result<String> {
+        // Falha ao ler o perfil de login nega a sessão: uma identidade vazia poderia reabrir a conversa errada.
+        let login_profile = if self.account_revision.is_none() {
+            crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)
+                .context("não foi possível ler o perfil de login da sessão")?
+        } else {
+            String::new()
+        };
+        Ok(format!(
+            "{}|{}|{}|{login_profile}",
+            self.cfg.space_id,
+            self.cfg.session_owner(),
+            account_stamp(&self.cfg, self.account_revision)
+        ))
+    }
+
     /// Session workspace and MCP servers. Memory is readable without writable additionalDirectories.
-    fn session_params(&self, servers: &Value, session: Option<&str>) -> Value {
+    fn session_params(&self, servers: &Value, session: Option<&str>) -> Result<Value> {
         let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
+        if self.cfg.backend == crate::fork::motor_mexerica::ENGINE_ID {
+            params["conversationIdentity"] = self.conversation_identity()?.into();
+        }
         crate::fork::native_scheduling::apply_session(&mut params, &self.cfg.backend);
         if let Some(sid) = session {
             params["sessionId"] = sid.into();
         }
-        params
+        Ok(params)
     }
 
     /// ACP connectors, team collaboration, and optional team management and computer control.
@@ -239,10 +263,27 @@ impl Actor {
         memory::engine::check_workspace(&self.cfg)?;
         let selected = crate::fork::engine_accounts::managed::resolve_for_bot(&self.hub.store, &self.cfg)?;
         let revision = selected.as_ref().map(|launch| launch.revision);
-        let login_profile = if selected.is_none() {
-            crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)?
+        // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono.
+        let plano = if selected.is_none() {
+            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await {
+                Ok(plano) => plano,
+                Err(erro) => {
+                    // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.
+                    if let Some(conn) = self.conn.take() {
+                        conn.kill().await;
+                    }
+                    return Err(erro);
+                }
+            }
         } else {
-            String::new()
+            None
+        };
+        let login_profile = match &plano {
+            Some(plano) => plano.carimbo.clone(),
+            None if selected.is_none() => {
+                crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)?
+            }
+            None => String::new(),
         };
         if self.cfg.context.is_some() {
             let key = format!("donna.space.engine.{}", self.cfg.session_owner());
@@ -348,7 +389,7 @@ impl Actor {
             let mut candidates = if interno {
                 Vec::new()
             } else {
-                launch_commands(&self.cfg, move |msg: &str, kind| {
+                launch_commands(&self.hub.store, &self.cfg, move |msg: &str, kind| {
                     let msg = msg.to_owned();
                     hub.set_runtime(&id, |r| r.set_activity(msg, kind));
                 })
@@ -357,7 +398,7 @@ impl Actor {
             self.hub.set_runtime(&self.id(), |r| r.set_activity("Starting agent…", Some(ActivityKind::StartingAgent)));
             // Keys saved from an "environment variable" sign-in. O motor
             // interno lê a chave do cofre pelo canal fd 3, nunca do ambiente.
-            let mut env = if selected.is_some() || interno {
+            let mut env = if selected.is_some() || interno || plano.is_some() {
                 Vec::new()
             } else {
                 crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?
@@ -366,8 +407,13 @@ impl Actor {
                 env.push(("CODEX_CONFIG".into(), "{}".into()));
             }
             own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
-            crate::agent::harness::apply(&mut env, &self.cfg.backend, &crate::agent::harness::compile());
-            if selected.is_none() {
+            crate::fork::planos_codigo::aplicar_ambiente(
+                &mut env,
+                &self.cfg.backend,
+                &crate::agent::harness::compile(),
+                plano.as_ref(),
+            );
+            if selected.is_none() && plano.is_none() {
                 env.extend(crate::fork::terminal_login::runtime_env(
                     &self.hub.store,
                     &self.cfg.backend,
@@ -381,7 +427,7 @@ impl Actor {
             let mut last_err = None;
             let mut spawned = None;
             if interno {
-                match start_mexerica(&self.hub, &[]).await {
+                match start_mexerica(&self.hub, &self.cfg, crate::fork::motor_mexerica::actor_extra_env()).await {
                     Ok(conn) => spawned = Some(conn),
                     Err(e) => last_err = Some(e),
                 }
@@ -405,6 +451,8 @@ impl Actor {
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
+                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre.
+                conn.plano = plano.map(|plano| plano.concessao);
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",
                     Adapter::Claude => "claude",
@@ -505,7 +553,7 @@ impl Actor {
             let (servers, curated) = self.mcp_servers(slot, &binding)?;
             #[cfg(test)]
             crate::fork::sessoes::gateway_actor_tests::prepared(&self.hub, &servers).await?;
-            let mut params = self.session_params(&servers, Some(&sid));
+            let mut params = self.session_params(&servers, Some(&sid))?;
             if instructions == Instructions::ClaudeMeta {
                 params["_meta"] = claude_meta(&crate::agent::harness::compile(), &self.cfg);
             }
@@ -523,8 +571,10 @@ impl Actor {
             match res {
                 Ok(res) => {
                     // A resumed session can come back on the agent's last-used model (Cursor
-                    // keeps one for all its sessions), so the bot's own is set again.
-                    let res = if res.get("configOptions").is_some() || res.get("models").is_some() {
+                    // keeps one for all its sessions), so the bot's own is set again. The internal engine
+                    // always resumes without a model and never announces one: it is selected here too.
+                    let internal = self.cfg.backend == crate::fork::motor_mexerica::ENGINE_ID;
+                    let res = if internal || res.get("configOptions").is_some() || res.get("models").is_some() {
                         select_model(&conn.acp, &res, &sid, &self.cfg).await?
                     } else {
                         res
@@ -590,7 +640,7 @@ impl Actor {
         let (servers, curated) = self.mcp_servers(slot, &binding)?;
         #[cfg(test)]
         crate::fork::sessoes::gateway_actor_tests::prepared(&self.hub, &servers).await?;
-        let mut params = self.session_params(&servers, None);
+        let mut params = self.session_params(&servers, None)?;
         match instructions {
             Instructions::ClaudeMeta => params["_meta"] = claude_meta(&crate::agent::harness::compile(), &self.cfg),
             Instructions::SystemPrompt => params["systemPrompt"] = system_prompt(&rendered.system),

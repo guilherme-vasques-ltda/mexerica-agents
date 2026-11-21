@@ -257,9 +257,12 @@ pub(super) async fn call(
             json!({})
         }
         "deleteBot" => {
-            let _guard = hub.store.team_lock.lock().await;
-            crate::chat::manage::recover_live(hub);
-            hub.delete_bot(str_arg(&b, "botId")?)?;
+            let bot = str_arg(&b, "botId")?;
+            {
+                let _guard = hub.store.team_lock.lock().await;
+                crate::chat::manage::recover_live(hub);
+                hub.delete_bot(bot)?;
+            }
             json!({})
         }
         "markRead" => {
@@ -302,18 +305,7 @@ pub(super) async fn call(
                 bail!("empty message");
             }
             let nonce = b["clientNonce"].as_str().unwrap_or_default();
-            if !nonce.is_empty()
-                && let Some(e) = hub.store.find_by_nonce(bot, nonce)
-            {
-                return Ok(ControlFlow::Break(json!({"entry": e})));
-            }
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
-            // `replyTo`: the message of this chat it answers (`chat::replies`).
-            let reply = match b["replyTo"].as_str().filter(|id| !id.is_empty()) {
-                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
-                None => None,
-            };
-            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let mut attachments = Vec::new();
             if !uploads.is_empty() {
                 let root = crate::chat::uploads::root(&row.config);
@@ -321,10 +313,30 @@ pub(super) async fn call(
                     attachments.push(crate::chat::uploads::resolve(&root, id)?.1);
                 }
             }
+            let quoted = b["replyTo"].as_str().filter(|id| !id.is_empty());
+            let session = b["sessionId"].as_str().filter(|id| *id != bot);
+            let intent = crate::store::send_intent(text, &attachments, quoted, session);
+            // Reenvio com a mesma chave sai antes de conferir sessão e citação, que podem ter mudado desde o original.
+            let repeated = json!({"clientNonce": nonce, "intent": intent});
+            if let Some(e) = crate::store::Store::replay_on(&hub.store.db.locked(), bot, &repeated)? {
+                return Ok(ControlFlow::Break(json!({"entry": e})));
+            }
+            // Open: a conversa só de texto reserva o turno antes de gravar a mensagem.
+            let open_turn = if crate::environment::Environment::is_open() {
+                Some(crate::fork::open_chat::begin(hub, &row.config)?)
+            } else {
+                None
+            };
+            // `replyTo`: the message of this chat it answers (`chat::replies`).
+            let reply = match quoted {
+                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
+                None => None,
+            };
+            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
-            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments});
+            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
             // A fila D72 precisa sobreviver até ao crash entre salvar a entrada e entregá-la ao ator.
             if !row.config.is_group()
@@ -352,14 +364,18 @@ pub(super) async fn call(
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let e = crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)
-                .ok_or_else(|| anyhow!("couldn't save the message"))?;
+            let e = match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
+                crate::fork::owner_question::Human::New(e) => e,
+                crate::fork::owner_question::Human::Replayed(e) => return Ok(ControlFlow::Break(json!({"entry": e}))),
+            };
             crate::fork::sessoes::api::title_first_message(hub, &lane, text);
             // Before the turn starts, so its reply lands unread.
             if let Err(error) = hub.mark_read(bot) {
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
-            if row.config.is_group() {
+            if let Some(ticket) = open_turn {
+                crate::fork::open_chat::run(hub, ticket, &row.config, lane, turn, e.id.clone(), text.to_owned());
+            } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start(hub, &row.config, lane);
             } else {
@@ -387,6 +403,7 @@ pub(super) async fn call(
         "stop" => {
             let bot = str_arg(&b, "botId")?;
             match hub.store.bot(bot)? {
+                _ if crate::environment::Environment::is_open() => crate::fork::open_chat::stop(bot),
                 Some(row) if row.config.is_group() => hub.groups.stop(hub, bot),
                 _ => {
                     crate::fork::spaces::legacy_control(

@@ -56,11 +56,9 @@ pub(crate) fn environment(directory: &Path, backend: Backend) -> Vec<(String, St
     }
     env.extend([
         ("HOME".into(), directory.parent().unwrap_or(directory).to_string_lossy().into_owned()),
-        (
-            if backend == Backend::Codex { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }.into(),
-            directory.to_string_lossy().into_owned(),
-        ),
+        (backend.profile_variable().into(), directory.to_string_lossy().into_owned()),
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
+        ("GROK_DISABLE_AUTOUPDATER".into(), "1".into()),
         ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
         ("BROWSER".into(), "/usr/bin/false".into()),
         ("TERM".into(), "dumb".into()),
@@ -79,9 +77,13 @@ pub(crate) enum Event {
 
 pub(crate) struct Rpc {
     child: Child,
+    /// Id do grupo (o pid do líder, que nasce com `process_group(0)`), guardado no nascimento: depois de o líder ser
+    /// colhido, o tokio devolve `None` em `child.id()` e o grupo deixaria de ser encerrado.
+    group: Option<u32>,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     pending: VecDeque<Value>,
+    limit: usize,
 }
 impl Drop for Rpc {
     fn drop(&mut self) {
@@ -108,10 +110,14 @@ impl Rpc {
         let child = crate::fork::motor_exec::spawn(cmd.args(["app-server"]).stdin(Stdio::piped()))?;
         Self::from_child(child)
     }
-    fn from_child(mut child: Child) -> Result<Self> {
+    pub(crate) fn from_child(mut child: Child) -> Result<Self> {
+        let group = child.id();
         let input = child.stdin.take().ok_or_else(|| anyhow!("setup_unavailable"))?;
         let output = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("setup_unavailable"))?);
-        Ok(Self { child, input: Some(input), output, pending: VecDeque::new() })
+        Ok(Self { child, group, input: Some(input), output, pending: VecDeque::new(), limit: 65_536 })
+    }
+    pub(crate) fn set_line_limit(&mut self, limit: usize) {
+        self.limit = limit;
     }
     pub(crate) async fn write(&mut self, value: Value) -> Result<()> {
         let input = self.input.as_mut().ok_or_else(|| anyhow!("auth_shutdown_failed"))?;
@@ -119,7 +125,7 @@ impl Rpc {
         input.flush().await?;
         Ok(())
     }
-    async fn finish(&mut self) -> Result<()> {
+    pub(crate) async fn finish(&mut self) -> Result<()> {
         // Codex removes its own arg0 helper symlinks during normal EOF shutdown.
         // Reap before validating/promoting the profile; Drop still kills on error/cancel.
         drop(self.input.take());
@@ -130,11 +136,22 @@ impl Rpc {
         ensure!(status.success(), "auth_shutdown_failed");
         Ok(())
     }
+    /// Encerra o grupo do processo e espera a saída, para que ninguém reaproveite a conta antes de ele sair. O grupo é
+    /// morto pelo id guardado mesmo com o líder já colhido, e a saída só é confirmada quando o grupo ficou vazio:
+    /// descendentes que sobreviveram ao líder contam como conta ainda em uso. Falso quando isso não aconteceu dentro
+    /// do prazo total de 5 s.
+    pub(crate) async fn terminate(&mut self) -> bool {
+        drop(self.input.take());
+        kill_group(self.group);
+        let prazo = tokio::time::Instant::now() + Duration::from_secs(5);
+        let lider = matches!(tokio::time::timeout_at(prazo, self.child.wait()).await, Ok(Ok(_)));
+        lider && grupo_vazio(self.group, prazo).await
+    }
     async fn line(&mut self) -> Result<Value> {
         use tokio::io::AsyncReadExt;
         let mut bytes = Vec::new();
-        let count = (&mut self.output).take(65_537).read_until(b'\n', &mut bytes).await?;
-        ensure!(count > 0 && count <= 65_536, "auth_protocol_invalid");
+        let count = (&mut self.output).take(self.limit as u64 + 1).read_until(b'\n', &mut bytes).await?;
+        ensure!(count > 0 && count <= self.limit, "auth_protocol_invalid");
         Ok(serde_json::from_slice(&bytes)?)
     }
     pub(crate) async fn next(&mut self) -> Result<Value> {
@@ -144,15 +161,20 @@ impl Rpc {
         self.line().await
     }
     pub(crate) async fn call(&mut self, id: u64, method: &str, params: Value) -> Result<Value> {
+        self.request(id, method, params).await?.map_err(|_| anyhow!("auth_capability_unavailable"))
+    }
+    /// A resposta da chamada, ou o objeto de erro JSON-RPC que o servidor devolveu.
+    pub(crate) async fn request(&mut self, id: u64, method: &str, params: Value) -> Result<Result<Value, Value>> {
         self.write(json!({"id":id,"method":method,"params":params})).await?;
         loop {
             let value = self.line().await?;
-            if value["id"] == id {
-                ensure!(value.get("error").is_none(), "auth_capability_unavailable");
-                return Ok(value["result"].clone());
-            }
             if value.get("method").is_some() && value.get("id").is_some() {
                 self.write(json!({"id":value["id"],"error":{"code":-32601,"message":"setup only"}})).await?;
+            } else if value["id"] == id {
+                return Ok(match value.get("error") {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(value["result"].clone()),
+                });
             } else {
                 ensure!(self.pending.len() < 64, "auth_protocol_limit");
                 self.pending.push_back(value);
@@ -200,6 +222,31 @@ pub(crate) fn kill_group(pid: Option<u32>) {
     let _ = pid;
 }
 
+/// Sonda o grupo com o sinal 0 até ele deixar de existir: `ESRCH` só chega quando o último processo (inclusive
+/// zumbi) saiu do grupo. Falso quando o prazo total vence antes disso.
+#[cfg(unix)]
+async fn grupo_vazio(grupo: Option<u32>, prazo: tokio::time::Instant) -> bool {
+    let Some(pgid) = grupo.and_then(|pid| i32::try_from(pid).ok()) else {
+        return true;
+    };
+    loop {
+        // SAFETY: sinal 0 só consulta o grupo criado por este módulo; o id nunca vem do cliente.
+        if unsafe { libc::kill(-pgid, 0) } == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        {
+            return true;
+        }
+        if tokio::time::Instant::now() >= prazo {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn grupo_vazio(_: Option<u32>, _: tokio::time::Instant) -> bool {
+    true
+}
+
 pub(crate) async fn login(
     backend: Backend,
     executable: &Path,
@@ -212,6 +259,7 @@ pub(crate) async fn login(
         match backend {
             Backend::Codex => codex(executable, directory, events).await,
             Backend::Claude => claude(executable, directory, events, input).await,
+            Backend::Grok => super::grok::login(executable, directory, events).await,
         }
     };
     tokio::select! {
@@ -230,7 +278,7 @@ pub(crate) async fn login_open_codex(
     directory: &Path,
     events: mpsc::Sender<Event>,
 ) -> Result<(std::path::PathBuf, probe::Observation)> {
-    let launch = crate::fork::open_codex::app_server(directory).await?;
+    let launch = crate::fork::open_codex::app_server(directory, false).await?;
     let executable = launch.executable.clone();
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let proof = codex_device_flow(Rpc::from_child(child)?, &executable, directory, events).await?;
@@ -346,6 +394,39 @@ async fn claude(
     ensure!(offered, "auth_correlation_invalid");
     events.send(Event::Verifying).await?;
     Ok(probe::inspect(Backend::Claude, executable, directory).await)
+}
+
+/// «Desconectar» uma conta Claude de perfil próprio: `claude auth logout` no perfil isolado da conta, e só vale quando
+/// `claude auth status` confirma a saída. Quem apaga a credencial é o programa oficial (arquivo do perfil ou chaveiro
+/// do sistema); o Hub nunca a lê. O perfil global da pessoa não é tocado.
+pub(crate) async fn claude_logout(executable: &Path, directory: &Path) -> Result<()> {
+    // O motivo vai para o registro do Hub; a saída do programa não, porque pode trazer dados da conta.
+    let falhou = |motivo: &str| {
+        tracing::warn!(motivo, "o Claude Code não confirmou o logout da conta");
+        anyhow!(
+            "logout_failed: a conta foi desconectada, mas o Claude Code não confirmou que apagou o login; toque em Desconectar de novo."
+        )
+    };
+    let mut logout = command(executable, directory, Backend::Claude);
+    logout.args(["auth", "logout"]);
+    match tokio::time::timeout(Duration::from_secs(30), output_with_group(logout)).await {
+        Err(_) => return Err(falhou("tempo esgotado em auth logout")),
+        Ok(Err(_)) => return Err(falhou("auth logout não pôde ser executado")),
+        Ok(Ok(s)) if !s.status.success() => return Err(falhou("auth logout terminou com erro")),
+        Ok(Ok(_)) => {}
+    }
+    let mut status = command(executable, directory, Backend::Claude);
+    status.args(["auth", "status"]);
+    let saida = match tokio::time::timeout(Duration::from_secs(30), output_with_group(status)).await {
+        Err(_) => return Err(falhou("tempo esgotado em auth status")),
+        Ok(Err(_)) => return Err(falhou("auth status não pôde ser executado")),
+        Ok(Ok(s)) => s,
+    };
+    match serde_json::from_slice::<Value>(&saida.stdout) {
+        Ok(v) if v["loggedIn"] == false => Ok(()),
+        Ok(_) => Err(falhou("auth status ainda mostra a conta conectada")),
+        Err(_) => Err(falhou("auth status sem resposta legível")),
+    }
 }
 
 pub(crate) async fn claude_catalog(
@@ -504,7 +585,18 @@ mod effort_tests {
         std::fs::create_dir(&policy).unwrap();
         let _root = crate::fork::background_policy::test_policy_root(&policy);
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_agent.py");
-        for mode in ["--adapter-version-next", "--adapter-name-mismatch", "--adapter-other", "--adapter-current"] {
+        // Sem MEXERICA_CLAUDE_SDK=1, só a ponte do programa oficial desta versão do Hub passa; o adaptador
+        // antigo (`--adapter-current`) fica de fora como qualquer outro.
+        let ponte = format!("--adapter-ponte={}", env!("CARGO_PKG_VERSION"));
+        let outra_ponte = "--adapter-ponte=0.0.0".to_owned();
+        for mode in [
+            "--adapter-version-next",
+            "--adapter-name-mismatch",
+            "--adapter-other",
+            "--adapter-current",
+            &outra_ponte,
+            &ponte,
+        ] {
             let directory = std::env::temp_dir().join(format!("background-handshake-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir(&directory).unwrap();
             let log = directory.join("requests.log");
@@ -515,7 +607,7 @@ mod effort_tests {
             );
             let result = catalog_from_commands_mode(Path::new("/fixture/claude"), &directory, &[command], true).await;
             let requests = std::fs::read_to_string(&log).unwrap();
-            if mode == "--adapter-current" {
+            if mode == ponte {
                 assert!(result.unwrap().iter().any(|model| model.id == "haiku"));
                 assert!(requests.lines().any(|method| method == "session/new"));
             } else {

@@ -15,9 +15,10 @@ mod devices;
 mod entries;
 pub(crate) use entries::{
     ENTRY_COLS, QUEUE_ORDER, check_execution_on, entry_on, history_in_session_on, insert_visible_on, queue_key,
-    row_entry,
+    row_entry, send_intent,
 };
 mod fork_donna;
+mod fork_reinicio;
 mod fork_settings;
 mod guard_hub;
 mod management_guard;
@@ -119,6 +120,16 @@ impl Store {
         let c = self.db.locked();
         c.execute("INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = ?2", params![k, v])?;
         Ok(())
+    }
+
+    /// Grava só se o bot ainda existe, na mesma trava da exclusão: um efeito atrasado não recria dado de bot apagado.
+    pub(crate) fn kv_set_if_bot(&self, bot: &str, k: &str, v: &str) -> Result<bool> {
+        let c = self.db.locked();
+        if !matches!(Self::bot_on(&c, bot)?, Some(row) if !row.deleted) {
+            return Ok(false);
+        }
+        c.execute("INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = ?2", params![k, v])?;
+        Ok(true)
     }
 
     pub fn kv_delete(&self, k: &str) -> Result<()> {

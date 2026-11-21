@@ -2,6 +2,9 @@
 pub mod contexto;
 mod entrada;
 pub(crate) use entrada::notification_method;
+#[cfg(unix)]
+pub(crate) use entrada::redigir_json;
+pub(crate) use entrada::sem_envelope;
 pub(crate) mod http;
 mod ponte_remota;
 mod remoto;
@@ -67,6 +70,13 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         // Guarda03b antes de encaminhar: a execução vem do RuntimeIntent da Sessões3.
         let mcp_method = body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?;
         let intent = RuntimeIntent::capture(hub, id, connector, mcp_method)?;
+        // Marketplace, fatia 2: a conta é lida antes do lock de memória (o cofre pode esperar).
+        let conta_final = if body["transport"] == "http" && mcp_method == "tools/call" {
+            crate::market::vault::unlock(hub.clone()).await?;
+            Some(intent.snapshot(hub)?)
+        } else {
+            None
+        };
         let _boundary = hub.store.memory_boundary.locked();
         crate::fork::spaces::connector_context::check(hub, id, &body, intent.execution())?;
         intent.validate_live(hub)?;
@@ -85,6 +95,20 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     tracing::error!(%error, "política MCP indisponível; chamada recusada");
                     return Ok(json!({"valid":false,"ruleDenied":true}));
                 }
+            }
+            // Marketplace, fatia 2: admissão final do envio. A ponte remota pede esta conferência imediatamente
+            // antes do POST; uma ação desligada depois da decisão do alvo é recusada aqui, sem enviar nada. Pedido
+            // já admitido (enviado) antes do desligamento segue em voo: o Hub não desfaz efeito de fornecedor.
+            if let Some(conta) = &conta_final
+                && crate::market::ferramentas::recusar_chamada(
+                    &hub.store,
+                    &context.bot,
+                    conta,
+                    mcp_method,
+                    &body["params"],
+                )
+            {
+                return Ok(json!({"valid":false,"ruleDenied":true}));
             }
         }
         return Ok(json!({"valid":true}));
@@ -111,6 +135,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
             .into_iter()
             .find(|c| c.id == context.connector && c.command.is_some() && c.configured())
             .ok_or_else(|| anyhow!("Conector local indisponível"))?;
+        if connector.servico.is_some() {
+            bail!("Conta do catálogo não roda como comando local");
+        }
         let mut env = serde_json::Map::new();
         let mut secrets = Vec::new();
         for (key, value) in &connector.env {
@@ -227,6 +254,12 @@ pub(crate) fn observe_checked(
         validate()?;
     }
     Ok(json!({"message":guarded.message}))
+}
+
+/// A resposta mediada que o Guard entregaria ao bot, sem gravar evento. Só para testes de quem consome a mediação.
+#[cfg(test)]
+pub(crate) fn mediar_para_teste(frame: &Value, method: &str, secrets: &[String]) -> Value {
+    json!({"message": entrada::inspect(frame, method, secrets).message})
 }
 
 #[cfg(test)]

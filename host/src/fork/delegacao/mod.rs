@@ -64,7 +64,7 @@ pub(crate) fn regra(c: &Connection, space: &str, team: &str) -> Result<Option<St
 }
 
 /// Bots sem identidade alheia e fora de Canal recebem as regras do próprio Space.
-fn recebe(cfg: &BotConfig) -> bool {
+pub(crate) fn recebe(cfg: &BotConfig) -> bool {
     !cfg.space_id.is_empty() && !cfg.is_group() && !cfg.context.as_ref().is_some_and(|c| c.foreign_identity)
 }
 

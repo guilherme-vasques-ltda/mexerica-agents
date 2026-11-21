@@ -131,7 +131,7 @@ impl Fixture {
 }
 
 #[tokio::test]
-async fn dona_atualiza_propria_com_prova_e_historico() {
+async fn dona_move_para_review_e_atualiza_descricao_com_historico() {
     let f = Fixture::new();
     let mut owned = task("t1", None, Some("a"), "Subtarefa");
     owned["metaX"] = json!({"preservar": true});
@@ -141,15 +141,16 @@ async fn dona_atualiza_propria_com_prova_e_historico() {
         .call(
             "a",
             "task_update",
-            json!({"projectId": project, "taskId": "t1", "state": "done", "evidence": "PR #1 mergeado", "description": "nota"}),
+            json!({"projectId": project, "taskId": "t1", "state": "review", "description": "nota"}),
             Some(&exec),
         )
         .await
         .unwrap();
-    assert_eq!(out["task"]["state"], "done");
+    assert_eq!(out["task"]["state"], "review");
     let (p, tasks) = f.stored(&project);
     assert_eq!(p["revision"], 2);
-    assert_eq!(tasks[0]["state"], "done");
+    assert_eq!(tasks[0]["state"], "review");
+    assert_eq!(tasks[0]["description"], "nota");
     assert_eq!(tasks[0]["metaX"]["preservar"], true);
     let history = f.history(&project);
     assert_eq!(history.len(), 1);
@@ -158,53 +159,115 @@ async fn dona_atualiza_propria_com_prova_e_historico() {
     assert_eq!(history[0]["taskId"], "t1");
 }
 
+/// Concluir e registrar prova são gestos só do usuário: responsável,
+/// supervisor e coordenador são recusados e nada muda no banco.
 #[tokio::test]
-async fn done_sem_prova_recusa() {
+async fn concluir_e_prova_sao_gestos_so_do_usuario() {
     let f = Fixture::new();
-    let project = f.project(PERSONAL, None, &[task("t1", None, Some("a"), "Sub")]);
-    let exec = f.exec("a");
-    let err = f
-        .call("a", "task_update", json!({"projectId": project, "taskId": "t1", "state": "done"}), Some(&exec))
-        .await
-        .unwrap_err();
-    assert!(format!("{err:#}").contains("task_evidence_required"), "{err:#}");
+    // "a" é a responsável; "b" a supervisora direta; "boss" a coordenadora.
+    f.org("a", Some("b"));
+    let mut owned = task("t1", None, Some("a"), "Sub");
+    owned["state"] = json!("in_progress");
+    owned["evidence"] = json!("prova registrada pelo usuário");
+    let project = f.project(PERSONAL, Some("boss"), &[owned]);
+    for bot in ["a", "b", "boss"] {
+        let exec = f.exec(bot);
+        for extra in [
+            json!({"state": "done"}),
+            json!({"state": "done", "evidence": "PR #1 mergeado"}),
+            json!({"evidence": "PR #1 mergeado"}),
+            json!({"evidence": ""}),
+            json!({"evidence": null}),
+        ] {
+            let mut args = json!({"projectId": project, "taskId": "t1"});
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let err = f.call(bot, "task_update", args, Some(&exec)).await.unwrap_err();
+            assert!(format!("{err:#}").contains("task_forbidden"), "{bot}: {err:#}");
+        }
+    }
+    // Estado fora da lista de bot é invalid_field — nunca chega ao banco.
+    let exec_a = f.exec("a");
+    for extra in [json!({"state": "cancelled"}), json!({"state": "archived"}), json!({"state": 7})] {
+        let mut args = json!({"projectId": project, "taskId": "t1"});
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let err = f.call("a", "task_update", args, Some(&exec_a)).await.unwrap_err();
+        assert!(format!("{err:#}").contains("invalid_field"), "{err:#}");
+    }
+    let (p, tasks) = f.stored(&project);
+    assert_eq!(p["revision"], 1);
+    assert_eq!(tasks[0]["state"], "in_progress");
+    assert_eq!(tasks[0]["evidence"], "prova registrada pelo usuário");
+    assert_eq!(f.history(&project).len(), 0);
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_declarations WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project)
+        ),
+        0
+    );
 }
 
+/// Tarefa concluída é do usuário: nenhum bot reabre, altera descrição ou
+/// toca a prova — a recusa é `task_accepted` e a tarefa sai intacta.
 #[tokio::test]
-async fn done_mantido_nao_apaga_prova() {
+async fn tarefa_concluida_so_o_usuario_altera() {
     let f = Fixture::new();
-    let project = f.project(PERSONAL, None, &[task("t1", None, Some("a"), "Sub")]);
-    let exec = f.exec("a");
-    f.call(
-        "a",
-        "task_update",
-        json!({"projectId": project, "taskId": "t1", "state": "done", "evidence": "PR #1 mergeado"}),
-        Some(&exec),
-    )
-    .await
-    .unwrap();
-    let err = f
-        .call("a", "task_update", json!({"projectId": project, "taskId": "t1", "evidence": ""}), Some(&exec))
-        .await
-        .unwrap_err();
-    assert!(format!("{err:#}").contains("task_evidence_required"), "{err:#}");
-    // Descrição sem tocar estado/evidência é válida: a prova permanece.
-    let out = f
-        .call("a", "task_update", json!({"projectId": project, "taskId": "t1", "description": "só nota"}), Some(&exec))
-        .await
+    f.org("a", Some("b"));
+    let mut done_task = task("t1", None, Some("a"), "Sub");
+    done_task["state"] = json!("done");
+    done_task["evidence"] = json!("prova registrada pelo usuário");
+    let project = f.project(PERSONAL, Some("boss"), &[done_task]);
+    // Declaração legada de conclusão: nenhum bot pode apagá-la.
+    {
+        let c = f.hub.store.db.locked();
+        c.execute(
+            "INSERT INTO donna_task_declarations(hub_id,space_id,project_id,task_id,bot_id,at) VALUES(?1,?2,?3,?4,'a',1)",
+            params![f.hub.host_id, PERSONAL, project, "t1"],
+        )
         .unwrap();
-    assert_eq!(out["task"]["state"], "done");
-    assert_eq!(out["task"]["evidence"], "PR #1 mergeado");
-    f.call(
-        "a",
-        "task_update",
-        json!({"projectId": project, "taskId": "t1", "state": "in_progress", "evidence": ""}),
-        Some(&exec),
-    )
-    .await
-    .unwrap();
-    let (_, tasks) = f.stored(&project);
-    assert_eq!(tasks[0]["state"], "in_progress");
+    }
+    for bot in ["a", "b", "boss"] {
+        let exec = f.exec(bot);
+        for extra in [
+            json!({"state": "in_progress"}),
+            json!({"state": "review"}),
+            json!({"state": "backlog"}),
+            json!({"state": "blocked"}),
+            json!({"description": "nota"}),
+            json!({"evidence": "outra prova"}),
+        ] {
+            let mut args = json!({"projectId": project, "taskId": "t1"});
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let err = f.call(bot, "task_update", args, Some(&exec)).await.unwrap_err();
+            assert!(format!("{err:#}").contains("task_accepted"), "{bot}: {err:#}");
+        }
+    }
+    let (p, tasks) = f.stored(&project);
+    assert_eq!(p["revision"], 1);
+    assert_eq!(tasks[0]["state"], "done");
+    assert_eq!(tasks[0]["description"], "");
+    assert_eq!(tasks[0]["evidence"], "prova registrada pelo usuário");
+    assert_eq!(f.history(&project).len(), 0);
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_declarations WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project)
+        ),
+        1
+    );
+}
+
+/// O schema publicado de `task_update` não oferece `done` nem `evidence`.
+#[test]
+fn schema_task_update_nao_expoe_done_nem_evidence() {
+    let list = tools();
+    let update = list.as_array().unwrap().iter().find(|t| t["name"] == "task_update").unwrap();
+    let schema = &update["inputSchema"];
+    let states = schema["properties"]["state"]["enum"].as_array().unwrap();
+    assert!(!states.iter().any(|s| s == "done"), "{states:?}");
+    assert_eq!(states, &json!(["backlog", "in_progress", "review", "blocked"]).as_array().unwrap().clone());
+    assert!(schema["properties"].as_object().unwrap().get("evidence").is_none());
+    assert_eq!(schema["additionalProperties"], false);
 }
 
 #[tokio::test]
@@ -733,46 +796,36 @@ async fn create_child_request_id_idempotente() {
 }
 
 #[tokio::test]
-async fn create_child_start_exige_request_id_e_replay_nao_duplica() {
+async fn create_child_start_recusado_orienta_a_propor() {
     let f = Fixture::new();
     let project = f.project(PERSONAL, None, &[task("t1", None, Some("a"), "Pai")]);
     let exec = f.exec("a");
-    // start=true sem requestId: recusado — o servidor não pode inventar a
-    // idempotência de um gesto que o chamador não pode repetir.
-    let err = f
-        .call(
-            "a",
-            "task_create_child",
-            json!({"projectId": project, "parentTaskId": "t1", "title": "Sem id", "start": true}),
-            Some(&exec),
-        )
-        .await
-        .unwrap_err();
-    assert!(format!("{err:#}").contains("requestId"), "{err:#}");
-    // Com requestId: cria + tenta iniciar; no fixture o start falha/recusa de
-    // forma honesta, mas a filha existe e o replay devolve a MESMA subtarefa.
-    let request = uuid::Uuid::new_v4().to_string();
-    let args = json!({
-        "projectId": project, "parentTaskId": "t1", "title": "Com início",
-        "assigneeBotId": "b", "start": true, "requestId": request,
-    });
-    let first = f.call("a", "task_create_child", args.clone(), Some(&exec)).await.unwrap();
-    let task_id = first["task"]["id"].as_str().unwrap().to_owned();
-    assert!(first["start"]["state"].is_string(), "{}", first);
-    // Falha entre criação e start / resposta perdida: replay idêntico.
-    let second = f.call("a", "task_create_child", args.clone(), Some(&exec)).await.unwrap();
-    assert_eq!(second["task"]["id"].as_str().unwrap(), task_id);
-    assert!(second["start"]["state"].is_string(), "{}", second);
-    let children: i64 = {
-        let c = f.hub.store.db.locked();
-        c.query_row(
-            "SELECT COUNT(*) FROM json_each((SELECT tasks FROM donna_projects WHERE hub_id=?1 AND space_id=?2 AND id=?3)) WHERE json_extract(value,'$.parentTaskId')='t1'",
-            params![f.hub.host_id, PERSONAL, project],
-            |r| r.get(0),
-        )
-        .unwrap()
-    };
-    assert_eq!(children, 1);
+    // start=true é recusado antes de qualquer gravação — com ou sem requestId.
+    for request in [Some(uuid::Uuid::new_v4().to_string()), None] {
+        let mut args = json!({"projectId": project, "parentTaskId": "t1", "title": "Com início", "start": true});
+        if let Some(id) = request {
+            args["requestId"] = json!(id);
+        }
+        let err = f.call("a", "task_create_child", args, Some(&exec)).await.unwrap_err();
+        assert!(format!("{err:#}").contains("proposal_required"), "{err:#}");
+    }
+    // Nada foi criado nem iniciado: só a tarefa original, sem agenda.
+    let (_, tasks) = f.stored(&project);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_agenda WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project)
+        ),
+        0
+    );
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_requests WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project)
+        ),
+        0
+    );
 }
 
 #[tokio::test]
@@ -881,12 +934,12 @@ async fn replay_create_child_revalida_audiencia_apos_reatribuicao() {
             )
             .unwrap();
     }
-    // "c" reescreve descrição/evidência — o replay de "a" não pode devolvê-las.
+    // "c" reescreve a descrição — o replay de "a" não pode devolvê-la.
     let exec_c = f.exec("c");
     f.call(
         "c",
         "task_update",
-        json!({"projectId": project, "taskId": child, "description": "vazado-por-c", "evidence": "prova-c"}),
+        json!({"projectId": project, "taskId": child, "description": "vazado-por-c"}),
         Some(&exec_c),
     )
     .await
@@ -914,7 +967,7 @@ async fn replay_create_child_degrada_para_summary_sem_vazar_campos() {
     f.call(
         "c",
         "task_update",
-        json!({"projectId": project, "taskId": child, "description": "vazado-por-c", "evidence": "prova-c"}),
+        json!({"projectId": project, "taskId": child, "description": "vazado-por-c"}),
         Some(&exec_c),
     )
     .await

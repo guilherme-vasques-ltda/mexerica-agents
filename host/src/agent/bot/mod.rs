@@ -157,7 +157,7 @@ pub enum Cmd {
     CancelGroup {
         chat: String,
     },
-    #[cfg(test)]
+    /// Para tudo o que o bot faz: turno em andamento e fila. Usado ao desconectar a conta do bot.
     Stop,
     UsageWaitChanged {
         wait_id: String,
@@ -434,6 +434,8 @@ pub(crate) enum CompactionUsage {
 
 pub(crate) struct Conn {
     ponte: Option<crate::fork::ponte_credencial::Revogador>,
+    /// Sessão do repasse local do plano de código (o código que o OpenCode usa no lugar da chave).
+    plano: Option<crate::fork::planos_codigo::Concessao>,
     curated: crate::fork::conectores::Pool,
     pub(crate) acp: Arc<Acp>,
     pub(crate) rx: mpsc::UnboundedReceiver<Incoming>,
@@ -524,7 +526,7 @@ enum SegKind {
 
 enum Seg {
     None,
-    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool },
+    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool, solta: bool },
 }
 
 // These flags describe independent actor concerns, not interchangeable states.
@@ -855,13 +857,22 @@ mod fork_genui_tests;
 #[cfg(test)]
 mod fork_fila_tests;
 #[cfg(test)]
+mod fork_reinicio_tests;
+#[cfg(test)]
 mod fork_sessoes_tests;
 #[cfg(test)]
 mod waiting_tests;
 
 #[cfg(test)]
+mod cartao_projecao_tests;
+
+#[cfg(test)]
 #[path = "context_effects_tests.rs"]
 mod context_effects_tests;
+
+#[cfg(test)]
+#[path = "mascara_codigo_tests.rs"]
+mod mascara_codigo_tests;
 
 #[cfg(test)]
 #[path = "../../fork/cadeias/ator_testes.rs"]
@@ -871,5 +882,9 @@ mod cadeias_tests;
 #[path = "../../fork/whatsapp/passos_tests.rs"]
 mod whatsapp_passos_tests;
 
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "../../fork/motor_mexerica/conversa_ator_tests.rs"]
+mod motor_conversa_tests;
 #[cfg(test)]
 mod skills_tests;

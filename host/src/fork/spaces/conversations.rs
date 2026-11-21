@@ -403,9 +403,17 @@ fn send(hub: &Arc<Hub>, caller: &Caller, c: &Conversation, b: &Value) -> Result<
     data["contentOrigin"] = crate::guard_hub::origem::capture(caller, b, &data);
     crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
     // MB-1b: responde as perguntas pendentes da conversa na mesma transação da mensagem.
-    let entry =
-        crate::fork::owner_question::add_human_message(hub, &Lane::main(&c.id), hub.store.alloc_turn(&c.id)?, &data)
-            .ok_or_else(|| anyhow!("message_not_saved"))?;
+    let entry = match crate::fork::owner_question::add_human_message(
+        hub,
+        &Lane::main(&c.id),
+        hub.store.alloc_turn(&c.id)?,
+        &data,
+    )? {
+        crate::fork::owner_question::Human::New(entry) => entry,
+        crate::fork::owner_question::Human::Replayed(entry) => {
+            return Ok(json!({"context":entry.data["spaceContext"],"entry":entry_value(c,&entry)?,"replayed":true}));
+        }
+    };
     let prompt = crate::chat::prompt::of_entry(hub, &cfg, &entry.data);
     hub.send_cmd(
         &c.bot_id,

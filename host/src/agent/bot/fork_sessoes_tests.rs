@@ -563,3 +563,75 @@ async fn d543_space_delete_ator_confere_turno_fila_pedido_e_reserva_ate_commit()
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(idle_dir);
 }
+
+/// Parar pediu o fim do turno e o pedido de permissão chega com o turno ainda ativo: o Hub responde como o
+/// cancelamento de cartão pendente, sem criar cartão e sem aplicar regra de Allow; sem a parada, o pedido
+/// segue o caminho atual e vira cartão pendente.
+#[tokio::test]
+async fn pedido_de_permissao_com_parada_pedida_e_cancelado_sem_cartao() {
+    let (hub, dir) = fixture();
+    // Vínculo e runtime vivos: sem a parada, o pedido chega ao cartão.
+    let binding = bindings::issue(&hub.store, "b", "b", "b", None).unwrap();
+    bindings::activate(&hub.store, &binding, "sessao-parando").unwrap();
+    hub.set_runtime("b", |r| {
+        r.status = BotStatus::Working;
+        r.session = Some("sessao-parando".into());
+        r.lane = Some(Lane::main("b"));
+        r.memory_turn_token = Some("token-de-prova".into());
+    });
+    // O programa fala por um filtro que devolve só as respostas: a resposta do Hub chega de volta pelo
+    // canal e resolve o pedido pendente do próprio teste.
+    let (acp, rx) = Acp::spawn("grep --line-buffered -v '\"method\"'", "/tmp", &[]).unwrap();
+    let mut actor = actor_of(&hub);
+    actor.lane = Lane::main("b");
+    actor.turn = Some(1);
+    actor.turn_session = Some("sessao-parando".into());
+    actor.conn = Some(Conn {
+        ponte: None,
+        plano: None,
+        curated: crate::fork::conectores::Pool::default(),
+        acp,
+        rx,
+        skill_reads: tokio::task::JoinSet::new(),
+        sessions: SessionCaps { load: true, close: false, system_prompt: false },
+        adapter: Adapter::Claude,
+        adapter_version: None,
+        codex_config: false,
+        config_warnings: vec![],
+        loaded: HashMap::new(),
+        started: Instant::now(),
+        fast_options: HashMap::new(),
+        reports_compaction: false,
+        compaction_usage: CompactionUsage::Idle,
+        usage: HashMap::new(),
+    });
+    let pedido = |id: i64| Incoming::Request {
+        id: json!(id),
+        method: "session/request_permission".into(),
+        params: json!({"sessionId": "sessao-parando", "toolCall": {"toolCallId": "t1", "kind": "execute",
+            "title": "Bash", "rawInput": {"command": "echo oi"}},
+            "options": [{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+                {"optionId": "reject", "name": "No", "kind": "reject_once"}]}),
+    };
+    // Com a parada pedida: a resposta é o cancelamento, e nada é gravado.
+    let resposta = actor.conn.as_ref().unwrap().acp.send("ping", json!({})).await.unwrap();
+    actor.stop_requested = true;
+    actor.on_incoming(Some(pedido(1))).await;
+    let resposta = tokio::time::timeout(Duration::from_secs(10), resposta.response())
+        .await
+        .expect("a parada responde ao agente sem esperar cartão")
+        .unwrap();
+    assert_eq!(resposta, json!({"outcome": {"outcome": "cancelled"}}));
+    // Sem a parada: o caminho atual segue e o pedido vira cartão pendente.
+    actor.stop_requested = false;
+    actor.on_incoming(Some(pedido(2))).await;
+    let cartoes: Vec<_> =
+        hub.store.history("b", i64::MAX, 50).unwrap().into_iter().filter(|e| e.kind == "permission").collect();
+    assert_eq!(cartoes.len(), 1, "só o pedido sem parada vira cartão");
+    assert_eq!(cartoes[0].data["status"], "pending");
+    assert_eq!(cartoes[0].turn, 1);
+    assert_eq!(cartoes[0].data["toolKind"], "execute");
+    assert!(actor.perms.contains_key(&cartoes[0].id), "o cartão está pendente no ator");
+    actor.conn.take().unwrap().acp.kill().await;
+    let _ = std::fs::remove_dir_all(dir);
+}

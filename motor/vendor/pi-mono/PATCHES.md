@@ -24,6 +24,20 @@ o que mudou e por quê.
    benchmark): as suítes do upstream não foram copiadas e os testes da Mexerica
    usam `node:test` com o `typescript` da raiz do motor. Menos pacotes na
    instalação, menos scripts e menos superfície de auditoria.
+7. `packages/ai/src/api/openai-responses-shared.ts` — `break` logo depois do
+   evento final (`response.completed`/`response.incomplete`). Sem ele, a leitura
+   continuava até o servidor fechar a conexão, e um proxy que não fecha deixava a
+   resposta pendurada para sempre. A conferência de chamada de ferramenta
+   incompleta, depois do laço, continua valendo. Prova em
+   `mexerica/test/conferencia-pi.test.ts` (A7).
+8. `packages/ai/src/api/openai-responses-shared.ts` — trecho sem o campo `delta`
+   conta como texto vazio (`?? ""`) nos deltas de texto, raciocínio, recusa e
+   argumentos. Um servidor fora do padrão (comum em endereço próprio) fazia a
+   palavra «undefined» entrar na resposta. Prova: A6 no mesmo arquivo de teste.
+9. `packages/ai/src/api/openai-responses-shared.ts` — a fase do texto
+   (`commentary`/`final_answer`) anunciada no `output_item.added` vale quando o
+   `output_item.done` vem sem ela; antes ela se perdia no replay da conversa.
+   Prova: A8 no mesmo arquivo de teste.
 
 Nota de instalação (não é patch, é registro): `npm ci` em `motor/` ainda executa
 os scripts de instalação de duas dependências transitivas — `@google/genai`

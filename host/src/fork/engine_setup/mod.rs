@@ -1,7 +1,8 @@
 //! D164/SAAS-04: setup pessoal com capacidade explícita do dono, sem ativação comercial.
 pub(crate) mod access;
+mod grok;
 pub(crate) mod install;
-mod process;
+pub(crate) mod process;
 pub(crate) use process::{ProcessGroup, Rpc, background_claude_catalog};
 #[cfg(test)]
 mod tests;
@@ -241,6 +242,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         ensure!(open_login_method(method), "open_codex_unavailable");
     }
     let authority = access::resolve(hub, caller)?;
+    if matches!(method, "donnaEngineAccountDisconnect" | "donnaEngineAccountRemove") {
+        grok::before_mutation(hub, method, &body).await?;
+    }
     let value = match method {
         "donnaEngineSetupStart" => {
             start_authorized(hub, parse(body)?, authority.clone(), Duration::from_secs(600)).await
@@ -266,6 +270,11 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
             let value = match method {
                 "donnaEngineAccountCreate" => {
                     let request: Create = parse(body)?;
+                    ensure!(
+                        request.backend != Backend::Grok
+                            || (request.kind == "cli" && !crate::fork::motor_exec::configured()),
+                        "invalid_field: o Grok entra só pelo login do programa oficial."
+                    );
                     ensure!(
                         !open || (request.backend == Backend::Codex && request.kind == "cli"),
                         "open_codex_unavailable"
@@ -316,34 +325,59 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     barreira(id, Barreira::Antes);
                     // D372 (R1): leitura final de ocupação e escrita sob o runtime retido; um preparo na conta espera
                     // o commit (e a ativação/permit/lançamento recusam a conta desconectada) ou já ocupou o runtime.
-                    let registry = hub.with_idle_engine_account(id, || {
+                    // Tira a conta do cadastro: referência/slot próprios, sem logout global nem promessa de revogação remota.
+                    let remover_do_cadastro = |registry: &mut Registry, revisao: u64| -> Result<()> {
+                        // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
+                        if registry.account(id)?.managed.is_none() {
+                            registry.legacy_removable(id, revisao)?;
+                        } else {
+                            registry.account_mut(id, revisao)?;
+                        }
+                        ensure!(
+                            managed::bot_ids(&hub.store, id)?.is_empty(),
+                            "account_in_use: remova os vínculos dos bots primeiro."
+                        );
+                        let slot = if let LaunchReference::VaultProfile { slot } = &registry.account(id)?.launch {
+                            Some(slot.clone())
+                        } else {
+                            None
+                        };
+                        registry.accounts.retain(|a| a.id != id);
+                        authority.persist_removing(hub, registry, slot.as_deref(), Some(id))?;
+                        if let Err(error) = crate::fork::fallback_contas::esquecer_conta(&hub.store, id) {
+                            tracing::warn!(%error, "ordem de reserva não limpa após remover a conta");
+                        }
+                        Ok(())
+                    };
+                    let (registry, credential, perfil) = hub.with_idle_engine_account(id, || {
                         #[cfg(test)]
                         barreira(id, Barreira::Cerca);
                         let mut registry = Registry::load(&hub.store)?;
+                        let credential = grok::profile_home(registry.account(id)?);
                         ensure!(!open || is_open_account(registry.account(id)?), "open_codex_unavailable");
-                        if remove {
-                            // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
-                            if registry.account(id)?.managed.is_none() {
-                                registry.legacy_removable(id, request.expected_revision)?;
-                            } else {
-                                registry.account_mut(id, request.expected_revision)?;
+                        // Perfil isolado de conta Claude com login feito pelo programa oficial, lido antes de a
+                        // conta sair do cadastro. Sem executável gravado, nunca houve login nesta conta.
+                        let perfil = registry.account(id).ok().and_then(|account| match &account.launch {
+                            LaunchReference::CliProfile { executable, directory }
+                                if account.backend == Backend::Claude
+                                    && account.managed.is_some()
+                                    && !executable.as_os_str().is_empty() =>
+                            {
+                                Some((executable.clone(), directory.clone()))
                             }
-                            ensure!(
-                                managed::bot_ids(&hub.store, id)?.is_empty(),
-                                "account_in_use: remova os vínculos dos bots primeiro."
-                            );
-                            // Remove só referência/slot próprios. Não faz logout global nem promete revogação remota.
-                            let slot = if let LaunchReference::VaultProfile { slot } = &registry.account(id)?.launch {
-                                Some(slot.clone())
-                            } else {
-                                None
-                            };
-                            registry.accounts.retain(|a| a.id != id);
-                            authority.persist_removing(hub, &registry, slot.as_deref(), Some(id))?;
-                            if let Err(error) = crate::fork::fallback_contas::esquecer_conta(&hub.store, id) {
-                                tracing::warn!(%error, "ordem de reserva não limpa após remover a conta");
-                            }
+                            _ => None,
+                        });
+                        if remove && perfil.is_none() {
+                            remover_do_cadastro(&mut registry, request.expected_revision)?;
                         } else {
+                            // Conta Claude com login no perfil: remover começa como desconectar (a conta deixa de ser
+                            // usada e fica na lista); ela só sai do cadastro depois de o programa confirmar o logout.
+                            if remove {
+                                ensure!(
+                                    managed::bot_ids(&hub.store, id)?.is_empty(),
+                                    "account_in_use: remova os vínculos dos bots primeiro."
+                                );
+                            }
                             let account = registry.account_mut(id, request.expected_revision)?;
                             account.state = State::Disconnected;
                             account.models.clear();
@@ -353,10 +387,44 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             meta.revision += 1;
                             authority.persist(hub, &registry)?;
                         }
-                        Ok(registry)
+                        Ok((registry, credential, perfil))
                     })?;
+                    accounts::invalidate();
+                    // O login local já saiu antes da mutação (remover) ou sai agora, depois do cadastro (desconectar).
+                    if let Some(home) = &credential {
+                        if remove {
+                            if let Err(error) = grok::erase(&hub.store, id, home) {
+                                tracing::warn!(%error, "pasta vazia do Grok não removida");
+                            }
+                            grok::sweep_orphans(&hub.store, id, None);
+                        } else {
+                            grok::wipe(&hub.store, id, home)?;
+                            grok::sweep_orphans(&hub.store, id, Some(home));
+                        }
+                    }
                     #[cfg(test)]
                     barreira(id, Barreira::Depois);
+                    // O cadastro já mudou: a lista relida mostra a conta desconectada mesmo se a saída falhar abaixo.
+                    accounts::invalidate();
+                    // Com a conta já desconectada ou removida (nenhum turno novo a usa), o próprio programa
+                    // oficial apaga a credencial do perfil isolado, que pode estar no chaveiro do sistema.
+                    if let Some((executable, directory)) = perfil {
+                        managed::validate_profile(&hub.store, id, &directory)?;
+                        ensure!(
+                            crate::fork::motor_install::executable(&executable),
+                            "cli_unavailable: a conta foi desconectada, mas o Claude Code dela não está disponível para apagar o login."
+                        );
+                        // Sem confirmação do logout, o erro chega ao dono e a conta continua na lista, desconectada.
+                        process::claude_logout(&executable, &directory).await?;
+                        if remove {
+                            let revisao = registry.account(id)?.dto().revision;
+                            hub.with_idle_engine_account(id, || {
+                                let mut registry = Registry::load(&hub.store)?;
+                                remover_do_cadastro(&mut registry, revisao)
+                            })?;
+                            accounts::invalidate();
+                        }
+                    }
                     if remove { json!({}) } else { registry.dto_for(&hub.store, id)? }
                 }
                 _ => bail!("invalid_field: método de setup desconhecido."),
@@ -702,9 +770,13 @@ async fn start_authorized(
                         drop(hub);
                         install::install(&binaries, backend, &profile).await?
                     }
-                    Step::Login => install::existing(&binaries, backend, &profile)
-                        .await
-                        .ok_or_else(|| anyhow!("cli_incompatible: prepare o conector antes de entrar."))?,
+                    Step::Login => install::existing(&binaries, backend, &profile).await.ok_or_else(|| {
+                        if backend == Backend::Grok {
+                            anyhow!("grok_not_installed")
+                        } else {
+                            anyhow!("cli_incompatible: prepare o conector antes de entrar.")
+                        }
+                    })?,
                 };
                 let proof = if request.action == Step::Login {
                     Some(process::login(backend, &executable, &profile, tx_event, rx_input, rx_cancel).await?)
@@ -748,6 +820,7 @@ async fn start_authorized(
                     .and_then(|p| p.identity.as_deref())
                     .map(|identity| registry.fingerprint(backend, "principal", managed::principal(identity)));
                 let account = registry.account_mut(&request.engine_account_id, request.expected_revision)?;
+                let superseded = grok::previous_home(account, &profile);
                 let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
                 ensure!(meta.generation == generation, "operation_stale");
                 let mut guard = OPERATIONS.locked();
@@ -784,12 +857,25 @@ async fn start_authorized(
                     meta.catalog = None;
                 }
                 meta.revision += 1;
-                op.revision = meta.revision;
+                let revision = meta.revision;
                 if request.action == Step::Login {
                     account.bind_catalog();
                 }
+                // A gravação do ponteiro novo vem primeiro: se ela falhar, a conta continua apontando para o
+                // login antigo, intacto. Só então o login anterior sai — se o apagamento falhar, sobra pasta
+                // antiga sem dono, nunca credencial perdida. O perfil novo já é o da conta, então a limpeza
+                // de preparo desarma antes do apagamento.
                 op.authority.persist(&hub, &registry)?;
+                op.revision = revision;
                 cleanup.0 = None;
+                if request.action == Step::Login
+                    && let Some(home) = &superseded
+                {
+                    grok::erase(&hub.store, &request.engine_account_id, home)?;
+                }
+                if request.action == Step::Login && backend == Backend::Grok {
+                    grok::sweep_orphans(&hub.store, &request.engine_account_id, profile.parent());
+                }
                 accounts::invalidate();
                 clear(op, Phase::Connected, None);
                 Ok(())
@@ -813,6 +899,8 @@ async fn start_authorized(
                     "auth_failed",
                     "auth_shutdown_failed",
                     "cli_incompatible",
+                    "grok_not_installed",
+                    "credential_not_erased",
                     "open_codex_platform",
                     "open_codex_unavailable",
                     "account_busy",
@@ -902,6 +990,7 @@ pub(crate) async fn usage(hub: &Arc<Hub>, id: String, space_id: Option<&Value>) 
                         // A mesma leitura do painel global do Codex: bucket `codex` e janela vencida descartada.
                         crate::fork::codex_usage::parse(&rates, crate::store::now_ms())
                     }
+                    Backend::Grok => bail!("usage_unavailable"),
                     Backend::Claude => {
                         let proof = accounts::probe::inspect(Backend::Claude, executable, directory).await;
                         let quota =
@@ -967,8 +1056,8 @@ pub(crate) async fn confirm_identity(registry: &Registry, id: &str) -> Result<()
                 let proof = rpc.proof(executable, directory).await?;
                 Ok::<_, anyhow::Error>((proof.identity, proof.state))
             }
-            Backend::Claude => {
-                let proof = accounts::probe::inspect(Backend::Claude, executable, directory).await;
+            Backend::Claude | Backend::Grok => {
+                let proof = accounts::probe::inspect(backend, executable, directory).await;
                 Ok((proof.identity, proof.state))
             }
         }
@@ -991,6 +1080,7 @@ pub(crate) async fn set_api_env(hub: &Arc<Hub>, caller: &Caller, body: Value) ->
     }
     require_local(caller)?;
     let request: Api = parse(body)?;
+    ensure!(request.backend != Backend::Grok, "invalid_field: o Grok entra só pelo login do programa oficial.");
     let key = if request.backend == Backend::Codex { "OPENAI_API_KEY" } else { "ANTHROPIC_API_KEY" };
     ensure!(
         request.vars.len() == 1

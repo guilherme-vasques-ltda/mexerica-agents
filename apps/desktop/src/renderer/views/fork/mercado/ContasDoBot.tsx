@@ -15,6 +15,7 @@ import { extensoesScreen } from '../extensoes/lugar-atual'
 import { definirNoBot, lerDoBot, mercadoPara, useMercado } from './estado'
 import { linhasDoBot, nomeCurto, temAcoesPerigosas, type LinhaDoBot } from './regras.ts'
 import type { PedidoDefinirVinculo, VinculosDoBot } from './tipos.ts'
+import { AcoesDaConta } from './AcoesDaConta'
 import { Aviso, Carregando, Erro, frasesDaRecusa, LogoServico, Titulo } from './pecas'
 
 export function ContasDoBot({ bot }: { bot: Pick<Bot, 'id' | 'name'> }) {
@@ -88,7 +89,7 @@ export function ContasDoBot({ bot }: { bot: Pick<Bot, 'id' | 'name'> }) {
             <span />
           </div>
           {linhas.map((l) => (
-            <Linha key={l.servico} linha={l} aberta={aberta === l.servico} comPerigosas={comPerigosas} salvando={salvando}
+            <Linha key={l.servico} bot={bot} linha={l} aberta={aberta === l.servico} comPerigosas={comPerigosas} salvando={salvando}
               alternar={() => setAberta(aberta === l.servico ? null : l.servico)} definir={definir} />
           ))}
         </div>
@@ -98,8 +99,8 @@ export function ContasDoBot({ bot }: { bot: Pick<Bot, 'id' | 'name'> }) {
   )
 }
 
-function Linha({ linha, aberta, comPerigosas, salvando, alternar, definir }: {
-  linha: LinhaDoBot; aberta: boolean; comPerigosas: boolean; salvando: boolean
+function Linha({ bot, linha, aberta, comPerigosas, salvando, alternar, definir }: {
+  bot: Pick<Bot, 'id' | 'name'>; linha: LinhaDoBot; aberta: boolean; comPerigosas: boolean; salvando: boolean
   alternar: () => void; definir: (p: Omit<PedidoDefinirVinculo, 'botId'>) => Promise<void>
 }) {
   const t = useT()
@@ -150,14 +151,8 @@ function Linha({ linha, aberta, comPerigosas, salvando, alternar, definir }: {
               </label>
             ) : null}
           </fieldset>
-          {comPerigosas ? (
-            <div className="mercado-opcao-coluna">
-              {linha.perigosas.map((p) => (
-                <HStack key={p.ferramenta} gap={8}><Text size="body" tone="text" grow>{p.rotulo}</Text><Text size="callout" tone="secondary">{t('mercado.perigosas.desligadas')}</Text></HStack>
-              ))}
-              {linha.perigosas.length ? <Text size="caption" tone="secondary">{t('mercado.bot.perigosas.nota')}</Text> : null}
-            </div>
-          ) : null}
+          {ligadas.map((c) => <AcoesDaConta key={c.id} botId={bot.id} botNome={bot.name} conta={c} />)}
+          {comPerigosas && linha.perigosas.length ? <Text size="caption" tone="secondary">{t('mercado.bot.perigosas.nota')}</Text> : null}
         </div>
       ) : null}
     </>
