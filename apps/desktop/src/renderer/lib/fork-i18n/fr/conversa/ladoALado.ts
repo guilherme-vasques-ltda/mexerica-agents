@@ -1,0 +1,35 @@
+import type { Traducao } from '../../index.ts'
+import type { textos as fonte } from '../../pt-BR/conversa/ladoALado.ts'
+
+// conversa/ladoALado (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos: Traducao<typeof fonte> = {
+  'conversa.ladoALado.titulo': "Côte à côte",
+  'conversa.ladoALado.entrar': "Ouvrir Côte à côte",
+  'conversa.ladoALado.sair': "Revenir à une seule conversation",
+  'conversa.ladoALado.abrirNoMenu': "Ouvrir côte à côte",
+  'conversa.ladoALado.regiao': "Tableau Côte à côte",
+  'conversa.ladoALado.contagem': "{atual} sur {maximo}",
+  'conversa.ladoALado.adicionar': "Ajouter une conversation",
+  'conversa.ladoALado.adicionarCurto': "Ajouter",
+  'conversa.ladoALado.semConversas': "Aucune autre conversation disponible dans ce Space",
+  'conversa.ladoALado.principal': "Principal",
+  'conversa.ladoALado.painelDe': "Panneau de {nome}",
+  'conversa.ladoALado.painelDeSessao': "Panneau de {nome} · {sessao}",
+  'conversa.ladoALado.trocar': "Changer de conversation",
+  'conversa.ladoALado.moverEsquerda': "Déplacer à gauche",
+  'conversa.ladoALado.moverDireita': "Déplacer à droite",
+  'conversa.ladoALado.soEsta': "Ouvrir seulement cette conversation",
+  'conversa.ladoALado.fecharPainel': "Fermer le panneau de {nome}",
+  'conversa.ladoALado.fecharAviso': "Fermer l'avis",
+  'conversa.ladoALado.vazioTitulo': "Choisissez une autre conversation",
+  'conversa.ladoALado.vazioDetalhe': "Sélectionnez une conversation ci-dessous ou dans la barre latérale pour la suivre côte à côte.",
+  'conversa.ladoALado.avisoLimite': "Limite de {maximo} conversations côte à côte atteinte. Fermez un panneau pour en ouvrir un autre.",
+  'conversa.ladoALado.avisoRemovida': "Une conversation a quitté le tableau car elle n'est plus disponible.",
+  'conversa.ladoALado.avisoRemovidas': "{n} conversations ont quitté le tableau car elles ne sont plus disponibles.",
+  'conversa.ladoALado.janelaEstreitaUnico': "Fenêtre trop étroite pour afficher des conversations côte à côte. Élargissez-la ou réduisez la barre latérale.",
+  'conversa.ladoALado.janelaEstreitaParcial': "Seuls {cabem} panneaux sur {total} tiennent dans cette largeur. Élargissez la fenêtre ou réduisez la barre latérale pour tous les voir.",
+  'conversa.ladoALado.recolherBarra': "Réduire la barre latérale",
+  'conversa.ladoALado.anuncioAdicionada': "{nome} ajoutée au tableau Côte à côte.",
+  'conversa.ladoALado.anuncioFechada': "Panneau de {nome} fermé.",
+  'conversa.ladoALado.atalhoPainel': "Basculer entre les panneaux avec F6",
+}

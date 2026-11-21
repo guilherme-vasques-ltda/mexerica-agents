@@ -247,7 +247,7 @@ export const textos: Traducao<typeof fonte> = {
   // MX-142 TEC-722-17: regras dos bots (decisões 2–4), Concluída declarada e jornada do Geral.
   'projetos.tarefas.declarada': "مكتملة (مُعلنة)",
   'projetos.tarefas.declaradaPor': "أعلنها {bot}؛ الدليل موجود في الإثبات.",
-  'projetos.tarefas.regraBotDono': "البوت المسؤول: يغيّر الحالة والملاحظة والإثبات لمهمته الفرعية فقط. لوضع علامة مكتملة، يجب أن يترك الدليل.",
+  'projetos.tarefas.regraBotDono': "البوت المسؤول: يحدّث التقدّم والملاحظة لمهمته الفرعية فقط ويرسلها إلى «قيد المراجعة». أنت وحدك من ينهيها أو يعيد فتحها أو يعدّل الإثبات.",
   'projetos.tarefas.regraBotsOutros': "المشرف والمنسّق: يمكنهما تغيير المهمة الفرعية لبوت آخر؛ ويُسجَّل التغيير في النشاط.",
   'projetos.tarefas.regraBotsCriam': "يمكن لأي بوت إنشاء مهمة فرعية لبوت آخر، حتى 100 مهمة و3 مستويات.",
   'projetos.tarefas.geral': "Geral",

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub(crate) const INSTRUCTIONS: &str = "Tarefas do Space: leia e atualize só o que a sua autoridade cobre. \
 Use task_read para ver o Projeto e as subtarefas visíveis a você (a sua completa; as demais só títulos e estados). \
-Use task_update para mudar estado, evidência e descrição de uma subtarefa sua — concluir (done) exige evidence com a prova. \
+Use task_update para mudar o estado de uma subtarefa sua entre backlog, in_progress, review e blocked, e para atualizar a descrição — ao terminar o trabalho mova para review (Em conferência). Só o usuário pode concluir (done), reabrir uma tarefa concluída ou registrar e alterar a prova (evidence). \
 Coordenador do Projeto e supervisor direto do responsável também atualizam subtarefas de outros bots. \
 Use task_comment para registrar texto na subtarefa (nunca avisa outro bot); se estiver respondendo a um aviso do dono, passe replyToCommentId com o id do comentário para marcá-lo como respondido. \
 Use task_create_child para criar uma subtarefa filha de uma tarefa sobre a qual você tem autoridade plena, \
@@ -62,14 +62,13 @@ pub(crate) fn tools() -> Value {
         },
         {
             "name": "task_update",
-            "description": "Atualiza estado, evidência e descrição de uma subtarefa sobre a qual você tem autoridade plena: a sua, a de um subordinado direto (Reporta a) ou qualquer uma se você for o coordenador do Projeto. Concluir (done) exige evidence com a prova do que foi feito; cancelled não é estado de bot. Toda mudança fica no histórico da tarefa com o seu nome de bot.",
+            "description": "Atualiza estado e descrição de uma subtarefa sobre a qual você tem autoridade plena: a sua, a de um subordinado direto (Reporta a) ou qualquer uma se você for o coordenador do Projeto. O estado só anda entre backlog, in_progress, review e blocked — ao terminar o trabalho mova para review (Em conferência); cancelled não é estado de bot. Concluir (done), reabrir tarefa concluída e registrar ou alterar a prova (evidence) são gestos só do usuário. Toda mudança fica no histórico da tarefa com o seu nome de bot.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "projectId": {"type": "string"},
                     "taskId": {"type": "string"},
-                    "state": {"type": "string", "enum": ["backlog", "in_progress", "review", "done", "blocked"], "description": "Novo estado declarado."},
-                    "evidence": {"type": "string", "description": "Prova do trabalho; obrigatória para done."},
+                    "state": {"type": "string", "enum": ["backlog", "in_progress", "review", "blocked"], "description": "Novo estado declarado; ao terminar use review."},
                     "description": {"type": "string", "description": "Nota de progresso na subtarefa."},
                 },
                 "required": ["projectId", "taskId"],
