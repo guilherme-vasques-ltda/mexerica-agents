@@ -46,6 +46,12 @@ if backend == 'claude':
         else:
             emit({'loggedIn': True, 'email': (profile / '.fixture-auth').read_text(), 'orgId': 'fixture-org', 'authMethod': 'claude.ai', 'apiProvider': 'firstParty', 'subscriptionType': 'max'})
         sys.exit(0)
+    if sys.argv[1:] == ['auth', 'logout']:
+        with (base / 'logout-calls').open('a') as calls:
+            calls.write('logout\n')
+        if setting('scenario') != 'logout_ignored':
+            (profile / '.fixture-auth').unlink(missing_ok=True)
+        sys.exit(0)
     assert sys.argv[1:] == ['auth', 'login']
     assert os.environ.get('HOME') == str(profile.parent)
     if setting('scenario').startswith('pty_eof_'):

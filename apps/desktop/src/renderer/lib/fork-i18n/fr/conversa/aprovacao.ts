@@ -48,6 +48,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.status.permitiu": "Vous avez autorisé",
   "conversa.aprovacao.status.recusou": "Vous avez refusé",
   "conversa.aprovacao.detalhes": "Détails",
+  "conversa.aprovacao.avisoDetalheCortado": "Texte tronqué ; ce qui n'apparaît pas ne peut pas être vérifié.",
   "conversa.aprovacao.dica.toque": "Cliquez pour autoriser. Refuser se fait en un clic.",
   "conversa.aprovacao.dica.segure": "Maintenez pour autoriser ; relâcher avant annule. Refuser se fait en un clic.",
   "conversa.aprovacao.segurar.ative": "{opcao} : activez pour confirmer",

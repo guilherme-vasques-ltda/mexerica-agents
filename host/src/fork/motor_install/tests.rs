@@ -34,7 +34,10 @@ async fn adaptadores_do_path_do_hub_nao_entram_no_modo_separado() {
         }
         for (backend, name) in [("codex", names[0]), ("claude", names[1])] {
             let commands = managed::adapter_commands(backend).await;
-            if separate {
+            if backend == "claude" && !crate::fork::claude_ponte::legado() {
+                // A ponte é o próprio executável do Hub; nada do PATH entra, em nenhum modo.
+                assert_eq!(commands.unwrap(), vec![crate::fork::claude_ponte::comando(None).unwrap()]);
+            } else if separate {
                 assert!(commands.is_err(), "sem adaptador do motor, a seleção deve recusar");
             } else {
                 assert_eq!(commands.unwrap(), vec![crate::shell::quote(&dir.join(name).to_string_lossy())]);
@@ -53,7 +56,7 @@ async fn adaptadores_do_path_do_hub_nao_entram_no_modo_separado() {
     let helper = dir.join("helper");
     std::fs::write(&helper, "#!/bin/sh\n/bin/cat >/dev/null\nprintf '{\"result\":\"path\",\"path\":null}'\n").unwrap();
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
-    for separate in [false, true] {
+    for (separate, legado) in [(false, false), (true, false), (false, true), (true, true)] {
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
         command
             .env_clear()
@@ -69,10 +72,13 @@ async fn adaptadores_do_path_do_hub_nao_entram_no_modo_separado() {
         if separate {
             command.env("DONNABOT_MOTOR_TEST_HELPER", &helper);
         }
+        if legado {
+            command.env(crate::fork::claude_ponte::LEGADO_ENV, "1");
+        }
         let output = command.output().unwrap();
         assert!(
             output.status.success(),
-            "separado={separate}: {} {}",
+            "separado={separate} legado={legado}: {} {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

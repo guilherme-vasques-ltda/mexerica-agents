@@ -48,6 +48,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.status.permitiu": "You allowed it",
   "conversa.aprovacao.status.recusou": "You denied it",
   "conversa.aprovacao.detalhes": "Details",
+  "conversa.aprovacao.avisoDetalheCortado": "Text truncated; what is not shown cannot be checked.",
   "conversa.aprovacao.dica.toque": "Click to allow. Denying takes one click.",
   "conversa.aprovacao.dica.segure": "Hold to allow; letting go early cancels. Denying takes one click.",
   "conversa.aprovacao.segurar.ative": "{opcao}: activate to confirm",

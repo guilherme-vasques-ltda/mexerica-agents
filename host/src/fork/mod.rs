@@ -32,6 +32,7 @@ pub(crate) mod bot_admission;
 pub mod bot_editor;
 pub(crate) mod bot_skills;
 pub(crate) mod browser;
+pub(crate) mod claude_ponte;
 pub(crate) mod claude_tools;
 pub(crate) mod codex_usage;
 pub(crate) mod compaction_prompt;
