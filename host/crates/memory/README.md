@@ -19,7 +19,7 @@ codync_mem::schema::migrate(&conn)?;
 
 Use o `rusqlite` reexportado pela biblioteca para evitar vincular duas versões incompatíveis de SQLite. A busca usa FTS5/trigram e `remove_diacritics`, conforme os requisitos do SQLite incorporado. A dependência e o nome do crate continuam definidos no `Cargo.toml`; não os altere por uma troca de título.
 
-Todo Cargo do Host, inclusive desta biblioteca, roda apenas no servidor pelo fluxo de AGENTS.md. Mudanças no fork vão por PR para `main` do repositório privado, não para uma branch `dev` do upstream. Não há instalação ou publicação de crate autorizada por este README.
+Todo Cargo do Host, inclusive desta biblioteca, roda apenas no servidor pelo fluxo de AGENTS.md. Mudanças no fork vão por PR para `main` do repositório, não para uma branch `dev` do upstream. Não há instalação ou publicação de crate autorizada por este README.
 
 ## Módulos
 
@@ -38,6 +38,6 @@ Todo Cargo do Host, inclusive desta biblioteca, roda apenas no servidor pelo flu
 
 ## Alterações do fork e origem
 
-O fork acrescenta padrões em português do Brasil em `check`/`evidence`, redação de segredos e comparação textual, além da busca sem acentos. Padrões de `ai-memory` adaptados sob MIT estão registrados em [THIRD_PARTY.md](../../../THIRD_PARTY.md). Migrações do fork usam a chave `donnabot` em `memory_meta`, separada da evolução da base.
+O fork acrescenta padrões em português do Brasil em `check`/`evidence`, redação de segredos e comparação textual, além da busca sem acentos. Migrações do fork usam a chave `donnabot` em `memory_meta`, separada da evolução da base.
 
 A origem Codync, Po Kai Lee e contribuidores permanece em [NOTICE](../../../NOTICE). A licença Apache-2.0 está em [LICENSE](LICENSE) desta biblioteca e em [LICENSE da raiz](../../../LICENSE); avisos específicos de material adaptado continuam aplicáveis. Nenhuma licença ou copyright foi substituído nesta edição.

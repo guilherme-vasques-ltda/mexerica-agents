@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Background services started alongside the host API.
 
 use crate::{
@@ -9,6 +10,9 @@ use crate::{
 use std::sync::Arc;
 
 pub fn start(hub: &Arc<Hub>, scope: crate::service::mac_local::Scope) {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
     tokio::spawn(crate::computers::run(hub.clone()));
     tokio::spawn(registry::refresh_loop());
     tokio::spawn(voice::refresh_loop(hub.clone()));

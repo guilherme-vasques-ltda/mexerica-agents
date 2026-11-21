@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! `donnabot-host` (pacote codync-host): runs coding-agent bots over ACP and serves the Codync apps.
 
 mod agent;
@@ -14,6 +15,7 @@ mod guard_hub;
 mod hub;
 mod market;
 mod mcp;
+mod open_hub;
 mod remote;
 mod routines;
 mod screen;
@@ -538,8 +540,8 @@ fn open_store() -> Result<(store::Store, String, String)> {
     opened_store(store)
 }
 
-fn opened_store(store: store::Store) -> Result<(store::Store, String, String)> {
-    let host_id = if let Some(v) = store.kv_get("host_id") {
+fn store_host_id(store: &store::Store) -> Result<String> {
+    Ok(if let Some(v) = store.kv_get("host_id") {
         v
     } else {
         let v = uuid::Uuid::new_v4().to_string();
@@ -547,7 +549,11 @@ fn opened_store(store: store::Store) -> Result<(store::Store, String, String)> {
         // A new install, whichever command made it: its first start is `host_started.first_run`.
         store.kv_set(analytics::KV_STARTED, "")?;
         v
-    };
+    })
+}
+
+fn opened_store(store: store::Store) -> Result<(store::Store, String, String)> {
+    let host_id = store_host_id(&store)?;
     let token = match store.kv_get("token") {
         Some(v) => v,
         None => rotate_token(&store)?,
@@ -556,10 +562,14 @@ fn opened_store(store: store::Store) -> Result<(store::Store, String, String)> {
 }
 
 fn rotate_token(store: &store::Store) -> Result<String> {
-    let t = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let t = new_token();
     store.kv_set("token", &t)?;
     write_token_file(&t)?;
     Ok(t)
+}
+
+fn new_token() -> String {
+    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
 }
 
 fn write_token_file(token: &str) -> Result<()> {
@@ -576,13 +586,15 @@ async fn main() -> Result<()> {
     // Ponte interna do navegador: roda dentro do namespace, só copia bytes ao proxy.
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     if raw_args.first().map(String::as_str) == Some("__browser-bridge") {
+        anyhow::ensure!(!environment::Environment::is_open(), "browser bridge unavailable in Mexerica Open");
         return fork::browser::bridge::run_bridge_process(&raw_args[1..]);
     }
-    let cli = Cli::parse();
+    let cli = if environment::Environment::is_open() { open_hub::cli() } else { Cli::parse() };
     // MCP de sessão usa só credencial da ponte. A descoberta com SETUP_ENV
     // ainda lê token local e conserva todas as guardas de pasta.
-    if !matches!(cli.cmd.as_ref(), Some(Sub::Mcp { .. }))
-        || std::env::var_os(fork::ponte_credencial::SETUP_ENV).is_some()
+    if !environment::Environment::is_open()
+        && (!matches!(cli.cmd.as_ref(), Some(Sub::Mcp { .. }))
+            || std::env::var_os(fork::ponte_credencial::SETUP_ENV).is_some())
     {
         fork::data_home::validate_environment()?;
         environment::ensure_own_data_dir(&service::home(), &service::data_dir())?;
@@ -632,6 +644,12 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Sub::Serve { port, bind, only_this_mac } => {
+            if environment::Environment::is_open() {
+                #[cfg(unix)]
+                return open_hub::serve(port, bind.as_deref(), only_this_mac).await;
+                #[cfg(not(unix))]
+                anyhow::bail!("Mexerica Open Hub requires a Unix socket");
+            }
             let mac_service = cfg!(target_os = "macos") && service::started_by_service();
             let (bind, scope) = service::mac_local::resolve_serve(bind.as_deref(), only_this_mac, mac_service)?;
             serve(&bind, port, scope).await
@@ -845,14 +863,7 @@ async fn serve(bind: &str, port: u16, scope: service::mac_local::Scope) -> Resul
     let listener =
         tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
     cap_log();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "donnabot_host=info".into()),
-        )
-        // A failed log write would be reported with `eprintln!`, which panics when stderr is gone
-        // too (a closed terminal, a full disk): a log line must never take a task down.
-        .log_internal_errors(false)
-        .init();
+    configure_logging();
     agent::harness::install_docs().await;
     chat::context::load_harness_context().await;
     let (opened, fixed_identity, personal) = match personal {
@@ -903,6 +914,15 @@ async fn serve(bind: &str, port: u16, scope: service::mac_local::Scope) -> Resul
     tracing::info!("donnabot-host stopped");
     // Uma leitura OS pode continuar no prompt; o drop do runtime esperaria por ela.
     std::process::exit(0)
+}
+
+fn configure_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "donnabot_host=info".into()),
+        )
+        .log_internal_errors(false)
+        .init();
 }
 
 /// Resolves on Ctrl-C or SIGTERM.

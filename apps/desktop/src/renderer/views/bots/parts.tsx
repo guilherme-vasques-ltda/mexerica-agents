@@ -1,5 +1,4 @@
-// Modificado pela DONNA Bot em 2026-11-06: ref/saída de painel, adaptado de Codync
-// 219935410dffccb950f90d0565bd1d9f1661bd5b, Apache-2.0; leepokai e Claude Opus 5.5. Ver THIRD_PARTY.md.
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { RowLabel, Switch } from '../../components/Controls'

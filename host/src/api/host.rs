@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Methods about this computer itself: host updates, hello/sync, agents and setup
 //! terminals, usage, folders, voice and the remote screen.
 
@@ -117,6 +118,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             let (cols, rows) = term_size(&b);
             // Node.js belongs to the computer, not to one agent.
             let backend = if step == crate::agent::term::Step::Node { "" } else { str_arg(&b, "backend")? };
+            crate::fork::motores_retirados::exigir_oferecido(backend)?;
             let id = if step == crate::agent::term::Step::Login && !matches!(caller, Caller::Local) {
                 anyhow::ensure!(b.get("engineAccountId").is_none(), "Use o login da conta em Contas de IA.");
                 hub.terms
@@ -136,19 +138,40 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         }
         "agentModels" => {
             let backend = str_arg(&b, "backend")?;
+            crate::fork::motores_retirados::exigir_oferecido(backend)?;
             let env = crate::fork::terminal_login::runtime_env(
                 &hub.store,
                 backend,
                 b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
             )?;
-            if env.is_empty() {
-                crate::agent::auth::models(&hub.store, backend).await?
+            let descoberta = if env.is_empty() {
+                crate::agent::auth::models(&hub.store, backend).await
             } else {
-                crate::agent::auth::models_with_env(&hub.store, backend, &env).await?
+                crate::agent::auth::models_with_env(&hub.store, backend, &env).await
+            };
+            // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode, só no Space
+            // pessoal (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
+            // valem; sem nenhum deles, o erro da descoberta segue para a tela.
+            let planos = backend == "opencode"
+                && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL) == crate::fork::spaces::PERSONAL;
+            let (mut catalog, falha) = match descoberta {
+                Ok(catalog) => (catalog, None),
+                Err(erro) if planos => (json!({"models": []}), Some(erro)),
+                Err(erro) => return Err(erro),
+            };
+            if planos {
+                crate::fork::planos_codigo::acrescentar_modelos(&hub.store, &mut catalog)?;
             }
+            if let Some(erro) = falha
+                && catalog["models"].as_array().is_some_and(Vec::is_empty)
+            {
+                return Err(erro);
+            }
+            catalog
         }
         "agentAuth" | "agentAuthenticate" | "setAgentEnv" => {
             let backend = str_arg(&b, "backend")?;
+            crate::fork::motores_retirados::exigir_oferecido(backend)?;
             let status = match method {
                 "agentAuth" if matches!(caller, Caller::Local) => {
                     crate::agent::auth::check(&hub.store, backend).await?

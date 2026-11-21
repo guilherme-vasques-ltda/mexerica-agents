@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { isChat, type Entry, type BotMessage, type TaskContract } from '../../../shared/models.ts'
 
 /** How a bot-to-bot message ended: still going, delivered, or it didn't complete. */

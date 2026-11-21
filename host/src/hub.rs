@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Shared host state: store, event fan-out, bot actors, push, usage.
 
 use crate::LockExt;
@@ -108,6 +109,7 @@ pub struct Hub {
     pub groups: crate::chat::group::Rooms,
     pub store: Store,
     pub(crate) conectores: crate::fork::conectores::State,
+    pub(crate) browser: crate::fork::browser::State,
     pub(crate) whatsapp: crate::fork::whatsapp::State,
     /// Fase 2b: jobs do gerador de conjuntos 3D (um ativo por Hub).
     pub gerador: crate::fork_avatars::gerador::State,
@@ -116,6 +118,8 @@ pub struct Hub {
     /// Loopback-only bearer token for this computer's own apps and helpers.
     pub token: String,
     pub(crate) pontes: crate::fork::ponte_credencial::Credenciais,
+    /// Repasse local dos planos de código (iniciado sob demanda).
+    pub(crate) planos: tokio::sync::OnceCell<Arc<crate::fork::planos_codigo::Repasse>>,
     pub port: u16,
     pub events: broadcast::Sender<Value>,
     /// Held across "mutate store + broadcast" so events leave in rev order.
@@ -170,12 +174,14 @@ impl Hub {
             groups: crate::chat::group::Rooms::default(),
             store,
             conectores: crate::fork::conectores::State::default(),
+            browser: crate::fork::browser::State::default(),
             whatsapp: crate::fork::whatsapp::State::default(),
             gerador: crate::fork_avatars::gerador::State::default(),
             host_id,
             identity,
             token,
             pontes: crate::fork::ponte_credencial::Credenciais::default(),
+            planos: tokio::sync::OnceCell::new(),
             port,
             events,
             emit_lock: Mutex::new(()),
@@ -220,15 +226,20 @@ impl Hub {
         // Aprovações e canais transitórios expiram; humanos queued continuam elegíveis.
         self.store.conector_recover()?;
         crate::fork::conectores::whatsapp_human::recover(self)?;
+        self.store.interrupt_open_work()?;
         self.store.expire_pending()?;
-        crate::screen::fork_permission::restore_pending(self)?;
+        if !crate::environment::Environment::is_open() {
+            crate::screen::fork_permission::restore_pending(self)?;
+        }
         // MB-1b D1: perguntas de bot/conversa excluídos, fechados ou limpos antes de uma queda.
         crate::fork::owner_question::sweep(self);
         // R1: pedido aberto vira interrompido (antes do envio ou incerto); nada é reenviado.
         crate::fork::retornos::recuperar(&self.store)?;
         // Trabalho do gerador não salvo não sobrevive ao recomeço; manifestos ficam.
         crate::fork_avatars::gerador::conjuntos::limpar_orfaos(&self.store);
-        crate::chat::memory::import_old_memory(self);
+        if !crate::environment::Environment::is_open() {
+            crate::chat::memory::import_old_memory(self);
+        }
         self.routines.restore(&self.store)?;
         crate::fork::tarefas_runtime::restore(self)?;
         crate::market::turn_on_installed_once(&self.store)?;
@@ -242,6 +253,9 @@ impl Hub {
                 self.spawn_bot(row.config);
             }
         }
+        if crate::environment::Environment::is_open() {
+            return Ok(());
+        }
         crate::routines::start(self);
         crate::fork::tarefas_runtime::start(self);
         crate::fork::resumo_diario::start(self);
@@ -252,6 +266,9 @@ impl Hub {
     }
 
     fn spawn_bot(self: &Arc<Self>, cfg: BotConfig) {
+        if crate::environment::Environment::is_open() {
+            return;
+        }
         let id = cfg.id.clone();
         let (pending_questions, pending_questions_rev) = crate::fork::owner_question::load(&self.store, &id);
         self.runtime
@@ -293,6 +310,9 @@ impl Hub {
         if tokio::time::timeout(Duration::from_secs(5), &mut bots).await.is_err() {
             tracing::warn!("some bots didn't stop within 5 s; waiting for their final turns");
             bots.await;
+        }
+        if let Err(error) = self.store.interrupt_open_work() {
+            tracing::error!(%error, "resposta cortada não marcada no desligamento; o próximo início marca");
         }
         // Keep polling the same join future after the deadline: completed handles
         // must not be polled twice, and cancelling a worker would lose its queue.
@@ -608,7 +628,9 @@ impl Hub {
             if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
                 crate::chat::memory::changed(self, Some(&id));
             }
-            self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
+            if !crate::environment::Environment::is_open() {
+                self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
+            }
         }
         self.emit_bot(&id);
         Ok(self.bot_value(&id).unwrap_or(Value::Null))
@@ -1136,16 +1158,21 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
+    crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
     validate_fields(cfg)
 }
 
-/// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada.
+/// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada. Trocar o
+/// motor para um retirado é recusado; um bot antigo que já usa um segue editável nos outros campos.
 pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     if cfg.cwd != before.cwd {
         crate::fork::pasta::normalizar_bot(cfg)?;
     }
     crate::fork::funcao::normalizar(cfg)?;
+    if cfg.backend != before.backend {
+        crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+    }
     validate_fields(cfg)
 }
 
@@ -1163,4 +1190,58 @@ fn validate_fields(cfg: &BotConfig) -> Result<()> {
     }
     crate::agent::launcher::check(cfg)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod motores_retirados_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn cfg(backend: &str) -> BotConfig {
+        serde_json::from_value(json!({"id":"x", "name":"Teste", "backend": backend})).unwrap()
+    }
+
+    #[test]
+    fn criacao_com_motor_retirado_e_recusada() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let mut c = cfg(id);
+            let erro = validate(&mut c).unwrap_err().to_string();
+            assert_eq!(erro, crate::fork::motores_retirados::MSG_CRIAR, "{id}");
+        }
+    }
+
+    #[test]
+    fn editar_para_motor_retirado_e_recusado() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let antes = cfg("claude");
+            let mut c = cfg(id);
+            let erro = validate_update(&mut c, &antes).unwrap_err().to_string();
+            assert_eq!(erro, crate::fork::motores_retirados::MSG_CRIAR, "{id}");
+        }
+    }
+
+    #[test]
+    fn editar_outro_campo_de_bot_que_ja_usa_motor_retirado_passa() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let antes = cfg(id);
+            let mut c: BotConfig =
+                serde_json::from_value(json!({"id":"x", "name":"Nome novo", "backend": id})).unwrap();
+            validate_update(&mut c, &antes).unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+    }
+
+    #[test]
+    fn motor_mantido_passa_na_criacao_e_na_edicao() {
+        for id in ["claude", "codex", "cursor", "opencode", "grok", "gemini"] {
+            let mut c = cfg(id);
+            validate(&mut c).unwrap_or_else(|e| panic!("{id}: {e}"));
+            let antes = cfg("claude");
+            let mut c = cfg(id);
+            validate_update(&mut c, &antes).unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+        // Motor por comando próprio segue permitido: sem id de harness, a recusa não se aplica.
+        let mut c: BotConfig =
+            serde_json::from_value(json!({"id":"x", "name":"Teste", "backend":"custom", "command":"unused"})).unwrap();
+        validate(&mut c).unwrap();
+    }
 }

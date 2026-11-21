@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Node.js for the agents whose ACP adapter comes from npm (Claude, Codex, Gemini, …) and for
 //! installing npm CLIs: the computer's own when it has one, else a checksum-pinned official
 //! build that Codync adds into `~/.codync/node` when the user asks (an agent's setup, or
@@ -105,8 +106,17 @@ pub async fn npm(args: &[String]) -> Result<i32> {
         };
     }
     motor_install::prepare()?;
-    let mut command =
-        if let Some(npm) = backends::which("npm") { tokio::process::Command::new(npm) } else { codync_npm().await? };
+    // Prefixo próprio mesmo no npm do computador: `install -g` nunca depende de pasta do
+    // sistema gravável (EACCES com Node instalado pelo dono do sistema), e o PATH do Hub já
+    // inclui o bin desse prefixo, então o CLI instalado é achado sem recarregar nada.
+    let npm_config_prefix = global_prefix();
+    let mut command = if let Some(npm) = backends::which("npm") {
+        let mut command = tokio::process::Command::new(npm);
+        command.env("npm_config_prefix", &npm_config_prefix);
+        command
+    } else {
+        codync_npm().await?
+    };
     if motor_install::worker() {
         motor_install::environment(&mut command);
         command.current_dir(motor_install::root());
@@ -220,5 +230,12 @@ mod tests {
             }
         }
         assert!(archive("linux", "riscv64").is_none());
+    }
+
+    /// GUI-145: o `install -g` com prefixo próprio só serve se o CLI instalado nele for
+    /// achável — o bin do prefixo global do Hub tem de estar no caminho de busca.
+    #[test]
+    fn bin_do_prefixo_global_do_hub_fica_no_caminho_de_busca() {
+        assert!(search_dirs().contains(&bin_dir(global_prefix())));
     }
 }

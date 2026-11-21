@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The apps' methods for long-form memory files: list, read with versions, save, delete and restore. The user's
 //! own edits skip the checks a bot's pass, and every write is compare-and-swap on the content the app loaded.
 

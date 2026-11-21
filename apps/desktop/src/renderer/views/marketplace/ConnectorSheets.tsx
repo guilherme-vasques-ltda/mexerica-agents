@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useState } from 'react'
 import { Button, CardForm, CardSection, IconButton, SegmentedChoice, Spinner } from '../../components/Controls'
 import { ModalHeader, SheetPage, useDismiss } from '../../components/Overlay'

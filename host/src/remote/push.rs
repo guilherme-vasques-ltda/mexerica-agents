@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Push via the Codync relay (it holds the APNs key; the host only holds opaque
 //! per-device tickets the relay issued to the phone).
 //!

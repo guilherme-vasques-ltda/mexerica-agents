@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Bots operating the computer: the `computer` MCP tools, who is in control, and signing in.
 //! Tools run on the computer-use driver (`cua.rs`); on Linux desktops it doesn't support, on
 //! Codync Screen's portal input (`helper_tools.rs`).
@@ -63,6 +64,9 @@ impl Screen {
 
 /// The `computer` MCP tools on this computer.
 pub async fn computer_tools(hub: &Arc<Hub>) -> Value {
+    if crate::environment::Environment::is_open() {
+        return json!({"tools": []});
+    }
     let screen = &hub.screen;
     let mut tools = match backend() {
         Backend::Driver => cua::tools(screen).await,
@@ -80,6 +84,9 @@ pub async fn computer_tools(hub: &Arc<Hub>) -> Value {
 }
 
 pub(crate) fn observation_read_only(name: &str) -> bool {
+    if crate::environment::Environment::is_open() {
+        return false;
+    }
     match backend() {
         Backend::Driver => cua::read_only(name),
         #[cfg(target_os = "linux")]

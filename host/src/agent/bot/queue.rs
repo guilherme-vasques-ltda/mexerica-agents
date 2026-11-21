@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Commands from clients and the queue of turns waiting for the bot.
 
 use super::{Actor, CANCEL_GRACE, Cmd, NoticeStyle, Queued, RoutineCompletion};
@@ -355,7 +356,40 @@ impl Actor {
                     self.restart_agent().await;
                 }
             }
-            Cmd::Shutdown => return false,
+            Cmd::Shutdown => {
+                // O texto e as ferramentas que o motor já mandou vão para o disco; pedidos dele (aprovação, leitura)
+                // ficam sem resposta e o motor é encerrado. O corte é marcado depois, sem ator vivo.
+                let queued = self.conn.as_ref().map_or(0, |c| c.rx.len());
+                for _ in 0..queued {
+                    let Some(incoming) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) else { continue };
+                    let crate::agent::acp::Incoming::Notification { method, params } = incoming else {
+                        if let crate::agent::acp::Incoming::Request { method, .. } = incoming {
+                            tracing::warn!(
+                                bot = self.cfg.id,
+                                method,
+                                "pedido do motor sem resposta: o Hub está desligando"
+                            );
+                        }
+                        continue;
+                    };
+                    if method == "session/update"
+                        && self.turn.is_some()
+                        && !self.waiting_for_reset()
+                        && !self.completing()
+                        && params["sessionId"].as_str() == self.turn_session.as_deref()
+                        && matches!(
+                            params["update"]["sessionUpdate"].as_str(),
+                            Some("agent_message_chunk" | "tool_call" | "tool_call_update")
+                        )
+                    {
+                        self.on_update(&params["update"]);
+                    }
+                }
+                if !self.completing() {
+                    self.flush(true);
+                }
+                return false;
+            }
         }
         true
     }

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The bot's conversations as they fill up ([design](docs/reference/memoria/bot-memory.md#compaction)): what the
 //! agent reports about its context and its own compactions, and the compactions and rollovers the host starts. The
 //! rules are `codync_mem::compaction`; this records what it needs and acts on what it decides.
@@ -82,6 +83,11 @@ impl Actor {
 
     /// The agent reported its context use.
     pub(super) fn track_usage(&mut self, used: u64, size: u64) {
+        // A zero is the agent's placeholder while a response begins to stream, not a measure: it must neither
+        // replace the last real figure nor read as the context having been summarized.
+        if used == 0 {
+            return;
+        }
         let Some(sid) = self.turn_session.clone() else { return };
         let Some(conn) = self.conn.as_mut() else { return };
         // During the agent's compaction the sample waits for its outcome: kept with the new epoch, or dropped. Until
@@ -377,5 +383,48 @@ mod tests {
         let cold = json!({"usage": {"inputTokens": 2, "cachedReadTokens": 0, "cachedWriteTokens": 40_000}});
         assert_eq!(learned_life(&cold, 20 * 60_000), Some(CacheLife::FiveMinutes));
         assert_eq!(learned_life(&json!({"stopReason": "end_turn"}), 20 * 60_000), None, "no usage reported");
+    }
+
+    #[tokio::test]
+    async fn zero_usage_at_stream_start_is_no_compaction() {
+        use super::super::{Acp, Conn, SessionCaps};
+        use crate::fork::spaces::tool_context::tests::Fixture;
+        use std::{collections::HashMap, time::Instant};
+
+        let f = Fixture::new();
+        let (acp, rx) = Acp::spawn("cat", f.dir.to_str().unwrap(), &[]).unwrap();
+        let mut actor = super::super::new_actor(f.hub.clone(), f.cfg.clone());
+        actor.lane = Lane::main(f.cfg.session_owner());
+        actor.turn = Some(1);
+        actor.turn_session = Some("sessao-A".into());
+        actor.conn = Some(Conn {
+            ponte: None,
+            plano: None,
+            curated: crate::fork::conectores::Pool::default(),
+            acp,
+            rx,
+            skill_reads: tokio::task::JoinSet::new(),
+            sessions: SessionCaps { load: true, close: false, system_prompt: false },
+            adapter: Adapter::Claude,
+            adapter_version: None,
+            codex_config: false,
+            config_warnings: vec![],
+            loaded: HashMap::new(),
+            started: Instant::now(),
+            fast_options: HashMap::new(),
+            reports_compaction: false,
+            compaction_usage: CompactionUsage::Idle,
+            usage: HashMap::new(),
+        });
+        let measured = |actor: &Actor| actor.conn.as_ref().unwrap().usage.get("sessao-A").copied();
+
+        actor.track_usage(90_000, 200_000);
+        actor.track_usage(0, 200_000);
+        assert!(actor.compaction_notice.is_none(), "a zero reading is no summary");
+        assert_eq!(measured(&actor), Some((90_000, 200_000)), "a zero reading is no measure of the context");
+
+        actor.track_usage(12_000, 200_000);
+        assert!(actor.compaction_notice.is_some(), "a real fall still reads as a summary");
+        assert_eq!(measured(&actor), Some((12_000, 200_000)));
     }
 }

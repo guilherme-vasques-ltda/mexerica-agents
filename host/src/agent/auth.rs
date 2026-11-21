@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Signing agents in the ACP way, so every agent that speaks ACP can be set up
 //! from Codync, not just the ones we know by name.
 //!
@@ -85,6 +86,16 @@ fn env_slot(backend: &str) -> String {
     format!("agent-env:{backend}")
 }
 
+/// Motor retirado da oferta: recusado na entrada, antes de resolver ou abrir qualquer executável.
+fn exigir_oferecido(backend: &str) -> Result<()> {
+    anyhow::ensure!(
+        !crate::fork::motores_retirados::retirado(backend),
+        "{}",
+        crate::fork::motores_retirados::msg_lancar(backend)
+    );
+    Ok(())
+}
+
 /// Keys saved for `backend`, as environment for its process.
 pub fn env(store: &Store, backend: &str) -> Result<Vec<(String, String)>> {
     let Some(raw) = crate::market::vault::read(store, &env_slot(backend))? else {
@@ -101,6 +112,7 @@ fn saved_env(store: &Store, backend: &str) -> Result<Vec<String>> {
 
 /// Runs a check and returns `{signedIn, detail, methods, savedEnv}`.
 pub async fn check(store: &Store, backend: &str) -> Result<Value> {
+    exigir_oferecido(backend)?;
     let status = probe(store, backend).await?;
     backends::set_signed_in(backend, status.signed_in);
     CHECKED.locked().insert(backend.to_owned(), status.clone());
@@ -117,6 +129,7 @@ pub async fn models(store: &Store, backend: &str) -> Result<Value> {
     models_with_env(store, backend, &[]).await
 }
 pub(crate) async fn models_with_env(store: &Store, backend: &str, env: &[(String, String)]) -> Result<Value> {
+    exigir_oferecido(backend)?;
     let (acp, mut inbox, _, _) = start_with_env(store, backend, env).await?;
     let result = tokio::time::timeout(Duration::from_secs(60), async {
         let request = acp.request("session/new", json!({"cwd": probe_dir(), "mcpServers": []}));
@@ -432,6 +445,7 @@ pub fn terminal_command(backend: &str, method: &str) -> Option<String> {
 
 /// Lets the agent sign itself in (it usually opens a browser on this computer).
 pub async fn authenticate(store: &Store, backend: &str, method: &str) -> Result<Value> {
+    exigir_oferecido(backend)?;
     let (acp, _inbox, _, _) = start(store, backend).await?;
     let res =
         tokio::time::timeout(Duration::from_secs(10 * 60), acp.request("authenticate", json!({"methodId": method})))
@@ -448,6 +462,7 @@ pub async fn authenticate(store: &Store, backend: &str, method: &str) -> Result<
 
 /// Saves the keys for an env-var method (empty values remove them), then re-checks.
 pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) -> Result<Value> {
+    exigir_oferecido(backend)?;
     let mutation = crate::fork::engine_accounts::MUTATION.lock().await;
     let mut saved: BTreeMap<String, String> = env(store, backend)?.into_iter().collect();
     for (k, v) in vars {
@@ -674,5 +689,28 @@ mod tests {
         let init = json!({"authMethods": [{"id": "k", "name": "Kilo", "_meta": {"terminal-auth": {"command": "opencode", "args": ["auth", "login"]}}}]});
         assert!(methods("kilo", &init, &cmd()).is_empty());
         assert_eq!(methods("opencode", &init, &cmd()).len(), 1);
+    }
+
+    /// Motor retirado é recusado na entrada, antes de preferir o executável ACP local: nada é aberto.
+    #[tokio::test]
+    async fn motor_retirado_e_recusado_na_entrada_sem_executar_o_cli() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        for id in ["kilo", "qwen-code", "KILO"] {
+            let erro = check(&store, id).await.unwrap_err().to_string();
+            assert!(erro.starts_with("O motor "), "{id}: {erro}");
+            assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+            let erro = models(&store, id).await.unwrap_err().to_string();
+            assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+            let erro = authenticate(&store, id, "metodo").await.unwrap_err().to_string();
+            assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+            let mut vars = Map::new();
+            vars.insert("CHAVE_FICTICIA".into(), json!("valor-ficticio"));
+            let erro = set_env(&store, id, &vars).await.unwrap_err().to_string();
+            assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+            assert!(
+                crate::market::vault::read(&store, &format!("agent-env:{id}")).unwrap().is_none(),
+                "{id}: nada foi gravado para um motor retirado"
+            );
+        }
     }
 }

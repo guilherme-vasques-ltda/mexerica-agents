@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Files sent with a message. A client uploads each file in chunks (the channel caps a
 //! message at 1 MiB), then names the uploads in `send`; the agent gets their paths.
 

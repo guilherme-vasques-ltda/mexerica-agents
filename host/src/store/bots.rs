@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The `bots` table: roster rows, sessions, read marks and unread counts.
 
 use super::model::{BotConfig, BotRow, EntryKind, LastMessage, message_text};
@@ -55,6 +56,12 @@ pub(crate) fn save_bot(c: &Connection, cfg: &BotConfig) -> Result<i64> {
     }
     crate::fork::donna_fixa::check_save(c, &cfg, settings.primary_bot_id.as_deref())?;
     let (profile, avatar) = crate::fork_avatars::stored(&cfg)?;
+    // Conta que sai do bot leva junto o que a pessoa tinha ligado nela (ações perigosas), na mesma transação.
+    if let Some(antes) = read_on(c, &cfg.id)?.filter(|b| !b.deleted) {
+        let tiradas: Vec<String> =
+            antes.config.connectors.iter().filter(|id| !cfg.connectors.contains(id)).cloned().collect();
+        crate::market::ferramentas::esquecer_liberacoes_do_bot(c, &cfg.id, &tiradas)?;
+    }
     let rev = next_rev(c)?;
     c.execute(
         "INSERT INTO bots(id, rev, config, avatar_config) VALUES(?1, ?2, ?3, ?4)

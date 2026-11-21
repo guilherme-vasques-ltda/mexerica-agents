@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { spaceAllows } from '../lib/fork-space-capabilities'
 import { draftKey } from '../../shared/composer-drafts'
 import { AvatarBotMap } from '@shared/fork-avatar-mood'

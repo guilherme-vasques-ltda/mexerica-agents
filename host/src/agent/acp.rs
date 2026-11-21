@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Minimal ACP (Agent Client Protocol) client: JSON-RPC 2.0 over a child
 //! process's stdio. Updates are kept as `serde_json::Value` on purpose so a
 //! newer adapter adding a variant never breaks parsing.
@@ -124,6 +125,9 @@ impl Answer {
                     Some(d) => format!("{msg} ({d})"),
                     None => msg,
                 };
+                // O texto final do erro pode vir por caminho que não passou pela máscara (o
+                // adaptador interno, por exemplo): mascara aqui também, já montado.
+                let message = crate::fork::planos_codigo::mascarar_codigo(&message).into_owned();
                 let kind = e["data"]["errorKind"]
                     .as_str()
                     .filter(|k| {
@@ -305,6 +309,7 @@ impl Acp {
                     if protected || background {
                         continue;
                     }
+                    let line = crate::fork::planos_codigo::mascarar_codigo(&line).into_owned();
                     tracing::debug!(target: "agent", stderr = %line);
                     let mut t = tail.locked();
                     if t.len() == STDERR_TAIL_LINES {
@@ -319,12 +324,17 @@ impl Acp {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let Ok(msg) = serde_json::from_str::<Value>(&line) else {
+                    // O parse vem primeiro, na linha original: mascarar antes faria dois nomes de campo literais
+                    // distintos colidirem no texto bruto. Os textos já interpretados (escapes desfeitos) são
+                    // mascarados a seguir — é aqui que um código escrito em escapes de JSON aparece.
+                    let Ok(mut msg) = serde_json::from_str::<Value>(&line) else {
                         if !protected && !background {
+                            let line = crate::fork::planos_codigo::mascarar_codigo(&line);
                             tracing::debug!(target: "agent", stdout = %line, "ignoring non-JSON output");
                         }
                         continue;
                     };
+                    crate::fork::planos_codigo::mascarar_json(&mut msg);
                     let method = msg["method"].as_str().map(str::to_owned);
                     match (method, msg.get("id").cloned()) {
                         (Some(method), Some(id)) if !id.is_null() => {

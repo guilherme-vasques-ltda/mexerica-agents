@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useCallback, useEffect, useState } from 'react'
 import type { AuthorizedDevice } from '@shared/models'
 import { CardSection, IconButton, Spinner } from '../../components/Controls'

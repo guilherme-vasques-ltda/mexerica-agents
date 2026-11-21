@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Platform glue: data dir, background service install (launchd / systemd /
 //! the Windows Run key, in `unix.rs` and `windows.rs`),
 //! keeping the machine awake during turns, pairing addresses, and the Claude
@@ -143,6 +144,9 @@ pub struct KeepAwake(Option<Child>);
 
 impl KeepAwake {
     pub fn set(&mut self, on: bool) {
+        if crate::environment::Environment::is_open() {
+            return;
+        }
         match (on, self.0.is_some()) {
             (true, false) => {
                 let pid = std::process::id().to_string();
@@ -188,6 +192,9 @@ impl KeepAwake {
 
 /// Addresses the phone can try, best first: Tailscale, then LAN.
 pub fn addresses(port: u16) -> Vec<String> {
+    if crate::environment::Environment::is_open() {
+        return Vec::new();
+    }
     crate::fork::pairing_addresses::addresses(port)
 }
 

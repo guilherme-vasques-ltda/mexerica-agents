@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Idle agents give their resources back. A session unused for [`IDLE`] is closed (a routine run's
 //! as soon as the run ends); once every session is idle, or a routine run ends with none other open,
 //! the agent stops with its process group.
@@ -137,6 +138,16 @@ impl Actor {
                     }
                 }
             }
+        }
+        // O código de um plano de código vive no ambiente do processo: sem conversa aberta, o processo não fica;
+        // processo com comando de fundo da ferramenta segue até esse comando acabar.
+        let pid =
+            self.conn.as_ref().filter(|conn| conn.plano.is_some() && conn.loaded.is_empty()).map(|conn| conn.acp.pid());
+        if let Some(pid) = pid
+            && !background_work(pid).await
+            && let Some(conn) = self.conn.take()
+        {
+            conn.kill().await;
         }
     }
 }

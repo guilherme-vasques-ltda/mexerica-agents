@@ -3,6 +3,9 @@ import type { textos as fonte } from '../pt-BR/marca.ts'
 
 // PR (c), D443: marca (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'marca.open.perfilMetadados': 'Métadonnées non sûres dans le profil Open.',
+  'marca.open.perfilArquivo': 'Le profil Open n’accepte ni les liens ni les fichiers spéciaux.',
+  'marca.open.pacoteInvalido': 'Paquet Open non valide.',
   "marca.dados.legado": "Supprimez DONNABOT_HOME/CODYNC_HOME et configurez MEXERICA_HOME pour Mexerica.",
   "marca.dados.vazio": "MEXERICA_HOME ne peut pas être vide.",
   "marca.dados.ancestral": "Le dossier personnel et ses dossiers parents ne peuvent pas servir de dossier de données.",
@@ -20,6 +23,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.conta.googleLigado': 'Ce compte Google est déjà associé à un autre compte Mexerica.',
   'marca.conta.naoConfirmou': 'Impossible de confirmer la connexion. Réessayez : Mexerica ne s’ouvre qu’avec un compte confirmé.',
   'marca.conta.apagarTudo': 'Déconnecte tous les comptes et supprime les bots, conversations, clés et réglages de cet ordinateur. Mexerica repart de l’écran d’accueil.',
+  'marca.conta.apagarFalhou': 'Impossible de supprimer toutes les données. Réessayez.',
   'marca.conta.semLogin': 'La connexion n’est pas disponible dans cette version, et Mexerica ne s’ouvre qu’avec un compte.',
   'marca.caixa.titulo': 'Mexerica',
   'marca.caixa.indisponivel': 'Boîte protégée indisponible.',

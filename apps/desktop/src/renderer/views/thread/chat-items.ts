@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useRef } from 'react'
 import type { Entry } from '@shared/models'
 import { groupExchanges, type BotExchange, type ChatSlot } from './bot-exchange'
@@ -8,6 +9,7 @@ import { entriesOfSession } from '../fork/sessoes/estado'
 import { naFila } from '../fork/conversa/fila'
 import { pedidoNaFila } from '../fork/conversa/pedidos'
 import { receiptAnchors, type ReceiptAnchor } from '../fork/recibo/presentation'
+import { changesByReply, type TurnChanges } from '../fork/mudancas/mudancas'
 import { stepsByReply } from './cards/tool-steps'
 
 export type ChatItem =
@@ -52,6 +54,7 @@ export interface ChatView {
   items: ChatItem[]
   steps: ReturnType<typeof stepsByReply>
   anchors: Map<string, ReceiptAnchor>
+  changes: Map<string, TurnChanges>
 }
 
 /**
@@ -60,13 +63,13 @@ export interface ChatView {
  */
 const chatViews = new WeakMap<Entry[], Map<string, ChatView>>()
 
-export function chatView(chatEntries: Entry[], chatId: string, sessionId: string | null, known: ReadonlySet<string>): ChatView {
-  const key = JSON.stringify([chatId, sessionId, known.size ? [...known].sort() : []])
+export function chatView(chatEntries: Entry[], chatId: string, sessionId: string | null, known: ReadonlySet<string>, hasOlderHistory = false): ChatView {
+  const key = JSON.stringify([chatId, sessionId, known.size ? [...known].sort() : [], hasOlderHistory])
   let inner = chatViews.get(chatEntries)
   const cached = inner?.get(key)
   if (cached) return cached
   const entries = entriesOfSession(chatEntries, chatId, sessionId, known).filter((e) => !naFila(e) && !pedidoNaFila(e))
-  const view: ChatView = { entries, items: buildChat(entries), steps: stepsByReply(entries), anchors: receiptAnchors(entries) }
+  const view: ChatView = { entries, items: buildChat(entries), steps: stepsByReply(entries), anchors: receiptAnchors(entries), changes: changesByReply(entries, hasOlderHistory) }
   if (!inner) chatViews.set(chatEntries, (inner = new Map()))
   inner.set(key, view)
   return view

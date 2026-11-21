@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { execFile } from 'node:child_process'
 import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
 import type { WindowCommand } from '../shared/ipc'

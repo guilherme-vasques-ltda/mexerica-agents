@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! The labeled text fields sheet: keys, connector setup, a pasted MCP config, a handoff.
 
 use crossterm::event::{KeyCode, KeyEvent};

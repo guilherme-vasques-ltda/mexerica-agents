@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Bot and chat methods: roster, messages, uploads, memory, routines and the bots' own MCP calls.
 
 use super::devices::Caller;
@@ -301,18 +302,7 @@ pub(super) async fn call(
                 bail!("empty message");
             }
             let nonce = b["clientNonce"].as_str().unwrap_or_default();
-            if !nonce.is_empty()
-                && let Some(e) = hub.store.find_by_nonce(bot, nonce)
-            {
-                return Ok(ControlFlow::Break(json!({"entry": e})));
-            }
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
-            // `replyTo`: the message of this chat it answers (`chat::replies`).
-            let reply = match b["replyTo"].as_str().filter(|id| !id.is_empty()) {
-                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
-                None => None,
-            };
-            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let mut attachments = Vec::new();
             if !uploads.is_empty() {
                 let root = crate::chat::uploads::root(&row.config);
@@ -320,10 +310,24 @@ pub(super) async fn call(
                     attachments.push(crate::chat::uploads::resolve(&root, id)?.1);
                 }
             }
+            let quoted = b["replyTo"].as_str().filter(|id| !id.is_empty());
+            let session = b["sessionId"].as_str().filter(|id| *id != bot);
+            let intent = crate::store::send_intent(text, &attachments, quoted, session);
+            // Reenvio com a mesma chave sai antes de conferir sessão e citação, que podem ter mudado desde o original.
+            let repeated = json!({"clientNonce": nonce, "intent": intent});
+            if let Some(e) = crate::store::Store::replay_on(&hub.store.db.locked(), bot, &repeated)? {
+                return Ok(ControlFlow::Break(json!({"entry": e})));
+            }
+            // `replyTo`: the message of this chat it answers (`chat::replies`).
+            let reply = match quoted {
+                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
+                None => None,
+            };
+            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
-            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments});
+            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
             // A fila D72 precisa sobreviver até ao crash entre salvar a entrada e entregá-la ao ator.
             if !row.config.is_group()
@@ -351,8 +355,10 @@ pub(super) async fn call(
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let e = crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)
-                .ok_or_else(|| anyhow!("couldn't save the message"))?;
+            let e = match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
+                crate::fork::owner_question::Human::New(e) => e,
+                crate::fork::owner_question::Human::Replayed(e) => return Ok(ControlFlow::Break(json!({"entry": e}))),
+            };
             crate::fork::sessoes::api::title_first_message(hub, &lane, text);
             // Before the turn starts, so its reply lands unread.
             if let Err(error) = hub.mark_read(bot) {

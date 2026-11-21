@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { demoVozBridge } from './fork-voz'
 import { demoAccountProfileBridge } from './fork-account-profile'
 import type { AccountState, CallError, CodyncBridge, HostSnapshot, UpdateState } from '@shared/ipc'
@@ -108,6 +109,7 @@ const bridge: CodyncBridge = {
     onChange: () => () => {},
     call: async () => ({ kind: 'notSent', reason: 'notReady' }),
     subscribeEvents: (_connectionId, _body, _onEvent, _onEnd) => () => {},
+    subscribeFrames: (_connectionId, _onFrame, _onEnd) => ({ cancel: () => {}, consumed: () => {}, opened: Promise.resolve(false) }),
   },
   voz: demoVozBridge(),
   accountProfile: demoAccountProfileBridge(),

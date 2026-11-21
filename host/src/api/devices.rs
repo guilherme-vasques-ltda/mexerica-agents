@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Who is calling and what they may do (spec §4.1, §4.3, §6.6): the caller kinds,
 //! per-method permissions, the device authorization check and QR pairing codes.
 //! The authorized-device table itself lives in `store`.
@@ -62,6 +63,11 @@ const LOCAL_ONLY: &[&str] = &[
     "reportError",
     // Voice keys are entered on the computer itself; phones only use them.
     "setVoiceKey",
+    // Plano de código: a chave é colada no próprio computador.
+    "planosCodigo",
+    "planoCodigoTestar",
+    "planoCodigoSalvar",
+    "planoCodigoRemover",
     "pairing",
     "computerCall",
     "computerTools",
@@ -103,6 +109,8 @@ const LOCAL_ONLY: &[&str] = &[
     "nuncaFazerEditar",
     "nuncaFazerRemover",
     "nuncaFazerReordenar",
+    "instrucaoGeral",
+    "instrucaoGeralSalvar",
     "donnaRules",
     "donnaApprovalSet",
     "donnaRuleSave",

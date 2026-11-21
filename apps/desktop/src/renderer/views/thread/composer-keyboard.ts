@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 /**
  * Quando o Enter envia (DON-907, Ajustes → Conversa → Atalho de envio):
  * - `enter`: Enter envia; Shift/Alt+Enter quebram a linha (o padrão de sempre);

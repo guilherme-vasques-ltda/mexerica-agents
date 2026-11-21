@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! SQLite persistence. Every mutation stamps a global, monotonically increasing
 //! `rev`; clients sync with `since: rev` and never need a separate event log.
 //!
@@ -14,9 +15,10 @@ mod devices;
 mod entries;
 pub(crate) use entries::{
     ENTRY_COLS, QUEUE_ORDER, check_execution_on, entry_on, history_in_session_on, insert_visible_on, queue_key,
-    row_entry,
+    row_entry, send_intent,
 };
 mod fork_donna;
+mod fork_reinicio;
 mod fork_settings;
 mod guard_hub;
 mod management_guard;

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AtalhoBerga } from '../fork/atalho-berga/AtalhoBerga'
 import { IdiomaAjuste } from '../fork/idioma/IdiomaAjuste'
@@ -45,6 +46,7 @@ import { capacidades } from '@shared/fork-capacidades'
 import { abasVisiveis, paginaDisponivel } from '../fork/ajustes/gates-capacidades'
 
 import { NuncaFazerPagina } from '../fork/nunca-fazer/NuncaFazer'
+import { InstrucoesPage } from '../fork/instrucoes/InstrucoesPage'
 export type { SettingsPage }
 
 // TRAD-1 (D164/D165); D454 (fatia 4): a lateral de Ajustes no idioma escolhido, pelo catálogo (`ajustes.*`).
@@ -62,6 +64,8 @@ const pages: { id: SettingsPage; chave: ChaveTexto; /** O nome curto na lateral,
   { id: 'memory', chave: 'memoria.pagina', group: personal, icon: 'brain' },
   // MX-111 (fase 1): a lista Nunca fazer de cada Space, que todo bot dele lê (só orientação).
   { id: 'never-do', chave: 'nuncaFazer.pagina', group: personal, icon: 'hand.raised.slash' },
+  // Instruções do dono: "Para todos os meus bots" e "Neste Space", somadas às instruções de cada bot.
+  { id: 'instructions', chave: 'instrucoes.pagina', group: personal, icon: 'text.alignleft' },
   // D164: contas Codex/Claude/API do Hub, separadas da conta do app.
   { id: 'ai-accounts', chave: 'ajustes.pagina.contasIa', group: personal, icon: 'key' },
   // D371: regras de delegação do dono (fork/delegacao); a lista de modelos da S1 (D370) entra na mesma página.
@@ -84,7 +88,7 @@ const pages: { id: SettingsPage; chave: ChaveTexto; /** O nome curto na lateral,
 ]
 
 /** Each page as `screen_viewed` names it; Computer access and Voice chat report themselves. */
-const pageScreens: Record<SettingsPage, Screen | null> = { general: 'settings', appearance: 'settings', sidebar: 'settings', conversation: 'settings', memory: 'settings', 'never-do': 'settings', 'ai-accounts': null, delegation: 'settings', background: 'settings', activity: 'settings', workplaces: null, updates: 'settings', computers: 'computers', usage: 'usage', storage: 'settings', access: null, voice: null, 'app-icon': 'settings' }
+const pageScreens: Record<SettingsPage, Screen | null> = { general: 'settings', appearance: 'settings', sidebar: 'settings', conversation: 'settings', memory: 'settings', 'never-do': 'settings', instructions: 'settings', 'ai-accounts': null, delegation: 'settings', background: 'settings', activity: 'settings', workplaces: null, updates: 'settings', computers: 'computers', usage: 'usage', storage: 'settings', access: null, voice: null, 'app-icon': 'settings' }
 
 /**
  * The chat window's Settings: pages in a sidebar, ChatGPT's settings layout. ajustes-tela-01: the body of the
@@ -102,7 +106,8 @@ export function SettingsView({ page: requested, aba: abaPedida, onPage, onAba }:
   const tx = semParametros(t)
   const titulo = (p: (typeof pages)[number]) => tx(p.chave)
   const current = pages.find((p) => p.id === page)!
-  const abas = abasVisiveis(page, abasDe[page], cap, app.managedStores.length)
+  const abas = page === 'ai-accounts' && window.codync.appScheme === 'mexerica-open'
+    ? undefined : abasVisiveis(page, abasDe[page], cap, app.managedStores.length)
   // Uma aba que este aparelho não mostra (ex.: Chaves na Web) cai na primeira, nunca numa página vazia.
   const aba = abas && abaPedida && !abas.some((a) => a.id === abaPedida) ? abas[0].id : abaPedida
   // O cabeçalho do primeiro grupo é o Space ativo; "Pessoal" só quando ele é o ativo (nenhum Space aberto).
@@ -171,6 +176,8 @@ function PageContent({ page, aba, onPage }: { page: SettingsPage; aba: string | 
       return <MemoriaPage />
     case 'never-do':
       return <NuncaFazerPagina />
+    case 'instructions':
+      return <InstrucoesPage />
     case 'ai-accounts':
       return <ContasIaPage aba={aba === 'contas' || aba === 'motores' ? aba : null} />
     case 'delegation':
@@ -204,14 +211,15 @@ function PageContent({ page, aba, onPage }: { page: SettingsPage; aba: string | 
 export function GeneralSettings() {
   const app = useApp()
   const t = useT()
+  const cap = capacidades(window.codync)
   const [showInDock, setShowInDock] = useState(true)
   // A página monta a cada visita: lê estas chaves ao abrir, porque a bandeja também as muda.
-  useEffect(() => { void window.codync.app.showInDock().then(setShowInDock) }, [])
-  const cap = capacidades(window.codync)
+  useEffect(() => { if (cap.dock) void window.codync.app.showInDock().then(setShowInDock) }, [cap.dock])
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
   useEffect(() => { if (cap.launchAtLogin) void window.codync.app.launchAtLogin().then(setLaunchAtLogin) }, [cap.launchAtLogin])
   const [island, setIsland] = useState(false)
-  useEffect(() => { void window.codync.island.enabled().then(setIsland) }, [])
+  const islandSupported = window.codync.island.supported
+  useEffect(() => { if (islandSupported) void window.codync.island.enabled().then(setIsland) }, [islandSupported])
 
   return (
     <CardForm>
@@ -221,9 +229,9 @@ export function GeneralSettings() {
       <IdiomaAjuste />
       <Superficie>
       <AtalhoBerga />
-      {window.codync.platform === 'darwin' || window.codync.island.supported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
-        {window.codync.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>{t('ajustes.geral.dock')}</Switch> : null}
-        {window.codync.island.supported ? (
+      {cap.dock || islandSupported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
+        {cap.dock ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>{t('ajustes.geral.dock')}</Switch> : null}
+        {islandSupported ? (
           <Switch on={island} onChange={(on) => void window.codync.island.setEnabled(on).then(setIsland)}>
             {t(islandLabel(window.codync.platform))}
           </Switch>

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Encrypted records backed by the operating system credential store. The database
 //! contains ciphertext only; its random master key lives in Keychain/Secret Service.
 //! Modificado pela DONNA Bot em 2026-11-03: selagem/abertura fora de DB e política
@@ -19,6 +20,9 @@ const SERVICE: &str = crate::environment::Environment::current().vault_service()
 mod vault_unlock;
 
 pub async fn unlock(hub: Arc<crate::hub::Hub>) -> Result<()> {
+    if crate::environment::Environment::is_open() {
+        return Err(crate::api::devices::Forbidden.into());
+    }
     #[cfg(test)]
     hub.store.vault_unlock_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     vault_unlock::unlock(hub).await

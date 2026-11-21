@@ -271,6 +271,17 @@
 .ctx-det .ctx-custo { margin-block-start: 0; padding-block-start: var(--sp-10); }
 .ctx-nota-glossario { color: var(--ink-2); font-size: var(--text-caption, 11px); line-height: 1.4; }
 
+/* Ver detalhes → O que ocupa o espaço: uma linha por parte, com a origem do número dita em palavras. */
+.ctx-partes { display: flex; flex-direction: column; gap: var(--sp-6); }
+.ctx-partes h4 { color: var(--ink-2); font-weight: 600; }
+.ctx-partes ul { display: flex; flex-direction: column; gap: var(--sp-8); margin: 0; padding: 0; list-style: none; }
+.ctx-partes li { display: grid; grid-template-columns: 1fr auto; column-gap: var(--sp-12); row-gap: var(--sp-2); }
+.ctx-parte-valor { text-align: end; font-variant-numeric: tabular-nums; }
+.ctx-partes li.is-vazio .ctx-parte-valor { color: var(--ink-2); font-style: italic; }
+.ctx-parte-origem { grid-column: 1 / -1; color: var(--ink-2); font-size: var(--text-caption, 11px); line-height: 1.3; }
+.ctx-parte-barra { grid-column: 1 / -1; block-size: 3px; border-radius: var(--radius-pill); background: var(--field); overflow: hidden; }
+.ctx-parte-barra > i { display: block; block-size: 100%; background: var(--ink-2); border-radius: inherit; }
+
 /* Resultado sozinho na barra (sem medida nova): ícone nenhum, só o texto, na cor do tom. */
 .ctx-status.t-ok { color: var(--success); }
 .ctx-status.t-atencao { color: var(--attention); }

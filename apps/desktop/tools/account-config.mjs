@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // Writes resources/account-config.json from apps/desktop/config/<env>.plist: the Clerk publishable
 // key and the cloud URL the build talks to. Usage: node tools/account-config.mjs dev|main
 // (the `npm run dev` / `dist:*:<env>` scripts run it).

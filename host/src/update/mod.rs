@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Standalone host updates. App bundles and package managers retain ownership
 //! of their binaries. A signed manifest is required before executing new code.
 mod install;

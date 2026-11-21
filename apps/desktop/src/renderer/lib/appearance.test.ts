@@ -388,7 +388,7 @@ function jpegSize(bytes: Buffer): [number, number] {
   throw new Error('JPEG sem dimensões')
 }
 
-test('fundos da Mexerica e abstratos abrem o catálogo, preservam os antigos e entregam os pares medidos (WebP ou JPEG mantido)', { skip: 'arte própria fora do recorte (pendência de direitos); reativar ao liberar a arte' }, () => {
+test('fundos da Mexerica e abstratos abrem o catálogo, preservam os antigos e entregam os pares medidos (WebP ou JPEG mantido)', () => {
   const { a } = fixture()
   assert.deepEqual(Array.from(a.HOUSE_WALLPAPERS, (w) => w.id), [...mexericaIds, ...codeIds, 'serra', 'duna', 'mare', 'noite', 'cidade', 'risca', 'mogno', ...abstractIds])
   assert.equal(measurements.images.length, 40)

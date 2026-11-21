@@ -6,21 +6,23 @@ apresentação promocional herdada. Não transfere titularidade da base.
 
 O texto Apache-2.0 aplicável permanece integral em LICENSE. Materiais
 específicos conservam as condições e os avisos de THIRD_PARTY.md e dos
-respectivos arquivos. Este aviso não muda essas licenças.
+respectivos arquivos. Este aviso não muda essas licenças. A arte da Mexerica
+segue a regra de brand/LICENCA-DA-ARTE.md: só as Mexeriquinhas e as 19 opções
+de ícone das rodadas 2 e 3 são Apache-2.0; o restante tem direitos reservados (sem licença de reuso)
+e só vale dentro da Mexerica como distribuída.
 
 Os nomes e serviços do projeto de origem citados abaixo identificam a base
 e suas condições; não são serviços operados ou oferecidos pela Mexerica.
 
-Componentes de terceiros principais incorporados ao repositório, com
-licença, titular e aviso por arquivo registrados em THIRD_PARTY.md:
-código adaptado de OpenMausBot (Apache-2.0); trechos e fixtures de
-ai-memory, tstack, security-audit-skill (Cloudflare) e wacli (MIT);
-13 skills de emilkowalski/skills em .claude/skills/ (MIT, cópia da
-licença em .claude/skills/LICENSE-MIT-emilkowalski.txt); fontes DM Sans,
-Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto
-ao lado de cada arquivo) e ícones Lucide (ISC). A skill
-product-launch-film herdada da base publica fontes Geist sob OFL 1.1 e
-não distribui arquivos de som.
+Componentes de terceiros presentes nesta cópia, com licença, titular e aviso
+por arquivo registrados em THIRD_PARTY.md: código do OpenMausBot (Apache-2.0) e de
+commits do Codync posteriores à v2.20.3 (Apache-2.0); padrões de redação do ai-memory e receitas de fundos do Opensource UI (MIT); a fixture com o esquema do wacli (MIT);
+a LICENSE das skills de Exa e Supabase (MIT); skills de terceiros embutidas no catálogo de
+skills do Hub, com a licença que cada uma traz; pi-mono (MIT), vendorizado no motor; fontes DM Sans,
+Inter, Geist, Manrope e IBM Plex Sans (SIL Open Font License 1.1, texto ao
+lado de cada arquivo); o pacote npm lucide (ISC); e as logos dos serviços do
+catálogo de conectores (marcas de seus titulares). O inventário de dependências, com a cobertura e os
+limites que ele declara, está em packaging/avisos/INVENTARIO-DEPENDENCIAS.md.
 
 --- Aviso original preservado integralmente ---
 

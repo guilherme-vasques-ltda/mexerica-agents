@@ -45,7 +45,7 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
   useEffect(() => {
     // Preparar sempre vem antes: reaproveita o programa compatível ou instala o fixado, sem login.
     const created = new SetupSession(account.id, () => contas.account(account.id)?.revision ?? account.revision, () => store.ready(), engineSetup, {
-      installFirst: true,
+      installFirst: window.codync.appScheme !== 'mexerica-open',
       onRef: (ref) => contas.rememberOperation(account.id, ref),
       onFinished: () => void contas.load(),
     })
@@ -201,7 +201,9 @@ function Desafio({ session, operation, engine }: { session: SetupSession; operat
             <Text mono tabular size="title2" weight="semibold" tone="text" className="contas-codigo selectable" dir="ltr" aria-label={tradutor(idioma)('contas.codigo', { codigo: challenge.code.split('').join(' ') })}>
               {challenge.code}
             </Text>
-            <IconButton title={textos.copiarCodigo} icon="doc.on.doc" disabled={overdue} onClick={copy} />
+            {window.codync.appScheme !== 'mexerica-open' && (
+              <IconButton title={textos.copiarCodigo} icon="doc.on.doc" disabled={overdue} onClick={copy} />
+            )}
             <span className="contas-sr-only" aria-live="polite">{copied ? textos.codigoCopiado : ''}</span>
           </HStack>
         </VStack>

@@ -1,0 +1,32 @@
+import type { Traducao } from '../../index.ts'
+import type { textos as fonte } from '../../pt-BR/conversa/mudancas.ts'
+
+export const textos: Traducao<typeof fonte> = {
+  'conversa.mudancas.titulo': "此回复中记录的更改",
+  'conversa.mudancas.aviso.titulo': "此列表本身不完整",
+  'conversa.mudancas.aviso.corpo': "仅显示引擎在此回复中发送的片段。它不会读取磁盘，也不会使用 Git，大约的 +/− 统计可能无法涵盖全部更改。",
+  'conversa.mudancas.lacunas.titulo': "此记录的限制与缺口",
+  'conversa.mudancas.lacuna.historico': "镜像中的历史记录不完整：此回复的开头可能位于已加载范围之外。",
+  'conversa.mudancas.lacuna.parcial': "至少有一个片段因 6,000 字节截断或 80 行上限而被精简。",
+  'conversa.mudancas.gatilho.semRegistro': "此回复中有未记录的更改",
+  'conversa.mudancas.gatilho.historicoIndisponivel': "更改历史不可用",
+  'conversa.mudancas.gatilho.lacunaParcial': "片段已精简",
+  'conversa.mudancas.gatilho.lacunaHistorico': "历史记录不完整",
+  'conversa.mudancas.gatilho.separadorLacuna': "、",
+  'conversa.mudancas.gatilho.resumoAprox': "{rotulo}，约 +{adicionadas}、−{removidas}",
+  'conversa.mudancas.gatilho.aria': "{resumo}。部分列表。打开已记录的更改",
+  'conversa.mudancas.gatilho.ariaComLacunas': "{resumo}。部分列表：{lacunas}。打开已记录的更改",
+  'conversa.mudancas.resumo.linha': "{arquivos} · {trechos}",
+  'conversa.mudancas.arquivo.novo': "新建文件",
+  'conversa.mudancas.arquivo.editado': "已修改文件",
+  'conversa.mudancas.selo.resumido': "已精简",
+  'conversa.mudancas.trecho.linha': "L{linha}",
+  'conversa.mudancas.vazio.titulo': "没有记录到更改片段",
+  'conversa.mudancas.vazio.corpo': "引擎在此回复中未发送更改片段。请查看上方提示，了解可能遗漏的内容。",
+  'conversa.mudancas.gatilho.arquivos.other': "{n} 个文件有已记录的更改",
+  'conversa.mudancas.gatilho.lacunaSemRegistro.other': "{n} 个步骤无记录",
+  'conversa.mudancas.lacuna.semRegistro.other': "{n} 个命令或编辑步骤未附带已记录片段；其中所做的更改不会显示在这里。",
+  'conversa.mudancas.resumo.arquivos.other': "{n} 个文件",
+  'conversa.mudancas.resumo.trechos.other': "{n} 个片段",
+  'conversa.mudancas.arquivo.trechos.other': "{n} 个片段",
+}

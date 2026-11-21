@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { superficieIdioma, useIdioma, useT } from '../lib/fork-i18n/estado'
 import { Spinner } from '../components/Controls'
@@ -70,7 +71,7 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
         { title: t(isBusy ? 'navegacao.janela.conta.aguarde' : 'navegacao.janela.conta.sair'), icon: 'rectangle.portrait.and.arrow.right', disabled: !canAct, action: () => { onDismiss(); void account.requestSignOut() } },
       ]
     : [
-        ...(socialProviders.includes('apple') ? [{ title: t('navegacao.janela.conta.apple'), icon: 'apple.logo', disabled: !canAct, action: () => { onDismiss(); void account.signIn('apple') } }] : []),
+        ...(socialProviders.includes('apple') ? [{ title: t('navegacao.janela.conta.apple'), icon: 'provedor.apple', disabled: !canAct, action: () => { onDismiss(); void account.signIn('apple') } }] : []),
         ...(socialProviders.includes('google') ? [{ title: t('navegacao.janela.conta.google'), icon: 'person.crop.circle.badge.plus', image: googleLogo, disabled: !canAct, action: () => { onDismiss(); void account.signIn('google') } }] : []),
       ]
   const open = (url: string, link: Link) => {

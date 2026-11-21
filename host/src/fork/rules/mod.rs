@@ -13,6 +13,8 @@ mod levels;
 pub(crate) mod mcp;
 pub mod migrate;
 #[cfg(test)]
+mod propriedades;
+#[cfg(test)]
 mod provas;
 #[path = "contrato.rs"]
 pub mod rule;

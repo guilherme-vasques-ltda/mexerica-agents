@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 // App-level events the desktop app reports through the host's loopback `track`. The host accepts
 // only the catalog's events and properties (docs/reference/analytics-events.md): feature use,
 // never content.

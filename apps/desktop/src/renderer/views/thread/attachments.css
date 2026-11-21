@@ -1,3 +1,4 @@
+/* Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md. */
 /* Files in the chat: sent attachments (Attachments.tsx) and files a bot shares (FileDownloadCard.tsx). */
 .attachment-image-button {
   display: flex;
@@ -49,7 +50,6 @@
 .attachment-file-name {
   max-width: 200px;
 }
-/* Modificado pela DONNA Bot em 2026-11-06: trilhas de Codync c785c49e, Apache-2.0; ver THIRD_PARTY.md. */
 .attachment-viewer {
   flex: 1;
   min-height: 0;

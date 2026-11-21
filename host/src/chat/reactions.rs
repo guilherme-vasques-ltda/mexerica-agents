@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! A bot reacts to the message it's answering with one emoji (the `chat` server's `react`):
 //! the user's message in its own chat, or someone's in a group's room turn. The bot's actor
 //! picks the message (`Actor::react`), since it knows what the turn answers.

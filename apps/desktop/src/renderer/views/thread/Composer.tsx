@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { originDevice, originReport, type OriginKind } from '@shared/guard-hub'
 import type { EditRange } from '@shared/composer-segments'
 import { draftKey } from '@shared/composer-drafts'
@@ -476,7 +477,6 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
                   if (!canAttach) return
                   if (!hasFiles || (types.includes('text/plain') && !captured.length)) return
                   e.preventDefault()
-                  // Adaptado de Codync 6dcee39da4e475d233bc9c245a9505bd0c10f27b (Apache-2.0).
                   void readPasted(captured, () => window.codync.app.readClipboardFiles()).then(append())
                 }}
               />

@@ -1,6 +1,8 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { CoresControles } from './janela-faixa'
 import type { AppLanguage } from './fork-idioma'
 import type { ForkCloudIntent, ForkCloudResult, ForkCloudCallResult, ForkCloudEventsBody, ForkCloudStreamError } from './fork-cloud'
+import type { BrowserFrame } from './relay-protocol/browser-frames.ts'
 import type { VozBridge } from './fork-voz'
 import type { AccountProfileBridge } from './fork-account-profile'
 import type { SignInFailure, SignInProvider } from './analytics'
@@ -81,6 +83,8 @@ export type WindowCommand =
   /** ⌘, ("Ajustes…" no menu do app): abre a tela de Ajustes (ajustes-tela-01). */
   | { kind: 'openSettings' }
   | { kind: 'toggleDetails' }
+  /** o atalho global da chamada de voz (abre ou encerra, na conversa à vista). */
+  | { kind: 'voiceToggle'; modal?: boolean }
   | { kind: 'refresh' }
   | { kind: 'respondPermission'; ref: string; entryId: string; optionId: string }
   /** `replyId`: a Ilha espera o resultado (aceito ou barrado pelo aviso de senha colada) por `island.sendResult`. */
@@ -172,6 +176,12 @@ export interface CodyncBridge {
     onChange(cb: (result: ForkCloudResult) => void): () => void
     call(connectionId: string, method: string, body: unknown, timeoutMs: number): Promise<ForkCloudCallResult>
     subscribeEvents(connectionId: string, body: ForkCloudEventsBody, onEvent: (event: unknown) => void, onEnd: (error: ForkCloudStreamError | null) => void): () => void
+    /**
+     * Quadros binários do navegador do bot (fatia 2, B2), entregues sem passar por JSON. Um quadro por vez: o
+     * próximo só sai depois de `consumed()`, e a fila guarda só o mais recente. `onEnd` com `status` 501 = o Hub
+     * não aceitou a capacidade; qualquer fim fecha a tela.
+     */
+    subscribeFrames(connectionId: string, onFrame: (frame: BrowserFrame, waitedMs: number) => void, onEnd: (error: ForkCloudStreamError | null) => void): { cancel(): void; consumed(): void; opened: Promise<boolean> }
   }
   /** MX-209: o chat só pede a janela do cartão seguro e ouve avisos sem valor (shared/fork-cofre-seguro.ts). */
   forkCofre: PonteCofreChat

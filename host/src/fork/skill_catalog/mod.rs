@@ -464,6 +464,8 @@ fn root_lock(store: &Store) -> Result<File> {
     }
     let lock = options.open(path)?;
     acquire(&lock, LOCK_WAIT)?;
+    #[cfg(windows)]
+    clean_orphans(&store.skills_root, move_no_replace);
     Ok(lock)
 }
 
@@ -565,7 +567,15 @@ fn sync_directories(path: &Path) -> Result<()> {
             sync_directories(&entry.path())?;
         }
     }
+    sync_directory(path)
+}
+
+/// O Windows não abre pasta como arquivo (`File::open` nega acesso); lá a gravação já é por arquivo.
+fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
     File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -601,10 +611,140 @@ fn rename_flagged(source: &Path, dest: &Path, swap: bool) -> Result<()> {
         }
         Ok(())
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    {
+        // Sem troca atômica no Windows: a troca sai em passos (ver `swap_in_steps`) e todo passo recusa
+        // destino existente, então um destino criado no intervalo nunca é substituído.
+        if !swap {
+            return Ok(move_no_replace(source, dest)?);
+        }
+        swap_in_steps(source, dest, move_no_replace)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = (source, dest, swap);
         bail!("Publicação atômica sem substituição indisponível nesta plataforma");
+    }
+}
+
+/// `MoveFileExW` sem `MOVEFILE_REPLACE_EXISTING`: o próprio sistema recusa quando o destino existe
+/// (arquivo, pasta, vazia ou não, ou junção). O `fs::rename` do Rust substitui o destino.
+#[cfg(windows)]
+fn move_no_replace(source: &Path, dest: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    // Forma estendida (`\\?\`): sem ela o `MoveFileExW` falha acima de 260 unidades, mesmo quando o
+    // staging (que passa pelo `std`) deu certo.
+    let wide = |path: &Path| -> std::io::Result<Vec<u16>> {
+        let units: Vec<u16> = std::path::absolute(path)?.as_os_str().encode_wide().collect();
+        let (verbatim, unc): (Vec<u16>, Vec<u16>) =
+            (r"\\?\".encode_utf16().collect(), r"\\?\UNC\".encode_utf16().collect());
+        let mut full = if units.starts_with(&verbatim) {
+            units
+        } else if let Some(rest) = units.strip_prefix(&[0x5c_u16, 0x5c_u16][..]) {
+            [unc, rest.to_vec()].concat()
+        } else {
+            [verbatim, units].concat()
+        };
+        full.push(0);
+        Ok(full)
+    };
+    let (source, dest) = (wide(source)?, wide(dest)?);
+    if source[..source.len() - 1].contains(&0) || dest[..dest.len() - 1].contains(&0) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "caminho com NUL"));
+    }
+    // SAFETY: os dois buffers terminam em NUL, não têm NUL no meio e ficam vivos durante a chamada; flags 0
+    // não substitui destino existente.
+    if unsafe { MoveFileExW(source.as_ptr(), dest.as_ptr(), 0) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Troca duas pastas sem rename atômico: `dest` sai para `.old-*`, `source` entra em `dest` e a antiga
+/// volta para `source` (o stage a apaga). Se a entrada falha, a anterior volta; se o desfazer também
+/// falha, os dois erros chegam ao chamador. O lock de filesystem serializa os escritores do Hub.
+#[cfg(any(windows, test))]
+fn swap_in_steps(source: &Path, dest: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) -> Result<()> {
+    // O nome guarda o destino (".old-<uuid>-<destino>"): se o desfazer falhar, `clean_orphans` sabe para onde
+    // devolver a única cópia da versão anterior.
+    let name = dest.file_name().unwrap_or_default().to_string_lossy();
+    let old = dest.with_file_name(format!(".old-{}-{name}", uuid::Uuid::new_v4()));
+    mv(dest, &old).context("Não foi possível tirar a versão anterior do caminho")?;
+    if let Err(error) = mv(source, dest) {
+        return match mv(&old, dest) {
+            Ok(()) => Err(anyhow!(error).context("Troca de pastas recusada; versão anterior mantida")),
+            Err(undo) => Err(anyhow!(
+                "Troca de pastas interrompida ({error}) e o desfazer falhou ({undo}); a versão anterior ficou em {}",
+                old.file_name().unwrap_or_default().to_string_lossy()
+            )),
+        };
+    }
+    // `dest` já tem a versão nova; levar a antiga para o stage é só limpeza, em melhor esforço.
+    if let Err(error) = mv(&old, source) {
+        tracing::warn!(%error, "Não foi possível mover a versão anterior para o stage; apagando");
+        if let Err(error) = fs::remove_dir_all(&old) {
+            tracing::warn!(%error, "Pasta .old-* órfã não foi apagada; a próxima operação a remove");
+        }
+    }
+    Ok(())
+}
+
+/// Destino guardado em `.old-<uuid>-<destino>`; só devolve se o nome inteiro casar: prefixo, UUID de
+/// verdade, hífen separador e destino que passa na validação de nome de skill. O resto é ignorado.
+#[cfg(any(windows, test))]
+fn old_destination(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix(".old-")?;
+    let (id, dest) = (rest.get(..36)?, rest.get(37..)?);
+    (rest.as_bytes().get(36) == Some(&b'-')
+        && uuid::Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == id)
+        && crate::fork::agent_skills::validate_name(dest, dest).is_ok())
+    .then_some(dest)
+}
+
+/// Limpa o que uma queda deixou, sob o lock do catálogo (nenhum escritor está em passo de troca ou de
+/// preparo): `.stage-*` é apagado; `.old-*` volta para o destino que o nome guarda quando esse destino
+/// não existe (era a única cópia) e só é apagado quando o destino já existe.
+#[cfg(any(windows, test))]
+fn clean_orphans(root: &Path, mv: impl Fn(&Path, &Path) -> std::io::Result<()>) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let old = name.starts_with(".old-");
+        if !(old || name.starts_with(".stage-")) {
+            continue;
+        }
+        let path = entry.path();
+        if !fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_dir()) {
+            continue;
+        }
+        if old {
+            let Some(dest) = old_destination(&name) else { continue };
+            let dest = root.join(dest);
+            // Só apaga depois de ver o destino de fato: sem destino a cópia volta; erro de leitura a mantém.
+            match fs::symlink_metadata(&dest) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if let Err(error) = mv(&path, &dest) {
+                        tracing::warn!(%error, "Versão anterior do catálogo não pôde ser restaurada; mantida em .old-*");
+                    } else {
+                        tracing::warn!("Versão anterior do catálogo de habilidades restaurada após troca interrompida");
+                    }
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Destino do catálogo ilegível; versão anterior mantida em .old-*");
+                    continue;
+                }
+            }
+        }
+        if let Err(error) = fs::remove_dir_all(&path) {
+            tracing::warn!(%error, "Pasta órfã do catálogo de habilidades não foi apagada");
+        }
     }
 }
 
@@ -619,7 +759,12 @@ fn publish(store: &Store, id: &str, files: &[registry::Asset], r: Option<&Receip
     // O lock de filesystem serializa todos os escritores do Hub; nenhum destino é substituído.
     ensure!(fs::symlink_metadata(&dest).is_err(), "Destino criado durante a importação");
     rename_new(&stage.0, &dest)?;
-    File::open(&store.skills_root)?.sync_all()?;
+    sync_directory(&store.skills_root)?;
+    // Confere de novo o que ficou em `dest`: o stage pode ter sido mexido entre a prova e a publicação.
+    if let Err(error) = verify_published(&dest, files, r) {
+        let _ = fs::remove_dir_all(&dest);
+        return Err(error.context("A importação publicada não conferiu; removida"));
+    }
     Ok(true)
 }
 
@@ -633,7 +778,7 @@ fn replace(store: &Store, id: &str, files: &[registry::Asset], r: &Receipt) -> R
         Ok(meta) if meta.file_type().is_dir() => rename_swap(&stage.0, &dest)?,
         _ => bail!(installation::UNAVAILABLE),
     }
-    File::open(&store.skills_root)?.sync_all()?;
+    sync_directory(&store.skills_root)?;
     Ok(())
 }
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { crc32, deflateSync } from 'node:zlib';
 import { fingerprint, publicRules, scanLine, scan, maskTerms, safePath, loadPolicy, notify, termExceptions } from './ci-vazamento.mjs';
 
 const policy = JSON.parse(readFileSync(new URL('../.github/security/vazamento.json', import.meta.url), 'utf8'));
@@ -156,7 +157,7 @@ test('binários com NUL ficam fora; arquivos sensíveis geram achado sem ler con
   write('.env.fixture', vault); write('private.key', vault);
   const head = commit();
   const result = scan({ cwd, mode: 'arvore', head, policy });
-  assert.deepEqual(result.limits, { binary: 1, sensitive: 2, submodule: 0 });
+  assert.deepEqual(result.limits, { binary: 1, sensitive: 2, submodule: 0, base64Media: 0 });
   assert.ok(!result.findings.some((f) => f.path === 'imagem.png'));
   assert.deepEqual(result.findings.filter((f) => ['.env.fixture', 'private.key'].includes(f.path)).map((f) => [f.path, f.rule, f.line]), [['.env.fixture', 'arquivo-sensivel', undefined], ['private.key', 'arquivo-sensivel', undefined]]);
   assert.ok(!result.findings.some((f) => ['.env.fixture', 'private.key'].includes(f.path) && f.rule === 'cofre'));
@@ -248,18 +249,18 @@ test('issue contém só contagens e caminhos; nunca abre em destino público', a
 
 test('contrato do workflow: scanner aprovado, testes sem secret e ci-ok obrigatório', () => {
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  const job = ci.split('  vazamento:\n')[1].split('\n  dependency-audit:')[0];
-  assert.match(job, /needs: \[route, secrets\]/);
+  const job = ci.split('  vazamento:\n')[1].split('\n  hub:')[0];
+  assert.ok(!/^    needs:/m.test(job), 'vazamento não espera código do PR rodar antes');
   assert.match(job, /permissions:\n      contents: read/);
   assert.ok(!job.includes('issues: write'));
   assert.match(job, /git show "\$source:tools\/ci-vazamento.mjs"/);
   assert.match(job, /test "\$GITHUB_EVENT_NAME" = pull_request/);
   assert.ok(!job.includes('node --test'), 'VM do secret não executa testes do PR');
-  const testJob = ci.split('  ferramentas-ci:\n')[1].split('  hub:\n')[0];
+  const testJob = ci.split('  leves:\n')[1].split('\n  vazamento:')[0];
   assert.ok(testJob.includes('tools/ci-vazamento.test.mjs'));
   assert.ok(!testJob.includes('secrets.'), 'VM dos testes não recebe secrets');
   assert.ok(!testJob.includes('VAZAMENTO_TERMOS'));
-  assert.match(ci, /needs: \[route, secrets, vazamento, semgrep, changes,/);
+  assert.match(ci, /needs: \[leves, vazamento, hub, desktop\]/);
   assert.match(ci, /\.vazamento.result == "success"/);
 });
 
@@ -528,4 +529,128 @@ test('exceção de termo: scan em pr e arvore respeita arquivo exato, caminho e 
   assert.deepEqual(loadPolicy(cwd, base, badHead, true).policy.excecoesTermo, policy.excecoesTermo, 'política do PR não vale; vale a da main');
   git('update-ref', 'refs/remotes/origin/main', badHead);
   assert.throws(() => loadPolicy(cwd, badHead, badHead, true));
+}));
+
+const numericHit = (line, terms) => scanLine('fixture', 1, line, policy, terms, true).some((f) => f.rule === 'termo-pessoal');
+const fakeIP = ['10', '0', '0', '9'].join('.');
+
+test('termo numérico: coordenadas de SVG não fabricam o termo trocando separadores', () => {
+  for (const line of ['<path d="M14.0 0.9Q10.0 0.9L10.0 0.9"/>', '10 0 0 9', '10-0-0-9', '10_0_0_9', '1' + fakeIP, fakeIP + '5', '1.' + fakeIP, fakeIP + '.5', fakeIP + '.5 ', fakeIP + '.75,', fakeIP + '.5.6']) {
+    assert.equal(numericHit(line, [fakeIP]), false, line);
+  }
+  const svg = '<svg><path d="' + 'M14.0 0.9Q10.0 0.9 '.repeat(50000) + '"/></svg>';
+  assert.equal(numericHit(svg, [fakeIP]), false, 'linha longa de desenho sem o termo');
+});
+
+test('termo numérico: IP literal continua pego em texto, URL, aspas e no meio de linha longa', () => {
+  for (const line of ['servidor em ' + fakeIP + '.', 'http://' + fakeIP + ':8080/api', 'https://' + fakeIP + '/', '"' + fakeIP + '"', "'" + fakeIP + "'", '`' + fakeIP + '`', 'ssh pessoa@' + fakeIP, 'host=' + fakeIP, '(' + fakeIP + ')', fakeIP + ', depois', '[' + fakeIP + ']', 'backup_' + fakeIP + '_dump.sql', 'ip' + fakeIP + 'x', '1,' + fakeIP + ',2', 'a;' + fakeIP + ';b', '1-' + fakeIP, 'copia-' + fakeIP + '.7z', fakeIP + '.3gp', fakeIP + '.7.zip', fakeIP + '.75z']) {
+    assert.equal(numericHit(line, [fakeIP]), true, line);
+  }
+  const data = 'M14.0 0.9Q10.0 0.9 '.repeat(50000);
+  assert.equal(numericHit('<path d="' + data + '"/>' + fakeIP + '<path d="' + data + '"/>', [fakeIP]), true, 'linha longa não esconde o termo');
+  assert.ok(scanLine('commit/x', 1, 'deploy em ' + fakeIP, policy, [fakeIP]).some((f) => f.rule === 'termo-pessoal'), 'mensagem de commit');
+  assert.equal(safePath('pasta/' + fakeIP + '.txt', [fakeIP], policy), '[caminho-omitido]');
+});
+
+test('termo numérico: espaço do termo aceita qualquer espaço; outros separadores precisam ser os mesmos', () => {
+  const phone = '11 9999' + '9-8888';
+  assert.equal(numericHit('tel: +55 11  9999' + '9-8888', [phone]), true);
+  assert.equal(numericHit('tel: 11\t9999' + '9-8888', [phone]), true);
+  assert.equal(numericHit('tel: 11.9999' + '9.8888', [phone]), false);
+  assert.equal(numericHit('contato_11 9999' + '9-8888.vcf', [phone]), true);
+  assert.equal(numericHit('id,11 9999' + '9-8888,ativo', [phone]), true);
+});
+
+test('termo de texto continua igual: hífen, espaço, ponto e sublinhado são equivalentes', () => {
+  for (const [term, lines] of [
+    ['Cácto Fictício', ['cacto ficticio', 'CACTO-FICTICIO', 'cacto.ficticio', 'cacto_ficticio', 'cacto   ficticio']],
+    ['Agave-Inventado', ['agave inventado', 'Agave Inventado', 'agave_inventado']],
+    ['agave 2000', ['agave-2000', 'Agave.2000']],
+  ]) {
+    for (const line of lines) assert.equal(numericHit(line, [term]), true, line);
+  }
+});
+
+test('termo numérico: exceção por hash continua valendo só no arquivo exato', () => {
+  const p = { ...policy, excecoesTermo: [{ sha256: hashOf(fakeIP.replace(/\./g, ' ')), arquivo: EXC_FILE, motivo: 'fixture' }] };
+  assert.equal(termRule(EXC_FILE, 'ip ' + fakeIP, p, [fakeIP]), false);
+  assert.equal(termRule('outro.txt', 'ip ' + fakeIP, p, [fakeIP]), true);
+});
+
+const crcOf = (bytes) => { const b = Buffer.alloc(4); b.writeUInt32BE(crc32(bytes) >>> 0); return b; };
+const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type, 'latin1'), data]); return Buffer.concat([len, body, crcOf(body)]); };
+// Assinatura (8) + IHDR (25) + tamanho e tipo (8) + 1 = 42 bytes, múltiplo de 3: o trecho escolhido aparece alinhado no base64.
+const ihdr = chunk('IHDR', Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0]));
+const idat = chunk('IDAT', Buffer.from([0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01]));
+const pngParts = (aligned, extra = [], head = [ihdr], body = [idat]) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ...head, chunk('ruSt', Buffer.concat([Buffer.alloc(1), Buffer.from(aligned, 'base64')])), ...extra, ...body, chunk('IEND', Buffer.alloc(0))]).toString('base64');
+const pngWith = (aligned, extra = []) => pngParts(aligned, extra);
+const svgWith = (block, mime = 'image/png') => '<svg><image href="data:' + mime + ';base64,' + block + '"/></svg>';
+const b64Hit = (line, terms = ['Cacto']) => scanLine('fixture', 1, line, policy, terms, true).some((f) => f.rule === 'termo-pessoal');
+const png = pngWith('CactoAAA');
+
+test('data URI: PNG completo com termo curto por acaso no base64 não acusa; fora do bloco acusa', () => {
+  assert.ok(png.includes('CactoAAA'));
+  assert.equal(b64Hit(png), true, 'base64 fora de data URI segue como texto');
+  assert.equal(b64Hit(svgWith(png)), false);
+  assert.equal(b64Hit(svgWith(pngWith('CactoAAA' + 'A'.repeat(4 * 300000)))), false, 'linha longa');
+  assert.equal(b64Hit(svgWith(png) + '<desc>cacto</desc>'), true);
+  assert.equal(b64Hit('cacto ' + svgWith(png)), true);
+  let media = 0;
+  scanLine('fixture', 1, svgWith(png), policy, ['Cacto'], true, true, () => media++);
+  assert.equal(media, 1);
+});
+
+test('data URI: termo longo continua comparado no base64 cru; metadado legível do PNG é comparado', () => {
+  assert.equal(b64Hit(svgWith(pngWith('CactoFicticioAAA')), ['CactoFicticio']), true);
+  const meta = pngWith('AAAA', [chunk('tEXt', Buffer.from('Author\0Cacto Ficticio'))]);
+  assert.equal(b64Hit(svgWith(meta), ['Cácto Fictício']), true);
+  for (const extra of [chunk('tEXt', Buffer.from('Author\0Cacto\n')), chunk('zTXt', Buffer.concat([Buffer.from('Author\0\0'), deflateSync(Buffer.from('Cacto'))])), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\0\0pt\0Autor\0'), Buffer.from('Cácto')])), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\x01\0pt\0Autor\0'), deflateSync(Buffer.from('Cacto'))]))]) {
+    const block = pngWith('AAAA', [extra]);
+    assert.ok(!/cacto/i.test(block));
+    assert.equal(b64Hit(svgWith(block)), true, 'metadado curto do PNG');
+  }
+  const bomb = chunk('zTXt', Buffer.concat([Buffer.from('a\0\0'), deflateSync(Buffer.alloc(3 * 1024 * 1024))]));
+  for (const extra of [chunk('zTXt', Buffer.from('Author\0\0nao-e-zlib')), chunk('tEXt', Buffer.from('\0sem-chave')), chunk('tEXt', Buffer.from('Author\0a\0b')), chunk('tEXt', Buffer.from('sem-separador')),
+    chunk('iTXt', Buffer.from('Author\0\x02\0pt\0Autor\0x')), chunk('iTXt', Buffer.from('Author\0\0\0pt')), chunk('iTXt', Buffer.concat([Buffer.from('Author\0\0\0pt\0Autor\0'), Buffer.from([0xff])])), bomb]) {
+    const extras = extra === bomb ? [bomb, bomb] : [extra];
+    assert.equal(b64Hit(svgWith(pngWith('CactoAAA', extras))), true, 'chunk de texto inválido ou acima do orçamento deixa o bloco cru');
+  }
+  assert.equal(b64Hit(svgWith(pngWith('CactoAAA', [bomb]))), false, 'um zTXt dentro do orçamento é aceito');
+  const heavy = svgWith(pngWith('CactoAAA', [bomb]));
+  assert.equal(b64Hit(heavy + heavy), true, 'o orçamento é da linha inteira, não de cada PNG');
+  const over = svgWith(pngWith('AAAA', [chunk('zTXt', Buffer.concat([Buffer.from('a\0\0'), deflateSync(Buffer.alloc(5 * 1024 * 1024))]))]));
+  assert.equal(b64Hit(over + svgWith(pngWith('CactoAAA', [chunk('zTXt', Buffer.concat([Buffer.from('a\0\0'), deflateSync(Buffer.from('x'))]))]))), true, 'falha por orçamento esgota o saldo da linha');
+  const many = pngWith('AAAA', Array.from({ length: 150000 }, () => chunk('tEXt', Buffer.from('k\0v'))));
+  assert.equal(b64Hit(svgWith(many)), false, 'muitos chunks de texto não estouram a pilha');
+});
+
+test('data URI: PNG incompleto, outro formato, CRC errado, bloco sem fim claro ou base64 inválido seguem crus', () => {
+  const bad = Buffer.from(png, 'base64'); bad[bad.length - 1] ^= 1;
+  const noIhdr = pngParts('CactoAAA', [], [chunk('ruSt', Buffer.alloc(13))]), noIdat = pngParts('CactoAAA', [], [ihdr], []);
+  const emptyIdat = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.alloc(0))]), badZlib = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x78, 0x00, 0x01]))]);
+  const bigWindow = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x88, 0x1c, 0x01]))]), presetDict = pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.from([0x78, 0x20, 0x01]))]);
+  assert.equal(b64Hit(svgWith(pngParts('CactoAAA', [], [ihdr], [chunk('IDAT', Buffer.alloc(0)), idat]))), false, 'IDAT vazio seguido de IDAT com dados é aceito');
+  for (const line of [svgWith(png, 'image/x-desconhecido'), svgWith(png, 'image/jpeg'), svgWith(bad.toString('base64')), svgWith(png).replace('"/>', '!"/>'), svgWith(png).replace('"/>', ';x"/>'), svgWith(png.replace(/=*$/, '') + 'C'), svgWith('CactoAAA'), svgWith(noIhdr), svgWith(noIdat), svgWith(emptyIdat), svgWith(badZlib), svgWith(bigWindow), svgWith(presetDict)]) {
+    assert.equal(b64Hit(line), true, line.slice(0, 60));
+  }
+});
+
+test('data URI: texto decodificado é comparado sem tirar o texto cru', () => {
+  const text = Buffer.from('autor: Cácto Fictício').toString('base64');
+  for (const uri of ['data:text/plain;base64,' + text, 'data:text/plain;charset=utf-8;base64,' + text, 'url(data:application/json;base64,' + text.replace(/=+$/, '') + ')']) {
+    assert.equal(b64Hit(uri, ['Cácto Fictício']), true, uri);
+  }
+  assert.equal(b64Hit('data:text/plain;base64,CactoAAA'), true, 'cru continua comparado');
+});
+
+test('data URI: regras públicas seguem na linha original e o limite conta posições com mídia', () => fixture(({ cwd, write, commit, base }) => {
+  assert.ok(scanLine('fixture', 1, svgWith(png) + ' ' + vault, policy, ['Cacto'], true).some((f) => f.rule === 'cofre'));
+  write('logo.svg', svgWith(png) + '\n' + svgWith(png) + '\n');
+  const head = commit();
+  for (const mode of ['pr', 'arvore']) {
+    const result = scan({ cwd, mode, base, head, policy, terms: ['Cacto'] });
+    assert.equal(result.findings.filter((f) => f.rule === 'termo-pessoal').length, 0, mode);
+    assert.equal(result.limits.base64Media, 2, mode);
+  }
+  assert.equal(scan({ cwd, mode: 'arvore', head, policy }).limits.base64Media, 0, 'sem termos não decodifica');
 }));

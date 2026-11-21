@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Wire cryptography of the phone ↔ host protocol (docs/reference/remote-relay.md §5, §6):
 //! the signed-ephemeral handshake, frame sealing and chunking, mailbox opening,
 //! push sealing, SAS, pairing offer ids and the canonical strings that get signed.

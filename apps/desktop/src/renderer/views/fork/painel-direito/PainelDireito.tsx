@@ -14,8 +14,11 @@ export type RightPanel = ReturnType<typeof useRightPanel>
  * (alfinete, ⌘I, dois cliques numa aba de sessão ou clique na alça; empurra o chat). `roomy`: a janela tem
  * lugar para o chat e o painel lado a lado; senão o fixo também abre por cima.
  */
-export function useRightPanel(roomy: boolean) {
-  const [pinnedPref, setPinned] = usePref(panelPrefs.pinned)
+export function useRightPanel(roomy: boolean, isolated = false) {
+  const [sharedPinned, setSharedPinned] = usePref(panelPrefs.pinned)
+  const [localPinned, setLocalPinned] = useState(false)
+  const pinnedPref = isolated ? localPinned : sharedPinned
+  const setPinned = isolated ? setLocalPinned : setSharedPinned
   // WhatsApp R5c: com a tela grande no centro, o painel sai de vista (`away`, só a alça) sem mudar a preferência;
   // `veil` o esconde enquanto a moldura do Recolher voa até ele.
   const [away, setAway] = useState(false)
