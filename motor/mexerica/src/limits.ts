@@ -85,7 +85,9 @@ function shrink(message: AgentMessage): AgentMessage {
 			return candidate;
 		}
 		if (budget === 0) break;
-		budget = Math.max(budget - (size - MAX_MESSAGE_BYTES) - 1, 0);
+		// O orçamento cai na proporção do que passou do teto (poucas voltas, cada uma refaz o corte), e sempre
+		// pelo menos um byte: sobra um prefixo de texto mesmo quando o escape multiplica o tamanho.
+		budget = Math.min(Math.floor((budget * MAX_MESSAGE_BYTES) / size), budget - 1);
 	}
 	const source = message as unknown as Json;
 	// O motivo de parada fica: o laço e o Hub decidem o turno por ele (um diagnóstico de erro gigante não pode apagá-lo).

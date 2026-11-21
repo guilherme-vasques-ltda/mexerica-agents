@@ -498,9 +498,16 @@ impl Link {
         ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
         let _busy = BusyGuard(&session.busy);
         self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
-        let mut engine = session.engine.lock().await;
-        let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
-        engine.set_model(&provider, &model).await?;
+        let mut slot = session.engine.lock().await;
+        let engine = slot.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
+        let result = engine.set_model(&provider, &model).await;
+        if let Err(error) = result {
+            // O slot nunca guarda um processo cuja conversa de comandos falhou:
+            // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
+            // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
+            *slot = None;
+            return Err(error);
+        }
         *session.provider.locked() = provider;
         *session.model.locked() = model;
         Ok(())

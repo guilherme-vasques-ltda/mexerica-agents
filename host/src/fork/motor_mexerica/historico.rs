@@ -134,7 +134,8 @@ fn usage(raw: &Value) -> Value {
     })
 }
 
-/// Blocos de texto de `content` (string ou lista), limpos e dentro do orçamento.
+/// Blocos de texto de `content` (string ou lista), limpos e dentro do orçamento. O teto de blocos conta
+/// só os de texto: os outros tipos não gastam o teto.
 fn text_blocks(content: &Value, known: &[String], budget: &mut usize) -> Vec<Value> {
     match content {
         Value::String(text) => {
@@ -142,8 +143,8 @@ fn text_blocks(content: &Value, known: &[String], budget: &mut usize) -> Vec<Val
         }
         Value::Array(blocks) => blocks
             .iter()
-            .take(MAX_BLOCKS)
             .filter(|block| block["type"] == "text")
+            .take(MAX_BLOCKS)
             .filter_map(|block| clean_text(block["text"].as_str()?, known, budget))
             .map(|t| json!({"type": "text", "text": t}))
             .collect(),

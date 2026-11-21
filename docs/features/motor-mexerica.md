@@ -21,7 +21,7 @@ Todos os tetos usam a mesma unidade: bytes UTF-8 do JSON na forma em que ele cru
 
 ## Pares de chamada e resultado
 
-Um resultado de ferramenta só é guardado se responde a uma chamada ainda aberta da última mensagem do assistente: mesmo id, mesmo nome da ferramenta e um resultado por chamada. Um id repetido na mesma mensagem não é guardado. Uma volta que não terminou (turno cancelado ou processo morto no meio) ganha, para cada chamada sem resultado, um resultado de erro "resultado desconhecido: a ação pode ter sido executada; confirme antes de repetir": a conversa guardada nunca tem chamada sem resultado, e o modelo não repete a ação por conta própria. O receptor do motor exige o mesmo (cada chamada com o resultado dela antes da próxima mensagem), devolve só os campos permitidos e recusa a lista inteira se um item for inválido.
+Um resultado de ferramenta só é guardado se responde a uma chamada ainda aberta da última mensagem do assistente: mesmo id, mesmo nome da ferramenta e um resultado por chamada. Um id repetido na mesma mensagem não é guardado. Uma volta que não terminou (turno cancelado ou processo morto no meio) ganha, para cada chamada sem resultado, um resultado de erro "resultado desconhecido: a ação pode ter sido executada; confirme antes de repetir": a conversa guardada nunca tem chamada sem resultado, e o modelo é avisado de que a ação pode ter sido executada, mas isso não impede que ele a peça de novo (nova decisão de permissão no cartão). O receptor do motor exige o mesmo (cada chamada com o resultado dela antes da próxima mensagem), devolve só os campos permitidos e recusa a lista inteira se um item for inválido.
 
 ## Identidade e credencial
 

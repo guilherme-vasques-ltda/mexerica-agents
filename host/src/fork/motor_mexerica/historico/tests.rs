@@ -47,6 +47,11 @@ fn assert_paired(messages: &[Value]) {
             .filter(|block| block["type"] == "toolCall")
             .map(|block| (block["id"].as_str().unwrap().to_owned(), block["name"].as_str().unwrap().to_owned()))
             .collect();
+        let mut seen: Vec<&String> = Vec::new();
+        for (id, _) in &open {
+            assert!(!seen.contains(&id), "id de chamada repetido no mesmo lote: {id}");
+            seen.push(id);
+        }
     }
     assert!(open.is_empty(), "chamadas sem resultado: {open:?}");
 }
@@ -94,6 +99,23 @@ fn copia_enxuta_so_leva_texto_e_chamadas_de_ferramenta() {
     ] {
         assert!(sanitize(&ignored, &[]).is_none(), "{ignored}");
     }
+}
+
+#[test]
+fn o_teto_de_blocos_conta_somente_blocos_de_texto() {
+    let images: Vec<Value> = (0..MAX_BLOCKS).map(|_| json!({"type": "image", "data": "AAAA"})).collect();
+    let mut user_content = images.clone();
+    user_content.push(json!({"type": "text", "text": "depois das imagens"}));
+    let user_message = json!({"role": "user", "content": user_content, "timestamp": 1});
+    let clean = sanitize(&user_message, &[]).expect("o teto de blocos não é gasto por imagens");
+    assert_eq!(clean["content"], json!([{"type": "text", "text": "depois das imagens"}]));
+
+    let mut result_content = images;
+    result_content.push(json!({"type": "text", "text": "eco:feito"}));
+    let tool_result = json!({"role": "toolResult", "toolCallId": "c1", "toolName": "eco", "isError": false,
+        "content": result_content, "timestamp": 3});
+    let clean = sanitize(&tool_result, &[]).expect("o teto de blocos não é gasto por imagens");
+    assert_eq!(clean["content"], json!([{"type": "text", "text": "eco:feito"}]));
 }
 
 #[test]

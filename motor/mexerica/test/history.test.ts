@@ -200,6 +200,15 @@ test("o JSON final de cada mensagem cabe no teto mesmo quando o escape o multipl
 	for (const m of final) assert.ok(bytesOf(m) <= MAX_MESSAGE_BYTES);
 });
 
+test("o corte proporcional deixa um prefixo de texto quando o escape multiplica o tamanho", () => {
+	const controles = { role: "toolResult", toolCallId: "c", toolName: "t", isError: false, timestamp: 1, content: [{ type: "text", text: "\u0001".repeat(200_000) }] } as unknown as AgentMessage;
+	const [resultadoCortado] = fitMessages([chamada("c"), controles]).slice(1);
+	assert.ok(bytesOf(resultadoCortado) <= MAX_MESSAGE_BYTES, "controles viram \\u0001: seis bytes cada");
+	const restante = ((resultadoCortado as unknown as { content: { text?: string }[] }).content[0] ?? {}).text ?? "";
+	assert.ok(restante.length > "\n[truncado pelo Motor]".length, "o bloco de texto fica com um prefixo, não vazio: " + restante.length);
+	assert.ok(restante.endsWith("\n[truncado pelo Motor]"), "o corte mantém o marcador de truncamento");
+});
+
 test("o corte de uma volta sozinha não deixa resultado órfão quando os argumentos são grandes e o resultado, pequeno", () => {
 	const bloco = "z".repeat(MAX_MESSAGE_BYTES / 2);
 	const sozinha: AgentMessage[] = [texto("pedido único")];
