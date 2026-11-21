@@ -160,6 +160,15 @@ fn digest_de(tool: &Value) -> String {
     ler_ferramenta(tool).unwrap().digest
 }
 
+/// A resposta que o Guard de verdade entregaria ao bot para este frame bruto.
+fn mediar(bruto: &Value) -> Value {
+    crate::guard_hub::mcp::mediar_para_teste(
+        &json!({"jsonrpc": "2.0", "id": 1, "result": bruto["result"]}),
+        "tools/list",
+        &[],
+    )
+}
+
 fn liberar(store: &Store, bot: &str, nome: &str, digest: &str) {
     let pedido = PedidoLigar { bot, conta: "conta", ferramenta: nome, digest };
     gravar_liberacao(&store.db.locked(), &pedido).unwrap();
@@ -257,8 +266,8 @@ fn primeira_lista_nao_curada_nasce_toda_desligada_mesmo_com_verbo_de_leitura() {
     for nome in ["list_issues", "get_issue", "query_database", "search_docs"] {
         assert_eq!(estado_de(&store, "b", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{nome}");
     }
-    let mut mediado = json!({"message": {"result": {"tools": lista(&["list_issues", "query_database"])}}});
     let bruto = json!({"result": {"tools": lista(&["list_issues", "query_database"])}});
+    let mut mediado = mediar(&bruto);
     filtrar_lista_com(&store, "b", "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
     assert_eq!(mediado["message"]["result"]["tools"], json!([]));
     // A pessoa liga uma, presa ao digest que viu, só neste bot.
@@ -471,7 +480,7 @@ fn tools_list_esconde_o_que_o_bot_nao_pode_usar_e_chamada_direta_pelo_nome_e_rec
     let pol = pol(&COM_LISTA);
     let tools = lista(&["list_orders", "create_refund", "issue_invoice", "export_all"]);
     let bruto = json!({"result": {"tools": tools}});
-    let mut mediado = json!({"message": bruto.clone()});
+    let mut mediado = mediar(&bruto);
     filtrar_lista_com(&store, "b", "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
     let nomes = |m: &Value| -> Vec<String> {
         m["message"]["result"]["tools"]

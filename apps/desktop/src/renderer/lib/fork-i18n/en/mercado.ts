@@ -267,4 +267,9 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.parte.anotacoes": "the provider’s notes about it",
   "mercado.acoes.confirmar.descricao": "What the bot will read about this action, written by the provider:",
   "mercado.acoes.confirmar.semDescricao": "The provider wrote nothing about this action.",
+  "mercado.erro.descricao_desconhecida": "The Hub has not read this action’s text yet. Check the account and open the list again.",
+  "mercado.acoes.descricaoDesconhecida": "The Hub has not read this action’s text yet. Check the account to be able to turn it on.",
+  "mercado.acoes.confirmar.campos": "And what it will read in each field of the action:",
+  "mercado.acoes.confirmar.campo": "{campo}: {texto}",
+  "mercado.acoes.ocultos": "Careful: this text has characters that don’t show on screen or that change the writing direction.",
 } as const

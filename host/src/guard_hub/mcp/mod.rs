@@ -2,6 +2,7 @@
 pub mod contexto;
 mod entrada;
 pub(crate) use entrada::notification_method;
+pub(crate) use entrada::sem_envelope;
 pub(crate) mod http;
 mod ponte_remota;
 mod remoto;
@@ -251,6 +252,12 @@ pub(crate) fn observe_checked(
         validate()?;
     }
     Ok(json!({"message":guarded.message}))
+}
+
+/// A resposta mediada que o Guard entregaria ao bot, sem gravar evento. Só para testes de quem consome a mediação.
+#[cfg(test)]
+pub(crate) fn mediar_para_teste(frame: &Value, method: &str, secrets: &[String]) -> Value {
+    json!({"message": entrada::inspect(frame, method, secrets).message})
 }
 
 #[cfg(test)]

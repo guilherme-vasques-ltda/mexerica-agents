@@ -279,4 +279,9 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.parte.anotacoes": "ملاحظات المزوّد عنه",
   "mercado.acoes.confirmar.descricao": "ما سيقرؤه الروبوت عن هذا الإجراء، كما كتبه المزوّد:",
   "mercado.acoes.confirmar.semDescricao": "لم يكتب المزوّد شيئًا عن هذا الإجراء.",
+  "mercado.erro.descricao_desconhecida": "لم يقرأ الـ Hub نص هذا الإجراء بعد. تحقّق من الحساب وافتح القائمة من جديد.",
+  "mercado.acoes.descricaoDesconhecida": "لم يقرأ الـ Hub نص هذا الإجراء بعد. تحقّق من الحساب لتتمكّن من تشغيله.",
+  "mercado.acoes.confirmar.campos": "وما سيقرؤه في كل حقل من حقول الإجراء:",
+  "mercado.acoes.confirmar.campo": "{campo}: {texto}",
+  "mercado.acoes.ocultos": "تنبيه: يحتوي هذا النص على محارف لا تظهر على الشاشة أو تغيّر اتجاه الكتابة.",
 } as const

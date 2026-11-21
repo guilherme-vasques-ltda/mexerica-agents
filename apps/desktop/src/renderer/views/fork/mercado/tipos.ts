@@ -153,8 +153,10 @@ export interface FerramentaDaConta {
   motivo: MotivoDaFerramenta | null
   /** A impressão digital que a pessoa viu: o Hub só liga a ferramenta se ela ainda for esta. */
   digest: string
-  /** O texto que o modelo lê sobre a ação, como o fornecedor o escreveu; a pessoa o lê antes de ligar. */
+  /** O texto que o modelo lê sobre a ação, já passado pelo filtro do Hub; `null` enquanto o Hub não o leu. */
   descricao: string | null
+  /** O texto que o modelo lê em cada campo da ação, como `[campo, texto]`. */
+  campos: [string, string][] | null
   /** Ligada antes e mudada pelo fornecedor: o que mudou (vazio quando o Hub não sabe dizer). */
   mudou: ParteDaFerramenta[] | null
 }

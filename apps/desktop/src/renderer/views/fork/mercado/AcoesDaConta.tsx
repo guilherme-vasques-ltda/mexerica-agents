@@ -7,7 +7,7 @@ import { Text } from '../../../components/Text'
 import { useT } from '../../../lib/fork-i18n/estado'
 import { useStore } from '../../../store/context'
 import { desligarFerramenta, ferramentasDoBot, ligarFerramenta } from './estado'
-import { acoesQueAPessoaDecide, listaDeNomes, podeLigar } from './regras.ts'
+import { acoesQueAPessoaDecide, listaDeNomes, podeLigar, temCaracteresOcultos } from './regras.ts'
 import type { FerramentaDaConta, FerramentasDaConta } from './tipos.ts'
 import { Aviso, Carregando, Erro, frasesDaRecusa } from './pecas'
 
@@ -58,6 +58,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
               <VStack gap={0} grow shrink>
                 <Text size="body" tone="text" truncate>{nome}</Text>
                 <Text size="caption" tone="secondary">{f.estado === 'ligada' ? t('mercado.acoes.estado.ligada') : t(`mercado.acoes.estado.${f.motivo ?? 'perigosa'}` as 'mercado.acoes.estado.perigosa')}</Text>
+                {f.estado === 'desligada' && f.descricao === null && f.motivo !== 'descricao_invalida' ? <Text size="caption" tone="secondary">{t('mercado.acoes.descricaoDesconhecida')}</Text> : null}
                 {f.mudou?.length ? <Text size="caption" tone="secondary">{t('mercado.acoes.mudou', { partes: listaDeNomes(f.mudou.map((p) => t(`mercado.acoes.parte.${p}` as 'mercado.acoes.parte.descricao')), t('mercado.bot.e')) })}</Text> : null}
               </VStack>
               {f.estado === 'ligada'
@@ -70,7 +71,14 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
                   <Text size="callout" weight="semibold" as="div">{t('mercado.acoes.confirmar.titulo', { acao: nome, bot: botNome })}</Text>
                   <Text size="callout" as="div">{t('mercado.acoes.confirmar.texto', { conta: conta.nome })}</Text>
                   <Text size="caption" tone="secondary" as="div">{t('mercado.acoes.confirmar.descricao')}</Text>
-                  <div className="mercado-acao-descricao"><Text size="caption" as="div">{f.descricao ?? t('mercado.acoes.confirmar.semDescricao')}</Text></div>
+                  <div className="mercado-acao-descricao"><Text size="caption" as="div">{f.descricao || t('mercado.acoes.confirmar.semDescricao')}</Text></div>
+                  {f.campos?.length ? (
+                    <>
+                      <Text size="caption" tone="secondary" as="div">{t('mercado.acoes.confirmar.campos')}</Text>
+                      <div className="mercado-acao-descricao">{f.campos.map(([campo, texto], i) => <Text key={i} size="caption" as="div">{t('mercado.acoes.confirmar.campo', { campo, texto })}</Text>)}</div>
+                    </>
+                  ) : null}
+                  {temCaracteresOcultos([f.descricao ?? '', ...(f.campos ?? []).flat()].join('\n')) ? <Aviso>{t('mercado.acoes.ocultos')}</Aviso> : null}
                   <HStack gap={8}>
                     <Button disabled={salvando} onClick={() => confirmando && void ligar(confirmando)}>{t('mercado.acoes.confirmar.sim')}</Button>
                     <Button kind="secondary" disabled={salvando} onClick={() => setConfirmando(null)}>{t('mercado.acoes.confirmar.cancelar')}</Button>

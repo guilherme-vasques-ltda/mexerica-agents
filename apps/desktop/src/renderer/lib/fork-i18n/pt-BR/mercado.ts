@@ -267,4 +267,9 @@ export const textos = {
   "mercado.acoes.parte.anotacoes": "os avisos do fornecedor sobre ela",
   "mercado.acoes.confirmar.descricao": "O que o bot vai ler sobre esta ação, escrito pelo fornecedor:",
   "mercado.acoes.confirmar.semDescricao": "O fornecedor não escreveu nada sobre esta ação.",
+  "mercado.erro.descricao_desconhecida": "O Hub ainda não leu o texto desta ação. Verifique a conta e abra a lista de novo.",
+  "mercado.acoes.descricaoDesconhecida": "O Hub ainda não leu o texto desta ação. Verifique a conta para poder ligar.",
+  "mercado.acoes.confirmar.campos": "E o que ele vai ler em cada campo da ação:",
+  "mercado.acoes.confirmar.campo": "{campo}: {texto}",
+  "mercado.acoes.ocultos": "Atenção: este texto tem caracteres que não aparecem na tela ou que mudam a direção da escrita.",
 } as const

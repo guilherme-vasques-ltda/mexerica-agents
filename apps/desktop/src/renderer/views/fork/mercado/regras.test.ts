@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   acoesQueAPessoaDecide, agruparContas, agruparPorCategoria, alternarGrupo, alternarVarios, blocosDeBots, botsParaLigar, categoriasDoCatalogo, codigoDaRecusa, contarPorCategoria, cofreTrancado, escolhasDeBots, estadoDoServico, filtrarServicos, gruposVisiveis, jeitoDaConta, jeitoEscolhido, jeitoRecomendado, linhasDoBot, listaDeNomes,
-  mostraPersonalizar, motivosDoEmBreve, nomeCurto, nomeSugerido, padraoSeguro, podeLigar, perigosasDoTipo, planoDeNomes, seOPedidoNaoDiz, skillsDaFicha, temAcoesPerigosas, visaoDoCatalogo,
+  mostraPersonalizar, motivosDoEmBreve, nomeCurto, nomeSugerido, padraoSeguro, podeLigar, temCaracteresOcultos, perigosasDoTipo, planoDeNomes, seOPedidoNaoDiz, skillsDaFicha, temAcoesPerigosas, visaoDoCatalogo,
 } from './regras.ts'
 import { catalogo, conta, grupo, servico, tipo } from './dados-de-teste.ts'
 
@@ -250,7 +250,7 @@ test('a recusa do principal vem do código estável do Hub', () => {
 })
 
 test('as ações que a pessoa decide: tudo menos o permitido, em ordem de rótulo; a recusa do Hub tem código estável', () => {
-  const f = (nome: string, estado: 'permitida' | 'ligada' | 'desligada', rotulo: string | null = null, motivo: 'perigosa' | 'nova' | 'alterada' | null = null) => ({ nome, rotulo, estado, motivo, digest: 'd', descricao: null, mudou: null })
+  const f = (nome: string, estado: 'permitida' | 'ligada' | 'desligada', rotulo: string | null = null, motivo: 'perigosa' | 'nova' | 'alterada' | null = null) => ({ nome, rotulo, estado, motivo, digest: 'd', descricao: 'texto', campos: null, mudou: null })
   const dados = { botId: 'b', conta: 'c', inventarioPronto: true, vinculo: 0, ferramentas: [f('list_orders', 'permitida'), f('x_novo', 'desligada', null, 'nova'), f('create_refund', 'ligada', 'Reembolsar'), f('delete_all', 'desligada', 'Apagar tudo', 'perigosa')] }
   assert.deepEqual(acoesQueAPessoaDecide(dados).map((x) => x.nome), ['delete_all', 'create_refund', 'x_novo'])
   assert.deepEqual(acoesQueAPessoaDecide({ ...dados, ferramentas: [f('list_orders', 'permitida')] }), [])
@@ -259,13 +259,24 @@ test('as ações que a pessoa decide: tudo menos o permitido, em ordem de rótul
   assert.equal(codigoDaRecusa(new Error('vinculo_mudou: a conta saiu do bot.')), 'vinculo_mudou')
 })
 
-test('ação com texto grande demais ou fora do padrão não tem botão de ligar', () => {
-  const f = (estado: 'permitida' | 'ligada' | 'desligada', motivo: 'perigosa' | 'alterada' | 'descricao_invalida' | null) => ({ nome: 'x', rotulo: null, estado, motivo, digest: 'd', descricao: null, mudou: null })
+test('sem texto lido, ou com texto grande demais ou fora do padrão, a ação não tem botão de ligar', () => {
+  const f = (estado: 'permitida' | 'ligada' | 'desligada', motivo: 'perigosa' | 'alterada' | 'descricao_invalida' | null, descricao: string | null = 'texto') => ({ nome: 'x', rotulo: null, estado, motivo, digest: 'd', descricao, campos: null, mudou: null })
   assert.equal(podeLigar(f('desligada', 'perigosa')), true)
   assert.equal(podeLigar(f('desligada', 'alterada')), true)
+  assert.equal(podeLigar(f('desligada', 'perigosa', '')), true, 'sem descrição do fornecedor ainda dá para ler e decidir')
+  assert.equal(podeLigar(f('desligada', 'perigosa', null)), false, 'texto ainda não lido pelo Hub')
   assert.equal(podeLigar(f('desligada', 'descricao_invalida')), false)
   assert.equal(podeLigar(f('ligada', null)), false)
   assert.equal(codigoDaRecusa(new Error('descricao_invalida: grande demais.')), 'descricao_invalida')
+  assert.equal(codigoDaRecusa(new Error('descricao_desconhecida: verifique a conta.')), 'descricao_desconhecida')
+})
+
+test('caracteres invisíveis ou de direção no texto de uma ação são apontados', () => {
+  assert.equal(temCaracteresOcultos('Cria uma issue.'), false)
+  assert.equal(temCaracteresOcultos('إنشاء مهمة'), false, 'escrita da direita para a esquerda não é suspeita')
+  assert.equal(temCaracteresOcultos('Cria\u200Buma issue.'), true)
+  assert.equal(temCaracteresOcultos('Cria \u202Eeussi amu'), true)
+  assert.equal(temCaracteresOcultos('Cria\u2066 uma\u2069 issue.'), true)
 })
 
 test('o catálogo vem por categoria, na ordem do Hub; categoria que o Hub não conhece vai depois', () => {
