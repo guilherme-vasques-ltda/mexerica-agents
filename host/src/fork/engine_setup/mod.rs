@@ -325,35 +325,59 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     barreira(id, Barreira::Antes);
                     // D372 (R1): leitura final de ocupação e escrita sob o runtime retido; um preparo na conta espera
                     // o commit (e a ativação/permit/lançamento recusam a conta desconectada) ou já ocupou o runtime.
-                    let (registry, credential) = hub.with_idle_engine_account(id, || {
+                    // Tira a conta do cadastro: referência/slot próprios, sem logout global nem promessa de revogação remota.
+                    let remover_do_cadastro = |registry: &mut Registry, revisao: u64| -> Result<()> {
+                        // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
+                        if registry.account(id)?.managed.is_none() {
+                            registry.legacy_removable(id, revisao)?;
+                        } else {
+                            registry.account_mut(id, revisao)?;
+                        }
+                        ensure!(
+                            managed::bot_ids(&hub.store, id)?.is_empty(),
+                            "account_in_use: remova os vínculos dos bots primeiro."
+                        );
+                        let slot = if let LaunchReference::VaultProfile { slot } = &registry.account(id)?.launch {
+                            Some(slot.clone())
+                        } else {
+                            None
+                        };
+                        registry.accounts.retain(|a| a.id != id);
+                        authority.persist_removing(hub, registry, slot.as_deref(), Some(id))?;
+                        if let Err(error) = crate::fork::fallback_contas::esquecer_conta(&hub.store, id) {
+                            tracing::warn!(%error, "ordem de reserva não limpa após remover a conta");
+                        }
+                        Ok(())
+                    };
+                    let (registry, credential, perfil) = hub.with_idle_engine_account(id, || {
                         #[cfg(test)]
                         barreira(id, Barreira::Cerca);
                         let mut registry = Registry::load(&hub.store)?;
                         let credential = grok::profile_home(registry.account(id)?);
                         ensure!(!open || is_open_account(registry.account(id)?), "open_codex_unavailable");
-                        if remove {
-                            // Perfil antigo desconectado pode sair da lista (só o registro); o resto segue `account_mut`.
-                            if registry.account(id)?.managed.is_none() {
-                                registry.legacy_removable(id, request.expected_revision)?;
-                            } else {
-                                registry.account_mut(id, request.expected_revision)?;
+                        // Perfil isolado de conta Claude com login feito pelo programa oficial, lido antes de a
+                        // conta sair do cadastro. Sem executável gravado, nunca houve login nesta conta.
+                        let perfil = registry.account(id).ok().and_then(|account| match &account.launch {
+                            LaunchReference::CliProfile { executable, directory }
+                                if account.backend == Backend::Claude
+                                    && account.managed.is_some()
+                                    && !executable.as_os_str().is_empty() =>
+                            {
+                                Some((executable.clone(), directory.clone()))
                             }
-                            ensure!(
-                                managed::bot_ids(&hub.store, id)?.is_empty(),
-                                "account_in_use: remova os vínculos dos bots primeiro."
-                            );
-                            // Remove só referência/slot próprios. Não faz logout global nem promete revogação remota.
-                            let slot = if let LaunchReference::VaultProfile { slot } = &registry.account(id)?.launch {
-                                Some(slot.clone())
-                            } else {
-                                None
-                            };
-                            registry.accounts.retain(|a| a.id != id);
-                            authority.persist_removing(hub, &registry, slot.as_deref(), Some(id))?;
-                            if let Err(error) = crate::fork::fallback_contas::esquecer_conta(&hub.store, id) {
-                                tracing::warn!(%error, "ordem de reserva não limpa após remover a conta");
-                            }
+                            _ => None,
+                        });
+                        if remove && perfil.is_none() {
+                            remover_do_cadastro(&mut registry, request.expected_revision)?;
                         } else {
+                            // Conta Claude com login no perfil: remover começa como desconectar (a conta deixa de ser
+                            // usada e fica na lista); ela só sai do cadastro depois de o programa confirmar o logout.
+                            if remove {
+                                ensure!(
+                                    managed::bot_ids(&hub.store, id)?.is_empty(),
+                                    "account_in_use: remova os vínculos dos bots primeiro."
+                                );
+                            }
                             let account = registry.account_mut(id, request.expected_revision)?;
                             account.state = State::Disconnected;
                             account.models.clear();
@@ -363,7 +387,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             meta.revision += 1;
                             authority.persist(hub, &registry)?;
                         }
-                        Ok((registry, credential))
+                        Ok((registry, credential, perfil))
                     })?;
                     accounts::invalidate();
                     // O login local já saiu antes da mutação (remover) ou sai agora, depois do cadastro (desconectar).
@@ -380,6 +404,27 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     }
                     #[cfg(test)]
                     barreira(id, Barreira::Depois);
+                    // O cadastro já mudou: a lista relida mostra a conta desconectada mesmo se a saída falhar abaixo.
+                    accounts::invalidate();
+                    // Com a conta já desconectada ou removida (nenhum turno novo a usa), o próprio programa
+                    // oficial apaga a credencial do perfil isolado, que pode estar no chaveiro do sistema.
+                    if let Some((executable, directory)) = perfil {
+                        managed::validate_profile(&hub.store, id, &directory)?;
+                        ensure!(
+                            crate::fork::motor_install::executable(&executable),
+                            "cli_unavailable: a conta foi desconectada, mas o Claude Code dela não está disponível para apagar o login."
+                        );
+                        // Sem confirmação do logout, o erro chega ao dono e a conta continua na lista, desconectada.
+                        process::claude_logout(&executable, &directory).await?;
+                        if remove {
+                            let revisao = registry.account(id)?.dto().revision;
+                            hub.with_idle_engine_account(id, || {
+                                let mut registry = Registry::load(&hub.store)?;
+                                remover_do_cadastro(&mut registry, revisao)
+                            })?;
+                            accounts::invalidate();
+                        }
+                    }
                     if remove { json!({}) } else { registry.dto_for(&hub.store, id)? }
                 }
                 _ => bail!("invalid_field: método de setup desconhecido."),

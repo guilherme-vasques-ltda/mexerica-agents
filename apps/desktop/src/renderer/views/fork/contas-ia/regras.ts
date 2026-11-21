@@ -272,6 +272,9 @@ export type AccountKind = 'cli' | 'api'
 export const accountKind = (account: ManagedAccount, known?: AccountKind): AccountKind =>
   known ?? (account.billing === 'paid_api' ? 'api' : 'cli')
 
+/** Conta por assinatura do Claude: roda pelo Claude Code oficial, no perfil próprio da conta. */
+export const viaProgramaOficial = (account: ManagedAccount, kind: AccountKind) => account.backend === 'claude' && kind === 'cli'
+
 export type AccountAction = 'connect' | 'reconnect' | 'key' | 'refresh'
 
 /** Nome curto do estado de uma conta. */

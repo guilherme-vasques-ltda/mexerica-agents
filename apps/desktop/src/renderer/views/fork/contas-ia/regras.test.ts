@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ManagedAccount } from '../../../../shared/fork-engine-accounts.ts'
-import { ENGINES, accountKind, accountView, botNames, createTerminalFilter, engineName, errorMessage, failureMessage, expiresAtMs, isFinal, keyPageUrl, providerUrl, rowActions, stepOf, testResult, utf8ToBase64, validLabel } from './regras.ts'
+import { ENGINES, accountKind, accountView, botNames, createTerminalFilter, engineName, errorMessage, failureMessage, expiresAtMs, isFinal, keyPageUrl, providerUrl, rowActions, stepOf, testResult, utf8ToBase64, validLabel, viaProgramaOficial } from './regras.ts' 
 
 const account = (patch: Partial<ManagedAccount> = {}): ManagedAccount => ({
   id: `ac_${'a'.repeat(64)}`, label: 'Pessoal', brand: 'OpenAI', backend: 'codex', billing: 'unverified', state: 'disconnected',
@@ -178,6 +178,14 @@ test('resultado do Testar: conectada passa sem custo; senão, falha com o motivo
   assert.equal(falha.ok, false)
   assert.match(falha.text, /^Falhou: /)
   assert.equal(testResult(account({ state: 'connected' }), 'en').text, 'Working. Nothing was sent and it cost nothing.')
+})
+
+test('a etiqueta do programa oficial só aparece na conta Claude por assinatura', () => {
+  const claude = account({ backend: 'claude', brand: 'Anthropic', billing: 'subscription' })
+  assert.equal(viaProgramaOficial(claude, accountKind(claude)), true)
+  assert.equal(viaProgramaOficial(account({ backend: 'claude', billing: 'unverified' }), 'cli'), true)
+  assert.equal(viaProgramaOficial(account({ backend: 'claude', billing: 'paid_api' }), 'api'), false)
+  assert.equal(viaProgramaOficial(account({ backend: 'codex', billing: 'subscription' }), 'cli'), false)
 })
 
 test('Grok Build: só abre o endereço de pareamento no site da xAI e não tem página de chave', () => {

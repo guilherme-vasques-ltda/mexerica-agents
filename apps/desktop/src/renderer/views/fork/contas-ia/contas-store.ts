@@ -144,7 +144,7 @@ export class ContasStore extends Observable {
     return this.mutate(account.id, async (client) => {
       this.put(await this.api.disconnect(client, { engineAccountId: account.id, expectedRevision: account.revision }))
       this.operations.delete(account.id)
-    })
+    }, true)
   }
 
   async remove(account: ManagedAccount) {
@@ -153,7 +153,7 @@ export class ContasStore extends Observable {
       this.accounts = this.accounts?.filter((a) => a.id !== account.id) ?? null
       this.kinds.delete(account.id)
       this.operations.delete(account.id)
-    })
+    }, true)
   }
 
   /** Chave de API pelo formulário existente, no cofre do Hub e só nesta conta. Os valores não ficam aqui. */
@@ -192,8 +192,7 @@ export class ContasStore extends Observable {
       } catch (error) {
         // A conta mudou em outro lugar (revisão): relê as contas e tenta de novo, uma vez, com a revisão de agora.
         if (errorCode(error) !== 'account_conflict') throw error
-        await this.reload(client)
-        const atual = this.account(account.id)
+        const atual = (await this.reload(client)).find((a) => a.id === account.id)
         if (!atual || !this.canHideModels(atual)) throw error
         this.put(await pedir(atual))
       }
@@ -221,13 +220,21 @@ export class ContasStore extends Observable {
     this.accounts = ordered([...others, account])
   }
 
+  /** Relê as contas e devolve a leitura; a lista compartilhada só muda se nenhuma leitura mais nova começou. */
   private async reload(client: HostClient) {
-    const { accounts } = await this.api.accounts(client, {})
-    this.accounts = ordered(accounts)
+    // Mesmo contador do `load`: uma leitura começada antes não sobrescreve a lista relida aqui.
+    const read = ++this.reads
+    try {
+      const { accounts } = await this.api.accounts(client, {})
+      if (read === this.reads) this.accounts = ordered(accounts)
+      return accounts
+    } finally {
+      if (read === this.reads) this.loading = false
+    }
   }
 
   /** Um pedido por vez; conflito de revisão relê a lista para a pessoa conferir. */
-  private async mutate<T>(key: string, run: (client: HostClient) => Promise<T>): Promise<T> {
+  private async mutate<T>(key: string, run: (client: HostClient) => Promise<T>, reloadOnAnyError = false): Promise<T> {
     // textos-ok: código interno (`request_pending`), traduzido na tela por errorMessage.
     if (this.busy) throw new Error('request_pending: busy')
     this.busy = key
@@ -238,7 +245,11 @@ export class ContasStore extends Observable {
       try {
         return await run(client)
       } catch (error) {
-        if (['account_conflict', 'account_invalid', 'account_not_found'].includes(errorCode(error) ?? '')) await this.reload(client).catch(() => {})
+        // Operações que gravam antes das conferências (desconectar, remover) relêem em qualquer
+        // falha: a saída do programa pode não ter sido confirmada e a lista já mostra o estado real.
+        // As outras relêem nos códigos em que o Hub mudou o que a tela tem na mão.
+        const known = ['account_conflict', 'account_invalid', 'account_not_found', 'logout_failed', 'cli_unavailable', 'profile_invalid'].includes(errorCode(error) ?? '')
+        if (reloadOnAnyError || known) await this.reload(client).catch(() => {})
         throw error
       }
     } finally {

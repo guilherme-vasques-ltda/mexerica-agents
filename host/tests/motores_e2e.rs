@@ -144,6 +144,9 @@ impl Falsos {
             ("XDG_STATE_HOME", em("state")),
             ("TMPDIR", em("tmp")),
             ("MEXERICA_TESTE_ISOLADO", "1".into()),
+            // Os CLIs falsos daqui imitam o adaptador ACP do SDK (`claude-agent-acp`): a matriz roda o caminho anterior,
+            // que segue pela opção. A ponte do programa oficial tem prova própria (claude_programa_oficial_e2e).
+            ("MEXERICA_CLAUDE_SDK", "1".into()),
             // A matriz ainda cobre o Cline, que saiu da oferta: a chave de desenvolvimento
             // devolve a oferta antiga só neste Hub de teste (build de teste).
             ("MEXERICA_DEV_MOTORES_RETIRADOS", "1".into()),
