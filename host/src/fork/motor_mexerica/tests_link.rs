@@ -15,6 +15,7 @@ use crate::agent::acp::{Acp, Answer, Incoming};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -61,7 +62,12 @@ fn novo_store() -> Arc<Store> {
 }
 
 fn acp_motor(store: Arc<Store>) -> (Arc<Acp>, mpsc::UnboundedReceiver<Incoming>) {
-    let link = Link::new(store_vault(store), &[(FAUX_ENV, "1")]);
+    acp_motor_de(store, "bot-de-prova")
+}
+
+/// O adaptador de um bot: cada conexão nova do mesmo bot é um adaptador novo.
+fn acp_motor_de(store: Arc<Store>, bot: &str) -> (Arc<Acp>, mpsc::UnboundedReceiver<Incoming>) {
+    let link = Link::new(store_vault(store), bot, &[(FAUX_ENV, "1")]);
     Acp::spawn_link(link)
 }
 
@@ -392,6 +398,312 @@ async fn motor_que_cai_e_reaberto_no_proximo_turno() {
     acp.kill_and_wait().await;
 }
 
+/// Pergunta ao provedor falso o que ele recebeu: o texto de cada mensagem de
+/// usuário da conversa, na ordem (`/historico`).
+async fn historico_visto(acp: &Arc<Acp>, rx: &mut mpsc::UnboundedReceiver<Incoming>, sid: &str) -> String {
+    let (result, updates) = turno_de_texto(acp, rx, sid, "/historico").await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    texto_do_turno(&updates)
+}
+
+/// A conversa é do Hub, não do processo do motor. Cancelar o turno
+/// mata o processo, e o próximo turno tem de seguir a mesma conversa.
+#[tokio::test]
+async fn conversa_sobrevive_ao_cancelamento_do_turno() {
+    let case = caso!("conversa_sobrevive_ao_cancelamento_do_turno");
+    let (acp, mut rx) = acp_motor(novo_store());
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "meu codigo é 42").await;
+
+    let answer = acp
+        .send(
+            "session/prompt",
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": "/ferramenta mcp__fake__eco {}"}]}),
+        )
+        .await
+        .unwrap();
+    let _pedido = esperar_pedido(&mut rx).await;
+    let antigo = acp.pid().unwrap();
+    acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
+    assert_eq!(answer.response().await.unwrap()["stopReason"], "cancelled");
+    esperar_morto(antigo).await;
+
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: meu codigo é 42 | /ferramenta mcp__fake__eco {} | /historico");
+    assert_ne!(acp.pid().unwrap(), antigo, "o turno cancelado tinha de ter matado o processo");
+    acp.kill_and_wait().await;
+}
+
+/// Trocar de provedor sobe outro processo, e a conversa vai junto.
+#[tokio::test]
+async fn conversa_sobrevive_a_troca_de_provedor() {
+    let case = caso!("conversa_sobrevive_a_troca_de_provedor");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux2"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "primeira pergunta").await;
+    let antigo = acp.pid().unwrap();
+
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux2/faux-1"})).await.unwrap();
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: primeira pergunta | /historico");
+    assert_ne!(acp.pid().unwrap(), antigo, "o provedor novo tinha de subir outro processo");
+    acp.kill_and_wait().await;
+}
+
+/// `session/set_model` recusado pelo motor derruba o processo em vez de
+/// deixar no slot um processo com a conversa de comandos dessincronizada.
+#[tokio::test]
+async fn set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro() {
+    let case = caso!("set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    let antigo = acp.pid().expect("o set_model inicial tinha de ter subido um motor");
+
+    // Modelo inexistente: o motor recusa e o erro sobe ao bot.
+    let recusado =
+        acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/modelo-que-nao-existe"})).await;
+    assert!(recusado.is_err(), "o motor tinha de recusar o modelo inexistente");
+    esperar_morto(antigo).await;
+    assert!(acp.pid().is_none(), "o processo recusado tinha de sair do slot");
+
+    // A próxima tentativa sobe um processo NOVO e conversa com ele.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let novo = acp.pid().unwrap();
+    assert_ne!(novo, antigo, "o set_model seguinte tinha de subir outro processo");
+    let (result, _) = turno_de_texto(&acp, &mut rx, &sid, "depois da recusa").await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    acp.kill_and_wait().await;
+}
+
+/// O processo cai (OOM, SIGKILL) entre dois turnos e no meio de um.
+#[tokio::test]
+async fn conversa_sobrevive_a_queda_do_motor() {
+    let case = caso!("conversa_sobrevive_a_queda_do_motor");
+    let (acp, mut rx) = acp_motor(novo_store());
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "um").await;
+    matar_o_motor(acp.pid().unwrap()).await;
+    turno_de_texto(&acp, &mut rx, &sid, "dois").await;
+
+    let answer = acp
+        .send(
+            "session/prompt",
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": "/ferramenta mcp__fake__eco {}"}]}),
+        )
+        .await
+        .unwrap();
+    let pedido = esperar_pedido(&mut rx).await;
+    matar_o_motor(acp.pid().unwrap()).await;
+    acp.respond(pedido, json!({"outcome": {"outcome": "selected", "optionId": "deny"}})).await.unwrap();
+    assert!(answer.response().await.is_err(), "o turno com o motor morto tinha de falhar");
+
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: um | dois | /ferramenta mcp__fake__eco {} | /historico");
+    acp.kill_and_wait().await;
+}
+
+/// Trocar de modelo no app FECHA a conexão e o bot abre outra, com o
+/// mesmo id de sessão (session/load). A conversa tem de estar lá, no motor novo, mesmo em outro provedor.
+#[tokio::test]
+async fn conversa_volta_por_session_load_quando_a_conexao_fecha() {
+    let case = caso!("conversa_volta_por_session_load_quando_a_conexao_fecha");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux2"), SEGREDO).unwrap();
+    let (antiga, mut rx) = acp_motor_de(store.clone(), "bot-load");
+    let init = antiga.request("initialize", json!({})).await.unwrap();
+    assert_eq!(init["agentCapabilities"]["loadSession"], true, "sem isso o bot nunca pede session/load");
+    let sid = sessao(&antiga, &case).await;
+    turno_de_texto(&antiga, &mut rx, &sid, "meu codigo é 42").await;
+    antiga.kill_and_wait().await;
+
+    let params =
+        json!({"sessionId": sid, "cwd": case.dir, "mcpServers": [], "systemPrompt": "Você é um bot da Mexerica."});
+    let (intrusa, _rx) = acp_motor_de(store.clone(), "outro-bot");
+    assert!(intrusa.request("session/load", params.clone()).await.is_err(), "outro bot não reabre a conversa");
+    intrusa.kill_and_wait().await;
+
+    let (nova, mut rx) = acp_motor_de(store, "bot-load");
+    nova.request("session/load", params).await.unwrap();
+    nova.request("session/set_model", json!({"sessionId": sid, "modelId": "faux2/faux-1"})).await.unwrap();
+    let texto = historico_visto(&nova, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: meu codigo é 42 | /historico");
+    nova.kill_and_wait().await;
+}
+
+/// A credencial de um provedor muda DE VERDADE no cofre. A conversa que já passou por ele recomeça sem
+/// cópia (não dá para provar que a chave nova é da mesma conta); a outra conversa do mesmo bot, que só passou por
+/// outro provedor, segue intacta.
+#[tokio::test]
+async fn credencial_trocada_no_cofre_recomeca_so_a_conversa_do_provedor_afetado() {
+    let case = caso!("credencial_trocada_no_cofre_recomeca_so_a_conversa_do_provedor_afetado");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    crate::market::vault::write(&store, &credential_slot("faux2"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store.clone());
+    acp.request("initialize", json!({})).await.unwrap();
+    let a = sessao(&acp, &case).await;
+    let b = sessao(&acp, &case).await;
+    acp.request("session/set_model", json!({"sessionId": b, "modelId": "faux2/faux-1"})).await.unwrap();
+    turno_de_texto(&acp, &mut rx, &a, "conversa A, provedor faux").await;
+    turno_de_texto(&acp, &mut rx, &b, "conversa B, provedor faux2").await;
+    assert_eq!(historico_visto(&acp, &mut rx, &a).await, "historico: conversa A, provedor faux | /historico");
+
+    crate::market::vault::write(&store, &credential_slot("faux"), "mexerica-teste-chave-nova-do-faux").unwrap();
+    assert_eq!(
+        historico_visto(&acp, &mut rx, &a).await,
+        "historico: /historico",
+        "a credencial do provedor mudou: a conversa A recomeça, no processo vivo também"
+    );
+    assert_eq!(
+        historico_visto(&acp, &mut rx, &b).await,
+        "historico: conversa B, provedor faux2 | /historico",
+        "a conversa B nunca passou pelo provedor trocado e fica"
+    );
+    // O recomeço vale também depois de uma queda: a cópia guardada de A foi apagada, não só o processo.
+    matar_o_motor(acp.pid().unwrap()).await;
+    assert_eq!(historico_visto(&acp, &mut rx, &a).await, "historico: /historico | /historico");
+    acp.kill_and_wait().await;
+}
+
+/// Sem como proteger a conversa (chave curta demais para achar no texto), ela não é guardada.
+#[tokio::test]
+async fn chave_curta_demais_para_proteger_nao_guarda_a_conversa() {
+    let case = caso!("chave_curta_demais_para_proteger_nao_guarda_a_conversa");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), "curta").unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: /historico", "sem proteção nada ficou guardado para o processo novo");
+    acp.kill_and_wait().await;
+}
+
+/// O cofre falhou ao ler uma chave que a proteção precisa; a conversa não é guardada (o erro não vira "sem chaves").
+#[tokio::test]
+async fn cofre_ilegivel_para_proteger_nao_guarda_a_conversa() {
+    let case = caso!("cofre_ilegivel_para_proteger_nao_guarda_a_conversa");
+    let store = novo_store();
+    let ok = store_vault(store);
+    let google = credential_slot("google");
+    let vault: VaultSource =
+        Arc::new(move |slot: &str| if slot == google { anyhow::bail!("cofre indisponível") } else { ok(slot) });
+    let (acp, mut rx) = Acp::spawn_link(Link::new(vault, "bot-de-prova", &[(FAUX_ENV, "1")]));
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: /historico", "sem ler o cofre nada ficou guardado para o processo novo");
+    acp.kill_and_wait().await;
+}
+
+/// A credencial servida ao motor é a da geração autorizada para a conversa: se o cofre muda no meio (rotação entre a
+/// decisão e a chamada ao provedor), a leitura é recusada em vez de a conta nova receber o contexto da anterior.
+#[test]
+fn credencial_servida_e_presa_a_geracao_autorizada() {
+    let key = Arc::new(std::sync::Mutex::new(Some("chave-autorizada-1".to_owned())));
+    let source = key.clone();
+    let vault: VaultSource = Arc::new(move |_| Ok(source.lock().unwrap().clone()));
+    let pinned = link::pinned(vault, "google", link::credential_generation("google", Some("chave-autorizada-1")));
+    assert_eq!(pinned("slot").unwrap().as_deref(), Some("chave-autorizada-1"));
+    *key.lock().unwrap() = Some("chave-rotacionada-2".to_owned());
+    assert!(pinned("slot").is_err(), "a chave rotacionada depois da autorização não é entregue");
+    *key.lock().unwrap() = None;
+    assert!(pinned("slot").is_err(), "a credencial removida também não");
+    *key.lock().unwrap() = Some("chave-autorizada-1".to_owned());
+    assert!(pinned("slot").is_ok(), "a mesma geração volta a valer");
+}
+
+/// A proteção falha DEPOIS de já haver conversa guardada e processo vivo: a decisão vem antes de restaurar, então nem a
+/// cópia antiga nem o contexto do processo vivo chegam ao turno, e nada do turno sem proteção é guardado.
+#[tokio::test]
+async fn cofre_que_falha_depois_de_guardar_descarta_a_copia_e_o_motor_vivo() {
+    let case = caso!("cofre_que_falha_depois_de_guardar_descarta_a_copia_e_o_motor_vivo");
+    let ok = store_vault(novo_store());
+    let broken = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = broken.clone();
+    let google = credential_slot("google");
+    let vault: VaultSource = Arc::new(move |slot: &str| {
+        if flag.load(Ordering::Relaxed) && slot == google {
+            anyhow::bail!("cofre indisponível");
+        }
+        ok(slot)
+    });
+    let (acp, mut rx) = Acp::spawn_link(Link::new(vault, "bot-de-prova", &[(FAUX_ENV, "1")]));
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "conversa que já estava guardada").await;
+    let antes = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(antes, "historico: conversa que já estava guardada | /historico", "com proteção a conversa segue");
+
+    broken.store(true, Ordering::Relaxed);
+    let sem_protecao = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(sem_protecao, "historico: /historico", "sem proteção nem a cópia nem o contexto vivo reaparecem");
+
+    broken.store(false, Ordering::Relaxed);
+    let depois = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(depois, "historico: /historico", "o turno sem proteção não vira contexto quando o cofre volta");
+    acp.kill_and_wait().await;
+}
+
+/// O cancelamento que chega enquanto o processo novo recebe a conversa também para o turno.
+#[tokio::test]
+async fn cancelar_durante_a_retomada_da_conversa_para_o_turno() {
+    let case = caso!("cancelar_durante_a_retomada_da_conversa_para_o_turno");
+    let (acp, mut rx) = acp_motor(novo_store());
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "primeiro").await;
+    matar_o_motor(acp.pid().unwrap()).await;
+
+    link::PAUSE_AFTER_RESTORE.store(true, Ordering::Relaxed);
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "segundo"}]}))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let second = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "intruso"}]}))
+        .await
+        .unwrap();
+    let refused =
+        tokio::time::timeout(Duration::from_secs(10), second.response()).await.expect("o segundo prompt ficou preso");
+    assert!(
+        refused.unwrap_err().to_string().contains("turno em curso"),
+        "um segundo prompt na mesma sessão é recusado antes de tocar na conversa"
+    );
+    let model = acp.send("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let refused =
+        tokio::time::timeout(Duration::from_secs(10), model.response()).await.expect("o set_model ficou preso");
+    assert!(
+        refused.unwrap_err().to_string().contains("turno em curso"),
+        "trocar o modelo no meio de um turno também é recusado"
+    );
+    acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(10), answer.response())
+        .await
+        .expect("o cancelamento durante a retomada não parou o turno")
+        .unwrap();
+    link::PAUSE_AFTER_RESTORE.store(false, Ordering::Relaxed);
+    assert_eq!(result["stopReason"], "cancelled");
+    assert!(acp.pid().is_none(), "o processo novo, ainda na retomada, tem de morrer com o cancelamento");
+
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: primeiro | /historico", "o turno cancelado antes de começar não entra na conversa");
+    acp.kill_and_wait().await;
+}
+
 #[tokio::test]
 async fn kill_and_wait_cancela_o_turno_em_andamento() {
     let case = caso!("kill_and_wait_cancela_o_turno_em_andamento");
@@ -560,7 +872,7 @@ async fn toda_ferramenta_mcp_pede_cartao_como_nos_motores_acp() {
     ]);
     let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let link = Link::new(store_vault(novo_store()), &[]);
+    let link = Link::new(store_vault(novo_store()), "bot-de-prova", &[]);
     let runner = link.test_runner(mcp, tx);
 
     // Paridade com os motores ACP (`tests_paridade`): hoje o Hub não libera
@@ -593,7 +905,7 @@ async fn saida_enorme_e_cortada_tambem_na_entrada_gravada_pelo_bot() {
     let definicoes = json!([{"name": "conector", "command": node_path().unwrap(), "args": [script], "env": []}]);
     let mcp = McpHost::start_as(&definicoes, &case.dir, None).await.unwrap();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let link = Link::new(store_vault(novo_store()), &[]);
+    let link = Link::new(store_vault(novo_store()), "bot-de-prova", &[]);
     let runner = link.test_runner(mcp, tx);
     let (result, updates, _) = chamar(&link, &*runner, &mut rx, "mcp__conector__grande", true).await;
     assert_eq!(result.unwrap().len(), 400_000, "o executor devolve a saída inteira; o teto é de quem publica");
@@ -706,7 +1018,7 @@ async fn cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno() {
     let script = case.dir.join("memory-pendurado.mjs");
     std::fs::write(&script, SERVIDOR_MEMORY_PENDURADO).unwrap();
     let hub = exe_do_hub_falso(&case.dir, &script);
-    let link = Link::new(store_vault(novo_store()), &[(FAUX_ENV, "1")]);
+    let link = Link::new(store_vault(novo_store()), "bot-de-prova", &[(FAUX_ENV, "1")]);
     link.set_hub_exe_for_tests(hub.clone());
     let (acp, _rx) = Acp::spawn_link(link);
     acp.request("initialize", json!({})).await.unwrap();

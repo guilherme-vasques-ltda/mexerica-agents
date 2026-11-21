@@ -14,6 +14,8 @@ import { createModels, type AssistantMessageEvent, type Model } from "@earendil-
 import { attachJsonlLineReader, serializeJsonLine } from "../vendor/pi-mono/packages/coding-agent/src/modes/rpc/jsonl.ts";
 import { emptyAuthContext } from "./src/auth-context.ts";
 import { HubCredentialStore } from "./src/credentials.ts";
+import { parseHistory } from "./src/history.ts";
+import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
 import { registerProviders } from "./src/providers.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
@@ -49,6 +51,19 @@ const hubTools = new HubTools(write);
 const agent = new Agent({
 	streamFn: (model, context, options) => models.streamSimple(model, context, options),
 	toolExecution: "parallel",
+	// Os tetos da conversa valem em cada chamada ao provedor, também no meio de um turno gigante. O corte vale
+	// também para a lista do próprio laço (ela é a mesma que chega aqui), que então não cresce sem limite.
+	transformContext: async (messages) => {
+		const fitted = fitMessages(messages);
+		messages.splice(0, messages.length, ...fitted);
+		return fitted;
+	},
+	// A lista do turno (`newMessages`, a que o `agent_end` leva) é limitada a cada volta do laço, junto com o contexto:
+	// cada mensagem já entra dentro do teto (`boundInPlace` no `message_end`) e aqui sai a volta mais antiga que passar.
+	finishTurn: ({ newMessages, context }) => {
+		newMessages.splice(0, newMessages.length, ...fitMessages(newMessages));
+		context.messages.splice(0, context.messages.length, ...fitMessages(context.messages));
+	},
 });
 
 const stripPartial = (event: AssistantMessageEvent) => {
@@ -58,6 +73,8 @@ const stripPartial = (event: AssistantMessageEvent) => {
 };
 
 agent.subscribe((event: AgentEvent) => {
+	// A mensagem sai e fica no acumulador do laço já dentro do teto por mensagem (mesmo objeto).
+	if (event.type === "message_start" || event.type === "message_end") boundInPlace(event.message);
 	if (event.type === "message_update") {
 		// Só o delta: `message` leva a mensagem inteira a cada evento e a
 		// saída cresceria ao quadrado do tamanho da resposta.
@@ -67,7 +84,18 @@ agent.subscribe((event: AgentEvent) => {
 		});
 		return;
 	}
+	// O `turn_end` do laço leva a mensagem e todos os resultados da volta (já entregues, um a um, nos `message_end`):
+	// aqui vai sem a carga, para uma volta com muitas ferramentas não passar da linha que o Hub aceita.
+	if (event.type === "turn_end") {
+		write({ type: "turn_end" });
+		return;
+	}
 	write(event);
+	// O estado do processo também não passa dos tetos durante o turno, não só entre turnos. Com uma volta de
+	// ferramentas aberta o corte espera: tirar a volta pela metade deixaria os resultados que ainda chegam sem a chamada.
+	if (event.type === "message_end" && !batchOpen(agent.state.messages)) {
+		agent.state.messages = fitMessages(agent.state.messages);
+	}
 });
 
 let streaming = false;
@@ -84,6 +112,8 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 			write({ type: "error", error: error instanceof Error ? error.message : String(error) });
 		} finally {
 			streaming = false;
+			// O processo vivo também respeita os tetos entre turnos.
+			agent.state.messages = fitMessages(agent.state.messages);
 		}
 	},
 	set_model(command) {
@@ -122,6 +152,14 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		const specs = parseToolSpecs(command.tools);
 		agent.state.tools = hubTools.toAgentTools(specs);
 		respond(command.id, "set_tools", { count: specs.length });
+	},
+	// O Hub guarda a conversa; o processo novo (depois de cancelar, trocar de
+	// provedor ou cair) a recebe aqui, depois do prompt de sistema e antes do prompt.
+	restore_history(command) {
+		if (streaming || agent.state.isStreaming) throw new Error("restore_history só vale fora de um turno");
+		const history = fitMessages(parseHistory(command.messages));
+		agent.state.messages = [...agent.state.messages.filter((message) => message.role === "system"), ...history];
+		respond(command.id, "restore_history", { count: history.length });
 	},
 	tool_result(command) {
 		const { callId, ok, output, error } = command as unknown as Record<string, unknown>;

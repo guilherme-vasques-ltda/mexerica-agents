@@ -72,7 +72,9 @@ fn id_normalizado(agente: &Value) -> Option<String> {
 }
 
 fn oferecido(agente: &Value) -> bool {
-    !matches!(id_normalizado(agente).as_deref(), Some("junie" | "cortex-code" | "corust-agent" | "stakpak" | "vtcode"))
+    let id = id_normalizado(agente);
+    !matches!(id.as_deref(), Some("junie" | "cortex-code" | "corust-agent" | "stakpak" | "vtcode"))
+        && id.as_deref().is_none_or(|id| !crate::fork::motores_retirados::retirado(id))
 }
 
 pub fn agent(id: &str) -> Option<Value> {

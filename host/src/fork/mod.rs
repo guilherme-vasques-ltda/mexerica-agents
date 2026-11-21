@@ -66,6 +66,7 @@ pub(crate) mod idioma_app;
 #[cfg(target_os = "linux")]
 pub(crate) mod instalacao_gerida;
 pub(crate) mod instalacao_script;
+pub(crate) mod instrucao_geral;
 pub(crate) mod lider_canal;
 #[allow(dead_code, reason = "Base de permissões publicada antes do painel e do transporte; sem runtime novo.")]
 pub(crate) mod mail_manager;
@@ -132,6 +133,7 @@ pub(crate) mod runtime_audiencia;
 /// Migra os dados preparatórios do fork; nunca configura motores nem aprova ações.
 pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
+    instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;
     conectores::oauth_binding::migrate(&store.db.locked())?;
@@ -202,6 +204,7 @@ pub(crate) mod motor_roots;
 #[cfg(unix)]
 pub(crate) mod motor_uploads;
 pub(crate) mod motor_workspace_memory;
+pub(crate) mod motores_retirados;
 
 #[cfg(all(test, unix))]
 mod motor_roots_tests;

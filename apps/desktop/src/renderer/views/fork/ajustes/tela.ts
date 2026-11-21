@@ -5,7 +5,7 @@ import { Observable } from '../../../lib/observable.ts'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 
 /** As páginas de Ajustes (a lista lateral de SettingsView). */
-export type SettingsPage = 'general' | 'appearance' | 'sidebar' | 'conversation' | 'memory' | 'never-do' | 'ai-accounts' | 'delegation' | 'background' | 'activity' | 'workplaces' | 'computers' | 'access' | 'voice' | 'usage' | 'storage' | 'updates' | 'app-icon'
+export type SettingsPage = 'general' | 'appearance' | 'sidebar' | 'conversation' | 'memory' | 'never-do' | 'instructions' | 'ai-accounts' | 'delegation' | 'background' | 'activity' | 'workplaces' | 'computers' | 'access' | 'voice' | 'usage' | 'storage' | 'updates' | 'app-icon'
 
 /** D454 (fatia 4): o rótulo é a chave do catálogo; quem desenha traduz. */
 export interface Aba { id: string; chave: ChaveTexto }

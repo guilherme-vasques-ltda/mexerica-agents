@@ -287,6 +287,28 @@ async fn ferramenta_nao_declarada_nao_chega_ao_executor() {
     engine.finish().await.unwrap();
 }
 
+/// Um motor que para de ler a entrada: a escrita do histórico não volta e a restauração prenderia a sessão. O prazo cobre
+/// envio e resposta, e o erro sobe para quem chamou descartar o processo.
+#[tokio::test]
+async fn motor_que_nao_le_a_entrada_nao_segura_a_restauracao_para_sempre() {
+    let case = caso!("motor_que_nao_le_a_entrada_nao_segura_a_restauracao_para_sempre");
+    let entry = case.dir.join("motor-parado.cjs");
+    std::fs::write(&entry, "setInterval(() => {}, 1000);").unwrap();
+    // SAFETY: cada prova abre o motor num processo próprio (caso!); aqui só este teste lê MEXERICA_MOTOR_ENTRY.
+    unsafe { std::env::set_var(ENTRY_ENV, &entry) };
+    SETUP_DEADLINE_MS.store(500, std::sync::atomic::Ordering::Relaxed);
+    let mut engine = Engine::spawn(novo_store(), "faux", &[]).unwrap();
+    let message = json!({"role": "user", "content": [{"type": "text", "text": "x".repeat(200_000)}], "timestamp": 1});
+    let messages = vec![message; 10];
+    let started = std::time::Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(20), engine.restore_history(&messages))
+        .await
+        .expect("a restauração prendeu para sempre: o prazo não cobre a escrita")
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("não respondeu a tempo"), "{error:#}");
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+
 #[tokio::test]
 async fn drop_aborta_o_cofre_mesmo_com_o_fd3_preso_num_fileneto() {
     let case = caso!("drop_aborta_o_cofre_mesmo_com_o_fd3_preso_num_fileneto");
