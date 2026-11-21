@@ -68,6 +68,8 @@ export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte,
       } finally {
         clearTimeout(temporizador)
       }
+      // O retorno pode já estar em trânsito quando o Cancelar foi clicado: o login para aqui e o Hub nunca grava.
+      if (cancelado) throw new FalhaOpenRouter('cancelado')
       let retorno: ReturnType<typeof lerRetornoLogin>
       try { retorno = lerRetornoLogin(volta) } catch { throw new FalhaOpenRouter('falha') }
       // Daqui em diante o Hub troca o código e grava a chave: não há mais o que cancelar.

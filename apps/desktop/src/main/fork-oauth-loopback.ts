@@ -46,8 +46,9 @@ const loopback = (u: URL) => u.hostname === '127.0.0.1' || u.hostname === 'local
 /**
  * O pedido do Hub: a página de login do fornecedor (https; http só em loopback, como o Hub aceita) cujo endereço de
  * retorno é EXATAMENTE o do ouvinte deste app — `redirect_uri` (OAuth comum) ou `callback_url` (OpenRouter), um dos
- * dois, nunca os dois — e que traz um único `state`. Qualquer outra coisa recusa: este ouvinte não abre login de
- * outro lugar nem espera um retorno que o Hub não tenha preparado para ele.
+ * dois, nunca os dois — e que traz um único `state`. O pedido com `callback_url` é o login do OpenRouter e só abre no
+ * endereço oficial dele; qualquer outra coisa recusa: este ouvinte não abre login de outro lugar nem espera um
+ * retorno que o Hub não tenha preparado para ele.
  */
 export function lerPedido(url: unknown, porta: number): { state: string } | null {
   if (typeof url !== 'string') return null
@@ -58,6 +59,8 @@ export function lerPedido(url: unknown, porta: number): { state: string } | null
   const retornos = [...alvo.searchParams.getAll('redirect_uri'), ...alvo.searchParams.getAll('callback_url')]
   const states = alvo.searchParams.getAll('state')
   if (retornos.length !== 1 || retornos[0] !== redirectDoApp(porta)) return null
+  // O retorno em `callback_url` é o login do OpenRouter: só a origem oficial dele, aqui no processo principal.
+  if (alvo.searchParams.has('callback_url') && alvo.hostname !== 'openrouter.ai') return null
   if (states.length !== 1 || states[0] === '') return null
   return { state: states[0] }
 }

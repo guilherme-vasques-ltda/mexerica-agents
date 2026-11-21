@@ -68,9 +68,21 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     }
 }
 
+/// A chave trocada é a do dono, só usada pelos bots do Space pessoal dele: o login também só
+/// acontece com o Space pessoal aberto (o app manda o Space aberto em todo pedido).
+fn assegurar_space_pessoal(body: &Value) -> Result<()> {
+    let space = body.get("spaceId").and_then(Value::as_str).unwrap_or(crate::fork::spaces::PERSONAL);
+    ensure!(
+        space == crate::fork::spaces::PERSONAL,
+        "space_invalido: o login com OpenRouter vale só no Space pessoal deste computador."
+    );
+    Ok(())
+}
+
 /// Passo 1: exige a porta do ouvinte do app, gera o PKCE e o `state`, guarda a tentativa (a nova
 /// substitui qualquer pendente) e devolve só a URL de autorização.
 pub(super) fn entrar(body: &Value) -> Result<Value> {
+    assegurar_space_pessoal(body)?;
     let Ok(Some(porta)) = crate::fork::conectores::oauth_desktop::do_pedido(body) else {
         bail!("porta_invalida: o retorno deste login cai no ouvinte do app; informe uma das portas dele.")
     };
@@ -110,6 +122,7 @@ fn base_do_login() -> String {
 /// (uso único, também no erro) e troca o código pela chave, que segue ao cofre pelo caminho da
 /// chave colada. Um `state` que não confere não derruba o login em andamento.
 pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
+    assegurar_space_pessoal(body)?;
     let Some(Ok(state)) = body.get("state").and_then(Value::as_str).map(crypto::unb64_n::<32>) else {
         bail!(ENTRADA_INVALIDA)
     };

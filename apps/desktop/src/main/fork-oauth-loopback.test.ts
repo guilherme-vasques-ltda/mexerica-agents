@@ -58,6 +58,9 @@ test('o pedido do Hub também vale com callback_url (OpenRouter), sozinho e exat
   assert.deepEqual(lerPedido(auth(19424), 19424), { state: 'estado-1' }, 'callback_url aceito no lugar do redirect_uri')
   assert.equal(lerPedido(auth(19424), 19425), null, 'porta diferente')
   assert.equal(lerPedido(auth(19424, `&redirect_uri=${encodeURIComponent(redirectDoApp(19424))}`), 19424), null, 'os dois juntos recusam')
+  assert.equal(lerPedido(auth(19424).replace('https://openrouter.ai', 'https://falso.exemplo.test'), 19424), null, 'callback_url de outra origem não passa')
+  // O redirect_uri comum (OAuth de conector do mercado) segue aceito em qualquer fornecedor https.
+  assert.deepEqual(lerPedido(`https://fornecedor.exemplo.test/authorize?redirect_uri=${encodeURIComponent(redirectDoApp(19424))}&state=s`, 19424), { state: 's' })
   assert.equal(lerPedido(auth(19424, `&callback_url=${encodeURIComponent(redirectDoApp(19424))}`), 19424), null, 'callback repetido')
   assert.equal(lerPedido(`https://x.test/a?callback_url=${encodeURIComponent(redirectDoApp(19425))}&state=s`, 19424), null, 'callback de outra porta do app')
   assert.equal(lerPedido(auth(19424, '&state=outro'), 19424), null, 'state repetido')

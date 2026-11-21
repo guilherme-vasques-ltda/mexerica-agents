@@ -293,6 +293,25 @@ async fn fluxo_feliz_troca_o_codigo_e_salva_a_chave_no_cofre_sem_devolve_la() {
 }
 
 #[tokio::test]
+async fn login_do_openrouter_so_no_space_pessoal() {
+    let _serie = SERIE.lock().await;
+    let hub = crate::fork::conectores::oauth_binding::tests::hub();
+    let alheio = json!({"spaceId": "space-alheio"});
+    let erro = login::entrar(&json!({"loopbackPort": 19424, "spaceId": "space-alheio"})).unwrap_err().to_string();
+    assert!(erro.starts_with("space_invalido"), "{erro}");
+    let erro = login::concluir(&hub, &json!({"state": "qualquer", "code": "codigo", "spaceId": "space-alheio"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(erro.starts_with("space_invalido"), "{erro}");
+    assert!(login::TENTATIVA.locked().is_none(), "a recusa não guarda tentativa");
+    // Com o Space pessoal aberto (ou sem Space no pedido, como os testes diretos) segue normal.
+    let resposta = login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
+    assert!(resposta["url"].as_str().unwrap().starts_with("https://openrouter.ai/auth"));
+    let _ = alheio;
+}
+
+#[tokio::test]
 async fn entrar_com_openrouter_e_so_deste_computador() {
     use crate::store::Scope;
     let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control, Scope::Screen], autoridade: None };

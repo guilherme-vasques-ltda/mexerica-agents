@@ -61,10 +61,18 @@ const m = module.exports as {
 
 /** A loja de mentira: só o que a linha lê para desenhar; as chamadas ao Hub só acontecem nos cliques. */
 const store = { computer: { id: 'computador-fixture' }, connection: { kind: 'online' }, isLoopback: true, hello: { hostId: 'hub-fixture', backends: [{ id: 'mexerica' }] } }
-const renderiza = (componente: unknown, props: Record<string, unknown> = {}) =>
-  m.renderToStaticMarkup(m.createElement(m.StoreContext.Provider, { value: store as never }, m.createElement(componente as never, props)))
+const renderiza = (componente: unknown, props: Record<string, unknown> = {}, loja: Record<string, unknown> = store) =>
+  m.renderToStaticMarkup(m.createElement(m.StoreContext.Provider, { value: loja as never }, m.createElement(componente as never, props)))
 
 const fornecedor = (id: string, configurada: boolean) => ({ id, nome: id === 'openrouter' ? 'OpenRouter' : 'Fornecedor Exemplo', configurada, modelos: configurada ? [] : null, conferidoEm: null })
+
+test('o botão de entrar pelo navegador só existe no Space pessoal aberto', () => {
+  const entrar = 'Entrar com OpenRouter'
+  const pessoal = { ...store, spaces: { personalSpaceId: 'pessoal-1' } }
+  const outro = { ...pessoal, spaceId: 'space-outro' }
+  assert.ok(renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false), aoMudar: async () => {} }, pessoal).includes(entrar), 'com o Pessoal aberto tem o botão')
+  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false), aoMudar: async () => {} }, outro).includes(entrar), 'com outro Space aberto não tem')
+})
 
 test('o botão de entrar pelo navegador existe só na linha do OpenRouter, ao lado do de colar a chave', () => {
   const entrar = 'Entrar com OpenRouter'
