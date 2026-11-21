@@ -1019,6 +1019,19 @@ test('vazamento-semanal: executor da main, credenciais nomeadas e aviso so quand
   assert.match(varredura, /git show "\$trusted_main:tools\/ci-vazamento\.mjs" > "\$RUNNER_TEMP\/trusted-ci-vazamento\.mjs"/, 'executor vem da main');
   assert.equal((semanal.match(/VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/g) || []).length, 1, 'secret de termos declarado uma vez');
   assert.match(semanal, /551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb/, 'Gitleaks fixado por SHA256');
+  const credenciais = varredura.split('\n      - ').find((st) => st.startsWith('name: Recusar credenciais de aviso ausentes'));
+  assert.ok(credenciais, 'checagem fail-fast das credenciais de aviso');
+  assert.match(credenciais, /VAZAMENTO_ISSUE_REPO: \$\{\{ vars\.VAZAMENTO_ISSUE_REPO \}\}/);
+  assert.match(credenciais, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/);
+  assert.match(credenciais, /test -n "\$VAZAMENTO_ISSUE_REPO"/);
+  assert.match(credenciais, /test -n "\$VAZAMENTO_ISSUE_TOKEN"/);
+  const gitleaks = varredura.indexOf('name: Obter Gitleaks oficial fixado');
+  assert.ok(varredura.indexOf('name: Recusar credenciais de aviso ausentes') < gitleaks, 'credenciais conferidas antes do download do Gitleaks');
+  const marcador = varredura.split('\n      - ').find((st) => st.startsWith('name: Marcar varredura sem resumo'));
+  assert.ok(marcador, 'marcador de falha sem resumo');
+  assert.match(marcador, /^        if: \$\{\{ !cancelled\(\) \}\}\n/m);
+  assert.match(marcador, /if \[ ! -s "\$VAZAMENTO_REPORT" \]/, 'marcador so quando o resumo nao foi gravado');
+  assert.match(marcador, /"total":1/, 'marcador conta como ocorrencia para o aviso abrir issue');
   const notificar = jobs.notificar.join('\n');
   assert.match(notificar, /^    needs: varredura$/m);
   assert.match(notificar, /!cancelled\(\) && github\.ref == 'refs\/heads\/main' && needs\.varredura\.result == 'failure'/, 'aviso so depois de varredura reprovada na main');
@@ -1026,5 +1039,5 @@ test('vazamento-semanal: executor da main, credenciais nomeadas e aviso so quand
   assert.match(notificar, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/, 'token vem do segredo nomeado');
   assert.ok(!/GITHUB_TOKEN/.test(semanal), 'sem token de escrita do repositorio');
   const segredos = [...semanal.matchAll(/\$\{\{[^}]*\bsecrets\.(\w+)/g)].map((m) => m[1]).sort();
-  assert.deepEqual(segredos, ['VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_TERMOS'], 'so os dois segredos nomeados');
+  assert.deepEqual(segredos, ['VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_TERMOS'], 'so os segredos nomeados');
 });
