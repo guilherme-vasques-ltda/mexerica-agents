@@ -1,7 +1,7 @@
-// Trava contra bastidor em texto que vai ao GitHub (título e descrição de PR, branch, commits e comentários).
-// Node puro, sem dependências. Nunca imprime o trecho achado: só categoria, regra, campo e linha.
-// Modos: pr (lê o PR pela API), comentario (lê o evento de comentário) e local (antes de publicar).
-// Guia: docs/guides/bastidor.md.
+// Trava contra bastidor em texto que vai ao GitHub (título e descrição de PR, nome de branch e commits).
+// Node puro, sem dependências. Nunca imprime o trecho achado: só campo e linha, e a categoria das regras genéricas.
+// O que casa com a lista interna aparece só como «texto interno encontrado», sem dizer qual termo.
+// Modos: pr (lê o PR pela API) e local (antes de publicar). Guia: docs/guides/bastidor.md.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const REGRAS_PADRAO = resolve(dirname(fileURLToPath(import.meta.url)), '../.github/security/bastidor.json');
 const VARIAVEL = 'BASTIDOR_NOMES_INTERNOS';
-const ACOES_PERMITIDAS = new Set(['admin', 'maintain', 'write']);
 const LIMITE_TEXTO = 2_000_000;
+const LIMITE_ACHADOS = 200;
 const LIMITE_ANOTACOES = 50;
 const PRAZO_API_MS = 30_000;
 // Só mensagens controladas chegam ao log: erro de parse ou de rede pode trazer pedaço do que lia.
@@ -64,20 +64,12 @@ export function lerInternos(bruto) {
   };
 }
 
-// Nos modos automáticos a lista interna é obrigatória: sem ela a proteção seria parcial e a checagem ficaria verde.
+// Em PR do próprio repositório a lista interna é obrigatória: sem ela a proteção seria parcial e a checagem ficaria verde.
 export function exigirInternos(bruto) {
   const internos = lerInternos(bruto);
   if (!internos) throw falha(`${VARIAVEL} ausente ou vazia: a checagem não roda sem a lista interna`);
   if (!internos.prefixosTarefa.length || !internos.plataformas.length) throw falha(`${VARIAVEL} sem prefixosTarefa ou plataformas`);
   return internos;
-}
-
-// Contas de robô do próprio projeto (não é sigilo): array JSON de logins.
-export function lerAutomacao(bruto) {
-  if (bruto === undefined || bruto === null || !String(bruto).trim()) return [];
-  let dados;
-  try { dados = JSON.parse(bruto); } catch { throw falha('BASTIDOR_AUTOMACAO inválida'); }
-  return listaDe(dados, /^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/, 20);
 }
 
 // O segredo inteiro já é mascarado pelo runner; cada termo também, para o caso de aparecer sozinho no log.
@@ -91,55 +83,53 @@ export function compilarRegras(config, internos = null) {
     id: r.id,
     categoria: r.categoria,
     campos: r.campos ?? null,
+    interna: false,
     re: new RegExp(expandir(r.padrao, config.definicoes ?? {}), 'u'),
   }));
-  if (internos?.prefixosTarefa.length) {
-    regras.push({ id: 'tarefa-codigo', categoria: 'tarefa', campos: null, re: new RegExp(`(?<![a-z0-9])(?:${alternativas(internos.prefixosTarefa)})[-_]\\d{1,6}(?![a-z0-9])`, 'u') });
-  }
-  if (internos?.plataformas.length) {
-    regras.push({ id: 'plataforma-nome', categoria: 'plataforma', campos: null, re: new RegExp(`(?<![a-z0-9])(?:${alternativas(internos.plataformas)})(?![a-z0-9])`, 'u') });
-  }
-  if (internos?.termosInternos.length) {
-    regras.push({ id: 'termo-interno', categoria: 'coordenacao', campos: null, re: new RegExp(`(?<![a-z0-9])(?:${alternativas(internos.termosInternos)})(?![a-z0-9])`, 'u') });
-  }
+  const interna = (lista, corpo) => lista?.length && regras.push({ id: 'interno', categoria: 'interno', campos: null, interna: true, re: new RegExp(corpo(alternativas(lista)), 'u') });
+  interna(internos?.prefixosTarefa, (a) => `(?<![a-z0-9])(?:${a})[-_]\\d{1,6}(?![a-z0-9])`);
+  interna(internos?.plataformas, (a) => `(?<![a-z0-9])(?:${a})(?![a-z0-9])`);
+  interna(internos?.termosInternos, (a) => `(?<![a-z0-9])(?:${a})(?![a-z0-9])`);
   return { regras, orientacao: config.orientacao ?? {}, completo: Boolean(internos) };
 }
 
 const rotuloCommit = (sha, indice) => `commit ${/^[0-9a-f]{7,40}$/i.test(sha ?? '') ? sha.slice(0, 7).toLowerCase() : indice + 1}`;
 
-// Linha longa é testada em pedaços sobrepostos: o custo cresce de forma linear e nenhum padrão vira laço quadrático.
+// Linha longa é testada em pedaços sobrepostos, com um caractere de contexto de cada lado: o custo cresce de forma
+// linear, nenhum padrão vira laço quadrático e a borda do pedaço não satisfaz sozinha uma condição de fronteira.
 const PEDACO = 2000;
 const SOBRA = 300;
 const pedacos = (linha) => {
   if (linha.length <= PEDACO) return [linha];
   const saida = [];
-  for (let i = 0; i < linha.length; i += PEDACO - SOBRA) saida.push(linha.slice(i, i + PEDACO));
+  for (let i = 0; i < linha.length; i += PEDACO - SOBRA) saida.push(linha.slice(Math.max(0, i - 1), Math.min(linha.length, i + PEDACO + 1)));
   return saida;
 };
 
-// entrada: { titulo, descricao, branch, commits: [{ sha, mensagem }], comentario }. Devolve só posições, nunca o trecho.
+// entrada: { titulo, descricao, branch, commits: [{ sha, mensagem }] }. Devolve só posições, nunca o trecho.
 export function verificar(entrada, { regras }) {
   const campos = [];
   if (entrada.titulo != null) campos.push(['titulo', entrada.titulo]);
   if (entrada.descricao != null) campos.push(['descricao', entrada.descricao]);
   if (entrada.branch != null) campos.push(['branch', entrada.branch]);
   (entrada.commits ?? []).forEach((c, i) => campos.push([rotuloCommit(c.sha, i), c.mensagem ?? '']));
-  if (entrada.comentario != null) campos.push(['comentario', entrada.comentario]);
   if (campos.reduce((soma, [, texto]) => soma + String(texto).length, 0) > LIMITE_TEXTO) throw falha('Texto grande demais para verificar');
   const achados = [];
   for (const [campo, texto] of campos) {
     const tipo = campo.split(' ')[0];
     const vistos = new Set();
-    normalizar(String(texto)).split(/\r\n|\r|\n/).forEach((linha, i) => {
-      const variantes = pedacos(linha).flatMap((pedaco) => [pedaco, semMarcacao(pedaco)]);
+    const linhas = normalizar(String(texto)).split(/\r\n|\r|\n/);
+    for (let i = 0; i < linhas.length; i++) {
+      const variantes = pedacos(linhas[i]).flatMap((pedaco) => [pedaco, semMarcacao(pedaco)]);
       for (const regra of regras) {
         if (regra.campos && !regra.campos.includes(tipo)) continue;
         const chave = `${regra.id}|${i}`;
         if (vistos.has(chave) || !variantes.some((v) => regra.re.test(v))) continue;
         vistos.add(chave);
         achados.push({ categoria: regra.categoria, regra: regra.id, campo, linha: i + 1 });
+        if (achados.length >= LIMITE_ACHADOS) return achados;
       }
-    });
+    }
   }
   return achados;
 }
@@ -150,29 +140,28 @@ export function formatar(achados, { orientacao = {}, completo = true } = {}) {
     linhas.push(`::warning title=Bastidor::Checagem parcial: sem ${VARIAVEL}, códigos de tarefa, nome da plataforma e termos internos não foram verificados.`);
   }
   for (const a of achados.slice(0, LIMITE_ANOTACOES)) {
-    linhas.push(`::error title=Bastidor::[${a.categoria}] campo ${a.campo}, linha ${a.linha} (regra ${a.regra})`);
+    linhas.push(a.categoria === 'interno'
+      ? `::error title=Bastidor::texto interno encontrado: campo ${a.campo}, linha ${a.linha}`
+      : `::error title=Bastidor::[${a.categoria}] campo ${a.campo}, linha ${a.linha} (regra ${a.regra})`);
   }
-  if (achados.length > LIMITE_ANOTACOES) linhas.push(`::error title=Bastidor::e mais ${achados.length - LIMITE_ANOTACOES} achado(s) não listados`);
+  if (achados.length > LIMITE_ANOTACOES) linhas.push('::error title=Bastidor::há outros achados não listados');
   const dicas = [...new Set(achados.map((a) => orientacao[a.categoria]).filter(Boolean))];
   for (const dica of dicas) linhas.push(dica);
   if (achados.length) linhas.push('Reescreva só com o que mudou, por quê, como foi testado e o que ficou sem provar. Guia: docs/guides/bastidor.md.');
   return linhas.join('\n');
 }
 
-async function api(env, caminho, { metodo = 'GET', corpo } = {}, buscar = fetch) {
+async function api(env, caminho, buscar = fetch) {
   const resposta = await buscar(`${env.GITHUB_API_URL ?? 'https://api.github.com'}${caminho}`, {
-    method: metodo,
     headers: {
       Authorization: `Bearer ${env.GH_TOKEN ?? env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
-      ...(corpo ? { 'Content-Type': 'application/json' } : {}),
     },
-    body: corpo ? JSON.stringify(corpo) : undefined,
     signal: AbortSignal.timeout(PRAZO_API_MS),
   });
-  if (!resposta.ok) throw Object.assign(new Error(`API recusou ${metodo} (${resposta.status})`), { status: resposta.status, controlado: true });
-  return resposta.status === 204 ? null : resposta.json();
+  if (!resposta.ok) throw falha(`API recusou a leitura (${resposta.status})`);
+  return resposta.json();
 }
 
 const repositorio = (env) => {
@@ -180,88 +169,32 @@ const repositorio = (env) => {
   return env.GITHUB_REPOSITORY;
 };
 
+// Fotografia consistente: o SHA do evento é fixado no início, e título, descrição, branch, SHA e número de commits são
+// relidos no fim; se algo mudou, a execução reprova e a rodada do evento seguinte decide.
 export async function lerPr(env, buscar = fetch) {
   const repo = repositorio(env);
   const numero = Number(env.PR_NUMBER);
   if (!Number.isInteger(numero) || numero < 1) throw falha('PR_NUMBER inválido');
-  const pr = await api(env, `/repos/${repo}/pulls/${numero}`, {}, buscar);
-  if (typeof pr?.title !== 'string' || typeof pr.head?.ref !== 'string' || !Number.isInteger(pr.commits) || (pr.body != null && typeof pr.body !== 'string')) throw falha('Resposta da API sem os campos do PR');
-  if (env.PR_HEAD_SHA && pr.head.sha !== env.PR_HEAD_SHA) throw falha('O PR mudou durante a verificação: a execução mais nova verifica o estado atual');
+  if (!/^[a-f0-9]{40}$/.test(env.PR_HEAD_SHA ?? '')) throw falha('PR_HEAD_SHA inválido');
+  const ler = async () => {
+    const pr = await api(env, `/repos/${repo}/pulls/${numero}`, buscar);
+    if (typeof pr?.title !== 'string' || typeof pr.head?.ref !== 'string' || typeof pr.head.sha !== 'string' || !Number.isInteger(pr.commits) || (pr.body != null && typeof pr.body !== 'string')) throw falha('Resposta da API sem os campos do PR');
+    return pr;
+  };
+  const mudou = () => falha('O PR mudou durante a verificação: a execução mais nova verifica o estado atual');
+  const pr = await ler();
+  if (pr.head.sha !== env.PR_HEAD_SHA) throw mudou();
   const commits = [];
   for (let pagina = 1; pagina <= 3; pagina++) {
-    const lote = await api(env, `/repos/${repo}/pulls/${numero}/commits?per_page=100&page=${pagina}`, {}, buscar);
+    const lote = await api(env, `/repos/${repo}/pulls/${numero}/commits?per_page=100&page=${pagina}`, buscar);
     if (!Array.isArray(lote) || lote.some((c) => typeof c?.commit?.message !== 'string')) throw falha('Resposta da API sem as mensagens de commit');
     commits.push(...lote.map((c) => ({ sha: c.sha, mensagem: c.commit.message })));
     if (lote.length < 100) break;
   }
-  if (commits.length < (pr.commits ?? 0)) throw falha('PR com mais commits do que a API lista: confira localmente');
+  if (commits.length < pr.commits) throw falha('PR com mais commits do que a API lista: confira localmente');
+  const foto = (x) => JSON.stringify([x.title, x.body ?? '', x.head.ref, x.head.sha, x.commits]);
+  if (foto(await ler()) !== foto(pr)) throw mudou();
   return { titulo: pr.title, descricao: pr.body ?? '', branch: pr.head.ref, commits };
-}
-
-// Comentário em issue ou PR, comentário de revisão em linha e corpo de revisão.
-export function extrairComentario(nomeEvento, evento) {
-  if (evento.action === 'deleted') return null;
-  const de = (tipo, fonte, numero) => ({ tipo, corpo: fonte?.body, id: fonte?.id, nodeId: fonte?.node_id, usuario: fonte?.user, numero });
-  if (nomeEvento === 'issue_comment') return de('issue', evento.comment, evento.issue?.number);
-  if (nomeEvento === 'pull_request_review_comment') return de('comentario-de-revisao', evento.comment, evento.pull_request?.number);
-  if (nomeEvento === 'pull_request_review') return de('revisao', evento.review, evento.pull_request?.number);
-  return null;
-}
-
-const ehBot = (usuario) => usuario?.type === 'Bot' || /\[bot\]$/i.test(usuario?.login ?? '');
-
-// Só a automação do projeto (lista BASTIDOR_AUTOMACAO) e quem tem escrita no repositório têm o comentário removido.
-export async function autorElegivel(env, usuario, automacao, buscar = fetch) {
-  const login = usuario?.login;
-  if (!login || !/^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/.test(login)) return false;
-  if (ehBot(usuario)) return automacao.some((v) => v.toLowerCase() === login.toLowerCase());
-  const permissao = await api(env, `/repos/${repositorio(env)}/collaborators/${login}/permission`, {}, buscar);
-  return ACOES_PERMITIDAS.has(permissao.permission);
-}
-
-export async function tratarComentario(env, nomeEvento, evento, regras, automacao, buscar = fetch) {
-  const dados = extrairComentario(nomeEvento, evento);
-  if (!dados || !dados.corpo || !dados.corpo.trim()) return { resultado: 'ignorado', achados: [] };
-  const achados = verificar({ comentario: dados.corpo }, regras);
-  if (!achados.length) return { resultado: 'limpo', achados };
-  if (!(await autorElegivel(env, dados.usuario, automacao, buscar))) return { resultado: 'fora-do-escopo', achados };
-  const repo = repositorio(env);
-  // O evento pode ser antigo: só o texto atual decide, e comentário já apagado não tem o que remover.
-  const caminho = { issue: `/repos/${repo}/issues/comments/${dados.id}`, 'comentario-de-revisao': `/repos/${repo}/pulls/comments/${dados.id}`, revisao: `/repos/${repo}/pulls/${dados.numero}/reviews/${dados.id}` }[dados.tipo];
-  let atual;
-  try { atual = await api(env, caminho, {}, buscar); } catch (erro) {
-    if (erro.status === 404) return { resultado: 'ignorado', achados: [] };
-    throw erro;
-  }
-  if (atual?.user?.login !== dados.usuario.login || (atual.body != null && typeof atual.body !== 'string')) return { resultado: 'ignorado', achados: [] };
-  const achadosAtuais = verificar({ comentario: atual.body ?? '' }, regras);
-  if (!achadosAtuais.length) return { resultado: 'limpo', achados: achadosAtuais };
-  let acao;
-  if (dados.tipo === 'issue') {
-    await api(env, `/repos/${repo}/issues/comments/${dados.id}`, { metodo: 'DELETE' }, buscar);
-    acao = 'removido';
-  } else if (dados.tipo === 'comentario-de-revisao') {
-    await api(env, `/repos/${repo}/pulls/comments/${dados.id}`, { metodo: 'DELETE' }, buscar);
-    acao = 'removido';
-  } else {
-    // O corpo de uma revisão enviada não pode ser apagado pela API: fica oculto.
-    const consulta = 'mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OFF_TOPIC}) { minimizedComment { isMinimized } } }';
-    const graphql = env.GITHUB_GRAPHQL_URL ?? `${env.GITHUB_API_URL ?? 'https://api.github.com'}/graphql`;
-    const resposta = await buscar(graphql, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.GH_TOKEN ?? env.GITHUB_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: consulta, variables: { id: dados.nodeId } }),
-      signal: AbortSignal.timeout(PRAZO_API_MS),
-    });
-    const corpo = resposta.ok ? await resposta.json() : null;
-    if (corpo?.data?.minimizeComment?.minimizedComment?.isMinimized !== true) throw falha('A API não confirmou a ocultação da revisão');
-    acao = 'ocultado';
-  }
-  const categorias = [...new Set(achadosAtuais.map((a) => a.categoria))].join(', ');
-  const aviso = `Um comentário de @${dados.usuario.login} foi ${acao} por conter texto interno (categoria: ${categorias}). `
-    + 'Reescreva só com o que mudou, por quê, como foi testado e o que ficou sem provar. Guia: docs/guides/bastidor.md.';
-  await api(env, `/repos/${repo}/issues/${dados.numero}/comments`, { metodo: 'POST', corpo: { body: aviso } }, buscar);
-  return { resultado: acao, achados: achadosAtuais };
 }
 
 function lerArgumentos(argv) {
@@ -296,22 +229,18 @@ export function lerLocal(opcoes) {
 export async function main(argv = process.argv.slice(2), env = process.env, buscar = fetch) {
   const [modo, ...resto] = argv;
   const opcoes = lerArgumentos(resto);
-  if (!['pr', 'comentario', 'local'].includes(modo)) throw falha('Uso: ci-bastidor.mjs pr|comentario|local [--regras arquivo] [--base ref] [--titulo texto] [--descricao arquivo]');
-  const arquivo = opcoes.regras ?? REGRAS_PADRAO;
-  // Nos modos automáticos a lista interna é obrigatória; o modo local pode rodar parcial e avisa.
-  const internos = modo === 'local' ? lerInternos(env[VARIAVEL]) : exigirInternos(env[VARIAVEL]);
-  if (internos && modo !== 'local') for (const linha of mascaras(internos)) console.log(linha);
-  const regras = compilarRegras(JSON.parse(readFileSync(arquivo, 'utf8')), internos);
-  if (modo === 'comentario') {
-    const evento = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
-    const { resultado, achados } = await tratarComentario(env, env.GITHUB_EVENT_NAME, evento, regras, lerAutomacao(env.BASTIDOR_AUTOMACAO), buscar);
-    console.log(formatar(achados, regras));
-    console.log(`Comentário: ${resultado}`);
-    return 0;
-  }
+  if (!['pr', 'local'].includes(modo)) throw falha('Uso: ci-bastidor.mjs pr|local [--regras arquivo] [--base ref] [--titulo texto] [--descricao arquivo]');
+  // PR de fork roda só com as regras genéricas e nunca recebe a lista interna: o resultado público não pode servir de
+  // oráculo para ela. PR do próprio repositório exige a lista; o modo local pode rodar parcial e avisa.
+  if (modo === 'pr' && !['true', 'false'].includes(env.BASTIDOR_FORK)) throw falha('BASTIDOR_FORK inválido');
+  const fork = modo === 'pr' && env.BASTIDOR_FORK === 'true';
+  const internos = fork ? null : modo === 'local' ? lerInternos(env[VARIAVEL]) : exigirInternos(env[VARIAVEL]);
+  if (internos && modo === 'pr') for (const linha of mascaras(internos)) console.log(linha);
+  const regras = compilarRegras(JSON.parse(readFileSync(opcoes.regras ?? REGRAS_PADRAO, 'utf8')), internos);
+  if (fork) console.log('PR de fork: só as regras genéricas foram aplicadas.');
   const entrada = modo === 'pr' ? await lerPr(env, buscar) : lerLocal(opcoes);
   const achados = verificar(entrada, regras);
-  console.log(formatar(achados, regras) || 'Sem bastidor.');
+  console.log(formatar(achados, { ...regras, completo: regras.completo || fork }) || 'Sem bastidor.');
   return achados.length ? 1 : 0;
 }
 

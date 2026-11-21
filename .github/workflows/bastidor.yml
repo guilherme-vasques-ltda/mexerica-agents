@@ -3,7 +3,9 @@
 # nao consegue editar nem desligar a trava) e cobre PR de fork. Permissoes minimas (leitura), nenhum checkout da ref
 # do PR, nenhum codigo do PR e executado, e titulo, descricao, branch e commits chegam ao verificador como dado,
 # lidos pela API, nunca em linha de comando. O verificador e as regras vem da branch padrao, os dois do mesmo commit.
-# A lista interna e o segredo BASTIDOR_NOMES_INTERNOS (mascarado); nenhum passo a imprime.
+# A lista interna e o segredo BASTIDOR_NOMES_INTERNOS (mascarado); nenhum passo a imprime. PR de fork roda so com as
+# regras genericas e nunca recebe o segredo, para o resultado publico nao servir de oraculo para a lista.
+# A maquina vem da variavel CI_MAQUINA_LEVE; enquanto ela apontar para maquina paga, o repositorio nao pode ser publico.
 name: Bastidor
 
 on:
@@ -60,5 +62,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASTIDOR_NOMES_INTERNOS: ${{ secrets.BASTIDOR_NOMES_INTERNOS }}
+          BASTIDOR_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          BASTIDOR_NOMES_INTERNOS: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.BASTIDOR_NOMES_INTERNOS || '' }}
         run: node "$RUNNER_TEMP/bastidor/ci-bastidor.mjs" pr --regras "$RUNNER_TEMP/bastidor/bastidor.json"

@@ -1,9 +1,10 @@
 {
   "versao": 1,
-  "comentario": "Regras genericas da trava contra bastidor em texto publicado. Os padroes rodam sobre texto sem acento e em minusculas; escreva-os assim. Nomes internos (prefixos de tarefa, plataforma, termos da equipe) nao ficam aqui: vem da variavel BASTIDOR_NOMES_INTERNOS. Guia: docs/guides/bastidor.md.",
+  "comentario": "Regras genericas da trava contra bastidor em texto publicado. Os padroes rodam sobre texto sem acento e em minusculas; escreva-os assim. Nomes internos (prefixos de tarefa, plataforma, termos da equipe) nao ficam aqui: vem do segredo BASTIDOR_NOMES_INTERNOS. Guia: docs/guides/bastidor.md.",
   "orientacao": {
     "plataforma": "Tire links, selos e ids de plataforma de agentes ou de conversa.",
     "tarefa": "Tire o codigo de tarefa interno; descreva o que mudou.",
+    "interno": "Tire o texto interno indicado.",
     "autoria-ia": "Tire o credito de autoria ou de revisao por modelo ou ferramenta de IA.",
     "coordenacao": "Tire o vocabulario de coordenacao interna (quem decidiu, relatorio, custo, contagem de maquinas)."
   },
@@ -53,7 +54,7 @@
     {
       "id": "credito-geracao",
       "categoria": "autoria-ia",
-      "padrao": "(?<![a-z0-9])(?:gerad[oa]s?|generated)\\s+(?:com|with|by)\\s+{{art}}{{ia}}(?![a-z0-9])"
+      "padrao": "(?<![a-z0-9])(?:gerad[oa]s?|generated)\\s+{{prep}}\\s+{{art}}{{ia}}(?![a-z0-9])"
     },
     {
       "id": "credito-revisao",
