@@ -14,8 +14,12 @@ import { createModels, type AssistantMessageEvent, type Model } from "@earendil-
 import { attachJsonlLineReader, serializeJsonLine } from "../vendor/pi-mono/packages/coding-agent/src/modes/rpc/jsonl.ts";
 import { emptyAuthContext } from "./src/auth-context.ts";
 import { HubCredentialStore } from "./src/credentials.ts";
+import { parseHistory } from "./src/history.ts";
+import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
-import { registerProviders } from "./src/providers.ts";
+import { fauxAcesso, registerProviders } from "./src/providers.ts";
+import { comPrazoDeSilencio, semRedirecionar } from "./src/silencio.ts";
+import { ehFornecedor, modeloDoFornecedor, testarAcesso } from "./src/fornecedores.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
 
 type Command = { id?: string; type: string } & Record<string, unknown>;
@@ -39,16 +43,38 @@ const fail = (id: string | undefined, command: string, error: string) =>
 	write({ id, type: "response", command, success: false, error });
 
 const channel = VaultChannel.open(); // falha fechado: sem fd 3 não há cofre
-const models = createModels({
-	credentials: new HubCredentialStore(channel, (key) => segredos.add(key)),
-	authContext: emptyAuthContext(),
+// A chave e as formas em que um erro do fornecedor pode repeti-la (escapada em JSON ou codificada em URL).
+const credentials = new HubCredentialStore(channel, (key) => {
+	const url = encodeURIComponent(key);
+	for (const forma of [key, JSON.stringify(key).slice(1, -1), url, url.replace(/%[0-9A-F]{2}/g, (c) => c.toLowerCase())]) segredos.add(forma);
 });
-registerProviders(models);
+const models = createModels({ credentials, authContext: emptyAuthContext() });
+const fauxHandle = registerProviders(models);
 
 const hubTools = new HubTools(write);
+// Um único fetch para todos os pedidos (o cliente da Anthropic é reaproveitado enquanto o fetch é o mesmo).
+const fetchDoFornecedor = comPrazoDeSilencio(semRedirecionar);
+/** «Testar acesso» é curto: 15 s sem resposta já é «sem resposta», e o teste inteiro não passa de 30 s. Os testes do
+ * motor encurtam o prazo por MEXERICA_TESTE_PRAZO_MS; o Hub abre o motor com o ambiente limpo, sem ela. */
+const prazoDeTeste = Number(process.env["MEXERICA_TESTE_PRAZO_MS"]) || 15_000;
+const fetchDoTeste = comPrazoDeSilencio(semRedirecionar, prazoDeTeste);
+const PRAZO_DO_TESTE_MS = prazoDeTeste * 2;
 const agent = new Agent({
-	streamFn: (model, context, options) => models.streamSimple(model, context, options),
+	streamFn: (model, context, options) => models.streamSimple(model, context, { ...options, fetch: fetchDoFornecedor }),
 	toolExecution: "parallel",
+	// Os tetos da conversa valem em cada chamada ao provedor, também no meio de um turno gigante. O corte vale
+	// também para a lista do próprio laço (ela é a mesma que chega aqui), que então não cresce sem limite.
+	transformContext: async (messages) => {
+		const fitted = fitMessages(messages);
+		messages.splice(0, messages.length, ...fitted);
+		return fitted;
+	},
+	// A lista do turno (`newMessages`, a que o `agent_end` leva) é limitada a cada volta do laço, junto com o contexto:
+	// cada mensagem já entra dentro do teto (`boundInPlace` no `message_end`) e aqui sai a volta mais antiga que passar.
+	finishTurn: ({ newMessages, context }) => {
+		newMessages.splice(0, newMessages.length, ...fitMessages(newMessages));
+		context.messages.splice(0, context.messages.length, ...fitMessages(context.messages));
+	},
 });
 
 const stripPartial = (event: AssistantMessageEvent) => {
@@ -58,6 +84,8 @@ const stripPartial = (event: AssistantMessageEvent) => {
 };
 
 agent.subscribe((event: AgentEvent) => {
+	// A mensagem sai e fica no acumulador do laço já dentro do teto por mensagem (mesmo objeto).
+	if (event.type === "message_start" || event.type === "message_end") boundInPlace(event.message);
 	if (event.type === "message_update") {
 		// Só o delta: `message` leva a mensagem inteira a cada evento e a
 		// saída cresceria ao quadrado do tamanho da resposta.
@@ -67,7 +95,18 @@ agent.subscribe((event: AgentEvent) => {
 		});
 		return;
 	}
+	// O `turn_end` do laço leva a mensagem e todos os resultados da volta (já entregues, um a um, nos `message_end`):
+	// aqui vai sem a carga, para uma volta com muitas ferramentas não passar da linha que o Hub aceita.
+	if (event.type === "turn_end") {
+		write({ type: "turn_end" });
+		return;
+	}
 	write(event);
+	// O estado do processo também não passa dos tetos durante o turno, não só entre turnos. Com uma volta de
+	// ferramentas aberta o corte espera: tirar a volta pela metade deixaria os resultados que ainda chegam sem a chamada.
+	if (event.type === "message_end" && !batchOpen(agent.state.messages)) {
+		agent.state.messages = fitMessages(agent.state.messages);
+	}
 });
 
 let streaming = false;
@@ -84,10 +123,17 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 			write({ type: "error", error: error instanceof Error ? error.message : String(error) });
 		} finally {
 			streaming = false;
+			// O processo vivo também respeita os tetos entre turnos.
+			agent.state.messages = fitMessages(agent.state.messages);
 		}
 	},
 	set_model(command) {
-		const found = models.getModel(String(command.provider), String(command.modelId));
+		const provider = String(command.provider);
+		const modelId = String(command.modelId);
+		// Os limites vêm do último «Testar acesso» (o Hub os guarda); sem eles, os padrões do fornecedor.
+		const limite = (valor: unknown) => (Number.isSafeInteger(valor) && (valor as number) > 0 ? (valor as number) : undefined);
+		const listado = { id: modelId, name: modelId, contextWindow: limite(command.contextWindow), maxTokens: limite(command.maxTokens) };
+		const found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId, listado) : undefined);
 		if (!found) throw new Error(`modelo desconhecido: ${command.provider}/${command.modelId}`);
 		model = found;
 		agent.state.model = found;
@@ -106,6 +152,17 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		agent.state.messages = [];
 		respond(command.id, "new_session", { cancelled: true });
 	},
+	// «Testar acesso»: só lista os modelos que a chave do cofre enxerga. A resposta nunca leva corpo do fornecedor.
+	async list_models(command) {
+		const provider = String(command.provider);
+		const faux = fauxHandle !== undefined && (provider === "faux" || provider === "faux2");
+		if (!ehFornecedor(provider) && !faux) throw new Error(`fornecedor desconhecido: ${provider}`);
+		const credential = await credentials.read(provider);
+		const key = (credential as { key?: unknown } | undefined)?.key;
+		if (typeof key !== "string" || !key) return respond(command.id, "list_models", { ok: false, erro: "sem_chave" });
+		if (!ehFornecedor(provider)) return respond(command.id, "list_models", fauxAcesso(provider, key, models.getModels(provider)));
+		respond(command.id, "list_models", await testarAcesso(provider, key, fetchDoTeste, AbortSignal.timeout(PRAZO_DO_TESTE_MS)));
+	},
 	get_available_models(command) {
 		respond(command.id, "get_available_models", { models: models.getModels() });
 	},
@@ -122,6 +179,14 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		const specs = parseToolSpecs(command.tools);
 		agent.state.tools = hubTools.toAgentTools(specs);
 		respond(command.id, "set_tools", { count: specs.length });
+	},
+	// O Hub guarda a conversa; o processo novo (depois de cancelar, trocar de
+	// provedor ou cair) a recebe aqui, depois do prompt de sistema e antes do prompt.
+	restore_history(command) {
+		if (streaming || agent.state.isStreaming) throw new Error("restore_history só vale fora de um turno");
+		const history = fitMessages(parseHistory(command.messages));
+		agent.state.messages = [...agent.state.messages.filter((message) => message.role === "system"), ...history];
+		respond(command.id, "restore_history", { count: history.length });
 	},
 	tool_result(command) {
 		const { callId, ok, output, error } = command as unknown as Record<string, unknown>;

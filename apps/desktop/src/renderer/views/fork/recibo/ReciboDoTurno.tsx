@@ -1,15 +1,16 @@
 // Rota-03b (D354, opção A): o ícone de recibo na linha de nome do turno e o popover "Como esta resposta foi feita".
 import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { isWorkingIn } from '@shared/models'
 import { createPortal } from 'react-dom'
 import { anchorPlacement, useEscape, usePresence } from '../../../components/Overlay'
 import { Spinner } from '../../../components/Controls'
-import { useModel } from '../../../lib/observable'
+import { useModel, useSelector } from '../../../lib/observable'
 import { useStoreRef } from '../../../store/context'
 import { engineSetup } from '../../../store/fork-engine-setup'
 import { receiptsFor } from '../../../store/fork-recibo'
 import { contasFor } from '../contas-ia/contas-store'
 import { OpenBotSettings } from '../bot-settings/bot-settings-entry'
-import { changedModel, receiptView, showsIcon, type ReceiptAnchor } from './presentation'
+import { changedModel, receiptView, showsIcon, usoDoTurno, type ReceiptAnchor, type UsoView } from './presentation'
 import { superficieIdioma, useIdioma, useT, tradutor } from '../../../lib/fork-i18n/estado'
 import './recibo.css'
 
@@ -33,6 +34,20 @@ export function ReceiptTrigger({ anchor, botId, botName }: { anchor: ReceiptAnch
   const request = anchor.request
   useEffect(() => { if (request) cache.prefetch(request) }, [cache, request, cache.epoch])
   const load = cache.get(request)
+  // O uso do turno é gravado ao fim dele. Um recibo que aparece com o turno aberto é lido de novo uma vez, quando o turno
+  // termina e se ainda estiver sem uso; os de turnos antigos (que aparecem com a conversa parada) nunca repetem a leitura.
+  const lido = load?.status === 'loaded'
+  const semUso = lido && load.response.state !== 'pending' && load.response.usage === null
+  const emTurno = useSelector(store, (s) => { const bot = s.bots.get(botId); return !!bot && !!request && (isWorkingIn(bot, request.conversationId) || (bot.status === 'waiting' && (bot.workingChat ?? bot.id) === request.conversationId)) })
+  const ciclo = useRef<{ chave: string; fase: 'novo' | 'aberto' | 'fim' | 'parado' }>({ chave: '', fase: 'novo' })
+  useEffect(() => {
+    if (!request) return
+    const chave = `${request.botId}|${request.conversationId}|${request.sessionId}|${request.entryId}`
+    const c = ciclo.current
+    if (c.chave !== chave) { c.chave = chave; c.fase = emTurno ? 'aberto' : 'parado'; return }
+    if (c.fase === 'aberto' && !emTurno) c.fase = 'fim'
+    if (c.fase === 'fim' && lido) { c.fase = 'parado'; if (semUso) cache.refresh(request) }
+  }, [cache, request, semUso, lido, emTurno])
   // Aberto, o ícone fica mesmo durante a releitura (Tentar de novo, na fila): o popover vive nele.
   if (!request || !rect && (cache.blocked || !showsIcon(load))) return null
   const changed = changedModel(t, load, cache.get(anchor.previous))
@@ -60,6 +75,26 @@ export function bubbleRect(from: HTMLElement): DOMRect {
   return new DOMRect(left, b.top - 2, 0, b.height + 4)
 }
 
+/** O uso do turno: só o que o motor informou, com a origem dita em palavras; o que falta aparece como "não informado". */
+function UsoDoTurno({ uso, t }: { uso: UsoView; t: ReturnType<typeof tradutor> }) {
+  return (
+    <>
+      <hr />
+      <div className="receipt-eyebrow">{t('conversa.recibo.uso.titulo')}</div>
+      {uso.kind === 'informado' ? (
+        <>
+          <dl className="receipt-uso">
+            {uso.linhas.map((linha) => (
+              <div key={linha.id}><dt>{t(`conversa.recibo.uso.${linha.id}`)}</dt><dd className={linha.valor === null ? 'gone' : undefined}>{linha.valor ?? t('conversa.recibo.uso.naoInformado')}</dd></div>
+            ))}
+          </dl>
+          <p className="receipt-note">{t('conversa.recibo.uso.informado')}</p>
+        </>
+      ) : <p>{t(uso.kind === 'semMedida' ? 'conversa.recibo.uso.semMedida' : 'conversa.recibo.uso.nenhum')}</p>}
+    </>
+  )
+}
+
 /** O recibo aberto, junto de `rect`; Esc e clique fora fecham e devolvem o foco. */
 export function ReceiptPopover({ anchor, rect, botId, botName, returnFocus, onClose }: { anchor: ReceiptAnchor; rect: DOMRect; botId: string; botName: string; returnFocus?: HTMLElement | null; onClose: () => void }) {
   const { store, cache } = useReceipts()
@@ -74,6 +109,7 @@ export function ReceiptPopover({ anchor, rect, botId, botName, returnFocus, onCl
   useEffect(() => { if (request) cache.open(request) }, [cache, request, cache.epoch])
   const load = cache.get(request)
   const view = receiptView(t, load, contas.accounts ?? (contas.error ? 'failed' : null), botName, !!request)
+  const uso = usoDoTurno(idioma, load)
   const routed = view.kind === 'routed'
   useEffect(() => { if (routed && !contas.accounts && !contas.loading) void contas.load() }, [routed, contas])
   useLayoutEffect(() => { panel.current?.focus({ preventScroll: true }) }, [mounted])
@@ -101,6 +137,7 @@ export function ReceiptPopover({ anchor, rect, botId, botName, returnFocus, onCl
             <p>{view.why}</p>
             {view.motorLink && openSettings ? <button className="receipt-link" onClick={() => { onClose(); openSettings(store, botId, 'engine') }}>{view.motorLink}</button> : null}
             <p className="receipt-note">{t('conversa.recibo.nota')}</p>
+            {uso ? <UsoDoTurno uso={uso} t={t} /> : null}
           </>
         ) : (
           <>
@@ -114,6 +151,7 @@ export function ReceiptPopover({ anchor, rect, botId, botName, returnFocus, onCl
                 {view.note ? <p className="receipt-note">{view.note}</p> : null}
               </div>
             </div>
+            {uso ? <UsoDoTurno uso={uso} t={t} /> : null}
             {view.retry && request ? <button className="receipt-retry" onClick={() => cache.open(request)}>{t('conversa.recibo.tentarDeNovo')}</button> : null}
           </>
         )}

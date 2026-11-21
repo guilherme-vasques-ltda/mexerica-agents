@@ -33,6 +33,7 @@ impl Hub {
         };
         // Nenhum desses efeitos reversíveis apenas por nova execução ocorre
         // antes do commit. Rooms::stop pode ler Store e enviar comandos: sem locks.
+        // Não há turno da Open a cancelar: com reserva viva a exclusão é recusada no fence.
         self.team.cancel_bot(id);
         self.groups.stop(self, id);
         Ok(rev)

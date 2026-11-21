@@ -60,6 +60,12 @@ export function mover<T>(lista: readonly T[], de: number, para: number): T[] {
 /** Por que a ação não valeu. O Hub põe o código no começo da mensagem; o resto do texto nunca vai à tela. */
 export type FalhaFila = 'saiu' | 'mudou' | 'permissao' | 'pendente' | 'falhou'
 
+/** O Hub recusou a mensagem nova porque a fila da conversa está cheia; nada foi criado. */
+export function filaCheia(error: unknown): boolean {
+  const message = (error as { message?: unknown } | null)?.message
+  return typeof message === 'string' && message.startsWith('queue_full')
+}
+
 export function falhaDaFila(error: unknown): FalhaFila {
   const message = (error as { message?: unknown } | null)?.message
   const code = typeof message === 'string' ? /^[a-z_]+/.exec(message)?.[0] : undefined

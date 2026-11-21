@@ -1,0 +1,138 @@
+{
+  "versao": 1,
+  "comentario": "Regras genericas da trava contra bastidor em texto publicado. Os padroes rodam sobre texto sem acento e em minusculas; escreva-os assim. Nomes internos (prefixos de tarefa, plataforma, termos da equipe) nao ficam aqui: vem do segredo BASTIDOR_NOMES_INTERNOS. Guia: docs/guides/bastidor.md.",
+  "orientacao": {
+    "plataforma": "Tire links, selos e ids de plataforma de agentes ou de conversa.",
+    "tarefa": "Tire o codigo de tarefa interno; descreva o que mudou.",
+    "interno": "Tire o texto interno indicado.",
+    "autoria-ia": "Tire o credito de autoria ou de revisao por modelo ou ferramenta de IA.",
+    "coordenacao": "Tire o vocabulario de coordenacao interna (quem decidiu, relatorio, custo, contagem de maquinas)."
+  },
+  "definicoes": {
+    "ia_nome": "(?:claude(?:\\s+code)?|opus|sonnet|haiku|fable|chatgpt|gpt(?:[-\\s]?\\d[\\w.-]*)?|openai|anthropic|codex|gemini|antigravity|neon|kimi|glm(?:[-\\s]?\\d[\\w.-]*)?|deepseek|qwen|grok|copilot|cursor|devin|windsurf|aider|cline|kilo|opencode|swe(?:[-\\s]?\\d)?|muse|astra|luna|terra|sol|llama|mistral|coderabbit|kody|kodus|jules)",
+    "ia_gen": "(?:ia|ai|llm|inteligencia\\s+artificial)",
+    "ia": "(?:{{ia_nome}}|{{ia_gen}})",
+    "prep": "(?:com|por|pelo|pela|pelos|pelas|usando|via|using|with|by)",
+    "art": "(?:(?:o|a|os|as|um|uma|an?|the|nosso|nossa|meu|minha)\\s+)?"
+  },
+  "regras": [
+    {
+      "id": "selo-html",
+      "categoria": "plataforma",
+      "padrao": "<!--\\s*[a-z0-9_-]{0,40}badge\\s*:\\s*(?:start|end)\\s*-->"
+    },
+    {
+      "id": "id-conversa",
+      "categoria": "plataforma",
+      "padrao": "(?<![a-z0-9])jam_[a-z0-9]{10,}"
+    },
+    {
+      "id": "link-conversa",
+      "categoria": "plataforma",
+      "padrao": "https?://[^\\s)>\\]\"']{1,200}/(?:threads?|jams?|conversations?)/(?=[a-z0-9_-]*\\d)[a-z0-9_-]{8,}"
+    },
+    {
+      "id": "link-ferramenta-ia",
+      "categoria": "plataforma",
+      "padrao": "https?://(?:[a-z0-9-]+\\.){0,6}(?:claude\\.ai/(?:chat|share|code|new)|chatgpt\\.com/(?:c|g|share|codex)|chat\\.openai\\.com|app\\.devin\\.ai|gemini\\.google\\.com/(?:app|share)|jules\\.google|cursor\\.com/(?:agents|background))"
+    },
+    {
+      "id": "selo-robo",
+      "categoria": "plataforma",
+      "padrao": "(?:^|\\s)\\u{1F916}\\s*(?:generated|gerado|feito|made|created|criado|powered|co-authored)"
+    },
+    {
+      "id": "tarefa-palavra-chave",
+      "categoria": "tarefa",
+      "padrao": "(?<![a-z0-9])(?:closes?|fix(?:es)?|resolves?|refs?|relacionad[oa]\\s+a|ver|fecha|resolve|corrige)\\s+(?!cve-|ghsa-|rfc-|iso-|utf-|sha-|cwe-|osv-|gh-)[a-z]{2,6}-\\d{1,6}(?![a-z0-9-])"
+    },
+    {
+      "id": "credito-autoria",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:feit[oa]s?|escrit[oa]s?|criad[oa]s?|desenvolvid[oa]s?|codificad[oa]s?|redigid[oa]s?|made|written|authored|co-authored|coauthored|built|created|developed|powered)\\s+{{prep}}\\s+{{art}}{{ia}}(?![a-z0-9])"
+    },
+    {
+      "id": "credito-geracao",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:gerad[oa]s?|generated)\\s+{{prep}}\\s+{{art}}{{ia}}(?![a-z0-9])"
+    },
+    {
+      "id": "credito-revisao",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:revisad[oa]s?|auditad[oa]s?|conferid[oa]s?|reviewed|audited)\\s+{{prep}}\\s+{{art}}{{ia}}(?![a-z0-9])"
+    },
+    {
+      "id": "revisao-por-agente",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:revisad[oa]s?|auditad[oa]s?|reviewed|audited)\\s+(?:por|pelo|pela|by)\\s+{{art}}(?:agente|subagente|modelo|bot|assistente)(?![a-z0-9])"
+    },
+    {
+      "id": "sujeito-verbo",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9]){{ia_nome}}\\s+(?:revisou|escreveu|reviewed|wrote|authored)(?![a-z0-9])"
+    },
+    {
+      "id": "rotulo-autoria",
+      "categoria": "autoria-ia",
+      "padrao": "^[\\s>*#-]*(?:autor|autoria|coautor|co-autor|author|revisao|revisor|revisores|reviewer|review)(?:\\s+(?:de\\s+seguranca|independente|do\\s+codigo|tecnica))?\\s*[:=]\\s*{{art}}{{ia}}(?![a-z0-9])"
+    },
+    {
+      "id": "revisao-do-modelo",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:revis(?:ao|oes)|segunda\\s+opiniao)(?:\\s+(?:independente|de\\s+seguranca|tecnica|final|cruzada|externa))?\\s+(?:do|da|de|pelo|pela|por)\\s+{{art}}{{ia_nome}}(?![a-z0-9])"
+    },
+    {
+      "id": "trailer-ia",
+      "categoria": "autoria-ia",
+      "padrao": "^\\s*(?:co-authored-by|reviewed-by|generated-by|assisted-by|signed-off-by)\\s*:.*(?:(?<![a-z0-9]){{ia_nome}}(?![a-z0-9])|\\[bot\\]|noreply@(?:anthropic|openai|cursor)\\.com)"
+    },
+    {
+      "id": "ajuda-de-ia",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:com|with)\\s+(?:a\\s+)?(?:ajuda|help|assistencia|apoio)\\s+(?:de|do|da|dos|das|from|of)\\s+{{art}}{{ia}}(?![a-z0-9])"
+    },
+    {
+      "id": "assistido-por-ia",
+      "categoria": "autoria-ia",
+      "padrao": "(?<![a-z0-9])(?:ai|ia|llm)[-\\s](?:assisted|written|authored|assistid[oa]|escrit[oa])(?![a-z0-9])"
+    },
+    {
+      "id": "branch-ferramenta-ia",
+      "categoria": "autoria-ia",
+      "campos": [
+        "branch"
+      ],
+      "padrao": "^(?:claude|codex|copilot|cursor|devin|jules|gemini|openhands|aider|windsurf)/"
+    },
+    {
+      "id": "subagente",
+      "categoria": "coordenacao",
+      "padrao": "(?<![a-z0-9])sub-?agent(?:es?|s)?(?![a-z0-9])"
+    },
+    {
+      "id": "decisao-do-dono",
+      "categoria": "coordenacao",
+      "padrao": "(?<![a-z0-9])(?:dono\\s+(?:decidiu|pediu|mandou|quis|aprovou|autorizou|escolheu|liberou|vetou|disse)|(?:decisao|decisoes|palavra|palavras)\\s+do\\s+dono|a\\s+pedido\\s+do\\s+dono|quem\\s+(?:decidiu|coordena|coordenou))(?![a-z0-9])"
+    },
+    {
+      "id": "relatorio-interno",
+      "categoria": "coordenacao",
+      "padrao": "(?<![a-z0-9])(?:relatorio\\s+(?:interno|do\\s+drive|da\\s+equipe|da\\s+tarefa|de\\s+thread)|drive://)"
+    },
+    {
+      "id": "thread-da-equipe",
+      "categoria": "coordenacao",
+      "padrao": "(?<![a-z0-9])thread\\s+(?:pai|filha|da\\s+equipe|do\\s+dono|de\\s+origem)(?![a-z0-9])"
+    },
+    {
+      "id": "custo-interno",
+      "categoria": "coordenacao",
+      "padrao": "(?<![a-z0-9])(?:custo\\s+(?:d[aeo]s?|dessa|desta|nessa|nesta|em)\\s+(?:rodadas?|tarefas?|execucoes?|revisoes?|sessoes?|threads?|equipes?|maquinas?|creditos|ci|prs?)|\\d[\\d.,]{0,15}\\s+creditos?\\s+(?:gastos?|consumidos?|usados?)|(?:gast\\w+|cust\\w+)[^.\\n]{0,40}(?:us\\$|r\\$)\\s?\\d[\\d.,]{0,15}[^.\\n]{0,40}(?:rodadas?|tarefas?|revisoes?|creditos|sandbox))(?![a-z0-9])"
+    },
+    {
+      "id": "contagem-maquinas",
+      "categoria": "coordenacao",
+      "padrao": "(?<![a-z0-9.,])(?:\\d[\\d.,]{0,15}\\s+(?:maquinas?|runners?|sandboxes?|vms)\\s+(?:ligad\\w+|iniciad\\w+|criad\\w+|usad\\w+|em\\s+\\d|por\\s+(?:rodada|hora|dia|pr))|\\d[\\d.,]{0,15}\\s+inicios\\s+(?:de\\s+maquinas?\\s+)?(?:por\\s+(?:hora|dia|rodada)|em\\s+\\d)|contagem\\s+de\\s+maquinas)"
+    }
+  ]
+}

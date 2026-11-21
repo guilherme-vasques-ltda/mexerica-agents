@@ -6,6 +6,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.mensagens.copiar": "复制",
   "conversa.mensagens.responder": "回复",
   "conversa.mensagens.verTrabalho": "查看它做了什么",
+  "conversa.mensagens.respostaInterrompida": "回复在完成前被中断。",
   "conversa.mensagens.comoFoi": "回答方式",
   "conversa.mensagens.enviando": "正在发送…",
   "conversa.mensagens.naFilaAte": "排队中，等这条回复结束",

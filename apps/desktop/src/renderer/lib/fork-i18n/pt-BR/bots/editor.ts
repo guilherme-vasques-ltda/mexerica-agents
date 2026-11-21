@@ -38,6 +38,7 @@ export const textos = {
   "bots.editor.apagar.arquivosFicam": "Os arquivos que ele mudou no computador continuam como estão.",
   "bots.editor.apagar.canal": "Apagar canal e a conversa",
   "bots.editor.apagar.bot": "Apagar bot e a conversa",
+  "bots.editor.apagar.resposta": "Pare a resposta antes de apagar o bot.",
   "bots.editor.ajustes": "Ajustes",
   "bots.editor.criadoPor": "Criado por",
   "bots.editor.criadoPorData": "{bot} · {data}",

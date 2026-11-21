@@ -1,0 +1,439 @@
+.lado-a-lado {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lado-a-lado-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Alinha o botão da barra lateral no canto superior esquerdo da barra do quadro. */
+.detail:has(.lado-a-lado) > .detail-sidebar-toggle:not(.beside-floating) {
+  top: 7px;
+  left: 12px;
+}
+
+/* Over wallpaper, a conversa dentro dos painéis mantém o vidro/placa sem duplo blur. */
+html[data-wallpaper] .detail:has(.lado-a-lado) {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.lado-a-lado-barra {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  min-height: 44px;
+  padding: var(--sp-6) var(--sp-12);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+[data-theme='light']:not([data-wallpaper]) .lado-a-lado-barra {
+  background: var(--raised);
+}
+
+html[data-wallpaper] .lado-a-lado-barra {
+  background: var(--glass-sidebar);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+  border-bottom-color: var(--glass-edge);
+}
+
+.lado-a-lado.com-inset-barra .lado-a-lado-barra {
+  padding-inline-start: 56px;
+}
+
+.lado-a-lado-barra-inicio {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  min-width: 0;
+}
+
+.lado-a-lado-barra-icone {
+  color: var(--text-secondary, var(--ink-2));
+  flex: none;
+}
+
+.lado-a-lado-contagem {
+  padding: 2px var(--sp-8);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  white-space: nowrap;
+}
+
+.lado-a-lado-pilulas {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.lado-a-lado-pilulas::-webkit-scrollbar {
+  display: none;
+}
+
+.lado-a-lado-pilula {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  height: 26px;
+  max-width: 170px;
+  padding-inline: var(--sp-8);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--context-ink-2, var(--ink-2));
+  font-size: var(--text-caption);
+  flex: none;
+  transition: background-color var(--motion-hover), color var(--motion-hover), box-shadow var(--motion-hover);
+}
+
+.lado-a-lado-pilula:hover {
+  background: var(--hover);
+  color: var(--text-primary, var(--ink));
+}
+
+.lado-a-lado-pilula.is-ativo {
+  background: var(--accent-soft);
+  color: var(--text-primary, var(--ink));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.lado-a-lado-pilula-nome,
+.lado-a-lado-pilula-sessao {
+  min-width: 0;
+}
+
+.lado-a-lado-pilula-sessao {
+  opacity: 0.72;
+}
+
+.lado-a-lado-barra-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  margin-inline-start: auto;
+  flex: none;
+}
+
+.lado-a-lado-btn-adicionar,
+.lado-a-lado-btn-sair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  height: 28px;
+  padding-inline: var(--sp-10);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  color: var(--text-primary, var(--ink));
+  background: var(--field);
+  white-space: nowrap;
+  transition: background-color var(--motion-hover), opacity var(--motion-hover), transform var(--press);
+}
+
+.lado-a-lado-btn-adicionar:hover,
+.lado-a-lado-btn-sair:hover {
+  background: var(--selected);
+}
+
+.lado-a-lado-btn-adicionar:active,
+.lado-a-lado-btn-sair:active {
+  transform: scale(0.97);
+}
+
+.lado-a-lado-btn-adicionar[data-limite] {
+  opacity: 0.78;
+}
+
+@media (max-width: 900px) {
+  .lado-a-lado-btn-sair-texto {
+    display: none;
+  }
+}
+
+.lado-a-lado-avisos {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-6) var(--sp-12);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+html[data-wallpaper] .lado-a-lado-avisos {
+  background: var(--glass-sidebar);
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+  backdrop-filter: blur(var(--blur-glass));
+}
+
+.lado-a-lado-aviso {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: var(--sp-4) var(--sp-10);
+  border-radius: var(--radius-s);
+  background: var(--field);
+}
+
+.lado-a-lado-aviso.is-alerta {
+  background: var(--attention-soft);
+}
+
+.lado-a-lado-aviso-icone {
+  color: var(--text-attention, var(--attention));
+  flex: none;
+}
+
+.lado-a-lado-aviso-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  flex: none;
+}
+
+.lado-a-lado-aviso-acao {
+  height: 24px;
+  padding-inline: var(--sp-8);
+  border-radius: var(--radius-pill);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--text-primary, var(--ink));
+  white-space: nowrap;
+  transition: background-color var(--motion-hover);
+}
+
+.lado-a-lado-aviso-acao:hover {
+  background: var(--hover);
+}
+
+.lado-a-lado-grade {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.lado-a-lado-painel {
+  flex: 1 1 0;
+  min-width: 360px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.lado-a-lado-painel.is-oculto {
+  display: none;
+}
+
+.lado-a-lado-painel:not(.is-oculto) ~ .lado-a-lado-painel:not(.is-oculto),
+.lado-a-lado-painel:not(.is-oculto) ~ .lado-a-lado-vazio {
+  border-inline-start: 1px solid var(--line);
+}
+
+.lado-a-lado-painel-topo {
+  flex: none;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding-inline: var(--sp-10);
+  background: var(--surface);
+  border-top: 2px solid transparent;
+  border-bottom: 1px solid var(--line);
+  outline: none;
+  transition: border-top-color var(--motion-hover), background-color var(--motion-hover);
+}
+
+[data-theme='light']:not([data-wallpaper]) .lado-a-lado-painel-topo {
+  background: var(--raised);
+}
+
+html[data-wallpaper] .lado-a-lado-painel-topo {
+  background: var(--glass-raised);
+  -webkit-backdrop-filter: blur(var(--blur-raised));
+  backdrop-filter: blur(var(--blur-raised));
+}
+
+.lado-a-lado-painel[data-ativo] > .lado-a-lado-painel-topo {
+  border-top-color: var(--accent);
+}
+
+.lado-a-lado-painel-identidade {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  min-width: 0;
+  flex: 1;
+}
+
+.lado-a-lado-painel-sessao {
+  padding: 1px var(--sp-6);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  max-width: 140px;
+}
+
+.lado-a-lado-painel-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+.lado-a-lado-painel-corpo {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.lado-a-lado-painel-corpo > .thread-view {
+  width: 100%;
+  height: 100%;
+}
+
+/* Dentro do quadro, o botão da barra lateral mora na barra superior do quadro e não nas abas de cada painel. */
+.lado-a-lado .ctabs {
+  padding-inline-start: 5px;
+  padding-left: 5px;
+}
+
+.lado-a-lado .ctabs::before {
+  display: none;
+}
+
+/* Evita que a faixa de cima de cada conversa arraste a janela por acidente no quadro. */
+.lado-a-lado .top-chrome {
+  -webkit-app-region: no-drag;
+}
+
+.lado-a-lado-painel-carregando {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.lado-a-lado-vazio {
+  flex: 1 1 0;
+  min-width: 360px;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-24);
+  overflow-y: auto;
+}
+
+.lado-a-lado-vazio-cartao {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--sp-24);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-10);
+}
+
+[data-theme='light']:not([data-wallpaper]) .lado-a-lado-vazio-cartao {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-s);
+}
+
+html[data-wallpaper] .lado-a-lado-vazio-cartao {
+  background: var(--glass-raised);
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+  backdrop-filter: blur(var(--blur-glass));
+  box-shadow: var(--shadow-glass);
+}
+
+.lado-a-lado-vazio-icone {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-m);
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--text-accent, var(--accent));
+}
+
+.lado-a-lado-vazio-detalhe {
+  max-width: 300px;
+}
+
+.lado-a-lado-vazio-lista {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-8);
+  margin-top: var(--sp-6);
+}
+
+.lado-a-lado-vazio-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  height: 38px;
+  padding-inline: var(--sp-10);
+  border-radius: var(--radius-m);
+  background: var(--field);
+  color: var(--text-primary, var(--ink));
+  text-align: start;
+  min-width: 0;
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+
+.lado-a-lado-vazio-item:hover {
+  background: var(--selected);
+}
+
+.lado-a-lado-vazio-item:active {
+  transform: scale(0.98);
+}
+
+.lado-a-lado-vazio-item-plus {
+  margin-inline-start: auto;
+  color: var(--text-secondary, var(--ink-2));
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lado-a-lado-pilula,
+  .lado-a-lado-btn-adicionar,
+  .lado-a-lado-btn-sair,
+  .lado-a-lado-aviso-acao,
+  .lado-a-lado-painel-topo,
+  .lado-a-lado-vazio-item {
+    transition: none;
+  }
+}

@@ -215,6 +215,34 @@ pub(crate) fn projection(target: &Target, observation: Option<Observation>, busy
     Ok(answer)
 }
 
+/// Quantos caracteres valem um token na estimativa: média de texto em português e inglês, sem tokenizador do motor.
+const CHARS_PER_TOKEN: u64 = 4;
+
+/// O peso de cada parte do contexto. O motor informa só o total usado; o resto é nosso: texto fixo (manual e perfil),
+/// memória e skills são contados no texto que o Hub entregou e convertidos em tokens por estimativa (`estimado`);
+/// as definições de ferramenta vêm do próprio motor e nenhum dos motores as informa (`naoInformado`); a conversa é
+/// o que sobra do total informado (também estimativa, e inclui o que o motor acrescenta por conta própria).
+/// Sem as contagens, ou com as estimativas acima do total, a conversa fica `naoInformado`: nunca inventa número.
+pub(crate) fn breakdown(used: u64, parts: Option<crate::chat::context::Parts>) -> Value {
+    let counted = |id: &str, chars: usize| {
+        let chars = chars as u64;
+        json!({"id":id,"origin":"estimado","chars":chars,"tokens":chars.div_ceil(CHARS_PER_TOKEN)})
+    };
+    let unknown = |id: &str| json!({"id":id,"origin":"naoInformado","chars":null,"tokens":null});
+    let Some(parts) = parts else {
+        return json!({"charsPerToken":CHARS_PER_TOKEN,"items":
+            [unknown("fixo"),unknown("memoria"),unknown("skills"),unknown("ferramentas"),unknown("conversa")]});
+    };
+    let (fixed, memory, skills) =
+        (counted("fixo", parts.fixed), counted("memoria", parts.memory), counted("skills", parts.skills));
+    let known: u64 = [&fixed, &memory, &skills].iter().filter_map(|part| part["tokens"].as_u64()).sum();
+    let conversation = match used.checked_sub(known) {
+        Some(rest) => json!({"id":"conversa","origin":"estimado","chars":null,"tokens":rest}),
+        None => unknown("conversa"),
+    };
+    json!({"charsPerToken":CHARS_PER_TOKEN,"items":[fixed,memory,skills,unknown("ferramentas"),conversation]})
+}
+
 pub(crate) struct Manual {
     pub target: Target,
     pub read: Read,

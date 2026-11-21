@@ -862,6 +862,21 @@ mod checkpoints {
         assert_eq!((pending["state"].clone(), pending["receipt"].clone()), (json!("pending"), Value::Null));
         let legacy = receipt(body("dev", "dev", &sent.id)).await.unwrap();
         assert_eq!((legacy["state"].clone(), legacy["receipt"].clone()), (json!("notRouted"), Value::Null));
+        // O uso do turno vem junto, qualquer que seja o estado, e só com o que o motor informou.
+        assert!(legacy["usage"].is_null() && routed["usage"].is_null());
+        f.hub
+            .store
+            .db
+            .locked()
+            .execute(
+                "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,at,input_tokens,cached_read_tokens,output_tokens,source,turn)
+                 VALUES('u','dev','dev','dev',1,10,20,40,'sem preço',1)",
+                [],
+            )
+            .unwrap();
+        let with_usage = receipt(body("dev", "dev", &sent.id)).await.unwrap();
+        assert_eq!(with_usage["state"], "notRouted");
+        assert_eq!(with_usage["usage"], json!({"input":10,"cacheRead":20,"cacheWrite":null,"output":40}));
         // Entrada de outro bot ou de outra sessão, e caller sem engine.accounts: Err.
         assert!(receipt(body("other", "dev", &entry)).await.is_err());
         assert!(receipt(body("dev", "outra-sessao", &entry)).await.is_err());
