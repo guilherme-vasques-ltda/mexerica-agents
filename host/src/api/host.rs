@@ -142,14 +142,28 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 backend,
                 b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
             )?;
-            let mut catalog = if env.is_empty() {
-                crate::agent::auth::models(&hub.store, backend).await?
+            let descoberta = if env.is_empty() {
+                crate::agent::auth::models(&hub.store, backend).await
             } else {
-                crate::agent::auth::models_with_env(&hub.store, backend, &env).await?
+                crate::agent::auth::models_with_env(&hub.store, backend, &env).await
             };
-            // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode.
-            if backend == "opencode" {
+            // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode, só no Space
+            // pessoal (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
+            // valem; sem nenhum deles, o erro da descoberta segue para a tela.
+            let planos = backend == "opencode"
+                && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL) == crate::fork::spaces::PERSONAL;
+            let (mut catalog, falha) = match descoberta {
+                Ok(catalog) => (catalog, None),
+                Err(erro) if planos => (json!({"models": []}), Some(erro)),
+                Err(erro) => return Err(erro),
+            };
+            if planos {
                 crate::fork::planos_codigo::acrescentar_modelos(&hub.store, &mut catalog)?;
+            }
+            if let Some(erro) = falha
+                && catalog["models"].as_array().is_some_and(Vec::is_empty)
+            {
+                return Err(erro);
             }
             catalog
         }

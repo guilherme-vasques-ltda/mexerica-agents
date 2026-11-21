@@ -36,9 +36,14 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
   Space pessoal e ainda existente. A chave segue por variável de ambiente, só para esse processo, num perfil próprio do
   plano (`engine_setup_root/planos/<plano>/home`): casa, configuração, dados, estado e cache só do plano. O OpenCode do
   plano não enxerga o login, as chaves nem a configuração do OpenCode do dono, e a chave nunca é escrita em arquivo.
+- O OpenCode repassa o próprio ambiente aos comandos de shell que executa. Por isso o Hub escreve no perfil uma extensão
+  (`.config/opencode/plugin/mexerica-shell-env.js`, gancho `shell.env`) que zera a variável da chave só para esses
+  comandos; o provedor continua recebendo a chave pelo processo. Conferido com o OpenCode 1.19.6 (a versão que o Hub
+  instala): sem a extensão um comando de shell via a chave, com ela não. Outras versões precisam ser reconferidas.
 - Trocar ou remover a chave muda o carimbo da sessão e reinicia o processo. Sem chave, fora do Space pessoal ou no
   executor isolado, o lançamento falha: o Hub nunca cai no ambiente do dono.
-- Os modelos do plano entram na escolha de modelo do OpenCode (`agentModels`).
+- Os modelos do plano entram na escolha de modelo do OpenCode (`agentModels`), só no Space pessoal, e continuam
+  disponíveis se o OpenCode não responde à descoberta dos próprios modelos.
 
 ## Mexerica Open
 

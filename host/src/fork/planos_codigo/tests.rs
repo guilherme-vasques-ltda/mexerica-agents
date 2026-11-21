@@ -419,3 +419,30 @@ async fn o_carimbo_nunca_e_mais_novo_que_a_chave_com_que_o_processo_abre() {
     escritor.await.unwrap();
     assert!(lancamentos > 0);
 }
+
+#[tokio::test]
+async fn o_perfil_leva_a_extensao_que_zera_a_chave_nos_comandos_de_shell() {
+    let hub = hub_de_prova();
+    com_chave(&hub).await;
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let casa = std::path::PathBuf::from(&ambiente.env.iter().find(|(k, _)| k == "HOME").unwrap().1);
+    let arquivo = casa.join(".config/opencode/plugin/mexerica-shell-env.js");
+    let texto = std::fs::read_to_string(&arquivo).unwrap();
+    assert!(texto.contains("\"shell.env\"") && texto.contains("output.env.OPENCODE_API_KEY = \"\""), "{texto}");
+    assert!(!texto.contains(CHAVE));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&arquivo).unwrap().permissions().mode() & 0o777, 0o600);
+        // Um link plantado no lugar da extensão é trocado pelo arquivo do Hub, sem escrever através do link.
+        let alvo = casa.join("alvo-do-link");
+        std::fs::remove_file(&arquivo).unwrap();
+        std::os::unix::fs::symlink(&alvo, &arquivo).unwrap();
+        ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+        assert!(!alvo.exists(), "a extensão não pode ser escrita através de um link");
+        assert!(!std::fs::symlink_metadata(&arquivo).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&arquivo).unwrap(), texto);
+    }
+}

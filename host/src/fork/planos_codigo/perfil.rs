@@ -6,7 +6,10 @@
 use super::{Plano, plano_do_modelo, revisao, slot_chave};
 use crate::{hub::Hub, store::BotConfig, store::Store};
 use anyhow::{Result, anyhow, ensure};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use zeroize::Zeroizing;
 
 /// O que o Hub entrega ao processo do OpenCode de um bot ligado a um plano.
@@ -20,6 +23,33 @@ fn raiz(store: &Store, plano: &Plano) -> PathBuf {
     store.engine_setup_root.join("planos").join(plano.id)
 }
 
+/// Extensão do OpenCode, escrita pelo Hub no perfil do plano: o OpenCode repassa o próprio ambiente aos comandos de
+/// shell que executa, e este gancho (`shell.env`) zera a variável da chave só para esses comandos. O provedor continua
+/// recebendo a chave pelo processo do OpenCode.
+fn extensao(plano: &Plano) -> String {
+    format!(
+        "export const MexericaShellEnv = async () => ({{\n  \"shell.env\": async (_input, output) => {{\n    output.env.{} = \"\"\n  }},\n}})\n",
+        plano.variavel
+    )
+}
+
+fn escrever_extensao(home: &Path, plano: &Plano) -> Result<()> {
+    for pasta in [".config/opencode", ".config/opencode/plugin"] {
+        crate::fork::engine_accounts::managed::private_dir(&home.join(pasta))?;
+    }
+    let arquivo = home.join(".config/opencode/plugin/mexerica-shell-env.js");
+    if std::fs::symlink_metadata(&arquivo).is_ok() {
+        std::fs::remove_file(&arquivo)?;
+    }
+    std::fs::write(&arquivo, extensao(plano))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&arquivo, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
 /// Cria (ou confere) a casa do plano, uma pasta por nível, sem link simbólico e só do dono.
 fn casa(store: &Store, plano: &Plano) -> Result<PathBuf> {
     let mut caminho = store.engine_setup_root.clone();
@@ -31,6 +61,7 @@ fn casa(store: &Store, plano: &Plano) -> Result<PathBuf> {
     for parte in [".config", ".local", ".local/share", ".local/state", ".cache"] {
         crate::fork::engine_accounts::managed::private_dir(&home.join(parte))?;
     }
+    escrever_extensao(&home, plano)?;
     Ok(home)
 }
 

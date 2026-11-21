@@ -80,7 +80,14 @@ async fn listar_modelos_com_prazo(
         .await
         .map_err(|erro| if erro.is_timeout() { Falha::SemResposta } else { Falha::FornecedorFalhou })?;
     if !resposta.status().is_success() {
-        return Err(por_status(resposta.status()));
+        let falha = por_status(resposta.status());
+        tracing::info!(
+            provedor,
+            status = resposta.status().as_u16(),
+            falha = falha.codigo(),
+            "teste de acesso do plano sem lista"
+        );
+        return Err(falha);
     }
     let mut corpo = Vec::new();
     while let Some(parte) = resposta.chunk().await.map_err(|_| Falha::SemResposta)? {
