@@ -1,0 +1,50 @@
+/* Shell do app web local. Só a build web importa este arquivo (src/web/main.ts); o Electron não o vê.
+   O renderer é o mesmo do desktop; aqui ficam só as regras que o navegador pede: altura de
+   verdade no celular, áreas seguras (entalhe e barra de gestos) e as larguras abaixo do mínimo
+   da janela do Mac (760 px). */
+
+/* A altura visível de verdade no celular (a barra do navegador entra e sai). `:root` dá precedência sobre o
+   `height: 100%` do theme.css, que vem depois no CSS único da build. */
+:root,
+:root > body,
+:root #root {
+  height: 100dvh;
+}
+
+/* Com `viewport-fit=cover`, o app desenha até a borda: a faixa e a caixa ficam fora do entalhe e da barra de gestos. */
+:root #root {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+/* Sem o forkCloud real do navegador não há estado de link real, então a faixa de queda curta
+   nunca afirma queda por conta própria; o renderer só a mostra na prévia explícita. */
+:root[data-web-queda='inerte'] .faixa-reconectando {
+  display: none;
+}
+
+@media (max-width: 759px) {
+  /* Sem o mínimo da janela do Mac: a conversa ocupa o que sobra ao lado da faixa. */
+  :root .chat-window,
+  :root .detail {
+    min-width: 0;
+  }
+  /* No celular o texto quebra em vez de cortar com reticências (fr e es não cabem numa linha
+     em 390 px); a conversa reserva a linha a mais. */
+  :root .top-chrome > .faixa-reconectando {
+    border-radius: var(--radius-m);
+    padding-block: 4px;
+  }
+  :root .faixa-reconectando-texto {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+    text-wrap: balance;
+  }
+  :root .conversation:has(.ctabs):has(.faixa-reconectando) {
+    --chat-header-height: 112px;
+  }
+  /* O painel do bot (332 px) cabe por cima da conversa sem passar da borda. */
+  :root .rpanel {
+    max-width: calc(100% - 16px);
+  }
+}

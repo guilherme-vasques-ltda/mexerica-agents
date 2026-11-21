@@ -23,7 +23,8 @@ export function EntrarComChatGPT() {
   const t = useT()
   const idioma = useIdioma()
   const online = store.connection.kind === 'online' && !store.mismatch
-  const visivel = mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
+  // O login abre o navegador do dono pelo retorno do loopback do desktop; na web não há retorno, sem card.
+  const visivel = window.codync?.web !== true && mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
   const [estado, setEstado] = useState<EstadoChatGPT | null>(null)
   const [falhou, setFalhou] = useState(false)
   const [erro, setErro] = useState<ChaveTexto | null>(null)

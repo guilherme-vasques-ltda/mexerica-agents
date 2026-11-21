@@ -217,6 +217,10 @@ enum Sub {
         /// Hub local do Mac: só aceita `--bind 127.0.0.1` e não inicia o relay de saída.
         #[arg(long)]
         only_this_mac: bool,
+        /// Interface Web local servida por este Hub: só em `127.0.0.1`, com sessão própria
+        /// do navegador. O diretório precisa conter `index.html`.
+        #[arg(long, env = "MEXERICA_WEB_DIR")]
+        web_dir: Option<std::path::PathBuf>,
     },
     /// Show a one-time pairing QR code and link (the host must be running; the Mexerica iPhone app comes later).
     Pair {
@@ -613,7 +617,8 @@ async fn main() -> Result<()> {
         #[cfg(unix)]
         fork::private_fs::inspect(&service::data_dir())?;
     }
-    match cli.cmd.unwrap_or(Sub::Serve { port: service::DEFAULT_PORT, bind: None, only_this_mac: false }) {
+    match cli.cmd.unwrap_or(Sub::Serve { port: service::DEFAULT_PORT, bind: None, only_this_mac: false, web_dir: None })
+    {
         Sub::AuditarCodex { home } => fork::motor_codex_audit::local(&home),
         Sub::MemoriaWorkspace { workspace, on } => agent::own_memory::configure_workspace("qwen", &workspace, on),
         #[cfg(target_os = "linux")]
@@ -655,7 +660,7 @@ async fn main() -> Result<()> {
             println!("Grant installed.");
             Ok(())
         }
-        Sub::Serve { port, bind, only_this_mac } => {
+        Sub::Serve { port, bind, only_this_mac, web_dir } => {
             if environment::Environment::is_open() {
                 #[cfg(unix)]
                 return open_hub::serve(port, bind.as_deref(), only_this_mac).await;
@@ -663,8 +668,13 @@ async fn main() -> Result<()> {
                 anyhow::bail!("Mexerica Open Hub requires a Unix socket");
             }
             let mac_service = cfg!(target_os = "macos") && service::started_by_service();
-            let (bind, scope) = service::mac_local::resolve_serve(bind.as_deref(), only_this_mac, mac_service)?;
-            serve(&bind, port, scope).await
+            let (bind, scope) = service::mac_local::resolve_serve_with_web(
+                bind.as_deref(),
+                only_this_mac,
+                mac_service,
+                web_dir.is_some(),
+            )?;
+            serve(&bind, port, scope, web_dir).await
         }
         Sub::Pair { port, json } => pair(port, json).await,
         Sub::Info { port, json } => info(port, json).await,
@@ -852,8 +862,14 @@ fn cap_log() {
     }
 }
 
-async fn serve(bind: &str, port: u16, scope: service::mac_local::Scope) -> Result<()> {
+async fn serve(
+    bind: &str,
+    port: u16,
+    scope: service::mac_local::Scope,
+    web_dir: Option<std::path::PathBuf>,
+) -> Result<()> {
     scope.check_bind(bind)?;
+    let web_root = web_dir.map(|dir| fork::web_local::WebConfig::validate_dir(&dir)).transpose()?;
     environment::ensure_own_port(port)?;
     environment::ensure_own_data_dir(&service::home(), &service::data_dir())?;
     // C1-05: host.lock ANTES de qualquer acesso D430 e de prepare PL1; D430 nunca roda prepare PL1.
@@ -865,6 +881,10 @@ async fn serve(bind: &str, port: u16, scope: service::mac_local::Scope) -> Resul
     #[cfg(target_os = "linux")]
     fork::guarda_atualizacao::verificar()?;
     if fork::personal_link::installation::selecionado(&service::data_dir())? {
+        anyhow::ensure!(
+            web_root.is_none(),
+            "a interface Web local não se aplica à instalação isolada; inicie o Hub sem --web-dir"
+        );
         return fork::personal_link::installation::servir(instance_lock, bind, port, shutdown_signal()).await;
     }
     let personal = fork::personal_bootstrap::provisioning::prepare(&service::data_dir())?;
@@ -874,6 +894,7 @@ async fn serve(bind: &str, port: u16, scope: service::mac_local::Scope) -> Resul
     tokio::task::spawn_blocking(service::capture_binary_identity).await??;
     let listener =
         tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
+    let bound_port = listener.local_addr()?.port();
     cap_log();
     configure_logging();
     agent::harness::install_docs().await;
@@ -894,6 +915,10 @@ async fn serve(bind: &str, port: u16, scope: service::mac_local::Scope) -> Resul
     };
     tokio::task::spawn_blocking(backends::hydrate_path).await?;
     let hub = hub::Hub::new(store, host_id, identity, token, port);
+    if let Some(root) = web_root {
+        hub.set_web_local(std::sync::Arc::new(fork::web_local::WebState::new(root, bound_port)))?;
+        tracing::info!(url = %format!("http://127.0.0.1:{bound_port}/"), "local web UI enabled");
+    }
     if let Some(personal) = personal {
         personal.install(&hub)?;
     }

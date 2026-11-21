@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- CSP sem script inline (nem hash nem unsafe-inline em scripts): o portão e o app entram
+         por módulos da própria origem; a sessão fala só com o Hub da mesma origem (connect-src 'self'). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'self'" />
+    <title>Mexerica</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#fcfaf6" />
+    <!-- Favicons do pacote oficial da marca (copiados para assets/brand/favicons no build). -->
+    <link rel="icon" href="./assets/brand/favicons/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="16" href="./assets/brand/favicons/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32" href="./assets/brand/favicons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192" href="./assets/brand/favicons/favicon-192.png" />
+    <link rel="apple-touch-icon" href="./assets/brand/favicons/favicon-180.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

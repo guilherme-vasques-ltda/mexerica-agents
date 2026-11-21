@@ -57,6 +57,27 @@ pub fn resolve_serve(bind: Option<&str>, only_this_mac: bool, mac_service: bool)
     Ok((bind.to_owned(), scope))
 }
 
+/// Resolve `serve` com a interface Web local (`--web-dir`): falha fechada em qualquer
+/// endereço que não seja o loopback, nunca sobe o relay de saída e ignora o plist herdado
+/// só quando o modo é explícito — sem `has_web`, o comportamento é o herdado.
+pub fn resolve_serve_with_web(
+    bind: Option<&str>,
+    only_this_mac: bool,
+    mac_service: bool,
+    has_web: bool,
+) -> Result<(String, Scope)> {
+    if !has_web {
+        return resolve_serve(bind, only_this_mac, mac_service);
+    }
+    if mac_service && !only_this_mac {
+        bail!("o serviço do Mac só sobe com --only-this-mac (plist herdado?); reinstale o Hub pelo app");
+    }
+    if let Some(bind) = bind {
+        anyhow::ensure!(bind == LOOPBACK, "a interface Web local só aceita --bind {LOOPBACK}, recebeu {bind}");
+    }
+    Ok((LOOPBACK.to_owned(), Scope::ThisMacOnly))
+}
+
 /// Os níveis 1 e 2 da desinstalação nunca tocam em `~/.claude`; só o `uninstall` sem `--nivel`
 /// (caminho herdado) restaura a status line do Claude Code.
 pub fn touches_claude_settings(nivel: Option<u8>) -> bool {
@@ -234,6 +255,25 @@ mod tests {
         assert!(resolve_serve(Some("0.0.0.0"), true, true).is_err());
         let (bind, scope) = resolve_serve(None, false, false).unwrap();
         assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+    }
+
+    #[test]
+    fn web_mode_defaults_to_loopback_refuses_other_binds_and_skips_relay() {
+        let (bind, scope) = resolve_serve_with_web(None, false, false, true).unwrap();
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
+        assert!(!scope.runs_outbound_relay(), "o modo Web local nunca sobe o relay de saída");
+        for bind in ["0.0.0.0", "::", "203.0.113.2", "198.51.100.5", "localhost", ""] {
+            assert!(resolve_serve_with_web(Some(bind), false, false, true).is_err(), "{bind}");
+        }
+        // Com --bind 127.0.0.1 explícito segue válido.
+        let (bind, scope) = resolve_serve_with_web(Some("127.0.0.1"), true, true, true).unwrap();
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
+        // Sem a interface Web, o comportamento é 100% herdado.
+        let (bind, scope) = resolve_serve_with_web(None, false, false, false).unwrap();
+        assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+        let (bind, scope) = resolve_serve_with_web(None, true, false, false).unwrap();
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
+        assert!(resolve_serve_with_web(None, false, true, false).is_err());
     }
 
     #[test]

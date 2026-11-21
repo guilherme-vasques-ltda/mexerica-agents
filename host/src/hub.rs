@@ -155,6 +155,8 @@ pub struct Hub {
     pub terms: Arc<crate::agent::term::Terms>,
     /// Códigos de login de dois fatores: só memória, somem com o Hub.
     pub(crate) login_codes: crate::market::login_codes::Codes,
+    /// Interface Web local (`--web-dir`): presente só quando o `serve` a ativa.
+    pub(crate) web_local: std::sync::OnceLock<Arc<crate::fork::web_local::WebState>>,
 }
 
 impl Hub {
@@ -206,7 +208,17 @@ impl Hub {
             screen,
             terms: Arc::default(),
             login_codes: crate::market::login_codes::Codes::default(),
+            web_local: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Instala a interface Web local uma única vez, antes de qualquer rota existir.
+    pub(crate) fn set_web_local(&self, state: Arc<crate::fork::web_local::WebState>) -> Result<()> {
+        self.web_local.set(state).map_err(|_| anyhow!("a interface Web local já foi configurada neste Hub"))
+    }
+
+    pub(crate) fn web_local(&self) -> Option<&Arc<crate::fork::web_local::WebState>> {
+        self.web_local.get()
     }
 
     pub fn start(self: &Arc<Self>) -> Result<()> {

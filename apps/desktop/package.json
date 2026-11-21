@@ -16,6 +16,7 @@
     "build": "electron-vite build",
     "build:demo": "vite build --config vite.demo.config.ts && mv dist/demo/desktop/index.html dist/demo/desktop.html",
     "build:web": "vite build --config vite.web.config.ts",
+    "web": "node tools/web-local.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test --experimental-strip-types src/main/*.test.ts src/shared/*.test.ts src/shared/relay-protocol/*.test.ts src/renderer/lib/*.test.ts src/renderer/store/*.test.ts src/renderer/views/thread/*.test.ts src/renderer/views/routines/*.test.ts src/renderer/views/call/*.test.ts src/renderer/views/fork/*/*.test.ts src/main/fork-cloud/*.test.ts src/main/fork-account/*.test.ts src/main/fork-voz/*.test.ts src/main/fork-secret-box/*.test.ts src/main/fork-cofre-seguro/*.test.ts src/main/fork-ssh-semente/*.test.ts src/main/fork-instalacao-remota/*.test.ts src/web/*.test.ts src/web/*/*.test.ts tools/web-dist/*.test.ts",
     "icons": "swift tools/export-symbols.swift",

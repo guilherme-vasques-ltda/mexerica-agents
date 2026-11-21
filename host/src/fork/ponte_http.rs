@@ -8,19 +8,33 @@ use axum::{
 use std::{net::SocketAddr, sync::Arc};
 
 pub(crate) fn autenticar(hub: &Hub, headers: &HeaderMap, peer: SocketAddr) -> Option<Caller> {
+    autenticar_com_origin(hub, headers, peer, false)
+}
+
+/// `require_origin` obriga o header `Origin` quando a chamada vem da sessão Web local;
+/// credenciais `Bearer` mantêm o comportamento herdado, sem depender de `Origin`.
+pub(crate) fn autenticar_com_origin(
+    hub: &Hub,
+    headers: &HeaderMap,
+    peer: SocketAddr,
+    require_origin: bool,
+) -> Option<Caller> {
     if !peer.ip().to_canonical().is_loopback()
         || (crate::environment::Environment::is_open() && peer != crate::open_hub::SOCKET_PEER)
     {
         return None;
     }
-    let given = headers.get("authorization")?.to_str().ok()?.strip_prefix("Bearer ")?;
-    if given.is_empty() {
-        return None;
+    if headers.contains_key("authorization") {
+        let given = headers.get("authorization")?.to_str().ok()?.strip_prefix("Bearer ")?;
+        if given.is_empty() {
+            return None;
+        }
+        if let Some(caller) = hub.pontes.autenticar(hub, given) {
+            return Some(caller);
+        }
+        return crypto::ct_eq(given.as_bytes(), hub.token.as_bytes()).then_some(Caller::Local);
     }
-    if let Some(caller) = hub.pontes.autenticar(hub, given) {
-        return Some(caller);
-    }
-    crypto::ct_eq(given.as_bytes(), hub.token.as_bytes()).then_some(Caller::Local)
+    hub.web_local()?.authenticate_api(headers, peer, require_origin)
 }
 
 pub(crate) async fn limitar_bearer(

@@ -16,11 +16,12 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -59,7 +60,18 @@ pub fn router(hub: Arc<Hub>) -> Router {
             .route("/personal-possession", get(crate::fork::personal_bootstrap::channel::upgrade))
             .route("/personal-prepare", get(crate::fork::personal_bootstrap::prepare::upgrade))
     };
-    secured(routes, hub)
+    let web = hub.web_local().cloned();
+    let routes = match &web {
+        Some(web) => crate::fork::web_local::attach_routes(routes, web.clone()),
+        None => routes,
+    };
+    let routes = secured(routes, hub);
+    // O middleware de segurança fica por fora de `secured`: até as respostas precoces de
+    // `limitar_bearer` passam por `Host`/`Origin`/`Sec-Fetch-Site` e levam os headers.
+    match web {
+        Some(web) => crate::fork::web_local::wrap_security(routes, web),
+        None => routes,
+    }
 }
 
 /// Loopback, also as an IPv4-mapped IPv6 address (`::ffff:127.0.0.1` under `--bind ::`).
@@ -73,6 +85,27 @@ fn authorized(hub: &Hub, headers: &HeaderMap, peer: SocketAddr) -> bool {
 
 fn unauthorized() -> ApiError {
     ApiError(StatusCode::UNAUTHORIZED, "invalid token".into(), None)
+}
+
+/// Enrola o stream do SSE: sem guarda (`Bearer` local), os itens seguem como antes;
+/// com guarda de sessão Web, o stream termina no logout, no despejo ou na expiração,
+/// e cada item ainda é conferido contra a sessão antes de sair.
+fn stream_com_guarda(
+    stream: impl Stream<Item = Result<Event, Infallible>> + Send + 'static,
+    guard: Option<crate::fork::web_local::SessaoStreamGuard>,
+) -> Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> {
+    let Some(guard) = guard else { return Box::pin(stream) };
+    let stream = Box::pin(stream);
+    Box::pin(stream::unfold((stream, guard), |(mut stream, mut guard)| async move {
+        tokio::select! {
+            biased;
+            () = guard.aguardar_fim() => None,
+            item = stream.next() => {
+                let item = item?;
+                guard.esta_ativa().then_some((item, (stream, guard)))
+            }
+        }
+    }))
 }
 
 struct ApiError(StatusCode, String, Option<&'static str>);
@@ -133,7 +166,8 @@ async fn command(
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
     // Classifica a identidade antes de ler o corpo e antes do dispatch.
-    let caller = crate::fork::ponte_credencial::autenticar(&hub, &headers, peer).ok_or_else(unauthorized)?;
+    let caller =
+        crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
     let body = if body.is_empty() {
         Value::Null
     } else {
@@ -215,9 +249,7 @@ async fn term_stream(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    if !authorized(&hub, &headers, peer) {
-        return Err(unauthorized());
-    }
+    let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
     let events = term_events(&hub, &id, &Caller::Local)
         .map_err(|e| {
             let (status, message) = error_status(&e);
@@ -225,6 +257,7 @@ async fn term_stream(
         })?
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "that terminal is gone".into(), None))?;
     let events = events.map(|v| Ok(Event::default().data(v.to_string())));
+    let events = stream_com_guarda(events, guard);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
@@ -242,9 +275,7 @@ async fn events(
     headers: HeaderMap,
     Query(q): Query<EventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    if !authorized(&hub, &headers, peer) {
-        return Err(unauthorized());
-    }
+    let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
     let events = super::scoped_events_stream(
         &hub,
         q.since.unwrap_or(0),
@@ -254,6 +285,7 @@ async fn events(
     )
     .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None))?;
     let events = events.map(|v| Ok(Event::default().data(v.to_string())));
+    let events = stream_com_guarda(events, guard);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
