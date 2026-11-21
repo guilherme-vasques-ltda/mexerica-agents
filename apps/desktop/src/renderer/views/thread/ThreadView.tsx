@@ -58,6 +58,7 @@ import { listEqual, useModel, useSelector } from '../../lib/observable'
 import { bloqueioSenha, destinoSenha } from '../../store/fork-senha-bloqueio'
 import { TelaGrande, useTelaGrande } from '../fork/whatsapp/TelaGrande'
 import { SuperficieAVista } from '../fork/whatsapp/superficie'
+import { PropostasDoBerga } from '../fork/propostas/PropostasDoBerga'
 
 /**
  * One endless conversation with a bot or a group chat. Only deliberate messages show here; tool
@@ -283,6 +284,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
+          <PropostasDoBerga store={store} botId={botId} openSession={openSession} />
           {store.mismatch ? (
             <div className="composer-update-needed">
               <UpdateNeededCard />

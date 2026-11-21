@@ -733,46 +733,36 @@ async fn create_child_request_id_idempotente() {
 }
 
 #[tokio::test]
-async fn create_child_start_exige_request_id_e_replay_nao_duplica() {
+async fn create_child_start_recusado_orienta_a_propor() {
     let f = Fixture::new();
     let project = f.project(PERSONAL, None, &[task("t1", None, Some("a"), "Pai")]);
     let exec = f.exec("a");
-    // start=true sem requestId: recusado — o servidor não pode inventar a
-    // idempotência de um gesto que o chamador não pode repetir.
-    let err = f
-        .call(
-            "a",
-            "task_create_child",
-            json!({"projectId": project, "parentTaskId": "t1", "title": "Sem id", "start": true}),
-            Some(&exec),
-        )
-        .await
-        .unwrap_err();
-    assert!(format!("{err:#}").contains("requestId"), "{err:#}");
-    // Com requestId: cria + tenta iniciar; no fixture o start falha/recusa de
-    // forma honesta, mas a filha existe e o replay devolve a MESMA subtarefa.
-    let request = uuid::Uuid::new_v4().to_string();
-    let args = json!({
-        "projectId": project, "parentTaskId": "t1", "title": "Com início",
-        "assigneeBotId": "b", "start": true, "requestId": request,
-    });
-    let first = f.call("a", "task_create_child", args.clone(), Some(&exec)).await.unwrap();
-    let task_id = first["task"]["id"].as_str().unwrap().to_owned();
-    assert!(first["start"]["state"].is_string(), "{}", first);
-    // Falha entre criação e start / resposta perdida: replay idêntico.
-    let second = f.call("a", "task_create_child", args.clone(), Some(&exec)).await.unwrap();
-    assert_eq!(second["task"]["id"].as_str().unwrap(), task_id);
-    assert!(second["start"]["state"].is_string(), "{}", second);
-    let children: i64 = {
-        let c = f.hub.store.db.locked();
-        c.query_row(
-            "SELECT COUNT(*) FROM json_each((SELECT tasks FROM donna_projects WHERE hub_id=?1 AND space_id=?2 AND id=?3)) WHERE json_extract(value,'$.parentTaskId')='t1'",
-            params![f.hub.host_id, PERSONAL, project],
-            |r| r.get(0),
-        )
-        .unwrap()
-    };
-    assert_eq!(children, 1);
+    // start=true é recusado antes de qualquer gravação — com ou sem requestId.
+    for request in [Some(uuid::Uuid::new_v4().to_string()), None] {
+        let mut args = json!({"projectId": project, "parentTaskId": "t1", "title": "Com início", "start": true});
+        if let Some(id) = request {
+            args["requestId"] = json!(id);
+        }
+        let err = f.call("a", "task_create_child", args, Some(&exec)).await.unwrap_err();
+        assert!(format!("{err:#}").contains("proposal_required"), "{err:#}");
+    }
+    // Nada foi criado nem iniciado: só a tarefa original, sem agenda.
+    let (_, tasks) = f.stored(&project);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_agenda WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project)
+        ),
+        0
+    );
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_requests WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project)
+        ),
+        0
+    );
 }
 
 #[tokio::test]

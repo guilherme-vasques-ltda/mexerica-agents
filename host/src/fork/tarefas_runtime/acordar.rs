@@ -583,6 +583,24 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
     Ok(answer)
 }
 
+/// Vaga de início de proposta no Space: no máximo duas ativas no total e uma
+/// por bot. Ativa é linha com `proposal_id`, estado starting/started e tarefa
+/// em `backlog/in_progress` no JSON do Projeto — review, done, blocked,
+/// cancelled e tarefa removida liberam a vaga.
+fn proposal_slot(c: &Connection, hub: &str, space: &str, bot: &str) -> Result<bool> {
+    let base = "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
+         WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
+           AND a.state IN ('starting','started')
+           AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
+           AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')";
+    let total: i64 = c.query_row(base, params![hub, space], |r| r.get(0))?;
+    if total >= 2 {
+        return Ok(false);
+    }
+    let mine: i64 = c.query_row(&format!("{base} AND a.bot_id=?3"), params![hub, space, bot], |r| r.get(0))?;
+    Ok(mine < 1)
+}
+
 /// Tick do agendador: reivindica `scheduled` vencidas e `starting` órfãs,
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
 /// Claim das linhas vencidas do agendador, tudo numa tx: revalida gate por
@@ -591,7 +609,7 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
 pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>> {
     let tx = c.unchecked_transaction()?;
     let mut st = tx.prepare(
-        "SELECT space_id,project_id,task_id,bot_id,start_at,state,session_id,attempts,nonce,last_error,updated_at
+        "SELECT space_id,project_id,task_id,bot_id,start_at,state,session_id,attempts,nonce,proposal_id,last_error,updated_at
          FROM donna_task_agenda
          WHERE hub_id=?1 AND ((state='scheduled' AND not_before<=?2)
             OR (state='starting' AND updated_at<=?3))",
@@ -607,11 +625,12 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
             r.get::<_, Option<String>>(6)?,
             r.get::<_, i64>(7)?,
             r.get::<_, String>(8)?,
+            r.get::<_, Option<String>>(9)?,
         ))
     })?;
     let mut fires = Vec::new();
     for row in rows {
-        let (space, project, task, agenda_bot, start_at, state, session, attempts, nonce) = row?;
+        let (space, project, task, agenda_bot, start_at, state, session, attempts, nonce, proposal_id) = row?;
         // Revalida gate antes de gastar poke: tarefa sumiu/sem responsável → refused.
         // Tarefa/projeto removido é PERMANENTE (invalid_field): marca
         // refused terminal e segue — antes um único sumiço envenenava
@@ -641,6 +660,12 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
                 continue;
             }
         };
+        // Teto de início por proposta: quem não cabe no Space fica `scheduled`
+        // e é reavaliada no próximo tick, sem gastar tentativa. Recuperação de
+        // `starting` órfã já ocupa vaga e segue sem exigir outra.
+        if proposal_id.is_some() && state == "scheduled" && !proposal_slot(&tx, hub, &space, &bot)? {
+            continue;
+        }
         // Claim fenced por nonce+state: um reagendamento concorrente
         // trocou o nonce — a linha não casa, o fire velho não dispara.
         // Reconcilia bot_id com o responsável atual do gate (TEC-25): se a
@@ -774,9 +799,13 @@ pub(crate) fn restore_starting(c: &Connection, hub_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Entrada autenticada do bot (executor A): `task_create_child(start:true)` e
-/// futuros `task_start`. O bot precisa ser o responsável OU o coordenador do
-/// projeto — nunca eleva autoridade, só dispara o poke de início.
+/// Entrada autenticada do bot (executor A): início direto numa execução viva.
+/// Sem chamador nas ferramentas correntes — o início de tarefa proposta flui
+/// pela decisão do dono; mantida como contrato do runtime.
+#[allow(
+    dead_code,
+    reason = "Início direto por bot autenticado aguarda consumidor; o caminho corrente de início é a decisão do dono."
+)]
 pub(crate) async fn start_in_execution(
     hub: &Arc<Hub>,
     execution: &bindings::ExecutionRef,

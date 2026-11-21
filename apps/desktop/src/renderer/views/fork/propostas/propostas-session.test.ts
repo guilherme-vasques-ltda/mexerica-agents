@@ -1,0 +1,273 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import type { TowerEvent, TowerLink } from '../torre/torre-session.ts'
+import { PropostasSession } from './propostas-session.ts'
+
+const proposal = (id: string, version = 1, state: 'pending' | 'approved' | 'rejected' = 'pending') => ({
+  id,
+  version,
+  state,
+  botId: 'berga',
+  projectId: 'proj-1',
+  projectName: 'Canal',
+  title: 'Plano inicial',
+  createdAt: 1000,
+  decidedAt: state === 'pending' ? null : 2000,
+  items: [
+    {
+      id: 'i1',
+      title: 'Roteiro',
+      description: 'Escrever roteiro',
+      acceptance: 'Roteiro revisado',
+      assigneeBotId: 'b1',
+      included: true,
+      taskId: state === 'approved' ? 't1' : null,
+      taskState: state === 'approved' ? 'in_progress' : null,
+      startState: state === 'approved' ? 'started' : null,
+    },
+  ],
+})
+
+const snap = (hubId: string, spaceId = 'p', list = [proposal('prop-1')]) => ({
+  version: 1,
+  hubId,
+  spaceId,
+  limits: { perBot: 1, total: 2 },
+  proposals: list,
+})
+
+class HostErr extends Error {
+  status: number
+  constructor(status: number, message = 'erro') {
+    super(message)
+    this.status = status
+  }
+}
+
+type Handler = (method: string, body: Record<string, unknown>) => Promise<unknown>
+
+class Source {
+  hello: { hostId: string; rev: number } | null = { hostId: 'h1', rev: 1 }
+  principalEpoch = 1
+  log: string[] = []
+  emits = new Map<string, (e: TowerEvent) => void>()
+  handler: Handler | null = null
+  connectedClient: TowerLink | null = this.link()
+  private listeners = new Set<() => void>()
+
+  link(): TowerLink {
+    return {
+      call: async (method, body) => {
+        const b = (body ?? {}) as Record<string, unknown>
+        this.log.push(`${method} ${JSON.stringify(b)}`)
+        if (this.handler) return this.handler(method, b)
+        return snap(this.hello!.hostId, String(b.spaceId ?? 'p'))
+      },
+      inSpace: (spaceId) => ({
+        events: (_since, _client, onEvent) => {
+          this.log.push(`listen ${spaceId}`)
+          this.emits.set(spaceId, onEvent)
+          return () => {}
+        },
+      }),
+    }
+  }
+
+  subscribe(l: () => void) {
+    this.listeners.add(l)
+    return () => {
+      this.listeners.delete(l)
+    }
+  }
+
+  notify() {
+    for (const l of this.listeners) l()
+  }
+}
+
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
+const ids = () => {
+  let n = 0
+  return () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
+}
+
+test('assina o stream antes de ler; donnaProjectsChanged de outro Space/Hub não relê e seguidos coalescem', async () => {
+  const src = new Source()
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'p')
+  assert.deepEqual(src.log, ['listen p', 'donnaTaskProposals {"hubId":"h1","spaceId":"p"}'])
+  await tick()
+  assert.equal(s.phase.kind, 'ready')
+  assert.equal(s.canDecide, true)
+
+  src.log = []
+  const emit = src.emits.get('p')!
+  emit({ type: 'donnaProjectsChanged', spaceId: 'outro' })
+  emit({ type: 'donnaProjectsChanged', spaceId: 'p', hubId: 'h9' } as TowerEvent)
+  emit({ type: 'donnaProjectsChanged', spaceId: 'p' })
+  emit({ type: 'donnaProjectsChanged', spaceId: 'p' })
+  await tick(300)
+  assert.equal(src.log.length, 1)
+  s.close()
+})
+
+test('Hub antigo recusa o método: estado unavailable silencioso e sem dados', async () => {
+  const src = new Source()
+  src.handler = async () => {
+    throw new HostErr(404, 'unknown method')
+  }
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'p')
+  await tick()
+  assert.deepEqual(s.phase, { kind: 'unavailable' })
+  assert.equal(s.snapshot, null)
+  assert.equal(s.canDecide, false)
+  s.close()
+})
+
+test('resposta de outro Space ou troca de Space/Hub nunca pinta na origem atual', async () => {
+  const src = new Source()
+  let resolveA!: (v: unknown) => void
+  src.handler = (_method, body) => {
+    if (body.spaceId === 'space-a') return new Promise((r) => { resolveA = r })
+    return Promise.resolve(snap('h1', 'space-b', [proposal('prop-b')]))
+  }
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'space-a')
+  s.open(src, 'space-b')
+  await tick()
+  assert.equal(s.snapshot?.proposals[0]?.id, 'prop-b')
+
+  // Resposta atrasada do space-a não pode sobrescrever space-b.
+  resolveA(snap('h1', 'space-a', [proposal('prop-a')]))
+  await tick()
+  assert.equal(s.snapshot?.spaceId, 'space-b')
+  assert.equal(s.snapshot?.proposals[0]?.id, 'prop-b')
+
+  // Resposta declarando outro spaceId para a origem aberta falha estritamente.
+  src.handler = async () => snap('h1', 'space-errado')
+  s.reread()
+  await tick()
+  assert.equal(s.snapshot, null)
+  assert.deepEqual(s.phase, { kind: 'error', reason: 'invalid' })
+  s.close()
+})
+
+test('uma decisão por vez; falha incerta guarda e retry reenvia exatamente o mesmo pedido', async () => {
+  const src = new Source()
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'p')
+  await tick()
+
+  let release!: (v: unknown) => void
+  src.handler = (method) => {
+    if (method === 'donnaTaskProposalDecide') return new Promise((r) => { release = r })
+    return Promise.resolve(snap('h1', 'p'))
+  }
+
+  const first = s.decide({ id: 'prop-1', version: 1 }, 'approve', ['i2'])
+  assert.equal(s.write?.status, 'sending')
+  assert.equal(s.canDecide, false)
+
+  const blocked = await s.decide({ id: 'prop-1', version: 1 }, 'reject')
+  assert.deepEqual(blocked, { ok: false, status: 'blocked' })
+
+  release({ proposal: proposal('prop-1', 2, 'approved') })
+  const done = await first
+  assert.equal(done.ok, true)
+  assert.equal(s.snapshot?.proposals[0]?.state, 'approved')
+
+  // Falha incerta (status 0) guarda o mesmo pedido e retry reenvia com o mesmo clientRequestId.
+  const s2 = new PropostasSession(() => 42, ids())
+  const src2 = new Source()
+  s2.open(src2, 'p')
+  await tick()
+
+  src2.handler = async (method) => {
+    if (method === 'donnaTaskProposalDecide') throw new HostErr(0, 'network lost')
+    return snap('h1', 'p')
+  }
+  const failRes = await s2.decide({ id: 'prop-1', version: 1 }, 'approve', ['i1'])
+  assert.equal(failRes.ok, false)
+  if (!failRes.ok) assert.equal(failRes.status, 'uncertain')
+  const savedId = s2.write?.clientRequestId
+  assert.equal(savedId, '00000000-0000-4000-8000-000000000001')
+  const sentFirst = src2.log.filter((l) => l.startsWith('donnaTaskProposalDecide')).at(-1)
+
+  src2.handler = async (method) => {
+    if (method === 'donnaTaskProposalDecide') return { proposal: proposal('prop-1', 2, 'approved') }
+    return snap('h1', 'p', [proposal('prop-1', 2, 'approved')])
+  }
+  const retried = await s2.retry()
+  assert.equal(retried.ok, true)
+  const sentRetry = src2.log.filter((l) => l.startsWith('donnaTaskProposalDecide')).at(-1)
+  assert.equal(sentRetry, sentFirst)
+  assert.equal(s2.write, null)
+
+  s.close()
+  s2.close()
+})
+
+test('conflito e decidido relêem sem reenviar sozinhos; proposal_invalid vira rejected', async () => {
+  const src = new Source()
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'p')
+  await tick()
+
+  src.log = []
+  src.handler = async (method) => {
+    if (method === 'donnaTaskProposalDecide') throw new HostErr(409, 'proposal_conflict: esta proposta mudou')
+    return snap('h1', 'p', [proposal('prop-1', 2, 'pending')])
+  }
+  const c = await s.decide({ id: 'prop-1', version: 1 }, 'approve')
+  assert.deepEqual(c, { ok: false, status: 'conflict' })
+  assert.equal(s.write?.status, 'conflict')
+  assert.equal(s.write?.detail, 'esta proposta mudou')
+  await tick()
+  assert.equal(s.snapshot?.proposals[0]?.version, 2)
+  assert.equal(src.log.filter((l) => l.startsWith('donnaTaskProposalDecide')).length, 1)
+
+  src.log = []
+  src.handler = async (method) => {
+    if (method === 'donnaTaskProposalDecide') throw new HostErr(409, 'proposal_decided: já foi decidida')
+    return snap('h1', 'p', [proposal('prop-1', 3, 'approved')])
+  }
+  const d = await s.decide({ id: 'prop-1', version: 2 }, 'reject')
+  assert.deepEqual(d, { ok: false, status: 'decided' })
+  assert.equal(s.write?.status, 'decided')
+  await tick()
+  assert.equal(s.snapshot?.proposals[0]?.state, 'approved')
+  assert.equal(src.log.filter((l) => l.startsWith('donnaTaskProposalDecide')).length, 1)
+
+  src.handler = async (method) => {
+    if (method === 'donnaTaskProposalDecide') throw new HostErr(400, 'proposal_invalid: escolha pelo menos uma tarefa')
+    return snap('h1', 'p', [proposal('prop-1', 3, 'pending')])
+  }
+  const inv = await s.decide({ id: 'prop-1', version: 3 }, 'approve')
+  assert.deepEqual(inv, { ok: false, status: 'rejected' })
+  assert.equal(s.write?.detail, 'escolha pelo menos uma tarefa')
+  s.close()
+})
+
+test('troca de época durante envio vira incerto e bloqueia decidir até leitura autorizada', async () => {
+  const src = new Source()
+  const s = new PropostasSession(() => 42, ids())
+  s.open(src, 'p')
+  await tick()
+
+  let releaseDecide!: (v: unknown) => void
+  src.handler = (method) => {
+    if (method === 'donnaTaskProposalDecide') return new Promise((r) => { releaseDecide = r })
+    return Promise.resolve(snap('h1', 'p'))
+  }
+  const pending = s.decide({ id: 'prop-1', version: 1 }, 'approve')
+  src.principalEpoch = 2
+  src.connectedClient = src.link()
+  src.notify()
+  releaseDecide({ proposal: proposal('prop-1', 2, 'approved') })
+  const res = await pending
+  assert.equal(res.ok, false)
+  if (!res.ok) assert.equal(res.status, 'uncertain')
+  assert.equal(s.write?.status, 'uncertain')
+  s.close()
+})

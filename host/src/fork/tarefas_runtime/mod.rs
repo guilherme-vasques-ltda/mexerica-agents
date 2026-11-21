@@ -3,16 +3,16 @@
 //! `fork::projetos` e os comentários em `donna_task_comments` (frente de dados).
 //!
 //! Atribuir nunca dispara: o início só acontece por `donnaTaskStart` (dono),
-//! `donnaTaskSchedule` (dono, futuro) ou `start_task_in_execution` (bot
-//! autenticado). O disparo é uma mensagem do dono na sessão vinculada do bot,
-//! com `clientNonce` determinístico: reenvio após crash é deduplicado pelo
+//! `donnaTaskSchedule` (dono, futuro) ou pela aprovação de uma proposta do bot
+//! (`fork::propostas`), que agenda o início para este runtime executar. O
+//! disparo é uma mensagem do dono na sessão vinculada do bot, com
+//! `clientNonce` determinístico: reenvio após crash é deduplicado pelo
 //! `send`, e a evidência é a entrada existente, nunca um palpite.
 mod acordar;
 pub(crate) mod avisos;
 mod inspecao;
 mod store;
 
-pub(crate) use acordar::start_in_execution as start_task_in_execution;
 pub(crate) use store::session_task;
 #[cfg(test)]
 mod tests;

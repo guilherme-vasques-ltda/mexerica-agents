@@ -132,6 +132,9 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if crate::fork::tarefas_runtime::METHODS.contains(&method) {
         return crate::fork::tarefas_runtime::call(hub, caller, method, b).await;
     }
+    if crate::fork::propostas::METHODS.contains(&method) {
+        return crate::fork::propostas::call(hub, caller, method, b).await;
+    }
     crate::fork::secret_refs::reject_api(method, &b)?;
     crate::fork::spaces::guard(hub, method, &b)?;
     let mut b = b;

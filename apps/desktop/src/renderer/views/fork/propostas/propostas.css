@@ -1,0 +1,319 @@
+/* Cartão de propostas acima do compositor na conversa principal do Space. Reutiliza apenas tokens do sistema. */
+
+.prp-wrap {
+  max-width: var(--column);
+  width: 100%;
+  margin-inline: auto;
+  margin-block: 0 4px;
+  padding-inline: 14px;
+  box-sizing: border-box;
+}
+
+.prp-card {
+  border-radius: var(--radius-l);
+  border: 1px solid var(--line);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-glass);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.prp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prp-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  text-align: start;
+  color: var(--ink);
+  font-size: var(--text-callout);
+  font-weight: 600;
+  transition: background-color var(--motion-hover);
+}
+.prp-toggle:hover { background: var(--hover); }
+.prp-toggle:focus-visible,
+.prp-btn:focus-visible,
+.prp-check input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.prp-toggle-icon {
+  color: var(--text-accent, var(--accent));
+  flex: none;
+  display: inline-flex;
+}
+
+.prp-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prp-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.prp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  background: var(--group);
+  color: var(--ink-2);
+}
+.prp-pill.is-pending {
+  background: var(--accent-soft);
+  color: var(--text-accent, var(--accent));
+}
+
+.prp-chevron {
+  flex: none;
+  color: var(--ink-2);
+  display: inline-flex;
+}
+
+.prp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--line);
+  max-height: min(36vh, 320px);
+  overflow: auto;
+}
+
+.prp-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  background: var(--group);
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+}
+.prp-banner p { margin: 0; flex: 1 1 200px; }
+.prp-banner.is-uncertain {
+  background: var(--attention-soft);
+  color: var(--ink);
+}
+.prp-banner.is-uncertain > :first-child { color: var(--text-attention, var(--attention)); }
+.prp-banner.is-error {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--ink);
+}
+.prp-banner.is-error > :first-child { color: var(--text-danger, var(--danger)); }
+.prp-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.prp-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+}
+.prp-proposal + .prp-proposal {
+  border-top: 1px solid var(--line);
+}
+
+.prp-proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.prp-proposal-title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.prp-project {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--radius-s);
+  background: var(--group);
+  color: var(--ink-2);
+  font-size: var(--text-caption);
+}
+
+.prp-note {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: var(--radius-s);
+  background: var(--attention-soft);
+  color: var(--ink);
+  font-size: var(--text-caption);
+}
+.prp-note > :first-child {
+  flex: none;
+  color: var(--text-attention, var(--attention));
+}
+
+.prp-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  min-width: 0;
+}
+.prp-item.is-omitted { opacity: 0.55; }
+
+.prp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.prp-check input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.prp-check input:disabled { cursor: default; }
+
+.prp-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.prp-assignee {
+  flex: none;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.prp-item-title {
+  font-size: var(--text-callout);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.prp-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.prp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--group);
+  color: var(--ink-2);
+}
+.prp-badge.is-accent {
+  background: var(--accent-soft);
+  color: var(--text-accent, var(--accent));
+}
+.prp-badge.is-attention {
+  background: var(--attention-soft);
+  color: var(--text-attention, var(--attention));
+}
+.prp-badge.is-success {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--text-success, var(--success));
+}
+.prp-badge.is-danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--text-danger, var(--danger));
+}
+.prp-badge.is-muted {
+  background: var(--group);
+  color: var(--ink-2);
+  opacity: 0.8;
+}
+
+.prp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prp-rule {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+}
+
+.prp-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+
+.prp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--ink);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  transition: background-color var(--motion-hover), transform var(--press);
+}
+.prp-btn:hover:not(:disabled) { background: var(--hover); }
+.prp-btn:active:not(:disabled) { transform: scale(0.97); }
+.prp-btn:disabled { opacity: 0.45; cursor: default; }
+.prp-btn.is-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.prp-btn.is-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
