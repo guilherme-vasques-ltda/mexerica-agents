@@ -75,11 +75,19 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
   typecheck, `npm test` (inclui o gate de textos e os testes de avisos) e `npm run test:open`
   quando a variante Open existe na árvore.
 
-## macOS (Namespace)
+## macOS
 
-O workflow `macOS` tem um único job, `macos`, que roda em `nscloud-macos-tahoe-arm64-6x14`
-(macOS Tahoe, Apple Silicon, 6 vCPU e 14 GB). Ele ainda **não entra no `ci-ok`**: aparece
+O workflow `macOS` tem um único job, `macos`. Ele ainda **não entra no `ci-ok`**: aparece
 no PR como um check à parte e não trava a fila enquanto estabiliza.
+
+- **Máquina:** por padrão, `nscloud-macos-tahoe-arm64-6x14` (Namespace: macOS Tahoe, Apple
+  Silicon, 6 vCPU e 14 GB). O job só vai para a máquina macOS do GitHub (`macos-15`, Apple
+  Silicon) quando as duas condições valem ao mesmo tempo: o evento confirma que o repositório é
+  público e a variável `CI_MAQUINA_MAC` vale `macos-15` (Settings → Secrets and variables →
+  Actions → Variables; uma variável de mesmo nome na organização também conta). Qualquer outro
+  caso, inclusive variável vazia ou com outro valor, fica na Namespace. A escolha acontece antes
+  de alocar a máquina. Como segunda barreira, o primeiro passo reprova se o job cair numa
+  máquina do GitHub sem o evento confirmar repositório público.
 
 - **Quando roda:** em PR pronto (não rascunho, não fork) que muda `apps/desktop/`, `host/`,
   `motor/`, `packaging/`, a toolchain ou o Cargo da raiz, ou o próprio workflow; e por

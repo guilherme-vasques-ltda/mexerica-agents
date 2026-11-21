@@ -1,5 +1,5 @@
-# Build e testes do app no macOS, so em maquinas macOS da Namespace (nunca em runner do GitHub).
-# Fica fora do selo ci-ok enquanto estabiliza. Guia: docs/guides/ci.md.
+# Build e testes do app no macOS. Namespace por padrao; maquina macOS do GitHub (macos-15) so com o
+# repositorio publico e a variavel CI_MAQUINA_MAC=macos-15. Fica fora do selo ci-ok. Guia: docs/guides/ci.md.
 name: macOS
 
 on:
@@ -27,13 +27,21 @@ jobs:
   macos:
     # PR de fork e rascunho nao rodam; o disparo manual roda sempre.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft) }}
-    runs-on: nscloud-macos-tahoe-arm64-6x14
+    # A escolha acontece antes de alocar a maquina: sem visibilidade publica confirmada no evento, sempre Namespace.
+    runs-on: ${{ github.event.repository.visibility == 'public' && vars.CI_MAQUINA_MAC == 'macos-15' && 'macos-15' || 'nscloud-macos-tahoe-arm64-6x14' }}
     timeout-minutes: 75
     permissions:
       contents: read
     env:
       OPEN_APP: dist/open/mac-arm64/Mexerica Open.app
     steps:
+      # Segunda barreira: em maquina do GitHub, so segue se o evento confirmar repositorio publico.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.visibility != 'public' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o macOS nao roda em maquina do GitHub. Ajuste a variavel CI_MAQUINA_MAC.'
+          exit 1
       - name: Marcar o inicio para o resumo de minutos
         run: echo "MACOS_INICIO=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,5 +127,6 @@ jobs:
       - name: Minutos gastos
         if: ${{ always() }}
         run: |
+          test -n "${MACOS_INICIO:-}" || exit 0
           minutos=$(( ($(date +%s) - MACOS_INICIO + 59) / 60 ))
           printf 'Minutos no macOS: %s\n' "$minutos" >> "$GITHUB_STEP_SUMMARY"
