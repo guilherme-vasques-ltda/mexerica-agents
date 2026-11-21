@@ -349,9 +349,16 @@ test('seleção por caminhos: o laço do workflow marca Hub e Desktop pelos arqu
   assert.equal(select(['host/src/main.rs']), 'true false', 'só Hub dispensa o Desktop');
   assert.equal(select(['motor/package.json']), 'true false');
   assert.equal(select(['apps/desktop/src/main/index.ts']), 'false true');
-  assert.equal(select(['docs/guides/ci.md']), 'false true');
-  assert.equal(select(['.github/workflows/ci.yml']), 'true true');
-  assert.equal(select(['tools/ci-vazamento.mjs']), 'true true');
+  assert.equal(select(['docs/guides/ci.md']), 'false false', 'o guia do CI só roda leves');
+  assert.equal(select(['docs/features/marketplace.md']), 'false true', 'outros documentos continuam ligando o Desktop');
+  assert.equal(select(['.github/workflows/ci.yml']), 'true true', 'o próprio ci.yml muda os jobs pesados');
+  assert.equal(select(['tools/ci-vazamento.mjs']), 'false false', 'ferramentas de CI rodam só em leves');
+  assert.equal(select(['tools/ci-workflow.test.mjs', 'docs/guides/ci.md', '.github/workflows/macos.yml', '.github/actionlint.yaml']), 'false false', 'workflow do macOS, guia e ferramentas de CI não ligam Hub nem Desktop');
+  assert.equal(select(['.github/security/vazamento.json']), 'false false');
+  assert.equal(select(['tools/textos-legado.json']), 'false true', 'arquivo de ferramenta lido pelos testes do Desktop continua ligando o Desktop');
+  assert.equal(select(['docs/guides/idiomas.md']), 'false true', 'doc lido pelos testes do Desktop continua ligando o Desktop');
+  assert.equal(select(['docs/guides/ci.md', 'host/src/main.rs']), 'true false', 'um arquivo que liga o Hub não é anulado pelos que não ligam nada');
+  assert.equal(select(['.github/workflows/macos.yml', 'apps/desktop/src/main/index.ts']), 'false true');
 });
 
 test('leves e vazamento não ligam cache automático do setup-node', () => {

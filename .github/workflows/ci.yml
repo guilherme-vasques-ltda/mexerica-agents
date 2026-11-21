@@ -60,8 +60,9 @@ jobs:
           host=false
           desktop=false
           while IFS= read -r -d '' path; do
+            # So o proprio ci.yml muda os jobs pesados; outros workflows e as ferramentas de CI rodam so em leves.
             case "$path" in
-              .github/*|tools/ci-*) host=true; desktop=true ;;
+              .github/workflows/ci.yml) host=true; desktop=true ;;
             esac
             # Hub: codigo, motor, toolchain e arquivos de outras pastas lidos pelos testes do Hub.
             case "$path" in
@@ -74,6 +75,7 @@ jobs:
             case "$path" in
               host/src/fork/skill_catalog/registry.json|host/src/fork/personal_link/*|host/src/fork/conectores/fichas/*) desktop=true ;;
               host/*|motor/*|apps/screen-linux/*) ;;
+              .github/*|tools/ci-*|docs/guides/ci.md) ;;
               *) desktop=true ;;
             esac
           done < "$RUNNER_TEMP/alterados.z"
