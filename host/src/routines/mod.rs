@@ -1645,5 +1645,8 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "../fork/heartbeat/testes_cenarios.rs"]
+mod heartbeat_cenarios_tests;
+#[cfg(test)]
 #[path = "../fork/heartbeat/testes_rotina.rs"]
 mod heartbeat_rotina_tests;

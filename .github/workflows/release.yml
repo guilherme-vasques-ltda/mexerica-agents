@@ -1,0 +1,563 @@
+# Build e rascunho de release multiplataforma. Disparo manual so a partir da main, so em
+# maquinas gratis do GitHub e so com o repositorio publico. O modo release cria um rascunho
+# (--draft --prerelease) no GitHub Releases, sem publicar nem criar tag oficial; o modo
+# preview so deixa os artefatos no Actions. Guia: docs/guides/ci.md.
+# Versao: no modo release, o semver sem o v (tools/ci-release-version.mjs) entra em
+# apps/desktop/package.json na VM descartavel, antes de empacotar, para app.getVersion(),
+# Info.plist, .deb, .AppImage e NSIS reportarem a versao da rodada. No preview, os metadados
+# internos mantem a versao base do package.json: preview-<commit> nao e versao valida para
+# .deb nem NSIS e vai so no nome dos arquivos e no resumo. Os binarios do Hub mantem a
+# versao do host/Cargo.toml, preservando builds --locked.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modo da rodada: release (rascunho no GitHub Releases) ou preview (somente artefatos no Actions)'
+        type: choice
+        required: true
+        default: 'release'
+        options: ['release', 'preview']
+      version:
+        description: 'Versao da release (ex.: v0.0.1); obrigatoria e validada no modo release'
+        type: string
+        required: false
+        default: 'v0.0.1'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build-macos:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' }}
+    runs-on: macos-15
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    env:
+      OPEN_APP: dist/open/mac-arm64/Mexerica Open.app
+    steps:
+      - name: Recusar repositorio privado ou maquina fora do GitHub
+        if: ${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::O build de release so roda em maquina gratis do GitHub com o repositorio publico.'
+          exit 1
+      # Os parametros da rodada chegam por env, nunca interpolados direto no script.
+      - name: Validar branch main e parametros da rodada
+        working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo '::error::O workflow de release so roda a partir da main.'; exit 1; }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::SHA do evento fora do formato esperado.'; exit 1; }
+          case "$RELEASE_MODE" in
+            release|preview) ;;
+            *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
+          esac
+          if [ "$RELEASE_MODE" = release ]; then
+            test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
+            [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
+            [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
+            RELEASE_LABEL="$RELEASE_VERSION"
+            RELEASE_SEMVER="${RELEASE_VERSION#v}"
+          else
+            RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+            RELEASE_SEMVER=""
+          fi
+          printf 'RELEASE_LABEL=%s\nRELEASE_SEMVER=%s\n' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Conferir a plataforma (macOS arm64 com Xcode)
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      # Sem rustup na imagem, instala o rustup-init 1.29.3 com SHA256 fixo; a versao do Rust vem do rust-toolchain.toml.
+      - name: Garantir rustup
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl --fail --silent --show-error --location --retry 3 https://static.rust-lang.org/rustup/archive/1.29.3/aarch64-apple-darwin/rustup-init -o "$RUNNER_TEMP/rustup-init"
+            echo "63752a1919a3a4793173ec70f8f212621a7ce38ba6a246095984482f4de20f9f  $RUNNER_TEMP/rustup-init" | shasum -a 256 --check
+            chmod +x "$RUNNER_TEMP/rustup-init"
+            "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Instalar o Rust fixado
+        working-directory: host
+        run: rustup show active-toolchain || rustup toolchain install
+      # Cache de leitura apenas: o build de release nao escreve no cache compartilhado do Cargo.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: host
+          key: release-macos
+          save-if: false
+      - name: Dependencias do app
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
+      # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
+      # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
+      - name: Aplicar versao da release aos metadados do app
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
+      - name: Empacotar a Open (perfil oficial, assinatura ad hoc)
+        working-directory: apps/desktop
+        run: npm run dist:mac:open
+      - name: Conferir assinatura e arquitetura do pacote
+        working-directory: apps/desktop
+        run: |
+          codesign --verify --deep --strict "$OPEN_APP"
+          hub="$OPEN_APP/Contents/Resources/mexerica-open-hub"
+          speech="$OPEN_APP/Contents/Resources/codync-speech"
+          test "$(lipo -archs "$hub")" = arm64
+          test "$(lipo -archs "$speech")" = arm64
+          codesign --verify --strict "$hub"
+          codesign --verify --strict "$speech"
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$OPEN_APP/Contents/Info.plist")" = "$RELEASE_SEMVER"
+          fi
+      - name: Compactar o app e gerar o hash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release-macos"
+          zip="Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip"
+          mkdir -p "$out"
+          ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/$zip"
+          (cd "$out" && shasum -a 256 "$zip" > macos.sha256 && cat macos.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos-arm64
+          path: ${{ runner.temp }}/release-macos/
+          retention-days: 7
+          if-no-files-found: error
+
+  build-linux:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Recusar repositorio privado ou maquina fora do GitHub
+        if: ${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::O build de release so roda em maquina gratis do GitHub com o repositorio publico.'
+          exit 1
+      - name: Validar branch main e parametros da rodada
+        working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo '::error::O workflow de release so roda a partir da main.'; exit 1; }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::SHA do evento fora do formato esperado.'; exit 1; }
+          case "$RELEASE_MODE" in
+            release|preview) ;;
+            *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
+          esac
+          if [ "$RELEASE_MODE" = release ]; then
+            test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
+            [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
+            [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
+            RELEASE_LABEL="$RELEASE_VERSION"
+            RELEASE_SEMVER="${RELEASE_VERSION#v}"
+          else
+            RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+            RELEASE_SEMVER=""
+          fi
+          printf 'RELEASE_LABEL=%s\nRELEASE_SEMVER=%s\n' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Dependencias do app
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
+      # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
+      # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
+      - name: Aplicar versao da release aos metadados do app
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
+      - name: Preparar a configuracao e construir o app
+        working-directory: apps/desktop
+        run: |
+          node tools/account-config.mjs main
+          npm run build
+      - name: Empacotar para Linux (deb e AppImage)
+        working-directory: apps/desktop
+        run: npx electron-builder --linux deb AppImage --publish never
+      - name: Conferir e renomear os pacotes Linux
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          mapfile -t debs < <(find dist -maxdepth 1 -type f -name '*.deb')
+          mapfile -t appimages < <(find dist -maxdepth 1 -type f -name '*.AppImage')
+          test "${#debs[@]}" -eq 1 || { echo '::error::Era esperado exatamente 1 pacote .deb em dist.'; exit 1; }
+          test "${#appimages[@]}" -eq 1 || { echo '::error::Era esperado exatamente 1 pacote .AppImage em dist.'; exit 1; }
+          out="$RUNNER_TEMP/release-linux"
+          mkdir -p "$out"
+          deb_name="mexerica-open-${RELEASE_LABEL}-linux-amd64.deb"
+          appimage_name="mexerica-open-${RELEASE_LABEL}-linux-x86_64.AppImage"
+          cp "${debs[0]}" "$out/$deb_name"
+          cp "${appimages[0]}" "$out/$appimage_name"
+          dpkg-deb --info "$out/$deb_name" > /dev/null
+          conteudo=$(dpkg-deb --contents "$out/$deb_name")
+          for trecho in 'opt/Mexerica/donnabot$' 'opt/Mexerica/resources/account-config.json$' 'avisos/LICENSE$' 'avisos/NOTICE$' 'usr/share/applications/donnabot.desktop$'; do
+            grep -Eq "$trecho" <<< "$conteudo" || { echo "::error::$trecho nao encontrado no .deb."; exit 1; }
+          done
+          chmod +x "$out/$appimage_name"
+          test -s "$out/$appimage_name"
+          file "$out/$appimage_name" | grep -q 'ELF 64-bit LSB executable, x86-64'
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            # O Debian converte - em ~ na versao do pacote: a conferencia compara normalizado.
+            test "$(dpkg-deb -f "$out/$deb_name" Version)" = "${RELEASE_SEMVER//-/~}"
+          fi
+          # O hash precisa gravar o nome relativo: quem confere no job final baixa em outra pasta.
+          (cd "$out" && sha256sum "$deb_name" "$appimage_name" > linux.sha256 && cat linux.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux-amd64
+          path: ${{ runner.temp }}/release-linux/
+          retention-days: 7
+          if-no-files-found: error
+
+  build-windows:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' }}
+    runs-on: windows-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Recusar repositorio privado ou maquina fora do GitHub
+        if: ${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::O build de release so roda em maquina gratis do GitHub com o repositorio publico.'
+          exit 1
+      - name: Validar branch main e parametros da rodada
+        working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo '::error::O workflow de release so roda a partir da main.'; exit 1; }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::SHA do evento fora do formato esperado.'; exit 1; }
+          case "$RELEASE_MODE" in
+            release|preview) ;;
+            *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
+          esac
+          if [ "$RELEASE_MODE" = release ]; then
+            test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
+            [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
+            [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
+            RELEASE_LABEL="$RELEASE_VERSION"
+            RELEASE_SEMVER="${RELEASE_VERSION#v}"
+          else
+            RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+            RELEASE_SEMVER=""
+          fi
+          printf 'RELEASE_LABEL=%s\nRELEASE_SEMVER=%s\n' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Instalar o Rust fixado
+        working-directory: host
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add x86_64-pc-windows-msvc
+      # Cache de leitura apenas: o build de release nao escreve no cache compartilhado do Cargo.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: host
+          key: release-windows
+          save-if: false
+      - name: Compilar o Hub para Windows
+        working-directory: host
+        env:
+          CODYNC_ENV: main
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc --bin donnabot-host --bin donnabot-hostw
+          mkdir -p ../apps/desktop/build/native
+          cp target/x86_64-pc-windows-msvc/release/donnabot-host.exe ../apps/desktop/build/native/
+          cp target/x86_64-pc-windows-msvc/release/donnabot-hostw.exe ../apps/desktop/build/native/
+      - name: Baixar o cua-driver fixado
+        run: node packaging/cua-driver/fetch.mjs windows-x86_64 apps/desktop/build/native
+      - name: Conferir os binarios nativos e fumar o Hub
+        run: |
+          for arquivo in donnabot-host.exe donnabot-hostw.exe cua-driver.exe cua-driver-uia.exe cua-driver.LICENSE; do
+            test -s "apps/desktop/build/native/$arquivo" || { echo "::error::apps/desktop/build/native/$arquivo ausente ou vazio."; exit 1; }
+          done
+          ./apps/desktop/build/native/donnabot-host.exe --version
+      - name: Dependencias do app
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
+      # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
+      # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
+      - name: Aplicar versao da release aos metadados do app
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
+      - name: Preparar a configuracao e construir o app
+        working-directory: apps/desktop
+        run: |
+          node tools/account-config.mjs main
+          npm run build
+      - name: Empacotar o instalador Windows (NSIS)
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win nsis --publish never
+      - name: Conferir o pacote Windows
+        working-directory: apps/desktop
+        run: |
+          for arquivo in dist/donnabot-windows-x64.exe dist/win-unpacked/Mexerica.exe dist/win-unpacked/resources/donnabot-host.exe dist/win-unpacked/resources/donnabot-hostw.exe dist/win-unpacked/resources/cua-driver.exe dist/win-unpacked/resources/account-config.json; do
+            test -s "$arquivo" || { echo "::error::$arquivo ausente ou vazio."; exit 1; }
+          done
+      - name: Conferir a versao gravada nos metadados do Windows
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_SEMVER:-}"
+          test "$(node -p "require('./apps/desktop/package.json').version")" = "$RELEASE_SEMVER"
+          node tools/ci-release-version.mjs --check-asar apps/desktop/dist/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"
+      - name: Preparar os arquivos da release Windows
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release-windows"
+          mkdir -p "$out"
+          setup="mexerica-open-${RELEASE_LABEL}-windows-x64-setup.exe"
+          zip="mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip"
+          cp dist/donnabot-windows-x64.exe "$out/$setup"
+          # O tar nativo do Windows le zip; um tar do Git Bash no PATH, nao.
+          win_zip=$(cygpath -w "$out/$zip")
+          (cd dist/win-unpacked && /c/Windows/System32/tar.exe -a -c -f "$win_zip" .)
+          /c/Windows/System32/tar.exe -tf "$win_zip" | grep -Eq '^(\./)?Mexerica\.exe$'
+          # sha256sum no Git Bash marca binario com *: o formato Unix e <hash>  <nome>, sem \r.
+          (cd "$out" && sha256sum "$setup" "$zip" | sed 's/ \*/  /' | tr -d '\r' > windows.sha256 && cat windows.sha256)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-x64
+          path: ${{ runner.temp }}/release-windows/
+          retention-days: 7
+          if-no-files-found: error
+
+  draft-release:
+    needs: [build-macos, build-linux, build-windows]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Recusar repositorio privado ou maquina fora do GitHub
+        if: ${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::O build de release so roda em maquina gratis do GitHub com o repositorio publico.'
+          exit 1
+      - name: Validar branch main e parametros da rodada
+        working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main || { echo '::error::O workflow de release so roda a partir da main.'; exit 1; }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::SHA do evento fora do formato esperado.'; exit 1; }
+          case "$RELEASE_MODE" in
+            release|preview) ;;
+            *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
+          esac
+          if [ "$RELEASE_MODE" = release ]; then
+            test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
+            [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
+            [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
+            [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
+            RELEASE_LABEL="$RELEASE_VERSION"
+          else
+            RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+          fi
+          printf 'RELEASE_LABEL=%s\n' "$RELEASE_LABEL" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - name: Baixar os artefatos dos tres builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: gh run download "$RUN_ID" --repo "$REPO" -n release-macos-arm64 -n release-linux-amd64 -n release-windows-x64 -D "$RUNNER_TEMP/downloads"
+      - name: Conferir hashes e montar a pasta da release
+        run: |
+          set -euo pipefail
+          for par in release-macos-arm64/macos.sha256 release-linux-amd64/linux.sha256 release-windows-x64/windows.sha256; do
+            test -f "$RUNNER_TEMP/downloads/$par" || { echo "::error::Artefato $par nao veio desta rodada."; exit 1; }
+            (cd "$(dirname "$RUNNER_TEMP/downloads/$par")" && sha256sum -c "$(basename "$par")")
+          done
+          arquivos=(
+            "release-macos-arm64/Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip"
+            "release-linux-amd64/mexerica-open-${RELEASE_LABEL}-linux-amd64.deb"
+            "release-linux-amd64/mexerica-open-${RELEASE_LABEL}-linux-x86_64.AppImage"
+            "release-windows-x64/mexerica-open-${RELEASE_LABEL}-windows-x64-setup.exe"
+            "release-windows-x64/mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip"
+          )
+          for rel in "${arquivos[@]}"; do
+            caminho="$RUNNER_TEMP/downloads/$rel"
+            if [ ! -f "$caminho" ] || [ -L "$caminho" ] || [ ! -s "$caminho" ]; then
+              echo "::error::$rel nao e arquivo regular com conteudo."
+              exit 1
+            fi
+          done
+          assets="$RUNNER_TEMP/release-assets"
+          mkdir -p "$assets"
+          for rel in "${arquivos[@]}"; do
+            cp "$RUNNER_TEMP/downloads/$rel" "$assets/"
+          done
+          (
+            cd "$assets"
+            sha256sum \
+              "Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip" \
+              "mexerica-open-${RELEASE_LABEL}-linux-amd64.deb" \
+              "mexerica-open-${RELEASE_LABEL}-linux-x86_64.AppImage" \
+              "mexerica-open-${RELEASE_LABEL}-windows-x64-setup.exe" \
+              "mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip" \
+              | LC_ALL=C sort -k2,2 > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          )
+      - name: Publicar o resumo da previa
+        if: ${{ inputs.mode == 'preview' }}
+        run: |
+          {
+            echo 'Previa de build, nao e versao oficial: os arquivos ficam so nos artefatos do Actions, sem release, sem tag e sem publicacao.'
+            printf 'Commit: %s\n' "$GITHUB_SHA"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/release-assets/SHA256SUMS.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ inputs.mode == 'preview' }}
+        with:
+          name: mexerica-open-preview-${{ github.sha }}
+          path: ${{ runner.temp }}/release-assets/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Gerar as notas de lancamento
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-notes.mjs --version "$RELEASE_VERSION" --sha "$GITHUB_SHA" --out "$RUNNER_TEMP/release-notes.md"
+      # Fail-closed: tag existente ou release ja publicada encerra a rodada sem criar nada.
+      - name: Recusar tag ou release ja existente e limpar rascunhos antigos
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/git/matching-refs/tags/$RELEASE_VERSION" | jq -s 'add // []' > "$RUNNER_TEMP/tags.json"
+          if jq -e --arg ref "refs/tags/$RELEASE_VERSION" 'any(.[]; .ref == $ref)' > /dev/null "$RUNNER_TEMP/tags.json"; then
+            echo "::error::A tag $RELEASE_VERSION ja existe; escolha outra versao."
+            exit 1
+          fi
+          gh api --paginate "repos/$REPO/releases?per_page=100" | jq -s 'add // []' > "$RUNNER_TEMP/releases.json"
+          if jq -e --arg tag "$RELEASE_VERSION" 'any(.[]; .tag_name == $tag and .draft == false)' > /dev/null "$RUNNER_TEMP/releases.json"; then
+            echo "::error::Ja existe release publicada para $RELEASE_VERSION."
+            exit 1
+          fi
+          for id in $(jq -r --arg tag "$RELEASE_VERSION" '.[] | select(.tag_name == $tag and .draft == true) | .id' "$RUNNER_TEMP/releases.json"); do
+            gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+      - name: Criar o rascunho da release (nunca publicar, nunca tag oficial)
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/release-assets"
+          gh release create "$RELEASE_VERSION" --repo "$REPO" --draft --prerelease --target "$GITHUB_SHA" --title "Mexerica Open $RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "$assets/Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip" \
+            "$assets/mexerica-open-${RELEASE_LABEL}-linux-amd64.deb" \
+            "$assets/mexerica-open-${RELEASE_LABEL}-linux-x86_64.AppImage" \
+            "$assets/mexerica-open-${RELEASE_LABEL}-windows-x64-setup.exe" \
+            "$assets/mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip" \
+            "$assets/SHA256SUMS.txt"
+      - name: Conferir o rascunho criado e registrar o resumo
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/releases?per_page=100" | jq -s 'add // []' > "$RUNNER_TEMP/releases.json"
+          rascunho=$(jq -c --arg tag "$RELEASE_VERSION" '[.[] | select(.tag_name == $tag and .draft == true)] | .[0]' "$RUNNER_TEMP/releases.json")
+          test "$rascunho" != 'null' || { echo "::error::Rascunho da versao $RELEASE_VERSION nao encontrado."; exit 1; }
+          jq -e --arg sha "$GITHUB_SHA" '.draft == true and .prerelease == true and .target_commitish == $sha and (.assets | length) == 6' > /dev/null <<< "$rascunho" || { echo '::error::O rascunho nao saiu marcado como pre-lancamento com os seis arquivos.'; exit 1; }
+          url=$(jq -r '.html_url' <<< "$rascunho")
+          {
+            printf 'Rascunho criado e nao publicado: %s\n' "$url"
+            printf 'Versao: %s\nCommit: %s\n' "$RELEASE_VERSION" "$GITHUB_SHA"
+            printf '\nSHA256SUMS.txt:\n\n'
+            cat "$RUNNER_TEMP/release-assets/SHA256SUMS.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
