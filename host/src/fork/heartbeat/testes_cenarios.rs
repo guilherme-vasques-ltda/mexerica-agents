@@ -220,9 +220,8 @@ fn nada_nunca_chega_a_ia_nem_fica_pendente_e_o_conteudo_nao_fica_no_historico() 
     let execucoes = execucoes(&cena.hub);
     assert!(!execucoes.is_empty());
     assert!(
-        execucoes
-            .iter()
-            .all(|r| r.heartbeat && !matches!(r.status, Status::Pending | Status::Starting | Status::Running)),
+        execucoes.iter().all(|r| r.heartbeat
+            && !matches!(r.status, Status::Pending | Status::Starting | Status::Running | Status::Recovering)),
         "toda execução veio da checagem, já terminada, nenhuma entrou na fila de IA"
     );
     let guardado = cena.hub.store.kv_read("routines.v1").unwrap().unwrap();
