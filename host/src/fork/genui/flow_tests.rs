@@ -372,6 +372,48 @@ async fn grafico_publica_apos_commit_com_replay_unico_e_sem_estado_de_resposta()
 }
 
 #[tokio::test]
+async fn grafico_mascara_codigo_efemero_antes_de_persistir_publicar_e_repetir() {
+    let f = Fixture::new();
+    let context = f.context();
+    let code = format!("mxs_{}", "0f3a9c1d".repeat(8));
+    let mut value = chart_json("bar_chart", &code);
+    value["summary"] = code.clone().into();
+    value["data"]["labels"][0] = code.clone().into();
+    value["data"]["series"][0]["label"] = code.clone().into();
+    value["data"]["unit"] = code.clone().into();
+    value["data"]["period"] = code.clone().into();
+    value["data"]["sourceLabel"] = code.clone().into();
+    value["data"]["series"][0]["id"] = code.clone().into();
+    let chart = ValidatedChart::parse(&value.to_string()).unwrap();
+    let mut events = f.hub.events.subscribe();
+    let shown = show_chart(&f.hub, &context, "ponte:redaction", &chart).unwrap();
+    let chart_id = shown["chartId"].as_str().unwrap();
+    let entry_id: String = f
+        .hub
+        .store
+        .db
+        .locked()
+        .query_row("SELECT entry_id FROM donna_genui_charts WHERE id=?1", [chart_id], |row| row.get(0))
+        .unwrap();
+    let stored = f.hub.store.entry(&entry_id).unwrap().data.to_string();
+    assert!(!stored.contains(&code));
+    assert!(stored.contains("mxs_[oculto]"));
+    assert!(stored.contains("mxs_oculto"));
+    let event = loop {
+        let event = events.try_recv().expect("evento de gráfico publicado");
+        if event["entry"]["data"]["genuiChart"].is_object() {
+            break event;
+        }
+    };
+    let published = event["entry"]["data"].to_string();
+    assert!(!published.contains(&code));
+    assert_eq!(published, stored);
+    let replay = show_chart(&f.hub, &context, "ponte:redaction", &chart).unwrap();
+    assert_eq!(replay["chartId"], chart_id);
+    assert!(!replay.to_string().contains(&code));
+}
+
+#[tokio::test]
 async fn mesma_invocacao_nao_vale_para_grafico_e_escolha_ao_mesmo_tempo() {
     let f = Fixture::new();
     let context = f.context();

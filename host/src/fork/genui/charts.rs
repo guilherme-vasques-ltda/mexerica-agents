@@ -149,6 +149,30 @@ impl ValidatedChart {
         Ok(Self { payload, effective })
     }
 
+    pub(crate) fn redacted(&self) -> Result<Self> {
+        let mut payload = self.payload.clone();
+        let mask = |value: &mut String| {
+            *value = crate::fork::planos_codigo::mascarar_codigo(value).into_owned();
+        };
+        mask(&mut payload.title);
+        mask(&mut payload.summary);
+        mask(&mut payload.data.unit);
+        mask(&mut payload.data.period);
+        mask(&mut payload.data.source_label);
+        for label in &mut payload.data.labels {
+            mask(label);
+        }
+        for series in &mut payload.data.series {
+            mask(&mut series.label);
+            let masked_id = crate::fork::planos_codigo::mascarar_codigo(&series.id);
+            if masked_id != series.id {
+                series.id = masked_id.replace("mxs_[oculto]", "mxs_oculto");
+            }
+        }
+        let raw = serde_json::to_string(&payload).map_err(|_| anyhow::anyhow!("genui_chart_snapshot_failed"))?;
+        Self::parse(&raw)
+    }
+
     /// Snapshot canônico (`{requested, effective, payload}`): é o que o Hub guarda e o app lê.
     pub(crate) fn snapshot(&self) -> Result<String> {
         #[derive(Serialize)]

@@ -54,6 +54,7 @@ pub(crate) fn create(
         tracing::warn!("gráfico recusado: identificador de invocação vazio ou acima do limite");
         bail!("genui_invalid_invocation");
     }
+    let chart = chart.redacted()?;
     let snapshot = chart.snapshot()?;
     let hash = crate::agent::registry::sha256_hex(snapshot.as_bytes());
     let used_by_question: bool =

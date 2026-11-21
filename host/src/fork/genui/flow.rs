@@ -41,11 +41,14 @@ vínculo de sessão da principal).";
 
 /// Identidade de invocação vinda do envelope da ponte. Sem ela, recusa: nunca cai para hash do payload.
 pub(crate) fn invocation(body: &Value) -> Result<String> {
-    let raw = body[INVOCATION].as_str().ok_or_else(|| anyhow!("genui_invocation_required"))?;
-    ensure!(
-        !raw.is_empty() && raw.len() <= MAX_INVOCATION && raw.bytes().all(|b| b.is_ascii_graphic()),
-        "genui_invocation_required"
-    );
+    let Some(raw) = body[INVOCATION].as_str() else {
+        tracing::warn!("gráfico recusado: invocação ausente ou inválida na ponte");
+        return Err(anyhow!("genui_invocation_required"));
+    };
+    if raw.is_empty() || raw.len() > MAX_INVOCATION || !raw.bytes().all(|b| b.is_ascii_graphic()) {
+        tracing::warn!("gráfico recusado: invocação ausente ou inválida na ponte");
+        return Err(anyhow!("genui_invocation_required"));
+    }
     Ok(raw.to_owned())
 }
 
