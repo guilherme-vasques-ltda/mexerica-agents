@@ -54,7 +54,7 @@ async fn consume(consumer: Consumer, mut rx: mpsc::UnboundedReceiver<Value>) {
                 return;
             }
         }
-        // CF-22: Value aceito antes do close não produz efeito depois dele.
+        // Value aceito antes do close não produz efeito depois dele.
         // Close é monotônico; encerrar descarta este e os pendentes.
         if !open(&consumer.original) {
             return;

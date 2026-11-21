@@ -309,7 +309,8 @@ Preços e franquia agregada devem ser conferidos antes de estimar custo:
 
 Tudo como o usuário do Hub, sem sudo. Copiar `backup.py` para
 `~/.local/lib/donnabot-backup/backup.py` e as unidades para
-`~/.config/systemd/user/`. Verificar antes: `python3 -c 'import sqlite3,
+`~/.config/systemd/user/`. Verificar antes: `python3 --version` (3.11 ou
+superior, exigido por `hashlib.file_digest`), `python3 -c 'import sqlite3,
 cryptography'` e `curl --version`. Se faltarem, propor a instalação; não instalar
 automaticamente. Não é necessário compilar o Hub.
 

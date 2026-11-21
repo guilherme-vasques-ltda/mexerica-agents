@@ -23,7 +23,7 @@ anterior ao gate e confirme antes que ele desconhece o comando. O preparo
 recusa um legado que conheça `coordenar-atualizacao`.
 
 ```sh
-sudo LEGADO_ANTERIOR=/data/legado-anterior/donnabot-host bash preparar.sh
+sudo CARGO_TARGET_DIR=/data/target LEGADO_ANTERIOR=/data/legado-anterior/donnabot-host bash preparar.sh
 sudo bash cenarios.sh      # imprime OK/FALHA e "RESULTADO: N falha(s)" e falha se houver falhas
 ```
 

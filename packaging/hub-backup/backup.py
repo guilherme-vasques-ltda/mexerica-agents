@@ -32,6 +32,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+if sys.version_info < (3, 11):
+    raise SystemExit('requer Python 3.11 ou superior (hashlib.file_digest)')
+
 MAGIC = b'DNBKP001'
 HEADER = 8 + 512 + 12
 CHUNK = 1024 * 1024

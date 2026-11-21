@@ -24,7 +24,7 @@ struct PrivateBus {
 impl PrivateBus {
     async fn start() -> Result<(Self, String)> {
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-        let directory = std::env::temp_dir().join(format!("cf22-{}-{nonce}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("input-fixture-{}-{nonce}", std::process::id()));
         std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
         let process = Command::new("dbus-daemon")
             .env_clear()
@@ -154,7 +154,7 @@ fn helper() -> Arc<Helper> {
     let (out, _) = mpsc::unbounded_channel();
     Arc::new(Helper {
         config: crate::fork_socket::Config::from_args(
-            ["--socket", "/tmp/cf22-fixture/screen.sock"].map(std::ffi::OsString::from),
+            ["--socket", "/tmp/input-fixture/screen.sock"].map(std::ffi::OsString::from),
         )
         .unwrap(),
         portal: Arc::new(tokio::sync::Mutex::new(None)),
@@ -293,7 +293,7 @@ async fn input_received_before_close_must_not_call_portal_after_original_null() 
                 .iter()
                 .all(|e| e.original_pipeline == gst::State::Null)
         );
-        assert_eq!(stale.len(), 0, "CF-22: sink produtivo chamou NotifyKeyboardKeysym após close/Null da Operation original; endpoint é fixture, sem tecla real");
+        assert_eq!(stale.len(), 0, "sink produtivo chamou NotifyKeyboardKeysym após close/Null da Operation original; endpoint é fixture, sem tecla real");
         Ok::<(), anyhow::Error>(())
     })
     .await?
