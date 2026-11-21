@@ -21,6 +21,7 @@ import { textos as contextoCusto } from './contexto/custo.ts'
 import { textos as contextoMedidor } from './contexto/medidor.ts'
 import { textos as contrato } from './contrato.ts'
 import { textos as projetos } from './projetos.ts'
+import { textos as propostas } from './propostas.ts'
 import { textos as conversaCusto } from './conversa/custo.ts'
 import { textos as conversaFila } from './conversa/fila.ts'
 import { textos as conversaAprovacao } from './conversa/aprovacao.ts'
@@ -107,6 +108,7 @@ export const ptBR = {
   ...contextoMedidor,
   ...contrato,
   ...projetos,
+  ...propostas,
   ...conversaAjustes,
   ...conversaArquivar,
   ...conversaCusto,

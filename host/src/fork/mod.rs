@@ -94,6 +94,7 @@ pub(crate) mod plugins;
 #[cfg(unix)]
 pub(crate) mod private_fs;
 pub(crate) mod projetos;
+pub(crate) mod propostas;
 #[cfg(target_os = "linux")]
 pub(crate) mod publicacao_atualizacao;
 pub(crate) mod push_textos;
@@ -147,6 +148,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     projetos::migrate(&store.db.locked())?;
     tarefas::migrate(&store.db.locked())?;
     tarefas_runtime::migrate(&store.db.locked())?;
+    propostas::migrate(&store.db.locked())?;
     delegacao::migrate(&store.db.locked())?;
     donna_fixa::migrate(&store.db.locked())?;
     native_catalog::migrate(&store.db.locked())?;
