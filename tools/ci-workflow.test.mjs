@@ -354,6 +354,21 @@ test('seleção por caminhos: o laço do workflow marca Hub e Desktop pelos arqu
   assert.equal(select(['tools/ci-vazamento.mjs']), 'true true');
 });
 
+test('hub: devolve a origem de /etc/localtime ao dono root antes da suíte', () => {
+  const steps = body('hub').split('\n      - ').map((st) => st.replace(/^(?:      #.*\n)+/, ''));
+  const tz = steps.findIndex((st) => st.startsWith('name: Devolver a origem de /etc/localtime ao dono root'));
+  const suite = steps.findIndex((st) => st.startsWith('name: Executar toda a suite do Hub (nextest)'));
+  assert.ok(tz > 0 && tz < suite, 'passo de timezone antes da suíte');
+  const st = steps[tz];
+  assert.ok(st.includes('readlink -f /etc/localtime'));
+  assert.ok(st.includes('sudo -n chown root:root'));
+  assert.ok(st.includes('sudo -n chmod g-w,o-w'));
+  // Sem sudo o passo falha fechado; sem violação ele não pede sudo.
+  assert.match(st, /fora" = 0[\s\S]*exit 0/);
+  assert.match(st, /sudo -n true \|\|/, 'sem sudo, erro claro');
+  assert.match(st, /continua fora do contrato do sandbox/, 'verifica de novo no fim');
+});
+
 test('leves e vazamento não ligam cache automático do setup-node', () => {
   for (const job of ['leves', 'vazamento']) {
     const setup = body(job).split('uses: actions/setup-node@')[1].split('\n      - ')[0];
