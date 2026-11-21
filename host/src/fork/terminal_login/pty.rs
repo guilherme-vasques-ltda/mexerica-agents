@@ -28,7 +28,14 @@ impl Terms {
         );
         let login = crate::fork::terminal_login::Login::prepare(hub, caller, backend, space)?;
         let owner = Some(caller.device_key().to_owned());
-        self.spawn_with((login.backend.clone(), Step::Login), owner, "", cols, rows, Some(login))
+        self.spawn_with(
+            (login.backend.clone(), Step::Login),
+            owner,
+            &Linha { comando: String::new(), cabecalho: String::new() },
+            cols,
+            rows,
+            Some(login),
+        )
     }
     #[cfg(test)]
     pub(crate) fn fixture_login(
@@ -39,7 +46,14 @@ impl Terms {
         executable: std::path::PathBuf,
     ) -> Result<String> {
         let login = crate::fork::terminal_login::Login::fixture(hub, caller, backend, executable)?;
-        self.spawn_with((backend.into(), Step::Login), Some(caller.device_key().into()), "", 80, 24, Some(login))
+        self.spawn_with(
+            (backend.into(), Step::Login),
+            Some(caller.device_key().into()),
+            &Linha { comando: String::new(), cabecalho: String::new() },
+            80,
+            24,
+            Some(login),
+        )
     }
     #[cfg(test)]
     pub(crate) fn fixture_login_timeout(
@@ -62,7 +76,14 @@ impl Terms {
     ) -> Result<String> {
         let mut login = crate::fork::terminal_login::Login::fixture(hub, caller, backend, executable)?;
         Arc::get_mut(&mut login).expect("fixture sem outras referências").deadline = tokio::time::Instant::now() + ttl;
-        self.spawn_with((backend.into(), Step::Login), Some(caller.device_key().into()), "", 80, 24, Some(login))
+        self.spawn_with(
+            (backend.into(), Step::Login),
+            Some(caller.device_key().into()),
+            &Linha { comando: String::new(), cabecalho: String::new() },
+            80,
+            24,
+            Some(login),
+        )
     }
 }
 

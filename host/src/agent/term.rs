@@ -40,6 +40,13 @@ enum Input {
     Kill,
 }
 
+/// A linha que o PTY executa (`comando`) e o que o cabeçalho do terminal mostra (`cabecalho`):
+/// iguais, exceto no script de fornecedor, que só roda embrulhado na confirmação (GUI-145).
+struct Linha {
+    comando: String,
+    cabecalho: String,
+}
+
 struct Output {
     scrollback: Vec<u8>,
     exit: Option<i32>,
@@ -168,38 +175,54 @@ impl Terms {
         };
         let h = backends::harness(backend);
         let name = h.map_or(backend, |h| h.name);
-        let command = match step {
-            Step::Node => format!("{} node", crate::shell::quote(&crate::service::current_exe()?.to_string_lossy())),
+        // A linha que roda e o que o cabeçalho do terminal mostra: iguais, exceto quando o
+        // passo é um script de fornecedor, que só roda embrulhado na confirmação (GUI-145).
+        let linha = match step {
+            Step::Node => {
+                let command =
+                    format!("{} node", crate::shell::quote(&crate::service::current_exe()?.to_string_lossy()));
+                Linha { comando: command.clone(), cabecalho: command }
+            }
             Step::Install => {
                 let h = h.ok_or_else(|| anyhow!("Mexerica downloads {name} by itself"))?;
-                h.install.and_then(backends::Install::command).ok_or_else(|| anyhow!("{}", h.setup))?
+                let command = h.install.and_then(backends::Install::command).ok_or_else(|| anyhow!("{}", h.setup))?;
+                let linha = if h.install.is_some_and(backends::Install::is_script) {
+                    crate::fork::instalacao_script::linha_com_confirmacao(&command)
+                } else {
+                    command.clone()
+                };
+                Linha { comando: linha, cabecalho: command }
             }
             // Some CLIs (codex) delete the current credentials the moment a new sign-in starts.
             Step::Login if backends::signed_in(backend) == Some(true) => bail!("{name} is already signed in"),
-            Step::Login => match method {
-                Some(m) => crate::agent::auth::terminal_command(backend, m)
-                    .ok_or_else(|| anyhow!("That sign-in option is gone; check {name} again"))?,
-                None => backends::login_command(backend).await?,
-            },
+            Step::Login => {
+                let command = if let Some(m) = method {
+                    crate::agent::auth::terminal_command(backend, m)
+                        .ok_or_else(|| anyhow!("That sign-in option is gone; check {name} again"))?
+                } else {
+                    backends::login_command(backend).await?
+                };
+                Linha { comando: command.clone(), cabecalho: command }
+            }
         };
-        self.spawn((backend.to_owned(), step), owner, &command, cols, rows)
+        self.spawn((backend.to_owned(), step), owner, &linha, cols, rows)
     }
 
     fn spawn(
         self: &Arc<Self>,
         key: (String, Step),
         owner: Option<String>,
-        command: &str,
+        linha: &Linha,
         cols: u16,
         rows: u16,
     ) -> Result<String> {
-        self.spawn_with(key, owner, command, cols, rows, None)
+        self.spawn_with(key, owner, linha, cols, rows, None)
     }
     fn spawn_with(
         self: &Arc<Self>,
         key: (String, Step),
         owner: Option<String>,
-        command: &str,
+        linha: &Linha,
         cols: u16,
         rows: u16,
         login: Option<Arc<crate::fork::terminal_login::Login>>,
@@ -232,7 +255,7 @@ impl Terms {
             builder.umask(Some(0o077));
             builder
         } else {
-            let shell = crate::shell::line(command);
+            let shell = crate::shell::line(&linha.comando);
             let cwd = dirs::home_dir().unwrap_or_else(|| "/".into());
             let mut builder = crate::fork::motor_exec::pty(shell.program, &cwd)?;
             if crate::fork::motor_exec::configured() {
@@ -267,7 +290,7 @@ impl Terms {
             events: broadcast::channel(256).0,
         });
         if term.login.is_none() {
-            term.push(format!("\x1b[2m$ {command}\x1b[0m\r\n").as_bytes());
+            term.push(format!("\x1b[2m$ {}\x1b[0m\r\n", linha.cabecalho).as_bytes());
         }
         let id = uuid::Uuid::new_v4().to_string();
         map.insert(id.clone(), term.clone());
@@ -416,6 +439,54 @@ mod tests {
         assert_eq!(without_cursor_query(b"plain"), None);
     }
 
+    /// GUI-145: a confirmação do script do fornecedor no PTY de verdade — "s" executa o
+    /// comando embrulhado; resposta fora da lista cancela sem executar nada.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirmacao_no_pty_so_executa_com_linha_sim() {
+        let terms = Arc::new(Terms::default());
+        for (resposta, esperado, marcador) in [("s\n", 0i64, Some("pronto-executado")), ("x\n", 130, None)] {
+            // A saída do comando difere do literal do comando: o cabeçalho sempre mostra o
+            // comando inteiro, então o marcador só pode vir da execução de verdade.
+            let comando = "printf 'pronto-%s' executado";
+            let id = terms
+                .spawn(
+                    ("confirm".into(), Step::Login),
+                    None,
+                    &Linha {
+                        comando: crate::fork::instalacao_script::linha_com_confirmacao(comando),
+                        cabecalho: comando.to_owned(),
+                    },
+                    80,
+                    24,
+                )
+                .unwrap();
+            let term = terms.get(&id).unwrap();
+            let (_, mut rx) = term.attach();
+            terms.write(&id, &B64.encode(resposta)).unwrap();
+            let code = tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let v = rx.recv().await.unwrap();
+                    if v["type"] == "exit" {
+                        return v["code"].as_i64().unwrap();
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            let (head, _) = term.attach();
+            let text = String::from_utf8(
+                head.iter().flat_map(|v| B64.decode(v["data"].as_str().unwrap_or_default()).unwrap()).collect(),
+            )
+            .unwrap();
+            assert_eq!(code, esperado, "{text}");
+            assert_eq!(marcador.is_some_and(|m| text.contains(m)), marcador.is_some(), "{text}");
+            if marcador.is_none() {
+                assert!(text.contains("Cancelado: nada foi executado."), "{text}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn runs_in_a_pty_and_takes_input() {
         let terms = Arc::new(Terms::default());
@@ -425,7 +496,8 @@ mod tests {
         } else {
             ("[ -t 0 ] && echo tty; read x; echo got-$x", "\n")
         };
-        let id = terms.spawn(("test".into(), Step::Login), None, command, 80, 24).unwrap();
+        let linha = Linha { comando: command.into(), cabecalho: command.into() };
+        let id = terms.spawn(("test".into(), Step::Login), None, &linha, 80, 24).unwrap();
         let term = terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();
         terms.write(&id, &B64.encode(format!("hi{enter}"))).unwrap();
@@ -545,6 +617,55 @@ mod authority_tests {
         assert!(matches!(input.try_recv().unwrap(), Input::Kill));
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    /// GUI-145: instalar um motor por script do fornecedor mostra o comando e só executa
+    /// com confirmação no terminal; recusar não baixa nem executa nada.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn instalacao_por_script_pede_confirmacao_no_terminal() {
+        let root = std::env::temp_dir().join(format!("d164-term-confirm-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let hub = Hub::new(
+            Store::open(std::path::Path::new(":memory:")).unwrap(),
+            "fixture".into(),
+            Identity::load_or_create(&root).unwrap(),
+            "fixture".into(),
+            0,
+        );
+        // O Amp instala pelo script do fornecedor (curl | bash), sem hash fixado.
+        let id =
+            dispatch(&hub, &Caller::Local, "agentSetup", json!({"backend":"amp","step":"install","cols":80,"rows":24}))
+                .await
+                .unwrap()["term"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+        let term = hub.terms.get(&id).unwrap();
+        let (_, mut rx) = term.attach();
+        dispatch(&hub, &Caller::Local, "termInput", json!({"term":id,"data":B64.encode("n\n")})).await.unwrap();
+        let codigo = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let v = rx.recv().await.unwrap();
+                if v["type"] == "exit" {
+                    return v["code"].as_i64().unwrap();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let (head, _) = term.attach();
+        let text = String::from_utf8(
+            head.iter().flat_map(|v| B64.decode(v["data"].as_str().unwrap_or_default()).unwrap()).collect(),
+        )
+        .unwrap();
+        assert_eq!(codigo, 130, "recusar não é sucesso de instalação: {text}");
+        // O terminal mostra o comando exato e a pergunta antes de qualquer download.
+        assert!(text.contains("curl -fsSL https://ampcode.com/install.sh | bash"), "{text}");
+        assert!(text.contains("Rodar agora? [s/N]"), "{text}");
+        assert!(text.contains("Cancelado: nada foi executado."), "{text}");
+        dispatch(&hub, &Caller::Local, "termClose", json!({"term":id})).await.unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -558,12 +679,13 @@ mod cancellation_tests {
             return;
         };
         let fixture = case.fixture("terminal-auth", true);
+        let citado = crate::shell::quote(&fixture.to_string_lossy());
         let terms = Arc::new(Terms::default());
         let id = terms
             .spawn(
                 ("terminal-auth".into(), Step::Login),
                 None,
-                &crate::shell::quote(&fixture.to_string_lossy()),
+                &Linha { comando: citado.clone(), cabecalho: citado.clone() },
                 80,
                 24,
             )
@@ -597,9 +719,16 @@ mod linger_tests {
             return;
         };
         let fixture = case.fixture("linger", true);
+        let citado = crate::shell::quote(&fixture.to_string_lossy());
         let terms = Arc::new(Terms::default());
         let id = terms
-            .spawn(("linger".into(), Step::Login), None, &crate::shell::quote(&fixture.to_string_lossy()), 80, 24)
+            .spawn(
+                ("linger".into(), Step::Login),
+                None,
+                &Linha { comando: citado.clone(), cabecalho: citado.clone() },
+                80,
+                24,
+            )
             .unwrap();
         let term = terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();

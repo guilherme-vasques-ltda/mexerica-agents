@@ -393,10 +393,10 @@ pub(crate) struct ReceiptQuery<'a> {
 }
 pub(crate) fn entry_receipt(c: &Connection, q: &ReceiptQuery<'_>) -> Result<Value> {
     let read = || -> Result<Value> {
-        let (chat, session, kind, status): (String, String, String, Option<String>) = c.query_row(
-            "SELECT bot_id, COALESCE(session, bot_id), kind, json_extract(data,'$.status') FROM entries WHERE id=?1",
+        let (chat, session, kind, status, turn): (String, String, String, Option<String>, i64) = c.query_row(
+            "SELECT bot_id, COALESCE(session, bot_id), kind, json_extract(data,'$.status'), turn FROM entries WHERE id=?1",
             [q.entry],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )?;
         ensure!(chat == q.conversation && session == q.session && kind == "user", "routing_entry_invalid");
         let (space, executor): (String, String) =
@@ -436,7 +436,7 @@ pub(crate) fn entry_receipt(c: &Connection, q: &ReceiptQuery<'_>) -> Result<Valu
                     destination: Destination {
                         bot_id: q.bot.to_owned(),
                         space_id: q.space.to_owned(),
-                        session: sessoes::store::SessionRef { id: session, chat_id: chat },
+                        session: sessoes::store::SessionRef { id: session.clone(), chat_id: chat.clone() },
                     },
                     execution_token,
                 };
@@ -449,11 +449,18 @@ pub(crate) fn entry_receipt(c: &Connection, q: &ReceiptQuery<'_>) -> Result<Valu
                 Some(checkpoint)
             }
         };
+        // O uso é gravado no turno da execução (o da última entrada do lote), que o recibo roteado conhece.
+        let usage_turn = found.as_ref().map_or(turn, |checkpoint| checkpoint.captured().intent.hub_turn);
+        // Só exibição: falhar ao ler o uso nunca derruba nem muda o recibo de roteamento.
+        let usage = crate::fork::custo::turn_usage(c, q.bot, &chat, &session, usage_turn).unwrap_or_else(|error| {
+            tracing::warn!(%error, "uso do turno indisponível para o recibo");
+            None
+        });
         Ok(if let Some(checkpoint) = found {
-            serde_json::json!({"receipt": checkpoint.receipt(), "state": "routed"})
+            serde_json::json!({"receipt": checkpoint.receipt(), "state": "routed", "usage": usage})
         } else {
             let state = if status.as_deref() == Some("queued") { "pending" } else { "notRouted" };
-            serde_json::json!({"receipt": null, "state": state})
+            serde_json::json!({"receipt": null, "state": state, "usage": usage})
         })
     };
     read().map_err(|_| anyhow!("routing_receipt_unavailable"))
