@@ -17,7 +17,7 @@ técnicos existentes não mudam por essa nomenclatura.
 
 Um plugin de motor embala skills, configuração MCP e, conforme o cliente,
 outros componentes. Pode conter apenas skills ou apenas MCP. Este guia adota o
-conhecimento dos plugins oficiais OpenAI; não instala esses pacotes na DONNA
+conhecimento dos plugins oficiais OpenAI; não instala esses pacotes no app
 Bot. Os dialetos OpenAI e Claude Code precisam ser identificados antes de
 avaliar compatibilidade.
 
@@ -36,7 +36,7 @@ Fontes: [empacotamento OpenAI](https://developers.openai.com/plugins/build/plugi
 [referência Claude Code](https://code.claude.com/docs/en/plugins-reference).
 No portátil, paths relativos começam com `./` e ficam dentro da raiz. Não basta
 renomear `.mcp.json`: o formato portátil também declara o tipo de transporte.
-`.app.json` mapeia um MCP registrado; não representa o app Electron da DONNA.
+`.app.json` mapeia um MCP registrado; não representa o app Electron.
 
 O identificador deve ser estável e a versão explícita para distribuição. Um
 manifesto válido, um upload aceito e uma publicação aprovada são etapas

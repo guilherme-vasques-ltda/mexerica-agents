@@ -98,11 +98,11 @@ usa `skills/list`, `skills/get` e `resources/read`, com identidade por origem e
 URI e verificação de manifesto/conteúdo. Ler não ativa. A extensão está beta no
 índice consultado; o SEP Final é outro objeto. Seus requisitos para hosts incluem
 suportar até **512 arquivos/16 MiB por skill**; o catálogo local limita a
-**100 arquivos/5 MiB**. São contratos distintos: a DONNA não implementa a
+**100 arquivos/5 MiB**. São contratos distintos: o app não implementa a
 extensão, não anuncia conformidade e não aumenta limites neste guia.
 
 MCP Apps trata de UI; Tasks trata de operações assíncronas anunciadas por ambos
-os lados. Nenhuma equivale a Rotinas da DONNA. O Registry oficial
+os lados. Nenhuma equivale a Rotinas do app. O Registry oficial
 é catálogo de metadados, não atestado de segurança; `server/discover` consulta
 um servidor escolhido, sem instalar nada. Nenhum substitui o catálogo de links oficiais.
 

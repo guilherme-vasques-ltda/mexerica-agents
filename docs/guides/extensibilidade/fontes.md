@@ -42,7 +42,7 @@ e as fronteiras de autoria/licença em [segurança](seguranca.md).
 | [Licença da skill-creator](https://github.com/anthropics/skills/blob/ca45fc496a3436251f191354091d557da31c15b5/skills/skill-creator/LICENSE.txt) | Apache-2.0 específica dessa skill; não cobre automaticamente PDF ou demais skills |
 | [README Anthropic Skills](https://github.com/anthropics/skills/blob/ca45fc496a3436251f191354091d557da31c15b5/README.md) | Licenças por conteúdo; conferir o arquivo específico antes de copiar |
 
-O catálogo da DONNA mantém pin próprio de `skill-creator`,
+O catálogo de skills mantém pin próprio de `skill-creator`,
 `dbd4588f9e1033efb41dad4bef2f7947c8993d44`, com indisponibilidade por tamanho.
 A consulta a outro commit não atualiza esse bundle. A procedência existente
 está em [THIRD_PARTY.md](../../../THIRD_PARTY.md); os limites e o formato real de
@@ -52,7 +52,7 @@ instalação estão no [contrato do catálogo](../../reference/catalogo-skills.m
 
 Responsável: projeto Model Context Protocol. Referência moderna:
 **2026-07-28**; referência anunciada pelo Hub: **2025-06-18**. Sustentam
-[MCP](mcp.md); revisão do protocolo, versão do SDK e versão da DONNA são objetos
+[MCP](mcp.md); revisão do protocolo, versão do SDK e versão do catálogo são objetos
 distintos.
 
 | Fonte oficial | Revisão e uso |

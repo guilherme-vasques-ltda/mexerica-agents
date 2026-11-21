@@ -21,8 +21,8 @@ e2e); use the VM for a full e2e, or when a change or a bug depends on Windows it
   a dedicated key.
 - **GUI apps** must start in the signed-in session (session 2):
   `schtasks /create /tn X /tr <exe> /sc once /st 23:59 /it /f; schtasks /run /tn X`.
-- **Screen** without touching the Mac's UI: QEMU VNC on `127.0.0.1:5905`, e.g.
-  `uvx --from vncdotool vncdo --force-caps -s 127.0.0.1::5905 capture x.png`. Input lags a few
+- **Screen** without touching the Mac's UI: QEMU VNC on `localhost:5905`, e.g.
+  `uvx --from vncdotool vncdo --force-caps -s localhost::5905 capture x.png`. Input lags a few
   seconds; `--force-caps` is needed for symbols.
 - The Mac sleeping pauses the VM: wrap long installs in `caffeinate -i`.
 - Rebuilding the VM: keep the unattended install assets in a local folder (e.g. `~/VMs/windows/`, about 20
@@ -31,7 +31,8 @@ e2e); use the VM for a full e2e, or when a change or a bug depends on Windows it
 
 ## Testing a build
 
-1. Install the release under test (`donnabot-windows-x64.exe` from the GitHub release). The first
+1. Install the release under test (the NSIS installer from the GitHub release, named
+   `mexerica-open-<versão>-windows-x64-setup.exe`). The first
    launch asks Defender Firewall about `donnabot-host`; the host then starts at sign-in.
 2. **Turn analytics off on the test host before anything else**, so the VM never counts as a user:
    `setAnalytics {"enabled": false}`.
@@ -40,7 +41,7 @@ e2e); use the VM for a full e2e, or when a change or a bug depends on Windows it
 
    ```powershell
    $t = Get-Content "$env:USERPROFILE\.donnabot\token"
-   Invoke-RestMethod -Method Post -Uri http://127.0.0.1:19422/api/refreshBackends `
+   Invoke-RestMethod -Method Post -Uri http://localhost:19422/api/refreshBackends `
      -Headers @{ Authorization = "Bearer $t" } -ContentType application/json -Body '{}'
    ```
 
