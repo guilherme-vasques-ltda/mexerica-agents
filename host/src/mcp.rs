@@ -204,14 +204,18 @@ fn add_instruction_guide(server: Server, available_tools: &mut Value) {
     }
 }
 
-/// Anúncio depende do motor efetivo revalidado no Hub. Lista vazia só quando o Hub respondeu que não há ferramentas;
-/// recusa, falha ou resposta fora do formato é erro JSON-RPC, para o cliente manter a lista que já tinha.
+/// Anúncio depende do motor efetivo revalidado no Hub. Recusa do Hub (vínculo revogado, chamada vencida) fecha a
+/// lista; falha da própria ponte (Hub fora do ar, resposta ilegível) ou resposta fora do formato é erro JSON-RPC,
+/// para o cliente manter a lista que já tinha em vez de ler o erro como "sem ferramentas".
 async fn memory_tools(port: u16, token: &str, bot: &str) -> Result<Value, Value> {
-    let result = call(port, token, bot, &json!({"name":"__tools","arguments":{}}), Server::Memory).await;
     let unavailable =
         |why: &str| json!({"code": -32603, "message": format!("catálogo de ferramentas indisponível: {why}")});
+    let params = json!({"name":"__tools","arguments":{}});
+    let result = send(port, token, bot, &params, Server::Memory, None)
+        .await
+        .map_err(|_| unavailable("a ponte não alcançou o Hub"))?;
     if result["isError"] == true {
-        return Err(unavailable("o Hub recusou a consulta"));
+        return Ok(json!({"tools": []}));
     }
     let tools = result["content"][0]["text"]
         .as_str()
@@ -443,18 +447,20 @@ mod catalogo_do_navegador_tests {
     }
 
     #[tokio::test]
-    async fn lista_de_memoria_so_e_vazia_quando_o_hub_diz_que_e_vazia() {
+    async fn falha_da_ponte_vira_erro_e_so_a_recusa_do_hub_fecha_a_lista() {
         let (port, hub) = hub_que_responde(200, json!({"tools": []})).await;
         let vazia = memory_tools(port, "token", "bot").await;
         hub.abort();
         assert_eq!(vazia.unwrap(), json!({"tools": []}), "lista vazia legítima continua valendo");
 
-        for (status, corpo) in [
-            (500, json!({"error": "falhou"})),
-            (401, json!({"error": "vencida"})),
-            (200, json!({"nao_e_lista": true})),
-            (200, json!({"tools": "x"})),
-        ] {
+        for (status, corpo) in [(500, json!({"error": "recusado"})), (401, json!({"error": "vencida"}))] {
+            let (port, hub) = hub_que_responde(status, corpo.clone()).await;
+            let result = memory_tools(port, "token", "bot").await;
+            hub.abort();
+            assert_eq!(result.unwrap(), json!({"tools": []}), "{status}: a recusa do Hub fecha a lista");
+        }
+
+        for (status, corpo) in [(200, json!({"nao_e_lista": true})), (200, json!({"tools": "x"}))] {
             let (port, hub) = hub_que_responde(status, corpo.clone()).await;
             let result = memory_tools(port, "token", "bot").await;
             hub.abort();
