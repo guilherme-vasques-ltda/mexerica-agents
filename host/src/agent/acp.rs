@@ -125,6 +125,9 @@ impl Answer {
                     Some(d) => format!("{msg} ({d})"),
                     None => msg,
                 };
+                // O texto final do erro pode vir por caminho que não passou pela máscara (o
+                // adaptador interno, por exemplo): mascara aqui também, já montado.
+                let message = crate::fork::planos_codigo::mascarar_codigo(&message).into_owned();
                 let kind = e["data"]["errorKind"]
                     .as_str()
                     .filter(|k| {
@@ -509,18 +512,26 @@ impl Acp {
         let cortesia_ate = Instant::now() + cortesia;
         let mut saiu = false;
         if let Some(child) = child.as_mut() {
-            saiu = tokio::time::timeout_at(cortesia_ate, child.wait()).await.is_ok();
+            saiu = tokio::time::timeout_at(cortesia_ate, child.wait()).await.is_ok_and(|espera| espera.is_ok());
         }
-        if !saiu || outlived(pid, cortesia_ate).await {
+        // Saiu na cortesia não é confirmação: o grupo pode ter ficado vivo (e no Windows não há
+        // grupo para conferir) — mata o grupo de qualquer jeito antes de concluir.
+        if !saiu || cfg!(windows) || outlived(pid, cortesia_ate).await {
             kill_group(pid).await;
         }
         let limite_ate = Instant::now() + limite;
         if let Some(child) = child.as_mut() {
-            saiu = saiu || tokio::time::timeout_at(limite_ate, child.wait()).await.is_ok();
-        } else {
-            saiu = true;
+            // Colhe o que sobrou do filho: um zumbi ainda segura o grupo, e quem decide a
+            // confirmação é a verificação do grupo.
+            let _ = tokio::time::timeout_at(limite_ate, child.wait()).await;
         }
-        saiu && !outlived(pid, limite_ate).await
+        // Só a verificação do grupo confirma: um `wait` que falhou, ou um filho que outro
+        // caminho já levou, não bastam. No Windows nunca se confirma.
+        let confirmado = !outlived(pid, limite_ate).await;
+        if !confirmado && let Some(child) = child {
+            *self.child.lock().await = Some(child);
+        }
+        confirmado
     }
 
     /// Stops the agent and everything it started, without waiting for it. Closing its stdin
@@ -628,12 +639,13 @@ async fn outlived(pid: u32, deadline: Instant) -> bool {
     running()
 }
 
-/// Windows has no process groups: what the agent started got the same closed pipes, and its
-/// tree can't be found once it's gone.
+/// Windows não tem grupo de processos para conferir: a saída do agente nunca pode ser
+/// confirmada, então a verificação devolve «ainda vivo» (fail-closed) e o grupo vira árvore
+/// morta pelo `kill_group`.
 #[cfg(windows)]
 #[allow(clippy::unused_async)] // the Unix check's signature
 async fn outlived(_pid: u32, _deadline: Instant) -> bool {
-    false
+    true
 }
 
 /// Plain-text rendering of an ACP content block list / tool-call content list.

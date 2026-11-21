@@ -161,6 +161,7 @@ fn resultado(lista: Result<Vec<acesso::Modelo>, acesso::Falha>) -> Value {
 
 /// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada.
 async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Zeroizing<String>) -> Result<Value> {
+    ensure!(!cfg!(windows), "plano_indisponivel: os planos de código só funcionam em Linux e macOS nesta versão.");
     let _operacao = OPERACAO.lock().await;
     let acesso = resultado(acesso::listar_modelos(plano.provedor, lista, &candidata).await);
     if acesso["ok"] != true {

@@ -36,6 +36,19 @@ async fn codigo_partido_entre_pedacos_do_texto_nunca_e_publicado_nem_pela_metade
 }
 
 #[tokio::test]
+async fn o_fechamento_do_segmento_republica_o_sufixo_retido() {
+    let f = Fixture::new();
+    let mut ator = new_actor(f.hub.clone(), f.cfg.clone());
+    ator.lane = Lane::main(f.cfg.session_owner());
+    ator.turn = Some(1);
+    ator.append(SegKind::Text, "abc m");
+    let id = ator.last_text.clone().unwrap();
+    assert_eq!(texto_da_entrada(&f, &id), "abc ", "o fim que pode ser o começo de um código fica retido");
+    ator.close_seg();
+    assert_eq!(texto_da_entrada(&f, &id), "abc m", "o fechamento republica o texto completo com fim");
+}
+
+#[tokio::test]
 async fn saida_de_ferramenta_com_o_codigo_vai_mascarada() {
     let mut dados = json!({});
     let codigo = codigo();

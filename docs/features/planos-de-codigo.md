@@ -52,10 +52,12 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
   que contêm a chave (zero). A sonda do próprio processo do OpenCode lê `/proc` e só roda em Linux; nos outros sistemas
   a prova cobre o shell e o MCP filho. Outras versões precisam ser reconferidas.
 - O código de sessão é mascarado (`mxs_[oculto]`) onde texto do motor sai do processo do Hub: a linha de saída, cada texto
-  do JSON já interpretado (escapes desfeitos, mensagens de erro inclusive), o texto de um segmento de conversa montado de
+  e cada nome de campo do JSON já interpretado (escapes desfeitos, mensagens de erro inclusive), o texto de um segmento de conversa montado de
   vários pedaços (o fim que ainda pode ser o começo de um código fica retido até o próximo pedaço) e a saída de
   ferramentas. Limite: um código que o motor escreva de outro jeito que não o literal (por exemplo em base64) não é
   reconhecido; ele vale só enquanto o processo dura.
+- Os planos de código só funcionam em Linux e macOS nesta versão: no Windows o salvamento e a abertura recusam com
+  mensagem própria, porque confirmar a saída de toda a árvore de processos lá exigiria um Job Object.
 - O OpenCode do plano roda num perfil próprio (`engine_setup_root/planos/<plano>/home`: casa, configuração, dados,
   estado e cache só do plano), com a configuração de projeto desligada (`OPENCODE_DISABLE_PROJECT_CONFIG`). Um bot com
   comando próprio de execução não recebe o ambiente do plano: o lançamento falha. Sem chave, fora do Space pessoal ou
@@ -63,8 +65,11 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
 - Trocar ou remover a chave revoga o código na hora, corta os pedidos em andamento (também a leitura do corpo, e uma
   revogação nunca se perde: ela fica marcada para quem chegar depois) e encerra o processo do OpenCode que o recebeu
   antes de a operação voltar: pede a saída, espera 2 s, mata o grupo inteiro e espera até 8 s pela confirmação, numa
-  tarefa que o prazo de quem chamou não cancela. Se o processo não confirmar a saída, a operação devolve erro dizendo
-  isso (o código já está revogado de qualquer jeito: a chave não corre risco, só o processo). Uma geração por plano fecha a corrida com uma abertura em curso: um processo que nasceu
+  tarefa que o prazo de quem chamou não cancela. Só vale a saída confirmada pela
+  verificação do grupo de processos (Unix); sem confirmação a operação devolve erro, o processo fica pendente do plano
+  (nenhuma sessão nova abre enquanto isso) e a chamada seguinte reexamina o pendente, só devolvendo sucesso depois de
+  confirmar (o código já está revogado de qualquer jeito: a chave não corre risco, só o processo). Uma abertura em
+  curso entra na mesma espera. Uma geração por plano fecha a corrida com uma abertura em curso: um processo que nasceu
   com um código já revogado é encerrado.
 - O código vive no ambiente do processo, então vive com ele: quando a última conversa do processo fecha, o processo é
   encerrado (a próxima conversa abre outro, com outro código). Uma exceção: um processo mantido vivo por um comando de

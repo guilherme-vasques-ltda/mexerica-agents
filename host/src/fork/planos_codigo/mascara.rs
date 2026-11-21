@@ -33,7 +33,9 @@ pub(crate) fn mascarar_codigo(texto: &str) -> Cow<'_, str> {
     Cow::Owned(saida)
 }
 
-/// Mascara os textos de um JSON já interpretado, em qualquer profundidade.
+/// Mascara os textos de um JSON já interpretado, em qualquer profundidade — os valores e também
+/// os nomes (chaves) dos campos: um código pode vir como nome, e quem lê o JSON de novo (ou o
+/// imprime) não pode vê-lo.
 pub(crate) fn mascarar_json(valor: &mut Value) {
     match valor {
         Value::String(texto) => {
@@ -42,7 +44,20 @@ pub(crate) fn mascarar_json(valor: &mut Value) {
             }
         }
         Value::Array(itens) => itens.iter_mut().for_each(mascarar_json),
-        Value::Object(campos) => campos.values_mut().for_each(mascarar_json),
+        Value::Object(campos) => {
+            let reconstruido: serde_json::Map<String, Value> = std::mem::take(campos)
+                .into_iter()
+                .map(|(nome, mut valor)| {
+                    mascarar_json(&mut valor);
+                    let nome = match mascarar_codigo(&nome) {
+                        Cow::Borrowed(_) => nome,
+                        Cow::Owned(mascarada) => mascarada,
+                    };
+                    (nome, valor)
+                })
+                .collect();
+            *campos = reconstruido;
+        }
         _ => {}
     }
 }

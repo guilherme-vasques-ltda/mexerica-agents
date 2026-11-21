@@ -69,10 +69,12 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<O
         !crate::fork::motor_exec::configured(),
         "plano_indisponivel: os planos de código ainda não rodam no executor isolado."
     );
+    ensure!(!cfg!(windows), "plano_indisponivel: os planos de código só funcionam em Linux e macOS nesta versão.");
     crate::market::vault::unlock(hub.clone()).await?;
     let repasse = repasse_do_hub(hub).await?;
     // A geração e a revisão são lidas ANTES da chave, e a sessão só é concedida se a geração não mudou: uma troca ou
     // remoção no meio (que sobe a geração e revoga as sessões) recusa a concessão, nunca deixa viva uma chave velha.
+    let mut recusa = None;
     for _ in 0..3 {
         let geracao = repasse.geracao(plano);
         let revisao = revisao(&hub.store, plano)?;
@@ -82,7 +84,14 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<O
             .kv_read(&slot)?
             .ok_or_else(|| anyhow!("plano_sem_chave: cadastre a chave do plano em Conexões de IA."))?;
         let chave = Zeroizing::new(crate::market::vault::open_ciphertext(&hub.store, &slot, &selada)?);
-        let Ok(concessao) = repasse.conceder(plano, chave, geracao) else { continue };
+        let concessao = match repasse.conceder(plano, chave, geracao) {
+            Ok(concessao) => concessao,
+            Err(erro) => {
+                tracing::debug!(plano = plano.id, motivo = %erro, "o repasse recusou a sessão do plano");
+                recusa = Some(erro.to_string());
+                continue;
+            }
+        };
         let home = casa(&hub.store, plano)?;
         let pasta = |relativo: &str| home.join(relativo).to_string_lossy().into_owned();
         let configuracao =
@@ -101,7 +110,7 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<O
         ];
         return Ok(Some(Ambiente { env, carimbo: format!("plano:{}:{revisao}", plano.id), concessao }));
     }
-    bail!("plano_em_troca: a chave do plano mudou várias vezes enquanto a sessão abria; tente de novo.")
+    bail!("plano_em_troca: não deu para abrir a sessão do plano ({}); tente de novo.", recusa.unwrap_or_default())
 }
 
 /// Aplica o filtro do motor (que tira casa e pastas `XDG_*` herdadas) e só depois entrega o ambiente do plano: o

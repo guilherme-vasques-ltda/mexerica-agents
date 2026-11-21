@@ -364,12 +364,20 @@ async fn trocar_ou_remover_a_chave_muda_o_carimbo_revoga_as_sessoes_e_apaga_chav
     let primeiro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
     let repasse = repasse_do_hub(&hub).await.unwrap();
     assert_eq!(repasse.sessoes_vivas(), 1);
+    // Como o OpenCode de verdade: o processo aberto prende a concessão, senão a revogação
+    // esperaria a abertura se resolver.
+    let (velho, _entrada) =
+        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
+    assert!(primeiro.concessao.prender(&velho));
     com_chave(&hub).await;
     assert_eq!(repasse.sessoes_vivas(), 0, "trocar a chave revoga a sessão do processo antigo");
     let segundo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
     assert_ne!(primeiro.carimbo, segundo.carimbo, "chave trocada reinicia o processo do OpenCode");
     drop(primeiro);
     assert_eq!(repasse.sessoes_vivas(), 1, "soltar a concessão velha não mexe na nova");
+    let (novo, _entrada) =
+        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
+    assert!(segundo.concessao.prender(&novo));
 
     let perfil = hub.store.engine_setup_root.join("planos").join("opencode-go");
     assert!(perfil.is_dir());
@@ -481,5 +489,47 @@ async fn codigo_em_escapes_de_json_e_em_mensagem_de_erro_do_motor_nao_chega_ao_e
     let erro = acp.request("x", json!({})).await.unwrap_err().to_string();
     assert!(!erro.contains(&codigo), "{erro}");
     assert!(erro.contains("mxs_[oculto]"), "{erro}");
+    acp.kill_and_wait().await;
+}
+
+#[test]
+fn o_codigo_como_nome_de_campo_tambem_e_mascarado() {
+    let codigo = format!("mxs_{}", "ab12".repeat(16));
+    let mut json: Value = serde_json::from_str(&format!(
+        r#"{{"{codigo}":1,"objeto":{{"{codigo}":"texto"}},"lista":[{{"outra":2}},{{"{codigo}":3}}]}}"#
+    ))
+    .unwrap();
+    mascarar_json(&mut json);
+    assert_eq!(json["mxs_[oculto]"], 1, "o nome do campo de cima sai mascarado");
+    assert_eq!(json["objeto"]["mxs_[oculto]"], "texto", "o do objeto aninhado também");
+    assert_eq!(json["lista"][0]["outra"], 2, "o que não é código não muda");
+    assert_eq!(json["lista"][1]["mxs_[oculto]"], 3, "o de dentro do array de objetos também");
+    assert!(!json.to_string().contains(&codigo));
+}
+
+#[tokio::test]
+async fn codigo_em_escapes_no_nome_do_campo_nao_passa_do_leitor_do_acp() {
+    let codigo = format!("mxs_{}", "ab12".repeat(16));
+    let escapado = format!("\\u006dxs_{}", &codigo[4..]);
+    let pasta = crate::store::private_fixture_dir("planos-motor-nome-escapado");
+    let roteiro = pasta.join("motor.sh");
+    std::fs::write(
+        &roteiro,
+        format!(
+            "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"{escapado}\":\"ok\"}}}}'\n\
+             read linha\n\
+             sleep 5\n"
+        ),
+    )
+    .unwrap();
+    let (acp, mut entrada) =
+        crate::agent::acp::Acp::spawn(&format!("sh {}", roteiro.display()), &pasta.to_string_lossy(), &[]).unwrap();
+    let Some(crate::agent::acp::Incoming::Notification { params, .. }) =
+        tokio::time::timeout(Duration::from_secs(5), entrada.recv()).await.unwrap()
+    else {
+        panic!("notificação esperada");
+    };
+    assert!(!params.to_string().contains(&codigo), "o código em escapes vira nome de campo no parse: {params}");
+    assert!(params.to_string().contains("mxs_[oculto]"), "{params}");
     acp.kill_and_wait().await;
 }

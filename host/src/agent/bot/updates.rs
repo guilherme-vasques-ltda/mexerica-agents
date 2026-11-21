@@ -808,8 +808,11 @@ impl Actor {
                 if kind == SegKind::Text {
                     self.last_text = Some(e.id.clone());
                 }
+                // Se a máscara reteve um fim que ainda pode ser o começo de um código, o
+                // segmento fica sujo: o fechamento republica o texto completo com `fim`.
+                let retido = shown.len() != text.len();
                 self.seg =
-                    Seg::Open { kind, entry_id: e.id, buf: text.to_owned(), flushed: Instant::now(), dirty: false };
+                    Seg::Open { kind, entry_id: e.id, buf: text.to_owned(), flushed: Instant::now(), dirty: retido };
             }
             return;
         }
@@ -841,7 +844,9 @@ impl Actor {
                 bail!("chamada vencida: segmento não confirmado");
             }
             *flushed = Instant::now();
-            *dirty = false;
+            // Publicou com fim retido (o texto saiu menor que o buf): o segmento continua
+            // sujo, para um fechamento sem delta novo republicar o resto com `fim`.
+            *dirty = text.len() != buf.len();
         }
         Ok(())
     }
