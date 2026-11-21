@@ -9,6 +9,7 @@ import {
   opcoesDeConversa,
   opcoesDeConviteVazio,
   painelContemOpcao,
+  painelFocoAposFechar,
   rotuloDoPainel,
   type CandidatoFonte,
 } from './quadro-helpers.ts'
@@ -122,11 +123,13 @@ test('rotuloDoPainel, focoAposFechar e anuncioMudancaPaineis resolvem rótulos e
     focoId: 'p2',
     paineis: [
       { id: 'p1', ref: refA, sessionId: null },
-      { id: 'p2', ref: refB, sessionId: null },
+      { id: 'p2', ref: refB, sessionId: 'sess-extra' },
     ],
   }
   assert.deepEqual(focoAposFechar(estado), refB)
+  assert.deepEqual(painelFocoAposFechar(estado), { ref: refB, sessionId: 'sess-extra' })
   assert.deepEqual(focoAposFechar({ ...estado, focoId: 'inexistente' }), refA)
+  assert.deepEqual(painelFocoAposFechar({ ...estado, focoId: 'inexistente' }), { ref: refA, sessionId: null })
 
   const nomes = (ref: LadoALadoRef) => (ref.botId === 'bot-a' ? 'Alfa' : 'Beta')
   assert.equal(

@@ -156,7 +156,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const width = useRef(800)
   // Lugar para o chat (380 px) e o painel fixo lado a lado; senão o painel abre por cima.
   const [roomy, setRoomy] = useState(true)
-  const panel = useRightPanel(roomy)
+  const panel = useRightPanel(roomy, inPanel)
   useReading(store, botId)
   // The chat window remounts this per conversation (`key`), so each one opened counts.
   useScreenViewed('chat')

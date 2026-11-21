@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { isGroup, type Bot } from '@shared/models'
 import {
   calcularEncaixeLargura,
@@ -23,6 +23,7 @@ import type { BotStore } from '../../../store/bot-store'
 import { StoreContext } from '../../../store/context'
 import type { LadoALadoAviso } from '../../../store/fork-lado-a-lado'
 import { sessionTitle, splitSessions } from '../sessoes/estado'
+import { PersonalReadingVisible } from '../spaces/reading-visibility'
 import { ThreadView } from '../../thread/ThreadView'
 import {
   anuncioMudancaPaineis,
@@ -51,7 +52,7 @@ export interface QuadroLadoALadoProps {
   onMover: (panelId: string, delta: -1 | 1) => void
   onFocar: (panelId: string) => void
   onCiclarFoco: (delta: -1 | 1) => string | null
-  onSair: (focusRef?: LadoALadoRef) => void
+  onSair: (focusRef?: LadoALadoRef, sessionId?: string | null) => void
 }
 
 function AvatarConversa({ bot, store, size }: { bot: Bot; store: BotStore; size: number }) {
@@ -83,6 +84,7 @@ export function QuadroLadoALado({
   const t = useT()
   const idioma = useIdioma()
   const superficie = superficieIdioma(idioma)
+  const leituraVisivel = useContext(PersonalReadingVisible)
   const containerRef = useRef<HTMLElement>(null)
   const addBtnRef = useRef<HTMLButtonElement>(null)
   const panelRefs = useRef(new Map<string, HTMLElement>())
@@ -116,6 +118,7 @@ export function QuadroLadoALado({
     () => paineisVisiveis(estado.paineis, estado.focoId, encaixe.cabem),
     [estado.paineis, estado.focoId, encaixe.cabem],
   )
+  const visiveisIds = useMemo(() => new Set(visiveis.map((p) => p.id)), [visiveis])
   const painelAtivo = useMemo(
     () => estado.paineis.find((p) => p.id === estado.focoId) ?? visiveis[0] ?? estado.paineis[0] ?? null,
     [estado.paineis, estado.focoId, visiveis],
@@ -338,7 +341,7 @@ export function QuadroLadoALado({
             className="lado-a-lado-btn-sair"
             title={t('conversa.ladoALado.sair')}
             aria-label={t('conversa.ladoALado.sair')}
-            onClick={() => onSair(painelAtivo?.ref)}
+            onClick={() => onSair(painelAtivo?.ref, painelAtivo?.sessionId ?? null)}
           >
             <Icon name="arrow.down.right.and.arrow.up.left" size={12} weight="medium" />
             <Text as="span" size="caption" weight="medium" className="lado-a-lado-btn-sair-texto">
@@ -367,7 +370,7 @@ export function QuadroLadoALado({
                     {t('conversa.ladoALado.recolherBarra')}
                   </button>
                 ) : null}
-                <button type="button" className="lado-a-lado-aviso-acao" onClick={() => onSair(painelAtivo?.ref)}>
+                <button type="button" className="lado-a-lado-aviso-acao" onClick={() => onSair(painelAtivo?.ref, painelAtivo?.sessionId ?? null)}>
                   {t('conversa.ladoALado.sair')}
                 </button>
               </div>
@@ -396,10 +399,10 @@ export function QuadroLadoALado({
       ) : null}
 
       <div className="lado-a-lado-grade">
-        {visiveis.map((painel) => {
+        {estado.paineis.map((painel, idxGlobal) => {
           const { store, bot, botName, sessaoNome } = resolverConversa(painel.ref, painel.sessionId)
-          const ativo = painel.id === painelAtivo?.id
-          const idxGlobal = estado.paineis.findIndex((p) => p.id === painel.id)
+          const visivel = visiveisIds.has(painel.id)
+          const ativo = visivel && painel.id === painelAtivo?.id
           return (
             <PainelColuna
               key={painel.id}
@@ -409,6 +412,8 @@ export function QuadroLadoALado({
               botName={botName}
               sessaoNome={sessaoNome}
               ativo={ativo}
+              visivel={visivel}
+              leituraVisivel={leituraVisivel}
               totalPaineis={estado.paineis.length}
               indice={idxGlobal}
               panelRefs={panelRefs}
@@ -473,6 +478,8 @@ function PainelColuna({
   botName,
   sessaoNome,
   ativo,
+  visivel,
+  leituraVisivel,
   totalPaineis,
   indice,
   panelRefs,
@@ -491,6 +498,8 @@ function PainelColuna({
   botName: string
   sessaoNome: string | null
   ativo: boolean
+  visivel: boolean
+  leituraVisivel: boolean
   totalPaineis: number
   indice: number
   panelRefs: React.RefObject<Map<string, HTMLElement>>
@@ -503,7 +512,7 @@ function PainelColuna({
   onAtualizarSessao: (panelId: string, sessionId: string | null) => void
   onMover: (panelId: string, delta: -1 | 1) => void
   onRemover: (panelId: string) => void
-  onSair: (focusRef?: LadoALadoRef) => void
+  onSair: (focusRef?: LadoALadoRef, sessionId?: string | null) => void
   superficie: { lang: string; dir: 'ltr' | 'rtl' }
 }) {
   const t = useT()
@@ -524,15 +533,17 @@ function PainelColuna({
         if (el) panelRefs.current.set(painel.id, el)
         else panelRefs.current.delete(painel.id)
       }}
-      className="lado-a-lado-painel"
+      className={`lado-a-lado-painel${visivel ? '' : ' is-oculto'}`}
       data-ativo={ativo || undefined}
+      inert={!visivel || undefined}
+      aria-hidden={!visivel || undefined}
       role="region"
       aria-label={rotuloDoPainel(botName, painel.sessionId, sessaoNome, t)}
       onFocusCapture={() => {
-        if (!ativo) onFocar(painel.id)
+        if (visivel && !ativo) onFocar(painel.id)
       }}
       onMouseDownCapture={() => {
-        if (!ativo) onFocar(painel.id)
+        if (visivel && !ativo) onFocar(painel.id)
       }}
     >
       <div className="lado-a-lado-painel-topo" tabIndex={-1}>
@@ -590,7 +601,7 @@ function PainelColuna({
             size={24}
             icon="arrow.up.left.and.arrow.down.right"
             title={t('conversa.ladoALado.soEsta')}
-            onClick={() => onSair(painel.ref)}
+            onClick={() => onSair(painel.ref, painel.sessionId)}
           />
           <IconButtonBase
             size={24}
@@ -603,18 +614,20 @@ function PainelColuna({
 
       <div className="lado-a-lado-painel-corpo">
         {store && bot ? (
-          <StoreContext.Provider value={store}>
-            <ThreadView
-              key={`${painel.id}:${painel.ref.computerId}/${painel.ref.spaceId ?? ''}/${painel.ref.botId}`}
-              botId={painel.ref.botId}
-              panelScope={{
-                panelId: painel.id,
-                active: ativo,
-                initialSessionId: painel.sessionId,
-                onSessionChange: (sid) => onAtualizarSessao(painel.id, sid),
-              }}
-            />
-          </StoreContext.Provider>
+          <PersonalReadingVisible.Provider value={leituraVisivel && visivel}>
+            <StoreContext.Provider value={store}>
+              <ThreadView
+                key={`${painel.id}:${painel.ref.computerId}/${painel.ref.spaceId ?? ''}/${painel.ref.botId}`}
+                botId={painel.ref.botId}
+                panelScope={{
+                  panelId: painel.id,
+                  active: ativo,
+                  initialSessionId: painel.sessionId,
+                  onSessionChange: (sid) => onAtualizarSessao(painel.id, sid),
+                }}
+              />
+            </StoreContext.Provider>
+          </PersonalReadingVisible.Provider>
         ) : (
           <div className="lado-a-lado-painel-carregando">
             <Spinner size={16} />

@@ -45,9 +45,10 @@ import { leavesFloating, toggledSidebar } from './shell/sidebar-toggle'
 import { computerSelection, useComputerMenu } from './ComputerFilterHeader'
 import { extrasAllowed } from './fork/sessoes/ganchos'
 import { ThreadView } from './thread/ThreadView'
+import { tabMemory } from './fork/abas/memoria'
 import { ladoALadoStore } from '../store/fork-lado-a-lado'
 import { QuadroLadoALado } from './fork/lado-a-lado/QuadroLadoALado'
-import { acaoSelecaoBarraLateral, focoAposFechar } from './fork/lado-a-lado/quadro-helpers'
+import { acaoSelecaoBarraLateral, painelFocoAposFechar } from './fork/lado-a-lado/quadro-helpers'
 import { NewBotView, NewGroupView } from './bots/NewBotView'
 import { BotSettingsPage as BotEditorView } from './fork/bot-settings/BotSettingsPage'
 import { GroupEditorView } from './bots/GroupEditorView'
@@ -465,11 +466,24 @@ function ChatSplitView() {
     ...(store.spaceId ? { spaceId: store.spaceId } : {}),
     ...(store.hello?.hostId ? { hubId: store.hello.hostId } : {}),
   })
+  const aplicarSessaoIndividual = (botId: string, sessionId: string | null) => {
+    const memoria = tabMemory(botId)
+    memoria.open = sessionId
+    if (sessionId && memoria.closed.has(sessionId)) {
+      const next = new Set(memoria.closed)
+      next.delete(sessionId)
+      memoria.closed = next
+    }
+  }
   const abrirConversaLadoALado = (bot: Bot, store: BotStore) => {
     const executar = () => {
       fecharTelasCobertas()
       setEditing(null)
-      ladoALadoStore.abrir(escopoLadoALado, refDaConversa(bot, store), { inicial: app.selection })
+      ladoALadoStore.abrir(escopoLadoALado, refDaConversa(bot, store), {
+        sessionId: tabMemory(bot.id).open,
+        inicial: app.selection,
+        inicialSessionId: app.selection ? tabMemory(app.selection.botId).open : null,
+      })
     }
     if (editing && !isGroup(editing.bot) && editorHandle.current) editorHandle.current.leave(executar)
     else executar()
@@ -478,9 +492,15 @@ function ChatSplitView() {
     const executar = () => {
       fecharTelasCobertas()
       setEditing(null)
-      const focoRef = quadroEstado.ativo ? focoAposFechar(quadroEstado) : null
-      ladoALadoStore.alternar(escopoLadoALado, app.selection ?? app.roster[0]?.ref ?? null)
-      if (focoRef && !sameRef(app.selection, focoRef)) selecionarPeloQuadro(focoRef)
+      if (quadroEstado.ativo) {
+        const foco = painelFocoAposFechar(quadroEstado)
+        if (foco) aplicarSessaoIndividual(foco.ref.botId, foco.sessionId)
+        ladoALadoStore.sair(escopoLadoALado)
+        if (foco && !sameRef(app.selection, foco.ref)) selecionarPeloQuadro(foco.ref)
+        return
+      }
+      const inicial = app.selection ?? app.roster[0]?.ref ?? null
+      ladoALadoStore.entrar(escopoLadoALado, inicial, inicial ? tabMemory(inicial.botId).open : null)
     }
     if (editing && !isGroup(editing.bot) && editorHandle.current) editorHandle.current.leave(executar)
     else executar()
@@ -718,8 +738,11 @@ function ChatSplitView() {
         onMover={(panelId, delta) => ladoALadoStore.mover(escopoLadoALado, panelId, delta)}
         onFocar={(panelId) => ladoALadoStore.focar(escopoLadoALado, panelId)}
         onCiclarFoco={(delta) => ladoALadoStore.ciclarFoco(escopoLadoALado, delta)}
-        onSair={(focusRef) => {
-          const alvo = focusRef ?? focoAposFechar(quadroEstado)
+        onSair={(focusRef, sessionId) => {
+          const foco = painelFocoAposFechar(quadroEstado)
+          const alvo = focusRef ?? foco?.ref ?? null
+          const sessaoAlvo = focusRef ? (sessionId ?? null) : (foco?.sessionId ?? null)
+          if (alvo) aplicarSessaoIndividual(alvo.botId, sessaoAlvo)
           ladoALadoStore.sair(escopoLadoALado)
           if (alvo && !sameRef(selected, alvo)) selecionarPeloQuadro(alvo)
         }}

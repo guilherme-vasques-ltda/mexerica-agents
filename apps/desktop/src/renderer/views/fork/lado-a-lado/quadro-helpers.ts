@@ -133,9 +133,17 @@ export function rotuloDoPainel(
   return t('conversa.ladoALado.painelDe', { nome: botName })
 }
 
+/** Conversa e sessão que devem assumir a tela individual ao sair do quadro. */
+export function painelFocoAposFechar(
+  estado: LadoALadoEscopoEstado,
+): { ref: LadoALadoRef; sessionId: string | null } | null {
+  const painel = estado.paineis.find((p) => p.id === estado.focoId) ?? estado.paineis[0] ?? null
+  return painel ? { ref: painel.ref, sessionId: painel.sessionId } : null
+}
+
 /** Conversa que deve assumir a seleção principal ao sair do quadro. */
 export function focoAposFechar(estado: LadoALadoEscopoEstado): LadoALadoRef | null {
-  return (estado.paineis.find((p) => p.id === estado.focoId) ?? estado.paineis[0])?.ref ?? null
+  return painelFocoAposFechar(estado)?.ref ?? null
 }
 
 /** Mensagem curta de leitor de tela quando entra ou sai um painel. */

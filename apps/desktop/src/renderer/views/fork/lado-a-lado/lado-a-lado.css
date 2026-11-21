@@ -247,8 +247,12 @@ html[data-wallpaper] .lado-a-lado-avisos {
   overflow: hidden;
 }
 
-.lado-a-lado-painel + .lado-a-lado-painel,
-.lado-a-lado-painel + .lado-a-lado-vazio {
+.lado-a-lado-painel.is-oculto {
+  display: none;
+}
+
+.lado-a-lado-painel:not(.is-oculto) ~ .lado-a-lado-painel:not(.is-oculto),
+.lado-a-lado-painel:not(.is-oculto) ~ .lado-a-lado-vazio {
   border-inline-start: 1px solid var(--line);
 }
 
