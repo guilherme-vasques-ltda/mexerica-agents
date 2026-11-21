@@ -116,6 +116,11 @@ const LOCAL_ONLY: &[&str] = &[
     "donnaRuleSave",
     "donnaRuleSetEnabled",
     "donnaRuleDelete",
+    "donnaMailManager",
+    "donnaMailManagerSave",
+    "donnaMailManagerConnect",
+    "donnaMailManagerDisconnect",
+    "donnaMailManagerGrant",
 ];
 const SCREEN: &[&str] = &["screenPrepare", "screenOffer", "screenClose", "screenTakeover"];
 

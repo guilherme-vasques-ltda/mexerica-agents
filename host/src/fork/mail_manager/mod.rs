@@ -11,6 +11,7 @@
 //! os testes usam caixas e identidades fictícias. Concessão a pessoa é recusada até o
 //! Hub ter identidade de pessoa. Autorizar a operação não substitui a aprovação de cada
 //! efeito externo, que continua a cargo de quem liga o transporte.
+pub(crate) mod api;
 pub(crate) mod model;
 pub(crate) mod ops;
 pub(crate) mod store;
@@ -23,5 +24,7 @@ pub(crate) fn on_bot_deleted(c: &rusqlite::Connection, bot: &str) -> anyhow::Res
     Ok(store::on_bot_deleted(c, bot)?)
 }
 
+#[cfg(test)]
+mod api_tests;
 #[cfg(test)]
 mod tests;
