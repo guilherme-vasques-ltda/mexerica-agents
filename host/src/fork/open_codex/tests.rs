@@ -298,7 +298,8 @@ fn certificates_count_only_when_the_file_and_every_folder_above_belong_to_root()
     }
     assert!(!root_owned(&fixture.scope.join("absent.pem")));
     assert!(!root_owned(Path::new("/etc")), "a folder in place of the file is refused");
-    assert!(root_owned(Path::new("/etc/passwd")));
+    let passwd = if cfg!(target_os = "macos") { "/private/etc/passwd" } else { "/etc/passwd" };
+    assert!(root_owned(Path::new(passwd)), "a root file under real root folders counts (/etc is a link on macOS)");
 }
 
 #[test]
