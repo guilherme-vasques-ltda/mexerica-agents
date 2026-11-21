@@ -81,6 +81,14 @@ export class EstadoMailManager extends Observable {
     } catch (e) {
       // Erro do pedido sempre aparece; só a leitura antiga é descartada.
       this.erroPedido = erroDoHub(e)
+      if (geracao === this.#geracao) {
+        try {
+          const leitura = conferirLeitura(await c.call('donnaMailManager', {}))
+          if (geracao === this.#geracao) this.leitura = leitura
+        } catch {
+          // Falha silenciosa: mantém a leitura anterior e `this.erroPedido`.
+        }
+      }
       return false
     } finally {
       this.salvando = false

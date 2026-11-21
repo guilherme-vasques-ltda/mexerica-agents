@@ -55,6 +55,7 @@ pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
         ensure!(body["hubId"].as_str() == Some(hub.host_id.as_str()), "hub_context_mismatch");
     }
     if crate::fork::mail_manager::api::METHODS.contains(&method) {
+        ensure!(body.get("spaceId").is_none_or(|v| v.is_null() || v.as_str() == Some(PERSONAL)), "invalid_space");
         return Ok(());
     }
     let space = match body.get("spaceId") {

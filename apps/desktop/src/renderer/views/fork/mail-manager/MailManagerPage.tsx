@@ -1,7 +1,7 @@
 // Mail Manager: a tela do plugin aberto em Extensões → Plugins, no mesmo desenho limpo da do WhatsApp.
 // A lista fechada é fork/extensoes/PaginaPlugins.tsx, que só mostra esta tela depois do clique na linha.
 import { avatarDoBot, normalizarAvatarDoBot } from '@shared/fork-avatar-config'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { Button, CardForm, CardSection, Pill, Switch } from '../../../components/Controls'
 import { Icon } from '../../../components/Icon'
 import { DonnabotAvatar } from '../../../fork/avatars/Avatar'
@@ -152,11 +152,12 @@ function ConectarCaixa({ estado, leitura }: { estado: EstadoMailManager; leitura
 /** Uma caixa conectada: nome, selo de prévia, endereços, quantos bots têm acesso e a matriz de bots. */
 function Caixa({ caixa, leitura, estado, store }: { caixa: CaixaMail; leitura: LeituraMailManager; estado: EstadoMailManager; store: BotStore }) {
   const t = useT()
+  const caixaNomeId = useId()
   const autorizados = contagemAutorizados(caixa)
   return (
     <div className="mm-caixa">
       <div className="mm-caixa-cabeca">
-        <bdi dir="auto" className="mm-caixa-nome">{caixa.label}</bdi>
+        <bdi id={caixaNomeId} dir="auto" className="mm-caixa-nome">{caixa.label}</bdi>
         <Pill className="mm-selo">{t('mailManager.caixas.previa')}</Pill>
         <span className="mm-nota">{t.plural('mailManager.caixas.autorizados', autorizados)}</span>
         <Button kind="secondary" disabled={estado.salvando} onClick={() => void estado.desconectar(caixa.id)}>{t('mailManager.caixas.desconectar')}</Button>
@@ -169,15 +170,16 @@ function Caixa({ caixa, leitura, estado, store }: { caixa: CaixaMail; leitura: L
       <div className="mm-acessos">
         <span className="mm-acessos-titulo">{t('mailManager.caixas.acessos')}</span>
         {leitura.bots.length === 0 ? <p className="mm-nota">{t('mailManager.caixas.semBots')}</p> : null}
-        {leitura.bots.map((bot) => <LinhaBot key={bot.botId} caixa={caixa} bot={bot} estado={estado} enabled={leitura.plugin.enabled} store={store} />)}
+        {leitura.bots.map((bot) => <LinhaBot key={bot.botId} caixa={caixa} caixaNomeId={caixaNomeId} bot={bot} estado={estado} enabled={leitura.plugin.enabled} store={store} />)}
       </div>
     </div>
   )
 }
 
 /** Uma linha por bot: rosto, nome e os três controles independentes (Ver, Enviar, Excluir). */
-function LinhaBot({ caixa, bot, estado, enabled, store }: { caixa: CaixaMail; bot: BotMail; estado: EstadoMailManager; enabled: boolean; store: BotStore }) {
+function LinhaBot({ caixa, caixaNomeId, bot, estado, enabled, store }: { caixa: CaixaMail; caixaNomeId: string; bot: BotMail; estado: EstadoMailManager; enabled: boolean; store: BotStore }) {
   const t = useT()
+  const botNomeId = useId()
   const permissoes = permissoesDoBot(caixa, bot.botId)
   const info = store.bots.get(bot.botId)
   const controles: { id: PermissaoMail; rotulo: string }[] = [
@@ -188,13 +190,14 @@ function LinhaBot({ caixa, bot, estado, enabled, store }: { caixa: CaixaMail; bo
   return (
     <div className="mm-bot">
       <DonnabotAvatar config={normalizarAvatarDoBot(avatarDoBot(info), bot.name, info?.description)} size={26} label={bot.name} animated={false} />
-      <span className="mm-bot-nome"><bdi dir="auto">{bot.name}</bdi>{bot.isPrimary ? <Pill>{t('mailManager.principal')}</Pill> : null}</span>
+      <span className="mm-bot-nome"><bdi id={botNomeId} dir="auto">{bot.name}</bdi>{bot.isPrimary ? <Pill>{t('mailManager.principal')}</Pill> : null}</span>
       <span className="mm-bot-acoes">
         {controles.map((c) => (
           <button key={c.id} type="button" className="mm-toggle" aria-pressed={permissoes[c.id]}
+            aria-labelledby={`${botNomeId}-${c.id} ${botNomeId} ${caixaNomeId}`}
             disabled={!enabled || estado.salvando}
             onClick={() => void estado.alterarPermissao(caixa.id, bot.botId, c.id, !permissoes[c.id])}>
-            {c.rotulo}
+            <span id={`${botNomeId}-${c.id}`}>{c.rotulo}</span>
           </button>
         ))}
       </span>

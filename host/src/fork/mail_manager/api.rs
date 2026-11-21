@@ -239,12 +239,23 @@ fn snapshot(c: &Connection, connected_mailbox_id: Option<String>) -> Result<Valu
         mailboxes,
         connected_mailbox_id,
     };
-    serde_json::to_value(view).map_err(|_| map_mail_error(MailError::Storage))
+    serde_json::to_value(view).map_err(|_| {
+        tracing::warn!(operation = "serialize_snapshot", "mail_manager: falha ao serializar estado");
+        map_mail_error(MailError::Storage)
+    })
 }
 
 fn eligible_bots(c: &Connection) -> Result<Vec<BotView>> {
-    let primary_bot_id =
-        crate::store::read_team_settings(c).map_err(|_| map_mail_error(MailError::Storage))?.primary_bot_id;
+    let primary_bot_id = crate::store::read_team_settings(c)
+        .map_err(|_| {
+            tracing::warn!(
+                operation = "read_team_settings",
+                error_kind = "storage",
+                "mail_manager: falha ao ler configurações do time"
+            );
+            map_mail_error(MailError::Storage)
+        })?
+        .primary_bot_id;
     let mut stmt = c.prepare("SELECT id,config FROM bots WHERE deleted=0").map_err(db_error).map_err(map_mail_error)?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))

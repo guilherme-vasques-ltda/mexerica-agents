@@ -315,3 +315,63 @@ test('carregar prévia: uma falha para a sequência e fica na tela como erro do 
   assert.match(msg(estado.erroPedido!), /recusou o pedido/)
   await espera()
 })
+
+test('falha ao conectar relê donnaMailManager, atualiza caixa persistida, preserva erro e respeita geração mais nova', async () => {
+  // 1. Falha de escrita após persistência: releitura atualiza leitura e preserva erroPedido.
+  const caixaPersistida = caixa({ id: 'c-persistida', label: 'Outbox somebody', addresses: ['suporte@loja.example.invalid'] })
+  const chamadas: string[] = []
+  let persistida = false
+  let falharReleitura = false
+  const chamador: Chamador = { call: async <T>(method: string) => {
+    chamadas.push(method)
+    if (method === 'donnaMailManagerConnect') {
+      persistida = true
+      throw new Error('mail_storage_unavailable: falha ao montar snapshot.')
+    }
+    if (falharReleitura) throw new Error('mail_storage_unavailable: leitura também falhou.')
+    return leitura({ mailboxes: persistida ? [caixaPersistida] : [] }) as T
+  } }
+  const estado = new EstadoMailManager(() => chamador)
+  await estado.ler()
+  assert.equal(estado.leitura?.mailboxes.length, 0)
+
+  assert.equal(await estado.conectar('Outbox somebody', ['suporte@loja.example.invalid']), false)
+  assert.deepEqual(chamadas, ['donnaMailManager', 'donnaMailManagerConnect', 'donnaMailManager'])
+  assert.equal(estado.leitura?.mailboxes.length, 1)
+  assert.equal(estado.leitura?.mailboxes[0]?.id, 'c-persistida')
+  assert.match(msg(estado.erroPedido!), /não está disponível/)
+
+  // 2. Se a releitura também falhar, mantém leitura anterior e erroPedido.
+  falharReleitura = true
+  assert.equal(await estado.conectar('Outra', ['outra@loja.example.invalid']), false)
+  assert.equal(estado.leitura?.mailboxes[0]?.id, 'c-persistida')
+  assert.match(msg(estado.erroPedido!), /não está disponível/)
+
+  // 3. Releitura atrasada não atropela uma leitura de geração mais nova.
+  const pendentes: { method: string; resolve: (v: unknown) => void; reject: (e: unknown) => void }[] = []
+  const lento: Chamador = {
+    call: <T>(method: string) => new Promise<T>((resolve, reject) => {
+      pendentes.push({ method, resolve: resolve as (v: unknown) => void, reject })
+    }),
+  }
+  const estadoGeracao = new EstadoMailManager(() => lento)
+  const tentativa = estadoGeracao.conectar('Suporte', ['suporte@loja.example.invalid'])
+  assert.equal(pendentes[0]?.method, 'donnaMailManagerConnect')
+  pendentes[0]!.reject(new Error('mail_storage_unavailable: falha ao montar snapshot.'))
+  await espera()
+  assert.equal(pendentes[1]?.method, 'donnaMailManager')
+
+  const leituraNova = estadoGeracao.ler()
+  assert.equal(pendentes[2]?.method, 'donnaMailManager')
+  const caixaNova = caixa({ id: 'c-nova', label: 'Nova' })
+  pendentes[2]!.resolve(leitura({ mailboxes: [caixaNova] }))
+  await leituraNova
+  assert.equal(estadoGeracao.leitura?.mailboxes[0]?.id, 'c-nova')
+
+  // Resposta atrasada da releitura da geração antiga não sobrescreve `c-nova`.
+  pendentes[1]!.resolve(leitura({ mailboxes: [caixa({ id: 'c-atrasada', label: 'Atrasada' })] }))
+  assert.equal(await tentativa, false)
+  assert.equal(estadoGeracao.leitura?.mailboxes.length, 1)
+  assert.equal(estadoGeracao.leitura?.mailboxes[0]?.id, 'c-nova')
+  await espera()
+})

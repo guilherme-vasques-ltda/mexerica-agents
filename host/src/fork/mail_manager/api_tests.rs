@@ -12,7 +12,7 @@ use crate::{
     store::{BotConfig, Device, DeviceSource, Scope, Store, now_ms},
 };
 use serde_json::{Value, json};
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 struct Fixture {
     hub: Arc<Hub>,
@@ -187,9 +187,40 @@ async fn space_id_e_validado_fail_closed() {
         assert_eq!(view["plugin"]["enabled"], false);
     }
 
+    // Liga o plugin e cria uma caixa real antes de testar spaceId inválido com alvos válidos.
+    dispatch(&f.hub, &Caller::Local, "donnaMailManagerSave", json!({"enabled": true})).await.unwrap();
+    let connected = dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaMailManagerConnect",
+        json!({"label": "Suporte", "addresses": ["suporte@loja.example.invalid"]}),
+    )
+    .await
+    .unwrap();
+    let mailbox_id = connected["connectedMailboxId"].as_str().unwrap().to_owned();
+
+    let valid_targets = [
+        ("donnaMailManager", json!({})),
+        ("donnaMailManagerSave", json!({"enabled": true})),
+        ("donnaMailManagerConnect", json!({"label": "Nova", "addresses": ["nova@loja.example.invalid"]})),
+        (
+            "donnaMailManagerGrant",
+            json!({
+                "mailboxId": mailbox_id,
+                "participantKind": "bot",
+                "participantId": "donna",
+                "permission": "view",
+                "allowed": true
+            }),
+        ),
+        ("donnaMailManagerDisconnect", json!({"mailboxId": mailbox_id})),
+    ];
+
     // Outro Space existente, inexistente ou tipo não-string são recusados em todos os métodos.
-    for (method, base) in sample_bodies() {
-        for bad_space in [json!(f.work_space), json!("space-inexistente"), json!(123), json!(true), json!([])] {
+    for (method, base) in &valid_targets {
+        for bad_space in
+            [json!(f.work_space), json!("space-inexistente"), json!(123), json!({}), json!(true), json!([])]
+        {
             let mut body = base.clone();
             body["spaceId"] = bad_space.clone();
             let err = dispatch(&f.hub, &Caller::Local, method, body.clone()).await.unwrap_err();
@@ -202,6 +233,36 @@ async fn space_id_e_validado_fail_closed() {
             assert!(
                 direct.starts_with("mail_denied:") || direct.starts_with("mail_invalid:"),
                 "{method} com spaceId={bad_space} devolveu erro inesperado: {direct}"
+            );
+        }
+    }
+
+    // No mesmo estado, os mesmos pedidos têm sucesso quando spaceId é PERSONAL.
+    for (method, base) in valid_targets {
+        let mut body = base;
+        body["spaceId"] = json!(PERSONAL);
+        dispatch(&f.hub, &Caller::Local, method, body)
+            .await
+            .unwrap_or_else(|e| panic!("{method} deveria aceitar spaceId=PERSONAL no mesmo estado: {e}"));
+    }
+}
+
+#[tokio::test]
+async fn scope_guard_recusa_space_id_nao_pessoal_nos_metodos_mail_manager() {
+    let f = Fixture::new().await;
+    for method in METHODS {
+        for ok_body in [json!({}), json!({"spaceId": null}), json!({"spaceId": PERSONAL})] {
+            crate::fork::spaces::guard(&f.hub, method, &ok_body)
+                .unwrap_or_else(|e| panic!("scope::guard deveria aceitar {method} com {ok_body}: {e}"));
+        }
+        for bad_space in
+            [json!(f.work_space), json!("space-inexistente"), json!(123), json!({}), json!(true), json!([])]
+        {
+            let err = crate::fork::spaces::guard(&f.hub, method, &json!({"spaceId": bad_space})).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "invalid_space",
+                "scope::guard deveria recusar {method} com spaceId={bad_space} usando invalid_space"
             );
         }
     }
@@ -337,10 +398,31 @@ async fn fluxo_completo_de_administracao_e_concessoes() {
         dispatch(&f.hub, &Caller::Local, "donnaMailManagerDisconnect", json!({"mailboxId": id2})).await.unwrap();
     assert_eq!(after_disc2["mailboxes"], json!([]));
 
-    // Resposta não expõe nenhum campo de mensagem ou credencial.
-    let serialized = after_grants.to_string();
-    for forbidden_key in ["subject", "body", "attachments", "password", "token", "secret"] {
-        assert!(!serialized.contains(forbidden_key), "campo inesperado na resposta: {forbidden_key}");
+    // Resposta não expõe nenhum campo além do contrato permitido em nenhum nível.
+    let root_keys: BTreeSet<&str> = after_grants.as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(
+        root_keys,
+        BTreeSet::from(["bots", "mailboxes", "personGrantsSupported", "plugin", "transportAvailable"])
+    );
+    let plugin_keys: BTreeSet<&str> = after_grants["plugin"].as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(plugin_keys, BTreeSet::from(["enabled", "mode"]));
+
+    let bots_arr = after_grants["bots"].as_array().unwrap();
+    assert_ne!(bots_arr.as_slice(), &[] as &[Value]);
+    for bot in bots_arr {
+        let keys: BTreeSet<&str> = bot.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, BTreeSet::from(["botId", "isPrimary", "name"]));
+    }
+
+    let mailboxes_arr = after_grants["mailboxes"].as_array().unwrap();
+    assert_ne!(mailboxes_arr.as_slice(), &[] as &[Value]);
+    for mailbox in mailboxes_arr {
+        let keys: BTreeSet<&str> = mailbox.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, BTreeSet::from(["addresses", "grants", "id", "label"]));
+        for grant in mailbox["grants"].as_array().unwrap() {
+            let grant_keys: BTreeSet<&str> = grant.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(grant_keys, BTreeSet::from(["delete", "participantId", "participantKind", "send", "view"]));
+        }
     }
 }
 
