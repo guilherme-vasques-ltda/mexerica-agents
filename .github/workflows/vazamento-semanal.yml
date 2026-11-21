@@ -1,0 +1,83 @@
+# Varredura semanal de vazamento na arvore e no historico completo da main, com o executor
+# e a politica aprovados vindos da main e o Gitleaks oficial fixado por SHA256. O resumo
+# traz so contagens por regra em repositorio publico; caminhos completos so no privado.
+# Se a varredura reprovar, um segundo job abre issue em destino privado confirmado, com as
+# credenciais nomeadas (VAZAMENTO_TERMOS e VAZAMENTO_ISSUE_TOKEN em segredos;
+# VAZAMENTO_ISSUE_REPO em variavel, apontando para repositorio privado que nao sera
+# arquivado), nunca no repositorio publico. Guia: docs/guides/ci.md.
+name: Vazamento operacional semanal
+
+on:
+  schedule:
+    - cron: '37 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  varredura:
+    # Dispatch de outra branch nao executa uma versao nao aprovada com segredos.
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Obter Gitleaks oficial fixado
+        run: |
+          curl --fail --silent --show-error --location --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      - name: Verificar arvore e historico completo com politica aprovada
+        env:
+          VAZAMENTO_TERMOS: ${{ secrets.VAZAMENTO_TERMOS }}
+          VAZAMENTO_REPORT: ${{ runner.temp }}/vazamento-report.json
+          GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
+        run: |
+          trusted_main=$(git rev-parse refs/remotes/origin/main)
+          git show "$trusted_main:tools/ci-vazamento.mjs" > "$RUNNER_TEMP/trusted-ci-vazamento.mjs"
+          VAZAMENTO_TRUSTED_MAIN_SHA="$trusted_main" GITHUB_SHA="$trusted_main" node "$RUNNER_TEMP/trusted-ci-vazamento.mjs" arvore
+      - name: Guardar contagens; caminhos somente em repositorio privado
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vazamento-resumo
+          path: ${{ runner.temp }}/vazamento-report.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  notificar:
+    needs: varredura
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.varredura.result == 'failure' }}
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vazamento-resumo
+          path: ${{ runner.temp }}/vazamento-resumo
+      - name: Abrir issue somente em destino privado confirmado
+        env:
+          VAZAMENTO_SOURCE_PRIVATE: ${{ github.event.repository.private }}
+          VAZAMENTO_ISSUE_REPO: ${{ vars.VAZAMENTO_ISSUE_REPO }}
+          VAZAMENTO_ISSUE_TOKEN: ${{ secrets.VAZAMENTO_ISSUE_TOKEN }}
+        run: node tools/ci-vazamento.mjs notificar "$RUNNER_TEMP/vazamento-resumo/vazamento-report.json"

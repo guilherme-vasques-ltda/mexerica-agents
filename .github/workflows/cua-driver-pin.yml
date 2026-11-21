@@ -1,0 +1,40 @@
+# Conferencia semanal do cua-driver fixado: compara packaging/cua-driver/driver.json com a
+# ultima versao publicada em trycua/cua (a trycua marca o driver como pre-lancamento; as
+# nightlies ficam de fora). So le; nao baixa nem muda nada. Quando ha versao nova, o job
+# termina com aviso no resumo para alguem atualizar o pin (versao, tag e SHA256SUMS).
+name: cua-driver pin
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: packaging/cua-driver/driver.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Comparar com a ultima versao
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pinned=$(jq -r .version packaging/cua-driver/driver.json)
+          latest=$(gh api 'repos/trycua/cua/releases?per_page=100' --paginate \
+            --jq '.[] | select(.draft == false) | .tag_name | select(test("^cua-driver-rs-v[0-9]+[.][0-9]+[.][0-9]+$")) | ltrimstr("cua-driver-rs-v")' \
+            | sort -V | tail -1)
+          if [ -z "$latest" ]; then echo "::warning::Nenhuma versao cua-driver-rs encontrada"; exit 0; fi
+          echo "Fixado: $pinned - Ultima: $latest" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(printf '%s\n%s\n' "$pinned" "$latest" | sort -V | tail -1)" != "$pinned" ]; then
+            echo "::warning::cua-driver $latest disponivel (fixado $pinned). Atualize packaging/cua-driver/driver.json."
+            exit 1
+          fi
