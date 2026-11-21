@@ -33,7 +33,7 @@ function ponte(volta: () => Promise<string>) {
 }
 
 /** Hub de mentira: `chatgptEntrar` devolve a URL; `chatgptEntrarConcluir` devolve o desfecho e registra o corpo. */
-function hub(responderConcluir: (corpo: unknown) => { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string }) {
+function hub(responderConcluir: (corpo: unknown) => { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string; avisoAnteriorSemConfirmacao?: boolean }) {
   const corpos: { metodo: string; corpo: unknown }[] = []
   const client = {
     call: async (metodo: string, corpo: unknown) => {
@@ -47,6 +47,13 @@ function hub(responderConcluir: (corpo: unknown) => { ok: boolean; conta?: { rot
 }
 
 const VOLTA_OK = 'http://127.0.0.1:19424/auth/callback?state=estado-1&code=codigo-ficticio'
+
+test('conta anterior encerrada sem confirmação do emissor: o desfecho carrega o aviso', async () => {
+  const { client } = hub(() => ({ ok: true, conta: { rotulo: 'pessoa@example.invalid', planoHabilitado: true }, avisoAnteriorSemConfirmacao: true }))
+  const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK))
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1', true)
+  assert.deepEqual(await fim, { ok: true, rotulo: 'pessoa@example.invalid', planoHabilitado: true, avisoAnteriorSemConfirmacao: true })
+})
 
 test('o login inteiro: pede a URL ao Hub com a porta do ouvinte, entrega o retorno e devolve a conta', async () => {
   const { client, corpos } = hub(() => ({ ok: true, conta: { rotulo: 'pessoa@example.invalid', planoHabilitado: true } }))

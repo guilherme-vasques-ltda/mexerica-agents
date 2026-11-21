@@ -44,10 +44,29 @@ fn chave_de_prova() -> &'static (ring::rsa::KeyPair, String, String) {
     use std::sync::OnceLock;
     static CHAVE: OnceLock<(ring::rsa::KeyPair, String, String)> = OnceLock::new();
     CHAVE.get_or_init(|| {
+        use std::fs::OpenOptions;
+        use std::io::Write as _;
+        #[cfg(unix)]
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::path::PathBuf;
+        struct Limpeza(PathBuf);
+        impl Drop for Limpeza {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
         let gerada = Command::new("openssl").args(["genrsa", "2048"]).output().expect("openssl para a chave de prova");
         assert!(gerada.status.success(), "geração da chave de prova falhou");
         let caminho = std::env::temp_dir().join(format!("mexerica-chave-de-prova-{}.pem", std::process::id()));
-        std::fs::write(&caminho, &gerada.stdout).expect("escrever a chave de prova");
+        // Chave privada, mesmo de prova: arquivo novo com permissão de dono e limpeza em qualquer saída.
+        #[cfg(unix)]
+        let criar = || OpenOptions::new().write(true).create_new(true).mode(0o600).open(&caminho);
+        #[cfg(not(unix))]
+        let criar = || OpenOptions::new().write(true).create_new(true).open(&caminho);
+        let mut arquivo = criar().expect("criar o arquivo da chave de prova");
+        arquivo.write_all(&gerada.stdout).expect("escrever a chave de prova");
+        drop(arquivo);
+        let _limpeza = Limpeza(caminho.clone());
         let rodar = |args: &[&str]| {
             Command::new("openssl")
                 .args(["rsa", "-in"])
@@ -80,7 +99,6 @@ fn chave_de_prova() -> &'static (ring::rsa::KeyPair, String, String) {
             .expect("expoente da chave de prova");
         let sem_zeros = expoente.to_be_bytes();
         let sem_zeros = sem_zeros.iter().skip_while(|byte| **byte == 0).copied().collect::<Vec<u8>>();
-        let _ = std::fs::remove_file(&caminho);
         (par, crypto::b64(&bytes), crypto::b64(&sem_zeros))
     })
 }
@@ -1095,6 +1113,51 @@ async fn sair_revoga_e_apaga_os_tokens_de_qualquer_jeito() {
     // Sem sessão: nada a revogar.
     let sair = login::sair(&hub).await.unwrap();
     assert_eq!(sair, json!({"ok": true, "revogado": true}));
+}
+
+/// A conta substituída («Entrar com outra conta») tem a sessão encerrada no emissor antes do
+/// registro novo; sem confirmação, o aviso vai à tela e o registro novo é gravado do mesmo jeito.
+#[tokio::test]
+async fn entrar_com_outra_conta_encerra_a_sessao_anterior_no_emissor() {
+    let _serie = SERIE.lock().await;
+    let hub = hub_de_prova();
+    let registros = ficho();
+    let base = servidor_de_mentira(registros.clone()).await;
+    *login::BASE_EM_TESTE.locked() = Some(base);
+    for (modo, aviso) in [(ModoRevogacao::Confirma, false), (ModoRevogacao::Falha(500), true)] {
+        semear_conta(&hub, &conta_conectada(agora() + 3600));
+        *registros.revogacao.lock().unwrap() = modo;
+        login::entrar(
+            &hub,
+            &json!({"loopbackPort": 19424, "novaConta": true, "spaceId": crate::fork::spaces::PERSONAL}),
+        )
+        .await
+        .unwrap();
+        let (state, nonce, _) = tentativa_atual();
+        *registros.resposta_troca.lock().unwrap() = RespostaTroca::Corpo(json!({
+            "access_token": ACCESS,
+            "refresh_token": REFRESH,
+            "id_token": id_token_de_prova(&cabecalho_de_prova(), &afirmacoes_de_prova(&nonce, SUB)),
+            "expires_in": 3600,
+            "scope": ESCOPO_CHEIO,
+        }));
+        let acesso = login::concluir(
+            &hub,
+            &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": CODIGO, "client_id": CLIENTE}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(acesso["ok"], true, "{acesso}");
+        assert_eq!(acesso["avisoAnteriorSemConfirmacao"] == Value::Bool(true), aviso, "{acesso}");
+        {
+            let revogacoes = registros.revogacoes.lock().unwrap();
+            assert_eq!(revogacoes[revogacoes.len() - 1]["token"], REFRESH_VELHO, "{revogacoes:?}");
+            assert_eq!(revogacoes[revogacoes.len() - 1]["client_id"], CLIENTE, "{revogacoes:?}");
+        }
+        let conta = conta_guardada(&hub);
+        assert_eq!(conta["access_token"], ACCESS, "o registro novo é gravado do mesmo jeito: {conta}");
+    }
+    *login::BASE_EM_TESTE.locked() = None;
 }
 
 /// O «Sair» durante a troca (o servidor de mentira segura a resposta) não grava nada depois.

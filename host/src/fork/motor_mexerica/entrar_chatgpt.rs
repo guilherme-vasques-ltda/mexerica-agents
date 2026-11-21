@@ -388,8 +388,23 @@ async fn gravar(hub: &Arc<Hub>, tentativa: &Tentativa, client_id: &str, troca: T
     if SESSAO.load(Ordering::SeqCst) != tentativa.geracao || ID_TENTATIVA.load(Ordering::SeqCst) != tentativa.id {
         return Ok(json!({"ok": false, "erro": "sessao_encerrada"}));
     }
+    // A conta que está sendo substituída tem a sessão encerrada no emissor ANTES de o registro ser
+    // sobrescrito: nenhuma concessão fica órfã e ativa. Sem confirmação, o aviso vai à tela (o
+    // registro novo é gravado do mesmo jeito).
+    let anterior = ler_conta_destravada(hub).await?;
+    let anterior_revogado = match &anterior {
+        Some(anterior) if anterior.conectada() => match &anterior.refresh_token {
+            Some(refresh) => revogar(&anterior.client_id, refresh).await,
+            None => true,
+        },
+        _ => true,
+    };
     crate::market::vault::unlock(hub.clone()).await?;
     gravar_conta(&hub.store, &conta)?;
+    let mut resposta = resposta;
+    if !anterior_revogado {
+        resposta["avisoAnteriorSemConfirmacao"] = Value::Bool(true);
+    }
     Ok(resposta)
 }
 

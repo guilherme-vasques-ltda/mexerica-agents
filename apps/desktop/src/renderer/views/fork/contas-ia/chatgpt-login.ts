@@ -23,7 +23,7 @@ export interface EstadoChatGPT {
 
 /** O desfecho do login: a conta como ficou, ou a recusa com código estável do Hub. */
 export type DesfechoChatGPT =
-  | { ok: true; rotulo: string | null; planoHabilitado: boolean }
+  | { ok: true; rotulo: string | null; planoHabilitado: boolean; avisoAnteriorSemConfirmacao?: boolean }
   | { ok: false; erro: string }
 
 /** O login não chegou ao fim: a pessoa desistiu, o prazo acabou ou o fluxo não conseguiu continuar. */
@@ -113,14 +113,20 @@ export function entrarComChatGPT(
       const corpo = retorno.error !== null
         ? { state: retorno.state, erro: retorno.error, spaceId: space }
         : { state: retorno.state, code: retorno.code ?? '', spaceId: space, ...(clientes.length === 1 ? { client_id: clientes[0] } : {}) }
-      let desfecho: { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string }
+      let desfecho: { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string; avisoAnteriorSemConfirmacao?: boolean }
       try {
         desfecho = await client.call('chatgptEntrarConcluir', corpo, PRAZO_MS)
       } catch { throw new FalhaChatGPT('falha') }
       ouvinte.responder(aberto.tentativa, desfecho.ok ? { ok: true, nome: 'ChatGPT' } : { ok: false })
       if (!desfecho.ok && desfecho.erro === 'entrada_negada') throw new FalhaChatGPT('cancelado')
       return desfecho.ok
-        ? { ok: true, rotulo: desfecho.conta?.rotulo ?? null, planoHabilitado: desfecho.conta?.planoHabilitado === true }
+        ? {
+            ok: true,
+            rotulo: desfecho.conta?.rotulo ?? null,
+            planoHabilitado: desfecho.conta?.planoHabilitado === true,
+            // Só aparece quando o emissor não confirmou o encerramento da conta anterior.
+            ...(desfecho.avisoAnteriorSemConfirmacao === true ? { avisoAnteriorSemConfirmacao: true } : {}),
+          }
         : { ok: false, erro: desfecho.erro ?? '' }
     } finally {
       ouvinte.fechar(aberto.tentativa)

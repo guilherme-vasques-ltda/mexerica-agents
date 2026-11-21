@@ -72,7 +72,11 @@ export function EntrarComChatGPT() {
     void fim
       .then((r) => {
         if (!r.ok) setErro('contas.chatgpt.erro.falha')
-        else setEstado({ conectado: true, rotulo: r.rotulo ?? undefined, planoHabilitado: r.planoHabilitado, precisaEntrar: false })
+        else {
+          setEstado({ conectado: true, rotulo: r.rotulo ?? undefined, planoHabilitado: r.planoHabilitado, precisaEntrar: false })
+          // A conta anterior foi substituída sem o emissor confirmar o encerramento dela.
+          if (r.avisoAnteriorSemConfirmacao) setAvisoDeSair(true)
+        }
       })
       .catch((e: unknown) => setErro(e instanceof FalhaChatGPT ? fraseDaFalha(e.tipo) : 'contas.chatgpt.erro.falha'))
       .finally(() => {
