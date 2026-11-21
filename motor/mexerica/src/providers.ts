@@ -81,6 +81,9 @@ const OPENAI_MODELS: Model<"openai-responses">[] = [
 // Modelos de texto da Meta Model API no modo Standard (api.meta.ai/v1). Todos
 // aceitam 1.048.576 tokens de contexto; o teto de saída por turno segue o dos
 // modelos do Google (65.536), conservador para o laço do motor.
+// `off: null` porque a Meta não tem esforço "none": sem nível pedido, o pedido
+// vai SEM `reasoning` e a Meta usa o esforço padrão dela ("high"/"max"), em vez
+// de um "none" que a API recusa com 400.
 const META_MODELS: Model<"openai-responses">[] = [
 	{
 		id: "muse-wonder-1.0",
@@ -90,6 +93,7 @@ const META_MODELS: Model<"openai-responses">[] = [
 		baseUrl: "https://api.meta.ai/v1",
 		input: ["text"],
 		reasoning: true,
+		thinkingLevelMap: { off: null },
 		cost: NO_COST,
 		contextWindow: 1048576,
 		maxTokens: 65536,
@@ -102,6 +106,7 @@ const META_MODELS: Model<"openai-responses">[] = [
 		baseUrl: "https://api.meta.ai/v1",
 		input: ["text"],
 		reasoning: true,
+		thinkingLevelMap: { off: null },
 		cost: NO_COST,
 		contextWindow: 1048576,
 		maxTokens: 65536,
@@ -114,6 +119,7 @@ const META_MODELS: Model<"openai-responses">[] = [
 		baseUrl: "https://api.meta.ai/v1",
 		input: ["text"],
 		reasoning: true,
+		thinkingLevelMap: { off: null },
 		cost: NO_COST,
 		contextWindow: 1048576,
 		maxTokens: 65536,
