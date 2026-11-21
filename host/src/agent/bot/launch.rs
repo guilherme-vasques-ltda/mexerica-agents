@@ -207,10 +207,10 @@ fn split_variant<'a>(res: &Value, model: &'a str) -> (&'a str, Vec<(&'a str, &'a
 /// Motor interno (backend `mexerica`): sem comando nem handshake — o "agente"
 /// é o adaptador ACP em processo do Hub, preso ao cofre (o canal `fd 3` do
 /// motor) e ao cartão de aprovação existente. `extra_env` é só para provas.
-pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, extra_env: &[(&str, &str)]) -> Result<Conn> {
+pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, bot: &str, extra_env: &[(&str, &str)]) -> Result<Conn> {
     #[cfg(not(unix))]
     {
-        let _ = (hub, extra_env);
+        let _ = (hub, bot, extra_env);
         anyhow::bail!("Motor Mexerica indisponível nesta plataforma")
     }
     #[cfg(unix)]
@@ -218,7 +218,11 @@ pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, extra_env: &[(&st
         // Flag desligada (ou sem ajudante): nada abre, nem servidores MCP.
         crate::fork::motor_mexerica::ensure_runnable()?;
         let vault = crate::fork::motor_mexerica::hub_vault(hub.clone());
-        let link = crate::fork::motor_mexerica::link::Link::new(vault, extra_env);
+        let link = crate::fork::motor_mexerica::link::Link::new(vault, bot, extra_env);
+        #[cfg(test)]
+        if !extra_env.is_empty() {
+            link.skip_mcp_servers();
+        }
         let (acp, rx) = Acp::spawn_link(link);
         Ok(Conn {
             ponte: None,
@@ -226,7 +230,7 @@ pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, extra_env: &[(&st
             acp,
             rx,
             skill_reads: tokio::task::JoinSet::new(),
-            sessions: SessionCaps { load: false, close: true, system_prompt: true },
+            sessions: SessionCaps { load: true, close: true, system_prompt: true },
             adapter: Adapter::Mexerica,
             adapter_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
             codex_config: false,
