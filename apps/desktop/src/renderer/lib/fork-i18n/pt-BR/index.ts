@@ -35,6 +35,7 @@ import { textos as conversaLimites } from './conversa/limites.ts'
 import { textos as conversaSeletor } from './conversa/seletor.ts'
 import { textos as conversaTroca } from './conversa/troca.ts'
 import { textos as conversaNavegacao } from './conversa/navegacao.ts'
+import { textos as conversaLadoALado } from './conversa/ladoALado.ts'
 import { textos as delegacao } from './delegacao.ts'
 import { textos as nuncaFazer } from './nuncaFazer.ts'
 import { textos as instrucoes } from './instrucoes.ts'
@@ -120,6 +121,7 @@ export const ptBR = {
   ...conversaSeletor,
   ...conversaTroca,
   ...conversaNavegacao,
+  ...conversaLadoALado,
   ...delegacao,
   ...nuncaFazer,
   ...instrucoes,

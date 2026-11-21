@@ -59,11 +59,18 @@ import { bloqueioSenha, destinoSenha } from '../../store/fork-senha-bloqueio'
 import { TelaGrande, useTelaGrande } from '../fork/whatsapp/TelaGrande'
 import { SuperficieAVista } from '../fork/whatsapp/superficie'
 
+export interface ThreadPanelScope {
+  panelId: string
+  active: boolean
+  initialSessionId?: string | null
+  onSessionChange?: (sessionId: string | null) => void
+}
+
 /**
  * One endless conversation with a bot or a group chat. Only deliberate messages show here; tool
  * calls and thinking live in the "Full conversation" sheet. Replying to a message quotes it in the composer.
  */
-export const ThreadView = memo(function ThreadView({ botId }: { botId: string }) {
+export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botId: string; panelScope?: ThreadPanelScope }) {
   const store = useStoreRef()
   // MX-4 (C9): só a fatia que a conversa desenha acorda o componente — eventos de outras
   // conversas ou campos internos (rascunhos, filas) não renderizam mais a tela aberta.
@@ -86,8 +93,22 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const [botChat, setBotChat] = useState<string | null>(null)
   const [editingGroup, setEditingGroup] = useState(false)
   const [detailsTab, setDetailsTab] = useState<DetailsTab>('sessions')
-  // A sessão aberta no chat (null = a conversa principal) e as abas fechadas com "×", por conversa.
-  const memory = tabMemory(botId)
+  // A sessão aberta no chat (null = a conversa principal) e as abas fechadas com "×", por conversa ou por painel.
+  const inPanel = !!panelScope
+  const panelActive = !panelScope || panelScope.active
+  const panelActiveRef = useRef(true)
+  panelActiveRef.current = panelActive
+  const onSessionChangeRef = useRef(panelScope?.onSessionChange)
+  onSessionChangeRef.current = panelScope?.onSessionChange
+  const panelMemory = useRef<{ open: string | null; closed: Set<string> } | null>(null)
+  const panelMemoryId = useRef<string | null>(panelScope?.panelId ?? null)
+  if (panelScope && panelMemoryId.current !== panelScope.panelId) {
+    panelMemoryId.current = panelScope.panelId
+    panelMemory.current = { open: panelScope.initialSessionId ?? null, closed: new Set() }
+  }
+  const memory = inPanel
+    ? (panelMemory.current ??= { open: panelScope.initialSessionId ?? null, closed: new Set() })
+    : tabMemory(botId)
   const [openSession, setOpenSessionState] = useState<string | null>(memory.open)
   const [closedTabs, setClosedTabs] = useState<ReadonlySet<string>>(memory.closed)
   const setOpenSession = useCallback((id: string | null) => {
@@ -95,7 +116,25 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     setOpenSessionState(id)
     // A citação é da aba em que foi escolhida: trocar de aba não a leva junto.
     setReplyTo(null)
+    onSessionChangeRef.current?.(id)
   }, [memory])
+  const prevInitialSession = useRef(panelScope?.initialSessionId)
+  useEffect(() => {
+    if (!inPanel) return
+    const next = panelScope?.initialSessionId ?? null
+    if (prevInitialSession.current === next) return
+    prevInitialSession.current = next
+    if (next === openSession) return
+    memory.open = next
+    if (next && memory.closed.has(next)) {
+      const nextClosed = new Set(memory.closed)
+      nextClosed.delete(next)
+      memory.closed = nextClosed
+      setClosedTabs(nextClosed)
+    }
+    setOpenSessionState(next)
+    setReplyTo(null)
+  }, [inPanel, panelScope?.initialSessionId, openSession, memory])
   const sessions = useChatSessions(store, bot)
   const sessionsModel = useModel(store.sessions)
   // MX-214: com o aviso de senha colada aberto, as entradas de chamada (Ao vivo, painel) ficam desligadas.
@@ -117,7 +156,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const width = useRef(800)
   // Lugar para o chat (380 px) e o painel fixo lado a lado; senão o painel abre por cima.
   const [roomy, setRoomy] = useState(true)
-  const panel = useRightPanel(roomy)
+  const panel = useRightPanel(roomy, inPanel)
   useReading(store, botId)
   // The chat window remounts this per conversation (`key`), so each one opened counts.
   useScreenViewed('chat')
@@ -143,7 +182,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const voiceAvailable = useCallAvailability(store, panel.open)
   // o atalho global abre ou encerra a MESMA chamada do botão, só na conversa principal de um bot à vista.
   const recusaVoz = useEntradaVoz(
-    () => ({ grupo: !!bot && isGroup(bot), coberta: telaOn || (panel.open && !panel.pinned), sessaoAberta: openSession !== null, disponivel: voiceAvailable && !!bot, senhaBloqueada: vozBloqueada, emChamada: calling }),
+    () => ({ grupo: !!bot && isGroup(bot), coberta: telaOn || (panel.open && !panel.pinned) || !panelActiveRef.current, sessaoAberta: openSession !== null, disponivel: voiceAvailable && !!bot, senhaBloqueada: vozBloqueada, emChamada: calling }),
     () => setCalling(true),
     () => setCalling(false),
   )
@@ -155,12 +194,12 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   useEffect(
     () =>
       window.codync.app.onCommand((c) => {
-        if (c.kind === 'toggleDetails' && !routinesScreen.open) togglePinRef.current()
+        if (c.kind === 'toggleDetails' && !routinesScreen.open && panelActiveRef.current) togglePinRef.current()
       }),
     [],
   )
   // Dois cliques na barra, ⌃↩ ou "Sessões de …" (store.openSessionsPanel): o painel abre em Sessões.
-  useConsumePanelRequest(store, botId, (tab) => {
+  useConsumePanelRequest(store, panelActive ? botId : '', (tab) => {
     setDetailsTab(tab)
     showPanel()
   })
@@ -181,12 +220,13 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     if (openSession === null) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || root.current?.closest('[inert]')) return
+      if (inPanel && !root.current?.contains(e.target as Node | null) && !root.current?.contains(document.activeElement)) return
       e.preventDefault()
       setOpenSession(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openSession, setOpenSession])
+  }, [openSession, setOpenSession, inPanel])
 
   const closeTab = useCallback((id: string) => {
     const next = new Set(memory.closed)
@@ -208,15 +248,22 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   // D548: abre a aba principal inclusive se uma sessão extra estava selecionada; preserva os rascunhos.
   const bergaRequest = useModel(focoBerga).request
   useEffect(() => {
-    if (!bergaRequest || bergaRequest.computerId !== store.computer.id || bergaRequest.botId !== botId) return
+    if (!panelActive || !bergaRequest || bergaRequest.computerId !== store.computer.id || bergaRequest.botId !== botId) return
     focoBerga.clear()
     openTab(null)
     requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus({ preventScroll: true }))
-  }, [bergaRequest, store, botId, openTab])
+  }, [panelActive, bergaRequest, store, botId, openTab])
 
   // UI-01: "+", "Nova sessão" do painel e do menu do bot criam no Hub e abrem a aba devolvida, sem enviar nada.
-  const newSession = useNewSession(store, bot, useOpenFocused(openTab, openSession, root))
-  useConsumeNewRequest(store, botId, newSession?.run ?? null)
+  // A sessão criada fica selecionada no painel; o foco na caixa só vai se o painel ainda for o ativo
+  // quando a criação assíncrona terminar (o usuário pode ter trocado de painel no meio).
+  const abrirSessaoCriada = useOpenFocused(openTab, openSession, root)
+  const abrirSessaoCriadaSeAtiva = useCallback((sessionId: string) => {
+    if (!panelActiveRef.current) return openTab(sessionId)
+    abrirSessaoCriada(sessionId)
+  }, [abrirSessaoCriada, openTab])
+  const newSession = useNewSession(store, bot, abrirSessaoCriadaSeAtiva)
+  useConsumeNewRequest(store, panelActive ? botId : '', panelActive ? (newSession?.run ?? null) : null)
   const extras = extrasAllowed(store, bot)
   const openRow = openSession === null ? null : store.sessions.of(botId)?.find((s) => s.id === openSession) ?? null
   const canWriteExtra = extras && openRow !== null && openRow.state === 'open' && sessionsModel.can(botId, 'send')
