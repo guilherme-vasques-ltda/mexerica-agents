@@ -140,7 +140,8 @@ export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaC
   }
   const cancelar = () => { setChave(''); setEditando(false); setResultado(null) }
   const quantos = f.modelos?.length ?? 0
-  const botaoEntrar = f.id === 'openrouter' && espacoPessoal ? (
+  // O login pelo navegador usa o retorno de loopback do desktop; na web só resta colar a chave.
+  const botaoEntrar = window.codync?.web !== true && f.id === 'openrouter' && espacoPessoal ? (
     <button className="settings-quiet-button" onClick={entrar}>{t('contas.apiDireta.openrouter.entrar')}</button>
   ) : null
 

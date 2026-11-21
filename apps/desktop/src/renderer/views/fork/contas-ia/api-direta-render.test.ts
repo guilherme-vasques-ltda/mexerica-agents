@@ -84,3 +84,18 @@ test('o botão de entrar pelo navegador existe só na linha do OpenRouter, ao la
   const comChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', true) }, comSpaces)
   assert.ok(comChave.includes(entrar) && comChave.includes('Trocar'), 'com chave salva o botão segue ao lado de Trocar')
 })
+
+test('na web o botão de entrar pelo navegador some; colar a chave segue', () => {
+  const codync = window.codync as Record<string, unknown>
+  codync.web = true
+  try {
+    const comSpaces = { ...store, spaces: { personalSpaceId: 'pessoal-1' } }
+    const semChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, comSpaces)
+    assert.ok(!semChave.includes('Entrar com OpenRouter'), 'na web não há retorno de loopback para o login')
+    assert.ok(semChave.includes('Adicionar chave'), 'o caminho da chave segue na web')
+    const comChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', true) }, comSpaces)
+    assert.ok(!comChave.includes('Entrar com OpenRouter') && comChave.includes('Trocar'), 'com chave salva também sem o botão')
+  } finally {
+    delete codync.web
+  }
+})

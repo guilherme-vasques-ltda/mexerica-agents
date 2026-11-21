@@ -152,3 +152,13 @@ test('a seção existe com o Hub deste computador e o motor ligado, e some nos o
   assert.equal(renderiza(m.EntrarComChatGPT, {}, loja({ isLoopback: false })), '', 'Hub de outro computador: sem seção')
   assert.equal(renderiza(m.EntrarComChatGPT, {}, loja({ hello: { hostId: 'hub-fixture', backends: [] } })), '', 'motor desligado: sem seção')
 })
+
+test('na web a seção não aparece: o login pelo navegador é o retorno de loopback do desktop', () => {
+  const codync = window.codync as Record<string, unknown>
+  codync.web = true
+  try {
+    assert.equal(renderiza(m.EntrarComChatGPT), '', 'na web não há como receber o retorno do login')
+  } finally {
+    delete codync.web
+  }
+})

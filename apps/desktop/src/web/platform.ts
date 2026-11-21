@@ -33,6 +33,13 @@ export interface WebBridgeParts {
   account?: CodyncBridge['account']
   accountProfile?: CodyncBridge['accountProfile']
   forkCloud?: CodyncBridge['forkCloud']
+  /** Web local (src/web/main.ts): o Hub na mesma origem, com sessão HttpOnly + CSRF. */
+  host?: CodyncBridge['host']
+  /** Web local: downloads de arquivos compartilhados por bots (src/web/local-files.ts). */
+  files?: CodyncBridge['files']
+  hostPort?: number
+  computerName?: string
+  appScheme?: string
 }
 
 function defaultAccount(): CodyncBridge['account'] {
@@ -195,14 +202,14 @@ export function createWebBridge(parts: WebBridgeParts = {}): CodyncBridge {
     accountProfile: parts.accountProfile ?? defaultAccountProfile(),
     platform: 'linux',
     appName: 'Mexerica',
-    appScheme: 'codync',
-    hostPort: 19422,
+    appScheme: parts.appScheme ?? 'codync',
+    hostPort: parts.hostPort ?? 19422,
     appVersion,
-    computerName: 'Navegador',
+    computerName: parts.computerName ?? 'Navegador',
     suggestedLanguage: suggestedLanguageOf(typeof navigator === 'undefined' ? [] : navigator.languages),
     openedAtLogin: false,
     debugOpen: null,
-    host: defaultHost(),
+    host: parts.host ?? defaultHost(),
     account: parts.account ?? defaultAccount(),
     speech: { available: false, locales: () => [], start() {}, stop() {}, onEvent: none },
     ssh: defaultSsh(),
@@ -232,7 +239,7 @@ export function createWebBridge(parts: WebBridgeParts = {}): CodyncBridge {
     },
     updates: defaultUpdates(),
     releaseNotice: defaultReleaseNotice(),
-    files: {
+    files: parts.files ?? {
       begin: unavailable as CodyncBridge['files']['begin'],
       write: unavailable as CodyncBridge['files']['write'],
       finish: unavailable as CodyncBridge['files']['finish'],

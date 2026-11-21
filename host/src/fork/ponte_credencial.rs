@@ -6,6 +6,7 @@ use crate::{
     remote::crypto,
 };
 use anyhow::{Result, ensure};
+use axum::http::HeaderMap;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -201,7 +202,37 @@ impl Drop for Revogador {
 
 #[path = "ponte_http.rs"]
 mod http;
-pub(crate) use http::{autenticar, limitar_bearer};
+pub(crate) use http::{autenticar, autenticar_com_origin, limitar_bearer};
+
+/// Autenticação dos streams SSE (`/events`, `/term/{id}`): `Bearer` local segue como
+/// antes, sem cair na sessão Web; a sessão Web devolve a guarda que encerra o stream
+/// no logout, no despejo por limite de sessões ou na expiração.
+#[allow(clippy::option_option)]
+pub(crate) fn autenticar_stream(
+    hub: &Hub,
+    headers: &HeaderMap,
+    peer: std::net::SocketAddr,
+) -> Option<Option<crate::fork::web_local::SessaoStreamGuard>> {
+    if !peer.ip().to_canonical().is_loopback()
+        || (crate::environment::Environment::is_open() && peer != crate::open_hub::SOCKET_PEER)
+    {
+        return None;
+    }
+    if headers.contains_key("authorization") {
+        let given = headers.get("authorization")?.to_str().ok()?.strip_prefix("Bearer ")?;
+        if given.is_empty() {
+            return None;
+        }
+        if hub.pontes.autenticar(hub, given).is_some() {
+            return None;
+        }
+        if !crypto::ct_eq(given.as_bytes(), hub.token.as_bytes()) {
+            return None;
+        }
+        return Some(None);
+    }
+    hub.web_local()?.autenticar_stream(headers, peer).map(Some)
+}
 
 #[cfg(test)]
 #[path = "ponte_credencial_tests.rs"]

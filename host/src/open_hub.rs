@@ -27,7 +27,7 @@ enum Command {
 
 pub(crate) fn cli() -> Cli {
     let Command::Serve { port, bind, only_this_mac } = OpenCli::parse().command;
-    Cli { cmd: Some(Sub::Serve { port, bind: Some(bind), only_this_mac }) }
+    Cli { cmd: Some(Sub::Serve { port, bind: Some(bind), only_this_mac, web_dir: None }) }
 }
 
 pub(crate) fn require_executor() -> std::io::Result<()> {
