@@ -1,5 +1,5 @@
-# Build e testes do app no macOS. Namespace por padrao; maquina macOS do GitHub (macos-15) so com o
-# repositorio publico e a variavel CI_MAQUINA_MAC=macos-15. Fica fora do selo ci-ok. Guia: docs/guides/ci.md.
+# Build e testes do app no macOS. Repositorio privado: Namespace. Repositorio publico: so maquina macOS do GitHub
+# (macos-15), e so com a variavel CI_MAQUINA_MAC=macos-15; outro valor falha. Fica fora do selo ci-ok. Guia: docs/guides/ci.md.
 name: macOS
 
 on:
@@ -24,11 +24,24 @@ concurrency:
 permissions: {}
 
 jobs:
+  # Repositorio publico com CI_MAQUINA_MAC diferente de macos-15: falha aqui, sem build, e o job macos nao roda.
+  # Com o repositorio privado este job e sempre pulado, sem alocar maquina.
+  maquina-mac:
+    if: ${{ github.event.repository.visibility == 'public' && vars.CI_MAQUINA_MAC != 'macos-15' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Recusar CI_MAQUINA_MAC invalida em repositorio publico
+        run: |
+          echo '::error::Repositorio publico: a variavel CI_MAQUINA_MAC precisa valer macos-15. O job macOS nao roda com outro valor.'
+          exit 1
+
   macos:
-    # PR de fork e rascunho nao rodam; o disparo manual roda sempre.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft) }}
+    # PR de fork e rascunho nao rodam; o disparo manual so roda a partir da main.
+    if: ${{ (github.event.repository.visibility != 'public' || vars.CI_MAQUINA_MAC == 'macos-15') && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     # A escolha acontece antes de alocar a maquina: sem visibilidade publica confirmada no evento, sempre Namespace.
-    runs-on: ${{ github.event.repository.visibility == 'public' && vars.CI_MAQUINA_MAC == 'macos-15' && 'macos-15' || 'nscloud-macos-tahoe-arm64-6x14' }}
+    runs-on: ${{ github.event.repository.visibility == 'public' && 'macos-15' || 'nscloud-macos-tahoe-arm64-6x14' }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -40,7 +53,14 @@ jobs:
         if: ${{ runner.environment == 'github-hosted' && github.event.repository.visibility != 'public' }}
         working-directory: ${{ runner.temp }}
         run: |
-          echo '::error::Repositorio privado: o macOS nao roda em maquina do GitHub. Ajuste a variavel CI_MAQUINA_MAC.'
+          echo '::error::Repositorio privado: o macOS nao roda em maquina do GitHub.'
+          exit 1
+      # Espelho da barreira acima: em repositorio publico, so segue em maquina do GitHub.
+      - name: Recusar maquina paga em repositorio publico
+        if: ${{ runner.environment != 'github-hosted' && github.event.repository.visibility == 'public' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio publico: o macOS so roda em maquina do GitHub.'
           exit 1
       - name: Marcar o inicio para o resumo de minutos
         run: echo "MACOS_INICIO=$(date +%s)" >> "$GITHUB_ENV"
@@ -107,20 +127,27 @@ jobs:
           codesign --verify --strict "$hub"
           codesign --verify --strict "$speech"
           printf 'Hub embutido: %s\n' "$(lipo -archs "$hub")" >> "$GITHUB_STEP_SUMMARY"
-      # So no disparo manual: zip e SHA256SUMS ficam como artefato do proprio Actions, sem release nem upload externo.
-      - name: Gerar zip e SHA256SUMS
+      # So no disparo manual a partir da main: zip de teste de CI com o commit no nome, como artefato do proprio
+      # Actions, sem release nem upload externo. Nao e versao oficial.
+      - name: Gerar zip de teste e SHA256SUMS
         if: ${{ github.event_name == 'workflow_dispatch' }}
         working-directory: apps/desktop
         run: |
+          test "$GITHUB_REF" = refs/heads/main
           out="$RUNNER_TEMP/open-macos"
+          zip="Mexerica-Open-macos-arm64-teste-ci-${GITHUB_SHA::12}.zip"
           mkdir -p "$out"
-          ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/Mexerica-Open-macos-arm64.zip"
-          (cd "$out" && shasum -a 256 Mexerica-Open-macos-arm64.zip > SHA256SUMS && cat SHA256SUMS)
-          printf 'Zip: %s\n' "$(cut -d ' ' -f 1 "$out/SHA256SUMS")" >> "$GITHUB_STEP_SUMMARY"
+          ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/$zip"
+          (cd "$out" && shasum -a 256 "$zip" > SHA256SUMS && cat SHA256SUMS)
+          {
+            echo 'Teste de CI, nao e versao oficial: a assinatura ad hoc e o hash so provam a integridade desta rodada, nao autoria nem aprovacao. Nao compartilhar nem instalar sobre a versao de uso.'
+            printf 'Commit: %s (%s)\n' "$GITHUB_SHA" "$GITHUB_REF"
+            printf 'Zip: %s\n' "$(cut -d ' ' -f 1 "$out/SHA256SUMS")"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ github.event_name == 'workflow_dispatch' }}
         with:
-          name: mexerica-open-macos-arm64
+          name: mexerica-open-macos-arm64-teste-ci-${{ github.sha }}
           path: ${{ runner.temp }}/open-macos/
           retention-days: 3
           if-no-files-found: error
