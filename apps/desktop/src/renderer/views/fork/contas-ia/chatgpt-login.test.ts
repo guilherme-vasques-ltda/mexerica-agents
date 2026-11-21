@@ -76,6 +76,18 @@ test('o cliente emitido no retorno do primeiro registro segue ao Hub; repetido o
   }
 })
 
+test('depois do retorno o cancelar não faz mais nada e o login conclui', async () => {
+  let cancelar: () => void = () => {}
+  let avisou = false
+  const { client } = hub(() => { cancelar(); return { ok: true, conta: { rotulo: null, planoHabilitado: true } } })
+  const { ouvinte, registro } = ponte(() => Promise.resolve(VOLTA_OK))
+  const entrada = entrarComChatGPT(client, ouvinte, false, undefined, () => { avisou = true })
+  cancelar = entrada.cancelar
+  assert.deepEqual(await entrada.fim, { ok: true, rotulo: null, planoHabilitado: true })
+  assert.ok(avisou, 'a tela é avisada de que já está concluindo')
+  assert.equal(registro.filter((r) => r === 'fechar:7').length, 1, 'só o fim fecha o ouvinte')
+})
+
 test('o erro do fornecedor vale antes do código no mesmo retorno', async () => {
   const { client, corpos } = hub(() => ({ ok: false, erro: 'entrada_negada' }))
   const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK + '&error=access_denied'))

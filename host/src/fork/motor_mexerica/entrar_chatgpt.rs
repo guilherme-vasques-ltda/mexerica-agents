@@ -83,6 +83,7 @@ pub(super) struct Tentativa {
     pub(super) nonce: String,
     pub(super) verifier: Zeroizing<String>,
     pub(super) porta: u16,
+    geracao: u64,
     reautorizacao: Option<Reautorizacao>,
     pub(super) criada_em: Instant,
 }
@@ -130,7 +131,7 @@ impl Conta {
 /// Uma tentativa por vez.
 pub(super) static TENTATIVA: Mutex<Option<Tentativa>> = Mutex::new(None);
 /// Geração da sessão: o «Sair» a incrementa e uma entrada que começou antes dele não grava depois.
-static SESSAO: AtomicU64 = AtomicU64::new(0);
+pub(super) static SESSAO: AtomicU64 = AtomicU64::new(0);
 /// Renovação serializada: duas renovações simultâneas nunca usam o mesmo refresh.
 static RENOVACAO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -183,6 +184,7 @@ pub(super) async fn entrar(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         nonce: nonce.clone(),
         verifier: Zeroizing::new(verifier.clone()),
         porta,
+        geracao: SESSAO.load(Ordering::SeqCst),
         reautorizacao: reautorizacao.clone(),
         criada_em: Instant::now(),
     });
@@ -276,7 +278,6 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         if confere { guard.take() } else { None }
     };
     let Some(tentativa) = tentativa else { bail!(ENTRADA_INVALIDA) };
-    let geracao = SESSAO.load(Ordering::SeqCst);
     tracing::debug!(porta = tentativa.porta, "retorno do login com `ChatGPT` reconhecido");
     // O emissor disse não: recusa fixa, sem ecoar o motivo recebido.
     if body.get("erro").and_then(Value::as_str).is_some() {
@@ -303,7 +304,7 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         }
     };
     match trocar(&tentativa, &client_id, code).await {
-        Ok(troca) => gravar(hub, &tentativa, &client_id, troca, geracao).await,
+        Ok(troca) => gravar(hub, &tentativa, &client_id, troca).await,
         Err(Falha::SemResposta) => Ok(json!({"ok": false, "erro": "sem_resposta"})),
         Err(Falha::Fornecedor(status)) => Ok(json!({"ok": false, "erro": "fornecedor_falhou", "status": status})),
         Err(Falha::RespostaInvalida) => Ok(json!({"ok": false, "erro": "resposta_invalida"})),
@@ -312,7 +313,7 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
 
 /// Confere o ID token, recusa conta trocada na reautorização e grava o registro cifrado; a
 /// resposta ao app não leva token algum.
-async fn gravar(hub: &Arc<Hub>, tentativa: &Tentativa, client_id: &str, troca: Troca, geracao: u64) -> Result<Value> {
+async fn gravar(hub: &Arc<Hub>, tentativa: &Tentativa, client_id: &str, troca: Troca) -> Result<Value> {
     let identidade = match super::entrar_chatgpt_jwt::validar(
         &base_do_login(),
         &troca.id_token,
@@ -345,7 +346,7 @@ async fn gravar(hub: &Arc<Hub>, tentativa: &Tentativa, client_id: &str, troca: T
         "conta": {"rotulo": conta.rotulo.clone(), "planoHabilitado": conta.plano_habilitado()}
     });
     let _serie = RENOVACAO.lock().await;
-    if SESSAO.load(Ordering::SeqCst) != geracao {
+    if SESSAO.load(Ordering::SeqCst) != tentativa.geracao {
         return Ok(json!({"ok": false, "erro": "sessao_encerrada"}));
     }
     crate::market::vault::unlock(hub.clone()).await?;

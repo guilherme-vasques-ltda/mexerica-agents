@@ -993,6 +993,30 @@ async fn sair_derruba_a_entrada_pendente() {
     assert!(hub.store.kv_read(login::SLOT_CONTA).unwrap().is_none());
 }
 
+/// Uma entrada que já estava na rede quando o «Sair» aconteceu não grava nada depois dele.
+#[tokio::test]
+async fn entrada_em_andamento_nao_grava_depois_do_sair() {
+    let _serie = SERIE.lock().await;
+    let hub = crate::fork::conectores::oauth_binding::tests::hub();
+    let registros = ficho();
+    let base = servidor_de_mentira(registros.clone()).await;
+    *login::BASE_EM_TESTE.locked() = Some(base);
+    login::entrar(&hub, &json!({"loopbackPort": 19424})).await.unwrap();
+    let (state, nonce, _) = tentativa_atual();
+    *registros.resposta_troca.lock().unwrap() = RespostaTroca::Corpo(json!({
+        "access_token": ACCESS,
+        "refresh_token": REFRESH,
+        "id_token": id_token_de_prova(&cabecalho_de_prova(), &afirmacoes_de_prova(&nonce, SUB)),
+        "expires_in": 3600,
+        "scope": ESCOPO_CHEIO,
+    }));
+    login::SESSAO.fetch_add(1, Ordering::SeqCst);
+    let resposta = login::concluir(&hub, &json!({"state": state, "code": CODIGO, "client_id": CLIENTE})).await.unwrap();
+    assert_eq!(resposta, json!({"ok": false, "erro": "sessao_encerrada"}));
+    assert!(hub.store.kv_read(login::SLOT_CONTA).unwrap().is_none());
+    *login::BASE_EM_TESTE.locked() = None;
+}
+
 /// Sem registro: o estado pede entrada, sem rótulo.
 #[tokio::test]
 async fn estado_sem_registro_pede_entrada() {

@@ -29,6 +29,7 @@ export function EntrarComChatGPT() {
   const [erro, setErro] = useState<ChaveTexto | null>(null)
   const [avisoDeSair, setAvisoDeSair] = useState(false)
   const [ocupado, setOcupado] = useState(false)
+  const [concluindo, setConcluindo] = useState(false)
   const ocupadoRef = useRef(false)
   const cancelarRef = useRef<(() => void) | null>(null)
 
@@ -51,18 +52,20 @@ export function EntrarComChatGPT() {
     if (!client || ocupadoRef.current) return
     setErro(null)
     setAvisoDeSair(false)
-    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir)
+    const { fim, cancelar } = entrarComChatGPT(client, window.codync.app.loginRetorno, consentir, undefined, () => setConcluindo(true))
     cancelarRef.current = cancelar
     ocupadoRef.current = true
     setOcupado(true)
     void fim
       .then((r) => {
-        if (r.ok) setEstado({ conectado: true, rotulo: r.rotulo ?? undefined, planoHabilitado: r.planoHabilitado, precisaEntrar: false })
+        if (!r.ok) setErro('contas.chatgpt.erro.falha')
+        else setEstado({ conectado: true, rotulo: r.rotulo ?? undefined, planoHabilitado: r.planoHabilitado, precisaEntrar: false })
       })
       .catch((e: unknown) => setErro(e instanceof FalhaChatGPT ? fraseDaFalha(e.tipo) : 'contas.chatgpt.erro.falha'))
       .finally(() => {
         ocupadoRef.current = false
         setOcupado(false)
+        setConcluindo(false)
         cancelarRef.current = null
         void reler()
       })
@@ -95,6 +98,7 @@ export function EntrarComChatGPT() {
           <PlanoDoChatGPT
             estado={estado}
             ocupado={ocupado}
+            concluindo={concluindo}
             erro={erro}
             avisoDeSair={avisoDeSair}
             entrar={() => entrar(false)}
@@ -109,9 +113,10 @@ export function EntrarComChatGPT() {
 }
 
 /** A parte que só desenha: o estado da conta, os avisos e os botões; quem decide é o componente de cima. */
-export function PlanoDoChatGPT({ estado, ocupado, erro, avisoDeSair, entrar, ativar, sair, cancelar }: {
+export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair, entrar, ativar, sair, cancelar }: {
   estado: EstadoChatGPT | null
   ocupado: boolean
+  concluindo?: boolean
   erro: ChaveTexto | null
   avisoDeSair: boolean
   entrar: () => void
@@ -132,7 +137,7 @@ export function PlanoDoChatGPT({ estado, ocupado, erro, avisoDeSair, entrar, ati
       {ocupado ? (
         <HStack gap={12}>
           <Text size="caption" tone="secondary">{t('contas.chatgpt.aguardando')}</Text>
-          <button className="settings-quiet-button" onClick={cancelar}>{t('contas.chatgpt.cancelar')}</button>
+          {concluindo ? null : <button className="settings-quiet-button" onClick={cancelar}>{t('contas.chatgpt.cancelar')}</button>}
         </HStack>
       ) : null}
       <div className="settings-row">

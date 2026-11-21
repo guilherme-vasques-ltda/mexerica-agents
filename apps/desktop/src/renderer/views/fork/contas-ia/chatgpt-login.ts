@@ -56,12 +56,13 @@ export const sairDoChatGPT = (client: HostClient) =>
 /**
  * O login inteiro: liga o ouvinte do app, pede a URL ao Hub (com `consentir` quando a pessoa escolhe ativar o uso
  * do plano), espera o navegador voltar, entrega o retorno ao Hub (que confere o state, consome a tentativa, troca o
- * código e guarda tudo no cofre) e mostra o desfecho ao navegador. `cancelar` desiste: desliga o ouvinte e a
- * espera termina como «cancelado».
+ * código e guarda tudo no cofre) e mostra o desfecho ao navegador. `cancelar` desiste enquanto o navegador não voltou:
+ * desliga o ouvinte e a espera termina como «cancelado»; depois do retorno (`aoConcluir`) ele não faz mais nada.
  */
-export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, consentir: boolean, esperaMs = ESPERA_MAX_MS) {
+export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, consentir: boolean, esperaMs = ESPERA_MAX_MS, aoConcluir?: () => void) {
   let tentativa: number | null = null
   let cancelado = false
+  let concluindo = false
   const fim = (async (): Promise<DesfechoChatGPT> => {
     const aberto = await ouvinte.abrir().catch(() => null)
     if (!aberto) throw new FalhaChatGPT('falha')
@@ -91,6 +92,9 @@ export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, co
       }
       let retorno: ReturnType<typeof lerRetornoLogin>
       try { retorno = lerRetornoLogin(volta) } catch { throw new FalhaChatGPT('falha') }
+      // Daqui em diante o Hub troca o código e grava a conta: não há mais o que cancelar.
+      concluindo = true
+      aoConcluir?.()
       // O cliente emitido volta no retorno do primeiro registro; repetido ou vazio, o retorno é recusado.
       const clientes = new URL(volta).searchParams.getAll('client_id')
       if (clientes.length > 1 || clientes[0] === '') throw new FalhaChatGPT('falha')
@@ -112,6 +116,7 @@ export function entrarComChatGPT(client: HostClient, ouvinte: PonteDoOuvinte, co
     }
   })()
   const cancelar = () => {
+    if (concluindo) return
     cancelado = true
     if (tentativa !== null) ouvinte.fechar(tentativa)
   }
