@@ -99,7 +99,7 @@ impl Drop for BusyGuard<'_> {
 pub(super) const MIN_SECRET_LEN: usize = 8;
 
 /// Provedor do modelo `provider/model` ou do nome (`gemini-*` → google,
-/// `gpt-*`/`o*` → openai). Sem provedor reconhecido, falha fechada.
+/// `muse-*` → meta, `gpt-*`/`o*` → openai). Sem provedor reconhecido, falha fechada.
 fn provider_of(model_id: &str) -> Result<(String, String)> {
     if let Some((provider, model)) = model_id.split_once('/') {
         ensure!(!provider.is_empty() && !model.is_empty(), "modelo do motor inválido: {model_id}");
@@ -107,6 +107,8 @@ fn provider_of(model_id: &str) -> Result<(String, String)> {
     }
     let provider = if model_id.starts_with("gemini") {
         "google"
+    } else if model_id.starts_with("muse") {
+        "meta"
     } else if model_id.starts_with("gpt")
         || model_id.strip_prefix('o').is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
     {
@@ -900,7 +902,9 @@ mod tests {
         assert_eq!(provider_of("gpt-5").unwrap().0, "openai");
         assert_eq!(provider_of("gemini-3").unwrap().0, "google");
         assert_eq!(provider_of("google/gemini-3").unwrap().0, "google");
-        for nome in ["opus-5", "o", "outro-modelo", "claude-sonnet-5-5"] {
+        assert_eq!(provider_of("muse-spark-1.3").unwrap().0, "meta");
+        assert_eq!(provider_of("meta/muse-wonder-1.0").unwrap(), ("meta".to_owned(), "muse-wonder-1.0".to_owned()));
+        for nome in ["opus-5", "o", "outro-modelo", "claude-sonnet-5-5", "llama-4"] {
             assert!(provider_of(nome).is_err(), "{nome} não é de nenhum provedor do motor");
         }
     }
