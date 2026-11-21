@@ -678,3 +678,19 @@ fn blob_de_texto_vira_contexto_e_tipo_desconhecido_e_recusado() {
     };
     assert!(erro.contains("só imagens"), "{erro}");
 }
+
+/// Vários anexos de texto somam no teto agregado do turno, igual às imagens: nenhum passa sozinho
+/// do limite por item, mas juntos não podem inflar o pedido.
+#[test]
+fn varios_anexos_de_texto_somam_no_teto_agregado_do_turno() {
+    use base64::Engine as _;
+    // Cada um abaixo do teto por item (5 MB); cinco juntos passam do teto agregado do turno (20 MB).
+    let dados = base64::engine::general_purpose::STANDARD.encode(vec![b'a'; 9 * 512 * 1024]);
+    let anexo = |n: u32| json!({"type": "resource", "resource": {"uri": format!("file:///docs/nota{n}.txt"), "blob": dados, "mimeType": "text/plain"}});
+    let pedido = json!([anexo(1), anexo(2), anexo(3), anexo(4), anexo(5)]);
+    let erro = match super::agente::blocos(&pedido) {
+        Err(e) => format!("{e:?}"),
+        Ok(_) => panic!("devia recusar pelo teto agregado"),
+    };
+    assert!(erro.contains("anexo maior que o limite"), "{erro}");
+}

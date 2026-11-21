@@ -254,8 +254,9 @@ fn imagem(tipo: &str, dados: &str, total: &mut usize) -> Result<Value, Erro> {
     Ok(json!({"type": "image", "source": {"type": "base64", "data": dados, "media_type": tipo}}))
 }
 
-/// Blob de texto anexado ao pedido: decodifica e devolve o conteúdo; o limite é o mesmo das imagens.
-fn anexo_texto(dados: &str) -> Result<String, Erro> {
+/// Blob de texto anexado ao pedido: decodifica e devolve o conteúdo; o teto é o mesmo das imagens,
+/// somado ao agregado do turno para vários anexos não inflarem o pedido.
+fn anexo_texto(dados: &str, total: &mut usize) -> Result<String, Erro> {
     use base64::Engine as _;
     if dados.len() > LIMITE_IMAGEM / 3 * 4 + 4 {
         return Err(Erro::parametros("anexo maior que o limite"));
@@ -263,7 +264,8 @@ fn anexo_texto(dados: &str) -> Result<String, Erro> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(dados)
         .map_err(|_| Erro::parametros("anexo com dados que não são base64 válido"))?;
-    if bytes.len() > LIMITE_IMAGEM {
+    *total += bytes.len();
+    if bytes.len() > LIMITE_IMAGEM || *total > LIMITE_IMAGENS {
         return Err(Erro::parametros("anexo maior que o limite"));
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
@@ -273,14 +275,15 @@ fn anexo_texto(dados: &str) -> Result<String, Erro> {
 pub(super) fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
     let mut out = Vec::new();
     let mut contexto = Vec::new();
-    let mut total_imagens = 0;
+    // Teto agregado de bytes dos anexos do turno: imagens e blobs de texto somam juntos.
+    let mut total_anexos = 0;
     for b in prompt.as_array().into_iter().flatten() {
         match b["type"].as_str().unwrap_or_default() {
             "text" => out.push(json!({"type": "text", "text": b["text"].as_str().unwrap_or_default()})),
             "image" => out.push(imagem(
                 b["mimeType"].as_str().unwrap_or_default(),
                 b["data"].as_str().unwrap_or_default(),
-                &mut total_imagens,
+                &mut total_anexos,
             )?),
             "resource_link" => out.push(json!({"type": "text", "text": b["uri"].as_str().unwrap_or_default()})),
             "resource" => {
@@ -292,9 +295,9 @@ pub(super) fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
                 } else if let Some(dados) = b["resource"]["blob"].as_str() {
                     let tipo = b["resource"]["mimeType"].as_str().unwrap_or_default();
                     if tipo.starts_with("text/") {
-                        contexto.push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{}\n</context>", anexo_texto(dados)?) }));
+                        contexto.push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{}\n</context>", anexo_texto(dados, &mut total_anexos)?) }));
                     } else {
-                        contexto.push(imagem(tipo, dados, &mut total_imagens)?);
+                        contexto.push(imagem(tipo, dados, &mut total_anexos)?);
                     }
                 }
             }
