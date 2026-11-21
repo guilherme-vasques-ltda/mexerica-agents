@@ -43,4 +43,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.recibo.campo.motor": "المحرك",
   "conversa.recibo.campo.esforco": "الجهد",
   "conversa.recibo.tentarDeNovo": "حاول مجددًا",
+  "conversa.recibo.uso.titulo": "استهلاك هذه الجولة",
+  "conversa.recibo.uso.entrada": "الإدخال",
+  "conversa.recibo.uso.cacheLido": "قراءة الذاكرة المؤقتة",
+  "conversa.recibo.uso.cacheGravado": "كتابة الذاكرة المؤقتة",
+  "conversa.recibo.uso.saida": "الإخراج",
+  "conversa.recibo.uso.naoInformado": "غير مُبلَّغ",
+  "conversa.recibo.uso.informado": "أرقام أبلغ بها المحرك في نهاية الجولة. لا تقدّر Mexerica شيئًا: ما لا يبلغ به المحرك يظهر «غير مُبلَّغ».",
+  "conversa.recibo.uso.semMedida": "لا يوجد قياس للاستهلاك في هذه الجولة: فهي سابقة لهذا السجل أو لم يرد المحرك بعد.",
+  "conversa.recibo.uso.nenhum": "لم يبلغ المحرك عن استهلاك هذه الجولة.",
 }
