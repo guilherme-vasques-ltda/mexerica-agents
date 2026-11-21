@@ -311,7 +311,14 @@ impl Actor {
         };
         let codex = self.conn.as_ref().is_some_and(|c| c.adapter == super::Adapter::Codex);
         let options = params["options"].as_array().cloned().unwrap_or_default();
-        let options = if codex { crate::agent::engine_permissions::codex_options(options) } else { options };
+        // O Grok persiste `allow_always` no próprio perfil, fora do Hub: a opção não chega ao cartão.
+        let options = if codex {
+            crate::agent::engine_permissions::codex_options(options)
+        } else if self.cfg.backend == "grok" {
+            crate::agent::engine_permissions::grok_options(options)
+        } else {
+            options
+        };
         let tool = &params["toolCall"];
         let recorded =
             tool["toolCallId"].as_str().and_then(|id| self.tools.get(id)).and_then(|id| self.hub.store.entry(id));

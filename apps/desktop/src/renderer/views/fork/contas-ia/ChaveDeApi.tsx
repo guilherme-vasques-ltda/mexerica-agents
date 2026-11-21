@@ -16,7 +16,7 @@ import { traduzir } from '../../../lib/fork-i18n/index.ts'
 import './contas-ia.css'
 
 /** A única variável que o Hub aceita para a chave de cada provedor, e a página oficial onde ela é criada. */
-const API_KEY: Record<Engine, { name: string; rotulo: 'contas.chaveRotulo.codex' | 'contas.chaveRotulo.claude'; page: string }> = {
+const API_KEY: Record<Exclude<Engine, 'grok'>, { name: string; rotulo: 'contas.chaveRotulo.codex' | 'contas.chaveRotulo.claude'; page: string }> = {
   codex: { name: 'OPENAI_API_KEY', rotulo: 'contas.chaveRotulo.codex', page: 'https://platform.openai.com/api-keys' },
   claude: { name: 'ANTHROPIC_API_KEY', rotulo: 'contas.chaveRotulo.claude', page: 'https://console.anthropic.com/settings/keys' },
 }
@@ -28,7 +28,8 @@ const API_KEY: Record<Engine, { name: string; rotulo: 'contas.chaveRotulo.codex'
 export function ChaveDeApi({ contas, account, onClose }: { contas: ContasStore; account: ManagedAccount; onClose: () => void }) {
   const store = useStore()
   useModel(contas)
-  const key = API_KEY[account.backend]
+  // O Grok entra só pelo login do programa oficial: o Hub recusa chave e a tela nunca abre este formulário para ele.
+  const key = API_KEY[account.backend as Exclude<Engine, 'grok'>]
   // Segredo: não sobrevive à troca de página, de propósito (estado-pagina.ts, exceções).
   const [value, setValue] = useState('')
   const [error, setError] = useState<unknown>(null)

@@ -254,7 +254,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         rpc(&session_client, &credential, "donnaEngineAccounts", json!({"refresh":true})).await["accounts"],
         json!([])
     );
-    for (backend, kind) in [("claude", "cli"), ("codex", "api")] {
+    for (backend, kind) in [("claude", "cli"), ("grok", "cli"), ("codex", "api")] {
         assert_eq!(
             session_client
                 .post("http://localhost/api/donnaEngineAccountCreate")
