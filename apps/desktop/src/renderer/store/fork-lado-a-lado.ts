@@ -153,9 +153,14 @@ export class LadoALadoStore extends Observable {
     // não apagar o que outra aba gravou num escopo diferente.
     try {
       const bruto = this.storage?.getItem(CHAVE_ARMAZENAMENTO_LADO_A_LADO)
-      const disco = bruto ? parseLadoALadoMapa(JSON.parse(bruto)) : {}
+      // JSON corrompido no disco não pode travar a gravação para sempre: recomeça do mapa vazio
+      // e deixa a próxima gravação recuperar o disco.
+      let disco: LadoALadoMapa = {}
+      if (bruto) {
+        try { disco = parseLadoALadoMapa(JSON.parse(bruto)) } catch { disco = {} }
+      }
       this.storage?.setItem(CHAVE_ARMAZENAMENTO_LADO_A_LADO, JSON.stringify({ ...disco, [chave]: proximo }))
-    } catch { /* disco indisponível ou ilegível: o quadro segue em memória */ }
+    } catch { /* disco indisponível: o quadro segue em memória */ }
     this.changed()
   }
 

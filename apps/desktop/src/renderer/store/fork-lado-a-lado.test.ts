@@ -167,6 +167,18 @@ test('loja: aba defasada não apaga o escopo que a outra gravou', () => {
   assert.equal(leitorFinal.estado(escopo).paineis.length, 1)
 })
 
+test('loja: JSON corrompido no disco não trava a gravação para sempre', () => {
+  const disco = memoria()
+  disco.gravar(CHAVE_ARMAZENAMENTO_LADO_A_LADO, '{corrompido')
+  const loja = new LadoALadoStore(disco)
+  assert.deepEqual(loja.estado(escopo), { ativo: false, focoId: null, paineis: [] })
+  assert.equal(loja.abrir(escopo, ref('bot-a', { spaceId: 'esp-1' })), 'adicionado')
+  // A gravação substituiu o blob corrompido: uma loja nova recupera o painel do disco.
+  const recuperada = new LadoALadoStore(disco)
+  assert.equal(recuperada.estado(escopo).paineis.length, 1)
+  assert.equal(recuperada.estado(escopo).paineis[0].ref.botId, 'bot-a')
+})
+
 test('loja: entrar restaura painéis salvos; sem nenhum, abre o inicial dado', () => {
   const loja = new LadoALadoStore(memoria())
   loja.abrir(escopo, ref('bot-a', { spaceId: 'esp-1' }))

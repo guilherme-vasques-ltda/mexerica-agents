@@ -411,18 +411,37 @@ function ChatSplitView() {
     .map((s) => s.computer.id)
     .sort()
     .join(',')
+  // O `hello` que anunciou as conversas completa a prova de que o roster não está parcial.
+  const anuncioReconciliar = stores.map((s) => (Array.isArray(s.hello?.conversations) ? 1 : 0)).join(',')
   useEffect(() => {
-    const computadoresProntos = new Set(
-      stores.filter((s) => s.connection.kind === 'online' && !s.mismatch).map((s) => s.computer.id),
-    )
-    const disponiveis: ConversaDisponivel[] = rosterParaReconciliar.map((item) => {
+    const agora = Date.now()
+    const computadoresProntos = new Set<string>()
+    const disponiveis: ConversaDisponivel[] = []
+    for (const s of stores) {
+      if (s.connection.kind !== 'online' || s.mismatch) continue
+      const anunciadas = s.hello?.conversations
+      // Carência do roster (store/fork-empty-roster.ts): logo após (re)conectar, cada bot chega
+      // num evento próprio e um roster parcial não é prova de ausência — remoção só vale quando o
+      // `hello` anunciou as conversas do link ou passados os 5 s online.
+      if (!Array.isArray(anunciadas) && (s.emptyWatch.remaining(agora) ?? 1) !== 0) continue
+      computadoresProntos.add(s.computer.id)
+      // Com o `hello` anunciado, a conversa vale como disponível antes de o roster terminar de
+      // chegar: um painel restaurado não some só porque o evento do bot demorou.
+      if (Array.isArray(anunciadas)) {
+        const vistos = new Set<string>()
+        for (const c of anunciadas) {
+          if (!c.botId || vistos.has(c.botId)) continue
+          vistos.add(c.botId)
+          disponiveis.push({ ref: { computerId: s.computer.id, botId: c.botId, ...(s.spaceId ? { spaceId: s.spaceId } : {}), ...(s.hello?.hostId ? { hubId: s.hello.hostId } : {}) } })
+        }
+      }
+    }
+    for (const item of rosterParaReconciliar) {
       const lista = item.store.sessions.of(item.bot.id)
-      return lista
-        ? { ref: item.ref, sessionIds: new Set(lista.filter((s) => !s.principal).map((s) => s.id)) }
-        : { ref: item.ref }
-    })
+      disponiveis.push(lista ? { ref: item.ref, sessionIds: new Set(lista.filter((s) => !s.principal).map((s) => s.id)) } : { ref: item.ref })
+    }
     ladoALadoStore.reconciliar(escopoLadoALado, disponiveis, computadoresProntos)
-  }, [escopoLadoALado, prontosKeyReconciliar, sessoesVersionReconciliar, rosterKeysReconciliar])
+  }, [escopoLadoALado, prontosKeyReconciliar, sessoesVersionReconciliar, rosterKeysReconciliar, anuncioReconciliar])
 
   const ultimaSeqRef = useRef(app.selectionSeq)
   const ignorarSeqRef = useRef<number | null>(null)
@@ -431,8 +450,11 @@ function ChatSplitView() {
   const prevQuadroAtivoRef = useRef(quadroEstado.ativo)
 
   const selecionarPeloQuadro = useCallback((ref: LadoALadoRef) => {
-    ignorarSeqRef.current = app.selectionSeq + 1
+    const seq = app.selectionSeq
     app.select(ref)
+    // `select` pode devolver sem incrementar (hubId divergente do hostId atual): sem avanço, o
+    // token não fica órfão engolindo a próxima seleção genuína da barra lateral.
+    ignorarSeqRef.current = app.selectionSeq !== seq ? app.selectionSeq : null
   }, [app])
 
   useEffect(() => {
