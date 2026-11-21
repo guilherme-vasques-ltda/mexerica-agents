@@ -57,20 +57,20 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
   ferramentas. Limite: um código que o motor escreva de outro jeito que não o literal (por exemplo em base64) não é
   reconhecido; ele vale só enquanto o processo dura.
 - Os planos de código só funcionam em Linux e macOS nesta versão: no Windows o salvamento e a abertura recusam com
-  mensagem própria, porque confirmar a saída de toda a árvore de processos lá exigiria um Job Object.
+  mensagem própria.
 - O OpenCode do plano roda num perfil próprio (`engine_setup_root/planos/<plano>/home`: casa, configuração, dados,
   estado e cache só do plano), com a configuração de projeto desligada (`OPENCODE_DISABLE_PROJECT_CONFIG`). Um bot com
   comando próprio de execução não recebe o ambiente do plano: o lançamento falha. Sem chave, fora do Space pessoal ou
   no executor isolado, também falha: o Hub nunca cai no ambiente do dono.
-- Trocar ou remover a chave revoga o código na hora, corta os pedidos em andamento (também a leitura do corpo, e uma
-  revogação nunca se perde: ela fica marcada para quem chegar depois) e encerra o processo do OpenCode que o recebeu
-  antes de a operação voltar: pede a saída, espera 2 s, mata o grupo inteiro e espera até 8 s pela confirmação, numa
-  tarefa que o prazo de quem chamou não cancela. Só vale a saída confirmada pela
-  verificação do grupo de processos (Unix); sem confirmação a operação devolve erro, o processo fica pendente do plano
-  (nenhuma sessão nova abre enquanto isso) e a chamada seguinte reexamina o pendente, só devolvendo sucesso depois de
-  confirmar (o código já está revogado de qualquer jeito: a chave não corre risco, só o processo). Uma abertura em
-  curso entra na mesma espera. Uma geração por plano fecha a corrida com uma abertura em curso: um processo que nasceu
-  com um código já revogado é encerrado.
+- Trocar ou remover a chave de um plano é RECUSADO enquanto o plano tiver qualquer conversa viva ou abertura em
+  curso («plano_em_uso: encerre as conversas deste plano e tente de novo»). A recusa é a confirmação: ela só aparece
+  quando há gente usando o plano, e nada é encerrado por trás de quem pediu a troca. Chave, lista de modelos e perfil
+  ficam intactos; quem encerrar as conversas (ou esperar a abertura em curso se resolver) troca na chamada seguinte.
+- Abrir sessão nova durante a troca em andamento também é recusado: a troca sobe a geração do plano, e quem leu a
+  chave antes da troca vale como recusa, nunca como chave velha viva.
+- O código de sessão morre com a sessão: quando a concessão sai de escopo (o processo do OpenCode sai), o código é
+  revogado e os pedidos em andamento são cortados, também a leitura do corpo — e a revogação nunca se perde, fica
+  marcada para quem chegar depois.
 - O código vive no ambiente do processo, então vive com ele: quando a última conversa do processo fecha, o processo é
   encerrado (a próxima conversa abre outro, com outro código). Uma exceção: um processo mantido vivo por um comando de
   fundo da própria ferramenta (um servidor de desenvolvimento, por exemplo) segue até esse comando acabar.

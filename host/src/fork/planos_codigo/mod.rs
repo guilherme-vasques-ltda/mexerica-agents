@@ -159,7 +159,8 @@ fn resultado(lista: Result<Vec<acesso::Modelo>, acesso::Falha>) -> Value {
     }
 }
 
-/// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada.
+/// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada. Recusada também a
+/// troca com conversa viva ou abertura em curso do plano: quem solta a concessão fecha a porta para a troca.
 async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Zeroizing<String>) -> Result<Value> {
     ensure!(!cfg!(windows), "plano_indisponivel: os planos de código só funcionam em Linux e macOS nesta versão.");
     let _operacao = OPERACAO.lock().await;
@@ -169,9 +170,10 @@ async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Z
     }
     crate::market::vault::unlock(hub.clone()).await?;
     let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
+    // A troca fica reservada durante a gravação: sessão nova não abre no meio, e quem leu a chave
+    // antes (a geração) vale como recusa, nunca como chave velha viva.
+    let _troca = repasse_do_hub(hub).await?.reservar_troca(plano)?;
     gravar(&hub.store, plano, &candidata, &acesso)?;
-    // Depois da gravação: as sessões abertas com a chave velha morrem e os pedidos em andamento são cortados.
-    repasse_do_hub(hub).await?.revogar_plano(plano).await?;
     Ok(acesso)
 }
 
@@ -193,9 +195,11 @@ fn gravar(store: &Store, plano: &Plano, chave: &str, acesso: &Value) -> Result<(
     Ok(())
 }
 
-/// Remove a chave, a lista de modelos e o perfil do plano, e revoga as sessões abertas. O próximo turno já não acha
-/// chave, e o processo do OpenCode que sobrou só tem um código morto.
+/// Remove a chave, a lista de modelos e o perfil do plano. Recusada com conversa viva ou abertura em curso: quem
+/// solta a concessão fecha a porta para a remoção. O próximo turno já não acha chave, e o processo do OpenCode que
+/// sobrar só tem um código morto.
 async fn remover(hub: &Arc<Hub>, plano: &'static Plano) -> Result<()> {
+    let _troca = repasse_do_hub(hub).await?.reservar_troca(plano)?;
     {
         let proxima = (revisao(&hub.store, plano)? + 1).to_string();
         let mut db = hub.store.db.locked();
@@ -208,9 +212,8 @@ async fn remover(hub: &Arc<Hub>, plano: &'static Plano) -> Result<()> {
         )?;
         transacao.commit()?;
     }
-    let revogado = repasse_do_hub(hub).await?.revogar_plano(plano).await;
     perfil::apagar(&hub.store, plano);
-    revogado
+    Ok(())
 }
 
 /// O repasse local deste Hub, iniciado na primeira vez que alguém precisa dele.

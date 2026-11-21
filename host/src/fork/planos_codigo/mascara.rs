@@ -35,7 +35,8 @@ pub(crate) fn mascarar_codigo(texto: &str) -> Cow<'_, str> {
 
 /// Mascara os textos de um JSON já interpretado, em qualquer profundidade — os valores e também
 /// os nomes (chaves) dos campos: um código pode vir como nome, e quem lê o JSON de novo (ou o
-/// imprime) não pode vê-lo.
+/// imprime) não pode vê-lo. Dois nomes distintos que colidem depois da máscara não se sobrescrevem:
+/// o segundo (e seguintes) ganha sufixo de índice (`mxs_[oculto]#2`, `#3`...).
 pub(crate) fn mascarar_json(valor: &mut Value) {
     match valor {
         Value::String(texto) => {
@@ -45,17 +46,24 @@ pub(crate) fn mascarar_json(valor: &mut Value) {
         }
         Value::Array(itens) => itens.iter_mut().for_each(mascarar_json),
         Value::Object(campos) => {
-            let reconstruido: serde_json::Map<String, Value> = std::mem::take(campos)
-                .into_iter()
-                .map(|(nome, mut valor)| {
-                    mascarar_json(&mut valor);
-                    let nome = match mascarar_codigo(&nome) {
-                        Cow::Borrowed(_) => nome,
-                        Cow::Owned(mascarada) => mascarada,
-                    };
-                    (nome, valor)
-                })
-                .collect();
+            let mut reconstruido = serde_json::Map::new();
+            for (nome, mut valor) in std::mem::take(campos) {
+                mascarar_json(&mut valor);
+                let nome = match mascarar_codigo(&nome) {
+                    Cow::Borrowed(_) => nome,
+                    Cow::Owned(mascarada) => mascarada,
+                };
+                let nome = if reconstruido.contains_key(&nome) {
+                    let mut indice = 2;
+                    while reconstruido.contains_key(&format!("{nome}#{indice}")) {
+                        indice += 1;
+                    }
+                    format!("{nome}#{indice}")
+                } else {
+                    nome
+                };
+                reconstruido.insert(nome, valor);
+            }
             *campos = reconstruido;
         }
         _ => {}

@@ -364,26 +364,39 @@ async fn trocar_ou_remover_a_chave_muda_o_carimbo_revoga_as_sessoes_e_apaga_chav
     let primeiro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
     let repasse = repasse_do_hub(&hub).await.unwrap();
     assert_eq!(repasse.sessoes_vivas(), 1);
-    // Como o OpenCode de verdade: o processo aberto prende a concessão, senão a revogação
-    // esperaria a abertura se resolver.
-    let (velho, _entrada) =
-        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
-    assert!(primeiro.concessao.prender(&velho));
-    com_chave(&hub).await;
-    assert_eq!(repasse.sessoes_vivas(), 0, "trocar a chave revoga a sessão do processo antigo");
-    let segundo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-    assert_ne!(primeiro.carimbo, segundo.carimbo, "chave trocada reinicia o processo do OpenCode");
-    drop(primeiro);
-    assert_eq!(repasse.sessoes_vivas(), 1, "soltar a concessão velha não mexe na nova");
-    let (novo, _entrada) =
-        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
-    assert!(segundo.concessao.prender(&novo));
-
     let perfil = hub.store.engine_setup_root.join("planos").join("opencode-go");
     assert!(perfil.is_dir());
+
+    // Com a sessão viva, troca e remoção são recusadas: a recusa é a confirmação de que há
+    // conversa aberta. Chave, lista de modelos e perfil ficam intactos.
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    let erro = salvar(&hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap_err().to_string();
+    assert!(erro.starts_with("plano_em_uso"), "{erro}");
+    let erro = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(erro.starts_with("plano_em_uso"), "{erro}");
+    assert_eq!(crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap().as_deref(), Some(CHAVE));
+    assert!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap().is_some());
+    assert!(perfil.is_dir());
+
+    // Largada a concessão da sessão velha, as duas operações passam.
+    let carimbo_velho = primeiro.carimbo.clone();
+    drop(primeiro);
+    let segundo = salvar(&hub, &PLANOS[0], &url, Zeroizing::new("outra-chave-ficticia-456".into())).await.unwrap();
+    assert_eq!(segundo["ok"], true, "{segundo}");
+    assert_eq!(
+        crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap().as_deref(),
+        Some("outra-chave-ficticia-456")
+    );
+    let novo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    assert_ne!(carimbo_velho, novo.carimbo, "chave trocada reinicia o processo do OpenCode");
+    drop(novo);
+
     let resposta = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"})).await.unwrap();
     assert_eq!(resposta, json!({"ok": true}));
-    assert_eq!(repasse.sessoes_vivas(), 0, "remover revoga as sessões abertas");
+    assert_eq!(repasse.sessoes_vivas(), 0, "sem concessão viva a remoção passa e não sobra sessão");
     assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
     assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), None);
     assert!(!perfil.exists(), "o perfil do plano some com a chave");
@@ -391,7 +404,34 @@ async fn trocar_ou_remover_a_chave_muda_o_carimbo_revoga_as_sessoes_e_apaga_chav
     let lista = listar(&hub.store).unwrap();
     assert_eq!(lista["planos"][0]["configurada"], false);
     assert_eq!(lista["planos"][0]["modelos"], Value::Null);
-    drop(segundo);
+}
+
+#[tokio::test]
+async fn a_troca_e_a_remocao_sao_recusadas_com_abertura_em_curso_sem_processo() {
+    let hub = hub_de_prova();
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    com_chave(&hub).await;
+    // Abertura em curso: a concessão saiu do cofre, o processo do OpenCode ainda não existe.
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let repasse = repasse_do_hub(&hub).await.unwrap();
+    assert_eq!(repasse.usos_do_plano(&PLANOS[0]), 1);
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    let erro = salvar(&hub, &PLANOS[0], &url, Zeroizing::new("outra-chave-ficticia-456".into()))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(erro.starts_with("plano_em_uso"), "abertura em curso também trava a troca: {erro}");
+    let erro = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(erro.starts_with("plano_em_uso"), "{erro}");
+    // A concessão que se largou tira o uso: a troca passa na chamada seguinte.
+    drop(ambiente);
+    assert_eq!(repasse.usos_do_plano(&PLANOS[0]), 0);
+    let acesso = salvar(&hub, &PLANOS[0], &url, Zeroizing::new("outra-chave-ficticia-456".into())).await.unwrap();
+    assert_eq!(acesso["ok"], true, "{acesso}");
 }
 
 #[tokio::test]
@@ -505,6 +545,22 @@ fn o_codigo_como_nome_de_campo_tambem_e_mascarado() {
     assert_eq!(json["lista"][0]["outra"], 2, "o que não é código não muda");
     assert_eq!(json["lista"][1]["mxs_[oculto]"], 3, "o de dentro do array de objetos também");
     assert!(!json.to_string().contains(&codigo));
+}
+
+#[test]
+fn mascara_codigo_colisao_de_nomes_de_campo_mantem_os_dois_campos() {
+    let um = "mxs_[oculto]";
+    let dois = format!("mxs_{}", "ab12".repeat(16));
+    let tres = format!("mxs_{}", "cd56".repeat(16));
+    // Três nomes distintos que a máscara iguala: nenhum campo pode sumir por causa da colisão.
+    let mut json: Value = serde_json::from_str(&format!(r#"{{"{um}":1,"{dois}":2,"{tres}":3,"outro":4}}"#)).unwrap();
+    mascarar_json(&mut json);
+    assert_eq!(json["mxs_[oculto]"], 1, "o primeiro nome mascarado fica com a base");
+    assert_eq!(json["mxs_[oculto]#2"], 2, "o segundo ganha o sufixo de índice");
+    assert_eq!(json["mxs_[oculto]#3"], 3, "e o terceiro o seguinte");
+    assert_eq!(json["outro"], 4, "o nome sem colisão não muda");
+    assert!(!json.to_string().contains(&dois) && !json.to_string().contains(&tres));
+    assert_eq!(json.as_object().unwrap().len(), 4, "nenhum campo foi perdido");
 }
 
 #[tokio::test]

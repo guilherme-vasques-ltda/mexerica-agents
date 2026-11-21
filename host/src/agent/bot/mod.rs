@@ -526,7 +526,7 @@ enum SegKind {
 
 enum Seg {
     None,
-    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool },
+    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool, solta: bool },
 }
 
 // These flags describe independent actor concerns, not interchangeable states.

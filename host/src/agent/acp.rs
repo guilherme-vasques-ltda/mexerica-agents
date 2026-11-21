@@ -491,49 +491,6 @@ impl Acp {
         }
     }
 
-    /// Encerra o agente e tudo o que ele abriu, e só devolve `true` com a saída confirmada: fecha o stdin, espera
-    /// `cortesia`, mata o grupo inteiro e espera até `limite` pela confirmação. Roda numa tarefa própria, então o prazo
-    /// de quem chama não cancela o encerramento forçado.
-    pub(crate) async fn encerrar_confirmado(self: &Arc<Self>, cortesia: Duration, limite: Duration) -> bool {
-        let acp = self.clone();
-        tokio::spawn(async move { acp.encerrar_agora(cortesia, limite).await }).await.unwrap_or(false)
-    }
-
-    async fn encerrar_agora(&self, cortesia: Duration, limite: Duration) -> bool {
-        if let Ok(mut stdin) = self.stdin.try_lock() {
-            stdin.take();
-        }
-        if let Some(link) = &self.link {
-            link.shutdown().await;
-        }
-        let Some(pid) = self.pid else { return true };
-        let guarda = tokio::time::timeout(cortesia, self.child.lock()).await;
-        let mut child = guarda.ok().and_then(|mut guarda| guarda.take());
-        let cortesia_ate = Instant::now() + cortesia;
-        let mut saiu = false;
-        if let Some(child) = child.as_mut() {
-            saiu = tokio::time::timeout_at(cortesia_ate, child.wait()).await.is_ok_and(|espera| espera.is_ok());
-        }
-        // Saiu na cortesia não é confirmação: o grupo pode ter ficado vivo (e no Windows não há
-        // grupo para conferir) — mata o grupo de qualquer jeito antes de concluir.
-        if !saiu || cfg!(windows) || outlived(pid, cortesia_ate).await {
-            kill_group(pid).await;
-        }
-        let limite_ate = Instant::now() + limite;
-        if let Some(child) = child.as_mut() {
-            // Colhe o que sobrou do filho: um zumbi ainda segura o grupo, e quem decide a
-            // confirmação é a verificação do grupo.
-            let _ = tokio::time::timeout_at(limite_ate, child.wait()).await;
-        }
-        // Só a verificação do grupo confirma: um `wait` que falhou, ou um filho que outro
-        // caminho já levou, não bastam. No Windows nunca se confirma.
-        let confirmado = !outlived(pid, limite_ate).await;
-        if !confirmado && let Some(child) = child {
-            *self.child.lock().await = Some(child);
-        }
-        confirmado
-    }
-
     /// Stops the agent and everything it started, without waiting for it. Closing its stdin
     /// lets it exit by itself first: Claude Code killed during an OAuth refresh loses the new
     /// refresh token, and the user's login with it.
@@ -592,7 +549,24 @@ async fn reap(mut child: Child) {
     let deadline = Instant::now() + EXIT_GRACE;
     let exited = tokio::time::timeout_at(deadline, child.wait()).await.is_ok();
     if !exited || outlived(pid, deadline).await {
-        kill_group(pid).await;
+        let mut tree = if cfg!(windows) {
+            let mut c = Command::new("taskkill");
+            c.args(["/T", "/F", "/PID", &pid.to_string()]);
+            c
+        } else {
+            let mut c = if crate::fork::motor_exec::configured() {
+                let mut c = Command::new(crate::fork::motor_exec::helper_path());
+                c.args(["kill-group", &pid.to_string()]);
+                c
+            } else {
+                let mut c = Command::new("/bin/kill");
+                c.args(["-KILL", "--", &format!("-{pid}")]);
+                c
+            };
+            c.env_clear();
+            c
+        };
+        let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
     }
     // Already exited is fine; anything else is worth a log line.
     if let Err(error) = child.kill().await
@@ -600,28 +574,6 @@ async fn reap(mut child: Child) {
     {
         tracing::debug!(%error, "couldn't kill agent process");
     }
-}
-
-/// Kills the agent's process group (Windows: process tree).
-async fn kill_group(pid: u32) {
-    let mut tree = if cfg!(windows) {
-        let mut c = Command::new("taskkill");
-        c.args(["/T", "/F", "/PID", &pid.to_string()]);
-        c
-    } else {
-        let mut c = if crate::fork::motor_exec::configured() {
-            let mut c = Command::new(crate::fork::motor_exec::helper_path());
-            c.args(["kill-group", &pid.to_string()]);
-            c
-        } else {
-            let mut c = Command::new("/bin/kill");
-            c.args(["-KILL", "--", &format!("-{pid}")]);
-            c
-        };
-        c.env_clear();
-        c
-    };
-    let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
 }
 
 /// Whether part of the exited agent's process group is still running at `deadline`.
@@ -639,13 +591,12 @@ async fn outlived(pid: u32, deadline: Instant) -> bool {
     running()
 }
 
-/// Windows não tem grupo de processos para conferir: a saída do agente nunca pode ser
-/// confirmada, então a verificação devolve «ainda vivo» (fail-closed) e o grupo vira árvore
-/// morta pelo `kill_group`.
+/// Windows has no process groups: what the agent started got the same closed pipes, and its
+/// tree can't be found once it's gone.
 #[cfg(windows)]
 #[allow(clippy::unused_async)] // the Unix check's signature
 async fn outlived(_pid: u32, _deadline: Instant) -> bool {
-    true
+    false
 }
 
 /// Plain-text rendering of an ACP content block list / tool-call content list.

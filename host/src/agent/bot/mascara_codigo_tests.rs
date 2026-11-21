@@ -49,6 +49,27 @@ async fn o_fechamento_do_segmento_republica_o_sufixo_retido() {
 }
 
 #[tokio::test]
+async fn flush_sem_texto_novo_nao_republica_o_mesmo_texto() {
+    let f = Fixture::new();
+    let mut ator = new_actor(f.hub.clone(), f.cfg.clone());
+    ator.lane = Lane::main(f.cfg.session_owner());
+    ator.turn = Some(1);
+    ator.append(SegKind::Text, "abc m");
+    let id = ator.last_text.clone().unwrap();
+    assert_eq!(texto_da_entrada(&f, &id), "abc ", "o fim que pode ser o começo de um código fica retido");
+    let rev_na_criacao = f.hub.store.entry(&id).unwrap().rev;
+    // Dois flushes comuns, cada um depois do prazo de 300 ms, sem texto novo: nenhum reescreve.
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    ator.flush(false);
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    ator.flush(false);
+    let rev_depois = f.hub.store.entry(&id).unwrap().rev;
+    assert_eq!(rev_na_criacao, rev_depois, "sem delta o flush comum não república o mesmo texto");
+    ator.close_seg();
+    assert_eq!(texto_da_entrada(&f, &id), "abc m", "o fechamento ainda solta o sufixo retido");
+}
+
+#[tokio::test]
 async fn saida_de_ferramenta_com_o_codigo_vai_mascarada() {
     let mut dados = json!({});
     let codigo = codigo();

@@ -808,17 +808,24 @@ impl Actor {
                 if kind == SegKind::Text {
                     self.last_text = Some(e.id.clone());
                 }
-                // Se a máscara reteve um fim que ainda pode ser o começo de um código, o
-                // segmento fica sujo: o fechamento republica o texto completo com `fim`.
+                // A criação já publica: `dirty` só diz que os dados mudaram desde a última
+                // escrita. `solta` é o outro assunto — o fim retido que o fechamento solta.
                 let retido = shown.len() != text.len();
-                self.seg =
-                    Seg::Open { kind, entry_id: e.id, buf: text.to_owned(), flushed: Instant::now(), dirty: retido };
+                self.seg = Seg::Open {
+                    kind,
+                    entry_id: e.id,
+                    buf: text.to_owned(),
+                    flushed: Instant::now(),
+                    dirty: false,
+                    solta: retido,
+                };
             }
             return;
         }
-        if let Seg::Open { buf, dirty, .. } = &mut self.seg {
+        if let Seg::Open { buf, dirty, solta, .. } = &mut self.seg {
             buf.push_str(text);
             *dirty = true;
+            *solta = crate::fork::planos_codigo::mascarar_saida(buf, false).len() != buf.len();
         }
     }
 
@@ -828,9 +835,8 @@ impl Actor {
     }
 
     fn flush_in_execution(&mut self, force: bool, execution: Option<&ExecutionRef>) -> anyhow::Result<()> {
-        if let Seg::Open { kind, entry_id, buf, flushed, dirty } = &mut self.seg
-            && *dirty
-            && (force || flushed.elapsed() >= Duration::from_millis(300))
+        if let Seg::Open { kind, entry_id, buf, flushed, dirty, solta } = &mut self.seg
+            && (*dirty && (force || flushed.elapsed() >= Duration::from_millis(300)) || (force && *solta))
         {
             // O texto montado de vários pedaços passa pela máscara do código de sessão; uma publicação intermediária
             // segura o fim que ainda pode ser o começo de um código (toda publicação forçada fecha o segmento).
@@ -844,9 +850,10 @@ impl Actor {
                 bail!("chamada vencida: segmento não confirmado");
             }
             *flushed = Instant::now();
-            // Publicou com fim retido (o texto saiu menor que o buf): o segmento continua
-            // sujo, para um fechamento sem delta novo republicar o resto com `fim`.
-            *dirty = text.len() != buf.len();
+            // Sem texto novo o `flush` comum não república o mesmo texto: `dirty` só volta com
+            // delta; o sufixo retido fica para o fechamento (`force`) soltar.
+            *dirty = false;
+            *solta = text.len() != buf.len();
         }
         Ok(())
     }

@@ -73,7 +73,8 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<O
     crate::market::vault::unlock(hub.clone()).await?;
     let repasse = repasse_do_hub(hub).await?;
     // A geração e a revisão são lidas ANTES da chave, e a sessão só é concedida se a geração não mudou: uma troca ou
-    // remoção no meio (que sobe a geração e revoga as sessões) recusa a concessão, nunca deixa viva uma chave velha.
+    // remoção no meio (que sobe a geração e recusa a sessão durante a gravação) recusa a concessão, nunca deixa viva
+    // uma chave velha.
     let mut recusa = None;
     for _ in 0..3 {
         let geracao = repasse.geracao(plano);

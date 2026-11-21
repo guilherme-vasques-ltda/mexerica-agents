@@ -13,7 +13,7 @@
 //! O que não garante: uma ferramenta que roube o código de sessão pode usar o plano enquanto a sessão durar. Ela não
 //! leva a chave.
 use super::{Plano, cerca::Cerca};
-use crate::{LockExt, agent::acp::Acp};
+use crate::LockExt;
 use anyhow::{Result, ensure};
 use axum::{
     Router,
@@ -25,7 +25,7 @@ use axum::{
 use futures::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Write as _,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -42,11 +42,6 @@ const PRAZO_TOTAL: Duration = Duration::from_secs(30 * 60);
 const PRAZO_DE_CONEXAO: Duration = Duration::from_secs(15);
 const MAX_SESSOES: usize = 256;
 const MAX_PEDIDOS: usize = 32;
-const PRAZO_DE_CORTESIA: Duration = Duration::from_secs(2);
-const PRAZO_DE_ENCERRAMENTO: Duration = Duration::from_secs(8);
-/// Quanto uma revogação espera uma abertura em curso prender o processo (a concessão também
-/// pode ser largada sem processo nenhum: largar já resolve a espera).
-const PRAZO_DA_ABERTURA: Duration = Duration::from_secs(10);
 
 type Hash = [u8; 32];
 
@@ -56,11 +51,6 @@ struct Sessao {
     chave: Zeroizing<String>,
     base_de_prova: Option<String>,
     revogada: watch::Sender<bool>,
-    /// Vira true quando a concessão prende um processo (qualquer resultado) ou é largada: quem
-    /// revoga e achou a sessão ainda sem processo espera por aqui a abertura se resolver.
-    resolvida: watch::Sender<bool>,
-    /// O processo do OpenCode que recebeu o código: encerrado junto com a sessão.
-    acp: Mutex<Option<Arc<Acp>>>,
 }
 
 /// Só para prova: quem só olha a sessão depois de ela ser revogada.
@@ -75,11 +65,10 @@ impl Tardia {
 }
 
 impl Sessao {
-    /// Marca a sessão como revogada de um jeito que quem a enxergar depois também vê (`send_replace` grava o valor mesmo
-    /// sem ninguém escutando) e entrega o processo para ser encerrado.
-    fn revogar(&self) -> Option<Arc<Acp>> {
+    /// Marca a sessão como revogada de um jeito que quem a enxergar depois também vê (`send_replace` grava o valor
+    /// mesmo sem ninguém escutando) e corta os pedidos em andamento.
+    fn revogar(&self) {
         self.revogada.send_replace(true);
-        self.acp.locked().take()
     }
 }
 
@@ -87,9 +76,11 @@ impl Sessao {
 struct Estado {
     sessoes: HashMap<Hash, Arc<Sessao>>,
     geracoes: HashMap<&'static str, u64>,
-    /// Processos de um plano que não confirmaram a saída na última revogação: cada revogação
-    /// seguinte os reexamina antes de devolver sucesso.
-    pendentes: HashMap<&'static str, Vec<Arc<Acp>>>,
+    /// Quantas concessões vivas cada plano tem (sessão aberta ou abertura em curso): trocar ou
+    /// remover a chave de um plano assim é recusado.
+    usos: HashMap<&'static str, usize>,
+    /// Planos com troca ou remoção em andamento: abrir sessão nova neles é recusado.
+    em_troca: HashSet<&'static str>,
 }
 
 /// O repasse de um Hub: um servidor em loopback e as sessões vivas.
@@ -100,19 +91,14 @@ pub(crate) struct Repasse {
     vagas: Arc<Semaphore>,
     #[cfg(test)]
     pub(crate) base_de_prova: Mutex<Option<String>>,
-    #[cfg(test)]
-    /// Prova do estado pendente: ligado, o encerramento roda de verdade mas nenhuma confirmação vale.
-    pub(crate) encerramento_de_prova: Mutex<bool>,
 }
 
-/// O direito de uma sessão de OpenCode usar o plano. Ao sair de escopo (processo encerrado ou trocado), o código é
-/// revogado e os pedidos em andamento são cortados.
+/// O direito de uma sessão de OpenCode usar o plano. Vive do início da abertura até o processo sair: ao sair de
+/// escopo, o código é revogado (os pedidos em andamento são cortados) e o uso do plano sai da conta.
 pub(crate) struct Concessao {
     repasse: Arc<Repasse>,
     hash: Hash,
     codigo: Zeroizing<String>,
-    /// A sessão desta concessão, guardada aqui também: quem revoga remove a sessão do estado e
-    /// ainda assim quem abre consegue marcá-la resolvida e saber o plano do processo pendente.
     sessao: Arc<Sessao>,
 }
 
@@ -126,39 +112,33 @@ impl Concessao {
     pub(crate) fn base(&self) -> String {
         format!("http://127.0.0.1:{}/r", self.repasse.porta)
     }
-
-    /// Liga o código ao processo que o recebeu: trocar ou remover a chave encerra esse processo. Devolve `false` se a
-    /// sessão já foi revogada (a chave mudou entre conceder e abrir): quem chamou deve encerrar o processo que abriu —
-    /// e o processo ainda entra em `pendentes` do plano, para a revogação seguinte o encerrar de vez.
-    pub(crate) fn prender(&self, acp: &Arc<Acp>) -> bool {
-        let mut estado = self.repasse.estado.locked();
-        let presa = match estado.sessoes.get(&self.hash).cloned() {
-            None => {
-                estado.pendentes.entry(self.sessao.plano.id).or_default().push(acp.clone());
-                false
-            }
-            Some(sessao) => {
-                *sessao.acp.locked() = Some(acp.clone());
-                if *sessao.revogada.borrow() {
-                    sessao.acp.locked().take();
-                    estado.pendentes.entry(sessao.plano.id).or_default().push(acp.clone());
-                    false
-                } else {
-                    true
-                }
-            }
-        };
-        // Qualquer resultado resolve a abertura, e só depois de o processo estar em `pendentes`: quem revoga e esperava
-        // então o encontra ao drenar.
-        self.sessao.resolvida.send_replace(true);
-        presa
-    }
 }
 
 impl Drop for Concessao {
     fn drop(&mut self) {
-        self.sessao.resolvida.send_replace(true);
-        self.repasse.revogar_hash(&self.hash);
+        let mut estado = self.repasse.estado.locked();
+        if let Some(sessao) = estado.sessoes.remove(&self.hash) {
+            sessao.revogar();
+        }
+        if let Some(usos) = estado.usos.get_mut(self.sessao.plano.id) {
+            *usos = usos.saturating_sub(1);
+            if *usos == 0 {
+                estado.usos.remove(self.sessao.plano.id);
+            }
+        }
+    }
+}
+
+/// A troca (ou remoção) da chave de um plano em andamento: guardada viva durante a gravação, impede abrir sessão
+/// nova no plano e, ao sair de escopo, devolve o plano à normalidade.
+pub(crate) struct Troca {
+    repasse: Arc<Repasse>,
+    plano: &'static str,
+}
+
+impl Drop for Troca {
+    fn drop(&mut self) {
+        self.repasse.estado.locked().em_troca.remove(self.plano);
     }
 }
 
@@ -183,8 +163,6 @@ impl Repasse {
             vagas: Arc::new(Semaphore::new(MAX_PEDIDOS)),
             #[cfg(test)]
             base_de_prova: Mutex::default(),
-            #[cfg(test)]
-            encerramento_de_prova: Mutex::new(false),
         });
         let rotas = Router::new().fallback(tratar).with_state(repasse.clone());
         tokio::spawn(async move {
@@ -220,95 +198,33 @@ impl Repasse {
             estado.geracoes.get(plano.id).copied().unwrap_or(0) == geracao,
             "plano_em_troca: a chave do plano mudou enquanto a sessão abria."
         );
-        ensure!(
-            estado.pendentes.get(plano.id).is_none_or(Vec::is_empty),
-            "plano_em_troca: o plano ainda tem processo vivo de uma revogação anterior; tente de novo."
-        );
+        ensure!(!estado.em_troca.contains(plano.id), "plano_em_troca: o plano está em troca de chave; tente de novo.");
         ensure!(estado.sessoes.len() < MAX_SESSOES, "plano_sessoes: sessões demais abertas.");
         #[cfg(test)]
         let base_de_prova = self.base_de_prova.locked().clone();
         #[cfg(not(test))]
         let base_de_prova = None;
         let (revogada, _) = watch::channel(false);
-        let (resolvida, _) = watch::channel(false);
-        let sessao = Arc::new(Sessao { plano, chave, base_de_prova, revogada, resolvida, acp: Mutex::new(None) });
+        let sessao = Arc::new(Sessao { plano, chave, base_de_prova, revogada });
         estado.sessoes.insert(hash, sessao.clone());
+        *estado.usos.entry(plano.id).or_insert(0) += 1;
         drop(estado);
         Ok(Concessao { repasse: self.clone(), hash, codigo, sessao })
     }
 
-    /// A concessão foi solta: o processo já está sendo encerrado por quem a tinha.
-    fn revogar_hash(&self, hash: &Hash) {
-        let sessao = self.estado.locked().sessoes.remove(hash);
-        if let Some(sessao) = sessao {
-            sessao.revogar();
-        }
-    }
-
-    /// Troca ou remoção da chave: todas as sessões do plano morrem, os pedidos em andamento são cortados e os processos
-    /// do OpenCode que receberam o código são encerrados (grupo inteiro, saída confirmada) antes de a operação voltar.
-    /// Quem não confirma fica pendente do plano e a chamada devolve erro: o código já está revogado de qualquer jeito,
-    /// e a chave não está em risco, só o processo. Uma chamada seguinte reexamina os pendentes e só devolve `Ok`
-    /// depois de confirmar todos.
-    pub(crate) async fn revogar_plano(&self, plano: &Plano) -> Result<()> {
-        let (processos, aberturas): (Vec<Arc<Acp>>, Vec<Arc<Sessao>>) = {
-            let mut estado = self.estado.locked();
-            *estado.geracoes.entry(plano.id).or_insert(0) += 1;
-            let mortas: Vec<Hash> = estado
-                .sessoes
-                .iter()
-                .filter(|(_, sessao)| sessao.plano.id == plano.id)
-                .map(|(hash, _)| *hash)
-                .collect();
-            let mut processos = estado.pendentes.remove(plano.id).unwrap_or_default();
-            let mut aberturas = Vec::new();
-            for hash in mortas {
-                let Some(sessao) = estado.sessoes.remove(&hash) else { continue };
-                match sessao.revogar() {
-                    Some(acp) => processos.push(acp),
-                    None => aberturas.push(sessao),
-                }
-            }
-            (processos, aberturas)
-        };
-        let mut nao_confirmados = self.encerrar_todos(plano, processos).await;
-        // Abertura em curso (sessão sem processo ainda): espera quem abre prender o processo —
-        // aí ele aparece em `pendentes` — ou largar a concessão, que já resolve a espera.
-        for sessao in aberturas {
-            let mut resolvida = sessao.resolvida.subscribe();
-            if tokio::time::timeout(PRAZO_DA_ABERTURA, resolvida.wait_for(|r| *r)).await.is_err() {
-                nao_confirmados += 1;
-            }
-        }
-        let reaparecidos = self.estado.locked().pendentes.remove(plano.id).unwrap_or_default();
-        nao_confirmados += self.encerrar_todos(plano, reaparecidos).await;
+    /// Troca ou remoção da chave de um plano: recusada enquanto o plano tiver qualquer sessão viva ou abertura em
+    /// curso (a recusa é a confirmação de que há gente usando). Sem sessões, reserva a troca, sobe a geração do
+    /// plano — a corrida de quem leu a chave antes continua valendo como recusa — e devolve a guarda que mantém o
+    /// plano em troca até o fim da gravação.
+    pub(crate) fn reservar_troca(self: &Arc<Self>, plano: &Plano) -> Result<Troca> {
+        let mut estado = self.estado.locked();
         ensure!(
-            nao_confirmados == 0,
-            "plano_processo_vivo: o código do plano foi revogado, mas o processo do OpenCode não confirmou a saída."
+            !estado.em_troca.contains(plano.id) && estado.usos.get(plano.id).is_none_or(|&usos| usos == 0),
+            "plano_em_uso: encerre as conversas deste plano e tente de novo."
         );
-        Ok(())
-    }
-
-    /// Encerra cada processo em paralelo e devolve quantos não confirmaram a saída: esses voltam
-    /// para `pendentes` do plano, para a revogação seguinte reexaminar.
-    async fn encerrar_todos(&self, plano: &Plano, processos: Vec<Arc<Acp>>) -> usize {
-        if processos.is_empty() {
-            return 0;
-        }
-        let confirmados = futures::future::join_all(
-            processos.iter().map(|processo| processo.encerrar_confirmado(PRAZO_DE_CORTESIA, PRAZO_DE_ENCERRAMENTO)),
-        )
-        .await;
-        #[cfg(test)]
-        let confirmados =
-            if *self.encerramento_de_prova.locked() { vec![false; confirmados.len()] } else { confirmados };
-        let sobreviveram: Vec<_> =
-            processos.into_iter().zip(confirmados).filter(|(_, saiu)| !*saiu).map(|(processo, _)| processo).collect();
-        let total = sobreviveram.len();
-        if !sobreviveram.is_empty() {
-            self.estado.locked().pendentes.entry(plano.id).or_default().extend(sobreviveram);
-        }
-        total
+        estado.em_troca.insert(plano.id);
+        *estado.geracoes.entry(plano.id).or_insert(0) += 1;
+        Ok(Troca { repasse: self.clone(), plano: plano.id })
     }
 
     fn sessao(&self, codigo: &str) -> Option<Arc<Sessao>> {
@@ -321,8 +237,8 @@ impl Repasse {
     }
 
     #[cfg(test)]
-    pub(crate) fn pendentes_do_plano(&self, plano: &Plano) -> usize {
-        self.estado.locked().pendentes.get(plano.id).map_or(0, Vec::len)
+    pub(crate) fn usos_do_plano(&self, plano: &Plano) -> usize {
+        self.estado.locked().usos.get(plano.id).copied().unwrap_or(0)
     }
 
     #[cfg(test)]

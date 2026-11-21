@@ -374,17 +374,14 @@ async fn revogar_corta_o_pedido_em_andamento_antes_e_depois_dos_cabecalhos() {
             resposta.bytes().await
         });
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let repasse = m.repasse.clone();
-        let revogacao = tokio::spawn(async move { repasse.revogar_plano(&PLANOS[0]).await });
+        // Largar a concessão revoga o código: o pedido em andamento é cortado na hora.
+        drop(m.concessao);
         let desfecho =
             tokio::time::timeout(Duration::from_secs(3), tarefa).await.expect("o pedido foi cortado").unwrap();
         assert!(inicio.elapsed() < Duration::from_secs(3));
         if let Ok(corpo) = desfecho {
             assert!(!String::from_utf8_lossy(&corpo).contains("fim"));
         }
-        // A concessão desta prova nunca prende processo: largá-la resolve a espera da abertura.
-        drop(m.concessao);
-        revogacao.await.unwrap().unwrap();
     }
 }
 
@@ -564,115 +561,59 @@ async fn uma_revogacao_sem_ninguem_escutando_continua_marcada_para_quem_chega_de
     let m = montar(&up).await;
     let tardia = m.repasse.sessao_tardia(m.concessao.codigo()).unwrap();
     assert!(!tardia.marcada());
-    let repasse = m.repasse.clone();
-    let revogacao = tokio::spawn(async move { repasse.revogar_plano(&PLANOS[0]).await });
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(tardia.marcada(), "quem se inscreve depois da revogação a enxerga");
-    assert_eq!(m.pedido("chat/completions", "authorization").body("{}").send().await.unwrap().status(), 404);
-    // A concessão nunca prende processo: largá-la encerra a espera da abertura.
+    let (base, codigo) = (m.concessao.base(), m.concessao.codigo().to_owned());
     drop(m.concessao);
-    revogacao.await.unwrap().unwrap();
-}
-
-/// Um agente de mentira que ignora TERM e HUP, não sai ao fechar o stdin e deixa um filho no mesmo grupo.
-fn processo_teimoso() -> (Arc<crate::agent::acp::Acp>, tokio::sync::mpsc::UnboundedReceiver<crate::agent::acp::Incoming>)
-{
-    let pasta = crate::store::private_fixture_dir("planos-processo-teimoso");
-    let roteiro = pasta.join("teimoso.sh");
-    std::fs::write(&roteiro, "trap '' TERM HUP\nsleep 300 &\nwhile :; do sleep 1; done\n").unwrap();
-    crate::agent::acp::Acp::spawn(&format!("sh {}", roteiro.display()), &pasta.to_string_lossy(), &[]).unwrap()
-}
-
-fn viva(alvo: &str) -> bool {
-    std::process::Command::new("kill").args(["-0", "--", alvo]).output().is_ok_and(|saida| saida.status.success())
+    assert!(tardia.marcada(), "quem se inscreve depois da revogação a enxerga");
+    let resposta = m
+        .cliente
+        .post(format!("{base}/chat/completions"))
+        .header("authorization", format!("Bearer {codigo}"))
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resposta.status(), 404);
 }
 
 #[tokio::test]
-async fn trocar_a_chave_so_volta_com_o_processo_e_o_grupo_inteiro_mortos_mesmo_se_ele_ignora_o_pedido_de_saida() {
+async fn a_troca_e_recusada_com_sessao_viva_e_passa_quando_a_concessao_sai() {
     let up = upstream(|mut conexao, _| async move {
         let _ = conexao.write_all(&json_ok("{}")).await;
     })
     .await;
     let m = montar(&up).await;
-    let (acp, _entrada) = processo_teimoso();
-    let pid = acp.pid().unwrap();
-    assert!(m.concessao.prender(&acp));
-    assert!(viva(&pid.to_string()) && viva(&format!("-{pid}")));
-    m.repasse.revogar_plano(&PLANOS[0]).await.unwrap();
-    assert!(!viva(&pid.to_string()), "o processo já morreu quando a troca volta");
-    assert!(!viva(&format!("-{pid}")), "o grupo inteiro também");
-    let (outro, _entrada) =
-        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
-    assert!(!m.concessao.prender(&outro), "uma sessão já revogada não prende processo");
-    outro.kill_and_wait().await;
-}
-
-#[tokio::test]
-async fn o_prazo_de_quem_chama_nao_cancela_o_encerramento_forcado() {
-    let (acp, _entrada) = processo_teimoso();
-    let pid = acp.pid().unwrap();
-    let chamada = acp.encerrar_confirmado(Duration::from_secs(1), Duration::from_secs(8));
-    let inicio = Instant::now();
-    let resultado = tokio::time::timeout(Duration::from_millis(100), chamada).await;
-    assert!(resultado.is_err(), "quem chama desistiu cedo: {resultado:?} em {:?}", inicio.elapsed());
-    let limite = Instant::now() + Duration::from_secs(6);
-    while viva(&format!("-{pid}")) && Instant::now() < limite {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    assert!(!viva(&format!("-{pid}")), "o encerramento forçado seguiu sem quem chamou");
-}
-
-#[tokio::test]
-async fn o_processo_que_nao_confirma_fica_pendente_e_as_chamadas_so_devolvem_ok_com_ele_morto() {
-    let up = upstream(|mut conexao, _| async move {
-        let _ = conexao.write_all(&json_ok("{}")).await;
-    })
-    .await;
-    let m = montar(&up).await;
-    let (acp, _entrada) = processo_teimoso();
-    let pid = acp.pid().unwrap();
-    assert!(m.concessao.prender(&acp));
-    // O gancho faz a confirmação falhar sem pular o encerramento de verdade: o processo morre,
-    // mas a revogação tem de continuar dizendo que não confirmou.
-    *m.repasse.encerramento_de_prova.locked() = true;
-    let erro = m.repasse.revogar_plano(&PLANOS[0]).await.unwrap_err().to_string();
-    assert!(erro.starts_with("plano_processo_vivo"), "{erro}");
-    assert_eq!(m.repasse.pendentes_do_plano(&PLANOS[0]), 1);
+    let erro = m.repasse.reservar_troca(&PLANOS[0]).err().expect("recusada com sessão viva").to_string();
+    assert!(erro.starts_with("plano_em_uso"), "{erro}");
+    drop(m.concessao);
+    // Sem concessão viva a troca é aceita, e largar a guarda devolve o plano ao normal.
+    let troca = m.repasse.reservar_troca(&PLANOS[0]).unwrap();
+    let erro = m.repasse.reservar_troca(&PLANOS[0]).err().expect("recusada com troca em curso").to_string();
+    assert!(erro.starts_with("plano_em_uso"), "uma segunda troca em curso também é recusada: {erro}");
     let geracao = m.repasse.geracao(&PLANOS[0]);
-    let erro = m
-        .repasse
-        .conceder(&PLANOS[0], Zeroizing::new(CHAVE.into()), geracao)
-        .err()
-        .expect("plano com processo pendente não abre sessão nova")
-        .to_string();
-    assert!(erro.starts_with("plano_em_troca"), "{erro}");
-    let erro = m.repasse.revogar_plano(&PLANOS[0]).await.unwrap_err().to_string();
-    assert!(erro.starts_with("plano_processo_vivo"), "a segunda chamada reexamina o pendente: {erro}");
-    assert_eq!(m.repasse.pendentes_do_plano(&PLANOS[0]), 1);
-    *m.repasse.encerramento_de_prova.locked() = false;
-    m.repasse.revogar_plano(&PLANOS[0]).await.unwrap();
-    assert_eq!(m.repasse.pendentes_do_plano(&PLANOS[0]), 0);
-    assert!(!viva(&pid.to_string()), "o processo já morreu quando a revogação volta");
-    assert!(!viva(&format!("-{pid}")), "o grupo inteiro também");
+    drop(troca);
+    let outra = m.repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into()), geracao).unwrap();
+    drop(outra);
+    assert_eq!(m.repasse.usos_do_plano(&PLANOS[0]), 0, "largar a concessão tira o uso do plano");
 }
 
 #[tokio::test]
-async fn a_abertura_em_curso_entra_na_espera_e_o_processo_que_prende_depois_e_encerrado_na_mesma_chamada() {
+async fn abrir_sessao_e_recusado_enquanto_a_troca_esta_em_curso() {
     let up = upstream(|mut conexao, _| async move {
         let _ = conexao.write_all(&json_ok("{}")).await;
     })
     .await;
     let m = montar(&up).await;
-    let (acp, _entrada) =
-        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
-    let pid = acp.pid().unwrap();
-    let repasse = m.repasse.clone();
-    let revogacao = tokio::spawn(async move { repasse.revogar_plano(&PLANOS[0]).await });
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!m.concessao.prender(&acp), "a sessão já revogada não prende processo");
-    revogacao.await.unwrap().unwrap();
-    assert!(!viva(&pid.to_string()), "quem chegou atrasado é encerrado pela revogação que esperou");
-    assert_eq!(m.repasse.pendentes_do_plano(&PLANOS[0]), 0);
+    drop(m.concessao);
+    let troca = m.repasse.reservar_troca(&PLANOS[0]).unwrap();
+    let geracao = m.repasse.geracao(&PLANOS[0]);
+    let erro =
+        m.repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into()), geracao).err().expect("recusada").to_string();
+    assert!(erro.starts_with("plano_em_troca"), "abrir sessão no meio da troca é recusado: {erro}");
+    drop(troca);
+    let geracao = m.repasse.geracao(&PLANOS[0]);
+    let outra = m.repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into()), geracao).unwrap();
+    drop(outra);
+    assert_eq!(m.repasse.sessoes_vivas(), 0);
 }
 
 #[tokio::test]
