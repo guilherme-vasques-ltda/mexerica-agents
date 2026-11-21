@@ -42,6 +42,8 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("nuncaFazerEditar", LocalOnly),
     ("nuncaFazerRemover", LocalOnly),
     ("nuncaFazerReordenar", LocalOnly),
+    ("instrucaoGeral", LocalOnly),
+    ("instrucaoGeralSalvar", LocalOnly),
     // api/bots.rs
     ("answerMemory", Comum),
     ("archiveMemory", Comum),
@@ -183,6 +185,9 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("marketConnectors", Leitura),
     ("marketContaDesconectar", Dono),
     ("marketContaRenomear", Dono),
+    ("marketFerramentaDesligar", Dono),
+    ("marketFerramentaLigar", Dono),
+    ("marketFerramentas", Leitura),
     ("marketContas", Leitura),
     ("marketPersonalizado", Dono),
     ("marketServico", Leitura),

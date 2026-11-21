@@ -215,6 +215,14 @@ async fn d543_delete_exige_nome_digitado_e_remove_tudo_do_space() {
         .await
         .unwrap();
     }
+    dispatch(
+        &f.hub,
+        &Caller::Local,
+        "instrucaoGeralSalvar",
+        json!({"escopo":"space", "spaceId":space, "texto":"Respostas curtas.", "expectedRevision":0}),
+    )
+    .await
+    .unwrap();
     let snap = f.spaces().await;
     let delete = |confirm: &str, rev: i64| {
         let hub = f.hub.clone();
@@ -254,7 +262,7 @@ async fn d543_delete_exige_nome_digitado_e_remove_tudo_do_space() {
         .query_row("SELECT COUNT(*) FROM donna_space_principal_receipts WHERE space_id=?1", [&space], |r| r.get(0))
         .unwrap();
     assert_eq!(receipts, 0, "recibos do Space também saem");
-    for table in ["donna_nunca_fazer", "donna_nunca_fazer_revisoes"] {
+    for table in ["donna_nunca_fazer", "donna_nunca_fazer_revisoes", "donna_instrucao_geral"] {
         let count: i64 = f
             .hub
             .store

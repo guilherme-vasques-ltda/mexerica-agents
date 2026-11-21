@@ -99,6 +99,11 @@ impl Proxy {
         &self.token
     }
 
+    /// Corta o listener e os túneis da sessão sem esperar trava alguma (idempotente).
+    pub(super) fn abort_handle(&self) -> tokio::task::AbortHandle {
+        self.task.abort_handle()
+    }
+
     #[cfg(test)]
     pub(super) fn auth_failures(&self) -> usize {
         self.auth_failures.load(std::sync::atomic::Ordering::SeqCst)

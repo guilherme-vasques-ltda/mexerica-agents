@@ -80,8 +80,24 @@ impl Mediation for Bridge {
     }
 
     async fn observe(&mut self, frame: Value, method: &str) -> Result<Option<Value>> {
-        let result = self.call("donnaGuardObserve", json!({"frame":frame,"method":method})).await?;
+        let result =
+            self.call("donnaGuardObserve", json!({"frame":frame,"method":method,"params":self.params})).await?;
         Ok(result.get("message").filter(|m| m.is_object()).cloned())
+    }
+
+    async fn admit(&mut self, _frame: &Value, method: &str) -> Result<()> {
+        if method != "tools/call" {
+            return Ok(());
+        }
+        let result =
+            self.call("donnaGuardRuntime", json!({"method":method,"validateOnly":true,"params":self.params})).await?;
+        if result["ruleDenied"] == true {
+            return Err(super::http::PolicyDenied.into());
+        }
+        if result["valid"] != true {
+            bail!("Admissão final recusada; pedido não enviado");
+        }
+        Ok(())
     }
 }
 

@@ -75,6 +75,10 @@ pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
     if crate::fork::nunca_fazer::METHODS.contains(&method) {
         return Ok(());
     }
+    // O campo geral não tem Space; o do Space é validado na própria transação.
+    if crate::fork::instrucao_geral::METHODS.contains(&method) {
+        return Ok(());
+    }
     // MX-264: o lote de extensões é intenção do dono para o Hub inteiro, sem
     // contexto de Space; cada bot tem existência/espaço/regra reconferidos na
     // prévia e de novo dentro da transação (`extensoes_em_todos`), e `spaceId`

@@ -36,6 +36,18 @@ pub(super) async fn call(
     }
     // Captura03b antes do primeiro await, sobre a mesma execução do RuntimeIntent.
     crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
+    // Marketplace, fatia 2: o fornecedor avisou que a lista de ferramentas mudou. A decisão antiga deixa de valer
+    // antes de qualquer outra coisa, mesmo que a observação seguinte seja retida: nada passa até uma lista nova.
+    if action == "donnaGuardObserve"
+        && super::notification_method(&body["frame"]) == Some("notifications/tools/list_changed")
+    {
+        crate::market::ferramentas::invalidar(&hub.store, connector)?;
+        if let Some(context) = &context
+            && let Err(error) = hub.send_cmd(&context.bot, crate::agent::bot::Cmd::RefreshTools)
+        {
+            tracing::warn!(%error, "lista de ferramentas mudou; atualização do bot pendente");
+        }
+    }
     if action == "donnaGuardRuntime" {
         if context.is_none()
             && !matches!(
@@ -122,6 +134,11 @@ pub(super) async fn call(
             bail!("Cache transitório remoto indisponível");
         }
         runtime::bind_remote(namespace, connector, id, bridge, &fingerprint);
+        // Marketplace, fatia 2: a geração da conta é anotada antes de o pedido sair; só uma resposta de geração
+        // ainda vigente instala inventário.
+        if method == "tools/list" && saved.servico.is_some() {
+            crate::market::ferramentas::iniciar_descoberta(&hub.store, bridge, connector)?;
+        }
         let response = oauth_binding::check_runtime(hub, &current, &intent, || {
             Ok(
                 json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none()}),
@@ -150,6 +167,10 @@ pub(super) async fn call(
                     return Ok(json!({"ruleDenied":true}));
                 }
             }
+            // Marketplace, fatia 2: ação perigosa, ferramenta nova ou alterada só passa ligada pela pessoa neste bot.
+            if crate::market::ferramentas::recusar_chamada(&hub.store, &context.bot, &saved, method, &body["params"]) {
+                return Ok(json!({"ruleDenied":true}));
+            }
         }
         return Ok(response);
     }
@@ -163,7 +184,34 @@ pub(super) async fn call(
         bail!("Retorno de configuração remota antiga retido");
     }
     let secrets = runtime::snapshot(namespace, connector, id, Some(bridge));
-    let result = super::observe(hub, &intent, body, secrets.as_deref().map(Vec::as_slice), "http")?;
+    let mut result = super::observe(hub, &intent, body, secrets.as_deref().map(Vec::as_slice), "http")?;
+    if method == "tools/list" {
+        // Marketplace, fatia 2: o digest sai do frame original; o que a conta não pode usar não chega ao bot.
+        let geracao = crate::market::ferramentas::encerrar_descoberta(bridge, connector);
+        match &context {
+            Some(context) => crate::market::ferramentas::filtrar_lista(
+                &hub.store,
+                &context.bot,
+                &saved,
+                &body["params"],
+                &body["frame"],
+                &mut result,
+                geracao,
+            )?,
+            None => {
+                if saved.servico.is_some() {
+                    crate::market::ferramentas::registrar_descoberta(
+                        &hub.store,
+                        &saved,
+                        &body["params"],
+                        &body["frame"],
+                        &result,
+                        geracao,
+                    )?;
+                }
+            }
+        }
+    }
     let current = intent.current(hub, &saved)?;
     if runtime::remote_fingerprint(&current) != fingerprint {
         bail!("Configuração remota mudou antes da entrega");
