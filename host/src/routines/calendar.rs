@@ -286,8 +286,14 @@ fn project(routine: &Routine, low: i64, to: i64, now: i64, cap: usize) -> Result
     Ok(Some(found))
 }
 
+/// A rotina sem horário nem gatilho: só roda quando o dono manda (botão ou pedido ao bot).
+pub(super) const MANUAL_TEXT: &str = "Só quando eu mandar";
+
 /// A agenda em português, no fuso de quem vê; um fuso diferente aparece no fim.
 pub(super) fn summary(triggers: &[Trigger], zone: Tz) -> String {
+    if triggers.is_empty() {
+        return MANUAL_TEXT.into();
+    }
     triggers.iter().map(|t| describe(t, zone)).collect::<Vec<_>>().join(" · ")
 }
 
@@ -303,6 +309,9 @@ enum AgendaSlot {
 /// usuário o mesmo texto da tela. Gatilhos de relógio com os mesmos dias e fuso viram
 /// uma frase só (`Todo dia às 9h e às 15h`); o resto segue a descrição de cada um.
 pub(super) fn agenda(triggers: &[Trigger]) -> String {
+    if triggers.is_empty() {
+        return MANUAL_TEXT.into();
+    }
     let zone = triggers
         .iter()
         .find_map(|trigger| match trigger {
@@ -740,5 +749,17 @@ mod tests {
         // 2400 + 2400 + 1200 passa de 5000: sai uma das de 2400 (a de menor id), não a de hora em hora.
         assert_eq!(projection.truncated, ["b-half"]);
         assert_eq!(projection.occurrences.len(), 2400 + 1200);
+    }
+
+    #[test]
+    fn manual_routine_reads_only_when_i_say_so() {
+        assert_eq!(summary(&[], Tz::UTC), "Só quando eu mandar");
+        assert_eq!(agenda(&[]), "Só quando eu mandar");
+        let preview = Routines::schedule_preview_pt(&json!({"draft":{"kind":"manual"}}), 1_790_000_000_000).unwrap();
+        assert_eq!(preview["resumo"], "Só quando eu mandar");
+        let mut r = routine();
+        r.triggers = vec![];
+        r.next_runs = vec![];
+        assert_eq!(project(&r, 0, i64::MAX / 2, 1_790_000_000_000, 100).unwrap(), Some(vec![]));
     }
 }

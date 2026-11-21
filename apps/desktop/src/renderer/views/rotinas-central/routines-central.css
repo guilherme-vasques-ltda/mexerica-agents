@@ -1187,6 +1187,26 @@
   flex: none;
   width: auto;
 }
+.rc-row-run {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--accent);
+}
+.rc-row-run:hover:not(:disabled) {
+  background: var(--field);
+}
+.rc-row-run:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rc-row-run:disabled {
+  opacity: 0.4;
+}
 
 /* D165 fase G (components/RoutinesCalendar): Rotinas over the shell, right of the rail, in the same glass. */
 .rc-host {

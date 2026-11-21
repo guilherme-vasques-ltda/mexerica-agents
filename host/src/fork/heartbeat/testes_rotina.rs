@@ -88,6 +88,18 @@ fn checagem_so_aceita_horario_e_nao_webhook_nem_evento() {
 }
 
 #[test]
+fn checagem_nao_vira_sozinha_quando_o_dono_manda() {
+    let hub = hub();
+    for vira in [
+        corpo(&json!({"triggers":[],"manual":true})),
+        json!({"id":salva(&hub, &corpo(&json!({"enabled": true})))["id"],"name":"Checar pedidos","instruction":"x","schedule":{"kind":"manual"}}),
+    ] {
+        let erro = hub.routines.save(&hub, "bot", &vira).unwrap_err();
+        assert_eq!(erro.to_string(), SO_NO_HORARIO);
+    }
+}
+
+#[test]
 fn editar_sem_o_campo_mantem_a_declaracao_e_null_a_remove() {
     let hub = hub();
     let criada = salva(&hub, &corpo(&json!({"enabled": true})));
