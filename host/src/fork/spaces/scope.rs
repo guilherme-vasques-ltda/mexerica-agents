@@ -54,6 +54,9 @@ pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
     if contextual || body.get("hubId").is_some() {
         ensure!(body["hubId"].as_str() == Some(hub.host_id.as_str()), "hub_context_mismatch");
     }
+    if crate::fork::mail_manager::api::METHODS.contains(&method) {
+        return Ok(());
+    }
     let space = match body.get("spaceId") {
         Some(v) => v.as_str().ok_or_else(|| anyhow!("invalid_space"))?,
         None => PERSONAL,
