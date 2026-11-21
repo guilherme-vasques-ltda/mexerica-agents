@@ -476,6 +476,28 @@ async fn permissao_so_vale_para_a_chamada_anunciada_e_dentro_do_turno() {
 }
 
 #[tokio::test]
+async fn permissao_pedida_depois_do_result_do_programa_e_negada_sem_cartao() {
+    let amb = ambiente(true);
+    let mut c = Cliente::novo(amb.config());
+    let sessao = c.nova(&amb.cwd, opcoes_da_conversa()).await;
+    let r = c.falar(&sessao, "[[result-antes]]").await;
+    assert!(r["error"].is_object(), "o resultado de erro encerra o turno: {r}");
+    let arquivo = amb.perfil.join("result-antes.json");
+    let limite = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !arquivo.is_file() {
+        assert!(std::time::Instant::now() < limite, "o programa falso não registrou a resposta");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let decisao: Value = serde_json::from_str(&std::fs::read_to_string(arquivo).unwrap()).unwrap();
+    assert_eq!(decisao["behavior"], "deny", "{decisao}");
+    assert!(
+        decisao["message"] == "Nenhum turno em andamento." || decisao["message"] == "Turno encerrado.",
+        "negada por chegar depois do fim do turno: {decisao}"
+    );
+    assert!(c.permissoes.is_empty(), "nenhum cartão depois do resultado: {:?}", c.permissoes);
+}
+
+#[tokio::test]
 async fn pedido_que_chega_depois_de_parar_e_negado_mesmo_com_a_chamada_anunciada() {
     let amb = ambiente(true);
     let mut c = Cliente::novo(amb.config());
@@ -528,32 +550,64 @@ fn cartao_de_ferramenta_mcp_mostra_servidor_ferramenta_e_argumentos_sem_segredo(
     let t = super::traducao::Traducao::new("/tmp");
     let entrada = json!({"destino": "https://api.exemplo.invalid/pedidos/7", "acao": "apagar", "api_key": "sk-segredo-123",
         "aninhado": {"Authorization": "Bearer abc"}});
-    let chamada = t.chamada("toolu_1", "mcp__loja__apagar_pedido", &entrada);
+    let (chamada, aprovavel) = t.chamada("toolu_1", "mcp__loja__apagar_pedido", &entrada);
     let texto = chamada["content"][0]["content"]["text"].as_str().unwrap_or_default().to_owned();
     for trecho in ["loja", "apagar_pedido", "https://api.exemplo.invalid/pedidos/7", "apagar"] {
         assert!(texto.contains(trecho), "o cartão mostra {trecho}: {texto}");
     }
     assert!(!texto.contains("sk-segredo-123") && !texto.contains("Bearer abc"), "segredo oculto: {texto}");
-    assert_eq!(chamada["rawInput"], entrada, "a aprovação vale para a mesma entrada");
+    let raw = chamada["rawInput"].as_object().unwrap();
+    for chave in ["servidor", "ferramenta", "resumo", "completo", "sha256"] {
+        assert!(raw.contains_key(chave), "rawInput com a chave {chave}");
+    }
+    for proibida in ["command", "path", "file_path", "server", "serverName", "tool"] {
+        assert!(!raw.contains_key(proibida), "rawInput sem chave de ação {proibida}");
+    }
+    assert!(aprovavel, "entrada pequena pode ser conferida inteira");
+    assert!(!chamada.to_string().contains("sk-segredo-123"), "a entrada integral não sai no cartão");
     let enorme = json!({"corpo": "x".repeat(20_000), "destino": "https://api.exemplo.invalid/fim"});
-    let chamada = t.chamada("toolu_2", "mcp__loja__enviar", &enorme);
+    let (chamada, aprovavel) = t.chamada("toolu_2", "mcp__loja__enviar", &enorme);
     let texto = chamada["content"][0]["content"]["text"].as_str().unwrap_or_default().to_owned();
-    assert!(texto.len() < 6000, "cabe no cartão: {}", texto.len());
+    assert!(!aprovavel, "sem a entrada inteira à vista, só negar é possível");
+    assert!(texto.chars().count() <= 1800, "cabe no cartão: {}", texto.chars().count());
     assert!(
-        texto.contains("truncado") && texto.contains("SHA-256"),
-        "corte visível e resumo dos argumentos inteiros: {texto}"
+        texto.ends_with("argumentos longos demais para conferir: só é possível negar"),
+        "corte visível no fim do texto: {texto}"
     );
-    let outra = t.chamada(
+    let (outra, _) = t.chamada(
         "toolu_3",
         "mcp__loja__enviar",
         &json!({"corpo": "x".repeat(20_000), "destino": "https://api.exemplo.invalid/outro"}),
     );
-    assert_ne!(chamada["content"], outra["content"], "o resumo muda com o que foi cortado");
+    assert_ne!(chamada["rawInput"]["sha256"], outra["rawInput"]["sha256"], "o resumo muda com o que foi cortado");
+}
+
+#[tokio::test]
+async fn argumentos_longos_demais_so_oferecem_negar_e_resposta_de_aprovar_e_ignorada() {
+    let amb = ambiente(true);
+    let mut c = Cliente::novo(amb.config());
+    let sessao = c.nova(&amb.cwd, opcoes_da_conversa()).await;
+    // O Hub de teste responde «allow-once» a tudo: a ponte só aceita opção que ofereceu.
+    let r = c.falar(&sessao, "[[mcp-grande]]").await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    assert_eq!(c.permissoes.len(), 1, "um cartão, só para negar");
+    let params = &c.permissoes[0]["params"];
+    let opcoes = params["options"].as_array().unwrap();
+    assert_eq!(opcoes.len(), 1, "só a opção de negar: {opcoes:?}");
+    assert_eq!(opcoes[0]["kind"], "reject_once");
+    let texto = params["toolCall"]["content"][0]["content"]["text"].as_str().unwrap();
+    assert!(texto.contains("argumentos longos demais para conferir"), "{texto}");
+    assert!(texto.chars().count() <= 1800, "cabe na tela: {}", texto.chars().count());
+    assert!(params["toolCall"]["rawInput"]["completo"] == false && params["toolCall"]["rawInput"]["corpo"].is_null());
+    let decisao: Value =
+        serde_json::from_str(&std::fs::read_to_string(amb.perfil.join("mcp-grande.json")).unwrap()).unwrap();
+    assert_eq!(decisao["behavior"], "deny", "resposta de aprovar sem a opção oferecida não vale: {decisao}");
 }
 
 #[tokio::test]
 async fn servidor_de_permissao_recusa_quem_nao_tem_o_segredo() {
-    let decisor: super::permissao::Decisor = std::sync::Arc::new(|_| Box::pin(async { json!({"behavior": "allow"}) }));
+    let decisor: super::permissao::Decisor =
+        std::sync::Arc::new(|_| Box::pin(async { super::permissao::Decisao::Pronta(json!({"behavior": "allow"})) }));
     let servidor = super::permissao::iniciar(decisor).await.unwrap();
     assert!(servidor.url.starts_with("http://127.0.0.1:"));
     let cliente = reqwest::Client::new();
@@ -655,4 +709,105 @@ fn opcoes_perigosas_ou_malformadas_sao_recusadas() {
         assert!(super::opcoes::ler(&ruim).is_err(), "{ruim}");
     }
     assert!(super::opcoes::ler(&pedido(opcoes_da_conversa())).is_ok());
+}
+
+/// Sessão montada à mão, sem processo: para provar a autorização no ponto de entrega.
+fn sessao_de_prova() -> std::sync::Arc<super::agente::Sessao> {
+    let opcoes = super::opcoes::ler(&json!({"cwd": "/tmp", "mcpServers": []})).unwrap();
+    std::sync::Arc::new(super::agente::Sessao::nova("prova-da-autorizacao".into(), opcoes, false))
+}
+
+/// Decisor de prova: aprova a entrada capturando a geração corrente, com a última conferência no
+/// ponto de entrega, como o decisor real.
+fn decisor_de_prova(s: &std::sync::Arc<super::agente::Sessao>) -> super::permissao::Decisor {
+    let s = s.clone();
+    std::sync::Arc::new(move |_args: Value| {
+        let s = s.clone();
+        Box::pin(async move {
+            let turno = s.turno_atual();
+            let entrada = json!({"command": "echo oi"});
+            super::permissao::Decisao::Autorizar(Box::new(move || super::agente::autorizar(&s, turno, &entrada)))
+        })
+    })
+}
+
+/// Pergunta ao servidor de permissão como o programa oficial pergunta e devolve a decisão.
+async fn perguntar_ao_servidor(servidor: &super::permissao::Servidor) -> Value {
+    let cliente = reqwest::Client::new();
+    let corpo = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": super::opcoes::FERRAMENTA_PERMISSAO,
+            "arguments": {"tool_name": "Bash", "input": {"command": "echo oi"}, "tool_use_id": "toolu_1"}}});
+    let r = cliente.post(&servidor.url).bearer_auth(&servidor.segredo).json(&corpo).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let msg: Value = r.json().await.unwrap();
+    let texto = msg["result"]["content"][0]["text"].as_str().unwrap();
+    serde_json::from_str(texto).unwrap()
+}
+
+#[test]
+fn autorizar_nega_turno_cancelado_encerrado_e_permite_o_vivo() {
+    let entrada = json!({"command": "echo oi"});
+    // Cancelamento antes do ponto de entrega: nega com o motivo.
+    let s = sessao_de_prova();
+    let turno = s.iniciar_turno();
+    s.cancelar_turno();
+    let decisao = super::agente::autorizar(&s, turno, &entrada);
+    assert_eq!(decisao["behavior"], "deny", "{decisao}");
+    assert_eq!(decisao["message"], "Turno cancelado.", "{decisao}");
+    // Turno encerrado antes do ponto de entrega: a geração avançou, nega.
+    let s = sessao_de_prova();
+    let turno = s.iniciar_turno();
+    s.fechar_geracao();
+    let decisao = super::agente::autorizar(&s, turno, &entrada);
+    assert_eq!(decisao["behavior"], "deny", "{decisao}");
+    assert_eq!(decisao["message"], "Turno encerrado.", "{decisao}");
+    // Nada antes do ponto de entrega: aprova com a mesma entrada.
+    let s = sessao_de_prova();
+    let turno = s.iniciar_turno();
+    let decisao = super::agente::autorizar(&s, turno, &entrada);
+    assert_eq!(decisao["behavior"], "allow", "{decisao}");
+    assert_eq!(decisao["updatedInput"], entrada, "{decisao}");
+}
+
+#[tokio::test]
+async fn servidor_confere_a_autorizacao_no_ponto_de_entrega() {
+    // Sem concorrência: aprova com a mesma entrada.
+    {
+        let s = sessao_de_prova();
+        s.iniciar_turno();
+        let servidor = super::permissao::iniciar(decisor_de_prova(&s)).await.unwrap();
+        let decisao = perguntar_ao_servidor(&servidor).await;
+        assert_eq!(decisao["behavior"], "allow", "{decisao}");
+        assert_eq!(decisao["updatedInput"], json!({"command": "echo oi"}), "{decisao}");
+    }
+    // Cancelado exatamente no ponto de entrega: nega pela trava do estado do turno.
+    {
+        let s = sessao_de_prova();
+        s.iniciar_turno();
+        let no_ponto = s.clone();
+        let servidor = super::permissao::iniciar_com_gancho(
+            decisor_de_prova(&s),
+            std::sync::Arc::new(move || no_ponto.cancelar_turno()),
+        )
+        .await
+        .unwrap();
+        let decisao = perguntar_ao_servidor(&servidor).await;
+        assert_eq!(decisao["behavior"], "deny", "{decisao}");
+        assert_eq!(decisao["message"], "Turno cancelado.", "{decisao}");
+    }
+    // Turno encerrado (evento terminal) no ponto de entrega: nega pela geração avançada.
+    {
+        let s = sessao_de_prova();
+        s.iniciar_turno();
+        let no_ponto = s.clone();
+        let servidor = super::permissao::iniciar_com_gancho(
+            decisor_de_prova(&s),
+            std::sync::Arc::new(move || no_ponto.fechar_geracao()),
+        )
+        .await
+        .unwrap();
+        let decisao = perguntar_ao_servidor(&servidor).await;
+        assert_eq!(decisao["behavior"], "deny", "{decisao}");
+        assert_eq!(decisao["message"], "Turno encerrado.", "{decisao}");
+    }
 }

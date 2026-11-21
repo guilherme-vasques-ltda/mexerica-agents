@@ -19,8 +19,16 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// Decide um pedido `{tool_name, input, tool_use_id}` e devolve `{behavior, ...}` no formato documentado.
-pub(super) type Decisor = Arc<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Value> + Send>> + Send + Sync>;
+/// Decide um pedido `{tool_name, input, tool_use_id}`: `Pronta` responde na hora (negações e casos
+/// simples); `Autorizar` é o efeito de aprovar, executado pelo servidor de forma síncrona, com a
+/// última conferência e a resposta no mesmo passo.
+pub(super) enum Decisao {
+    Pronta(Value),
+    Autorizar(Box<dyn FnOnce() -> Value + Send>),
+}
+
+/// Decide um pedido e devolve a resposta documentada, pronta ou como efeito a executar na entrega.
+pub(super) type Decisor = Arc<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Decisao> + Send>> + Send + Sync>;
 
 pub(super) struct Servidor {
     pub url: String,
@@ -37,6 +45,9 @@ impl Drop for Servidor {
 struct Estado {
     segredo: String,
     decisor: Decisor,
+    /// Só em prova: roda entre o fim do decisor e a execução do efeito aprovado.
+    #[cfg(test)]
+    gancho: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 fn iguais(a: &[u8], b: &[u8]) -> bool {
@@ -45,7 +56,24 @@ fn iguais(a: &[u8], b: &[u8]) -> bool {
 
 pub(super) async fn iniciar(decisor: Decisor) -> Result<Servidor> {
     let segredo = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-    let estado = Arc::new(Estado { segredo: segredo.clone(), decisor });
+    let estado = Arc::new(Estado {
+        segredo: segredo.clone(),
+        decisor,
+        #[cfg(test)]
+        gancho: None,
+    });
+    servidor_de(estado, segredo).await
+}
+
+/// Prova do ponto de entrega: o gancho roda no handler entre o fim do decisor e a execução do efeito.
+#[cfg(test)]
+pub(super) async fn iniciar_com_gancho(decisor: Decisor, gancho: Arc<dyn Fn() + Send + Sync>) -> Result<Servidor> {
+    let segredo = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let estado = Arc::new(Estado { segredo: segredo.clone(), decisor, gancho: Some(gancho) });
+    servidor_de(estado, segredo).await
+}
+
+async fn servidor_de(estado: Arc<Estado>, segredo: String) -> Result<Servidor> {
     let app = Router::new().route("/mcp", post(pedido).get(sem_fluxo).delete(sem_fluxo)).with_state(estado);
     let ouvinte = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let url = format!("http://127.0.0.1:{}/mcp", ouvinte.local_addr()?.port());
@@ -117,7 +145,17 @@ async fn pedido(State(estado): State<Arc<Estado>>, cabecalhos: HeaderMap, corpo:
         ),
         "tools/call" if params["name"] == FERRAMENTA_PERMISSAO => {
             let decisao = (estado.decisor)(params["arguments"].clone()).await;
-            resposta(&id, json!({"content": [{"type": "text", "text": decisao.to_string()}]}))
+            #[cfg(test)]
+            if let Some(gancho) = &estado.gancho {
+                gancho();
+            }
+            // O efeito aprovado roda aqui, de forma síncrona: entre a conferência dele e esta resposta
+            // não há nenhum await, então quem chega depois já não desfecha o que foi entregue.
+            let corpo = match decisao {
+                Decisao::Pronta(v) => v,
+                Decisao::Autorizar(efeito) => efeito(),
+            };
+            resposta(&id, json!({"content": [{"type": "text", "text": corpo.to_string()}]}))
         }
         _ => resposta(&id, json!({"code": -32601, "message": "método não suportado"})),
     }

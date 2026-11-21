@@ -11,10 +11,16 @@
 //!
 //! Só roda quando `MEXERICA_CLAUDE_REAL` aponta para o executável do programa; sem a variável, cada teste
 //! termina sem fazer nada. Nada toca na conta de quem roda: `CLAUDE_CONFIG_DIR` e `HOME` são pastas temporárias.
+//!
+//! Isolamento de rede: sem privilégio não há bloqueio de rede no nível do sistema operacional. O isolamento
+//! desta prova é o ambiente limpo (o subprocesso não herda credenciais nem proxies de quem roda, só a lista
+//! explícita abaixo) e o programa apontado para o servidor falso em `127.0.0.1`; o teste do contador de
+//! chamadas confirma que o programa falou de verdade com esse servidor.
 #![cfg(unix)]
 #![allow(clippy::unwrap_used)]
 
 use serde_json::{Value, json};
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -25,11 +31,20 @@ use tokio::time::timeout;
 /// Prazo de cada linha do protocolo: um turno do programa real pode levar alguns segundos.
 const PRAZO: Duration = Duration::from_secs(120);
 
-/// Caminho absoluto do programa oficial em `MEXERICA_CLAUDE_REAL`; sem a variável, a prova fica desligada.
+/// Caminho absoluto do programa oficial em `MEXERICA_CLAUDE_REAL`. Sem a variável, a prova fica desligada;
+/// com a variável definida, um caminho que não é um executável válido é erro explícito: a prova não pode
+/// terminar em silêncio e valer como sucesso sem ter rodado o programa.
 fn programa_real() -> Option<PathBuf> {
-    let p = std::env::var_os("MEXERICA_CLAUDE_REAL")?;
-    let p = std::path::absolute(PathBuf::from(p)).ok()?;
-    p.is_file().then_some(p)
+    let p = std::path::absolute(PathBuf::from(std::env::var_os("MEXERICA_CLAUDE_REAL")?))
+        .expect("MEXERICA_CLAUDE_REAL não é um caminho utilizável");
+    let executavel = p.is_file() && std::fs::metadata(&p).is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
+    assert!(
+        executavel,
+        "MEXERICA_CLAUDE_REAL aponta para {}, que não é um executável válido; \
+         corrija o caminho ou remova a variável para desligar a prova",
+        p.display()
+    );
+    Some(p)
 }
 
 fn python3() -> PathBuf {
@@ -65,6 +80,43 @@ fn cenario() -> Cenario {
     Cenario { _dir: dir, perfil, home, cwd, toque, gravado, ler }
 }
 
+/// Onde o node está no `PATH` de quem roda o teste: instalações do programa oficial são script de node.
+fn pasta_do_node() -> PathBuf {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .find(|pasta| pasta.join("node").is_file())
+        .expect("node no PATH de quem roda o teste")
+}
+
+/// Ambiente explícito do subprocesso da prova, sempre com `env_clear` antes: nada do ambiente de quem roda
+/// passa — nem credencial, nem proxy, nem telemetria ligada. `chave` define a chave falsa; `base`, quando
+/// presente, aponta para a API falsa em `127.0.0.1`. Só a chave sem base serve ao `auth status`, que informa
+/// estado local e não faz pedido; sem chave e sem base não existe login.
+fn ambiente(c: &Cenario, chave: bool, base: Option<u16>) -> Vec<(String, String)> {
+    let mut vars = vec![
+        ("PATH".to_owned(), format!("{}:/usr/local/bin:/usr/bin:/bin", pasta_do_node().display())),
+        ("HOME".to_owned(), c.home.display().to_string()),
+        ("CLAUDE_CONFIG_DIR".to_owned(), c.perfil.display().to_string()),
+        ("NO_PROXY".to_owned(), "127.0.0.1,localhost".to_owned()),
+        // Tráfego que o programa documenta como não essencial: telemetria, relatório de erro, atualização e
+        // chamadas de modelo fora do turno ficam desligados na prova.
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_owned(), "1".to_owned()),
+        ("DISABLE_AUTOUPDATER".to_owned(), "1".to_owned()),
+        ("DISABLE_BUG_COMMAND".to_owned(), "1".to_owned()),
+        ("DISABLE_COST_WARNINGS".to_owned(), "1".to_owned()),
+        ("DISABLE_ERROR_REPORTING".to_owned(), "1".to_owned()),
+        ("DISABLE_NON_ESSENTIAL_MODEL_CALLS".to_owned(), "1".to_owned()),
+        ("DISABLE_TELEMETRY".to_owned(), "1".to_owned()),
+        ("CLAUDE_CODE_DISABLE_TERMINAL_TITLE".to_owned(), "1".to_owned()),
+    ];
+    if chave {
+        vars.push(("ANTHROPIC_API_KEY".to_owned(), "sk-teste-falso".to_owned()));
+    }
+    if let Some(porta) = base {
+        vars.push(("ANTHROPIC_BASE_URL".to_owned(), format!("http://127.0.0.1:{porta}")));
+    }
+    vars
+}
+
 /// API falsa de mensagens em `127.0.0.1` na porta que o fixture escolher.
 struct ApiFalsa {
     _processo: Child,
@@ -98,6 +150,20 @@ async fn api_falsa(c: &Cenario) -> ApiFalsa {
     ApiFalsa { _processo: processo, porta }
 }
 
+/// Contador de chamadas que o servidor falso recebeu em `/v1/messages`. Um GET cru pela rede, sem cliente
+/// HTTP, para não depender de proxy nem de credencial de quem roda.
+async fn chamadas_da_api_falsa(porta: u16) -> u64 {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let mut conexao = tokio::net::TcpStream::connect(("127.0.0.1", porta)).await.unwrap();
+    conexao.write_all(b"GET /__chamadas HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut bruto = Vec::new();
+    conexao.read_to_end(&mut bruto).await.unwrap();
+    let texto = String::from_utf8_lossy(&bruto);
+    let corpo = texto.split_once("\r\n\r\n").map_or("", |(_, corpo)| corpo);
+    let v: Value = serde_json::from_str(corpo).unwrap_or_else(|_| panic!("contador em JSON: {texto}"));
+    v["chamadas"].as_u64().unwrap_or_else(|| panic!("resposta sem contador de chamadas: {texto}"))
+}
+
 /// Lado do Hub: fala ACP com a ponte (executável do Hub no modo `__claude-ponte`) pela entrada/saída padrão.
 struct Ponte {
     _processo: Child,
@@ -110,25 +176,18 @@ struct Ponte {
 }
 
 /// Abre a ponte com o programa real. `com_chave`: aponta o programa para a API falsa com chave falsa; sem ela,
-/// nem chave nem login existem, e a ponte tem de recusar a sessão.
+/// nem chave nem login existem, e a ponte tem de recusar a sessão. O Hub herda só a lista explícita de
+/// `ambiente`, e o programa oficial herda o ambiente do Hub.
 fn ponte(programa: &Path, c: &Cenario, porta: u16, com_chave: bool) -> Ponte {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_donnabot-host"));
     cmd.arg("__claude-ponte")
         .arg(programa)
-        .env("CLAUDE_CONFIG_DIR", &c.perfil)
-        .env("HOME", &c.home)
-        .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
-        .env_remove("ANTHROPIC_BASE_URL")
-        .env_remove("CLAUDE_CODE_OAUTH_TOKEN")
+        .env_clear()
+        .envs(ambiente(c, com_chave, com_chave.then_some(porta)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true);
-    if com_chave {
-        cmd.env("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{porta}")).env("ANTHROPIC_API_KEY", "sk-teste-falso");
-    }
     let mut processo = cmd.spawn().expect("a ponte abriu");
     let escrita = processo.stdin.take().unwrap();
     let leitura = BufReader::new(processo.stdout.take().unwrap()).lines();
@@ -151,6 +210,22 @@ fn opcoes_da_conversa() -> Value {
         "disallowedTools": ["CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
             "Workflow", "ListAgents", "ReportFindings"],
         "permissionMode": "default", "allowDangerouslySkipPermissions": false})
+}
+
+/// Versão do programa oficial, com o mesmo ambiente limpo do resto da prova: a saída tem de se apresentar
+/// como «Claude Code» e vai para o log, para registrar qual versão foi provada.
+async fn conferir_versao(programa: &Path, c: &Cenario) {
+    let saida = Command::new(programa)
+        .arg("--version")
+        .env_clear()
+        .envs(ambiente(c, false, None))
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .unwrap();
+    let texto = String::from_utf8_lossy(&saida.stdout).trim().to_string();
+    assert!(texto.contains("Claude Code"), "a saída de --version não se apresenta como Claude Code: {texto:?}");
+    eprintln!("versão do programa oficial na prova: {texto}");
 }
 
 impl Ponte {
@@ -324,16 +399,23 @@ async fn read_no_workspace_do_programa_real_nao_gera_cartao() {
 
 #[tokio::test]
 #[ignore = "prova opt-in: defina MEXERICA_CLAUDE_REAL com o caminho do claude oficial"]
+async fn versao_do_programa_oficial_e_conferida() {
+    let Some(programa) = programa_real() else { return };
+    let c = cenario();
+    conferir_versao(&programa, &c).await;
+}
+
+#[tokio::test]
+#[ignore = "prova opt-in: defina MEXERICA_CLAUDE_REAL com o caminho do claude oficial"]
 async fn auth_status_sem_login_com_chave_falsa_devolve_logado_verdadeiro() {
     let Some(programa) = programa_real() else { return };
     let c = cenario();
-    // A chave é falsa e aponta para nada: nenhum pedido sai; o programa só informa o estado local.
+    // A chave é falsa e não aponta para nada: nenhum pedido sai; o programa só informa o estado local.
     let saida = Command::new(&programa)
         .args(["auth", "status"])
-        .env("CLAUDE_CONFIG_DIR", &c.perfil)
-        .env("HOME", &c.home)
-        .env("ANTHROPIC_API_KEY", "sk-teste-falso")
-        .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+        .env_clear()
+        .envs(ambiente(&c, true, None))
+        .stdin(Stdio::null())
         .output()
         .await
         .unwrap();
@@ -341,6 +423,22 @@ async fn auth_status_sem_login_com_chave_falsa_devolve_logado_verdadeiro() {
     let v: Value = serde_json::from_str(texto.trim()).unwrap_or_else(|_| panic!("auth status em JSON: {texto}"));
     assert_eq!(v["loggedIn"], json!(true), "a ponte exige loggedIn verdadeiro: {v}");
     assert_eq!(v["authMethod"], "api_key", "{v}");
+}
+
+#[tokio::test]
+#[ignore = "prova opt-in: defina MEXERICA_CLAUDE_REAL com o caminho do claude oficial"]
+async fn api_falsa_recebe_as_chamadas_do_programa_real() {
+    let Some(programa) = programa_real() else { return };
+    let c = cenario();
+    let api = api_falsa(&c).await;
+    let mut p = ponte(&programa, &c, api.porta, true);
+    let sessao = p.nova(&c.cwd).await;
+    let r = p.falar(&sessao, "[[texto]]").await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    // Sem privilégio não há bloqueio de rede no sistema operacional: o isolamento é o ambiente limpo mais o
+    // servidor falso, e esta conferência é a prova de que o programa falou de verdade com esse servidor.
+    let chamadas = chamadas_da_api_falsa(api.porta).await;
+    assert!(chamadas >= 1, "o programa não falou com o servidor falso: {chamadas} chamadas em /v1/messages");
 }
 
 #[tokio::test]

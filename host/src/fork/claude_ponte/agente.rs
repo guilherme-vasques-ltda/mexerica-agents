@@ -5,14 +5,14 @@
 //! há esse sinal e o cancelamento vale pelo prazo e pelo encerramento do processo.
 
 use super::opcoes::{self, Arquivos, ESFORCOS, Opcoes, PromptSistema};
-use super::permissao;
+use super::permissao::{self, Decisao};
 use super::traducao::Traducao;
 use crate::LockExt;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -102,7 +102,16 @@ struct Processo {
     retomado: bool,
 }
 
-struct Sessao {
+/// Estado do turno sob uma única trava: abrir, cancelar e fechar se linearizam nela, e a última
+/// conferência da autorização acontece no mesmo passo em que o efeito é entregue.
+struct EstadoTurno {
+    /// Geração corrente: avança ao abrir e ao fechar um turno; pedido antigo vê número diferente.
+    turno: u64,
+    ativo: bool,
+    cancelado: bool,
+}
+
+pub(super) struct Sessao {
     id: String,
     opcoes: Opcoes,
     modelo: Mutex<String>,
@@ -114,12 +123,8 @@ struct Sessao {
     processo: tokio::sync::Mutex<Option<Processo>>,
     cancelar: watch::Sender<u64>,
     traducao: Mutex<Traducao>,
-    /// Há um turno em andamento: pedido de permissão fora dele é negado.
-    turno_ativo: AtomicBool,
-    /// Número do turno em andamento (ou do último): cada pedido de permissão pertence a uma geração.
-    turno_atual: AtomicU64,
-    /// Último turno que recebeu `session/cancel`: dali em diante, nenhum pedido dele ganha autorização.
-    cancelado_ate: AtomicU64,
+    /// Estado do turno: a trava lineariza abertura, cancelamento, fim e a conferência da autorização.
+    estado: Mutex<EstadoTurno>,
     /// Chamadas que já tiveram um pedido de permissão: o mesmo id não é decidido duas vezes.
     decididas: Mutex<HashSet<String>>,
     /// Avança a cada fim de turno: pedido de permissão ainda aberto daquele turno é negado.
@@ -358,27 +363,61 @@ enum Passo {
 }
 
 impl Sessao {
-    /// Pedido de cancelamento: avisa quem espera e, de forma síncrona, fecha a autorização do turno atual.
-    fn cancelar_turno(&self) {
-        self.cancelar.send_modify(|v| *v += 1);
-        self.cancelado_ate.fetch_max(self.turno_atual.load(Ordering::SeqCst), Ordering::SeqCst);
+    /// Abre um turno novo e devolve sua geração; pedidos de permissão daqui em diante pertencem a ela.
+    pub(super) fn iniciar_turno(&self) -> u64 {
+        let mut e = self.estado.locked();
+        e.turno += 1;
+        e.ativo = true;
+        e.cancelado = false;
+        e.turno
     }
 
-    /// Por que um pedido de permissão da geração `turno` não pode mais ser autorizado (`None`: ainda vale).
-    fn sem_autorizacao(&self, turno: u64) -> Option<&'static str> {
-        if !self.turno_ativo.load(Ordering::SeqCst) {
-            return Some("Nenhum turno em andamento.");
+    /// Pedido de cancelamento: sob a mesma trava do turno, marca o turno ativo e acorda quem espera. Um
+    /// cancelamento que chega antes do turno só acorda o observador: o turno seguinte vê o aviso na
+    /// conferência que faz logo ao começar.
+    pub(super) fn cancelar_turno(&self) {
+        let mut e = self.estado.locked();
+        if e.ativo {
+            e.cancelado = true;
         }
-        if self.cancelado_ate.load(Ordering::SeqCst) >= turno {
+        self.cancelar.send_modify(|v| *v += 1);
+    }
+
+    /// Fecha a geração do turno (resultado, prazo, cancelamento concluído ou saída do programa): nenhum
+    /// pedido pendente dela é mais autorizado. Idempotente: fechar de novo não acorda ninguém.
+    pub(super) fn fechar_geracao(&self) {
+        let mut e = self.estado.locked();
+        if !e.ativo {
+            return;
+        }
+        e.ativo = false;
+        e.turno += 1;
+        self.fim_turno.send_modify(|v| *v += 1);
+    }
+
+    /// Geração corrente, lida sob a mesma trava de quem a captura.
+    pub(super) fn turno_atual(&self) -> u64 {
+        self.estado.locked().turno
+    }
+
+    /// Por que um pedido da geração `turno` não pode mais ser autorizado (`None`: ainda vale). Pedido que
+    /// nasceu num turno já fechado vê a geração avançada («Turno encerrado.»); pedido que nasce sem turno
+    /// nenhum vê «Nenhum turno em andamento.».
+    fn sem_autorizacao(&self, turno: u64) -> Option<&'static str> {
+        let e = self.estado.locked();
+        if e.cancelado {
             return Some("Turno cancelado.");
         }
-        if self.turno_atual.load(Ordering::SeqCst) != turno {
+        if e.turno != turno {
             return Some("Turno encerrado.");
+        }
+        if !e.ativo {
+            return Some("Nenhum turno em andamento.");
         }
         None
     }
 
-    fn nova(id: String, opcoes: Opcoes, iniciada: bool) -> Self {
+    pub(super) fn nova(id: String, opcoes: Opcoes, iniciada: bool) -> Self {
         let modelo = opcoes.modelo.clone().unwrap_or_else(|| "default".into());
         let esforco = opcoes.esforco.clone().unwrap_or_else(|| "default".into());
         let traducao = Traducao::new(&opcoes.cwd.display().to_string());
@@ -392,9 +431,7 @@ impl Sessao {
             processo: tokio::sync::Mutex::new(None),
             cancelar: watch::channel(0).0,
             traducao: Mutex::new(traducao),
-            turno_ativo: AtomicBool::new(false),
-            turno_atual: AtomicU64::new(0),
-            cancelado_ate: AtomicU64::new(0),
+            estado: Mutex::new(EstadoTurno { turno: 0, ativo: false, cancelado: false }),
             decididas: Mutex::new(HashSet::new()),
             fim_turno: watch::channel(0).0,
         }
@@ -405,17 +442,17 @@ impl Sessao {
     }
 }
 
-async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value {
+async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Decisao {
     // O motivo vai para o registro de diagnóstico da ponte; a entrada da ferramenta não.
     let negar = |m: &str| {
         tracing::warn!(motivo = m, "permissão negada pela ponte do Claude");
-        json!({"behavior": "deny", "message": m})
+        Decisao::Pronta(json!({"behavior": "deny", "message": m}))
     };
     let Some(s) = sessao.upgrade() else { return negar("Sessão encerrada.") };
     let mut cancelado = s.cancelar.subscribe();
     let mut acabou = s.fim_turno.subscribe();
     // O pedido pertence ao turno que está em andamento agora; cancelar ou terminar esse turno fecha a autorização.
-    let turno = s.turno_atual.load(Ordering::SeqCst);
+    let turno = s.turno_atual();
     if let Some(motivo) = s.sem_autorizacao(turno) {
         return negar(motivo);
     }
@@ -461,24 +498,36 @@ async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value 
     if !s.decididas.locked().insert(id.clone()) {
         return negar("Esta chamada já teve um pedido de permissão.");
     }
-    let chamada = s.traducao.locked().chamada(&id, nome, entrada);
-    let pedido = json!({"sessionId": s.id, "toolCall": chamada, "options": [
-        {"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
-        {"optionId": "reject", "name": "No", "kind": "reject_once"}]});
+    let (chamada, aprovavel) = s.traducao.locked().chamada(&id, nome, entrada);
+    let opcoes = if aprovavel {
+        json!([{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+            {"optionId": "reject", "name": "No", "kind": "reject_once"}])
+    } else {
+        json!([{"optionId": "reject", "name": "No", "kind": "reject_once"}])
+    };
+    let pedido = json!({"sessionId": s.id, "toolCall": chamada, "options": opcoes});
     let aprovado = tokio::select! {
         biased;
         _ = cancelado.changed() => return negar("Turno cancelado."),
         _ = acabou.changed() => return negar("Turno encerrado."),
         r = ponte.pedir("session/request_permission", pedido) =>
-            r.is_some_and(|v| v["outcome"]["outcome"] == "selected" && v["outcome"]["optionId"] == "allow-once"),
+            r.is_some_and(|v| aprovavel && v["outcome"]["outcome"] == "selected" && v["outcome"]["optionId"] == "allow-once"),
     };
-    // A resposta pode chegar junto com o fim ou o cancelamento do turno: só aprova a geração que ainda vale.
-    // Esta é a última conferência na ponte; a resposta HTTP que sai daqui não pode mais ser desfeita.
-    if let Some(motivo) = s.sem_autorizacao(turno) {
-        return negar(motivo);
-    }
     if !aprovado {
         return negar("O dono não aprovou esta ação.");
+    }
+    // A última conferência e o efeito ficam juntos, executados pelo servidor sob a trava do estado do turno.
+    let entrada = entrada.clone();
+    Decisao::Autorizar(Box::new(move || autorizar(&s, turno, &entrada)))
+}
+
+/// Ponto de linearização da aprovação: sob a trava do estado do turno, reconfere se a geração do pedido
+/// ainda vale. Cancelamento ou fim que chegaram antes negam; depois daqui o efeito já seguiu ao programa,
+/// sem volta.
+pub(super) fn autorizar(sessao: &Sessao, turno: u64, entrada: &Value) -> Value {
+    if let Some(motivo) = sessao.sem_autorizacao(turno) {
+        tracing::warn!(motivo, "permissão negada pela ponte do Claude");
+        return json!({"behavior": "deny", "message": motivo});
     }
     json!({"behavior": "allow", "updatedInput": entrada})
 }
@@ -600,9 +649,9 @@ struct TurnoAtivo<'a>(&'a Sessao);
 
 impl Drop for TurnoAtivo<'_> {
     fn drop(&mut self) {
-        self.0.turno_ativo.store(false, Ordering::SeqCst);
+        // Fecha a geração se um caminho de erro não fechou; a limpeza das decididas sempre roda.
+        self.0.fechar_geracao();
         self.0.decididas.locked().clear();
-        self.0.fim_turno.send_modify(|v| *v += 1);
     }
 }
 
@@ -615,8 +664,7 @@ async fn turno(
 ) -> Result<Value, Erro> {
     let conteudo = blocos(prompt)?;
     let mut guarda = s.processo.lock().await;
-    s.turno_atual.fetch_add(1, Ordering::SeqCst);
-    s.turno_ativo.store(true, Ordering::SeqCst);
+    s.iniciar_turno();
     let _ativo = TurnoAtivo(s);
     // Cancelado enquanto esperava a vez: nada chega ao programa.
     if cancelar.has_changed().unwrap_or(false) {
@@ -641,6 +689,7 @@ async fn turno(
             Some(true) => break,
             Some(false) => {}
             None => {
+                s.fechar_geracao();
                 if let Some(p) = guarda.take() {
                     encerrar(p).await;
                 }
@@ -680,6 +729,7 @@ async fn turno(
                 }
             }
             Passo::Prazo => {
+                s.fechar_geracao();
                 if let Some(p) = guarda.take() {
                     encerrar(p).await;
                 }
@@ -687,11 +737,12 @@ async fn turno(
                 return Ok(json!({"stopReason": "cancelled"}));
             }
             Passo::Evento(None) => {
-                if let Some(p) = guarda.take() {
-                    encerrar(p).await;
-                }
                 if !recebeu && !cancelado && tentativas == 0 {
-                    // O processo tinha saído entre turnos: abre outro na mesma sessão e reenvia a mensagem.
+                    // O processo tinha saído entre turnos: abre outro na mesma sessão e reenvia a mensagem;
+                    // o turno segue vivo, a autorização fica aberta.
+                    if let Some(p) = guarda.take() {
+                        encerrar(p).await;
+                    }
                     tentativas = 1;
                     let mut p = abrir(ponte, s).await?;
                     match enviar(&mut p, &linha, &mut cancelar).await {
@@ -701,11 +752,18 @@ async fn turno(
                         }
                         Some(false) => return Err(Erro::interno("o Claude Code não aceitou a mensagem")),
                         None => {
+                            s.fechar_geracao();
                             encerrar(p).await;
                             fechar_turno(ponte, s);
                             return Ok(json!({"stopReason": "cancelled"}));
                         }
                     }
+                }
+                // Fim do processo com o turno em andamento: a autorização fecha antes de liberar o
+                // processo e publicar as atualizações finais.
+                s.fechar_geracao();
+                if let Some(p) = guarda.take() {
+                    encerrar(p).await;
                 }
                 fechar_turno(ponte, s);
                 if cancelado {
@@ -745,6 +803,9 @@ async fn turno(
             }
         }
     };
+    // O resultado fecha a autorização antes de qualquer processamento: pedido que chegar daqui em
+    // diante, mesmo ainda dentro deste processo, é negado.
+    s.fechar_geracao();
     let Some(p) = guarda.as_mut() else { return Err(Erro::interno("processo indisponível")) };
     let principal = s.traducao.locked().modelo().map(str::to_owned);
     let por_modelo = uso_por_modelo(p, &resultado, principal.as_deref());

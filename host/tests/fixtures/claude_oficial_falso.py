@@ -154,6 +154,16 @@ def main():
                     {"type": "tool_result", "tool_use_id": "toolu_t%d" % turnos, "content": decisao.get("message", ""), "is_error": decisao["behavior"] != "allow"}]}})
             emitir({"type": "stream_event", "parent_tool_use_id": None, "session_id": sessao, "event": {"type": "content_block_delta", "index": 1,
                     "delta": {"type": "text_delta", "text": decisao["behavior"]}}})
+        elif "[[mcp-grande]]" in texto:
+            entrada = {"corpo": "x" * 5000, "destino": "https://api.exemplo.invalid/fim"}
+            emitir({"type": "assistant", "parent_tool_use_id": None, "session_id": sessao, "message": {"id": mid, "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "toolu_g", "name": "mcp__loja__enviar", "input": entrada}]}})
+            decisao = permissao.perguntar("mcp__loja__enviar", entrada, "toolu_g")
+            with open(caminho("mcp-grande.json.tmp"), "w") as saida:
+                json.dump(decisao, saida)
+            os.replace(caminho("mcp-grande.json.tmp"), caminho("mcp-grande.json"))
+            emitir({"type": "user", "parent_tool_use_id": None, "session_id": sessao, "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_g", "content": decisao.get("message", ""), "is_error": decisao["behavior"] != "allow"}]}})
         elif "[[fora-do-turno]]" in texto:
             emitir({"type": "assistant", "parent_tool_use_id": None, "session_id": sessao, "message": {"id": mid, "role": "assistant",
                     "content": [{"type": "tool_use", "id": "toolu_fora", "name": "Bash", "input": {"command": "echo oi"}}]}})
@@ -223,6 +233,19 @@ def main():
                     "content": [{"type": "text", "text": "You've hit your limit · resets 3pm"}]}})
             emitir({"type": "result", "subtype": "success", "is_error": True, "session_id": sessao, "result": "You've hit your limit · resets 3pm"})
             continue
+        elif "[[result-antes]]" in texto:
+            # Resultado de erro e, depois dele, pedido de permissão para chamada anunciada: negado sem turno.
+            entrada = {"command": "echo oi"}
+            emitir({"type": "assistant", "parent_tool_use_id": None, "session_id": sessao, "message": {"id": mid, "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "toolu_ra", "name": "Bash", "input": entrada}]}})
+            emitir({"type": "result", "subtype": "error_during_execution", "is_error": True, "session_id": sessao,
+                    "result": "erro antes da permissão", "usage": uso})
+            time.sleep(0.5)
+            decisao = permissao.perguntar("Bash", entrada, "toolu_ra")
+            with open(caminho("result-antes.json.tmp"), "w") as saida:
+                json.dump(decisao, saida)
+            os.replace(caminho("result-antes.json.tmp"), caminho("result-antes.json"))
+            sys.exit(0)
         else:
             fala = "olá de %s, turno %d" % (modelo, turnos)
             emitir({"type": "stream_event", "parent_tool_use_id": None, "session_id": sessao, "event": {"type": "content_block_start", "index": 0,

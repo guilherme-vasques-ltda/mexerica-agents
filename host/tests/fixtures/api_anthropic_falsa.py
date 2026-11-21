@@ -10,7 +10,10 @@ pelas ferramentas vêm do ambiente, definido por quem sobe o servidor:
 
   API_FALSA_TOQUE    arquivo que o Bash deve criar
   API_FALSA_ARQUIVO  arquivo que o Write deve gravar
-  API_FALSA_LER      arquivo que o Read deve ler (existe antes do teste)
+  API_FALSA_LER       arquivo que o Read deve ler (existe antes do teste)
+
+O servidor conta as chamadas que recebeu em `/v1/messages` e publica o total em
+`GET /__chamadas`, para a prova confirmar que o programa de fato falou com ele.
 
 Marcadores no texto do pedido do usuário:
   [[bash]]   → tool_use Bash com {"command": "touch <API_FALSA_TOQUE>"}
@@ -77,6 +80,11 @@ class Pedido(BaseHTTPRequestHandler):
         self.wfile.write(dados)
 
     def do_GET(self):
+        if self.path.split("?")[0] == "/__chamadas":
+            with TRAVA:
+                chamadas = CONTADOR
+            self._responder(200, json.dumps({"chamadas": chamadas}))
+            return
         self._responder(404, json.dumps({"type": "error", "error": {"type": "not_found_error"}}))
 
     def do_POST(self):

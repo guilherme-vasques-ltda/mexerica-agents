@@ -20,6 +20,9 @@ mod traducao;
 #[cfg(unix)]
 mod testes;
 
+#[cfg(test)]
+mod testes_cartao;
+
 use serde_json::Value;
 
 /// Argumento do executável do Hub que abre a ponte.

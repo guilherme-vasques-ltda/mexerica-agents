@@ -2,10 +2,12 @@
 //! Hub já consome do adaptador anterior: texto, pensamento, ferramentas (anúncio, entrada, resultado), plano,
 //! ocupação de contexto, compactação e limite de uso. Nenhum segredo passa por aqui: só eventos da conversa.
 
+use regex::{Captures, Regex};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
+use std::sync::LazyLock;
 
 /// Janela usada até o resultado do turno informar a do modelo (`modelUsage.<modelo>.contextWindow`).
 pub(super) const JANELA_PADRAO: u64 = 200_000;
@@ -153,14 +155,18 @@ pub(super) fn descrever(nome: &str, entrada: &Value, cwd: &str) -> (String, &'st
             json!([]),
             json!([]),
         ),
-        _ => (nome.to_owned(), "other", json!([]), resumo_generico(nome, entrada)),
+        _ => (nome.to_owned(), "other", json!([]), json!([])),
     }
 }
 
-/// Caracteres dos argumentos mostrados no cartão de uma ferramenta sem projeção própria.
-const LIMITE_ARGUMENTOS: usize = 3000;
+/// Limite do texto da projeção de uma ferramenta genérica, abaixo do corte do cartão no app (2000): com a
+/// projeção dentro do limite, o aviso de corte do app nunca precisa aparecer.
+const LIMITE_DETALHE: usize = 1800;
 
-/// Chaves cujo valor não aparece no cartão.
+/// Linha final quando o corpo sanitizado não cabe: sem conferir tudo, só negar é possível.
+const AVISO_LONGO: &str = "argumentos longos demais para conferir: só é possível negar";
+
+/// Chaves cujo valor não aparece na projeção.
 const CHAVES_SENSIVEIS: &[&str] = &[
     "token",
     "secret",
@@ -175,53 +181,199 @@ const CHAVES_SENSIVEIS: &[&str] = &[
     "credential",
     "bearer",
     "private_key",
+    "auth",
+    "session",
 ];
 
-fn ocultar(valor: &Value) -> Value {
+/// Prefixos de credenciais conhecidas: a palavra que começa com um deles vira «oculto».
+const PREFIXOS_SEGREDO: &[&str] =
+    &["sk-", "sk_live_", "sk-ant-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AKIA", "AIza", "eyJ"];
+
+/// Ferramentas com projeção própria: o cartão já mostra comando, caminho ou diff. Todo o resto (MCP genérica
+/// ou desconhecida) sai da ponte só pela projeção segura.
+fn tem_projecao_propria(nome: &str) -> bool {
+    matches!(
+        nome,
+        "Bash"
+            | "PowerShell"
+            | "Read"
+            | "Write"
+            | "Edit"
+            | "MultiEdit"
+            | "NotebookEdit"
+            | "Glob"
+            | "Grep"
+            | "WebFetch"
+            | "WebSearch"
+            | "Agent"
+            | "Task"
+            | "Skill"
+            | "TodoWrite"
+    )
+}
+
+/// Servidor e nome real da ferramenta: `mcp__servidor__ferramenta` separa os dois; o resto é o nome inteiro.
+fn servidor_ferramenta(nome: &str) -> (Option<&str>, &str) {
+    match nome.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
+        Some((servidor, ferramenta)) => (Some(servidor), ferramenta),
+        None => (None, nome),
+    }
+}
+
+fn e_sensivel(nome: &str) -> bool {
+    let minuscula = nome.to_lowercase();
+    CHAVES_SENSIVEIS.iter().any(|s| minuscula.contains(s))
+}
+
+/// Par nome/valor (`env`, `headers`…): o nome vem de `name`/`key`/`nome` e o valor de `value`/`valor`; nome
+/// sensível oculta o valor.
+fn par_com_nome_sensivel(mapa: &serde_json::Map<String, Value>) -> bool {
+    let Some(nome) = ["name", "key", "nome"].into_iter().find_map(|c| mapa.get(c)).and_then(Value::as_str) else {
+        return false;
+    };
+    ["value", "valor"].into_iter().any(|c| mapa.get(c).is_some()) && e_sensivel(nome)
+}
+
+/// URL dentro de um texto: a consulta e o fragmento podem carregar segredo.
+static RE_URL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>`]+"#).expect("regex de URL da projeção"));
+
+/// Uma URL sem userinfo, consulta e fragmento: só esquema, host e caminho; `?…` marca a consulta removida.
+fn url_sem_segredo(url: &str) -> String {
+    let sem_fragmento = url.split('#').next().unwrap_or(url);
+    let (base, consulta) = match sem_fragmento.split_once('?') {
+        Some((antes, _)) => (antes, true),
+        None => (sem_fragmento, false),
+    };
+    let sem_userinfo = match base.split_once("://") {
+        Some((esquema, depois)) => {
+            let fim = depois.find('/').unwrap_or(depois.len());
+            let hospedeiro = &depois[..fim];
+            let limpo = hospedeiro.rsplit_once('@').map_or(hospedeiro, |(_, h)| h);
+            format!("{esquema}://{limpo}{}", &depois[fim..])
+        }
+        None => base.to_owned(),
+    };
+    if consulta { format!("{sem_userinfo}?…") } else { sem_userinfo }
+}
+
+/// Palavra com cara de segredo: prefixo de credencial conhecido, ou sequência contígua de 32 ou mais
+/// caracteres de `[A-Za-z0-9_+/=-]` misturando letras e dígitos.
+fn palavra_e_segredo(palavra: &str) -> bool {
+    if PREFIXOS_SEGREDO.iter().any(|p| palavra.starts_with(p)) {
+        return true;
+    }
+    let sequencia = |tamanho: usize, letra: bool, digito: bool| tamanho >= 32 && letra && digito;
+    let (mut tamanho, mut letra, mut digito) = (0usize, false, false);
+    for c in palavra.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '/' | '=' | '-') {
+            tamanho += 1;
+            letra |= c.is_ascii_alphabetic();
+            digito |= c.is_ascii_digit();
+        } else {
+            if sequencia(tamanho, letra, digito) {
+                return true;
+            }
+            (tamanho, letra, digito) = (0, false, false);
+        }
+    }
+    sequencia(tamanho, letra, digito)
+}
+
+/// Segredos soltos, palavra por palavra: prefixos conhecidos, sequências longas e o token depois de «Bearer».
+fn ocultar_segredos_solto(texto: &str) -> String {
+    const OCULTO: &str = "«oculto»";
+    let mut out = String::with_capacity(texto.len());
+    let mut bearer_anterior = false;
+    for pedaco in texto.split_inclusive(char::is_whitespace) {
+        let (palavra, espaco) = match pedaco.find(char::is_whitespace) {
+            Some(i) => (&pedaco[..i], &pedaco[i..]),
+            None => (pedaco, ""),
+        };
+        let oculto = (bearer_anterior || palavra_e_segredo(palavra)) && !palavra.is_empty();
+        bearer_anterior = palavra.eq_ignore_ascii_case("bearer");
+        out.push_str(if oculto { OCULTO } else { palavra });
+        out.push_str(espaco);
+    }
+    out
+}
+
+/// Entrada sanitizada para a projeção, antes de qualquer medida: chaves sensíveis, pares nome/valor, URLs e
+/// segredos soltos viram «oculto».
+fn sanitizar(valor: &Value) -> Value {
     match valor {
-        Value::Object(mapa) => Value::Object(
-            mapa.iter()
-                .map(|(k, v)| {
-                    let minuscula = k.to_lowercase();
-                    let oculto = CHAVES_SENSIVEIS.iter().any(|s| minuscula.contains(s));
-                    (k.clone(), if oculto { json!("«oculto»") } else { ocultar(v) })
-                })
-                .collect(),
-        ),
-        Value::Array(itens) => Value::Array(itens.iter().map(ocultar).collect()),
+        Value::Object(mapa) => {
+            let par_sensivel = par_com_nome_sensivel(mapa);
+            Value::Object(
+                mapa.iter()
+                    .map(|(k, v)| {
+                        let oculto = e_sensivel(k) || (par_sensivel && matches!(k.as_str(), "value" | "valor"));
+                        (k.clone(), if oculto { json!("«oculto»") } else { sanitizar(v) })
+                    })
+                    .collect(),
+            )
+        }
+        Value::Array(itens) => Value::Array(itens.iter().map(sanitizar).collect()),
+        Value::String(s) => {
+            json!(ocultar_segredos_solto(&RE_URL.replace_all(s, |c: &Captures| url_sem_segredo(&c[0]))))
+        }
         outro => outro.clone(),
     }
 }
 
-/// Cartão de uma ferramenta sem projeção própria (MCP genérica ou desconhecida): servidor, nome real e os argumentos
-/// que vão ser executados, com valores sensíveis ocultos e corte visível. O SHA-256 cobre os argumentos inteiros: a
-/// aprovação vale para eles, não para o trecho mostrado.
-fn resumo_generico(nome: &str, entrada: &Value) -> Value {
+/// Projeção segura de uma ferramenta genérica para o cartão e o histórico.
+pub(super) struct Projecao {
+    /// Texto mostrado: cabeçalho, resumo dos argumentos inteiros e corpo, no máximo `LIMITE_DETALHE` caracteres.
+    pub(super) texto: String,
+    /// `true` só quando o corpo sanitizado inteiro cabe no texto.
+    pub(super) cabe: bool,
+    /// SHA-256 da entrada integral: a decisão vale para ela, não para o trecho mostrado.
+    pub(super) sha256: String,
+}
+
+/// Projeção de uma ferramenta sem projeção própria (MCP genérica ou desconhecida): servidor, nome real e os
+/// argumentos sanitizados que vão ser executados. Nada da entrada integral sai por aqui; se o corpo não cabe
+/// inteiro, o texto termina avisando e a chamada não pode ser aprovada.
+pub(super) fn projecao(nome: &str, entrada: &Value) -> Projecao {
     use sha2::{Digest, Sha256};
-    let (servidor, ferramenta) = match nome.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
-        Some((servidor, ferramenta)) => (Some(servidor), ferramenta),
-        None => (None, nome),
-    };
+    let (servidor, ferramenta) = servidor_ferramenta(nome);
     let digest = Sha256::digest(entrada.to_string().as_bytes()).iter().fold(String::with_capacity(64), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
     });
-    let completo = serde_json::to_string_pretty(&ocultar(entrada)).unwrap_or_default();
-    let total = completo.chars().count();
+    let corpo = serde_json::to_string_pretty(&sanitizar(entrada)).unwrap_or_default();
     let mut texto = String::new();
     if let Some(servidor) = servidor {
         let _ = writeln!(texto, "Servidor: {servidor}");
     }
     let _ = writeln!(texto, "Ferramenta: {ferramenta}");
     let _ = writeln!(texto, "Argumentos (SHA-256 dos argumentos inteiros: {digest}):");
-    texto.extend(completo.chars().take(LIMITE_ARGUMENTOS));
-    if total > LIMITE_ARGUMENTOS {
-        let _ = write!(
-            texto,
-            "\n… [truncado: {LIMITE_ARGUMENTOS} de {total} caracteres mostrados; a aprovação vale para os argumentos inteiros]"
-        );
+    if texto.chars().count() + corpo.chars().count() <= LIMITE_DETALHE {
+        texto.push_str(&corpo);
+        return Projecao { texto, cabe: true, sha256: digest };
     }
-    json!([{"type": "content", "content": {"type": "text", "text": texto}}])
+    let aviso = format!("\n{AVISO_LONGO}");
+    let aviso_chars = aviso.chars().count();
+    if texto.chars().count() + aviso_chars > LIMITE_DETALHE {
+        // Nome de ferramenta enorme: corta o próprio cabeçalho para o aviso continuar no fim do texto.
+        texto = texto.chars().take(LIMITE_DETALHE - aviso_chars).collect();
+    }
+    let sobra = LIMITE_DETALHE.saturating_sub(texto.chars().count() + aviso_chars);
+    texto.extend(corpo.chars().take(sobra));
+    texto.push_str(&aviso);
+    Projecao { texto, cabe: false, sha256: digest }
+}
+
+/// `rawInput` de uma ferramenta genérica: só a projeção, sem nenhuma chave que o cartão trate como ação.
+fn raw_input_de_projecao(nome: &str, p: &Projecao) -> Value {
+    let (servidor, ferramenta) = servidor_ferramenta(nome);
+    json!({"servidor": servidor, "ferramenta": ferramenta, "resumo": p.texto, "completo": p.cabe,
+        "sha256": p.sha256})
+}
+
+/// `content` de uma ferramenta genérica: o texto da projeção.
+fn conteudo_de_projecao(p: &Projecao) -> Value {
+    json!([{"type": "content", "content": {"type": "text", "text": p.texto}}])
 }
 
 /// Texto de um bloco `tool_result`: string ou lista de blocos de texto.
@@ -320,11 +472,24 @@ impl Traducao {
         self.concluidas.contains(id)
     }
 
-    /// O `toolCall` de `session/request_permission` para uma chamada.
-    pub(super) fn chamada(&self, id: &str, nome: &str, entrada: &Value) -> Value {
+    /// O `toolCall` de `session/request_permission` e se a aprovação pode ser oferecida: ferramenta genérica
+    /// sem a entrada inteira à vista não traz a opção de aprovar.
+    pub(super) fn chamada(&self, id: &str, nome: &str, entrada: &Value) -> (Value, bool) {
         let (titulo, tipo, locais, conteudo) = descrever(nome, entrada, &self.cwd);
-        json!({"toolCallId": id, "status": "pending", "title": titulo, "kind": tipo, "rawInput": entrada,
-            "content": conteudo, "locations": locais, "_meta": meta(nome)})
+        if tem_projecao_propria(nome) {
+            return (
+                json!({"toolCallId": id, "status": "pending", "title": titulo, "kind": tipo,
+                "rawInput": entrada, "content": conteudo, "locations": locais, "_meta": meta(nome)}),
+                true,
+            );
+        }
+        let p = projecao(nome, entrada);
+        (
+            json!({"toolCallId": id, "status": "pending", "title": titulo, "kind": tipo,
+            "rawInput": raw_input_de_projecao(nome, &p), "content": conteudo_de_projecao(&p),
+            "locations": locais, "_meta": meta(nome)}),
+            p.cabe,
+        )
     }
 
     /// Um evento do programa (exceto `result`, tratado pelo turno) vira zero ou mais atualizações.
@@ -446,8 +611,16 @@ impl Traducao {
                         continue;
                     }
                     let (titulo, tipo, locais, conteudo) = descrever(nome, &entrada, &self.cwd);
-                    let mut u = json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "title": titulo, "kind": tipo,
-                        "rawInput": entrada, "_meta": meta(nome)});
+                    // Ferramenta genérica: nem o `rawInput` nem o `content` do histórico levam a entrada
+                    // integral, só a projeção sanitizada.
+                    let (raw, conteudo) = if tem_projecao_propria(nome) {
+                        (entrada.clone(), conteudo)
+                    } else {
+                        let p = projecao(nome, &entrada);
+                        (raw_input_de_projecao(nome, &p), conteudo_de_projecao(&p))
+                    };
+                    let mut u = json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "title": titulo,
+                        "kind": tipo, "rawInput": raw, "_meta": meta(nome)});
                     if locais.as_array().is_some_and(|l| !l.is_empty()) {
                         u["locations"] = locais;
                     }

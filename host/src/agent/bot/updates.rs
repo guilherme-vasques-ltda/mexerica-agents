@@ -125,7 +125,13 @@ impl Actor {
                 let Some(conn) = &self.conn else { return };
                 let acp = conn.acp.clone();
                 if method == "session/request_permission" && self.turn.is_some() && !self.waiting_for_reset() {
-                    self.on_permission(id, params).await;
+                    if self.stop_requested {
+                        // A parada já pediu o fim deste turno: nenhum cartão novo e nenhuma regra de Allow;
+                        // o agente recebe a mesma resposta de cancelamento que um cartão pendente recebe.
+                        let _ = acp.respond(id, json!({"outcome": {"outcome": "cancelled"}})).await;
+                    } else {
+                        self.on_permission(id, params).await;
+                    }
                 } else if method == crate::fork::bot_skills::read::METHOD {
                     self.on_skill_read(id, params);
                 } else {
