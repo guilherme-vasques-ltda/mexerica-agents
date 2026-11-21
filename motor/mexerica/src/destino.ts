@@ -40,7 +40,10 @@ const NUNCA = bloco([
 /** Endereços IPv6 de tradução e escopo especial que nunca valem como destino: 6to4 e site-local obsoleto. */
 const NUNCA_V6_EXTRA = bloco([
 	["2002::", 16, "ipv6"], // vazamento-ok: faixa da regra de recusa
+	["2001::", 32, "ipv6"], // vazamento-ok: faixa da regra de recusa
 	["fec0::", 10, "ipv6"], // vazamento-ok: faixa da regra de recusa
+	["100::", 64, "ipv6"], // vazamento-ok: faixa da regra de recusa
+	["64:ff9b:1::", 48, "ipv6"], // vazamento-ok: faixa da regra de recusa
 ]);
 
 /** Só com a opção local: a própria máquina, redes privadas, CGNAT e afins. */
@@ -67,17 +70,18 @@ function ipv6Bytes(ip: string): Uint8Array | undefined {
 		if (lados[i] === "") continue;
 		const partes = lados[i]!.split(":");
 		const ultima = partes.at(-1)!;
-		if (net.isIPv4(ultima)) {
-			if (i !== 1) return undefined;
-			const octetos = ultima.split(".").map(Number);
+		const octetos = net.isIPv4(ultima) ? ultima.split(".").map(Number) : undefined;
+		if (octetos) {
+			// O IPv4 escrito no fim vale no último lado, com ou sem "::" no meio do endereço.
+			if (i !== lados.length - 1) return undefined;
 			if (octetos.length !== 4 || octetos.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) return undefined;
 			partes.pop();
-			grupos[1]!.push((octetos[0]! << 8) | octetos[1]!, (octetos[2]! << 8) | octetos[3]!);
 		}
 		for (const parte of partes) {
 			if (!/^[0-9a-f]{1,4}$/.test(parte)) return undefined;
 			grupos[i]!.push(Number.parseInt(parte, 16));
 		}
+		if (octetos) grupos[i]!.push((octetos[0]! << 8) | octetos[1]!, (octetos[2]! << 8) | octetos[3]!);
 	}
 	const total = grupos[0]!.length + grupos[1]!.length;
 	if (total > 8 || (lados.length === 1 && total !== 8)) return undefined;
@@ -112,6 +116,8 @@ function ipv4DeBytes(bytes: Uint8Array): string | undefined {
 export function ipPermitido(ip: string, local: boolean, seguro: boolean): boolean {
 	if (!net.isIP(ip)) return false;
 	const bytes = ipv6Bytes(ip);
+	// IPv6 que não se deixa ler em bytes canônicos não passa: o portão falha fechado.
+	if (net.isIPv6(ip) && !bytes) return false;
 	const embutido = bytes && ipv4DeBytes(bytes);
 	const [endereco, tipo] = embutido
 		? [embutido, "ipv4" as const]

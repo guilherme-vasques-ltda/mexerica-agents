@@ -52,12 +52,18 @@ test("IP público por HTTP não vale nem com a opção local: a Internet só por
 test("IPv6 de tradução e escopo especial segue a regra do IPv4 de dentro", () => {
 	for (const ip of [
 		"64:ff9b:1::a9fe:a9fe", // NAT64 de uso local
+		"64:ff9b:1:1::a9fe:a9fe", // NAT64 local com sub-rede: nunca
+		"64:ff9b:1:0:1::7f00:1", // NAT64 local com sub-rede: nunca, nem loopback
 		"::ffff:0:a9fe:a9fe", // traduzido
+		"::ffff:0:169.254.169.254", // traduzido: metadados // vazamento-ok: endereço reservado em teste de recusa
+		"64:ff9b:0:0:0:0:169.254.169.254", // NAT64 por extenso: metadados // vazamento-ok: endereço reservado em teste de recusa
 		"::a9fe:a9fe", // IPv4-compatível: metadados
 		"64:ff9b::", // NAT64 de 0.0.0.0, forma comprimida
 		"64:ff9b::1", // NAT64 de 0.0.0.1, forma comprimida
 		"64:ff9b::a9fe:a9fe", // NAT64 de metadados
 		"::ffff:169.254.169.254", // mapeado: metadados // vazamento-ok: endereço reservado em teste de recusa
+		"2001:0:a9fe:a9fe::1", // Teredo
+		"100::a9fe:a9fe", // discard
 	]) {
 		assert.equal(ipPermitido(ip, false, true), false, `${ip} sem a opção local`);
 		assert.equal(ipPermitido(ip, true, true), false, `${ip} com a opção local`);
