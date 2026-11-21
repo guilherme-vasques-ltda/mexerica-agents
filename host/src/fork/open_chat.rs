@@ -16,6 +16,8 @@ use tokio::sync::watch;
 
 const TURN_LIMIT: Duration = Duration::from_secs(600);
 const MAX_REPLY: usize = 200_000;
+/// Código JSON-RPC com que o Codex recusa retomar uma thread que não existe neste perfil.
+const INVALID_REQUEST: i64 = -32600;
 /// Uma resposta longa chega inteira no fim do item; a linha do protocolo pode passar bem dos 64 KiB do setup.
 const LINE_LIMIT: usize = 4 * 1024 * 1024;
 const INSTRUCTIONS: &str = "Nesta edição você conversa só por texto. Você não tem ferramentas, arquivos, \
@@ -251,6 +253,7 @@ struct Stream {
     bot: String,
     entry: Option<String>,
     text: String,
+    full: bool,
     flushed: Instant,
 }
 
@@ -263,6 +266,7 @@ impl Stream {
             bot: bot.to_owned(),
             entry: None,
             text: String::new(),
+            full: false,
             flushed: Instant::now(),
         }
     }
@@ -270,7 +274,11 @@ impl Stream {
         json!({"text": self.text, "final": last, "author": self.bot})
     }
     fn push(&mut self, delta: &str) {
-        if delta.is_empty() || self.text.len() + delta.len() > MAX_REPLY {
+        if delta.is_empty() || self.full {
+            return;
+        }
+        if self.text.len() + delta.len() > MAX_REPLY {
+            self.full = true;
             return;
         }
         self.text.push_str(delta);
@@ -313,10 +321,10 @@ pub(crate) async fn drive(
                 let mut params = session.clone();
                 params["threadId"] = id.into();
                 params["excludeTurns"] = true.into();
-                match rpc.call(2, "thread/resume", params).await {
+                match rpc.request(2, "thread/resume", params).await? {
                     Ok(value) => Some(value),
-                    Err(error) if error.to_string() == "auth_capability_unavailable" => None,
-                    Err(error) => return Err(error),
+                    Err(error) if error["code"] == INVALID_REQUEST => None,
+                    Err(_) => bail!("open_chat_failed"),
                 }
             }
             None => None,
@@ -325,7 +333,10 @@ pub(crate) async fn drive(
             Some(value) => value,
             None => rpc.call(3, "thread/start", session).await?,
         };
-        ensure!(started["approvalPolicy"] == "never" && started["sandbox"]["type"] == "readOnly", "open_chat_policy");
+        if started["approvalPolicy"] != "never" || started["sandbox"]["type"] != "readOnly" {
+            tracing::warn!(approval = %started["approvalPolicy"], sandbox = %started["sandbox"]["type"], "conversa da Open recusada pela política do Codex");
+            bail!("open_chat_policy");
+        }
         let thread = started["thread"]["id"]
             .as_str()
             .filter(|id| valid_id(id))
@@ -343,6 +354,7 @@ pub(crate) async fn drive(
         loop {
             let message = rpc.next().await?;
             if message.get("id").is_some() && message.get("method").is_some() {
+                tracing::warn!(method = %message["method"], "pedido do Codex recusado na conversa só de texto");
                 rpc.write(json!({"id": message["id"], "error": {"code": -32601, "message": "text only"}})).await?;
                 interrupt(rpc, &thread, &turn_id).await;
                 bail!("open_chat_tool_refused");
@@ -352,6 +364,7 @@ pub(crate) async fn drive(
                 "item/started" | "item/completed"
                     if !TEXT_ITEMS.contains(&params["item"]["type"].as_str().unwrap_or_default()) =>
                 {
+                    tracing::warn!(item = %params["item"]["type"], "item do Codex fora do texto encerrou a conversa");
                     interrupt(rpc, &thread, &turn_id).await;
                     bail!("open_chat_tool_refused");
                 }

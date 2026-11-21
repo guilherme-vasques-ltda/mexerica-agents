@@ -72,6 +72,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "Ce bot n’a pas de compte choisi : il utilise la connexion par défaut de cet ordinateur, s’il y en a une. Pour choisir un compte précis, allez dans Comptes d’IA.",
   "conversa.avisos.falha.cabecalho.semOpen": "Compte : le compte Codex connecté le plus récemment",
   "conversa.avisos.falha.cabecalho.semOpenDica": "Dans Open, les bots répondent avec le compte Codex connecté le plus récemment. Pour le connecter ou le changer, allez dans Comptes d’IA.",
+  "conversa.avisos.falha.cabecalho.semOpenNenhuma": "Compte : aucun compte Codex connecté",
+  "conversa.avisos.falha.cabecalho.semOpenNenhumaDica": "Connectez un compte Codex dans Comptes d’IA pour discuter.",
   "conversa.avisos.open.inicio": "Berga est déjà créé comme votre bot principal. Pour discuter, connectez un compte Codex dans Réglages → Comptes d’IA. Dans cette édition, la discussion se fait uniquement par texte.",
   "conversa.avisos.open.interrompida": "Réponse interrompue.",
   "conversa.avisos.open.ferramenta": "Codex a essayé d’utiliser un outil, et Open ne discute que par texte. Réponse terminée.",

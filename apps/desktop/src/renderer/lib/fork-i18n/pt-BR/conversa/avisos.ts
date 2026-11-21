@@ -69,6 +69,8 @@ export const textos = {
   "conversa.avisos.falha.cabecalho.semDica": "Este bot não tem uma conta escolhida: ele usa o login padrão deste computador, se houver um. Para escolher uma conta específica, vá em Contas de IA.",
   "conversa.avisos.falha.cabecalho.semOpen": "Conta: a do Codex conectada mais recente",
   "conversa.avisos.falha.cabecalho.semOpenDica": "Na Open, os bots respondem com a conta do Codex conectada mais recentemente. Para conectar ou trocar, vá em Contas de IA.",
+  "conversa.avisos.falha.cabecalho.semOpenNenhuma": "Conta: nenhuma conta do Codex conectada",
+  "conversa.avisos.falha.cabecalho.semOpenNenhumaDica": "Conecte uma conta do Codex em Contas de IA para conversar.",
   "conversa.avisos.open.inicio": "O Berga já está criado como seu bot principal. Para conversar, conecte uma conta do Codex em Ajustes → Contas de IA. Nesta edição a conversa é só por texto.",
   "conversa.avisos.open.interrompida": "Resposta interrompida.",
   "conversa.avisos.open.ferramenta": "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada.",

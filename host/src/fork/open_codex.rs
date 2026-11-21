@@ -15,7 +15,8 @@ const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
 const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
 const ADMIN_POLICY: &str = "/private/etc/codex";
-/// Certificados públicos do macOS, do root: o TLS do Codex usa este arquivo em vez do Chaveiro.
+/// Certificados públicos do macOS: o TLS do Codex usa este arquivo em vez do Chaveiro. O `.env` do perfil, que o Codex
+/// leria antes de iniciar e poderia trocar este caminho, fica fora do alcance do processo isolado.
 const CA_BUNDLE: &str = "/private/etc/ssl/cert.pem";
 /// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
 /// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
@@ -65,12 +66,13 @@ const POLICY: &str = r#"(version 1)
 (allow file-read-metadata (literal "/") (literal "/dev") (literal "/etc") (literal "/private") (literal "/private/etc") (literal "/private/var") (literal "/private/var/run"))
 (allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))
 (allow file-write* (subpath (param "PROFILE")) (literal "/dev/null"))
+(deny file-read* file-write* (literal (string-append (param "PROFILE") "/.codex/.env")))
 "#;
 const LOGIN_NETWORK: &str = r#"
 (allow network-outbound (remote tcp "*:443"))
 (allow network-outbound (literal "/private/var/run/mDNSResponder"))
 (allow file-read-metadata (literal "/var"))
-(allow file-read* (literal "/private/etc/ssl/cert.pem"))
+(allow file-read-data file-read-metadata (literal "/private/etc/ssl/cert.pem"))
 (allow mach-lookup (global-name "com.apple.mDNSResponder") (global-name "com.apple.trustd.agent") (global-name "com.apple.system.opendirectoryd.libinfo"))
 "#;
 
@@ -222,16 +224,28 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
     ensure!(cfg!(target_os = "macos"), "open_codex_platform");
-    let home = crate::service::home();
-    let open = home.parent().context("open_codex_unavailable")?;
     ensure!(crate::environment::Environment::is_open(), "open_codex_unavailable");
-    let selection = Selection::load(open).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
-    prepare_profile(open, directory).map_err(|_| anyhow::anyhow!("open_codex_unavailable"))?;
-    ensure!(admin_policy_safe(Path::new(ADMIN_POLICY)), "open_codex_unavailable");
-    ensure!(
-        fs::symlink_metadata(CA_BUNDLE).is_ok_and(|meta| meta.is_file() && meta.uid() == 0 && meta.mode() & 0o022 == 0),
-        "open_codex_unavailable"
-    );
+    let profile = directory.to_owned();
+    let selection = tokio::task::spawn_blocking(move || {
+        let home = crate::service::home();
+        let open = home.parent().context("open_codex_unavailable")?;
+        let selection = Selection::load(open).inspect_err(|error| tracing::warn!(%error, "Codex da Open recusado"))?;
+        prepare_profile(open, &profile)
+            .inspect_err(|error| tracing::warn!(%error, "perfil do Codex da Open recusado"))?;
+        if !admin_policy_safe(Path::new(ADMIN_POLICY)) {
+            tracing::warn!(path = ADMIN_POLICY, "política do administrador do Codex aceita escrita de outros");
+            anyhow::bail!("open_codex_unavailable");
+        }
+        if !root_owned(Path::new(CA_BUNDLE)) {
+            tracing::warn!(path = CA_BUNDLE, "certificados do macOS não são só do root");
+            anyhow::bail!("open_codex_unavailable");
+        }
+        Ok::<_, anyhow::Error>(selection)
+    })
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .context("open_codex_unavailable")?;
     let mut probe = command(&selection.executable, directory, false)?;
     let probe = async {
         let mut child = probe.arg("--version").spawn()?;
@@ -256,6 +270,15 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     }
     command.args(["app-server", "--listen", "stdio://"]);
     Ok(AppServer { command, executable: selection.executable })
+}
+
+/// O arquivo e cada pasta acima dele são do root e não aceitam escrita de grupo nem de outros. Só lê as permissões
+/// Unix: ACLs não entram, e o arquivo pode mudar entre esta leitura e o uso pelo Codex.
+fn root_owned(path: &Path) -> bool {
+    path.ancestors().all(|part| {
+        fs::symlink_metadata(part)
+            .is_ok_and(|meta| meta.uid() == 0 && meta.mode() & 0o022 == 0 && meta.is_file() == (part == path))
+    })
 }
 
 /// A política do administrador em /etc/codex vale só quando é do root e ninguém mais a altera.

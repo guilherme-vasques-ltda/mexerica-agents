@@ -72,6 +72,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "Este bot no tiene una cuenta elegida: usa el inicio de sesión predeterminado de este equipo, si existe. Para elegir una cuenta concreta, ve a Cuentas de IA.",
   "conversa.avisos.falha.cabecalho.semOpen": "Cuenta: la de Codex conectada más recientemente",
   "conversa.avisos.falha.cabecalho.semOpenDica": "En Open, los bots responden con la cuenta de Codex conectada más recientemente. Para conectarla o cambiarla, ve a Cuentas de IA.",
+  "conversa.avisos.falha.cabecalho.semOpenNenhuma": "Cuenta: ninguna cuenta de Codex conectada",
+  "conversa.avisos.falha.cabecalho.semOpenNenhumaDica": "Conecta una cuenta de Codex en Cuentas de IA para conversar.",
   "conversa.avisos.open.inicio": "Berga ya está creado como tu bot principal. Para conversar, conecta una cuenta de Codex en Ajustes → Cuentas de IA. En esta edición la conversación es solo de texto.",
   "conversa.avisos.open.interrompida": "Respuesta interrumpida.",
   "conversa.avisos.open.ferramenta": "Codex intentó usar una herramienta, y Open solo conversa por texto. Respuesta terminada.",

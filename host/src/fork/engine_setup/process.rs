@@ -148,14 +148,20 @@ impl Rpc {
         self.line().await
     }
     pub(crate) async fn call(&mut self, id: u64, method: &str, params: Value) -> Result<Value> {
+        self.request(id, method, params).await?.map_err(|_| anyhow!("auth_capability_unavailable"))
+    }
+    /// A resposta da chamada, ou o objeto de erro JSON-RPC que o servidor devolveu.
+    pub(crate) async fn request(&mut self, id: u64, method: &str, params: Value) -> Result<Result<Value, Value>> {
         self.write(json!({"id":id,"method":method,"params":params})).await?;
         loop {
             let value = self.line().await?;
             if value.get("method").is_some() && value.get("id").is_some() {
                 self.write(json!({"id":value["id"],"error":{"code":-32601,"message":"setup only"}})).await?;
             } else if value["id"] == id {
-                ensure!(value.get("error").is_none(), "auth_capability_unavailable");
-                return Ok(value["result"].clone());
+                return Ok(match value.get("error") {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(value["result"].clone()),
+                });
             } else {
                 ensure!(self.pending.len() < 64, "auth_protocol_limit");
                 self.pending.push_back(value);

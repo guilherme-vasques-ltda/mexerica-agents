@@ -30,6 +30,8 @@ for line in sys.stdin:
     elif method == "thread/resume":
         if mode == "resume":
             send({"id": message["id"], "result": {"thread": {"id": message["params"]["threadId"]}, **policy}})
+        elif mode == "flaky":
+            send({"id": message["id"], "error": {"code": -32603, "message": "internal error"}})
         elif mode == "garbage":
             sys.stdout.write("{\"id\": 2, \"result\": " + "x" * 70000 + "\n")
             sys.stdout.flush()
@@ -203,4 +205,12 @@ fn notices_carry_only_known_codes() {
     let (code, text) = notice("auth_protocol_invalid: detalhe interno");
     assert_eq!(code, "open_chat_failed");
     assert!(!text.contains("auth_protocol_invalid"));
+}
+
+#[tokio::test]
+async fn a_failed_resume_keeps_the_saved_thread_instead_of_starting_over() {
+    let (result, _, sent, kept) = turn_keeping("flaky", Some("thread-9")).await;
+    assert_eq!(result.unwrap_err().to_string(), "open_chat_failed");
+    assert!(find(&sent, "thread/start").is_none(), "only a thread the server does not know starts over");
+    assert_eq!(kept, None);
 }

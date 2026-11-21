@@ -2,7 +2,7 @@
 
 use super::{
     AUTH_CONFIG, CA_BUNDLE, CHAT_OVERRIDES, LOGIN_NETWORK, POLICY, SANDBOX, SELECTION, Selection, VERSION,
-    admin_policy_safe, command, hex, prepare_profile,
+    admin_policy_safe, command, hex, prepare_profile, root_owned,
 };
 use crate::fork::private_fs::{self, Directory};
 use sha2::{Digest, Sha256};
@@ -122,7 +122,14 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     );
     assert!(!POLICY.contains("(subpath \"/private/etc\")"));
     assert!(!LOGIN_NETWORK.contains("securityd") && !LOGIN_NETWORK.contains("SecurityServer"));
-    assert!(LOGIN_NETWORK.contains(&format!("(allow file-read* (literal \"{CA_BUNDLE}\"))")));
+    assert!(LOGIN_NETWORK.contains(&format!("(allow file-read-data file-read-metadata (literal \"{CA_BUNDLE}\"))")));
+    assert!(!LOGIN_NETWORK.contains("file-read*"), "os certificados são lidos sem atributos estendidos");
+    assert!(
+        POLICY
+            .trim_end()
+            .ends_with(r#"(deny file-read* file-write* (literal (string-append (param "PROFILE") "/.codex/.env")))"#),
+        "o .env do perfil, que trocaria a confiança do TLS, fica fora do alcance do Codex e a negação vem por último"
+    );
     assert!(
         POLICY.contains("(literal \"/etc\")")
             && LOGIN_NETWORK.contains("(allow file-read-metadata (literal \"/var\"))")
@@ -178,30 +185,50 @@ async fn macos_login_sandbox_denies_personal_and_dev_files_even_through_a_link()
     }
     let redirect = profile.join("redirect");
     symlink(&files[0], &redirect).unwrap();
+    let env_file = profile.join(".env");
+    std::fs::write(&env_file, b"SSL_CERT_FILE=/dev/null\n").unwrap();
+    let temporary = PathBuf::from(format!("/private/tmp/mexerica-open-probe-{}", uuid::Uuid::new_v4()));
     let source = fixture.scope.join("probe.c");
     std::fs::write(
         &source,
-        r#"#include <errno.h>
+        r#"#include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+static int attempt(const char *op) {
+  const char *path = op + 2;
+  if (op[0] == 'd') {
+    DIR *dir = opendir(path);
+    if (!dir) return -1;
+    int listed = readdir(dir) != NULL;
+    closedir(dir);
+    return listed ? 0 : -2;
+  }
+  int fd = op[0] == 'w' ? open(path, O_WRONLY | O_CREAT, 0600) : open(path, O_RDONLY);
+  if (fd < 0) return -1;
+  char byte = 0;
+  int ok = op[0] == 'w' || read(fd, &byte, 1) == 1;
+  close(fd);
+  return ok ? 0 : -2;
+}
 int main(int argc, char **argv) {
   if (argc == 1) return 0;
   const char marker[] = "auxiliar nativo chegou a main\n";
   (void)write(STDOUT_FILENO, marker, sizeof(marker) - 1);
-  int fd = open(argv[1], O_RDONLY);
+  if (argc < 3) return 1;
+  int fd = open(argv[2], O_RDONLY);
   char byte = 0;
   if (fd < 0 || read(fd, &byte, 1) != 1 || byte != 'o') return 2;
   close(fd);
-  for (int i = 2; i < argc; ++i) {
-    const char *path = argv[i] + 2;
-    fd = argv[i][0] == 'w' ? open(path, O_WRONLY | O_CREAT, 0600) : open(path, O_RDONLY);
-    if (argv[i][0] == 'a') {
-      if (fd < 0 || read(fd, &byte, 1) != 1) return 30 + i;
-      close(fd);
+  int sandboxed = argv[1][0] == 's';
+  for (int i = 3; i < argc; ++i) {
+    int result = attempt(argv[i]);
+    if (argv[i][0] == 'a' || !sandboxed) {
+      if (result != 0) return 30 + i;
       continue;
     }
-    if (fd >= 0) return 10 + i;
-    if (errno != EPERM && errno != EACCES) return 20 + i;
+    if (result == 0) return 10 + i;
+    if (result == -2 || (errno != EPERM && errno != EACCES)) return 20 + i;
   }
   return 0;
 }"#,
@@ -220,17 +247,51 @@ int main(int argc, char **argv) {
         std::process::Command::new(&fixture.executable).status().unwrap().success(),
         "o auxiliar fictício não chegou a main no controle sem sandbox"
     );
-    let mut sandbox = command(&fixture.executable, &profile, true).unwrap();
-    let mut denied: Vec<String> = files.iter().chain([&redirect]).map(|path| format!("r:{}", path.display())).collect();
-    denied.extend(["r:/etc/hosts".into(), "r:/private/etc/passwd".into(), format!("w:{CA_BUNDLE}")]);
-    denied.push(format!("w:{}", fixture.scope.join("outside").display()));
-    sandbox
-        .arg(open_file)
-        .args(denied)
+    let mut denied: Vec<String> =
+        files.iter().chain([&redirect, &env_file]).map(|path| format!("r:{}", path.display())).collect();
+    denied.extend(
+        ["r:/etc/hosts", "r:/private/etc/passwd", "d:/etc", "d:/private/etc", "d:/private/var"].map(String::from),
+    );
+    if Path::new("/private/var/run/resolv.conf").exists() {
+        denied.push("r:/private/var/run/resolv.conf".into());
+    }
+    denied.push(format!("d:{}", fixture.scope.display()));
+    for path in [&env_file, &fixture.scope.join("outside"), &temporary] {
+        denied.push(format!("w:{}", path.display()));
+    }
+    for login in [true, false] {
+        let mut sandbox = command(&fixture.executable, &profile, login).unwrap();
+        sandbox
+            .arg("s")
+            .arg(&open_file)
+            .args(&denied)
+            .arg(format!("{}:{CA_BUNDLE}", if login { "a" } else { "r" }))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit());
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), sandbox.status()).await.unwrap().unwrap();
+        assert!(status.success(), "sandbox ou prova nativa recusada (rede: {login}): {status}");
+    }
+    let control = std::process::Command::new(&fixture.executable)
+        .arg("c")
+        .arg(&open_file)
+        .args(&denied)
         .arg(format!("a:{CA_BUNDLE}"))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit());
-    let status = tokio::time::timeout(std::time::Duration::from_secs(10), sandbox.status()).await.unwrap().unwrap();
-    assert!(status.success(), "sandbox ou prova nativa recusada: {status}");
+        .status()
+        .unwrap();
+    let _ = std::fs::remove_file(&temporary);
+    assert!(control.success(), "sem o isolamento, cada operação negada acima funciona: {control}");
+}
+
+#[test]
+fn certificates_count_only_when_the_file_and_every_folder_above_belong_to_root() {
+    let fixture = Fixture::new();
+    let file = fixture.scope.join("cert.pem");
+    std::fs::write(&file, b"fixture").unwrap();
+    if private_fs::uid() != 0 {
+        assert!(!root_owned(&file), "a file a regular user controls is refused");
+    }
+    assert!(!root_owned(&fixture.scope.join("absent.pem")));
+    assert!(!root_owned(Path::new("/etc")), "a folder in place of the file is refused");
+    assert!(root_owned(Path::new("/etc/passwd")));
 }

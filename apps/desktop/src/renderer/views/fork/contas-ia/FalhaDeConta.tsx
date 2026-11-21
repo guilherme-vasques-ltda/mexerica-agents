@@ -83,7 +83,8 @@ export function LinhaDaConta({ accountId, backend, botId, onClick, className = '
   const store = useStore()
   const idioma = useIdioma()
   const t = tradutor(idioma)
-  const lida = useContasDaFalha(!!accountId && !contasDoEditor)
+  const open = window.codync.appScheme === 'mexerica-open'
+  const lida = useContasDaFalha((!!accountId || open) && !contasDoEditor)
   const contas = contasDoEditor ?? lida.contas
   const falhou = !contasDoEditor && lida.falhou
   const estado = contas?.find((c) => c.id === accountId)?.state
@@ -102,7 +103,7 @@ export function LinhaDaConta({ accountId, backend, botId, onClick, className = '
     return () => { live = false }
   }, [accountId, estado, pode, store, store.spaceId])
   const usoResumo = useMemo(() => resumoUso(uso, t, idioma), [uso, t, idioma])
-  const linha = linhaDaConta({ t, contas, accountId, backend, falhou, usoResumo, open: window.codync.appScheme === 'mexerica-open' })
+  const linha = linhaDaConta({ t, contas, accountId, backend, falhou, usoResumo, open })
   if (!linha) return null
   const classe = `conta-linha${linha.ok ? (linha.perto ? ' limite' : '') : ' atencao'} ${className}`.trim()
   const abrir = onClick ?? (() => settingsScreen.show('ai-accounts', 'contas'))
