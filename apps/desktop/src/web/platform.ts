@@ -80,6 +80,7 @@ function defaultForkCloud(): CodyncBridge['forkCloud'] {
     onChange: none,
     call: async () => ({ kind: 'notSent', reason: 'notReady' }),
     subscribeEvents: none,
+    subscribeFrames: (_connectionId, _onFrame, onEnd) => { queueMicrotask(() => onEnd({ status: 0, message: '' })); return { cancel: none, consumed: none, opened: Promise.resolve(false) } },
   }
 }
 
