@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useSpaceShortcuts } from './fork/spaces/use-space-shortcuts'
 import { useAtalhoBerga } from './fork/atalho-berga/use-atalho'
+import { AvisoAtualizacao } from './fork/atualizacao/AvisoAtualizacao'
 import { useSincronizarAtalhoVoz } from './fork/voz/entrada-voz'
 import { focoBerga } from './fork/atalho-berga/foco'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -970,6 +971,8 @@ function ChatSplitView() {
             last in the detail, gives the button's square back; the button keeps its place in the Tab order. */}
         {detailToggle ? <div aria-hidden className={`detail-sidebar-toggle is-hole no-drag${collapsed && peek ? ' beside-floating' : ''}`} style={{ ['--floating-width' as string]: `${width}px` }} /> : null}
       </main>
+      {/* Nível 1 de atualizações: a pílula discreta da nova versão, no canto, fora das faixas de arrastar. */}
+      <AvisoAtualizacao />
 
       {/* ajustes-tela-01: fora da `.split` (que isola as camadas), o menu da conta abre também sobre Ajustes e Rotinas. */}
       {showAccount ? createPortal(

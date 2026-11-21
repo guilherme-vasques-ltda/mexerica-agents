@@ -14,6 +14,7 @@ import type { ErrorReport } from './error-report'
 import type { OriginReport } from './guard-hub'
 import type { AppIconId } from './app-icons'
 import type { PonteCofreChat } from './fork-cofre-seguro'
+import type { ReleaseNoticeState } from './fork-release-notice'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
@@ -168,6 +169,9 @@ export type ResendEmailCodeResult =
   | { kind: 'limit'; retryAt: number }
   | { kind: 'error'; code: 'not_pending' | 'busy' | 'refused' | 'network' | 'cancelled' }
 
+/** Nível 1 de atualizações: o aviso discreto de nova versão (shared/fork-release-notice). */
+export type { ReleaseNoticeState }
+
 export interface CodyncBridge {
   /** MX-200: presente só na ponte web (src/web/platform.ts); o Electron nunca o preenche. */
   web?: true
@@ -294,6 +298,15 @@ export interface CodyncBridge {
     install(): void
     setAutoCheck(on: boolean): void
     setAutoDownload(on: boolean): void
+  }
+  /** Nível 1 de atualizações: só avisa e abre a página da release; nunca baixa nem instala. */
+  releaseNotice: {
+    state(): Promise<ReleaseNoticeState>
+    /** Procurar atualização (manual): respeita o cooldown curto e mostra erro quando falha. */
+    check(): Promise<ReleaseNoticeState>
+    dismiss(): Promise<ReleaseNoticeState>
+    openDownload(): Promise<boolean>
+    onChange(cb: (s: ReleaseNoticeState) => void): () => void
   }
   files: {
     begin(file: SharedFile): Promise<string | null>
