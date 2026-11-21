@@ -249,18 +249,18 @@ test('issue contém só contagens e caminhos; nunca abre em destino público', a
 
 test('contrato do workflow: scanner aprovado, testes sem secret e ci-ok obrigatório', () => {
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  const job = ci.split('  vazamento:\n')[1].split('\n  dependency-audit:')[0];
-  assert.match(job, /needs: \[route, secrets\]/);
+  const job = ci.split('  vazamento:\n')[1].split('\n  hub:')[0];
+  assert.ok(!/^    needs:/m.test(job), 'vazamento não espera código do PR rodar antes');
   assert.match(job, /permissions:\n      contents: read/);
   assert.ok(!job.includes('issues: write'));
   assert.match(job, /git show "\$source:tools\/ci-vazamento.mjs"/);
   assert.match(job, /test "\$GITHUB_EVENT_NAME" = pull_request/);
   assert.ok(!job.includes('node --test'), 'VM do secret não executa testes do PR');
-  const testJob = ci.split('  ferramentas-ci:\n')[1].split('  hub:\n')[0];
+  const testJob = ci.split('  leves:\n')[1].split('\n  vazamento:')[0];
   assert.ok(testJob.includes('tools/ci-vazamento.test.mjs'));
   assert.ok(!testJob.includes('secrets.'), 'VM dos testes não recebe secrets');
   assert.ok(!testJob.includes('VAZAMENTO_TERMOS'));
-  assert.match(ci, /needs: \[route, secrets, vazamento, semgrep, changes,/);
+  assert.match(ci, /needs: \[leves, vazamento, hub, desktop\]/);
   assert.match(ci, /\.vazamento.result == "success"/);
 });
 

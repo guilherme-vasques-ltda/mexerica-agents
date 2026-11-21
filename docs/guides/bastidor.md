@@ -50,7 +50,7 @@ nunca em linha de comando.
 ## Regras e segredo
 
 - `.github/security/bastidor.json`: regras genéricas (padrões em minúsculas e sem acento).
-- **Segredo** de Actions `BASTIDOR_NOMES_INTERNOS`: o que revelaria nomes internos não fica no
+- **Segredo** de Actions `BASTIDOR_NOMES_INTERNOS`, cadastrado no **ambiente** `bastidor` (o job declara `environment: bastidor`), com o ambiente restrito à branch protegida, para quem escreve em branch interna não alcançar a lista por outro workflow: o que revelaria nomes internos não fica no
   código nem em variável (variável aparece no log e não é mascarada). É um JSON em uma linha:
 
 ```json

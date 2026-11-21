@@ -404,6 +404,7 @@ test('workflow: máquina vinda de variável, concorrência por PR e pull_request
   assert.match(bastidor, /^# Unico workflow do repositorio em pull_request_target, e so por isto:/m);
   assert.match(bastidor, /group: bastidor-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true/);
   assert.equal((bastidor.match(/^    runs-on: (.+)$/gm) ?? []).length, 1);
+  assert.match(bastidor, /^    environment: bastidor$/m, 'segredo de ambiente, restrito à branch protegida');
   assert.ok(bastidor.includes("    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}"));
   assert.ok(!/ubuntu-|windows-|macos-|self-hosted|boat|nscloud/i.test(bastidor), 'rótulo de máquina fora do padrão');
   assert.deepEqual([...new Set([...bastidor.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))], ['CI_MAQUINA_LEVE']);

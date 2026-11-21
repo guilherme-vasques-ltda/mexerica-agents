@@ -1,10 +1,10 @@
-# CI do mexerica-agents: roda so em runners Boat e Instabox, nunca em runner hospedado pelo GitHub.
+# CI do mexerica-agents: runners da Instabox por padrao; maquina do GitHub so com o repositorio publico.
 # O job ci-ok junta tudo e e a checagem obrigatoria da main. Guia: docs/guides/ci.md.
 name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
@@ -13,61 +13,30 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Boat primeiro, Instabox quando o Boat recusa por limite. A sonda pede um start ao Boat;
-  # o route so manda a rodada ao Boat se o passo "Set up runner" da sonda passou.
-  boat-probe:
-    if: ${{ github.run_attempt == 1 && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: boat-small
-    continue-on-error: true
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - run: echo "Boat aceitou o start"
-
-  route:
+  # Uma maquina para tudo que e leve e nao recebe secret. Os verificadores vindos da main (segredos,
+  # selecao e Semgrep) rodam antes de qualquer codigo do PR (ferramentas-ci e auditoria).
+  leves:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: instabox-small
-    timeout-minutes: 3
-    permissions:
-      actions: read
-    outputs:
-      family: ${{ steps.pick.outputs.family }}
-      light: ${{ steps.pick.outputs.light }}
-      medium: ${{ steps.pick.outputs.medium }}
-      heavy: ${{ steps.pick.outputs.heavy }}
-    steps:
-      - name: Escolher Boat ou Instabox
-        id: pick
-        env:
-          ATTEMPT: ${{ github.run_attempt }}
-          GH_TOKEN: ${{ github.token }}
-          JOBS_URL: ${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=latest&per_page=100
-        run: |
-          family=instabox
-          # Nova tentativa vai direto para a Instabox, sem outra sonda.
-          while [ "$ATTEMPT" = 1 ] && [ "$SECONDS" -lt 60 ]; do
-            rest=$((60 - SECONDS))
-            probe=$(curl -fsS --max-time $((rest < 10 ? rest : 10)) -H "Authorization: Bearer $GH_TOKEN" "$JOBS_URL" | jq -r '.jobs[] | select(.name == "boat-probe") | if .conclusion == "success" or ([.steps[]? | select(.name == "Set up runner" and .conclusion == "success")] | length > 0) then "ok" elif .status == "completed" then "no" else "wait" end') || probe=""
-            case "$probe" in
-              ok) family=boat; break ;;
-              no) break ;;
-              *) rest=$((60 - SECONDS)); [ "$rest" -ge 1 ] || break; sleep $((rest < 3 ? rest : 3)) ;;
-            esac
-          done
-          case "$family" in
-            boat) light=boat-small; medium=boat; heavy=boat-large ;;
-            *) light=instabox-small; medium=instabox-medium; heavy=instabox-large ;;
-          esac
-          printf 'family=%s\nlight=%s\nmedium=%s\nheavy=%s\n' "$family" "$light" "$medium" "$heavy" >> "$GITHUB_OUTPUT"
-          printf 'Rota do CI: %s\n' "$family" >> "$GITHUB_STEP_SUMMARY"
-
-  secrets:
-    needs: route
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
-    timeout-minutes: 10
+    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
+    timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      host: ${{ steps.selection.outputs.host }}
+      desktop: ${{ steps.selection.outputs.desktop }}
+      heavy: ${{ steps.selection.outputs.heavy }}
+      stacked: ${{ steps.selection.outputs.stacked }}
+    env:
+      SEMGREP_SEND_METRICS: 'off'
+      SEMGREP_ENABLE_VERSION_CHECK: '0'
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -75,12 +44,52 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
+          package-manager-cache: false
+      - name: Selecionar alvos pelo diff entre a base e o merge do PR
+        id: selection
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          read -r -a parents <<< "$(git show -s --format=%P HEAD)"
+          [[ ${#parents[@]} == 2 && "${parents[1]}" == "$PR_HEAD_SHA" ]]
+          # Diff gravado antes: se o git falhar, o passo reprova em vez de publicar selecao vazia.
+          git diff --name-only --no-renames -z "${parents[0]}" HEAD > "$RUNNER_TEMP/alterados.z"
+          host=false
+          desktop=false
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              .github/*|tools/ci-*) host=true; desktop=true ;;
+            esac
+            # Hub: codigo, motor, toolchain e arquivos de outras pastas lidos pelos testes do Hub.
+            case "$path" in
+              host/*|motor/*|apps/screen-linux/*|rust-toolchain|rust-toolchain.toml|Cargo.toml|Cargo.lock|.cargo/*|rustfmt.toml|.rustfmt.toml|clippy.toml|.clippy.toml|docs/features/manual-do-harness.md|docs/reference/fixtures/remote-relay-vectors.json) host=true ;;
+              apps/desktop/src/renderer/lib/donnabot-avatars/schema/avatar-config.schema.json|apps/desktop/src/renderer/lib/donnabot-avatars/presets/roles.json) host=true ;;
+              apps/desktop/src/shared/fork-avatar-data.json|apps/desktop/src/shared/fork-mexeriquinha-data.json|apps/desktop/src/shared/fork-mexeriquinha.schema.json|apps/desktop/src/shared/fork-mexeriquinha-wire-fixture.json) host=true ;;
+              apps/desktop/src/renderer/lib/mexeriquinhas/prompts/*|apps/desktop/src/renderer/lib/mexeriquinhas/assets/base/referencia.png) host=true ;;
+            esac
+            # Desktop: os testes leem arquivos de varias pastas; so mudancas exclusivas de Hub e motor dispensam.
+            case "$path" in
+              host/src/fork/skill_catalog/registry.json|host/src/fork/personal_link/*|host/src/fork/conectores/fichas/*) desktop=true ;;
+              host/*|motor/*|apps/screen-linux/*) ;;
+              *) desktop=true ;;
+            esac
+          done < "$RUNNER_TEMP/alterados.z"
+          # Rascunho e PR empilhado (base diferente da main) nao ligam Hub nem Desktop.
+          stacked=false
+          [ "$BASE_REF" = main ] || stacked=true
+          heavy=true
+          if [ "$DRAFT" = true ] || [ "$stacked" = true ]; then heavy=false; fi
+          printf 'host=%s\ndesktop=%s\nheavy=%s\nstacked=%s\n' "$host" "$desktop" "$heavy" "$stacked" >> "$GITHUB_OUTPUT"
+          printf 'Selecao: host=%s desktop=%s heavy=%s stacked=%s\n' "$host" "$desktop" "$heavy" "$stacked" >> "$GITHUB_STEP_SUMMARY"
       - name: Instalar Gitleaks 8.30.1 com SHA256 fixo
         run: |
           curl --fail --silent --show-error --location --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
-      - name: Bloquear segredos novos sem imprimir valores
+      - name: Segredos - bloquear segredos novos sem imprimir valores
         env:
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -95,14 +104,86 @@ jobs:
           fi
           git show "$source:tools/ci-gitleaks.mjs" > "$RUNNER_TEMP/trusted-ci-gitleaks.mjs"
           GITLEAKS_TRUSTED_MAIN_SHA="$trusted_main" node "$RUNNER_TEMP/trusted-ci-gitleaks.mjs"
+      # Achados informativos; a analise precisa concluir. Manifesto e regras vem da main.
+      - name: Semgrep - copiar manifesto e regras da main
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          trusted_main=$(git rev-parse refs/remotes/origin/main)
+          source="$trusted_main"
+          if ! git cat-file -e "$trusted_main:.github/security/semgrep.yml" 2>/dev/null; then
+            # Somente no PR que introduz o Semgrep: a main ainda nao tem a politica.
+            test "$GITHUB_EVENT_NAME" = pull_request
+            [[ "$PR_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+            source="$PR_HEAD_SHA"
+          fi
+          mkdir -p "$RUNNER_TEMP/semgrep-politica"
+          git show "$source:.github/security/semgrep.yml" > "$RUNNER_TEMP/semgrep-politica/semgrep.yml"
+          git show "$source:.github/security/semgrep-requirements.txt" > "$RUNNER_TEMP/semgrep-politica/requirements.txt"
+      # Python em modo isolado (-I) e fora da arvore analisada: nada do checkout entra no sys.path.
+      - name: Semgrep - validar plataforma e instalar Semgrep OSS fixado
+        working-directory: ${{ runner.temp }}
+        run: |
+          . /etc/os-release
+          test "$ID" = ubuntu && test "$VERSION_ID" = 24.04
+          test "$(uname -m)" = x86_64
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3 -I -m venv "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/semgrep-venv/bin/pip" --disable-pip-version-check install --only-binary=:all: --require-hashes -r "$RUNNER_TEMP/semgrep-politica/requirements.txt"
+      - name: Semgrep - executar (achados informativos, falha bloqueante)
+        run: |
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config "$RUNNER_TEMP/semgrep-politica/semgrep.yml" --metrics=off --disable-version-check --jobs 2 --exclude '*.lock' --exclude '*-lock.json' --exclude '*.svg' --exclude '*.min.js' --exclude xterm.js --json --output "$RUNNER_TEMP/semgrep.json" > "$RUNNER_TEMP/semgrep.log" 2>&1
+          cd "$RUNNER_TEMP"
+          python3 -I - <<'PYTHON'
+          import json, os
+          with open(os.environ['RUNNER_TEMP'] + '/semgrep.json') as f:
+              data = json.load(f)
+          rows = [dict(arquivo=r['path'], linha=r['start']['line'], regra=r['check_id']) for r in data['results']]
+          for row in rows:
+              print(json.dumps(row))
+          summary = f"Semgrep OSS: {len(rows)} ocorrencia(s), {len(data.get('errors', []))} erro(s) de analise. Achados sao informativos."
+          print('::warning::' + summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write(summary + '\n\n' + '\n'.join(json.dumps(row) for row in rows) + '\n')
+          if data.get('errors'):
+              print('::error::Semgrep nao concluiu a analise; os achados continuam informativos.')
+              raise SystemExit(1)
+          PYTHON
+      # Daqui em diante roda codigo do PR: nada abaixo decide as checagens acima.
+      - name: Ferramentas de CI - testar executores e contrato do workflow sem secrets
+        env:
+          GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
+        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs tools/ci-bastidor.test.mjs
+      # Informativo: falha de auditoria aparece no resumo, mas nao reprova o job nem o ci-ok.
+      - name: Auditoria - instalar cargo-audit 0.22.2 com SHA256 fixo
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          curl --fail --silent --show-error --location --retry 3 https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz -o "$RUNNER_TEMP/cargo-audit.tgz"
+          echo "ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39  $RUNNER_TEMP/cargo-audit.tgz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/cargo-audit.tgz" -C "$RUNNER_TEMP"
+      - name: Auditoria - npm audit high e cargo audit (somente aviso)
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CARGO_AUDIT_BIN: ${{ runner.temp }}/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit
+        run: node tools/ci-security-audit.mjs
 
+  # Unico job com secret: fica sozinho na maquina, sem rodar codigo do PR.
   vazamento:
-    needs: [route, secrets]
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -110,6 +191,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
+          package-manager-cache: false
       - name: Escolher a fonte do executor de vazamento
         id: fonte
         env:
@@ -143,166 +225,10 @@ jobs:
           VAZAMENTO_TRUSTED_MAIN_SHA: ${{ steps.fonte.outputs.trusted_main }}
         run: node "$RUNNER_TEMP/trusted-ci-vazamento.mjs" pr
 
-  # Informativo: falha de auditoria aparece no PR, mas nao entra no ci-ok.
-  dependency-audit:
-    needs: [route, secrets]
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
-    timeout-minutes: 10
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.22.3'
-      - name: Instalar cargo-audit 0.22.2 com SHA256 fixo
-        run: |
-          curl --fail --silent --show-error --location --retry 3 https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz -o "$RUNNER_TEMP/cargo-audit.tgz"
-          echo "ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39  $RUNNER_TEMP/cargo-audit.tgz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/cargo-audit.tgz" -C "$RUNNER_TEMP"
-      - name: npm audit high e cargo audit (somente aviso)
-        env:
-          CARGO_AUDIT_BIN: ${{ runner.temp }}/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit
-        run: node tools/ci-security-audit.mjs
-
-  # Achados informativos; a analise precisa concluir. Manifesto e regras vem da main.
-  semgrep:
-    needs: [route, secrets]
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
-    timeout-minutes: 8
-    permissions:
-      contents: read
-    env:
-      SEMGREP_SEND_METRICS: 'off'
-      SEMGREP_ENABLE_VERSION_CHECK: '0'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Copiar manifesto e regras do Semgrep da main
-        env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          trusted_main=$(git rev-parse refs/remotes/origin/main)
-          source="$trusted_main"
-          if ! git cat-file -e "$trusted_main:.github/security/semgrep.yml" 2>/dev/null; then
-            # Somente no PR que introduz o Semgrep: a main ainda nao tem a politica.
-            test "$GITHUB_EVENT_NAME" = pull_request
-            [[ "$PR_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
-            source="$PR_HEAD_SHA"
-          fi
-          mkdir -p "$RUNNER_TEMP/semgrep-politica"
-          git show "$source:.github/security/semgrep.yml" > "$RUNNER_TEMP/semgrep-politica/semgrep.yml"
-          git show "$source:.github/security/semgrep-requirements.txt" > "$RUNNER_TEMP/semgrep-politica/requirements.txt"
-      - name: Validar plataforma e instalar Semgrep OSS fixado
-        run: |
-          . /etc/os-release
-          test "$ID" = ubuntu && test "$VERSION_ID" = 24.04
-          test "$(uname -m)" = x86_64
-          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
-          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
-          "$RUNNER_TEMP/semgrep-venv/bin/pip" --disable-pip-version-check install --only-binary=:all: --require-hashes -r "$RUNNER_TEMP/semgrep-politica/requirements.txt"
-      - name: Executar Semgrep (achados informativos, falha bloqueante)
-        run: |
-          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config "$RUNNER_TEMP/semgrep-politica/semgrep.yml" --metrics=off --disable-version-check --jobs 2 --exclude '*.lock' --exclude '*-lock.json' --exclude '*.svg' --exclude '*.min.js' --exclude xterm.js --json --output "$RUNNER_TEMP/semgrep.json" > "$RUNNER_TEMP/semgrep.log" 2>&1
-          python3 - <<'PYTHON'
-          import json, os
-          with open(os.environ['RUNNER_TEMP'] + '/semgrep.json') as f:
-              data = json.load(f)
-          rows = [dict(arquivo=r['path'], linha=r['start']['line'], regra=r['check_id']) for r in data['results']]
-          for row in rows:
-              print(json.dumps(row))
-          summary = f"Semgrep OSS: {len(rows)} ocorrencia(s), {len(data.get('errors', []))} erro(s) de analise. Achados sao informativos."
-          print('::warning::' + summary)
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-              f.write(summary + '\n\n' + '\n'.join(json.dumps(row) for row in rows) + '\n')
-          if data.get('errors'):
-              print('::error::Semgrep nao concluiu a analise; os achados continuam informativos.')
-              raise SystemExit(1)
-          PYTHON
-
-  changes:
-    needs: [route, secrets]
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      host: ${{ steps.selection.outputs.host }}
-      desktop: ${{ steps.selection.outputs.desktop }}
-      heavy: ${{ steps.selection.outputs.heavy }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
-          persist-credentials: false
-      - name: Selecionar alvos pelo diff entre a main e o merge do PR
-        id: selection
-        env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          DRAFT: ${{ github.event.pull_request.draft }}
-        run: |
-          set -euo pipefail
-          read -r -a parents <<< "$(git show -s --format=%P HEAD)"
-          [[ ${#parents[@]} == 2 && "${parents[1]}" == "$PR_HEAD_SHA" ]]
-          # Diff gravado antes: se o git falhar, o passo reprova em vez de publicar selecao vazia.
-          git diff --name-only --no-renames -z "${parents[0]}" HEAD > "$RUNNER_TEMP/alterados.z"
-          host=false
-          desktop=false
-          while IFS= read -r -d '' path; do
-            case "$path" in
-              .github/*|tools/ci-*) host=true; desktop=true ;;
-            esac
-            # Hub: codigo, motor, toolchain e arquivos de outras pastas lidos pelos testes do Hub.
-            case "$path" in
-              host/*|motor/*|apps/screen-linux/*|rust-toolchain.toml|Cargo.toml|Cargo.lock|.cargo/*|rustfmt.toml|.rustfmt.toml|clippy.toml|.clippy.toml|docs/features/manual-do-harness.md|docs/reference/fixtures/remote-relay-vectors.json) host=true ;;
-              apps/desktop/src/renderer/lib/donnabot-avatars/schema/avatar-config.schema.json|apps/desktop/src/renderer/lib/donnabot-avatars/presets/roles.json) host=true ;;
-              apps/desktop/src/shared/fork-avatar-data.json|apps/desktop/src/shared/fork-mexeriquinha-data.json|apps/desktop/src/shared/fork-mexeriquinha.schema.json|apps/desktop/src/shared/fork-mexeriquinha-wire-fixture.json) host=true ;;
-              apps/desktop/src/renderer/lib/mexeriquinhas/prompts/*|apps/desktop/src/renderer/lib/mexeriquinhas/assets/base/referencia.png) host=true ;;
-            esac
-            # Desktop: os testes leem arquivos de varias pastas; so mudancas exclusivas de Hub e motor dispensam.
-            case "$path" in
-              host/src/fork/skill_catalog/registry.json|host/src/fork/personal_link/*) desktop=true ;;
-              host/*|motor/*|apps/screen-linux/*) ;;
-              *) desktop=true ;;
-            esac
-          done < "$RUNNER_TEMP/alterados.z"
-          heavy=true
-          [ "$DRAFT" != true ] || heavy=false
-          printf 'host=%s\ndesktop=%s\nheavy=%s\n' "$host" "$desktop" "$heavy" >> "$GITHUB_OUTPUT"
-          printf 'Selecao: host=%s desktop=%s heavy=%s\n' "$host" "$desktop" "$heavy" >> "$GITHUB_STEP_SUMMARY"
-
-  ferramentas-ci:
-    needs: [route, secrets]
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.22.3'
-      - name: Instalar Gitleaks 8.30.1 para testar o executor sem secrets
-        run: |
-          curl --fail --silent --show-error --location --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
-          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
-      - name: Testar executores e contrato do workflow em VM sem secrets
-        env:
-          GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
-        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs tools/ci-bastidor.test.mjs
-
   hub:
-    needs: [route, changes]
-    if: ${{ needs.changes.outputs.host == 'true' && needs.changes.outputs.heavy == 'true' }}
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.heavy || 'instabox-large' }}
+    needs: leves
+    if: ${{ needs.leves.outputs.host == 'true' && needs.leves.outputs.heavy == 'true' }}
+    runs-on: ${{ vars.CI_MAQUINA_PESADA || 'instabox-large' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -310,6 +236,13 @@ jobs:
       run:
         working-directory: host
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -380,9 +313,9 @@ jobs:
           sudo -n env "PATH=$PATH" python3 tests/motor_mexerica_ci.py "$PWD/target/debug/donnabot-motor-exec" "$tests" --vm-descartavel
 
   desktop:
-    needs: [route, changes]
-    if: ${{ needs.changes.outputs.desktop == 'true' && needs.changes.outputs.heavy == 'true' }}
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.medium || 'instabox-medium' }}
+    needs: leves
+    if: ${{ needs.leves.outputs.desktop == 'true' && needs.leves.outputs.heavy == 'true' }}
+    runs-on: ${{ vars.CI_MAQUINA_MEDIA || 'instabox-medium' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -394,6 +327,13 @@ jobs:
       # O gate de textos compara com a base do evento, ja presente no historico completo.
       MEXERICA_CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -421,11 +361,18 @@ jobs:
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [route, secrets, vazamento, semgrep, changes, ferramentas-ci, hub, desktop]
-    runs-on: ${{ github.run_attempt == 1 && needs.route.outputs.light || 'instabox-small' }}
+    needs: [leves, vazamento, hub, desktop]
+    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 5
     permissions: {}
     steps:
+      # Enquanto o repositorio for privado, nenhum job pode rodar em maquina do GitHub, mesmo se a variavel apontar para ela.
+      - name: Recusar maquina do GitHub em repositorio privado
+        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          echo '::error::Repositorio privado: o CI nao roda em maquina do GitHub. Ajuste as variaveis CI_MAQUINA_*.'
+          exit 1
       - name: Recusar fork sem executar codigo em runner de terceiro
         if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
@@ -435,18 +382,21 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          if [ "$(jq -r '.changes.outputs.heavy' <<< "$NEEDS")" = false ] &&
-            jq -e '.changes.outputs | .host == "true" or .desktop == "true"' > /dev/null <<< "$NEEDS"; then
+          printf 'Resultados: %s\n' "$(jq -c 'with_entries(.value |= .result)' <<< "$NEEDS")" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.leves.outputs.stacked' <<< "$NEEDS")" = true ]; then
+            echo '::error::PR empilhado (base diferente da main): rodaram so as checagens leves e de vazamento. Nao vale para merge; o teste completo roda quando a base for a main.'
+            echo 'PR empilhado: so checagens leves e de vazamento. Nao vale para merge.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$(jq -r '.leves.outputs.heavy' <<< "$NEEDS")" = false ] &&
+            jq -e '.leves.outputs | .host == "true" or .desktop == "true"' > /dev/null <<< "$NEEDS"; then
             echo '::error::Testes pesados pendentes neste head. Marque o PR como pronto para executar a prova completa.'
           fi
-          printf 'Resultados: %s\n' "$(jq -c 'with_entries(.value |= .result)' <<< "$NEEDS")" >> "$GITHUB_STEP_SUMMARY"
           jq -e '
-            def selected($k): .changes.outputs[$k] == "true";
-            def flag($k): .changes.outputs[$k] == "true" or .changes.outputs[$k] == "false";
-            (.route.result == "success") and (.secrets.result == "success") and (.vazamento.result == "success") and
-            (.semgrep.result == "success") and
-            (.changes.result == "success") and (."ferramentas-ci".result == "success") and
-            flag("host") and flag("desktop") and flag("heavy") and
+            def selected($k): .leves.outputs[$k] == "true";
+            def flag($k): .leves.outputs[$k] == "true" or .leves.outputs[$k] == "false";
+            (.leves.result == "success") and (.vazamento.result == "success") and
+            flag("host") and flag("desktop") and flag("heavy") and (.leves.outputs.stacked == "false") and
             (if selected("host") then .hub.result == "success" else .hub.result == "skipped" end) and
             (if selected("desktop") then .desktop.result == "success" else .desktop.result == "skipped" end)
           ' > /dev/null <<< "$NEEDS"

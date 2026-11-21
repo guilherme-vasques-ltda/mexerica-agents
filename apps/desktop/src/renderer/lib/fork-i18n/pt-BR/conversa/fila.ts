@@ -22,4 +22,5 @@ export const textos = {
   'conversa.fila.erro.permissao': 'Este aparelho não pode mais mexer na fila.',
   'conversa.fila.erro.pendente': 'O computador não confirmou a tempo. Confira a fila.',
   'conversa.fila.erro.falhou': 'Não foi possível mudar a fila.',
+  'conversa.fila.erro.cheia': 'A fila desta conversa está cheia. Espere algumas mensagens saírem e envie de novo.',
 } as const

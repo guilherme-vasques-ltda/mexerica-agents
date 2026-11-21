@@ -21,6 +21,7 @@ permissions: {}
 jobs:
   bastidor:
     runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
+    environment: bastidor
     timeout-minutes: 5
     permissions:
       contents: read

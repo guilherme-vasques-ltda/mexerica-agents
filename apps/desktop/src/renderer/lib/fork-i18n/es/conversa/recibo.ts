@@ -43,4 +43,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.recibo.campo.motor": "Motor",
   "conversa.recibo.campo.esforco": "Esfuerzo",
   "conversa.recibo.tentarDeNovo": "Intentar de nuevo",
+  "conversa.recibo.uso.titulo": "Uso de este turno",
+  "conversa.recibo.uso.entrada": "Entrada",
+  "conversa.recibo.uso.cacheLido": "Caché leída",
+  "conversa.recibo.uso.cacheGravado": "Caché escrita",
+  "conversa.recibo.uso.saida": "Salida",
+  "conversa.recibo.uso.naoInformado": "no informado",
+  "conversa.recibo.uso.informado": "Cifras informadas por el motor al final del turno. Mexerica no estima: lo que el motor no informa aparece como «no informado».",
+  "conversa.recibo.uso.semMedida": "Este turno no tiene medida de uso: es anterior a este registro o el motor aún no ha respondido.",
+  "conversa.recibo.uso.nenhum": "El motor no informó el uso de este turno.",
 }
