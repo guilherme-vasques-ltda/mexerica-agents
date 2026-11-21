@@ -1161,7 +1161,8 @@ pub(crate) fn registrar_descoberta(
 ) -> Result<()> {
     let tools = lista_do_frame(store, &conta.id, bruto)?;
     if conta.servico.is_none() {
-        return Ok(());
+        tracing::warn!(conta = %conta.id, "descoberta recusada: conta sem serviço");
+        return Err(anyhow!("conta sem serviço"));
     }
     let Some(_pol) = politica(conta)? else {
         tracing::warn!(conta = %conta.id, "descoberta recusada: conta sem ficha");
