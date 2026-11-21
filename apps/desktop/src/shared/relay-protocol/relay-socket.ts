@@ -105,6 +105,8 @@ export interface RelayLinkOptions {
   onState?: (state: LinkState) => void
   /** O canal pronto, ou `null` quando ele deixa de valer (chamadas em voo já viraram `unknown`). */
   onChannel?: (channel: ChannelInstance | null) => void
+  /** Oferece `browserFramesV1` no `hello` (só o canal de dados do app; os de vínculo e pareamento não pedem). */
+  browserFrames?: boolean
 }
 
 const PING = '{"t":"ping"}'
@@ -181,7 +183,7 @@ export function createRelaySocket({ proto, channel }: RelaySocketDeps) {
     stop(reason: StopReason = 'stopped', message?: string, rejectCode?: RejectCode) {
       if (this.terminal) return
       this.terminal = true
-      this.detach(1000)
+      this.detach(1000, reason === 'revoked' || reason === 'unauthorized')
       this.clearTimers()
       this.setState({ kind: 'stopped', reason, ...(message ? { message } : {}), ...(rejectCode ? { rejectCode } : {}) })
     }
@@ -327,7 +329,7 @@ export function createRelaySocket({ proto, channel }: RelaySocketDeps) {
       if (!this.isCurrent(gen)) return
       this.dropChannel()
       if (!this.isCurrent(gen)) return
-      const hs = new Handshake(this.o.signer, this.o.hostSignPub, this.wire(gen))
+      const hs = new Handshake(this.o.signer, this.o.hostSignPub, this.wire(gen), { frames: this.o.browserFrames === true })
       if (!this.isCurrent(gen)) {
         hs.abandon()
         return
@@ -387,26 +389,26 @@ export function createRelaySocket({ proto, channel }: RelaySocketDeps) {
     }
 
     /** Larga o socket atual sem esperar o fechamento: eventos dele são ignorados pela geração. */
-    private detach(code: number) {
+    private detach(code: number, denied = false) {
       const gen = ++this.gen
       const socket = this.socket
       this.socket = null
       if (this.ticker) clearInterval(this.ticker)
       this.ticker = null
-      this.dropChannel()
+      this.dropChannel(denied)
       try {
         socket?.close(code)
       } catch {}
       return gen
     }
 
-    private dropChannel() {
+    private dropChannel(denied = false) {
       this.handshake?.abandon()
       this.handshake = null
       const had = this.channel
       this.channel = null
       if (had) {
-        had.close()
+        had.close(denied)
         this.o.onChannel?.(null)
       }
     }

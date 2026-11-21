@@ -156,6 +156,9 @@
 
 /* A tabela fica acima das abas de Ferramentas, com o mesmo respiro entre blocos. */
 .mercado-no-bot { margin-block-end: var(--sp-24); }
+.mercado-acoes { padding-top: var(--sp-10); border-top: 1px solid var(--separator, var(--group)); }
+.mercado-acao { padding: var(--sp-6) 0; }
+.mercado-acao-descricao { white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--sp-8) var(--sp-10); border-radius: var(--radius-s); background: var(--group); }
 
 /* Google direto: o grupo no catálogo, o guia com o cartão seguro e a escolha dos serviços */
 .mercado-google { background: var(--group); }

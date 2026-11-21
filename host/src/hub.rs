@@ -109,6 +109,7 @@ pub struct Hub {
     pub groups: crate::chat::group::Rooms,
     pub store: Store,
     pub(crate) conectores: crate::fork::conectores::State,
+    pub(crate) browser: crate::fork::browser::State,
     pub(crate) whatsapp: crate::fork::whatsapp::State,
     /// Fase 2b: jobs do gerador de conjuntos 3D (um ativo por Hub).
     pub gerador: crate::fork_avatars::gerador::State,
@@ -117,6 +118,8 @@ pub struct Hub {
     /// Loopback-only bearer token for this computer's own apps and helpers.
     pub token: String,
     pub(crate) pontes: crate::fork::ponte_credencial::Credenciais,
+    /// Repasse local dos planos de código (iniciado sob demanda).
+    pub(crate) planos: tokio::sync::OnceCell<Arc<crate::fork::planos_codigo::Repasse>>,
     pub port: u16,
     pub events: broadcast::Sender<Value>,
     /// Held across "mutate store + broadcast" so events leave in rev order.
@@ -171,12 +174,14 @@ impl Hub {
             groups: crate::chat::group::Rooms::default(),
             store,
             conectores: crate::fork::conectores::State::default(),
+            browser: crate::fork::browser::State::default(),
             whatsapp: crate::fork::whatsapp::State::default(),
             gerador: crate::fork_avatars::gerador::State::default(),
             host_id,
             identity,
             token,
             pontes: crate::fork::ponte_credencial::Credenciais::default(),
+            planos: tokio::sync::OnceCell::new(),
             port,
             events,
             emit_lock: Mutex::new(()),
@@ -221,6 +226,7 @@ impl Hub {
         // Aprovações e canais transitórios expiram; humanos queued continuam elegíveis.
         self.store.conector_recover()?;
         crate::fork::conectores::whatsapp_human::recover(self)?;
+        self.store.interrupt_open_work()?;
         self.store.expire_pending()?;
         if !crate::environment::Environment::is_open() {
             crate::screen::fork_permission::restore_pending(self)?;
@@ -304,6 +310,9 @@ impl Hub {
         if tokio::time::timeout(Duration::from_secs(5), &mut bots).await.is_err() {
             tracing::warn!("some bots didn't stop within 5 s; waiting for their final turns");
             bots.await;
+        }
+        if let Err(error) = self.store.interrupt_open_work() {
+            tracing::error!(%error, "resposta cortada não marcada no desligamento; o próximo início marca");
         }
         // Keep polling the same join future after the deadline: completed handles
         // must not be polled twice, and cancelling a worker would lose its queue.
@@ -633,6 +642,10 @@ impl Hub {
         let tower_change = crate::fork::control_tower::deletion(self, id)?;
         let led = crate::fork::lider_canal::led_by(&self.store, id)?;
         let committed = {
+            // A exclusão é recusada com reserva de resposta da Open viva; com o fence retido só até o fim do commit,
+            // um turno concorrente espera `RUNNING` e recusa ao ver o bot apagado (RUNNING antes das travas do Hub).
+            // Fora da edição Open `RUNNING` está sempre vazio e o fence não faz nada.
+            let _open_reply = crate::fork::open_chat::deletion_fence(&[id])?;
             let _boundary = self.store.memory_boundary.locked();
             #[cfg(test)]
             {
@@ -918,17 +931,19 @@ impl Hub {
         result
     }
 
-    /// D372 (R1): cerca de Contas no mesmo mutex de runtime de todo preparo/ativação. Confere a ociosidade da conta
-    /// sobre o mapa já bloqueado e roda `effect` (a escrita da conta) sem soltá-lo. O efeito não emite, não lê runtime,
-    /// não chama Hub/`idle` e não pega `memory_boundary`/emit/`team_lock`.
+    /// D372 (R1): cerca de Contas por `RUNNING` e pelo mesmo mutex de runtime de todo preparo/ativação, nesta ordem —
+    /// a exclusão de bot (`deletion_fence`) também toma `RUNNING` antes das travas do Hub, então runtime antes de
+    /// `RUNNING` aqui trancaria os dois caminhos. Confere a ociosidade da conta sobre o mapa já bloqueado e roda
+    /// `effect` (a escrita da conta) sem soltá-lo. O efeito não emite, não lê runtime, não chama Hub/`idle` e não
+    /// pega `memory_boundary`/emit/`team_lock`.
     pub(crate) fn with_idle_engine_account<T>(&self, account: &str, effect: impl FnOnce() -> Result<T>) -> Result<T> {
-        let runtime = self.runtime.locked();
-        crate::fork::engine_accounts::managed::idle_with(&self.store, account, |bot| {
-            runtime.get(bot).map_or(BotStatus::default(), |r| r.status)
-        })?;
-        let result = effect();
-        drop(runtime);
-        result
+        crate::fork::open_chat::with_idle_account(account, || {
+            let runtime = self.runtime.locked();
+            crate::fork::engine_accounts::managed::idle_with(&self.store, account, |bot| {
+                runtime.get(bot).map_or(BotStatus::default(), |r| r.status)
+            })?;
+            effect()
+        })
     }
 
     /// Testemunho de teste: o mutex de runtime está retido (por esta thread dentro de uma cerca, ou por outra).
@@ -1149,16 +1164,21 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
+    crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
     validate_fields(cfg)
 }
 
-/// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada.
+/// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada. Trocar o
+/// motor para um retirado é recusado; um bot antigo que já usa um segue editável nos outros campos.
 pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     if cfg.cwd != before.cwd {
         crate::fork::pasta::normalizar_bot(cfg)?;
     }
     crate::fork::funcao::normalizar(cfg)?;
+    if cfg.backend != before.backend {
+        crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+    }
     validate_fields(cfg)
 }
 
@@ -1176,4 +1196,58 @@ fn validate_fields(cfg: &BotConfig) -> Result<()> {
     }
     crate::agent::launcher::check(cfg)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod motores_retirados_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn cfg(backend: &str) -> BotConfig {
+        serde_json::from_value(json!({"id":"x", "name":"Teste", "backend": backend})).unwrap()
+    }
+
+    #[test]
+    fn criacao_com_motor_retirado_e_recusada() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let mut c = cfg(id);
+            let erro = validate(&mut c).unwrap_err().to_string();
+            assert_eq!(erro, crate::fork::motores_retirados::MSG_CRIAR, "{id}");
+        }
+    }
+
+    #[test]
+    fn editar_para_motor_retirado_e_recusado() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let antes = cfg("claude");
+            let mut c = cfg(id);
+            let erro = validate_update(&mut c, &antes).unwrap_err().to_string();
+            assert_eq!(erro, crate::fork::motores_retirados::MSG_CRIAR, "{id}");
+        }
+    }
+
+    #[test]
+    fn editar_outro_campo_de_bot_que_ja_usa_motor_retirado_passa() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let antes = cfg(id);
+            let mut c: BotConfig =
+                serde_json::from_value(json!({"id":"x", "name":"Nome novo", "backend": id})).unwrap();
+            validate_update(&mut c, &antes).unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+    }
+
+    #[test]
+    fn motor_mantido_passa_na_criacao_e_na_edicao() {
+        for id in ["claude", "codex", "cursor", "opencode", "grok", "gemini"] {
+            let mut c = cfg(id);
+            validate(&mut c).unwrap_or_else(|e| panic!("{id}: {e}"));
+            let antes = cfg("claude");
+            let mut c = cfg(id);
+            validate_update(&mut c, &antes).unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+        // Motor por comando próprio segue permitido: sem id de harness, a recusa não se aplica.
+        let mut c: BotConfig =
+            serde_json::from_value(json!({"id":"x", "name":"Teste", "backend":"custom", "command":"unused"})).unwrap();
+        validate(&mut c).unwrap();
+    }
 }

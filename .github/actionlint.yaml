@@ -1,9 +1,0 @@
-# Rótulos dos runners Boat e Instabox aceitos pelo actionlint. Runner hospedado pelo GitHub não é usado.
-self-hosted-runner:
-  labels:
-    - boat-small
-    - boat
-    - boat-large
-    - instabox-small
-    - instabox-medium
-    - instabox-large

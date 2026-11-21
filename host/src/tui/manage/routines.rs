@@ -205,6 +205,9 @@ impl App {
             }
         };
         let mut body = json!({"botId": f.bot, "name": name, "instruction": instruction, "triggers": triggers});
+        if triggers.as_array().is_some_and(Vec::is_empty) {
+            body["manual"] = true.into();
+        }
         if let Some(id) = &f.id {
             body["id"] = id.clone().into();
         }

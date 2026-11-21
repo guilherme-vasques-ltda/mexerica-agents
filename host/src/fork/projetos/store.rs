@@ -122,6 +122,8 @@ fn task_declarations(c: &Connection, hub: &str, space: &str, project: &str) -> R
 }
 /// Declaração durável de conclusão por bot: gravada somente na transição real
 /// para `done` (estado anterior diferente), na mesma transação da escrita.
+/// Hoje só restam declarações legadas; nenhuma frente de bot grava mais.
+#[cfg(test)]
 pub(crate) fn declare_task_done(
     c: &Connection,
     hub: &str,

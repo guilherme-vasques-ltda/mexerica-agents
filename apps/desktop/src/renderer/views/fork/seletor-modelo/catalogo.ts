@@ -8,6 +8,8 @@ import { separarPadrao, type Provedor } from './regras'
 
 const cache = new Map<string, AgentModels | 'falhou'>()
 const lendo = new Set<string>()
+/** Geração de cada chave: uma leitura que começou antes de a lista mudar não escreve por cima. */
+const geracoes = new Map<string, number>()
 const listeners = new Set<() => void>()
 const avisar = () => { for (const l of listeners) l() }
 /** A lista sem o "Default" é feita uma vez por catálogo lido: a mesma lista a cada desenho (o filtro em memo depende disso). */
@@ -35,10 +37,20 @@ export function carregarModelos(store: BotStore, backend: string) {
   const client = store.client
   if (cache.has(key) || lendo.has(key) || !client) return
   lendo.add(key)
+  const minha = (geracoes.get(key) ?? 0) + 1
+  geracoes.set(key, minha)
   void client.call<AgentModels>('agentModels', { backend }, 300_000)
-    .then((res) => cache.set(key, res))
-    .catch(() => cache.set(key, 'falhou'))
+    .then((res) => { if (geracoes.get(key) === minha) cache.set(key, res) })
+    .catch(() => { if (geracoes.get(key) === minha) cache.set(key, 'falhou') })
     .finally(() => { lendo.delete(key); avisar() })
+}
+
+/** A lista de um motor mudou no Hub (chave do Motor Mexerica salva, trocada ou removida): a próxima abertura relê. */
+export function esquecerModelos(computerId: string, backend: string) {
+  const key = `${computerId}/${backend}`
+  cache.delete(key)
+  geracoes.set(key, (geracoes.get(key) ?? 0) + 1)
+  avisar()
 }
 
 /** Uma conexão nova (ou o chip montando de novo): a leitura que falhou neste computador e motor é tentada de novo. */

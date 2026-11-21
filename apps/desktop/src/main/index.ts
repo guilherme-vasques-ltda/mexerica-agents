@@ -19,6 +19,7 @@ import { Tray } from './tray'
 import { applyDockVisibility, keepDockHidden, keepDockHiddenAfterLink, onDockVisibility, setShowInDock, showInDock } from './dock'
 import { AccountService } from './account'
 import { Updates, yieldsToInstall } from './updates'
+import { registerReleaseNotice } from './fork-release-notice'
 import { handleURL, registerAuthIPC, registerSchemes, urlFromArgv } from './auth'
 import { registerOAuthLoopbackIPC } from './fork-oauth-loopback-ipc'
 import { registerSpeech } from './speech'
@@ -393,6 +394,8 @@ if (yieldsToInstall()) {
     })
     account.register(generalWindows)
     updates.register(generalWindows)
+    // Nível 1 de atualizações: aviso discreto de nova versão (sem download automático, forkFeatures.updates segue false).
+    registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
     menu()
     aoMudarIdiomaDoApp(() => { menu(); tray.hostChanged() })
     host.on('change', () => {

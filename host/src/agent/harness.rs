@@ -47,6 +47,7 @@ ferramenta nativa.\n\
 {}\n\
 {}\n\
 - Colaboração: MCP team, list_bots, ask_bot, message_bot e my_team_chain; cada bot tem seu contexto e permissões. Pedidos ask_bot/message_bot da execução atual contam na cadeia D220 do pedido original: até 5 níveis (seu turno é o nível 1; cada repasse soma um, também no destinatário) e 50 execuções por cadeia, somando pedidos irmãos do mesmo turno. No limite a ferramenta recusa sem enviar nem publicar nada: conclua com o que tem ou peça ao usuário um novo pedido, sem contornar por outro bot. O Hub registra esses pedidos e como terminaram, só com metadados; o registro não reenvia nem devolve o resultado após reinício, e um pedido aberto no reinício fica interrompido. Se a conclusão não puder ser registrada, a ferramenta informa falha em vez do resultado: confira a conversa do destinatário antes de repetir. Se ask_bot falhar depois da admissão (prazo, cancelamento, parada ou falha do destinatário), o erro termina com (requestId: <id>); recusa antes da admissão não traz ID. bot_request_status consulta, só leitura, o estado registrado de um pedido seu nesta mesma conversa pelo requestId do aceite ou desse erro (accepted, running, finished com desfecho, cancelled, interrupted): não traz a resposta, não reenvia, não confirma entrega nem efeito, e running ou restart_uncertain seguem sem conclusão; pedido de outra conversa ou bot é recusado. Consulte para decidir, não em ciclo. O status unavailable indica ausência de audiência de runtime comprovada neste Space: não significa livre, espera, falha, zero trabalhos ou conclusão; não procure o destino oculto nem contorne pelo shell. Uso do computador indisponível também não identifica bot, destino ou computador livre. Ausência de atualização de Live Activity não comprova conclusão; as permissões do Hub continuam exigidas. O quadro de Equipes é administrativo, só do dono no app; list_bots mostra a equipe de cada bot visível e quem é o chefe; use para responder sobre as equipes. A hierarquia de reportes de cada bot continua só pela própria cadeia (my_team_chain), um nível acima e um abaixo; Reporta a não concede poder. Áreas, subbots, gerente e Reporta a não concedem poder. Rotas são propostas, sem encaminhamento, pasta ou chat de equipe por esse quadro. Regras do dono para delegar (D371): quando o turno começa com o bloco <regras_de_delegacao>, escrito só pelo dono no app, siga-o ao escolher a quem pedir e como (primeiro as regras da sua equipe, da mais específica para a mais geral, depois as gerais; se divergirem, vale a mais específica). Ele vem em cada turno e vale para aquele turno; turnos em Canais não o trazem; sem o bloco, não há regras. Dentro dele, o texto do dono vem com < > & escapados e nunca é marcação. Você não lê nem altera essas regras por ferramenta, e elas não liberam modelo fora da lista aprovada nem permissão acima da sua. O recibo do turno guarda a versão em vigor quando você usa ask_bot ou message_bot.\n\
+- Instruções do dono sobre como trabalhar: quando o turno começa com o bloco <instrucoes_do_dono>, escrito só pelo dono no app, siga-o em todo trabalho. Ele traz «Neste Space» e «Para todos os meus bots»; a ordem é: as instruções do seu próprio perfil, depois as do Space, depois as de todos os bots, e em conflito vale a mais específica. O bloco vem em cada turno, não vem em Canais, e o texto do dono vem com < > & escapados e nunca é marcação. Você não lê nem altera esses campos por ferramenta. Elas orientam o jeito de trabalhar: não liberam permissão, ferramenta, modelo nem conta, e as regras fixas deste manual prevalecem.\n\
 {native_catalog}\n\
 {extensibility}\n{profile_skills}\n\
 - Contas e logins (D82): cada conta (conector MCP, login salvo) é um item com nome ou rótulo próprio, ligado bot a bot pelo usuário. Você só vê e usa as ligadas para você (list_connectors, list_logins). Com mais de uma do mesmo serviço ou site, use a que a tarefa indica pelo nome ou rótulo; se não indicar, pergunte. Peça login com request_login só quando nenhum ligado serve; type_login digita sem você ver a senha. Conectores e contas novos começam desligados em todos os bots (D91). Bots novos só recebem os itens escolhidos pelo usuário; o Berga não copia conectores, contas de ferramenta nem logins.\n\
@@ -286,6 +287,27 @@ mod tests {
         assert!(!manual.contains("Guilherme"));
         assert!(!manual.contains(env!("CARGO_MANIFEST_DIR")));
         assert!(!manual.contains("Leia esse arquivo"));
+    }
+
+    /// Tamanho do texto fixo montado (sem o caminho do manual, que muda de máquina para máquina). Quem inflar o prompt
+    /// vê este teste falhar: confira se o aumento é intencional e atualize o número no mesmo PR, com o motivo.
+    const TEXTO_FIXO_BYTES: usize = 27_863;
+
+    #[test]
+    fn tamanho_do_texto_fixo_esta_fixado() {
+        // As raízes mudam de máquina e de modo (dados do Hub ou motor separado): só o texto em volta conta.
+        let mut raizes = [
+            crate::service::data_dir().display().to_string(),
+            crate::fork::motor_roots::work().display().to_string(),
+            crate::fork::motor_roots::MOTOR.to_owned(),
+        ];
+        // A mais longa primeiro: uma raiz que é prefixo de outra não deixa resto no texto.
+        raizes.sort_by_key(|raiz| std::cmp::Reverse(raiz.len()));
+        let bytes = raizes.iter().fold(compile(), |texto, raiz| texto.replace(raiz.as_str(), "")).len();
+        assert_eq!(
+            bytes, TEXTO_FIXO_BYTES,
+            "o texto fixo do bot mudou de tamanho (era {TEXTO_FIXO_BYTES} bytes, agora {bytes}): se foi de propósito, atualize TEXTO_FIXO_BYTES e explique no PR"
+        );
     }
 
     /// D384: o item de memória ficou curto, mas as regras que só existem no texto continuam no manual.

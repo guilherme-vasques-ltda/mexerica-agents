@@ -1,12 +1,14 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { useSpaceShortcuts } from './fork/spaces/use-space-shortcuts'
 import { useAtalhoBerga } from './fork/atalho-berga/use-atalho'
+import { AvisoAtualizacao } from './fork/atualizacao/AvisoAtualizacao'
 import { useSincronizarAtalhoVoz } from './fork/voz/entrada-voz'
 import { focoBerga } from './fork/atalho-berga/foco'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { WindowCommand } from '@shared/ipc'
 import { showsComputerAccess } from '@shared/fork-features'
+import { escopoDoSpace, type ConversaDisponivel, type LadoALadoEscopo, type LadoALadoRef } from '@shared/fork-lado-a-lado'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { isGroup, type Bot } from '@shared/models'
 import { CharacterAvatar } from '../components/Avatar'
@@ -44,6 +46,10 @@ import { leavesFloating, toggledSidebar } from './shell/sidebar-toggle'
 import { computerSelection, useComputerMenu } from './ComputerFilterHeader'
 import { extrasAllowed } from './fork/sessoes/ganchos'
 import { ThreadView } from './thread/ThreadView'
+import { tabMemory } from './fork/abas/memoria'
+import { ladoALadoStore } from '../store/fork-lado-a-lado'
+import { QuadroLadoALado } from './fork/lado-a-lado/QuadroLadoALado'
+import { acaoSelecaoBarraLateral, painelFocoAposFechar } from './fork/lado-a-lado/quadro-helpers'
 import { NewBotView, NewGroupView } from './bots/NewBotView'
 import { BotSettingsPage as BotEditorView } from './fork/bot-settings/BotSettingsPage'
 import { GroupEditorView } from './bots/GroupEditorView'
@@ -388,6 +394,144 @@ function ChatSplitView() {
   const startup = useDefaultSelection(app, { items: computerRoster.items, palette: roster.items, rows: roster.navigable, hub: startupHub, stores: shownStores, connecting,
     paused: !!editing || !!creating || routinesOpen || settingsOpen || searching })
 
+  const quadroModel = useModel(ladoALadoStore)
+  // O escopo vem da identidade do Space ativo, não do registro carregado: durante a reconexão
+  // o registro (ou a lista de Spaces) falta por um instante e o quadro não pode cair no pessoal.
+  const espelhoAtivo = app.spaceMirrors.active
+  const escopoLadoALado = useMemo<LadoALadoEscopo | null>(() => {
+    if (!espelhoAtivo) return null
+    const hostId = espelhoAtivo.hostId ?? spacesStore?.hello?.hostId
+    return { computerId: espelhoAtivo.computerId, spaceId: espelhoAtivo.spaceId, ...(hostId ? { hostId } : {}) }
+  }, [espelhoAtivo?.computerId, espelhoAtivo?.spaceId, espelhoAtivo?.hostId, spacesStore?.hello?.hostId])
+  const quadroEstado = quadroModel.estado(escopoLadoALado)
+  const rosterParaReconciliar = app.roster
+  const rosterKeysReconciliar = rosterParaReconciliar.map((i) => refKey(i.ref)).join('|')
+  const sessoesVersionReconciliar = stores.map((s) => s.sessions.getVersion()).join(',')
+  const prontosKeyReconciliar = stores
+    .filter((s) => s.connection.kind === 'online' && !s.mismatch)
+    .map((s) => s.computer.id)
+    .sort()
+    .join(',')
+  // A carência corrente re-executa o efeito quando expira, sem depender de outro evento chegar.
+  const [carenciaSeq, setCarenciaSeq] = useState(0)
+  useEffect(() => {
+    const agora = Date.now()
+    const computadoresProntos = new Set<string>()
+    let carencia = 0
+    for (const s of stores) {
+      if (s.connection.kind !== 'online' || s.mismatch) continue
+      // Carência do roster (store/fork-empty-roster.ts): logo após (re)conectar, cada bot chega
+      // num evento próprio e um roster parcial não é prova de ausência. Enquanto algum computador
+      // online ainda está na carência, nada é reconciliado; quando todos expiram, vale o roster
+      // real (com as sessões carregadas de cada conversa).
+      const restante = s.emptyWatch.remaining(agora)
+      if (restante !== null && restante > 0) {
+        carencia = Math.max(carencia, restante)
+        continue
+      }
+      computadoresProntos.add(s.computer.id)
+    }
+    if (carencia > 0) {
+      const timer = setTimeout(() => setCarenciaSeq((n) => n + 1), carencia + 50)
+      return () => clearTimeout(timer)
+    }
+    const disponiveis: ConversaDisponivel[] = rosterParaReconciliar.map((item) => {
+      const lista = item.store.sessions.of(item.bot.id)
+      return lista
+        ? { ref: item.ref, sessionIds: new Set(lista.filter((s) => !s.principal).map((s) => s.id)) }
+        : { ref: item.ref }
+    })
+    ladoALadoStore.reconciliar(escopoLadoALado, disponiveis, computadoresProntos)
+    return undefined
+  }, [escopoLadoALado, prontosKeyReconciliar, sessoesVersionReconciliar, rosterKeysReconciliar, carenciaSeq])
+
+  const ultimaSeqRef = useRef(app.selectionSeq)
+  const ignorarSeqRef = useRef<number | null>(null)
+  const prevStartupKindRef = useRef(startup.kind)
+  const prevEscopoKeyRef = useRef(escopoDoSpace(escopoLadoALado))
+  const prevQuadroAtivoRef = useRef(quadroEstado.ativo)
+
+  const selecionarPeloQuadro = useCallback((ref: LadoALadoRef) => {
+    const seq = app.selectionSeq
+    app.select(ref)
+    // `select` pode devolver sem incrementar (hubId divergente do hostId atual): sem avanço, o
+    // token não fica órfão engolindo a próxima seleção genuína da barra lateral.
+    ignorarSeqRef.current = app.selectionSeq !== seq ? app.selectionSeq : null
+  }, [app])
+
+  useEffect(() => {
+    const seq = app.selectionSeq
+    const escopoAtualKey = escopoDoSpace(escopoLadoALado)
+    const mudouEscopo = prevEscopoKeyRef.current !== escopoAtualKey
+    const acabouDeAtivar = !prevQuadroAtivoRef.current && quadroEstado.ativo
+    const veioDeAutoStartup = prevStartupKindRef.current === 'select' && startup.kind === 'keep'
+    prevStartupKindRef.current = startup.kind
+    prevEscopoKeyRef.current = escopoAtualKey
+    prevQuadroAtivoRef.current = quadroEstado.ativo
+
+    if (seq === ultimaSeqRef.current) return
+    ultimaSeqRef.current = seq
+
+    if (ignorarSeqRef.current === seq) {
+      ignorarSeqRef.current = null
+      return
+    }
+    if (!quadroEstado.ativo || startup.kind !== 'keep' || mudouEscopo || acabouDeAtivar || veioDeAutoStartup || !app.selection) return
+    const acao = acaoSelecaoBarraLateral(quadroEstado, app.selection, escopoLadoALado)
+    if (acao.kind === 'focar') ladoALadoStore.focar(escopoLadoALado, acao.panelId)
+    else if (acao.kind === 'adicionar') ladoALadoStore.abrir(escopoLadoALado, acao.ref)
+    else if (acao.kind === 'trocar') ladoALadoStore.trocar(escopoLadoALado, acao.panelId, acao.ref, null)
+  }, [app.selectionSeq, app.selection, quadroEstado, startup.kind, escopoLadoALado])
+
+  const fecharTelasCobertas = () => {
+    for (const screen of [settingsScreen, routinesScreen, timesScreen, torreScreen, extensoesScreen]) screen.close(false)
+  }
+  const refDaConversa = (bot: Bot, store: BotStore): LadoALadoRef => ({
+    computerId: store.computer.id,
+    botId: bot.id,
+    ...(store.spaceId ? { spaceId: store.spaceId } : {}),
+    ...(store.hello?.hostId ? { hubId: store.hello.hostId } : {}),
+  })
+  const aplicarSessaoIndividual = (botId: string, sessionId: string | null) => {
+    const memoria = tabMemory(botId)
+    memoria.open = sessionId
+    if (sessionId && memoria.closed.has(sessionId)) {
+      const next = new Set(memoria.closed)
+      next.delete(sessionId)
+      memoria.closed = next
+    }
+  }
+  const abrirConversaLadoALado = (bot: Bot, store: BotStore) => {
+    const executar = () => {
+      fecharTelasCobertas()
+      setEditing(null)
+      ladoALadoStore.abrir(escopoLadoALado, refDaConversa(bot, store), {
+        sessionId: tabMemory(bot.id).open,
+        inicial: app.selection,
+        inicialSessionId: app.selection ? tabMemory(app.selection.botId).open : null,
+      })
+    }
+    if (editing && !isGroup(editing.bot) && editorHandle.current) editorHandle.current.leave(executar)
+    else executar()
+  }
+  const alternarLadoALado = () => {
+    const executar = () => {
+      fecharTelasCobertas()
+      setEditing(null)
+      if (quadroEstado.ativo) {
+        const foco = painelFocoAposFechar(quadroEstado)
+        if (foco) aplicarSessaoIndividual(foco.ref.botId, foco.sessionId)
+        ladoALadoStore.sair(escopoLadoALado)
+        if (foco && !sameRef(app.selection, foco.ref)) selecionarPeloQuadro(foco.ref)
+        return
+      }
+      const inicial = app.selection ?? app.roster[0]?.ref ?? null
+      ladoALadoStore.entrar(escopoLadoALado, inicial, inicial ? tabMemory(inicial.botId).open : null)
+    }
+    if (editing && !isGroup(editing.bot) && editorHandle.current) editorHandle.current.leave(executar)
+    else executar()
+  }
+
   const create = (kind: CreateTarget['kind'], computerId?: string) => {
     // C2: only global creation may fall back. An explicit unavailable target stays explicit.
     const target = resolveCreationStore(onlineStores, [selectedStore, app.local], computerId)
@@ -511,6 +655,7 @@ function ChatSplitView() {
       { title: t(bot.pinned ? 'navegacao.janela.menu.desafixar' : 'navegacao.janela.menu.fixar'), icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
     ] : []),
     { title: t('navegacao.janela.menu.lida'), icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
+    { title: t('conversa.ladoALado.abrirNoMenu'), icon: 'donna.ladoalado', action: () => abrirConversaLadoALado(bot, store) },
     { title: t(isGroup(bot) ? 'navegacao.janela.menu.ajustesCanal' : 'navegacao.janela.menu.ajustesBot'), icon: 'square.and.pencil', divider: true, action: () => openEditor(bot, store) },
     { title: t('navegacao.janela.menu.copiarId'), icon: 'square.on.square', divider: true, action: () => window.codync.app.copy(bot.id) },
     // DON-903: sessions.new.label / sessions.restart.menu. O item legado (`newSession`) recomeça a principal, sem resumo.
@@ -591,11 +736,44 @@ function ChatSplitView() {
   // D169 (AppShell, LayoutVariants): the sidebar button sits at the conversation's top left. The bot
   // editor has its own header there; ⌃⌘S, the menu and the edge keep the sidebar reachable from it.
   const detailToggle = !(editing && !isGroup(editing.bot))
+  const quadroAtivo = !(editing && !isGroup(editing.bot)) && quadroEstado.ativo && quadroEstado.paineis.length > 0 && startup.kind === 'keep'
   if (editing && !isGroup(editing.bot)) {
     detail = <StoreContext.Provider value={editing.store}>
       <BotEditorView key={editing.id} ref={editorHandle} botId={editing.bot.id!} initialSection={editing.section} onClose={() => setEditing(null)}
         onConversation={() => { app.select({ computerId: editing.store.computer.id, botId: editing.bot.id! }); setEditing(null) }} />
     </StoreContext.Provider>
+  } else if (quadroAtivo) {
+    detail = (
+      <QuadroLadoALado
+        app={app}
+        escopo={escopoLadoALado}
+        estado={quadroEstado}
+        itens={computerRoster.items}
+        aviso={quadroModel.aviso}
+        onLimparAviso={() => ladoALadoStore.limparAviso()}
+        sidebarOpen={!collapsed || peek}
+        sidebarButtonInset={detailToggle && !(collapsed && peek)}
+        onCollapseSidebar={() => {
+          if (narrow) setPeek(false)
+          else setCollapsed(true)
+        }}
+        onAbrir={(ref, sessionId) => ladoALadoStore.abrir(escopoLadoALado, ref, { sessionId: sessionId ?? null })}
+        onRemover={(panelId) => ladoALadoStore.remover(escopoLadoALado, panelId)}
+        onTrocar={(panelId, ref, sessionId) => ladoALadoStore.trocar(escopoLadoALado, panelId, ref, sessionId ?? null)}
+        onAtualizarSessao={(panelId, sessionId) => ladoALadoStore.atualizarSessao(escopoLadoALado, panelId, sessionId)}
+        onMover={(panelId, delta) => ladoALadoStore.mover(escopoLadoALado, panelId, delta)}
+        onFocar={(panelId) => ladoALadoStore.focar(escopoLadoALado, panelId)}
+        onCiclarFoco={(delta) => ladoALadoStore.ciclarFoco(escopoLadoALado, delta)}
+        onSair={(focusRef, sessionId) => {
+          const foco = painelFocoAposFechar(quadroEstado)
+          const alvo = focusRef ?? foco?.ref ?? null
+          const sessaoAlvo = focusRef ? (sessionId ?? null) : (foco?.sessionId ?? null)
+          if (alvo) aplicarSessaoIndividual(alvo.botId, sessaoAlvo)
+          ladoALadoStore.sair(escopoLadoALado)
+          if (alvo && !sameRef(selected, alvo)) selecionarPeloQuadro(alvo)
+        }}
+      />
+    )
   } else if (selected && selectedStore && selectedBot && startup.kind === 'keep') {
     detail = (
       <StoreContext.Provider value={selectedStore}>
@@ -715,6 +893,11 @@ function ChatSplitView() {
         onApprovals={() => app.reviewApprovals()}
         extensionsAvailable={onlineStores.length > 0}
         torreStore={spacesStore}
+        ladoALado={{
+          active: quadroEstado.ativo,
+          available: app.roster.length > 0 && startup.kind === 'keep',
+          onToggle: alternarLadoALado,
+        }}
         spaces={spacesStore ? {
           items: railSpaces(spacesStore.spaces),
           activeId: openSpaceRecord?.id ?? null,
@@ -788,6 +971,8 @@ function ChatSplitView() {
             last in the detail, gives the button's square back; the button keeps its place in the Tab order. */}
         {detailToggle ? <div aria-hidden className={`detail-sidebar-toggle is-hole no-drag${collapsed && peek ? ' beside-floating' : ''}`} style={{ ['--floating-width' as string]: `${width}px` }} /> : null}
       </main>
+      {/* Nível 1 de atualizações: a pílula discreta da nova versão, no canto, fora das faixas de arrastar. */}
+      <AvisoAtualizacao />
 
       {/* ajustes-tela-01: fora da `.split` (que isola as camadas), o menu da conta abre também sobre Ajustes e Rotinas. */}
       {showAccount ? createPortal(

@@ -132,6 +132,9 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if crate::fork::tarefas_runtime::METHODS.contains(&method) {
         return crate::fork::tarefas_runtime::call(hub, caller, method, b).await;
     }
+    if crate::fork::propostas::METHODS.contains(&method) {
+        return crate::fork::propostas::call(hub, caller, method, b).await;
+    }
     crate::fork::secret_refs::reject_api(method, &b)?;
     crate::fork::spaces::guard(hub, method, &b)?;
     let mut b = b;
@@ -140,6 +143,22 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         && let Some(body) = b.as_object_mut()
     {
         body.remove("hubId");
+    }
+    // Chaves de API do Motor Mexerica: só este computador, nunca devolvem a chave.
+    if crate::fork::motor_mexerica::CHAVE_METHODS.contains(&method) {
+        return crate::fork::motor_mexerica::chaves_call(hub, caller, method, b).await;
+    }
+    // Entrar com OpenRouter (OAuth PKCE): só este computador; a chave vai direto ao cofre, nunca ao app.
+    if crate::fork::motor_mexerica::ENTRAR_METHODS.contains(&method) {
+        return crate::fork::motor_mexerica::entrar_openrouter_call(hub, caller, method, b).await;
+    }
+    // Entrar com ChatGPT (OAuth PKCE): só este computador; os tokens vão direto ao cofre, nunca ao app.
+    if crate::fork::motor_mexerica::CHATGPT_METHODS.contains(&method) {
+        return crate::fork::motor_mexerica::entrar_chatgpt_call(hub, caller, method, b).await;
+    }
+    // Planos de código (chave colada, OpenCode como motor): só este computador, nunca devolvem a chave.
+    if crate::fork::planos_codigo::METHODS.contains(&method) {
+        return crate::fork::planos_codigo::call(hub, caller, method, b).await;
     }
     // C6: catálogo interno da ponte `chat` da extra selada; só lê, nunca executa (exceção fechada).
     if crate::fork::sessoes::contexto_ferramenta::is_catalog(method, &b) {

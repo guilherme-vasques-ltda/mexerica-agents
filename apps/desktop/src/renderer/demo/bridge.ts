@@ -1,7 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { demoVozBridge } from './fork-voz'
 import { demoAccountProfileBridge } from './fork-account-profile'
-import type { AccountState, CallError, CodyncBridge, HostSnapshot, UpdateState } from '@shared/ipc'
+import type { AccountState, CallError, CodyncBridge, HostSnapshot, ReleaseNoticeState, UpdateState } from '@shared/ipc'
 import { appIconAsset, type AppIconId } from '@shared/app-icons'
 import { DEMO_UNAVAILABLE, FakeHost } from './fake-host'
 import { COMPUTER_ID, HOST_NAME, usage as storyUsage } from './story'
@@ -99,6 +99,10 @@ const updates: UpdateState = {
   supported: false, checking: false, availableVersion: null, downloadPercent: null, staged: false, installing: false,
   autoCheck: false, autoDownload: false, lastCheck: null, error: null,
 }
+const releaseNotice: ReleaseNoticeState = {
+  supported: false, currentVersion: version, status: 'idle', availableVersion: null, availableTag: null,
+  releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
+}
 let appIcon: AppIconId = 'padrao'
 
 const bridge: CodyncBridge = {
@@ -109,6 +113,7 @@ const bridge: CodyncBridge = {
     onChange: () => () => {},
     call: async () => ({ kind: 'notSent', reason: 'notReady' }),
     subscribeEvents: (_connectionId, _body, _onEvent, _onEnd) => () => {},
+    subscribeFrames: (_connectionId, _onFrame, _onEnd) => ({ cancel: () => {}, consumed: () => {}, opened: Promise.resolve(false) }),
   },
   voz: demoVozBridge(),
   accountProfile: demoAccountProfileBridge(),
@@ -203,6 +208,7 @@ const bridge: CodyncBridge = {
   },
   cloud: { request: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }) },
   updates: { state: async () => updates, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} },
+  releaseNotice: { state: async () => releaseNotice, check: async () => releaseNotice, dismiss: async () => releaseNotice, openDownload: async () => false, onChange: none },
   files: { begin: unavailable, write: async () => {}, finish: async () => {}, cancel: async () => {} },
   appIcon: {
     selected: async () => appIcon,

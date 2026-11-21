@@ -392,6 +392,7 @@ impl Fixture {
             restart_after_turn: false,
             fast_support,
             idle_checked: Instant::now(),
+            mudo: fork_motor_mudo::Vigia::new(),
         }
     }
 
@@ -4341,6 +4342,7 @@ async fn sessoes_pr5_conclusao_duravel_sobrevive_a_encerrar_e_recomecar_e_public
                 buf: BUFFER.into(),
                 flushed: std::time::Instant::now(),
                 dirty: true,
+                solta: false,
             };
             // Falha de I/O controlada depois de gravar o checkpoint e antes de publicar: a entrada recusa a atualização.
             db.execute_batch(&format!(

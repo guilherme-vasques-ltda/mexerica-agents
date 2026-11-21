@@ -6,7 +6,7 @@ import { traduzir, type ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 // Hub manda em `hello.backends`. Nada aqui chama o Hub nem promete instalar ou entrar: cada estado vem de um campo real.
 
 /** Codex e Claude Code entram pelas contas gerenciadas da seção de cima (D164), não pelo login antigo do Hub. */
-export const MOTORES_COM_CONTAS = new Set(['codex', 'claude'])
+export const MOTORES_COM_CONTAS = new Set(['codex', 'claude', 'grok'])
 
 /** A folha e seu terminal sobrevivem à reconexão do mesmo Hub, mas nunca aparecem em outro Hub. */
 export function folhaNoHub<T extends { hubId: string }>(folha: T | null, hubId: string | undefined): T | null {

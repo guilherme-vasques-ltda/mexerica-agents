@@ -63,6 +63,25 @@ const LOCAL_ONLY: &[&str] = &[
     "reportError",
     // Voice keys are entered on the computer itself; phones only use them.
     "setVoiceKey",
+    // Motor Mexerica API keys too.
+    "motorChaves",
+    "motorChaveTestar",
+    "motorChaveSalvar",
+    "motorChaveRemover",
+    "motorEnderecoSalvar",
+    // OpenRouter sign-in (the code swap) too.
+    "openrouterEntrar",
+    "openrouterEntrarConcluir",
+    // ChatGPT sign-in (OAuth code swap, renewal and sign-out) too.
+    "chatgptEntrar",
+    "chatgptEntrarConcluir",
+    "chatgptEstado",
+    "chatgptSair",
+    // Plano de código: a chave é colada no próprio computador.
+    "planosCodigo",
+    "planoCodigoTestar",
+    "planoCodigoSalvar",
+    "planoCodigoRemover",
     "pairing",
     "computerCall",
     "computerTools",
@@ -104,11 +123,18 @@ const LOCAL_ONLY: &[&str] = &[
     "nuncaFazerEditar",
     "nuncaFazerRemover",
     "nuncaFazerReordenar",
+    "instrucaoGeral",
+    "instrucaoGeralSalvar",
     "donnaRules",
     "donnaApprovalSet",
     "donnaRuleSave",
     "donnaRuleSetEnabled",
     "donnaRuleDelete",
+    "donnaMailManager",
+    "donnaMailManagerSave",
+    "donnaMailManagerConnect",
+    "donnaMailManagerDisconnect",
+    "donnaMailManagerGrant",
 ];
 const SCREEN: &[&str] = &["screenPrepare", "screenOffer", "screenClose", "screenTakeover"];
 
@@ -131,7 +157,7 @@ pub fn permit(caller: &Caller, method: &str) -> Result<(), Forbidden> {
     if let Some(ok) = crate::computers::executor_api::permit(caller, method) {
         return if ok { Ok(()) } else { Err(Forbidden) };
     }
-    if crate::fork::projetos::METHODS.contains(&method) {
+    if crate::fork::projetos::METHODS.contains(&method) || crate::fork::propostas::METHODS.contains(&method) {
         return match caller {
             Caller::Local => Ok(()),
             Caller::Device { scopes, .. } if scopes.contains(&Scope::Control) => Ok(()),

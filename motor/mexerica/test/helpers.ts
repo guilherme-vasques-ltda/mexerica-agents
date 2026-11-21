@@ -20,11 +20,15 @@ export type Line = Record<string, unknown> & { type?: string };
 export interface EngineOpts {
 	/** Credencial servida pelo "cofre" falso; undefined responde null. */
 	serveKey?: string;
+	/** Credencial inteira servida no lugar de `serveKey` (endereço próprio: chave e endereço). */
+	serveCredential?: object;
 	/** Fecha o canal do cofre ao receber o primeiro pedido. */
 	closeVaultOnRequest?: boolean;
 	ignoreVaultRequest?: boolean;
 	/** Arquivo JSONL onde o stub de fetch registra as chamadas. */
 	fetchLog?: string;
+	/** Stub de rede carregado no lugar do padrão (`stub-fetch.mjs`). */
+	fetchStub?: string;
 	/** Pasta de trabalho do processo (a prova do MCP inerte a enche de configs). */
 	cwd?: string;
 }
@@ -39,7 +43,7 @@ export interface Proc {
 
 export function startEngine(env: NodeJS.ProcessEnv, opts: EngineOpts = {}): Proc {
 	// O fd 3 do stdio do Node é um socket par bidirecional: o canal do cofre.
-	const args = opts.fetchLog ? ["--import", FETCH_STUB, ENTRY] : [ENTRY];
+	const args = opts.fetchLog ? ["--import", opts.fetchStub ?? FETCH_STUB, ENTRY] : [ENTRY];
 	const child = spawn(process.execPath, args, {
 		cwd: opts.cwd,
 		env: { ...env, ...(opts.fetchLog ? { MEXERICA_MOTOR_FETCH_LOG: opts.fetchLog } : {}) },
@@ -70,7 +74,7 @@ export function startEngine(env: NodeJS.ProcessEnv, opts: EngineOpts = {}): Proc
 			vault.destroy();
 			return;
 		}
-		const key = opts.serveKey === undefined ? undefined : { type: "api_key", key: opts.serveKey };
+		const key = opts.serveCredential ?? (opts.serveKey === undefined ? undefined : { type: "api_key", key: opts.serveKey });
 		vault.write(serializeJsonLine({ id: req.id, result: key }));
 	});
 

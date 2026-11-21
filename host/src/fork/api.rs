@@ -11,6 +11,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if super::nunca_fazer::METHODS.contains(&method) {
         return super::nunca_fazer::call(hub, caller, method, body).map(ControlFlow::Break);
     }
+    if super::instrucao_geral::METHODS.contains(&method) {
+        return super::instrucao_geral::call(hub, caller, method, body).map(ControlFlow::Break);
+    }
     if method == super::browser::METHOD {
         return super::browser::status(hub, caller, body).map(ControlFlow::Break);
     }
@@ -126,6 +129,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         }
         m if super::memory_learning::METHODS.contains(&m) => {
             super::memory_learning::call(hub, caller, method, body).map(ControlFlow::Break)
+        }
+        m if super::mail_manager::api::METHODS.contains(&m) => {
+            super::mail_manager::api::call(hub, caller, method, body).map(ControlFlow::Break)
         }
         "functionModels"
         | "saveFunctionModel"

@@ -79,7 +79,7 @@ pub(crate) async fn prepare_job(
         crate::agent::launcher::check(cfg)?;
         crate::fork::background_adapter::commands()
     } else {
-        crate::agent::bot::launch_commands(cfg, |_, _| {}).await?
+        crate::agent::bot::launch_commands(&hub.store, cfg, |_, _| {}).await?
     };
     crate::agent::own_memory::turn_off(&cfg.backend, &cwd, &mut env, &mut commands).await;
     crate::agent::harness::apply_background(&mut env, &cfg.backend, system)?;

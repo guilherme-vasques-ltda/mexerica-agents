@@ -16,6 +16,7 @@ import type { SpaceContext } from '../../../store/fork-space-context'
 import { MarkdownText } from '../../thread/Markdown'
 import { SpaceTile } from './SpaceTile'
 import { SpaceComposer } from './SpaceComposer'
+import { avisoOpen } from './erro-envio'
 import './space-view.css'
 
 // D543 f1: leitura e envio explícito no contexto capturado; o Pessoal escondido não é destino de fallback.
@@ -208,7 +209,8 @@ export function HistoryRow({ entry, bot, idioma }: { entry: Entry; bot: Frase; i
   const when = new Date(entry.createdAt).toLocaleString(localeDe(idioma))
   if (entry.kind === 'permission') return <p className="space-view-note">{textoDe(frase('spaces.view.pediuAprovacao', { bot }), idioma)}</p>
   if (entry.kind === 'notice') {
-    const line = text || entry.data.heading
+    const aviso = avisoOpen(entry.data.code)
+    const line = aviso ? textoDe(frase(aviso), idioma) : text || entry.data.heading
     return line ? <p className="space-view-note" dir="auto">{line}</p> : null
   }
   return (

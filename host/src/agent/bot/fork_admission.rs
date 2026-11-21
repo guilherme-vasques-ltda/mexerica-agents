@@ -218,10 +218,19 @@ impl Actor {
             return Ok(false);
         }
         crate::fork::memory_auto::queue::abandon(&self.hub, &self.cfg.id)?;
-        if record.setup_attempts < 3 {
+        // Motor retirado da oferta: a recusa é definitiva, então o dono já recebe a mensagem do
+        // motor, sem esperar três tentativas que não mudam nada nem copiar outro texto de erro
+        // interno (que não vai ao histórico por poder carregar segredo).
+        let (_, backend) = self.candidate_engine();
+        let retirado = crate::fork::motores_retirados::retirado(&backend);
+        if record.setup_attempts < 3 && !retirado {
             return Ok(false);
         }
-        let message = "Não foi possível preparar o pedido após três tentativas. Confira o erro e reenvie o pedido.";
+        let message = if retirado {
+            crate::fork::motores_retirados::msg_lancar(&backend)
+        } else {
+            "Não foi possível preparar o pedido após três tentativas. Confira o erro e reenvie o pedido.".to_owned()
+        };
         // Sem erro guardado (restart do Hub), o motivo é `setup_failed`.
         let reason = self.setup_reason.clone().unwrap_or_else(|| {
             let (account_id, backend) = self.candidate_engine();
@@ -652,6 +661,7 @@ impl Actor {
         self.context_compaction_guard()?;
         self.cost_dispatch(&session)?;
         let answer = acp.send("session/prompt", params).await?;
+        self.mudo_armar();
         drop(account_guard);
         if let Err(error) = self.checkpoint_waiting_session() {
             tracing::warn!(%error, "consumo do handoff será salvo novamente antes de outra tentativa");

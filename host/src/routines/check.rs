@@ -5,9 +5,16 @@
 use super::{Routine, Routines, ScheduleDraft, State, Trigger, required};
 use crate::{LockExt, store::now_ms};
 use anyhow::{Context, Result, bail};
-use serde_json::Value;
+use serde_json::{Value, json};
 
-/// A routine body's name, instruction, triggers and timeout, checked.
+/// Lista de gatilhos vazia sem a intenção explícita de «só quando eu mandar», em pt-BR leigo.
+pub(super) const NO_TRIGGER: &str = "A rotina precisa de pelo menos um gatilho.";
+/// Rotina manual não tem gatilho: pedir as duas coisas é contradição.
+const MANUAL_WITH_TRIGGERS: &str =
+    "Uma rotina «só quando eu mandar» não tem horário nem gatilho. Tire o modo manual ou os gatilhos.";
+
+/// A routine body's name, instruction, triggers and timeout, checked. Uma rotina só quando o dono manda
+/// (`manual: true` no corpo, ou o rascunho do editor em `manual`) é a única com a lista de gatilhos vazia.
 pub struct Checked {
     pub name: String,
     pub instruction: String,
@@ -22,13 +29,20 @@ impl Checked {
         if name.is_empty() || name.len() > 200 || instruction.is_empty() || instruction.len() > 32_000 {
             bail!("routine name or instruction is empty or too long");
         }
-        let triggers: Vec<Trigger> = if let Some(draft) = body.get("schedule") {
-            serde_json::from_value::<ScheduleDraft>(draft.clone()).context("invalid schedule")?.triggers()?
+        let manual_intent = body["manual"] == true;
+        let (triggers, manual): (Vec<Trigger>, bool) = if let Some(draft) = body.get("schedule") {
+            let draft = serde_json::from_value::<ScheduleDraft>(draft.clone()).context("invalid schedule")?;
+            (draft.triggers()?, manual_intent || draft.kind == ScheduleDraft::MANUAL)
         } else {
-            serde_json::from_value(body["triggers"].clone()).context("invalid triggers")?
+            let raw =
+                body.get("triggers").cloned().unwrap_or_else(|| if manual_intent { json!([]) } else { Value::Null });
+            (serde_json::from_value(raw).context("invalid triggers")?, manual_intent)
         };
-        if triggers.is_empty() {
-            bail!("A rotina precisa de pelo menos um gatilho.");
+        if manual && !triggers.is_empty() {
+            bail!("{MANUAL_WITH_TRIGGERS}");
+        }
+        if triggers.is_empty() && !manual {
+            bail!("{NO_TRIGGER}");
         }
         if triggers.len() > 20 {
             bail!("{}", super::schedule::too_many_triggers(triggers.len()));
@@ -47,6 +61,14 @@ impl Checked {
             })
             .transpose()?;
         Ok(Self { name: name.into(), instruction: instruction.into(), triggers, timeout })
+    }
+
+    /// Quando a rotina roda, em uma linha, para o cartão de aprovação.
+    pub fn when(&self) -> String {
+        if self.triggers.is_empty() {
+            return "só quando o dono mandar".into();
+        }
+        self.triggers.iter().map(Trigger::description).collect::<Vec<_>>().join("; ")
     }
 }
 

@@ -15,9 +15,9 @@ isso deixou um segundo processo sem janela no teste.
 
 A janela abre sem conta da Mexerica e inicia o Hub incluído no pacote. O Hub
 encerra com o app e não instala um serviço do macOS nem se conecta a um relay.
-Esta fatia da Open permite configurar o login do Codex. A Open não usa
-contas, executores ou credenciais de outros perfis. O login ainda não
-ativa o envio de conversas. WhatsApp e a seleção de pastas externas
+A Open conecta uma conta do Codex e conversa só por texto na conversa
+principal de cada bot. A Open não usa contas, executores ou credenciais
+de outros perfis. WhatsApp e a seleção de pastas externas
 continuam indisponíveis. O Hub só aceita as chamadas aprovadas para a
 Open, como ler o estado e editar bots e Spaces locais; as demais são
 recusadas. O pacote leva o helper de fala, mas a janela não o executa
@@ -52,6 +52,28 @@ oficial quando a janela mostrar o código de dispositivo. Sem concluir
 a autorização no navegador, a conta não fica conectada. O Codex guarda
 sua sessão em arquivo no perfil da Open; não copie o `auth.json` de
 outra instalação nem compartilhe o arquivo criado.
+
+### Conversar
+
+Com a conta conectada, escreva na conversa principal de um bot, como o Berga
+no Pessoal. Se houver mais de uma conta conectada, a Open usa a mais recente.
+Sem conta conectada, a mensagem fica como não enviada, com o motivo ao lado;
+conecte a conta em Ajustes → Contas de IA e use Reenviar.
+Cada resposta roda o Codex no mesmo isolamento do login, com as ferramentas
+desligadas: ele não executa comandos, não pesquisa na internet, não abre outros
+programas e, fora do perfil da Open, só lê a política do administrador em
+`/etc/codex` e o arquivo público de certificados do macOS. Se o Codex tentar
+usar uma ferramenta, a resposta é encerrada com um aviso. Anexos e conversas
+extras não estão disponíveis. Se existir `/etc/codex`, a pasta e seus arquivos
+precisam ter o `root` como dono e não podem aceitar escrita do grupo nem de
+outros usuários; caso contrário, a Open não abre o Codex. Para a conexão
+segura, o Codex isolado usa os certificados públicos do macOS em
+`/etc/ssl/cert.pem`, sem consultar o Chaveiro, e não lê o arquivo `.env` do
+perfil, que poderia trocar esse caminho. A Open só abre o Codex se esse arquivo
+e as pastas acima dele forem do `root` sem escrita do grupo nem de outros; a
+conferência olha as permissões comuns (não as listas de acesso) e não impede
+uma troca feita depois dela pelo próprio administrador. Certificados instalados
+à parte, como os de uma rede corporativa, não valem na Open.
 
 Em ambiente de testes Unix sem o app aberto, volte à raiz do repositório e use
 `(cd host && CODYNC_ENV=open CARGO_PROFILE_DEV_DEBUG=0 cargo test --test open_hub)`

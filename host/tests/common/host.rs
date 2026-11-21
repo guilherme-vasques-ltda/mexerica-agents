@@ -96,10 +96,13 @@ impl Host {
             "managed" => "".into(),
             _ => mode.into(),
         };
+        // O conector falso acima imita o adaptador do SDK (`npx claude-agent-acp`): estes testes rodam o caminho
+        // anterior, que segue disponível pela opção. A ponte do programa oficial tem provas próprias.
         let env = [
             ("PATH", path),
             ("DONNABOT_FIXTURE_BACKGROUND_MODE", background_mode),
             ("CLAUDE_CONFIG_DIR", profile.into_os_string()),
+            ("MEXERICA_CLAUDE_SDK", "1".into()),
         ];
         let (child, base) = super::serve_with_env(&home, &env).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
@@ -131,11 +134,23 @@ impl Host {
     }
 
     /// Como [`Host::restart`], mas no ambiente limpo de [`Host::start_isolado`] (CLIs falsos, HOME e PATH do teste).
-    pub async fn restart_isolado(&mut self, env: &[(&str, std::ffi::OsString)]) {
+    /// Como [`Host::restart`], mas no ambiente limpo de [`Host::start_isolado`] (CLIs falsos, HOME e PATH do teste).
+    /// O Hub fica parado enquanto `entre` muda os arquivos dele (por exemplo o banco de dados).
+    pub async fn restart_isolado_entre(
+        &mut self,
+        env: &[(&str, std::ffi::OsString)],
+        entre: impl FnOnce(&std::path::Path),
+    ) {
         super::stop(&mut self.child);
+        entre(&self.home);
         let (child, base) = super::serve_isolado(&self.home, env).await;
         self.child = child;
         self.base = base;
+    }
+
+    /// Como [`Host::restart_isolado_entre`], sem mudar nada entre o desligamento e o reinício.
+    pub async fn restart_isolado(&mut self, env: &[(&str, std::ffi::OsString)]) {
+        self.restart_isolado_entre(env, |_| {}).await;
     }
 
     /// Stream real do terminal, com a mesma autenticação local do app desktop.

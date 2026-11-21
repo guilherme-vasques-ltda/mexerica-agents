@@ -63,7 +63,32 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // vazia). O catálogo é lido sob demanda e não entra no mirror; o bump só segue a regra de campo novo do Hub. App antigo
 // ignora a lista; o novo não mostra a seção quando ela não vem.
 // Schema 54: `donnaTaskSessions` inclui a confirmação de atenção da tarefa; o dado só existe na leitura atual.
-export const MIRROR_SCHEMA = 54
+// Schema 55: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
+// silenciosa) ou `null`; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
+// Schema 60: o recibo do turno (`donnaRoutingReceipt`) passa a trazer `usage` e o medidor (`donnaContext`) traz
+// `context.parts`. Ambos são lidos sob demanda e não entram no mirror; o bump só segue a regra de campo novo do Hub.
+// App antigo ignora os campos; o novo não mostra o bloco quando eles não vêm.
+// Schema 61: resposta cortada (parada, erro ou Hub desligado) chega com `Entry.data.interrupted` e passa a aparecer na
+// conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
+// Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
+// motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
+// Schema 63: a lista de chaves de API do motor traz `enderecos` (endereços próprios já salvos, sem a chave); cache
+// anterior não tem o campo e a tela mostraria a lista vazia até a próxima leitura. App antigo ignora o campo.
+// Schema 64: conta por assinatura do Claude conduzida pelo programa oficial (Claude Code no perfil da própria conta) em
+// vez do adaptador legado; catálogo de motores e listagem de contas vêm com esse modo. Ambos são lidos sob demanda e
+// não entram no mirror; o bump só segue a regra de campo novo do Hub. App antigo ignora; o novo não mostra o selo
+// quando não vem.
+// Schema 65: Marketplace — o `marketFerramentas` traz, em cada ferramenta, `descricao` (o texto que o modelo lê, já
+// filtrado; `null` enquanto o Hub não o leu), `campos` (o texto de cada campo), `apresentacao` (a lista que a pessoa
+// confirma antes de ligar) e `mudou` (as partes que o fornecedor mudou desde que a pessoa ligou). Lido sob demanda,
+// fora do mirror; o bump só segue a regra de campo novo do Hub.
+// Schema 66: Heartbeat — a rotina traz `heartbeatStatus` (última checagem e situação da fonte) quando é uma checagem
+// silenciosa; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
+// Schema 67: o aviso de motor mudo traz `Entry.data.motorMudo` ({estado, segundos}); cache anterior não tem o campo.
+// Schema 68: rotina «só quando eu mandar» — a projeção pública das rotinas (`routines`, `routinesOverview`) traz `manual` e a
+// lista de gatilhos pode vir vazia. As rotinas são lidas sob demanda e não entram no mirror; o bump só segue a regra de campo
+// novo do Hub. App antigo ignora o campo e lê a lista vazia como lista.
+export const MIRROR_SCHEMA = 68
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

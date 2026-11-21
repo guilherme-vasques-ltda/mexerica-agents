@@ -102,6 +102,8 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
     add_instruction_guide(server, &mut available_tools);
     // Envelope G1b: nonce desta ponte + id JSON-RPC do motor; o modelo controla só `arguments`.
     let nonce: Arc<str> = uuid::Uuid::new_v4().to_string().into();
+    // O catálogo `memory` muda uma vez: quando o navegador v3 é negociado pelo vínculo. O cliente é avisado uma vez.
+    let announced = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Requests still running, by id: a cancelled one stops, and its host call with it (a team change's card expires).
     let mut running = std::collections::HashMap::<String, tokio::task::AbortHandle>::new();
     while let Some(line) = lines.next_line().await? {
@@ -118,6 +120,7 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
         let key = id.to_string();
         let (replies, token, bot, available_tools) =
             (replies.clone(), token.clone(), bot.clone(), available_tools.clone());
+        let announced = Arc::clone(&announced);
         let invocation = format!("{nonce}:{key}");
         let request = tokio::spawn(async move {
             let params = &msg["params"];
@@ -134,7 +137,7 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                         .map(|version| {
                             json!({
                                 "protocolVersion": version.as_str(),
-                                "capabilities": {"tools": {}},
+                                "capabilities": {"tools": {"listChanged": matches!(server, Server::Memory)}},
                                 "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
                                 "instructions": instructions,
                             })
@@ -142,14 +145,14 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                         .map_err(crate::fork::conectores::mcp_version::Erro::json)
                 }
                 "ping" => Ok(json!({})),
-                "tools/list" => Ok(match server {
-                    Server::Computer => computer_tools(port, &token).await,
+                "tools/list" => match server {
+                    Server::Computer => Ok(computer_tools(port, &token).await),
                     Server::Memory => memory_tools(port, &token, &bot).await,
                     Server::Chat if sealed_session(server) => {
-                        session_tools(available_tools, session_catalog(port, &token, &bot).await)
+                        Ok(session_tools(available_tools, session_catalog(port, &token, &bot).await))
                     }
-                    _ => json!({"tools": available_tools}),
-                }),
+                    _ => Ok(json!({"tools": available_tools})),
+                },
                 "tools/call" if params["name"] == "ajuda_instrucoes" && instruction_guide(server).is_some() => {
                     let guide = format!("{instructions}\n{}", instruction_guide(server).unwrap_or_default());
                     Ok(json!({"content":[{"type":"text","text":guide}]}))
@@ -157,15 +160,32 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                 "tools/call" => Ok(call_invoked(port, &token, &bot, params, server, &invocation).await),
                 method => Err(json!({"code": -32601, "message": format!("unknown method {method}")})),
             };
+            let negotiated = matches!(server, Server::Memory)
+                && msg["method"] == "tools/call"
+                && params["name"] == crate::fork::browser::STATUS_TOOL
+                && reply.as_ref().is_ok_and(browser_negotiated);
             let _ = replies.send(match reply {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": error}),
             });
+            if negotiated && !announced.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                let _ = replies.send(json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}));
+            }
         });
         running.insert(key, request.abort_handle());
     }
     // The agent is gone: replies still pending have no one to read them.
     Ok(())
+}
+
+/// A resposta de `browser_status` diz que o navegador v3 está disponível: a partir daí o catálogo do Hub inclui as
+/// ferramentas de página e o cliente precisa listar de novo.
+fn browser_negotiated(result: &Value) -> bool {
+    result["isError"] != true
+        && result["content"][0]["text"]
+            .as_str()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .is_some_and(|status| status["version"] == 3 && status["status"] == "available")
 }
 
 fn instruction_guide(server: Server) -> Option<&'static str> {
@@ -184,16 +204,26 @@ fn add_instruction_guide(server: Server, available_tools: &mut Value) {
     }
 }
 
-/// Anúncio depende do motor efetivo revalidado no Hub. Falha fecha a lista.
-async fn memory_tools(port: u16, token: &str, bot: &str) -> Value {
-    let result = call(port, token, bot, &json!({"name":"__tools","arguments":{}}), Server::Memory).await;
+/// Anúncio depende do motor efetivo revalidado no Hub. Recusa do Hub (vínculo revogado, chamada vencida) fecha a
+/// lista; falha da própria ponte (Hub fora do ar, resposta ilegível) ou resposta fora do formato é erro JSON-RPC,
+/// para o cliente manter a lista que já tinha em vez de ler o erro como "sem ferramentas".
+async fn memory_tools(port: u16, token: &str, bot: &str) -> Result<Value, Value> {
+    let unavailable =
+        |why: &str| json!({"code": -32603, "message": format!("catálogo de ferramentas indisponível: {why}")});
+    let params = json!({"name":"__tools","arguments":{}});
+    let result = send(port, token, bot, &params, Server::Memory, None)
+        .await
+        .map_err(|_| unavailable("a ponte não alcançou o Hub"))?;
+    if result["isError"] == true {
+        return Ok(json!({"tools": []}));
+    }
     let tools = result["content"][0]["text"]
         .as_str()
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
         .and_then(|v| v.get("tools").cloned())
         .filter(Value::is_array)
-        .unwrap_or_else(|| json!([]));
-    json!({"tools":tools})
+        .ok_or_else(|| unavailable("resposta fora do formato"))?;
+    Ok(json!({"tools":tools}))
 }
 
 /// The `computer` tools the host offers; none when it can't be reached.
@@ -383,3 +413,64 @@ pub async fn serve_local(connector: String, port: u16, context: String) -> Resul
 #[cfg(test)]
 #[path = "guard_hub/mcp/internal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod catalogo_do_navegador_tests {
+    use super::*;
+
+    fn answer(status: &Value, is_error: bool) -> Value {
+        json!({"content": [{"type": "text", "text": status.to_string()}], "isError": is_error})
+    }
+
+    #[test]
+    fn so_a_resposta_v3_disponivel_avisa_o_cliente_para_listar_de_novo() {
+        assert!(browser_negotiated(&answer(&json!({"version": 3, "status": "available"}), false)));
+        for refusal in [
+            answer(&json!({"version": 3, "status": "unavailable"}), false),
+            answer(&json!({"version": 2, "status": "available"}), false),
+            answer(&json!({"version": 3, "status": "available"}), true),
+            json!({"content": [{"type": "text", "text": "isto não é JSON"}], "isError": false}),
+            json!({"isError": false}),
+            Value::Null,
+        ] {
+            assert!(!browser_negotiated(&refusal), "{refusal}");
+        }
+    }
+
+    async fn hub_que_responde(status: u16, body: Value) -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let status = axum::http::StatusCode::from_u16(status).unwrap();
+        let router = axum::Router::new()
+            .route("/api/{method}", axum::routing::post(move || async move { (status, axum::Json(body)) }));
+        (port, tokio::spawn(async move { axum::serve(listener, router).await.unwrap() }))
+    }
+
+    #[tokio::test]
+    async fn falha_da_ponte_vira_erro_e_so_a_recusa_do_hub_fecha_a_lista() {
+        let (port, hub) = hub_que_responde(200, json!({"tools": []})).await;
+        let vazia = memory_tools(port, "token", "bot").await;
+        hub.abort();
+        assert_eq!(vazia.unwrap(), json!({"tools": []}), "lista vazia legítima continua valendo");
+
+        for (status, corpo) in [(500, json!({"error": "recusado"})), (401, json!({"error": "vencida"}))] {
+            let (port, hub) = hub_que_responde(status, corpo.clone()).await;
+            let result = memory_tools(port, "token", "bot").await;
+            hub.abort();
+            assert_eq!(result.unwrap(), json!({"tools": []}), "{status}: a recusa do Hub fecha a lista");
+        }
+
+        for (status, corpo) in [(200, json!({"nao_e_lista": true})), (200, json!({"tools": "x"}))] {
+            let (port, hub) = hub_que_responde(status, corpo.clone()).await;
+            let result = memory_tools(port, "token", "bot").await;
+            hub.abort();
+            let error = result.expect_err(&format!("{status} {corpo} virou lista vazia válida"));
+            assert_eq!(error["code"], -32603);
+        }
+
+        let inalcancavel = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = inalcancavel.local_addr().unwrap().port();
+        drop(inalcancavel);
+        assert!(memory_tools(port, "token", "bot").await.is_err(), "ponte fora do ar virou lista vazia válida");
+    }
+}
