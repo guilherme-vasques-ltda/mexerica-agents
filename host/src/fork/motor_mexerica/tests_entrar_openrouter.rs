@@ -296,6 +296,8 @@ async fn fluxo_feliz_troca_o_codigo_e_salva_a_chave_no_cofre_sem_devolve_la() {
 async fn login_do_openrouter_so_no_space_pessoal() {
     let _serie = SERIE.lock().await;
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
+    // A tentativa é global: começa limpa para provar que a recusa não cria nenhuma.
+    *login::TENTATIVA.locked() = None;
     let alheio = json!({"spaceId": "space-alheio"});
     let erro = login::entrar(&json!({"loopbackPort": 19424, "spaceId": "space-alheio"})).unwrap_err().to_string();
     assert!(erro.starts_with("space_invalido"), "{erro}");

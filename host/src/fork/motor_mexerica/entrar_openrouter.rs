@@ -132,7 +132,11 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
             guard.as_ref().is_some_and(|t| t.criada_em.elapsed() < VALIDADE && crypto::ct_eq(&t.state, &state));
         if confere { guard.take() } else { None }
     };
-    let Some(tentativa) = tentativa else { bail!(ENTRADA_INVALIDA) };
+    let Some(tentativa) = tentativa else {
+        // A recusa é registrada sem o `state`, o código nem a porta: uma fila delas denuncia retorno forjado.
+        tracing::warn!("retorno do login com OpenRouter recusado: nenhuma tentativa viva confere com o retorno");
+        bail!(ENTRADA_INVALIDA)
+    };
     tracing::debug!(porta = tentativa.porta, "retorno do login com OpenRouter reconhecido");
     // O fornecedor disse não: recusa fixa, sem ecoar o motivo recebido.
     if body.get("erro").and_then(Value::as_str).is_some() {

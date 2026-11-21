@@ -69,8 +69,11 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
   const [loginConcluindo, setLoginConcluindo] = useState(false)
   const ocupadoRef = useRef(false)
   const cancelarLoginRef = useRef<(() => void) | null>(null)
-  // Sair da tela no meio da digitação não deixa a chave em estado nenhum.
-  useEffect(() => () => setChave(''), [])
+  // Sair da tela no meio da digitação não deixa a chave em estado nenhum; no meio do login, desiste dele.
+  useEffect(() => () => {
+    setChave('')
+    cancelarLoginRef.current?.()
+  }, [])
 
   const rodar = (
     trabalho: () => Promise<Acesso | { ok: boolean }>,
