@@ -153,7 +153,7 @@ jobs:
       - name: Ferramentas de CI - testar executores e contrato do workflow sem secrets
         env:
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
-        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs
+        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs tools/ci-bastidor.test.mjs
       # Informativo: falha de auditoria aparece no resumo, mas nao reprova o job nem o ci-ok.
       - name: Auditoria - instalar cargo-audit 0.22.2 com SHA256 fixo
         continue-on-error: true

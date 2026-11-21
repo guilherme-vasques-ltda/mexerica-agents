@@ -210,8 +210,8 @@ const ACTIONS = new Set([
   'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
 ]);
 
-test('só ci.yml e macos.yml existem como workflows', () => {
-  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['ci.yml', 'macos.yml']);
+test('só ci.yml, macos.yml e bastidor.yml existem como workflows', () => {
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'macos.yml']);
 });
 
 test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
