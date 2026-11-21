@@ -245,8 +245,8 @@ export class ContasStore extends Observable {
       try {
         return await run(client)
       } catch (error) {
-        // Desconexão gravada com saída do programa não confirmada: a lista relida mostra a conta já desconectada.
-        if (['account_conflict', 'account_invalid', 'account_not_found', 'logout_failed', 'cli_unavailable'].includes(errorCode(error) ?? '')) await this.reload(client).catch(() => {})
+        // Desconexão gravada antes das conferências (saída não confirmada ou perfil inválido): a lista relida mostra a conta já desconectada.
+        if (['account_conflict', 'account_invalid', 'account_not_found', 'logout_failed', 'cli_unavailable', 'profile_invalid'].includes(errorCode(error) ?? '')) await this.reload(client).catch(() => {})
         throw error
       }
     } finally {

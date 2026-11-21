@@ -221,3 +221,15 @@ test('MEX-1294/F6-A: o uso é lido uma vez por conta e Space; vale 60 s; falha n
   await store.usage(id('c'), undefined, 5_000_001)
   assert.equal(doUso(), 7)
 })
+
+test('perfil inválido ao desconectar relê a lista: o Hub já gravou a conta desconectada', async () => {
+  const original = account({ state: 'connected' })
+  const hub = fakeHub([original])
+  const contas = new ContasStore(client, hub.api)
+  await contas.load()
+  hub.set([{ ...original, state: 'disconnected', revision: 2 }])
+  hub.fail(new Error('profile_invalid: referência inválida.'))
+  await assert.rejects(contas.disconnect(original).catch(falhaEm('pt-BR')), /perfil/)
+  assert.equal(contas.account(original.id)?.state, 'disconnected', 'a lista relida já mostra a conta desconectada')
+  assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a lista foi relida')
+})

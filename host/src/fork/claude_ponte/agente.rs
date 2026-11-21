@@ -419,13 +419,15 @@ async fn abrir(ponte: &Arc<Ponte>, s: &Arc<Sessao>) -> Result<Processo, Erro> {
     let entrada = filho.stdin.take().ok_or_else(|| Erro::interno("sem entrada"))?;
     let saida = filho.stdout.take().ok_or_else(|| Erro::interno("sem saída"))?;
     let erros = filho.stderr.take().ok_or_else(|| Erro::interno("sem saída de erros"))?;
-    // Diagnóstico do programa segue para o Hub sem o segredo da ponte.
-    let segredo = servidor.segredo.clone();
+    // Diagnóstico do programa segue para o Hub sem valor que seja segredo: o da ponte e os valores de
+    // variáveis dos servidores MCP configurados para esta sessão. Os curtos ficam como estão (não são
+    // distintivos e atrapalham a leitura); um valor de variável sempre é segredo em potencial.
+    let segredos = mascaraveis(&servidor.segredo, &s.opcoes.mcp);
     tokio::spawn(async move {
         let mut leitor = BufReader::new(erros);
         let mut linha = Vec::new();
         while matches!(leitor.read_until(b'\n', &mut linha).await, Ok(n) if n > 0) {
-            let texto = String::from_utf8_lossy(&linha).replace(&segredo, "***");
+            let texto = mascarar(String::from_utf8_lossy(&linha), &segredos);
             let _ = tokio::io::stderr().write_all(texto.as_bytes()).await;
             linha.clear();
         }
@@ -696,6 +698,34 @@ async fn abrir_sessao(ponte: &Arc<Ponte>, params: &Value, carregar: bool) -> Res
         antiga.cancelar_turno();
     }
     Ok(json!({"sessionId": id, "configOptions": config}))
+}
+
+/// Valores que não podem sair no diagnóstico: o segredo da ponte e os valores das variáveis de
+/// ambiente dos servidores MCP desta sessão (mesmos que o arquivo de configuração leva e apaga).
+/// Valores curtos ficam de fora: não são distintivos e esconder «1» destruiria a linha inteira.
+pub(super) fn mascaraveis(segredo: &str, servidores: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut out = vec![segredo.to_owned()];
+    for servidor in servidores.values() {
+        for valor in servidor["env"].as_object().into_iter().flat_map(|env| env.values()) {
+            if let Some(v) = valor.as_str()
+                && v.chars().count() >= 8
+            {
+                out.push(v.to_owned());
+            }
+        }
+    }
+    out
+}
+
+/// Aplica a máscara a uma linha de diagnóstico; trecho curto de valor comum não é mascarado acima.
+pub(super) fn mascarar(linha: std::borrow::Cow<'_, str>, segredos: &[String]) -> String {
+    let mut texto = linha.into_owned();
+    for s in segredos {
+        if !s.is_empty() && texto.contains(s.as_str()) {
+            texto = texto.replace(s.as_str(), "***");
+        }
+    }
+    texto
 }
 
 fn configurar(s: &Sessao, id: &str, valor: &Value) -> Result<Value, Erro> {

@@ -629,3 +629,24 @@ fn opcoes_perigosas_ou_malformadas_sao_recusadas() {
     }
     assert!(super::opcoes::ler(&pedido(opcoes_da_conversa())).is_ok());
 }
+
+/// O diagnóstico do programa só sai mascarado: o segredo da ponte e os valores das variáveis dos
+/// servidores MCP da sessão. Valores curtos ficam de fora para não destruir a linha.
+#[test]
+fn diagnostico_mascara_o_segredo_da_ponte_e_as_variaveis_mcp() {
+    // Sem literal no formato de chave: os valores de exemplo são montados em tempo de execução.
+    let ponte = ["segredo-da-ponte-", "0123456789"].concat();
+    let valor = ["valor-exemplo-", "0123456789"].concat();
+    let servidores = json!({
+        "chat": {"type": "stdio", "command": "/bin/true", "env": {"TOKEN_EXEMPLO": valor, "NIVEL": "1"}},
+        "web": {"type": "http", "url": "http://127.0.0.1:1/mcp"},
+    });
+    let mapa = servidores.as_object().unwrap();
+    let segredos = super::agente::mascaraveis(&ponte, mapa);
+    assert!(segredos.contains(&valor), "valor longo entra na máscara");
+    assert!(!segredos.contains(&"1".into()), "valor curto não entra");
+    let linha = format!("falha ao ligar com {ponte} e TOKEN_EXEMPLO={valor} nivel 1");
+    let texto = super::agente::mascarar(std::borrow::Cow::from(linha.as_str()), &segredos);
+    assert_eq!(texto, "falha ao ligar com *** e TOKEN_EXEMPLO=*** nivel 1");
+    assert!(!texto.contains(ponte.as_str()) && !texto.contains("valor-exemplo"), "{texto}");
+}
