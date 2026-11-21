@@ -591,6 +591,14 @@ async fn main() -> Result<()> {
     }
     // Ponte do Claude Code oficial: ACP com o Hub na entrada/saída padrão.
     if raw_args.first().map(String::as_str) == Some(fork::claude_ponte::MODO) {
+        // A saída padrão é o protocolo ACP: o registro da ponte vai só para a saída de erro.
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "donnabot_host=info".into()),
+            )
+            .log_internal_errors(false)
+            .init();
         return fork::claude_ponte::executar(&raw_args[1..]).await;
     }
     let cli = if environment::Environment::is_open() { open_hub::cli() } else { Cli::parse() };

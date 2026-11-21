@@ -192,8 +192,7 @@ export class ContasStore extends Observable {
       } catch (error) {
         // A conta mudou em outro lugar (revisão): relê as contas e tenta de novo, uma vez, com a revisão de agora.
         if (errorCode(error) !== 'account_conflict') throw error
-        await this.reload(client)
-        const atual = this.account(account.id)
+        const atual = (await this.reload(client)).find((a) => a.id === account.id)
         if (!atual || !this.canHideModels(atual)) throw error
         this.put(await pedir(atual))
       }
@@ -221,12 +220,14 @@ export class ContasStore extends Observable {
     this.accounts = ordered([...others, account])
   }
 
+  /** Relê as contas e devolve a leitura; a lista compartilhada só muda se nenhuma leitura mais nova começou. */
   private async reload(client: HostClient) {
     // Mesmo contador do `load`: uma leitura começada antes não sobrescreve a lista relida aqui.
     const read = ++this.reads
     try {
       const { accounts } = await this.api.accounts(client, {})
       if (read === this.reads) this.accounts = ordered(accounts)
+      return accounts
     } finally {
       if (read === this.reads) this.loading = false
     }

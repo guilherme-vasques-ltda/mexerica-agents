@@ -184,7 +184,7 @@ pub(super) async fn conectado(exe: &Path) -> Option<bool> {
     let mut cmd = tokio::process::Command::new(exe);
     cmd.args(["auth", "status"]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let saida = tokio::time::timeout(Duration::from_secs(20), cmd.output()).await.ok()?.ok()?;
-    serde_json::from_slice::<Value>(&saida.stdout).ok().map(|v| v["loggedIn"] == true)
+    serde_json::from_slice::<Value>(&saida.stdout).ok().and_then(|v| v["loggedIn"].as_bool())
 }
 
 /// Depois de um erro do programa: só troca o erro pelo pedido de login quando `auth status` confirma a saída; se a
@@ -223,6 +223,8 @@ fn gravar(caminho: &Path, conteudo: &[u8]) -> std::io::Result<()> {
     std::io::Write::write_all(&mut o.open(caminho)?, conteudo)
 }
 
+/// Fora do Unix não há SIGINT: o cancelamento acontece pelo prazo e pelo encerramento do processo, e o turno
+/// seguinte retoma a sessão com `--resume`.
 fn interromper(pid: u32) {
     #[cfg(unix)]
     if let Ok(pid) = i32::try_from(pid) {
@@ -251,6 +253,14 @@ fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
                 if let Some(t) = b["resource"]["text"].as_str() {
                     contexto
                         .push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{t}\n</context>")}));
+                } else if let Some(dados) = b["resource"]["blob"].as_str() {
+                    let tipo = b["resource"]["mimeType"].as_str().unwrap_or_default();
+                    if !tipo.starts_with("image/") {
+                        return Err(Erro::parametros("recurso binário que não é imagem não é suportado"));
+                    }
+                    contexto.push(
+                        json!({"type": "image", "source": {"type": "base64", "data": dados, "media_type": tipo}}),
+                    );
                 }
             }
             _ => {}
@@ -298,7 +308,10 @@ fn uso_por_modelo(p: &mut Processo, resultado: &Value, principal: Option<&str>) 
             .filter(|(_, n)| n.iter().any(|v| *v > 0))
             .collect(),
     };
-    p.modelos = Some(atual);
+    // Resultado sem `modelUsage` (um erro, por exemplo) não zera a base: o próximo continua contando dela.
+    if resultado["modelUsage"].is_object() {
+        p.modelos = Some(atual);
+    }
     linhas.into_iter().map(|(m, n)| json!({"model": m, "token_count": contagem(n)})).collect()
 }
 
@@ -337,7 +350,7 @@ impl Sessao {
 async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value {
     // O motivo vai para o registro de diagnóstico da ponte; a entrada da ferramenta não.
     let negar = |m: &str| {
-        eprintln!("ponte do Claude: permissão negada: {m}");
+        tracing::warn!(motivo = m, "permissão negada pela ponte do Claude");
         json!({"behavior": "deny", "message": m})
     };
     let Some(s) = sessao.upgrade() else { return negar("Sessão encerrada.") };
@@ -589,10 +602,12 @@ async fn turno(
     let mut limite: Option<Value> = None;
     let resultado = loop {
         let Some(p) = guarda.as_mut() else { return Err(Erro::interno("processo indisponível")) };
+        // Cancelamento pedido vence um resultado que já esteja pronto.
         let passo = tokio::select! {
-            ev = p.eventos.recv() => Passo::Evento(ev),
+            biased;
             Ok(()) = cancelar.changed(), if !cancelado => Passo::Cancelar,
             () = tokio::time::sleep_until(prazo.unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400))), if prazo.is_some() => Passo::Prazo,
+            ev = p.eventos.recv() => Passo::Evento(ev),
         };
         match passo {
             Passo::Cancelar => {

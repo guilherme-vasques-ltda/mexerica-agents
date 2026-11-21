@@ -73,12 +73,12 @@ async fn pedido(State(estado): State<Arc<Estado>>, cabecalhos: HeaderMap, corpo:
     let esperado = format!("Bearer {}", estado.segredo);
     let autorizado = cabecalhos.get(header::AUTHORIZATION).is_some_and(|v| iguais(v.as_bytes(), esperado.as_bytes()));
     if !autorizado {
-        eprintln!("ponte do Claude: pedido de permissão sem o segredo recusado");
+        tracing::warn!("pedido de permissão sem o segredo recusado pela ponte do Claude");
         return StatusCode::UNAUTHORIZED.into_response();
     }
     // Só o programa local chama aqui, e ele não manda `Origin`; pedido vindo de página de navegador é recusado.
     if cabecalhos.contains_key(header::ORIGIN) {
-        eprintln!("ponte do Claude: pedido de permissão com Origin recusado");
+        tracing::warn!("pedido de permissão com Origin recusado pela ponte do Claude");
         return StatusCode::FORBIDDEN.into_response();
     }
     let Ok(msg) = serde_json::from_slice::<Value>(&corpo) else {
@@ -93,7 +93,11 @@ async fn pedido(State(estado): State<Arc<Estado>>, cabecalhos: HeaderMap, corpo:
     let params = &msg["params"];
     match msg["method"].as_str().unwrap_or_default() {
         "initialize" => {
-            let versao = params["protocolVersion"].as_str().unwrap_or("2025-06-18");
+            // Só as revisões do transporte HTTP que este servidor implementa; outra pedida recebe a mais nova delas.
+            let versao = params["protocolVersion"]
+                .as_str()
+                .filter(|v| ["2025-06-18", "2025-03-26"].contains(v))
+                .unwrap_or("2025-06-18");
             resposta(
                 &id,
                 json!({"protocolVersion": versao, "capabilities": {"tools": {}},

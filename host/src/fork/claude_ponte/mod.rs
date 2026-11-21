@@ -17,6 +17,7 @@ mod permissao;
 mod traducao;
 
 #[cfg(test)]
+#[cfg(unix)]
 mod testes;
 
 use serde_json::Value;
