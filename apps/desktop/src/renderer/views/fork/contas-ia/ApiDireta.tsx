@@ -61,6 +61,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
   const [ocupado, setOcupado] = useState(false)
   const [resultado, setResultado] = useState<Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } | null>(null)
   const [loginAberto, setLoginAberto] = useState(false)
+  const [loginConcluindo, setLoginConcluindo] = useState(false)
   const ocupadoRef = useRef(false)
   const cancelarLoginRef = useRef<(() => void) | null>(null)
   // Sair da tela no meio da digitação não deixa a chave em estado nenhum.
@@ -91,6 +92,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
         ocupadoRef.current = false
         setOcupado(false)
         setLoginAberto(false)
+        setLoginConcluindo(false)
         cancelarLoginRef.current = null
       })
   }
@@ -103,7 +105,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
     const client = liveClient(store)
     if (!client || ocupadoRef.current) return
     setEditando(false)
-    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno)
+    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno, undefined, () => setLoginConcluindo(true))
     cancelarLoginRef.current = cancelar
     setLoginAberto(true)
     rodar(() => fim, undefined, (e) => (e instanceof FalhaOpenRouter ? { ok: false, frase: fraseDaFalha(e.tipo) } : undefined))
@@ -124,7 +126,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
           </HStack>
           {f.configurada && f.modelos ? <Text size="caption" tone="tertiary">{t.plural('contas.apiDireta.modelos', quantos)}</Text> : null}
         </VStack>
-        {ocupado ? loginAberto ? (
+        {ocupado ? loginAberto && !loginConcluindo ? (
           <HStack gap={12}>
             <Text size="caption" tone="secondary">{t('contas.apiDireta.openrouter.aguardando')}</Text>
             <button className="settings-quiet-button" onClick={() => cancelarLoginRef.current?.()}>{t('contas.apiDireta.cancelar')}</button>

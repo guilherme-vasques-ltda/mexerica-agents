@@ -136,3 +136,24 @@ test('o Hub respondendo «entrada negada» vira login cancelado, sem culpar o fo
   const { fim } = entrarComOpenRouter(client, ouvinte)
   await assert.rejects(fim, (e: unknown) => e instanceof FalhaOpenRouter && e.tipo === 'cancelado')
 })
+
+test('depois que o navegador voltou, cancelar não faz mais nada: o Hub já está gravando a chave', async () => {
+  let liberar: (a: Acesso) => void = () => {}
+  const gravando = new Promise<Acesso>((resolve) => { liberar = resolve })
+  const chamadas: string[] = []
+  const client = {
+    call: async (metodo: string) => {
+      chamadas.push(metodo)
+      return metodo === 'openrouterEntrar' ? { url: URL_DO_HUB } : gravando
+    },
+  } as unknown as HostClient
+  const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&code=codigo-ficticio'))
+  let concluindo = 0
+  const { fim, cancelar } = entrarComOpenRouter(client, ouvinte, undefined, () => { concluindo += 1 })
+  while (!chamadas.includes('openrouterEntrarConcluir')) await new Promise((r) => setTimeout(r, 5))
+  cancelar()
+  liberar({ ok: true, modelos: [] })
+  assert.deepEqual(await fim, { ok: true, modelos: [] })
+  assert.equal(concluindo, 1)
+  assert.ok(!registro.some((linha) => linha === 'fechar:7') || registro.indexOf('fechar:7') > registro.indexOf('responder:7:true:OpenRouter'), 'o ouvinte só fecha depois do desfecho')
+})

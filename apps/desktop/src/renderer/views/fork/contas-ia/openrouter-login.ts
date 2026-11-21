@@ -36,11 +36,13 @@ const ESPERA_MAX_MS = 10 * 60_000 - 2_000
 /**
  * O login inteiro: liga o ouvinte do app, pede a URL ao Hub, espera o navegador voltar, entrega o retorno ao Hub
  * (que confere o state, consome a tentativa, troca o código e guarda a chave no cofre) e mostra o desfecho ao
- * navegador. `cancelar` desiste: desliga o ouvinte e a espera termina como «cancelado».
+ * navegador. `cancelar` desiste enquanto o navegador não voltou: desliga o ouvinte e a espera termina como «cancelado»;
+ * depois do retorno (`aoConcluir`) ele não faz mais nada, porque o Hub já está gravando a chave.
  */
-export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte, esperaMs = ESPERA_MAX_MS) {
+export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte, esperaMs = ESPERA_MAX_MS, aoConcluir?: () => void) {
   let tentativa: number | null = null
   let cancelado = false
+  let concluindo = false
   const fim = (async (): Promise<Acesso> => {
     const aberto = await ouvinte.abrir().catch(() => null)
     if (!aberto) throw new FalhaOpenRouter('falha')
@@ -68,6 +70,9 @@ export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte,
       }
       let retorno: ReturnType<typeof lerRetornoLogin>
       try { retorno = lerRetornoLogin(volta) } catch { throw new FalhaOpenRouter('falha') }
+      // Daqui em diante o Hub troca o código e grava a chave: não há mais o que cancelar.
+      concluindo = true
+      aoConcluir?.()
       let acesso: Acesso
       try {
         acesso = await client.call<Acesso>('openrouterEntrarConcluir',
@@ -81,6 +86,7 @@ export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte,
     }
   })()
   const cancelar = () => {
+    if (concluindo) return
     cancelado = true
     if (tentativa !== null) ouvinte.fechar(tentativa)
   }
