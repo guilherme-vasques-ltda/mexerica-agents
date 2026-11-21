@@ -48,6 +48,13 @@ function hub(responderConcluir: (corpo: unknown) => { ok: boolean; conta?: { rot
 
 const VOLTA_OK = 'http://127.0.0.1:19424/auth/callback?state=estado-1&code=codigo-ficticio'
 
+test('mesma conta reautorizada sem confirmação do encerramento não carrega o aviso de troca', async () => {
+  const { client } = hub(() => ({ ok: true, conta: { rotulo: 'pessoa@example.invalid', planoHabilitado: true }, avisoAnteriorSemConfirmacao: true }))
+  const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK))
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
+  assert.deepEqual(await fim, { ok: true, rotulo: 'pessoa@example.invalid', planoHabilitado: true }, 'sem «entrar com outra conta», a marcação do Hub não vira aviso de troca')
+})
+
 test('conta anterior encerrada sem confirmação do emissor: o desfecho carrega o aviso', async () => {
   const { client } = hub(() => ({ ok: true, conta: { rotulo: 'pessoa@example.invalid', planoHabilitado: true }, avisoAnteriorSemConfirmacao: true }))
   const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK))

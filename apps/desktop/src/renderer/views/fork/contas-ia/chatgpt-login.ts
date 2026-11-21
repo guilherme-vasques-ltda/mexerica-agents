@@ -126,8 +126,9 @@ export function entrarComChatGPT(
             ok: true,
             rotulo: desfecho.conta?.rotulo ?? null,
             planoHabilitado: desfecho.conta?.planoHabilitado === true,
-            // Só aparece quando o emissor não confirmou o encerramento da conta anterior.
-            ...(desfecho.avisoAnteriorSemConfirmacao === true ? { avisoAnteriorSemConfirmacao: true } : {}),
+            // Só cabe na troca de conta: o Hub marca qualquer encerramento sem confirmação, inclusive
+            // na reautorização da mesma conta, em que ninguém foi substituído.
+            ...(novaConta && desfecho.avisoAnteriorSemConfirmacao === true ? { avisoAnteriorSemConfirmacao: true } : {}),
           }
         : { ok: false, erro: desfecho.erro ?? '' }
     } finally {
