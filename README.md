@@ -6,7 +6,8 @@ O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mos
 > **Estado:** em desenvolvimento. O app abre, mas a conversa com os bots ainda não funciona nesta edição.
 > Não há instalador, versão publicada, serviço hospedado ou conta conectada. Nada aqui comprova instalação
 > ou uso em máquina real: isso precisa ser verificado por quem for usar. Não use com contas ou dados reais:
-> nem todos os motores de terceiros pedem aprovação antes de agir, e isso ainda está sendo fechado.
+> nesta edição, os motores de terceiros que agem sem pedir aprovação foram retirados da oferta, e os
+> motores oferecidos pedem aprovação antes de agir.
 > Esta cópia não promete compatibilidade com plataformas Apple além do que for testado em cada versão.
 
 ## O que está aqui
