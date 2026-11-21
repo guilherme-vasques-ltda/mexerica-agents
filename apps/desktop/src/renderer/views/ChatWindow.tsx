@@ -411,37 +411,38 @@ function ChatSplitView() {
     .map((s) => s.computer.id)
     .sort()
     .join(',')
-  // O `hello` que anunciou as conversas completa a prova de que o roster não está parcial.
-  const anuncioReconciliar = stores.map((s) => (Array.isArray(s.hello?.conversations) ? 1 : 0)).join(',')
+  // A carência corrente re-executa o efeito quando expira, sem depender de outro evento chegar.
+  const [carenciaSeq, setCarenciaSeq] = useState(0)
   useEffect(() => {
     const agora = Date.now()
     const computadoresProntos = new Set<string>()
-    const disponiveis: ConversaDisponivel[] = []
+    let carencia = 0
     for (const s of stores) {
       if (s.connection.kind !== 'online' || s.mismatch) continue
-      const anunciadas = s.hello?.conversations
       // Carência do roster (store/fork-empty-roster.ts): logo após (re)conectar, cada bot chega
-      // num evento próprio e um roster parcial não é prova de ausência — remoção só vale quando o
-      // `hello` anunciou as conversas do link ou passados os 5 s online.
-      if (!Array.isArray(anunciadas) && (s.emptyWatch.remaining(agora) ?? 1) !== 0) continue
-      computadoresProntos.add(s.computer.id)
-      // Com o `hello` anunciado, a conversa vale como disponível antes de o roster terminar de
-      // chegar: um painel restaurado não some só porque o evento do bot demorou.
-      if (Array.isArray(anunciadas)) {
-        const vistos = new Set<string>()
-        for (const c of anunciadas) {
-          if (!c.botId || vistos.has(c.botId)) continue
-          vistos.add(c.botId)
-          disponiveis.push({ ref: { computerId: s.computer.id, botId: c.botId, ...(s.spaceId ? { spaceId: s.spaceId } : {}), ...(s.hello?.hostId ? { hubId: s.hello.hostId } : {}) } })
-        }
+      // num evento próprio e um roster parcial não é prova de ausência. Enquanto algum computador
+      // online ainda está na carência, nada é reconciliado; quando todos expiram, vale o roster
+      // real (com as sessões carregadas de cada conversa).
+      const restante = s.emptyWatch.remaining(agora)
+      if (restante !== null && restante > 0) {
+        carencia = Math.max(carencia, restante)
+        continue
       }
+      computadoresProntos.add(s.computer.id)
     }
-    for (const item of rosterParaReconciliar) {
+    if (carencia > 0) {
+      const timer = setTimeout(() => setCarenciaSeq((n) => n + 1), carencia + 50)
+      return () => clearTimeout(timer)
+    }
+    const disponiveis: ConversaDisponivel[] = rosterParaReconciliar.map((item) => {
       const lista = item.store.sessions.of(item.bot.id)
-      disponiveis.push(lista ? { ref: item.ref, sessionIds: new Set(lista.filter((s) => !s.principal).map((s) => s.id)) } : { ref: item.ref })
-    }
+      return lista
+        ? { ref: item.ref, sessionIds: new Set(lista.filter((s) => !s.principal).map((s) => s.id)) }
+        : { ref: item.ref }
+    })
     ladoALadoStore.reconciliar(escopoLadoALado, disponiveis, computadoresProntos)
-  }, [escopoLadoALado, prontosKeyReconciliar, sessoesVersionReconciliar, rosterKeysReconciliar, anuncioReconciliar])
+    return undefined
+  }, [escopoLadoALado, prontosKeyReconciliar, sessoesVersionReconciliar, rosterKeysReconciliar, carenciaSeq])
 
   const ultimaSeqRef = useRef(app.selectionSeq)
   const ignorarSeqRef = useRef<number | null>(null)
