@@ -30,15 +30,16 @@ export function GlossarioDeContas() {
 export function ContasIaPage({ aba = null }: { aba?: 'contas' | 'motores' | null }) {
   const textos = useTextosContas()
   const app = useApp()
+  const open = window.codync.appScheme === 'mexerica-open'
   const stores = app.computers.flatMap((c) => app.store(c.id) ?? [])
   return (
     <CardForm>
-      {aba !== 'motores' ? <GlossarioDeContas /> : null}
+      {!open && aba !== 'motores' ? <GlossarioDeContas /> : null}
       {stores.length === 0 ? <Text tone="secondary">{textos.hubDesconectado}</Text> : null}
       {stores.map((store) => (
         <StoreContext.Provider key={store.computer.id} value={store}>
-          {aba !== 'motores' ? <ContasDoHub /> : null}
-          {aba !== 'contas' ? <MotoresDoHub /> : null}
+          {open || aba !== 'motores' ? <ContasDoHub /> : null}
+          {!open && aba !== 'contas' ? <MotoresDoHub /> : null}
         </StoreContext.Provider>
       ))}
     </CardForm>

@@ -34,7 +34,7 @@ fn assert_original_closed(f: &Fixture, expected: &str) {
 
 fn answer(f: &Fixture) -> crate::store::Entry {
     let text = "Moro em Recife.";
-    owner_question::add_human_message(
+    match owner_question::add_human_message(
         &f.hub,
         &Lane::main("bot"),
         2,
@@ -43,6 +43,9 @@ fn answer(f: &Fixture) -> crate::store::Entry {
             "segments":[{"kind":"typed","start":0,"end":text.encode_utf16().count()}]}}),
     )
     .unwrap()
+    {
+        owner_question::Human::New(entry) | owner_question::Human::Replayed(entry) => entry,
+    }
 }
 
 /// Mesma admissão usada por agent/bot/turn.rs; não reaproveita o token da pergunta.
@@ -209,7 +212,7 @@ fn d406_resposta_e_descarte_revertem_na_mesma_transacao() {
         WHEN OLD.status='owner' BEGIN SELECT RAISE(ABORT,'fixture'); END;",
         )
         .unwrap();
-    assert!(owner_question::add_human_message(&f.hub, &Lane::main("bot"), 2, &json!({"text":"Resposta"})).is_none());
+    assert!(owner_question::add_human_message(&f.hub, &Lane::main("bot"), 2, &json!({"text":"Resposta"})).is_err());
     assert_eq!(status(&f), "owner");
     assert_eq!(f.hub.store.entry(&card.id).unwrap().data["ownerQuestion"]["status"], "pending");
     assert_eq!(

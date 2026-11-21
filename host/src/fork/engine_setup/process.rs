@@ -105,7 +105,10 @@ impl Rpc {
         Self::spawn(cmd)
     }
     fn spawn(mut cmd: Command) -> Result<Self> {
-        let mut child = crate::fork::motor_exec::spawn(cmd.args(["app-server"]).stdin(Stdio::piped()))?;
+        let child = crate::fork::motor_exec::spawn(cmd.args(["app-server"]).stdin(Stdio::piped()))?;
+        Self::from_child(child)
+    }
+    fn from_child(mut child: Child) -> Result<Self> {
         let input = child.stdin.take().ok_or_else(|| anyhow!("setup_unavailable"))?;
         let output = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("setup_unavailable"))?);
         Ok(Self { child, input: Some(input), output, pending: VecDeque::new() })
@@ -218,7 +221,29 @@ pub(crate) async fn login(
 }
 
 async fn codex(executable: &Path, directory: &Path, events: mpsc::Sender<Event>) -> Result<probe::Observation> {
-    let mut rpc = Rpc::start(executable, directory)?;
+    let rpc = Rpc::start(executable, directory)?;
+    codex_device_flow(rpc, executable, directory, events).await
+}
+
+#[cfg(unix)]
+pub(crate) async fn login_open_codex(
+    directory: &Path,
+    events: mpsc::Sender<Event>,
+) -> Result<(std::path::PathBuf, probe::Observation)> {
+    let launch = crate::fork::open_codex::app_server(directory).await?;
+    let executable = launch.executable.clone();
+    let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
+    let proof = codex_device_flow(Rpc::from_child(child)?, &executable, directory, events).await?;
+    crate::fork::open_codex::confirm_profile(directory).map_err(|_| anyhow!("open_codex_unavailable"))?;
+    Ok((executable, proof))
+}
+
+async fn codex_device_flow(
+    mut rpc: Rpc,
+    executable: &Path,
+    directory: &Path,
+    events: mpsc::Sender<Event>,
+) -> Result<probe::Observation> {
     rpc.initialize().await?;
     let started = rpc.call(2, "account/login/start", json!({"type":"chatgptDeviceCode"})).await?;
     ensure!(started["type"] == "chatgptDeviceCode", "auth_capability_unavailable");

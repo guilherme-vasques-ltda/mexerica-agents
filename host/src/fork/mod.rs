@@ -3,6 +3,8 @@ pub mod aprovacao_despacho;
 pub mod autoridade;
 pub mod bootstrap;
 pub(crate) mod cadeias;
+#[cfg(unix)]
+pub(crate) mod open_codex;
 pub(crate) mod webhook;
 pub(crate) mod webhook_chain;
 
@@ -58,11 +60,16 @@ pub(crate) mod genui;
 #[cfg(target_os = "linux")]
 pub(crate) mod guarda_atualizacao;
 pub(crate) mod harness_guidance;
+#[allow(dead_code, reason = "contrato publicado antes do agendador, que o consome no PR seguinte")]
+pub(crate) mod heartbeat;
 pub(crate) mod historico;
 pub(crate) mod idioma_app;
 #[cfg(target_os = "linux")]
 pub(crate) mod instalacao_gerida;
+pub(crate) mod instalacao_script;
 pub(crate) mod lider_canal;
+#[allow(dead_code, reason = "Base de permissões publicada antes do painel e do transporte; sem runtime novo.")]
+pub(crate) mod mail_manager;
 pub(crate) mod memory;
 pub(crate) mod memory_auto;
 pub(crate) mod memory_learning;
@@ -142,6 +149,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     native_catalog::migrate(&store.db.locked())?;
     plugins::migrate(&store.db.locked())?;
     whatsapp::migrate(&store.db.locked())?;
+    mail_manager::migrate(&store.db.locked())?;
     cadeias::store::migrate(&store.db.locked())?;
     retornos::migrate(&store.db.locked())?;
     delegacao::pausa::migrate(&store.db.locked())?;
@@ -165,6 +173,7 @@ pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> 
     genui::storage::on_bot_deleted(c, id)?;
     plugins::on_bot_deleted(c, id)?;
     whatsapp::on_bot_deleted(c, id)?;
+    mail_manager::on_bot_deleted(c, id)?;
     roteamento::receipt::on_bot_deleted(c, id)?;
     crate::chat::memory::omitted::forget_bot(c, id)?;
     rules::store::forget_bot(c, id)

@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 pub(crate) const METHOD: &str = "donnaControlTower";
 pub(crate) const EVENT: &str = "donnaControlTowerChanged";
+pub(crate) const PENDING_PERMISSION: &str = "e.kind='permission' AND json_extract(e.data,'$.status')='pending'";
 pub(crate) const INSTRUCTIONS: &str = "O Mission Board é uma tela do app na faixa lateral, que lê uma \
 projeção do Hub; não há ferramenta para bots. Ela mostra estado e pendências; a pessoa pode responder ali ao \
 mesmo cartão de permissão da conversa, com as mesmas regras, ou abrir a conversa. Parar é pelo controle que já \

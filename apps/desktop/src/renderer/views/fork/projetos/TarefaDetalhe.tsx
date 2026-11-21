@@ -61,6 +61,7 @@ export function TarefaDetalhe({ session, snap, taskId, face, onOpen, onEdit, onA
   const coordinator = snap.project.coordinatorBotId
   const declared = declaredBy(snap.declarations, task)
   const agenda = session.agendaOf(snap.project.id, task.id)
+  const needsOwner = session.needsOwnerAttention(snap.project.id, task.id)
   // Iniciar (decisão 5): só com `taskStart`, com responsável e tarefa aberta. Atribuir sozinho nunca dispara.
   const canStart = session.has('taskStart') && !!task.assigneeBotId && !CLOSED_STATES.includes(task.state)
   const moveMenu = (id: string) => {
@@ -83,7 +84,7 @@ export function TarefaDetalhe({ session, snap, taskId, face, onOpen, onEdit, onA
           </button>
           {declared ? <span className="tf-fact tf-muted">{t('projetos.tarefas.declaradaPor', { bot: bots.find((b) => b.id === declared)?.name ?? t('projetos.tarefas.botIndisponivel') })}</span> : null}
           {meta.priority ? <span className="tf-fact"><PriorityMark priority={meta.priority} /> {priorityName(t, meta.priority)}</span> : null}
-          <span className="tf-fact"><span className="tf-muted">{t('projetos.tarefa.responsavel')}</span> <BotFace bots={bots} id={task.assigneeBotId} face={face} size={16} /> <b>{task.assigneeBotId ? bots.find((b) => b.id === task.assigneeBotId)?.name ?? t('projetos.responsavelIndisponivel') : t('projetos.semResponsavel')}</b></span>
+          <span className="tf-fact"><span className="tf-muted">{t('projetos.inspecao.responsavel')}</span> <BotFace bots={bots} id={task.assigneeBotId} face={face} size={16} /> <bdi><b>{task.assigneeBotId ? bots.find((b) => b.id === task.assigneeBotId)?.name ?? t('projetos.responsavelIndisponivel') : t('projetos.semResponsavel')}</b></bdi></span>
           {coordinator ? <span className="tf-fact"><span className="tf-muted">{t('projetos.tarefas.coordena')}</span> <BotFace bots={bots} id={coordinator} face={face} size={16} /> <b>{bots.find((b) => b.id === coordinator)?.name ?? t('projetos.coordenadorIndisponivel')}</b></span> : null}
           {meta.dueAt !== null ? <span className={`tf-fact${isOverdue(meta, task.state, Date.now()) ? ' is-late' : ''}`}><Icon name="calendar" size={12} /> {t('projetos.tarefas.prazo', { quando: day(meta.dueAt) })}</span> : null}
           {agenda ? <AgendaFact agenda={agenda} /> : null}
@@ -94,6 +95,10 @@ export function TarefaDetalhe({ session, snap, taskId, face, onOpen, onEdit, onA
             </button>
           ) : null}
           <button className="torre-button" disabled={!canWrite} onClick={onEdit}><Icon name="pencil" size={12} /> {t('projetos.tarefas.editarTarefa')}</button>
+        </div>
+        <div className="tf-facts" role="status">
+          <span className="tf-fact"><span className="tf-muted">{t('projetos.inspecao.decisor')}</span> <b>{t(needsOwner ? 'projetos.inspecao.voceNestePedido' : 'projetos.inspecao.naoConfirmado')}</b></span>
+          <span className="tf-fact"><span className="tf-muted">{t('projetos.inspecao.atencao')}</span> <b>{t(needsOwner ? 'projetos.inspecao.pedidoAberto' : 'projetos.inspecao.naoConfirmado')}</b></span>
         </div>
         {archived ? <p className="pk-blocked" role="status">{t('projetos.bloqueado.arquivado')}</p> : null}
         {task.description ? <p className="tf-text">{task.description}</p> : null}

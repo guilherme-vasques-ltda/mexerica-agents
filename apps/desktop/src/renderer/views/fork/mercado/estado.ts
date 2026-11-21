@@ -10,7 +10,7 @@ import { mercadoApi, type PedidoPersonalizado } from './api'
 import { FluxoConectar } from './fluxo'
 import { FluxoGoogle } from './google-fluxo'
 import { cofreTrancado, ehDoGoogle } from './regras'
-import type { AppGoogle, Catalogo, Conta, PedidoDefinirVinculo, ResultadoDesconectar, Servico, TipoConexao, VinculosDoBot } from './tipos'
+import type { AppGoogle, Catalogo, Conta, FerramentasDaConta, PedidoDefinirVinculo, PedidoLigarFerramenta, ResultadoDesconectar, Servico, TipoConexao, VinculosDoBot } from './tipos'
 
 const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -151,3 +151,8 @@ export const useMercado = (store: BotStore) => useModel(mercadoPara(store))
 /** O pedido de ligar contas em bots, para quem o monta fora do fluxo (tela 05). */
 export const definirNoBot = (store: BotStore, pedido: PedidoDefinirVinculo): Promise<VinculosDoBot> => store.ready().then((c) => mercadoApi.definirBotContas(c, pedido))
 export const lerDoBot = (store: BotStore, botId: string): Promise<VinculosDoBot> => store.ready().then((c) => mercadoApi.botContas(c, botId))
+
+/** Ações perigosas (fatia 2): ler e escrever as liberações de UM bot; quem decide é o Hub, que confere o digest e a confirmação. */
+export const ferramentasDoBot = (store: BotStore, botId: string, conta: string): Promise<FerramentasDaConta> => store.ready().then((c) => mercadoApi.ferramentas(c, botId, conta))
+export const ligarFerramenta = (store: BotStore, pedido: PedidoLigarFerramenta): Promise<FerramentasDaConta> => store.ready().then((c) => mercadoApi.ligarFerramenta(c, pedido))
+export const desligarFerramenta = (store: BotStore, botId: string, conta: string, ferramenta: string): Promise<FerramentasDaConta> => store.ready().then((c) => mercadoApi.desligarFerramenta(c, botId, conta, ferramenta))

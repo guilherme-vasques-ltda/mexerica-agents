@@ -14,7 +14,9 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) use ledger::record_background;
-pub(crate) use ledger::{BACKGROUND_SESSION_PREFIX, Pending, UsoFundo, begin_background, complete_background, migrate};
+pub(crate) use ledger::{
+    BACKGROUND_SESSION_PREFIX, Pending, UsoFundo, begin_background, complete_background, migrate, turn_usage,
+};
 /// MX-145 E3: o teto usa o mesmo mês civil UTC do relatório.
 pub(crate) use report::month;
 pub(crate) const METHOD: &str = "donnaCostReport";

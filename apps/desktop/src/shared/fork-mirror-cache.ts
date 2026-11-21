@@ -62,9 +62,17 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 53: Marketplace — o `marketCatalogo` passa a mandar `skills[]` das fichas como `{id, titulo, resumo}` (antes vinha
 // vazia). O catálogo é lido sob demanda e não entra no mirror; o bump só segue a regra de campo novo do Hub. App antigo
 // ignora a lista; o novo não mostra a seção quando ela não vem.
-// Schema 54: cada motor de `hello.backends` pode trazer `actsWithoutApproval` (o motor age sem pedir aprovação no cartão do
-// Hub); cache anterior não tem o campo. App antigo ignora; o novo não mostra o aviso quando ele não vem.
-export const MIRROR_SCHEMA = 54
+// Schema 54: `donnaTaskSessions` inclui a confirmação de atenção da tarefa; o dado só existe na leitura atual.
+// Schema 55: Heartbeat — a rotina traz `heartbeat` (fonte, escopo, critério, destinatário e intervalo da checagem
+// silenciosa) ou `null`; cache anterior não tem o campo. App antigo ignora; o novo não mostra nada quando não vem.
+// Schema 60: o recibo do turno (`donnaRoutingReceipt`) passa a trazer `usage` e o medidor (`donnaContext`) traz
+// `context.parts`. Ambos são lidos sob demanda e não entram no mirror; o bump só segue a regra de campo novo do Hub.
+// App antigo ignora os campos; o novo não mostra o bloco quando eles não vêm.
+// Schema 61: resposta cortada (parada, erro ou Hub desligado) chega com `Entry.data.interrupted` e passa a aparecer na
+// conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
+// Schema 62: cada motor de `hello.backends` pode trazer `actsWithoutApproval` (o motor age no computador sem o cartão de
+// aprovação do Hub); cache anterior não tem o campo. App antigo ignora; o novo não mostra o aviso quando ele não vem.
+export const MIRROR_SCHEMA = 62
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
