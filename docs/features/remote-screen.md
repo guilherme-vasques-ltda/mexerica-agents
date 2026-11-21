@@ -48,7 +48,7 @@ back to the bots, then reconnects when the app returns.
 
 ## Cloud setup
 
-O código espera `TURN_KEY_ID`, `TURN_KEY_API_TOKEN` e o binding `TURN_LIMITER` em configuração própria autorizada; a configuração padrão não os provisiona.
+A emissão de credenciais TURN exige credenciais de serviço e limitação de requisições em configuração própria autorizada; a configuração padrão não as provisiona.
 
 O procedimento herdado de configurar segredos e publicar foi retirado: `npm run deploy:dev` e `npm run deploy:main` recusam, e não há implantação de TURN autorizada por este guia. A seleção e configuração de credenciais exigem tarefa própria. Computadores sem vínculo ainda podem usar conexões diretas de tela, conforme suas condições.
 

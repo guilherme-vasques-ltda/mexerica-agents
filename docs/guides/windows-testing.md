@@ -21,11 +21,11 @@ e2e); use the VM for a full e2e, or when a change or a bug depends on Windows it
   a dedicated key.
 - **GUI apps** must start in the signed-in session (session 2):
   `schtasks /create /tn X /tr <exe> /sc once /st 23:59 /it /f; schtasks /run /tn X`.
-- **Screen** without touching the Mac's UI: QEMU VNC on `localhost:5905`, e.g.
-  `uvx --from vncdotool vncdo --force-caps -s localhost::5905 capture x.png`. Input lags a few
+- **Screen** without touching the Mac's UI: QEMU VNC on `<host>:<porta>`, e.g.
+  `uvx --from vncdotool vncdo --force-caps -s <host>::<porta> capture x.png`. Input lags a few
   seconds; `--force-caps` is needed for symbols.
 - The Mac sleeping pauses the VM: wrap long installs in `caffeinate -i`.
-- Rebuilding the VM: keep the unattended install assets in a local folder (e.g. `~/VMs/windows/`, about 20
+- Rebuilding the VM: keep the unattended install assets in a local folder (e.g. `<pasta-local>/windows/`, about 20
   minutes). NVMe must be the first drive and both ISOs detached afterwards, or Windows reinstalls on
   every boot.
 
@@ -41,7 +41,7 @@ e2e); use the VM for a full e2e, or when a change or a bug depends on Windows it
 
    ```powershell
    $t = Get-Content "$env:USERPROFILE\.mexerica\token"
-   Invoke-RestMethod -Method Post -Uri http://localhost:19422/api/refreshBackends `
+   Invoke-RestMethod -Method Post -Uri http://localhost:<porta-do-hub>/api/refreshBackends `
      -Headers @{ Authorization = "Bearer $t" } -ContentType application/json -Body '{}'
    ```
 
