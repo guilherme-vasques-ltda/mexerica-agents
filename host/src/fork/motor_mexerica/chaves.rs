@@ -190,11 +190,18 @@ pub(super) async fn salvar_endereco(hub: &Arc<Hub>, pedido: Pedido, extra_env: &
     let (id, key) = match pedido.id {
         Some(id) => {
             ensure!(proprio::existe(&hub.store, &id)?, "fornecedor_invalido: endereço próprio desconhecido.");
-            let key = match pedido.chave.as_deref() {
-                Some(texto) => chave(Some(texto))?,
-                None => Zeroizing::new(
-                    proprio::registro(&hub.store, &id)?.context("endereço próprio sem registro")?.key.clone(),
-                ),
+            let key = if let Some(texto) = pedido.chave.as_deref() {
+                chave(Some(texto))?
+            } else {
+                let registro = proprio::registro(&hub.store, &id)?.context("endereço próprio sem registro")?;
+                // A chave guardada só serve ao destino para o qual ela foi aceita. Trocar o endereço (ou o
+                // formato, ou o modo local) sem informar a chave de novo mandaria o segredo antigo ao
+                // destino novo antes de qualquer gravação: recusado.
+                ensure!(
+                    registro.base_url == base_url && registro.formato == formato && registro.local == local,
+                    "chave_obrigatoria: o destino mudou; informe a chave de novo."
+                );
+                Zeroizing::new(registro.key.clone())
             };
             (id, key)
         }

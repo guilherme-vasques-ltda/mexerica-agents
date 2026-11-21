@@ -2,7 +2,7 @@
 // Nenhuma rede externa: os servidores sobem em 127.0.0.1, que só vale com a opção «local» do endereço.
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer as ouvirTcp, type AddressInfo } from "node:net";
 import { test } from "node:test";
 import { conferirUrl, DestinoRecusado, fetchGuardado, ipPermitido } from "../src/destino.ts";
 import { encerrar, startEngine, turnoTerminou, type Line } from "./helpers.ts";
@@ -34,8 +34,44 @@ test("endereços de rede: público passa; privado só com a opção local; metad
 		["não-é-ip", false, false],
 	];
 	for (const [ip, publico, local] of casos) {
-		assert.equal(ipPermitido(ip, false), publico, `${ip} sem a opção local`);
-		assert.equal(ipPermitido(ip, true), local, `${ip} com a opção local`);
+		assert.equal(ipPermitido(ip, false, true), publico, `${ip} sem a opção local`);
+		assert.equal(ipPermitido(ip, true, true), local, `${ip} com a opção local`);
+	}
+});
+
+test("IP público por HTTP não vale nem com a opção local: a Internet só por HTTPS", () => {
+	assert.equal(ipPermitido("93.184.216.34", true, false), false, "público em HTTP com local");
+	assert.equal(ipPermitido("2606:4700:4700::1111", true, false), false, "público em HTTP com local");
+	assert.equal(ipPermitido("93.184.216.34", true, true), true, "público em HTTPS");
+	assert.equal(ipPermitido("10.1.2.3", true, false), true, "rede privada em HTTP com local"); // vazamento-ok: endereço reservado em teste de recusa
+	assert.equal(ipPermitido("::1", true, false), true, "loopback em HTTP com local");
+	assert.throws(() => conferirUrl("http://93.184.216.34/v1", true), DestinoRecusado);
+	assert.equal(conferirUrl("http://10.1.2.3/v1", true).hostname, "10.1.2.3"); // vazamento-ok: endereço reservado em teste de recusa
+});
+
+test("IPv6 de tradução e escopo especial segue a regra do IPv4 de dentro", () => {
+	for (const ip of [
+		"64:ff9b:1::a9fe:a9fe", // NAT64 de uso local
+		"::ffff:0:a9fe:a9fe", // traduzido
+		"::a9fe:a9fe", // IPv4-compatível: metadados
+		"64:ff9b::", // NAT64 de 0.0.0.0, forma comprimida
+		"64:ff9b::1", // NAT64 de 0.0.0.1, forma comprimida
+		"64:ff9b::a9fe:a9fe", // NAT64 de metadados
+		"::ffff:169.254.169.254", // mapeado: metadados // vazamento-ok: endereço reservado em teste de recusa
+	]) {
+		assert.equal(ipPermitido(ip, false, true), false, `${ip} sem a opção local`);
+		assert.equal(ipPermitido(ip, true, true), false, `${ip} com a opção local`);
+	}
+	// NAT64 local de loopback: a regra do IPv4 de dentro vale, loopback só com a opção local.
+	assert.equal(ipPermitido("64:ff9b:1::7f00:1", false, true), false, "NAT64 de loopback sem a opção local"); // vazamento-ok: endereço reservado em teste de recusa
+	assert.equal(ipPermitido("64:ff9b:1::7f00:1", true, false), true, "NAT64 de loopback com a opção local"); // vazamento-ok: endereço reservado em teste de recusa
+	assert.equal(ipPermitido("::7f00:1", true, false), true, "IPv4-compatível de loopback com local"); // vazamento-ok: endereço reservado em teste de recusa
+	assert.equal(ipPermitido("::1", true, false), true, "::1 continua loopback");
+	assert.equal(ipPermitido("64:ff9b::8.8.8.8", false, true), true, "NAT64 de público vale como o IPv4 de dentro");
+	assert.equal(ipPermitido("64:ff9b::8.8.8.8", false, false), false, "NAT64 de público em HTTP não vale");
+	for (const ip of ["2002:a9fe:a9fe::1", "2002:7f00:1::1", "fec0::1"]) {
+		assert.equal(ipPermitido(ip, false, true), false, `${ip} sem a opção local`);
+		assert.equal(ipPermitido(ip, true, true), false, `${ip} com a opção local`);
 	}
 });
 
@@ -55,6 +91,17 @@ test("endereço base: só HTTPS, sem credencial, consulta ou fragmento; HTTP só
 	] as const) {
 		assert.throws(() => conferirUrl(url, local), DestinoRecusado, url);
 	}
+});
+
+test("resposta com status fora de 200..599 vira erro limpo, não derruba o processo", async () => {
+	// Servidor TCP cru: o módulo http não escreve status fora do esperado por conta própria.
+	const servidor = ouvirTcp((socket) => socket.end("HTTP/1.1 600 Estranho\r\nContent-Length: 2\r\n\r\nhi"));
+	const porta = await new Promise<number>((resolve) => servidor.listen(0, "127.0.0.1", () => resolve((servidor.address() as AddressInfo).port)));
+	const fetch = fetchGuardado(true);
+	await assert.rejects(fetch(`http://127.0.0.1:${porta}/v1/models`), TypeError);
+	// O processo continua de pé: a mesma chamada falha de novo como erro comum.
+	await assert.rejects(fetch(`http://127.0.0.1:${porta}/v1/models`), TypeError);
+	servidor.close();
 });
 
 const ouvir = (servidor: Server) =>

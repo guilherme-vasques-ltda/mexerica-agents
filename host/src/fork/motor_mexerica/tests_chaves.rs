@@ -267,6 +267,36 @@ async fn endereco_proprio_e_salvo_depois_do_teste_e_o_app_nunca_ve_a_chave() {
 }
 
 #[tokio::test]
+async fn trocar_o_endereco_sem_informar_a_chave_e_recusado_antes_de_qualquer_pedido() {
+    let Some(hub) = hub_de_prova("trocar_o_endereco_sem_informar_a_chave_e_recusado_antes_de_qualquer_pedido") else {
+        return;
+    };
+    let (base, _) = servico_local(|_| (200, r#"{"data":[{"id":"modelo-local"}]}"#.into(), "application/json")).await;
+    let acesso = chaves::salvar_endereco(&hub, pedido_endereco(&base, true, None), &[]).await.unwrap();
+    let id = acesso["id"].as_str().unwrap().to_owned();
+
+    // Destino novo de mentira: nenhum pedido pode chegar aqui com a chave antiga.
+    let (outra, pedidos) = servico_local(|_| (200, r#"{"data":[]}"#.into(), "application/json")).await;
+    let troca: chaves::Pedido = serde_json::from_value(serde_json::json!({
+        "id": id, "nome": "Serviço de prova", "url": format!("{outra}/v1"),
+        "formato": "chat-completions", "local": true,
+    }))
+    .unwrap();
+    let erro = chaves::salvar_endereco(&hub, troca, &[]).await.unwrap_err();
+    assert!(erro.to_string().contains("chave_obrigatoria"), "{erro:#}");
+    assert!(pedidos.lock().unwrap().is_empty(), "a chave guardada não pode ser enviada ao destino novo");
+
+    // Sem trocar o destino (só o nome), a chave guardada continua valendo.
+    let renome: chaves::Pedido = serde_json::from_value(serde_json::json!({
+        "id": id, "nome": "Outro nome", "url": format!("{base}/v1"),
+        "formato": "chat-completions", "local": true,
+    }))
+    .unwrap();
+    let renomeado = chaves::salvar_endereco(&hub, renome, &[]).await.unwrap();
+    assert_eq!(renomeado["ok"], true, "{renomeado}");
+}
+
+#[tokio::test]
 async fn servico_sem_lista_so_e_salvo_com_o_modelo_digitado() {
     let Some(hub) = hub_de_prova("servico_sem_lista_so_e_salvo_com_o_modelo_digitado") else { return };
     let (base, _) = servico_local(|_| (404, r#"{"error":"sem lista"}"#.into(), "application/json")).await;
