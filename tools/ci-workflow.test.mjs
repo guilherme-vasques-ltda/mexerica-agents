@@ -213,6 +213,7 @@ const ACTIONS = new Set([
   'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
   'Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
   'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
+  'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333',
 ]);
 
 test('só bastidor.yml, ci.yml, cua-driver-pin.yml, macos.yml, release.yml e vazamento-semanal.yml existem como workflows', () => {
@@ -997,7 +998,10 @@ test('agendados: ASCII, so schedule e disparo manual, runner fixo do GitHub, per
     }
     const uses = [...texto.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
     assert.ok(uses.length > 0, `${nome}: sem actions`);
-    for (const ref of uses) assert.match(ref, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${nome}: action sem SHA completo: ${ref}`);
+    for (const ref of uses) {
+      assert.match(ref, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${nome}: action sem SHA completo: ${ref}`);
+      assert.ok(ACTIONS.has(ref), `${nome}: action fora da lista fechada aprovada: ${ref}`);
+    }
     for (const trecho of texto.split('uses: actions/checkout@').slice(1)) {
       assert.match(trecho.split('\n      - ')[0], /persist-credentials: false/, `${nome}: checkout com credencial persistida`);
     }
@@ -1017,14 +1021,16 @@ test('vazamento-semanal: executor da main, credenciais nomeadas e aviso so quand
   const varredura = jobs.varredura.join('\n');
   assert.match(varredura, /^    if: github\.ref == 'refs\/heads\/main'$/m, 'varredura so na main');
   assert.match(varredura, /git show "\$trusted_main:tools\/ci-vazamento\.mjs" > "\$RUNNER_TEMP\/trusted-ci-vazamento\.mjs"/, 'executor vem da main');
-  assert.equal((semanal.match(/VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/g) || []).length, 1, 'secret de termos declarado uma vez');
+  assert.equal((semanal.match(/VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/g) || []).length, 2, 'secret de termos declarado na checagem e na varredura');
   assert.match(semanal, /551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb/, 'Gitleaks fixado por SHA256');
   const credenciais = varredura.split('\n      - ').find((st) => st.startsWith('name: Recusar credenciais de aviso ausentes'));
   assert.ok(credenciais, 'checagem fail-fast das credenciais de aviso');
   assert.match(credenciais, /VAZAMENTO_ISSUE_REPO: \$\{\{ vars\.VAZAMENTO_ISSUE_REPO \}\}/);
   assert.match(credenciais, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/);
+  assert.match(credenciais, /VAZAMENTO_TERMOS: \$\{\{ secrets\.VAZAMENTO_TERMOS \}\}/, 'termos conferidos antes de qualquer download');
   assert.match(credenciais, /test -n "\$VAZAMENTO_ISSUE_REPO"/);
   assert.match(credenciais, /test -n "\$VAZAMENTO_ISSUE_TOKEN"/);
+  assert.match(credenciais, /test -n "\$VAZAMENTO_TERMOS"/);
   const gitleaks = varredura.indexOf('name: Obter Gitleaks oficial fixado');
   assert.ok(varredura.indexOf('name: Recusar credenciais de aviso ausentes') < gitleaks, 'credenciais conferidas antes do download do Gitleaks');
   const marcador = varredura.split('\n      - ').find((st) => st.startsWith('name: Marcar varredura sem resumo'));
@@ -1039,5 +1045,5 @@ test('vazamento-semanal: executor da main, credenciais nomeadas e aviso so quand
   assert.match(notificar, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/, 'token vem do segredo nomeado');
   assert.ok(!/GITHUB_TOKEN/.test(semanal), 'sem token de escrita do repositorio');
   const segredos = [...semanal.matchAll(/\$\{\{[^}]*\bsecrets\.(\w+)/g)].map((m) => m[1]).sort();
-  assert.deepEqual(segredos, ['VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_TERMOS'], 'so os segredos nomeados');
+  assert.deepEqual(segredos, ['VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_TERMOS', 'VAZAMENTO_TERMOS'], 'so os segredos nomeados');
 });
