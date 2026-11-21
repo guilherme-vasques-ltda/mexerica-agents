@@ -262,14 +262,18 @@ pub(super) async fn login(
     };
     pty.reaped = true;
     drop(pty);
-    // Última saída do programa, para distinguir código vencido de recusa; o stream encerrou, então a
-    // última linha sem quebra é final e entra na conferência.
-    screen.eof = true;
+    // Última saída do programa, para distinguir código vencido de recusa. O dreno ainda lê com o stream
+    // "aberto": pedaço cortado não é conflito. Só com o dreno vazio a última linha sem quebra é final e
+    // entra na conferência, uma única vez, depois do laço.
     while let Ok(Some(bytes)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
         screen.push(&bytes)?;
         if let Some(shown) = &offered {
             refuse(!screen.code_conflict(shown))?;
         }
+    }
+    screen.eof = true;
+    if let Some(shown) = &offered {
+        refuse(!screen.code_conflict(shown))?;
     }
     if !status.success() {
         bail!(if screen.expired() { "setup_expired" } else { "auth_failed" });

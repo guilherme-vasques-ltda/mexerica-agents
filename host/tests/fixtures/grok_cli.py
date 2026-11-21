@@ -58,6 +58,10 @@ elif style == 'ansi':
 elif style == 'foreign':
     print('https://evil.example.invalid/device', flush=True)
     print('Then enter this code: ABCD-EFGH', flush=True)
+elif style == 'partial':
+    print('Open this page on any device:', flush=True)
+    print('  https://auth.x.ai/device', flush=True)
+    print('Then enter this code: ABCD-EFGH', flush=True)
 print('Waiting for authorization...', flush=True)
 
 deadline = time.time() + 600
@@ -67,6 +71,8 @@ while time.time() < deadline:
         auth.write_text('{"access_token":"FIXTURE-TOKEN-SECRET"}')
         auth.chmod(0o600)
         print('Login successful.', flush=True)
+        if style == 'partial':
+            print('Then enter this code: WXYZ-2468', end='', flush=True)
         sys.exit(0)
     if (base / 'deny').is_file():
         print('Authorization denied. The user rejected the request.', flush=True)

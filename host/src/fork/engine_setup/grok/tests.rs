@@ -228,6 +228,30 @@ async fn recusado_expirado_e_formatos_do_programa() {
 }
 
 #[tokio::test]
+async fn codigo_divergente_na_ultima_linha_sem_quebra_derruba_no_fim_do_stream() {
+    let f = Fixture::new("partial");
+    let account = f.create("grok-partial").await;
+    let op = f.start(&account, "login", "grok-partial-login").await;
+    assert_eq!(f.phase(&op, "awaiting_authorization").await["challenge"]["code"], "ABCD-EFGH");
+    f.decide("approve");
+    // O código divergente chega como última linha, sem quebra, antes do dreno: só a conferência
+    // depois do dreno vazio pode pegá-lo, sem recusar pedaço cortado no meio do caminho.
+    let failed = tokio::time::timeout(WAIT, async {
+        loop {
+            let value = f.read(&op, json!({"action":"read"}));
+            if value["phase"] == "failed" {
+                return value;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(failed["errorCode"], "auth_correlation_invalid");
+    assert_ne!(f.account(&account["id"])["state"], "connected");
+}
+
+#[tokio::test]
 async fn endereco_de_outro_site_nunca_chega_a_tela() {
     let f = Fixture::new("foreign");
     let account = f.create("grok-foreign").await;
