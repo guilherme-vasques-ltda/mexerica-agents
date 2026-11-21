@@ -1,5 +1,4 @@
-# Build e testes do app no macOS. Repositorio privado: Namespace. Repositorio publico: so maquina macOS do GitHub
-# (macos-15), e so com a variavel CI_MAQUINA_MAC=macos-15; outro valor falha. Fica fora do selo ci-ok. Guia: docs/guides/ci.md.
+# Build e testes do app no macOS, sempre no runner macos-15 do GitHub. Fica fora do selo ci-ok. Guia: docs/guides/ci.md.
 name: macOS
 
 on:
@@ -24,44 +23,16 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Repositorio publico com CI_MAQUINA_MAC diferente de macos-15: falha aqui, sem build, e o job macos nao roda.
-  # Com o repositorio privado este job e sempre pulado, sem alocar maquina.
-  maquina-mac:
-    if: ${{ github.event.repository.visibility == 'public' && vars.CI_MAQUINA_MAC != 'macos-15' && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Recusar CI_MAQUINA_MAC invalida em repositorio publico
-        run: |
-          echo '::error::Repositorio publico: a variavel CI_MAQUINA_MAC precisa valer macos-15. O job macOS nao roda com outro valor.'
-          exit 1
-
   macos:
     # PR de fork e rascunho nao rodam; o disparo manual so roda a partir da main.
-    if: ${{ (github.event.repository.visibility != 'public' || vars.CI_MAQUINA_MAC == 'macos-15') && ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
-    # A escolha acontece antes de alocar a maquina: sem visibilidade publica confirmada no evento, sempre Namespace.
-    runs-on: ${{ github.event.repository.visibility == 'public' && 'macos-15' || 'nscloud-macos-tahoe-arm64-6x14' }}
+    if: ${{ ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    runs-on: macos-15
     timeout-minutes: 75
     permissions:
       contents: read
     env:
       OPEN_APP: dist/open/mac-arm64/Mexerica Open.app
     steps:
-      # Segunda barreira: em maquina do GitHub, so segue se o evento confirmar repositorio publico.
-      - name: Recusar maquina do GitHub em repositorio privado
-        if: ${{ runner.environment == 'github-hosted' && github.event.repository.visibility != 'public' }}
-        working-directory: ${{ runner.temp }}
-        run: |
-          echo '::error::Repositorio privado: o macOS nao roda em maquina do GitHub.'
-          exit 1
-      # Espelho da barreira acima: em repositorio publico, so segue em maquina do GitHub.
-      - name: Recusar maquina paga em repositorio publico
-        if: ${{ runner.environment != 'github-hosted' && github.event.repository.visibility == 'public' }}
-        working-directory: ${{ runner.temp }}
-        run: |
-          echo '::error::Repositorio publico: o macOS so roda em maquina do GitHub.'
-          exit 1
       # O Actions compara texto sem diferenciar maiusculas: uma ref como refs/heads/MAIN passa na condicao do job.
       # Aqui a comparacao e exata e para antes do checkout e do build.
       - name: Recusar disparo manual fora da main

@@ -5,7 +5,7 @@
 # lidos pela API, nunca em linha de comando. O verificador e as regras vem da branch padrao, os dois do mesmo commit.
 # A lista interna e o segredo BASTIDOR_NOMES_INTERNOS (mascarado); nenhum passo a imprime. PR de fork roda so com as
 # regras genericas e nunca recebe o segredo, para o resultado publico nao servir de oraculo para a lista.
-# A maquina vem da variavel CI_MAQUINA_LEVE; enquanto ela apontar para maquina paga, o repositorio nao pode ser publico.
+# O job roda em runner do GitHub (ubuntu-24.04), sempre alocado pelo proprio Actions.
 name: Bastidor
 
 on:
@@ -20,18 +20,13 @@ permissions: {}
 
 jobs:
   bastidor:
-    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
+    runs-on: ubuntu-24.04
     environment: bastidor
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - name: Recusar maquina do GitHub em repositorio privado
-        if: ${{ runner.environment == 'github-hosted' && github.event.repository.private }}
-        run: |
-          echo '::error::Repositorio privado: este workflow nao roda em maquina do GitHub. Ajuste a variavel CI_MAQUINA_LEVE.'
-          exit 1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
