@@ -46,14 +46,20 @@ pub(super) struct Config {
 
 impl Config {
     pub(super) fn do_ambiente() -> Self {
-        let exe = std::env::var_os("CLAUDE_CODE_EXECUTABLE").map(PathBuf::from).filter(|p| p.is_file()).or_else(|| {
-            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-                .map(|d| d.join(if cfg!(windows) { "claude.exe" } else { "claude" }))
-                .find(|p| p.is_file())
-        });
-        let pasta_config = std::env::var_os("CLAUDE_CONFIG_DIR")
+        let exe = std::env::var_os("CLAUDE_CODE_EXECUTABLE")
             .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")));
+            .and_then(|p| std::path::absolute(p).ok())
+            .filter(|p| p.is_file())
+            .or_else(|| {
+                std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                    .map(|d| d.join(if cfg!(windows) { "claude.exe" } else { "claude" }))
+                    .find(|p| p.is_file())
+            });
+        let pasta_config = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| if cfg!(windows) { std::env::var_os("USERPROFILE") } else { None })
+                .map(|h| PathBuf::from(h).join(".claude"))
+        });
         Self { exe, pasta_config }
     }
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
@@ -14,10 +15,10 @@ const bundle = await build({
       export { StoreContext } from './store/context';
       export { createElement } from 'react';
       export { renderToStaticMarkup } from 'react-dom/server';`,
-    resolveDir: new URL('../../', import.meta.url).pathname, loader: 'ts',
+    resolveDir: fileURLToPath(new URL('../../', import.meta.url)), loader: 'ts',
   },
   bundle: true, platform: 'node', format: 'cjs', write: false, jsx: 'automatic',
-  alias: { '@shared': new URL('../../../shared', import.meta.url).pathname },
+  alias: { '@shared': fileURLToPath(new URL('../../../shared', import.meta.url)) },
   plugins: [{ name: 'icone', setup(b) {
     b.onResolve({ filter: /\/components\/Icon$/ }, () => ({ path: 'icone', namespace: 'icone' }))
     b.onLoad({ filter: /.*/, namespace: 'icone' }, () => ({ contents: 'export function Icon() { return null }', loader: 'js' }))

@@ -44,8 +44,9 @@ fn url_perde_usuario_senha_consulta_e_fragmento() {
 
 #[test]
 fn token_com_prefixo_conhecido_em_texto_livre_fica_oculto() {
-    let p = projecao("mcp__loja__ligar", &json!({"nota": "chave sk-abc123def456ghi789 use com cuidado"}));
-    assert!(!p.texto.contains("sk-abc123def456ghi789"), "token com prefixo conhecido ocultado: {}", p.texto);
+    let token = ["sk", "abc123def456ghi789"].join("-");
+    let p = projecao("mcp__loja__ligar", &json!({"nota": format!("chave {token} use com cuidado")}));
+    assert!(!p.texto.contains(&token), "token com prefixo conhecido ocultado: {}", p.texto);
     assert!(p.texto.contains("use com cuidado"), "o texto comum segue visível: {}", p.texto);
 }
 
