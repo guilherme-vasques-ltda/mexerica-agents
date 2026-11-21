@@ -64,6 +64,9 @@ struct ComPrazo<'a> {
     valida: Arc<AtomicBool>,
     epoca: Arc<AtomicU64>,
     admitir: &'a (dyn Fn() -> Option<u64> + Sync),
+    /// Só para registrar o motivo de uma negativa dentro da linha de execução da chamada.
+    rotina: String,
+    fonte_nome: String,
     #[cfg(test)]
     gancho: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -81,6 +84,7 @@ impl ComPrazo<'_> {
         let (envia, recebe) = mpsc::channel();
         let (fonte, ocupada, valida, epoca) =
             (self.fonte.clone(), self.ocupada.clone(), self.valida.clone(), self.epoca.clone());
+        let (rotina, fonte_nome) = (self.rotina.clone(), self.fonte_nome.clone());
         let abandono = abandonada.clone();
         #[cfg(test)]
         let gancho = self.gancho.clone();
@@ -103,6 +107,7 @@ impl ComPrazo<'_> {
                     break Ok(Err(Motivo::Fora));
                 }
                 if !valida.load(Ordering::Acquire) {
+                    tracing::warn!(routine = %rotina, fonte = %fonte_nome, "leitura não admitida: concessão retirada ou trocada durante a espera");
                     break Ok(Err(Motivo::SemAcesso));
                 }
                 if epoca.load(Ordering::SeqCst) != decisao {
@@ -330,6 +335,8 @@ impl Routines {
                     valida,
                     epoca: self.state.epoca.clone(),
                     admitir: &admitir,
+                    rotina: id.to_owned(),
+                    fonte_nome: declaracao.fonte.clone(),
                     #[cfg(test)]
                     gancho: self.depois_da_admissao.locked().clone(),
                 }) as Box<dyn Fonte + '_>
