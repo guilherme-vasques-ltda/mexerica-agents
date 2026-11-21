@@ -13,13 +13,21 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
           id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, chat_id TEXT NOT NULL, session_id TEXT NOT NULL,
           parent_session_id TEXT, account_id TEXT, model TEXT, at INTEGER NOT NULL,
           input_tokens INTEGER, cached_read_tokens INTEGER, cached_write_tokens INTEGER, output_tokens INTEGER,
-          amount REAL, currency TEXT, source TEXT NOT NULL);
+          amount REAL, currency TEXT, source TEXT NOT NULL, turn INTEGER);
          CREATE INDEX IF NOT EXISTS donna_turn_usage_month ON donna_turn_usage(at);
          CREATE INDEX IF NOT EXISTS donna_turn_usage_session ON donna_turn_usage(chat_id,session_id);
          CREATE TABLE IF NOT EXISTS donna_cost_cursors(
           bot_id TEXT NOT NULL, acp_session TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, valid INTEGER NOT NULL DEFAULT 1,
           PRIMARY KEY(bot_id,acp_session)) WITHOUT ROWID;"
     )?;
+    // Banco de antes do recibo de uso: o número do turno só existe nas linhas novas.
+    if !c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('donna_turn_usage') WHERE name='turn')",
+        [],
+        |r| r.get::<_, bool>(0),
+    )? {
+        c.execute("ALTER TABLE donna_turn_usage ADD COLUMN turn INTEGER", [])?;
+    }
     Ok(())
 }
 
@@ -212,6 +220,8 @@ pub(crate) struct Pending {
     before: Option<Cost>,
     fresh: bool,
     sent: bool,
+    /// Número do turno da conversa (o mesmo das entradas); liga o uso ao recibo do turno.
+    turn: Option<i64>,
     /// Custo observado no turno. Presente ≠ válido: campo `cost` com valor
     /// inválido não apaga o último válido, mas marca o turno como não
     /// verificável (`sem preço`, nunca estima — o último válido ainda alimenta
@@ -280,8 +290,14 @@ impl Pending {
             before,
             fresh,
             sent: false,
+            turn: None,
             custo: CustoObservado::Nenhum,
         })
+    }
+
+    pub(crate) fn with_turn(mut self, turn: Option<i64>) -> Self {
+        self.turn = turn;
+        self
     }
 
     pub(crate) fn dispatched(&mut self, store: &Store) -> Result<()> {
@@ -359,8 +375,8 @@ impl Pending {
         {
             tx.execute(
                 "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,parent_session_id,account_id,model,at,
-                input_tokens,cached_read_tokens,cached_write_tokens,output_tokens,amount,currency,source)
-                VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                input_tokens,cached_read_tokens,cached_write_tokens,output_tokens,amount,currency,source,turn)
+                VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                 params![
                     self.id,
                     self.bot,
@@ -376,11 +392,34 @@ impl Pending {
                     tokens.output,
                     priced.as_ref().map(|(c, _)| c.amount),
                     priced.as_ref().map(|(c, _)| &c.currency),
-                    priced.as_ref().map_or("sem preço", |(_, s)| *s)
+                    priced.as_ref().map_or("sem preço", |(_, s)| *s),
+                    self.turn
                 ],
             )?;
         }
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Uso que o motor informou para um turno (recibo do turno). Cada contagem é a soma das linhas do turno e só existe
+/// quando todas elas a informaram: contagem ausente ou parcial fica `null` (o motor não informou), nunca estimada
+/// nem completada. `None`: turno sem linha de uso (anterior a este registro, rotina ou ainda em andamento).
+pub(crate) fn turn_usage(c: &Connection, bot: &str, chat: &str, session: &str, turn: i64) -> Result<Option<Value>> {
+    let mut stmt = c.prepare(
+        "SELECT input_tokens,cached_read_tokens,cached_write_tokens,output_tokens FROM donna_turn_usage
+         WHERE bot_id=?1 AND chat_id=?2 AND session_id=?3 AND turn=?4",
+    )?;
+    let rows = stmt
+        .query_map(params![bot, chat, session, turn], |r| {
+            Ok([r.get::<_, Option<i64>>(0)?, r.get(1)?, r.get(2)?, r.get(3)?])
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let total = |i: usize| rows.iter().try_fold(0_i64, |sum, row| sum.checked_add(row[i]?));
+    Ok(Some(serde_json::json!({
+        "input": total(0), "cacheRead": total(1), "cacheWrite": total(2), "output": total(3),
+    })))
 }
