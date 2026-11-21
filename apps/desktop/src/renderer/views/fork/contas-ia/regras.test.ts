@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ManagedAccount } from '../../../../shared/fork-engine-accounts.ts'
-import { accountKind, accountView, botNames, createTerminalFilter, errorMessage, failureMessage, expiresAtMs, isFinal, keyPageUrl, providerUrl, rowActions, stepOf, testResult, utf8ToBase64, validLabel, viaProgramaOficial } from './regras.ts'
+import { ENGINES, accountKind, accountView, botNames, createTerminalFilter, engineName, errorMessage, failureMessage, expiresAtMs, isFinal, keyPageUrl, providerUrl, rowActions, stepOf, testResult, utf8ToBase64, validLabel, viaProgramaOficial } from './regras.ts' 
 
 const account = (patch: Partial<ManagedAccount> = {}): ManagedAccount => ({
   id: `ac_${'a'.repeat(64)}`, label: 'Pessoal', brand: 'OpenAI', backend: 'codex', billing: 'unverified', state: 'disconnected',
@@ -186,4 +186,26 @@ test('a etiqueta do programa oficial só aparece na conta Claude por assinatura'
   assert.equal(viaProgramaOficial(account({ backend: 'claude', billing: 'unverified' }), 'cli'), true)
   assert.equal(viaProgramaOficial(account({ backend: 'claude', billing: 'paid_api' }), 'api'), false)
   assert.equal(viaProgramaOficial(account({ backend: 'codex', billing: 'subscription' }), 'cli'), false)
+})
+
+test('Grok Build: só abre o endereço de pareamento no site da xAI e não tem página de chave', () => {
+  assert.ok(ENGINES.includes('grok'))
+  assert.equal(engineName('grok'), 'Grok Build')
+  assert.equal(providerUrl('grok', 'https://auth.x.ai/device', 'auth.x.ai'), 'https://auth.x.ai/device')
+  assert.equal(providerUrl('grok', 'https://accounts.x.ai/device?user_code=ABCD-EFGH', 'accounts.x.ai'), 'https://accounts.x.ai/device?user_code=ABCD-EFGH')
+  for (const raw of ['https://auth.x.ai.evil.example/device', 'http://auth.x.ai/device', 'https://auth.openai.com/codex/device', 'https://x.ai/device']) {
+    assert.equal(providerUrl('grok', raw), null, raw)
+  }
+  assert.equal(providerUrl('codex', 'https://auth.x.ai/device'), null)
+  assert.equal(providerUrl('grok', 'https://auth.x.ai/device#parte'), null)
+  assert.equal(providerUrl('grok', 'https://auth.x.ai/device?next=https://evil.example'), null)
+  assert.equal(keyPageUrl('grok', 'https://x.ai/api'), null)
+})
+
+test('Grok Build conectado aparece como assinatura e, sem o programa, a tela explica o motivo', () => {
+  const grok = account({ backend: 'grok', brand: 'xAI', billing: 'subscription', state: 'connected' })
+  assert.equal(accountKind(grok), 'cli')
+  assert.equal(accountView(grok, 'cli', 'pt-BR').billing, 'Plano da conta xAI')
+  assert.match(failureMessage('grok_not_installed', 'pt-BR'), /Grok Build/)
+  assert.notEqual(failureMessage('grok_not_installed', 'en'), failureMessage('grok_not_installed', 'pt-BR'))
 })

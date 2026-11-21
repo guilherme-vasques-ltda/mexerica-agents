@@ -10,16 +10,16 @@ const frase = (idioma: AppLanguage, chave: ChaveTexto) => (traduzir as (i: AppLa
 
 // D164: regras puras da tela de contas (sem I/O, sem React). O Hub decide; a UI só não confia a mais.
 
-export const ENGINES: readonly Engine[] = ['codex', 'claude']
+export const ENGINES: readonly Engine[] = ['codex', 'claude', 'grok']
 
-export const isEngine = (value: string | null | undefined): value is Engine => value === 'codex' || value === 'claude'
+export const isEngine = (value: string | null | undefined): value is Engine => value === 'codex' || value === 'claude' || value === 'grok'
 
 /** O programa oficial que o Hub prepara para cada motor. */
 // textos-ok: nome próprio do programa, igual em todo idioma.
-export const engineName = (engine: Engine) => engine === 'codex' ? 'Codex' : 'Claude Code'
-export const engineCompany = (engine: Engine) => engine === 'codex' ? 'OpenAI' : 'Anthropic'
+export const engineName = (engine: Engine) => engine === 'codex' ? 'Codex' : engine === 'grok' ? 'Grok Build' : 'Claude Code'
+export const engineCompany = (engine: Engine) => engine === 'codex' ? 'OpenAI' : engine === 'grok' ? 'xAI' : 'Anthropic'
 /** Logo do registro ACP já empacotado no app (sem baixar imagem de fora). */
-export const engineRegistry = (engine: Engine) => engine === 'codex' ? 'codex-acp' : 'claude-acp'
+export const engineRegistry = (engine: Engine) => engine === 'codex' ? 'codex-acp' : engine === 'grok' ? 'grok-build' : 'claude-acp'
 
 /**
  * Domínios oficiais das páginas de login. O Hub confere HTTPS e domínio exato antes de mandar o
@@ -28,12 +28,14 @@ export const engineRegistry = (engine: Engine) => engine === 'codex' ? 'codex-ac
 export const PROVIDER_DOMAINS: Readonly<Record<Engine, readonly string[]>> = {
   codex: ['auth.openai.com'],
   claude: ['claude.ai', 'platform.claude.com', 'console.anthropic.com'],
+  grok: ['auth.x.ai', 'accounts.x.ai'],
 }
 
 /** Páginas oficiais onde se cria uma chave de API (link do formulário de chave). */
 export const KEY_DOMAINS: Readonly<Record<Engine, readonly string[]>> = {
   codex: ['platform.openai.com'],
   claude: ['console.anthropic.com', 'platform.claude.com'],
+  grok: [],
 }
 
 /** O endereço normalizado se puder abrir: https, sem usuário/senha/porta, host idêntico ao exibido e na lista. */
@@ -45,9 +47,10 @@ export function providerUrl(engine: Engine, raw: unknown, displayDomain?: string
   } catch {
     return null
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.port) return null
+  if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) return null
   const host = url.hostname.toLowerCase()
   if (!domains[engine].includes(host)) return null
+  if (engine === 'grok' && [...url.searchParams.keys()].some((key) => key !== 'user_code')) return null
   if (displayDomain !== undefined && host !== displayDomain.trim().toLowerCase()) return null
   return url.href
 }
@@ -302,7 +305,7 @@ export function accountView(account: ManagedAccount, kind: AccountKind, idioma: 
   // Cobrança só com a conta conectada (desconectada não prova assinatura); chave de API sempre se identifica.
   const connected = account.state === 'connected'
   const billing = account.billing === 'paid_api' ? (connected ? textos.apiPaga : textos.porChave)
-    : !connected ? '' : account.billing === 'subscription' ? textos.assinatura : textos.cobrancaNaoConfirmada
+    : !connected ? '' : account.billing === 'subscription' ? (account.backend === 'grok' ? traduzir(idioma, 'contas.planoXai') : textos.assinatura) : textos.cobrancaNaoConfirmada
   const title = accountTitle(account, textos.perfilAntigo)
   const login = (action: 'connect' | 'reconnect') => kind === 'api'
     ? { action: 'key' as const, label: action === 'connect' ? textos.informarChave : textos.trocarChave }

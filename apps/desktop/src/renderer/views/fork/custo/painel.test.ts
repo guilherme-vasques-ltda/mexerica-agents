@@ -58,6 +58,9 @@ test('accounts/models fora do contrato recusam tudo (INVALIDA)', () => {
 test('cadastro de contas: formato estrito; falha não vira lista vazia', () => {
   const ok = lerCadastro({ accounts: [{ id: 'acc-1', label: 'Claude', backend: 'claude', billing: 'subscription', state: 'connected', models: [] }] })
   assert.deepEqual(ok, [{ id: 'acc-1', label: 'Claude', backend: 'claude', billing: 'subscription' }])
+  // Uma conta Grok no cadastro não derruba a leitura das outras.
+  const comGrok = lerCadastro({ accounts: [{ id: 'acc-1', label: 'Claude', backend: 'claude', billing: 'subscription' }, { id: 'acc-2', label: 'Grok', backend: 'grok', billing: 'subscription' }] })
+  assert.deepEqual(comGrok.map((c) => c.backend), ['claude', 'grok'])
   for (const raw of [null, {}, { accounts: [{ id: 'a', label: 'x', backend: 'gemini', billing: 'paid_api' }] }, { accounts: [{ id: '', label: 'x', backend: 'codex', billing: 'paid_api' }] }, { accounts: [{ id: 'a', label: 'x', backend: 'codex', billing: 'free' }] }]) {
     assert.throws(() => lerCadastro(raw), /cost_invalid_answer/, JSON.stringify(raw))
   }

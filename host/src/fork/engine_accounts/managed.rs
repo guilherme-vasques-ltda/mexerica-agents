@@ -172,7 +172,7 @@ pub(crate) fn new_profile(store: &Store, id: &str, backend: Backend) -> Result<P
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600))?;
     }
-    let directory = home.join(if backend == Backend::Codex { ".codex" } else { ".claude" });
+    let directory = home.join(backend.profile_directory());
     private_dir(&directory)?;
     Ok(directory)
 }
@@ -203,7 +203,7 @@ pub(crate) fn validate_profile(store: &Store, id: &str, directory: &Path) -> Res
 pub(crate) fn secure_files(directory: &Path) -> Result<()> {
     if crate::fork::motor_exec::configured() {
         // O chamador histórico protege a home; o ajudante recebe o perfil canônico.
-        let profile = if directory.file_name().is_some_and(|v| v == ".claude" || v == ".codex") {
+        let profile = if directory.file_name().is_some_and(|v| v == ".claude" || v == ".codex" || v == ".grok") {
             directory.to_path_buf()
         } else {
             anyhow::bail!("profile_invalid: operação exige perfil, não home")
@@ -437,7 +437,7 @@ pub(crate) fn migrated_legacy(account: &Account) -> bool {
             == crate::fork::motor_roots::accounts()
                 .join(&account.id)
                 .join("legacy")
-                .join(if account.backend == Backend::Codex { ".codex" } else { ".claude" })
+                .join(account.backend.profile_directory())
 }
 
 pub(crate) fn resolve_for_bot(store: &Store, bot: &BotConfig) -> Result<Option<AccountLaunch>> {
@@ -467,13 +467,14 @@ pub(crate) fn resolve_for_bot(store: &Store, bot: &BotConfig) -> Result<Option<A
                     directory.parent().ok_or_else(|| anyhow!("profile_invalid"))?.to_string_lossy().into_owned(),
                 ));
             }
-            env.push((
-                if account.backend == Backend::Codex { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }.into(),
-                directory.to_string_lossy().into_owned(),
-            ));
+            env.push((account.backend.profile_variable().into(), directory.to_string_lossy().into_owned()));
             env.push(("DISABLE_AUTOUPDATER".into(), "1".into()));
-            env.push(("CODEX_PATH".into(), executable.to_string_lossy().into_owned()));
-            env.push(("CLAUDE_CODE_EXECUTABLE".into(), executable.to_string_lossy().into_owned()));
+            if account.backend == Backend::Grok {
+                env.push(("GROK_DISABLE_AUTOUPDATER".into(), "1".into()));
+            } else {
+                env.push(("CODEX_PATH".into(), executable.to_string_lossy().into_owned()));
+                env.push(("CLAUDE_CODE_EXECUTABLE".into(), executable.to_string_lossy().into_owned()));
+            }
             Ok(Some(AccountLaunch { env, revision: account.managed.as_ref().map_or(1, |m| m.revision) }))
         }
         LaunchReference::VaultProfile { slot } => {
@@ -613,12 +614,43 @@ pub(crate) fn editor_runtime(store: &Store, bot: &BotConfig) -> Result<Value> {
     Ok(registry.account(id).map_or_else(|_|json!({"engineAccountId":id,"state":"unavailable"}), |account| json!({"engineAccountId":id,"state":account.dto().state,"revision":account.managed.as_ref().map_or(1,|m|m.revision)})))
 }
 
+/// Adaptadores ACP próprios de cada motor; o Grok Build fala ACP sozinho (`grok agent stdio`) e não tem adaptador.
+pub(crate) fn adapter_names(backend: &str) -> &'static [&'static str] {
+    match backend {
+        "codex" => &["codex-acp"],
+        "grok" => &[],
+        _ => &["claude-agent-acp", "claude-code-acp"],
+    }
+}
+
+/// Bot com conta Grok executa exatamente o executável gravado na conta, o mesmo que o login conferiu e que
+/// `resolve_for_bot` valida. Candidato do PATH ou do catálogo nunca recebe o perfil autenticado; sem o
+/// executável gravado disponível, o lançamento recusa em vez de escolher outro.
+pub(crate) fn recorded_command(store: &Store, bot: &BotConfig) -> Result<Vec<String>> {
+    let registry = Registry::load(store)?;
+    let account = registry.account(bot.fork_editor.engine_account_id.as_deref().unwrap_or_default())?;
+    ensure!(account.backend == Backend::Grok, "account_incompatible: conta e motor incompatíveis.");
+    let LaunchReference::CliProfile { executable, .. } = &account.launch else {
+        anyhow::bail!("cli_unavailable: prepare o conector da conta.");
+    };
+    ensure!(crate::fork::motor_install::executable(executable), "cli_unavailable: prepare o conector da conta.");
+    // Mesmos argumentos do modo ACP nativo do motor ("{bin} agent stdio" no molde local): o executável e
+    // cada argumento entram como elementos separados — o caminho entre aspas — e só viram uma linha no
+    // fim, porque o vetor de candidatos carrega linhas de comando inteiras.
+    let args = crate::agent::backends::harness(account.backend.id())
+        .and_then(|harness| harness.local)
+        .map(|template| template.strip_prefix("{bin}").unwrap_or(template).trim().to_owned())
+        .unwrap_or_default();
+    let mut words = vec![crate::shell::quote(&executable.to_string_lossy())];
+    words.extend(args.split_whitespace().map(str::to_owned));
+    Ok(vec![words.join(" ")])
+}
+
 pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<String>> {
     if backend == "claude" && !crate::fork::claude_ponte::legado() {
         return Ok(vec![crate::fork::claude_ponte::comando(None)?]);
     }
-    let names: &[&str] = if backend == "codex" { &["codex-acp"] } else { &["claude-agent-acp", "claude-code-acp"] };
-    for name in names {
+    for name in adapter_names(backend) {
         if let Some(path) = crate::agent::backends::which(name) {
             return Ok(vec![crate::shell::quote(&path.to_string_lossy())]);
         }

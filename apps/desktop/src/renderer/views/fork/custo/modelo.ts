@@ -212,7 +212,7 @@ export function lerCadastro(raw: unknown): ContaCadastro[] {
   const o = obj(raw)
   return lista(o.accounts, (v) => {
     const c = obj(v)
-    const backend = c.backend === 'claude' || c.backend === 'codex' ? c.backend : invalida()
+    const backend = c.backend === 'claude' || c.backend === 'codex' || c.backend === 'grok' ? c.backend : invalida()
     const billing = c.billing === 'subscription' || c.billing === 'paid_api' || c.billing === 'unverified' ? c.billing : invalida()
     return { id: id(c.id), label: texto(c.label), backend, billing }
   })

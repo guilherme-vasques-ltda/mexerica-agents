@@ -426,7 +426,7 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
           </section> : null}
 
           {account.state === 'connected' && local && !open ? <Uso usage={usage} /> : null}
-          {account.state === 'connected' && local && managed && !open ? <SeEstaContaAcabar store={store} contas={contas} account={account} /> : null}
+          {account.state === 'connected' && local && managed && !open && account.backend !== 'grok' ? <SeEstaContaAcabar store={store} contas={contas} account={account} /> : null}
           {error || comBots ? <Text tone="danger" role="alert" className="selectable">{comBots ? textos.removerComBots(names) : errorMessage(error, idioma)}</Text> : null}
         </VStack>
       </div>
