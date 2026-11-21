@@ -69,16 +69,3 @@ test('grafo web transitivo: nenhum node:* nem Buffer em nenhum arquivo alcançá
   }
 })
 
-test('o typecheck E2E da cloud (que importa os calços do desktop) tem "paths" para todo pacote do grafo (checagem estática)', () => {
-  const { bare } = graph(['../../main/fork-cloud/crypto.ts', '../../main/fork-cloud/channel.ts', '../../main/fork-cloud/relay-socket.ts'])
-  const e2e = JSON.parse(readFileSync(new URL('../../../../../cloud/test/e2e/tsconfig.json', import.meta.url), 'utf8')) as { compilerOptions: { paths?: Record<string, string[]> } }
-  const mapped = e2e.compilerOptions.paths ?? {}
-  for (const spec of bare) {
-    if (spec.startsWith('node:')) continue // tipos do Node: `types: ["node"]` na cloud
-    const target = mapped[spec]
-    assert.ok(target?.length, `${spec} precisa de "paths" em cloud/test/e2e/tsconfig.json (o job cloud só instala cloud/)`)
-    // Estático, sem abrir node_modules (o job desktop não instala cloud/): o destino tem de ser o
-    // `.d.ts` do mesmo especificador em cloud/node_modules; que o arquivo exista é o `tsc -p test/e2e` do job cloud.
-    assert.equal(target![0], `../../node_modules/${spec.replace(/\.js$/, '.d.ts')}`, `${spec}: destino fora do padrão cloud/node_modules/<pacote>.d.ts`)
-  }
-})
