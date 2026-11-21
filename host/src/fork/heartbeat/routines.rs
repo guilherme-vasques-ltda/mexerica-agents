@@ -32,28 +32,43 @@ impl Fonte for Indisponivel {
 
 /// A fonte com prazo por chamada: cada `marcador` ou `ler` roda numa linha de execução à parte e, se não voltar a tempo
 /// (ou entrar em pânico), vira `Motivo::Fora`. Uma chamada que ficou para trás mantém a fonte `ocupada`: nova chamada
-/// não é aberta até ela terminar, para uma fonte travada não acumular linhas de execução.
-struct ComPrazo {
+/// não é aberta até ela terminar, para uma fonte travada não acumular linhas de execução. Cada chamada só é aberta se
+/// `admitir` ainda a permite (a concessão, a rotina e a pausa continuam como na coleta) e `valida` segue de pé até o
+/// instante de chamar a fonte; uma chamada já em curso não é cancelada, mas seu resultado é descartado na gravação.
+struct ComPrazo<'a> {
     fonte: Arc<dyn Fonte>,
     prazo: Duration,
     ocupada: Arc<AtomicBool>,
+    valida: Arc<AtomicBool>,
+    admitir: &'a (dyn Fn() -> bool + Sync),
 }
 
-impl ComPrazo {
+impl ComPrazo<'_> {
     fn chamar<T: Send + 'static>(
         &self,
         chamada: impl FnOnce(&dyn Fonte) -> Result<T, Motivo> + Send + 'static,
     ) -> Result<T, Motivo> {
+        if !(self.admitir)() {
+            return Err(Motivo::SemAcesso);
+        }
         if self.ocupada.swap(true, Ordering::AcqRel) {
             return Err(Motivo::Fora);
         }
         let (envia, recebe) = mpsc::channel();
-        let (fonte, ocupada) = (self.fonte.clone(), self.ocupada.clone());
-        std::thread::spawn(move || {
-            let resultado = std::panic::catch_unwind(AssertUnwindSafe(|| chamada(&*fonte)));
+        let (fonte, ocupada, valida) = (self.fonte.clone(), self.ocupada.clone(), self.valida.clone());
+        let aberta = std::thread::Builder::new().spawn(move || {
+            let resultado = if valida.load(Ordering::Acquire) {
+                std::panic::catch_unwind(AssertUnwindSafe(|| chamada(&*fonte)))
+            } else {
+                Ok(Err(Motivo::SemAcesso))
+            };
             ocupada.store(false, Ordering::Release);
             let _ = envia.send(resultado);
         });
+        if aberta.is_err() {
+            self.ocupada.store(false, Ordering::Release);
+            return Err(Motivo::Fora);
+        }
         match recebe.recv_timeout(self.prazo) {
             Ok(Ok(resultado)) => resultado,
             _ => Err(Motivo::Fora),
@@ -61,7 +76,7 @@ impl ComPrazo {
     }
 }
 
-impl Fonte for ComPrazo {
+impl Fonte for ComPrazo<'_> {
     fn marcador(&self, escopo: &str) -> Result<Option<String>, Motivo> {
         let escopo = escopo.to_owned();
         self.chamar(move |fonte| fonte.marcador(&escopo))
@@ -96,19 +111,40 @@ impl Routines {
     pub(crate) fn registrar_fonte(&self, bot: &str, nome: &str, identidade: &str, fonte: Arc<dyn Fonte>) {
         let _estado = self.state.locked();
         let registro = self.concessoes.fetch_add(1, Ordering::SeqCst) + 1;
+        // A trava de chamadas é da instância da fonte, não do registro: recadastrar a mesma fonte (ou retirá-la e
+        // registrá-la de novo) enquanto uma chamada anterior não voltou não libera outra chamada em paralelo.
+        let ocupada = {
+            let mut travas = self.travas.locked();
+            travas.retain(|(viva, _)| viva.strong_count() > 0);
+            let existente = travas
+                .iter()
+                .find(|(viva, _)| std::ptr::addr_eq(viva.as_ptr(), Arc::as_ptr(&fonte)))
+                .map(|(_, trava)| trava.clone());
+            existente.unwrap_or_else(|| {
+                let nova = Arc::new(AtomicBool::new(false));
+                travas.push((Arc::downgrade(&fonte), nova.clone()));
+                nova
+            })
+        };
         let concessao = Concessao {
             registro,
             identidade: identidade_de(identidade),
             fonte,
-            ocupada: Arc::new(AtomicBool::new(false)),
+            ocupada,
+            valida: Arc::new(AtomicBool::new(true)),
         };
-        self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), concessao);
+        let anterior = self.fontes.locked().insert((bot.to_owned(), nome.to_owned()), concessao);
+        if let Some(anterior) = anterior {
+            anterior.valida.store(false, Ordering::Release);
+        }
     }
 
     /// Revoga a concessão: a próxima checagem já não consulta a fonte, e a que está lendo descarta o resultado.
     pub(crate) fn retirar_fonte(&self, bot: &str, nome: &str) {
         let _estado = self.state.locked();
-        self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned()));
+        if let Some(retirada) = self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned())) {
+            retirada.valida.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -161,7 +197,7 @@ impl Routines {
             .fontes
             .locked()
             .get(&chave)
-            .map(|c| (c.registro, c.identidade.clone(), c.fonte.clone(), c.ocupada.clone()));
+            .map(|c| (c.registro, c.identidade.clone(), c.fonte.clone(), c.ocupada.clone(), c.valida.clone()));
         let numero = concedida.as_ref().map(|(registro, ..)| *registro);
         let identidade = concedida.as_ref().map(|(_, identidade, ..)| identidade.clone());
         // Outra conta ou vínculo não herda marcador, espera nem avisos. Sem concessão (por exemplo, logo depois de
@@ -173,9 +209,30 @@ impl Routines {
         }
         let _vaga = EmAndamento { routines: self, id };
         let prazo = Duration::from_millis(self.prazo_fonte_ms.load(Ordering::Relaxed));
-        let fonte: Arc<dyn Fonte> = concedida.map_or_else(
-            || Arc::new(Indisponivel(Motivo::SemAcesso)) as Arc<dyn Fonte>,
-            |(_, _, fonte, ocupada)| Arc::new(ComPrazo { fonte, prazo, ocupada }) as Arc<dyn Fonte>,
+        // Antes de cada chamada à fonte (não só ao gravar): pausa geral, exclusão, desligamento, outra edição da rotina
+        // e concessão retirada ou trocada fecham a porta para leituras novas. Os dois locks são pegos na mesma ordem
+        // das mudanças e soltos antes da chamada, que nunca roda com lock.
+        let admitir = || {
+            let s = self.state.locked();
+            if s.paused || s.pausas != pausas {
+                return false;
+            }
+            if self.fontes.locked().get(&chave).map(|c| c.registro) != numero {
+                return false;
+            }
+            s.routines.iter().any(|r| {
+                r.id == id
+                    && !r.deleted
+                    && r.enabled
+                    && r.updated_at == geracao
+                    && r.heartbeat.as_ref() == Some(&declaracao)
+            })
+        };
+        let fonte: Box<dyn Fonte + '_> = concedida.map_or_else(
+            || Box::new(Indisponivel(Motivo::SemAcesso)) as Box<dyn Fonte + '_>,
+            |(_, _, fonte, ocupada, valida)| {
+                Box::new(ComPrazo { fonte, prazo, ocupada, valida, admitir: &admitir }) as Box<dyn Fonte + '_>
+            },
         );
         let mut saida = std::panic::catch_unwind(AssertUnwindSafe(|| avaliar(&*fonte, &declaracao, &anterior, now)))
             .unwrap_or_else(|_| avaliar(&Indisponivel(Motivo::Fora), &declaracao, &anterior, now));

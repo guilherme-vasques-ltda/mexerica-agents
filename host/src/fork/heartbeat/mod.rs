@@ -155,6 +155,8 @@ pub(crate) struct Concessao {
     pub fonte: std::sync::Arc<dyn Fonte>,
     /// Há uma chamada à fonte ainda em andamento (estourou o prazo e não voltou): nova chamada não é aberta.
     pub ocupada: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Cai quando a concessão é retirada ou trocada: chamada ainda não aberta não chega a tocar a fonte.
+    pub valida: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// O que se guarda no estado como identidade da concessão, sem a identidade bruta.
