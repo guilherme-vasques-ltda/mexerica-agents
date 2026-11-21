@@ -434,6 +434,8 @@ pub(crate) enum CompactionUsage {
 
 pub(crate) struct Conn {
     ponte: Option<crate::fork::ponte_credencial::Revogador>,
+    /// Sessão do repasse local do plano de código (o código que o OpenCode usa no lugar da chave).
+    plano: Option<crate::fork::planos_codigo::Concessao>,
     curated: crate::fork::conectores::Pool,
     pub(crate) acp: Arc<Acp>,
     pub(crate) rx: mpsc::UnboundedReceiver<Incoming>,
@@ -524,7 +526,7 @@ enum SegKind {
 
 enum Seg {
     None,
-    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool },
+    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool, solta: bool },
 }
 
 // These flags describe independent actor concerns, not interchangeable states.
@@ -864,6 +866,10 @@ mod waiting_tests;
 #[cfg(test)]
 #[path = "context_effects_tests.rs"]
 mod context_effects_tests;
+
+#[cfg(test)]
+#[path = "mascara_codigo_tests.rs"]
+mod mascara_codigo_tests;
 
 #[cfg(test)]
 #[path = "../../fork/cadeias/ator_testes.rs"]

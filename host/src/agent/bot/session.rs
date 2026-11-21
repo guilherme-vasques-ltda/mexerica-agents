@@ -263,10 +263,27 @@ impl Actor {
         memory::engine::check_workspace(&self.cfg)?;
         let selected = crate::fork::engine_accounts::managed::resolve_for_bot(&self.hub.store, &self.cfg)?;
         let revision = selected.as_ref().map(|launch| launch.revision);
-        let login_profile = if selected.is_none() {
-            crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)?
+        // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono.
+        let plano = if selected.is_none() {
+            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await {
+                Ok(plano) => plano,
+                Err(erro) => {
+                    // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.
+                    if let Some(conn) = self.conn.take() {
+                        conn.kill().await;
+                    }
+                    return Err(erro);
+                }
+            }
         } else {
-            String::new()
+            None
+        };
+        let login_profile = match &plano {
+            Some(plano) => plano.carimbo.clone(),
+            None if selected.is_none() => {
+                crate::fork::terminal_login::stamp(&self.hub.store, &self.cfg.backend, &self.cfg.space_id)?
+            }
+            None => String::new(),
         };
         if self.cfg.context.is_some() {
             let key = format!("donna.space.engine.{}", self.cfg.session_owner());
@@ -381,7 +398,7 @@ impl Actor {
             self.hub.set_runtime(&self.id(), |r| r.set_activity("Starting agent…", Some(ActivityKind::StartingAgent)));
             // Keys saved from an "environment variable" sign-in. O motor
             // interno lê a chave do cofre pelo canal fd 3, nunca do ambiente.
-            let mut env = if selected.is_some() || interno {
+            let mut env = if selected.is_some() || interno || plano.is_some() {
                 Vec::new()
             } else {
                 crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?
@@ -390,8 +407,13 @@ impl Actor {
                 env.push(("CODEX_CONFIG".into(), "{}".into()));
             }
             own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
-            crate::agent::harness::apply(&mut env, &self.cfg.backend, &crate::agent::harness::compile());
-            if selected.is_none() {
+            crate::fork::planos_codigo::aplicar_ambiente(
+                &mut env,
+                &self.cfg.backend,
+                &crate::agent::harness::compile(),
+                plano.as_ref(),
+            );
+            if selected.is_none() && plano.is_none() {
                 env.extend(crate::fork::terminal_login::runtime_env(
                     &self.hub.store,
                     &self.cfg.backend,
@@ -429,6 +451,8 @@ impl Actor {
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
+                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre.
+                conn.plano = plano.map(|plano| plano.concessao);
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",
                     Adapter::Claude => "claude",
