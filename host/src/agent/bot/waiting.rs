@@ -676,6 +676,8 @@ impl Actor {
     }
 
     pub(super) fn defer_completion(&mut self, done: &Done) {
+        // O motor já respondeu; o que ficou para depois é só a publicação do fim.
+        self.mudo_desarmar();
         self.finishing = Some(match done {
             Ok(value) => Ok(value.clone()),
             Err(error) => Err(anyhow::anyhow!("{error:#}")),

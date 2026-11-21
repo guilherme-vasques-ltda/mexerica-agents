@@ -26,6 +26,8 @@ enum Aviso {
 
 pub(super) struct Vigia {
     limite: Duration,
+    /// O turno ao qual o estado do aviso pertence: um retry do mesmo turno não o reseta.
+    turno: Option<i64>,
     ultimo_sinal: Option<Instant>,
     aviso: Aviso,
 }
@@ -61,7 +63,7 @@ impl Vigia {
             .and_then(|valor| valor.parse::<u64>().ok())
             .filter(|segundos| *segundos > 0)
             .map_or(LIMITE_PADRAO, Duration::from_secs);
-        Self { limite, ultimo_sinal: None, aviso: Aviso::Nenhum }
+        Self { limite, turno: None, ultimo_sinal: None, aviso: Aviso::Nenhum }
     }
 
     /// O pedido `session/prompt` foi enviado: o relógio começa agora.
@@ -82,11 +84,23 @@ impl Vigia {
 }
 
 impl Actor {
-    /// Turno novo: zera o relógio e fecha o aviso do turno anterior, se sobrou algum.
-    pub(super) fn mudo_iniciar(&mut self) {
+    /// Turno novo: zera o relógio e fecha o aviso do turno anterior, se sobrou algum. Retry do mesmo
+    /// turno (a espera da assinatura continua onde parou) conserva o estado: um aviso por turno.
+    pub(super) fn mudo_iniciar(&mut self, turno: i64) {
+        if self.mudo.turno == Some(turno) {
+            return;
+        }
+        self.mudo.turno = Some(turno);
         self.mudo_encerrar();
         self.mudo.ultimo_sinal = None;
         self.mudo.aviso = Aviso::Nenhum;
+    }
+
+    /// A resposta do motor chegou, mas a publicação do fim ficou para depois (`defer_completion`):
+    /// o motor não está mudo. Fecha o aviso ativo e deixa o vigia desarmado até o próximo prompt.
+    pub(super) fn mudo_desarmar(&mut self) {
+        self.mudo_encerrar();
+        self.mudo.ultimo_sinal = None;
     }
 
     pub(super) fn mudo_armar(&mut self) {
@@ -197,9 +211,12 @@ fn texto_silencio(segundos: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::bot::new_actor;
+    use crate::store::Lane;
+    use std::sync::Arc;
 
     fn vigia() -> Vigia {
-        Vigia { limite: Duration::from_secs(600), ultimo_sinal: None, aviso: Aviso::Nenhum }
+        Vigia { limite: Duration::from_secs(600), turno: None, ultimo_sinal: None, aviso: Aviso::Nenhum }
     }
 
     fn aberto() -> Quietude {
@@ -289,6 +306,59 @@ mod tests {
         assert!(!vigia.deve_avisar(Instant::now(), &aberto()));
         tokio::time::advance(Duration::from_secs(100)).await;
         assert!(vigia.deve_avisar(Instant::now(), &aberto()));
+    }
+
+    #[tokio::test]
+    async fn estado_do_aviso_respeita_o_turno() {
+        let (mut ator, _hub) = ator_vazio();
+        ator.mudo.turno = Some(7);
+        ator.mudo.aviso = Aviso::Encerrado;
+        // Retry do mesmo turno: o aviso emitido não se perde, um segundo não nasce.
+        ator.mudo_iniciar(7);
+        assert_eq!(ator.mudo.aviso, Aviso::Encerrado);
+        // Turno novo: o estado recomeça.
+        ator.mudo_iniciar(8);
+        assert_eq!(ator.mudo.aviso, Aviso::Nenhum);
+        assert_eq!(ator.mudo.turno, Some(8));
+    }
+
+    #[tokio::test]
+    async fn resposta_adiada_desarma_o_vigia_e_fecha_o_aviso_ativo() {
+        let (mut ator, hub) = ator_vazio();
+        ator.turn = Some(1);
+        let entrada = hub
+            .add_entry(
+                &Lane::main("bot"),
+                EntryKind::Notice,
+                1,
+                &json!({"text":"x","style":"info","author":"bot","motorMudo":{"estado":"mudo","segundos":600}}),
+            )
+            .unwrap();
+        ator.mudo.aviso = Aviso::Ativo(entrada.id.clone());
+        ator.mudo_armar();
+        ator.mudo_desarmar();
+        assert_eq!(ator.mudo.aviso, Aviso::Encerrado);
+        assert!(ator.mudo.ultimo_sinal.is_none(), "desarmado até o próximo prompt");
+        let salva = hub.store.entry(&entrada.id).unwrap();
+        assert_eq!(salva.data["motorMudo"]["estado"], "voltou");
+    }
+
+    fn ator_vazio() -> (Actor, Arc<crate::hub::Hub>) {
+        let dir = std::env::temp_dir().join(format!("motor-mudo-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        let cfg: crate::store::BotConfig =
+            serde_json::from_value(json!({"id":"bot","name":"Bot","backend":"fixture","cwd":dir,"notify":false}))
+                .unwrap();
+        store.save_bot(&cfg).unwrap();
+        let hub = crate::hub::Hub::new(
+            store,
+            "motor-mudo".into(),
+            crate::remote::identity::Identity::load_or_create(&dir).unwrap(),
+            "fixture".into(),
+            0,
+        );
+        (new_actor(hub.clone(), cfg), hub)
     }
 
     #[test]

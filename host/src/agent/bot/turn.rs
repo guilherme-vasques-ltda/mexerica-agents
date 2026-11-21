@@ -316,7 +316,7 @@ impl Actor {
         };
         self.lane = lane.clone();
         self.turn = Some(turn);
-        self.mudo_iniciar();
+        self.mudo_iniciar(turn);
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
         let from_user = owner_words(
             hidden,
