@@ -127,7 +127,7 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     assert!(
         POLICY
             .trim_end()
-            .ends_with(r##"(deny file-read* file-write* (regex #"/\.[Cc][Oo][Dd][Ee][Xx]/\.[Ee][Nn][Vv]$"))"##),
+            .ends_with(r#"(deny file-read* file-write* (regex #"/\.[Cc][Oo][Dd][Ee][Xx]/\.[Ee][Nn][Vv]$"))"#),
         "o .env do perfil, que trocaria a confiança do TLS, fica fora do alcance do Codex e a negação vem por último"
     );
     assert!(
