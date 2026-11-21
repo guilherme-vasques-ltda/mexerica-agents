@@ -79,6 +79,28 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
   typecheck, `npm test` (inclui o gate de textos e os testes de avisos) e `npm run test:open`
   quando a variante Open existe na árvore.
 
+## Revisão automática opcional
+
+O [Open Code Review](../../.github/workflows/code-review.yml) roda fora do `ci-ok` em PRs
+internos e sem rascunho para `main`, na abertura, reabertura ou atualização do código. Se a
+configuração estiver ausente, o job pula a revisão. Ele precisa dos Secrets `OCR_LLM_URL` e
+`OCR_LLM_AUTH_TOKEN` e da Variable `OCR_LLM_MODEL`. As Variables opcionais são
+`OCR_LLM_PROTOCOL` (`openai`, `openai-responses` ou `anthropic`, padrão `openai`),
+`OCR_EFFORT` (`low`, `medium` ou `high`, padrão `medium`) e `OCR_LANGUAGE` (`Portuguese` ou
+`English`, padrão `Portuguese`).
+
+**Ao ativar, o provedor configurado recebe o diff e pode receber trechos adicionais do
+código para contexto.** Use um endpoint HTTPS confiável que não redirecione requisições
+e imponha seu próprio limite de gasto: o orçamento do revisor é avaliado entre chamadas.
+Mantenedores com permissão de push são parte da fronteira de
+confiança, pois `pull_request` pode usar o workflow modificado numa branch interna.
+O revisor usa a base como árvore de trabalho e lê o head apenas por objetos Git. Nenhuma
+saída bruta é publicada ou enviada como artefato; o job de publicação, sem segredos do
+provedor, recebe apenas índices, posições e classificações, e reconfere o SHA e o diff
+antes de publicar. Os comentários indicam categoria e severidade em texto fixo para
+verificação manual; não copiam a explicação do modelo nem aprovam o PR. Diffs ou resultados
+fora dos limites e posições que o GitHub não confirma não geram comentários.
+
 ## macOS
 
 O workflow `macOS` tem o job de build, `macos`, e um job de recusa, `maquina-mac`. Eles
