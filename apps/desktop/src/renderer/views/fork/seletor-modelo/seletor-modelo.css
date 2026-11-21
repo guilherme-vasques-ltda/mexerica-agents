@@ -63,6 +63,7 @@
   .seletor-colunas { grid-template-columns: 48px minmax(0, 1fr); }
   .seletor-trilho-item { justify-content: center; padding: 0; }
   .seletor-trilho-nome { display: none; }
+  .seletor-trilho-item.sem-aprovacao .seletor-trilho-quem small { display: none; }
 }
 .seletor-meio {
   display: flex;
@@ -237,10 +238,12 @@ p.seletor-conta { display: block; height: auto; min-height: 26px; padding-block:
 .seletor-conta-uso { color: var(--ink-3); font-size: 0.86em; font-weight: 400; }
 .seletor-nota-troca { color: var(--ink-2); }
 /* Função de fundo (Ajustes → Bot de fundo): o motor que a função não aceita fica no trilho, apagado, com o motivo curto. */
-.seletor-trilho-item.fora { align-items: flex-start; padding-block: 6px; }
+.seletor-trilho-item.fora,
+.seletor-trilho-item.sem-aprovacao { align-items: flex-start; padding-block: 6px; }
 .seletor-trilho-item.fora .seletor-trilho-icone,
 .seletor-trilho-item.fora .seletor-trilho-nome { opacity: 0.55; }
 .seletor-trilho-quem { display: flex; flex-direction: column; min-width: 0; }
+.seletor-trilho-item.sem-aprovacao .seletor-trilho-quem small { color: var(--attention); }
 .seletor-trilho-quem small { font-size: 0.82em; line-height: 14px; color: var(--ink-2); white-space: normal; }
 /* A linha Conta com contas que não servem agora: cada uma na própria linha, com o estado em palavras e a ação ao lado. */
 div.seletor-conta.seletor-conta-funcao { height: auto; flex-direction: column; align-items: stretch; gap: 4px; padding-block: 2px; white-space: normal; overflow: visible; }

@@ -617,6 +617,8 @@ export interface Backend {
   curated?: boolean
   signedIn?: boolean
   canInstall?: boolean
+  /** O motor age sem pedir aprovação no cartão do Hub (edita arquivos, roda comandos ou ferramentas sem pedir); o Hub marca. */
+  actsWithoutApproval?: boolean
   /** Only for an agent that runs on Node.js, on a computer without its own: Codync's copy is missing or added. */
   node?: 'missing' | 'added'
 }

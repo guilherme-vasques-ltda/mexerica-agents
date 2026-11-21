@@ -634,6 +634,7 @@ pub fn list() -> Vec<Value> {
                 "command": h.local.unwrap_or_default(),
                 "registry": h.registry,
                 "curated": true,
+                "actsWithoutApproval": crate::fork::aprovacao_despacho::age_sem_pedir(h.id),
             })
         })
         .collect();

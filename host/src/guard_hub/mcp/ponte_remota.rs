@@ -33,7 +33,7 @@ impl Bridge {
             .post(format!("http://127.0.0.1:{}/api/{action}", self.port))
             .bearer_auth(self.token.as_str())
             .json(&body)
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(30) + crate::fork::aprovacao_despacho::ESPERA)
             .send()
             .await
             .map_err(|_| anyhow!("Hub indisponível; conteúdo retido"))?;

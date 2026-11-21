@@ -67,6 +67,19 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         // Guarda03b antes de encaminhar: a execução vem do RuntimeIntent da Sessões3.
         let mcp_method = body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?;
         let intent = RuntimeIntent::capture(hub, id, connector, mcp_method)?;
+        if mcp_method == "tools/call"
+            && let Some(context) = intent.context()
+            && !crate::fork::aprovacao_despacho::conector_liberado(
+                hub,
+                &context.bot,
+                &context.connector,
+                &body,
+                intent.execution(),
+            )
+            .await
+        {
+            return Ok(json!({"valid":false,"ruleDenied":true}));
+        }
         let _boundary = hub.store.memory_boundary.locked();
         crate::fork::spaces::connector_context::check(hub, id, &body, intent.execution())?;
         intent.validate_live(hub)?;

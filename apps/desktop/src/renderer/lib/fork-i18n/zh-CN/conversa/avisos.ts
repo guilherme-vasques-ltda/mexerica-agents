@@ -26,6 +26,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.equipe.desfeito": "{texto} · 已撤销",
   "conversa.avisos.equipe.desfazer": "撤销",
   "conversa.avisos.motor.opencode": "在 OpenCode 中，安全锁并不覆盖所有情况：它可能使用机器人所在电脑的设置，并在不询问的情况下启动扩展（MCP 和插件）。",
+  "conversa.avisos.motor.semAprovacaoSelo": "无需批准即执行",
+  "conversa.avisos.motor.semAprovacao": "此引擎会在你的电脑上执行操作，而不会征求你的批准。Hub 无法对它强制使用批准卡片。",
   "conversa.avisos.pergunta.aria": "{bot} 的提问：{estado}",
   "conversa.avisos.falha.contasConectadas": "已连接的账户：{lista}。",
   "conversa.avisos.falha.nenhumaConectada": "没有已连接的 AI 账户。",

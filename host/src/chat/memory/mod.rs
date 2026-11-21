@@ -35,6 +35,8 @@ pub(crate) use tools::call_in_execution as tool_call_in_execution;
 #[cfg(test)]
 pub(crate) use tools::history_call;
 pub(crate) use tools::history_call_in_execution;
+#[cfg(test)]
+pub(crate) use tools::tools as tool_list;
 pub(crate) use write_gate::{observe_input, observe_session_input};
 
 use crate::LockExt;

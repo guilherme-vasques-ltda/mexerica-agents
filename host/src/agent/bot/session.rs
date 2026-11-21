@@ -378,7 +378,13 @@ impl Actor {
             if let Some(launch) = &selected {
                 env.extend(launch.env.clone());
             }
-            env.extend(super::fork_aprovacao_motor::launch_env(&self.cfg.backend));
+            env.extend(super::fork_aprovacao_motor::launch_env(
+                &self.cfg.backend,
+                &crate::service::data_dir().join("motores").join("kilo"),
+            )?);
+            for command in &mut candidates {
+                *command = super::fork_aprovacao_motor::fixar_executavel(&self.cfg.backend, command, &env)?;
+            }
             let mut last_err = None;
             let mut spawned = None;
             if interno {
@@ -388,7 +394,6 @@ impl Actor {
                 }
             } else {
                 for (i, command) in candidates.iter().enumerate() {
-                    super::fork_aprovacao_motor::provar_kilo(&self.cfg.backend, command, &self.cfg.cwd, &env).await?;
                     let fallback_left = i + 1 < candidates.len();
                     // A local CLI too old for ACP just hangs; don't make the user wait long before the fallback.
                     let budget = Duration::from_secs(if fallback_left { 20 } else { 180 });
@@ -494,7 +499,7 @@ impl Actor {
             }
             if !conn.sessions.load {
                 tracing::info!(bot = %self.cfg.id, "the agent can't resume sessions; starting a fresh one");
-                self.carry_extra_handoff(slot, &sid)?;
+                self.carry_handoff_sem_retomada(slot, &sid)?;
                 self.set_session(slot, None);
                 return Box::pin(self.ensure_session(slot)).await;
             }
@@ -679,6 +684,23 @@ impl Actor {
         if self.turn_handoff(&self.lane).is_none() {
             let (text, person) =
                 crate::chat::handoff::build_in_with_person(&self.hub.store, &self.cfg.id, visible, acp)?;
+            if person.is_some() && person == self.cfg.person {
+                self.handoff = Some(text);
+                self.handoff_chat = Some(self.lane.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// Motor que nunca retoma sessão: a sessão extra leva o resumo dela (`carry_extra_handoff`) e a principal de um bot sem
+    /// contexto leva o resumo do histórico dela, como no rollover; sem isso a conversa principal recomeçaria sem contexto.
+    fn carry_handoff_sem_retomada(&mut self, slot: Option<&str>, acp: &str) -> Result<()> {
+        if slot.is_some() || self.cfg.context.is_some() {
+            return self.carry_extra_handoff(slot, acp);
+        }
+        if self.turn_handoff(&self.lane).is_none() {
+            let (text, person) =
+                crate::chat::handoff::build_in_with_person(&self.hub.store, &self.cfg.id, &self.cfg.id, acp)?;
             if person.is_some() && person == self.cfg.person {
                 self.handoff = Some(text);
                 self.handoff_chat = Some(self.lane.clone());

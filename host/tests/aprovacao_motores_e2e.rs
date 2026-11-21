@@ -201,18 +201,30 @@ async fn kilo_pede_cartao_para_editar_comandar_e_usar_ferramenta_do_hub() {
     confere_efeitos(&host, &bot, &KILO);
 }
 
-/// Quem liberou tudo na própria config global do Kilo continua passando pelo cartão: as chaves do Hub têm o mesmo nome.
+/// A configuração global e a regra por agente da pessoa não entram: o Kilo roda com o perfil do Hub, então liberar tudo lá
+/// não tira o cartão.
 #[tokio::test]
-async fn kilo_com_config_global_liberando_tudo_continua_pedindo_cartao() {
-    let falsos = Falsos::nova();
-    let pasta_kilo = falsos.raiz.join("config/kilo");
-    std::fs::create_dir_all(&pasta_kilo).unwrap();
-    let liberado = json!({"permission": {"*": "allow", "edit": "allow", "bash": "allow", "webfetch": "allow"}});
-    std::fs::write(pasta_kilo.join("kilo.json"), liberado.to_string()).unwrap();
-    let host = falsos.hub().await;
-    let bot = criar_bot(&host, "kilo", json!({})).await;
-    turno_com_cartoes(&host, &bot, &KILO, "once", "reject").await;
-    confere_efeitos(&host, &bot, &KILO);
+async fn kilo_ignora_a_config_global_e_a_regra_por_agente_da_pessoa() {
+    for liberado in [
+        json!({"permission": {"*": "allow", "edit": "allow", "bash": "allow", "webfetch": "allow"}}),
+        json!({"agent": {"build": {"permission": {"bash": "allow", "edit": "allow"}}}}),
+        json!({"agent": {"build": {"permission": {"manage_*": "allow"}}}}),
+        json!({"agent": {"build": {"permission": "allow"}}}),
+    ] {
+        let falsos = Falsos::nova();
+        let pasta_kilo = falsos.raiz.join("config/kilo");
+        std::fs::create_dir_all(&pasta_kilo).unwrap();
+        std::fs::write(pasta_kilo.join("kilo.json"), liberado.to_string()).unwrap();
+        let host = falsos.hub().await;
+        let bot = criar_bot(&host, "kilo", json!({})).await;
+        turno_com_cartoes(&host, &bot, &KILO, "once", "reject").await;
+        confere_efeitos(&host, &bot, &KILO);
+        let lancado = std::fs::read_to_string(pasta(&host, &bot).join("lancado.json")).unwrap();
+        let lancado: Value = serde_json::from_str(lancado.lines().next().unwrap()).unwrap();
+        let config = lancado["env"]["XDG_CONFIG_HOME"].as_str().unwrap();
+        assert!(config.ends_with("motores/kilo/config"), "o Kilo não rodou com o perfil do Hub: {config}");
+        assert_ne!(lancado["env"]["XDG_DATA_HOME"], Value::Null, "o login e os dados do Kilo continuam os de sempre");
+    }
 }
 
 #[tokio::test]
@@ -302,39 +314,6 @@ async fn cline_que_nao_informa_a_aprovacao_automatica_nao_executa_nada() {
     cline_recusado("--sem-opcao").await;
 }
 
-/// Regra por agente na config global do Kilo (vem depois da regra geral) e curinga do usuário para as ferramentas do Hub:
-/// o Hub lê de volta a regra efetiva do agente e não abre o Kilo se ela libera algo sem cartão.
-#[tokio::test]
-async fn kilo_com_regra_por_agente_ou_curinga_na_config_global_nao_abre() {
-    for liberado in [
-        json!({"agent": {"build": {"permission": {"bash": "allow", "edit": "allow"}}}}),
-        json!({"agent": {"build": {"permission": {"manage_*": "allow"}}}}),
-        json!({"agent": {"build": {"permission": "allow"}}}),
-    ] {
-        let falsos = Falsos::nova();
-        let pasta_kilo = falsos.raiz.join("config/kilo");
-        std::fs::create_dir_all(&pasta_kilo).unwrap();
-        std::fs::write(pasta_kilo.join("kilo.json"), liberado.to_string()).unwrap();
-        let host = falsos.hub().await;
-        let bot = criar_bot(&host, "kilo", json!({})).await;
-        enviar(&host, &bot, "faça as alterações").await;
-        espera_recusa(&host, &bot).await;
-    }
-}
-
-/// Sem como ler a regra efetiva, ou com a sessão num agente que o Hub não leu, o Kilo não abre.
-#[tokio::test]
-async fn kilo_sem_prova_da_regra_efetiva_ou_do_agente_nao_abre() {
-    for bandeiras in ["--sem-debug", "--agente-plan"] {
-        let falsos = Falsos::nova();
-        falsos.bandeiras("kilo", bandeiras);
-        let host = falsos.hub().await;
-        let bot = criar_bot(&host, "kilo", json!({})).await;
-        enviar(&host, &bot, "faça as alterações").await;
-        espera_recusa(&host, &bot).await;
-    }
-}
-
 /// O Kilo carrega uma sessão antiga com a permissão que ela já tinha. O Hub nunca a retoma: abre sessão nova.
 #[tokio::test]
 async fn kilo_nao_retoma_sessao_antiga_com_permissao_antiga() {
@@ -383,4 +362,88 @@ async fn kilo_e_cline_nao_aceitam_comando_proprio() {
         assert!(host.refused("updateBot", edicao).await.contains("não aceita comando próprio"), "{motor}");
         assert!(!marca.exists(), "{motor}: o comando próprio foi executado");
     }
+}
+
+async fn esperar_final(host: &Host, bot: &str, antes: usize) {
+    assert!(cartao_pendente(host, bot, antes).await.is_none(), "apareceu um cartão que não era esperado");
+}
+
+fn chamadas_do_hub(host: &Host, bot: &str) -> Vec<Value> {
+    let texto = std::fs::read_to_string(pasta(host, bot).join("hubcalls.jsonl")).unwrap_or_default();
+    texto.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+}
+
+/// Cada ferramenta do Hub que muda algo, chamada pelo motor sem cartão do motor, vira cartão do Hub antes de qualquer efeito;
+/// a recusa da pessoa impede a ação; leitura segue livre; uma ferramenta que ninguém classificou também pede cartão.
+async fn ferramentas_do_hub_exigem_cartao(motor: &str) {
+    let falsos = Falsos::nova();
+    falsos.bandeiras(motor, "--hub-tools");
+    let host = falsos.hub().await;
+    let bot = criar_bot(&host, motor, json!({})).await;
+    let nome_antes = common::snapshot_bot(&host.snapshot().await, &bot)["name"].clone();
+    let antes = finais(&host, &bot).await;
+    enviar(&host, &bot, "mexa nas coisas do Hub").await;
+    for (titulo, liberar) in [
+        ("Permitir memory: remember", true),
+        ("Permitir chat: set_name", false),
+        ("Permitir routines: save_routine", false),
+        ("Permitir routines: ferramenta_nova_que_ninguem_classificou", false),
+    ] {
+        let cartao = cartao_pendente(&host, &bot, antes)
+            .await
+            .unwrap_or_else(|| panic!("{titulo}: a chamada passou sem cartão: {:?}", chamadas_do_hub(&host, &bot)));
+        assert_eq!(cartao["data"]["title"], titulo, "{:?}", chamadas_do_hub(&host, &bot));
+        assert_eq!(
+            common::snapshot_bot(&host.snapshot().await, &bot)["name"],
+            nome_antes,
+            "{titulo}: agiu antes do dono"
+        );
+        responder(&host, &cartao, if liberar { "allow" } else { "deny" }).await;
+    }
+    esperar_final(&host, &bot, antes).await;
+    let chamadas = chamadas_do_hub(&host, &bot);
+    let por_ferramenta =
+        |nome: &str| chamadas.iter().find(|c| c["tool"] == nome).unwrap_or_else(|| panic!("{nome}: {chamadas:?}"));
+    assert_eq!(por_ferramenta("search_memory")["isError"], false, "a leitura segue livre: {chamadas:?}");
+    assert_eq!(por_ferramenta("remember")["isError"], false, "o que o dono liberou deve acontecer: {chamadas:?}");
+    for recusada in ["set_name", "save_routine", "ferramenta_nova_que_ninguem_classificou"] {
+        let chamada = por_ferramenta(recusada);
+        assert_eq!(chamada["isError"], true, "{recusada}: {chamadas:?}");
+        assert!(chamada["text"].as_str().unwrap().contains("nada foi feito"), "{recusada}: {chamada}");
+    }
+    assert_eq!(
+        common::snapshot_bot(&host.snapshot().await, &bot)["name"],
+        nome_antes,
+        "o que o dono recusou não pode acontecer"
+    );
+}
+
+#[tokio::test]
+async fn kilo_ferramentas_do_hub_exigem_cartao_no_despacho() {
+    ferramentas_do_hub_exigem_cartao("kilo").await;
+}
+
+#[tokio::test]
+async fn cline_ferramentas_do_hub_exigem_cartao_no_despacho() {
+    ferramentas_do_hub_exigem_cartao("cline").await;
+}
+
+/// O Kilo nunca retoma sessão; sem o resumo do histórico, a conversa principal recomeçaria sem contexto.
+#[tokio::test]
+async fn kilo_reconectado_recebe_o_resumo_da_conversa_no_segundo_pedido() {
+    let falsos = Falsos::nova();
+    falsos.bandeiras("kilo", "--sem-ferramentas");
+    let mut host = falsos.hub().await;
+    let bot = criar_bot(&host, "kilo", json!({})).await;
+    let antes = finais(&host, &bot).await;
+    enviar(&host, &bot, "primeiro pedido marcador-zeta").await;
+    esperar_final(&host, &bot, antes).await;
+    host.restart_isolado(&falsos.env()).await;
+    let antes = finais(&host, &bot).await;
+    enviar(&host, &bot, "segundo pedido").await;
+    esperar_final(&host, &bot, antes).await;
+    let pedidos = std::fs::read_to_string(pasta(&host, &bot).join("requests.jsonl")).unwrap();
+    let prompts: Vec<&str> = pedidos.lines().filter(|l| l.contains("session/prompt")).collect();
+    assert_eq!(prompts.len(), 2, "{pedidos}");
+    assert!(prompts[1].contains("marcador-zeta"), "o segundo pedido não levou o resumo da conversa: {}", prompts[1]);
 }

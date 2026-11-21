@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import type { BotStore } from '../../../store/bot-store'
 import type { AgentModels } from '../../bots/agent-models'
+import { ageSemAprovacao } from '../aviso-motor/aviso-motor'
 import { separarPadrao, type Provedor } from './regras'
 
 const cache = new Map<string, AgentModels | 'falhou'>()
@@ -25,7 +26,7 @@ export function provedoresDoHub(store: BotStore): Provedor[] {
     const lido = cache.get(`${store.computer.id}/${b.id}`)
     const catalogo = lido && lido !== 'falhou' ? lido : null
     const lista = catalogo ? separar(catalogo) : null
-    return { id: b.id, name: b.name, registry: b.registry ?? b.id, models: lido === 'falhou' ? [] : (lista?.models ?? null), fastMode: catalogo?.fastMode === true, ...(lista?.padrao ? { padrao: lista.padrao } : {}), ...(lido === 'falhou' ? { falhou: true } : {}) }
+    return { id: b.id, name: b.name, registry: b.registry ?? b.id, models: lido === 'falhou' ? [] : (lista?.models ?? null), fastMode: catalogo?.fastMode === true, ...(ageSemAprovacao(b) ? { semAprovacao: true } : {}), ...(lista?.padrao ? { padrao: lista.padrao } : {}), ...(lido === 'falhou' ? { falhou: true } : {}) }
   })
 }
 

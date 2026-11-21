@@ -1,14 +1,17 @@
-//! Kilo e Cline: o Hub trava a aprovação no lançamento, para que toda ação passe pelo porteiro e vire cartão.
+//! Kilo e Cline: o que o Hub faz para que as ações do motor passem pelo cartão de aprovação.
 //!
-//! - Kilo roda sozinho por padrão (regra `"*": "allow"` do próprio motor) e lê a variável `KILO_PERMISSION` por cima
-//!   da config. O Hub a define com tudo em «perguntar», e tira de cada cartão o «sempre permitir», que no Kilo grava
-//!   uma regra permanente na config global dele, fora do porteiro.
+//! - As ferramentas do Hub (memória, rotinas, gestão, conectores…) não dependem do motor: o Hub exige o cartão no ponto em
+//!   que recebe a chamada (`fork::aprovacao_despacho`).
+//! - O que o motor faz sozinho no computador (editar arquivo, rodar comando) o Hub não consegue garantir de fora. O Kilo
+//!   roda por construção no modo «perguntar» (variável `KILO_PERMISSION`, perfil de configuração do Hub, caminho
+//!   absoluto do executável, sem retomar sessão, sem «sempre permitir» no cartão), mas segue marcado como «age no
+//!   computador sem pedir aprovação»: o Hub não lê de volta nem prova a configuração do motor.
 //! - Cline pergunta por padrão em ACP, mas a opção de sessão `auto_approve` liga a aprovação automática. O Hub nunca
 //!   a repassa do bot e confere que está desligada em toda sessão (nova ou retomada); se não conseguir, derruba o motor.
 use super::Actor;
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::path::{Path, PathBuf};
 
 /// O curinga cobre as ferramentas que não conhecemos (as do Hub chegam como `servidor_ferramenta`). As de risco que o
 /// Kilo conhece também vão por nome: uma regra específica do usuário na config global (`"bash": "allow"`) vence o
@@ -28,14 +31,71 @@ const KILO_PERMISSION: &str = r#"{
     "repo_clone": "deny", "repo_overview": "deny"
 }"#;
 
-/// Variáveis que o Hub impõe ao motor, depois de qualquer outra fonte (a última vence).
-pub(super) fn launch_env(backend: &str) -> Vec<(String, String)> {
+/// Variáveis que o Hub impõe ao motor, depois de qualquer outra fonte (a última vence). O Kilo roda com um perfil que o
+/// Hub escreve (configuração e «home» do motor), sem a configuração global nem a regra por agente da pessoa, mas com o
+/// login, o cache e o estado de sempre. Isto é esforço de construção, não prova: configuração gerenciada da máquina ou da
+/// organização ainda entra, e é por isso que o Kilo continua marcado como «age no computador sem pedir aprovação».
+pub(super) fn launch_env(backend: &str, perfil: &Path) -> Result<Vec<(String, String)>> {
     if backend != "kilo" {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    [("KILO_PERMISSION", KILO_PERMISSION), ("KILO_DISABLE_PROJECT_CONFIG", "1"), ("KILO_CONFIG_CONTENT", "{}")]
-        .map(|(key, value)| (key.to_owned(), value.to_owned()))
-        .into()
+    let mut env: Vec<(String, String)> = [
+        ("KILO_PERMISSION", KILO_PERMISSION.to_owned()),
+        ("KILO_DISABLE_PROJECT_CONFIG", "1".to_owned()),
+        ("KILO_CONFIG_CONTENT", "{}".to_owned()),
+    ]
+    .map(|(key, value)| (key.to_owned(), value))
+    .into();
+    if crate::fork::motor_exec::configured() {
+        return Ok(env);
+    }
+    let real = |variavel: &str, sub: &str| {
+        std::env::var_os(variavel)
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+            .or_else(|| dirs::home_dir().map(|home| home.join(sub)))
+            .context("o Hub não achou a pasta do Kilo")
+    };
+    let (config, casa) = (perfil.join("config"), perfil.join("home"));
+    for dir in [&config, &casa] {
+        std::fs::create_dir_all(dir).context("o Hub não conseguiu criar o perfil do Kilo")?;
+    }
+    let texto = |dir: PathBuf| dir.to_string_lossy().into_owned();
+    env.extend([
+        ("XDG_CONFIG_HOME".to_owned(), texto(config)),
+        ("KILO_TEST_HOME".to_owned(), texto(casa)),
+        ("XDG_DATA_HOME".to_owned(), texto(real("XDG_DATA_HOME", ".local/share")?)),
+        ("XDG_CACHE_HOME".to_owned(), texto(real("XDG_CACHE_HOME", ".cache")?)),
+        ("XDG_STATE_HOME".to_owned(), texto(real("XDG_STATE_HOME", ".local/state")?)),
+    ]);
+    Ok(env)
+}
+
+/// O Kilo roda pelo caminho absoluto do executável, resolvido uma vez antes do lançamento: um programa de mesmo nome
+/// colocado depois, num diretório anterior do PATH, não o substitui.
+pub(super) fn fixar_executavel(backend: &str, comando: &str, env: &[(String, String)]) -> Result<String> {
+    if backend != "kilo" {
+        return Ok(comando.to_owned());
+    }
+    let comando = comando.trim();
+    let (programa, resto) = comando.split_once(char::is_whitespace).unwrap_or((comando, ""));
+    if Path::new(programa).is_absolute() {
+        return Ok(comando.to_owned());
+    }
+    let path = env
+        .iter()
+        .rev()
+        .find(|(chave, _)| chave == "PATH")
+        .map(|(_, valor)| std::ffi::OsString::from(valor))
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    let achado = std::env::split_paths(&path)
+        .map(|dir| dir.join(programa))
+        .find(|candidato| candidato.is_file())
+        .with_context(|| format!("o Hub não encontrou o executável {programa} para fixar o caminho"))?;
+    let achado = achado.to_string_lossy();
+    let achado = if achado.contains(char::is_whitespace) { format!("\"{achado}\"") } else { achado.into_owned() };
+    Ok(format!("{achado} {resto}").trim_end().to_owned())
 }
 
 /// Opção de modelo que muda como o motor aprova ou executa: só o Hub decide isso, nunca o bot.
@@ -67,123 +127,6 @@ pub(super) fn sem_retomada(backend: &str, conn: &mut super::Conn) {
     }
 }
 
-/// O agente que o Hub aceita no Kilo, e que a sessão precisa informar.
-const KILO_AGENTE: &str = "build";
-
-/// Servidores MCP do Hub: ferramentas `servidor_ferramenta` que a regra efetiva do Kilo não pode liberar.
-const SERVIDORES_DO_HUB: [&str; 8] =
-    ["chat", "memory", "manage", "computers", "routines", "team", "tasks", "connectors"];
-
-/// Casamento de padrão do Kilo (`*` e `?`; um padrão que termina em « *» também casa sem argumentos).
-fn casa(texto: &str, padrao: &str) -> bool {
-    fn recursivo(texto: &[char], padrao: &[char]) -> bool {
-        match padrao.split_first() {
-            None => texto.is_empty(),
-            Some(('*', resto)) => (0..=texto.len()).any(|i| recursivo(&texto[i..], resto)),
-            Some(('?', resto)) => texto.split_first().is_some_and(|(_, t)| recursivo(t, resto)),
-            Some((c, resto)) => texto.split_first().is_some_and(|(t, outros)| t == c && recursivo(outros, resto)),
-        }
-    }
-    let texto: Vec<char> = texto.replace('\\', "/").chars().collect();
-    let padrao = padrao.replace('\\', "/");
-    let simples: Vec<char> = padrao.chars().collect();
-    if recursivo(&texto, &simples) {
-        return true;
-    }
-    padrao.strip_suffix(" *").is_some_and(|prefixo| recursivo(&texto, &prefixo.chars().collect::<Vec<_>>()))
-}
-
-/// A regra que vence (a última que casa) numa lista de regras `{permission, pattern, action}`; sem regra, «ask».
-fn acao_efetiva(regras: &[Value], permissao: &str, alvo: &str) -> String {
-    regras
-        .iter()
-        .rfind(|regra| {
-            regra["permission"].as_str().is_some_and(|p| casa(permissao, p))
-                && regra["pattern"].as_str().is_some_and(|p| casa(alvo, p))
-        })
-        .and_then(|regra| regra["action"].as_str())
-        .unwrap_or("ask")
-        .to_owned()
-}
-
-/// As ferramentas que a regra efetiva do agente `build` precisa deixar em «ask» ou «deny», com os alvos de teste.
-fn ferramentas_do_hub_e_de_risco() -> Vec<(String, &'static [&'static str])> {
-    let mut lista: Vec<(String, &'static [&'static str])> = [
-        ("edit", &["a.txt", "src/main.rs", "*"][..]),
-        ("write", &["a.txt"][..]),
-        ("apply_patch", &["a.txt"][..]),
-        ("bash", &["rm -rf build", "git status", "cat README.md", "*"][..]),
-        ("webfetch", &["https://example.invalid/"][..]),
-        ("websearch", &["x"][..]),
-        ("task", &["general"][..]),
-        ("skill", &["x"][..]),
-        ("grep", &["segredo"][..]),
-        ("external_directory", &["/tmp/*"][..]),
-        ("agent_manager", &["*"][..]),
-        ("kilo_memory_save", &["*"][..]),
-    ]
-    .into_iter()
-    .map(|(nome, alvos)| (nome.to_owned(), alvos))
-    .collect();
-    lista.extend(SERVIDORES_DO_HUB.iter().map(|servidor| (format!("{servidor}_sondagem"), &["*"][..])));
-    lista
-}
-
-/// Confere a regra efetiva já resolvida do agente (`kilo debug agent build`): nenhuma ferramenta de risco nem do Hub pode
-/// estar liberada. Devolve os nomes que passariam sem cartão.
-fn ferramentas_liberadas(agente: &Value) -> Vec<String> {
-    let Some(regras) = agente["permission"].as_array() else { return vec!["(regra efetiva ilegível)".to_owned()] };
-    let mut liberadas = Vec::new();
-    for (ferramenta, alvos) in ferramentas_do_hub_e_de_risco() {
-        if alvos.iter().any(|alvo| acao_efetiva(regras, &ferramenta, alvo) == "allow") {
-            liberadas.push(ferramenta);
-        }
-    }
-    liberadas
-}
-
-/// Lê de volta, com o mesmo comando, ambiente e pasta do lançamento, a regra efetiva do agente do Kilo (configuração
-/// global, regra por agente, curingas e o que mais o motor tenha resolvido) e recusa o lançamento se alguma ferramenta de
-/// risco ou do Hub passaria sem cartão. Sem como ler, também recusa.
-pub(super) async fn provar_kilo(backend: &str, comando: &str, cwd: &str, env: &[(String, String)]) -> Result<()> {
-    if backend != "kilo" {
-        return Ok(());
-    }
-    let base =
-        comando.trim_end().strip_suffix(" acp").context("o Hub não sabe ler a regra efetiva deste comando do Kilo")?;
-    let shell = crate::shell::line(&format!("{base} debug agent {KILO_AGENTE}"));
-    let pasta = std::path::Path::new(cwd);
-    let mut processo = if crate::fork::motor_exec::configured() {
-        let mut processo = crate::fork::motor_exec::command(shell.program, pasta);
-        processo.args(&shell.args);
-        processo
-    } else {
-        shell.tokio()
-    };
-    processo
-        .env_clear()
-        .envs(crate::agent::environment::inherited(std::env::vars_os()))
-        .envs(shell.env)
-        .envs(env.iter().map(|(chave, valor)| (chave, valor)))
-        .current_dir(crate::fork::motor_exec::hub_cwd(pasta))
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let saida = tokio::time::timeout(Duration::from_secs(30), crate::fork::motor_exec::output(&mut processo))
-        .await
-        .context("o Kilo não respondeu à leitura da regra efetiva")?
-        .context("não foi possível ler a regra efetiva do Kilo")?;
-    ensure!(saida.status.success(), "o Kilo não informou a regra efetiva do agente {KILO_AGENTE}");
-    let agente: Value = serde_json::from_slice(&saida.stdout).context("a regra efetiva do Kilo veio ilegível")?;
-    let liberadas = ferramentas_liberadas(&agente);
-    ensure!(
-        liberadas.is_empty(),
-        "a configuração do Kilo libera sem cartão: {}. A Mexerica não abre o Kilo assim.",
-        liberadas.join(", ")
-    );
-    Ok(())
-}
-
 impl Actor {
     /// Cline: `auto_approve` precisa vir uma vez, booleana e falsa. Ligada, tenta desligar e confere o eco; ausente,
     /// duplicada ou de outro tipo, o motor cai: sem prova de que está desligada, não há turno.
@@ -210,26 +153,19 @@ impl Actor {
             ensure!(auto_approve_desligada(&resposta), "o Cline não confirmou a aprovação automática desligada");
             Ok(resposta)
         });
-        if let Err(erro) = resposta {
-            if let Some(conn) = self.conn.take() {
-                conn.kill().await;
+        match resposta {
+            Ok(resposta) => {
+                let mut res = res;
+                res["configOptions"] = resposta["configOptions"].clone();
+                Ok(res)
             }
-            bail!("{erro:#}");
+            Err(erro) => {
+                if let Some(conn) = self.conn.take() {
+                    conn.kill().await;
+                }
+                bail!("{erro:#}");
+            }
         }
-        Ok(res)
-    }
-
-    /// Kilo: a sessão precisa informar o agente que o Hub leu de volta (`build`); outro agente ou nenhuma informação,
-    /// o motor cai.
-    pub(super) async fn confirmar_agente_do_kilo(&mut self, res: Value) -> Result<Value> {
-        let agente = res["configOptions"].as_array().into_iter().flatten().find(|o| o["id"] == "mode");
-        if agente.is_some_and(|o| o["currentValue"] == KILO_AGENTE) {
-            return Ok(res);
-        }
-        if let Some(conn) = self.conn.take() {
-            conn.kill().await;
-        }
-        bail!("o Kilo não confirmou o agente {KILO_AGENTE} lido pelo Hub");
     }
 }
 
@@ -239,7 +175,8 @@ mod tests {
 
     #[test]
     fn kilo_recebe_regras_validas_com_tudo_em_perguntar() {
-        let env = launch_env("kilo");
+        let perfil = std::env::temp_dir().join(format!("mexerica-perfil-{}", uuid::Uuid::new_v4()));
+        let env = launch_env("kilo", &perfil).unwrap();
         let rules: Value =
             serde_json::from_str(&env.iter().find(|(key, _)| key == "KILO_PERMISSION").unwrap().1).unwrap();
         assert_eq!(
@@ -252,7 +189,14 @@ mod tests {
             assert_eq!(rules[ferramenta], "ask", "{ferramenta}: regra do usuário na config global não pode liberar");
         }
         assert!(env.contains(&("KILO_DISABLE_PROJECT_CONFIG".into(), "1".into())));
-        assert!(launch_env("cline").is_empty() && launch_env("claude").is_empty());
+        assert!(launch_env("cline", &perfil).unwrap().is_empty() && launch_env("claude", &perfil).unwrap().is_empty());
+        if !crate::fork::motor_exec::configured() {
+            let valor = |chave: &str| env.iter().find(|(k, _)| k == chave).map(|(_, v)| v.clone());
+            assert_eq!(valor("XDG_CONFIG_HOME"), Some(perfil.join("config").to_string_lossy().into_owned()));
+            assert_eq!(valor("KILO_TEST_HOME"), Some(perfil.join("home").to_string_lossy().into_owned()));
+            assert!(perfil.join("config").is_dir() && perfil.join("home").is_dir());
+        }
+        let _ = std::fs::remove_dir_all(&perfil);
     }
 
     #[test]
@@ -276,50 +220,6 @@ mod tests {
         }
     }
 
-    fn agente(regras: &Value) -> Value {
-        json!({"name": "build", "permission": regras})
-    }
-
-    #[test]
-    fn regra_efetiva_com_tudo_em_perguntar_passa() {
-        let regras = json!([
-            {"permission": "*", "pattern": "*", "action": "allow"},
-            {"permission": "*", "pattern": "*", "action": "ask"},
-            {"permission": "read", "pattern": "*", "action": "allow"},
-            {"permission": "bash", "pattern": "cat *", "action": "ask"},
-        ]);
-        assert_eq!(ferramentas_liberadas(&agente(&regras)), Vec::<String>::new());
-    }
-
-    #[test]
-    fn regra_por_agente_ou_curinga_depois_do_curinga_libera_e_e_apanhado() {
-        let base = json!([{"permission": "*", "pattern": "*", "action": "ask"}]);
-        let mut por_agente = base.as_array().unwrap().clone();
-        por_agente.push(json!({"permission": "bash", "pattern": "*", "action": "allow"}));
-        assert!(ferramentas_liberadas(&agente(&json!(por_agente))).contains(&"bash".to_owned()));
-        let mut curinga = base.as_array().unwrap().clone();
-        curinga.push(json!({"permission": "manage_*", "pattern": "*", "action": "allow"}));
-        assert!(ferramentas_liberadas(&agente(&json!(curinga))).contains(&"manage_sondagem".to_owned()));
-        let mut por_comando = base.as_array().unwrap().clone();
-        por_comando.push(json!({"permission": "bash", "pattern": "git *", "action": "allow"}));
-        assert!(
-            ferramentas_liberadas(&agente(&json!(por_comando))).contains(&"bash".to_owned()),
-            "um comando liberado já conta"
-        );
-    }
-
-    #[test]
-    fn regra_ilegivel_nao_prova_nada() {
-        assert_ne!(ferramentas_liberadas(&json!({"name": "build"})), Vec::<String>::new());
-        assert_ne!(ferramentas_liberadas(&json!({"permission": "ask"})), Vec::<String>::new());
-    }
-
-    #[test]
-    fn padrao_do_kilo_casa_como_o_motor() {
-        assert!(casa("git status", "git *") && casa("git", "git *") && !casa("gitx", "git *"));
-        assert!(casa("manage_x", "manage_*") && casa("a/b/c", "a/*") && casa("ab", "a?") && !casa("abc", "a?"));
-    }
-
     #[test]
     fn auto_approve_so_vale_uma_vez_booleana_e_falsa() {
         let opcao = |valor: Value| json!({"id": "auto_approve", "currentValue": valor});
@@ -334,5 +234,19 @@ mod tests {
         ] {
             assert!(!auto_approve_desligada(&ruim), "{ruim}");
         }
+    }
+
+    #[test]
+    fn executavel_do_kilo_vira_caminho_absoluto() {
+        let pasta = std::env::temp_dir().join(format!("mexerica-bin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&pasta).unwrap();
+        std::fs::write(pasta.join("kilo"), "").unwrap();
+        let env = vec![("PATH".to_owned(), pasta.to_string_lossy().into_owned())];
+        let fixo = fixar_executavel("kilo", "kilo acp", &env).unwrap();
+        assert_eq!(fixo, format!("{} acp", pasta.join("kilo").display()));
+        assert_eq!(fixar_executavel("kilo", &fixo, &[]).unwrap(), fixo, "já absoluto não muda");
+        assert!(fixar_executavel("kilo", "outro acp", &env).is_err());
+        assert_eq!(fixar_executavel("cline", "cline acp", &env).unwrap(), "cline acp");
+        let _ = std::fs::remove_dir_all(&pasta);
     }
 }

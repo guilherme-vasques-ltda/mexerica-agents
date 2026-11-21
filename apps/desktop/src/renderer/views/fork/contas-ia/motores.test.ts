@@ -34,6 +34,19 @@ test('cada motor mostra só o estado que o Hub informou; Codex e Claude entram p
   assert.equal(precisaNode(lista), true)
 })
 
+test('o motor que age sem pedir aprovação ganha o selo e a explicação, sem esconder o estado de login e instalação', () => {
+  const marcado = motorEstado(b('opencode', { installed: true, available: true, signedIn: false, actsWithoutApproval: true }), 'pt-BR')
+  assert.equal(marcado.selo, 'Sem login')
+  assert.equal(marcado.detalhe, 'Instalado; falta entrar neste motor.')
+  assert.equal(marcado.semAprovacao?.selo, 'Age sem pedir')
+  assert.match(marcado.semAprovacao?.texto ?? '', /sem pedir sua aprovação/)
+  const naoInstalado = motorEstado(b('pi', { curated: true, canInstall: true, actsWithoutApproval: true }), 'en')
+  assert.equal(naoInstalado.selo, 'Not installed')
+  assert.equal(naoInstalado.semAprovacao?.selo, 'Acts without asking')
+  assert.equal(motorEstado(b('gemini', { installed: true, available: true, signedIn: true, actsWithoutApproval: false }), 'pt-BR').semAprovacao, null)
+  assert.equal(motorEstado(b('gemini', { installed: true, available: true, signedIn: true }), 'pt-BR').semAprovacao, null, 'sem o campo, sem aviso')
+})
+
 class FakeSource implements MotoresSource {
   hello: { hostId: string; backends: Backend[] } | null = { hostId: 'hub-a', backends: [] }
   connectedClient: object | null = {}

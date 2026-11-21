@@ -320,16 +320,17 @@ async fn send(
     if let Some(invocation) = invocation {
         body[crate::fork::genui::flow::INVOCATION] = invocation.into();
     }
+    let espera = crate::fork::aprovacao_despacho::ESPERA;
     let (method, timeout) = match server {
-        Server::Connectors => ("connectorCall", Duration::from_secs(90)),
-        Server::Routines => ("routineCall", Duration::from_secs(30)),
+        Server::Connectors => ("connectorCall", Duration::from_secs(90) + espera),
+        Server::Routines => ("routineCall", Duration::from_secs(30) + espera),
         Server::Computer => ("computerCall", crate::screen::fork_permission::WAIT + Duration::from_secs(60)),
-        Server::Computers => ("computersCall", Duration::from_secs(265)),
-        Server::Chat => ("chatCall", Duration::from_secs(if params["name"] == "send_file" { 70 } else { 30 })),
-        Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30)),
-        Server::Manage => ("manageCall", crate::chat::manage::APPROVAL_TIMEOUT + Duration::from_secs(30)),
-        Server::Memory => ("memoryCall", Duration::from_secs(120)),
-        Server::Tasks => ("taskCall", Duration::from_secs(30)),
+        Server::Computers => ("computersCall", Duration::from_secs(265) + espera),
+        Server::Chat => ("chatCall", Duration::from_secs(if params["name"] == "send_file" { 70 } else { 30 }) + espera),
+        Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30) + espera),
+        Server::Manage => ("manageCall", crate::chat::manage::APPROVAL_TIMEOUT + Duration::from_secs(30) + espera),
+        Server::Memory => ("memoryCall", Duration::from_secs(120) + espera),
+        Server::Tasks => ("taskCall", Duration::from_secs(30) + espera),
     };
     let res = crate::http()
         .post(format!("http://127.0.0.1:{port}/api/{method}"))

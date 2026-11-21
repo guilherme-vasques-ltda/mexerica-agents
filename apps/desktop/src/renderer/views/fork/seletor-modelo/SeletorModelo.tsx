@@ -14,6 +14,7 @@ import { Icon } from '../../../components/Icon'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { usePref } from '../../../lib/prefs'
 import { isMac } from '../../settings/parts'
+import { textosSemAprovacao } from '../aviso-motor/aviso-motor'
 import { seletorPrefs } from './preferencias'
 import {
   abaInicialDaFuncao, alternarFavorito, aplicarIntencao, atalho, chave, contaAlvo, contasDoMotor, destinoDaTroca, ehPadraoDoMotor, favoritosNoCatalogo, filtrarMemo, intencaoDeTroca,
@@ -92,7 +93,7 @@ function useMesmosProvedores(provedores: readonly Provedor[]): readonly Provedor
   const a = guardado.current
   const iguais = a === provedores || (a.length === provedores.length && a.every((p, i) => {
     const q = provedores[i]!
-    return p.id === q.id && p.name === q.name && p.registry === q.registry && p.models === q.models && p.fastMode === q.fastMode && p.padrao === q.padrao && p.falhou === q.falhou
+    return p.id === q.id && p.name === q.name && p.registry === q.registry && p.models === q.models && p.fastMode === q.fastMode && p.semAprovacao === q.semAprovacao && p.padrao === q.padrao && p.falhou === q.falhou
   }))
   // Só troca o guardado quando o conteúdo muda (o mesmo valor a cada desenho com as mesmas entradas).
   if (!iguais) guardado.current = provedores // eslint-disable-line react-hooks/refs
@@ -319,12 +320,20 @@ export function SeletorModelo({ modo, provedores: provedoresDeFora, valor, carre
   }
 
   const nivel = (a: AcessoSeletor) => t(a.nivel === 'auto' ? 'conversa.seletor.acessoLiberar' : 'conversa.seletor.acessoPedir')
-  const trilho = (p: { id: string; name: string; registry?: string }) => {
+  const semAprovacaoTextos = textosSemAprovacao(idioma)
+  const trilho = (p: { id: string; name: string; registry?: string; semAprovacao?: boolean }) => {
     const fora = f?.recusados[p.id]
+    const semAprovacao = !fora && p.semAprovacao === true
+    const descricaoId = `${id}-sem-aprovacao-${p.id}`
     return (
-      <button key={p.id} className={`seletor-trilho-item${aba === p.id ? ' on' : ''}${fora ? ' fora' : ''}`} aria-pressed={aba === p.id} aria-label={fora ? `${p.name}, ${fora.curto}` : p.name} title={fora?.motivo ?? p.name} onClick={() => { setAba(p.id); setDica(null) }}>
+      <button key={p.id} className={`seletor-trilho-item${aba === p.id ? ' on' : ''}${fora ? ' fora' : ''}${semAprovacao ? ' sem-aprovacao' : ''}`} aria-pressed={aba === p.id}
+        aria-label={fora ? `${p.name}, ${fora.curto}` : semAprovacao ? `${p.name}, ${semAprovacaoTextos.selo}` : p.name} aria-describedby={semAprovacao ? descricaoId : undefined}
+        title={fora?.motivo ?? (semAprovacao ? semAprovacaoTextos.texto : p.name)} onClick={() => { setAba(p.id); setDica(null) }}>
         <span className="seletor-trilho-icone" aria-hidden="true">{p.id === FAVORITOS ? <Icon name="star.fill" size={13} /> : <AgentIcon registry={p.registry ?? p.id} size={16} />}</span>
-        {fora ? <span className="seletor-trilho-quem"><span className="seletor-trilho-nome">{p.name}</span><small>{fora.curto}</small></span> : <span className="seletor-trilho-nome">{p.name}</span>}
+        {fora ? <span className="seletor-trilho-quem"><span className="seletor-trilho-nome">{p.name}</span><small>{fora.curto}</small></span>
+          : semAprovacao ? <span className="seletor-trilho-quem"><span className="seletor-trilho-nome">{p.name}</span><small aria-hidden="true">{semAprovacaoTextos.selo}</small></span>
+          : <span className="seletor-trilho-nome">{p.name}</span>}
+        {semAprovacao ? <span id={descricaoId} hidden>{semAprovacaoTextos.texto}</span> : null}
       </button>
     )
   }
@@ -338,6 +347,7 @@ export function SeletorModelo({ modo, provedores: provedoresDeFora, valor, carre
 
   const avisos = (
     <>
+      {provedorAba?.semAprovacao && !recusadoAba ? <div className="seletor-falha" role="note"><Icon name="exclamationmark.triangle" size={14} /><span>{semAprovacaoTextos.texto}</span></div> : null}
       {recusadoAba ? <div className="seletor-falha" role="note"><Icon name="exclamationmark.triangle" size={14} /><span>{recusadoAba.motivo}</span></div> : null}
       {!carregando && provedorAba?.falhou && !total ? (
         <div className="seletor-falha" role="alert">

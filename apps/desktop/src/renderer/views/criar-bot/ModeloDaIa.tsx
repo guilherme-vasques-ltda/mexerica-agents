@@ -1,20 +1,17 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import type { ManagedAccount } from '@shared/fork-engine-accounts'
 import { modelosDaConta } from '@shared/fork-criar-bot-modelo'
 import type { Backend } from '@shared/models'
 import { useStore } from '../../store/context'
 import { AvisoDoMotor } from '../fork/aviso-motor/AvisoDoMotor'
+import { ageSemAprovacao, rotuloDeMotor, textosSemAprovacao } from '../fork/aviso-motor/aviso-motor'
 import { carregarModelos, provedoresDoHub, useCatalogoMudou } from '../fork/seletor-modelo/catalogo'
 import { separarPadrao, type Escolha } from '../fork/seletor-modelo/regras'
 import { SeletorModelo } from '../fork/seletor-modelo/SeletorModelo'
-import { idiomaAtual, useT, type Tradutor } from '../../lib/fork-i18n/estado'
-import { traduzir } from '../../lib/fork-i18n/index'
+import { idiomaAtual, useIdioma, useT, type Tradutor } from '../../lib/fork-i18n/estado'
 
 /** Os motores do Hub como o Novo bot os mostra; a biblioteca (BN-03) reusa a mesma lista e os mesmos rótulos. */
-export const opcoesDeMotor = (backends: Backend[]) => {
-  const naoInstalado = traduzir(idiomaAtual(), 'botCreate.naoInstalado')
-  return backends.map((b) => ({ id: b.id, label: b.available ? b.name : `${b.name} (${naoInstalado})` }))
-}
+export const opcoesDeMotor = (backends: Backend[]) => backends.map((b) => ({ id: b.id, label: rotuloDeMotor(b, idiomaAtual()) }))
 
 const estadoDoMotor = (t: Tradutor, b: Backend) => (!b.available ? t('botCreate.naoInstalado') : b.signedIn === false ? t('botCreate.faltaEntrar') : t('botCreate.pronto'))
 const sigla = (nome: string) => nome.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2)
@@ -38,6 +35,8 @@ export function ModeloDaIa({ backends, valor, disabled, conta, contaSlot, onBack
 }) {
   const store = useStore()
   const t = useT()
+  const idioma = useIdioma()
+  const semAprovacaoId = useId()
   useCatalogoMudou()
   const backend = valor.backend
   // Com conta, a aba do motor lista os modelos da conta, sem o "Default" (passa por `separarPadrao`, como o catálogo da C9).
@@ -48,18 +47,25 @@ export function ModeloDaIa({ backends, valor, disabled, conta, contaSlot, onBack
     <div className="nb-motores">
       <span className="nb-rotulo">{t('botCreate.motoresDoHub')}</span>
       <div role="radiogroup" aria-label={t('botCreate.motoresDoHub')} className="nb-motores-lista">
-        {backends.map((b) => <button key={b.id} type="button" role="radio" aria-checked={b.id === backend} disabled={disabled}
-          className="nb-motor-item" onClick={() => onBackend(b.id)}>
-          <span className="nb-motor-sigla" aria-hidden="true">{sigla(b.name)}</span>
-          <span className="nb-motor-texto">
-            <span className="nb-motor-nome">{b.name}</span>
-            <span className={`nb-motor-estado ${b.available && b.signedIn !== false ? 'nb-ok' : 'nb-falta'}`}>{estadoDoMotor(t, b)}</span>
-          </span>
-        </button>)}
+        {backends.map((b) => {
+          const semAprovacao = ageSemAprovacao(b)
+          const descricaoId = `${semAprovacaoId}-${b.id}`
+          return <button key={b.id} type="button" role="radio" aria-checked={b.id === backend} disabled={disabled}
+            aria-describedby={semAprovacao ? descricaoId : undefined}
+            className="nb-motor-item" onClick={() => onBackend(b.id)}>
+            <span className="nb-motor-sigla" aria-hidden="true">{sigla(b.name)}</span>
+            <span className="nb-motor-texto">
+              <span className="nb-motor-nome">{b.name}</span>
+              <span className={`nb-motor-estado ${b.available && b.signedIn !== false ? 'nb-ok' : 'nb-falta'}`}>{estadoDoMotor(t, b)}</span>
+              {semAprovacao ? <span className="nb-motor-estado nb-falta" title={textosSemAprovacao(idioma).texto}>{textosSemAprovacao(idioma).selo}</span> : null}
+            </span>
+            {semAprovacao ? <span id={descricaoId} hidden>{textosSemAprovacao(idioma).texto}</span> : null}
+          </button>
+        })}
       </div>
     </div>
     <div className="nb-modelos">
-      <AvisoDoMotor backend={backend} />
+      <AvisoDoMotor backend={backend} semAprovacao={ageSemAprovacao(backends.find((b) => b.id === backend))} />
       <span className="nb-rotulo">{t('botCreate.contaDeIa')}</span>
       {contaSlot}
       <span className="nb-rotulo">{t('botCreate.modelo')}</span>

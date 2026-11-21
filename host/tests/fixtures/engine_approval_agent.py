@@ -16,6 +16,7 @@ Cada tentativa de ferramenta grava uma linha em decisions.jsonl; executar cria o
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -96,14 +97,9 @@ def kilo_decision(permission, target):
     return last
 
 
-if engine == "kilo" and args[:2] == ["debug", "agent"]:
-    # `kilo debug agent <nome>`: o agente com a regra efetiva já resolvida (cli/cmd/debug/agent.handler.ts).
-    if "--sem-debug" in args:
-        sys.exit(1)
-    print(json.dumps({"name": args[2], "permission": [
-        {"permission": p, "pattern": pattern, "action": action} for p, pattern, action in kilo_rules()]}))
-    sys.exit(0)
-
+log("lancado.json", {"engine": engine, "args": args,
+                     "env": {k: os.environ.get(k) for k in ("XDG_CONFIG_HOME", "KILO_TEST_HOME", "XDG_DATA_HOME", "KILO_PERMISSION")}})
+HUB_SERVERS = []
 SESSIONS = cwd / "sessions.json"
 
 
@@ -111,10 +107,44 @@ def sessions():
     return json.loads(SESSIONS.read_text()) if SESSIONS.is_file() else {}
 
 
-def kilo_options():
-    agent = "plan" if "--agente-plan" in args else "build"
-    return [{"id": "mode", "category": "mode", "type": "select", "currentValue": agent,
-             "options": [{"value": "build"}, {"value": "plan"}]}]
+def call_hub(server, tool, arguments):
+    """Chama uma ferramenta do Hub pelo servidor MCP que o Hub entregou na sessão, como o motor real faria."""
+    definition = next((d for d in HUB_SERVERS if d.get("name") == server), None)
+    if definition is None:
+        return {"error": f"servidor {server} não entregue"}
+    env = dict(os.environ)
+    env.update({item["name"]: item["value"] for item in definition.get("env", [])})
+    process = subprocess.Popen([definition["command"], *definition.get("args", [])], stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, text=True)
+
+    def rpc(number, method, params):
+        process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": number, "method": method, "params": params}) + chr(10))
+        process.stdin.flush()
+        return json.loads(process.stdout.readline())
+
+    rpc(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "fake", "version": "1"}})
+    answer = rpc(2, "tools/call", {"name": tool, "arguments": arguments})
+    process.stdin.close()
+    process.wait(timeout=10)
+    return answer.get("result", answer)
+
+
+def run_hub_tools():
+    """Cada chamada vai ao Hub; o resultado fica em hubcalls.jsonl para o teste comparar com o que a pessoa decidiu."""
+    for server, tool, arguments in HUB_CALLS:
+        result = call_hub(server, tool, arguments)
+        texto = (result.get("content") or [{}])[0].get("text", "") if isinstance(result, dict) else ""
+        log("hubcalls.jsonl", {"server": server, "tool": tool, "isError": result.get("isError", False) or "error" in result,
+                               "text": texto[:300]})
+
+
+HUB_CALLS = [
+    ("memory", "search_memory", {"query": "x"}),
+    ("memory", "remember", {"text": "lembrete do motor"}),
+    ("chat", "set_name", {"name": "Renomeado pelo motor"}),
+    ("routines", "save_routine", {"name": "r", "instruction": "i", "triggers": [{"type": "interval", "seconds": 3600}]}),
+    ("routines", "ferramenta_nova_que_ninguem_classificou", {}),
+]
 
 
 def launched_with_auto_approve():
@@ -203,15 +233,16 @@ for line in sys.stdin:
         result = {"protocolVersion": 1, "agentCapabilities": {"loadSession": engine == "kilo"}}
     elif method == "session/new":
         result = {"sessionId": "s1"}
+        HUB_SERVERS[:] = params.get("mcpServers", [])
         if engine == "kilo":
             todas = sessions()
-            result = {"sessionId": f"k{len(todas) + 1}", "configOptions": kilo_options()}
+            result = {"sessionId": f"k{len(todas) + 1}"}
             todas[result["sessionId"]] = {"allow_everything": False}
             SESSIONS.write_text(json.dumps(todas))
         if engine == "cline":
             result["configOptions"] = cline_options()
     elif method == "session/load":
-        result = {"configOptions": kilo_options()}
+        result = {}
     elif method == "session/set_config_option":
         if engine == "cline" and params.get("configId") == "auto_approve":
             value = params["value"]
@@ -222,8 +253,11 @@ for line in sys.stdin:
         if engine == "cline":
             result["configOptions"] = cline_options()
     elif method == "session/prompt":
-        for number, tool in enumerate(TOOLS):
-            run_tool(params["sessionId"], number, tool)
+        if "--hub-tools" in args:
+            run_hub_tools()
+        elif "--sem-ferramentas" not in args:
+            for number, tool in enumerate(TOOLS):
+                run_tool(params["sessionId"], number, tool)
         update(params["sessionId"], {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "fim"}})
         result = {"stopReason": "end_turn"}
     send({"id": request["id"], "result": result})

@@ -23,6 +23,8 @@ export const textos = {
   "conversa.avisos.equipe.desfeito": "{texto} · Desfeito",
   "conversa.avisos.equipe.desfazer": "Desfazer",
   "conversa.avisos.motor.opencode": "Na OpenCode, a trava de segurança não cobre tudo: ela pode usar configurações do computador dos bots e iniciar extensões (MCP e plugins) sem pedir.",
+  "conversa.avisos.motor.semAprovacaoSelo": "Age sem pedir",
+  "conversa.avisos.motor.semAprovacao": "Este motor executa ações no seu computador sem pedir sua aprovação. O Hub não consegue impor o cartão de aprovação nele.",
   "conversa.avisos.pergunta.aria": "Pergunta de {bot}: {estado}",
   "conversa.avisos.falha.contasConectadas": "Contas conectadas: {lista}.",
   "conversa.avisos.falha.nenhumaConectada": "Nenhuma conta de IA está conectada.",

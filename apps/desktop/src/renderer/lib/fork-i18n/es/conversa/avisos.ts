@@ -26,6 +26,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.equipe.desfeito": "{texto} · Deshecho",
   "conversa.avisos.equipe.desfazer": "Deshacer",
   "conversa.avisos.motor.opencode": "En OpenCode, el bloqueo de seguridad no lo cubre todo: puede usar ajustes del ordenador de los bots e iniciar extensiones (MCP y plugins) sin pedir permiso.",
+  "conversa.avisos.motor.semAprovacaoSelo": "Actúa sin pedir",
+  "conversa.avisos.motor.semAprovacao": "Este motor ejecuta acciones en tu ordenador sin pedir tu aprobación. El Hub no puede imponerle la tarjeta de aprobación.",
   "conversa.avisos.pergunta.aria": "Pregunta de {bot}: {estado}",
   "conversa.avisos.falha.contasConectadas": "Cuentas conectadas: {lista}.",
   "conversa.avisos.falha.nenhumaConectada": "No hay ninguna cuenta de IA conectada.",

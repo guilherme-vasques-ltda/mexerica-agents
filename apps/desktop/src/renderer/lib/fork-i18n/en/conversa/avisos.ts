@@ -26,6 +26,8 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.equipe.desfeito": "{texto} · Undone",
   "conversa.avisos.equipe.desfazer": "Undo",
   "conversa.avisos.motor.opencode": "With OpenCode, the safety lock doesn't cover everything: it can use settings from the bots' computer and start extensions (MCP and plugins) without asking.",
+  "conversa.avisos.motor.semAprovacaoSelo": "Acts without asking",
+  "conversa.avisos.motor.semAprovacao": "This engine takes actions on your computer without asking for your approval. The Hub can't enforce the approval card on it.",
   "conversa.avisos.pergunta.aria": "Question from {bot}: {estado}",
   "conversa.avisos.falha.contasConectadas": "Connected accounts: {lista}.",
   "conversa.avisos.falha.nenhumaConectada": "No AI account is connected.",

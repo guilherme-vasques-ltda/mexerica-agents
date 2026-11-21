@@ -27,6 +27,8 @@ export interface Provedor {
   fastMode?: boolean
   /** O id do "Default (recommended)" do próprio motor, fora da lista: é a mesma escolha que "Padrão do motor". */
   padrao?: string
+  /** O Hub marcou o motor como "age sem pedir aprovação": o seletor avisa, sem bloquear a escolha. */
+  semAprovacao?: boolean
   /** A leitura do catálogo falhou (diferente de "o motor não lista modelos"): o seletor oferece tentar de novo. */
   falhou?: boolean
 }

@@ -171,6 +171,20 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     } else {
         None
     };
+    // Ferramenta do Hub que muda algo, chamada por um motor sem cartão provado: cartão do Hub antes de qualquer efeito.
+    if let Some(execution) = &execution
+        && crate::fork::aprovacao_despacho::cobre(method)
+    {
+        crate::fork::aprovacao_despacho::exigir(
+            hub,
+            str_arg(&b, "botId")?,
+            method,
+            str_arg(&b, "name")?,
+            &b["arguments"],
+            execution,
+        )
+        .await?;
+    }
     let observation = if method == "computerCall" {
         Some(crate::screen::ObservationAttempt::capture_original(
             hub,

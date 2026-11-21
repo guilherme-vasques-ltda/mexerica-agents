@@ -75,13 +75,14 @@ export function MotoresDoHub() {
   const linha = (b: Backend) => {
     const estado = motorEstado(b, idioma)
     return (
-      <button key={b.id} className="contas-linha contas-linha-abrir motores-linha" aria-label={`${isolado(b.name)}, ${estado.selo}. ${estado.detalhe}`}
+      <button key={b.id} className="contas-linha contas-linha-abrir motores-linha" aria-label={`${isolado(b.name)}, ${estado.selo}. ${estado.detalhe}${estado.semAprovacao ? `. ${estado.semAprovacao.selo}: ${estado.semAprovacao.texto}` : ''}`}
         onClick={(e) => abrir({ kind: 'motor', backend: b, hubId, from: e.currentTarget })}>
         <AgentTile registry={b.registry ?? b.id} icon={18} tile={32} radius={9} />
         <VStack as="span" gap={3} grow shrink>
           <HStack as="span" gap={6} shrink>
             <Text tone="text" weight="medium" truncate dir="auto" title={isolado(b.name)}>{b.name}</Text>
             <MarketBadge label={estado.selo} tone={estado.tom === 'pronto' ? 'added' : 'secondary'} icon={estado.tom === 'pronto' ? 'checkmark' : estado.tom === 'atencao' ? 'exclamationmark' : undefined} />
+            {estado.semAprovacao ? <MarketBadge label={estado.semAprovacao.selo} icon="exclamationmark.triangle" title={estado.semAprovacao.texto} /> : null}
           </HStack>
           <Text size="caption" tone="secondary" truncate title={estado.detalhe}>{estado.detalhe}</Text>
         </VStack>

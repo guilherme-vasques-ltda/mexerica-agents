@@ -1,6 +1,7 @@
 import type { Backend } from '../../../../shared/models.ts'
 import type { AppLanguage } from '../../../../shared/fork-idioma.ts'
 import { traduzir, type ChaveTexto } from '../../../lib/fork-i18n/index.ts'
+import { ageSemAprovacao, textosSemAprovacao } from '../aviso-motor/aviso-motor.ts'
 
 // D169/D164 (components/ContasIa, "Motores"): regras puras da seção de motores de Ajustes → Contas de IA, sobre o que o
 // Hub manda em `hello.backends`. Nada aqui chama o Hub nem promete instalar ou entrar: cada estado vem de um campo real.
@@ -14,7 +15,8 @@ export function folhaNoHub<T extends { hubId: string }>(folha: T | null, hubId: 
 }
 
 export type MotorTom = 'pronto' | 'atencao' | 'neutro'
-export interface MotorEstado { selo: string; tom: MotorTom; detalhe: string; instalado: boolean }
+/** `semAprovacao`: o Hub marcou o motor como "age sem pedir aprovação"; o selo e a explicação vêm à parte do estado de login e instalação. */
+export interface MotorEstado { selo: string; tom: MotorTom; detalhe: string; instalado: boolean; semAprovacao: { selo: string; texto: string } | null }
 
 /** Os motores que o Hub diz suportados (como o antigo catálogo): instalados, oficiais ou disponíveis pelo registro. */
 export const motoresSuportados = (backends: readonly Backend[]) => backends.filter((b) => b.available || b.installed === true || b.curated === true)
@@ -26,7 +28,9 @@ export function gruposDeMotores(backends: readonly Backend[]) {
 }
 
 /** O estado de um motor no Hub, no idioma pedido (DON-917), só com o que o Hub informou. */
-export function motorEstado(b: Backend, idioma: AppLanguage): MotorEstado {
+export const motorEstado = (b: Backend, idioma: AppLanguage): MotorEstado => ({ ...estadoDeInstalacao(b, idioma), semAprovacao: ageSemAprovacao(b) ? textosSemAprovacao(idioma) : null })
+
+function estadoDeInstalacao(b: Backend, idioma: AppLanguage): Omit<MotorEstado, 'semAprovacao'> {
   const t = (chave: ChaveTexto) => (traduzir as (i: AppLanguage, c: ChaveTexto) => string)(idioma, chave)
   const contas = MOTORES_COM_CONTAS.has(b.id)
   if (b.installed !== true && b.curated === true) {
