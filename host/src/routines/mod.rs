@@ -208,6 +208,9 @@ fn guard_live_runs(state: &State) -> impl Iterator<Item = (&str, &str)> {
 /// Fontes concedidas, por (bot, nome): a concessão e a fonte.
 type Fontes = std::collections::HashMap<(String, String), crate::fork::heartbeat::Concessao>;
 
+/// Trava de chamadas de cada instância de fonte, presa por referência fraca à própria fonte.
+type Travas = Vec<(std::sync::Weak<dyn crate::fork::heartbeat::Fonte>, Arc<std::sync::atomic::AtomicBool>)>;
+
 pub struct Routines {
     state: Mutex<State>,
     active: Mutex<HashSet<String>>,
@@ -221,6 +224,9 @@ pub struct Routines {
     concessoes: std::sync::atomic::AtomicU64,
     /// Prazo de cada chamada a uma fonte, em milissegundos.
     prazo_fonte_ms: std::sync::atomic::AtomicU64,
+    /// Trava de chamadas por instância de fonte (a mesma fonte recadastrada reaproveita a trava): a entrada some quando
+    /// a fonte deixa de existir.
+    travas: Mutex<Travas>,
     /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
     checando: Mutex<HashSet<String>>,
     /// Falhas transitórias injetadas em `prepare_attempt` nos testes.
@@ -242,6 +248,7 @@ impl Default for Routines {
             fontes: Mutex::default(),
             concessoes: std::sync::atomic::AtomicU64::new(0),
             prazo_fonte_ms: std::sync::atomic::AtomicU64::new(crate::fork::heartbeat::PRAZO_PADRAO_MS),
+            travas: Mutex::default(),
             checando: Mutex::default(),
             #[cfg(test)]
             fail_next: std::sync::atomic::AtomicUsize::new(0),

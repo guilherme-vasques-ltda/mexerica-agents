@@ -877,3 +877,77 @@ fn ocorrencia_coletada_nao_roda_se_a_rotina_mudou_antes_da_vez_dela() {
     hub.routines.check_collected(&hub.store, &[(id, atual)], || PASSO);
     assert!(fonte.leituras.load(Ordering::SeqCst) > 0, "a rotina inalterada roda");
 }
+
+#[test]
+fn revogar_pausar_ou_trocar_no_meio_da_leitura_impede_a_chamada_seguinte() {
+    struct Muda {
+        hub: Arc<Hub>,
+        id: String,
+        caso: u8,
+        lidas: Arc<AtomicUsize>,
+    }
+    impl Fonte for Muda {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            match self.caso {
+                0 => self.hub.routines.retirar_fonte("bot", "pedidos.ficticio"),
+                1 => self.hub.routines.registrar_fonte(
+                    "bot",
+                    "pedidos.ficticio",
+                    "conta-9",
+                    Arc::new(Ficticia::default()),
+                ),
+                _ => {
+                    self.hub.routines.set_enabled(&self.hub.store, "bot", &self.id, false).unwrap();
+                }
+            }
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            self.lidas.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![item_aguardando()])
+        }
+    }
+    for caso in 0..3 {
+        let hub = hub();
+        let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+        let lidas = Arc::new(AtomicUsize::new(0));
+        let fonte = Muda { hub: hub.clone(), id: id.clone(), caso, lidas: lidas.clone() };
+        hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", Arc::new(fonte));
+        checa(&hub, &id, 1);
+        assert_eq!(lidas.load(Ordering::SeqCst), 0, "caso {caso}: depois da mudança nenhuma leitura nova é aberta");
+        assert!(execucoes(&hub).is_empty(), "caso {caso}");
+        assert_eq!(avisos(&hub).len(), 0, "caso {caso}");
+    }
+}
+
+#[test]
+fn recadastrar_a_mesma_fonte_nao_abre_chamada_em_paralelo() {
+    struct Travada(AtomicUsize);
+    impl Fonte for Travada {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            Ok(vec![])
+        }
+    }
+    let hub = hub();
+    hub.routines.prazo_fonte_ms.store(100, Ordering::SeqCst);
+    let travada = Arc::new(Travada(AtomicUsize::new(0)));
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
+    let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || PASSO);
+    assert_eq!(travada.0.load(Ordering::SeqCst), 1);
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 40 * PASSO);
+    assert_eq!(travada.0.load(Ordering::SeqCst), 1, "recadastro: a chamada anterior ainda não voltou");
+    hub.routines.retirar_fonte("bot", "pedidos.ficticio");
+    hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", travada.clone());
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 200 * PASSO);
+    assert_eq!(travada.0.load(Ordering::SeqCst), 1, "retirada e novo registro: a trava continua");
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 1000 * PASSO);
+    assert_eq!(travada.0.load(Ordering::SeqCst), 2, "a chamada anterior voltou: pode consultar de novo");
+}

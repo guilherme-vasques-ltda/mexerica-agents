@@ -324,6 +324,8 @@ impl Routines {
     }
 
     pub(super) fn schedule_due(&self, store: &Store, now: i64) -> Result<()> {
+        // O mesmo instante em que `now` foi amostrado: o horário de cada consulta é `now` mais o que já passou desde aqui.
+        let amostra = Instant::now();
         self.schedule_descendants_due(store, now)?;
         let due = {
             let state = self.state.locked();
@@ -338,8 +340,6 @@ impl Routines {
         if !due {
             return Ok(());
         }
-        // O mesmo instante em que `now` foi amostrado: o horário de cada consulta é `now` mais o que já passou desde aqui.
-        let amostra = Instant::now();
         let mut checks = Vec::new();
         self.change(store, |s| {
             if s.paused {

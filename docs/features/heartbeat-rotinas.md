@@ -58,7 +58,8 @@ Só gatilhos de relógio (cron ou intervalo) valem para uma checagem; gatilho ú
 de melhor esforço: o aviso no chat é a confirmação durável. Cada chamada à fonte tem prazo de 30 segundos: estourado o
 prazo, a checagem registra a fonte como indisponível (nunca «sem mudança») e segue para a próxima rotina do ciclo. Uma
 chamada que não voltou fica numa linha de execução à parte e mantém a fonte ocupada: ela não recebe outra chamada até
-terminar. A fonte não deve entrar em pânico com conteúdo.
+terminar, mesmo que a mesma fonte seja registrada de novo ou retirada e concedida outra vez enquanto isso. A fonte
+não deve entrar em pânico com conteúdo.
 
 Se o Hub cair justamente durante uma consulta, aquela ocorrência não é refeita: a checagem segue no horário seguinte
 da rotina (é uma amostragem periódica, não um compromisso a cumprir). Quem registra uma fonte informa a identidade da conta ou
@@ -67,7 +68,10 @@ espera nem pendências já avisadas; registrar de novo a mesma identidade manté
 andamento. Sem concessão registrada ainda (logo após reiniciar), a checagem só registra a falha e conserva o que sabia.
 
 Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
-de uma leitura descarta o resultado: nada é gravado nem avisado. Uma fonte só é lida pelo bot a que foi concedida.
+de uma leitura descarta o resultado: nada é gravado nem avisado. Além disso, a porta fecha antes de cada chamada: depois
+de qualquer uma dessas mudanças, nenhuma leitura nova é aberta (nem a segunda chamada da mesma checagem). Uma chamada
+que já estava em curso não é cancelada: o prazo a abandona e o resultado dela é descartado. Uma fonte só é lida pelo bot
+a que foi concedida.
 
 ## Estado desta entrega
 
