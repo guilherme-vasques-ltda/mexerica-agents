@@ -109,6 +109,7 @@ const bridge: CodyncBridge = {
     onChange: () => () => {},
     call: async () => ({ kind: 'notSent', reason: 'notReady' }),
     subscribeEvents: (_connectionId, _body, _onEvent, _onEnd) => () => {},
+    subscribeFrames: (_connectionId, _onFrame, _onEnd) => ({ cancel: () => {}, consumed: () => {}, opened: Promise.resolve(false) }),
   },
   voz: demoVozBridge(),
   accountProfile: demoAccountProfileBridge(),

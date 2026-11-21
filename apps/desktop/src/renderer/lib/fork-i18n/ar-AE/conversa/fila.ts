@@ -25,4 +25,5 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.fila.erro.permissao': 'لم يعد بإمكان هذا الجهاز تغيير قائمة الانتظار.',
   'conversa.fila.erro.pendente': 'لم يؤكد الكمبيوتر في الوقت المناسب. راجع قائمة الانتظار.',
   'conversa.fila.erro.falhou': 'تعذّر تغيير قائمة الانتظار.',
+  'conversa.fila.erro.cheia': 'قائمة انتظار هذه المحادثة ممتلئة. انتظر حتى تُرسل بعض الرسائل، ثم أعد الإرسال.',
 }

@@ -2,7 +2,7 @@
 //! O arquivo tem o mesmo formato do que o catálogo entrega ao app. Ficha malformada nunca entra no catálogo: o
 //! erro é registrado e o serviço fica de fora (fail-closed); o teste do catálogo reprova esse caso.
 use super::catalogo_servicos::{
-    Auth, CATEGORIAS, Grupo, Imposicao, Links, Perigosa, Servico, SkillOficial, SkillRef, Tipo, TipoConexao,
+    Auth, CATEGORIAS, Curada, Grupo, Imposicao, Links, Perigosa, Servico, SkillOficial, SkillRef, Tipo, TipoConexao,
 };
 use serde::Deserialize;
 
@@ -188,10 +188,19 @@ struct GrupoJson {
     url: Option<String>,
     #[serde(default)]
     ferramentas: Vec<String>,
+    #[serde(default)]
+    curadas: Vec<CuradaJson>,
     padrao: bool,
     disponivel: bool,
     #[serde(default)]
     imposicao: Option<Imposicao>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CuradaJson {
+    ferramenta: String,
+    digest: String,
 }
 
 #[derive(Deserialize)]
@@ -232,6 +241,19 @@ impl ServicoJson {
         for tipo in &self.tipos {
             if !tipo.id.starts_with(&self.id) {
                 return Err(format!("tipo `{}` não pertence à ficha `{}`", tipo.id, self.id));
+            }
+            let curada_invalida = |g: &GrupoJson| {
+                g.curadas.iter().any(|c| {
+                    !g.ferramentas.contains(&c.ferramenta)
+                        || c.digest.len() != 64
+                        || !c.digest.chars().all(|ch| matches!(ch, '0'..='9' | 'a'..='f'))
+                })
+            };
+            if tipo.grupos.iter().any(curada_invalida) {
+                return Err(format!(
+                    "ferramenta curada fora da lista do grupo ou com digest inválido em `{}`",
+                    tipo.id
+                ));
             }
             if tipo.disponivel && tipo.grupos.iter().any(|g| g.disponivel && g.imposicao.is_none()) {
                 return Err(format!("grupo disponível sem leitura imposta pelo fornecedor em `{}`", tipo.id));
@@ -304,6 +326,12 @@ impl TipoJson {
                         escopos: fixos(g.escopos),
                         url: g.url.map(fixa),
                         ferramentas: fixos(g.ferramentas),
+                        curadas: lista(
+                            g.curadas
+                                .into_iter()
+                                .map(|c| Curada { ferramenta: fixa(c.ferramenta), digest: fixa(c.digest) })
+                                .collect(),
+                        ),
                         padrao: g.padrao,
                         disponivel: g.disponivel,
                         imposicao: g.imposicao,

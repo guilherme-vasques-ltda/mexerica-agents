@@ -1,0 +1,21 @@
+/* Ajustes → Instruções: campo de texto, rodapé e a caixa da ordem, com os tokens do app (docs/reference/redesenho/README.md). */
+.instrucoes-campo { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.instrucoes-titulo { font-weight: 600; color: var(--ink); }
+.instrucoes-ajuda { margin: 0 0 4px; color: var(--ink-2); font-size: var(--text-caption); }
+.instrucoes-texto {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 110px; padding: 10px 12px;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55;
+  color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: var(--radius-s);
+}
+.instrucoes-texto:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.instrucoes-rodape { display: flex; gap: 12px; justify-content: space-between; color: var(--ink-2); font-size: var(--text-caption); }
+.instrucoes-contador { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.instrucoes-alerta { color: var(--danger); }
+.instrucoes-acoes { display: flex; gap: 8px; justify-content: flex-end; }
+.instrucoes-escolha { display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); font-size: var(--text-caption); }
+.instrucoes-ordem {
+  padding: 10px 12px; border-radius: var(--radius-s); color: var(--ink-2); font-size: var(--text-caption); line-height: 1.5;
+  background: color-mix(in srgb, var(--accent-verde) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-verde) 22%, transparent);
+}
+.instrucoes-ordem b { color: var(--ink); }

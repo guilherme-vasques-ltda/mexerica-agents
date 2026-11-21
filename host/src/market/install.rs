@@ -3,6 +3,7 @@
 
 use super::{
     Connector, add_connector, connectors, contas, oauth, reserved_connector_ids, unique_id, update_connectors,
+    update_connectors_com,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -126,10 +127,15 @@ pub fn list_connectors(store: &crate::store::Store) -> Result<Value> {
 }
 
 pub fn remove_connector(store: &crate::store::Store, id: &str) -> Result<()> {
-    update_connectors(store, |all| {
-        all.retain(|c| c.id != id);
-        Ok(())
-    })?;
+    // O inventário e as liberações somem na mesma transação que tira a conta do cofre.
+    update_connectors_com(
+        store,
+        |all| {
+            all.retain(|c| c.id != id);
+            Ok(())
+        },
+        |tx, ()| super::ferramentas::esquecer_conta(tx, id),
+    )?;
     store.guard_connector_removed(id)
 }
 

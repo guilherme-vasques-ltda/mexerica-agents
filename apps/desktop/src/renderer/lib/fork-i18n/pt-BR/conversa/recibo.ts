@@ -40,4 +40,13 @@ export const textos = {
   "conversa.recibo.campo.motor": "Motor",
   "conversa.recibo.campo.esforco": "Esforço",
   "conversa.recibo.tentarDeNovo": "Tentar de novo",
+  "conversa.recibo.uso.titulo": "Uso deste turno",
+  "conversa.recibo.uso.entrada": "Entrada",
+  "conversa.recibo.uso.cacheLido": "Cache lido",
+  "conversa.recibo.uso.cacheGravado": "Cache gravado",
+  "conversa.recibo.uso.saida": "Saída",
+  "conversa.recibo.uso.naoInformado": "não informado",
+  "conversa.recibo.uso.informado": "Números informados pelo motor ao fim do turno. A Mexerica não estima: o que o motor não informa aparece como «não informado».",
+  "conversa.recibo.uso.semMedida": "Este turno não tem medida de uso: é anterior a este registro ou o motor ainda não respondeu.",
+  "conversa.recibo.uso.nenhum": "O motor não informou o uso deste turno.",
 } as const

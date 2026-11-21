@@ -2,8 +2,8 @@
 use super::catalogo_fichas::servicos;
 use super::catalogo_json::{FICHA_DONO_A, FICHAS, ler};
 use super::catalogo_servicos::{
-    Auth, Grupo, Imposicao, PRAZO_CONFERENCIA_DIAS, Tipo, TipoConexao, dias_desde_conferencia, filtrar_ferramentas,
-    hoje, servico,
+    Auth, Curada, Grupo, Imposicao, PRAZO_CONFERENCIA_DIAS, Tipo, TipoConexao, dias_desde_conferencia,
+    filtrar_ferramentas, hoje, servico,
 };
 use chrono::NaiveDate;
 use serde_json::json;
@@ -133,6 +133,7 @@ static GRUPOS: &[Grupo] = &[
         escopos: &["a:read"],
         url: None,
         ferramentas: &["listar", "ver"],
+        curadas: &[],
         padrao: true,
         disponivel: true,
         imposicao: None,
@@ -143,6 +144,7 @@ static GRUPOS: &[Grupo] = &[
         escopos: &["a:read", "a:write"],
         url: Some("https://mcp.exemplo.invalid/escrita"),
         ferramentas: &["cobrar"],
+        curadas: &[],
         padrao: false,
         disponivel: true,
         imposicao: None,
@@ -153,6 +155,7 @@ static GRUPOS: &[Grupo] = &[
         escopos: &["b:read"],
         url: None,
         ferramentas: &[],
+        curadas: &[],
         padrao: false,
         disponivel: true,
         imposicao: None,
@@ -459,6 +462,67 @@ fn escrita_que_pode_apagar_fica_indisponivel_ate_o_filtro_de_acoes_perigosas() {
         assert!(!tipo.grupos.iter().find(|g| g.id == grupo).unwrap().disponivel, "{id}/{grupo}");
         assert!(tipo.liberacoes_validas(Some(&[grupo.to_owned()])).is_err(), "{id}/{grupo} não liga");
     }
+}
+
+#[test]
+fn perfil_salvo_so_vale_se_todo_grupo_continua_valido_na_ficha() {
+    let ids = |lista: &[&str]| lista.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert!(TIPO_TESTE.perfil_disponivel(&ids(&["ler"])));
+    assert!(TIPO_TESTE.perfil_disponivel(&ids(&["ler", "cobrar"])));
+    // Um grupo que a ficha de agora não tem derruba o perfil inteiro, mesmo com outro grupo válido ao lado.
+    assert!(!TIPO_TESTE.perfil_disponivel(&ids(&["ler", "sumiu"])));
+    assert!(!TIPO_TESTE.perfil_disponivel(&ids(&["sumiu", "ler"])));
+    assert!(!TIPO_TESTE.perfil_disponivel(&ids(&["sumiu"])));
+    assert!(!TIPO_TESTE.perfil_disponivel(&[]));
+}
+
+static GRUPOS_CURADOS: &[Grupo] = &[
+    Grupo {
+        id: "a",
+        rotulo: "A",
+        escopos: &[],
+        url: None,
+        ferramentas: &["listar", "ver"],
+        curadas: &[Curada { ferramenta: "listar", digest: "aa" }, Curada { ferramenta: "ver", digest: "vv" }],
+        padrao: true,
+        disponivel: true,
+        imposicao: None,
+    },
+    Grupo {
+        id: "b",
+        rotulo: "B",
+        escopos: &[],
+        url: None,
+        ferramentas: &["listar", "ver"],
+        curadas: &[Curada { ferramenta: "listar", digest: "bb" }, Curada { ferramenta: "ver", digest: "vv" }],
+        padrao: false,
+        disponivel: true,
+        imposicao: None,
+    },
+];
+static TIPO_CURADO: TipoConexao = TipoConexao {
+    id: "teste.curado",
+    tipo: Tipo::OficialChave,
+    rotulo: "Teste",
+    mantido_por: "Teste",
+    url: "https://mcp.exemplo.invalid/mcp",
+    auth: Auth::Chave { destino: "header", nome: "Authorization", prefixo: None, como_criar_leitura: "texto" },
+    grupos: GRUPOS_CURADOS,
+    perigosas: &[],
+    recomendado: false,
+    disponivel: true,
+    motivo_indisponivel: None,
+};
+
+#[test]
+fn curadoria_vem_so_dos_grupos_ligados_e_digest_ambiguo_nao_passa() {
+    let ids = |lista: &[&str]| lista.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert_eq!(TIPO_CURADO.ferramentas_curadas(&ids(&["a"])).get("listar"), Some(&"aa"));
+    assert_eq!(TIPO_CURADO.ferramentas_curadas(&ids(&["b"])).get("listar"), Some(&"bb"));
+    let ambos = TIPO_CURADO.ferramentas_curadas(&ids(&["a", "b"]));
+    assert_eq!(ambos.get("listar"), None, "dois digests curados para o mesmo nome: nenhum passa");
+    assert_eq!(ambos.get("ver"), Some(&"vv"), "o mesmo digest nos dois grupos não é ambíguo");
+    assert!(TIPO_TESTE.ferramentas_curadas(&ids(&["ler"])).is_empty(), "sem curadoria nada passa sozinho");
 }
 
 /// A ficha só sugere skill que existe no catálogo curado, sem repetir id.
