@@ -8,15 +8,6 @@ use crate::fork::cadeias::{
 use anyhow::{Context, ensure};
 use rusqlite::Connection;
 
-/// Desfecho da confirmação de início de uma execução de rotina.
-pub(crate) enum Inicio {
-    /// Recibo vencedor do CAS: o despacho foi confirmado e a execução está em andamento.
-    Iniciada,
-    /// A rotina virou «só quando eu mandar» depois da reserva automática: a execução
-    /// foi cancelada na mesma passada, sem despacho — nada chega ao motor.
-    Cancelada,
-}
-
 /// Candidato do produtor único, ainda sem recibo nem efeito persistido.
 pub(super) struct Reserva {
     run: Run,
@@ -496,7 +487,7 @@ impl Routines {
     }
 
     /// Só é sucesso para o vencedor do CAS. Retry SQL não concede novo envio.
-    pub(crate) fn mark_started(&self, store: &Store, bot: &str, id: &str, receipt: &Recibo) -> Result<Inicio> {
+    pub(crate) fn mark_started(&self, store: &Store, bot: &str, id: &str, receipt: &Recibo) -> Result<()> {
         self.change(store, |state| {
             let run = state
                 .runs
@@ -508,20 +499,10 @@ impl Routines {
                     && run.chain.as_ref() == Some(receipt),
                 Recusa::ReciboInvalido
             );
-            // «Só quando eu mandar»: a rotina pode ter virado manual entre o
-            // preparo e esta confirmação. A execução automática é cancelada na
-            // MESMA passada que conferiu o recibo, antes do despacho — nada
-            // chega ao motor e o ator encerra a tentativa sem falha.
-            if run.event["source"] != "test"
-                && state.routines.iter().any(|r| r.id == run.routine_id && r.triggers.is_empty())
-            {
-                crate::routines::cancel_run(run);
-                return Ok(Inicio::Cancelada);
-            }
             admissao::despachar(store, receipt)?;
             run.status = Status::Running;
             run.started_at.get_or_insert_with(now_ms);
-            Ok(Inicio::Iniciada)
+            Ok(())
         })
     }
 

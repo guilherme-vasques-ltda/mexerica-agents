@@ -619,63 +619,30 @@ impl Actor {
                 tokio::time::sleep(Duration::from_millis(25)).await;
                 started = hub.routines.mark_started(&hub.store, &self.cfg.id, id, receipt);
             }
-            match started {
-                Err(error) => {
-                    // Permitted já é durável: falha posterior não pode reabrir setup
-                    // nem fabricar outro recibo. Conservar cerca até Interrupted persistir.
-                    self.finish_routine(crate::fork::rotina_resultado::Observed::interrupted(),
-                        Some(format!("A permissão foi confirmada, mas o início da rotina não pôde ser confirmado. Confira o histórico; nenhuma ação foi repetida. {error:#}")), None);
-                    self.turn = None;
-                    self.input = None;
-                    hub.team.cancel_from(&self.cfg.id);
-                    if self.routine_completion.is_none() {
-                        self.finish_dispatch();
-                    }
-                    hub.set_memory_runtime(&self.cfg.id, |runtime| {
-                        runtime.preparing_turn_token = None;
-                        runtime.status = BotStatus::Error;
-                        runtime.set_activity(
-                            "Rotina interrompida após a permissão; confira o histórico.",
-                            Some(ActivityKind::RoutineInterrupted),
-                        );
-                        runtime.started_at = None;
-                        runtime.lane = None;
-                        runtime.message = None;
-                        runtime.session = None;
-                    });
-                    return Ok(());
+            if let Err(error) = started {
+                // Permitted já é durável: falha posterior não pode reabrir setup
+                // nem fabricar outro recibo. Conservar cerca até Interrupted persistir.
+                self.finish_routine(crate::fork::rotina_resultado::Observed::interrupted(),
+                    Some(format!("A permissão foi confirmada, mas o início da rotina não pôde ser confirmado. Confira o histórico; nenhuma ação foi repetida. {error:#}")), None);
+                self.turn = None;
+                self.input = None;
+                hub.team.cancel_from(&self.cfg.id);
+                if self.routine_completion.is_none() {
+                    self.finish_dispatch();
                 }
-                Ok(crate::routines::Inicio::Cancelada) => {
-                    // A rotina virou «só quando eu mandar» depois desta reserva:
-                    // a execução automática já foi cancelada na mesma passada que
-                    // conferiu o recibo, antes do despacho. Nada chegou ao motor;
-                    // a tentativa encerra limpa, sem regravar a run nem falhar, e o
-                    // bot fica livre para a próxima mensagem. Quem libera a vaga do bot
-                    // e a sessão da execução é este ramo: sem `complete`, nada mais o faz.
-                    if let Some(run) = self.active_routine.take() {
-                        self.set_session(Some(&crate::routines::session_slot(&run)), None);
-                    }
-                    hub.routines.release(&self.cfg.id);
-                    self.routine_attempt = None;
-                    self.routine_deadline = None;
-                    self.turn = None;
-                    self.input = None;
-                    hub.team.cancel_from(&self.cfg.id);
-                    if self.routine_completion.is_none() {
-                        self.finish_dispatch();
-                    }
-                    hub.set_memory_runtime(&self.cfg.id, |runtime| {
-                        runtime.preparing_turn_token = None;
-                        runtime.status = BotStatus::Idle;
-                        runtime.clear_activity();
-                        runtime.started_at = None;
-                        runtime.lane = None;
-                        runtime.message = None;
-                        runtime.session = None;
-                    });
-                    return Ok(());
-                }
-                Ok(crate::routines::Inicio::Iniciada) => {}
+                hub.set_memory_runtime(&self.cfg.id, |runtime| {
+                    runtime.preparing_turn_token = None;
+                    runtime.status = BotStatus::Error;
+                    runtime.set_activity(
+                        "Rotina interrompida após a permissão; confira o histórico.",
+                        Some(ActivityKind::RoutineInterrupted),
+                    );
+                    runtime.started_at = None;
+                    runtime.lane = None;
+                    runtime.message = None;
+                    runtime.session = None;
+                });
+                return Ok(());
             }
             self.routine_deadline = Some(Instant::now() + hub.routines.timeout(id));
         }
