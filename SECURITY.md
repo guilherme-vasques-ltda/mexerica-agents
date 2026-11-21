@@ -35,7 +35,7 @@ Valem mais as falhas que atravessam a fronteira entre o bot e o computador do op
 
 ## Como relatar
 
-Use o **Private Vulnerability Reporting do GitHub** (aba **Security → Report a vulnerability**), quando estiver habilitado neste repositório; enquanto não estiver, escreva para o contato publicado no site do projeto (`support@mexerica.app`). Não publique issue, captura ou log com dados sensíveis.
+Use o **Private Vulnerability Reporting do GitHub** (aba **Security → Report a vulnerability**). Como alternativa, escreva para o contato publicado no site do projeto (`support@mexerica.app`). Não publique issue, captura ou log com dados sensíveis.
 
 Informe versão ou SHA, ambiente, fronteira e acesso inicial, passos seguros para reproduzir, resultado observado e esperado e uma evidência sem segredos. Não execute provas destrutivas nem use dados reais.
 

@@ -155,7 +155,7 @@ jobs:
       - name: Ferramentas de CI - testar executores e contrato do workflow sem secrets
         env:
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
-        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs
+        run: node --test tools/ci-gitleaks.test.mjs tools/ci-vazamento.test.mjs tools/ci-workflow.test.mjs tools/ci-bastidor.test.mjs
       # Informativo: falha de auditoria aparece no resumo, mas nao reprova o job nem o ci-ok.
       - name: Auditoria - instalar cargo-audit 0.22.2 com SHA256 fixo
         continue-on-error: true
@@ -280,6 +280,78 @@ jobs:
             if [ "$(id -u)" = 0 ]; then apt-get update -qq && apt-get install -y -qq bubblewrap; else sudo -n apt-get update -qq && sudo -n apt-get install -y -qq bubblewrap; fi
           fi
           bwrap --version
+          # Ubuntu 24.04 restringe user namespace sem privilegio via AppArmor; sem ajuste o bwrap
+          # falha ao criar o mapa de UID. Carrega o perfil oficial primeiro; se continuar
+          # bloqueado, libera o sysctl so nesta VM descartavel.
+          probe() { bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev true 2> /dev/null; }
+          if ! probe; then
+            if [ -f /etc/apparmor.d/bwrap ] && command -v apparmor_parser > /dev/null; then
+              sudo -n apparmor_parser -r /etc/apparmor.d/bwrap || echo '::warning::perfil do bwrap nao carregou; a prova final decide.'
+            fi
+            if ! probe && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+              if [ "${RUNNER_ENVIRONMENT:-}" = 'github-hosted' ]; then
+                sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || echo '::warning::sysctl do user namespace nao liberou; a prova final decide.'
+              fi
+            fi
+          fi
+          # Prova minima em segundos: o bwrap precisa criar o mapa de UID. Se nao der, o job
+          # reprova aqui, em vez de falhar dentro da suite inteira.
+          if ! bwrap --unshare-user --ro-bind / / true 2> /dev/null; then
+            echo '::error::bwrap nao consegue criar o mapa de UID nesta VM (AppArmor/user namespace); os testes reais de isolamento nao podem rodar.'
+            exit 1
+          fi
+      # A imagem Ubuntu do GitHub Actions entrega /usr/share e a origem de /etc/localtime com o
+      # usuario do job como dono, e o sandbox recusa montar origem que nao seja de root. O passo
+      # devolve a cadeia de /etc/localtime ao dono root, sem escrita de grupo ou de terceiros, e
+      # confere o mesmo contrato do sandbox antes de rodar a suite. Nada e afrouxado no Hub.
+      - name: Devolver a origem de /etc/localtime ao dono root
+        run: |
+          set -euo pipefail
+          alvo=$(readlink -f /etc/localtime)
+          case "$alvo" in /*) ;; *) echo "::error::/etc/localtime nao resolve para caminho absoluto: $alvo"; exit 1 ;; esac
+          [ -e "$alvo" ] || { echo "origem de /etc/localtime ausente (o sandbox ignora): $alvo"; exit 0; }
+          fora=0
+          caminho="$alvo"
+          while [ -n "$caminho" ] && [ "$caminho" != "/" ]; do
+            uid=$(stat -c '%u' "$caminho")
+            modo=$(( 8#$(stat -c '%a' "$caminho") ))
+            if [ "$uid" = "$(id -u)" ] || { [ $(( modo & 022 )) -ne 0 ] && [ $(( modo & 01000 )) -eq 0 ]; }; then
+              fora=1
+            fi
+            caminho=$(dirname "$caminho")
+          done
+          if [ "$fora" = 0 ]; then
+            echo "Cadeia de /etc/localtime ja esta no contrato do sandbox: $alvo"
+            exit 0
+          fi
+          sudo -n true || { echo '::error::sudo -n indisponivel: nao da para corrigir o dono da timezone.'; exit 1; }
+          echo "Origem de /etc/localtime: $alvo" >> "$GITHUB_STEP_SUMMARY"
+          caminho="$alvo"
+          while [ -n "$caminho" ] && [ "$caminho" != "/" ]; do
+            antes=$(stat -c '%u:%g %a' "$caminho")
+            uid=$(stat -c '%u' "$caminho")
+            if [ "$uid" = "$(id -u)" ]; then
+              sudo -n chown root:root "$caminho"
+              echo "chown root:root $caminho (antes: $antes)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            modo=$(( 8#$(stat -c '%a' "$caminho") ))
+            if [ $(( modo & 022 )) -ne 0 ] && [ $(( modo & 01000 )) -eq 0 ]; then
+              sudo -n chmod g-w,o-w "$caminho"
+              echo "chmod g-w,o-w $caminho (antes: $antes)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            caminho=$(dirname "$caminho")
+          done
+          caminho="$alvo"
+          while [ -n "$caminho" ] && [ "$caminho" != "/" ]; do
+            uid=$(stat -c '%u' "$caminho")
+            modo=$(( 8#$(stat -c '%a' "$caminho") ))
+            if [ "$uid" = "$(id -u)" ] || { [ $(( modo & 022 )) -ne 0 ] && [ $(( modo & 01000 )) -eq 0 ]; }; then
+              echo "::error::$caminho continua fora do contrato do sandbox (dono ou modo)."
+              exit 1
+            fi
+            caminho=$(dirname "$caminho")
+          done
+          echo "Cadeia de /etc/localtime devolvida ao dono root."
       - name: Formatar e conferir o Hub (fmt e Clippy)
         run: |
           cargo fmt --all --check

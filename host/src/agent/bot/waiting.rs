@@ -589,8 +589,12 @@ impl Actor {
                 Seg::Open { kind, entry_id, buf, .. } => Some((
                     entry_id.clone(),
                     match kind {
-                        super::SegKind::Text => json!({"text":buf,"final":false,"author":self.cfg.id}),
-                        super::SegKind::Thought => json!({"text":buf,"author":self.cfg.id}),
+                        super::SegKind::Text => {
+                            json!({"text":crate::fork::planos_codigo::mascarar_saida(buf, true),"final":false,"author":self.cfg.id})
+                        }
+                        super::SegKind::Thought => {
+                            json!({"text":crate::fork::planos_codigo::mascarar_saida(buf, true),"author":self.cfg.id})
+                        }
                     },
                 )),
                 Seg::None => None,
