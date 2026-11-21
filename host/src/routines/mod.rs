@@ -15,6 +15,7 @@ mod bound_save;
 mod cadeias;
 #[path = "../fork/heartbeat/routines.rs"]
 mod checagem;
+pub(crate) use cadeias::Inicio;
 mod pause;
 #[path = "../fork/rotina_resultado/routines.rs"]
 mod resultado;
@@ -604,6 +605,12 @@ impl Routines {
     #[cfg(test)]
     pub(crate) fn chain_reserved_for_test(&self, bot: &str) -> bool {
         self.active.locked().contains(bot)
+    }
+
+    /// Como o despacho do agendador: marca o bot como ocupado por uma execução.
+    #[cfg(test)]
+    pub(crate) fn reserve_for_test(&self, bot: &str) {
+        self.active.locked().insert(bot.to_owned());
     }
 
     pub fn list(&self, bot: &str) -> Value {

@@ -99,7 +99,10 @@ mod tests {
         super::super::cadeias::restaurar(&store, &mut state).unwrap();
         *routines.state.locked() = state;
         let receipt = routines.prepare_attempt(&store, "bot", &id).unwrap();
-        routines.mark_started(&store, "bot", &id, &receipt).unwrap();
+        assert!(matches!(
+            routines.mark_started(&store, "bot", &id, &receipt).unwrap(),
+            crate::routines::Inicio::Iniciada
+        ));
         assert!(routines.state.locked().runs[0].status == Status::Running);
         routines.set_paused(&store, false).unwrap();
         assert!(routines.hooks()[0].enabled);

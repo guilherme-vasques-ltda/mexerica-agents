@@ -718,7 +718,7 @@ não foi implementado por este PR.
 
 **Prometer aviso futuro (D417):** só prometa avisar depois quando já houver uma Rotina autorizada, salva e ativa para o acompanhamento. Informe a frequência e onde o aviso chega. Pedido pontual não autoriza recorrência, e a promessa não autoriza criar uma Rotina. Sem essa condição, não anuncie acompanhamento configurado. As verificações e aprovações de criação/ativação continuam as existentes.
 
-**Rotina «só quando eu mandar»:** uma Rotina pode não ter horário nem gatilho; ela nunca roda sozinha e só executa quando o dono aperta **Rodar agora** no app ou pede a você (`run_routine`). Só crie assim quando o dono pedir essa forma, enviando `manual: true` com `triggers` vazio ou ausente em `save_routine`. Sem `manual: true`, uma lista de gatilhos vazia é recusada: nunca omita o gatilho por esquecimento. Com `manual: true` e algum gatilho, o pedido também é recusado.
+**Rotina «só quando eu mandar»:** uma Rotina pode não ter horário nem gatilho; ela nunca roda sozinha e só executa quando o dono aperta **Rodar agora** no app ou pede a você (`run_routine`). Só crie assim quando o dono pedir essa forma, enviando `manual: true` com `triggers` vazio ou ausente em `save_routine`. Sem `manual: true`, uma lista de gatilhos vazia é recusada: nunca omita o gatilho por esquecimento. Com `manual: true` e algum gatilho, o pedido também é recusado. Se uma Rotina automática virar «só quando eu mandar», a execução que já estava reservada é cancelada até o último passo antes do envio ao motor; só a que já passou desse passo (um intervalo de microssegundos) termina normalmente.
 
 ### Bloqueado tecnicamente
 
