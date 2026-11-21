@@ -580,6 +580,51 @@ async fn cofre_ilegivel_para_proteger_nao_guarda_a_conversa() {
     acp.kill_and_wait().await;
 }
 
+/// A chave de um endereço próprio REGISTRADO que não é o provedor desta conversa também sai do texto antes de a
+/// conversa ser guardada: a leitura de proteção cobre todos os endereços do cofre, não só o desta sessão.
+#[tokio::test]
+async fn chave_de_outro_endereco_proprio_sai_do_texto_guardado() {
+    let case = caso!("chave_de_outro_endereco_proprio_sai_do_texto_guardado");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let chave = "chave-do-endereco-proprio-registrado-que-nao-e-este-provedor";
+    let registro = json!({"key": chave, "baseUrl": "https://exemplo.invalido/v1",
+        "formato": "chat-completions", "local": false, "nome": "Serviço registrado"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    super::proprio::incluir(&store, "proprio-abcdef12").unwrap();
+    let fonte = store.clone();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(move || super::proprio::ids(&fonte)));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, &format!("minha outra chave é {chave}")).await;
+    // O motor vivo viu o texto cru; o que prova a redação é a CÓPIA guardada, que volta no próximo processo.
+    matar_o_motor(acp.pid().unwrap()).await;
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: minha outra chave é [removido] | /historico");
+    acp.kill_and_wait().await;
+}
+
+/// Sem conseguir listar os endereços próprios, a proteção não presume "sem chaves": a conversa não é guardada,
+/// como em qualquer leitura do cofre que falha.
+#[tokio::test]
+async fn falha_ao_listar_os_enderecos_proprios_nao_guarda_a_conversa() {
+    let case = caso!("falha_ao_listar_os_enderecos_proprios_nao_guarda_a_conversa");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(|| anyhow::bail!("índice de endereços ilegível na prova")));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: /historico", "sem a lista de endereços nada ficou guardado");
+    acp.kill_and_wait().await;
+}
+
 /// A credencial servida ao motor é a da geração autorizada para a conversa: se o cofre muda no meio (rotação entre a
 /// decisão e a chamada ao provedor), a leitura é recusada em vez de a conta nova receber o contexto da anterior.
 #[test]

@@ -51,6 +51,9 @@ pub(crate) const REQUIRED_ENV: &str = "MEXERICA_MOTOR_TESTS_REQUIRED";
 pub(crate) type VaultSource = Arc<dyn Fn(&str) -> Result<Option<String>> + Send + Sync>;
 /// Limites (`contextWindow`, `maxTokens`) de `(fornecedor, modelo)`; `{}` quando não há.
 pub(crate) type LimitsSource = Arc<dyn Fn(&str, &str) -> Result<Value> + Send + Sync>;
+/// Nomes (`proprio-…`) dos endereços próprios registrados no cofre; cada um entra na leitura de proteção do
+/// turno, mesmo sem ser o provedor desta conversa.
+pub(crate) type PropriosSource = Arc<dyn Fn() -> Result<Vec<String>> + Send + Sync>;
 
 /// Fonte do cofre sobre um `Store` próprio (provas e testes).
 pub(crate) fn store_vault(store: Arc<Store>) -> VaultSource {

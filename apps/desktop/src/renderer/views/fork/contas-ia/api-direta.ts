@@ -116,3 +116,9 @@ export function enderecoPronto(d: NovoEndereco): boolean {
     return false
   }
 }
+
+/** O formulário do endereço próprio só fecha com o acesso confirmado: sem confirmação, o aviso fica na tela em
+ * vez de sumir junto com o formulário. */
+export function fechaDepoisDeSalvar(r: Acesso): boolean {
+  return r.ok && r.estado !== 'acesso_nao_confirmado'
+}

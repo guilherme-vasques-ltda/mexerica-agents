@@ -5,7 +5,7 @@
 //! computador cadastra, testa ou remove. «Testar acesso» abre o motor preso ao fornecedor e só lista os modelos que
 //! a chave enxerga: nenhuma conversa, nenhuma cobrança. A lista fica guardada (sem segredo) para a escolha do modelo.
 use super::proprio::{self, Formato, Registro};
-use super::{Engine, LimitsSource, VaultSource, credential_slot};
+use super::{Engine, LimitsSource, PropriosSource, VaultSource, credential_slot};
 use crate::{api::devices::Caller, hub::Hub, store::Store};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::Deserialize;
@@ -297,6 +297,11 @@ pub(crate) fn limites(store: &Store, fornecedor: &str, modelo: &str) -> Result<V
 /// A fonte de limites que o adaptador do motor consulta ao escolher o modelo.
 pub(crate) fn fonte_de_limites(hub: Arc<Hub>) -> LimitsSource {
     Arc::new(move |fornecedor: &str, modelo: &str| limites(&hub.store, fornecedor, modelo))
+}
+
+/// Nomes dos endereços próprios registrados, para a proteção da conversa cobrir as chaves de todos eles.
+pub(crate) fn fonte_de_proprios(hub: Arc<Hub>) -> PropriosSource {
+    Arc::new(move || proprio::ids(&hub.store))
 }
 
 /// O que o app vê: quais fornecedores têm chave e os modelos do último teste. Nunca a chave, nem parte dela.

@@ -10,7 +10,7 @@
 use super::historico::{self, History, TurnLog};
 use super::tools::{ToolFuture, ToolRunner};
 use super::{
-    Engine, LimitsSource, VaultSource,
+    Engine, LimitsSource, PropriosSource, VaultSource,
     mcp_host::{McpHost, ToolClass},
 };
 use crate::LockExt;
@@ -66,6 +66,8 @@ pub(crate) struct Link {
     skip_mcp: std::sync::atomic::AtomicBool,
     /// Limites do modelo escolhido (contexto e teto de saída) guardados pelo «Testar acesso».
     limits: std::sync::OnceLock<LimitsSource>,
+    /// Nomes dos endereços próprios registrados; entram na leitura de proteção mesmo sem ser o da conversa.
+    proprios: std::sync::OnceLock<PropriosSource>,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -126,24 +128,41 @@ pub(super) fn credential_generation(provider: &str, key: Option<&str>) -> String
 /// que possa trocar a conta depois da decisão).
 struct Credentials {
     reads: Vec<(String, Result<Option<String>>)>,
+    /// Falha ao listar os endereços próprios registrados: sem ela a proteção não pode decidir nada.
+    erro_proprios: Option<anyhow::Error>,
 }
 
 impl Credentials {
-    /// Os provedores fixos e o desta conversa (um endereço próprio não está na lista fixa).
-    fn read(vault: &VaultSource, provider: &str) -> Self {
+    /// Os provedores fixos, o desta conversa e os demais endereços próprios registrados (uma chave de qualquer
+    /// um deles colada no texto sai antes de a conversa ser guardada).
+    fn read(vault: &VaultSource, provider: &str, proprios: Option<&PropriosSource>) -> Self {
         let mut names: Vec<String> = super::PROVIDERS.iter().map(|p| (*p).to_owned()).collect();
         if !names.iter().any(|name| name == provider) {
             names.push(provider.to_owned());
         }
-        Self {
-            reads: names
-                .into_iter()
-                .map(|provider| {
-                    let read = vault(&super::credential_slot(&provider));
-                    (provider, read)
-                })
-                .collect(),
-        }
+        let mut reads: Vec<(String, Result<Option<String>>)> = names
+            .into_iter()
+            .map(|provider| {
+                let read = vault(&super::credential_slot(&provider));
+                (provider, read)
+            })
+            .collect();
+        // A fonte falha alto: sem conseguir listar os endereços, a proteção não presume "sem chaves" — o erro
+        // guarda a mesma consequência de uma leitura do cofre que falha.
+        let erro_proprios = match proprios.map(|fonte| fonte()) {
+            None => None,
+            Some(Ok(ids)) => {
+                for id in ids {
+                    if !reads.iter().any(|(name, _)| *name == id) {
+                        let read = vault(&super::credential_slot(&id));
+                        reads.push((id, read));
+                    }
+                }
+                None
+            }
+            Some(Err(error)) => Some(anyhow!("lendo os endereços próprios registrados: {error:#}")),
+        };
+        Self { reads, erro_proprios }
     }
 
     /// O registro do cofre como está: a chave, ou o registro inteiro (chave e destino) de um endereço próprio.
@@ -165,6 +184,9 @@ impl Credentials {
     /// falhar calada: se uma leitura falha, ou uma chave é curta demais para ser achada no texto sem estragá-lo, a
     /// conversa não é guardada.
     fn known(&self) -> Result<Vec<String>> {
+        if let Some(error) = &self.erro_proprios {
+            bail!("{error:#}");
+        }
         let mut keys = Vec::new();
         for (provider, _) in &self.reads {
             let Some(raw) = self.raw(provider)? else { continue };
@@ -213,6 +235,7 @@ impl Link {
             next_out: AtomicU64::new(1),
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
             limits: std::sync::OnceLock::new(),
+            proprios: std::sync::OnceLock::new(),
             stop,
             task: Mutex::new(None),
         })
@@ -226,6 +249,11 @@ impl Link {
     /// Fonte dos limites de cada modelo; sem ela, o motor usa os padrões do fornecedor.
     pub(crate) fn use_limits(&self, source: LimitsSource) {
         let _ = self.limits.set(source);
+    }
+
+    /// Fonte dos endereços próprios registrados; sem ela, a proteção cobre só os provedores fixos e o da conversa.
+    pub(crate) fn use_proprios(&self, source: PropriosSource) {
+        let _ = self.proprios.set(source);
     }
 
     /// Liga o adaptador ao transporte: `read` recebe os quadros JSON-RPC do
@@ -518,7 +546,8 @@ impl Link {
         let session = self.sessions.locked().get(sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
         ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
         let _busy = BusyGuard(&session.busy);
-        self.ensure_engine(&session, &provider, &Credentials::read(&self.vault, &provider)).await?;
+        self.ensure_engine(&session, &provider, &Credentials::read(&self.vault, &provider, self.proprios.get()))
+            .await?;
         let mut engine = session.engine.lock().await;
         let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
         let limits = match self.limits.get() {
@@ -547,7 +576,7 @@ impl Link {
             let current_provider = session.provider.locked().clone();
             ensure!(!current_provider.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
             // Uma leitura do cofre por turno: a mesma identidade decide a retomada, a proteção e a credencial servida.
-            let creds = Credentials::read(&self.vault, &current_provider);
+            let creds = Credentials::read(&self.vault, &current_provider, self.proprios.get());
             let ready = tokio::select! {
                 _ = cancel.changed() => false,
                 result = self.ensure_engine(&session, &current_provider, &creds) => result.map(|()| true)?,

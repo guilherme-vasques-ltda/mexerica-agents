@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { amostraDeModelos, chaveDoErro, enderecoPronto, mostrarApiDireta, salvarChave, salvarEndereco } from './api-direta.ts'
+import { amostraDeModelos, chaveDoErro, enderecoPronto, fechaDepoisDeSalvar, mostrarApiDireta, salvarChave, salvarEndereco } from './api-direta.ts'
 import { CATALOGOS } from '../../../lib/fork-i18n/index.ts'
 import type { HostClient } from '../../../client/host-client'
 
@@ -63,4 +63,11 @@ test('salvar endereço limpa a chave do campo antes de esperar o Hub', async () 
   await salvarEndereco(client, { nome: ' Serviço ', url: ' https://api.example.invalid/v1 ', formato: 'chat-completions', local: false, chave: ' chave-ficticia-2 ', modelo: '' }, () => eventos.push('campo limpo'))
   assert.deepEqual(eventos, ['campo limpo', 'chamada:motorEnderecoSalvar'])
   assert.deepEqual(corpo, { nome: 'Serviço', url: 'https://api.example.invalid/v1', formato: 'chat-completions', local: false, chave: 'chave-ficticia-2', modelo: undefined })
+})
+
+test('o formulário do endereço próprio só fecha com o acesso confirmado', () => {
+  assert.equal(fechaDepoisDeSalvar({ ok: true, modelos: [] }), true)
+  assert.equal(fechaDepoisDeSalvar({ ok: true, modelos: [], estado: 'modelos_no_catalogo' }), true)
+  assert.equal(fechaDepoisDeSalvar({ ok: true, modelos: [], estado: 'acesso_nao_confirmado' }), false)
+  assert.equal(fechaDepoisDeSalvar({ ok: false, erro: 'sem_resposta' }), false)
 })

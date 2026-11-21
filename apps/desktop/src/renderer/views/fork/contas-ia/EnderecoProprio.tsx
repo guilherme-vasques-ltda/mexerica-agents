@@ -8,7 +8,7 @@ import { useT } from '../../../lib/fork-i18n/estado'
 import { isolado, ltr } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { enderecoPronto, FORMATOS, removerChave, salvarEndereco, testarChave, type Acesso, type EnderecoProprio, type FormatoProprio, type NovoEndereco } from './api-direta'
+import { enderecoPronto, fechaDepoisDeSalvar, FORMATOS, removerChave, salvarEndereco, testarChave, type Acesso, type EnderecoProprio, type FormatoProprio, type NovoEndereco } from './api-direta'
 import { ResultadoDoTeste } from './ApiDireta'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
 
@@ -104,7 +104,7 @@ function NovoEnderecoForm({ aoFechar, aoMudar }: { aoFechar: () => void; aoMudar
   const salvar = () => {
     if (!enderecoPronto(dados)) return
     rodar((c) => salvarEndereco(c, dados, () => mudar('chave', '')), (r) => {
-      if (r.ok) {
+      if (fechaDepoisDeSalvar(r)) {
         setDados(VAZIO)
         aoFechar()
       }
