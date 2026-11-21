@@ -1,5 +1,5 @@
-import { lstatSync, readdirSync, readlinkSync, type Stats } from 'node:fs'
-import { dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { lstatSync, readdirSync, readlinkSync, rmSync, type Stats } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../../shared/fork-idioma.ts'
@@ -28,11 +28,21 @@ function isChromiumLink(root: string, entry: string, child: string, item: Stats)
   try { return readlinkSync(join(remote, 'SingletonCookie')) === readlinkSync(join(root, 'SingletonCookie')) } catch { return false }
 }
 
+/** Pasta de ajudantes que o Codex recria a cada início em `.codex/tmp`; fica com links quando ele é morto à força. */
+function isCodexHelpers(path: string, entry: string, item: Stats) {
+  return /^arg0(?:-[a-z]+)?$/.test(entry) && item.isDirectory() && item.uid === process.getuid?.()
+    && basename(path) === 'tmp' && basename(dirname(path)) === '.codex'
+}
+
 function assertPrivateTree(path: string, socketRoot?: string, root = '') {
   for (const entry of readdirSync(path)) {
     const child = join(path, entry)
     const item = lstatSync(child)
     if (root && isChromiumLink(root, entry, child, item)) continue
+    if (socketRoot && isCodexHelpers(path, entry, item)) {
+      rmSync(child, { recursive: true, force: true })
+      continue
+    }
     if (item.uid !== process.getuid?.() || (item.mode & 0o022) !== 0) throw new Error(traduzir(SOURCE_LANGUAGE, 'marca.open.perfilMetadados'))
     if (item.isDirectory()) assertPrivateTree(child, socketRoot)
     else if (socketRoot && item.isSocket() && (item.mode & 0o077) === 0 && /^h-[A-Za-z0-9]{6}[/\\]s$/.test(relative(socketRoot, child))) continue

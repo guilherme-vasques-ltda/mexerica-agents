@@ -9,6 +9,7 @@ export const textos: Traducao<typeof fonte> = {
   "spaces.compose.falhou": "No se pudo confirmar el envío. Revisa el historial antes de reintentar. Si cambió la conexión, vuelve a abrir la conversación.",
   "spaces.compose.semContaOpen": "Conecta una cuenta de Codex en Ajustes → Cuentas de IA para conversar.",
   "spaces.compose.ocupadoOpen": "Espera a que termine la respuesta anterior antes de enviar otro mensaje.",
+  "spaces.compose.reconectandoOpen": "La cuenta de Codex se está reconectando. Vuelve a enviar cuando termine.",
 
   "spaces.origem.outroHub": "La conexión pasó a otro Hub después de abrir esto. No se envió nada: ciérralo y vuelve a abrirlo.",
   "spaces.origem.semConexao": "Sin conexión con el Hub. No se envió nada: inténtalo de nuevo cuando vuelva.",

@@ -134,6 +134,12 @@ impl Rpc {
         ensure!(status.success(), "auth_shutdown_failed");
         Ok(())
     }
+    /// Encerra o grupo do processo e espera a saída, para que ninguém reaproveite a conta antes de ele sair.
+    pub(crate) async fn terminate(&mut self) {
+        drop(self.input.take());
+        kill_group(self.child.id());
+        let _ = tokio::time::timeout(Duration::from_secs(5), self.child.wait()).await;
+    }
     async fn line(&mut self) -> Result<Value> {
         use tokio::io::AsyncReadExt;
         let mut bytes = Vec::new();

@@ -2,7 +2,7 @@
 
 use super::{
     AUTH_CONFIG, CA_BUNDLE, CHAT_OVERRIDES, LOGIN_NETWORK, POLICY, SANDBOX, SELECTION, Selection, VERSION,
-    admin_policy_safe, command, hex, prepare_profile, root_owned,
+    admin_policy_safe, codex_home_clean, command, hex, prepare_profile, root_owned,
 };
 use crate::fork::private_fs::{self, Directory};
 use sha2::{Digest, Sha256};
@@ -127,7 +127,7 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     assert!(
         POLICY
             .trim_end()
-            .ends_with(r#"(deny file-read* file-write* (literal (string-append (param "PROFILE") "/.codex/.env")))"#),
+            .ends_with(r##"(deny file-read* file-write* (regex #"/\.[Cc][Oo][Dd][Ee][Xx]/\.[Ee][Nn][Vv]$"))"##),
         "o .env do perfil, que trocaria a confiança do TLS, fica fora do alcance do Codex e a negação vem por último"
     );
     assert!(
@@ -255,6 +255,11 @@ int main(int argc, char **argv) {
     if Path::new("/private/var/run/resolv.conf").exists() {
         denied.push("r:/private/var/run/resolv.conf".into());
     }
+    let other_case = profile.join(".ENV");
+    if other_case.exists() {
+        denied.push(format!("r:{}", other_case.display()));
+    }
+    denied.push(format!("w:{}", profile.join(".Env").display()));
     denied.push(format!("d:{}", fixture.scope.display()));
     for path in [&env_file, &fixture.scope.join("outside"), &temporary] {
         denied.push(format!("w:{}", path.display()));
@@ -294,4 +299,30 @@ fn certificates_count_only_when_the_file_and_every_folder_above_belong_to_root()
     assert!(!root_owned(&fixture.scope.join("absent.pem")));
     assert!(!root_owned(Path::new("/etc")), "a folder in place of the file is refused");
     assert!(root_owned(Path::new("/etc/passwd")));
+}
+
+#[test]
+fn a_codex_folder_with_any_env_link_or_extra_name_is_refused_before_each_launch() {
+    let fixture = Fixture::new();
+    let profile = fixture.open.join("home/.mexerica-open/engine-setup/accounts/fixture/.codex");
+    Directory::open(&profile, true).unwrap();
+    std::fs::write(profile.join("config.toml"), AUTH_CONFIG).unwrap();
+    Directory::open(&profile.join("tmp"), true).unwrap();
+    assert!(codex_home_clean(&profile));
+    for name in [".env", ".ENV", ".Env"] {
+        std::fs::write(profile.join(name), b"SSL_CERT_FILE=/dev/null\n").unwrap();
+        assert!(!codex_home_clean(&profile), "{name}");
+        std::fs::remove_file(profile.join(name)).unwrap();
+    }
+    Directory::open(&profile.join(".env"), true).unwrap();
+    assert!(!codex_home_clean(&profile), "a folder named .env");
+    std::fs::remove_dir(profile.join(".env")).unwrap();
+    symlink(profile.join("config.toml"), profile.join("alias")).unwrap();
+    assert!(!codex_home_clean(&profile), "a link");
+    std::fs::remove_file(profile.join("alias")).unwrap();
+    std::fs::hard_link(profile.join("config.toml"), profile.join("second-name")).unwrap();
+    assert!(!codex_home_clean(&profile), "a file with two names");
+    std::fs::remove_file(profile.join("second-name")).unwrap();
+    assert!(codex_home_clean(&profile));
+    assert!(!codex_home_clean(&profile.join("absent")));
 }

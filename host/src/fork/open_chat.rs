@@ -74,14 +74,32 @@ pub(crate) fn begin(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<Ticket> {
     ensure!(!cfg.is_group(), "open_chat_unavailable");
     let mut guard = RUNNING.locked();
     let (account, directory) = account_profile(hub, cfg)?;
+    admit(&mut guard, hub, &cfg.id, account, directory)
+}
+
+/// Reserva o turno sob `RUNNING`, a mesma trava em que a reconexão da conta abre a operação: uma conta em reconexão
+/// não recebe turno, e uma conta com turno não começa a reconectar.
+fn admit(
+    guard: &mut Option<HashMap<String, Running>>,
+    hub: &Arc<Hub>,
+    bot: &str,
+    account: String,
+    directory: PathBuf,
+) -> Result<Ticket> {
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
+    ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
     let running = guard.get_or_insert_with(HashMap::new);
     running.retain(|_, r| r.hub.strong_count() > 0 && r.done.has_changed().is_ok());
-    ensure!(!running.contains_key(&cfg.id), "open_chat_busy");
+    ensure!(!running.contains_key(bot), "open_chat_busy");
     let (cancel_tx, cancel) = watch::channel(false);
     let (done, done_rx) = watch::channel(());
-    running.insert(cfg.id.clone(), Running { hub: Arc::downgrade(hub), account, cancel: cancel_tx, done: done_rx });
-    Ok(Ticket { bot: cfg.id.clone(), directory, cancel, done })
+    running.insert(bot.to_owned(), Running { hub: Arc::downgrade(hub), account, cancel: cancel_tx, done: done_rx });
+    Ok(Ticket { bot: bot.to_owned(), directory, cancel, done })
+}
+
+#[cfg(test)]
+pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result<Ticket> {
+    admit(&mut RUNNING.locked(), hub, bot, account.to_owned(), PathBuf::new())
 }
 
 pub(crate) fn stop(bot: &str) {
@@ -188,18 +206,37 @@ async fn turn_in_profile(
         launch = crate::fork::open_codex::app_server(directory, true) => launch?,
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     };
-    ensure!(!*cancel.borrow(), "open_chat_cancelled");
-    let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
+    let bot = reply.bot.clone();
+    // A exclusão do bot grava sob a mesma trava do banco: ou o processo nasce antes dela (e é cancelado e esperado),
+    // ou o lançamento já vê o bot apagado.
+    let child = {
+        let db = hub.store.db.locked();
+        ensure!(
+            !*cancel.borrow() && matches!(crate::store::Store::bot_on(&db, &bot), Ok(Some(row)) if !row.deleted),
+            "open_chat_cancelled"
+        );
+        crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?
+    };
     let mut rpc = Rpc::from_child(child)?;
-    let saved = hub.store.kv_get(&thread_key(lane));
+    let saved = hub.store.kv_read(&thread_key(lane))?;
     let keep = |thread: &str| {
-        if saved.as_deref() != Some(thread) {
-            let _ = hub.store.kv_set(&thread_key(lane), thread);
+        if saved.as_deref() != Some(thread)
+            && let Err(error) = hub.store.kv_set_if_bot(&bot, &thread_key(lane), thread)
+        {
+            tracing::warn!(%error, "conversa da Open não guardou a thread do Codex");
         }
     };
-    drive(&mut rpc, saved.as_deref(), instructions, text, cancel, keep, |delta| reply.push(delta)).await?;
-    let _ = rpc.finish().await;
-    Ok(())
+    let outcome = drive(&mut rpc, saved.as_deref(), instructions, text, cancel, keep, |delta| reply.push(delta)).await;
+    match outcome {
+        Ok(_) => {
+            let _ = rpc.finish().await;
+            Ok(())
+        }
+        Err(error) => {
+            rpc.terminate().await;
+            Err(error)
+        }
+    }
 }
 
 #[cfg(not(unix))]
@@ -215,8 +252,9 @@ async fn turn_in_profile(
     bail!("open_codex_platform")
 }
 
-const NOTICE_CODES: [&str; 6] = [
+const NOTICE_CODES: [&str; 7] = [
     "open_chat_cancelled",
+    "open_chat_too_long",
     "open_chat_tool_refused",
     "open_chat_timeout",
     "open_chat_policy",
@@ -234,6 +272,7 @@ fn notice(message: &str) -> (&'static str, &'static str) {
             "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada."
         }
         "open_chat_timeout" => "O Codex demorou demais para responder. Tente de novo.",
+        "open_chat_too_long" => "A resposta passou do tamanho máximo e foi encerrada.",
         "open_chat_policy" => {
             "A configuração do Codex neste Mac não deixa a conversa ficar só em texto e sem aprovações. Resposta cancelada."
         }
@@ -253,7 +292,6 @@ struct Stream {
     bot: String,
     entry: Option<String>,
     text: String,
-    full: bool,
     flushed: Instant,
 }
 
@@ -266,20 +304,19 @@ impl Stream {
             bot: bot.to_owned(),
             entry: None,
             text: String::new(),
-            full: false,
             flushed: Instant::now(),
         }
     }
     fn data(&self, last: bool) -> Value {
         json!({"text": self.text, "final": last, "author": self.bot})
     }
-    fn push(&mut self, delta: &str) {
-        if delta.is_empty() || self.full {
-            return;
-        }
+    /// Falso quando a resposta passou do limite: o turno é interrompido em vez de seguir gerando.
+    fn push(&mut self, delta: &str) -> bool {
         if self.text.len() + delta.len() > MAX_REPLY {
-            self.full = true;
-            return;
+            return false;
+        }
+        if delta.is_empty() {
+            return true;
         }
         self.text.push_str(delta);
         match &self.entry {
@@ -293,6 +330,7 @@ impl Stream {
             }
             Some(_) => {}
         }
+        true
     }
     fn close(&mut self) {
         if let Some(id) = &self.entry {
@@ -310,7 +348,7 @@ pub(crate) async fn drive(
     text: &str,
     cancel: &mut watch::Receiver<bool>,
     keep_thread: impl FnOnce(&str),
-    mut on_delta: impl FnMut(&str),
+    mut on_delta: impl FnMut(&str) -> bool,
 ) -> Result<String> {
     rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
@@ -368,7 +406,10 @@ pub(crate) async fn drive(
                     interrupt(rpc, &thread, &turn_id).await;
                     bail!("open_chat_tool_refused");
                 }
-                "item/agentMessage/delta" => on_delta(params["delta"].as_str().unwrap_or_default()),
+                "item/agentMessage/delta" if !on_delta(params["delta"].as_str().unwrap_or_default()) => {
+                    interrupt(rpc, &thread, &turn_id).await;
+                    bail!("open_chat_too_long");
+                }
                 "turn/completed" => {
                     ensure!(params["turn"]["status"] == "completed", "open_chat_failed");
                     return Ok(thread);

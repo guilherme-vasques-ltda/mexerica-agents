@@ -78,6 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.interrompida": "تم إيقاف الرد.",
   "conversa.avisos.open.ferramenta": "حاول Codex استخدام أداة، وOpen يدعم المحادثة النصية فقط. انتهى الرد.",
   "conversa.avisos.open.demorou": "استغرق Codex وقتًا طويلاً للرد. حاول مرة أخرى.",
+  "conversa.avisos.open.longa": "تجاوز الرد الحد الأقصى للطول وتم إيقافه.",
   "conversa.avisos.open.politica": "إعدادات Codex على هذا الـ Mac لا تسمح بمحادثة نصية فقط بدون موافقات. تم إلغاء الرد.",
   "conversa.avisos.open.indisponivel": "تعذّر فتح Codex في ملف Open. تحقّق من الحساب في حسابات الذكاء الاصطناعي.",
   "conversa.avisos.open.falhou": "تعذّر على Codex الرد الآن. حاول مرة أخرى.",

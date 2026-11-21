@@ -313,3 +313,14 @@ async fn deleting_the_channel_leader_clears_it_with_the_deletion() {
         .any(|e| e["type"] == "bot" && e["bot"]["id"] == group.as_str() && e["bot"]["leader"].is_null());
     assert!(published, "o canal sem líder chega ao app");
 }
+
+#[tokio::test]
+async fn deleting_the_bot_drops_its_codex_thread_and_refuses_a_late_writer() {
+    let f = Fixture::new();
+    let key = format!("open_chat.thread.{}.main", f.bot);
+    assert!(f.hub.store.kv_set_if_bot(&f.bot, &key, "thread-1").unwrap());
+    f.hub.delete_bot(&f.bot).unwrap();
+    assert_eq!(f.hub.store.kv_read(&key).unwrap(), None, "a exclusão apaga a thread do Codex do bot");
+    assert!(!f.hub.store.kv_set_if_bot(&f.bot, &key, "thread-2").unwrap(), "um gravador atrasado não a recria");
+    assert_eq!(f.hub.store.kv_read(&key).unwrap(), None);
+}

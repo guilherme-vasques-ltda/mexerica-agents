@@ -78,6 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.interrompida": "Respuesta interrumpida.",
   "conversa.avisos.open.ferramenta": "Codex intentó usar una herramienta, y Open solo conversa por texto. Respuesta terminada.",
   "conversa.avisos.open.demorou": "Codex tardó demasiado en responder. Inténtalo de nuevo.",
+  "conversa.avisos.open.longa": "La respuesta superó la longitud máxima y se detuvo.",
   "conversa.avisos.open.politica": "La configuración de Codex en este Mac no permite una conversación solo de texto y sin aprobaciones. Respuesta cancelada.",
   "conversa.avisos.open.indisponivel": "No se pudo abrir Codex en el perfil de Open. Revisa la cuenta en Cuentas de IA.",
   "conversa.avisos.open.falhou": "Codex no pudo responder ahora. Inténtalo de nuevo.",

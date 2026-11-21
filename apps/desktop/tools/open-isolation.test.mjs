@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -163,4 +163,19 @@ test('a Open usa papéis nativos de edição sem ponte para a área de transfer�
   const submenu = /\{ role: 'editMenu', submenu: \[([^\]]+)\]/.exec(main)?.[1] ?? ''
   assert.deepEqual([...submenu.matchAll(/role: '([^']+)'/g)].map(([, role]) => role), ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'])
   assert.doesNotMatch(main, /\bclipboard\b|['"]app:copy['"]/)
+})
+
+test('a abertura descarta a pasta de ajudantes que o Codex deixa ao ser morto, sem aceitar outro link', (t) => {
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const appData = join(home, 'Application Support')
+  mkdirSync(appData, { mode: 0o700 })
+  const codex = join(home, open.dataFolder, 'home', open.dataFolder, 'engine-setup', 'accounts', 'a1', '.codex')
+  const helpers = join(codex, 'tmp', 'arg0-macos', 'codex-arg0abc')
+  mkdirSync(helpers, { recursive: true, mode: 0o700 })
+  symlinkSync('/usr/bin/true', join(helpers, 'apply_patch'))
+  assert.doesNotThrow(() => openPaths(home, appData))
+  assert.throws(() => lstatSync(join(codex, 'tmp', 'arg0-macos')), { code: 'ENOENT' })
+  symlinkSync('/usr/bin/true', join(codex, 'tmp', 'apply_patch'))
+  assert.throws(() => openPaths(home, appData), undefined, 'link fora da pasta de ajudantes continua recusado')
 })

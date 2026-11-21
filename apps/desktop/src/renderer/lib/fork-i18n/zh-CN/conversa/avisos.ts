@@ -78,6 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.interrompida": "回复已中断。",
   "conversa.avisos.open.ferramenta": "Codex 试图使用工具，而 Open 只支持文字对话。回复已结束。",
   "conversa.avisos.open.demorou": "Codex 回复超时。请重试。",
+  "conversa.avisos.open.longa": "回复超出最大长度，已停止。",
   "conversa.avisos.open.politica": "此 Mac 上的 Codex 设置不允许仅文字且无需批准的对话。回复已取消。",
   "conversa.avisos.open.indisponivel": "无法在 Open 配置中打开 Codex。请在 AI 账号中检查账号。",
   "conversa.avisos.open.falhou": "Codex 暂时无法回复。请重试。",

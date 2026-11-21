@@ -66,7 +66,7 @@ const POLICY: &str = r#"(version 1)
 (allow file-read-metadata (literal "/") (literal "/dev") (literal "/etc") (literal "/private") (literal "/private/etc") (literal "/private/var") (literal "/private/var/run"))
 (allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))
 (allow file-write* (subpath (param "PROFILE")) (literal "/dev/null"))
-(deny file-read* file-write* (literal (string-append (param "PROFILE") "/.codex/.env")))
+(deny file-read* file-write* (regex #"/\.[Cc][Oo][Dd][Ee][Xx]/\.[Ee][Nn][Vv]$"))
 "#;
 const LOGIN_NETWORK: &str = r#"
 (allow network-outbound (remote tcp "*:443"))
@@ -232,6 +232,10 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
         let selection = Selection::load(open).inspect_err(|error| tracing::warn!(%error, "Codex da Open recusado"))?;
         prepare_profile(open, &profile)
             .inspect_err(|error| tracing::warn!(%error, "perfil do Codex da Open recusado"))?;
+        if !codex_home_clean(&profile) {
+            tracing::warn!("pasta do Codex da Open com .env, link ou arquivo com mais de um nome");
+            anyhow::bail!("open_codex_unavailable");
+        }
         if !admin_policy_safe(Path::new(ADMIN_POLICY)) {
             tracing::warn!(path = ADMIN_POLICY, "política do administrador do Codex aceita escrita de outros");
             anyhow::bail!("open_codex_unavailable");
@@ -276,8 +280,22 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
 /// Unix: ACLs não entram, e o arquivo pode mudar entre esta leitura e o uso pelo Codex.
 fn root_owned(path: &Path) -> bool {
     path.ancestors().all(|part| {
-        fs::symlink_metadata(part)
-            .is_ok_and(|meta| meta.uid() == 0 && meta.mode() & 0o022 == 0 && meta.is_file() == (part == path))
+        fs::symlink_metadata(part).is_ok_and(|meta| {
+            meta.uid() == 0 && meta.mode() & 0o022 == 0 && if part == path { meta.is_file() } else { meta.is_dir() }
+        })
+    })
+}
+
+/// A pasta do Codex não tem `.env` (em qualquer caixa e de qualquer tipo), link nem arquivo com outro nome
+/// apontando para o mesmo conteúdo: o Codex leria esse `.env` antes de iniciar.
+fn codex_home_clean(directory: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(directory) else { return false };
+    entries.into_iter().all(|entry| {
+        entry.is_ok_and(|entry| {
+            !entry.file_name().to_str().is_none_or(|name| name.eq_ignore_ascii_case(".env"))
+                && fs::symlink_metadata(entry.path())
+                    .is_ok_and(|meta| !meta.file_type().is_symlink() && (!meta.is_file() || meta.nlink() == 1))
+        })
     })
 }
 

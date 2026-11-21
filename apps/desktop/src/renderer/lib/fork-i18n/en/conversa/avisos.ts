@@ -78,6 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.interrompida": "Reply stopped.",
   "conversa.avisos.open.ferramenta": "Codex tried to use a tool, and Open only chats by text. Reply ended.",
   "conversa.avisos.open.demorou": "Codex took too long to reply. Try again.",
+  "conversa.avisos.open.longa": "The reply went past the maximum length and was stopped.",
   "conversa.avisos.open.politica": "This Mac’s Codex settings don’t allow a text-only chat without approvals. Reply canceled.",
   "conversa.avisos.open.indisponivel": "Couldn’t open Codex in the Open profile. Check the account in AI accounts.",
   "conversa.avisos.open.falhou": "Codex couldn’t reply right now. Try again.",

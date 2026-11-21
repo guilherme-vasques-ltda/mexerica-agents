@@ -54,6 +54,7 @@ impl Store {
         tx.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("memory.*{id}*")])?;
         // Its routine runs' sessions (see `run_session_key`).
         tx.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("lane.session.{id}@*")])?;
+        tx.execute("DELETE FROM kv WHERE substr(k, 1, length(?1)) = ?1", [format!("open_chat.thread.{id}.")])?;
         // ponytail: snapshots of replaced sessions stay until the bot goes; prune by session if kv grows.
         tx.execute(
             "DELETE FROM kv WHERE k GLOB ?1 OR k GLOB ?2",
@@ -92,6 +93,7 @@ impl Store {
         crate::fork::memory_auto::recibo_injecao::purge(c, id)?;
         c.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("memory.*{id}*")])?;
         c.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("lane.session.{id}@*")])?;
+        c.execute("DELETE FROM kv WHERE substr(k, 1, length(?1)) = ?1", [format!("open_chat.thread.{id}.")])?;
         c.execute(
             "DELETE FROM kv WHERE k GLOB ?1 OR k GLOB ?2",
             [format!("context.{id}.*"), format!("context.epoch.{id}.*")],
@@ -367,6 +369,7 @@ fn delete_space_data(c: &rusqlite::Connection, space_id: &str, hub_id: &str, bot
                 [format!("turn.waiting.{chat}"), format!("turn.inflight.{chat}"), format!("donna.space.engine.{chat}")],
             )?;
             c.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("lane.session.{chat}@*")])?;
+            c.execute("DELETE FROM kv WHERE substr(k, 1, length(?1)) = ?1", [format!("open_chat.thread.{chat}.")])?;
             c.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("handoff.{chat}/*")])?;
             c.execute(
                 "DELETE FROM kv WHERE k GLOB ?1 OR k GLOB ?2",

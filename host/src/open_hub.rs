@@ -190,6 +190,17 @@ mod unix {
         Ok(())
     }
 
+    /// Pasta de ajudantes que o Codex recria a cada início em `.codex/tmp`; fica com links quando ele é morto à força.
+    fn codex_helpers(path: &Path) -> bool {
+        fn name(path: Option<&Path>) -> &str {
+            path.and_then(Path::file_name).and_then(|name| name.to_str()).unwrap_or_default()
+        }
+        let folder = name(Some(path));
+        (folder == "arg0" || folder.strip_prefix("arg0-").is_some_and(|os| os.bytes().all(|b| b.is_ascii_lowercase())))
+            && name(path.parent()) == "tmp"
+            && name(path.parent().and_then(Path::parent)) == ".codex"
+    }
+
     fn validate_data(root: &Path) -> Result<()> {
         let mut pending = vec![root.to_path_buf()];
         while let Some(dir) = pending.pop() {
@@ -198,7 +209,9 @@ mod unix {
                 let kind = entry.file_type()?;
                 let metadata = entry.metadata()?;
                 ensure!(metadata.uid() == private_fs::uid(), "wrong owner in Mexerica Open data");
-                if kind.is_dir() {
+                if kind.is_dir() && codex_helpers(&entry.path()) {
+                    fs::remove_dir_all(entry.path())?;
+                } else if kind.is_dir() {
                     ensure!(metadata.mode() & 0o022 == 0, "writable directory in Mexerica Open data");
                     pending.push(entry.path());
                 } else {
@@ -210,6 +223,25 @@ mod unix {
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn startup_drops_codex_helper_links_and_still_refuses_any_other_link() {
+        use std::os::unix::fs::{DirBuilderExt, symlink};
+        let root = std::env::temp_dir().join(format!("open-data-{}", uuid::Uuid::new_v4()));
+        let helpers = root.join("accounts/a1/.codex/tmp/arg0-macos/codex-arg0abc");
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&helpers).unwrap();
+        symlink("/usr/bin/true", helpers.join("apply_patch")).unwrap();
+        validate_data(&root).unwrap();
+        assert!(
+            !root.join("accounts/a1/.codex/tmp/arg0-macos").exists(),
+            "a pasta de ajudantes do Codex é recriada por ele"
+        );
+        assert!(root.join("accounts/a1/.codex/tmp").is_dir());
+        symlink("/usr/bin/true", root.join("accounts/a1/.codex/tmp/apply_patch")).unwrap();
+        assert!(validate_data(&root).is_err(), "link fora da pasta de ajudantes continua recusado");
+        let _ = fs::remove_dir_all(&root);
     }
 
     struct SocketFile {

@@ -75,6 +75,7 @@ export const textos = {
   "conversa.avisos.open.interrompida": "Resposta interrompida.",
   "conversa.avisos.open.ferramenta": "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada.",
   "conversa.avisos.open.demorou": "O Codex demorou demais para responder. Tente de novo.",
+  "conversa.avisos.open.longa": "A resposta passou do tamanho máximo e foi encerrada.",
   "conversa.avisos.open.politica": "A configuração do Codex neste Mac não deixa a conversa ficar só em texto e sem aprovações. Resposta cancelada.",
   "conversa.avisos.open.indisponivel": "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA.",
   "conversa.avisos.open.falhou": "O Codex não conseguiu responder agora. Tente de novo.",

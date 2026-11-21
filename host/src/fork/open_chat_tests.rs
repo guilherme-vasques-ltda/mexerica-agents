@@ -86,7 +86,10 @@ async fn turn_keeping(
         "Oi",
         &mut cancel,
         |id| kept = Some(id.to_owned()),
-        |delta| text.push_str(delta),
+        |delta| {
+            text.push_str(delta);
+            true
+        },
     )
     .await;
     // Fecha a entrada e espera o fictício gravar o último pedido antes de ler o registro.
@@ -201,6 +204,7 @@ fn an_account_in_use_by_an_open_reply_refuses_changes_until_it_ends() {
 #[test]
 fn notices_carry_only_known_codes() {
     assert_eq!(notice("open_chat_cancelled").0, "open_chat_cancelled");
+    assert_eq!(notice("open_chat_too_long").0, "open_chat_too_long");
     assert_eq!(notice("open_chat_policy").0, "open_chat_policy");
     let (code, text) = notice("auth_protocol_invalid: detalhe interno");
     assert_eq!(code, "open_chat_failed");
@@ -213,4 +217,43 @@ async fn a_failed_resume_keeps_the_saved_thread_instead_of_starting_over() {
     assert_eq!(result.unwrap_err().to_string(), "open_chat_failed");
     assert!(find(&sent, "thread/start").is_none(), "only a thread the server does not know starts over");
     assert_eq!(kept, None);
+}
+
+#[tokio::test]
+async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
+    let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("log");
+    let child = tokio::process::Command::new("python3")
+        .args(["-I", "-c", FAKE])
+        .env("FAKE_MODE", "ok")
+        .env("FAKE_LOG", &log)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+    let (_cancel_tx, mut cancel) = watch::channel(false);
+    let mut pieces = 0;
+    let result = drive(
+        &mut rpc,
+        None,
+        "Fixture instructions",
+        "Oi",
+        &mut cancel,
+        |_| {},
+        |_| {
+            pieces += 1;
+            pieces < 2
+        },
+    )
+    .await;
+    let _ = rpc.finish().await;
+    let sent: Vec<Value> =
+        std::fs::read_to_string(&log).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(result.unwrap_err().to_string(), "open_chat_too_long");
+    assert_eq!(pieces, 2, "nothing is read past the piece that crossed the limit");
+    assert!(find(&sent, "turn/interrupt").is_some());
 }
