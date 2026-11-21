@@ -141,6 +141,10 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     {
         body.remove("hubId");
     }
+    // Chaves de API do Motor Mexerica: só este computador, nunca devolvem a chave.
+    if crate::fork::motor_mexerica::CHAVE_METHODS.contains(&method) {
+        return crate::fork::motor_mexerica::chaves_call(hub, caller, method, b).await;
+    }
     // Planos de código (chave colada, OpenCode como motor): só este computador, nunca devolvem a chave.
     if crate::fork::planos_codigo::METHODS.contains(&method) {
         return crate::fork::planos_codigo::call(hub, caller, method, b).await;

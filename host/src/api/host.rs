@@ -139,35 +139,43 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         "agentModels" => {
             let backend = str_arg(&b, "backend")?;
             crate::fork::motores_retirados::exigir_oferecido(backend)?;
-            let env = crate::fork::terminal_login::runtime_env(
-                &hub.store,
-                backend,
-                b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
-            )?;
-            let descoberta = if env.is_empty() {
-                crate::agent::auth::models(&hub.store, backend).await
+            // O motor próprio não tem programa para sondar: os modelos são os do último «Testar acesso» das chaves.
+            if backend == crate::fork::motor_mexerica::ENGINE_ID {
+                crate::fork::motor_mexerica::catalogo(
+                    &hub.store,
+                    b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
+                )?
             } else {
-                crate::agent::auth::models_with_env(&hub.store, backend, &env).await
-            };
-            // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode, só no Space
-            // pessoal (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
-            // valem; sem nenhum deles, o erro da descoberta segue para a tela.
-            let planos = backend == "opencode"
-                && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL) == crate::fork::spaces::PERSONAL;
-            let (mut catalog, falha) = match descoberta {
-                Ok(catalog) => (catalog, None),
-                Err(erro) if planos => (json!({"models": []}), Some(erro)),
-                Err(erro) => return Err(erro),
-            };
-            if planos {
-                crate::fork::planos_codigo::acrescentar_modelos(&hub.store, &mut catalog)?;
+                let env = crate::fork::terminal_login::runtime_env(
+                    &hub.store,
+                    backend,
+                    b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL),
+                )?;
+                let descoberta = if env.is_empty() {
+                    crate::agent::auth::models(&hub.store, backend).await
+                } else {
+                    crate::agent::auth::models_with_env(&hub.store, backend, &env).await
+                };
+                // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode, só no Space
+                // pessoal (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
+                // valem; sem nenhum deles, o erro da descoberta segue para a tela.
+                let planos = backend == "opencode"
+                    && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL) == crate::fork::spaces::PERSONAL;
+                let (mut catalog, falha) = match descoberta {
+                    Ok(catalog) => (catalog, None),
+                    Err(erro) if planos => (json!({"models": []}), Some(erro)),
+                    Err(erro) => return Err(erro),
+                };
+                if planos {
+                    crate::fork::planos_codigo::acrescentar_modelos(&hub.store, &mut catalog)?;
+                }
+                if let Some(erro) = falha
+                    && catalog["models"].as_array().is_some_and(Vec::is_empty)
+                {
+                    return Err(erro);
+                }
+                catalog
             }
-            if let Some(erro) = falha
-                && catalog["models"].as_array().is_some_and(Vec::is_empty)
-            {
-                return Err(erro);
-            }
-            catalog
         }
         "agentAuth" | "agentAuthenticate" | "setAgentEnv" => {
             let backend = str_arg(&b, "backend")?;

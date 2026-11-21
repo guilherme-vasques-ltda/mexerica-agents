@@ -1,6 +1,6 @@
-// Provedores da fatia 1: chave de API direta (Google ou OpenAI), vindas só do
-// cofre do Hub. O provedor `faux` existe apenas sob MEXERICA_MOTOR_FAUX=1
-// (testes locais do Hub), sem credencial e sem rede.
+// Provedores por chave de API (Anthropic, OpenAI, Google, xAI e OpenRouter), com a chave vinda só do cofre do Hub.
+// Nenhum modelo é fixo aqui: a lista vem do fornecedor e o modelo escolhido é montado em `fornecedores.ts`.
+// O provedor `faux` existe apenas sob MEXERICA_MOTOR_FAUX=1 (testes locais do Hub), sem credencial e sem rede.
 import {
 	createProvider,
 	envApiKeyAuth,
@@ -8,97 +8,52 @@ import {
 	fauxProvider,
 	fauxToolCall,
 	type FauxProviderHandle,
+	type Api,
 	type FauxResponseFactory,
 	type Model,
 	type MutableModels,
 	type Provider,
 } from "@earendil-works/pi-ai";
 import {
+	stream as anthropicStream,
+	streamSimple as anthropicStreamSimple,
+} from "@earendil-works/pi-ai/api/anthropic-messages.ts";
+import {
 	stream as googleStream,
 	streamSimple as googleStreamSimple,
 } from "@earendil-works/pi-ai/api/google-generative-ai.ts";
 import {
-	stream as openaiStream,
-	streamSimple as openaiStreamSimple,
+	stream as completionsStream,
+	streamSimple as completionsStreamSimple,
+} from "@earendil-works/pi-ai/api/openai-completions.ts";
+import {
+	stream as responsesStream,
+	streamSimple as responsesStreamSimple,
 } from "@earendil-works/pi-ai/api/openai-responses.ts";
+import { FORNECEDORES, type FornecedorId } from "./fornecedores.ts";
 
-const NO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const STREAMS = {
+	"anthropic-messages": { stream: anthropicStream, streamSimple: anthropicStreamSimple },
+	"google-generative-ai": { stream: googleStream, streamSimple: googleStreamSimple },
+	"openai-completions": { stream: completionsStream, streamSimple: completionsStreamSimple },
+	"openai-responses": { stream: responsesStream, streamSimple: responsesStreamSimple },
+} as const;
 
-const GOOGLE_MODELS: Model<"google-generative-ai">[] = [
-	{
-		id: "gemini-2.5-flash",
-		name: "Gemini 2.5 Flash",
-		api: "google-generative-ai",
-		provider: "google",
-		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 1048576,
-		maxTokens: 65536,
-	},
-	{
-		id: "gemini-2.5-pro",
-		name: "Gemini 2.5 Pro",
-		api: "google-generative-ai",
-		provider: "google",
-		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 1048576,
-		maxTokens: 65536,
-	},
-];
-
-const OPENAI_MODELS: Model<"openai-responses">[] = [
-	{
-		id: "gpt-5",
-		name: "GPT-5",
-		api: "openai-responses",
-		provider: "openai",
-		baseUrl: "https://api.openai.com/v1",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 400000,
-		maxTokens: 128000,
-	},
-	{
-		id: "gpt-5-mini",
-		name: "GPT-5 Mini",
-		api: "openai-responses",
-		provider: "openai",
-		baseUrl: "https://api.openai.com/v1",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 400000,
-		maxTokens: 128000,
-	},
-];
-
-/** Registra google + openai (chave no cofre) e, sob a flag de teste, o faux. */
+/** Registra os fornecedores por chave (sem modelos fixos) e, sob a flag de teste, o faux. */
 export function registerProviders(models: MutableModels): FauxProviderHandle | undefined {
-	const providers: Provider[] = [
-		createProvider({
-			id: "google",
-			name: "Google",
-			baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-			auth: { apiKey: envApiKeyAuth("Gemini API key", ["GEMINI_API_KEY"]) },
-			models: GOOGLE_MODELS,
-			api: { stream: googleStream, streamSimple: googleStreamSimple },
-		}),
-		createProvider({
-			id: "openai",
-			name: "OpenAI",
-			baseUrl: "https://api.openai.com/v1",
-			auth: { apiKey: envApiKeyAuth("OpenAI API key", ["OPENAI_API_KEY"]) },
-			models: OPENAI_MODELS,
-			api: { stream: openaiStream, streamSimple: openaiStreamSimple },
-		}),
-	];
-	for (const provider of providers) models.setProvider(provider);
+	for (const [id, f] of Object.entries(FORNECEDORES) as [FornecedorId, (typeof FORNECEDORES)[FornecedorId]][]) {
+		const streams = STREAMS[f.api as keyof typeof STREAMS];
+		// A variável nomeada nunca é lida: o AuthContext do motor é vazio e a chave vem só do cofre.
+		const provider: Provider = createProvider({
+			id,
+			name: f.nome,
+			baseUrl: f.baseUrl,
+			auth: { apiKey: envApiKeyAuth(`${f.nome} API key`, []) },
+			models: [],
+			api: streams,
+		} as Parameters<typeof createProvider>[0]);
+		models.setProvider(provider);
+	}
 
 	if (process.env["MEXERICA_MOTOR_FAUX"] !== "1") return undefined;
 	// Dois provedores falsos (`faux` e `faux2`) para provar a troca de provedor.
@@ -169,4 +124,12 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 	models.setProvider(faux.provider);
 	models.setProvider(faux2.provider);
 	return faux;
+}
+
+/** «Testar acesso» do provedor falso (só testes do Hub): uma chave que começa com `recusada` é inválida. */
+export function fauxAcesso(provider: string, key: string, modelos: readonly Model<Api>[]) {
+	if (!key) return { ok: false, erro: "sem_chave" };
+	if (key.startsWith("recusada")) return { ok: false, erro: "chave_invalida", status: 401 };
+	const proprios = modelos.filter((m) => m.provider === provider);
+	return { ok: true, modelos: proprios.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) };
 }

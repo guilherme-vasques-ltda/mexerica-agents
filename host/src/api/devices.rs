@@ -63,6 +63,11 @@ const LOCAL_ONLY: &[&str] = &[
     "reportError",
     // Voice keys are entered on the computer itself; phones only use them.
     "setVoiceKey",
+    // Motor Mexerica API keys too.
+    "motorChaves",
+    "motorChaveTestar",
+    "motorChaveSalvar",
+    "motorChaveRemover",
     // Plano de código: a chave é colada no próprio computador.
     "planosCodigo",
     "planoCodigoTestar",
