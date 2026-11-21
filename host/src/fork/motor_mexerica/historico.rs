@@ -481,9 +481,19 @@ impl History {
     }
 
     /// Há conversa guardada (conteúdo que alguém recebeu) neste momento.
+    /// Em falha ao travar o estado, presume que há conteúdo (fail-closed) para não pular o vínculo nem a proteção.
     pub(super) fn has_content(&self) -> bool {
-        let Ok(state) = self.state.lock() else { return false };
+        let Ok(state) = self.state.lock() else { return true };
         !state.messages.is_empty()
+    }
+
+    /// Confere sem alterar o estado se vincular `provider` com `generation` apagaria a conversa por troca de chave.
+    pub(super) fn would_reset_credential(&self, provider: &str, generation: &str) -> bool {
+        if generation.is_empty() {
+            return false;
+        }
+        let Ok(state) = self.state.lock() else { return true };
+        state.credentials.get(provider).is_some_and(|known| known != generation)
     }
 
     /// `provider` já recebeu esta conversa, ou não há conversa a transferir.
@@ -493,13 +503,14 @@ impl History {
     }
 
     /// Recomeça a conversa para `provider` (um destino que não a recebeu antes): nada da cópia segue para ele.
+    /// Para endereço próprio, não pré-vincula enquanto a conversa está vazia — quem vincula é o primeiro turno lá.
     pub(super) fn restart_for(&self, provider: &str, generation: &str) {
         if let Ok(mut state) = self.state.lock() {
             state.messages.clear();
             state.bytes = 0;
             state.resync = true;
             state.credentials.clear();
-            if !generation.is_empty() {
+            if !generation.is_empty() && !super::proprio::eh_proprio(provider) {
                 state.credentials.insert(provider.to_owned(), generation.to_owned());
             }
         }

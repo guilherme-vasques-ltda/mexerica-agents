@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { amostraDeModelos, chaveDoErro, enderecoPronto, fechaDepoisDeSalvar, mostrarApiDireta, salvarChave, salvarEndereco } from './api-direta.ts'
+import { amostraDeModelos, chaveDoErro, enderecoPronto, estadoDoTeste, fechaDepoisDeSalvar, listarConexoes, mostrarApiDireta, salvarChave, salvarEndereco } from './api-direta.ts'
 import { CATALOGOS } from '../../../lib/fork-i18n/index.ts'
 import type { HostClient } from '../../../client/host-client'
 
@@ -16,6 +16,8 @@ test('todo erro do teste tem frase nos seis idiomas, e erro desconhecido cai na 
     for (const catalogo of Object.values(CATALOGOS)) assert.ok(catalogo[chave], `${erro} sem texto`)
   }
   assert.equal(chaveDoErro('qualquer_outro'), 'contas.apiDireta.erro.fornecedorFalhou')
+  assert.equal(chaveDoErro('toString'), 'contas.apiDireta.erro.fornecedorFalhou')
+  assert.equal(chaveDoErro('constructor'), 'contas.apiDireta.erro.fornecedorFalhou')
 })
 
 test('a amostra de modelos mostra os primeiros e conta o resto', () => {
@@ -69,5 +71,27 @@ test('o formulário do endereço próprio só fecha com o acesso confirmado', ()
   assert.equal(fechaDepoisDeSalvar({ ok: true, modelos: [] }), true)
   assert.equal(fechaDepoisDeSalvar({ ok: true, modelos: [], estado: 'modelos_no_catalogo' }), true)
   assert.equal(fechaDepoisDeSalvar({ ok: true, modelos: [], estado: 'acesso_nao_confirmado' }), false)
+  assert.equal(fechaDepoisDeSalvar({ ok: false, erro: 'sem_lista', estado: 'acesso_nao_confirmado', salvo: true }), false)
   assert.equal(fechaDepoisDeSalvar({ ok: false, erro: 'sem_resposta' }), false)
+})
+
+test('«Testar acesso» tem quatro estados e só a recusa do fornecedor dá a chave como inválida', () => {
+  const um = [{ id: 'x/a', name: 'A' }]
+  assert.equal(estadoDoTeste({ ok: true, modelos: um }), 'modelos_no_catalogo')
+  assert.equal(estadoDoTeste({ ok: true, modelos: [] }), 'conta_reconhecida')
+  assert.equal(estadoDoTeste({ ok: false, erro: 'limite' }), 'acesso_nao_confirmado')
+  assert.equal(estadoDoTeste({ ok: false, erro: 'sem_lista', estado: 'acesso_nao_confirmado', salvo: true }), 'acesso_nao_confirmado')
+  for (const erro of ['sem_permissao', 'sem_resposta', 'resposta_invalida', 'fornecedor_falhou', 'qualquer_outro']) {
+    assert.equal(estadoDoTeste({ ok: false, erro }), 'nao_verificado', erro)
+  }
+  assert.equal(estadoDoTeste({ ok: false, erro: 'chave_invalida', status: 401 }), 'recusada')
+})
+
+test('listarConexoes devolve fornecedores e endereços próprios', async () => {
+  const client = {
+    call: async () => ({ fornecedores: [{ id: 'openai', nome: 'OpenAI', configurada: false, modelos: null, conferidoEm: null }], enderecos: [] }),
+  } as unknown as HostClient
+  const r = await listarConexoes(client)
+  assert.equal(r.fornecedores.length, 1)
+  assert.deepEqual(r.enderecos, [])
 })

@@ -42,7 +42,7 @@ const comId = (item: Objeto, extra: Partial<ModeloListado> = {}): ModeloListado[
 	const id = texto(item["id"]);
 	if (!id) return [];
 	const nome = texto(item["display_name"]) ?? texto(item["name"]) ?? id;
-	return [{ id, name: [...nome].slice(0, 120).join(""), ...extra }];
+	return [{ id, name: nome, ...extra }];
 };
 
 /** Modelos que não conversam (voz, imagem, vetores, moderação): ficam fora da escolha do bot. */
@@ -252,7 +252,10 @@ export async function testarAcesso(
 			const lido = f.ler(await jsonLimitado(resposta, MAX_BYTES_PAGINA));
 			for (const modelo of lido.modelos) {
 				if (modelos.length >= MAX_MODELOS) break;
-				if (idValido(modelo.id) && !modelos.some((m) => m.id === modelo.id)) modelos.push(modelo);
+				// Modelo cujo id ecoa a chave é excluído em vez de virar um id falso com «[removido]».
+				if ((!chave || !modelo.id.includes(chave)) && idValido(modelo.id) && !modelos.some((m) => m.id === modelo.id)) {
+					modelos.push(modelo);
+				}
 			}
 			if (lido.proxima && lido.proxima.length > MAX_MARCADOR) throw new RespostaInvalida();
 			pagina = lido.proxima;
@@ -262,10 +265,15 @@ export async function testarAcesso(
 		const destino = erro instanceof DestinoRecusado || (erro instanceof Error && erro.cause instanceof DestinoRecusado);
 		return { ok: false, erro: erro instanceof RespostaInvalida ? "resposta_invalida" : destino ? "destino_recusado" : "sem_resposta" };
 	}
-	// O serviço pode repetir a chave enviada no id ou no nome de um modelo: ela não sai daqui — nem para o
-	// catálogo guardado, nem para a tela.
-	const semChave = (valor: string) => (valor.includes(chave) ? valor.split(chave).join("[removido]") : valor);
-	return { ok: true, modelos: modelos.filter((m) => idValido(m.id)).map((m) => ({ ...m, id: semChave(m.id), name: semChave(m.name) })) };
+	// A chave sai do nome ANTES do corte em 120 caracteres: se ela cruzasse o limite, o prefixo não sobrevive.
+	const semChave = (valor: string) => (chave && valor.includes(chave) ? valor.split(chave).join("[removido]") : valor);
+	const nomeLimpo = (valor: string) => [...semChave(valor)].slice(0, 120).join("");
+	return {
+		ok: true,
+		modelos: modelos
+			.filter((m) => (!chave || !m.id.includes(chave)) && idValido(m.id))
+			.map((m) => ({ ...m, name: nomeLimpo(m.name) })),
+	};
 }
 
 // Endereço próprio: um serviço qualquer num dos três formatos, com endereço e chave da pessoa. O endereço passa pelo
@@ -320,7 +328,12 @@ export function fornecedorProprio(e: Endereco): Fornecedor {
 			const temMais = anthropic && (corpo as Objeto)["has_more"] === true;
 			const proxima = temMais ? texto((corpo as Objeto)["last_id"]) : undefined;
 			if (temMais && !proxima) throw new RespostaInvalida();
-			return { modelos: lista(corpo, "data").flatMap((item) => comId(item)), proxima };
+			return {
+				modelos: lista(corpo, "data").flatMap((item) =>
+					comId(item, anthropic ? { contextWindow: numero(item["max_input_tokens"]), maxTokens: numero(item["max_tokens"]) } : {}),
+				),
+				proxima,
+			};
 		},
 	};
 }

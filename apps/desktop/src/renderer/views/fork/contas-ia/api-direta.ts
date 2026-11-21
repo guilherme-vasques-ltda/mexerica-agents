@@ -20,7 +20,7 @@ export interface FornecedorDaChave {
 /** `estado`: modelos_no_catalogo, acesso_nao_confirmado, nao_verificado ou recusada. `id`: endereço próprio salvo. */
 export type Acesso =
   | { ok: true; modelos: ModeloDaChave[]; estado?: string; id?: string }
-  | { ok: false; erro: string; status?: number; estado?: string }
+  | { ok: false; erro: string; status?: number; estado?: string; salvo?: boolean; id?: string; modelos?: ModeloDaChave[] }
 
 export type FormatoProprio = 'chat-completions' | 'responses' | 'anthropic-messages'
 export const FORMATOS: readonly FormatoProprio[] = ['chat-completions', 'responses', 'anthropic-messages']
@@ -62,8 +62,27 @@ const ERROS: Readonly<Record<string, ChaveTexto>> = {
   destino_recusado: 'contas.apiDireta.erro.destinoRecusado',
 }
 
+/**
+ * Os quatro estados do «Testar acesso». O teste só lê a lista de modelos do fornecedor e nunca gera texto, então
+ * «tudo certo» nunca é afirmado: uma lista não prova saldo, assinatura nem permissão de cada modelo.
+ * - `conta_reconhecida`: o fornecedor aceitou a chave, mas não listou nada;
+ * - `modelos_no_catalogo`: o fornecedor aceitou a chave e listou modelos;
+ * - `acesso_nao_confirmado`: o fornecedor respondeu, mas limite ou crédito impedem confirmar;
+ * - `nao_verificado`: sem resposta, resposta quebrada ou sem permissão de listar (não é chave inválida).
+ * A recusa explícita do fornecedor (`recusada`) é a única que dá a chave como inválida.
+ */
+export type EstadoDoTeste = 'conta_reconhecida' | 'modelos_no_catalogo' | 'acesso_nao_confirmado' | 'nao_verificado' | 'recusada'
+
+export function estadoDoTeste(acesso: Acesso): EstadoDoTeste {
+  if (acesso.estado === 'acesso_nao_confirmado') return 'acesso_nao_confirmado'
+  if (acesso.ok) return acesso.modelos.length > 0 ? 'modelos_no_catalogo' : 'conta_reconhecida'
+  if (acesso.erro === 'chave_invalida') return 'recusada'
+  if (acesso.erro === 'limite' || acesso.erro === 'sem_lista') return 'acesso_nao_confirmado'
+  return 'nao_verificado'
+}
+
 /** A frase de um erro do teste; código desconhecido cai na falha genérica do fornecedor. */
-export const chaveDoErro = (erro: string): ChaveTexto => ERROS[erro] ?? 'contas.apiDireta.erro.fornecedorFalhou'
+export const chaveDoErro = (erro: string): ChaveTexto => (Object.hasOwn(ERROS, erro) ? ERROS[erro]! : 'contas.apiDireta.erro.fornecedorFalhou')
 
 /** Os primeiros nomes da lista de modelos, para a linha de resultado; o resto vira contagem. */
 export function amostraDeModelos(modelos: readonly ModeloDaChave[], limite = 4): { nomes: string; restantes: number } {
@@ -72,10 +91,20 @@ export function amostraDeModelos(modelos: readonly ModeloDaChave[], limite = 4):
 
 const PRAZO_MS = 60_000
 
-export const listarChaves = async (client: HostClient) => {
+// Chave salva, trocada, removida ou testada: quem mostra a lista de chaves (a seção da página e a tela «Adicionar conexão») relê.
+const ouvintesDeChaves = new Set<() => void>()
+export const chavesMudaram = () => { for (const ouvinte of ouvintesDeChaves) ouvinte() }
+export const aoMudarChaves = (ouvinte: () => void) => {
+  ouvintesDeChaves.add(ouvinte)
+  return () => void ouvintesDeChaves.delete(ouvinte)
+}
+
+export const listarConexoes = async (client: HostClient) => {
   const r = await client.call<{ fornecedores: FornecedorDaChave[]; enderecos?: EnderecoProprio[] }>('motorChaves', {}, 15_000)
   return { fornecedores: r.fornecedores, enderecos: r.enderecos ?? [] }
 }
+
+export const listarChaves = async (client: HostClient) => (await listarConexoes(client)).fornecedores
 
 export const testarChave = (client: HostClient, fornecedor: string) =>
   client.call<Acesso>('motorChaveTestar', { fornecedor }, PRAZO_MS)

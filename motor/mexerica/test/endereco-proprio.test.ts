@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createServer as ouvirTcp, type AddressInfo } from "node:net";
 import { test } from "node:test";
 import { conferirUrl, DestinoRecusado, fetchGuardado, ipPermitido } from "../src/destino.ts";
+import { modeloProprioValido } from "../src/fornecedores.ts";
 import { encerrar, startEngine, turnoTerminou, type Line } from "./helpers.ts";
 
 const SECRET = "chave-de-mentira-do-endereco-proprio-9";
@@ -228,10 +229,18 @@ test("«Testar acesso» no formato Anthropic Messages usa /v1/models com x-api-k
 	}
 });
 
-test("«Testar acesso» com a chave repetida no id ou no nome devolve tudo mascarado", async () => {
+test("«Testar acesso» exclui id com a chave, mascara nome antes do corte em 120 e mantém ids selecionáveis", async () => {
+	const prefixoNaFronteira = SECRET.slice(0, 16);
+	const nomeNaFronteira = `${"a".repeat(104)}${SECRET}`;
 	const s = await servico((p, res) =>
 		p.path === "/v1/models"
-			? json(res, { data: [{ id: "modelo-local", name: `minha ${SECRET}` }, { id: `dono/${SECRET}`, name: "Outro" }] })
+			? json(res, {
+					data: [
+						{ id: "modelo-local", name: `minha ${SECRET}` },
+						{ id: "modelo-fronteira", name: nomeNaFronteira },
+						{ id: `dono/${SECRET}`, name: "Outro" },
+					],
+				})
 			: json(res, {}, 404));
 	const proc = motorCom({ baseUrl: `${s.base}/v1`, formato: "chat-completions", local: true });
 	try {
@@ -239,8 +248,51 @@ test("«Testar acesso» com a chave repetida no id ou no nome devolve tudo masca
 		assert.equal(acesso.ok, true, JSON.stringify(acesso));
 		assert.equal(JSON.stringify(acesso).includes(SECRET), false, "a chave saiu no catálogo de modelos");
 		const modelos = acesso.modelos as { id: string; name: string }[];
+		assert.deepEqual(modelos.map((m) => m.id), ["modelo-local", "modelo-fronteira"]);
+		for (const m of modelos) assert.ok(modeloProprioValido(m.id), m.id);
 		assert.ok(modelos[0]!.name.includes("[removido]"), JSON.stringify(modelos));
-		assert.ok(modelos[1]!.id.includes("[removido]"), JSON.stringify(modelos));
+		assert.ok(!modelos[1]!.name.includes(prefixoNaFronteira), `prefixo da chave sobreviveu ao corte: ${modelos[1]!.name}`);
+	} finally {
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
+	}
+});
+
+test("endereço próprio Anthropic preserva max_input_tokens e max_tokens listados", async () => {
+	const s = await servico((p, res) => {
+		if (p.path === "/v1/models?limit=1000") {
+			return json(res, {
+				data: [{ id: "claude-proprio", display_name: "Claude Próprio", max_input_tokens: 64000, max_tokens: 4096 }],
+				has_more: false,
+			});
+		}
+		if (p.path === "/v1/messages") {
+			res.writeHead(200, { "content-type": "text/event-stream" });
+			res.end(
+				"event: message_start\ndata: " + JSON.stringify({ type: "message_start", message: { id: "m1", type: "message", role: "assistant", model: "claude-proprio", content: [], stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } }) + "\n\n"
+				+ "event: message_delta\ndata: " + JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } }) + "\n\n"
+				+ "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+			);
+			return;
+		}
+		json(res, {}, 404);
+	});
+	const proc = motorCom({ baseUrl: s.base, formato: "anthropic-messages", local: true });
+	try {
+		const acesso = await testar(proc);
+		assert.equal(acesso.ok, true, JSON.stringify(acesso));
+		const modelo = (acesso.modelos as { id: string; contextWindow?: number; maxTokens?: number }[])[0]!;
+		assert.equal(modelo.contextWindow, 64000);
+		assert.equal(modelo.maxTokens, 4096);
+		proc.send({ id: "m", type: "set_model", provider: PROVEDOR, modelId: "claude-proprio", contextWindow: modelo.contextWindow, maxTokens: modelo.maxTokens });
+		await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		await proc.waitFor(turnoTerminou);
+		const conversa = s.pedidos.find((p) => p.method === "POST")!;
+		assert.equal(JSON.parse(conversa.body).max_tokens, 4096, conversa.body);
 	} finally {
 		try {
 			await semVazar(proc);

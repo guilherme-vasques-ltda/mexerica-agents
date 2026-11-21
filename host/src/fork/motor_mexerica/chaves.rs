@@ -210,14 +210,24 @@ pub(super) async fn salvar_endereco(hub: &Arc<Hub>, pedido: Pedido, extra_env: &
     let raw = proprio::serializar(&Registro { key: key.to_string(), base_url, formato, local, nome })?;
     let fonte = raw.clone();
     let mut acesso = testar(Arc::new(move |_slot: &str| Ok(Some(fonte.to_string()))), &id, extra_env).await?;
-    if acesso["ok"] != true {
+    let modelos_sem_lista = if acesso["ok"] == true {
+        None
+    } else {
         let Some(modelo) = modelo.filter(|_| acesso["erro"] == "sem_lista") else { return Ok(acesso) };
-        acesso = json!({"ok": true, "estado": "acesso_nao_confirmado", "modelos": [{"id": format!("{id}/{modelo}"), "name": modelo}]});
-    }
+        // Nunca marca `ok: true` sem confirmação do serviço: mantém `ok: false` e sinaliza apenas `salvo: true`.
+        let lista = json!([{"id": format!("{id}/{modelo}"), "name": modelo}]);
+        acesso["salvo"] = true.into();
+        acesso["modelos"] = lista.clone();
+        Some(lista)
+    };
     let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
     proprio::incluir(&hub.store, &id)?;
     crate::market::vault::write(&hub.store, &credential_slot(&id), &raw)?;
-    guardar_modelos(&hub.store, &id, &acesso)?;
+    if let Some(lista) = modelos_sem_lista {
+        gravar_modelos(&hub.store, &id, &lista)?;
+    } else {
+        guardar_modelos(&hub.store, &id, &acesso)?;
+    }
     acesso["id"] = id.into();
     Ok(acesso)
 }
@@ -271,7 +281,11 @@ fn guardar_modelos(store: &Store, fornecedor: &str, acesso: &Value) -> Result<()
     if acesso["ok"] != true {
         return Ok(());
     }
-    let guardado = json!({"modelos": acesso["modelos"], "conferidoEm": crate::store::now_ms()});
+    gravar_modelos(store, fornecedor, &acesso["modelos"])
+}
+
+fn gravar_modelos(store: &Store, fornecedor: &str, modelos: &Value) -> Result<()> {
+    let guardado = json!({"modelos": modelos, "conferidoEm": crate::store::now_ms()});
     store.kv_set(&cache_slot(fornecedor), &guardado.to_string())
 }
 

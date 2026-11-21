@@ -307,7 +307,9 @@ async fn servico_sem_lista_so_e_salvo_com_o_modelo_digitado() {
 
     let com_modelo =
         chaves::salvar_endereco(&hub, pedido_endereco(&base, true, Some("dono/modelo:tag")), &[]).await.unwrap();
-    assert_eq!(com_modelo["ok"], true, "{com_modelo}");
+    assert_eq!(com_modelo["ok"], false, "sem lista nunca marca acesso confirmado: {com_modelo}");
+    assert_eq!(com_modelo["salvo"], true, "{com_modelo}");
+    assert_eq!(com_modelo["erro"], "sem_lista");
     assert_eq!(com_modelo["estado"], "acesso_nao_confirmado");
     let id = com_modelo["id"].as_str().unwrap();
     assert_eq!(com_modelo["modelos"][0]["id"], format!("{id}/dono/modelo:tag"));

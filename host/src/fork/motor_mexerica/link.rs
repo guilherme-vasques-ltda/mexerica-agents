@@ -576,10 +576,24 @@ impl Link {
             return Ok(());
         }
         *slot = None; // Drop mata o processo e o cofre do provedor antigo.
+        let history = session.history.snapshot();
+        let engine = self.spawn_engine(session, provider, &generation, &history).await?;
+        session.history.take_resync();
+        *slot = Some(engine);
+        Ok(())
+    }
+
+    async fn spawn_engine(
+        self: &Arc<Self>,
+        session: &Session,
+        provider: &str,
+        generation: &str,
+        history: &[Value],
+    ) -> Result<Engine> {
         let extra: Vec<(&str, &str)> = self.extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let mut engine =
-            Engine::spawn_with(pinned(self.vault.clone(), provider, generation.clone()), provider, &extra)?;
-        engine.credential = generation;
+            Engine::spawn_with(pinned(self.vault.clone(), provider, generation.to_owned()), provider, &extra)?;
+        engine.credential = generation.to_owned();
         let system_prompt = session.system_prompt.locked().clone();
         if let Some(prompt) = system_prompt {
             engine.set_system_prompt(&prompt).await?;
@@ -587,17 +601,14 @@ impl Link {
         if let Some(mcp) = &session.mcp {
             engine.set_tools(&mcp.specs()).await?;
         }
-        let history = session.history.snapshot();
         if !history.is_empty() {
-            engine.restore_history(&history).await?;
+            engine.restore_history(history).await?;
         }
-        session.history.take_resync();
         #[cfg(test)]
         if PAUSE_AFTER_RESTORE.load(Ordering::Relaxed) {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
-        *slot = Some(engine);
-        Ok(())
+        Ok(engine)
     }
 
     async fn set_model(self: &Arc<Self>, params: &Value) -> Result<()> {
@@ -607,21 +618,75 @@ impl Link {
         let session = self.sessions.locked().get(sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
         ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
         let _busy = BusyGuard(&session.busy);
-        self.ensure_engine(&session, &provider, &Credentials::read(&self.vault, &provider, self.proprios.get()))
-            .await?;
+        let creds = Credentials::read(&self.vault, &provider, self.proprios.get());
         let mut slot = session.engine.lock().await;
-        let engine = slot.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
+        let generation = match creds.generation(&provider) {
+            Ok(generation) => generation,
+            Err(error) => {
+                if slot.as_ref().is_some_and(|e| e.provider() == provider) {
+                    *slot = None;
+                }
+                return Err(error);
+            }
+        };
         let limits = match self.limits.get() {
             Some(source) => source(&provider, &model)?,
             None => json!({}),
         };
-        let result = engine.set_model(&provider, &model, &limits).await;
-        if let Err(error) = result {
-            // O slot nunca guarda um processo cuja conversa de comandos falhou:
-            // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
-            // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
-            *slot = None;
-            return Err(error);
+        let unprotected = creds.known().is_err();
+        let restart_proprio =
+            !unprotected && super::proprio::eh_proprio(&provider) && !session.history.received_by(&provider);
+        let credential_changed =
+            !unprotected && !restart_proprio && session.history.would_reset_credential(&provider, &generation);
+        let reset_history = unprotected || restart_proprio || credential_changed;
+        let same_ready = !reset_history
+            && slot.as_mut().is_some_and(|e| e.alive() && e.provider() == provider && e.credential == generation);
+
+        if same_ready {
+            let engine = slot.as_mut().expect("verificado acima");
+            if session.history.take_resync()
+                && let Err(error) = engine.restore_history(&session.history.snapshot()).await
+            {
+                *slot = None;
+                return Err(error);
+            }
+            if let Err(error) = engine.set_model(&provider, &model, &limits).await {
+                // O slot nunca guarda um processo cuja conversa de comandos falhou:
+                // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
+                // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
+                *slot = None;
+                return Err(error);
+            }
+            if !super::proprio::eh_proprio(&provider) || session.history.has_content() {
+                session.history.bind_credential(&provider, &generation);
+            }
+        } else {
+            // Prepara o processo candidato e valida `set_model` ANTES de efetivar o recomeço no histórico:
+            // se o preparo ou a troca de modelo falharem, a conversa do provedor anterior permanece intacta.
+            let candidate_history = if reset_history { Vec::new() } else { session.history.snapshot() };
+            let mut candidate = self.spawn_engine(&session, &provider, &generation, &candidate_history).await?;
+            if let Err(error) = candidate.set_model(&provider, &model, &limits).await {
+                if slot.as_ref().is_some_and(|e| e.provider() == provider) {
+                    *slot = None;
+                }
+                return Err(error);
+            }
+            if unprotected {
+                tracing::warn!("sem proteger a conversa não há cópia nem contexto vivo");
+                session.history.drop_unprotected();
+            } else if restart_proprio {
+                tracing::info!("endereço próprio novo para esta conversa; a conversa recomeça sem a cópia");
+                session.history.restart_for(&provider, &generation);
+            } else if super::proprio::eh_proprio(&provider) && !session.history.has_content() {
+                // A conversa está vazia: só escolher o endereço não o marca como recebedor até o primeiro turno.
+            } else {
+                if credential_changed {
+                    tracing::info!(provider, "a credencial do provedor mudou; a conversa recomeça");
+                }
+                session.history.bind_credential(&provider, &generation);
+            }
+            session.history.take_resync();
+            *slot = Some(candidate);
         }
         *session.provider.locked() = provider;
         *session.model.locked() = model;
@@ -734,8 +799,11 @@ impl Link {
             let alive = tokio::select! {
                 biased;
                 () = stopped_since(&mut cancel, admitted) => {
-                    // Cancelar o turno mata o processo do motor.
-                    if let Ok(generation) = creds.generation(&provider) {
+                    // Cancelar o turno mata o processo do motor. Só marca recebedor se o turno já entregou
+                    // algum evento (antes disso o pedido não começou a sair para o provedor).
+                    if delivered.load(Ordering::Relaxed)
+                        && let Ok(generation) = creds.generation(&provider)
+                    {
                         session.history.bind_credential(&provider, &generation);
                     }
                     let _ = owned.kill().await;
@@ -744,8 +812,12 @@ impl Link {
                     false
                 }
                 result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
-                    // O turno roda neste provedor: este endereço passa a ser recebedor da conversa que ele vê.
-                    if let Ok(generation) = creds.generation(&provider) {
+                    // Só marca o endereço como recebedor quando o turno completou ou já entregou eventos (o prompt
+                    // já entrou no motor/rede do provedor e a coleta do turno pode conter mensagens). Uma falha
+                    // antes de qualquer entrega (ex.: set_model recusado ou queda antes de iniciar) não vincula.
+                    if (result.is_ok() || delivered.load(Ordering::Relaxed))
+                        && let Ok(generation) = creds.generation(&provider)
+                    {
                         session.history.bind_credential(&provider, &generation);
                     }
                     if let Err(error) = result {
