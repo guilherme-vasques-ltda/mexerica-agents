@@ -31,17 +31,25 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
 
 - A chave fica cifrada no cofre do Hub, no slot `plano-codigo/<plano>`. Nunca volta ao app, a registro, a log nem a
   mensagem de erro. O endereço do teste é fixo no catálogo (https, do fornecedor) e o pedido não aceita endereço; o
-  redirecionamento não é seguido.
-- Na conversa, o Hub abre o OpenCode só para o bot cujo modelo é do plano (`<provedor>/<modelo>`, motor `opencode`), do
-  Space pessoal e ainda existente. A chave segue por variável de ambiente, só para esse processo, num perfil próprio do
-  plano (`engine_setup_root/planos/<plano>/home`): casa, configuração, dados, estado e cache só do plano. O OpenCode do
-  plano não enxerga o login, as chaves nem a configuração do OpenCode do dono, e a chave nunca é escrita em arquivo.
-- O OpenCode repassa o próprio ambiente aos comandos de shell que executa. Por isso o Hub escreve no perfil uma extensão
-  (`.config/opencode/plugin/mexerica-shell-env.js`, gancho `shell.env`) que zera a variável da chave só para esses
-  comandos; o provedor continua recebendo a chave pelo processo. Conferido com o OpenCode 1.19.6 (a versão que o Hub
-  instala): sem a extensão um comando de shell via a chave, com ela não. Outras versões precisam ser reconferidas.
-- Trocar ou remover a chave muda o carimbo da sessão e reinicia o processo. Sem chave, fora do Space pessoal ou no
-  executor isolado, o lançamento falha: o Hub nunca cai no ambiente do dono.
+  redirecionamento não é seguido. Uma resposta de sucesso que repete a chave é recusada, não é devolvida nem guardada.
+- O OpenCode nunca recebe a chave. O Hub mantém um repasse local (`host/src/fork/planos_codigo/repasse.rs`): um servidor
+  só em loopback, em porta efêmera. A cada sessão o Hub cria um código aleatório (`mxs_…`) e o entrega ao OpenCode em
+  `OPENCODE_API_KEY`, junto com o endereço do repasse no lugar do endereço do fornecedor (`OPENCODE_CONFIG_CONTENT`).
+  O repasse confere o código, troca-o pela chave guardada e encaminha o pedido ao endereço fixo do plano.
+- O repasse só aceita o método e os caminhos que o fornecedor usa (uma tabela fixa por plano), nunca segue
+  redirecionamento, limita tamanho e tempo de cada pedido, e recusa resposta que contenha a chave (no corpo, inclusive
+  partida entre dois pedaços, ou em cabeçalho). Cabeçalhos e streaming passam sem alteração.
+- Por isso a chave não está no ambiente do OpenCode, nem no de um servidor MCP filho, nem no de um comando de shell:
+  eles só enxergam o código de sessão. Conferido com o OpenCode 1.19.6 de verdade e um fornecedor de mentira
+  (`repasse_tests.rs`, roda onde o programa existe). Outras versões precisam ser reconferidas.
+- O OpenCode do plano roda num perfil próprio (`engine_setup_root/planos/<plano>/home`: casa, configuração, dados,
+  estado e cache só do plano), com a configuração de projeto desligada (`OPENCODE_DISABLE_PROJECT_CONFIG`). Um bot com
+  comando próprio de execução não recebe o ambiente do plano: o lançamento falha. Sem chave, fora do Space pessoal ou
+  no executor isolado, também falha: o Hub nunca cai no ambiente do dono.
+- Trocar ou remover a chave revoga o código na hora, corta os pedidos em andamento e encerra o processo antigo. Uma
+  geração por plano fecha a corrida com uma abertura que estava em curso.
+- Limite: uma ferramenta que consiga roubar o código de sessão pode usar o plano enquanto a sessão durar, só por este
+  computador. O código não leva a chave e deixa de valer ao fim da sessão.
 - Os modelos do plano entram na escolha de modelo do OpenCode (`agentModels`), só no Space pessoal, e continuam
   disponíveis se o OpenCode não responde à descoberta dos próprios modelos.
 

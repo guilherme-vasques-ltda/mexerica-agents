@@ -241,7 +241,16 @@ impl Actor {
         let revision = selected.as_ref().map(|launch| launch.revision);
         // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono.
         let plano = if selected.is_none() {
-            crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await?
+            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await {
+                Ok(plano) => plano,
+                Err(erro) => {
+                    // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.
+                    if let Some(conn) = self.conn.take() {
+                        conn.kill().await;
+                    }
+                    return Err(erro);
+                }
+            }
         } else {
             None
         };
@@ -418,6 +427,8 @@ impl Actor {
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
+                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre.
+                conn.plano = plano.map(|plano| plano.concessao);
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",
                     Adapter::Claude => "claude",

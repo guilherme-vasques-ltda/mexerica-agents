@@ -434,6 +434,8 @@ pub(crate) enum CompactionUsage {
 
 pub(crate) struct Conn {
     ponte: Option<crate::fork::ponte_credencial::Revogador>,
+    /// Sessão do repasse local do plano de código (o código que o OpenCode usa no lugar da chave).
+    plano: Option<crate::fork::planos_codigo::Concessao>,
     curated: crate::fork::conectores::Pool,
     pub(crate) acp: Arc<Acp>,
     pub(crate) rx: mpsc::UnboundedReceiver<Incoming>,

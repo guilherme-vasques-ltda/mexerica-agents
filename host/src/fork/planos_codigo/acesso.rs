@@ -96,6 +96,10 @@ async fn listar_modelos_com_prazo(
         }
         corpo.extend_from_slice(&parte);
     }
+    // Uma resposta que repete a chave (no corpo inteiro, em qualquer campo) nunca é devolvida nem guardada.
+    if !chave.is_empty() && corpo.windows(chave.len()).any(|janela| janela == chave.as_bytes()) {
+        return Err(Falha::RespostaInvalida);
+    }
     let lista: serde_json::Value = serde_json::from_slice(&corpo).map_err(|_| Falha::RespostaInvalida)?;
     let dados = lista["data"].as_array().ok_or(Falha::RespostaInvalida)?;
     let mut modelos: Vec<Modelo> = Vec::new();

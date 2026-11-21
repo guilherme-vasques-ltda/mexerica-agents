@@ -222,6 +222,7 @@ pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, extra_env: &[(&st
         let (acp, rx) = Acp::spawn_link(link);
         Ok(Conn {
             ponte: None,
+            plano: None,
             curated: crate::fork::conectores::Pool::default(),
             acp,
             rx,
@@ -356,6 +357,7 @@ async fn start_agent_mode(
     };
     Ok(Conn {
         ponte: None,
+        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,

@@ -2,16 +2,22 @@
 //!
 //! A chave do plano é do dono do Hub e fica cifrada no cofre, no slot do plano (`plano-codigo/<plano>`). Ela nunca
 //! volta ao app, a registro, a log nem a mensagem de erro. «Testar acesso» só lê a lista de modelos do plano: nenhuma
-//! conversa, nenhuma cobrança. Na hora de conversar, a chave é entregue só ao processo do OpenCode, em um perfil
-//! próprio do plano (`perfil.rs`), e só a bot do Space pessoal cujo modelo é do plano.
+//! conversa, nenhuma cobrança. Na hora de conversar, a chave NÃO entra no processo do OpenCode: ele recebe um código
+//! de sessão e o endereço do repasse local do Hub (`repasse.rs`), que troca o código pela chave ao falar com o
+//! fornecedor. O processo roda num perfil próprio do plano (`perfil.rs`), só para bot do Space pessoal cujo modelo é do
+//! plano.
 mod acesso;
 mod perfil;
+pub(crate) mod repasse;
+#[cfg(test)]
+mod repasse_tests;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use perfil::{ambiente_do_bot, aplicar_ambiente};
+pub(crate) use repasse::{Concessao, Repasse};
 
-use crate::{api::devices::Caller, hub::Hub, store::Store};
+use crate::{LockExt, api::devices::Caller, hub::Hub, store::Store};
 use anyhow::{Result, anyhow, bail, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -31,6 +37,9 @@ pub(crate) struct Plano {
     pub(crate) variavel: &'static str,
     /// Endereço fixo (nunca vem do app) da lista de modelos que a chave enxerga.
     pub(crate) lista: &'static str,
+    /// Os únicos caminhos que o repasse encaminha, com o endereço fixo do fornecedor para cada um: `(caminho local,
+    /// endereço)`. Um `*` casa um segmento (o modelo) e vale também no endereço.
+    pub(crate) rotas: &'static [(&'static str, &'static str)],
     /// Avisos que a tela mostra junto do plano.
     pub(crate) avisos: &'static [&'static str],
 }
@@ -41,6 +50,16 @@ pub(crate) const PLANOS: &[Plano] = &[Plano {
     provedor: "opencode-go",
     variavel: "OPENCODE_API_KEY",
     lista: "https://opencode.ai/inference/go/v1/models",
+    rotas: &[
+        ("chat/completions", "https://opencode.ai/inference/go/openai/v1/chat/completions"),
+        ("responses", "https://opencode.ai/inference/go/openai/v1/responses"),
+        ("messages", "https://opencode.ai/inference/go/anthropic/v1/messages"),
+        ("models/*:generateContent", "https://opencode.ai/inference/go/google/v1beta/models/*:generateContent"),
+        (
+            "models/*:streamGenerateContent",
+            "https://opencode.ai/inference/go/google/v1beta/models/*:streamGenerateContent",
+        ),
+    ],
     avisos: &["saldo_extra"],
 }];
 
@@ -68,7 +87,7 @@ fn slot_revisao(plano: &Plano) -> String {
 
 /// Uma operação de chave por vez: um teste lento não grava por cima de uma remoção ou troca feitas enquanto esperava.
 static OPERACAO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-const MAX_CHAVE: usize = 4096;
+const MAX_CHAVE: usize = 512;
 const MIN_CHAVE: usize = 8;
 
 #[derive(Deserialize)]
@@ -121,7 +140,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
         "planoCodigoRemover" => {
             let _operacao = OPERACAO.lock().await;
             let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
-            remover(&hub.store, plano)?;
+            remover(hub, plano).await?;
             Ok(json!({"ok": true}))
         }
         _ => bail!("{method} não é um método de plano de código"),
@@ -146,19 +165,53 @@ async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Z
     }
     crate::market::vault::unlock(hub.clone()).await?;
     let _guard = crate::fork::engine_accounts::MUTATION.lock().await;
-    crate::market::vault::write(&hub.store, &slot_chave(plano), &candidata)?;
-    guardar_modelos(&hub.store, plano, &acesso)?;
-    nova_revisao(&hub.store, plano)?;
+    gravar(&hub.store, plano, &candidata, &acesso)?;
+    // Depois da gravação: as sessões abertas com a chave velha morrem e os pedidos em andamento são cortados.
+    repasse_do_hub(hub).await?.revogar_plano(plano);
     Ok(acesso)
 }
 
-/// Remove a chave, a lista de modelos e o perfil do plano. O próximo turno já não acha chave.
-fn remover(store: &Store, plano: &Plano) -> Result<()> {
-    store.kv_delete(&slot_chave(plano))?;
-    store.kv_delete(&slot_modelos(plano))?;
-    nova_revisao(store, plano)?;
-    perfil::apagar(store, plano);
+/// Chave, lista de modelos e revisão na mesma transação: uma falha no meio não deixa uma chave nova com a revisão velha.
+fn gravar(store: &Store, plano: &Plano, chave: &str, acesso: &Value) -> Result<()> {
+    let selada = crate::market::vault::seal(store, &slot_chave(plano), chave)?;
+    let modelos = json!({"modelos": acesso["modelos"], "conferidoEm": crate::store::now_ms()}).to_string();
+    let proxima = (revisao(store, plano)? + 1).to_string();
+    let mut db = store.db.locked();
+    let transacao = db.transaction()?;
+    crate::market::vault::write_sealed(&transacao, &slot_chave(plano), &selada)?;
+    for (slot, valor) in [(slot_modelos(plano), &modelos), (slot_revisao(plano), &proxima)] {
+        transacao.execute(
+            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=?2",
+            rusqlite::params![slot, valor],
+        )?;
+    }
+    transacao.commit()?;
     Ok(())
+}
+
+/// Remove a chave, a lista de modelos e o perfil do plano, e revoga as sessões abertas. O próximo turno já não acha
+/// chave, e o processo do OpenCode que sobrou só tem um código morto.
+async fn remover(hub: &Arc<Hub>, plano: &'static Plano) -> Result<()> {
+    {
+        let proxima = (revisao(&hub.store, plano)? + 1).to_string();
+        let mut db = hub.store.db.locked();
+        let transacao = db.transaction()?;
+        transacao
+            .execute("DELETE FROM kv WHERE k IN (?1, ?2)", rusqlite::params![slot_chave(plano), slot_modelos(plano)])?;
+        transacao.execute(
+            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=?2",
+            rusqlite::params![slot_revisao(plano), proxima],
+        )?;
+        transacao.commit()?;
+    }
+    repasse_do_hub(hub).await?.revogar_plano(plano);
+    perfil::apagar(&hub.store, plano);
+    Ok(())
+}
+
+/// O repasse local deste Hub, iniciado na primeira vez que alguém precisa dele.
+pub(crate) async fn repasse_do_hub(hub: &Arc<Hub>) -> Result<Arc<Repasse>> {
+    Ok(hub.planos.get_or_try_init(Repasse::iniciar).await?.clone())
 }
 
 /// Número que muda a cada troca ou remoção da chave: entra no carimbo da sessão e reinicia o processo do OpenCode.
@@ -166,10 +219,7 @@ fn revisao(store: &Store, plano: &Plano) -> Result<u64> {
     Ok(store.kv_read(&slot_revisao(plano))?.and_then(|v| v.parse().ok()).unwrap_or(0))
 }
 
-fn nova_revisao(store: &Store, plano: &Plano) -> Result<()> {
-    store.kv_set(&slot_revisao(plano), &(revisao(store, plano)? + 1).to_string())
-}
-
+/// Atualiza só a lista de modelos (um novo «Testar acesso» com a chave guardada); a chave e a revisão não mudam.
 fn guardar_modelos(store: &Store, plano: &Plano, acesso: &Value) -> Result<()> {
     if acesso["ok"] != true {
         return Ok(());

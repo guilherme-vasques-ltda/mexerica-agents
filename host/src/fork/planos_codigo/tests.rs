@@ -163,14 +163,14 @@ fn metodos_dos_planos_sao_so_deste_computador() {
     }
 }
 
-fn hub_de_prova() -> Arc<Hub> {
+pub(super) fn hub_de_prova() -> Arc<Hub> {
     let dir = crate::store::private_fixture_dir("planos-codigo");
     let store = Store::open(&dir.join("test.db")).unwrap();
     *store.secret_key.locked() = Some(Zeroizing::new(vec![7; 32]));
     Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 1)
 }
 
-fn bot(id: &str, backend: &str, modelo: &str, space: &str) -> crate::store::BotConfig {
+pub(super) fn bot(id: &str, backend: &str, modelo: &str, space: &str) -> crate::store::BotConfig {
     serde_json::from_value(json!({"id": id, "name": "Teste", "backend": backend, "model": modelo,
         "spaceId": space, "notify": false}))
     .unwrap()
@@ -251,7 +251,7 @@ async fn pedidos_invalidos_ou_de_aparelho_pareado_sao_recusados_sem_repetir_a_ch
     assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
 }
 
-async fn com_chave(hub: &Arc<Hub>) {
+pub(super) async fn com_chave(hub: &Arc<Hub>) {
     let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
     assert_eq!(salvar(hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap()["ok"], true);
 }
@@ -272,38 +272,6 @@ async fn ambiente_so_para_bot_do_opencode_com_modelo_de_plano() {
     assert!(ambiente_do_bot(&hub, &sem_modelo).await.unwrap().is_none());
 }
 
-#[tokio::test]
-async fn ambiente_do_plano_tem_perfil_proprio_e_a_chave_so_na_variavel_do_plano() {
-    let hub = hub_de_prova();
-    com_chave(&hub).await;
-    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
-    hub.store.save_bot(&cfg).unwrap();
-    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().expect("modelo de plano");
-    let env: std::collections::BTreeMap<_, _> = ambiente.env.iter().cloned().collect();
-    assert_eq!(env["OPENCODE_API_KEY"], CHAVE);
-    let casa = std::path::PathBuf::from(&env["HOME"]);
-    assert!(casa.starts_with(hub.store.engine_setup_root.join("planos").join("opencode-go")), "{casa:?}");
-    assert_ne!(Some(casa.clone().into_os_string()), std::env::var_os("HOME"), "a casa do plano não é a do dono");
-    for nome in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"] {
-        assert!(Path::new(&env[nome]).starts_with(&casa), "{nome}");
-        assert!(Path::new(&env[nome]).is_dir(), "{nome}");
-    }
-    let chaves: Vec<_> = ambiente.env.iter().map(|(k, _)| k.as_str()).collect();
-    assert_eq!(chaves.iter().filter(|k| k.contains("KEY")).count(), 1, "{chaves:?}");
-    assert!(!ambiente.carimbo.contains(CHAVE));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&casa).unwrap().permissions().mode() & 0o777, 0o700);
-    }
-    for arquivo in walk(&casa) {
-        assert!(
-            !std::fs::read(&arquivo).unwrap().windows(CHAVE.len()).any(|janela| janela == CHAVE.as_bytes()),
-            "{arquivo:?}"
-        );
-    }
-}
-
 fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut arquivos = Vec::new();
     for entrada in std::fs::read_dir(dir).unwrap().flatten() {
@@ -314,7 +282,46 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 #[tokio::test]
-async fn ambiente_fecha_sem_chave_fora_do_space_pessoal_e_para_bot_apagado() {
+async fn o_ambiente_do_plano_tem_perfil_proprio_e_nunca_a_chave_so_o_codigo_da_sessao() {
+    let hub = hub_de_prova();
+    com_chave(&hub).await;
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().expect("modelo de plano");
+    let env: std::collections::BTreeMap<_, _> = ambiente.env.iter().cloned().collect();
+
+    assert!(env["OPENCODE_API_KEY"].starts_with("mxs_") && env["OPENCODE_API_KEY"] != CHAVE, "só o código de sessão");
+    assert!(
+        ambiente.env.iter().all(|(nome, valor)| !valor.contains(CHAVE) && !nome.contains(CHAVE)),
+        "a chave não está no ambiente"
+    );
+    assert_eq!(env["OPENCODE_API_KEY"], ambiente.concessao.codigo());
+    let configuracao: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert_eq!(configuracao["provider"]["opencode-go"]["options"]["baseURL"], json!(ambiente.concessao.base()));
+    assert!(ambiente.concessao.base().starts_with("http://127.0.0.1:"));
+    assert_eq!(env["OPENCODE_DISABLE_PROJECT_CONFIG"], "1", "o opencode.json do projeto não vale no plano");
+    assert!(!ambiente.carimbo.contains(CHAVE) && !ambiente.carimbo.contains(ambiente.concessao.codigo()));
+
+    let casa = std::path::PathBuf::from(&env["HOME"]);
+    assert!(casa.starts_with(hub.store.engine_setup_root.join("planos").join("opencode-go")), "{casa:?}");
+    assert_ne!(Some(casa.clone().into_os_string()), std::env::var_os("HOME"), "a casa do plano não é a do dono");
+    for nome in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"] {
+        assert!(Path::new(&env[nome]).starts_with(&casa), "{nome}");
+        assert!(Path::new(&env[nome]).is_dir(), "{nome}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&casa).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+    for arquivo in walk(&casa) {
+        let conteudo = std::fs::read(&arquivo).unwrap();
+        assert!(!conteudo.windows(CHAVE.len()).any(|janela| janela == CHAVE.as_bytes()), "{arquivo:?}");
+    }
+}
+
+#[tokio::test]
+async fn ambiente_fecha_sem_chave_fora_do_space_pessoal_com_comando_proprio_e_para_bot_apagado() {
     let hub = hub_de_prova();
     let pessoal = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
     hub.store.save_bot(&pessoal).unwrap();
@@ -328,121 +335,82 @@ async fn ambiente_fecha_sem_chave_fora_do_space_pessoal_e_para_bot_apagado() {
     let nao_gravado = bot("b4", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
     assert!(ambiente_do_bot(&hub, &nao_gravado).await.is_err(), "bot que não existe no banco não recebe chave");
 
+    let mut substituto = pessoal.clone();
+    substituto.command = Some("meu-wrapper --acp".into());
+    let erro = ambiente_do_bot(&hub, &substituto).await.err().expect("comando próprio").to_string();
+    assert!(erro.starts_with("plano_comando_proprio"), "{erro}");
+
     assert!(ambiente_do_bot(&hub, &pessoal).await.unwrap().is_some());
     hub.store.delete_bot("b1").unwrap();
     assert!(ambiente_do_bot(&hub, &pessoal).await.is_err(), "bot apagado não recebe chave");
 }
 
 #[tokio::test]
-async fn trocar_ou_remover_a_chave_muda_o_carimbo_e_remover_apaga_chave_lista_e_perfil() {
+async fn slot_em_texto_claro_nao_e_aceito_nem_migrado() {
+    let hub = hub_de_prova();
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    hub.store.kv_set("plano-codigo/opencode-go", CHAVE).unwrap();
+    assert!(ambiente_do_bot(&hub, &cfg).await.is_err(), "texto claro no slot novo não vale");
+    assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap().as_deref(), Some(CHAVE), "e não é regravado");
+}
+
+#[tokio::test]
+async fn trocar_ou_remover_a_chave_muda_o_carimbo_revoga_as_sessoes_e_apaga_chave_lista_e_perfil() {
     let hub = hub_de_prova();
     let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
     hub.store.save_bot(&cfg).unwrap();
     com_chave(&hub).await;
-    let primeiro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap().carimbo;
+    let primeiro = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let repasse = repasse_do_hub(&hub).await.unwrap();
+    assert_eq!(repasse.sessoes_vivas(), 1);
     com_chave(&hub).await;
-    let segundo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap().carimbo;
-    assert_ne!(primeiro, segundo, "chave trocada reinicia o processo do OpenCode");
+    assert_eq!(repasse.sessoes_vivas(), 0, "trocar a chave revoga a sessão do processo antigo");
+    let segundo = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    assert_ne!(primeiro.carimbo, segundo.carimbo, "chave trocada reinicia o processo do OpenCode");
+    drop(primeiro);
+    assert_eq!(repasse.sessoes_vivas(), 1, "soltar a concessão velha não mexe na nova");
 
     let perfil = hub.store.engine_setup_root.join("planos").join("opencode-go");
     assert!(perfil.is_dir());
     let resposta = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "opencode-go"})).await.unwrap();
     assert_eq!(resposta, json!({"ok": true}));
-    assert_eq!(crate::market::vault::read(&hub.store, "plano-codigo/opencode-go").unwrap(), None);
+    assert_eq!(repasse.sessoes_vivas(), 0, "remover revoga as sessões abertas");
+    assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
     assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), None);
     assert!(!perfil.exists(), "o perfil do plano some com a chave");
     assert!(ambiente_do_bot(&hub, &cfg).await.is_err());
     let lista = listar(&hub.store).unwrap();
     assert_eq!(lista["planos"][0]["configurada"], false);
     assert_eq!(lista["planos"][0]["modelos"], Value::Null);
+    drop(segundo);
 }
 
 #[tokio::test]
-async fn filtro_do_motor_tira_o_perfil_mas_o_ambiente_do_plano_vence() {
+async fn uma_concessao_pedida_antes_da_troca_nunca_fica_viva() {
     let hub = hub_de_prova();
     com_chave(&hub).await;
-    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
-    hub.store.save_bot(&cfg).unwrap();
-    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-    let nomes = ["HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
-
-    let mut so_o_filtro = ambiente.env.clone();
-    crate::agent::harness::apply(&mut so_o_filtro, "opencode", "");
-    assert!(
-        nomes.iter().all(|nome| !so_o_filtro.iter().any(|(k, _)| k == nome)),
-        "o filtro do motor tira casa e XDG_*: é por isso que o plano entra depois dele"
-    );
-
-    let mut env = vec![
-        ("HOME".to_owned(), "/casa/do/dono".to_owned()),
-        ("XDG_DATA_HOME".to_owned(), "/dados/do/dono".to_owned()),
-    ];
-    aplicar_ambiente(&mut env, "opencode", "", Some(&ambiente));
-    for (nome, valor) in &ambiente.env {
-        let valores: Vec<_> = env.iter().filter(|(k, _)| k == nome).map(|(_, v)| v.as_str()).collect();
-        assert_eq!(valores, [valor.as_str()], "{nome} tem de valer uma vez, com o valor do plano");
-    }
-    assert!(!env.iter().any(|(_, v)| v.contains("/do/dono")));
-
-    let mut sem_plano = Vec::new();
-    aplicar_ambiente(&mut sem_plano, "opencode", "", None);
-    assert!(!sem_plano.iter().any(|(k, _)| k == "OPENCODE_API_KEY"));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn o_carimbo_nunca_e_mais_novo_que_a_chave_com_que_o_processo_abre() {
-    let hub = hub_de_prova();
-    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
-    hub.store.save_bot(&cfg).unwrap();
-    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
-    // A chave n é gravada na revisão n: um lançamento com a chave j e o carimbo r só é coerente se r <= j.
-    let chave_n = |n: u32| format!("chave-ficticia-rotacao-{n:04}");
-    salvar(&hub, &PLANOS[0], &url, Zeroizing::new(chave_n(1))).await.unwrap();
-    let escritor = {
-        let (hub, url) = (hub.clone(), url.clone());
-        tokio::spawn(async move {
-            for n in 2..=60 {
-                salvar(&hub, &PLANOS[0], &url, Zeroizing::new(chave_n(n))).await.unwrap();
-            }
-        })
-    };
-    let mut lancamentos = 0;
-    while !escritor.is_finished() {
-        let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-        let chave = ambiente.env.iter().find(|(k, _)| k == "OPENCODE_API_KEY").unwrap().1.clone();
-        let da_chave: u64 = chave.rsplit('-').next().unwrap().parse().unwrap();
-        let do_carimbo: u64 = ambiente.carimbo.rsplit(':').next().unwrap().parse().unwrap();
-        assert!(do_carimbo <= da_chave, "carimbo {do_carimbo} mais novo que a chave {da_chave}");
-        lancamentos += 1;
-        tokio::task::yield_now().await;
-    }
-    escritor.await.unwrap();
-    assert!(lancamentos > 0);
+    let repasse = repasse_do_hub(&hub).await.unwrap();
+    let geracao = repasse.geracao(&PLANOS[0]);
+    com_chave(&hub).await;
+    let erro = repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into()), geracao).err().expect("geração velha");
+    assert!(erro.to_string().starts_with("plano_em_troca"), "{erro}");
+    assert_eq!(repasse.sessoes_vivas(), 0);
 }
 
 #[tokio::test]
-async fn o_perfil_leva_a_extensao_que_zera_a_chave_nos_comandos_de_shell() {
+async fn resposta_de_sucesso_que_repete_a_chave_nao_e_devolvida_nem_guardada() {
     let hub = hub_de_prova();
-    com_chave(&hub).await;
-    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
-    hub.store.save_bot(&cfg).unwrap();
-    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-    let casa = std::path::PathBuf::from(&ambiente.env.iter().find(|(k, _)| k == "HOME").unwrap().1);
-    let arquivo = casa.join(".config/opencode/plugin/mexerica-shell-env.js");
-    let texto = std::fs::read_to_string(&arquivo).unwrap();
-    assert!(texto.contains("\"shell.env\"") && texto.contains("output.env.OPENCODE_API_KEY = \"\""), "{texto}");
-    assert!(!texto.contains(CHAVE));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&arquivo).unwrap().permissions().mode() & 0o777, 0o600);
-        // Um link plantado no lugar da extensão é trocado pelo arquivo do Hub, sem escrever através do link.
-        let alvo = casa.join("alvo-do-link");
-        std::fs::remove_file(&arquivo).unwrap();
-        std::os::unix::fs::symlink(&alvo, &arquivo).unwrap();
-        ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
-        assert!(!alvo.exists(), "a extensão não pode ser escrita através de um link");
-        assert!(!std::fs::symlink_metadata(&arquivo).unwrap().file_type().is_symlink());
-        assert_eq!(std::fs::read_to_string(&arquivo).unwrap(), texto);
+    for corpo in [
+        format!(r#"{{"data":[{{"id":"{CHAVE}"}}]}}"#),
+        format!(r#"{{"data":[{{"id":"ok","name":"nome com {CHAVE}"}}]}}"#),
+        format!(r#"{{"data":[{{"id":"ok"}}],"eco":"{CHAVE}"}}"#),
+    ] {
+        let (url, _) = servidor(http("200 OK", "", &corpo)).await;
+        let acesso = salvar(&hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap();
+        assert_eq!(acesso, json!({"ok": false, "erro": "resposta_invalida", "estado": "nao_verificado"}));
+        assert!(!acesso.to_string().contains(CHAVE));
     }
+    assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
+    assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), None);
 }
