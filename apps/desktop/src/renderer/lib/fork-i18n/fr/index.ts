@@ -30,6 +30,7 @@ import { textos as conversaMensagens } from './conversa/mensagens.ts'
 import { textos as conversaAvisos } from './conversa/avisos.ts'
 import { textos as conversaCartoes } from './conversa/cartoes.ts'
 import { textos as conversaEscolha } from './conversa/escolha.ts'
+import { textos as conversaMudancas } from './conversa/mudancas.ts'
 import { textos as conversaRecibo } from './conversa/recibo.ts'
 import { textos as conversaSkills } from './conversa/skills.ts'
 import { textos as conversaLimites } from './conversa/limites.ts'
@@ -114,6 +115,7 @@ export const fr: Catalogo = {
   ...conversaAvisos,
   ...conversaCartoes,
   ...conversaEscolha,
+  ...conversaMudancas,
   ...conversaRecibo,
   ...conversaSkills,
   ...conversaLimites,

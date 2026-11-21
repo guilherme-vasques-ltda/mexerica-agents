@@ -24,6 +24,8 @@ import { workingBlocks } from './working-blocks'
 import { Composer } from './Composer'
 import { DetailsPanel, type DetailsTab } from './DetailsPanel'
 import { TraceView } from './TraceView'
+import { MudancasDaResposta } from '../fork/mudancas/MudancasDaResposta'
+import type { TurnChanges } from '../fork/mudancas/mudancas'
 import { useReading } from './reading'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { CallView } from '../call/CallView'
@@ -423,6 +425,9 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
     s.canLoadOlder(botId), s.streamRev, ...s.bots.values(), ...s.answering.keys(), ...s.answering.values(),
   ], listEqual)
   const t = useT()
+  const idioma = useIdioma()
+  const [changesReplyId, setChangesReplyId] = useState<string | null>(null)
+  const openChanges = useCallback((c: TurnChanges) => setChangesReplyId(c.replyId), [])
   const bot = store.bots.get(botId) ?? null
   // Fork (Barra05): numa sessão, só as entradas dela, e o "trabalhando" só se ela é a que roda.
   const here = sessionId === null || sessions.state(sessionId) === 'running' || sessions.state(sessionId) === 'needsYou'
@@ -433,7 +438,9 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
   const chatEntries = store.allEntries(botId)
   // MX-4 (C10): sessão, fila, itens, passos e recibos vêm do cache por lista (chatView) — a remontagem da
   // troca de conversa não refaz o pipeline. DON-907: as que esperam na fila ficam na bandeja, fora da conversa.
-  const view = useMemo(() => chatView(chatEntries, botId, sessionId, sessions.known), [chatEntries, botId, sessionId, sessions.known])
+  const hasOlderHistory = store.canLoadOlder(botId)
+  const view = useMemo(() => chatView(chatEntries, botId, sessionId, sessions.known, hasOlderHistory), [chatEntries, botId, sessionId, sessions.known, hasOlderHistory])
+  const activeChanges = changesReplyId ? view.changes.get(changesReplyId) ?? null : null
   const all = view.items
   const steps = view.steps
   // Rota-03b: a resposta que abre cada turno e a entrada do usuário onde o Hub guarda o recibo.
@@ -560,7 +567,7 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
             <Fragment key={item.id}>
             {item.id === lineId ? <div className="chat-novas" role="separator" aria-label={t('conversa.navegacao.novasRotulo')}><span aria-hidden>{t('conversa.navegacao.novas')}</span></div> : null}
             <div data-chat-item={item.id} className={arrivals.has(item.id) ? rowIn(item) : undefined}>
-              <Row item={item} chat={bot} openTrace={openTrace} onReply={onReply} openRoutine={openRoutine} openBotChat={openBotChat} steps={item.kind === 'entry' ? steps.byReply.get(item.entry.id) : undefined} receipt={item.kind === 'entry' ? receipts.get(item.entry.id) : undefined} />
+              <Row item={item} chat={bot} openTrace={openTrace} onReply={onReply} openRoutine={openRoutine} openBotChat={openBotChat} steps={item.kind === 'entry' ? steps.byReply.get(item.entry.id) : undefined} receipt={item.kind === 'entry' ? receipts.get(item.entry.id) : undefined} changes={item.kind === 'entry' ? view.changes.get(item.entry.id) : undefined} onOpenChanges={openChanges} />
             </div>
             </Fragment>
           ))}
@@ -584,11 +591,14 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
           </button>
         </div>
       ) : null}
+      <Sheet language={superficieIdioma(idioma)} open={activeChanges !== null} onClose={() => setChangesReplyId(null)} width={660} height={580}>
+        {activeChanges ? <MudancasDaResposta changes={activeChanges} /> : null}
+      </Sheet>
     </div>
   )
 })
 
-const Row = memo(function Row({ item, chat, openTrace, onReply, openRoutine, openBotChat, steps, receipt }: { item: ChatItem; chat: Bot | null; openTrace: () => void; onReply?: (e: Entry) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void; steps?: TurnSteps; receipt?: ReceiptAnchor }) {
+const Row = memo(function Row({ item, chat, openTrace, onReply, openRoutine, openBotChat, steps, receipt, changes, onOpenChanges }: { item: ChatItem; chat: Bot | null; openTrace: () => void; onReply?: (e: Entry) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void; steps?: TurnSteps; receipt?: ReceiptAnchor; changes?: TurnChanges; onOpenChanges?: (c: TurnChanges) => void }) {
   const t = useT()
   if (item.kind === 'separator') {
     return <TimeSeparator date={item.date} />
@@ -603,7 +613,7 @@ const Row = memo(function Row({ item, chat, openTrace, onReply, openRoutine, ope
       </button>
     )
   }
-  return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} onReply={onReply} steps={steps} receipt={receipt} />
+  return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} onReply={onReply} steps={steps} receipt={receipt} changes={changes} onOpenChanges={onOpenChanges} />
 })
 
 /** The start of an empty group chat: who's in it and how the room works. */
