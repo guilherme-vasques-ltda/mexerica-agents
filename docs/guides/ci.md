@@ -231,8 +231,12 @@ Ele fica fora do `ci-ok`, como o workflow macOS: aparece só nas Actions.
   continua numa VM só dele.
 - Downloads diretos (Gitleaks, cargo-audit, cargo-nextest, wheels do Semgrep) são
   conferidos por hash. Node, Rust e pacotes do sistema vêm da imagem ou dos instaladores.
-- O `vazamento` cobre os commits de cada PR, mas não o histórico que já está na `main`.
-  Antes de abrir o repositório, faça uma varredura própria do histórico inteiro.
+- Além da checagem de cada PR, a varredura semanal aplica os termos de `VAZAMENTO_TERMOS` à
+  árvore atual, às mensagens de commit e às linhas de texto adicionadas no histórico completo da
+  `main`. Ela inclui o commit inicial e compara cada merge com o primeiro pai (sem deixar de
+  percorrer os outros pais). O Gitleaks também verifica o histórico. Em repositório público,
+  o resumo mostra só contagens por regra. Histórico incompleto, erro de leitura ou limite de
+  varredura excedido reprovam sem publicar conteúdo.
 
 ## Repositório público
 

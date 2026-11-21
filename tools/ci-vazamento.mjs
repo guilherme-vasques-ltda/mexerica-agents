@@ -17,9 +17,9 @@ const sha = (s) => {
   if (!/^[a-f0-9]{40}$/.test(s ?? '') || /^0+$/.test(s)) throw new Error('SHA inválido');
   return s;
 };
-function git(cwd, args, binary = false) {
+function git(cwd, args, binary = false, { input, timeout } = {}) {
   const r = spawnSync('git', ['--no-pager', ...args], {
-    cwd, encoding: binary ? undefined : 'utf8', maxBuffer: 256 * 1024 * 1024,
+    cwd, input, timeout, encoding: binary ? undefined : 'utf8', maxBuffer: 256 * 1024 * 1024,
   });
   if (r.status !== 0) throw new Error('Operação Git recusada');
   return r.stdout;
@@ -31,6 +31,8 @@ const binaryFile = (data) => data.includes(0);
 function placeholder(value, policy) {
   return /^0+(?:-0+)*$/.test(value) || /^<[^>]+>$/.test(value) || policy.placeholderValues.includes(normalize(value));
 }
+const bareClerkTld = /^(?:[a-z]{2}|app|biz|cloud|com|dev|edu|example|gov|info|int|invalid|local|mil|name|net|online|org|site|tech|test|xyz|xn--[a-z\d-]+)$/i;
+const genericVaultSegments = new Set(['vault', 'cofre', 'item', 'field', 'campo', 'section', 'seção']);
 function privateIP(value) {
   const version = isIP(value);
   if (version === 4) {
@@ -61,8 +63,12 @@ export function publicRules(line, policy, path = '', marker = true) {
   const service = (value) => { if (!placeholder(value, policy)) found.add('id-servico'); };
   for (const m of line.matchAll(/\b(?:[ps]k_(?:live|test)_|whsec_)([\w-]+|<[^>]+>)/g)) service(m[1]);
   for (const m of line.matchAll(/\b(?:ins|user)_([A-Za-z\d]{16,}|<[^>]+>)/g)) service(m[1]);
-  for (const m of line.matchAll(/\bclerk\.([\w.-]+)/gi)) {
-    const domain = m[1].replace(/\.$/, '');
+  for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(?:([a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)\.|https?:\/\/)clerk\.accounts\.dev\.?(?![\w.-]|\s*\(|\?\.)/giu)) {
+    if (!m[1] || !placeholder(m[1], policy)) found.add('id-servico');
+  }
+  for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(https?:\/\/)?clerk\.((?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z](?:[a-z\d-]{0,61}[a-z\d])?)\.?(?![\w.-]|\s*\(|\?\.)/giu)) {
+    const domain = m[2];
+    if (!m[1] && !bareClerkTld.test(domain.split('.').at(-1))) continue;
     const reserved = /\.(?:invalid|test)$|(?:^|\.)example\.(?:com|org|net)$/i.test(domain);
     if (!(reserved && placeholder(domain.split('.')[0], policy))) found.add('id-servico');
   }
@@ -73,7 +79,13 @@ export function publicRules(line, policy, path = '', marker = true) {
   if (/(?:^|\/)wrangler(?:\.[^/]+)?\.(?:toml|jsonc?)$/i.test(path) || /\bkv_namespaces\b/i.test(line)) {
     for (const m of line.matchAll(/\bid["']?\s*[:=]\s*["']?([a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}|[a-f\d]{32}|<[^>]+>)/gi)) service(m[1]);
   }
-  if (/op:\/\//i.test(line)) found.add('cofre');
+  const vault = (path) => {
+    const segments = path.replace(/[.,;:!?]+$/, '').split('/').map((segment) => segment.trim());
+    if (segments.length >= 2 && segments.every(Boolean) && segments.some((segment) => !genericVaultSegments.has(normalize(segment)) && !placeholder(segment, policy))) found.add('cofre');
+  };
+  for (const m of line.matchAll(/(["'`])op:\/\/([^"'`\r\n<>()[\]{}?#]*)\1|(?<![\w+.-])op:\/\/([^\s/"'`<>()[\]{}?#]+(?:\/[^\s/"'`<>()[\]{}?#]+)+)/gi)) {
+    vault(m[2] ?? m[3]);
+  }
   return policy.rules.filter((r) => found.has(r.id) && !(mark && r.marker)).map((r) => r.id);
 }
 // D523: exclui só o prefixo aprovado em posição de URL, preservando o resto da linha.
@@ -204,18 +216,21 @@ function termViews(line, onMedia) {
 // `content` é true só para linhas de conteúdo de arquivo; caminhos e mensagens de commit nunca são exceptuados.
 export function scanLine(path, number, line, policy, terms = [], content = false, marker = true, onMedia = () => {}) {
   const ids = publicRules(line, policy, path, marker);
-  const views = terms.length ? termViews(line, onMedia) : { short: '', long: '' };
-  const short = terms.length ? withoutAllowedUrls(views.short, policy) : '';
+  if (terms.length && termHit(path, line, policy, terms, content, onMedia)) ids.push('termo-pessoal');
+  return ids.map((rule) => ({ path, line: number, rule, fingerprint: fingerprint(rule, path, line) }));
+}
+function termHit(path, line, policy, terms, content, onMedia) {
+  const views = termViews(line, onMedia);
+  const short = withoutAllowedUrls(views.short, policy);
   const long = views.long === views.short ? short : withoutAllowedUrls(views.long, policy);
   const folded = new Map();
   const personal = (text) => folded.get(text) ?? folded.set(text, text.replace(/[\s._-]+/g, ' ')).get(text);
-  const exempt = content && terms.length ? new Set(termExceptions(policy).filter((e) => e.arquivo === path).map((e) => e.sha256)) : new Set();
+  const exempt = content ? termExceptions(policy).filter((e) => e.arquivo === path).map((e) => e.sha256) : [];
   const hit = (t) => {
     const literal = normalizeTerm(t).replace(/ /g, '').length >= LONG_TERM ? long : short;
     return numericTerm(t) ? numericPattern(t).test(literal) : personal(literal).includes(normalizeTerm(t));
   };
-  if (terms.some((t) => !exempt.has(termHash(t)) && hit(t))) ids.push('termo-pessoal');
-  return ids.map((rule) => ({ path, line: number, rule, fingerprint: fingerprint(rule, path, line) }));
+  return terms.some((t) => !(exempt.length && exempt.includes(termHash(t))) && hit(t));
 }
 function autoMerge(cwd, [ours, theirs]) {
   const r = spawnSync('git', ['--no-pager', 'merge-tree', '--write-tree', sha(ours), sha(theirs)], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -241,6 +256,53 @@ function scanChanges(cwd, from, to, add, findings, limits) {
       if (match) { n = Number(match[1]); hunk = true; continue; }
       if (hunk && line.startsWith('+')) add(path, n++, line.slice(1), true);
       else if (hunk && line.startsWith(' ')) n++;
+    }
+  }
+}
+function scanHistoryTerms(cwd, head, add) {
+  const deadline = performance.now() + 5 * 60 * 1000;
+  const run = (args, input) => {
+    const timeout = Math.ceil(deadline - performance.now());
+    if (timeout <= 0) throw new Error('Varredura do histórico não concluída');
+    return git(cwd, ['--no-replace-objects', ...args], false, { input, timeout });
+  };
+  if (run(['rev-parse', '--is-shallow-repository']).trim() !== 'false') throw new Error('Histórico incompleto');
+  const commits = run(['rev-list', head, '--']).trim().split('\n').map(sha);
+  const emptyTree = sha(run(['hash-object', '-t', 'tree', '--stdin'], '').trim());
+  for (let start = 0; start < commits.length; start += 16) {
+    const batch = commits.slice(start, start + 16);
+    const patch = run([`--attr-source=${emptyTree}`, '-c', 'core.quotePath=false', 'log', '--no-walk=unsorted', '--stdin',
+      '--format=%x00%H%x00%B%x00', '--root', '--diff-merges=first-parent', '--no-ext-diff', '--no-textconv', '--no-renames',
+      '--no-color', '--no-prefix', '--unified=0', '-p', '--'], batch.join('\n') + '\n');
+    const records = patch.split(/^\0([a-f0-9]{40})\0/gm);
+    if (records[0] !== '' || records.length !== 1 + 2 * batch.length) throw new Error('Histórico inválido');
+    for (let i = 0; i < batch.length; i++) {
+      const [commit, body] = records.slice(i * 2 + 1, i * 2 + 3);
+      const separator = body.indexOf('\0');
+      if (commit !== batch[i] || separator < 0) throw new Error('Histórico inválido');
+      const message = body.slice(0, separator), diff = body.slice(separator + 1);
+      message.split('\n').forEach((line, n) => add(`commit/${commit}`, n + 1, line, false));
+      let path, n = 0, oldLeft = 0, newLeft = 0;
+      for (const line of diff.split('\n')) {
+        if (oldLeft || newLeft) {
+          if (line.startsWith('+') && newLeft) { newLeft--; add(path, n++, line.slice(1), true); }
+          else if (line.startsWith('-') && oldLeft) oldLeft--;
+          else if (line.startsWith(' ') && oldLeft && newLeft) { oldLeft--; newLeft--; n++; }
+          else if (!line.startsWith('\\ ')) throw new Error('Diff histórico inválido');
+        } else if (line.startsWith('diff --git ')) path = undefined;
+        else if (line.startsWith('+++ ')) {
+          const name = line.slice(4).replace(/\t$/, '');
+          path = name.startsWith('"') ? JSON.parse(name.replace(/\\(?:[0-7]{3}|.)/g, (escape) => {
+            const code = { a: 7, b: 8, v: 11 }[escape[1]] ?? parseInt(escape.slice(1), 8);
+            return Number.isNaN(code) ? escape : `\\u${code.toString(16).padStart(4, '0')}`;
+          })) : name;
+        } else if (line.startsWith('@@ ')) {
+          const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+          if (!hunk || !path) throw new Error('Diff histórico inválido');
+          oldLeft = Number(hunk[1] ?? 1); n = Number(hunk[2]); newLeft = Number(hunk[3] ?? 1);
+        }
+      }
+      if (oldLeft || newLeft || performance.now() >= deadline) throw new Error('Varredura do histórico não concluída');
     }
   }
 }
@@ -293,6 +355,12 @@ export function scan({ cwd, mode, base, head, policy, terms = [], inventory = []
       const from = parents.length === 2 ? autoMerge(cwd, parents) : parents[0];
       scanChanges(cwd, sha(from), commit, add, findings, limits);
     }
+  } else if (terms.length) {
+    scanHistoryTerms(cwd, head, (path, n, line, content) => {
+      if (termHit(path, line, policy, terms, content, () => embedded.add(`${path}:${n}`))) {
+        findings.push({ path, line: n, rule: 'termo-pessoal', fingerprint: fingerprint('termo-pessoal', path, line) });
+      }
+    });
   }
   limits.base64Media = embedded.size;
   const unique = [...new Map(findings.map((f) => [`${f.path}:${f.line}:${f.rule}:${f.fingerprint}`, f])).values()];
@@ -341,9 +409,9 @@ function eventRange(cwd, event, name, githubSha) {
 function historyGitleaks(cwd, bin, trusted) {
   const dir = mkdtempSync(join(tmpdir(), 'vazamento-gitleaks-'));
   try {
-    for (const [path, file] of [['.gitleaks.toml', 'config.toml'], ['.github/security/gitleaks-baseline.fingerprints', 'baseline']]) {
-      writeFileSync(join(dir, file), git(cwd, ['show', `${sha(trusted)}:${path}`]));
-    }
+    writeFileSync(join(dir, 'config.toml'), git(cwd, ['show', `${sha(trusted)}:.gitleaks.toml`]));
+    const baseline = '.github/security/gitleaks-baseline.fingerprints';
+    writeFileSync(join(dir, 'baseline'), hasFile(cwd, trusted, baseline) ? git(cwd, ['show', `${trusted}:${baseline}`]) : '');
     const source = join(dir, 'repository.git');
     const clone = spawnSync('git', ['clone', '--bare', '--shared', '--no-hardlinks', '--', cwd, source], { encoding: 'utf8' });
     if (clone.status !== 0) throw new Error('Isolamento do histórico recusado');
@@ -391,15 +459,15 @@ export async function main(args = process.argv.slice(2)) {
   // Sem exceção por autor: o Dependabot recebe a lista pelo secret de Dependabot de mesmo nome.
   if (!terms.length && !fork && !inicial) throw new Error('Secret obrigatório ausente');
   if (!terms.length) console.log(`termos pessoais: não verificados (${fork ? 'fork' : 'instalação inicial'})`);
-  const range = eventRange(cwd, event, process.env.GITHUB_EVENT_NAME, process.env.GITHUB_SHA);
+  const range = mode === 'arvore' && !pullRequest ? { head: trusted } : eventRange(cwd, event, process.env.GITHUB_EVENT_NAME, process.env.GITHUB_SHA);
   const { policy, inventory } = loadPolicy(cwd, trusted, range.head, process.env.GITHUB_EVENT_NAME === 'pull_request');
   if (mode === 'arvore' && event.repository.private !== true && inventory.length) throw new Error('Inventário público deve estar vazio');
   const { findings, limits } = scan({ cwd, mode, ...range, policy, terms, inventory: event.repository.private === true ? inventory : [] });
   if (mode === 'arvore' && process.env.GITLEAKS_BIN) findings.push(...historyGitleaks(cwd, process.env.GITLEAKS_BIN, trusted));
-  const safe = findings.map((f) => ({ ...f, path: safePath(f.path, terms, policy) }));
   const privateRepo = event.repository.private === true;
-  const report = { total: safe.length, rules: summarize(safe).rules };
+  const report = { total: findings.length, rules: summarize(findings).rules };
   if (privateRepo) {
+    const safe = findings.map((f) => ({ ...f, path: safePath(f.path, terms, policy) }));
     for (const f of safe) console.log(`${JSON.stringify(f.path)}${f.line ? `:${f.line}` : ''} regra=${f.rule}`);
     console.log(`Limites: binários=${limits.binary}; arquivos sensíveis não lidos=${limits.sensitive}; submódulos=${limits.submodule}; linhas com PNG embutido em base64 (termos curtos só no texto legível)=${limits.base64Media}.`);
     report.paths = [...new Set(safe.map((f) => f.path))].sort();
@@ -408,7 +476,7 @@ export async function main(args = process.argv.slice(2)) {
     for (const [rule, count] of Object.entries(report.rules)) console.log(`regra=${rule} contagem=${count}`);
   }
   if (process.env.VAZAMENTO_REPORT) writeFileSync(process.env.VAZAMENTO_REPORT, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
-  return safe.length ? 1 : 0;
+  return findings.length ? 1 : 0;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().then((code) => { process.exitCode = code; }).catch(() => {

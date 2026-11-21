@@ -36,6 +36,43 @@ test('marcador exige motivo, nunca libera termos, serviços ou cofre', () => {
   assert.ok(scanLine('fixture', 1, 'cacto ficticio vazamento-ok: exemplo', policy, ['Cácto Fictício']).some((f) => f.rule === 'termo-pessoal'));
 });
 
+test('Clerk: SDK móvel não é domínio de instância', () => {
+  for (const line of [
+    'import com.clerk.' + 'api.hostedauth.HostedAuthCancellationException',
+    'val remaining = com.clerk.' + 'api.Clerk.' + 'auth.sessions.any { it.user?.id == old.userId }',
+    'try await clerk.' + 'auth.getToken(.init(skipCache: true)), clerk.' + 'session?.id == sessionID',
+    'return clerk.' + 'user?.id',
+    'for session in clerk.' + 'auth.sessions where session.status == .active {',
+    'Clerk.' + 'auth.sessions.any { it.user?.id == old.userId }',
+    'let calls = ["clerk.' + 'handle(", "verifyMfaCode("]',
+    'meuClerk.auth.getToken()',
+  ]) assert.ok(!ids(line).includes('id-servico'), line);
+  for (const domain of ['clerk.' + 'instancia-ficticia.invalid', 'https://clerk.' + 'instancia-ficticia.accounts.dev', 'clerk.' + 'instancia-ficticia.com.']) {
+    assert.ok(ids(domain).includes('id-servico'));
+  }
+  const suffix = 'clerk.' + 'accounts.dev';
+  for (const host of ['instancia-ficticia.' + suffix, 'https://instancia-ficticia.' + suffix, 'https://' + suffix]) {
+    assert.ok(ids(host).includes('id-servico'));
+  }
+  for (const host of ['example.' + suffix, 'https://example.' + suffix, 'instancia-ficticia.' + suffix + '.example.invalid']) {
+    assert.ok(!ids(host).includes('id-servico'));
+  }
+});
+
+test('cofre: esquema e caminhos inteiramente genéricos não são referências reais', () => {
+  const scheme = 'op:' + '//';
+  for (const text of ['Password or %s reference', 'Você pode usar uma referência %s.', 'Use %svault/item/field in a connector', 'Use %scofre/item/campo no campo', '%sexemplo/item']) {
+    assert.ok(!ids(text.replace('%s', scheme)).includes('cofre'));
+  }
+  for (const path of ['Equipe/Agenda/dado', 'cofre/Agenda/campo', 'Time%20A/Item%20B']) {
+    assert.ok(ids(scheme + path).includes('cofre'));
+  }
+  for (const quote of ['"', "'", '`']) {
+    assert.ok(ids(quote + scheme + 'Meu Cofre/Agenda/dado' + quote).includes('cofre'));
+    assert.ok(!ids(quote + scheme + 'vault/item/field' + quote).includes('cofre'));
+  }
+});
+
 test('termos sem caixa/acento e saída sanitizada inclusive caminhos', () => {
   const commands = [];
   const terms = maskTerms('Cácto Fictício\nAgave Inventado\n', (s) => commands.push(s));
@@ -168,7 +205,7 @@ function cli({ cwd, base, head, fork = false, author = 'fixture', authorType = a
   writeFileSync(eventPath, JSON.stringify({ repository: { private: privateRepo, full_name: 'fixture/repo' }, pull_request: { user: { login: author, type: authorType }, base: { sha: base }, head: { sha: head, repo: { fork, full_name: fork ? 'fixture/fork' : 'fixture/repo' } } } }));
   // Construído do zero: não lê, copia ou enumera o ambiente do operador.
   return spawnSync(process.execPath, [script, mode], { cwd, encoding: 'utf8', env: {
-    PATH: '/usr/bin:/bin:/usr/local/bin', HOME: cwd, GITHUB_EVENT_PATH: eventPath, GITHUB_EVENT_NAME: eventName,
+    PATH: '/usr/bin:/bin:/usr/local/bin', HOME: cwd, GITHUB_EVENT_PATH: eventPath, GITHUB_EVENT_NAME: eventName, GITHUB_SHA: head,
     VAZAMENTO_TRUSTED_MAIN_SHA: base, VAZAMENTO_TERMOS: terms, GITLEAKS_BIN: gitleaksBin, VAZAMENTO_REPORT: reportPath,
   } });
 }
@@ -292,6 +329,12 @@ test('arvore exige inventário público vazio; histórico Gitleaks usa --all sem
   assert.deepEqual(Object.keys(report).sort(), ['limits', 'paths', 'rules', 'total']);
   assert.ok(!JSON.stringify(report).includes('NAO_DEVE_SAIR'));
   assert.notEqual(cli({ ...ctx, base, head, mode: 'arvore', terms: 'Agave Fictício', privateRepo: false }).status, 0);
+  git('rm', '-q', '.github/security/gitleaks-baseline.fingerprints');
+  const withoutBaseline = commit();
+  git('update-ref', 'refs/remotes/origin/main', withoutBaseline);
+  const result = cli({ ...ctx, base: withoutBaseline, head: withoutBaseline, mode: 'arvore', eventName: 'workflow_dispatch', terms: 'Agave Fictício', gitleaksBin: stub, reportPath });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(readFileSync(reportPath, 'utf8')).rules.gitleaks, 1);
 }));
 
 test('atributo -diff do PR não esconde texto adicionado', () => fixture(({ cwd, write, commit, base }) => {
@@ -328,6 +371,50 @@ test('CLI: arvore pública gera só contagens; privada mantém caminhos sanitiza
   assert.equal(privateResult.status, 1);
   assert.ok(privateResult.stdout.includes('documento-publico.md'));
   assert.ok(JSON.parse(readFileSync(privateReport, 'utf8')).paths.includes('documento-publico.md'));
+}));
+
+test('arvore: inclui conteúdo removido, mensagens antigas e a resolução de merge sem publicar dados', () => fixture((ctx) => {
+  const { cwd, write, commit, git, base } = ctx;
+  write('.git/info/exclude', '.capy/\n');
+  git('rm', '-r', '-q', '--cached', '--ignore-unmatch', '.capy');
+  git('-c', 'core.hooksPath=/dev/null', 'commit', '-q', '--allow-empty', '-m', 'prepara');
+  git('switch', '-qc', 'ramo');
+  write('.gitattributes', '*.md -diff\n');
+  write('temporario.md', 'linha inicial\n++ agave-ficticio: trecho antigo\n');
+  write('arquivo-misto.txt', 'a'.repeat(9000) + '\0\ntexto limpo\n');
+  const removedLater = commit('nota agave.ficticio');
+  git('switch', '-q', 'main');
+  git('merge', '-q', '--no-ff', '--no-commit', 'ramo');
+  write('merge.md', 'linha inicial\nAGAVE_FICTICIO\n');
+  const merge = commit();
+  write('temporario.md', 'sem ocorrência\n');
+  write('merge.md', 'sem ocorrência\n');
+  const head = commit();
+  const reportPath = join(cwd, '.git/history-public.json');
+  const r = cli({ ...ctx, base, head, mode: 'arvore', privateRepo: false, terms: 'Agave Fictício', reportPath });
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.split('\n').filter((line) => !line.startsWith('::add-mask::')).join('\n'), 'regra=termo-pessoal contagem=3\n');
+  const report = readFileSync(reportPath, 'utf8');
+  assert.deepEqual(JSON.parse(report), { total: 3, rules: { 'termo-pessoal': 3 } });
+  for (const secret of ['temporario.md', 'merge.md', 'trecho antigo', 'agave', removedLater, merge, head]) {
+    assert.ok(!(r.stderr + report).includes(secret));
+  }
+  const privateResult = cli({ ...ctx, base, head, mode: 'arvore', terms: 'Agave Fictício' });
+  assert.match(privateResult.stdout, /"temporario\.md":2 regra=termo-pessoal/);
+  assert.match(privateResult.stdout, /"merge\.md":2 regra=termo-pessoal/);
+}));
+
+test('arvore: clone raso reprova com mensagem fixa, sem gerar resumo parcial', () => fixture((ctx) => {
+  ctx.write('novo.md', 'mudança limpa\n');
+  const head = ctx.commit('mensagem sem histórico completo');
+  ctx.git('update-ref', 'refs/remotes/origin/main', head);
+  ctx.write('.git/shallow', `${head}\n`);
+  const reportPath = join(ctx.cwd, '.git/history-public.json');
+  assert.throws(() => scan({ cwd: ctx.cwd, mode: 'arvore', head, policy, terms: ['Agave Fictício'] }), /Histórico incompleto/);
+  const r = cli({ ...ctx, base: head, head, mode: 'arvore', privateRepo: false, terms: 'Agave Fictício', reportPath });
+  assert.equal(r.status, 2);
+  assert.equal(r.stderr, 'Checagem de vazamento não concluída; conteúdo e erro bruto omitidos.\n');
+  assert.throws(() => readFileSync(reportPath));
 }));
 
 test('arquivo sensível novo no PR falha sem ler seu conteúdo', () => fixture((ctx) => {

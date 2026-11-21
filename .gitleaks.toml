@@ -27,3 +27,20 @@ targetRules = ["generic-api-key"]
 paths = ['''^apps/desktop/design/fundos(-donna|-mexerica)?/medidas\.json$''']
 regexTarget = "line"
 regexes = ['''^\n?[\t ]*"tokensSha256"[\t ]*:[\t ]*"[0-9a-f]{64}"[\t ]*,?[\t ]*\n?$''']
+
+# Clientes móveis: falsos positivos conferidos (fixture de animação e bundle xterm.js vendorizado).
+[[allowlists]]
+description = "Fixture pública de animação: identificadores de quadros shaping"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^apps/mobile/ios/Kit/Tests/CodyncKitTests/Fixtures/thinking-orbs-golden\.json$''']
+regexTarget = "secret"
+regexes = ['''^shaping-(20|64)-(0\.6|1\.7|3\.3|5\.1)$''']
+
+[[allowlists]]
+description = "Bundle xterm 6.0.0: inicialização de exportações de mapas e sequenciadores"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^apps/mobile/android/app/src/main/assets/terminal/xterm\.js$''']
+regexTarget = "match"
+regexes = ['''^t\.(FourKeyMap=t\.TwoKeyMap|SequencerByKey=t\.Sequencer=t\.Throttler)=void $''']
