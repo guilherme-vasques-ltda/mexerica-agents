@@ -35,6 +35,11 @@ pub struct Harness {
     pub signed_in: Option<SignInCheck>,
 }
 
+// Versão fixada (GUI-145): `Npm` aceita `pacote@versão`; o npm confere no registro, na
+// hora de instalar, o hash de integridade (sha512) daquela versão exata — não é hash
+// embutido no Hub como o do Node e o do engine_setup. Dependências transitivas seguem a
+// resolução do npm, e scripts pós-instalação do pacote rodam como o npm roda por padrão.
+// Atualizar a versão é edição aqui.
 #[derive(Clone, Copy)]
 pub enum Install {
     /// A vendor install script (`curl … | bash`), Unix only.
@@ -102,11 +107,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["claude"],
         local: None,
         registry: Some("claude-acp"),
-        setup: "Install Claude Code and run `claude auth login`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://claude.ai/install.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\"",
-        }),
+        setup: "Install Claude Code (npm install -g @anthropic-ai/claude-code, exact version pinned by the Hub) and run `claude auth login`.",
+        install: Some(Install::Npm("@anthropic-ai/claude-code@2.1.329")),
         login: "{bin} auth login",
         signed_in: Some(SignInCheck { args: "auth status", ok: claude_signed_in }),
     },
@@ -116,11 +118,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["codex"],
         local: None,
         registry: Some("codex-acp"),
-        setup: "Install Codex CLI and run `codex login --device-auth`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://chatgpt.com/codex/install.ps1 | iex\"",
-        }),
+        setup: "Install Codex CLI (npm install -g @openai/codex, exact version pinned by the Hub) and run `codex login --device-auth`.",
+        install: Some(Install::Npm("@openai/codex@0.171.0")),
         login: "{bin} login --device-auth",
         signed_in: Some(SignInCheck { args: "login status", ok: exit_ok }),
     },
@@ -170,8 +169,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["opencode"],
         local: Some("{bin} acp"),
         registry: Some("opencode"),
-        setup: "Install OpenCode (curl -fsSL https://opencode.ai/install | bash) and run `opencode auth login`.",
-        install: Some(Install::Script("curl -fsSL https://opencode.ai/install | bash")),
+        setup: "Install OpenCode (npm install -g opencode-ai, exact version pinned by the Hub) and run `opencode auth login`.",
+        install: Some(Install::Npm("opencode-ai@1.19.6")),
         login: "{bin} auth login",
         signed_in: None,
     },
@@ -206,11 +205,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["copilot"],
         local: Some("{bin} --acp --stdio"),
         registry: Some("github-copilot-cli"),
-        setup: "Install Copilot CLI (curl -fsSL https://gh.io/copilot-install | bash) and run `copilot login`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://gh.io/copilot-install | bash",
-            windows: "winget install --id GitHub.Copilot -e",
-        }),
+        setup: "Install Copilot CLI (npm install -g @github/copilot, exact version pinned by the Hub) and run `copilot login`.",
+        install: Some(Install::Npm("@github/copilot@1.0.114")),
         login: "{bin} login --device-code",
         signed_in: None,
     },
@@ -220,11 +216,8 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["qwen"],
         local: Some("{bin} --acp"),
         registry: Some("qwen-code"),
-        setup: "Install Qwen Code (its standalone installer), run `qwen` and type /auth.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex\"",
-        }),
+        setup: "Install Qwen Code (npm install -g @qwen-code/qwen-code, exact version pinned by the Hub), run `qwen` and type /auth.",
+        install: Some(Install::Npm("@qwen-code/qwen-code@0.28.0")),
         login: "{bin}",
         signed_in: None,
     },
@@ -459,6 +452,16 @@ const MEXERICA: Harness = Harness {
     signed_in: None,
 };
 
+/// O id do harness que `id` nomeia, por id ou pelo id do catálogo ACP (sem diferenciar caixa nem espaços nas pontas);
+/// um id que nenhum harness conhece volta só normalizado.
+pub fn id_canonico(id: &str) -> String {
+    let normalizado = id.trim().to_ascii_lowercase();
+    HARNESSES
+        .iter()
+        .find(|h| h.id == normalizado || h.registry.is_some_and(|r| r.eq_ignore_ascii_case(&normalizado)))
+        .map_or(normalizado, |h| h.id.to_owned())
+}
+
 pub fn harness(id: &str) -> Option<&'static Harness> {
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::enabled().then_some(&MEXERICA);
@@ -618,7 +621,8 @@ pub fn list() -> Vec<Value> {
     let mut out: Vec<Value> = HARNESSES
         .iter()
         .filter(|h| {
-            h.id != "omp" && (h.id != crate::fork::motor_mexerica::ENGINE_ID || crate::fork::motor_mexerica::enabled())
+            !crate::fork::motores_retirados::retirado(h.id)
+                && (h.id != crate::fork::motor_mexerica::ENGINE_ID || crate::fork::motor_mexerica::enabled())
         })
         .map(|h| {
             let path = h.bins.iter().find_map(|b| which(b));
@@ -647,7 +651,8 @@ pub fn list() -> Vec<Value> {
     let known: HashSet<&str> = HARNESSES.iter().filter_map(|h| h.registry).collect();
     for a in &registry {
         let id = a["id"].as_str().unwrap_or_default();
-        if id.is_empty() || known.contains(id) || id == "github-copilot" || id == "omp" {
+        if id.is_empty() || known.contains(id) || id == "github-copilot" || crate::fork::motores_retirados::retirado(id)
+        {
             continue;
         }
         out.push(json!({
@@ -675,6 +680,10 @@ pub fn list() -> Vec<Value> {
 static SIGNED_IN: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
 
 pub fn signed_in(id: &str) -> Option<bool> {
+    // Motor retirado: nunca houve sondagem e o estado devolvido é não entrou.
+    if crate::fork::motores_retirados::retirado(id) {
+        return Some(false);
+    }
     SIGNED_IN.locked().iter().find(|(h, _)| h == id).map(|(_, ok)| *ok)
 }
 
@@ -693,6 +702,10 @@ pub async fn refresh_sign_in(store: &crate::store::Store) {
         return;
     }
     let checks = HARNESSES.iter().filter_map(|h| {
+        // Motor retirado: nenhuma sondagem, nenhum processo.
+        if crate::fork::motores_retirados::retirado(h.id) {
+            return None;
+        }
         let check = h.signed_in?;
         let bin = h.bins.iter().find_map(|b| which(b))?;
         Some(async move {
@@ -710,7 +723,7 @@ pub async fn refresh_sign_in(store: &crate::store::Store) {
 /// A login completed outside the app must not leave new bots stuck on a stale fallback.
 /// Keep the known state if the short check cannot finish or the CLI cannot be started.
 pub async fn recheck_signed_out(store: &crate::store::Store, id: &str) {
-    if signed_in(id) != Some(false) {
+    if crate::fork::motores_retirados::retirado(id) || signed_in(id) != Some(false) {
         return;
     }
     let Some(h) = harness(id) else { return };
@@ -771,6 +784,9 @@ pub async fn launch_candidates(
     id: &str,
     progress: impl Fn(&str, Option<crate::fork::activity_code::ActivityKind>),
 ) -> anyhow::Result<Vec<registry::Cmd>> {
+    if crate::fork::motores_retirados::retirado(id) {
+        return Err(acp::Failure::error(acp::FailureKind::NotSetUp, crate::fork::motores_retirados::msg_lancar(id)));
+    }
     crate::open_hub::require_executor()?;
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::launch_candidates();
@@ -796,23 +812,43 @@ pub async fn launch_candidates(
     Ok(out)
 }
 
+/// `@escopo/nome@1.2.3` → `@escopo/nome`; pacote sem versão fica como está. O nome
+/// descascado tem de ser não vazio e a parte removida não pode ter `/`: um escopo pode
+/// começar por dígito (`@1password/cli`), e sem isso a função devolveria string vazia.
+fn pacote_sem_versao(pkg: &str) -> &str {
+    pkg.rsplit_once('@')
+        .filter(|(nome, versao)| {
+            !nome.is_empty() && !versao.contains('/') && versao.starts_with(|c: char| c.is_ascii_digit())
+        })
+        .map_or(pkg, |(nome, _)| nome)
+}
+
 /// The registry build that *is* the harness's CLI (same npm package), so it can
 /// sign in without the CLI installed. Adapters (claude-acp…) don't count.
 fn registry_cli(h: &Harness) -> Option<Value> {
     let Some(Install::Npm(pkg)) = h.install else { return None };
     let agent = registry::agent(h.registry?)?;
     let npx = agent["distribution"]["npx"]["package"].as_str()?;
-    (npx == pkg || npx.strip_prefix(pkg).is_some_and(|v| v.starts_with('@'))).then_some(agent)
+    (npx == pacote_sem_versao(pkg) || npx.strip_prefix(pacote_sem_versao(pkg)).is_some_and(|v| v.starts_with('@')))
+        .then_some(agent)
 }
 
 /// Codync's own sign-in command for `id` can run now.
 pub fn login_available(id: &str) -> bool {
+    if crate::fork::motores_retirados::retirado(id) {
+        return false;
+    }
     harness(id)
         .is_some_and(|h| h.bins.iter().any(|b| on_path(b)) || !h.login.contains("{bin}") || registry_cli(h).is_some())
 }
 
 /// Codync's own sign-in command for `id`, with `{bin}` resolved.
 pub async fn login_command(id: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        !crate::fork::motores_retirados::retirado(id),
+        "{}",
+        crate::fork::motores_retirados::msg_lancar(id)
+    );
     let h = harness(id).ok_or_else(|| anyhow::anyhow!("no sign-in command for {id}"))?;
     let bin = match h.bins.iter().find_map(|b| which(b)) {
         Some(p) => shell::quote(&p.to_string_lossy()),
@@ -827,6 +863,10 @@ pub async fn login_command(id: &str) -> anyhow::Result<String> {
 
 /// The installed CLI's own ACP mode, if it has one and it's installed.
 pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
+    // Motor retirado: o executável local não é resolvido, nem com o CLI instalado.
+    if crate::fork::motores_retirados::retirado(id) {
+        return None;
+    }
     let h = harness(id)?;
     let template = h.local?;
     let path = h.bins.iter().find_map(|b| which(b))?;
@@ -837,6 +877,45 @@ pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GUI-145, fatia 2: os cinco com canal fixável saem do script do fornecedor e passam a
+    /// instalar por npm com versão exata (o registro confere o hash daquela versão); nenhum
+    /// segue na trava de confirmação, que é só para script de fornecedor.
+    #[test]
+    fn motores_com_canal_fixavel_instalam_por_npm_com_versao_exata() {
+        for (id, pacote) in [
+            ("claude", "@anthropic-ai/claude-code@2.1.329"),
+            ("codex", "@openai/codex@0.171.0"),
+            ("opencode", "opencode-ai@1.19.6"),
+            ("copilot", "@github/copilot@1.0.114"),
+            ("qwen", "@qwen-code/qwen-code@0.28.0"),
+        ] {
+            let h = harness(id).unwrap();
+            let install = h.install.unwrap();
+            assert!(matches!(install, Install::Npm(p) if p == pacote), "{id}");
+            let Some(Install::Npm(pkg)) = h.install else { unreachable!() };
+            let (_, versao) = pkg.rsplit_once('@').unwrap();
+            assert!(
+                !versao.is_empty() && versao.starts_with(|c: char| c.is_ascii_digit()),
+                "{id}: versão exata, não etiqueta móvel"
+            );
+            assert!(!install.is_script(), "{id}: sem script de fornecedor");
+            assert!(
+                install.command().is_some_and(|c| c.ends_with(pkg) && !c.contains("latest")),
+                "{id}: o comando instala a versão fixada"
+            );
+        }
+    }
+
+    #[test]
+    fn pacote_sem_versao_descasca_somente_a_versao() {
+        assert_eq!(pacote_sem_versao("@anthropic-ai/claude-code@2.1.329"), "@anthropic-ai/claude-code");
+        assert_eq!(pacote_sem_versao("opencode-ai@1.19.6"), "opencode-ai");
+        assert_eq!(pacote_sem_versao("@kilocode/cli"), "@kilocode/cli");
+        assert_eq!(pacote_sem_versao("cline"), "cline");
+        // Escopo pode começar por dígito: sem versão, não descasca nada (e nunca vira vazio).
+        assert_eq!(pacote_sem_versao("@1password/cli"), "@1password/cli");
+    }
 
     #[test]
     fn cursor_confere_status_sem_prompt() {
@@ -917,30 +996,107 @@ mod tests {
     }
 
     #[test]
+    fn motores_retirados_nao_sao_selecionaveis_e_os_mantidos_sim() {
+        let oferta = list();
+        let ids: Vec<&str> = oferta.iter().filter_map(|m| m["id"].as_str()).collect();
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            assert!(!ids.contains(id), "{id} saiu da oferta desta versão");
+        }
+        for id in ["claude", "codex", "opencode"] {
+            assert!(ids.contains(&id), "{id} continua oferecido");
+        }
+    }
+
+    /// Pelo nome do catálogo ACP ou em outra caixa: o lançamento recusa com a mensagem de retirada,
+    /// em vez de cair na resolução local ou no registro.
+    #[tokio::test]
+    async fn launch_candidates_de_motor_retirado_recusa_pelo_nome_do_catalogo() {
+        for id in ["qwen-code", "pi-acp", "amp-acp", "minimax-code", "mistral-vibe", "KILO", "Qwen-Code"] {
+            let erro = match launch_candidates(id, |_, _| {}).await {
+                Ok(candidatos) => panic!("{id}: lançou {} candidato(s) de um motor retirado", candidatos.len()),
+                Err(erro) => erro,
+            };
+            assert!(
+                matches!(erro.downcast_ref::<acp::Failure>(), Some(f) if matches!(f.kind, acp::FailureKind::NotSetUp)),
+                "{id}: {erro:#}"
+            );
+            assert!(erro.to_string().starts_with("O motor "), "{id}: {erro}");
+            assert!(erro.to_string().contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+        }
+    }
+
+    /// Resolução local e sondagem de login não podem tocar o CLI de um motor retirado, nem com ele
+    /// instalado no PATH: roda em processo próprio, com um `kilo` falso que deixa marca se for aberto.
+    #[cfg(unix)]
+    #[test]
+    fn sondagem_e_resolucao_de_motor_retirado_nao_executam_o_cli() {
+        use std::os::unix::fs::PermissionsExt;
+
+        const FIXTURE: &str = "MEXERICA_TESTE_SONDAGEM_RETIRADOS";
+        if let Some(marca) = std::env::var_os(FIXTURE) {
+            let marca = PathBuf::from(marca);
+            let store = crate::store::Store::open(Path::new(":memory:")).unwrap();
+            for id in ["kilo", "junie", "KILO", "qwen-code"] {
+                assert!(local_candidate(id).is_none(), "{id}: motor retirado não resolve executável local");
+            }
+            assert!(!login_available("kilo"), "o login do motor retirado não fica disponível");
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let erro = login_command("kilo").await.unwrap_err().to_string();
+                assert!(erro.starts_with("O motor Kilo não está disponível nesta versão da Mexerica"), "{erro}");
+                refresh_sign_in(&store).await;
+            });
+            assert_eq!(signed_in("kilo"), Some(false), "sem executar nada, o motor retirado devolve não entrou");
+            assert!(!marca.exists(), "a sondagem ou a resolução abriu o CLI de um motor retirado");
+            return;
+        }
+        let raiz = tempfile::tempdir().unwrap();
+        let bin = raiz.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let marca = raiz.path().join("abriu-kilo");
+        for nome in ["kilo", "junie"] {
+            let exe = bin.join(nome);
+            std::fs::write(&exe, format!("#!/bin/sh\n: > '{}'\n", marca.display())).unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let saida = std::process::Command::new(std::env::current_exe().unwrap())
+            .env(FIXTURE, &marca)
+            .env(TESTE_ISOLADO, "1")
+            .env("PATH", &bin)
+            .env("MEXERICA_HOME", raiz.path())
+            .args(["--exact", "agent::backends::tests::sondagem_e_resolucao_de_motor_retirado_nao_executam_o_cli"])
+            .output()
+            .unwrap();
+        assert!(saida.status.success(), "{}", String::from_utf8_lossy(&saida.stdout));
+        assert!(String::from_utf8_lossy(&saida.stdout).contains("1 passed"));
+        assert!(!marca.exists(), "nenhum processo abriu o CLI falso do motor retirado");
+    }
+
+    #[test]
     fn every_harness_is_unique() {
         let ids: HashSet<_> = HARNESSES.iter().map(|h| h.id).collect();
         assert_eq!(ids.len(), HARNESSES.len());
     }
 
     #[test]
-    fn junie_e_cortex_sao_detectados_no_path_sem_oferecer_instalacao() {
+    fn cortex_e_detectado_no_path_sem_instalacao_e_o_junie_retirado_nao_aparece() {
         const FIXTURE: &str = "MEXERICA_TESTE_MOTORES_NATIVOS";
         if let Some(raiz) = std::env::var_os(FIXTURE) {
             let raiz = PathBuf::from(raiz);
             let oferta = list();
-            for (id, args) in [("junie", "--acp=true"), ("cortex", "acp serve")] {
-                let h = harness(id).unwrap();
-                assert!(h.install.is_none(), "{id}");
-                let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
-                assert_eq!(entrada["canInstall"], false, "{id}");
-                assert_eq!(entrada["installed"], true, "{id}");
-                assert_eq!(entrada["available"], true, "{id}");
-                let exe = which(id).unwrap();
-                assert!(exe.starts_with(&raiz), "{id}");
-                let candidato = local_candidate(id).unwrap();
-                assert_eq!(candidato.program, shell::quote(&exe.to_string_lossy()));
-                assert_eq!(candidato.args, args);
-            }
+            // O Junie saiu da oferta desta versão: instalado ou não, não aparece.
+            assert!(oferta.iter().all(|motor| motor["id"] != "junie"));
+            let (id, args) = ("cortex", "acp serve");
+            let h = harness(id).unwrap();
+            assert!(h.install.is_none(), "{id}");
+            let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
+            assert_eq!(entrada["canInstall"], false, "{id}");
+            assert_eq!(entrada["installed"], true, "{id}");
+            assert_eq!(entrada["available"], true, "{id}");
+            let exe = which(id).unwrap();
+            assert!(exe.starts_with(&raiz), "{id}");
+            let candidato = local_candidate(id).unwrap();
+            assert_eq!(candidato.program, shell::quote(&exe.to_string_lossy()));
+            assert_eq!(candidato.args, args);
             for id in ["cursor", "devin"] {
                 let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
                 assert_eq!(entrada["canInstall"], true, "{id}");
@@ -963,7 +1119,10 @@ mod tests {
             .env(TESTE_ISOLADO, "1")
             .env("PATH", raiz.path())
             .env("MEXERICA_HOME", raiz.path())
-            .args(["--exact", "agent::backends::tests::junie_e_cortex_sao_detectados_no_path_sem_oferecer_instalacao"])
+            .args([
+                "--exact",
+                "agent::backends::tests::cortex_e_detectado_no_path_sem_instalacao_e_o_junie_retirado_nao_aparece",
+            ])
             .output()
             .unwrap();
         assert!(saida.status.success(), "{}", String::from_utf8_lossy(&saida.stdout));

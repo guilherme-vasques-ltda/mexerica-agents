@@ -11,6 +11,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if super::nunca_fazer::METHODS.contains(&method) {
         return super::nunca_fazer::call(hub, caller, method, body).map(ControlFlow::Break);
     }
+    if super::instrucao_geral::METHODS.contains(&method) {
+        return super::instrucao_geral::call(hub, caller, method, body).map(ControlFlow::Break);
+    }
     if method == super::browser::METHOD {
         return super::browser::status(hub, caller, body).map(ControlFlow::Break);
     }

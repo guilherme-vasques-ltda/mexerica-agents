@@ -3,14 +3,18 @@ use super::{Actor, Done};
 
 impl Actor {
     pub(super) fn cost_begin(&mut self, session: &str) -> anyhow::Result<()> {
-        self.cost_turn = Some(crate::fork::custo::Pending::begin(
-            &self.hub.store,
-            &self.cfg,
-            &self.lane,
-            session,
-            self.session_fresh,
-            self.conn.as_ref().and_then(|c| c.adapter_version.clone()),
-        )?);
+        self.cost_turn = Some(
+            crate::fork::custo::Pending::begin(
+                &self.hub.store,
+                &self.cfg,
+                &self.lane,
+                session,
+                self.session_fresh,
+                self.conn.as_ref().and_then(|c| c.adapter_version.clone()),
+            )?
+            // A compactação oculta anexa ao turno corrente (mesmo número): o uso dela não entra na conta do turno.
+            .with_turn(self.turn.filter(|_| self.compacting.is_none())),
+        );
         Ok(())
     }
 

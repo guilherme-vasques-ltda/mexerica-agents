@@ -28,6 +28,7 @@ import { BOT_COM_CONTA, BOT_SEM_CONTA, BOT_TROCA, CONTA_EMPRESA, CONTA_PESSOAL, 
 import * as story from './story'
 import { FakeContexto } from './fake-contexto'
 import { FakeCusto } from './fake-custo'
+import { FakeRecibo } from './fake-recibo'
 import { atendeFila, BOT_FILA, chamarFila, entradasFila, filaDemo } from './fake-fila'
 import { atendePedidos, BOT_PEDIDOS, chamarPedidos, entradasPedidos, pedidosDemo } from './fake-pedidos'
 // Entrega 3 (MX-6): o cenário grande do seletor e de Contas de IA (`?seletor=1&modelos=e3`).
@@ -79,6 +80,8 @@ export class FakeHost {
   readonly arquivar = new FakeArquivar()
   /** DON-906 (C2): medidor de contexto fictício (fake-contexto.ts). */
   readonly contexto = new FakeContexto(() => this.hostId)
+  /** Recibo do turno com o uso informado pelo motor (fake-recibo.ts). */
+  readonly recibo = new FakeRecibo(() => this.hostId)
   /** DON-908 (C8): custo estimado fictício (fake-custo.ts). */
   readonly custo = new FakeCusto(() => this.hostId)
   private rev = 0
@@ -486,6 +489,7 @@ export class FakeHost {
     if (this.botFundo.atende(method)) return this.botFundo.call(method, b, fail)
     if (this.memoria.atende(method)) return this.memoria.call(method, b, fail)
     if (this.custo.atende(method)) return this.custo.call(b, fail)
+    if (this.recibo.atende(method)) return this.recibo.call()
     switch (method) {
       case 'donnaStorageReport': return relatorioDemo()
       case 'donnaEngineAccess': return { capability: 'engine.accounts', canManage: true }

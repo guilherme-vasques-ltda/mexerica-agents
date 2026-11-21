@@ -452,6 +452,12 @@ pub(crate) async fn finish_as(
     super::registry::reject_registry_finish(request)?;
     if kind == RequestKind::Agent {
         let backend = text(request, "backend")?;
+        // Motor retirado: o cartão salvo é recusado com a mensagem de lançar, sem abrir o CLI.
+        anyhow::ensure!(
+            !crate::fork::motores_retirados::retirado(backend),
+            "{}",
+            crate::fork::motores_retirados::msg_lancar(backend)
+        );
         if crate::agent::auth::check(&hub.store, backend).await?["signedIn"] != true {
             bail!("{} isn't signed in yet.", request["title"].as_str().unwrap_or("The agent"));
         }
@@ -846,6 +852,24 @@ mod tests {
         let history = hub.store.history("bot", i64::MAX, 100).unwrap();
         let history = serde_json::to_string(&history).unwrap();
         assert!(history.contains("type_login") && !history.contains("hunter2-private"));
+        hub.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Um cartão de login legado salvo com motor retirado é recusado com a mensagem de lançar;
+    /// o CLI do motor não é aberto e o cartão não fica pronto.
+    #[tokio::test]
+    async fn cartao_de_login_legado_de_motor_retirado_e_recusado_sem_executar_o_cli() {
+        let (hub, dir) = fixture();
+        let lane = Lane::main("bot");
+        let user = hub.add_entry(&lane, EntryKind::User, 1, &json!({"text":"oi","status":"sent"})).unwrap().id;
+        invite_agent_sign_in(&hub, "bot", &lane, "kilo", "Kilo", std::slice::from_ref(&user)).unwrap();
+        let cards = hub.store.pending_sign_ins("kilo").unwrap();
+        assert_eq!(cards.len(), 1, "um bot mantém um cartão de login por motor");
+        let erro = finish(&hub, &json!({"entryId":cards[0].id})).await.unwrap_err().to_string();
+        assert!(erro.starts_with("O motor Kilo não está disponível nesta versão da Mexerica"), "{erro}");
+        let card = hub.store.entry(&cards[0].id).unwrap();
+        assert_ne!(card.data["connectionRequest"]["status"], json!("ready"), "o cartão não fica pronto");
         hub.shutdown().await;
         let _ = std::fs::remove_dir_all(dir);
     }

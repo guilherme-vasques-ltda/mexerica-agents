@@ -27,6 +27,7 @@ export class ReceiptCache extends Observable {
   private queue: (() => void)[] = []
   private running = 0
   private scope = ''
+  private refreshing = new Set<string>()
   /** Sem autorização ou sem a RPC: os ícones não aparecem e nada mais é pedido por conta própria. */
   blocked = false
   /** Muda a cada troca de Hub, Space ou principal (um hello novo): as views releem com ela. */
@@ -70,8 +71,40 @@ export class ReceiptCache extends Observable {
   open(request: ReceiptRequest) {
     this.sync()
     const load = this.loads.get(this.key(request))
-    if (load?.status === 'loading' || load?.status === 'loaded' && load.response.state !== 'pending') return
+    if (load?.status === 'loading') return
+    // O uso do turno chega depois da resposta: sem ele (null), reabrir o recibo pergunta de novo, sem trocar o recibo
+    // já na tela por "lendo".
+    if (load?.status === 'loaded' && load.response.state !== 'pending') { if (load.response.usage === null) this.refresh(request); return }
     this.fetch(request)
+  }
+
+  /**
+   * Relê em segundo plano um recibo já lido, sem passar por "lendo" (o ícone e o popover abertos não piscam). Serve ao uso
+   * do turno, que o Hub grava ao fim do turno: uma resposta publicada antes disso foi lida sem ele.
+   */
+  refresh(request: ReceiptRequest) {
+    this.sync()
+    const key = this.key(request)
+    if (this.blocked || this.refreshing.has(key) || this.loads.get(key)?.status !== 'loaded') return
+    this.refreshing.add(key)
+    const run = () => {
+      // Pedido que esperava na fila de outro Hub/principal (ou com o recibo bloqueado) não sai.
+      if (this.blocked || this.loads.get(key)?.status !== 'loaded') { this.refreshing.delete(key); this.queue.shift()?.(); return }
+      this.running++
+      readRoutingReceipt(this.source, this.context(request.botId), { conversationId: request.conversationId, sessionId: request.sessionId, entryId: request.entryId })
+        .then((response) => {
+          if (this.loads.get(key)?.status !== 'loaded') return
+          this.loads.set(key, { status: 'loaded', response })
+          this.changed()
+        }, (error) => {
+          // Sem autorização, sem a RPC ou contexto trocado: vale o mesmo que numa leitura normal, mas só no escopo
+          // que fez o pedido; o erro de um Hub anterior não bloqueia o atual.
+          if (this.loads.get(key)?.status === 'loaded' && blocking(errorCode(error))) { this.blocked = true; this.changed() }
+        })
+        .finally(() => { this.running--; this.refreshing.delete(key); this.queue.shift()?.() })
+    }
+    if (this.running < LIMIT) run()
+    else this.queue.push(run)
   }
 
   private fetch(request: ReceiptRequest) {

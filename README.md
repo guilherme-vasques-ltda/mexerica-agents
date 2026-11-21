@@ -3,8 +3,11 @@
 Hub em Rust, Motor e app de desktop para Mac de uma assistente pessoal com bots, conversas e ferramentas.
 O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mostra as conversas e envia o que você escolher; o **Motor** (baseado no Pi, vendorizado) executa o laço do agente preso ao Hub.
 
-> **Estado:** recorte em preparação, sem instalador, sem serviço hospedado e sem conta conectada.
-> Nada aqui comprova instalação, uso no Mac ou recuperação de dados em uma máquina real: isso precisa ser verificado por quem for usar.
+> **Estado:** em desenvolvimento. O app abre, mas a conversa com os bots ainda não funciona nesta edição.
+> Não há instalador, versão publicada, serviço hospedado ou conta conectada. Nada aqui comprova instalação
+> ou uso em máquina real: isso precisa ser verificado por quem for usar. Não use com contas ou dados reais:
+> nesta edição, os motores de terceiros que agem sem pedir aprovação foram retirados da oferta, e os
+> motores oferecidos pedem aprovação antes de agir.
 > Esta cópia não promete compatibilidade com plataformas Apple além do que for testado em cada versão.
 
 ## O que está aqui
@@ -21,10 +24,10 @@ O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mos
 
 ## O que não está aqui
 
-- Código de nuvem e relay hospedados (`cloud/`, `relay/`), versão web, demo web e helper Linux.
+- Código de nuvem e relay hospedados, versão web e demo web.
 - Logos de agentes de terceiros e o logotipo da Apple: o app mostra ícones genéricos. As logos dos serviços do catálogo de conectores estão incluídas, só para identificar cada serviço, e continuam sendo marcas de seus titulares (ver [TRADEMARK.md](TRADEMARK.md) e [THIRD_PARTY.md](THIRD_PARTY.md)).
 - Arte de terceiros: os 43 ícones de agentes, o logotipo da Apple, `google.svg` e `computer-linux.svg` continuam neutros. Licenças e marca em [THIRD_PARTY.md](THIRD_PARTY.md) e [TRADEMARK.md](TRADEMARK.md). Da arte própria da Mexerica (ver "O que está aqui"), só as Mexeriquinhas e as 19 opções de ícone (`padrao.png` fora) são Apache-2.0; o resto da arte da Mexerica fica com os direitos reservados e só vale dentro da Mexerica (regra e caminhos em [brand/LICENCA-DA-ARTE.md](brand/LICENCA-DA-ARTE.md)).
-- Histórico, issues, pull requests, automações de CI e configuração de serviços.
+- Configuração de serviços e segredos (chaves, endereços reais, contas).
 
 ## Como verificar (sem rede de produção)
 
