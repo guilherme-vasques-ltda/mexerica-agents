@@ -549,3 +549,34 @@ test('navegação substituída (ERR_ABORTED, -3) não libera a janela: só a fal
   r.abrirQuadrosEm('b'.repeat(32), connectionId)
   assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok', 'falha real da principal encerra a navegação')
 })
+
+test('com a assinatura de quadros aberta, uma carga da janela principal em andamento nega os comandos do navegador', async () => {
+  const r = await comPessoa()
+  const entrada = { session: 's1', target: 'aba1', targetGeneration: 0, frameSequence: 1, sequence: 1, epoch: 1, controller: 'person', x: 1, y: 1, displayWidth: 10, displayHeight: 10 }
+  const comandosAntes = r.comandosNoHub().length
+  r.carregando.principal = true
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent', 'comando')
+  assert.equal((await r.ponte.call('browserStreamTarget', { target: 'aba2' }, 5000)).kind, 'notSent', 'troca de aba')
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'notSent', 'inscrição')
+  assert.equal((await r.ponte.call('browserStreamInput', entrada, 5000)).kind, 'notSent', 'clique')
+  assert.equal(r.comandosNoHub().length, comandosAntes, 'nada saiu ao Hub durante a carga')
+  r.carregando.principal = false
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'ok', 'controle positivo: terminada a carga, o dono volta a comandar')
+})
+
+test('a confirmação da inscrição que chega com a janela carregando vira incerta e só uma nova confirmação reabre', async () => {
+  const r = await comPessoa()
+  const respostas: ((v: ForkCloudCallResult) => void)[] = []
+  r.hub.browserStreamSubscribe = () => new Promise((resolve) => respostas.push(resolve))
+  const inscricao = r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)
+  await settle()
+  r.carregando.principal = true
+  respostas[0]!({ kind: 'ok', value: { subscribed: true, frames: true, session: 's1' } })
+  assert.equal((await inscricao).kind, 'ok', 'o Hub confirmou, mas a janela já estava carregando')
+  r.carregando.principal = false
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'notSent', 'a posse não é transferida por uma confirmação que chegou durante a carga')
+
+  r.hub.browserStreamSubscribe = (b) => ({ kind: 'ok', value: { subscribed: true, frames: true, session: b.session } })
+  assert.equal((await r.ponte.call('browserStreamSubscribe', { session: 's1', target: 'aba1' }, 5000)).kind, 'ok')
+  assert.equal((await r.ponte.call('browserStreamControl', { controller: 'agent' }, 5000)).kind, 'ok', 'controle positivo: uma confirmação nova, sem carga, reabre')
+})
