@@ -31,9 +31,10 @@ impl Falsos {
         Self { pasta: raiz.join("bin"), raiz }
     }
 
-    /// Um CLI falso que grava `marca` assim que é executado e fica vivo esperando o handshake.
+    /// Um CLI falso que grava `marca` assim que é executado e espera o handshake; só usa comandos internos do shell,
+    /// porque o PATH do Hub de teste contém apenas esta pasta.
     fn instalar(&self, binario: &str, marca: &Path) {
-        let script = format!("#!/bin/sh\ntouch '{}'\nexec sleep 60\n", marca.display());
+        let script = format!("#!/bin/sh\n: > '{}'\nIFS= read -r _\n", marca.display());
         let caminho = self.pasta.join(binario);
         std::fs::write(&caminho, script).unwrap();
         std::fs::set_permissions(&caminho, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -93,6 +94,43 @@ async fn update_bot_para_motor_retirado_e_recusado() {
         let erro = host.refused("updateBot", json!({"id": bot, "backend": id})).await;
         assert_eq!(erro, MSG_CRIAR, "{id}");
     }
+}
+
+#[tokio::test]
+async fn nome_do_catalogo_ou_em_outra_caixa_tambem_e_recusado() {
+    let falsos = Falsos::nova();
+    let host = Host::start_isolado(&falsos.env(false)).await;
+    let bot = host.bot("Mantido", "ask").await;
+    for id in ["qwen-code", "pi-acp", "amp-acp", "minimax-code", "mistral-vibe", "KILO", "Qwen-Code", "GOOSE"] {
+        let erro =
+            host.refused("createBot", json!({"name": id, "backend": id, "connectors": [], "notify": false})).await;
+        assert_eq!(erro, MSG_CRIAR, "createBot {id}");
+        let erro = host.refused("updateBot", json!({"id": bot, "backend": id})).await;
+        assert_eq!(erro, MSG_CRIAR, "updateBot {id}");
+    }
+}
+
+/// Controle positivo da prova de não execução: com a chave ligada, o mesmo CLI falso, no mesmo ambiente isolado, é
+/// aberto e deixa a marca. Sem isto, a ausência da marca nos outros testes não provaria nada.
+#[tokio::test]
+async fn controle_positivo_o_cli_falso_deixa_marca_quando_o_motor_e_aberto() {
+    let falsos = Falsos::nova();
+    let marca = falsos.raiz.join("abriu-kilo");
+    falsos.instalar("kilo", &marca);
+    let host = Host::start_isolado(&falsos.env(true)).await;
+    let bot = criar_bot(&host, "Antigo", "kilo").await["bot"]["id"].as_str().unwrap().to_owned();
+    let texto = "Responda ok";
+    host.call(
+        "send",
+        json!({"botId": bot, "text": texto, "clientNonce": uuid::Uuid::new_v4().to_string(),
+            "contentOrigin": typed_origin(texto)}),
+    )
+    .await;
+    let prazo = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < prazo && !marca.exists() {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(marca.exists(), "o CLI falso não deixou marca nem com a chave ligada: a prova de não execução não vale");
 }
 
 #[tokio::test]

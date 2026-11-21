@@ -395,7 +395,13 @@ mod tests {
 
     #[tokio::test]
     async fn motor_retirado_e_recusado_antes_de_executar() {
-        for id in crate::fork::motores_retirados::RETIRADOS {
+        let nomes = crate::fork::motores_retirados::RETIRADOS.iter().copied().chain([
+            "qwen-code",
+            "pi-acp",
+            "mistral-vibe",
+            "KILO",
+        ]);
+        for id in nomes {
             let cfg: BotConfig =
                 serde_json::from_value(json!({"id":"antigo", "name":"Antigo", "backend": id})).unwrap();
             let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();

@@ -13,9 +13,10 @@ pub(crate) const RETIRADOS: &[&str] =
 /// Chave de desenvolvimento que devolve a oferta antiga (nunca honrada em build de `release`).
 const CHAVE_DEV: &str = "MEXERICA_DEV_MOTORES_RETIRADOS";
 
-/// Decisão pura: `id` é retirado quando está na lista e a oferta antiga não foi liberada.
+/// Decisão pura: `id` é retirado quando está na lista e a oferta antiga não foi liberada. O id vale por qualquer
+/// nome do motor: o do harness, o do catálogo ACP (`qwen-code`, `pi-acp`, `mistral-vibe`…) e em qualquer caixa.
 pub(crate) fn decidir(id: &str, liberado: bool) -> bool {
-    !liberado && RETIRADOS.contains(&id)
+    !liberado && RETIRADOS.contains(&crate::agent::backends::id_canonico(id).as_str())
 }
 
 /// A oferta antiga liberada pela chave de desenvolvimento.
@@ -85,6 +86,32 @@ mod tests {
         for id in MANTIDOS {
             assert!(!RETIRADOS.contains(id), "{id} é mantido e não pode estar na lista");
             assert!(crate::agent::backends::harness(id).is_some() || *id == "mexerica", "{id} existe no Hub");
+        }
+    }
+
+    #[test]
+    fn nome_do_catalogo_ou_em_outra_caixa_e_o_mesmo_motor() {
+        for id in [
+            "qwen-code",
+            "pi-acp",
+            "amp-acp",
+            "minimax-code",
+            "mistral-vibe",
+            "KILO",
+            " Kilo ",
+            "Qwen-Code",
+            "GOOSE",
+            "Cline",
+            "JUNIE",
+            "OMP",
+        ] {
+            assert!(decidir(id, false), "{id:?} nomeia um motor retirado");
+            assert!(!decidir(id, true), "{id:?}: a chave devolve a oferta antiga");
+        }
+        for id in
+            ["claude-acp", "codex-acp", "gemini", "github-copilot-cli", "OpenCode", "factory-droid", "antigravity-acp"]
+        {
+            assert!(!decidir(id, false), "{id:?} é de um motor mantido");
         }
     }
 

@@ -1155,8 +1155,8 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
-    validate_fields(cfg)?;
-    crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)
+    crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+    validate_fields(cfg)
 }
 
 /// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada. Trocar o
@@ -1167,11 +1167,10 @@ pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result
         crate::fork::pasta::normalizar_bot(cfg)?;
     }
     crate::fork::funcao::normalizar(cfg)?;
-    validate_fields(cfg)?;
     if cfg.backend != before.backend {
         crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
     }
-    Ok(())
+    validate_fields(cfg)
 }
 
 fn validate_fields(cfg: &BotConfig) -> Result<()> {

@@ -452,6 +452,16 @@ const MEXERICA: Harness = Harness {
     signed_in: None,
 };
 
+/// O id do harness que `id` nomeia, por id ou pelo id do catálogo ACP (sem diferenciar caixa nem espaços nas pontas);
+/// um id que nenhum harness conhece volta só normalizado.
+pub fn id_canonico(id: &str) -> String {
+    let normalizado = id.trim().to_ascii_lowercase();
+    HARNESSES
+        .iter()
+        .find(|h| h.id == normalizado || h.registry.is_some_and(|r| r.eq_ignore_ascii_case(&normalizado)))
+        .map_or(normalizado, |h| h.id.to_owned())
+}
+
 pub fn harness(id: &str) -> Option<&'static Harness> {
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::enabled().then_some(&MEXERICA);
