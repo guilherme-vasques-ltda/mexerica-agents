@@ -48,6 +48,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.status.permitiu": "لقد سمحت",
   "conversa.aprovacao.status.recusou": "لقد رفضت",
   "conversa.aprovacao.detalhes": "التفاصيل",
+  "conversa.aprovacao.avisoDetalheCortado": "النص مقتطع؛ ما لا يظهر لا يمكن مراجعته.",
   "conversa.aprovacao.dica.toque": "انقر للسماح. الرفض بنقرة واحدة.",
   "conversa.aprovacao.dica.segure": "اضغط مطولًا للسماح؛ الإفلات مبكرًا يلغي. الرفض بنقرة واحدة.",
   "conversa.aprovacao.segurar.ative": "{opcao}: فعّل للتأكيد",

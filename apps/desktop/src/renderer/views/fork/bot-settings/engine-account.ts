@@ -1,6 +1,6 @@
 import type { EngineAccount } from '../../../../shared/fork-engine-accounts.ts'
 import type { BotEditor, BotEditorPatch, BotEditorProfile } from '../../../../shared/fork-bot-editor.ts'
-import { isEngine } from '../contas-ia/regras.ts'
+import { motorComConta } from '../../../../shared/fork-criar-bot-destino.ts'
 import type { Tradutor } from '../../../lib/fork-i18n/estado.ts'
 
 // D164: conta e modelo do bot pelo editor versionado (patch parcial com `expectedVersion`).
@@ -30,7 +30,7 @@ function estadoDaConta(t: Tradutor, account: { origin?: string; state: string; b
 
 /** `''` = padrão do Hub; depois as contas gerenciadas do mesmo motor, com o estado de cada uma. */
 export function accountOptions(t: Tradutor, editor: BotEditor, backend: string, selected: string | null): AccountOption[] {
-  if (!isEngine(backend)) return []
+  if (!motorComConta(backend)) return []
   const legacy = editor.engineAccounts.find((a) => a.origin === 'legacy' && a.backend === backend)
   const options: AccountOption[] = [{ id: '', label: legacy ? t('bots.ajustes.conta.padraoCom', { estado: estadoDaConta(t, legacy) }) : t('bots.ajustes.conta.padrao') }]
   for (const account of editor.engineAccounts) {

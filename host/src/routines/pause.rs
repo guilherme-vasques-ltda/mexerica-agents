@@ -29,6 +29,9 @@ impl Routines {
                     }
                 }
             }
+            if state.paused != paused {
+                state.pausas = state.pausas.saturating_add(1);
+            }
             state.paused = paused;
             Ok(json!({"paused": paused}))
         })

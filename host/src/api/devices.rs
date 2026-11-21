@@ -68,6 +68,10 @@ const LOCAL_ONLY: &[&str] = &[
     "motorChaveTestar",
     "motorChaveSalvar",
     "motorChaveRemover",
+    "motorEnderecoSalvar",
+    // OpenRouter sign-in (the code swap) too.
+    "openrouterEntrar",
+    "openrouterEntrarConcluir",
     // Plano de código: a chave é colada no próprio computador.
     "planosCodigo",
     "planoCodigoTestar",
@@ -148,7 +152,7 @@ pub fn permit(caller: &Caller, method: &str) -> Result<(), Forbidden> {
     if let Some(ok) = crate::computers::executor_api::permit(caller, method) {
         return if ok { Ok(()) } else { Err(Forbidden) };
     }
-    if crate::fork::projetos::METHODS.contains(&method) {
+    if crate::fork::projetos::METHODS.contains(&method) || crate::fork::propostas::METHODS.contains(&method) {
         return match caller {
             Caller::Local => Ok(()),
             Caller::Device { scopes, .. } if scopes.contains(&Scope::Control) => Ok(()),

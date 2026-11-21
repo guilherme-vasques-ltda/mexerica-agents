@@ -27,6 +27,7 @@ export const MODULOS: readonly { readonly modulo: string; readonly prefixo: stri
   { modulo: 'contexto/medidor', prefixo: 'contexto.' },
   { modulo: 'contrato', prefixo: 'contrato.' },
   { modulo: 'projetos', prefixo: 'projetos.' },
+  { modulo: 'propostas', prefixo: 'propostas.' },
   { modulo: 'conectores/cartao', prefixo: 'conectores.' },
   { modulo: 'conversa/ajustes', prefixo: 'conversa.' },
   { modulo: 'conversa/aprovacao', prefixo: 'conversa.aprovacao.' },

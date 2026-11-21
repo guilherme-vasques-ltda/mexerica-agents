@@ -10,9 +10,13 @@ use serde_json::Value;
 
 mod avaliar;
 #[cfg(test)]
-mod testes;
+pub(crate) mod testes;
+
+pub(crate) use avaliar::{Aviso, Saida, avaliar, pode_checar};
 
 pub(crate) const MIN_INTERVALO_S: u64 = 60;
+/// Prazo de cada chamada a uma fonte (`marcador` ou `ler`).
+pub(crate) const PRAZO_PADRAO_MS: u64 = 30_000;
 const MAX_INTERVALO_S: u64 = 7 * 86_400;
 const INTERVALO_PADRAO_S: u64 = 300;
 const MAX_ESTADOS: usize = 20;
@@ -63,6 +67,14 @@ const fn intervalo_padrao() -> u64 {
 }
 
 impl Declaracao {
+    /// Observa a mesma coisa para o mesmo destinatário (só o intervalo pode ser diferente): o estado vale para as duas.
+    pub(crate) fn mesma_observacao(&self, outra: &Self) -> bool {
+        self.fonte == outra.fonte
+            && self.escopo == outra.escopo
+            && self.criterio == outra.criterio
+            && self.destinatario == outra.destinatario
+    }
+
     /// Lê e confere a declaração do corpo salvo pelo app; qualquer falha recusa o corpo inteiro.
     pub(crate) fn parse(value: &Value) -> Result<Self> {
         let Ok(mut declaracao) = serde_json::from_value::<Self>(value.clone()) else {
@@ -133,7 +145,94 @@ impl Motivo {
     }
 }
 
-/// A fonte só se lê. A interface não tem escrita, envio nem exclusão: observar e executar são coisas separadas,
+/// A fonte concedida a um bot: quem a concedeu e qual conta ou vínculo ela representa.
+pub(crate) struct Concessao {
+    /// Numera o registro nesta execução do Hub (vale só enquanto o Hub roda).
+    pub registro: u64,
+    /// Resumo da identidade durável da concessão (a conta ou o vínculo): igual entre reinícios para a mesma
+    /// concessão, diferente para outra conta. É o que o estado guardado lembra.
+    pub identidade: String,
+    pub fonte: std::sync::Arc<dyn Fonte>,
+    /// Há uma chamada à fonte ainda em andamento (estourou o prazo e não voltou): nova chamada não é aberta.
+    pub ocupada: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Cai quando a concessão é retirada ou trocada: chamada ainda não aberta não chega a tocar a fonte.
+    pub valida: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// O estado das rotinas com uma época: o contador sobe toda vez que uma guarda de escrita do estado é solta, ainda sob o
+/// lock. Quem decidiu algo sob o lock guarda a época e, depois de qualquer espera, confere pelo contador atômico (sem
+/// lock) se o estado seguiu o mesmo: qualquer mudança desde a decisão (pausa, edição, exclusão, concessão) a invalida.
+pub(crate) struct EstadoRotinas<T> {
+    dentro: std::sync::Mutex<T>,
+    pub epoca: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl<T: Default> Default for EstadoRotinas<T> {
+    fn default() -> Self {
+        Self { dentro: std::sync::Mutex::default(), epoca: std::sync::Arc::default() }
+    }
+}
+
+/// Acesso direto ao `Mutex` por baixo (`lock`, `try_lock`): só para leitura; quem muda o estado passa por `locked`.
+impl<T> std::ops::Deref for EstadoRotinas<T> {
+    type Target = std::sync::Mutex<T>;
+    fn deref(&self) -> &Self::Target {
+        &self.dentro
+    }
+}
+
+pub(crate) struct GuardaEstado<'a, T> {
+    guarda: std::sync::MutexGuard<'a, T>,
+    epoca: &'a std::sync::atomic::AtomicU64,
+    mutou: bool,
+}
+
+impl<T> std::ops::Deref for GuardaEstado<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.guarda
+    }
+}
+
+impl<T> std::ops::DerefMut for GuardaEstado<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.mutou = true;
+        &mut self.guarda
+    }
+}
+
+impl<T> Drop for GuardaEstado<'_, T> {
+    fn drop(&mut self) {
+        if self.mutou {
+            self.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+impl<T> crate::LockExt<T> for EstadoRotinas<T> {
+    type Guard<'a>
+        = GuardaEstado<'a, T>
+    where
+        T: 'a;
+
+    #[track_caller]
+    fn locked(&self) -> Self::Guard<'_> {
+        GuardaEstado {
+            guarda: self.dentro.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            epoca: &self.epoca,
+            mutou: false,
+        }
+    }
+}
+
+/// O que se guarda no estado como identidade da concessão, sem a identidade bruta.
+pub(crate) fn identidade_de(bruta: &str) -> String {
+    avaliar::resumir(&["concessao", bruta])
+}
+
+/// A fonte só se lê. Cada chamada tem um prazo (`PRAZO_PADRAO_MS`, 30 s): estourado o prazo, a checagem registra a fonte
+/// como indisponível e segue para a próxima, nunca como «sem mudança». Uma chamada que não voltou segue numa linha
+/// de execução à parte; enquanto ela não terminar, a fonte não recebe outra chamada. A interface não tem escrita, envio nem exclusão: observar e executar são coisas separadas,
 /// e a checagem não herda do bot nenhuma permissão de enviar ou apagar.
 pub(crate) trait Fonte: Send + Sync {
     /// Marcador barato do estado atual do escopo (versão, data da última alteração). Ele precisa mudar a cada
@@ -173,6 +272,10 @@ pub(crate) struct UltimaChecagem {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Estado {
+    /// A concessão da fonte a que este estado pertence; outra concessão (outra conta, a mesma fonte registrada de novo)
+    /// descarta o estado.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concessao: Option<String>,
     /// Resumo da declaração a que este estado pertence; outra declaração descarta o estado.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,
@@ -197,6 +300,17 @@ pub(crate) struct Estado {
     /// Enquanto a fonte falha, não consulta antes deste instante (recuo).
     #[serde(default, skip_serializing_if = "is_zero_i64")]
     pub nao_antes: i64,
+}
+
+impl Estado {
+    /// O que a rotina mostra do estado: a última checagem e a situação da fonte, sem marcador nem impressões.
+    pub(crate) fn public(&self) -> Value {
+        serde_json::json!({
+            "ultimaChecagem": self.ultima,
+            "falhasSeguidas": self.falhas_seguidas,
+            "naoConsultarAntes": (self.nao_antes != 0).then_some(self.nao_antes),
+        })
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&T) -> bool")]

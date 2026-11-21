@@ -147,6 +147,10 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("motorChaveTestar", LocalOnly),
     ("motorChaveSalvar", LocalOnly),
     ("motorChaveRemover", LocalOnly),
+    ("motorEnderecoSalvar", LocalOnly),
+    // Entrar com OpenRouter (OAuth PKCE): `LOCAL_ONLY` e `require_local`; a chave nunca volta ao app.
+    ("openrouterEntrar", LocalOnly),
+    ("openrouterEntrarConcluir", LocalOnly),
     // gerador Mexeriquinhas 2b: todo o grupo exige Caller::Local (host/src/fork_avatars/gerador).
     ("mexeriquinhaGeradorEstado", LocalOnly),
     ("mexeriquinhaGeradorChave", LocalOnly),
@@ -247,6 +251,8 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaTaskSchedule", Dono),
     ("donnaTaskAgenda", Leitura),
     ("donnaTaskSessions", Leitura),
+    ("donnaTaskProposals", Leitura),
+    ("donnaTaskProposalDecide", Dono),
     ("donnaTimes", Leitura),
     ("donnaTimesPreview", Leitura),
     ("donnaTimesSave", Comum),

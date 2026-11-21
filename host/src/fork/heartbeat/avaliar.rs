@@ -8,7 +8,9 @@ use std::{collections::BTreeMap, fmt::Write as _};
 pub(crate) const MAX_ITENS: usize = 1000;
 const FALHAS_ATE_ALERTA: u32 = 3;
 const RECUO_MAX_S: u64 = 6 * 3600;
-const MAX_TEXTO: usize = 160;
+const MAX_TEXTO: usize = 120;
+/// Tamanho que o texto de um aviso pode ter somando todas as pendências mostradas; cada pendência cabe inteira.
+const ORCAMENTO_AVISO: usize = 280;
 /// Pendências novas mostradas por aviso. As que não couberem ficam como novas e saem no aviso seguinte.
 pub(crate) const MAX_NO_AVISO: usize = 5;
 
@@ -103,7 +105,20 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
         .filter(|(impressao, _)| !anterior.avisadas.contains(*impressao))
         .map(|(i, item)| (i, *item))
         .collect();
-    let mostradas = &novas[..novas.len().min(MAX_NO_AVISO)];
+    // Mostra só o que cabe inteiro no aviso (a primeira sempre cabe): o que não coube continua novo.
+    let textos: Vec<(String, String)> =
+        novas.iter().map(|(_, item)| (limpar(&item.fato), limpar(&item.escolha))).collect();
+    let mut quantas = 0;
+    let mut usado = 0;
+    for (fato, escolha) in textos.iter().take(MAX_NO_AVISO) {
+        let tamanho = fato.chars().count() + escolha.chars().count() + 5;
+        if quantas > 0 && usado + tamanho > ORCAMENTO_AVISO {
+            break;
+        }
+        usado += tamanho;
+        quantas += 1;
+    }
+    let mostradas = &novas[..quantas];
     let resultado = if !novas.is_empty() {
         Resultado::DecisaoPendente
     } else if mudou {
@@ -116,6 +131,7 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
     avisadas.extend(mostradas.iter().map(|(impressao, _)| (*impressao).clone()));
     avisadas.sort();
     let estado = Estado {
+        concessao: anterior.concessao.clone(),
         config: anterior.config.clone(),
         marcador,
         assinatura: Some(assinatura),
@@ -126,10 +142,8 @@ pub(crate) fn avaliar(fonte: &dyn Fonte, declaracao: &Declaracao, anterior: &Est
         nao_antes: 0,
         restantes: novas.len() - mostradas.len(),
     };
-    let aviso = (!novas.is_empty()).then(|| Aviso::Decisao {
-        itens: mostradas.iter().map(|(_, item)| (limpar(&item.fato), limpar(&item.escolha))).collect(),
-        alem: novas.len() - mostradas.len(),
-    });
+    let aviso = (!novas.is_empty())
+        .then(|| Aviso::Decisao { itens: textos[..quantas].to_vec(), alem: novas.len() - mostradas.len() });
     Saida { resultado, estado, aviso }
 }
 

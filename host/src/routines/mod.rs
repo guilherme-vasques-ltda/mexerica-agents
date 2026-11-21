@@ -13,6 +13,8 @@ mod bot_deletion;
 mod bound_save;
 #[path = "../fork/cadeias/rotinas.rs"]
 mod cadeias;
+#[path = "../fork/heartbeat/routines.rs"]
+mod checagem;
 mod pause;
 #[path = "../fork/rotina_resultado/routines.rs"]
 mod resultado;
@@ -87,6 +89,9 @@ pub struct Routine {
     /// Checagem silenciosa (Heartbeat): declarada só pelo dono, pelo app; nunca recebida do modelo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) heartbeat: Option<crate::fork::heartbeat::Declaracao>,
+    /// O que a checagem sabe entre uma leitura e outra (marcador, pendências já avisadas, última checagem).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) heartbeat_state: Option<crate::fork::heartbeat::Estado>,
 }
 
 /// Campos editáveis e identidade; metadados do agendador não são edições do usuário.
@@ -129,6 +134,7 @@ impl Status {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools, reason = "marcadores independentes de pendência, atraso e origem da execução")]
 pub struct Run {
     pub id: String,
     pub routine_id: String,
@@ -161,6 +167,12 @@ pub struct Run {
     /// Retentativas limitadas de execução catch-up após falha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub attempts: u64,
+    /// Execução gravada por uma checagem silenciosa: nunca passou pela IA; o texto do aviso sai do histórico ao publicar.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    heartbeat: bool,
+    /// O texto do aviso da checagem, só até a publicação. Nunca vai às listagens (`public_run`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    heartbeat_texto: Option<String>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&u64) -> bool")]
@@ -172,6 +184,10 @@ fn is_zero(v: &u64) -> bool {
 struct State {
     #[serde(default)]
     paused: bool,
+    /// Quantas vezes a pausa geral mudou. Uma checagem em leitura descarta o resultado se ela mudou, mesmo que a
+    /// pausa tenha sido desfeita antes da gravação.
+    #[serde(default)]
+    pausas: u64,
     /// Último instante em que o Hub pôde executar ocorrências (boot/despausa).
     /// Ocorrência com `at < available_at` é atrasada por indisponibilidade —
     /// critério verificável, sem tolerância arbitrária (MX-110).
@@ -189,13 +205,36 @@ fn guard_live_runs(state: &State) -> impl Iterator<Item = (&str, &str)> {
         .map(|run| (run.bot_id.as_str(), run.id.as_str()))
 }
 
+/// Fontes concedidas, por (bot, nome): a concessão e a fonte.
+type Fontes = std::collections::HashMap<(String, String), crate::fork::heartbeat::Concessao>;
+
+/// Trava de chamadas de cada instância de fonte, presa por referência fraca à própria fonte.
+type Travas = Vec<(std::sync::Weak<dyn crate::fork::heartbeat::Fonte>, Arc<std::sync::atomic::AtomicBool>)>;
+
 pub struct Routines {
-    state: Mutex<State>,
+    state: crate::fork::heartbeat::EstadoRotinas<State>,
     active: Mutex<HashSet<String>>,
     scheduler: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stopping: std::sync::atomic::AtomicBool,
     /// Bumped whenever the webhook set the relay registers (`hooks()`) changes.
     hooks_rev: tokio::sync::watch::Sender<u64>,
+    /// Fontes que cada bot pode ler nas checagens silenciosas: (bot, nome). Vazio até um conector registrar uma.
+    fontes: Mutex<Fontes>,
+    /// Numera cada registro de fonte nesta execução do Hub: quem lê só grava se o registro não mudou desde a leitura.
+    concessoes: std::sync::atomic::AtomicU64,
+    /// Prazo de cada chamada a uma fonte, em milissegundos.
+    prazo_fonte_ms: std::sync::atomic::AtomicU64,
+    /// Trava de chamadas por instância de fonte (a mesma fonte recadastrada reaproveita a trava): a entrada some quando
+    /// a fonte deixa de existir.
+    travas: Mutex<Travas>,
+    /// Testes: roda entre o despacho de uma chamada e o início dela, para mudar o estado nessa janela.
+    #[cfg(test)]
+    pub(crate) entre_despacho_e_chamada: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Testes: roda na linha de execução da chamada, depois de a admissão positiva chegar e antes da chamada.
+    #[cfg(test)]
+    pub(crate) depois_da_admissao: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
+    checando: Mutex<HashSet<String>>,
     /// Falhas transitórias injetadas em `prepare_attempt` nos testes.
     #[cfg(test)]
     pub(crate) fail_next: std::sync::atomic::AtomicUsize,
@@ -207,11 +246,20 @@ pub struct Routines {
 impl Default for Routines {
     fn default() -> Self {
         Self {
-            state: Mutex::default(),
+            state: crate::fork::heartbeat::EstadoRotinas::default(),
             active: Mutex::default(),
             scheduler: Mutex::default(),
             stopping: std::sync::atomic::AtomicBool::default(),
             hooks_rev: tokio::sync::watch::channel(0).0,
+            fontes: Mutex::default(),
+            concessoes: std::sync::atomic::AtomicU64::new(0),
+            prazo_fonte_ms: std::sync::atomic::AtomicU64::new(crate::fork::heartbeat::PRAZO_PADRAO_MS),
+            travas: Mutex::default(),
+            #[cfg(test)]
+            entre_despacho_e_chamada: Mutex::default(),
+            #[cfg(test)]
+            depois_da_admissao: Mutex::default(),
+            checando: Mutex::default(),
             #[cfg(test)]
             fail_next: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -269,7 +317,7 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
         Some(Value::Null) => None,
         Some(declaration) => Some(crate::fork::heartbeat::Declaracao::parse(declaration)?),
     };
-    if heartbeat.is_some() && triggers.iter().any(|t| matches!(t, Trigger::Webhook | Trigger::Event { .. })) {
+    if heartbeat.is_some() && triggers.iter().any(|t| !matches!(t, Trigger::Interval { .. } | Trigger::Cron { .. })) {
         bail!(crate::fork::heartbeat::SO_NO_HORARIO);
     }
     if heartbeat.is_some()
@@ -309,7 +357,7 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
         enabled: (heartbeat.is_none() || explicit_enable)
             && body["enabled"].as_bool().unwrap_or_else(|| old.as_ref().is_none_or(|r| r.enabled)),
         created_at: old.as_ref().map_or(now, |r| r.created_at),
-        updated_at: now,
+        updated_at: old.as_ref().map_or(now, |r| now.max(r.updated_at.saturating_add(1))),
         next_runs: if let Some(old) = &old
             && old.triggers == triggers
             && (body["enabled"] != true || old.enabled)
@@ -330,6 +378,12 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
             .as_ref()
             .and_then(|r| r.external_release_pending)
             .filter(|_| body["enabled"] != true),
+        heartbeat_state: old.as_ref().and_then(|r| r.heartbeat_state.clone()).filter(|_| {
+            old.as_ref()
+                .and_then(|r| r.heartbeat.as_ref())
+                .zip(heartbeat.as_ref())
+                .is_some_and(|(antes, agora)| antes.mesma_observacao(agora))
+        }),
         heartbeat,
     };
     if !(1..=86_400).contains(&r.timeout_seconds) {
@@ -469,6 +523,9 @@ impl Routines {
             run.finished_at = Some(now_ms());
             run.report_pending = false;
         }
+        // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
+        // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let result = commit(&serde_json::to_string(&next)?)?;
         let hooks_changed = hook_set(&state) != hook_set(&next);
         *state = next;
@@ -496,6 +553,15 @@ impl Routines {
         next.routines.retain(|r| r.bot_id != bot);
         for routine in before {
             let mut restored = routine.clone();
+            // Desfazer uma edição não desfaz o que a checagem já avisou: o progresso mais recente fica. E a versão da
+            // rotina só avança (nunca volta ao valor antigo), para uma leitura em andamento não passar por válida.
+            if let Some(atual) = current.iter().find(|r| r.id == restored.id) {
+                restored.updated_at = now_ms().max(atual.updated_at.max(restored.updated_at).saturating_add(1));
+                if atual.heartbeat.as_ref().zip(restored.heartbeat.as_ref()).is_some_and(|(a, b)| a.mesma_observacao(b))
+                {
+                    restored.heartbeat_state.clone_from(&atual.heartbeat_state);
+                }
+            }
             restored.next_runs = restored.triggers.iter().map(|t| t.next(now_ms())).collect::<Result<_>>()?;
             restored.schedule_generation = current
                 .iter()
@@ -505,6 +571,9 @@ impl Routines {
                 .context("Não foi possível atualizar a agenda desta rotina")?;
             next.routines.push(restored);
         }
+        // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
+        // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let result = commit(&serde_json::to_string(&next)?)?;
         let hooks_changed = hook_set(&state) != hook_set(&next);
         *state = next;
@@ -611,7 +680,7 @@ impl Routines {
             if enabled {
                 r.external_release_pending = None;
             }
-            r.updated_at = now_ms();
+            r.updated_at = now_ms().max(r.updated_at.saturating_add(1));
             if !enabled {
                 for run in &mut s.runs {
                     if run.routine_id == id && run.status == Status::Pending {
@@ -743,7 +812,7 @@ impl Routines {
                     .find(|r| r.id == id && r.bot_id == bot && !r.deleted)
                     .context("routine not found")?;
                 r.webhook_key = webhook_key();
-                r.updated_at = now_ms();
+                r.updated_at = now_ms().max(r.updated_at.saturating_add(1));
                 Ok(())
             })?;
         }
@@ -800,7 +869,7 @@ fn required<'a>(body: &'a Value, key: &str) -> Result<&'a str> {
 }
 fn public(r: &Routine) -> Value {
     json!({"id":r.id,"botId":r.bot_id,"name":r.name,"instruction":r.instruction,"triggers":r.triggers,"enabled":r.enabled,"createdAt":r.created_at,"updatedAt":r.updated_at,
-        "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"heartbeat":r.heartbeat,"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
+        "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"heartbeat":r.heartbeat,"heartbeatStatus":r.heartbeat_state.as_ref().map(crate::fork::heartbeat::Estado::public),"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
         "triggerDescriptions":r.triggers.iter().map(Trigger::description).collect::<Vec<_>>(),"agenda":calendar::agenda(&r.triggers),"nextRunAt": if r.enabled {r.next_runs.iter().flatten().min().copied()} else {None}})
 }
 fn public_run(run: &Run) -> Value {
@@ -831,6 +900,8 @@ fn new_run(r: &Routine, event: Value, delivery_id: Option<String>) -> Run {
         outcome: None,
         catchup: false,
         attempts: 0,
+        heartbeat: false,
+        heartbeat_texto: None,
     }
 }
 
@@ -870,7 +941,7 @@ pub(crate) fn enable_for_review(routine: &mut Routine) -> Result<()> {
         routine.schedule_generation.checked_add(1).context("Não foi possível atualizar a agenda desta rotina")?;
     routine.enabled = true;
     routine.external_release_pending = None;
-    routine.updated_at = now_ms();
+    routine.updated_at = now_ms().max(routine.updated_at.saturating_add(1));
     Ok(())
 }
 fn cancel_pending(state: &mut State, id: &str) {
@@ -1073,6 +1144,7 @@ mod tests {
             external_creation: false,
             external_release_pending: None,
             heartbeat: None,
+            heartbeat_state: None,
         }
     }
     #[test]

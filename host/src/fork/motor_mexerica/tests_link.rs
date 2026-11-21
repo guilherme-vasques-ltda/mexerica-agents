@@ -608,6 +608,251 @@ async fn cofre_ilegivel_para_proteger_nao_guarda_a_conversa() {
     acp.kill_and_wait().await;
 }
 
+/// A chave de um endereço próprio REGISTRADO que não é o provedor desta conversa também sai do texto antes de a
+/// conversa ser guardada: a leitura de proteção cobre todos os endereços do cofre, não só o desta sessão.
+#[tokio::test]
+async fn chave_de_outro_endereco_proprio_sai_do_texto_guardado() {
+    let case = caso!("chave_de_outro_endereco_proprio_sai_do_texto_guardado");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let chave = "chave-do-endereco-proprio-registrado-que-nao-e-este-provedor";
+    let registro = json!({"key": chave, "baseUrl": "https://exemplo.invalido/v1",
+        "formato": "chat-completions", "local": false, "nome": "Serviço registrado"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    proprio::incluir(&store, "proprio-abcdef12").unwrap();
+    let fonte = store.clone();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(move || proprio::ids(&fonte)));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, &format!("minha outra chave é {chave}")).await;
+    // O motor vivo viu o texto cru; o que prova a redação é a CÓPIA guardada, que volta no próximo processo.
+    matar_o_motor(acp.pid().unwrap()).await;
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: minha outra chave é [removido] | /historico");
+    acp.kill_and_wait().await;
+}
+
+/// ESCOLHER um endereço próprio com a conversa vazia não o marca como recebedor: a conversa que nascer depois
+/// em outro provedor não segue para ele — só um turno lá entrega a conversa.
+#[tokio::test]
+async fn escolher_endereco_proprio_com_conversa_vazia_nao_o_marca_recebedor() {
+    let case = caso!("escolher_endereco_proprio_com_conversa_vazia_nao_o_marca_recebedor");
+    let pedaco = |delta: Value, fim: Value| {
+        format!(
+            "data: {}\n\n",
+            json!({"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "modelo-local",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": fim}]})
+        )
+    };
+    let corpo = pedaco(json!({"role": "assistant", "content": "resposta do endereço"}), Value::Null)
+        + &pedaco(json!({}), json!("stop"))
+        + "data: [DONE]\n\n";
+    let (base, pedidos) = tests_chaves::servico_local(move |_| (200, corpo.clone(), "text/event-stream")).await;
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let registro = json!({"key": "chave-do-endereco-proprio-2", "baseUrl": format!("{base}/v1"),
+        "formato": "chat-completions", "local": true, "nome": "Serviço local"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    proprio::incluir(&store, "proprio-abcdef12").unwrap();
+    let fonte = store.clone();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(move || proprio::ids(&fonte)));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let params = json!({"cwd": case.dir, "mcpServers": []});
+    let sid = acp.request("session/new", params.clone()).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+
+    // Só ESCOLHER o endereço, com a conversa vazia.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+
+    // A conversa nasce em outro provedor.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let marca = "CONVERSA-QUE-NAO-PODE-SAIR-88";
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": marca}]}))
+        .await
+        .unwrap();
+    dirigir(&acp, answer, &mut rx, true).await;
+
+    // Voltar ao endereço escolhido antes e conversar lá: a conversa do outro provedor não pode ir junto.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    let (result, _, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let recebidos = pedidos.lock().unwrap().clone();
+    let conversa = recebidos.iter().find(|p| p.starts_with("POST ")).expect("o endereço próprio não recebeu o turno");
+    assert!(conversa.contains("\"oi\""), "{conversa}");
+    assert!(!conversa.contains(marca), "a escolha com a conversa vazia marcou o endereço como recebedor: {conversa}");
+    acp.kill_and_wait().await;
+}
+
+/// Se a troca para um endereço próprio falhar no `set_model`, a conversa que já existia no provedor anterior
+/// continua intacta — o recomeço só é efetivado quando o candidato é aceito.
+#[tokio::test]
+async fn trocar_para_endereco_proprio_que_falha_no_set_model_preserva_a_conversa_anterior() {
+    let case = caso!("trocar_para_endereco_proprio_que_falha_no_set_model_preserva_a_conversa_anterior");
+    let pedaco = |delta: Value, fim: Value| {
+        format!(
+            "data: {}\n\n",
+            json!({"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "modelo-local",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": fim}]})
+        )
+    };
+    let corpo = pedaco(json!({"role": "assistant", "content": "ok"}), Value::Null)
+        + &pedaco(json!({}), json!("stop"))
+        + "data: [DONE]\n\n";
+    let (base, pedidos) = tests_chaves::servico_local(move |_| (200, corpo.clone(), "text/event-stream")).await;
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let registro = json!({"key": "chave-do-endereco-proprio-falha-set", "baseUrl": format!("{base}/v1"),
+        "formato": "chat-completions", "local": true, "nome": "Serviço local"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    proprio::incluir(&store, "proprio-abcdef12").unwrap();
+    let fonte = store.clone();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(move || proprio::ids(&fonte)));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    let marca = "CONVERSA-ANTERIOR-INTACTA-77";
+    turno_de_texto(&acp, &mut rx, &sid, marca).await;
+
+    // Modelo inválido no endereço próprio: `set_model` falha depois do spawn, sem perder o histórico de `faux`.
+    let recusado =
+        acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/a..b"})).await;
+    assert!(recusado.is_err(), "modelo inválido tinha de recusar set_model");
+
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, format!("historico: {marca} | /historico"), "a conversa anterior tinha de permanecer");
+
+    // Quando a troca para o endereço próprio finalmente sucede, a conversa anterior não vai para ele.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    let (result, _, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let recebidos = pedidos.lock().unwrap().clone();
+    let conversa = recebidos.iter().find(|p| p.starts_with("POST ")).expect("o endereço próprio não recebeu o turno");
+    assert!(!conversa.contains(marca), "conversa do provedor anterior vazou: {conversa}");
+    acp.kill_and_wait().await;
+}
+
+/// Turno cancelado antes de entregar qualquer evento no endereço próprio não o marca como recebedor.
+#[tokio::test]
+async fn turno_cancelado_antes_de_entregar_nao_marca_endereco_proprio_recebedor() {
+    let case = caso!("turno_cancelado_antes_de_entregar_nao_marca_endereco_proprio_recebedor");
+    let pedaco = |delta: Value, fim: Value| {
+        format!(
+            "data: {}\n\n",
+            json!({"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "modelo-local",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": fim}]})
+        )
+    };
+    let corpo = pedaco(json!({"role": "assistant", "content": "ok"}), Value::Null)
+        + &pedaco(json!({}), json!("stop"))
+        + "data: [DONE]\n\n";
+    let (base, pedidos) = tests_chaves::servico_local(move |_| (200, corpo.clone(), "text/event-stream")).await;
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let registro = json!({"key": "chave-do-endereco-proprio-cancel", "baseUrl": format!("{base}/v1"),
+        "formato": "chat-completions", "local": true, "nome": "Serviço local"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    proprio::incluir(&store, "proprio-abcdef12").unwrap();
+    let fonte = store.clone();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(move || proprio::ids(&fonte)));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let params = json!({"cwd": case.dir, "mcpServers": []});
+    let sid = acp.request("session/new", params).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+    matar_o_motor(acp.pid().unwrap()).await;
+    link::PAUSE_AFTER_RESTORE.store(true, Ordering::Relaxed);
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "cancelado"}]}))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
+    let cancelled = tokio::time::timeout(Duration::from_secs(10), answer.response()).await.unwrap().unwrap();
+    link::PAUSE_AFTER_RESTORE.store(false, Ordering::Relaxed);
+    assert_eq!(cancelled["stopReason"], "cancelled");
+
+    // A conversa nasce em outro provedor; depois volta ao endereço próprio.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let marca = "CONVERSA-PRIVADA-POS-CANCEL-55";
+    turno_de_texto(&acp, &mut rx, &sid, marca).await;
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    let (result, _, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let recebidos = pedidos.lock().unwrap().clone();
+    let conversa = recebidos.iter().find(|p| p.starts_with("POST ")).expect("o endereço próprio não recebeu o turno");
+    assert!(!conversa.contains(marca), "turno cancelado antes da entrega marcou recebedor: {conversa}");
+    acp.kill_and_wait().await;
+}
+
+/// O índice dos endereços está CORROMPIDO no cofre: índice ausente é lista vazia, mas índice ilegível é erro —
+/// a conversa não é guardada sem saber quais chaves a proteção precisa mascarar.
+#[tokio::test]
+async fn indice_de_enderecos_corrompido_nao_guarda_a_conversa() {
+    let case = caso!("indice_de_enderecos_corrompido_nao_guarda_a_conversa");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    store.kv_set(proprio::INDICE, "não é json").unwrap();
+    let fonte = store.clone();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(move || proprio::ids(&fonte)));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: /historico", "índice corrompido não pode virar \"sem endereços\"");
+    acp.kill_and_wait().await;
+}
+
+/// Sem conseguir listar os endereços próprios, a proteção não presume "sem chaves": a conversa não é guardada,
+/// como em qualquer leitura do cofre que falha.
+#[tokio::test]
+async fn falha_ao_listar_os_enderecos_proprios_nao_guarda_a_conversa() {
+    let case = caso!("falha_ao_listar_os_enderecos_proprios_nao_guarda_a_conversa");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let link = Link::new(store_vault(store), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.use_proprios(Arc::new(|| anyhow::bail!("índice de endereços ilegível na prova")));
+    let (acp, mut rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    turno_de_texto(&acp, &mut rx, &sid, "esta conversa não pode ser guardada").await;
+    assert!(acp.pid().is_none(), "o processo que viu o turno sem proteção não volta ao slot");
+    let texto = historico_visto(&acp, &mut rx, &sid).await;
+    assert_eq!(texto, "historico: /historico", "sem a lista de endereços nada ficou guardado");
+    acp.kill_and_wait().await;
+}
+
 /// A credencial servida ao motor é a da geração autorizada para a conversa: se o cofre muda no meio (rotação entre a
 /// decisão e a chamada ao provedor), a leitura é recusada em vez de a conta nova receber o contexto da anterior.
 #[test]
@@ -938,6 +1183,61 @@ async fn definicao_curada_ou_com_outro_executavel_sai_como_conector() {
     assert!(!classe("mcp__memory__ler").released() && !classe("mcp__donna-curado-x__ler").released());
     assert!(!classe("mcp__chat__ler").released() && !classe("mcp__chat__gravar").released());
     assert!(mcp.classify("mcp__chat__nao_existe").is_none());
+}
+
+#[tokio::test]
+async fn conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu() {
+    let case = caso!("conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu");
+    let pedaco = |delta: Value, fim: Value| {
+        format!(
+            "data: {}\n\n",
+            json!({"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "modelo-local",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": fim}]})
+        )
+    };
+    let corpo = pedaco(json!({"role": "assistant", "content": "resposta do endereço"}), Value::Null)
+        + &pedaco(json!({}), json!("stop"))
+        + "data: [DONE]\n\n";
+    let (base, pedidos) = tests_chaves::servico_local(move |_| (200, corpo.clone(), "text/event-stream")).await;
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let registro = json!({"key": "chave-do-endereco-proprio-1", "baseUrl": format!("{base}/v1"),
+        "formato": "chat-completions", "local": true, "nome": "Serviço local"});
+    crate::market::vault::write(&store, &credential_slot("proprio-abcdef12"), &registro.to_string()).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let params = json!({"cwd": case.dir, "mcpServers": []});
+    let sid = acp.request("session/new", params).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let marca = "CONVERSA-QUE-NAO-PODE-SAIR-77";
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": marca}]}))
+        .await
+        .unwrap();
+    dirigir(&acp, answer, &mut rx, true).await;
+
+    // Trocar para um endereço próprio que nunca recebeu esta conversa: ela recomeça lá, sem a cópia.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "proprio-abcdef12/modelo-local"}))
+        .await
+        .unwrap();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    let (result, updates, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let texto: String = updates
+        .iter()
+        .filter(|u| u["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|u| u["content"]["text"].as_str().map(str::to_owned))
+        .collect();
+    assert!(texto.contains("resposta do endereço"), "{texto}");
+    let recebidos = pedidos.lock().unwrap().clone();
+    let conversa =
+        recebidos.iter().find(|p| p.starts_with("POST ")).expect("o endereço próprio não recebeu a conversa");
+    assert!(conversa.contains("\"oi\""), "{conversa}");
+    assert!(!recebidos.iter().any(|p| p.contains(marca)), "a conversa anterior seguiu para o endereço próprio");
+    acp.kill_and_wait().await;
 }
 
 // ---------------------------------------------------------------------------

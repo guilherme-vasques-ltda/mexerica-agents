@@ -17,9 +17,22 @@ import { HubCredentialStore } from "./src/credentials.ts";
 import { parseHistory } from "./src/history.ts";
 import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
-import { fauxAcesso, registerProviders } from "./src/providers.ts";
+import { fauxAcesso, registerProviders, registrarProprio } from "./src/providers.ts";
 import { comPrazoDeSilencio, semRedirecionar } from "./src/silencio.ts";
-import { ehFornecedor, modeloDoFornecedor, testarAcesso } from "./src/fornecedores.ts";
+import { fetchGuardado } from "./src/destino.ts";
+import {
+	ehFornecedor,
+	ehProprio,
+	enderecoDoCofre,
+	FORNECEDORES,
+	fornecedorProprio,
+	modeloDoFornecedor,
+	modeloProprio,
+	modeloProprioValido,
+	modeloValido,
+	testarAcesso,
+	type Endereco,
+} from "./src/fornecedores.ts";
 import { VaultChannel } from "./src/vault-channel.ts";
 
 type Command = { id?: string; type: string } & Record<string, unknown>;
@@ -59,8 +72,11 @@ const fetchDoFornecedor = comPrazoDeSilencio(semRedirecionar);
 const prazoDeTeste = Number(process.env["MEXERICA_TESTE_PRAZO_MS"]) || 15_000;
 const fetchDoTeste = comPrazoDeSilencio(semRedirecionar, prazoDeTeste);
 const PRAZO_DO_TESTE_MS = prazoDeTeste * 2;
+/** O endereço próprio desta conversa conecta só pelo portão de `destino.ts`. */
+const fetchPorProvedor = new Map<string, typeof globalThis.fetch>();
 const agent = new Agent({
-	streamFn: (model, context, options) => models.streamSimple(model, context, { ...options, fetch: fetchDoFornecedor }),
+	streamFn: (model, context, options) =>
+		models.streamSimple(model, context, { ...options, fetch: fetchPorProvedor.get(model.provider) ?? fetchDoFornecedor }),
 	toolExecution: "parallel",
 	// Os tetos da conversa valem em cada chamada ao provedor, também no meio de um turno gigante. O corte vale
 	// também para a lista do próprio laço (ela é a mesma que chega aqui), que então não cresce sem limite.
@@ -109,6 +125,12 @@ agent.subscribe((event: AgentEvent) => {
 	}
 });
 
+/** A configuração do endereço próprio vem do cofre do Hub junto com a chave, e é conferida de novo aqui. */
+async function enderecoProprio(provider: string): Promise<Endereco> {
+	const credential = await credentials.read(provider);
+	return enderecoDoCofre((credential as { endpoint?: unknown } | undefined)?.endpoint);
+}
+
 let streaming = false;
 let model: Model<string> | undefined;
 
@@ -127,13 +149,21 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 			agent.state.messages = fitMessages(agent.state.messages);
 		}
 	},
-	set_model(command) {
+	async set_model(command) {
 		const provider = String(command.provider);
 		const modelId = String(command.modelId);
 		// Os limites vêm do último «Testar acesso» (o Hub os guarda); sem eles, os padrões do fornecedor.
 		const limite = (valor: unknown) => (Number.isSafeInteger(valor) && (valor as number) > 0 ? (valor as number) : undefined);
 		const listado = { id: modelId, name: modelId, contextWindow: limite(command.contextWindow), maxTokens: limite(command.maxTokens) };
-		const found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId, listado) : undefined);
+		let found: Model<string> | undefined;
+		if (ehProprio(provider)) {
+			const endereco = await enderecoProprio(provider);
+			registrarProprio(models, provider, endereco);
+			fetchPorProvedor.set(provider, comPrazoDeSilencio(fetchGuardado(endereco.local)));
+			found = modeloProprio(provider, endereco, modelId, listado);
+		} else {
+			found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId, listado) : undefined);
+		}
 		if (!found) throw new Error(`modelo desconhecido: ${command.provider}/${command.modelId}`);
 		model = found;
 		agent.state.model = found;
@@ -156,12 +186,24 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 	async list_models(command) {
 		const provider = String(command.provider);
 		const faux = fauxHandle !== undefined && (provider === "faux" || provider === "faux2");
-		if (!ehFornecedor(provider) && !faux) throw new Error(`fornecedor desconhecido: ${provider}`);
+		if (!ehFornecedor(provider) && !ehProprio(provider) && !faux) throw new Error(`fornecedor desconhecido: ${provider}`);
 		const credential = await credentials.read(provider);
 		const key = (credential as { key?: unknown } | undefined)?.key;
 		if (typeof key !== "string" || !key) return respond(command.id, "list_models", { ok: false, erro: "sem_chave" });
-		if (!ehFornecedor(provider)) return respond(command.id, "list_models", fauxAcesso(provider, key, models.getModels(provider)));
-		respond(command.id, "list_models", await testarAcesso(provider, key, fetchDoTeste, AbortSignal.timeout(PRAZO_DO_TESTE_MS)));
+		if (faux) return respond(command.id, "list_models", fauxAcesso(provider, key, models.getModels(provider)));
+		const prazo = AbortSignal.timeout(PRAZO_DO_TESTE_MS);
+		if (ehProprio(provider)) {
+			let endereco: Endereco;
+			try {
+				endereco = enderecoDoCofre((credential as { endpoint?: unknown }).endpoint);
+			} catch {
+				return respond(command.id, "list_models", { ok: false, erro: "destino_recusado" });
+			}
+			const fetch = comPrazoDeSilencio(fetchGuardado(endereco.local), prazoDeTeste);
+			return respond(command.id, "list_models", await testarAcesso(fornecedorProprio(endereco), key, fetch, prazo, modeloProprioValido));
+		}
+		const id = provider as keyof typeof FORNECEDORES;
+		respond(command.id, "list_models", await testarAcesso(FORNECEDORES[id], key, fetchDoTeste, prazo, (m) => modeloValido(id, m)));
 	},
 	get_available_models(command) {
 		respond(command.id, "get_available_models", { models: models.getModels() });

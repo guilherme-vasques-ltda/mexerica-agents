@@ -96,10 +96,13 @@ impl Host {
             "managed" => "".into(),
             _ => mode.into(),
         };
+        // O conector falso acima imita o adaptador do SDK (`npx claude-agent-acp`): estes testes rodam o caminho
+        // anterior, que segue disponível pela opção. A ponte do programa oficial tem provas próprias.
         let env = [
             ("PATH", path),
             ("DONNABOT_FIXTURE_BACKGROUND_MODE", background_mode),
             ("CLAUDE_CONFIG_DIR", profile.into_os_string()),
+            ("MEXERICA_CLAUDE_SDK", "1".into()),
         ];
         let (child, base) = super::serve_with_env(&home, &env).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();

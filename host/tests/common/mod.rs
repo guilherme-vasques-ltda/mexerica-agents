@@ -52,6 +52,9 @@ async fn serve_inner(home: &Path, env: &[(&str, std::ffi::OsString)], limpar: bo
         if limpar {
             command.env_clear();
         }
+        if !env.iter().any(|(key, _)| *key == "MEXERICA_CLAUDE_SDK") {
+            command.env_remove("MEXERICA_CLAUDE_SDK");
+        }
         let mut child = StartingHost(Some(
             command
                 .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])

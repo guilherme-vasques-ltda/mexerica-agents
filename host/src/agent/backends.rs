@@ -627,7 +627,8 @@ pub fn list() -> Vec<Value> {
         .map(|h| {
             let path = h.bins.iter().find_map(|b| which(b));
             let reg = h.registry.and_then(|id| registry.iter().find(|a| a["id"] == id));
-            let native = path.is_some() && h.local.is_some();
+            let ponte = h.id == "claude" && !crate::fork::claude_ponte::legado();
+            let native = path.is_some() && (h.local.is_some() || ponte);
             let runnable = native || reg.is_some_and(|a| registry::launch_kind(a).is_some());
             let node = if native { None } else { reg.filter(|a| registry::needs_node(a)).and_then(|_| node::state()) };
             json!({
@@ -790,6 +791,18 @@ pub async fn launch_candidates(
     crate::open_hub::require_executor()?;
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::launch_candidates();
+    }
+    if id == "claude" && !crate::fork::claude_ponte::legado() {
+        let Some(programa) = which("claude") else {
+            return Err(acp::Failure::error(
+                acp::FailureKind::NotSetUp,
+                format!("Claude Code isn't set up on this computer. {}", harness(id).map_or("", |h| h.setup)),
+            ));
+        };
+        return Ok(vec![registry::Cmd {
+            program: crate::fork::claude_ponte::comando(Some(&programa))?,
+            args: String::new(),
+        }]);
     }
     let mut out: Vec<registry::Cmd> = local_candidate(id).into_iter().collect();
     let h = harness(id);
