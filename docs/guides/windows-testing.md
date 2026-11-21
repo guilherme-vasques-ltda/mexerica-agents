@@ -40,18 +40,18 @@ e2e); use the VM for a full e2e, or when a change or a bug depends on Windows it
    satisfies:
 
    ```powershell
-   $t = Get-Content "$env:USERPROFILE\.donnabot\token"
+   $t = Get-Content "$env:USERPROFILE\.mexerica\token"
    Invoke-RestMethod -Method Post -Uri http://localhost:19422/api/refreshBackends `
      -Headers @{ Authorization = "Bearer $t" } -ContentType application/json -Body '{}'
    ```
 
    `createBot`, `send` and `history` cover most agent checks; a failed start shows up as an error
-   notice in `history`. Host logs are under `%USERPROFILE%\.donnabot`.
+   notice in `history`. Host logs are under `%USERPROFILE%\.mexerica`.
 4. Agents: Settings → AI accounts includes Motores no Hub for supported harnesses and their
    existing installation/login steps. Codex and Claude Code use the accounts above that section.
    Extensions no longer has an Agents section. Adapters published on npm need Node.js; the
    existing assisted setup sheet in Settings and Host setup service
-   can put its pinned copy in `%USERPROFILE%\.donnabot\node` (see
+   can put its pinned copy in `%USERPROFILE%\.mexerica\node` (see
    [agent setup](../features/marketplace.md)). To test the computer's own Node instead,
    `winget install OpenJS.NodeJS`.
 
