@@ -335,7 +335,11 @@ impl Sessao {
 }
 
 async fn decidir(ponte: Arc<Ponte>, sessao: Weak<Sessao>, args: Value) -> Value {
-    let negar = |m: &str| json!({"behavior": "deny", "message": m});
+    // O motivo vai para o registro de diagnóstico da ponte; a entrada da ferramenta não.
+    let negar = |m: &str| {
+        eprintln!("ponte do Claude: permissão negada: {m}");
+        json!({"behavior": "deny", "message": m})
+    };
     let Some(s) = sessao.upgrade() else { return negar("Sessão encerrada.") };
     let mut cancelado = s.cancelar.subscribe();
     let mut acabou = s.fim_turno.subscribe();
@@ -511,8 +515,9 @@ async fn enviar(p: &mut Processo, linha: &str, cancelar: &mut watch::Receiver<u6
         p.entrada.flush().await
     };
     tokio::select! {
-        r = escrita => Some(r.is_ok()),
+        biased;
         Ok(()) = cancelar.changed() => None,
+        r = escrita => Some(r.is_ok()),
     }
 }
 
@@ -538,6 +543,10 @@ async fn turno(
     let mut guarda = s.processo.lock().await;
     s.turno_ativo.store(true, Ordering::SeqCst);
     let _ativo = TurnoAtivo(s);
+    // Cancelado enquanto esperava a vez: nada chega ao programa.
+    if cancelar.has_changed().unwrap_or(false) {
+        return Ok(json!({"stopReason": "cancelled"}));
+    }
     if s.reabrir.swap(false, Ordering::SeqCst)
         && let Some(p) = guarda.take()
     {
@@ -651,8 +660,9 @@ async fn turno(
                         let _ = std::fs::remove_file(arquivo);
                     }
                 }
-                let atualizacoes = s.traducao.locked().evento(&ev);
-                for u in atualizacoes {
+                // O anúncio entra na fila de saída antes de `decidir` poder ver a chamada: a trava cobre os dois.
+                let mut t = s.traducao.locked();
+                for u in t.evento(&ev) {
                     ponte.atualizar(&s.id, &u);
                 }
             }

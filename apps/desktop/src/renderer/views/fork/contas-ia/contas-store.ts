@@ -224,10 +224,11 @@ export class ContasStore extends Observable {
   private async reload(client: HostClient) {
     // Mesmo contador do `load`: uma leitura começada antes não sobrescreve a lista relida aqui.
     const read = ++this.reads
-    const { accounts } = await this.api.accounts(client, {})
-    if (read === this.reads) {
-      this.accounts = ordered(accounts)
-      this.loading = false
+    try {
+      const { accounts } = await this.api.accounts(client, {})
+      if (read === this.reads) this.accounts = ordered(accounts)
+    } finally {
+      if (read === this.reads) this.loading = false
     }
   }
 

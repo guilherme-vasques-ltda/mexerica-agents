@@ -366,6 +366,7 @@ impl Traducao {
                     }
                     out.push(texto(atualizacao, t));
                 }
+                "web_search_tool_result" | "web_fetch_tool_result" => self.resultado(bloco, out),
                 "tool_use" | "server_tool_use" | "mcp_tool_use" => {
                     let (Some(id), Some(nome)) = (bloco["id"].as_str(), bloco["name"].as_str()) else { continue };
                     self.anunciar(id, nome, raiz, out);
@@ -395,24 +396,35 @@ impl Traducao {
 
     fn usuario(&mut self, msg: &Value, out: &mut Vec<Value>) {
         for bloco in msg["content"].as_array().into_iter().flatten() {
-            if !matches!(bloco["type"].as_str(), Some("tool_result" | "mcp_tool_result" | "web_search_tool_result")) {
-                continue;
-            }
-            let Some(id) = bloco["tool_use_id"].as_str() else { continue };
-            if self.planos.contains(id) || !self.anunciadas.contains(id) {
-                continue;
-            }
-            self.concluidas.insert(id.to_owned());
-            let nome = self.ferramentas.get(id).map(|f| f.nome.clone()).unwrap_or_default();
-            let status = if bloco["is_error"] == true { "failed" } else { "completed" };
-            let mut u = json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": status,
-                "rawOutput": bloco["content"].clone(), "_meta": meta(&nome)});
-            let t = texto_resultado(&bloco["content"]);
-            if !t.is_empty() {
-                u["content"] = json!([{"type": "content", "content": {"type": "text", "text": t}}]);
-            }
-            out.push(u);
+            self.resultado(bloco, out);
         }
+    }
+
+    /// Resultado de uma chamada anunciada: de ferramenta local ou MCP (na mensagem do usuário) ou de ferramenta do
+    /// servidor, como busca e leitura na web (na própria mensagem do assistente).
+    fn resultado(&mut self, bloco: &Value, out: &mut Vec<Value>) {
+        if !matches!(
+            bloco["type"].as_str(),
+            Some("tool_result" | "mcp_tool_result" | "web_search_tool_result" | "web_fetch_tool_result")
+        ) {
+            return;
+        }
+        let Some(id) = bloco["tool_use_id"].as_str() else { return };
+        if self.planos.contains(id) || !self.anunciadas.contains(id) || self.concluidas.contains(id) {
+            return;
+        }
+        self.concluidas.insert(id.to_owned());
+        let nome = self.ferramentas.get(id).map(|f| f.nome.clone()).unwrap_or_default();
+        let erro =
+            bloco["is_error"] == true || bloco["content"]["type"].as_str().is_some_and(|t| t.ends_with("_error"));
+        let status = if erro { "failed" } else { "completed" };
+        let mut u = json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": status,
+                "rawOutput": bloco["content"].clone(), "_meta": meta(&nome)});
+        let t = texto_resultado(&bloco["content"]);
+        if !t.is_empty() {
+            u["content"] = json!([{"type": "content", "content": {"type": "text", "text": t}}]);
+        }
+        out.push(u);
     }
 
     /// Chamadas ainda abertas ao fim de um turno sem resultado delas fecham como falha; uma compactação sem o marco de

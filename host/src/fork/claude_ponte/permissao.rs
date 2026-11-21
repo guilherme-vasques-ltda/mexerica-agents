@@ -73,10 +73,12 @@ async fn pedido(State(estado): State<Arc<Estado>>, cabecalhos: HeaderMap, corpo:
     let esperado = format!("Bearer {}", estado.segredo);
     let autorizado = cabecalhos.get(header::AUTHORIZATION).is_some_and(|v| iguais(v.as_bytes(), esperado.as_bytes()));
     if !autorizado {
+        eprintln!("ponte do Claude: pedido de permissão sem o segredo recusado");
         return StatusCode::UNAUTHORIZED.into_response();
     }
     // Só o programa local chama aqui, e ele não manda `Origin`; pedido vindo de página de navegador é recusado.
     if cabecalhos.contains_key(header::ORIGIN) {
+        eprintln!("ponte do Claude: pedido de permissão com Origin recusado");
         return StatusCode::FORBIDDEN.into_response();
     }
     let Ok(msg) = serde_json::from_slice::<Value>(&corpo) else {
@@ -101,8 +103,11 @@ async fn pedido(State(estado): State<Arc<Estado>>, cabecalhos: HeaderMap, corpo:
         "ping" => resposta(&id, json!({})),
         "tools/list" => resposta(
             &id,
+            // A aprovação devolve a entrada inteira; o limite documentado da ferramenta sobe para entradas grandes
+            // (um `Write` de dezenas de KB) não virarem resposta inválida.
             json!({"tools": [{"name": FERRAMENTA_PERMISSAO,
                 "description": "Pergunta ao dono se uma ferramenta pode rodar. Uso interno do Mexerica.",
+                "_meta": {"anthropic/maxResultSizeChars": 500_000},
                 "inputSchema": {"type": "object", "properties": {"tool_name": {"type": "string"},
                     "input": {"type": "object"}, "tool_use_id": {"type": "string"}}, "required": ["tool_name", "input"]}}]}),
         ),

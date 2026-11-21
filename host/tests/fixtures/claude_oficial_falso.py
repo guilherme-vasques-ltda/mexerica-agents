@@ -155,11 +155,14 @@ def main():
             emitir({"type": "stream_event", "parent_tool_use_id": None, "session_id": sessao, "event": {"type": "content_block_delta", "index": 1,
                     "delta": {"type": "text_delta", "text": decisao["behavior"]}}})
         elif "[[fora-do-turno]]" in texto:
+            emitir({"type": "assistant", "parent_tool_use_id": None, "session_id": sessao, "message": {"id": mid, "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "toolu_fora", "name": "Bash", "input": {"command": "echo oi"}}]}})
             def depois():
                 time.sleep(0.5)
                 d = permissao.perguntar("Bash", {"command": "echo oi"}, "toolu_fora")
-                with open(caminho("fora.json"), "w") as saida:
+                with open(caminho("fora.json.tmp"), "w") as saida:
                     json.dump(d, saida)
+                os.replace(caminho("fora.json.tmp"), caminho("fora.json"))
             threading.Thread(target=depois).start()
         elif "[[ferramenta]]" in texto:
             entrada = {"command": "echo oi", "description": "diz oi"}
@@ -190,7 +193,9 @@ def main():
             emitir({"type": "stream_event", "parent_tool_use_id": None, "session_id": sessao, "event": {"type": "content_block_delta", "index": 0,
                     "delta": {"type": "text_delta", "text": "começando"}}})
             while not INTERROMPIDO:
-                signal.pause()
+                time.sleep(0.02)
+            with open(caminho("sigint"), "w") as marca:
+                marca.write("1")
             emitir({"type": "result", "subtype": "error_during_execution", "is_error": True, "session_id": sessao, "usage": uso,
                     "total_cost_usd": round(0.01 * turnos, 4), "modelUsage": resultado["modelUsage"]})
             sys.exit(130)

@@ -355,6 +355,7 @@ async fn cancelar_encerra_o_turno_pelo_sinal_documentado() {
     ));
     let r = c.falar(&sessao, "[[dormir]]").await;
     assert_eq!(r["result"]["stopReason"], "cancelled", "{r}");
+    assert!(amb.perfil.join("sigint").is_file(), "o programa recebeu o SIGINT antes de sair");
     let r = c.falar(&sessao, "oi").await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "a sessão segue depois do cancelamento: {r}");
     assert_eq!(arg(amb.lancamentos()[1]["args"].as_array().unwrap(), "--resume"), Some(sessao.as_str()));
@@ -464,6 +465,10 @@ async fn permissao_so_vale_para_a_chamada_anunciada_e_dentro_do_turno() {
     }
     let fora: Value = serde_json::from_str(&std::fs::read_to_string(arquivo).unwrap()).unwrap();
     assert_eq!(fora["behavior"], "deny", "{fora}");
+    assert_eq!(
+        fora["message"], "Nenhum turno em andamento.",
+        "a chamada foi anunciada; nega por estar fora do turno: {fora}"
+    );
     assert_eq!(c.permissoes.len(), 0, "nenhum cartão fora do turno");
     // A configuração MCP (segredo da ponte e variáveis dos servidores do Hub) sai do disco depois da leitura.
     let mcp = amb.lancamentos()[0]["mcp_config"].as_str().unwrap().to_owned();
@@ -522,6 +527,23 @@ fn texto_nao_some_quando_o_pensamento_ja_o_continha_e_compactacao_interrompida_f
     );
     let outra = t.evento(&json!({"type": "system", "subtype": "status", "status": "compacting"}));
     assert_eq!(outra.len(), 1, "a próxima compactação é anunciada: {outra:?}");
+
+    // Ferramenta do servidor: o resultado vem na própria mensagem do assistente.
+    let web = t.evento(&json!({"type": "assistant", "parent_tool_use_id": null, "message": {"id": "m2", "content": [
+        {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_fetch", "input": {"url": "https://exemplo.invalid"}},
+        {"type": "web_fetch_tool_result", "tool_use_id": "srvtoolu_1", "content": {"type": "web_fetch_result", "url": "https://exemplo.invalid"}},
+        {"type": "server_tool_use", "id": "srvtoolu_2", "name": "web_search", "input": {"query": "x"}},
+        {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_2",
+            "content": {"type": "web_search_tool_result_error", "error_code": "unavailable"}}]}}));
+    let status = |id: &str| {
+        web.iter().rev().find(|u| u["toolCallId"] == id && u["status"].is_string()).map(|u| u["status"].clone())
+    };
+    assert_eq!(status("srvtoolu_1"), Some(json!("completed")), "{web:?}");
+    assert_eq!(status("srvtoolu_2"), Some(json!("failed")), "{web:?}");
+    assert!(
+        !t.fechar_abertas().iter().any(|u| u["sessionUpdate"] == "tool_call_update"),
+        "nenhuma chamada fica aberta para virar falha no fim do turno"
+    );
 }
 
 #[test]
