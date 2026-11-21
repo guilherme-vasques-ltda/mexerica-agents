@@ -1,5 +1,5 @@
-// Provedores da fatia 1: chave de API direta (Google ou OpenAI), vindas só do
-// cofre do Hub. O provedor `faux` existe apenas sob MEXERICA_MOTOR_FAUX=1
+// Provedores da fatia 1: chave de API direta (Google, OpenAI ou Meta), vindas
+// só do cofre do Hub. O provedor `faux` existe apenas sob MEXERICA_MOTOR_FAUX=1
 // (testes locais do Hub), sem credencial e sem rede.
 import {
 	createProvider,
@@ -78,7 +78,49 @@ const OPENAI_MODELS: Model<"openai-responses">[] = [
 	},
 ];
 
-/** Registra google + openai (chave no cofre) e, sob a flag de teste, o faux. */
+// Modelos de texto da Meta Model API no modo Standard (api.meta.ai/v1). Todos
+// aceitam 1.048.576 tokens de contexto; o teto de saída por turno segue o dos
+// modelos do Google (65.536), conservador para o laço do motor.
+const META_MODELS: Model<"openai-responses">[] = [
+	{
+		id: "muse-wonder-1.0",
+		name: "Muse Wonder 1.0",
+		api: "openai-responses",
+		provider: "meta",
+		baseUrl: "https://api.meta.ai/v1",
+		input: ["text"],
+		reasoning: true,
+		cost: NO_COST,
+		contextWindow: 1048576,
+		maxTokens: 65536,
+	},
+	{
+		id: "muse-spark-1.3",
+		name: "Muse Spark 1.3",
+		api: "openai-responses",
+		provider: "meta",
+		baseUrl: "https://api.meta.ai/v1",
+		input: ["text"],
+		reasoning: true,
+		cost: NO_COST,
+		contextWindow: 1048576,
+		maxTokens: 65536,
+	},
+	{
+		id: "muse-ember-1.0",
+		name: "Muse Ember 1.0",
+		api: "openai-responses",
+		provider: "meta",
+		baseUrl: "https://api.meta.ai/v1",
+		input: ["text"],
+		reasoning: true,
+		cost: NO_COST,
+		contextWindow: 1048576,
+		maxTokens: 65536,
+	},
+];
+
+/** Registra google + openai + meta (chave no cofre) e, sob a flag de teste, o faux. */
 export function registerProviders(models: MutableModels): FauxProviderHandle | undefined {
 	const providers: Provider[] = [
 		createProvider({
@@ -95,6 +137,18 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 			baseUrl: "https://api.openai.com/v1",
 			auth: { apiKey: envApiKeyAuth("OpenAI API key", ["OPENAI_API_KEY"]) },
 			models: OPENAI_MODELS,
+			api: { stream: openaiStream, streamSimple: openaiStreamSimple },
+		}),
+		// Meta Model API (api.meta.ai): fala o formato Responses. Só os modelos
+		// do modo Standard entram no catálogo — as variantes `*-contributor` são
+		// mais baratas porque a Meta pode treinar com o conteúdo enviado, então
+		// ficam de fora por padrão.
+		createProvider({
+			id: "meta",
+			name: "Meta",
+			baseUrl: "https://api.meta.ai/v1",
+			auth: { apiKey: envApiKeyAuth("Meta Model API key", ["MODEL_API_KEY"]) },
+			models: META_MODELS,
 			api: { stream: openaiStream, streamSimple: openaiStreamSimple },
 		}),
 	];

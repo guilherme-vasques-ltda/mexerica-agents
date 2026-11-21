@@ -4,7 +4,7 @@
 //! ferramentas também: o Hub declara a lista (`set_tools`), o motor só pede
 //! (`tool_request`) e o Hub executa pelo caminho que já existe para os outros
 //! motores e devolve `tool_result` ([`tools`]). O motor NUNCA conecta direto
-//! a servidor MCP. A chave de API (Google ou `OpenAI`) sai do cofre do Hub e
+//! a servidor MCP. A chave de API (Google, `OpenAI` ou Meta) sai do cofre do Hub e
 //! chega ao motor SOMENTE pelo canal do cofre (`fd 3`, JSON-RPC
 //! `credential.read`): não é colocada em `argv`, ambiente ou URL. O `AuthContext`
 //! do `pi-ai` no motor é vazio, então credencial ambiente não resolve nada.
@@ -63,7 +63,7 @@ pub(crate) fn credential_slot(provider_id: &str) -> String {
 
 /// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
 #[cfg(unix)]
-const PROVIDERS: [&str; 4] = ["google", "openai", "faux", "faux2"];
+const PROVIDERS: [&str; 5] = ["google", "openai", "meta", "faux", "faux2"];
 
 #[cfg(unix)]
 const OWNER_SEPARATOR: char = '\u{1f}';

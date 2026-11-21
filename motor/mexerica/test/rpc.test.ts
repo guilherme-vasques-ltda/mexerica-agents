@@ -53,6 +53,25 @@ test("a credencial do cofre chega ao transporte do provedor certo", async () => 
 	rmSync(dir, { recursive: true, force: true });
 });
 
+test("a credencial do cofre chega ao transporte da Meta Model API", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "motor-fetch-meta-"));
+	const log = join(dir, "fetch.jsonl");
+	const proc = startEngine({}, { serveKey: SECRET, fetchLog: log });
+	proc.send({ id: "m", type: "set_model", provider: "meta", modelId: "muse-spark-1.3" });
+	await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+	proc.send({ id: "p", type: "prompt", message: "oi" });
+	const done = await proc.waitFor(turnoTerminou);
+	assert.ok(done, "o turno tinha de terminar (o stub responde 401)");
+	const calls = chamadasFetch(log);
+	assert.equal(calls.length, 1, `esperava exatamente 1 chamada de rede, vieram ${calls.length}`);
+	assert.equal(calls[0]!.url, "https://api.meta.ai/v1/responses");
+	assert.equal(calls[0]!.headers.authorization, `Bearer ${SECRET}`);
+	assert.ok(!JSON.stringify(proc.lines).includes(SECRET), "a chave vazou na saída RPC");
+	await encerrar(proc);
+	assert.ok(!proc.stderr().includes(SECRET), "a chave vazou no stderr do motor");
+	rmSync(dir, { recursive: true, force: true });
+});
+
 test("sem credencial o prompt falha fechado e sem rede", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "motor-fetch-"));
 	const log = join(dir, "fetch.jsonl");
