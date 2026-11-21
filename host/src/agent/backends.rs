@@ -611,7 +611,8 @@ pub fn list() -> Vec<Value> {
     let mut out: Vec<Value> = HARNESSES
         .iter()
         .filter(|h| {
-            h.id != "omp" && (h.id != crate::fork::motor_mexerica::ENGINE_ID || crate::fork::motor_mexerica::enabled())
+            !crate::fork::motores_retirados::retirado(h.id)
+                && (h.id != crate::fork::motor_mexerica::ENGINE_ID || crate::fork::motor_mexerica::enabled())
         })
         .map(|h| {
             let path = h.bins.iter().find_map(|b| which(b));
@@ -640,7 +641,8 @@ pub fn list() -> Vec<Value> {
     let known: HashSet<&str> = HARNESSES.iter().filter_map(|h| h.registry).collect();
     for a in &registry {
         let id = a["id"].as_str().unwrap_or_default();
-        if id.is_empty() || known.contains(id) || id == "github-copilot" || id == "omp" {
+        if id.is_empty() || known.contains(id) || id == "github-copilot" || crate::fork::motores_retirados::retirado(id)
+        {
             continue;
         }
         out.push(json!({
@@ -765,6 +767,9 @@ pub async fn launch_candidates(
     progress: impl Fn(&str, Option<crate::fork::activity_code::ActivityKind>),
 ) -> anyhow::Result<Vec<registry::Cmd>> {
     crate::open_hub::require_executor()?;
+    if crate::fork::motores_retirados::retirado(id) {
+        return Err(acp::Failure::error(acp::FailureKind::NotSetUp, crate::fork::motores_retirados::msg_lancar(id)));
+    }
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::launch_candidates();
     }
@@ -961,30 +966,43 @@ mod tests {
     }
 
     #[test]
+    fn motores_retirados_nao_sao_selecionaveis_e_os_mantidos_sim() {
+        let oferta = list();
+        let ids: Vec<&str> = oferta.iter().filter_map(|m| m["id"].as_str()).collect();
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            assert!(!ids.contains(id), "{id} saiu da oferta desta versão");
+        }
+        for id in ["claude", "codex", "opencode"] {
+            assert!(ids.contains(&id), "{id} continua oferecido");
+        }
+    }
+
+    #[test]
     fn every_harness_is_unique() {
         let ids: HashSet<_> = HARNESSES.iter().map(|h| h.id).collect();
         assert_eq!(ids.len(), HARNESSES.len());
     }
 
     #[test]
-    fn junie_e_cortex_sao_detectados_no_path_sem_oferecer_instalacao() {
+    fn cortex_e_detectado_no_path_sem_instalacao_e_o_junie_retirado_nao_aparece() {
         const FIXTURE: &str = "MEXERICA_TESTE_MOTORES_NATIVOS";
         if let Some(raiz) = std::env::var_os(FIXTURE) {
             let raiz = PathBuf::from(raiz);
             let oferta = list();
-            for (id, args) in [("junie", "--acp=true"), ("cortex", "acp serve")] {
-                let h = harness(id).unwrap();
-                assert!(h.install.is_none(), "{id}");
-                let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
-                assert_eq!(entrada["canInstall"], false, "{id}");
-                assert_eq!(entrada["installed"], true, "{id}");
-                assert_eq!(entrada["available"], true, "{id}");
-                let exe = which(id).unwrap();
-                assert!(exe.starts_with(&raiz), "{id}");
-                let candidato = local_candidate(id).unwrap();
-                assert_eq!(candidato.program, shell::quote(&exe.to_string_lossy()));
-                assert_eq!(candidato.args, args);
-            }
+            // O Junie saiu da oferta desta versão: instalado ou não, não aparece.
+            assert!(oferta.iter().all(|motor| motor["id"] != "junie"));
+            let (id, args) = ("cortex", "acp serve");
+            let h = harness(id).unwrap();
+            assert!(h.install.is_none(), "{id}");
+            let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
+            assert_eq!(entrada["canInstall"], false, "{id}");
+            assert_eq!(entrada["installed"], true, "{id}");
+            assert_eq!(entrada["available"], true, "{id}");
+            let exe = which(id).unwrap();
+            assert!(exe.starts_with(&raiz), "{id}");
+            let candidato = local_candidate(id).unwrap();
+            assert_eq!(candidato.program, shell::quote(&exe.to_string_lossy()));
+            assert_eq!(candidato.args, args);
             for id in ["cursor", "devin"] {
                 let entrada = oferta.iter().find(|b| b["id"] == id).unwrap();
                 assert_eq!(entrada["canInstall"], true, "{id}");
@@ -1007,7 +1025,10 @@ mod tests {
             .env(TESTE_ISOLADO, "1")
             .env("PATH", raiz.path())
             .env("MEXERICA_HOME", raiz.path())
-            .args(["--exact", "agent::backends::tests::junie_e_cortex_sao_detectados_no_path_sem_oferecer_instalacao"])
+            .args([
+                "--exact",
+                "agent::backends::tests::cortex_e_detectado_no_path_sem_instalacao_e_o_junie_retirado_nao_aparece",
+            ])
             .output()
             .unwrap();
         assert!(saida.status.success(), "{}", String::from_utf8_lossy(&saida.stdout));

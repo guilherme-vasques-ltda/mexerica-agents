@@ -1155,17 +1155,23 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
-    validate_fields(cfg)
+    validate_fields(cfg)?;
+    crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)
 }
 
-/// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada.
+/// Um patch de outro campo não revalida nem reescreve a pasta salva, inclusive legada. Trocar o
+/// motor para um retirado é recusado; um bot antigo que já usa um segue editável nos outros campos.
 pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result<()> {
     crate::fork_avatars::validate_config(cfg)?;
     if cfg.cwd != before.cwd {
         crate::fork::pasta::normalizar_bot(cfg)?;
     }
     crate::fork::funcao::normalizar(cfg)?;
-    validate_fields(cfg)
+    validate_fields(cfg)?;
+    if cfg.backend != before.backend {
+        crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+    }
+    Ok(())
 }
 
 fn validate_fields(cfg: &BotConfig) -> Result<()> {
@@ -1182,4 +1188,58 @@ fn validate_fields(cfg: &BotConfig) -> Result<()> {
     }
     crate::agent::launcher::check(cfg)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod motores_retirados_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn cfg(backend: &str) -> BotConfig {
+        serde_json::from_value(json!({"id":"x", "name":"Teste", "backend": backend})).unwrap()
+    }
+
+    #[test]
+    fn criacao_com_motor_retirado_e_recusada() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let mut c = cfg(id);
+            let erro = validate(&mut c).unwrap_err().to_string();
+            assert_eq!(erro, crate::fork::motores_retirados::MSG_CRIAR, "{id}");
+        }
+    }
+
+    #[test]
+    fn editar_para_motor_retirado_e_recusado() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let antes = cfg("claude");
+            let mut c = cfg(id);
+            let erro = validate_update(&mut c, &antes).unwrap_err().to_string();
+            assert_eq!(erro, crate::fork::motores_retirados::MSG_CRIAR, "{id}");
+        }
+    }
+
+    #[test]
+    fn editar_outro_campo_de_bot_que_ja_usa_motor_retirado_passa() {
+        for id in crate::fork::motores_retirados::RETIRADOS {
+            let antes = cfg(id);
+            let mut c: BotConfig =
+                serde_json::from_value(json!({"id":"x", "name":"Nome novo", "backend": id})).unwrap();
+            validate_update(&mut c, &antes).unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+    }
+
+    #[test]
+    fn motor_mantido_passa_na_criacao_e_na_edicao() {
+        for id in ["claude", "codex", "cursor", "opencode", "grok", "gemini"] {
+            let mut c = cfg(id);
+            validate(&mut c).unwrap_or_else(|e| panic!("{id}: {e}"));
+            let antes = cfg("claude");
+            let mut c = cfg(id);
+            validate_update(&mut c, &antes).unwrap_or_else(|e| panic!("{id}: {e}"));
+        }
+        // Motor por comando próprio segue permitido: sem id de harness, a recusa não se aplica.
+        let mut c: BotConfig =
+            serde_json::from_value(json!({"id":"x", "name":"Teste", "backend":"custom", "command":"unused"})).unwrap();
+        validate(&mut c).unwrap();
+    }
 }
