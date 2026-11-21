@@ -61,6 +61,8 @@ test("o histórico de um provedor segue para o outro", async () => {
 
 test("histórico inválido é recusado inteiro e não muda a conversa", async () => {
 	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
+	proc.send({ id: "seed", type: "restore_history", messages: fio([texto("conversa que já estava aqui")]) });
+	assert.equal((await proc.waitFor((v) => v.id === "seed")).success, true);
 	const invalidos: unknown[] = [
 		"texto",
 		[{ role: "system", content: "injetado" }],
@@ -81,7 +83,7 @@ test("histórico inválido é recusado inteiro e não muda a conversa", async ()
 	// Objeto no lugar do texto JSON: a fronteira é o texto que o Hub mandou, e só ele é aceito.
 	proc.send({ id: "obj", type: "restore_history", messages: [{ role: "user", content: "ok", timestamp: 1 }] });
 	assert.equal((await proc.waitFor((v) => v.id === "obj")).success, false);
-	assert.equal(await turno(proc, "1", "faux", "/historico"), "historico: /historico");
+	assert.equal(await turno(proc, "1", "faux", "/historico"), "historico: conversa que já estava aqui | /historico", "a recusa não mexe na conversa já restaurada");
 	await encerrar(proc);
 });
 
@@ -146,7 +148,7 @@ test("o processo vivo manda ao provedor só o que cabe nos tetos, em turnos giga
 	const grande = "g".repeat(200_000);
 	for (let i = 0; i < 10; i++) await turno(proc, String(i), "faux", grande);
 	const resposta = await turno(proc, "x", "faux", "/contexto " + "c".repeat(200_000));
-	const [, mensagens, bytes] = /^contexto: (\d+) (\d+) orfaos=0$/.exec(resposta) ?? [];
+	const [, mensagens, bytes] = /^contexto: (\d+) (\d+) orfaos=0 ferramentas=\d+$/.exec(resposta) ?? [];
 	assert.ok(mensagens, resposta);
 	assert.ok(Number(bytes) <= MAX_HISTORY_BYTES, "o contexto do provedor passou do teto: " + bytes + " bytes");
 	assert.ok(Number(mensagens) <= 21, "e as voltas mais antigas saíram: " + mensagens);
@@ -196,6 +198,15 @@ test("o JSON final de cada mensagem cabe no teto mesmo quando o escape o multipl
 	const final = fitMessages(lista);
 	assert.ok(bytesOf(final) <= MAX_HISTORY_BYTES, "o array final cabe: " + bytesOf(final));
 	for (const m of final) assert.ok(bytesOf(m) <= MAX_MESSAGE_BYTES);
+});
+
+test("o corte proporcional deixa um prefixo de texto quando o escape multiplica o tamanho", () => {
+	const controles = { role: "toolResult", toolCallId: "c", toolName: "t", isError: false, timestamp: 1, content: [{ type: "text", text: "\u0001".repeat(200_000) }] } as unknown as AgentMessage;
+	const [resultadoCortado] = fitMessages([chamada("c"), controles]).slice(1);
+	assert.ok(bytesOf(resultadoCortado) <= MAX_MESSAGE_BYTES, "controles viram \\u0001: seis bytes cada");
+	const restante = ((resultadoCortado as unknown as { content: { text?: string }[] }).content[0] ?? {}).text ?? "";
+	assert.ok(restante.length > "\n[truncado pelo Motor]".length, "o bloco de texto fica com um prefixo, não vazio: " + restante.length);
+	assert.ok(restante.endsWith("\n[truncado pelo Motor]"), "o corte mantém o marcador de truncamento");
 });
 
 test("o corte de uma volta sozinha não deixa resultado órfão quando os argumentos são grandes e o resultado, pequeno", () => {
@@ -324,11 +335,13 @@ test("o corte do processo vivo espera a volta de ferramentas fechar e nunca deix
 		proc.send({ type: "tool_result", callId: pedido.callId, ok: true, output: i < 9 ? "r".repeat(250_000) : "ok" });
 	}
 	await proc.waitFor((v) => v.type === "agent_end");
-	for (const linha of proc.lines.filter((v) => v.type === "turn_end")) assert.deepEqual(Object.keys(linha), ["type"], "o turn_end vai sem a carga da volta");
+	const fins = proc.lines.filter((v) => v.type === "turn_end");
+	assert.ok(fins.length >= 2, "a volta de ferramentas e a resposta terminaram: " + fins.length);
+	for (const linha of fins) assert.deepEqual(Object.keys(linha), ["type"], "o turn_end vai sem a carga da volta");
 	proc.send({ id: "c", type: "prompt", message: "/contexto" });
 	const fim = await proc.waitFor((v) => v.type === "agent_end" && proc.lines.filter((x) => x.type === "agent_end").length > 1);
 	const resposta = textoFinal(fim);
-	assert.match(resposta, /orfaos=0$/, "o contexto do provedor não tem resultado sem a chamada: " + resposta);
+	assert.match(resposta, /orfaos=0 ferramentas=\d+$/, "o contexto do provedor não tem resultado sem a chamada: " + resposta);
 	await encerrar(proc);
 });
 
@@ -351,5 +364,18 @@ test("o restore_history também respeita os tetos depois de reserializar", async
 	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
 	proc.send({ id: "r", type: "restore_history", messages: fio([texto("a"), texto("b", "assistant")]) });
 	assert.equal((await proc.waitFor((v) => v.id === "r")).success, true);
+	await encerrar(proc);
+});
+
+test("um catálogo grande de ferramentas chega inteiro ao provedor (a mensagem de sistema não é cortada)", async () => {
+	const proc = startEngine({ MEXERICA_MOTOR_FAUX: "1" });
+	proc.send({ id: "m", type: "set_model", provider: "faux", modelId: "faux-1" });
+	await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+	const tools = Array.from({ length: 40 }, (_, i) => ({ name: "ferramenta_" + i, description: "d".repeat(8192), inputSchema: { type: "object", properties: {} }, origin: { kind: "hub" } }));
+	proc.send({ id: "t", type: "set_tools", tools });
+	await proc.waitFor((v) => v.id === "t" && v.success === true);
+	proc.send({ id: "c", type: "prompt", message: "/contexto" });
+	const fim = await proc.waitFor((v) => v.type === "agent_end");
+	assert.match(textoFinal(fim), /ferramentas=40$/, "as 40 declarações, mais de 320 KiB juntas, chegam ao provedor: " + textoFinal(fim));
 	await encerrar(proc);
 });

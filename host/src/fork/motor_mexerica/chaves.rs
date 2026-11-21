@@ -4,7 +4,7 @@
 //! (`motor-mexerica/<fornecedor>`), e nunca volta ao app, a registro, a log nem a mensagem de erro. Só este
 //! computador cadastra, testa ou remove. «Testar acesso» abre o motor preso ao fornecedor e só lista os modelos que
 //! a chave enxerga: nenhuma conversa, nenhuma cobrança. A lista fica guardada (sem segredo) para a escolha do modelo.
-use super::{Engine, VaultSource, credential_slot};
+use super::{Engine, LimitsSource, VaultSource, credential_slot};
 use crate::{api::devices::Caller, hub::Hub, store::Store};
 use anyhow::{Result, anyhow, bail, ensure};
 use serde::Deserialize;
@@ -41,6 +41,9 @@ static OPERACAO: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// O motor tem 30 s para o teste inteiro; aqui sobra folga para abrir e fechar o processo.
 const PRAZO_DO_TESTE: Duration = Duration::from_secs(45);
 const MAX_CHAVE: usize = 4096;
+/// Limites de cada modelo que o «Testar acesso» guarda e a conversa usa: contexto e teto de saída, em tokens.
+const LIMITES: [&str; 2] = ["contextWindow", "maxTokens"];
+const MAX_LIMITE: u64 = 100_000_000;
 
 fn cache_slot(fornecedor: &str) -> String {
     format!("motor-mexerica.modelos/{fornecedor}")
@@ -174,7 +177,13 @@ pub(crate) async fn testar(fonte: VaultSource, fornecedor: &str, extra_env: &[(&
             let id =
                 m["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 200 && !id.chars().any(char::is_control))?;
             let nome: String = m["name"].as_str().unwrap_or(id).chars().filter(|c| !c.is_control()).take(120).collect();
-            Some(json!({"id": format!("{fornecedor}/{id}"), "name": nome}))
+            let mut modelo = json!({"id": format!("{fornecedor}/{id}"), "name": nome});
+            for campo in LIMITES {
+                if let Some(n) = m[campo].as_u64().filter(|n| (1..=MAX_LIMITE).contains(n)) {
+                    modelo[campo] = n.into();
+                }
+            }
+            Some(modelo)
         })
         .take(2000)
         .collect();
@@ -191,6 +200,26 @@ fn guardar_modelos(store: &Store, fornecedor: &str, acesso: &Value) -> Result<()
 
 fn modelos_guardados(store: &Store, fornecedor: &str) -> Result<Option<Value>> {
     Ok(store.kv_read(&cache_slot(fornecedor))?.and_then(|raw| serde_json::from_str(&raw).ok()))
+}
+
+/// Os limites de `fornecedor/modelo` no último «Testar acesso» (`{}` se não há): sem eles o motor usaria os
+/// padrões do fornecedor, e um teto de saída maior que o do modelo faz o fornecedor recusar o pedido.
+pub(crate) fn limites(store: &Store, fornecedor: &str, modelo: &str) -> Result<Value> {
+    let id = format!("{fornecedor}/{modelo}");
+    let guardado = modelos_guardados(store, fornecedor)?;
+    let achado = guardado.as_ref().and_then(|g| g["modelos"].as_array()?.iter().find(|m| m["id"] == id.as_str()));
+    let mut limites = json!({});
+    for campo in LIMITES {
+        if let Some(n) = achado.and_then(|m| m[campo].as_u64()).filter(|n| (1..=MAX_LIMITE).contains(n)) {
+            limites[campo] = n.into();
+        }
+    }
+    Ok(limites)
+}
+
+/// A fonte de limites que o adaptador do motor consulta ao escolher o modelo.
+pub(crate) fn fonte_de_limites(hub: Arc<Hub>) -> LimitsSource {
+    Arc::new(move |fornecedor: &str, modelo: &str| limites(&hub.store, fornecedor, modelo))
 }
 
 /// O que o app vê: quais fornecedores têm chave e os modelos do último teste. Nunca a chave, nem parte dela.

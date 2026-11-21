@@ -11,6 +11,7 @@ export const textos = {
   "extensoes.pagina.credentials": "Credenciais",
   "extensoes.plugins.sobre": "Recursos opcionais do seu Hub. Clique em um plugin para ver as opções dele.",
   "extensoes.plugins.whatsapp": "Seus bots leem e respondem conversas do WhatsApp, cada um com o próprio número.",
+  "extensoes.plugins.mailManager": "Caixas de e-mail em prévia, com o que cada bot pode fazer nelas: ver, enviar e excluir.",
   "extensoes.plugins.abrir": "Abrir o plugin {nome}",
   "extensoes.plugins.voltar": "Voltar para a lista de plugins",
   "extensoes.cred.sobre": "Senhas, chaves e logins que os bots usam. Os valores ficam guardados no Hub e nunca aparecem na tela.",

@@ -19,7 +19,7 @@ codync_mem::schema::migrate(&conn)?;
 
 Use o `rusqlite` reexportado pela biblioteca para evitar vincular duas versões incompatíveis de SQLite. A busca usa FTS5/trigram e `remove_diacritics`, conforme os requisitos do SQLite incorporado. A dependência e o nome do crate continuam definidos no `Cargo.toml`; não os altere por uma troca de título.
 
-Todo Cargo do Host, inclusive desta biblioteca, roda apenas no servidor pelo fluxo de AGENTS.md. Mudanças no fork vão por PR para `main` do repositório privado, não para uma branch `dev` do upstream. Não há instalação ou publicação de crate autorizada por este README.
+Todo Cargo do Host, inclusive desta biblioteca, roda apenas no servidor pelo fluxo de AGENTS.md. Mudanças no fork vão por PR para `main` do repositório, não para uma branch `dev` do upstream. Não há instalação ou publicação de crate autorizada por este README.
 
 ## Módulos
 

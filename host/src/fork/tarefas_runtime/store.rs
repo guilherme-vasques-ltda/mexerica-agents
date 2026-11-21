@@ -368,6 +368,7 @@ pub(crate) fn call(c: &Connection, hub: &str, method: &str, body: Value) -> Resu
                 Ok((bot_id, session_id, deleted, cfg_raw))
             })?;
             let mut sessions = Vec::new();
+            let mut attention = None;
             for row in rows {
                 let (bot_id, session_id, deleted, cfg_raw) = row?;
                 let cfg = cfg_raw.and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
@@ -387,10 +388,19 @@ pub(crate) fn call(c: &Connection, hub: &str, method: &str, body: Value) -> Resu
                 } else {
                     bot_id.clone()
                 };
-                let state = match sessoes::store::get(c, &session_id) {
-                    Ok(Some(s)) if s.state == "open" => "idle",
-                    Ok(Some(_)) => "done",
-                    _ => "not_opened",
+                let session = sessoes::store::get(c, &session_id).ok().flatten();
+                if attention.is_none()
+                    && name_visible
+                    && cfg.as_ref().is_some_and(|cfg| cfg.get("kind").is_none_or(|kind| kind == "agent"))
+                    && let Some(s) = &session
+                    && super::inspecao::owner_attention(c, &r.space_id, &r.task_id, &bot_id, s)?
+                {
+                    attention = Some("owner");
+                }
+                let state = match session {
+                    Some(s) if s.state == "open" => "idle",
+                    Some(_) => "done",
+                    None => "not_opened",
                 };
                 sessions.push(json!({
                     "botId": bot_id,
@@ -407,6 +417,7 @@ pub(crate) fn call(c: &Connection, hub: &str, method: &str, body: Value) -> Resu
                     "projectId":r.project_id,"taskId":r.task_id,
                     "sessions":sessions,
                     "agenda": agenda.as_ref().map(agenda_public),
+                    "attention": attention,
                 }),
                 false,
             ))

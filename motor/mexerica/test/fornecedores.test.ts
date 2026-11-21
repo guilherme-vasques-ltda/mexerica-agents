@@ -1,6 +1,7 @@
 // «Testar acesso» e a conversa de cada fornecedor por chave, contra servidores de mentira (sem rede, sem chave
 // real, sem chamada paga). Em todo cenário a chave nunca aparece na saída do motor nem no stderr.
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,8 +11,11 @@ import { encerrar, startEngine, turnoTerminou, type Line } from "./helpers.ts";
 
 const STUB = fileURLToPath(new URL("./stub-fornecedores.mjs", import.meta.url));
 const SECRET = "chave-de-mentira-que-nao-pode-vazar-42";
+/** O resumo que o stub escreve no log no lugar do valor do cabeçalho de credencial. */
+const resumo = (valor: string) => `sha256-${createHash("sha256").update(valor).digest("hex").slice(0, 16)}`;
+const enviado = (auth: string, chave: string) => (auth === "authorization" ? `Bearer ${chave}` : chave);
 
-type Chamada = { url: string; method: string; headers: Record<string, string> };
+type Chamada = { url: string; method: string; headers: Record<string, string>; corpo?: Record<string, unknown> };
 
 async function comMotor<T>(cenario: string, corpo: (proc: ReturnType<typeof startEngine>, chamadas: () => Chamada[]) => Promise<T>, segredo = SECRET): Promise<T> {
 	const dir = mkdtempSync(join(tmpdir(), "motor-fornecedores-"));
@@ -26,11 +30,14 @@ async function comMotor<T>(cenario: string, corpo: (proc: ReturnType<typeof star
 		return await corpo(proc, chamadas);
 	} finally {
 		await encerrar(proc);
-		for (const forma of [segredo, encodeURIComponent(segredo)]) {
-			assert.ok(!JSON.stringify(proc.lines).includes(forma), "a chave vazou na saída do motor");
-			assert.ok(!proc.stderr().includes(forma), "a chave vazou no stderr do motor");
+		try {
+			for (const forma of [segredo, encodeURIComponent(segredo)]) {
+				assert.ok(!JSON.stringify(proc.lines).includes(forma), "a chave vazou na saída do motor");
+				assert.ok(!proc.stderr().includes(forma), "a chave vazou no stderr do motor");
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 		}
-		rmSync(dir, { recursive: true, force: true });
 	}
 }
 
@@ -60,7 +67,7 @@ for (const [provider, esperado] of Object.entries(FORNECEDORES)) {
 			assert.equal(resto.length, 0, "o teste faz um único pedido");
 			assert.equal(chamada!.method, "GET", "testar acesso nunca abre conversa");
 			assert.ok(chamada!.url.startsWith(esperado.lista), chamada!.url);
-			assert.ok(chamada!.headers[esperado.auth]?.includes(SECRET), "a chave do cofre não foi no cabeçalho certo");
+			assert.equal(chamada!.headers[esperado.auth], resumo(enviado(esperado.auth, SECRET)), "a chave do cofre não foi no cabeçalho certo");
 		}));
 
 	for (const [cenario, erro] of [["invalida", "chave_invalida"], ["sem_permissao", "sem_permissao"], ["erro", "fornecedor_falhou"], ["lenta", "sem_resposta"], ["quebrada", "resposta_invalida"], ["enorme", "resposta_invalida"]] as const) {
@@ -79,11 +86,31 @@ for (const [provider, esperado] of Object.entries(FORNECEDORES)) {
 			await proc.waitFor((v) => v.command === "set_model" && v.success === true);
 			proc.send({ id: "p", type: "prompt", message: "oi" });
 			const fim = await proc.waitFor(turnoTerminou);
-			assert.ok(fim, "o turno tinha de terminar com erro");
+			assert.ok(
+				fim.type === "error" || (fim.message as { stopReason?: string } | undefined)?.stopReason === "error",
+				"o erro do fornecedor tinha de chegar ao turno",
+			);
 			const conversa = chamadas().filter((c) => c.method === "POST");
 			assert.equal(conversa.length, 1, JSON.stringify(chamadas()));
 			assert.match(conversa[0]!.url, esperado.conversa);
-			assert.ok(conversa[0]!.headers[esperado.auth]?.includes(SECRET));
+			assert.equal(conversa[0]!.headers[esperado.auth], resumo(enviado(esperado.auth, SECRET)));
+		}));
+}
+
+for (const [caso, limites, teto] of [
+	["os limites do «Testar acesso»", { contextWindow: 32000, maxTokens: 4096 }, 4096],
+	["sem limites, o padrão do fornecedor", {}, 16384],
+	["limites fora do formato são ignorados", { contextWindow: "muito", maxTokens: -1 }, 16384],
+] as const) {
+	test(`teto de saída do pedido: ${caso}`, () =>
+		comMotor("ok", async (proc, chamadas) => {
+			proc.send({ id: "m", type: "set_model", provider: "openrouter", modelId: "fornecedor/modelo-teste", ...limites });
+			await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+			proc.send({ id: "p", type: "prompt", message: "oi" });
+			await proc.waitFor(turnoTerminou);
+			const conversa = chamadas().filter((c) => c.method === "POST");
+			assert.equal(conversa.length, 1, JSON.stringify(chamadas()));
+			assert.equal(conversa[0]!.corpo?.["max_completion_tokens"], teto, JSON.stringify(conversa[0]!.corpo));
 		}));
 }
 
@@ -117,3 +144,17 @@ test("chave repetida pelo fornecedor em forma de URL também é mascarada", () =
 		},
 		"LLM|chave-de-mentira-com-barra-77",
 	));
+
+test("xAI: o limite de contexto do catálogo chega ao modelo", () =>
+	comMotor("ok", async (proc) => {
+		const acesso = await testar(proc, "xai");
+		const modelo = (acesso.modelos as { id: string; contextWindow?: number }[]).find((m) => m.id === "grok-teste");
+		assert.equal(modelo?.contextWindow, 262144, JSON.stringify(acesso));
+	}));
+
+test("anthropic: página que promete mais sem cursor é resposta inválida", () =>
+	comMotor("sem_cursor", async (proc) => {
+		const acesso = await testar(proc, "anthropic");
+		assert.equal(acesso.ok, false);
+		assert.equal(acesso.erro, "resposta_invalida", JSON.stringify(acesso));
+	}));

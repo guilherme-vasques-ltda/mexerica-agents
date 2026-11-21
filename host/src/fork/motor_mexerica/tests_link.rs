@@ -454,6 +454,34 @@ async fn conversa_sobrevive_a_troca_de_provedor() {
     acp.kill_and_wait().await;
 }
 
+/// `session/set_model` recusado pelo motor derruba o processo em vez de
+/// deixar no slot um processo com a conversa de comandos dessincronizada.
+#[tokio::test]
+async fn set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro() {
+    let case = caso!("set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    let antigo = acp.pid().expect("o set_model inicial tinha de ter subido um motor");
+
+    // Modelo inexistente: o motor recusa e o erro sobe ao bot.
+    let recusado =
+        acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/modelo-que-nao-existe"})).await;
+    assert!(recusado.is_err(), "o motor tinha de recusar o modelo inexistente");
+    esperar_morto(antigo).await;
+    assert!(acp.pid().is_none(), "o processo recusado tinha de sair do slot");
+
+    // A próxima tentativa sobe um processo NOVO e conversa com ele.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let novo = acp.pid().unwrap();
+    assert_ne!(novo, antigo, "o set_model seguinte tinha de subir outro processo");
+    let (result, _) = turno_de_texto(&acp, &mut rx, &sid, "depois da recusa").await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    acp.kill_and_wait().await;
+}
+
 /// O processo cai (OOM, SIGKILL) entre dois turnos e no meio de um.
 #[tokio::test]
 async fn conversa_sobrevive_a_queda_do_motor() {
@@ -910,4 +938,77 @@ async fn definicao_curada_ou_com_outro_executavel_sai_como_conector() {
     assert!(!classe("mcp__memory__ler").released() && !classe("mcp__donna-curado-x__ler").released());
     assert!(!classe("mcp__chat__ler").released() && !classe("mcp__chat__gravar").released());
     assert!(mcp.classify("mcp__chat__nao_existe").is_none());
+}
+
+const MARCA_SISTEMA: &str = "MARCA-DO-SISTEMA-7Q";
+const MARCA_USUARIO: &str = "MARCA-DO-USUARIO-3K";
+
+/// O que o provedor falso recebeu no pedido (`/pedido`): textos de sistema e de usuário.
+fn pedido_recebido(texto: &str) -> (String, Vec<String>) {
+    let pedido: Value =
+        serde_json::from_str(texto.strip_prefix("pedido: ").unwrap_or_else(|| panic!("{texto}"))).unwrap();
+    let textos = |campo: &str| -> Vec<String> {
+        pedido[campo].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_owned()).collect()
+    };
+    (textos("sistema").join("\n"), textos("usuario"))
+}
+
+#[test]
+fn texto_de_sistema_vale_como_texto_ou_objeto_do_hub_e_recusa_o_resto() {
+    use super::link::system_text;
+    assert_eq!(system_text(&Value::Null).unwrap(), None);
+    assert_eq!(system_text(&json!("só texto")).unwrap().as_deref(), Some("só texto"));
+    assert_eq!(system_text(&crate::agent::bot::system_prompt("do Hub")).unwrap().as_deref(), Some("do Hub"));
+    let dois = json!({"mode": "append", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]});
+    assert_eq!(system_text(&dois).unwrap().as_deref(), Some("a\n\nb"));
+    for invalido in [
+        json!({"mode": "replace", "content": [{"type": "text", "text": "a"}]}),
+        json!({"mode": "append"}),
+        json!({"mode": "append", "content": [{"type": "image", "data": "x"}]}),
+        json!({"mode": "append", "content": [{"type": "text"}]}),
+        json!(42),
+        json!(["a"]),
+    ] {
+        assert!(system_text(&invalido).is_err(), "aceitou {invalido}");
+    }
+}
+
+#[tokio::test]
+async fn instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez() {
+    let case = caso!("instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    // O mesmo objeto que o ator do bot manda no session/new (`launch::system_prompt`).
+    let params =
+        json!({"cwd": case.dir, "mcpServers": [], "systemPrompt": crate::agent::bot::system_prompt(MARCA_SISTEMA)});
+    let sid = acp.request("session/new", params).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let prompt = json!({"sessionId": sid, "prompt": [{"type": "text", "text": format!("/pedido {MARCA_USUARIO}")}]});
+    let answer = acp.send("session/prompt", prompt).await.unwrap();
+    let (result, updates, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let texto: String = updates
+        .iter()
+        .filter(|u| u["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|u| u["content"]["text"].as_str().map(str::to_owned))
+        .collect();
+    let (sistema, usuario) = pedido_recebido(&texto);
+    assert_eq!(sistema.matches(MARCA_SISTEMA).count(), 1, "o texto de sistema não chegou uma vez: {sistema:?}");
+    assert!(!sistema.contains(MARCA_USUARIO), "a mensagem foi parar no texto de sistema: {sistema:?}");
+    assert_eq!(usuario.concat().matches(MARCA_USUARIO).count(), 1, "{usuario:?}");
+    assert!(!usuario.concat().contains(MARCA_SISTEMA), "o texto de sistema foi parar na mensagem: {usuario:?}");
+    acp.kill_and_wait().await;
+}
+
+#[tokio::test]
+async fn systemprompt_invalido_recusa_a_sessao() {
+    let case = caso!("systemprompt_invalido_recusa_a_sessao");
+    let (acp, _rx) = acp_motor(novo_store());
+    acp.request("initialize", json!({})).await.unwrap();
+    let params =
+        json!({"cwd": case.dir, "mcpServers": [], "systemPrompt": {"mode": "append", "content": [{"type": "image"}]}});
+    assert!(acp.request("session/new", params).await.is_err(), "objeto inválido não pode abrir sessão sem instruções");
+    acp.kill_and_wait().await;
 }

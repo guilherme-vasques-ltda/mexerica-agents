@@ -33,6 +33,13 @@ async fn chave_aceita_vai_ao_cofre_e_a_lista_de_modelos_nunca_leva_a_chave() {
     let acesso = chaves::salvar(&hub, "faux", zeroize::Zeroizing::new(CHAVE.into()), &[(FAUX_ENV, "1")]).await.unwrap();
     assert_eq!(acesso["ok"], true, "{acesso}");
     assert!(acesso["modelos"].as_array().unwrap().iter().any(|m| m["id"] == "faux/faux-1"), "{acesso}");
+    let limites = chaves::limites(&hub.store, "faux", "faux-1").unwrap();
+    assert!(
+        limites["contextWindow"].as_u64().is_some_and(|n| n > 0),
+        "os limites do modelo ficam guardados: {limites}"
+    );
+    assert!(limites["maxTokens"].as_u64().is_some_and(|n| n > 0), "{limites}");
+    assert_eq!(chaves::limites(&hub.store, "faux", "outro").unwrap(), serde_json::json!({}));
     assert_eq!(crate::market::vault::read(&hub.store, &credential_slot("faux")).unwrap().as_deref(), Some(CHAVE));
     let cifrado = hub.store.kv_read(&credential_slot("faux")).unwrap().unwrap();
     assert!(!cifrado.contains(CHAVE), "a chave tem de ficar cifrada no banco");
@@ -80,7 +87,7 @@ fn catalogo_e_lista_mostram_so_fornecedor_com_chave() {
     store
         .kv_set(
             "motor-mexerica.modelos/openai",
-            r#"{"modelos":[{"id":"openai/gpt-teste","name":"GPT Teste"}],"conferidoEm":1}"#,
+            r#"{"modelos":[{"id":"openai/gpt-teste","name":"GPT Teste","maxTokens":4096,"contextWindow":0}],"conferidoEm":1}"#,
         )
         .unwrap();
     // Lista de modelos sem chave (a chave foi removida por fora) não aparece na escolha.
@@ -90,6 +97,11 @@ fn catalogo_e_lista_mostram_so_fornecedor_com_chave() {
     let catalogo = chaves::catalogo(&store, crate::fork::spaces::PERSONAL).unwrap();
     let modelos: Vec<_> = catalogo["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
     assert_eq!(modelos, ["openai/gpt-teste"]);
+    assert_eq!(
+        chaves::limites(&store, "openai", "gpt-teste").unwrap(),
+        serde_json::json!({"maxTokens": 4096}),
+        "limite zero não vale"
+    );
     assert_eq!(
         chaves::catalogo(&store, "space-compartilhado").unwrap()["models"],
         serde_json::json!([]),

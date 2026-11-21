@@ -68,6 +68,11 @@ const LOCAL_ONLY: &[&str] = &[
     "motorChaveTestar",
     "motorChaveSalvar",
     "motorChaveRemover",
+    // Plano de código: a chave é colada no próprio computador.
+    "planosCodigo",
+    "planoCodigoTestar",
+    "planoCodigoSalvar",
+    "planoCodigoRemover",
     "pairing",
     "computerCall",
     "computerTools",
@@ -109,11 +114,18 @@ const LOCAL_ONLY: &[&str] = &[
     "nuncaFazerEditar",
     "nuncaFazerRemover",
     "nuncaFazerReordenar",
+    "instrucaoGeral",
+    "instrucaoGeralSalvar",
     "donnaRules",
     "donnaApprovalSet",
     "donnaRuleSave",
     "donnaRuleSetEnabled",
     "donnaRuleDelete",
+    "donnaMailManager",
+    "donnaMailManagerSave",
+    "donnaMailManagerConnect",
+    "donnaMailManagerDisconnect",
+    "donnaMailManagerGrant",
 ];
 const SCREEN: &[&str] = &["screenPrepare", "screenOffer", "screenClose", "screenTakeover"];
 

@@ -30,14 +30,17 @@ import { textos as conversaMensagens } from './conversa/mensagens.ts'
 import { textos as conversaAvisos } from './conversa/avisos.ts'
 import { textos as conversaCartoes } from './conversa/cartoes.ts'
 import { textos as conversaEscolha } from './conversa/escolha.ts'
+import { textos as conversaMudancas } from './conversa/mudancas.ts'
 import { textos as conversaRecibo } from './conversa/recibo.ts'
 import { textos as conversaSkills } from './conversa/skills.ts'
 import { textos as conversaLimites } from './conversa/limites.ts'
 import { textos as conversaSeletor } from './conversa/seletor.ts'
 import { textos as conversaTroca } from './conversa/troca.ts'
 import { textos as conversaNavegacao } from './conversa/navegacao.ts'
+import { textos as conversaLadoALado } from './conversa/ladoALado.ts'
 import { textos as delegacao } from './delegacao.ts'
 import { textos as nuncaFazer } from './nuncaFazer.ts'
+import { textos as instrucoes } from './instrucoes.ts'
 import { textos as grupos } from './grupos.ts'
 import { textos as conectoresCartao } from './conectores/cartao.ts'
 import { textos as skillsCatalogo } from './skills/catalogo.ts'
@@ -74,6 +77,7 @@ import { textos as whatsappPareamento } from './whatsapp/pareamento.ts'
 import { textos as whatsappAjustes } from './whatsapp/ajustes.ts'
 import { textos as whatsappCaixa } from './whatsapp/caixa.ts'
 import { textos as whatsappFila } from './whatsapp/fila.ts'
+import { textos as mailManager } from './mailManager.ts'
 import { textos as sistemaBarra } from './sistema/barra.ts'
 import { textos as sistemaConversa } from './sistema/conversa.ts'
 import { textos as webLogin } from './web/login.ts'
@@ -112,14 +116,17 @@ export const en: Catalogo = {
   ...conversaAvisos,
   ...conversaCartoes,
   ...conversaEscolha,
+  ...conversaMudancas,
   ...conversaRecibo,
   ...conversaSkills,
   ...conversaLimites,
   ...conversaSeletor,
   ...conversaTroca,
   ...conversaNavegacao,
+  ...conversaLadoALado,
   ...delegacao,
   ...nuncaFazer,
+  ...instrucoes,
   ...grupos,
   ...conectoresCartao,
   ...skillsCatalogo,
@@ -156,6 +163,7 @@ export const en: Catalogo = {
   ...whatsappAjustes,
   ...whatsappCaixa,
   ...whatsappFila,
+  ...mailManager,
   ...sistemaBarra,
   ...sistemaConversa,
   ...webLogin,

@@ -86,6 +86,8 @@ export interface HelloMessage {
   ek: string
   n: string
   sig: string
+  /** Capacidades opcionais oferecidas; fora da assinatura do aperto de mão. Ausente = nenhuma. */
+  caps?: string[]
 }
 
 const u64be = (c: number) => {
@@ -150,7 +152,7 @@ export function createProtocol(backend: CryptoBackend) {
    * Lado do aparelho: monta o `hello` e, com o `welcome`, confere a assinatura com a chave do Hub
    * **pinada** (nunca a que o diretório mandou depois) e deriva as chaves do canal.
    */
-  const deviceHello = (device: DeviceSigner, hostSignPub: Uint8Array, opts: { eph?: Ephemeral; n?: Uint8Array } = {}) => {
+  const deviceHello = (device: DeviceSigner, hostSignPub: Uint8Array, opts: { eph?: Ephemeral; n?: Uint8Array; caps?: string[] } = {}) => {
     const eph = opts.eph ?? ephemeral()
     const n = opts.n ?? random(32)
     const cid = cidRaw(hostSignPub)
@@ -161,6 +163,7 @@ export function createProtocol(backend: CryptoBackend) {
       ek: b64url(eph.pub),
       n: b64url(n),
       sig: b64url(device.sign(hs1Input(cid, device.publicKey, eph.pub, n))),
+      ...(opts.caps?.length ? { caps: [...opts.caps] } : {}),
     }
     return {
       hello,

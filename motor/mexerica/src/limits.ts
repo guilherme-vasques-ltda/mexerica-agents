@@ -85,10 +85,19 @@ function shrink(message: AgentMessage): AgentMessage {
 			return candidate;
 		}
 		if (budget === 0) break;
-		budget = Math.max(budget - (size - MAX_MESSAGE_BYTES) - 1, 0);
+		// O orçamento cai na proporção do que passou do teto (poucas voltas, cada uma refaz o corte), e sempre
+		// pelo menos um byte: sobra um prefixo de texto mesmo quando o escape multiplica o tamanho.
+		budget = Math.min(Math.floor((budget * MAX_MESSAGE_BYTES) / size), budget - 1);
 	}
 	const source = message as unknown as Json;
-	const bare = { role: source.role, content: typeof source.content === "string" ? "" : [], timestamp: source.timestamp } as unknown as AgentMessage;
+	// O motivo de parada fica: o laço e o Hub decidem o turno por ele (um diagnóstico de erro gigante não pode apagá-lo).
+	// Uma mensagem do assistente com chamadas nunca perde os ids: o par com os resultados depende deles.
+	const calls = callIds(message);
+	const bareCalls = calls.map((id) => {
+		const block = (Array.isArray(source.content) ? (source.content as Json[]) : []).find((b) => b.type === "toolCall" && String(b.id) === id);
+		return { type: "toolCall", id, name: block?.name, arguments: {} };
+	});
+	const bare = { role: source.role, content: typeof source.content === "string" ? "" : bareCalls, timestamp: source.timestamp, ...(typeof source.stopReason === "string" ? { stopReason: source.stopReason } : {}) } as unknown as AgentMessage;
 	measured.set(bare, bytesOf(bare));
 	return bare;
 }
@@ -102,6 +111,8 @@ export function boundInPlace(message: AgentMessage): void {
 	// Uma mensagem com chamadas de ferramenta é a que o laço vai EXECUTAR agora: os argumentos dela não mudam antes disso
 	// (o corte dela vem em seguida, no fim da volta, por `fitMessages`).
 	if (role(message) === "assistant" && callIds(message).length > 0) return;
+	// A mensagem de sistema leva as declarações das ferramentas (toolsAdded) que o provedor usa: nunca é cortada aqui.
+	if (role(message) === "system") return;
 	measured.delete(message);
 	const bounded = shrink(message);
 	if (bounded === message) return;

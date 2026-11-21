@@ -21,6 +21,16 @@ use serde::{Deserialize, Serialize};
 /// it reads now, so a session carrying one gets the profile again when it loads (see `predates`).
 const VERSION: u32 = 5;
 
+/// Tamanho, em caracteres, do que o Hub monta para o bot. O motor só informa o total usado: a divisão por parte é
+/// contagem nossa do texto entregue (o texto fixo vale também quando o manual segue pelo canal nativo do motor).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Parts {
+    /// Manual do harness e perfil do bot.
+    pub fixed: usize,
+    pub skills: usize,
+    pub memory: usize,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -45,6 +55,9 @@ pub struct Snapshot {
     /// D6: a pessoa da conversa dona deste snapshot — `system` pode conter a nota "Sobre você" dela.
     #[serde(default)]
     pub person: Option<String>,
+    /// Tamanho de cada parte quando `system` foi montado; ausente nos snapshots de antes da medição.
+    #[serde(default)]
+    pub parts: Option<Parts>,
 }
 
 // A bot talks in several sessions (its chat and groups, routine runs), each with its own: snapshots
@@ -139,6 +152,7 @@ pub(crate) fn resolve_with_skills(
         announced: stored.map_or(profile, |old| old.announced),
         memory,
         person: cfg.person.clone(),
+        parts: Some(rendered.parts),
     };
     save(store, cfg.session_owner(), &s)?;
     Ok(s)
@@ -192,6 +206,7 @@ pub fn adopt(
         announced: profile,
         memory,
         person: cfg.person.clone(),
+        parts: Some(rendered.parts),
     };
     save(store, cfg.session_owner(), &s)?;
     Ok(s)
@@ -217,6 +232,7 @@ pub fn render(store: &Store, cfg: &BotConfig, instructions: Instructions) -> Str
 pub(crate) struct RenderedProfile {
     pub system: String,
     pub system_profile: String,
+    pub parts: Parts,
 }
 
 pub(crate) fn render_with_skills(
@@ -228,9 +244,17 @@ pub(crate) fn render_with_skills(
 ) -> RenderedProfile {
     let profile_lines = profile(store, cfg);
     let system_profile = profile_with_lines(profile_lines.clone(), skills.as_deref());
+    let manual = crate::agent::harness::compile();
+    let chars = |text: &str| text.chars().count();
+    let memory = crate::chat::memory::opening_frozen(store, cfg, query);
+    let parts = Parts {
+        fixed: chars(&manual) + chars(&profile_lines.join("\n")),
+        skills: skills.as_deref().map_or(0, chars),
+        memory: chars(&memory),
+    };
     let mut lines = Vec::new();
     if !instructions.native_manual() {
-        lines.push(crate::agent::harness::compile());
+        lines.push(manual);
     }
     lines.extend(profile_lines);
     lines.push(String::new());
@@ -239,12 +263,17 @@ pub(crate) fn render_with_skills(
         lines.push(skills);
     }
     let mut out = lines.join("\n");
-    let memory = crate::chat::memory::opening_frozen(store, cfg, query);
     if !memory.is_empty() {
         out.push_str("\n\n");
         out.push_str(&memory);
     }
-    RenderedProfile { system: out, system_profile }
+    RenderedProfile { system: out, system_profile, parts }
+}
+
+/// Tamanho das partes do que o bot recebeu nesta sessão; `None` até a primeira montagem medida e depois de uma
+/// compactação (`epoch`), enquanto a sessão não for montada de novo: as partes antigas não valem para o total novo.
+pub(crate) fn parts(store: &Store, bot_id: &str, session: &str, epoch: u32) -> Option<Parts> {
+    load(store, bot_id, session).filter(|s| s.epoch == epoch)?.parts
 }
 
 /// O mesmo perfil é usado na abertura e nas atualizações, sem repetir o manual estável.
@@ -418,7 +447,7 @@ mod tests {
             store,
             cfg,
             session,
-            RenderedProfile { system, system_profile: profile_text(store, cfg) },
+            RenderedProfile { system, system_profile: profile_text(store, cfg), parts: Parts::default() },
             memory,
             instructions,
         )
@@ -449,6 +478,31 @@ mod tests {
         assert!(text.contains("Dono da instalação: Pessoa"));
         assert!(text.contains(std::env::consts::OS));
         assert!(context_at(&HarnessContext::default(), now).contains("usuário desta instalação"));
+    }
+
+    #[test]
+    fn partes_contam_o_texto_montado_e_o_snapshot_as_guarda() {
+        let (store, dir) = store();
+        let a = cfg("Teste", "Teste");
+        let skills = "Skills: uma skill de exemplo.";
+        let inline = render_with_skills(&store, &a, Instructions::FirstMessage, Some(skills.into()), None);
+        assert_eq!(inline.parts.skills, skills.chars().count());
+        assert!(inline.system.chars().count() >= inline.parts.fixed + inline.parts.skills + inline.parts.memory);
+        // Manual no canal nativo do motor: sai do system, mas continua contando como texto fixo do bot.
+        let native = render_with_skills(&store, &a, Instructions::ClaudeMeta, None, None);
+        assert_eq!(native.parts.fixed, inline.parts.fixed);
+        assert!(native.system.chars().count() < native.parts.fixed);
+        assert_eq!(native.parts.skills, 0);
+        assert!(parts(&store, &a.id, "s1", 0).is_none(), "sem snapshot, sem partes");
+        let snapshot = resolve(&store, &a, "s1", Instructions::ClaudeMeta).unwrap();
+        assert_eq!(snapshot.parts, Some(native.parts));
+        assert_eq!(parts(&store, a.session_owner(), "s1", snapshot.epoch), Some(native.parts));
+        assert!(
+            parts(&store, a.session_owner(), "s1", snapshot.epoch + 1).is_none(),
+            "outra época: as partes antigas não valem"
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).expect("limpeza da fixture privada");
     }
 
     #[test]

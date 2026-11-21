@@ -116,7 +116,14 @@ async fn ferramenta_do_hub_vai_e_volta_pelo_cliente_mcp_do_hub() {
     engine.set_system_prompt("Você é um bot da Mexerica.").await.unwrap();
     engine.set_tools(mcp.specs()).await.unwrap();
     let turn = engine
-        .prompt_with("faux", "faux-1", r#"/ferramenta mcp__fake__eco {"texto":"oi"}"#, &mcp, &mut |_| {})
+        .prompt_with(
+            "faux",
+            "faux-1",
+            &serde_json::json!({}),
+            r#"/ferramenta mcp__fake__eco {"texto":"oi"}"#,
+            &mcp,
+            &mut |_| {},
+        )
         .await
         .unwrap();
     assert!(turn.text.contains("ferramenta respondeu: eco:oi"), "{}", turn.text);
@@ -138,7 +145,10 @@ async fn permissao_negada_volta_ao_modelo_e_nada_executa() {
     let mut engine = Engine::spawn(novo_store(), "faux", &[(FAUX_ENV, "1")]).unwrap();
     engine.set_tools(&[ferramenta("list_bots")]).await.unwrap();
     let negada = Registro { chamadas: std::sync::Mutex::default(), reply: Err("permissão negada pelo dono") };
-    let turn = engine.prompt_with("faux", "faux-1", "/ferramenta list_bots {}", &negada, &mut |_| {}).await.unwrap();
+    let turn = engine
+        .prompt_with("faux", "faux-1", &serde_json::json!({}), "/ferramenta list_bots {}", &negada, &mut |_| {})
+        .await
+        .unwrap();
     assert!(turn.text.contains("ferramenta falhou: permissão negada pelo dono"), "{}", turn.text);
     assert_eq!(negada.chamadas.lock().unwrap().len(), 1);
     engine.finish().await.unwrap();
@@ -153,7 +163,8 @@ async fn cancelar_o_turno_mata_o_processo() {
     let pid = engine.pid().unwrap();
     // O executor nunca responde; o turno é cancelado largando o futuro.
     let mut ignora = |_: &Value| {};
-    let turno = engine.prompt_with("faux", "faux-1", "/ferramenta list_bots {}", &Pendura, &mut ignora);
+    let limites = serde_json::json!({});
+    let turno = engine.prompt_with("faux", "faux-1", &limites, "/ferramenta list_bots {}", &Pendura, &mut ignora);
     assert!(tokio::time::timeout(Duration::from_millis(800), turno).await.is_err());
     assert!(existe(pid), "o motor tinha de estar vivo antes do cancelamento");
     engine.kill().await.unwrap();
@@ -242,7 +253,10 @@ async fn config_mcp_do_pi_na_pasta_do_motor_nao_abre_servidor_e_a_chamada_so_sai
     }
 
     let hub = Registro { chamadas: std::sync::Mutex::default(), reply: Ok("pelo hub") };
-    let turn = engine.prompt_with("faux", "faux-1", "/ferramenta list_bots {}", &hub, &mut |_| {}).await.unwrap();
+    let turn = engine
+        .prompt_with("faux", "faux-1", &serde_json::json!({}), "/ferramenta list_bots {}", &hub, &mut |_| {})
+        .await
+        .unwrap();
     assert!(turn.text.contains("ferramenta respondeu: pelo hub"), "{}", turn.text);
     assert_eq!(hub.chamadas.lock().unwrap().len(), 1, "a chamada tinha de sair pelo Hub");
     assert!(filhos(motor).is_empty(), "o motor abriu servidor MCP: {:?}", filhos(motor));
@@ -281,10 +295,33 @@ async fn ferramenta_nao_declarada_nao_chega_ao_executor() {
     let mut engine = Engine::spawn(novo_store(), "faux", &[]).unwrap();
     engine.set_tools(&[ferramenta("list_bots")]).await.unwrap();
     let registro = Registro { chamadas: std::sync::Mutex::default(), reply: Ok("ok") };
-    let turn = engine.prompt_with("faux", "faux-1", "oi", &registro, &mut |_| {}).await.unwrap();
+    let turn =
+        engine.prompt_with("faux", "faux-1", &serde_json::json!({}), "oi", &registro, &mut |_| {}).await.unwrap();
     assert!(registro.chamadas.lock().unwrap().is_empty(), "nome fora da lista declarada chegou ao executor");
     assert!(turn.text.contains("ferramenta falhou: ferramenta não declarada"), "{}", turn.text);
     engine.finish().await.unwrap();
+}
+
+/// Um motor que para de ler a entrada: a escrita do histórico não volta e a restauração prenderia a sessão. O prazo cobre
+/// envio e resposta, e o erro sobe para quem chamou descartar o processo.
+#[tokio::test]
+async fn motor_que_nao_le_a_entrada_nao_segura_a_restauracao_para_sempre() {
+    let case = caso!("motor_que_nao_le_a_entrada_nao_segura_a_restauracao_para_sempre");
+    let entry = case.dir.join("motor-parado.cjs");
+    std::fs::write(&entry, "setInterval(() => {}, 1000);").unwrap();
+    // SAFETY: cada prova abre o motor num processo próprio (caso!); aqui só este teste lê MEXERICA_MOTOR_ENTRY.
+    unsafe { std::env::set_var(ENTRY_ENV, &entry) };
+    SETUP_DEADLINE_MS.store(500, std::sync::atomic::Ordering::Relaxed);
+    let mut engine = Engine::spawn(novo_store(), "faux", &[]).unwrap();
+    let message = json!({"role": "user", "content": [{"type": "text", "text": "x".repeat(200_000)}], "timestamp": 1});
+    let messages = vec![message; 10];
+    let started = std::time::Instant::now();
+    let error = tokio::time::timeout(Duration::from_secs(20), engine.restore_history(&messages))
+        .await
+        .expect("a restauração prendeu para sempre: o prazo não cobre a escrita")
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("não respondeu a tempo"), "{error:#}");
+    assert!(started.elapsed() < Duration::from_secs(10));
 }
 
 #[tokio::test]
@@ -358,7 +395,8 @@ rl.on('line', (line) => {{
     // O tools/call fica em andamento; largar o futuro do turno tem de mandar
     // notifications/cancelled ao servidor (P2-4).
     let mut ignora = |_: &Value| {};
-    let turno = engine.prompt_with("faux", "faux-1", "/ferramenta mcp__fake__eco {}", &mcp, &mut ignora);
+    let limites = serde_json::json!({});
+    let turno = engine.prompt_with("faux", "faux-1", &limites, "/ferramenta mcp__fake__eco {}", &mcp, &mut ignora);
     // O timeout larga o futuro do turno: é o cancelamento.
     assert!(tokio::time::timeout(Duration::from_millis(1500), turno).await.is_err());
     tokio::time::timeout(Duration::from_secs(5), async {

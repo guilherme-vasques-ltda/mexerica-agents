@@ -73,7 +73,8 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 	// `/paralelo <N> <nome> <json>` chama a ferramenta N vezes na MESMA mensagem; `/ferramentagrande <nome> <N>` chama a
 	// ferramenta com um argumento `x` de N caracteres;
 	// `/historico` responde com todos os textos de usuário que o modelo recebeu;
-	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu.
+	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu;
+	// `/pedido` responde `pedido: <json>` com os textos de sistema e de usuário que o provedor recebeu.
 	let chained = 0;
 	let issued: number | undefined;
 	const echo: FauxResponseFactory = async (context) => {
@@ -105,8 +106,13 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 		if (text.includes("/contexto")) {
 			const kept = context.messages.filter((m) => m.role !== "system");
 			const asked = new Set(kept.flatMap((m) => (m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall").map((b) => b.id) : [])));
+			const declared = context.messages.flatMap((m) => (m.role === "system" ? ((m as { toolsAdded?: unknown[] }).toolsAdded ?? []) : [])).length;
 			const orphans = kept.filter((m) => m.role === "toolResult" && !asked.has(m.toolCallId)).length;
-			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans}`);
+			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans} ferramentas=${declared}`);
+		}
+		if (text.includes("/pedido")) {
+			const sistema = context.messages.filter((m) => m.role === "system").map(userText);
+			return fauxAssistantMessage(`pedido: ${JSON.stringify({ sistema, usuario: users.map(userText) })}`);
 		}
 		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
 		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);
@@ -122,6 +128,8 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 
 /** «Testar acesso» do provedor falso (só testes do Hub): uma chave que começa com `recusada` é inválida. */
 export function fauxAcesso(provider: string, key: string, modelos: readonly Model<Api>[]) {
+	if (!key) return { ok: false, erro: "sem_chave" };
 	if (key.startsWith("recusada")) return { ok: false, erro: "chave_invalida", status: 401 };
-	return { ok: true, modelos: modelos.filter((m) => m.provider === provider).map((m) => ({ id: m.id, name: m.name })) };
+	const proprios = modelos.filter((m) => m.provider === provider);
+	return { ok: true, modelos: proprios.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) };
 }
