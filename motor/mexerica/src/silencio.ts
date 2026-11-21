@@ -16,7 +16,8 @@ export class SilencioDoFornecedor extends Error {
 export function comPrazoDeSilencio(base: Fetch, prazoMs = SILENCIO_MS): Fetch {
 	return async (input, init) => {
 		const corte = new AbortController();
-		const externo = init?.signal ?? undefined;
+		// Como no construtor de `Request`: o `init.signal` explícito (até `null`) vale; sem ele, vale o do próprio `Request`.
+		const externo = init?.signal !== undefined ? (init.signal ?? undefined) : input instanceof Request ? input.signal : undefined;
 		const repassar = () => corte.abort(externo?.reason);
 		if (externo?.aborted) repassar();
 		else externo?.addEventListener("abort", repassar, { once: true });

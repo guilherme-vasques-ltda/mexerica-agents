@@ -38,6 +38,19 @@ test("fornecedor que nem responde os cabeçalhos também é cortado", async () =
 	await assert.rejects(fetch("https://api.example.invalid/v1/responses"), SilencioDoFornecedor);
 });
 
+test("cancelar pelo sinal de um Request, sem init, cancela o pedido de baixo", async () => {
+	let recebido: AbortSignal | null | undefined;
+	const fetch = comPrazoDeSilencio((_input, init) => {
+		recebido = init?.signal;
+		return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+	}, 5000);
+	const dono = new AbortController();
+	const pedido = fetch(new Request("https://api.example.invalid/v1/responses", { signal: dono.signal }));
+	dono.abort(new Error("cancelado pelo dono"));
+	await assert.rejects(pedido, /cancelado pelo dono/);
+	assert.equal(recebido?.aborted, true);
+});
+
 test("resposta lenta mas viva não é cortada", async () => {
 	const partes = [
 		{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } },
