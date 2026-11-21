@@ -1,0 +1,35 @@
+import type { Traducao } from '../../index.ts'
+import type { textos as fonte } from '../../pt-BR/conversa/ladoALado.ts'
+
+// conversa/ladoALado (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos: Traducao<typeof fonte> = {
+  'conversa.ladoALado.titulo': "Side by side",
+  'conversa.ladoALado.entrar': "Open Side by side",
+  'conversa.ladoALado.sair': "Back to a single conversation",
+  'conversa.ladoALado.abrirNoMenu': "Open side by side",
+  'conversa.ladoALado.regiao': "Side by side board",
+  'conversa.ladoALado.contagem': "{atual} of {maximo}",
+  'conversa.ladoALado.adicionar': "Add conversation",
+  'conversa.ladoALado.adicionarCurto': "Add",
+  'conversa.ladoALado.semConversas': "No other conversation available in this space",
+  'conversa.ladoALado.principal': "Primary",
+  'conversa.ladoALado.painelDe': "{nome} panel",
+  'conversa.ladoALado.painelDeSessao': "{nome} panel · {sessao}",
+  'conversa.ladoALado.trocar': "Swap conversation",
+  'conversa.ladoALado.moverEsquerda': "Move left",
+  'conversa.ladoALado.moverDireita': "Move right",
+  'conversa.ladoALado.soEsta': "Open only this conversation",
+  'conversa.ladoALado.fecharPainel': "Close {nome} panel",
+  'conversa.ladoALado.fecharAviso': "Dismiss notice",
+  'conversa.ladoALado.vazioTitulo': "Pick another conversation",
+  'conversa.ladoALado.vazioDetalhe': "Select a conversation below or in the sidebar to follow side by side.",
+  'conversa.ladoALado.avisoLimite': "Limit of {maximo} side-by-side conversations reached. Close a panel to open another.",
+  'conversa.ladoALado.avisoRemovida': "A conversation left the board because it is no longer available.",
+  'conversa.ladoALado.avisoRemovidas': "{n} conversations left the board because they are no longer available.",
+  'conversa.ladoALado.janelaEstreitaUnico': "Window too narrow to show conversations side by side. Widen it or collapse the sidebar.",
+  'conversa.ladoALado.janelaEstreitaParcial': "Only {cabem} of {total} panels fit at this width. Widen the window or collapse the sidebar to see them all.",
+  'conversa.ladoALado.recolherBarra': "Collapse sidebar",
+  'conversa.ladoALado.anuncioAdicionada': "{nome} added to the Side by side board.",
+  'conversa.ladoALado.anuncioFechada': "{nome} panel closed.",
+  'conversa.ladoALado.atalhoPainel': "Switch between panels with F6",
+}
