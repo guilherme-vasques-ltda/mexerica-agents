@@ -118,6 +118,8 @@ pub struct Hub {
     /// Loopback-only bearer token for this computer's own apps and helpers.
     pub token: String,
     pub(crate) pontes: crate::fork::ponte_credencial::Credenciais,
+    /// Repasse local dos planos de código (iniciado sob demanda).
+    pub(crate) planos: tokio::sync::OnceCell<Arc<crate::fork::planos_codigo::Repasse>>,
     pub port: u16,
     pub events: broadcast::Sender<Value>,
     /// Held across "mutate store + broadcast" so events leave in rev order.
@@ -179,6 +181,7 @@ impl Hub {
             identity,
             token,
             pontes: crate::fork::ponte_credencial::Credenciais::default(),
+            planos: tokio::sync::OnceCell::new(),
             port,
             events,
             emit_lock: Mutex::new(()),

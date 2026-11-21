@@ -87,6 +87,7 @@ pub(crate) mod pasta;
 pub(crate) mod permission_card;
 pub(crate) mod personal_bootstrap;
 pub(crate) mod personal_link;
+pub(crate) mod planos_codigo;
 #[allow(dead_code, reason = "F1b/D247: seam privado antes do broker; sem produtor de autoridade.")]
 pub(crate) mod plugins;
 #[cfg(unix)]
