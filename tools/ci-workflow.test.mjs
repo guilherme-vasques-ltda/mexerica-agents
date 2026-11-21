@@ -172,6 +172,8 @@ const REPO = 'dono/repo';
 const EVENTS = {
   'disparo na main': { event: 'workflow_dispatch', ref: 'refs/heads/main', repo: REPO, eligible: true },
   'disparo em outro branch': { event: 'workflow_dispatch', ref: 'refs/heads/outro', repo: REPO, eligible: false },
+  // O Actions compara sem caixa: esta ref passa na condição do job, e o passo «Recusar disparo manual fora da main» a barra.
+  'disparo em MAIN': { event: 'workflow_dispatch', ref: 'refs/heads/MAIN', repo: REPO, eligible: true },
   'PR interno': { event: 'pull_request', ref: 'refs/pull/1/merge', repo: REPO, headRepo: REPO, draft: false, eligible: true },
   'PR interno em rascunho': { event: 'pull_request', ref: 'refs/pull/1/merge', repo: REPO, headRepo: REPO, draft: true, eligible: false },
   'PR de fork': { event: 'pull_request', ref: 'refs/pull/1/merge', repo: REPO, headRepo: 'outro/repo', draft: false, eligible: false },
@@ -194,7 +196,7 @@ test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem
     assert.ok(!mac.includes(trigger), `gatilho proibido: ${trigger}`);
   }
   assert.match(mac, /^permissions: \{\}$/m);
-  assert.match(mac, /^concurrency:\n  group: macos-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(mac, /^concurrency:\n  group: macos-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}\n  cancel-in-progress: true$/m);
 });
 
 test('macOS: job de recusa só no público com variável inválida, sem checkout e sem permissão', () => {
@@ -258,6 +260,15 @@ test('macOS: barreiras no início do job, uma contra máquina do GitHub no priva
   assert.match(minutes, /test -n "\$\{MACOS_INICIO:-\}" \|\| exit 0/, 'resumo de minutos não quebra se a guarda parar o job antes');
 });
 
+test('macOS: disparo manual fora da main exata para antes do checkout e do build', () => {
+  const steps = macJobs.macos.join('\n').split('\n      - ').map((st) => st.replace(/^(?:      #.*\n)+/, ''));
+  const refuse = steps.findIndex((st) => st.startsWith('name: Recusar disparo manual fora da main'));
+  const checkout = steps.findIndex((st) => st.startsWith('uses: actions/checkout@'));
+  assert.ok(refuse > 0 && refuse < checkout, 'checagem exata antes do checkout');
+  assert.ok(steps[refuse].includes("if: ${{ github.event_name == 'workflow_dispatch' }}"));
+  assert.match(steps[refuse], /\n        run: \|\n          test "\$GITHUB_REF" = refs\/heads\/main \|\| \{ echo '::error::[^'\n]+'; exit 1; \}(?:\n      #.*)*$/);
+});
+
 test('macOS: actions da lista fechada por SHA; checkout sem credencial persistida', () => {
   const uses = [...mac.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
   assert.ok(uses.length > 0);
@@ -285,7 +296,7 @@ test('macOS: zip e artefato só no disparo manual, com retenção curta', () => 
   const zip = steps.filter((st) => st.includes('ditto -c -k'));
   assert.equal(zip.length, 1);
   assert.ok(zip[0].includes(manual) && zip[0].includes('SHA256SUMS'));
-  assert.ok(zip[0].includes('test "$GITHUB_REF" = refs/heads/main'), 'zip só da main');
+  assert.match(zip[0], /\n        run: \|\n          test "\$GITHUB_REF" = refs\/heads\/main\n/, 'zip só da main: primeiro comando do passo, sem desvio de erro');
   assert.ok(zip[0].includes('-teste-ci-${GITHUB_SHA::12}.zip'), 'nome do zip diz teste de CI e o commit');
   assert.ok(zip[0].includes('nao e versao oficial') && zip[0].includes('GITHUB_STEP_SUMMARY'), 'resumo avisa que não é versão oficial');
   assert.match(upload[0], /name: mexerica-open-macos-arm64-teste-ci-\$\{\{ github\.sha \}\}/);

@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: macos-${{ github.event.pull_request.number || github.ref }}
+  group: macos-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 permissions: {}
@@ -62,6 +62,13 @@ jobs:
         run: |
           echo '::error::Repositorio publico: o macOS so roda em maquina do GitHub.'
           exit 1
+      # O Actions compara texto sem diferenciar maiusculas: uma ref como refs/heads/MAIN passa na condicao do job.
+      # Aqui a comparacao e exata e para antes do checkout e do build.
+      - name: Recusar disparo manual fora da main
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || { echo '::error::O disparo manual so roda a partir da main.'; exit 1; }
       - name: Marcar o inicio para o resumo de minutos
         run: echo "MACOS_INICIO=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

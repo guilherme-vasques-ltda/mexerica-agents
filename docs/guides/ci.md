@@ -81,7 +81,10 @@ enquanto estabilizam.
 - **Quando roda:** em PR pronto (não rascunho, não fork) que muda `apps/desktop/`, `host/`,
   `motor/`, `packaging/`, a toolchain ou o Cargo da raiz, ou o próprio workflow; e por
   disparo manual (Actions → macOS → Run workflow) **a partir da `main`**. Disparo escolhendo
-  outro branch não roda nada.
+  outro branch deixa os jobs pulados. Exceção: o Actions compara texto sem diferenciar
+  maiúsculas, então um branch como `MAIN` passa na condição e liga a máquina; o primeiro passo
+  compara a ref exata e reprova antes do checkout e do build. Isso vale para o workflow da
+  `main`: o disparo usa o YAML do branch escolhido.
 - **O que faz:** os testes nativos do Codex da Open no Hub (`fork::open_codex` e
   `open_hub` com `CODYNC_ENV=open`), `npm ci`, `npm run test:open` e
   `npm run dist:mac:open`. Depois confere a assinatura ad hoc do pacote e que o Hub e o
