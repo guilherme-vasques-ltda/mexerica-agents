@@ -397,6 +397,42 @@ async fn text_is_not_delivered_once_the_check_before_it_refuses() {
     assert!(find(&sent, "turn/start").is_none(), "o texto nunca chega ao Codex");
 }
 
+#[test]
+fn a_message_never_accepted_by_codex_leaves_the_queue_with_the_reason() {
+    let (hub, dados) = hub_de_teste("bot-da-fila");
+    let lane = crate::store::Lane::main("bot-da-fila");
+    let e = hub
+        .add_entry(&lane, crate::store::EntryKind::User, 1, &serde_json::json!({"text": "oi", "status": "queued"}))
+        .unwrap();
+    super::mark_unsent(&hub, &e.id, "open_codex_unavailable", "conta-1");
+    let mut data = hub.store.entry(&e.id).unwrap().data;
+    assert_eq!(data["status"], "failed", "sem aceite do Codex a mensagem não fica na fila");
+    assert_eq!(data["reason"]["code"], "open_codex_unavailable");
+    assert_eq!(data["reason"]["accountId"], "conta-1");
+    super::mark_unsent(&hub, &e.id, "open_chat_cancelled", "conta-1");
+    data = hub.store.entry(&e.id).unwrap().data;
+    assert_eq!(data["status"], "failed", "uma entrada já marcada não é reescrita");
+    let parada = hub
+        .add_entry(
+            &lane,
+            crate::store::EntryKind::User,
+            2,
+            &serde_json::json!({"text": "oi de novo", "status": "queued"}),
+        )
+        .unwrap();
+    super::mark_unsent(&hub, &parada.id, "open_chat_cancelled", "conta-1");
+    data = hub.store.entry(&parada.id).unwrap().data;
+    assert_eq!(data["status"], "cancelled", "um turno interrompido marca a mensagem como interrompida");
+    let aceita = hub
+        .add_entry(&lane, crate::store::EntryKind::User, 3, &serde_json::json!({"text": "aceita", "status": "sent"}))
+        .unwrap();
+    super::mark_unsent(&hub, &aceita.id, "open_chat_timeout", "conta-1");
+    data = hub.store.entry(&aceita.id).unwrap().data;
+    assert_eq!(data["status"], "sent", "mensagem aceita segue sent mesmo com falha depois");
+    assert!(data.get("reason").is_none(), "sem reason numa mensagem que chegou ao Codex");
+    let _ = std::fs::remove_dir_all(&dados);
+}
+
 #[tokio::test]
 async fn terminating_confirms_the_exit_of_the_whole_process_group() {
     let child = tokio::process::Command::new("sleep")

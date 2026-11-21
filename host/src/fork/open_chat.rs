@@ -183,6 +183,20 @@ fn thread_key(lane: &Lane, account: &str) -> String {
     format!("open_chat.thread.{}.{}.{}", lane.chat, account, lane.session.as_deref().unwrap_or("main"))
 }
 
+/// Marca a mensagem que o Codex nunca aceitou: a Open não tem fila de despacho, então a entrada não pode ficar
+/// `queued` — sem isso ela sai da conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
+/// `sent` e segue assim, mesmo que o turno aceite falhe depois.
+fn mark_unsent(hub: &Hub, entry_id: &str, code: &str, account: &str) {
+    if let Some(entry) = hub.store.entry(entry_id)
+        && entry.data["status"] == "queued"
+    {
+        let mut data = entry.data;
+        data["status"] = if code == "open_chat_cancelled" { json!("cancelled") } else { json!("failed") };
+        data["reason"] = json!({"code": code, "accountId": account});
+        hub.set_entry(entry_id, &data);
+    }
+}
+
 /// Roda o turno em segundo plano; a resposta chega como entradas normais da conversa.
 pub(crate) fn run(
     hub: &Arc<Hub>,
@@ -226,9 +240,10 @@ pub(crate) fn run(
         .await;
         reply.close();
         if alive() {
-            if let Err(error) = outcome {
+            if let Err(error) = &outcome {
                 let (code, text) = notice(&error.to_string());
                 hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
+                mark_unsent(&hub, &entry_id, code, &account);
             }
             hub.set_runtime(&bot, |r| {
                 r.status = BotStatus::Idle;
