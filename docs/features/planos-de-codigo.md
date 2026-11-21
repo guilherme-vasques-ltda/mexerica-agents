@@ -37,19 +37,36 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
   `OPENCODE_API_KEY`, junto com o endereço do repasse no lugar do endereço do fornecedor (`OPENCODE_CONFIG_CONTENT`).
   O repasse confere o código, troca-o pela chave guardada e encaminha o pedido ao endereço fixo do plano.
 - O repasse só aceita o método e os caminhos que o fornecedor usa (uma tabela fixa por plano), nunca segue
-  redirecionamento, limita tamanho e tempo de cada pedido, e recusa resposta que contenha a chave (no corpo, inclusive
-  partida entre dois pedaços, ou em cabeçalho). Cabeçalhos e streaming passam sem alteração.
+  redirecionamento, limita tamanho e tempo de cada pedido (a vaga do teto de pedidos só volta no fim da resposta) e não
+  responde a `OPTIONS`. Só atende `Host` igual a `127.0.0.1:<porta da sessão>` e recusa pedido com `Origin`: uma página
+  da web ou um nome apontado para o loopback não chega ao código. Cabeçalhos e streaming passam sem alteração.
+- O repasse recusa resposta que contenha a chave no corpo, nos cabeçalhos ou nos campos que «Testar acesso» guarda,
+  inclusive partida entre dois pedaços, com escapes de JSON (`\uXXXX`, misturados ou não) ou em base64 (alfabeto padrão
+  e de URL). Limite: uma chave partida em eventos separados do fluxo (o cliente junta os pedaços) ou escrita em outra
+  codificação (hexadecimal, rot13, invertida) não é reconhecida; isto fecha o eco acidental e o disfarce comum, não um
+  fornecedor que queira vazar a chave.
 - Por isso a chave não está no ambiente do OpenCode, nem no de um servidor MCP filho, nem no de um comando de shell:
   eles só enxergam o código de sessão. Conferido com o OpenCode 1.19.6 de verdade e um fornecedor de mentira
-  (`repasse_tests.rs`, roda onde o programa existe). Outras versões precisam ser reconferidas.
+  (`repasse_tests.rs`, teste marcado `ignored` porque precisa do programa instalado:
+  `cargo test -- --ignored opencode_de_verdade`): as três sondas leem só `OPENCODE_API_KEY` e contam as linhas do
+  ambiente que contêm a chave (zero). Outras versões precisam ser reconferidas.
+- O código não vai a log nem a erro: toda linha de saída do motor passa por uma máscara (`mxs_[oculto]`) antes de ser
+  registrada ou interpretada.
 - O OpenCode do plano roda num perfil próprio (`engine_setup_root/planos/<plano>/home`: casa, configuração, dados,
   estado e cache só do plano), com a configuração de projeto desligada (`OPENCODE_DISABLE_PROJECT_CONFIG`). Um bot com
   comando próprio de execução não recebe o ambiente do plano: o lançamento falha. Sem chave, fora do Space pessoal ou
   no executor isolado, também falha: o Hub nunca cai no ambiente do dono.
-- Trocar ou remover a chave revoga o código na hora, corta os pedidos em andamento e encerra o processo antigo. Uma
-  geração por plano fecha a corrida com uma abertura que estava em curso.
-- Limite: uma ferramenta que consiga roubar o código de sessão pode usar o plano enquanto a sessão durar, só por este
-  computador. O código não leva a chave e deixa de valer ao fim da sessão.
+- Trocar ou remover a chave revoga o código na hora, corta os pedidos em andamento (também a leitura do corpo, e uma
+  revogação nunca se perde: ela fica marcada para quem chegar depois) e encerra o processo do OpenCode que o recebeu
+  antes de a operação voltar. Uma geração por plano fecha a corrida com uma abertura em curso: um processo que nasceu
+  com um código já revogado é encerrado.
+- O código vive no ambiente do processo, então vive com ele: quando a última conversa do processo fecha, o processo é
+  encerrado (a próxima conversa abre outro, com outro código). Uma exceção: um processo mantido vivo por um comando de
+  fundo da própria ferramenta (um servidor de desenvolvimento, por exemplo) segue até esse comando acabar.
+- Limites: uma ferramenta que consiga roubar o código de sessão pode usar o plano enquanto o processo durar, só por
+  este computador; o código não leva a chave. O repasse escuta em loopback numa porta TCP, que outros usuários do mesmo
+  sistema conseguem alcançar, mas sem o código (que só está no ambiente do processo) não passam da porta. Um socket de
+  domínio Unix, com a identidade do par, ficaria como passo seguinte.
 - Os modelos do plano entram na escolha de modelo do OpenCode (`agentModels`), só no Space pessoal, e continuam
   disponíveis se o OpenCode não responde à descoberta dos próprios modelos.
 

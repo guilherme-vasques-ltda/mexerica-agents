@@ -427,7 +427,14 @@ impl Actor {
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
-                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre.
+                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre. Se a chave
+                // mudou entre conceder e abrir, o processo que acabou de abrir nasceu com um código morto e não fica.
+                if let Some(plano) = &plano
+                    && !plano.concessao.prender(&conn.acp)
+                {
+                    conn.kill().await;
+                    bail!("plano_em_troca: a chave do plano mudou enquanto o agente abria.");
+                }
                 conn.plano = plano.map(|plano| plano.concessao);
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",

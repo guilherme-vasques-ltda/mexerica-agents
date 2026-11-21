@@ -139,6 +139,12 @@ impl Actor {
                 }
             }
         }
+        // O código de um plano de código vive no ambiente do processo: sem conversa aberta, o processo não fica.
+        if self.conn.as_ref().is_some_and(|conn| conn.plano.is_some() && conn.loaded.is_empty())
+            && let Some(conn) = self.conn.take()
+        {
+            conn.kill().await;
+        }
     }
 }
 

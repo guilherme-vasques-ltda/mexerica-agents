@@ -12,8 +12,8 @@
 //!
 //! O que não garante: uma ferramenta que roube o código de sessão pode usar o plano enquanto a sessão durar. Ela não
 //! leva a chave.
-use super::Plano;
-use crate::LockExt;
+use super::{Plano, cerca::Cerca};
+use crate::{LockExt, agent::acp::Acp};
 use anyhow::{Result, ensure};
 use axum::{
     Router,
@@ -31,7 +31,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use zeroize::Zeroizing;
 
 const LIMITE_PEDIDO: usize = 32 << 20;
@@ -42,6 +42,7 @@ const PRAZO_TOTAL: Duration = Duration::from_secs(30 * 60);
 const PRAZO_DE_CONEXAO: Duration = Duration::from_secs(15);
 const MAX_SESSOES: usize = 256;
 const MAX_PEDIDOS: usize = 32;
+const PRAZO_DE_ENCERRAMENTO: Duration = Duration::from_secs(5);
 
 type Hash = [u8; 32];
 
@@ -51,6 +52,28 @@ struct Sessao {
     chave: Zeroizing<String>,
     base_de_prova: Option<String>,
     revogada: watch::Sender<bool>,
+    /// O processo do OpenCode que recebeu o código: encerrado junto com a sessão.
+    acp: Mutex<Option<Arc<Acp>>>,
+}
+
+/// Só para prova: quem só olha a sessão depois de ela ser revogada.
+#[cfg(test)]
+pub(super) struct Tardia(Arc<Sessao>);
+
+#[cfg(test)]
+impl Tardia {
+    pub(super) fn marcada(&self) -> bool {
+        *self.0.revogada.subscribe().borrow()
+    }
+}
+
+impl Sessao {
+    /// Marca a sessão como revogada de um jeito que quem a enxergar depois também vê (`send_replace` grava o valor mesmo
+    /// sem ninguém escutando) e entrega o processo para ser encerrado.
+    fn revogar(&self) -> Option<Arc<Acp>> {
+        self.revogada.send_replace(true);
+        self.acp.locked().take()
+    }
 }
 
 #[derive(Default)]
@@ -86,6 +109,18 @@ impl Concessao {
     /// O endereço base que o OpenCode usa no lugar do endereço do fornecedor.
     pub(crate) fn base(&self) -> String {
         format!("http://127.0.0.1:{}/r", self.repasse.porta)
+    }
+
+    /// Liga o código ao processo que o recebeu: trocar ou remover a chave encerra esse processo. Devolve `false` se a
+    /// sessão já foi revogada (a chave mudou entre conceder e abrir): quem chamou deve encerrar o processo que abriu.
+    pub(crate) fn prender(&self, acp: &Arc<Acp>) -> bool {
+        let Some(sessao) = self.repasse.estado.locked().sessoes.get(&self.hash).cloned() else { return false };
+        *sessao.acp.locked() = Some(acp.clone());
+        if !*sessao.revogada.borrow() {
+            return true;
+        }
+        sessao.acp.locked().take();
+        false
     }
 }
 
@@ -157,26 +192,36 @@ impl Repasse {
         #[cfg(not(test))]
         let base_de_prova = None;
         let (revogada, _) = watch::channel(false);
-        estado.sessoes.insert(hash, Arc::new(Sessao { plano, chave, base_de_prova, revogada }));
+        estado.sessoes.insert(hash, Arc::new(Sessao { plano, chave, base_de_prova, revogada, acp: Mutex::new(None) }));
         drop(estado);
         Ok(Concessao { repasse: self.clone(), hash, codigo })
     }
 
+    /// A concessão foi solta: o processo já está sendo encerrado por quem a tinha.
     fn revogar_hash(&self, hash: &Hash) {
-        if let Some(sessao) = self.estado.locked().sessoes.remove(hash) {
-            let _ = sessao.revogada.send(true);
+        let sessao = self.estado.locked().sessoes.remove(hash);
+        if let Some(sessao) = sessao {
+            sessao.revogar();
         }
     }
 
-    /// Troca ou remoção da chave: todas as sessões do plano morrem e os pedidos em andamento são cortados.
-    pub(crate) fn revogar_plano(&self, plano: &Plano) {
-        let mut estado = self.estado.locked();
-        *estado.geracoes.entry(plano.id).or_insert(0) += 1;
-        let mortas: Vec<Hash> =
-            estado.sessoes.iter().filter(|(_, sessao)| sessao.plano.id == plano.id).map(|(hash, _)| *hash).collect();
-        for hash in mortas {
-            if let Some(sessao) = estado.sessoes.remove(&hash) {
-                let _ = sessao.revogada.send(true);
+    /// Troca ou remoção da chave: todas as sessões do plano morrem, os pedidos em andamento são cortados e os processos
+    /// do OpenCode que receberam o código são encerrados antes de a operação voltar.
+    pub(crate) async fn revogar_plano(&self, plano: &Plano) {
+        let processos: Vec<Arc<Acp>> = {
+            let mut estado = self.estado.locked();
+            *estado.geracoes.entry(plano.id).or_insert(0) += 1;
+            let mortas: Vec<Hash> = estado
+                .sessoes
+                .iter()
+                .filter(|(_, sessao)| sessao.plano.id == plano.id)
+                .map(|(hash, _)| *hash)
+                .collect();
+            mortas.iter().filter_map(|hash| estado.sessoes.remove(hash)).filter_map(|sessao| sessao.revogar()).collect()
+        };
+        for processo in processos {
+            if tokio::time::timeout(PRAZO_DE_ENCERRAMENTO, processo.kill_and_wait()).await.is_err() {
+                tracing::warn!(plano = plano.id, "o processo do plano demorou a encerrar");
             }
         }
     }
@@ -188,6 +233,16 @@ impl Repasse {
     #[cfg(test)]
     pub(crate) fn sessoes_vivas(&self) -> usize {
         self.estado.locked().sessoes.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn vagas_livres(&self) -> usize {
+        self.vagas.available_permits()
+    }
+
+    #[cfg(test)]
+    pub(super) fn sessao_tardia(&self, codigo: &str) -> Option<Tardia> {
+        self.sessao(codigo).map(Tardia)
     }
 }
 
@@ -271,15 +326,21 @@ fn devolve_o_cabecalho_da_resposta(nome: &HeaderName) -> bool {
     )
 }
 
-fn contem(janela: &[u8], agulha: &[u8]) -> bool {
-    !agulha.is_empty() && janela.windows(agulha.len()).any(|parte| parte == agulha)
-}
-
 impl Repasse {
     async fn encaminhar(&self, pedido: Request) -> Result<Response, StatusCode> {
         let (partes, corpo) = pedido.into_parts();
         if partes.method != Method::POST {
             return Err(StatusCode::NOT_FOUND);
+        }
+        // Só o próprio computador, pelo endereço da sessão: uma página da web (Origin) ou um nome apontado para o
+        // loopback (Host) não chega ao código.
+        let autoridade = format!("127.0.0.1:{}", self.porta);
+        let host_ok = partes.headers.get(header::HOST).and_then(|host| host.to_str().ok()) == Some(autoridade.as_str());
+        if partes.headers.contains_key(header::ORIGIN)
+            || !host_ok
+            || partes.uri.authority().is_some_and(|dada| dada.as_str() != autoridade)
+        {
+            return Err(StatusCode::FORBIDDEN);
         }
         let codigo = codigo_do_pedido(&partes.headers).ok_or(StatusCode::NOT_FOUND)?;
         let sessao = self.sessao(&codigo).ok_or(StatusCode::NOT_FOUND)?;
@@ -289,15 +350,22 @@ impl Repasse {
         {
             url = format!("{base}/{caminho}");
         }
-        let _vaga = self.vagas.clone().try_acquire_owned().map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
+        let vaga = self.vagas.clone().try_acquire_owned().map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
         let mut revogada = sessao.revogada.subscribe();
         if *revogada.borrow() {
             return Err(StatusCode::NOT_FOUND);
         }
-        let corpo: Bytes = tokio::time::timeout(PRAZO_DO_CORPO, axum::body::to_bytes(corpo, LIMITE_PEDIDO))
-            .await
-            .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
-            .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+        let corpo: Bytes = tokio::select! {
+            biased;
+            _ = revogada.wait_for(|revogada| *revogada) => return Err(StatusCode::NOT_FOUND),
+            lido = tokio::time::timeout(PRAZO_DO_CORPO, axum::body::to_bytes(corpo, LIMITE_PEDIDO)) => lido
+                .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
+                .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?,
+        };
+        // Último ponto de admissão: depois dele o pedido segue ao fornecedor (e já não dá para desfazê-lo).
+        if *revogada.borrow() {
+            return Err(StatusCode::NOT_FOUND);
+        }
 
         let mut cabecalhos = HeaderMap::new();
         for (nome, valor) in &partes.headers {
@@ -313,10 +381,11 @@ impl Repasse {
 
         let envio = self.cliente.post(url).headers(cabecalhos).body(corpo).send();
         let resposta = tokio::select! {
+            biased;
+            _ = revogada.wait_for(|revogada| *revogada) => return Err(StatusCode::NOT_FOUND),
             resposta = envio => resposta.map_err(|erro| {
                 if erro.is_timeout() { StatusCode::GATEWAY_TIMEOUT } else { StatusCode::BAD_GATEWAY }
             })?,
-            _ = revogada.wait_for(|revogada| *revogada) => return Err(StatusCode::NOT_FOUND),
         };
         let status = resposta.status();
         if status.is_redirection() {
@@ -329,17 +398,18 @@ impl Repasse {
         {
             return Err(StatusCode::BAD_GATEWAY);
         }
+        let cerca = Cerca::nova(&sessao.chave);
         let mut saida = Response::builder().status(status);
         for (nome, valor) in resposta.headers() {
             if !devolve_o_cabecalho_da_resposta(nome) {
                 continue;
             }
-            if contem(valor.as_bytes(), sessao.chave.as_bytes()) {
+            if cerca.contem(nome.as_str().as_bytes()) || cerca.contem(valor.as_bytes()) {
                 return Err(StatusCode::BAD_GATEWAY);
             }
             saida = saida.header(nome, valor);
         }
-        let fluxo = filtrar(Box::pin(resposta.bytes_stream()), sessao.chave.clone(), revogada);
+        let fluxo = filtrar(Box::pin(resposta.bytes_stream()), cerca, revogada, vaga);
         saida.body(Body::from_stream(fluxo)).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
     }
 }
@@ -350,31 +420,31 @@ struct Filtro {
     fluxo: Fluxo,
     pendente: Vec<u8>,
     total: usize,
-    chave: Zeroizing<String>,
+    cerca: Cerca,
     revogada: watch::Receiver<bool>,
     fim: bool,
+    /// A vaga do teto de pedidos fica com o fluxo até ele terminar ou ser largado, não só até os cabeçalhos.
+    _vaga: OwnedSemaphorePermit,
 }
 
-/// Quantos bytes do fim da janela são o começo da chave: esses ficam retidos até o próximo pedaço, para uma chave
-/// partida entre dois pedaços nunca sair pela metade. O resto da resposta segue na hora (o streaming não atrasa).
-pub(super) fn retido(janela: &[u8], chave: &[u8]) -> usize {
-    (1..chave.len().min(janela.len() + 1)).rev().find(|&m| janela.ends_with(&chave[..m])).unwrap_or(0)
-}
-
-/// A resposta do fornecedor, em pedaços, sem nunca deixar passar a chave; corta o fluxo se a sessão for revogada.
+/// A resposta do fornecedor, em pedaços, sem nunca deixar passar a chave (nem a chave disfarçada, ver `cerca.rs`); corta
+/// o fluxo se a sessão for revogada. O fim da janela que ainda pode ser o começo da chave fica retido até o próximo
+/// pedaço; o resto segue na hora (o streaming não atrasa).
 fn filtrar(
     fluxo: Fluxo,
-    chave: Zeroizing<String>,
+    cerca: Cerca,
     revogada: watch::Receiver<bool>,
+    vaga: OwnedSemaphorePermit,
 ) -> impl Stream<Item = std::io::Result<Bytes>> {
-    let estado = Filtro { fluxo, pendente: Vec::new(), total: 0, chave, revogada, fim: false };
+    let estado = Filtro { fluxo, pendente: Vec::new(), total: 0, cerca, revogada, fim: false, _vaga: vaga };
     futures::stream::unfold(estado, |mut e| async move {
         if e.fim {
             return None;
         }
         let proximo = tokio::select! {
-            proximo = e.fluxo.next() => Some(proximo),
+            biased;
             _ = e.revogada.wait_for(|revogada| *revogada) => None,
+            proximo = e.fluxo.next() => Some(proximo),
         };
         let Some(proximo) = proximo else {
             e.fim = true;
@@ -394,11 +464,11 @@ fn filtrar(
                 e.total += pedaco.len();
                 let mut janela = std::mem::take(&mut e.pendente);
                 janela.extend_from_slice(&pedaco);
-                if e.total > LIMITE_RESPOSTA || contem(&janela, e.chave.as_bytes()) {
+                if e.total > LIMITE_RESPOSTA || e.cerca.contem(&janela) {
                     e.fim = true;
                     return Some((Err(std::io::Error::other("resposta recusada")), e));
                 }
-                let segura = janela.len() - retido(&janela, e.chave.as_bytes());
+                let segura = janela.len() - e.cerca.retido(&janela);
                 e.pendente = janela.split_off(segura);
                 Some((Ok(Bytes::from(janela)), e))
             }

@@ -306,6 +306,7 @@ impl Acp {
                     if protected || background {
                         continue;
                     }
+                    let line = crate::fork::planos_codigo::mascarar_codigo(&line).into_owned();
                     tracing::debug!(target: "agent", stderr = %line);
                     let mut t = tail.locked();
                     if t.len() == STDERR_TAIL_LINES {
@@ -320,6 +321,7 @@ impl Acp {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    let line = crate::fork::planos_codigo::mascarar_codigo(&line);
                     let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                         if !protected && !background {
                             tracing::debug!(target: "agent", stdout = %line, "ignoring non-JSON output");

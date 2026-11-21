@@ -2,6 +2,7 @@
 //!
 //! O endereço vem do catálogo (nunca do app) e a chave só segue para ele. Sem redirecionamento, com prazo e teto de
 //! tamanho. O corpo de uma resposta de erro nunca é lido, porque o fornecedor pode repetir a chave nele.
+use super::cerca::Cerca;
 use serde::Serialize;
 use std::time::Duration;
 
@@ -96,8 +97,10 @@ async fn listar_modelos_com_prazo(
         }
         corpo.extend_from_slice(&parte);
     }
-    // Uma resposta que repete a chave (no corpo inteiro, em qualquer campo) nunca é devolvida nem guardada.
-    if !chave.is_empty() && corpo.windows(chave.len()).any(|janela| janela == chave.as_bytes()) {
+    // Uma resposta que repete a chave (no corpo inteiro, em qualquer campo, inclusive disfarçada: ver `cerca.rs`) nunca é
+    // devolvida nem guardada.
+    let cerca = Cerca::nova(chave);
+    if !chave.is_empty() && cerca.contem(&corpo) {
         return Err(Falha::RespostaInvalida);
     }
     let lista: serde_json::Value = serde_json::from_slice(&corpo).map_err(|_| Falha::RespostaInvalida)?;
@@ -113,10 +116,16 @@ async fn listar_modelos_com_prazo(
             continue;
         }
         let id = format!("{provedor}/{id}");
+        if cerca.contem(id.as_bytes()) {
+            return Err(Falha::RespostaInvalida);
+        }
         if modelos.iter().any(|modelo| modelo.id == id) {
             continue;
         }
-        let name = dado["name"].as_str().unwrap_or(&id).chars().filter(|c| !c.is_control()).take(120).collect();
+        let name: String = dado["name"].as_str().unwrap_or(&id).chars().filter(|c| !c.is_control()).take(120).collect();
+        if cerca.contem(name.as_bytes()) {
+            return Err(Falha::RespostaInvalida);
+        }
         modelos.push(Modelo { id, name });
         if modelos.len() == MAX_MODELOS {
             break;

@@ -405,6 +405,18 @@ async fn resposta_de_sucesso_que_repete_a_chave_nao_e_devolvida_nem_guardada() {
         format!(r#"{{"data":[{{"id":"{CHAVE}"}}]}}"#),
         format!(r#"{{"data":[{{"id":"ok","name":"nome com {CHAVE}"}}]}}"#),
         format!(r#"{{"data":[{{"id":"ok"}}],"eco":"{CHAVE}"}}"#),
+        format!(
+            r#"{{"data":[{{"id":"{}"}}]}}"#,
+            CHAVE.bytes().fold(String::new(), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "\\u{b:04x}");
+                s
+            })
+        ),
+        format!(
+            r#"{{"data":[{{"id":"ok","name":"{}"}}]}}"#,
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, format!("x{CHAVE}"))
+        ),
     ] {
         let (url, _) = servidor(http("200 OK", "", &corpo)).await;
         let acesso = salvar(&hub, &PLANOS[0], &url, Zeroizing::new(CHAVE.into())).await.unwrap();
@@ -413,4 +425,14 @@ async fn resposta_de_sucesso_que_repete_a_chave_nao_e_devolvida_nem_guardada() {
     }
     assert_eq!(hub.store.kv_read("plano-codigo/opencode-go").unwrap(), None);
     assert_eq!(hub.store.kv_read("plano-codigo.modelos/opencode-go").unwrap(), None);
+}
+
+#[test]
+fn o_codigo_de_sessao_e_mascarado_em_texto_que_o_hub_registra() {
+    let codigo = format!("mxs_{}", "ab12".repeat(16));
+    assert_eq!(mascarar_codigo("nada aqui"), "nada aqui");
+    assert_eq!(mascarar_codigo(&format!("erro com {codigo} no meio")), "erro com mxs_[oculto] no meio");
+    assert_eq!(mascarar_codigo(&format!("{codigo}{codigo}")), "mxs_[oculto]mxs_[oculto]");
+    assert_eq!(mascarar_codigo("mxs_curto e mxs_"), "mxs_curto e mxs_", "o que não é um código inteiro não muda");
+    assert!(!mascarar_codigo(&format!(r#"{{"error":{{"message":"{codigo}"}}}}"#)).contains(&codigo));
 }

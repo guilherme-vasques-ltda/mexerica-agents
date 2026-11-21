@@ -1,12 +1,22 @@
 //! Provas do repasse local dos planos: servidores de mentira, nenhuma rede, nenhuma chave real.
+use super::cerca::Cerca;
 use super::tests::{bot, com_chave, hub_de_prova};
 use super::*;
+use std::fmt::Write as _;
 use std::future::Future;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 const CHAVE: &str = "chave-ficticia-do-repasse-456";
+/// Todos os caracteres em escapes de JSON (`\u0063` e assim por diante).
+fn escapar(texto: &str) -> String {
+    texto.bytes().fold(String::new(), |mut saida, byte| {
+        let _ = write!(saida, "\\u{byte:04x}");
+        saida
+    })
+}
+
 const CHAVE_DO_COFRE: &str = "chave-ficticia-do-plano-123";
 
 struct Upstream {
@@ -355,7 +365,7 @@ async fn revogar_corta_o_pedido_em_andamento_antes_e_depois_dos_cabecalhos() {
             resposta.bytes().await
         });
         tokio::time::sleep(Duration::from_millis(300)).await;
-        m.repasse.revogar_plano(&PLANOS[0]);
+        m.repasse.revogar_plano(&PLANOS[0]).await;
         let desfecho =
             tokio::time::timeout(Duration::from_secs(3), tarefa).await.expect("o pedido foi cortado").unwrap();
         assert!(inicio.elapsed() < Duration::from_secs(3));
@@ -417,12 +427,163 @@ fn o_destino_exige_o_prefixo_a_rota_e_o_segmento_do_modelo() {
 
 #[test]
 fn a_parte_retida_so_e_o_comeco_da_chave() {
-    use super::repasse::retido;
-    let chave = b"chave-secreta";
-    assert_eq!(retido(b"texto qualquer", chave), 0);
-    assert_eq!(retido(b"texto chave-se", chave), 8);
-    assert_eq!(retido(b"texto c", chave), 1);
-    assert_eq!(retido(b"", chave), 0);
+    let cerca = Cerca::nova("chave-secreta");
+    assert_eq!(cerca.retido(b"texto qualquer"), 0);
+    assert_eq!(cerca.retido(b"texto chave-se"), 8);
+    assert_eq!(cerca.retido(b"texto c"), 1);
+    assert_eq!(cerca.retido(b""), 0);
+    assert_eq!(cerca.retido(br"texto \u00"), 4, "um escape pela metade espera o resto");
+    assert_eq!(cerca.retido(br"texto \u0063hav"), 9, "o começo da chave escrito em escapes também fica retido");
+}
+
+#[test]
+fn a_cerca_reconhece_a_chave_disfarcada_de_escape_de_json_e_de_base64() {
+    use base64::{
+        Engine,
+        engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    };
+    let cerca = Cerca::nova(CHAVE);
+    let escapada = escapar(CHAVE);
+    let mista: String = CHAVE
+        .chars()
+        .enumerate()
+        .map(|(i, c)| if i % 2 == 0 { format!("\\u{:04X}", c as u32) } else { c.to_string() })
+        .collect();
+    let com_barra: String = CHAVE.replace('-', "\\u002d");
+    for forma in [CHAVE, &escapada, &mista, &com_barra] {
+        assert!(cerca.contem(forma.as_bytes()), "{forma}");
+    }
+    for deslocamento in 0..3 {
+        let mut bytes = vec![b'x'; deslocamento];
+        bytes.extend_from_slice(CHAVE.as_bytes());
+        bytes.extend_from_slice(b"zz");
+        for texto in [STANDARD.encode(&bytes), URL_SAFE_NO_PAD.encode(&bytes)] {
+            assert!(cerca.contem(texto.as_bytes()), "base64 com deslocamento {deslocamento}: {texto}");
+        }
+    }
+    assert!(!cerca.contem(b"data: tudo bem, nada aqui"));
+    assert!(!cerca.contem(b"chave-ficticia-de-outra-coisa-789"));
+}
+
+#[tokio::test]
+async fn eco_da_chave_em_escapes_de_json_partido_em_dois_pedacos_e_cortado() {
+    let escapada = escapar(CHAVE);
+    let (primeira, segunda) = escapada.split_at(escapada.len() / 2 / 6 * 6);
+    let (primeira, segunda) = (primeira.to_owned(), segunda.to_owned());
+    let up = upstream(move |mut conexao, _| {
+        let (primeira, segunda) = (primeira.clone(), segunda.clone());
+        async move {
+            let _ = conexao.write_all(CABECALHO_SSE.as_bytes()).await;
+            pedaco(&mut conexao, &format!("data: {{\"x\":\"{primeira}")).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            pedaco(&mut conexao, &format!("{segunda}\"}}\n\n")).await;
+            let _ = conexao.write_all(b"0\r\n\r\n").await;
+        }
+    })
+    .await;
+    let m = montar(&up).await;
+    let mut resposta = m.pedido("chat/completions", "authorization").body("{}").send().await.unwrap();
+    let mut recebido = Vec::new();
+    let mut falhou = false;
+    loop {
+        match resposta.chunk().await {
+            Ok(Some(pedaco)) => recebido.extend_from_slice(&pedaco),
+            Ok(None) => break,
+            Err(_) => {
+                falhou = true;
+                break;
+            }
+        }
+    }
+    let texto = String::from_utf8_lossy(&recebido);
+    assert!(falhou, "o fluxo com a chave em escapes é cortado");
+    assert!(!texto.contains("\\u0063"), "nem o começo da chave escrito em escapes sai: {texto}");
+    assert!(texto.contains("data: {\"x\":\""), "o que vem antes segue");
+}
+
+#[tokio::test]
+async fn o_repasse_recusa_pagina_da_web_nome_de_fora_e_options() {
+    let up = upstream(|mut conexao, _| async move {
+        let _ = conexao.write_all(&json_ok("{}")).await;
+    })
+    .await;
+    let m = montar(&up).await;
+    let com_origem = m.pedido("chat/completions", "authorization").header("origin", "http://pagina.teste").body("{}");
+    assert_eq!(com_origem.send().await.unwrap().status(), 403);
+    let outro_nome = m.pedido("chat/completions", "authorization").header("host", "pagina.teste").body("{}");
+    assert_eq!(outro_nome.send().await.unwrap().status(), 403);
+    let porta_errada = m.pedido("chat/completions", "authorization").header("host", "127.0.0.1:1").body("{}");
+    assert_eq!(porta_errada.send().await.unwrap().status(), 403);
+    let opcoes = m.cliente.request(reqwest::Method::OPTIONS, format!("{}/chat/completions", m.concessao.base()));
+    let opcoes = opcoes.send().await.unwrap();
+    assert_eq!(opcoes.status(), 404);
+    assert!(opcoes.headers().get("access-control-allow-origin").is_none());
+    assert!(up.pedidos.locked().is_empty(), "nada disso chega ao fornecedor");
+    assert_eq!(m.pedido("chat/completions", "authorization").body("{}").send().await.unwrap().status(), 200);
+}
+
+#[tokio::test]
+async fn a_vaga_do_teto_de_pedidos_fica_ate_o_fim_do_corpo() {
+    let up = upstream(|mut conexao, _| async move {
+        let _ = conexao.write_all(CABECALHO_SSE.as_bytes()).await;
+        pedaco(&mut conexao, "data: um\n\n").await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        pedaco(&mut conexao, "data: dois\n\n").await;
+        let _ = conexao.write_all(b"0\r\n\r\n").await;
+    })
+    .await;
+    let m = montar(&up).await;
+    let livres = m.repasse.vagas_livres();
+    let mut resposta = m.pedido("chat/completions", "authorization").body("{}").send().await.unwrap();
+    resposta.chunk().await.unwrap().unwrap();
+    assert_eq!(m.repasse.vagas_livres(), livres - 1, "com o corpo ainda aberto a vaga continua ocupada");
+    while resposta.chunk().await.unwrap().is_some() {}
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(m.repasse.vagas_livres(), livres, "no fim do corpo a vaga volta");
+}
+
+#[tokio::test]
+async fn uma_revogacao_sem_ninguem_escutando_continua_marcada_para_quem_chega_depois() {
+    let up = upstream(|mut conexao, _| async move {
+        let _ = conexao.write_all(&json_ok("{}")).await;
+    })
+    .await;
+    let m = montar(&up).await;
+    let tardia = m.repasse.sessao_tardia(m.concessao.codigo()).unwrap();
+    assert!(!tardia.marcada());
+    m.repasse.revogar_plano(&PLANOS[0]).await;
+    assert!(tardia.marcada(), "quem se inscreve depois da revogação a enxerga");
+    assert_eq!(m.pedido("chat/completions", "authorization").body("{}").send().await.unwrap().status(), 404);
+}
+
+#[tokio::test]
+async fn trocar_a_chave_encerra_o_processo_que_recebeu_o_codigo_e_uma_concessao_velha_nao_prende() {
+    let up = upstream(|mut conexao, _| async move {
+        let _ = conexao.write_all(&json_ok("{}")).await;
+    })
+    .await;
+    let m = montar(&up).await;
+    let (acp, _entrada) =
+        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
+    let pid = acp.pid().unwrap();
+    let viva = |pid: u32| {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .is_ok_and(|saida| saida.status.success())
+    };
+    assert!(m.concessao.prender(&acp));
+    assert!(viva(pid));
+    m.repasse.revogar_plano(&PLANOS[0]).await;
+    let limite = Instant::now() + Duration::from_secs(5);
+    while viva(pid) && Instant::now() < limite {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(!viva(pid), "o processo do OpenCode termina junto com a troca");
+    let (outro, _entrada) =
+        crate::agent::acp::Acp::spawn("sleep 60", &std::env::temp_dir().to_string_lossy(), &[]).unwrap();
+    assert!(!m.concessao.prender(&outro), "uma sessão já revogada não prende processo");
+    outro.kill_and_wait().await;
 }
 
 #[tokio::test]
@@ -454,23 +615,36 @@ async fn o_repasse_do_hub_e_um_so_e_escuta_so_em_loopback() {
     assert!(ambiente.concessao.base().starts_with("http://127.0.0.1:"));
 }
 
-/// A prova com o OpenCode de verdade (ele não está instalado no teste automático: roda só onde há o programa, pelo
-/// caminho em `MEXERICA_OPENCODE_BIN` ou no PATH). O fornecedor é de mentira. O OpenCode é aberto pelo mesmo ACP do Hub,
-/// com o ambiente que o Hub monta, e um MCP filho e um comando de shell despejam o ambiente que enxergam.
+/// A prova com o OpenCode de verdade. Fica ignorada no teste comum porque precisa do programa instalado: rode com
+/// `cargo test -- --ignored opencode_de_verdade` e `MEXERICA_OPENCODE_BIN` (ou o OpenCode no PATH). O fornecedor é de mentira. O OpenCode
+/// é aberto pelo mesmo ACP do Hub, com o ambiente que o Hub monta; um MCP filho, um comando de shell e o próprio processo
+/// respondem só se têm o código de sessão e quantas linhas do ambiente contêm a chave (nenhuma).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "precisa do OpenCode instalado (MEXERICA_OPENCODE_BIN ou PATH)"]
 async fn opencode_de_verdade_nem_ele_nem_o_mcp_filho_nem_o_shell_enxergam_a_chave() {
-    let Some(binario) = std::env::var_os("MEXERICA_OPENCODE_BIN")
+    let binario = std::env::var_os("MEXERICA_OPENCODE_BIN")
         .map(std::path::PathBuf::from)
         .or_else(|| crate::agent::backends::which("opencode"))
-    else {
-        eprintln!("pulado: o OpenCode não está instalado neste ambiente");
-        return;
-    };
+        .expect("o OpenCode precisa estar instalado para esta prova");
     let dump = crate::store::private_fixture_dir("planos-opencode-real");
-    let comando_do_shell = format!(
-        "env > {d}/shell.env; tr '\\0' '\\n' < /proc/$PPID/environ > {d}/opencode.env 2>/dev/null; true",
-        d = dump.display()
+    // A chave de fixture vai num arquivo: se estivesse no texto do comando, o fornecedor de mentira a devolveria e a
+    // cerca do repasse cortaria a resposta.
+    std::fs::write(dump.join("chave.txt"), CHAVE_DO_COFRE).unwrap();
+    let sonda = |quem: &str, pid: &str| {
+        format!(
+            "printenv OPENCODE_API_KEY > {d}/{quem}.codigo; {pid} | grep -cF -f {d}/chave.txt > {d}/{quem}.conta; true",
+            d = dump.display()
+        )
+    };
+    let comando_do_shell = sonda("shell", "env");
+    let sonda_do_processo = sonda("opencode", "tr '\\0' '\\n' < /proc/$PPID/environ").replace(
+        &format!("printenv OPENCODE_API_KEY > {}/opencode.codigo", dump.display()),
+        &format!(
+            "tr '\\0' '\\n' < /proc/$PPID/environ | grep '^OPENCODE_API_KEY=' > {}/opencode.codigo",
+            dump.display()
+        ),
     );
+    let comando_do_shell = format!("{comando_do_shell}; {sonda_do_processo}");
     let up = upstream(move |mut conexao, pedido| {
         let comando = comando_do_shell.clone();
         async move {
@@ -520,11 +694,14 @@ async fn opencode_de_verdade_nem_ele_nem_o_mcp_filho_nem_o_shell_enxergam_a_chav
     tokio::spawn(async move { while entrada.recv().await.is_some() {} });
     let passos = async {
         acp.request("initialize", json!({"protocolVersion": 1, "clientCapabilities": {}})).await.unwrap();
-        let sonda = format!("env > {}/mcp.env; sleep 60", dump.display());
+        let sonda_mcp = format!(
+            "printenv OPENCODE_API_KEY > {d}/mcp.codigo; env | grep -cF -f {d}/chave.txt > {d}/mcp.conta; sleep 60",
+            d = dump.display()
+        );
         let sessao = acp
             .request(
                 "session/new",
-                json!({"cwd": cwd, "mcpServers": [{"name": "sonda", "command": "/bin/sh", "args": ["-c", sonda], "env": []}]}),
+                json!({"cwd": cwd, "mcpServers": [{"name": "sonda", "command": "/bin/sh", "args": ["-c", sonda_mcp], "env": []}]}),
             )
             .await
             .unwrap();
@@ -543,23 +720,21 @@ async fn opencode_de_verdade_nem_ele_nem_o_mcp_filho_nem_o_shell_enxergam_a_chav
     acp.kill().await;
     desfecho.expect("o OpenCode respondeu a tempo");
 
-    let ler_dump = |nome: &str| std::fs::read_to_string(dump.join(nome)).ok();
-    let shell = ler_dump("shell.env").expect("o comando de shell rodou");
-    let mcp = ler_dump("mcp.env").expect("o MCP filho foi iniciado");
-    let opencode = ler_dump("opencode.env");
-    for (quem, texto) in [("shell", Some(&shell)), ("mcp", Some(&mcp)), ("opencode", opencode.as_ref())] {
-        let Some(texto) = texto else { continue };
-        assert!(!texto.contains(CHAVE_DO_COFRE), "o ambiente de {quem} contém a chave");
+    let ler = |nome: &str| std::fs::read_to_string(dump.join(nome)).unwrap_or_default().trim().to_owned();
+    let quem: &[&str] = if cfg!(target_os = "linux") { &["shell", "mcp", "opencode"] } else { &["shell", "mcp"] };
+    for quem in quem {
+        let codigo = ler(&format!("{quem}.codigo"));
+        assert!(
+            codigo.trim_start_matches("OPENCODE_API_KEY=").starts_with("mxs_"),
+            "a sonda do {quem} rodou e viu o código de sessão"
+        );
+        assert_eq!(ler(&format!("{quem}.conta")), "0", "o ambiente do {quem} não contém a chave");
     }
-    assert!(
-        shell.contains("OPENCODE_API_KEY=mxs_") && mcp.contains("OPENCODE_API_KEY=mxs_"),
-        "eles só têm o código de sessão"
-    );
     let pedidos = up.pedidos.locked().join("\n").to_ascii_lowercase();
     assert!(
         pedidos.contains(&format!("authorization: bearer {}", CHAVE_DO_COFRE.to_ascii_lowercase())),
         "o repasse pôs a chave de verdade"
     );
     assert!(!pedidos.contains("mxs_"), "o código de sessão não segue ao fornecedor");
-    eprintln!("prova com o OpenCode de verdade: ambiente do OpenCode lido={}", opencode.is_some());
+    let _ = std::fs::remove_dir_all(&dump);
 }
