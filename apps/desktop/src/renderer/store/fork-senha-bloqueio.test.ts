@@ -22,7 +22,7 @@ const bridge: unknown = new Proxy(function () {}, { get: (_t, key) => key === 't
 /** O BotStore real com um Hub fictício; `falhar.envio` faz o próximo `send` do Hub falhar (a entrada local vira "failed"). */
 async function abrir(janela: Record<string, unknown> = {}) {
   const calls: { method: string; body: Record<string, unknown> }[] = []
-  const falhar = { envio: false }
+  const falhar = { envio: false, motivo: 'Hub fora do ar' }
   let seq = 0
   const transport: HostTransport = {
     async call(method, raw) {
@@ -31,7 +31,7 @@ async function abrir(janela: Record<string, unknown> = {}) {
       switch (method) {
         case 'hello': return { version: '2.20.3', minApp: '2.20.1', name: 'Fixture', backends: [] }
         case 'send': {
-          if (falhar.envio) throw new Error('Hub fora do ar')
+          if (falhar.envio) throw new Error(falhar.motivo)
           return { entry: { id: `e-${++seq}`, seq, botId: body.botId ?? 'byte', rev: 10 + seq, kind: 'user', turn: 1, createdAt: 1, updatedAt: 1, data: { text: body.text, status: 'sent', clientNonce: body.clientNonce } } }
         }
         default: return {}
@@ -224,4 +224,21 @@ test('Ilha: enquanto espera a confirmação fica ocupada — sem segundo envio, 
   assert.equal(fechou(), 1)
   modelo.nextMessageBot()
   assert.notEqual(modelo.messageBot?.ref, antes, 'liberada, troca de bot de novo')
+})
+
+test('Open: o envio recusado sem conta fica como não enviado com o motivo; outra falha não ganha motivo', async () => {
+  const { store, falhar, falhas } = await abrir()
+  try {
+    falhar.envio = true
+    falhar.motivo = 'open_chat_account_required'
+    assert.equal(store.send('Oi', 'byte'), 'aceito')
+    await settle()
+    assert.equal(falhas().length, 1)
+    assert.equal(falhas()[0]!.data.recusa, 'spaces.compose.semContaOpen')
+    falhar.motivo = 'Hub fora do ar'
+    assert.equal(store.send('de novo', 'byte'), 'aceito')
+    await settle()
+    assert.equal(falhas().length, 2)
+    assert.equal(falhas()[1]!.data.recusa, undefined)
+  } finally { store.retire() }
 })

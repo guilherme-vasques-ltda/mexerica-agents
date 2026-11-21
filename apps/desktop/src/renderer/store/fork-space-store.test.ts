@@ -375,3 +375,36 @@ test('E2: recibo de criação abre o novo bot sem esperar SSE; outro Hub/Space n
     assert.equal(await creation.create({ spaceId: 'space-estudio' }), bot, 'recibo conhecido não cria de novo')
   } finally { f.close() }
 })
+
+test('E2: deleteBot recusado com resposta em andamento mantém o bot e avisa o motivo', async () => {
+  const f = fixture()
+  try {
+    const space = f.open('space-estudio')
+    await f.flush()
+    const created = await f.client('space-estudio').call<{ bot: { id: string } }>('createBot', {
+      hubId: f.host.hostId, name: 'Auxiliar ocupado', backend: 'codex',
+    })
+    await f.flush()
+    const bot = space.bots.get(created.bot.id)!
+    assert.ok(bot, 'o bot criado aparece na loja')
+    const original = f.host.call.bind(f.host)
+    f.host.call = async (method, body) => {
+      if (method === 'deleteBot') throw new Error('open_chat_busy')
+      return original(method, body)
+    }
+    space.composerDrafts.edit(bot.id, 'rascunho a manter', 'typed')
+    await space.delete(bot)
+    await f.flush()
+    assert.equal(space.bots.get(bot.id)?.id, bot.id, 'o bot continua na lista')
+    assert.equal(space.composerDrafts.get(bot.id), 'rascunho a manter', 'o rascunho só sai quando o Hub confirma')
+    assert.equal(space.lastError, 'Stop the reply before deleting the bot.')
+    // Erro sem o código conhecido mantém o comportamento de sempre (o Error vem de outro realm).
+    f.host.call = async (method, body) => {
+      if (method === 'deleteBot') throw new Error('engine gone')
+      return original(method, body)
+    }
+    await space.delete(bot)
+    await f.flush()
+    assert.ok(space.lastError?.includes('engine gone'))
+  } finally { f.close() }
+})

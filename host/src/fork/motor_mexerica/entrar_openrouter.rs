@@ -71,7 +71,12 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
 /// A chave trocada é a do dono, só usada pelos bots do Space pessoal dele: o login também só
 /// acontece com o Space pessoal aberto (o app manda o Space aberto em todo pedido).
 fn assegurar_space_pessoal(body: &Value) -> Result<()> {
-    let space = body.get("spaceId").and_then(Value::as_str).unwrap_or(crate::fork::spaces::PERSONAL);
+    // Sem o Space aberto não presume nada: recusa fechado em vez de cair no Space pessoal.
+    let Some(space) = body.get("spaceId").and_then(Value::as_str) else {
+        // A recusa é registrada sem o corpo nem nenhum dado do pedido, como toda negação aqui.
+        tracing::warn!("login com OpenRouter recusado: o pedido chegou sem o Space aberto");
+        bail!("space_invalido: o login com OpenRouter vale só no Space pessoal deste computador.");
+    };
     ensure!(
         space == crate::fork::spaces::PERSONAL,
         "space_invalido: o login com OpenRouter vale só no Space pessoal deste computador."

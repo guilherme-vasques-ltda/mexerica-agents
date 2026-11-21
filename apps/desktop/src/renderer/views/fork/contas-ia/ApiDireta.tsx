@@ -10,18 +10,22 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { amostraDeModelos, chaveDoErro, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { amostraDeModelos, aoMudarChaves, chaveDoErro, chavesMudaram, estadoDoTeste, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
 import { entrarComOpenRouter, fraseDaFalha, FalhaOpenRouter } from './openrouter-login'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
+import { ehOpen } from './conexoes'
 import '../../settings/settings.css'
 
-/** Conexões de IA → API direta: uma linha por fornecedor, com a chave guardada no cofre do Hub deste computador. */
+/**
+ * Conexões de IA → Chaves de API: uma linha por chave já salva no cofre do Hub deste computador (testar, trocar, remover).
+ * Para ligar uma chave nova, «Adicionar conexão»; no OpenRouter também pelo navegador. Na edição Open nunca aparece.
+ */
 export function ApiDireta() {
   const store = useModel(useStore())
   const t = useT()
   const idioma = useIdioma()
   const online = store.connection.kind === 'online' && !store.mismatch
-  const visivel = mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
+  const visivel = !ehOpen(window.codync) && mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
   const [falhou, setFalhou] = useState(false)
   const geracao = useRef(0)
@@ -43,6 +47,7 @@ export function ApiDireta() {
   useEffect(() => {
     if (visivel && online) void reler()
   }, [visivel, online, store.hello?.hostId])
+  useEffect(() => (visivel && online ? aoMudarChaves(() => void reler()) : undefined), [visivel, online, store])
 
   if (!visivel) return null
   return (
@@ -51,23 +56,23 @@ export function ApiDireta() {
         {!online ? <Text tone="secondary">{t('contas.apiDireta.semConexao')}</Text> : null}
         {online && falhou ? <Text size="caption" tone="secondary" role="status">{t('contas.apiDireta.erroLista')}</Text> : null}
         {online && !fornecedores && !falhou ? <Spinner size={12} /> : null}
-        {online ? fornecedores?.map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} aoMudar={reler} />) : null}
+        {online && fornecedores && !fornecedores.some((f) => f.configurada) ? <Text size="caption" tone="secondary">{t('contas.apiDireta.vazio')}</Text> : null}
+        {online ? fornecedores?.filter((f) => f.configurada).map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} />) : null}
       </CardSection>
     </div>
   )
 }
 
-/** Uma linha de fornecedor da API direta: colar a chave ou, no OpenRouter, entrar pelo navegador. */
-export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorDaChave; aoMudar: () => Promise<void> }) {
+export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaChave }) {
   const store = useStore()
   const t = useT()
   const [editando, setEditando] = useState(false)
   const [chave, setChave] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const [resultado, setResultado] = useState<Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } | null>(null)
+  const ocupadoRef = useRef(false)
   const [loginAberto, setLoginAberto] = useState(false)
   const [loginConcluindo, setLoginConcluindo] = useState(false)
-  const ocupadoRef = useRef(false)
   const cancelarLoginRef = useRef<(() => void) | null>(null)
   // Sair da tela no meio da digitação não deixa a chave em estado nenhum; no meio do login, desiste dele.
   useEffect(() => () => {
@@ -93,7 +98,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
         }
         // A escolha de modelo do bot relê a lista do motor na próxima abertura.
         esquecerModelos(store.computer.id, 'mexerica')
-        return aoMudar()
+        chavesMudaram()
       })
       .catch((e: unknown) => setResultado(mapearFalha?.(e) ?? { ok: false, motivo: e instanceof Error ? e.message : String(e) }))
       .finally(() => {
@@ -105,17 +110,20 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
       })
   }
   const client = () => liveClient(store)!
-  // A chave do login é a do dono, só usada pelos bots do Space pessoal: o botão só aparece com o Pessoal aberto.
-  const espacoPessoal = (store.spaceId ?? store.spaces?.personalSpaceId) === store.spaces?.personalSpaceId
+  // A chave do login é a do dono, só usada pelos bots do Space pessoal: sem saber qual é o Pessoal, ou com outro
+  // Space aberto, o botão não aparece.
+  const pessoal = store.spaces?.personalSpaceId
+  const espacoPessoal = pessoal !== undefined && (store.spaceId ?? pessoal) === pessoal
   const salvar = () => {
     if (!chave.trim()) return
     rodar(() => salvarChave(client(), f.id, chave, () => setChave('')), (r) => r.ok && setEditando(false))
   }
   const entrar = () => {
     const client = liveClient(store)
-    if (!client || ocupadoRef.current) return
+    const space = store.spaceId ?? store.spaces?.personalSpaceId
+    if (!client || !space || ocupadoRef.current) return
     setEditando(false)
-    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno, undefined, () => setLoginConcluindo(true))
+    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno, space, undefined, () => setLoginConcluindo(true))
     cancelarLoginRef.current = cancelar
     setLoginAberto(true)
     rodar(() => fim, undefined, (e) => (e instanceof FalhaOpenRouter ? { ok: false, frase: fraseDaFalha(e.tipo) } : undefined))
@@ -183,26 +191,38 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
   )
 }
 
-/** O bloco de resultado de Testar acesso, partilhado pelas chaves coladas e pelo login do OpenRouter. */
-export function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } }) {
+const ESTADOS = {
+  conta_reconhecida: 'contas.apiDireta.estado.contaReconhecida',
+  modelos_no_catalogo: 'contas.apiDireta.estado.modelosNoCatalogo',
+  acesso_nao_confirmado: 'contas.apiDireta.estado.acessoNaoConfirmado',
+  nao_verificado: 'contas.apiDireta.estado.naoVerificado',
+  recusada: 'contas.apiDireta.estado.recusada',
+} as const
+
+/** O resultado do «Testar acesso» ou do login: o estado, a frase do detalhe e, quando há lista de modelos, o aviso de que ela não prova acesso. */
+function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } | { ok: false; frase: ChaveTexto } }) {
   const t = useT()
-  let texto: string
+  const estado = 'motivo' in resultado || 'frase' in resultado ? 'nao_verificado' : estadoDoTeste(resultado)
+  let detalhe: string
   if (resultado.ok) {
     const { nomes, restantes } = amostraDeModelos(resultado.modelos)
-    texto = resultado.modelos.length === 0
+    detalhe = resultado.modelos.length === 0
       ? t('contas.apiDireta.okSemModelos')
       : restantes > 0 ? t('contas.apiDireta.okComMais', { nomes, n: restantes }) : t('contas.apiDireta.ok', { nomes })
-  } else if ('frase' in resultado) {
-    texto = (t as unknown as (chave: ChaveTexto) => string)(resultado.frase)
-  } else if ('motivo' in resultado) {
-    texto = t('contas.apiDireta.erro.desconhecido', { motivo: resultado.motivo })
   } else {
-    texto = (t as unknown as (chave: ChaveTexto) => string)(chaveDoErro(resultado.erro))
+    detalhe = 'frase' in resultado
+      ? (t as unknown as (chave: ChaveTexto) => string)(resultado.frase)
+      : 'motivo' in resultado ? t('contas.apiDireta.erro.desconhecido', { motivo: resultado.motivo }) : (t as unknown as (chave: ChaveTexto) => string)(chaveDoErro(resultado.erro))
   }
+  const positivo = estado === 'conta_reconhecida' || estado === 'modelos_no_catalogo'
   return (
-    <HStack as="span" gap={5} role="status" className={`settings-key-result ${resultado.ok ? '' : 'failed'}`}>
-      <Icon name={resultado.ok ? 'checkmark.circle.fill' : 'exclamationmark.circle.fill'} size={10} />
-      <Text size="caption" className="selectable">{texto}</Text>
-    </HStack>
+    <VStack gap={2} role="status" data-estado={estado} className={`settings-key-result ${positivo ? '' : 'failed'}`}>
+      <HStack as="span" gap={5}>
+        <Icon name={positivo ? 'checkmark.circle.fill' : 'exclamationmark.circle.fill'} size={10} />
+        <Text size="caption" className="selectable">{t(ESTADOS[estado])}</Text>
+      </HStack>
+      <Text size="caption" tone="secondary" className="selectable">{detalhe}</Text>
+      {estado === 'modelos_no_catalogo' ? <Text size="caption" tone="tertiary">{t('contas.apiDireta.catalogoNaoProva')}</Text> : null}
+    </VStack>
   )
 }

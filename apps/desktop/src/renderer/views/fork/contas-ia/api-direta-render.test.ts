@@ -1,6 +1,6 @@
 // Renderização (SSR) da linha de API direta com a capacidade falsa: o botão de entrar pelo navegador existe só no
-// OpenRouter, ao lado do de colar a chave, e o bloco de resultado mostra a frase de cada falha do login. O fluxo
-// completo (chamar o Hub, esperar o retorno, cancelar) é regra pura e está em openrouter-login.test.ts.
+// OpenRouter, ao lado do de colar a chave, e só com o Space pessoal aberto. O fluxo completo (chamar o Hub, esperar
+// o retorno, cancelar) é regra pura e está em openrouter-login.test.ts.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
@@ -23,7 +23,7 @@ const reactNoServidor: Plugin = {
 const raiz = new URL('../../../', import.meta.url).pathname
 const bundle = await build({
   stdin: {
-    contents: `export { LinhaDoFornecedor, ResultadoDoTeste } from './views/fork/contas-ia/ApiDireta';
+    contents: `export { LinhaDoFornecedor } from './views/fork/contas-ia/ApiDireta';
       export { StoreContext } from './store/context';
       export { createElement } from 'react';
       export { renderToStaticMarkup } from 'react-dom/server';`,
@@ -53,7 +53,6 @@ runInNewContext(bundle.outputFiles[0]!.text, {
 })
 const m = module.exports as {
   LinhaDoFornecedor: typeof import('./ApiDireta').LinhaDoFornecedor
-  ResultadoDoTeste: typeof import('./ApiDireta').ResultadoDoTeste
   StoreContext: typeof import('../../../store/context').StoreContext
   createElement: typeof import('react').createElement
   renderToStaticMarkup: typeof import('react-dom/server').renderToStaticMarkup
@@ -66,28 +65,22 @@ const renderiza = (componente: unknown, props: Record<string, unknown> = {}, loj
 
 const fornecedor = (id: string, configurada: boolean) => ({ id, nome: id === 'openrouter' ? 'OpenRouter' : 'Fornecedor Exemplo', configurada, modelos: configurada ? [] : null, conferidoEm: null })
 
-test('o botão de entrar pelo navegador só existe no Space pessoal aberto', () => {
+test('o botão de entrar pelo navegador só existe no Space pessoal conhecido e aberto', () => {
   const entrar = 'Entrar com OpenRouter'
   const pessoal = { ...store, spaces: { personalSpaceId: 'pessoal-1' } }
   const outro = { ...pessoal, spaceId: 'space-outro' }
-  assert.ok(renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false), aoMudar: async () => {} }, pessoal).includes(entrar), 'com o Pessoal aberto tem o botão')
-  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false), aoMudar: async () => {} }, outro).includes(entrar), 'com outro Space aberto não tem')
+  assert.ok(renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, pessoal).includes(entrar), 'com o Pessoal aberto tem o botão')
+  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, outro).includes(entrar), 'com outro Space aberto não tem')
+  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }).includes(entrar), 'sem saber qual é o Pessoal não tem')
 })
 
 test('o botão de entrar pelo navegador existe só na linha do OpenRouter, ao lado do de colar a chave', () => {
   const entrar = 'Entrar com OpenRouter'
-  const semChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false), aoMudar: async () => {} })
+  const comSpaces = { ...store, spaces: { personalSpaceId: 'pessoal-1' } }
+  const semChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, comSpaces)
   assert.ok(semChave.includes(entrar), 'OpenRouter sem chave tem o botão')
   assert.ok(semChave.includes('Adicionar chave'), 'o caminho de colar a chave segue ao lado')
-  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openai', false), aoMudar: async () => {} }).includes(entrar), 'outro fornecedor não tem')
-  const comChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', true), aoMudar: async () => {} })
+  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openai', false) }, comSpaces).includes(entrar), 'outro fornecedor não tem')
+  const comChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', true) }, comSpaces)
   assert.ok(comChave.includes(entrar) && comChave.includes('Trocar'), 'com chave salva o botão segue ao lado de Trocar')
-})
-
-test('o bloco de resultado mostra a frase da falha do login e continua igual para as chaves coladas', () => {
-  assert.ok(renderiza(m.ResultadoDoTeste, { resultado: { ok: false, frase: 'contas.apiDireta.openrouter.erro.cancelado' } }).includes('O login com o OpenRouter foi cancelado.'))
-  assert.ok(renderiza(m.ResultadoDoTeste, { resultado: { ok: false, frase: 'contas.apiDireta.openrouter.erro.tempo' } }).includes('O login com o OpenRouter demorou demais.'))
-  // O mesmo bloco das chaves coladas: erro do fornecedor e sucesso seguem com as frases de antes.
-  assert.ok(renderiza(m.ResultadoDoTeste, { resultado: { ok: false, erro: 'chave_invalida' } }).includes('O fornecedor recusou a chave.'))
-  assert.ok(renderiza(m.ResultadoDoTeste, { resultado: { ok: true, modelos: [{ id: 'x/a', name: 'Modelo A' }] } }).includes('A chave funciona.'))
 })

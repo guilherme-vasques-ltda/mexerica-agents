@@ -120,15 +120,22 @@ async fn url_de_autorizacao_leva_todos_os_parametros_e_o_desafio_do_vetor_do_rfc
 async fn entrar_exige_porta_do_ouvinte_e_guarda_uma_tentativa_nova() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
-    for pedido in [json!({}), json!({"loopbackPort": null})] {
+    for pedido in [
+        json!({"spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": null, "spaceId": crate::fork::spaces::PERSONAL}),
+    ] {
         let erro = login::entrar(&pedido).unwrap_err().to_string();
         assert!(erro.starts_with("porta_invalida"), "{erro} para {pedido}");
     }
-    for pedido in [json!({"loopbackPort": 8123}), json!({"loopbackPort": "19424"}), json!({"loopbackPort": 65536})] {
+    for pedido in [
+        json!({"loopbackPort": 8123, "spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": "19424", "spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"loopbackPort": 65536, "spaceId": crate::fork::spaces::PERSONAL}),
+    ] {
         let erro = login::entrar(&pedido).unwrap_err().to_string();
         assert!(erro.starts_with("porta_invalida"), "{erro} para {pedido}");
     }
-    let resposta = login::entrar(&json!({"loopbackPort": 19424})).unwrap();
+    let resposta = login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
     let url = resposta["url"].as_str().unwrap();
     assert!(url.starts_with("https://openrouter.ai/auth?"), "{url}");
     {
@@ -139,7 +146,7 @@ async fn entrar_exige_porta_do_ouvinte_e_guarda_uma_tentativa_nova() {
         assert_eq!(t.state.len(), 32);
     }
     // A tentativa nova substitui qualquer pendente.
-    login::entrar(&json!({"loopbackPort": 19425})).unwrap();
+    login::entrar(&json!({"loopbackPort": 19425, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
     assert_eq!(login::TENTATIVA.locked().as_ref().unwrap().porta, 19425);
 }
 
@@ -148,15 +155,15 @@ async fn state_errado_nao_consome_e_o_certo_consome_uma_vez_so() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
-    login::entrar(&json!({"loopbackPort": 19424})).unwrap();
+    login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
     let state = crypto::b64(&login::TENTATIVA.locked().as_ref().unwrap().state);
     // Ausente, ilegível ou de outra tentativa: recusa fixa, sem eco e sem consumir.
     let alheio = crypto::b64(&[7u8; 32]);
     for pedido in [
-        json!({}),
-        json!({"state": "estado-estranho", "code": "x"}),
-        json!({"state": alheio, "code": "x"}),
-        json!({"code": "x"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": "estado-estranho", "code": "x"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": alheio, "code": "x"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "code": "x"}),
     ] {
         let erro = login::concluir(&hub, &pedido).await.unwrap_err().to_string();
         assert!(erro.starts_with("entrada_invalida"), "{erro} para {pedido}");
@@ -164,16 +171,31 @@ async fn state_errado_nao_consome_e_o_certo_consome_uma_vez_so() {
     }
     assert!(login::TENTATIVA.locked().is_some(), "o retorno estranho derrubou o login em andamento");
     // O state certo consome (a troca sem injeção falha fechada) e o segundo uso não passa.
-    let acesso = login::concluir(&hub, &json!({"state": state, "code": "codigo-ficticio-1"})).await.unwrap();
+    let acesso = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": "codigo-ficticio-1"}),
+    )
+    .await
+    .unwrap();
     assert_eq!(acesso, json!({"ok": false, "erro": "sem_resposta"}));
     assert!(login::TENTATIVA.locked().is_none(), "o retorno com o state certo não consumiu a tentativa");
-    let erro =
-        login::concluir(&hub, &json!({"state": state, "code": "codigo-ficticio-1"})).await.unwrap_err().to_string();
+    let erro = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": "codigo-ficticio-1"}),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
     assert!(erro.starts_with("entrada_invalida"), "{erro}");
     // O retorno com erro do fornecedor também consome, sem ecoar o motivo recebido.
-    login::entrar(&json!({"loopbackPort": 19424})).unwrap();
+    login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
     let state = crypto::b64(&login::TENTATIVA.locked().as_ref().unwrap().state);
-    let acesso = login::concluir(&hub, &json!({"state": state, "erro": "access_denied"})).await.unwrap();
+    let acesso = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "erro": "access_denied"}),
+    )
+    .await
+    .unwrap();
     assert_eq!(acesso, json!({"ok": false, "erro": "entrada_negada"}));
     assert!(login::TENTATIVA.locked().is_none());
 }
@@ -183,7 +205,7 @@ async fn tentativa_expira_em_dez_minutos() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
     let hub = crate::fork::conectores::oauth_binding::tests::hub();
-    login::entrar(&json!({"loopbackPort": 19424})).unwrap();
+    login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
     let state = {
         let mut tentativa = login::TENTATIVA.locked();
         let t = tentativa.as_mut().unwrap();
@@ -191,8 +213,13 @@ async fn tentativa_expira_em_dez_minutos() {
             std::time::Instant::now().checked_sub(login::VALIDADE + std::time::Duration::from_secs(1)).unwrap();
         crypto::b64(&t.state)
     };
-    let erro =
-        login::concluir(&hub, &json!({"state": state, "code": "codigo-ficticio-1"})).await.unwrap_err().to_string();
+    let erro = login::concluir(
+        &hub,
+        &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": "codigo-ficticio-1"}),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
     assert!(erro.starts_with("entrada_invalida"), "{erro}");
 }
 
@@ -215,14 +242,17 @@ async fn troca_recusada_nao_repete_codigo_nem_chave_e_nao_segue_redirecionamento
         (Modo::Gigante, json!({"ok": false, "erro": "resposta_invalida"})),
     ] {
         *modo.lock().unwrap() = novo;
-        login::entrar(&json!({"loopbackPort": 19424})).unwrap();
+        login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
         let (state, verifier) = {
             let t = login::TENTATIVA.locked();
             let t = t.as_ref().unwrap();
             (crypto::b64(&t.state), t.verifier.to_string())
         };
         verifiers.push(verifier);
-        let acesso = login::concluir(&hub, &json!({"state": state, "code": codigo})).await.unwrap();
+        let acesso =
+            login::concluir(&hub, &json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": codigo}))
+                .await
+                .unwrap();
         assert_eq!(acesso, esperado, "modo {novo:?}");
         let texto = acesso.to_string();
         assert!(!texto.contains(codigo), "vazou o código: {texto}");
@@ -254,7 +284,14 @@ async fn fluxo_feliz_troca_o_codigo_e_salva_a_chave_no_cofre_sem_devolve_la() {
     *login::BASE_EM_TESTE.locked() = Some(base);
     login::GRAVACAO_FAUX.store(true, Ordering::Relaxed);
 
-    let resposta = login::call(&hub, &Caller::Local, "openrouterEntrar", json!({"loopbackPort": 19424})).await.unwrap();
+    let resposta = login::call(
+        &hub,
+        &Caller::Local,
+        "openrouterEntrar",
+        json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL}),
+    )
+    .await
+    .unwrap();
     let url = reqwest::Url::parse(resposta["url"].as_str().unwrap()).unwrap();
     let (state, verifier) = {
         let t = login::TENTATIVA.locked();
@@ -270,7 +307,7 @@ async fn fluxo_feliz_troca_o_codigo_e_salva_a_chave_no_cofre_sem_devolve_la() {
         &hub,
         &Caller::Local,
         "openrouterEntrarConcluir",
-        json!({"state": state, "code": "codigo-ficticio-do-retorno"}),
+        json!({"spaceId": crate::fork::spaces::PERSONAL, "state": state, "code": "codigo-ficticio-do-retorno"}),
     )
     .await
     .unwrap();
@@ -307,7 +344,10 @@ async fn login_do_openrouter_so_no_space_pessoal() {
         .to_string();
     assert!(erro.starts_with("space_invalido"), "{erro}");
     assert!(login::TENTATIVA.locked().is_none(), "a recusa não guarda tentativa");
-    // Com o Space pessoal aberto (ou sem Space no pedido, como os testes diretos) segue normal.
+    // Sem o campo não presume o Pessoal: recusa fechado.
+    let erro = login::entrar(&json!({"loopbackPort": 19424})).unwrap_err().to_string();
+    assert!(erro.starts_with("space_invalido"), "{erro}");
+    // Com o Space pessoal aberto segue normal.
     let resposta = login::entrar(&json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL})).unwrap();
     assert!(resposta["url"].as_str().unwrap().starts_with("https://openrouter.ai/auth"));
     let _ = alheio;

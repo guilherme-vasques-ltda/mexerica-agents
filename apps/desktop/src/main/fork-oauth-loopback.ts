@@ -70,8 +70,9 @@ function lerPedidoTodo(url: unknown, porta: number): { state: string; caminho: s
   const states = alvo.searchParams.getAll('state')
   const caminho = retornos.length === 1 ? CAMINHOS.find((c) => retornos[0] === redirectDoApp(porta, c)) : undefined
   if (!caminho) return null
-  // O retorno em `callback_url` é o login do OpenRouter: só a origem oficial dele, aqui no processo principal.
-  if (alvo.searchParams.has('callback_url') && alvo.hostname !== 'openrouter.ai') return null
+  // O retorno em `callback_url` é o login do OpenRouter: só a origem oficial dele (sem porta alternativa), aqui no
+  // processo principal.
+  if (alvo.searchParams.has('callback_url') && alvo.origin !== 'https://openrouter.ai') return null
   if (states.length !== 1 || states[0] === '') return null
   return { state: states[0], caminho }
 }
