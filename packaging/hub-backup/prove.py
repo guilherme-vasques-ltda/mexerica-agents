@@ -469,7 +469,7 @@ def prove_coverage(root, cfg):
     (work / 'bots' / bot2 / 'workspace' / '.codex').mkdir()
     (work / 'bots' / bot2 / 'workspace' / '.codex' / 'qualquer').write_text('PERFIL-MOTOR')
     (work / 'bots' / bot2 / 'workspace' / 'hosts.yml').write_text('HOSTS-FICTICIO')
-    (work / 'bots' / bot2 / 'workspace' / 'nota.txt').write_text('ghp_' + 'A' * 36)
+    (work / 'bots' / bot2 / 'workspace' / 'nota.txt').write_text('TOKEN-GITHUB-FICTICIO')
     up2 = str(uuid.uuid4())
     (work / 'bots' / bot2 / 'uploads' / up2).mkdir(parents=True)
     (work / 'bots' / bot2 / 'uploads' / up2 / 'anexo-t.txt').write_bytes(b'ANEXO-MOTOR')

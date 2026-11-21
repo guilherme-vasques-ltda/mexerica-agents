@@ -40,7 +40,7 @@ por vez, confira o status de saída de cada uma (`echo $?` deve ser 0) e, depois
 `-antes`, espere a VM voltar e abra uma sessão nova antes da `-depois`.
 
 ```sh
-sudo bash limpar.sh; sudo CARGO_TARGET_DIR=/data/target LEGADO_ANTERIOR=/data/target-base/debug/donnabot-host bash preparar.sh
+sudo PROVA_VM=1 bash limpar.sh; sudo CARGO_TARGET_DIR=/data/target LEGADO_ANTERIOR=/data/target-base/debug/donnabot-host bash preparar.sh
 sudo bash reboot.sh instalar;  echo $?
 # R4 e R5 fazem a 1ª migração de que R1-R3 dependem; a ordem é obrigatória.
 sudo bash reboot.sh r4-antes;  echo $?   # corta a energia; espere o boot (boot_id novo)
@@ -56,7 +56,7 @@ sudo bash reboot.sh r3-antes;  echo $?   # corta 3 s antes do prazo
 #   R3 exige que o prazo vença com a máquina DESLIGADA: só ligue a VM depois do prazo
 #   impresso pela fase (a -depois confere corte < prazo < início do boot)
 sudo bash reboot.sh r3-depois; echo $?
-sudo bash limpar.sh        # desfaz tudo (somente na VM de teste)
+sudo PROVA_VM=1 bash limpar.sh   # desfaz tudo (somente na VM de teste)
 ```
 
 Cenários: recusas do instalador sem alterar nada (fingerprints, login, estado

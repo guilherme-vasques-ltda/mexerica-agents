@@ -1,5 +1,6 @@
 #!/bin/bash
 # Desfaz o ambiente E2E desta VM descartável (somente teste).
+[ "${PROVA_VM:-}" = 1 ] || { echo 'defina PROVA_VM=1: confirme que está numa VM descartável antes de limpar' >&2; exit 1; }
 U=$(id -u hublogin 2>/dev/null)
 pkill -f "servidor.py"; pkill -f "amostrador.py"
 [ -n "$U" ] && systemctl disable --now donnabot-guarda-atualizacao@$U.service 2>/dev/null
