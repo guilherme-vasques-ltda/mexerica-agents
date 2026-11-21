@@ -1,10 +1,11 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{RUNNING, Running, drive, notice, stop, stopped_within, with_idle_account};
+use super::{CLOSING, MAX_REPLY, RUNNING, Running, Stream, drive, notice, shutdown, with_idle_account};
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::sync::watch;
 
 /// App-server fictício: responde ao protocolo, grava os pedidos recebidos e simula o modo pedido.
@@ -313,43 +314,132 @@ async fn terminating_confirms_the_exit_of_the_whole_process_group() {
     assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "o processo não existe mais");
 }
 
-fn register(bot: &str) -> (watch::Receiver<bool>, watch::Sender<()>) {
-    let (cancel, cancel_rx) = watch::channel(false);
-    let (done, done_rx) = watch::channel(());
+/// Lê o pid que o líder escreveu no arquivo, esperando o arquivo existir.
+async fn esperar_pid(arquivo: &std::path::Path) -> i32 {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(texto) = std::fs::read_to_string(arquivo)
+                && let Ok(pid) = texto.trim().parse::<i32>()
+            {
+                return pid;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn o_encerramento_mata_o_descendente_que_o_lider_mantem_vivo_no_grupo() {
+    let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pid_arquivo = dir.join("descendente.pid");
+    let script = format!("sleep 60 & echo $! > {}; wait", pid_arquivo.to_string_lossy());
+    let child = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+    let pid = esperar_pid(&pid_arquivo).await;
+    // SAFETY: sinal 0 só consulta se o processo existe.
+    assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "o descendente está vivo antes do encerramento");
+    assert!(rpc.terminate().await, "o grupo inteiro saiu dentro do prazo");
+    // SAFETY: sinal 0 só consulta se o processo existe.
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "o descendente morreu junto com o grupo");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn o_encerramento_mata_o_descendente_que_ficou_no_grupo_sem_o_lider() {
+    let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pid_arquivo = dir.join("descendente.pid");
+    let script = format!("sleep 60 & echo $! > {}; exit 0", pid_arquivo.to_string_lossy());
+    let child = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+    // O líder sai sozinho e é colhido: a partir daqui o id do grupo não pode vir do handle do filho.
+    rpc.finish().await.unwrap();
+    let pid = esperar_pid(&pid_arquivo).await;
+    // SAFETY: sinal 0 só consulta se o processo existe.
+    assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "o descendente segue vivo depois de o líder sair sozinho");
+    assert!(rpc.terminate().await, "o grupo guardado foi encerrado mesmo com o líder já colhido");
+    // SAFETY: sinal 0 só consulta se o processo existe.
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "o descendente órfão morreu com o grupo");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Hub real para os testes da reserva e do limite de resposta, no padrão dos testes de abertura da Open.
+fn hub_de_teste(bot: &str) -> (std::sync::Arc<crate::hub::Hub>, std::path::PathBuf) {
+    let dados = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dados).unwrap();
+    let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+    let cfg: crate::store::BotConfig =
+        serde_json::from_value(serde_json::json!({"id": bot, "name": "b", "backend": "claude", "cwd": "/tmp"}))
+            .unwrap();
+    store.save_bot(&cfg).unwrap();
+    let identidade = crate::remote::identity::Identity::load_or_create(&dados).unwrap();
+    let hub = crate::hub::Hub::new(store, "fixture".into(), identidade, "fixture".into(), 0);
+    (hub, dados)
+}
+
+#[tokio::test]
+async fn o_encerramento_do_hub_espera_a_reserva_viva_em_vez_de_retornar_antes() {
+    let (hub, dados) = hub_de_teste("bot-do-encerramento");
+    let (cancel, _cancel_rx) = watch::channel(false);
+    let (done_tx, done_rx) = watch::channel(());
     RUNNING.locked().get_or_insert_with(Default::default).insert(
-        bot.into(),
-        Running { hub: std::sync::Weak::new(), account: "delete-account".into(), cancel, done: done_rx },
+        "bot-do-encerramento".into(),
+        Running {
+            hub: std::sync::Arc::downgrade(&hub),
+            account: "conta-do-encerramento".into(),
+            cancel,
+            done: done_rx,
+        },
     );
-    (cancel_rx, done)
-}
-
-#[tokio::test]
-async fn deleting_waits_for_a_slow_codex_to_exit_and_then_frees_the_reservation() {
-    let bot = "delete-slow-bot";
-    let (mut cancel, done) = register(bot);
-    let exit = tokio::spawn(async move {
-        cancel.wait_for(|stop| *stop).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        RUNNING.locked().as_mut().unwrap().remove(bot);
-        drop(done);
+    // A reserva fictícia só cai depois de ~300 ms; o encerramento precisa esperar ela cair.
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drop(done_tx);
     });
-    stop(bot);
-    let started = std::time::Instant::now();
-    assert!(stopped_within(bot, std::time::Duration::from_secs(5)).await);
-    assert!(started.elapsed() >= std::time::Duration::from_millis(350), "a exclusão esperou o Codex sair");
-    exit.await.unwrap();
-    assert!(with_idle_account("delete-account", || Ok(())).is_ok(), "com o Codex fora, a conta fica livre");
+    let comeco = std::time::Instant::now();
+    shutdown(&hub).await;
+    assert!(
+        comeco.elapsed() >= Duration::from_millis(250),
+        "o encerramento esperou a reserva cair, não retornou antes"
+    );
+    RUNNING.locked().as_mut().unwrap().remove("bot-do-encerramento");
+    CLOSING.locked().retain(|h| h.strong_count() > 0 && !h.ptr_eq(&std::sync::Arc::downgrade(&hub)));
+    let _ = std::fs::remove_dir_all(&dados);
 }
 
-#[tokio::test]
-async fn deleting_reports_a_codex_that_does_not_exit_in_time_and_keeps_the_account_reserved() {
-    let bot = "delete-stuck-bot";
-    let (_cancel, done) = register(bot);
-    stop(bot);
-    assert!(!stopped_within(bot, std::time::Duration::from_millis(100)).await);
-    let busy = with_idle_account("delete-account", || Ok(()));
-    assert!(busy.unwrap_err().to_string().starts_with("account_busy"), "a reserva continua enquanto o processo vive");
-    RUNNING.locked().as_mut().unwrap().remove(bot);
-    drop(done);
-    assert!(stopped_within(bot, std::time::Duration::from_millis(100)).await);
+#[test]
+fn um_delta_alem_do_limite_e_recusado_sem_crescer_o_acumulado() {
+    let (hub, dados) = hub_de_teste("bot-do-limite");
+    let lane = crate::store::Lane::main("chat-do-limite");
+    // O delta que enche exatamente o limite entra...
+    let mut resposta = Stream::new(&hub, &lane, 1, "bot-do-limite");
+    assert!(resposta.push(&"y".repeat(MAX_REPLY)));
+    assert_eq!(resposta.text.len(), MAX_REPLY);
+    // ...e o byte seguinte devolve falso sem crescer o acumulado.
+    assert!(!resposta.push("z"));
+    assert_eq!(resposta.text.len(), MAX_REPLY);
+    // Um delta único maior que o limite devolve falso sem anexar nada.
+    let mut outra = Stream::new(&hub, &lane, 2, "bot-do-limite");
+    assert!(!outra.push(&"y".repeat(MAX_REPLY + 1)));
+    assert_eq!(outra.text.len(), 0, "nada foi anexado além do limite");
+    let _ = std::fs::remove_dir_all(&dados);
 }

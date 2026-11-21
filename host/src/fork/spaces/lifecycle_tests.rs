@@ -631,6 +631,35 @@ async fn d543_delete_revisao_antiga_e_estado_pos_exclusao() {
 }
 
 #[tokio::test]
+async fn d543_delete_space_com_resposta_open_em_curso_devolve_space_busy_sem_apagar() {
+    let f = Lifecycle::new();
+    let created = f.create_space("Cliente").await;
+    let space = Lifecycle::space_id(&created, 1);
+    let snap = f.spaces().await;
+    f.activate(&space, &snap, "n-open").await.unwrap();
+    let bot = f.bot_of_space(&space).unwrap();
+    let snap = f.spaces().await;
+    let ticket = crate::fork::open_chat::admit_for_test(&f.hub, &bot.id, ACCOUNT).unwrap();
+    let body =
+        json!({"hubId":f.hub.host_id,"spaceId":space,"expectedRevision":snap["revision"],"confirmName":"Cliente"});
+    let busy = dispatch(&f.hub, &Caller::Local, "donnaSpaceDelete", body).await.unwrap();
+    assert_eq!(busy["code"], "space_busy");
+    assert_eq!(busy["busy"], json!([{"botId": bot.id, "name": bot.name}]));
+    assert_eq!(f.spaces().await, snap, "a recusa não apaga nada");
+    assert!(!f.hub.store.bot(&bot.id).unwrap().unwrap().deleted);
+    drop(ticket);
+    dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaSpaceDelete",
+        json!({"hubId":f.hub.host_id,"spaceId":space,"expectedRevision":snap["revision"],"confirmName":"Cliente"}),
+    )
+    .await
+    .unwrap();
+    assert!(f.hub.store.bot(&bot.id).unwrap().unwrap().deleted, "livre da reserva, o Space sai");
+}
+
+#[tokio::test]
 async fn d543_delete_so_desktop_lista_de_permissao() {
     let f = Lifecycle::new();
     let created = f.create_space("Cliente").await;

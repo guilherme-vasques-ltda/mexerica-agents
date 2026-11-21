@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { avisoOpen, erroDoEnvio, recusaOpen } from './erro-envio.ts'
+import { avisoOpen, erroDoEnvio, recusaOpen, respostaEmAndamento } from './erro-envio.ts'
 import { IDIOMAS_CATALOGO } from '../../../lib/fork-i18n/registro.ts'
 import { tradutor } from '../../../lib/fork-i18n/index.ts'
 
@@ -29,4 +29,14 @@ test('os avisos da Open saem no idioma da janela pelo código; código desconhec
     assert.equal(new Set(textos).size, IDIOMAS_CATALOGO.length, code)
   }
   for (const code of ['auth_protocol_invalid', '__proto__', 'toString', '', null, undefined]) assert.equal(avisoOpen(code), null)
+})
+
+test('a recusa de exclusão por resposta em andamento é reconhecida e sai traduzida em todo idioma', () => {
+  assert.ok(respostaEmAndamento(new Error('open_chat_busy')))
+  for (const e of [new Error('open_chat_account_required'), new Error('x open_chat_busy'), 'open_chat_busy', null, {}]) {
+    assert.equal(respostaEmAndamento(e), false)
+  }
+  const textos = IDIOMAS_CATALOGO.map((idioma) => tradutor(idioma)('bots.editor.apagar.resposta'))
+  assert.ok(textos.every((texto) => texto && texto !== 'bots.editor.apagar.resposta'))
+  assert.equal(new Set(textos).size, IDIOMAS_CATALOGO.length)
 })

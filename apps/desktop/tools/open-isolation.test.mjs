@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -182,6 +182,9 @@ test('a abertura tolera a pasta de ajudantes que o Codex deixa ao ser morto, sem
   mkdirSync(helpers, { recursive: true, mode: 0o700 })
   symlinkSync('/usr/bin/true', join(helpers, 'apply_patch'))
   assert.doesNotThrow(() => openPaths(home, appData))
+  const ajudante = join(helpers, 'apply_patch')
+  assert.ok(lstatSync(ajudante).isSymbolicLink(), 'uma segunda execução não converte o link do ajudante em arquivo')
+  assert.equal(readlinkSync(ajudante), '/usr/bin/true', 'o alvo original do link do ajudante é preservado')
   assert.ok(lstatSync(join(codex, 'tmp', 'arg0-macos', 'codex-arg0abc')).isDirectory(), 'uma segunda execução não apaga auxiliares em uso; o Hub limpa só os inativos')
   symlinkSync('/usr/bin/true', join(codex, 'tmp', 'apply_patch'))
   assert.throws(() => openPaths(home, appData), undefined, 'link fora da pasta de ajudantes continua recusado')

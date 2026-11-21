@@ -2455,6 +2455,10 @@ async fn resposta_da_open_e_reconexao_se_excluem_nas_duas_ordens() {
     std::fs::write(cli.parent().unwrap().join("scenario"), "hang").unwrap();
     let account = f.create("codex", "cli", "open-cerca").await;
     let a = account["id"].as_str().unwrap().to_owned();
+    // A reserva da conversa confere a linha do bot: sem linha, não há turno a reservar.
+    let bot: crate::store::BotConfig =
+        serde_json::from_value(json!({"id":"open-cerca-bot","name":"Cerca","backend":"codex","cwd":f.root})).unwrap();
+    f.hub.store.save_bot(&bot).unwrap();
     let body = |request: &str| json!({"engineAccountId":a,"expectedRevision":account["revision"],"action":"login","clientRequestId":request});
     let reply = crate::fork::open_chat::admit_for_test(&f.hub, "open-cerca-bot", &a).unwrap();
     let error = call(&f.hub, &Caller::Local, "donnaEngineSetupStart", body("open-cerca-1")).await.unwrap_err();

@@ -33,8 +33,8 @@ impl Hub {
         };
         // Nenhum desses efeitos reversíveis apenas por nova execução ocorre
         // antes do commit. Rooms::stop pode ler Store e enviar comandos: sem locks.
+        // Não há turno da Open a cancelar: com reserva viva a exclusão é recusada no fence.
         self.team.cancel_bot(id);
-        crate::fork::open_chat::stop(id);
         self.groups.stop(self, id);
         Ok(rev)
     }
@@ -61,7 +61,6 @@ impl Hub {
         let gone: std::collections::HashSet<&str> = deleted.iter().map(|(id, _)| id.as_str()).collect();
         for (id, _) in deleted {
             self.team.cancel_bot(id);
-            crate::fork::open_chat::stop(id);
             self.groups.stop(self, id);
             crate::fork::owner_question::deleted(self, id);
             crate::fork::runtime_audiencia::screen::changed(self, id);

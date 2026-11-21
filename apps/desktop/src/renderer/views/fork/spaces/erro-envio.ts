@@ -32,3 +32,9 @@ export function recusaOpen(valor: unknown): Exclude<ErroDoEnvio, 'spaces.compose
     ? valor
     : null
 }
+
+/** A recusa `open_chat_busy` do Hub: resposta da Open em andamento (apagar bot também é recusado com ela). */
+export function respostaEmAndamento(e: unknown): boolean {
+  const message = typeof e === 'object' && e !== null && 'message' in e && typeof e.message === 'string' ? e.message : ''
+  return /^open_chat_busy\b/.test(message)
+}

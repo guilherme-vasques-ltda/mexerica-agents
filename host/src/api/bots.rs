@@ -263,8 +263,6 @@ pub(super) async fn call(
                 crate::chat::manage::recover_live(hub);
                 hub.delete_bot(bot)?;
             }
-            // Na Open, a exclusão só é confirmada depois de o Codex da conversa apagada sair.
-            crate::fork::open_chat::stopped(bot).await;
             json!({})
         }
         "markRead" => {

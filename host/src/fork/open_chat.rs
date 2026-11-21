@@ -9,14 +9,12 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex, MutexGuard, Weak},
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
 
 const TURN_LIMIT: Duration = Duration::from_secs(600);
-/// Prazo da exclusão do bot para o Codex da conversa sair; passado o prazo, o encerramento forçado segue até a saída.
-const STOP_LIMIT: Duration = Duration::from_secs(12);
 const MAX_REPLY: usize = 200_000;
 /// Código JSON-RPC com que o Codex recusa retomar uma thread que não existe neste perfil.
 const INVALID_REQUEST: i64 = -32600;
@@ -27,7 +25,7 @@ internet nem acesso ao computador; se o pedido precisar disso, diga que não pod
 /// Itens que um turno só de texto pode produzir; qualquer outro encerra o turno.
 const TEXT_ITEMS: [&str; 5] = ["userMessage", "agentMessage", "reasoning", "plan", "contextCompaction"];
 
-struct Running {
+pub(crate) struct Running {
     hub: Weak<Hub>,
     account: String,
     cancel: watch::Sender<bool>,
@@ -80,7 +78,9 @@ pub(crate) fn begin(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<Ticket> {
 }
 
 /// Reserva o turno sob `RUNNING`, a mesma trava em que a reconexão da conta abre a operação: uma conta em reconexão
-/// não recebe turno, e uma conta com turno não começa a reconectar.
+/// não recebe turno, e uma conta com turno não começa a reconectar. A conferência de bot apagado também fica aqui:
+/// a exclusão só passa com `RUNNING` livre para este bot, então um turno que esperou o fence encontra a linha
+/// `deleted` gravada e é recusado.
 fn admit(
     guard: &mut Option<HashMap<String, Running>>,
     hub: &Arc<Hub>,
@@ -90,6 +90,7 @@ fn admit(
 ) -> Result<Ticket> {
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
     ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
+    ensure!(matches!(hub.store.bot(bot), Ok(Some(row)) if !row.deleted), "open_chat_cancelled");
     let running = guard.get_or_insert_with(HashMap::new);
     running.retain(|_, r| r.hub.strong_count() > 0 && r.done.has_changed().is_ok());
     ensure!(!running.contains_key(bot), "open_chat_busy");
@@ -110,20 +111,26 @@ pub(crate) fn stop(bot: &str) {
     }
 }
 
-/// Depois da exclusão (que já interrompeu o turno): espera o turno do bot terminar e o Codex dele sair, porque a
-/// reserva só é solta depois da saída. Falso quando o prazo acabou com o processo ainda vivo; a reserva continua.
-pub(crate) async fn stopped(bot: &str) -> bool {
-    stopped_within(bot, STOP_LIMIT).await
+/// Cerca da exclusão de bots: `RUNNING` é a trava em que `admit` reserva o turno e confere `deleted`, então um
+/// commit feito com o guard retido não deixa janela — um `begin` concorrente espera a trava e recusa ao ver o bot
+/// apagado. Erro `open_chat_busy` quando qualquer bot tem reserva viva (a mesma noção do `retain` do `admit`). O
+/// chamador segura o guard por todo o commit da exclusão; `RUNNING` vem antes das travas do Hub.
+pub(crate) fn deletion_fence(bots: &[&str]) -> Result<MutexGuard<'static, Option<HashMap<String, Running>>>> {
+    let mut guard = RUNNING.locked();
+    if let Some(running) = guard.as_mut() {
+        running.retain(|_, r| r.hub.strong_count() > 0 && r.done.has_changed().is_ok());
+        ensure!(!bots.iter().any(|bot| running.contains_key(*bot)), "open_chat_busy");
+    }
+    Ok(guard)
 }
 
-async fn stopped_within(bot: &str, limit: Duration) -> bool {
-    let done = RUNNING.locked().as_ref().and_then(|running| running.get(bot)).map(|r| r.done.clone());
-    let Some(mut done) = done else { return true };
-    let exited = tokio::time::timeout(limit, async { while done.changed().await.is_ok() {} }).await.is_ok();
-    if !exited {
-        tracing::warn!("o Codex de uma conversa apagada ainda não saiu; a reserva da conta continua até a saída");
-    }
-    exited
+/// Os bots da lista com reserva viva agora, sem segurar a trava: só para nomear os ocupados na recusa `space_busy`.
+/// A garantia é do `deletion_fence`, não desta leitura.
+pub(crate) fn open_busy(bots: &[&str]) -> Vec<String> {
+    let mut guard = RUNNING.locked();
+    let Some(running) = guard.as_mut() else { return Vec::new() };
+    running.retain(|_, r| r.hub.strong_count() > 0 && r.done.has_changed().is_ok());
+    bots.iter().filter(|bot| running.contains_key(**bot)).map(|bot| (*bot).to_owned()).collect()
 }
 
 /// Encerra o Codex e só volta depois da saída confirmada: enquanto ele vive, a reserva da conta continua.
@@ -133,7 +140,8 @@ async fn reap(rpc: &mut Rpc) {
     }
 }
 
-/// Recusa turnos novos, interrompe os em curso e espera cada um encerrar o Codex.
+/// Recusa turnos novos, interrompe os em curso e espera cada um encerrar o Codex: em fatias de 5 s, com um aviso a
+/// cada fatia vencida e teto total de 60 s, o Hub não chega ao `process::exit` enquanto o reap ainda tenta encerrar.
 pub(crate) async fn shutdown(hub: &Arc<Hub>) {
     let waiting: Vec<_> = {
         let guard = RUNNING.locked();
@@ -149,12 +157,20 @@ pub(crate) async fn shutdown(hub: &Arc<Hub>) {
             })
             .collect()
     };
-    let _ = tokio::time::timeout(Duration::from_secs(5), async {
-        for mut done in waiting {
-            let _ = done.changed().await;
+    let inicio = Instant::now();
+    for mut done in waiting {
+        loop {
+            let resta = Duration::from_secs(60).saturating_sub(inicio.elapsed());
+            if resta.is_zero() {
+                tracing::warn!("o encerramento esperou 60 s e ainda há resposta da Open em curso; segue sem esperar");
+                return;
+            }
+            if tokio::time::timeout(resta.min(Duration::from_secs(5)), done.changed()).await.is_ok() {
+                break;
+            }
+            tracing::warn!("a resposta da Open ainda não encerrou; o Hub segue esperando");
         }
-    })
-    .await;
+    }
 }
 
 fn thread_key(lane: &Lane) -> String {
@@ -233,8 +249,9 @@ async fn turn_in_profile(
     };
     let bot = reply.bot.clone();
     let saved = hub.store.kv_read(&thread_key(lane))?;
-    // A exclusão do bot grava sob a mesma trava do banco: ou o processo nasce antes dela (e é cancelado e esperado),
-    // ou o lançamento já vê o bot apagado.
+    // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)
+    // ou por o bot já não existir. A conferência de `deleted` sob a trava do banco cobre a janela entre a reserva
+    // e este processo nascer.
     let child = {
         let db = hub.store.db.locked();
         ensure!(
@@ -245,8 +262,8 @@ async fn turn_in_profile(
     };
     let mut rpc = Rpc::from_child(child)?;
     let stopped = cancel.clone();
-    // O ponto em que o texto passa a ser entregue ao Codex: a exclusão e o cancelamento são conferidos aqui, depois de
-    // o commit da exclusão e antes de o `turn/start` seguir; o que vier depois é encerrado e esperado por `stopped`.
+    // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
+    // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
         if saved.as_deref() != Some(thread)
             && let Err(error) = hub.store.kv_set_if_bot(&bot, &thread_key(lane), thread)
@@ -263,9 +280,11 @@ async fn turn_in_profile(
         drive(&mut rpc, saved.as_deref(), instructions, text, cancel, before_text, |delta| reply.push(delta)).await;
     match outcome {
         Ok(_) => {
+            // O encerramento limpo confirma só o líder: o reap a seguir varre descendentes que tenham ficado no grupo.
             if rpc.finish().await.is_err() {
-                reap(&mut rpc).await;
+                tracing::warn!("o Codex não encerrou de forma limpa; a conta segue reservada até a saída");
             }
+            reap(&mut rpc).await;
             Ok(())
         }
         Err(error) => {
@@ -458,6 +477,11 @@ pub(crate) async fn drive(
         result = tokio::time::timeout(TURN_LIMIT, flow) => result.map_err(|_| anyhow!("open_chat_timeout"))?,
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     }
+}
+
+/// Verdadeiro quando nenhuma resposta da conversa da Open está em curso neste processo.
+pub(crate) fn idle() -> bool {
+    RUNNING.locked().as_ref().is_none_or(|running| running.values().all(|r| r.done.has_changed().is_err()))
 }
 
 async fn interrupt(rpc: &mut Rpc, thread: &str, turn: &str) {

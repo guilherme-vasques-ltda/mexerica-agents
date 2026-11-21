@@ -51,32 +51,51 @@ pub(crate) async fn call(hub: &Arc<Hub>, authority: &access::Authority, body: Va
     owners.dedup();
     let mut reservations = Vec::new();
     let mut actor_busy = Vec::new();
-    for owner in owners {
-        if !hub.has_bot_actor(&owner) {
+    for owner in &owners {
+        if !hub.has_bot_actor(owner) {
             continue;
         }
-        let chats = conversations.iter().filter(|(_, bot)| *bot == owner).map(|(chat, _)| chat.clone()).collect();
+        let chats = conversations.iter().filter(|(_, bot)| bot == owner).map(|(chat, _)| chat.clone()).collect();
         let (reply, result) = tokio::sync::oneshot::channel();
         let (release, held) = tokio::sync::oneshot::channel();
         hub.send_cmd(
-            &owner,
-            crate::agent::bot::Cmd::SpaceDeleteGuard { chats, all: pre_bots.contains(&owner), reply, release: held },
+            owner,
+            crate::agent::bot::Cmd::SpaceDeleteGuard { chats, all: pre_bots.contains(owner), reply, release: held },
         )?;
         reservations.push(release);
         let busy = tokio::time::timeout(std::time::Duration::from_secs(10), result)
             .await
             .map_err(|_| anyhow::anyhow!("space_delete_pending"))??;
         if busy {
-            actor_busy.push(owner);
+            actor_busy.push(owner.clone());
         }
     }
     let hub = hub.clone();
-    let gone: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
-    let gone_in_commit = gone.clone();
     let value = tokio::task::spawn_blocking(move || -> Result<Value> {
         let _guard = guard;
         let _reservations = reservations;
         authority.require_current(&hub)?;
+        // Um bot com resposta da Open em curso numa conversa do Space (bot do Space ou dono de conversa
+        // estrangeira) conta como ocupado; com o fence retido até o fim desta função, um `begin` concorrente
+        // espera `RUNNING` e recusa ao ver o bot apagado depois do commit.
+        let ids: Vec<&str> = owners.iter().map(String::as_str).collect();
+        let fence = if let Ok(fence) = crate::fork::open_chat::deletion_fence(&ids) {
+            fence
+        } else {
+            let busy = crate::fork::open_chat::open_busy(&ids)
+                .into_iter()
+                .map(|id| {
+                    let name = hub.store.bot(&id).ok().flatten().map(|row| row.config.name).unwrap_or_default();
+                    json!({"botId": id, "name": name})
+                })
+                .collect::<Vec<_>>();
+            if busy.is_empty() {
+                // A reserva acabou entre as duas leituras; a trava livre vale tanto quanto a primeira.
+                crate::fork::open_chat::deletion_fence(&ids)?
+            } else {
+                return Ok(json!({"code":"space_busy","busy": busy}));
+            }
+        };
         // Bots do Space estáveis sob team_lock; a Tx relê e confere o mesmo conjunto.
         // Pastas geradas pelo Hub de cada bot: workspace alocado e, quando gerenciado,
         // o próprio cwd. Pasta de projeto do dono (não gerenciada) nunca entra aqui.
@@ -151,7 +170,6 @@ pub(crate) async fn call(hub: &Arc<Hub>, authority: &access::Authority, body: Va
         // viram aviso no log e a exclusão gravada se mantém (commit → efeitos).
         tracing::info!(space = %space_id, authority = device_key.unwrap_or("local"),
             bots = deleted.len(), "space deleted");
-        *gone_in_commit.locked() = deleted.iter().map(|(id, _)| id.clone()).collect();
         let _boundary = hub.store.memory_boundary.locked();
         match hub.store.guard_runtime_namespace() {
             Ok(namespace) => crate::guard_hub::mcp::runtime::forget_contexts(&namespace, &removed),
@@ -184,13 +202,9 @@ pub(crate) async fn call(hub: &Arc<Hub>, authority: &access::Authority, body: Va
         let value = serde_json::to_value(&snapshot)?;
         let _ = hub.events.send(json!({"type":"spaces","spaceId":PERSONAL,
             "rev":snapshot.revision,"snapshot":value}));
+        drop(fence);
         Ok(value)
     })
     .await??;
-    // Na Open, a exclusão só é confirmada depois de o Codex de cada conversa apagada sair.
-    let gone = std::mem::take(&mut *gone.locked());
-    for bot in &gone {
-        crate::fork::open_chat::stopped(bot).await;
-    }
     Ok(value)
 }

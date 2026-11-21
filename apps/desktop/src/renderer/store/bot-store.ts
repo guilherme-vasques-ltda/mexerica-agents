@@ -26,7 +26,7 @@ import { BotSync, sleep } from './bot-sync'
 import type { SessionIntent } from './fork-sessions'
 import { botEditorUpdate } from '@shared/bot-autonomy'
 import { bloqueioSenha, destinoSenha, type ResultadoEnvio } from './fork-senha-bloqueio'
-import { erroDoEnvio, recusaOpen } from '../views/fork/spaces/erro-envio'
+import { erroDoEnvio, recusaOpen, respostaEmAndamento } from '../views/fork/spaces/erro-envio'
 
 export { builtInBackendName, type Connection } from './bot-mirror'
 
@@ -491,7 +491,7 @@ export class BotStore extends BotSync {
 
   delete(bot: Bot) {
     if (bot.id === this.principal.protectedId) return
-    return this.perform(c => {
+    const result = this.perform(c => {
       this.composerDrafts.removeBot(bot.id)
       this.bots.delete(bot.id)
       this.entries.delete(bot.id)
@@ -499,6 +499,15 @@ export class BotStore extends BotSync {
       this.changed()
       return c.call('deleteBot', { botId: bot.id })
     }, true)
+    // Recusa `open_chat_busy`: nada foi apagado — o bot volta à lista e o aviso explica por quê.
+    void result.then(r => {
+      if (r.ok || !respostaEmAndamento(r.error)) return
+      this.bots.set(bot.id, bot)
+      this.lastError = traduzir(idiomaAtual(), 'bots.editor.apagar.resposta')
+      this.onRosterChanged?.()
+      this.changed()
+    })
+    return result
   }
 
   /** Creates a group chat (or opens the one these bots already share) and selects it. */

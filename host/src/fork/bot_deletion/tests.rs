@@ -324,3 +324,48 @@ async fn deleting_the_bot_drops_its_codex_thread_and_refuses_a_late_writer() {
     assert!(!f.hub.store.kv_set_if_bot(&f.bot, &key, "thread-2").unwrap(), "um gravador atrasado não a recria");
     assert_eq!(f.hub.store.kv_read(&key).unwrap(), None);
 }
+
+/// Com reserva de resposta da Open viva, a exclusão é recusada e o bot segue intacto; solta a reserva, passa.
+#[tokio::test]
+async fn deleting_a_bot_with_an_open_reply_running_is_refused_then_deletes() {
+    let f = Fixture::new();
+    let ticket = crate::fork::open_chat::admit_for_test(&f.hub, &f.bot, "conta-open").unwrap();
+    let error = f.hub.delete_bot(&f.bot).unwrap_err();
+    assert_eq!(error.to_string(), "open_chat_busy");
+    assert!(!f.hub.store.bot(&f.bot).unwrap().unwrap().deleted, "a recusa não apaga nada");
+    assert!(f.hub.bots.locked().contains_key(&f.bot));
+    drop(ticket);
+    f.hub.delete_bot(&f.bot).unwrap();
+    assert!(f.hub.store.bot(&f.bot).unwrap().unwrap().deleted);
+}
+
+/// Um turno que esperou o fence da exclusão encontra o bot apagado e é recusado, sem janela.
+#[tokio::test]
+async fn admitting_a_reply_on_a_deleted_bot_is_refused() {
+    let f = Fixture::new();
+    f.hub.delete_bot(&f.bot).unwrap();
+    let error = crate::fork::open_chat::admit_for_test(&f.hub, &f.bot, "conta-open").err().unwrap();
+    assert_eq!(error.to_string(), "open_chat_cancelled");
+}
+
+/// RUNNING vem antes de runtime na cerca de conta e na cerca da exclusão: os dois caminhos cruzam sem trancar.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)] // o fence fica seguro de propósito durante a espera: prova a ordem das travas
+async fn account_and_deletion_fences_keep_the_same_lock_order() {
+    let f = Fixture::new();
+    let fence = crate::fork::open_chat::deletion_fence(&[&f.bot]).unwrap();
+    let hub = f.hub.clone();
+    let account = tokio::task::spawn_blocking(move || hub.with_idle_engine_account("conta-sem-uso", || Ok(())));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!f.hub.runtime_held(), "RUNNING é adquirido antes de runtime, nunca o contrário");
+    drop(fence);
+    let hub = f.hub.clone();
+    let bot = f.bot.clone();
+    let delete = tokio::task::spawn_blocking(move || hub.delete_bot(&bot));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        account.await.expect("a thread do spawn não falhou").expect("a cerca de conta completou");
+        delete.await.expect("a thread do spawn não falhou").expect("a exclusão passou");
+    })
+    .await
+    .expect("as duas ordens completam sem trancar");
+}

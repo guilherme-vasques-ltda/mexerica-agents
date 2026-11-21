@@ -79,6 +79,9 @@ pub(crate) enum Event {
 
 pub(crate) struct Rpc {
     child: Child,
+    /// Id do grupo (o pid do líder, que nasce com `process_group(0)`), guardado no nascimento: depois de o líder ser
+    /// colhido, o tokio devolve `None` em `child.id()` e o grupo deixaria de ser encerrado.
+    group: Option<u32>,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     pending: VecDeque<Value>,
@@ -110,9 +113,10 @@ impl Rpc {
         Self::from_child(child)
     }
     pub(crate) fn from_child(mut child: Child) -> Result<Self> {
+        let group = child.id();
         let input = child.stdin.take().ok_or_else(|| anyhow!("setup_unavailable"))?;
         let output = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("setup_unavailable"))?);
-        Ok(Self { child, input: Some(input), output, pending: VecDeque::new(), limit: 65_536 })
+        Ok(Self { child, group, input: Some(input), output, pending: VecDeque::new(), limit: 65_536 })
     }
     pub(crate) fn set_line_limit(&mut self, limit: usize) {
         self.limit = limit;
@@ -134,12 +138,16 @@ impl Rpc {
         ensure!(status.success(), "auth_shutdown_failed");
         Ok(())
     }
-    /// Encerra o grupo do processo e espera a saída, para que ninguém reaproveite a conta antes de ele sair. Falso quando
-    /// a saída não foi confirmada dentro do prazo.
+    /// Encerra o grupo do processo e espera a saída, para que ninguém reaproveite a conta antes de ele sair. O grupo é
+    /// morto pelo id guardado mesmo com o líder já colhido, e a saída só é confirmada quando o grupo ficou vazio:
+    /// descendentes que sobreviveram ao líder contam como conta ainda em uso. Falso quando isso não aconteceu dentro
+    /// do prazo total de 5 s.
     pub(crate) async fn terminate(&mut self) -> bool {
         drop(self.input.take());
-        kill_group(self.child.id());
-        matches!(tokio::time::timeout(Duration::from_secs(5), self.child.wait()).await, Ok(Ok(_)))
+        kill_group(self.group);
+        let prazo = tokio::time::Instant::now() + Duration::from_secs(5);
+        let lider = matches!(tokio::time::timeout_at(prazo, self.child.wait()).await, Ok(Ok(_)));
+        lider && grupo_vazio(self.group, prazo).await
     }
     async fn line(&mut self) -> Result<Value> {
         use tokio::io::AsyncReadExt;
@@ -214,6 +222,31 @@ pub(crate) fn kill_group(pid: Option<u32>) {
     }
     #[cfg(not(unix))]
     let _ = pid;
+}
+
+/// Sonda o grupo com o sinal 0 até ele deixar de existir: `ESRCH` só chega quando o último processo (inclusive
+/// zumbi) saiu do grupo. Falso quando o prazo total vence antes disso.
+#[cfg(unix)]
+async fn grupo_vazio(grupo: Option<u32>, prazo: tokio::time::Instant) -> bool {
+    let Some(pgid) = grupo.and_then(|pid| i32::try_from(pid).ok()) else {
+        return true;
+    };
+    loop {
+        // SAFETY: sinal 0 só consulta o grupo criado por este módulo; o id nunca vem do cliente.
+        if unsafe { libc::kill(-pgid, 0) } == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        {
+            return true;
+        }
+        if tokio::time::Instant::now() >= prazo {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn grupo_vazio(_: Option<u32>, _: tokio::time::Instant) -> bool {
+    true
 }
 
 pub(crate) async fn login(

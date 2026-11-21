@@ -639,6 +639,10 @@ impl Hub {
         let tower_change = crate::fork::control_tower::deletion(self, id)?;
         let led = crate::fork::lider_canal::led_by(&self.store, id)?;
         let committed = {
+            // A exclusão é recusada com reserva de resposta da Open viva; com o fence retido só até o fim do commit,
+            // um turno concorrente espera `RUNNING` e recusa ao ver o bot apagado (RUNNING antes das travas do Hub).
+            // Fora da edição Open `RUNNING` está sempre vazio e o fence não faz nada.
+            let _open_reply = crate::fork::open_chat::deletion_fence(&[id])?;
             let _boundary = self.store.memory_boundary.locked();
             #[cfg(test)]
             {
@@ -924,17 +928,19 @@ impl Hub {
         result
     }
 
-    /// D372 (R1): cerca de Contas no mesmo mutex de runtime de todo preparo/ativação. Confere a ociosidade da conta
-    /// sobre o mapa já bloqueado e roda `effect` (a escrita da conta) sem soltá-lo. O efeito não emite, não lê runtime,
-    /// não chama Hub/`idle` e não pega `memory_boundary`/emit/`team_lock`.
+    /// D372 (R1): cerca de Contas por `RUNNING` e pelo mesmo mutex de runtime de todo preparo/ativação, nesta ordem —
+    /// a exclusão de bot (`deletion_fence`) também toma `RUNNING` antes das travas do Hub, então runtime antes de
+    /// `RUNNING` aqui trancaria os dois caminhos. Confere a ociosidade da conta sobre o mapa já bloqueado e roda
+    /// `effect` (a escrita da conta) sem soltá-lo. O efeito não emite, não lê runtime, não chama Hub/`idle` e não
+    /// pega `memory_boundary`/emit/`team_lock`.
     pub(crate) fn with_idle_engine_account<T>(&self, account: &str, effect: impl FnOnce() -> Result<T>) -> Result<T> {
-        let runtime = self.runtime.locked();
-        crate::fork::engine_accounts::managed::idle_with(&self.store, account, |bot| {
-            runtime.get(bot).map_or(BotStatus::default(), |r| r.status)
-        })?;
-        let result = crate::fork::open_chat::with_idle_account(account, effect);
-        drop(runtime);
-        result
+        crate::fork::open_chat::with_idle_account(account, || {
+            let runtime = self.runtime.locked();
+            crate::fork::engine_accounts::managed::idle_with(&self.store, account, |bot| {
+                runtime.get(bot).map_or(BotStatus::default(), |r| r.status)
+            })?;
+            effect()
+        })
     }
 
     /// Testemunho de teste: o mutex de runtime está retido (por esta thread dentro de uma cerca, ou por outra).
