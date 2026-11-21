@@ -298,6 +298,16 @@ pub(super) fn previous_home(account: &Account, next: &Path) -> Option<PathBuf> {
     profile_home(account).filter(|home| next.parent() != Some(home.as_path()))
 }
 
+/// Raiz das pastas de perfil da conta: a do executor de motor quando ativo, a do Hub caso contrário — o
+/// mesmo ramo que `validate_profile` usa.
+fn account_root(store: &Store, id: &str, motor: bool) -> PathBuf {
+    if motor {
+        crate::fork::motor_roots::accounts().join(id)
+    } else {
+        store.engine_setup_root.join("accounts").join(id)
+    }
+}
+
 /// Confere que a pasta tem o formato exato criado pelo Hub (raiz/accounts/id/uuid), sem links em nenhum trecho do caminho.
 fn checked_home(store: &Store, id: &str, home: &Path) -> Result<Option<PathBuf>> {
     match std::fs::symlink_metadata(home) {
@@ -307,7 +317,7 @@ fn checked_home(store: &Store, id: &str, home: &Path) -> Result<Option<PathBuf>>
     }
     let directory = home.join(Backend::Grok.profile_directory());
     let relative = directory
-        .strip_prefix(store.engine_setup_root.join("accounts").join(id))
+        .strip_prefix(account_root(store, id, crate::fork::motor_exec::configured()))
         .map_err(|_| anyhow!("profile_invalid: referência inválida."))?;
     let mut parts = relative.components();
     let generation = parts.next().and_then(|part| part.as_os_str().to_str());
@@ -353,7 +363,7 @@ pub(super) fn wipe(store: &Store, id: &str, home: &Path) -> Result<()> {
 /// mais — sobra de um apagamento que falhou depois de a conta já apontar para outro. Sai no fim de um login
 /// bem-sucedido, na desconexão e na remoção; falha em uma pasta vira aviso e não impede as outras.
 pub(super) fn sweep_orphans(store: &Store, id: &str, keep: Option<&Path>) {
-    let root = store.engine_setup_root.join("accounts").join(id);
+    let root = account_root(store, id, crate::fork::motor_exec::configured());
     let Ok(entries) = std::fs::read_dir(&root) else { return };
     for entry in entries.flatten() {
         let home = entry.path();

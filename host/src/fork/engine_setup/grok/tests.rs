@@ -700,6 +700,17 @@ async fn varre_e_apaga_perfis_orfaos_da_conta_mantendo_o_atual() {
 }
 
 #[test]
+fn raiz_dos_perfis_da_conta_segue_o_executor_de_motor() {
+    let f = Fixture::new("plain");
+    let store = &f.hub.store;
+    let hub = account_root(store, "ac_exemplo", false);
+    assert_eq!(hub, store.engine_setup_root.join("accounts").join("ac_exemplo"));
+    let motor = account_root(store, "ac_exemplo", true);
+    assert_eq!(motor, crate::fork::motor_roots::accounts().join("ac_exemplo"));
+    assert_ne!(hub, motor);
+}
+
+#[test]
 fn duas_paginas_ou_dois_codigos_diferentes_derrubam_o_login() {
     let conflicts = |text: &[u8]| {
         let mut screen = Screen::default();

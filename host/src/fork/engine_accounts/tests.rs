@@ -565,7 +565,8 @@ fn bot_com_conta_grok_executa_so_o_executavel_gravado_na_conta() {
     use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("grok-cmd-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    let executable = dir.join("grok");
+    // Espaço no caminho de propósito: o executável tem de entrar entre aspas na linha.
+    let executable = dir.join("grok build");
     std::fs::write(&executable, b"#!/bin/sh\n").unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
     let store = Store::open(std::path::Path::new(":memory:")).unwrap();
@@ -580,10 +581,12 @@ fn bot_com_conta_grok_executa_so_o_executavel_gravado_na_conta() {
         json!({"id":"fixture","name":"Fixture","backend":"grok","forkEditor":{"engineAccountId":id}}),
     )
     .unwrap();
-    // O comando é exatamente o executável gravado, o mesmo que o login conferiu, com o modo ACP nativo.
+    // O executável gravado (com espaço no caminho) entra entre aspas e os argumentos como elementos
+    // separados: quem executa vê argv, nunca uma linha para o shell interpretar.
+    let command = managed::recorded_command(&store, &bot).unwrap().pop().unwrap();
     assert_eq!(
-        managed::recorded_command(&store, &bot).unwrap(),
-        vec![format!("{} agent stdio", executable.to_string_lossy())]
+        shlex::split(&command).unwrap(),
+        vec![executable.to_string_lossy().into_owned(), "agent".into(), "stdio".into()]
     );
     // Fail-closed: sem o executável gravado, nenhum candidato do PATH ou do catálogo é usado.
     std::fs::remove_file(&executable).unwrap();
