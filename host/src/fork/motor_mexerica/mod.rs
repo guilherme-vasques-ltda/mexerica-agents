@@ -161,6 +161,22 @@ pub(crate) fn entry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../motor/mexerica/rpc.ts")
 }
 
+/// Prazo de um comando de preparo do motor (envio e resposta).
+fn setup_deadline() -> std::time::Duration {
+    #[cfg(test)]
+    {
+        std::time::Duration::from_millis(SETUP_DEADLINE_MS.load(std::sync::atomic::Ordering::Relaxed))
+    }
+    #[cfg(not(test))]
+    {
+        std::time::Duration::from_secs(60)
+    }
+}
+
+/// Só provas: encurta o prazo para um motor de mentira que não lê a entrada.
+#[cfg(test)]
+pub(super) static SETUP_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(60_000);
+
 pub(crate) fn node_path() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(path) = std::env::var_os("DONNABOT_MEX_NODE_TEST") {
@@ -421,7 +437,6 @@ impl Engine {
         );
         Ok(res["data"].clone())
     }
-
     /// Provedor fixado no nascimento do processo.
     pub(crate) fn provider(&self) -> &str {
         &self.provider
@@ -434,16 +449,25 @@ impl Engine {
         self.prompt_with(provider, model_id, message, &tools::NoTools, &mut |_| {}).await
     }
 
+    /// Um comando de preparo (envio e resposta) com prazo: um motor que para de ler a entrada ou de responder não segura a
+    /// sessão para sempre. Estourou, o erro sobe e o processo é descartado por quem chamou.
+    async fn call(&mut self, id: &str, command: Value, what: &str) -> Result<Value> {
+        let deadline = setup_deadline();
+        let exchange = async {
+            self.send(command).await?;
+            self.response(id).await
+        };
+        tokio::time::timeout(deadline, exchange).await.map_err(|_| anyhow!("o motor não respondeu a tempo: {what}"))?
+    }
+
     /// Substitui a lista inteira de ferramentas do motor (vai antes do prompt).
     /// O motor só declara as ferramentas ao modelo; quem executa é o Hub.
     pub(crate) async fn set_tools(&mut self, specs: &[ToolSpec]) -> Result<()> {
         self.next_id += 1;
         let id = format!("tools-{}", self.next_id);
-        self.send(
-            json!({"id": id, "type": "set_tools", "tools": specs.iter().map(ToolSpec::wire).collect::<Vec<_>>()}),
-        )
-        .await?;
-        let res = self.response(&id).await?;
+        let command =
+            json!({"id": id, "type": "set_tools", "tools": specs.iter().map(ToolSpec::wire).collect::<Vec<_>>()});
+        let res = self.call(&id, command, "set_tools").await?;
         ensure!(res["success"] == true, "set_tools recusado: {}", res["error"].as_str().unwrap_or_default());
         self.tools = specs.iter().map(|spec| spec.name.clone()).collect();
         Ok(())
@@ -453,8 +477,8 @@ impl Engine {
     pub(crate) async fn set_system_prompt(&mut self, prompt: &str) -> Result<()> {
         self.next_id += 1;
         let id = format!("sys-{}", self.next_id);
-        self.send(json!({"id": id, "type": "set_system_prompt", "prompt": prompt})).await?;
-        let res = self.response(&id).await?;
+        let command = json!({"id": id, "type": "set_system_prompt", "prompt": prompt});
+        let res = self.call(&id, command, "set_system_prompt").await?;
         ensure!(res["success"] == true, "set_system_prompt recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
     }
@@ -467,8 +491,8 @@ impl Engine {
         let id = format!("hist-{}", self.next_id);
         // Cada mensagem cruza a fronteira como o texto JSON que o Hub mediu: o motor mede esses mesmos bytes.
         let wire: Vec<String> = messages.iter().map(Value::to_string).collect();
-        self.send(json!({"id": id, "type": "restore_history", "messages": wire})).await?;
-        let res = self.response(&id).await?;
+        let command = json!({"id": id, "type": "restore_history", "messages": wire});
+        let res = self.call(&id, command, "restore_history").await?;
         ensure!(res["success"] == true, "restore_history recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
     }

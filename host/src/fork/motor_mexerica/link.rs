@@ -63,6 +63,7 @@ pub(crate) struct Link {
     pending: Mutex<acp::Pending>,
     next_out: AtomicU64,
     /// So as provas do ator com o motor real dispensam os servidores MCP: o executavel deles seria o binario de testes.
+    #[cfg(test)]
     skip_mcp: std::sync::atomic::AtomicBool,
     /// Limites do modelo escolhido (contexto e teto de saída) guardados pelo «Testar acesso».
     limits: std::sync::OnceLock<LimitsSource>,
@@ -197,6 +198,7 @@ impl Link {
             outgoing: Mutex::new(HashMap::new()),
             pending: Mutex::new(acp::Pending::default()),
             next_out: AtomicU64::new(1),
+            #[cfg(test)]
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
             limits: std::sync::OnceLock::new(),
             stop,
@@ -205,6 +207,7 @@ impl Link {
     }
 
     /// Dispensa os servidores MCP deste adaptador (so a prova do ator com o motor real).
+    #[cfg(test)]
     pub(crate) fn skip_mcp_servers(&self) {
         self.skip_mcp.store(true, Ordering::Relaxed);
     }
@@ -395,7 +398,11 @@ impl Link {
         // Falha ao abrir os servidores recusa a sessão: sem isso o bot seguiria sem ferramentas e sem aviso.
         // Só a prova do ator com o motor real (`actor_extra_env` vazio fora dela) dispensa os servidores: o
         // executável deles seria o binário de testes, não um Hub.
-        let servers = if self.skip_mcp.load(Ordering::Relaxed) { json!([]) } else { params["mcpServers"].clone() };
+        #[cfg(test)]
+        let skip = self.skip_mcp.load(Ordering::Relaxed);
+        #[cfg(not(test))]
+        let skip = false;
+        let servers = if skip { json!([]) } else { params["mcpServers"].clone() };
         let mcp = McpHost::start(&servers, &cwd)
             .await
             .map(|host| Some(Arc::new(host)))
@@ -499,13 +506,20 @@ impl Link {
         ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
         let _busy = BusyGuard(&session.busy);
         self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
-        let mut engine = session.engine.lock().await;
-        let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
+        let mut slot = session.engine.lock().await;
+        let engine = slot.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
         let limits = match self.limits.get() {
             Some(source) => source(&provider, &model)?,
             None => json!({}),
         };
-        engine.set_model(&provider, &model, &limits).await?;
+        let result = engine.set_model(&provider, &model, &limits).await;
+        if let Err(error) = result {
+            // O slot nunca guarda um processo cuja conversa de comandos falhou:
+            // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
+            // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
+            *slot = None;
+            return Err(error);
+        }
         *session.provider.locked() = provider;
         *session.model.locked() = model;
         Ok(())

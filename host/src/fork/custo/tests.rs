@@ -744,3 +744,51 @@ fn report_accepts_background_synthetic_session_validated_by_ledger() {
         assert!(format!("{error:#}").contains("unknown_cost_session"), "{bot}/{session}: {error:#}");
     }
 }
+
+#[test]
+fn uso_do_turno_soma_so_o_que_o_motor_informou() {
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let cfg = config("b");
+    let lane = Lane::main("b");
+    let run = |turn: Option<i64>, usage: Value| {
+        let mut p = Pending::begin(&store, &cfg, &lane, "s", true, None).unwrap().with_turn(turn);
+        p.dispatched(&store).unwrap();
+        p.finish(&store, Some(&json!({ "usage": usage }))).unwrap();
+    };
+    run(Some(7), json!({"inputTokens":10,"cachedReadTokens":20,"cachedWriteTokens":30,"outputTokens":40}));
+    run(Some(8), json!({"inputTokens":5,"outputTokens":6}));
+    run(None, json!({"inputTokens":99,"outputTokens":99}));
+    let usage = |turn: i64| turn_usage(&store.db.locked(), "b", "b", "b", turn).unwrap();
+    assert_eq!(usage(7).unwrap(), json!({"input":10,"cacheRead":20,"cacheWrite":30,"output":40}));
+    // Cache que o motor não informou fica null: nunca vira zero nem estimativa.
+    assert_eq!(usage(8).unwrap(), json!({"input":5,"cacheRead":null,"cacheWrite":null,"output":6}));
+    assert!(usage(9).is_none(), "turno sem linha de uso");
+    assert!(turn_usage(&store.db.locked(), "b", "b", "outra-sessao", 7).unwrap().is_none());
+    assert!(turn_usage(&store.db.locked(), "outro-bot", "b", "b", 7).unwrap().is_none(), "uso de outro bot não vaza");
+    // Duas linhas no mesmo turno: soma o que as duas informaram; o que uma não informou fica null.
+    run(Some(7), json!({"inputTokens":1,"outputTokens":2}));
+    assert_eq!(usage(7).unwrap(), json!({"input":11,"cacheRead":null,"cacheWrite":null,"output":42}));
+    // Soma que não cabe em i64: contagem indisponível, sem derrubar o recibo.
+    run(Some(10), json!({"inputTokens":i64::MAX,"outputTokens":1}));
+    run(Some(10), json!({"inputTokens":1,"outputTokens":1}));
+    assert_eq!(usage(10).unwrap(), json!({"input":null,"cacheRead":null,"cacheWrite":null,"output":2}));
+}
+
+#[test]
+fn banco_antigo_ganha_a_coluna_do_turno_uma_vez() {
+    let c = rusqlite::Connection::open_in_memory().unwrap();
+    c.execute_batch(
+        "CREATE TABLE donna_turn_usage(
+          id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, chat_id TEXT NOT NULL, session_id TEXT NOT NULL,
+          parent_session_id TEXT, account_id TEXT, model TEXT, at INTEGER NOT NULL,
+          input_tokens INTEGER, cached_read_tokens INTEGER, cached_write_tokens INTEGER, output_tokens INTEGER,
+          amount REAL, currency TEXT, source TEXT NOT NULL);",
+    )
+    .unwrap();
+    migrate(&c).unwrap();
+    migrate(&c).unwrap();
+    let columns: i64 = c
+        .query_row("SELECT COUNT(*) FROM pragma_table_info('donna_turn_usage') WHERE name='turn'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(columns, 1);
+}

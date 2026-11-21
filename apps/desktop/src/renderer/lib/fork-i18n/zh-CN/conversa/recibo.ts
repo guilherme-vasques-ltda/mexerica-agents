@@ -43,4 +43,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.recibo.campo.motor": "引擎",
   "conversa.recibo.campo.esforco": "推理强度",
   "conversa.recibo.tentarDeNovo": "重试",
+  "conversa.recibo.uso.titulo": "本轮用量",
+  "conversa.recibo.uso.entrada": "输入",
+  "conversa.recibo.uso.cacheLido": "缓存读取",
+  "conversa.recibo.uso.cacheGravado": "缓存写入",
+  "conversa.recibo.uso.saida": "输出",
+  "conversa.recibo.uso.naoInformado": "未提供",
+  "conversa.recibo.uso.informado": "以下数字由引擎在本轮结束时提供。Mexerica 不做估算：引擎没有提供的内容显示为“未提供”。",
+  "conversa.recibo.uso.semMedida": "这一轮没有用量记录：它早于此记录，或引擎尚未回复。",
+  "conversa.recibo.uso.nenhum": "引擎没有提供这一轮的用量。",
 }

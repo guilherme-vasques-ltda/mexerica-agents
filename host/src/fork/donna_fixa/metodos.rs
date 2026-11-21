@@ -42,6 +42,8 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("nuncaFazerEditar", LocalOnly),
     ("nuncaFazerRemover", LocalOnly),
     ("nuncaFazerReordenar", LocalOnly),
+    ("instrucaoGeral", LocalOnly),
+    ("instrucaoGeralSalvar", LocalOnly),
     // api/bots.rs
     ("answerMemory", Comum),
     ("archiveMemory", Comum),
@@ -131,6 +133,11 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("setAgentEnv", LocalOnly),
     // Slot Go exclusivo; exige o vínculo original engine.accounts.
     ("engineGoKeySave", Dono),
+    // Planos de código (OpenCode como motor): `LOCAL_ONLY` e `require_local`; nunca devolvem a chave.
+    ("planosCodigo", LocalOnly),
+    ("planoCodigoTestar", LocalOnly),
+    ("planoCodigoSalvar", LocalOnly),
+    ("planoCodigoRemover", LocalOnly),
     ("setAnalytics", LocalOnly),
     ("setHostAutomaticUpdates", LocalOnly),
     ("setScreenEnabled", LocalOnly),
@@ -188,6 +195,9 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("marketConnectors", Leitura),
     ("marketContaDesconectar", Dono),
     ("marketContaRenomear", Dono),
+    ("marketFerramentaDesligar", Dono),
+    ("marketFerramentaLigar", Dono),
+    ("marketFerramentas", Leitura),
     ("marketContas", Leitura),
     ("marketPersonalizado", Dono),
     ("marketServico", Leitura),

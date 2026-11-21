@@ -454,6 +454,34 @@ async fn conversa_sobrevive_a_troca_de_provedor() {
     acp.kill_and_wait().await;
 }
 
+/// `session/set_model` recusado pelo motor derruba o processo em vez de
+/// deixar no slot um processo com a conversa de comandos dessincronizada.
+#[tokio::test]
+async fn set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro() {
+    let case = caso!("set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    let antigo = acp.pid().expect("o set_model inicial tinha de ter subido um motor");
+
+    // Modelo inexistente: o motor recusa e o erro sobe ao bot.
+    let recusado =
+        acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/modelo-que-nao-existe"})).await;
+    assert!(recusado.is_err(), "o motor tinha de recusar o modelo inexistente");
+    esperar_morto(antigo).await;
+    assert!(acp.pid().is_none(), "o processo recusado tinha de sair do slot");
+
+    // A próxima tentativa sobe um processo NOVO e conversa com ele.
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let novo = acp.pid().unwrap();
+    assert_ne!(novo, antigo, "o set_model seguinte tinha de subir outro processo");
+    let (result, _) = turno_de_texto(&acp, &mut rx, &sid, "depois da recusa").await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    acp.kill_and_wait().await;
+}
+
 /// O processo cai (OOM, SIGKILL) entre dois turnos e no meio de um.
 #[tokio::test]
 async fn conversa_sobrevive_a_queda_do_motor() {

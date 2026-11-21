@@ -26,6 +26,7 @@ export function demoVozBridge(): VozBridge {
     testar: (p) => r(guardadas.has(p), guardadas.has(p) ? null : 'sem-chave'),
     usarReserva: () => r(false, 'invalida'),
     credencial: async () => ({ ok: false, categoria: 'provedor' }),
+    definirAtalho: async () => ({ ok: false, motivo: 'indisponivel' }),
     onChange: (f) => { ouvintes.add(f); return () => void ouvintes.delete(f) },
   }
 }

@@ -6,6 +6,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.mensagens.copiar": "Copy",
   "conversa.mensagens.responder": "Reply",
   "conversa.mensagens.verTrabalho": "See what it did",
+  "conversa.mensagens.respostaInterrompida": "Reply interrupted before it finished.",
   "conversa.mensagens.comoFoi": "How it was answered",
   "conversa.mensagens.enviando": "Sending…",
   "conversa.mensagens.naFilaAte": "Queued until this reply finishes",

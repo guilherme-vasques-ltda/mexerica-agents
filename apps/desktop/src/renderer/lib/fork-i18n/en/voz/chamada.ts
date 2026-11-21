@@ -46,4 +46,8 @@ export const textos: Traducao<typeof fonte> = {
   "voz.chamada.falha.microfone": "Couldn’t use the microphone: {erro}",
   "voz.chamada.falha.audioFila": "Audio queue full.",
   "voz.chamada.falha.audioFrequencia": "Invalid audio sample rate.",
+  "voz.chamada.entrada.recusa.grupo": "Voice calls are with a bot, not a channel.",
+  "voz.chamada.entrada.recusa.sessao": "Voice calls belong to the main conversation. Go back to the main tab and try again.",
+  "voz.chamada.entrada.recusa.senha": "A pasted-password warning is open in this chat. Resolve it before calling.",
+  "voz.chamada.entrada.recusa.indisponivel": "Live voice isn’t available right now. Check Settings → Voice.",
 }

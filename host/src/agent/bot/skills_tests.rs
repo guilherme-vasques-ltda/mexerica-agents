@@ -887,3 +887,60 @@ async fn ator_com_pipe_parcial(action: &str) {
 
 #[path = "seg_cf14_tests.rs"]
 mod seg_cf14_tests;
+
+/// Instruções do dono (todos os bots e Space): chegam no prompt de cada turno, em qualquer jeito de o motor receber o
+/// texto de sistema, e uma mudança vale na mensagem seguinte sem reiniciar bot nem sessão.
+async fn instrucao_geral_chega_e_muda_na_mensagem_seguinte(inline: bool) {
+    let mut f = Fixture::new(inline).await;
+    let dono = f.hub.clone();
+    let salvar = |escopo: &'static str, texto: &'static str| {
+        let hub = dono.clone();
+        async move {
+            let space = hub.store.bot("bot").unwrap().unwrap().config.space_id;
+            let corpo = |revisao: &Value| match escopo {
+                "geral" => json!({"escopo":"geral","texto":texto,"expectedRevision":revisao}),
+                _ => json!({"escopo":"space","spaceId":space,"texto":texto,"expectedRevision":revisao}),
+            };
+            let estado = api::dispatch(&hub, &Caller::Local, "instrucaoGeral", json!({"spaceId":space})).await.unwrap();
+            let revisao = if escopo == "geral" {
+                estado["geral"]["revision"].clone()
+            } else {
+                estado["space"]["revision"].clone()
+            };
+            api::dispatch(&hub, &Caller::Local, "instrucaoGeralSalvar", corpo(&revisao)).await.unwrap();
+        }
+    };
+    salvar("geral", "MARCA_GERAL_UM").await;
+    salvar("space", "MARCA_SPACE_UM").await;
+    f.send().await;
+    f.request("session/new").await.resume.send(()).unwrap();
+    let primeiro = f.request("session/prompt").await;
+    let texto = primeiro.body["params"]["prompt"][0]["text"].as_str().unwrap().to_owned();
+    assert_eq!(texto.matches("MARCA_GERAL_UM").count(), 1, "uma única cópia de cada campo");
+    assert_eq!(texto.matches("MARCA_SPACE_UM").count(), 1);
+    assert!(texto.find("MARCA_SPACE_UM").unwrap() < texto.find("MARCA_GERAL_UM").unwrap());
+    primeiro.resume.send(()).unwrap();
+    f.idle().await;
+    salvar("geral", "MARCA_GERAL_DOIS").await;
+    f.send().await;
+    let segundo = f.request("session/prompt").await;
+    let texto = segundo.body["params"]["prompt"][0]["text"].as_str().unwrap();
+    assert!(
+        texto.contains("MARCA_GERAL_DOIS") && !texto.contains("MARCA_GERAL_UM"),
+        "o valor novo vale na mensagem seguinte"
+    );
+    assert!(texto.contains("MARCA_SPACE_UM"));
+    segundo.resume.send(()).unwrap();
+    f.idle().await;
+    f.hub.shutdown().await;
+}
+
+#[tokio::test]
+async fn instrucao_geral_no_prompt_com_texto_de_sistema_separado() {
+    instrucao_geral_chega_e_muda_na_mensagem_seguinte(false).await;
+}
+
+#[tokio::test]
+async fn instrucao_geral_no_prompt_com_perfil_na_primeira_mensagem() {
+    instrucao_geral_chega_e_muda_na_mensagem_seguinte(true).await;
+}
