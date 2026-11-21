@@ -317,6 +317,9 @@ impl Routines {
             }
             decide()
         };
+        if concedida.is_none() {
+            tracing::warn!(routine = %id, fonte = %declaracao.fonte, "checagem sem concessão registrada: a fonte é lida como sem acesso");
+        }
         let fonte: Box<dyn Fonte + '_> = concedida.map_or_else(
             || Box::new(Indisponivel(Motivo::SemAcesso)) as Box<dyn Fonte + '_>,
             |(_, _, fonte, ocupada, valida)| {
