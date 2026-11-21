@@ -61,6 +61,15 @@ serviço não lista modelos, o modelo digitado pela pessoa (método `motorEndere
 - **Testes:** `motor/mexerica/test/endereco-proprio.test.ts` (portão de rede, os três formatos contra serviços locais
   de mentira, redirecionamento), `host/src/fork/motor_mexerica/tests_chaves.rs` (salvar só depois do teste, sem lista,
   destino recusado, o app nunca vê a chave) e `tests_link.rs` (a conversa não segue para o endereço novo).
+## Entrar com OpenRouter no navegador
+
+Na linha do OpenRouter, «Entrar com OpenRouter» é uma alternativa a colar a chave (OAuth PKCE do fornecedor). O Hub gera
+o verificador (S256) e um `state` aleatório de uso único, que valem dez minutos e só existem em memória; o navegador
+volta ao ouvinte local do app (`127.0.0.1`, uma das duas portas fixas), que entrega `{state, code}` ao Hub. O Hub
+confere o `state`, consome a tentativa antes de qualquer rede e troca o código pela chave sem seguir redirecionamento,
+com prazo e corpo limitados. A chave segue pelo mesmo caminho da chave colada: testada com a lista de modelos, só
+gravada se o fornecedor aceitar, cifrada no cofre e nunca devolvida ao app. Só este computador faz o login, e só com o
+motor ligado. Um `state` que não confere não derruba o login em andamento.
 
 ## Testes
 
@@ -69,3 +78,8 @@ serviço não lista modelos, o modelo digitado pela pessoa (método `motorEndere
   permissão numa conversa. Em todos, a chave não aparece na saída nem no stderr do motor.
 - `host/src/fork/motor_mexerica/tests_chaves.rs`: salvar só a chave aceita, cifrada; listar e testar sem devolver
   a chave; remover; chave só para bot do Space pessoal; métodos só deste computador.
+- `host/src/fork/motor_mexerica/tests_entrar_openrouter.rs`: URL de autorização com o desafio do vetor do RFC 7636, `state`
+  errado ou expirado, uso único, troca recusada (4xx, 5xx, corpo sem chave, corpo grande, redirecionamento) sem
+  vazar código nem chave, fluxo feliz até o cofre e métodos só deste computador.
+- `apps/desktop/src/renderer/views/fork/contas-ia/openrouter-login.test.ts` e `apps/desktop/src/main/fork-oauth-loopback.test.ts`:
+  o fluxo da tela, o cancelamento e o ouvinte aceitando `callback_url` só com o retorno exato do app.
