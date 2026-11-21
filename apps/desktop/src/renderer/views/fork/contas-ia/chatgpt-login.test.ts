@@ -110,14 +110,23 @@ test('ativar o uso do plano refaz o login pedindo consentimento; o escopo conced
   assert.deepEqual(corpos[0], { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424, spaceId: 'pessoal-1', consentir: true } })
 })
 
-test('o retorno com erro do fornecedor vai ao Hub como {state, erro} e o desfecho recusado segue ao navegador', async () => {
+test('o retorno negado pela pessoa vai ao Hub como {state, erro} e o desfecho recusado segue ao navegador', async () => {
   let recebido: unknown
-  const { client } = hub((corpo) => { recebido = corpo; return { ok: false, erro: 'fornecedor_falhou' } })
+  const { client } = hub((corpo) => { recebido = corpo; return { ok: false, erro: 'entrada_negada' } })
   const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/auth/callback?state=estado-1&error=access_denied'))
   const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
-  assert.deepEqual(await fim, { ok: false, erro: 'fornecedor_falhou' })
+  const desfecho = await fim.then(() => null, (e: unknown) => e)
+  assert.ok(desfecho instanceof FalhaChatGPT && desfecho.tipo === 'cancelado', 'a negação da pessoa vira cancelamento')
   assert.deepEqual(recebido, { state: 'estado-1', erro: 'access_denied', spaceId: 'pessoal-1' })
   assert.ok(registro.includes('responder:7:false:'), 'sem nome no desfecho de erro')
+})
+
+test('a recusa do fornecedor numa troca com código não vira cancelamento da pessoa', async () => {
+  const { client, corpos } = hub(() => ({ ok: false, erro: 'fornecedor_falhou' }))
+  const { ouvinte } = ponte(() => Promise.resolve(VOLTA_OK))
+  const { fim } = entrarComChatGPT(client, ouvinte, false, 'pessoal-1')
+  assert.deepEqual(await fim, { ok: false, erro: 'fornecedor_falhou' })
+  assert.ok(corpos[1].corpo && (corpos[1].corpo as Record<string, unknown>).code !== undefined, 'a recusa veio depois de entregar o código')
 })
 
 test('o Hub respondendo «entrada negada» vira login cancelado, sem culpar o fornecedor', async () => {

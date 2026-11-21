@@ -308,6 +308,7 @@ export const textos = {
   "contas.chatgpt.titulo": "Plano do ChatGPT",
   "contas.chatgpt.rodape": "No plano Plus, o limite de 5 horas é compartilhado com os outros apps que usam o seu plano do ChatGPT (chatgpt.com/settings/usage).",
   "contas.chatgpt.entrar": "Entrar com ChatGPT",
+  "contas.chatgpt.concluindo": "Concluindo o login…",
   "contas.chatgpt.aguardando": "Aguardando o navegador…",
   "contas.chatgpt.cancelar": "Cancelar",
   "contas.chatgpt.planoHabilitado": "Plano habilitado",

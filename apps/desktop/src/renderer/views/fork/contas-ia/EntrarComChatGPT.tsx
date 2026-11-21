@@ -34,19 +34,27 @@ export function EntrarComChatGPT() {
   const ocupadoRef = useRef(false)
   const cancelarRef = useRef<(() => void) | null>(null)
 
+  // Cada leitura tem a sua vez: uma resposta antiga não sobrescreve o estado de uma leitura mais nova.
+  const geracao = useRef(0)
   const reler = async () => {
     const client = liveClient(store)
     if (!client) return
+    const minha = ++geracao.current
     try {
-      setEstado(await lerEstadoChatGPT(client))
+      const lido = await lerEstadoChatGPT(client)
+      if (minha !== geracao.current) return
+      setEstado(lido)
       setFalhou(false)
     } catch {
+      if (minha !== geracao.current) return
       setFalhou(true)
     }
   }
   useEffect(() => {
     if (visivel && online) void reler()
   }, [visivel, online, store.hello?.hostId])
+  // Trocar de aba desiste do login em espera: sem o botão de Cancelar, o ouvinte não fica aberto.
+  useEffect(() => () => cancelarRef.current?.(), [])
 
   const entrar = (consentir: boolean, novaConta = false) => {
     const client = liveClient(store)
@@ -160,13 +168,18 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
           <Text size="caption" className="selectable">{(t as unknown as (chave: ChaveTexto) => string)(erro)}</Text>
         </HStack>
       ) : null}
-      {ocupado && !saindo ? (
+      {ocupado && saindo ? <Spinner size={12} /> : ocupado ? (
         <HStack gap={12}>
-          <Text size="caption" tone="secondary">{t('contas.chatgpt.aguardando')}</Text>
-          {concluindo ? null : <button className="settings-quiet-button" onClick={cancelar}>{t('contas.chatgpt.cancelar')}</button>}
+          {concluindo ? (
+            <Text size="caption" tone="secondary">{t('contas.chatgpt.concluindo')}</Text>
+          ) : (
+            <>
+              <Text size="caption" tone="secondary">{t('contas.chatgpt.aguardando')}</Text>
+              <button className="settings-quiet-button" onClick={cancelar}>{t('contas.chatgpt.cancelar')}</button>
+            </>
+          )}
         </HStack>
       ) : null}
-      {ocupado && saindo ? <Spinner size={12} /> : null}
       {foraDoPessoal && estado ? <Text size="caption" tone="secondary">{t('contas.chatgpt.somentePessoal')}</Text> : null}
       <div className="settings-row">
         <VStack grow className="settings-stack">
@@ -180,17 +193,19 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
             </>
           ) : estado?.precisaEntrar ? <Text size="caption" tone="secondary">{t('contas.chatgpt.precisaEntrar')}</Text> : null}
         </VStack>
-        {ocupado || foraDoPessoal ? null : conectado ? (
+        {ocupado ? null : conectado ? (
+          // O «Sair» fica sempre ao alcance (o Hub não exige o Space pessoal para encerrar a sessão);
+          // entrar, ativar e trocar de conta é que valem só com o Pessoal aberto.
           <HStack gap={12}>
-            {!estado?.planoHabilitado ? <button className="settings-quiet-button" onClick={ativar}>{t('contas.chatgpt.ativar')}</button> : null}
-            {outraConta ? <button className="settings-quiet-button" onClick={outraConta}>{t('contas.chatgpt.outraConta')}</button> : null}
+            {!estado?.planoHabilitado && !foraDoPessoal ? <button className="settings-quiet-button" onClick={ativar}>{t('contas.chatgpt.ativar')}</button> : null}
+            {!foraDoPessoal && outraConta ? <button className="settings-quiet-button" onClick={outraConta}>{t('contas.chatgpt.outraConta')}</button> : null}
             <button className="settings-quiet-button" onClick={sair}>{t('contas.chatgpt.sair')}</button>
           </HStack>
-        ) : estado?.precisaEntrar ? (
+        ) : foraDoPessoal || !estado ? null : estado?.precisaEntrar ? (
           <button className="settings-quiet-button" onClick={entrar}>{t('contas.chatgpt.entrarDeNovo')}</button>
-        ) : estado ? (
+        ) : (
           <button className="settings-quiet-button" onClick={entrar}>{t('contas.chatgpt.entrar')}</button>
-        ) : null}
+        )}
       </div>
     </VStack>
   )

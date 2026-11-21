@@ -305,6 +305,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.titulo": "ChatGPT 套餐",
   "contas.chatgpt.rodape": "在 Plus 套餐中，5 小时使用上限与使用你 ChatGPT 套餐的其他应用共享（chatgpt.com/settings/usage）。",
   "contas.chatgpt.entrar": "使用 ChatGPT 登录",
+  "contas.chatgpt.concluindo": "正在完成登录…",
   "contas.chatgpt.aguardando": "正在等待浏览器…",
   "contas.chatgpt.cancelar": "取消",
   "contas.chatgpt.planoHabilitado": "套餐已启用",

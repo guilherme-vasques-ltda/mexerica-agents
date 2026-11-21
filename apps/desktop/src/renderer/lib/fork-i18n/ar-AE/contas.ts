@@ -320,6 +320,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.titulo": "خطة ChatGPT",
   "contas.chatgpt.rodape": "في خطة Plus، يُشارَك حد الاستخدام لمدة 5 ساعات مع التطبيقات الأخرى التي تستخدم خطة ChatGPT لديك (chatgpt.com/settings/usage).",
   "contas.chatgpt.entrar": "الدخول باستخدام ChatGPT",
+  "contas.chatgpt.concluindo": "جارٍ إكمال تسجيل الدخول…",
   "contas.chatgpt.aguardando": "في انتظار المتصفح…",
   "contas.chatgpt.cancelar": "إلغاء",
   "contas.chatgpt.planoHabilitado": "الخطة مفعّلة",

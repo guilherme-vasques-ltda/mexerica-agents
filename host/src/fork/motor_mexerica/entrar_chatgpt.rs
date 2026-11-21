@@ -189,10 +189,11 @@ pub(super) async fn entrar(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     let verifier = crypto::b64(&crypto::random::<32>());
     let nonce = crypto::b64(&crypto::random::<32>());
     let state = crypto::random::<32>();
-    let id = ID_TENTATIVA.fetch_add(1, Ordering::SeqCst) + 1;
     {
-        // Publicação sob a guarda, com a geração reconferida: o «Sair» de dentro da espera não passa.
+        // Identificador e tentativa nascem juntos sob a mesma guarda, com a geração reconferida: o
+        // «Sair» de dentro da espera não passa e dois logins nunca publicam fora de ordem.
         let mut guard = TENTATIVA.locked();
+        let id = ID_TENTATIVA.fetch_add(1, Ordering::SeqCst) + 1;
         if SESSAO.load(Ordering::SeqCst) != geracao {
             bail!(
                 "sessao_encerrada: o «Sair» aconteceu enquanto o login era preparado; comece de novo neste computador."
@@ -314,9 +315,11 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         bail!(ENTRADA_INVALIDA)
     };
     tracing::debug!(porta = tentativa.porta, "retorno do login com `ChatGPT` reconhecido");
-    // O emissor disse não: recusa fixa, sem ecoar o motivo recebido.
-    if body.get("erro").and_then(Value::as_str).is_some() {
-        return Ok(json!({"ok": false, "erro": "entrada_negada"}));
+    // O emissor disse não: recusa fixa, sem ecoar o motivo recebido. Só «access_denied» é a pessoa
+    // desistindo; qualquer outro erro do fornecedor tem código próprio, sem o texto cru na tela.
+    if let Some(erro) = body.get("erro").and_then(Value::as_str) {
+        let codigo = if erro == "access_denied" { "entrada_negada" } else { "fornecedor_negou" };
+        return Ok(json!({"ok": false, "erro": codigo}));
     }
     let Some(code) = body.get("code").and_then(Value::as_str).filter(|code| !code.is_empty()) else {
         bail!("entrada_negada: o retorno do login não trouxe o código de acesso.");
@@ -694,7 +697,8 @@ fn gravar_conta(store: &Store, conta: &Conta) -> Result<()> {
 /// Estado para a tela, sem token algum.
 fn resposta_da_conta(conta: Option<&Conta>) -> Value {
     let Some(conta) = conta else {
-        return json!({"conectado": false, "rotulo": null, "planoHabilitado": false, "precisaEntrar": true});
+        // Sem registro nenhum é o primeiro acesso: pede entrada, não «entrada de novo».
+        return json!({"conectado": false, "rotulo": null, "planoHabilitado": false, "precisaEntrar": false});
     };
     json!({
         "conectado": conta.conectada(),

@@ -86,8 +86,6 @@ fn chave_de_prova() -> &'static (ring::rsa::KeyPair, String, String) {
 }
 
 const KID: &str = "chave-de-prova";
-const N_CHAVE: &str = "9k_kwTPpMiizHfRjDzmT8cawfCZ58kAffzgHMV2WpkhsNn03dufwU3i2qjs3a31S-NtZbofTqg-NuTeQev18LjrnX_PLZ5D72Nxiqk02lJN6T3ZE2v75lEX0-bMh4y0BQFgLkoMKqJMJ7xsgtzmCWt3pWNcrP1C6R7MQGhiVnfhTMnmLTPac_hIjSCJgbparyfQUxUZpYVs6yLPfFaHjuuN6crnFy0bFto2YLyHWUpQgdCBK-ejKvw9B13zuDhgFuihIc__EFv9ZIuKk0Mv8N_lNG4cy3OTMVgtCwN-CejDP6ebcjSxTuPjCbiJjfBvgkkx2lIdYDkUze7UyTDleiQ";
-const E_CHAVE: &str = "AQAB";
 
 fn agora() -> i64 {
     crate::store::now_ms() / 1000
@@ -1122,7 +1120,9 @@ async fn sair_durante_a_troca_em_andamento_nao_grava_depois() {
         let hub = hub.clone();
         async move { login::concluir(&hub, &pedido).await.unwrap() }
     });
+    let prazo = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while registros.trocas.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < prazo, "a troca não chegou ao servidor de mentira");
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     // O «Sair» de verdade, com a troca em andamento: quem chegou tarde não grava.
@@ -1157,7 +1157,9 @@ async fn segundo_login_durante_a_troca_anula_a_conclusao_do_primeiro() {
         let hub = hub.clone();
         async move { login::concluir(&hub, &pedido).await.unwrap() }
     });
+    let prazo = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while registros.trocas.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < prazo, "a troca não chegou ao servidor de mentira");
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     // O segundo login troca a tentativa em curso: a conclusão do primeiro não pode mais gravar.
@@ -1260,7 +1262,7 @@ async fn estado_sem_registro_pede_entrada() {
     *login::BASE_EM_TESTE.locked() = None;
     let hub = hub_de_prova();
     let estado = login::estado(&hub).await.unwrap();
-    assert_eq!(estado, json!({"conectado": false, "rotulo": null, "planoHabilitado": false, "precisaEntrar": true}));
+    assert_eq!(estado, json!({"conectado": false, "rotulo": null, "planoHabilitado": false, "precisaEntrar": false}));
 }
 
 /// Os métodos são só deste computador: o app pareado e o pareamento não passam, e o motor

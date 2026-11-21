@@ -120,6 +120,20 @@ test('saindo: sem o aviso de aguardar o navegador e sem o botão de cancelar', (
   assert.ok(!html.includes('Cancelar'), 'sair não oferece cancelar')
 })
 
+test('concluindo: a frase de conclusão aparece e o botão de cancelar some', () => {
+  const html = plano({ conectado: false, planoHabilitado: false, precisaEntrar: false }, { ocupado: true, concluindo: true })
+  assert.ok(html.includes('Concluindo o login…'), 'a frase de conclusão aparece')
+  assert.ok(!html.includes('Cancelar'), 'não há o que cancelar depois do retorno')
+})
+
+test('conectado fora do Space pessoal: só o «Sair» fica; entrar, ativar e outra conta somem', () => {
+  const html = plano({ conectado: true, rotulo: 'pessoa@example.invalid', planoHabilitado: false, precisaEntrar: false }, { foraDoPessoal: true, outraConta: nadaFn })
+  assert.ok(html.includes('>Sair<'), 'o «Sair» continua ao alcance')
+  assert.ok(!html.includes('Ativar o uso do plano'), 'ativar pede o Space pessoal')
+  assert.ok(!html.includes('Entrar com outra conta'), 'trocar de conta pede o Space pessoal')
+  assert.ok(html.includes('vale só para os bots do Pessoal'), 'o motivo aparece na tela')
+})
+
 test('sair sem confirmação: a frase avisa e aponta as Configurações do ChatGPT', () => {
   const html = plano(null, { avisoDeSair: true })
   assert.ok(html.includes('Saiu deste computador. A OpenAI não confirmou o encerramento; você pode desconectar o app em Configurações do ChatGPT.'))

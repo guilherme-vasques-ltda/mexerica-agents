@@ -311,6 +311,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.chatgpt.titulo": "Plan ChatGPT",
   "contas.chatgpt.rodape": "Avec le plan Plus, la limite de 5 heures est partagée avec les autres apps qui utilisent votre plan ChatGPT (chatgpt.com/settings/usage).",
   "contas.chatgpt.entrar": "Se connecter avec ChatGPT",
+  "contas.chatgpt.concluindo": "Finalisation de la connexion…",
   "contas.chatgpt.aguardando": "En attente du navigateur…",
   "contas.chatgpt.cancelar": "Annuler",
   "contas.chatgpt.planoHabilitado": "Plan activé",
