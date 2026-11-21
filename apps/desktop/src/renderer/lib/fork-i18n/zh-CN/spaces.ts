@@ -7,6 +7,9 @@ export const textos: Traducao<typeof fonte> = {
   "spaces.compose.mensagem": "此 Space 中的消息",
   "spaces.compose.enviar": "发送",
   "spaces.compose.falhou": "无法确认发送结果。请先查看历史记录再重试。如果连接已更改，请重新打开对话。",
+  "spaces.compose.semContaOpen": "请在“设置 → AI 账号”中连接 Codex 账号后再聊天。",
+  "spaces.compose.ocupadoOpen": "请等上一条回复结束后再发送新消息。",
+  "spaces.compose.reconectandoOpen": "Codex 账号正在重新连接。完成后请再发送。",
 
   "spaces.origem.outroHub": "打开之后，连接切换到了另一个 Hub。没有发送任何内容：请关闭后重新打开。",
   "spaces.origem.semConexao": "未连接到 Hub。没有发送任何内容：等它恢复后再试。",

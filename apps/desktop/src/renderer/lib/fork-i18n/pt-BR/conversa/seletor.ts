@@ -60,4 +60,6 @@ export const textos = {
   'conversa.seletor.falhou': "Não consegui ler os modelos de {motor}.",
   'conversa.seletor.tentarDeNovo': "Tentar de novo",
   'conversa.seletor.ajustesDe': "Ajustes de {modelo}",
+  'conversa.seletor.selo.plano': "Plano · {nome}",
+  'conversa.seletor.selo.chave': "Chave · {nome}",
 } as const

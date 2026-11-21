@@ -37,7 +37,10 @@ struct Session {
     system_prompt: Mutex<Option<String>>,
     /// Pid do motor tomado pelo turno em curso (o slot do `engine` fica vazio).
     pid: Mutex<Option<u32>>,
-    cancel: watch::Sender<bool>,
+    /// Contador de paradas da sessão: cada `session/cancel` soma um. Um turno guarda o valor visto quando o
+    /// pedido foi admitido e para se o contador já passou dele, mesmo que a parada tenha chegado antes de o turno
+    /// começar a esperar.
+    cancel: watch::Sender<u64>,
     /// Há um turno em curso nesta sessão: um segundo prompt é recusado antes de tocar na conversa ou no processo.
     busy: std::sync::atomic::AtomicBool,
     /// A conversa é da sessão, não do processo (e sobrevive ao adaptador: ver
@@ -69,6 +72,14 @@ pub(crate) struct Link {
     limits: std::sync::OnceLock<LimitsSource>,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Só testes: o executável que conta como "o Hub" ao abrir os servidores MCP da sessão.
+    #[cfg(test)]
+    hub_exe: Mutex<Option<PathBuf>>,
+}
+
+/// Espera o contador de paradas passar do valor visto na admissão do pedido (já passou = volta na hora).
+async fn stopped_since(cancel: &mut watch::Receiver<u64>, admitted: u64) {
+    let _ = cancel.wait_for(|stops| *stops != admitted).await;
 }
 
 /// Só para provas: segura o fim da retomada para o cancelamento chegar no meio dela.
@@ -229,6 +240,8 @@ impl Link {
             limits: std::sync::OnceLock::new(),
             stop,
             task: Mutex::new(None),
+            #[cfg(test)]
+            hub_exe: Mutex::new(None),
         })
     }
 
@@ -286,9 +299,14 @@ impl Link {
                 (Some(method), Some(id)) if !id.is_null() => {
                     let method = method.to_owned();
                     let params = msg["params"].clone();
+                    // Lido na admissão, antes de a tarefa existir: o `session/cancel` que vier depois já conta.
+                    let admitted = params["sessionId"]
+                        .as_str()
+                        .and_then(|sid| self.sessions.locked().get(sid).map(|session| *session.cancel.borrow()))
+                        .unwrap_or_default();
                     let conn = self.clone();
                     requests.spawn(async move {
-                        let result = conn.call(&method, params).await;
+                        let result = conn.call(&method, params, admitted).await;
                         let res = match result {
                             Ok(value) => Ok(value),
                             Err(error) => Err(json!({"code": -32603, "message": format!("{error:#}")})),
@@ -305,7 +323,7 @@ impl Link {
                     if let Some(sid) = msg["params"]["sessionId"].as_str()
                         && let Some(session) = self.sessions.locked().get(sid)
                     {
-                        session.cancel.send_replace(true);
+                        session.cancel.send_modify(|stops| *stops = stops.wrapping_add(1));
                     }
                 }
                 // Resposta do bot a um pedido nosso (permissão): id texto `mxp-N`.
@@ -329,7 +347,7 @@ impl Link {
         // (cada um mata o processo do motor e solta a ferramenta MCP) e espera
         // por eles, para o `kill`/`kill_and_wait` não deixar o motor gastando.
         for session in self.sessions.locked().values() {
-            session.cancel.send_replace(true);
+            session.cancel.send_modify(|stops| *stops = stops.wrapping_add(1));
         }
         let drained = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             while requests.join_next().await.is_some() {}
@@ -364,7 +382,7 @@ impl Link {
         })
     }
 
-    async fn call(self: &Arc<Self>, method: &str, params: Value) -> Result<Value> {
+    async fn call(self: &Arc<Self>, method: &str, params: Value, admitted: u64) -> Result<Value> {
         match method {
             "initialize" => Ok(json!({
                 "protocolVersion": 1,
@@ -378,7 +396,7 @@ impl Link {
             "session/load" => self.session_load(&params).await,
             "session/set_model" => self.set_model(&params).await.map(|()| json!({})),
             "session/set_config_option" => Ok(json!({})),
-            "session/prompt" => self.prompt(&params).await,
+            "session/prompt" => self.prompt(&params, admitted).await,
             // Fecha o processo e o MCP da sessão; a conversa fica guardada para o session/load.
             "session/close" => {
                 if let Some(sid) = params["sessionId"].as_str()
@@ -429,11 +447,17 @@ impl Link {
         #[cfg(not(test))]
         let skip = false;
         let servers = if skip { json!([]) } else { params["mcpServers"].clone() };
-        let mcp = McpHost::start(&servers, &cwd)
-            .await
-            .map(|host| Some(Arc::new(host)))
-            .context("abrindo os servidores MCP do Motor Mexerica")?;
-        let (cancel, _) = watch::channel(false);
+        #[cfg(test)]
+        let hub_exe = self.hub_exe.locked().clone();
+        #[cfg(test)]
+        let started = match hub_exe {
+            Some(hub) => McpHost::start_as(&servers, &cwd, Some(&hub)).await,
+            None => McpHost::start(&servers, &cwd).await,
+        };
+        #[cfg(not(test))]
+        let started = McpHost::start(&servers, &cwd).await;
+        let mcp = started.map(|host| Some(Arc::new(host))).context("abrindo os servidores MCP do Motor Mexerica")?;
+        let (cancel, _) = watch::channel(0);
         Ok(Arc::new(Session {
             engine: tokio::sync::Mutex::new(None),
             mcp,
@@ -509,7 +533,7 @@ impl Link {
             engine.set_system_prompt(&prompt).await?;
         }
         if let Some(mcp) = &session.mcp {
-            engine.set_tools(mcp.specs()).await?;
+            engine.set_tools(&mcp.specs()).await?;
         }
         let history = session.history.snapshot();
         if !history.is_empty() {
@@ -551,7 +575,7 @@ impl Link {
         Ok(())
     }
 
-    async fn prompt(self: &Arc<Self>, params: &Value) -> Result<Value> {
+    async fn prompt(self: &Arc<Self>, params: &Value, admitted: u64) -> Result<Value> {
         let sid = params["sessionId"].as_str().context("session/prompt sem sessionId")?.to_owned();
         historico::sweep();
         let session = self.sessions.locked().get(&sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
@@ -560,8 +584,9 @@ impl Link {
         let text = acp::content_text(&params["prompt"]);
         let runner = CardRunner { link: self.clone(), session: session.clone(), sid: sid.clone() };
         let mut retried = false;
-        // Inscrito antes de subir e restaurar o processo: um cancelamento que chega durante a
-        // retomada da conversa também para o turno.
+        // Toda espera do turno (retomada da conversa, preparo do motor, relistagem, envio) confere a parada contra o
+        // valor visto na admissão do pedido: uma parada que chegou antes de o turno começar a esperar também vale, e
+        // nada do turno chega ao provedor.
         let mut cancel = session.cancel.subscribe();
         loop {
             let current_provider = session.provider.locked().clone();
@@ -569,7 +594,8 @@ impl Link {
             // Uma leitura do cofre por turno: a mesma identidade decide a retomada, a proteção e a credencial servida.
             let creds = Credentials::read(&self.vault);
             let ready = tokio::select! {
-                _ = cancel.changed() => false,
+                biased;
+                () = stopped_since(&mut cancel, admitted) => false,
                 result = self.ensure_engine(&session, &current_provider, &creds) => result.map(|()| true)?,
             };
             if !ready {
@@ -577,6 +603,45 @@ impl Link {
             }
             let mut owned = session.engine.lock().await.take().context("a sessão já tem um turno em curso")?;
             *session.pid.locked() = owned.pid();
+            // O Hub é o cliente MCP deste motor: negocia o navegador v3 e relista as ferramentas ANTES do prompt
+            // (o motor só aceita `set_tools` fora de um turno). Falha na consulta mantém a lista anterior.
+            if let Some(mcp) = &session.mcp {
+                let refreshed = tokio::select! {
+                    biased;
+                    () = stopped_since(&mut cancel, admitted) => None,
+                    result = async {
+                        match mcp.refresh_browser().await {
+                            Ok(true) => owned.set_tools(&mcp.specs()).await,
+                            Ok(false) => Ok(()),
+                            Err(error) => {
+                                tracing::warn!(%error, "não foi possível atualizar as ferramentas de navegador");
+                                Ok(())
+                            }
+                        }
+                    } => Some(result),
+                };
+                match refreshed {
+                    None => {
+                        // Cancelar o turno mata o processo do motor; nenhuma chamada ao modelo começa.
+                        *session.pid.locked() = None;
+                        let _ = owned.kill().await;
+                        return Ok(json!({"stopReason": "cancelled"}));
+                    }
+                    Some(Ok(())) => {}
+                    Some(Err(error)) => {
+                        // A relistagem acontece antes do prompt: nada foi entregue ainda. Um motor que caiu aqui
+                        // entra no mesmo reinício único do turno (o Drop mata e colhe o processo antigo).
+                        *session.pid.locked() = None;
+                        drop(owned);
+                        if !retried && super::engine_gone(&error) {
+                            tracing::warn!("o Motor Mexerica caiu antes do prompt; reabrindo e repetindo uma vez");
+                            retried = true;
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                }
+            }
             let provider = session.provider.locked().clone();
             let model = session.model.locked().clone();
             ensure!(!model.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
@@ -614,7 +679,8 @@ impl Link {
                 conn.forward_event(&sid_events, event);
             };
             let alive = tokio::select! {
-                _ = cancel.changed() => {
+                biased;
+                () = stopped_since(&mut cancel, admitted) => {
                     // Cancelar o turno mata o processo do motor.
                     let _ = owned.kill().await;
                     *session.pid.locked() = None;
@@ -795,7 +861,7 @@ impl Link {
         out: mpsc::UnboundedSender<Incoming>,
     ) -> Box<dyn ToolRunner> {
         *self.out.locked() = Some(out);
-        let (cancel, _) = watch::channel(false);
+        let (cancel, _) = watch::channel(0);
         let session = Arc::new(Session {
             engine: tokio::sync::Mutex::new(None),
             mcp: Some(Arc::new(mcp)),
@@ -808,6 +874,11 @@ impl Link {
             history: Arc::default(),
         });
         Box::new(CardRunner { link: self.clone(), session, sid: "sessao-de-prova".to_owned() })
+    }
+
+    /// O executável que conta como "o Hub" ao abrir os servidores MCP das próximas sessões.
+    pub(super) fn set_hub_exe_for_tests(&self, hub: PathBuf) {
+        *self.hub_exe.locked() = Some(hub);
     }
 
     /// Entrega ao adaptador a resposta do bot a um pedido nosso (`mxp-N`).
