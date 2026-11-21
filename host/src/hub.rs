@@ -926,7 +926,7 @@ impl Hub {
         crate::fork::engine_accounts::managed::idle_with(&self.store, account, |bot| {
             runtime.get(bot).map_or(BotStatus::default(), |r| r.status)
         })?;
-        let result = effect();
+        let result = crate::fork::open_chat::with_idle_account(account, effect);
         drop(runtime);
         result
     }

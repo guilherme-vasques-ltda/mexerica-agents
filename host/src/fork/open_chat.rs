@@ -25,6 +25,7 @@ const TEXT_ITEMS: [&str; 5] = ["userMessage", "agentMessage", "reasoning", "plan
 
 struct Running {
     hub: Weak<Hub>,
+    account: String,
     cancel: watch::Sender<bool>,
     done: watch::Receiver<()>,
 }
@@ -41,7 +42,7 @@ pub(crate) struct Ticket {
 }
 
 /// A conta Codex da Open que o bot usa: a escolhida nele ou, sem escolha, a conectada mais recente.
-pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<PathBuf> {
+pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, PathBuf)> {
     let registry = Registry::load(&hub.store)?;
     let mut connected = registry
         .accounts
@@ -53,21 +54,31 @@ pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<PathBuf> {
     }
     .ok_or_else(|| anyhow!("open_chat_account_required"))?;
     let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
-    Ok(directory.clone())
+    Ok((account.id.clone(), directory.clone()))
+}
+
+/// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
+pub(crate) fn with_idle_account<T>(account: &str, effect: impl FnOnce() -> Result<T>) -> Result<T> {
+    let guard = RUNNING.locked();
+    ensure!(
+        !guard.iter().flat_map(HashMap::values).any(|r| r.account == account && r.done.has_changed().is_ok()),
+        "account_busy: aguarde o turno terminar."
+    );
+    effect()
 }
 
 pub(crate) fn begin(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<Ticket> {
     ensure!(crate::environment::Environment::is_open(), "open_chat_unavailable");
     ensure!(!cfg.is_group(), "open_chat_unavailable");
-    let directory = account_profile(hub, cfg)?;
     let mut guard = RUNNING.locked();
+    let (account, directory) = account_profile(hub, cfg)?;
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
     let running = guard.get_or_insert_with(HashMap::new);
     running.retain(|_, r| r.hub.strong_count() > 0 && r.done.has_changed().is_ok());
     ensure!(!running.contains_key(&cfg.id), "open_chat_busy");
     let (cancel_tx, cancel) = watch::channel(false);
     let (done, done_rx) = watch::channel(());
-    running.insert(cfg.id.clone(), Running { hub: Arc::downgrade(hub), cancel: cancel_tx, done: done_rx });
+    running.insert(cfg.id.clone(), Running { hub: Arc::downgrade(hub), account, cancel: cancel_tx, done: done_rx });
     Ok(Ticket { bot: cfg.id.clone(), directory, cancel, done })
 }
 
@@ -119,6 +130,13 @@ pub(crate) fn run(
     let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     tokio::spawn(async move {
         let Ticket { bot, directory, mut cancel, done } = ticket;
+        let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
+        if !alive() {
+            if let Some(running) = RUNNING.locked().as_mut() {
+                running.remove(&bot);
+            }
+            return;
+        }
         hub.set_runtime(&bot, |r| {
             r.status = BotStatus::Working;
             r.lane = Some(lane.clone());
@@ -134,18 +152,19 @@ pub(crate) fn run(
         let mut reply = Stream::new(&hub, &lane, turn, &bot);
         let outcome = turn_in_profile(&hub, &directory, &lane, &instructions, &text, &mut cancel, &mut reply).await;
         reply.close();
-        if let Err(error) = outcome {
-            let message = error.to_string();
-            let code = message.split(':').next().unwrap_or("open_chat_failed");
-            hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": notice(code), "code": code, "author": bot}));
+        if alive() {
+            if let Err(error) = outcome {
+                let (code, text) = notice(&error.to_string());
+                hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
+            }
+            hub.set_runtime(&bot, |r| {
+                r.status = BotStatus::Idle;
+                r.lane = None;
+                r.message = None;
+                r.started_at = None;
+            });
+            hub.emit_bot(&bot);
         }
-        hub.set_runtime(&bot, |r| {
-            r.status = BotStatus::Idle;
-            r.lane = None;
-            r.message = None;
-            r.started_at = None;
-        });
-        hub.emit_bot(&bot);
         if let Some(running) = RUNNING.locked().as_mut() {
             running.remove(&bot);
         }
@@ -170,9 +189,13 @@ async fn turn_in_profile(
     ensure!(!*cancel.borrow(), "open_chat_cancelled");
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let mut rpc = Rpc::from_child(child)?;
-    let thread = hub.store.kv_get(&thread_key(lane));
-    let thread = drive(&mut rpc, thread.as_deref(), instructions, text, cancel, |delta| reply.push(delta)).await?;
-    hub.store.kv_set(&thread_key(lane), &thread)?;
+    let saved = hub.store.kv_get(&thread_key(lane));
+    let keep = |thread: &str| {
+        if saved.as_deref() != Some(thread) {
+            let _ = hub.store.kv_set(&thread_key(lane), thread);
+        }
+    };
+    drive(&mut rpc, saved.as_deref(), instructions, text, cancel, keep, |delta| reply.push(delta)).await?;
     let _ = rpc.finish().await;
     Ok(())
 }
@@ -190,8 +213,20 @@ async fn turn_in_profile(
     bail!("open_codex_platform")
 }
 
-fn notice(code: &str) -> &'static str {
-    match code {
+const NOTICE_CODES: [&str; 6] = [
+    "open_chat_cancelled",
+    "open_chat_tool_refused",
+    "open_chat_timeout",
+    "open_chat_policy",
+    "open_codex_unavailable",
+    "open_codex_platform",
+];
+
+/// O código conhecido do erro e o texto do aviso; a janela traduz pelo código.
+fn notice(message: &str) -> (&'static str, &'static str) {
+    let first = message.split(':').next().unwrap_or_default();
+    let code = NOTICE_CODES.into_iter().find(|code| *code == first).unwrap_or("open_chat_failed");
+    let text = match code {
         "open_chat_cancelled" => "Resposta interrompida.",
         "open_chat_tool_refused" => {
             "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada."
@@ -204,7 +239,8 @@ fn notice(code: &str) -> &'static str {
             "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA."
         }
         _ => "O Codex não conseguiu responder agora. Tente de novo.",
-    }
+    };
+    (code, text)
 }
 
 /// Texto da resposta numa entrada do agente, gravado aos poucos.
@@ -265,6 +301,7 @@ pub(crate) async fn drive(
     instructions: &str,
     text: &str,
     cancel: &mut watch::Receiver<bool>,
+    keep_thread: impl FnOnce(&str),
     mut on_delta: impl FnMut(&str),
 ) -> Result<String> {
     rpc.set_line_limit(LINE_LIMIT);
@@ -294,6 +331,7 @@ pub(crate) async fn drive(
             .filter(|id| valid_id(id))
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
+        keep_thread(&thread);
         let turn = rpc
             .call(
                 4,

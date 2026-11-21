@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use super::drive;
+use super::{RUNNING, Running, drive, notice, with_idle_account};
+use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
 use std::process::Stdio;
@@ -52,6 +53,14 @@ for line in sys.stdin:
 "#;
 
 async fn turn(mode: &str, thread: Option<&str>) -> (anyhow::Result<String>, String, Vec<Value>) {
+    let (result, text, sent, _) = turn_keeping(mode, thread).await;
+    (result, text, sent)
+}
+
+async fn turn_keeping(
+    mode: &str,
+    thread: Option<&str>,
+) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("log");
@@ -67,7 +76,17 @@ async fn turn(mode: &str, thread: Option<&str>) -> (anyhow::Result<String>, Stri
     let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
     let (_cancel_tx, mut cancel) = watch::channel(false);
     let mut text = String::new();
-    let result = drive(&mut rpc, thread, "Fixture instructions", "Oi", &mut cancel, |delta| text.push_str(delta)).await;
+    let mut kept = None;
+    let result = drive(
+        &mut rpc,
+        thread,
+        "Fixture instructions",
+        "Oi",
+        &mut cancel,
+        |id| kept = Some(id.to_owned()),
+        |delta| text.push_str(delta),
+    )
+    .await;
     // Fecha a entrada e espera o fictício gravar o último pedido antes de ler o registro.
     let _ = rpc.finish().await;
     let sent = std::fs::read_to_string(&log)
@@ -76,7 +95,7 @@ async fn turn(mode: &str, thread: Option<&str>) -> (anyhow::Result<String>, Stri
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     let _ = std::fs::remove_dir_all(&dir);
-    (result, text, sent)
+    (result, text, sent, kept)
 }
 
 fn find<'a>(sent: &'a [Value], method: &str) -> Option<&'a Value> {
@@ -152,4 +171,36 @@ async fn a_long_reply_fits_and_a_broken_resume_never_reuses_the_stream() {
     let (result, _, sent) = turn("garbage", Some("thread-9")).await;
     assert!(result.is_err());
     assert!(find(&sent, "thread/start").is_none(), "a broken stream is not reused for a new thread");
+}
+
+#[tokio::test]
+async fn the_new_thread_is_kept_even_when_the_turn_does_not_finish() {
+    let (result, _, _, kept) = turn_keeping("tool", None).await;
+    assert!(result.is_err());
+    assert_eq!(kept.as_deref(), Some("thread-1"), "an interrupted first reply keeps its conversation");
+}
+
+#[test]
+fn an_account_in_use_by_an_open_reply_refuses_changes_until_it_ends() {
+    let (cancel, _cancel_rx) = watch::channel(false);
+    let (done, done_rx) = watch::channel(());
+    RUNNING.locked().get_or_insert_with(Default::default).insert(
+        "fence-bot".into(),
+        Running { hub: std::sync::Weak::new(), account: "fence-account".into(), cancel, done: done_rx },
+    );
+    let busy = with_idle_account("fence-account", || Ok(()));
+    assert!(busy.unwrap_err().to_string().starts_with("account_busy"));
+    assert!(with_idle_account("other-account", || Ok(())).is_ok());
+    drop(done);
+    assert!(with_idle_account("fence-account", || Ok(())).is_ok(), "a finished reply frees the account");
+    RUNNING.locked().as_mut().unwrap().remove("fence-bot");
+}
+
+#[test]
+fn notices_carry_only_known_codes() {
+    assert_eq!(notice("open_chat_cancelled").0, "open_chat_cancelled");
+    assert_eq!(notice("open_chat_policy").0, "open_chat_policy");
+    let (code, text) = notice("auth_protocol_invalid: detalhe interno");
+    assert_eq!(code, "open_chat_failed");
+    assert!(!text.contains("auth_protocol_invalid"));
 }

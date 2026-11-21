@@ -72,6 +72,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "Ce bot n’a pas de compte choisi : il utilise la connexion par défaut de cet ordinateur, s’il y en a une. Pour choisir un compte précis, allez dans Comptes d’IA.",
   "conversa.avisos.falha.cabecalho.semOpen": "Compte : le compte Codex connecté le plus récemment",
   "conversa.avisos.falha.cabecalho.semOpenDica": "Dans Open, les bots répondent avec le compte Codex connecté le plus récemment. Pour le connecter ou le changer, allez dans Comptes d’IA.",
+  "conversa.avisos.open.inicio": "Berga est déjà créé comme votre bot principal. Pour discuter, connectez un compte Codex dans Réglages → Comptes d’IA. Dans cette édition, la discussion se fait uniquement par texte.",
+  "conversa.avisos.open.interrompida": "Réponse interrompue.",
+  "conversa.avisos.open.ferramenta": "Codex a essayé d’utiliser un outil, et Open ne discute que par texte. Réponse terminée.",
+  "conversa.avisos.open.demorou": "Codex a mis trop de temps à répondre. Réessayez.",
+  "conversa.avisos.open.politica": "La configuration de Codex sur ce Mac ne permet pas une discussion texte seul sans approbations. Réponse annulée.",
+  "conversa.avisos.open.indisponivel": "Impossible d’ouvrir Codex dans le profil Open. Vérifiez le compte dans Comptes d’IA.",
+  "conversa.avisos.open.falhou": "Codex n’a pas pu répondre pour le moment. Réessayez.",
   "conversa.avisos.falha.cabecalho.naoSei": "Compte : non confirmé",
   "conversa.avisos.falha.cabecalho.dica": "Ouvrir Comptes d’IA",
 }

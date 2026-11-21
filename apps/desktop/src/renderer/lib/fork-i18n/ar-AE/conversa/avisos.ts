@@ -72,6 +72,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "لم يُختر حساب لهذا البوت: يستخدم تسجيل الدخول الافتراضي لهذا الكمبيوتر، إن وُجد. لاختيار حساب محدد، انتقل إلى حسابات الذكاء الاصطناعي.",
   "conversa.avisos.falha.cabecalho.semOpen": "الحساب: آخر حساب Codex تم ربطه",
   "conversa.avisos.falha.cabecalho.semOpenDica": "في Open، تردّ البوتات باستخدام آخر حساب Codex تم ربطه. للربط أو التغيير، انتقل إلى حسابات الذكاء الاصطناعي.",
+  "conversa.avisos.open.inicio": "تم إنشاء Berga كبوتك الرئيسي. للمحادثة، اربط حساب Codex من الإعدادات ← حسابات الذكاء الاصطناعي. في هذا الإصدار تكون المحادثة نصية فقط.",
+  "conversa.avisos.open.interrompida": "تم إيقاف الرد.",
+  "conversa.avisos.open.ferramenta": "حاول Codex استخدام أداة، وOpen يدعم المحادثة النصية فقط. انتهى الرد.",
+  "conversa.avisos.open.demorou": "استغرق Codex وقتًا طويلاً للرد. حاول مرة أخرى.",
+  "conversa.avisos.open.politica": "إعدادات Codex على هذا الـ Mac لا تسمح بمحادثة نصية فقط بدون موافقات. تم إلغاء الرد.",
+  "conversa.avisos.open.indisponivel": "تعذّر فتح Codex في ملف Open. تحقّق من الحساب في حسابات الذكاء الاصطناعي.",
+  "conversa.avisos.open.falhou": "تعذّر على Codex الرد الآن. حاول مرة أخرى.",
   "conversa.avisos.falha.cabecalho.naoSei": "الحساب: لم أستطع التأكد",
   "conversa.avisos.falha.cabecalho.dica": "فتح حسابات الذكاء الاصطناعي",
 }

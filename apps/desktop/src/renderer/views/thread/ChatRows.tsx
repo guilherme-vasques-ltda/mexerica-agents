@@ -44,7 +44,7 @@ import { alvoDaEspera, paradaDaEspera } from '../fork/conversa/limites'
 import { superficieIdioma, tradutor, useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { AcaoDaMensagemFalha, AvisoDeFalhaDeConta, BotaoAbrirContas } from '../fork/contas-ia/FalhaDeConta'
 import { ehAvisoDePreparo, lerReason } from '../fork/contas-ia/falha-de-conta'
-import { recusaOpen } from '../fork/spaces/erro-envio'
+import { avisoOpen, recusaOpen } from '../fork/spaces/erro-envio'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
@@ -265,7 +265,8 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   const t = useT()
   const idioma = useIdioma()
   // MX-245: a espera do limite (Hub antigo, sem `waitId`) também diz "Parou pelo limite do plano; volta às HH:MM".
-  const text = paradaDaEspera(t, idioma, entry) ?? entry.data.text ?? ''
+  const aviso = avisoOpen(entry.data.code)
+  const text = paradaDaEspera(t, idioma, entry) ?? (aviso ? t(aviso) : entry.data.text ?? '')
   if (entry.data.callSeconds !== undefined) {
     const s = entry.data.callSeconds
     return (

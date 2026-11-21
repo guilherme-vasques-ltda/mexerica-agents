@@ -462,6 +462,8 @@ export interface EntryData {
   clientNonce?: string
   /** Só na bolha local que não foi enviada: o motivo da recusa da Open, como chave de texto. */
   recusa?: string
+  /** Código fixo de um aviso do Hub, traduzido pela janela quando ela o conhece. */
+  code?: string
   contentOrigin?: ContentOrigin
   pasted?: string[]
   /** DON-907 (D431): a posição na fila depois de uma reordenação (`queuedMove`); sem ela, vale `seq`. */

@@ -72,6 +72,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "Este bot no tiene una cuenta elegida: usa el inicio de sesión predeterminado de este equipo, si existe. Para elegir una cuenta concreta, ve a Cuentas de IA.",
   "conversa.avisos.falha.cabecalho.semOpen": "Cuenta: la de Codex conectada más recientemente",
   "conversa.avisos.falha.cabecalho.semOpenDica": "En Open, los bots responden con la cuenta de Codex conectada más recientemente. Para conectarla o cambiarla, ve a Cuentas de IA.",
+  "conversa.avisos.open.inicio": "Berga ya está creado como tu bot principal. Para conversar, conecta una cuenta de Codex en Ajustes → Cuentas de IA. En esta edición la conversación es solo de texto.",
+  "conversa.avisos.open.interrompida": "Respuesta interrumpida.",
+  "conversa.avisos.open.ferramenta": "Codex intentó usar una herramienta, y Open solo conversa por texto. Respuesta terminada.",
+  "conversa.avisos.open.demorou": "Codex tardó demasiado en responder. Inténtalo de nuevo.",
+  "conversa.avisos.open.politica": "La configuración de Codex en este Mac no permite una conversación solo de texto y sin aprobaciones. Respuesta cancelada.",
+  "conversa.avisos.open.indisponivel": "No se pudo abrir Codex en el perfil de Open. Revisa la cuenta en Cuentas de IA.",
+  "conversa.avisos.open.falhou": "Codex no pudo responder ahora. Inténtalo de nuevo.",
   "conversa.avisos.falha.cabecalho.naoSei": "Cuenta: no pude confirmarla",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Cuentas de IA",
 }

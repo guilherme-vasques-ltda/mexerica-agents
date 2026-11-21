@@ -72,6 +72,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "此机器人未选择账户：它使用此电脑的默认登录（如有）。如需选择特定账户，请前往 AI 账户。",
   "conversa.avisos.falha.cabecalho.semOpen": "账户：最近连接的 Codex 账户",
   "conversa.avisos.falha.cabecalho.semOpenDica": "在 Open 中，机器人使用最近连接的 Codex 账户回复。如需连接或更换，请前往 AI 账户。",
+  "conversa.avisos.open.inicio": "Berga 已设为你的主要机器人。要聊天，请在“设置 → AI 账号”中连接 Codex 账号。此版本仅支持文字对话。",
+  "conversa.avisos.open.interrompida": "回复已中断。",
+  "conversa.avisos.open.ferramenta": "Codex 试图使用工具，而 Open 只支持文字对话。回复已结束。",
+  "conversa.avisos.open.demorou": "Codex 回复超时。请重试。",
+  "conversa.avisos.open.politica": "此 Mac 上的 Codex 设置不允许仅文字且无需批准的对话。回复已取消。",
+  "conversa.avisos.open.indisponivel": "无法在 Open 配置中打开 Codex。请在 AI 账号中检查账号。",
+  "conversa.avisos.open.falhou": "Codex 暂时无法回复。请重试。",
   "conversa.avisos.falha.cabecalho.naoSei": "账户：无法确认",
   "conversa.avisos.falha.cabecalho.dica": "打开 AI 账户",
 }

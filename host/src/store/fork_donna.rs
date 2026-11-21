@@ -50,8 +50,12 @@ impl Store {
         // A identidade precisa existir antes do salvamento, que recusa manageTeam fora da principal.
         tx.execute("INSERT INTO kv(k,v) VALUES('team.settings.v1',?1)", [serde_json::to_string(&settings)?])?;
         super::bots::save_bot(&tx, &cfg)?;
-        let text = if crate::environment::Environment::is_open() { OPEN_SETUP_NOTICE } else { SETUP_NOTICE };
-        let notice = crate::fork::spaces::stamp_entry(&tx, &cfg.id, &json!({"text": text}))?;
+        let data = if crate::environment::Environment::is_open() {
+            json!({"text": OPEN_SETUP_NOTICE, "code": "open_setup"})
+        } else {
+            json!({"text": SETUP_NOTICE})
+        };
+        let notice = crate::fork::spaces::stamp_entry(&tx, &cfg.id, &data)?;
         tx.execute(
             "INSERT INTO entries(id,bot_id,rev,kind,turn,data,created_at,updated_at)
                 VALUES(?1,?2,?3,'notice',0,?4,?5,?5)",

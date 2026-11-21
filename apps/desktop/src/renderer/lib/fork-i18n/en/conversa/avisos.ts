@@ -72,6 +72,13 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.falha.cabecalho.semDica": "This bot has no account chosen: it uses this computer’s default login, if there is one. To pick a specific account, go to AI Accounts.",
   "conversa.avisos.falha.cabecalho.semOpen": "Account: the most recently connected Codex account",
   "conversa.avisos.falha.cabecalho.semOpenDica": "In Open, bots reply with the most recently connected Codex account. To connect or change it, go to AI Accounts.",
+  "conversa.avisos.open.inicio": "Berga is already set up as your main bot. To chat, connect a Codex account in Settings → AI accounts. In this edition, chat is text only.",
+  "conversa.avisos.open.interrompida": "Reply stopped.",
+  "conversa.avisos.open.ferramenta": "Codex tried to use a tool, and Open only chats by text. Reply ended.",
+  "conversa.avisos.open.demorou": "Codex took too long to reply. Try again.",
+  "conversa.avisos.open.politica": "This Mac’s Codex settings don’t allow a text-only chat without approvals. Reply canceled.",
+  "conversa.avisos.open.indisponivel": "Couldn’t open Codex in the Open profile. Check the account in AI accounts.",
+  "conversa.avisos.open.falhou": "Codex couldn’t reply right now. Try again.",
   "conversa.avisos.falha.cabecalho.naoSei": "Account: couldn't confirm",
   "conversa.avisos.falha.cabecalho.dica": "Open AI Accounts",
 }
