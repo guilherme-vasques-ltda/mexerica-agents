@@ -63,4 +63,6 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.seletor.falhou': "Couldn't read the {motor} models.",
   'conversa.seletor.tentarDeNovo': "Try again",
   'conversa.seletor.ajustesDe': "{modelo} settings",
+  'conversa.seletor.selo.plano': "Plan · {nome}",
+  'conversa.seletor.selo.chave': "Key · {nome}",
 }

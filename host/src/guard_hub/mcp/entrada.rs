@@ -373,6 +373,21 @@ pub(crate) fn sem_envelope(text: &str) -> Option<&str> {
     corpo.strip_prefix(AVISO_EXTERNO)?.strip_prefix('\n')?.strip_suffix("\n</donnabot-external>")
 }
 
+/// A redação do Guard para quem guarda conteúdo fora de uma chamada MCP (a conversa do Motor Mexerica):
+/// a mesma passagem de texto (chaves conhecidas, formatos comuns, cookies) e de campos de credencial por nome.
+#[cfg(unix)]
+pub(crate) fn redigir_json(value: &Value, secrets: &[String]) -> Value {
+    let mut inspector = Inspector {
+        secrets,
+        source: String::new(),
+        redactions: 0,
+        would_warn: false,
+        unsupported: false,
+        schema_keywords_discarded: BTreeMap::new(),
+    };
+    inspector.clean_json(value)
+}
+
 pub(super) fn inspect(frame: &Value, method: &str, secrets: &[String]) -> GuardedResult {
     let source_id = uuid::Uuid::new_v4().to_string();
     let receipt = uuid::Uuid::new_v4().to_string();

@@ -215,6 +215,14 @@ async fn d543_delete_exige_nome_digitado_e_remove_tudo_do_space() {
         .await
         .unwrap();
     }
+    dispatch(
+        &f.hub,
+        &Caller::Local,
+        "instrucaoGeralSalvar",
+        json!({"escopo":"space", "spaceId":space, "texto":"Respostas curtas.", "expectedRevision":0}),
+    )
+    .await
+    .unwrap();
     let snap = f.spaces().await;
     let delete = |confirm: &str, rev: i64| {
         let hub = f.hub.clone();
@@ -254,7 +262,7 @@ async fn d543_delete_exige_nome_digitado_e_remove_tudo_do_space() {
         .query_row("SELECT COUNT(*) FROM donna_space_principal_receipts WHERE space_id=?1", [&space], |r| r.get(0))
         .unwrap();
     assert_eq!(receipts, 0, "recibos do Space também saem");
-    for table in ["donna_nunca_fazer", "donna_nunca_fazer_revisoes"] {
+    for table in ["donna_nunca_fazer", "donna_nunca_fazer_revisoes", "donna_instrucao_geral"] {
         let count: i64 = f
             .hub
             .store
@@ -628,6 +636,35 @@ async fn d543_delete_revisao_antiga_e_estado_pos_exclusao() {
     .unwrap_err();
     assert!(err.to_string().contains("space_not_found"), "{err}");
     assert!(!f.hub.store.bot(&principal_b).unwrap().unwrap().deleted);
+}
+
+#[tokio::test]
+async fn d543_delete_space_com_resposta_open_em_curso_devolve_space_busy_sem_apagar() {
+    let f = Lifecycle::new();
+    let created = f.create_space("Cliente").await;
+    let space = Lifecycle::space_id(&created, 1);
+    let snap = f.spaces().await;
+    f.activate(&space, &snap, "n-open").await.unwrap();
+    let bot = f.bot_of_space(&space).unwrap();
+    let snap = f.spaces().await;
+    let ticket = crate::fork::open_chat::admit_for_test(&f.hub, &bot.id, ACCOUNT).unwrap();
+    let body =
+        json!({"hubId":f.hub.host_id,"spaceId":space,"expectedRevision":snap["revision"],"confirmName":"Cliente"});
+    let busy = dispatch(&f.hub, &Caller::Local, "donnaSpaceDelete", body).await.unwrap();
+    assert_eq!(busy["code"], "space_busy");
+    assert_eq!(busy["busy"], json!([{"botId": bot.id, "name": bot.name}]));
+    assert_eq!(f.spaces().await, snap, "a recusa não apaga nada");
+    assert!(!f.hub.store.bot(&bot.id).unwrap().unwrap().deleted);
+    drop(ticket);
+    dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaSpaceDelete",
+        json!({"hubId":f.hub.host_id,"spaceId":space,"expectedRevision":snap["revision"],"confirmName":"Cliente"}),
+    )
+    .await
+    .unwrap();
+    assert!(f.hub.store.bot(&bot.id).unwrap().unwrap().deleted, "livre da reserva, o Space sai");
 }
 
 #[tokio::test]

@@ -139,6 +139,16 @@ impl Actor {
                 }
             }
         }
+        // O código de um plano de código vive no ambiente do processo: sem conversa aberta, o processo não fica;
+        // processo com comando de fundo da ferramenta segue até esse comando acabar.
+        let pid =
+            self.conn.as_ref().filter(|conn| conn.plano.is_some() && conn.loaded.is_empty()).map(|conn| conn.acp.pid());
+        if let Some(pid) = pid
+            && !background_work(pid).await
+            && let Some(conn) = self.conn.take()
+        {
+            conn.kill().await;
+        }
     }
 }
 

@@ -68,10 +68,15 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 60: o recibo do turno (`donnaRoutingReceipt`) passa a trazer `usage` e o medidor (`donnaContext`) traz
 // `context.parts`. Ambos são lidos sob demanda e não entram no mirror; o bump só segue a regra de campo novo do Hub.
 // App antigo ignora os campos; o novo não mostra o bloco quando eles não vêm.
-// Schema 61: Marketplace — o `marketFerramentas` traz, em cada ferramenta, `descricao` (o texto que o modelo lê, já
-// filtrado; `null` enquanto o Hub não o leu), `campos` (o texto de cada campo) e `mudou` (as partes que o fornecedor
-// mudou desde que a pessoa ligou). Lido sob demanda, fora do mirror; o bump só segue a regra de campo novo do Hub.
-export const MIRROR_SCHEMA = 61
+// Schema 61: resposta cortada (parada, erro ou Hub desligado) chega com `Entry.data.interrupted` e passa a aparecer na
+// conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
+// Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
+// motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
+// Schema 65: Marketplace — o `marketFerramentas` traz, em cada ferramenta, `descricao` (o texto que o modelo lê, já
+// filtrado; `null` enquanto o Hub não o leu), `campos` (o texto de cada campo), `apresentacao` (a lista que a pessoa
+// confirma antes de ligar) e `mudou` (as partes que o fornecedor mudou desde que a pessoa ligou). Lido sob demanda,
+// fora do mirror; o bump só segue a regra de campo novo do Hub.
+export const MIRROR_SCHEMA = 65
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

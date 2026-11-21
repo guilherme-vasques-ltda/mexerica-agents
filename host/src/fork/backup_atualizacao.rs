@@ -88,7 +88,7 @@ pub(crate) fn schema(db: &Connection) -> Result<String> {
     // A comparação com o par anterior continua sendo um gate separado; esta
     // lista somente impede que uma versão nunca reconhecida seja tratada como
     // conhecida. Atualize-a após revisar as migrações em store/schema.rs.
-    ensure!((3..=6).contains(&numero) && numero.to_string() == versao, "schema desconhecido");
+    ensure!((3..=7).contains(&numero) && numero.to_string() == versao, "schema desconhecido");
     let mut hash = Sha256::new();
     hash.update(b"mexerica/backup/schema/v1\0");
     parte(&mut hash, versao.as_bytes())?;
@@ -234,7 +234,7 @@ mod tests {
         let original = schema(&db).unwrap();
         db.execute_batch("CREATE TABLE adicional(id INTEGER);").unwrap();
         assert_ne!(schema(&db).unwrap(), original);
-        db.execute_batch("UPDATE kv SET v='7' WHERE k='schema';").unwrap();
+        db.execute_batch("UPDATE kv SET v='8' WHERE k='schema';").unwrap();
         assert!(schema(&db).is_err());
         db.execute_batch("UPDATE kv SET v='2' WHERE k='schema';").unwrap();
         assert!(schema(&db).is_err());

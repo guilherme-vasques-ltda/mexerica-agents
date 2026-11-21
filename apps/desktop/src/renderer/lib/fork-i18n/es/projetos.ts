@@ -241,7 +241,7 @@ export const textos: Traducao<typeof fonte> = {
   // MX-142 TEC-722-17: regras dos bots (decisões 2–4), Concluída declarada e jornada do Geral.
   'projetos.tarefas.declarada': "Terminada (declarada)",
   'projetos.tarefas.declaradaPor': "Declarada por {bot}; la prueba está en la evidencia.",
-  'projetos.tarefas.regraBotDono': "Bot responsable: cambia estado, nota y evidencia solo de su propia subtarea. Para marcarla Terminada, debe dejar la prueba.",
+  'projetos.tarefas.regraBotDono': "Bot responsable: actualiza avance y nota solo de su propia subtarea y la envía a En revisión. Solo tú la marcas Terminada, la reabres o editas la evidencia.",
   'projetos.tarefas.regraBotsOutros': "Supervisor y coordinador: pueden cambiar la subtarea de otro bot; el cambio queda registrado en la actividad.",
   'projetos.tarefas.regraBotsCriam': "Cualquier bot puede crear una subtarea para otro, hasta 100 tareas y 3 niveles.",
   'projetos.tarefas.geral': "Geral",

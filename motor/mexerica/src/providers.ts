@@ -1,6 +1,6 @@
-// Provedores da fatia 1: chave de API direta (Google ou OpenAI), vindas só do
-// cofre do Hub. O provedor `faux` existe apenas sob MEXERICA_MOTOR_FAUX=1
-// (testes locais do Hub), sem credencial e sem rede.
+// Provedores por chave de API (Anthropic, OpenAI, Google, xAI e OpenRouter), com a chave vinda só do cofre do Hub.
+// Nenhum modelo é fixo aqui: a lista vem do fornecedor e o modelo escolhido é montado em `fornecedores.ts`.
+// O provedor `faux` existe apenas sob MEXERICA_MOTOR_FAUX=1 (testes locais do Hub), sem credencial e sem rede.
 import {
 	createProvider,
 	envApiKeyAuth,
@@ -8,122 +8,128 @@ import {
 	fauxProvider,
 	fauxToolCall,
 	type FauxProviderHandle,
+	type Api,
 	type FauxResponseFactory,
 	type Model,
 	type MutableModels,
 	type Provider,
-	type TextContent,
 } from "@earendil-works/pi-ai";
+import {
+	stream as anthropicStream,
+	streamSimple as anthropicStreamSimple,
+} from "@earendil-works/pi-ai/api/anthropic-messages.ts";
 import {
 	stream as googleStream,
 	streamSimple as googleStreamSimple,
 } from "@earendil-works/pi-ai/api/google-generative-ai.ts";
 import {
-	stream as openaiStream,
-	streamSimple as openaiStreamSimple,
+	stream as completionsStream,
+	streamSimple as completionsStreamSimple,
+} from "@earendil-works/pi-ai/api/openai-completions.ts";
+import {
+	stream as responsesStream,
+	streamSimple as responsesStreamSimple,
 } from "@earendil-works/pi-ai/api/openai-responses.ts";
+import { FORNECEDORES, type FornecedorId } from "./fornecedores.ts";
 
-const NO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const STREAMS = {
+	"anthropic-messages": { stream: anthropicStream, streamSimple: anthropicStreamSimple },
+	"google-generative-ai": { stream: googleStream, streamSimple: googleStreamSimple },
+	"openai-completions": { stream: completionsStream, streamSimple: completionsStreamSimple },
+	"openai-responses": { stream: responsesStream, streamSimple: responsesStreamSimple },
+} as const;
 
-const GOOGLE_MODELS: Model<"google-generative-ai">[] = [
-	{
-		id: "gemini-2.5-flash",
-		name: "Gemini 2.5 Flash",
-		api: "google-generative-ai",
-		provider: "google",
-		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 1048576,
-		maxTokens: 65536,
-	},
-	{
-		id: "gemini-2.5-pro",
-		name: "Gemini 2.5 Pro",
-		api: "google-generative-ai",
-		provider: "google",
-		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 1048576,
-		maxTokens: 65536,
-	},
-];
-
-const OPENAI_MODELS: Model<"openai-responses">[] = [
-	{
-		id: "gpt-5",
-		name: "GPT-5",
-		api: "openai-responses",
-		provider: "openai",
-		baseUrl: "https://api.openai.com/v1",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 400000,
-		maxTokens: 128000,
-	},
-	{
-		id: "gpt-5-mini",
-		name: "GPT-5 Mini",
-		api: "openai-responses",
-		provider: "openai",
-		baseUrl: "https://api.openai.com/v1",
-		input: ["text"],
-		reasoning: true,
-		cost: NO_COST,
-		contextWindow: 400000,
-		maxTokens: 128000,
-	},
-];
-
-/** Registra google + openai (chave no cofre) e, sob a flag de teste, o faux. */
+/** Registra os fornecedores por chave (sem modelos fixos) e, sob a flag de teste, o faux. */
 export function registerProviders(models: MutableModels): FauxProviderHandle | undefined {
-	const providers: Provider[] = [
-		createProvider({
-			id: "google",
-			name: "Google",
-			baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-			auth: { apiKey: envApiKeyAuth("Gemini API key", ["GEMINI_API_KEY"]) },
-			models: GOOGLE_MODELS,
-			api: { stream: googleStream, streamSimple: googleStreamSimple },
-		}),
-		createProvider({
-			id: "openai",
-			name: "OpenAI",
-			baseUrl: "https://api.openai.com/v1",
-			auth: { apiKey: envApiKeyAuth("OpenAI API key", ["OPENAI_API_KEY"]) },
-			models: OPENAI_MODELS,
-			api: { stream: openaiStream, streamSimple: openaiStreamSimple },
-		}),
-	];
-	for (const provider of providers) models.setProvider(provider);
+	for (const [id, f] of Object.entries(FORNECEDORES) as [FornecedorId, (typeof FORNECEDORES)[FornecedorId]][]) {
+		const streams = STREAMS[f.api as keyof typeof STREAMS];
+		// A variável nomeada nunca é lida: o AuthContext do motor é vazio e a chave vem só do cofre.
+		const provider: Provider = createProvider({
+			id,
+			name: f.nome,
+			baseUrl: f.baseUrl,
+			auth: { apiKey: envApiKeyAuth(`${f.nome} API key`, []) },
+			models: [],
+			api: streams,
+		} as Parameters<typeof createProvider>[0]);
+		models.setProvider(provider);
+	}
 
 	if (process.env["MEXERICA_MOTOR_FAUX"] !== "1") return undefined;
+	// Dois provedores falsos (`faux` e `faux2`) para provar a troca de provedor.
+	const userText = (m: { content?: unknown }): string => {
+		const blocks = typeof m.content === "string" ? [{ type: "text", text: m.content }] : ((m.content ?? []) as { type: string; text?: string }[]);
+		return blocks
+			.filter((b) => b.type === "text")
+			.map((b) => b.text ?? "")
+			.join("\n");
+	};
 	const faux = fauxProvider();
-	// Eco do último texto do usuário, reenfileirado a cada turno. Duas extensões
+	const faux2 = fauxProvider({ provider: "faux2" });
+	// Eco do último texto do usuário, reenfileirado a cada turno. Extensões
 	// de teste: `/ferramenta <nome> <json>` faz o "modelo" chamar essa ferramenta
-	// e, de volta com o resultado, ele o repete (`ferramenta respondeu: ...`).
+	// e, de volta com o resultado, ele o repete (`ferramenta respondeu: ...`); `/cadeia <N> <nome> <json>`
+	// chama a ferramenta N vezes em sequência (um turno longo) antes de responder;
+	// `/paralelo <N> <nome> <json>` chama a ferramenta N vezes na MESMA mensagem; `/ferramentagrande <nome> <N>` chama a
+	// ferramenta com um argumento `x` de N caracteres;
+	// `/historico` responde com todos os textos de usuário que o modelo recebeu;
+	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu;
+	// `/pedido` responde `pedido: <json>` com os textos de sistema e de usuário que o provedor recebeu.
+	let chained = 0;
+	let issued: number | undefined;
 	const echo: FauxResponseFactory = async (context) => {
 		faux.appendResponses([echo]);
+		faux2.appendResponses([echo]);
 		const tail = context.messages.at(-1);
+		const lastUser = context.messages.filter((m) => m.role === "user").at(-1);
+		const parallel = /^\/paralelo (\d+) (\S+) ([\s\S]*)$/.exec(lastUser ? userText(lastUser) : "");
+		if (tail?.role === "user" && parallel && issued !== tail.timestamp) {
+			issued = tail.timestamp;
+			const calls = Array.from({ length: Number(parallel[1]) }, () => fauxToolCall(parallel[2]!, JSON.parse(parallel[3]!)));
+			return fauxAssistantMessage(calls, { stopReason: "toolUse" });
+		}
+		const big = /^\/ferramentagrande (\S+) (\d+)$/.exec(lastUser ? userText(lastUser) : "");
+		if (tail?.role === "user" && big) {
+			return fauxAssistantMessage(fauxToolCall(big[1]!, { x: "a".repeat(Number(big[2])) }), { stopReason: "toolUse" });
+		}
+		const chain = /^\/cadeia (\d+) (\S+) ([\s\S]*)$/.exec(lastUser ? userText(lastUser) : "");
+		if (tail?.role === "user") chained = 0;
+		if (tail?.role === "toolResult" && chain && ++chained < Number(chain[1])) {
+			return fauxAssistantMessage(fauxToolCall(chain[2]!, JSON.parse(chain[3]!)), { stopReason: "toolUse" });
+		}
 		if (tail?.role === "toolResult") {
 			const out = tail.content.map((b) => (b.type === "text" ? b.text : "")).join("");
 			return fauxAssistantMessage(`${tail.isError ? "ferramenta falhou" : "ferramenta respondeu"}: ${out}`);
 		}
-		const last = [...context.messages].reverse().find((m) => m.role === "user");
-		const blocks = typeof last?.content === "string" ? [{ type: "text", text: last.content }] : (last?.content ?? []);
-		const text = blocks
-			.filter((b): b is TextContent => b.type === "text")
-			.map((b) => b.text)
-			.join("\n");
-		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text);
+		const users = context.messages.filter((m) => m.role === "user");
+		const text = users.length === 0 ? "" : userText(users[users.length - 1]!);
+		if (text.includes("/contexto")) {
+			const kept = context.messages.filter((m) => m.role !== "system");
+			const asked = new Set(kept.flatMap((m) => (m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall").map((b) => b.id) : [])));
+			const declared = context.messages.flatMap((m) => (m.role === "system" ? ((m as { toolsAdded?: unknown[] }).toolsAdded ?? []) : [])).length;
+			const orphans = kept.filter((m) => m.role === "toolResult" && !asked.has(m.toolCallId)).length;
+			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans} ferramentas=${declared}`);
+		}
+		if (text.includes("/pedido")) {
+			const sistema = context.messages.filter((m) => m.role === "system").map(userText);
+			return fauxAssistantMessage(`pedido: ${JSON.stringify({ sistema, usuario: users.map(userText) })}`);
+		}
+		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
+		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);
 		if (call) return fauxAssistantMessage(fauxToolCall(call[1]!, JSON.parse(call[2]!)), { stopReason: "toolUse" });
 		return fauxAssistantMessage(`eco: ${text}`);
 	};
 	faux.setResponses([echo]);
+	faux2.setResponses([echo]);
 	models.setProvider(faux.provider);
+	models.setProvider(faux2.provider);
 	return faux;
+}
+
+/** «Testar acesso» do provedor falso (só testes do Hub): uma chave que começa com `recusada` é inválida. */
+export function fauxAcesso(provider: string, key: string, modelos: readonly Model<Api>[]) {
+	if (!key) return { ok: false, erro: "sem_chave" };
+	if (key.startsWith("recusada")) return { ok: false, erro: "chave_invalida", status: 401 };
+	const proprios = modelos.filter((m) => m.provider === provider);
+	return { ok: true, modelos: proprios.map((m) => ({ id: m.id, name: m.name, contextWindow: m.contextWindow, maxTokens: m.maxTokens })) };
 }

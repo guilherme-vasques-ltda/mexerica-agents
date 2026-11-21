@@ -41,6 +41,7 @@ export const textos: Traducao<typeof fonte> = {
   "bots.editor.apagar.arquivosFicam": "تبقى الملفات التي غيّرها على الحاسوب كما هي.",
   "bots.editor.apagar.canal": "حذف القناة والمحادثة",
   "bots.editor.apagar.bot": "حذف البوت والمحادثة",
+  "bots.editor.apagar.resposta": "أوقف الرد قبل حذف البوت.",
   "bots.editor.ajustes": "الإعدادات",
   "bots.editor.criadoPor": "أنشأه",
   "bots.editor.criadoPorData": "{bot} · {data}",

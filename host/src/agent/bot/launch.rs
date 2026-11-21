@@ -104,11 +104,8 @@ pub(crate) async fn launch_commands(
     cfg: &BotConfig,
     progress: impl Fn(&str, Option<ActivityKind>),
 ) -> Result<Vec<String>> {
-    if cfg.backend == "omp" {
-        return Err(EngineNotReady(
-            "O motor oh-my-pi não está disponível. Escolha outro motor nas configurações do bot.".into(),
-        )
-        .into());
+    if crate::fork::motores_retirados::retirado(&cfg.backend) {
+        return Err(EngineNotReady(crate::fork::motores_retirados::msg_lancar(&cfg.backend)).into());
     }
     crate::agent::launcher::check(cfg).map_err(|e| EngineNotReady::wrap(&e))?;
     if cfg.backend == "codex" && cfg.fork_editor.engine_account_id.is_none() {
@@ -207,26 +204,36 @@ fn split_variant<'a>(res: &Value, model: &'a str) -> (&'a str, Vec<(&'a str, &'a
 /// Motor interno (backend `mexerica`): sem comando nem handshake — o "agente"
 /// é o adaptador ACP em processo do Hub, preso ao cofre (o canal `fd 3` do
 /// motor) e ao cartão de aprovação existente. `extra_env` é só para provas.
-pub(crate) async fn start_mexerica(hub: &Arc<crate::hub::Hub>, extra_env: &[(&str, &str)]) -> Result<Conn> {
+pub(crate) async fn start_mexerica(
+    hub: &Arc<crate::hub::Hub>,
+    cfg: &BotConfig,
+    extra_env: &[(&str, &str)],
+) -> Result<Conn> {
     #[cfg(not(unix))]
     {
-        let _ = (hub, extra_env);
+        let _ = (hub, cfg, extra_env);
         anyhow::bail!("Motor Mexerica indisponível nesta plataforma")
     }
     #[cfg(unix)]
     {
         // Flag desligada (ou sem ajudante): nada abre, nem servidores MCP.
         crate::fork::motor_mexerica::ensure_runnable()?;
-        let vault = crate::fork::motor_mexerica::hub_vault(hub.clone());
-        let link = crate::fork::motor_mexerica::link::Link::new(vault, extra_env);
+        let vault = crate::fork::motor_mexerica::chaves::owner_vault(hub.clone(), cfg);
+        let link = crate::fork::motor_mexerica::link::Link::new(vault, &cfg.id, extra_env);
+        link.use_limits(crate::fork::motor_mexerica::chaves::fonte_de_limites(hub.clone()));
+        #[cfg(test)]
+        if !extra_env.is_empty() {
+            link.skip_mcp_servers();
+        }
         let (acp, rx) = Acp::spawn_link(link);
         Ok(Conn {
             ponte: None,
+            plano: None,
             curated: crate::fork::conectores::Pool::default(),
             acp,
             rx,
             skill_reads: tokio::task::JoinSet::new(),
-            sessions: SessionCaps { load: false, close: true, system_prompt: true },
+            sessions: SessionCaps { load: true, close: true, system_prompt: true },
             adapter: Adapter::Mexerica,
             adapter_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
             codex_config: false,
@@ -356,6 +363,7 @@ async fn start_agent_mode(
     };
     Ok(Conn {
         ponte: None,
+        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,
@@ -394,6 +402,24 @@ mod tests {
             serde_json::from_value(json!({"id":"omp-antigo", "name":"Antigo", "backend":"omp"})).unwrap();
         let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();
         assert!(erro.contains("oh-my-pi") && erro.contains("Escolha outro motor"));
+    }
+
+    #[tokio::test]
+    async fn motor_retirado_e_recusado_antes_de_executar() {
+        let nomes = crate::fork::motores_retirados::RETIRADOS.iter().copied().chain([
+            "qwen-code",
+            "pi-acp",
+            "mistral-vibe",
+            "KILO",
+        ]);
+        for id in nomes {
+            let cfg: BotConfig =
+                serde_json::from_value(json!({"id":"antigo", "name":"Antigo", "backend": id})).unwrap();
+            let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();
+            assert!(erro.starts_with("O motor "), "{id}: {erro}");
+            assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+            assert!(erro.ends_with("Escolha outro motor nas configurações do bot."), "{id}: {erro}");
+        }
     }
 
     #[test]

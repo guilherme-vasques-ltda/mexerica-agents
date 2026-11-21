@@ -42,6 +42,8 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("nuncaFazerEditar", LocalOnly),
     ("nuncaFazerRemover", LocalOnly),
     ("nuncaFazerReordenar", LocalOnly),
+    ("instrucaoGeral", LocalOnly),
+    ("instrucaoGeralSalvar", LocalOnly),
     // api/bots.rs
     ("answerMemory", Comum),
     ("archiveMemory", Comum),
@@ -131,10 +133,20 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("setAgentEnv", LocalOnly),
     // Slot Go exclusivo; exige o vínculo original engine.accounts.
     ("engineGoKeySave", Dono),
+    // Planos de código (OpenCode como motor): `LOCAL_ONLY` e `require_local`; nunca devolvem a chave.
+    ("planosCodigo", LocalOnly),
+    ("planoCodigoTestar", LocalOnly),
+    ("planoCodigoSalvar", LocalOnly),
+    ("planoCodigoRemover", LocalOnly),
     ("setAnalytics", LocalOnly),
     ("setHostAutomaticUpdates", LocalOnly),
     ("setScreenEnabled", LocalOnly),
     ("setVoiceKey", LocalOnly),
+    // Chaves de API do Motor Mexerica (API direta): `LOCAL_ONLY` e `require_local`; nunca devolvem a chave.
+    ("motorChaves", LocalOnly),
+    ("motorChaveTestar", LocalOnly),
+    ("motorChaveSalvar", LocalOnly),
+    ("motorChaveRemover", LocalOnly),
     // gerador Mexeriquinhas 2b: todo o grupo exige Caller::Local (host/src/fork_avatars/gerador).
     ("mexeriquinhaGeradorEstado", LocalOnly),
     ("mexeriquinhaGeradorChave", LocalOnly),
@@ -322,6 +334,11 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaRuleSave", LocalOnly),
     ("donnaRuleSetEnabled", LocalOnly),
     ("donnaRules", LocalOnly),
+    ("donnaMailManager", LocalOnly),
+    ("donnaMailManagerSave", LocalOnly),
+    ("donnaMailManagerConnect", LocalOnly),
+    ("donnaMailManagerDisconnect", LocalOnly),
+    ("donnaMailManagerGrant", LocalOnly),
     ("executorAudit", Executor),
     ("executorBye", Executor),
     ("executorHello", Executor),
