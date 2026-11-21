@@ -71,6 +71,11 @@ const LOCAL_ONLY: &[&str] = &[
     // OpenRouter sign-in (the code swap) too.
     "openrouterEntrar",
     "openrouterEntrarConcluir",
+    // Plano de código: a chave é colada no próprio computador.
+    "planosCodigo",
+    "planoCodigoTestar",
+    "planoCodigoSalvar",
+    "planoCodigoRemover",
     "pairing",
     "computerCall",
     "computerTools",
@@ -112,6 +117,8 @@ const LOCAL_ONLY: &[&str] = &[
     "nuncaFazerEditar",
     "nuncaFazerRemover",
     "nuncaFazerReordenar",
+    "instrucaoGeral",
+    "instrucaoGeralSalvar",
     "donnaRules",
     "donnaApprovalSet",
     "donnaRuleSave",

@@ -1,0 +1,16 @@
+/* Painel do navegador ao vivo. Só tokens do app; sem animação: o quadro novo troca direto (proposta de telas, "Movimento reduzido"). */
+.aovivo { display: flex; flex-direction: column; gap: 10px; padding: 14px; min-width: 0; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-l); }
+.aovivo-topo { min-width: 0; }
+.aovivo-selo { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--ink); font-size: var(--text-caption); font-weight: 600; }
+.aovivo-faixa { padding: 8px 10px; border-radius: var(--radius-s); background: var(--field); color: var(--ink); }
+.aovivo.is-pessoa .aovivo-faixa { background: var(--accent-soft); }
+.aovivo.is-fechada .aovivo-faixa { background: var(--attention-soft); color: var(--ink); }
+.aovivo-lento { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--radius-s); background: var(--attention-soft); color: var(--ink); border-bottom: 2px solid var(--attention); }
+.aovivo-quadro { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 10; width: 100%; min-height: 180px; overflow: hidden; border-radius: var(--radius-m); background: var(--canvas); border: 2px solid var(--line-strong, var(--line)); user-select: none; -webkit-user-select: none; }
+.aovivo.is-bot .aovivo-quadro { border-color: var(--accent); }
+.aovivo.is-pessoa .aovivo-quadro { border-color: var(--success); }
+.aovivo-quadro.is-clicavel { cursor: pointer; }
+.aovivo-quadro.is-fechado { opacity: 0.5; }
+.aovivo-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.aovivo-espera { position: relative; align-items: center; padding: 16px; text-align: center; }
+.aovivo-rodape { margin: 0; }

@@ -238,12 +238,13 @@ fn pending(c: &Connection, space: &str, bot: &str) -> Result<Observation<Vec<Pen
     // Somente IDs originais e únicos: nenhum texto/comando/argumento da aprovação.
     // A sessão é conferida no catálogo; não inferida da Lane nem do ID ACP.
     let rows = c
-        .prepare(
+        .prepare(&format!(
             "SELECT e.id,c.id,c.revision FROM entries e
          JOIN donna_space_conversations c ON c.id=e.bot_id AND c.space_id=?1 AND c.bot_id=?2 AND c.closed=0
          JOIN donna_bot_sessions s ON s.id=COALESCE(e.session,e.bot_id) AND s.chat_id=c.id AND s.state='open'
-         WHERE e.kind='permission' AND json_extract(e.data,'$.status')='pending' ORDER BY e.id",
-        )?
+         WHERE {} ORDER BY e.id",
+            super::PENDING_PERMISSION
+        ))?
         .query_map(params![space, bot], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let value = rows

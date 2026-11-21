@@ -35,7 +35,9 @@ const texto = (valor: unknown): string | undefined => (typeof valor === "string"
 const numero = (valor: unknown): number | undefined => (typeof valor === "number" && valor > 0 ? valor : undefined);
 const comId = (item: Objeto, extra: Partial<ModeloListado> = {}): ModeloListado[] => {
 	const id = texto(item["id"]);
-	return id ? [{ id, name: texto(item["display_name"]) ?? texto(item["name"]) ?? id, ...extra }] : [];
+	if (!id) return [];
+	const nome = texto(item["display_name"]) ?? texto(item["name"]) ?? id;
+	return [{ id, name: [...nome].slice(0, 120).join(""), ...extra }];
 };
 
 /** Modelos que não conversam (voz, imagem, vetores, moderação): ficam fora da escolha do bot. */
@@ -54,7 +56,9 @@ export const FORNECEDORES: Record<FornecedorId, Fornecedor> = {
 		}),
 		ler: (corpo) => {
 			const dados = lista(corpo, "data");
-			const proxima = (corpo as Objeto)["has_more"] === true ? texto((corpo as Objeto)["last_id"]) : undefined;
+			const temMais = (corpo as Objeto)["has_more"] === true;
+			const proxima = temMais ? texto((corpo as Objeto)["last_id"]) : undefined;
+			if (temMais && !proxima) throw new RespostaInvalida();
 			return {
 				modelos: dados.flatMap((item) => comId(item, { contextWindow: numero(item["max_input_tokens"]), maxTokens: numero(item["max_tokens"]) })),
 				proxima,
@@ -97,7 +101,11 @@ export const FORNECEDORES: Record<FornecedorId, Fornecedor> = {
 		contextWindow: 131072,
 		maxTokens: 16384,
 		lista: (chave) => ({ url: "https://api.x.ai/v1/models", headers: bearer(chave) }),
-		ler: (corpo) => ({ modelos: lista(corpo, "data").flatMap((item) => comId(item)).filter((m) => !NAO_CONVERSA.test(m.id)) }),
+		ler: (corpo) => ({
+			modelos: lista(corpo, "data")
+				.flatMap((item) => comId(item, { contextWindow: numero(item["context_length"]) }))
+				.filter((m) => !NAO_CONVERSA.test(m.id)),
+		}),
 	},
 	openrouter: {
 		nome: "OpenRouter",
@@ -156,7 +164,7 @@ export function modeloDoFornecedor(fornecedor: FornecedorId, id: string, listado
 		reasoning: false,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: listado?.contextWindow ?? f.contextWindow,
-		maxTokens: Math.min(listado?.maxTokens ?? f.maxTokens, f.maxTokens * 4),
+		maxTokens: listado?.maxTokens ?? f.maxTokens,
 	};
 }
 
@@ -223,7 +231,10 @@ export async function testarAcesso(fornecedor: FornecedorId, chave: string, fetc
 				return { ok: false, erro: erroDoStatus(fornecedor, resposta.status), status: resposta.status };
 			}
 			const lido = f.ler(await jsonLimitado(resposta, MAX_BYTES_PAGINA));
-			for (const modelo of lido.modelos) if (!modelos.some((m) => m.id === modelo.id) && modelos.length < MAX_MODELOS) modelos.push(modelo);
+			for (const modelo of lido.modelos) {
+				if (modelos.length >= MAX_MODELOS) break;
+				if (modeloValido(fornecedor, modelo.id) && !modelos.some((m) => m.id === modelo.id)) modelos.push(modelo);
+			}
 			if (lido.proxima && lido.proxima.length > MAX_MARCADOR) throw new RespostaInvalida();
 			pagina = lido.proxima;
 			if (!pagina) break;
