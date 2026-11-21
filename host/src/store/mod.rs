@@ -18,6 +18,7 @@ pub(crate) use entries::{
     row_entry, send_intent,
 };
 mod fork_donna;
+mod fork_reinicio;
 mod fork_settings;
 mod guard_hub;
 mod management_guard;

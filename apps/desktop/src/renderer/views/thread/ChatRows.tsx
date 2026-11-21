@@ -250,6 +250,7 @@ export function AgentBubble({ entry, openTrace, reply, meta = false, face = fals
           {/* D169 (ToolSteps): the work comes first, under the name, then the answer. */}
           {steps ? <ToolSteps steps={steps} /> : null}
           {entry.data.files?.length ? <div className="file-message-cards">{entry.data.files.map((file) => <FileDownloadCard key={file.id} entry={entry} file={file} />)}</div> : <MarkdownText text={entry.data.text ?? ''} />}
+          {entry.kind === 'agent' && entry.data.interrupted === true ? <Text size="caption2" tone="secondary">{t('conversa.mensagens.respostaInterrompida')}</Text> : null}
           {entry.kind === 'agent' && entry.data.final === true && !entry.data.files?.length ? <RascunhoDaConversa entry={entry} nomeAutor={author?.name} /> : null}
         </Bubble>
         <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy}

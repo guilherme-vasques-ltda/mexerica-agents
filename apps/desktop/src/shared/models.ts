@@ -457,6 +457,8 @@ export interface EntryData {
   /** Continuação interna criada pelo Hub, não uma mensagem da pessoa. */
   from?: string
   final?: boolean
+  /** A resposta foi cortada (parada, erro ou Hub desligado) antes do fim; o texto vai até o corte. */
+  interrupted?: boolean
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
   clientNonce?: string
@@ -572,7 +574,7 @@ export function isChat(e: Entry): boolean {
       // O marcador de sessão é só para apps antigos; este app mostra a sessão no topo da conversa.
       return (!e.data.memory || memoryShown(e.data.memory)) && (!e.data.memoryFile || !!migratedMemoryNote(e.data)) && !e.data.compaction && e.data.handoff?.status !== 'kept' && !e.data.sessionMarker
     case 'agent':
-      return e.data.final === true
+      return e.data.final === true || e.data.interrupted === true
     default:
       return false
   }
