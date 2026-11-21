@@ -131,6 +131,14 @@ test('passo concluído antes do corte fica na bolha da resposta interrompida', (
   assert.equal(pending.size, 0)
 })
 
+test('ferramenta já falhada depois da resposta interrompida fica na bolha, sem passo ao vivo', () => {
+  const text = entry('cut', 'agent', 1, 1, { author: 'A', final: false, interrupted: true, text: 'Vou ler o arquivo.' })
+  const tool = entry('fail', 'tool', 1, 2, { author: 'A', title: 'Ler', status: 'failed' })
+  const { byReply, pending } = stepsByReply([text, tool])
+  assert.deepEqual(byReply.get('cut')?.steps.map((s) => s.id), ['fail'])
+  assert.equal(pending.size, 0)
+})
+
 test('turno sem final não vira atividade do pedido seguinte; histórico final e autores são preservados', () => {
   const old = [entry('done-tool', 'tool', 1, 1), entry('done-reply', 'agent', 1, 2, { final: true })]
   // Interrupção e (pass) realmente ficam sem final:true; não sintetizar uma resposta final.
