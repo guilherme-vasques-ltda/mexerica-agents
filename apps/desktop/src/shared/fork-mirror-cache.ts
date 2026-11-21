@@ -72,6 +72,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
 // Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
 // motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
+// Schema 63: a lista de chaves de API do motor traz `enderecos` (endereços próprios já salvos, sem a chave); cache
+// anterior não tem o campo e a tela mostraria a lista vazia até a próxima leitura. App antigo ignora o campo.
 // Schema 65: Marketplace — o `marketFerramentas` traz, em cada ferramenta, `descricao` (o texto que o modelo lê, já
 // filtrado; `null` enquanto o Hub não o leu), `campos` (o texto de cada campo), `apresentacao` (a lista que a pessoa
 // confirma antes de ligar) e `mudou` (as partes que o fornecedor mudou desde que a pessoa ligou). Lido sob demanda,

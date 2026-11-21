@@ -271,6 +271,7 @@ fn temporary_failure_preserves_the_account_id_and_recovers_without_a_phantom() {
                 );
                 candidate
             }
+            Backend::Grok => unreachable!("o Grok tem teste próprio em engine_setup/grok"),
         };
         let mut registry = Registry { salt: "test".into(), accounts: vec![] };
         let mut failure = observation(backend);
@@ -296,6 +297,7 @@ fn temporary_failure_preserves_the_account_id_and_recovers_without_a_phantom() {
         match backend {
             Backend::Claude => probe::claude_status(&mut logged_out, &json!({"loggedIn":false}), false),
             Backend::Codex => probe::codex_account(&mut logged_out, &json!({"account":null})),
+            Backend::Grok => unreachable!("o Grok tem teste próprio em engine_setup/grok"),
         }
         registry.refresh(vec![logged_out]);
         assert_eq!(registry.accounts.len(), 1);
@@ -555,6 +557,42 @@ fn indisponibilidade_nao_ressuscita_conta_desconectada_e_cofre_fechado_nao_deslo
         registry.accounts.iter().find(|a| matches!(a.launch, LaunchReference::VaultProfile { .. })).unwrap().state,
         State::Disconnected
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn bot_com_conta_grok_executa_so_o_executavel_gravado_na_conta() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("grok-cmd-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // Espaço no caminho de propósito: o executável tem de entrar entre aspas na linha.
+    let executable = dir.join("grok build");
+    std::fs::write(&executable, b"#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let created = managed::create(&store, Backend::Grok, "Fixture", "cli", "cmd-proof").unwrap();
+    let id = created["id"].as_str().unwrap();
+    let mut registry = Registry::load(&store).unwrap();
+    let revision = registry.account(id).unwrap().managed.as_ref().unwrap().revision;
+    registry.account_mut(id, revision).unwrap().launch =
+        LaunchReference::CliProfile { executable: executable.clone(), directory: dir.clone() };
+    registry.persist(&store).unwrap();
+    let bot: crate::store::BotConfig = serde_json::from_value(
+        json!({"id":"fixture","name":"Fixture","backend":"grok","forkEditor":{"engineAccountId":id}}),
+    )
+    .unwrap();
+    // O executável gravado (com espaço no caminho) entra entre aspas e os argumentos como elementos
+    // separados: quem executa vê argv, nunca uma linha para o shell interpretar.
+    let command = managed::recorded_command(&store, &bot).unwrap().pop().unwrap();
+    assert_eq!(
+        shlex::split(&command).unwrap(),
+        vec![executable.to_string_lossy().into_owned(), "agent".into(), "stdio".into()]
+    );
+    // Fail-closed: sem o executável gravado, nenhum candidato do PATH ou do catálogo é usado.
+    std::fs::remove_file(&executable).unwrap();
+    let erro = managed::recorded_command(&store, &bot).unwrap_err().to_string();
+    assert!(erro.starts_with("cli_unavailable"), "{erro}");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

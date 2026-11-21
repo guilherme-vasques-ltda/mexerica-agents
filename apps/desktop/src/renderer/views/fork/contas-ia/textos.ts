@@ -232,13 +232,13 @@ const ERROS = [
   'request_conflict', 'account_busy', 'account_in_use', 'account_invalid', 'account_not_found', 'account_incompatible',
   'accounts_unavailable', 'legacy_preserved', 'profile_invalid', 'setup_in_progress', 'api_form_required',
   'operation_expired', 'operation_stale', 'operation_limit', 'auth_code_invalid', 'auth_input_unavailable', 'invalid_field',
-  'request_pending',
+  'request_pending', 'credential_not_erased',
 ] as const
 /** Motivos da fase final sem sucesso (`errorCode` da operação). */
 const FALHAS = [
   'setup_cancelled', 'setup_expired', 'auth_url_invalid', 'auth_correlation_invalid', 'auth_capability_unavailable',
   'auth_protocol_invalid', 'auth_output_limit', 'auth_failed', 'cli_incompatible', 'open_codex_unavailable', 'account_busy', 'account_unverified',
-  'identity_changed', 'account_conflict', 'install_integrity_invalid', 'setup_failed',
+  'identity_changed', 'account_conflict', 'install_integrity_invalid', 'grok_not_installed', 'setup_failed',
 ] as const
 
 /** A chave do catálogo para um código de erro do Hub, ou `null` (a tela mostra a mensagem do Hub). */

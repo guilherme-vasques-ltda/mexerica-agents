@@ -13,7 +13,7 @@ import { ContasDoHub } from '../contas-ia/ContasDoHub'
 import { LinhaDaConta } from '../contas-ia/FalhaDeConta'
 import { engineDaSessao } from '../seletor-modelo/regras'
 import { useModel } from '../../../lib/observable'
-import { isEngine } from '../contas-ia/regras'
+import { motorComConta } from '../../../../shared/fork-criar-bot-destino'
 import '../contas-ia/contas-ia.css'
 import type { BotSettingsStore } from './bot-settings-store'
 import { accountOptions, accountPatch, applyEnginePatch, modelPatch, selectedAccount, cobrancaDaConta } from './engine-account'
@@ -35,7 +35,7 @@ export function ContaDoMotor({ bot, editor, draft, model, disabled }: {
   const remote = !store.canManageEngineAccounts
   const profile = draft ?? editor.profile
   const backend = profile.backend ?? bot.backend
-  if (!isEngine(backend)) return null
+  if (!motorComConta(backend)) return null
   const selected = selectedAccount(profile)
   const account = selected ? editor.engineAccounts.find((a) => a.id === selected) ?? null : null
   const billing = account ? cobrancaDaConta(account) : null
