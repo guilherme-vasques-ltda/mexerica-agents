@@ -15,6 +15,8 @@ use std::{
 use tokio::sync::watch;
 
 const TURN_LIMIT: Duration = Duration::from_secs(600);
+/// Prazo da exclusão do bot para o Codex da conversa sair; passado o prazo, o encerramento forçado segue até a saída.
+const STOP_LIMIT: Duration = Duration::from_secs(12);
 const MAX_REPLY: usize = 200_000;
 /// Código JSON-RPC com que o Codex recusa retomar uma thread que não existe neste perfil.
 const INVALID_REQUEST: i64 = -32600;
@@ -105,6 +107,29 @@ pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result
 pub(crate) fn stop(bot: &str) {
     if let Some(r) = RUNNING.locked().as_ref().and_then(|running| running.get(bot)) {
         let _ = r.cancel.send(true);
+    }
+}
+
+/// Depois da exclusão (que já interrompeu o turno): espera o turno do bot terminar e o Codex dele sair, porque a
+/// reserva só é solta depois da saída. Falso quando o prazo acabou com o processo ainda vivo; a reserva continua.
+pub(crate) async fn stopped(bot: &str) -> bool {
+    stopped_within(bot, STOP_LIMIT).await
+}
+
+async fn stopped_within(bot: &str, limit: Duration) -> bool {
+    let done = RUNNING.locked().as_ref().and_then(|running| running.get(bot)).map(|r| r.done.clone());
+    let Some(mut done) = done else { return true };
+    let exited = tokio::time::timeout(limit, async { while done.changed().await.is_ok() {} }).await.is_ok();
+    if !exited {
+        tracing::warn!("o Codex de uma conversa apagada ainda não saiu; a reserva da conta continua até a saída");
+    }
+    exited
+}
+
+/// Encerra o Codex e só volta depois da saída confirmada: enquanto ele vive, a reserva da conta continua.
+async fn reap(rpc: &mut Rpc) {
+    while !rpc.terminate().await {
+        tracing::warn!("o Codex da conversa ainda não saiu; a conta continua reservada");
     }
 }
 
@@ -207,6 +232,7 @@ async fn turn_in_profile(
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     };
     let bot = reply.bot.clone();
+    let saved = hub.store.kv_read(&thread_key(lane))?;
     // A exclusão do bot grava sob a mesma trava do banco: ou o processo nasce antes dela (e é cancelado e esperado),
     // ou o lançamento já vê o bot apagado.
     let child = {
@@ -218,22 +244,32 @@ async fn turn_in_profile(
         crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?
     };
     let mut rpc = Rpc::from_child(child)?;
-    let saved = hub.store.kv_read(&thread_key(lane))?;
-    let keep = |thread: &str| {
+    let stopped = cancel.clone();
+    // O ponto em que o texto passa a ser entregue ao Codex: a exclusão e o cancelamento são conferidos aqui, depois de
+    // o commit da exclusão e antes de o `turn/start` seguir; o que vier depois é encerrado e esperado por `stopped`.
+    let before_text = |thread: &str| {
         if saved.as_deref() != Some(thread)
             && let Err(error) = hub.store.kv_set_if_bot(&bot, &thread_key(lane), thread)
         {
             tracing::warn!(%error, "conversa da Open não guardou a thread do Codex");
         }
+        ensure!(
+            !*stopped.borrow() && matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted),
+            "open_chat_cancelled"
+        );
+        Ok(())
     };
-    let outcome = drive(&mut rpc, saved.as_deref(), instructions, text, cancel, keep, |delta| reply.push(delta)).await;
+    let outcome =
+        drive(&mut rpc, saved.as_deref(), instructions, text, cancel, before_text, |delta| reply.push(delta)).await;
     match outcome {
         Ok(_) => {
-            let _ = rpc.finish().await;
+            if rpc.finish().await.is_err() {
+                reap(&mut rpc).await;
+            }
             Ok(())
         }
         Err(error) => {
-            rpc.terminate().await;
+            reap(&mut rpc).await;
             Err(error)
         }
     }
@@ -347,7 +383,7 @@ pub(crate) async fn drive(
     instructions: &str,
     text: &str,
     cancel: &mut watch::Receiver<bool>,
-    keep_thread: impl FnOnce(&str),
+    before_text: impl FnOnce(&str) -> Result<()>,
     mut on_delta: impl FnMut(&str) -> bool,
 ) -> Result<String> {
     rpc.set_line_limit(LINE_LIMIT);
@@ -380,7 +416,7 @@ pub(crate) async fn drive(
             .filter(|id| valid_id(id))
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
-        keep_thread(&thread);
+        before_text(&thread)?;
         let turn = rpc
             .call(
                 4,

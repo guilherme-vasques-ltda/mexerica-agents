@@ -71,7 +71,9 @@ pub(crate) async fn call(hub: &Arc<Hub>, authority: &access::Authority, body: Va
         }
     }
     let hub = hub.clone();
-    tokio::task::spawn_blocking(move || -> Result<Value> {
+    let gone: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let gone_in_commit = gone.clone();
+    let value = tokio::task::spawn_blocking(move || -> Result<Value> {
         let _guard = guard;
         let _reservations = reservations;
         authority.require_current(&hub)?;
@@ -149,6 +151,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, authority: &access::Authority, body: Va
         // viram aviso no log e a exclusão gravada se mantém (commit → efeitos).
         tracing::info!(space = %space_id, authority = device_key.unwrap_or("local"),
             bots = deleted.len(), "space deleted");
+        *gone_in_commit.locked() = deleted.iter().map(|(id, _)| id.clone()).collect();
         let _boundary = hub.store.memory_boundary.locked();
         match hub.store.guard_runtime_namespace() {
             Ok(namespace) => crate::guard_hub::mcp::runtime::forget_contexts(&namespace, &removed),
@@ -183,5 +186,11 @@ pub(crate) async fn call(hub: &Arc<Hub>, authority: &access::Authority, body: Va
             "rev":snapshot.revision,"snapshot":value}));
         Ok(value)
     })
-    .await?
+    .await??;
+    // Na Open, a exclusão só é confirmada depois de o Codex de cada conversa apagada sair.
+    let gone = std::mem::take(&mut *gone.locked());
+    for bot in &gone {
+        crate::fork::open_chat::stopped(bot).await;
+    }
+    Ok(value)
 }

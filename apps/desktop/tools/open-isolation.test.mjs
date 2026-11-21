@@ -172,7 +172,7 @@ test('a Open usa papéis nativos de edição sem ponte para a área de transfer�
   assert.doesNotMatch(main, /\bclipboard\b|['"]app:copy['"]/)
 })
 
-test('a abertura descarta a pasta de ajudantes que o Codex deixa ao ser morto, sem aceitar outro link', (t) => {
+test('a abertura tolera a pasta de ajudantes que o Codex deixa ao ser morto, sem apagá-la nem aceitar outro link', (t) => {
   const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const appData = join(home, 'Application Support')
@@ -182,7 +182,7 @@ test('a abertura descarta a pasta de ajudantes que o Codex deixa ao ser morto, s
   mkdirSync(helpers, { recursive: true, mode: 0o700 })
   symlinkSync('/usr/bin/true', join(helpers, 'apply_patch'))
   assert.doesNotThrow(() => openPaths(home, appData))
-  assert.throws(() => lstatSync(join(codex, 'tmp', 'arg0-macos')), { code: 'ENOENT' })
+  assert.ok(lstatSync(join(codex, 'tmp', 'arg0-macos', 'codex-arg0abc')).isDirectory(), 'uma segunda execução não apaga auxiliares em uso; o Hub limpa só os inativos')
   symlinkSync('/usr/bin/true', join(codex, 'tmp', 'apply_patch'))
   assert.throws(() => openPaths(home, appData), undefined, 'link fora da pasta de ajudantes continua recusado')
 })

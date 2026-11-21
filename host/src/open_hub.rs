@@ -156,6 +156,7 @@ mod unix {
                 }
                 private_fs::create_atomic(&marker, PROFILE_FORMAT)?;
             }
+            drop_idle_codex_helpers(&self.data);
             Ok(lock)
         }
 
@@ -210,7 +211,8 @@ mod unix {
                 let metadata = entry.metadata()?;
                 ensure!(metadata.uid() == private_fs::uid(), "wrong owner in Mexerica Open data");
                 if kind.is_dir() && codex_helpers(&entry.path()) {
-                    fs::remove_dir_all(entry.path())?;
+                    // A limpeza é de `drop_idle_codex_helpers`, só depois da trava do perfil.
+                    continue;
                 } else if kind.is_dir() {
                     ensure!(metadata.mode() & 0o022 == 0, "writable directory in Mexerica Open data");
                     pending.push(entry.path());
@@ -225,21 +227,86 @@ mod unix {
         Ok(())
     }
 
+    /// Pastas de ajudantes que um Codex morto à força deixou em `.codex/tmp`. Enquanto vive, o Codex mantém um `flock` no
+    /// `.lock` da sua pasta: só a que aceita o `flock` agora está inativa. Roda com o perfil já travado e o marcador
+    /// confirmado, então nenhuma outra instância da Open limpa nem lança Codex ao mesmo tempo.
+    fn drop_idle_codex_helpers(root: &Path) {
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    continue;
+                }
+                if !codex_helpers(&path) {
+                    pending.push(path);
+                    continue;
+                }
+                for helper in fs::read_dir(&path).into_iter().flatten().flatten() {
+                    drop_if_idle(&helper.path());
+                }
+                let _ = fs::remove_dir(&path);
+            }
+        }
+    }
+
+    fn drop_if_idle(dir: &Path) {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+        let uid = private_fs::uid();
+        if !fs::symlink_metadata(dir).is_ok_and(|meta| meta.is_dir() && meta.uid() == uid) {
+            return;
+        }
+        let Ok(lock) =
+            fs::OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOFOLLOW).open(dir.join(".lock"))
+        else {
+            return;
+        };
+        if !lock.metadata().is_ok_and(|meta| meta.is_file() && meta.uid() == uid && meta.nlink() == 1) {
+            return;
+        }
+        // SAFETY: descritor aberto e válido deste arquivo; o `flock` só trava, nunca lê nem escreve.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return;
+        }
+        if let Err(error) = fs::remove_dir_all(dir) {
+            tracing::warn!(%error, "não limpou uma pasta de ajudantes inativa do Codex");
+        }
+    }
+
     #[cfg(test)]
     #[test]
-    fn startup_drops_codex_helper_links_and_still_refuses_any_other_link() {
+    fn codex_helpers_stay_until_the_profile_is_locked_and_each_one_is_idle() {
+        use std::os::fd::AsRawFd;
         use std::os::unix::fs::{DirBuilderExt, symlink};
         let root = std::env::temp_dir().join(format!("open-data-{}", uuid::Uuid::new_v4()));
-        let helpers = root.join("accounts/a1/.codex/tmp/arg0-macos/codex-arg0abc");
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(&helpers).unwrap();
-        symlink("/usr/bin/true", helpers.join("apply_patch")).unwrap();
+        let tmp = root.join("accounts/a1/.codex/tmp");
+        let helper = |parent: &str, name: &str, lock: bool| {
+            let dir = tmp.join(parent).join(name);
+            fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).unwrap();
+            if lock {
+                fs::write(dir.join(".lock"), b"").unwrap();
+            }
+            symlink("/usr/bin/true", dir.join("apply_patch")).unwrap();
+            dir
+        };
+        let idle = helper("arg0-macos", "codex-arg0idle", true);
+        let live = helper("arg0-macos", "codex-arg0live", true);
+        let bare = helper("arg0-linux", "codex-arg0bare", false);
         validate_data(&root).unwrap();
-        assert!(
-            !root.join("accounts/a1/.codex/tmp/arg0-macos").exists(),
-            "a pasta de ajudantes do Codex é recriada por ele"
-        );
-        assert!(root.join("accounts/a1/.codex/tmp").is_dir());
-        symlink("/usr/bin/true", root.join("accounts/a1/.codex/tmp/apply_patch")).unwrap();
+        assert!(idle.exists() && live.exists() && bare.exists(), "a validação inicial não apaga nada");
+        let held = fs::File::open(live.join(".lock")).unwrap();
+        // SAFETY: descritor válido do arquivo aberto acima.
+        assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+        drop_idle_codex_helpers(&root);
+        assert!(!idle.exists(), "a pasta inativa sai depois da trava do perfil");
+        assert!(live.exists(), "a pasta de um Codex vivo fica");
+        assert!(bare.exists(), "sem o .lock do Codex não há prova de que está inativa");
+        drop(held);
+        drop_idle_codex_helpers(&root);
+        assert!(!live.exists() && !tmp.join("arg0-macos").exists(), "solto o lock, a outra ordem também limpa");
+        symlink("/usr/bin/true", tmp.join("apply_patch")).unwrap();
         assert!(validate_data(&root).is_err(), "link fora da pasta de ajudantes continua recusado");
         let _ = fs::remove_dir_all(&root);
     }

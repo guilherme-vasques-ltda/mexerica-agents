@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{RUNNING, Running, drive, notice, with_idle_account};
+use super::{RUNNING, Running, drive, notice, stop, stopped_within, with_idle_account};
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
@@ -85,7 +85,10 @@ async fn turn_keeping(
         "Fixture instructions",
         "Oi",
         &mut cancel,
-        |id| kept = Some(id.to_owned()),
+        |id| {
+            kept = Some(id.to_owned());
+            Ok(())
+        },
         |delta| {
             text.push_str(delta);
             true
@@ -242,7 +245,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
         "Fixture instructions",
         "Oi",
         &mut cancel,
-        |_| {},
+        |_| Ok(()),
         |_| {
             pieces += 1;
             pieces < 2
@@ -256,4 +259,97 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
     assert_eq!(result.unwrap_err().to_string(), "open_chat_too_long");
     assert_eq!(pieces, 2, "nothing is read past the piece that crossed the limit");
     assert!(find(&sent, "turn/interrupt").is_some());
+}
+
+#[tokio::test]
+async fn text_is_not_delivered_once_the_check_before_it_refuses() {
+    let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("log");
+    let child = tokio::process::Command::new("python3")
+        .args(["-I", "-c", FAKE])
+        .env("FAKE_MODE", "ok")
+        .env("FAKE_LOG", &log)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+    let (_cancel_tx, mut cancel) = watch::channel(false);
+    let result = drive(
+        &mut rpc,
+        None,
+        "Fixture instructions",
+        "texto que não pode chegar",
+        &mut cancel,
+        |_| Err(anyhow::anyhow!("open_chat_cancelled")),
+        |_| true,
+    )
+    .await;
+    assert!(rpc.terminate().await);
+    let sent: Vec<Value> =
+        std::fs::read_to_string(&log).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(result.unwrap_err().to_string(), "open_chat_cancelled");
+    assert!(find(&sent, "thread/start").is_some(), "a thread já existia quando a conferência recusou");
+    assert!(find(&sent, "turn/start").is_none(), "o texto nunca chega ao Codex");
+}
+
+#[tokio::test]
+async fn terminating_confirms_the_exit_of_the_whole_process_group() {
+    let child = tokio::process::Command::new("sleep")
+        .arg("30")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let pid = i32::try_from(child.id().unwrap()).unwrap();
+    let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+    assert!(rpc.terminate().await, "a saída foi confirmada");
+    // SAFETY: sinal 0 só consulta se o processo existe.
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "o processo não existe mais");
+}
+
+fn register(bot: &str) -> (watch::Receiver<bool>, watch::Sender<()>) {
+    let (cancel, cancel_rx) = watch::channel(false);
+    let (done, done_rx) = watch::channel(());
+    RUNNING.locked().get_or_insert_with(Default::default).insert(
+        bot.into(),
+        Running { hub: std::sync::Weak::new(), account: "delete-account".into(), cancel, done: done_rx },
+    );
+    (cancel_rx, done)
+}
+
+#[tokio::test]
+async fn deleting_waits_for_a_slow_codex_to_exit_and_then_frees_the_reservation() {
+    let bot = "delete-slow-bot";
+    let (mut cancel, done) = register(bot);
+    let exit = tokio::spawn(async move {
+        cancel.wait_for(|stop| *stop).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        RUNNING.locked().as_mut().unwrap().remove(bot);
+        drop(done);
+    });
+    stop(bot);
+    let started = std::time::Instant::now();
+    assert!(stopped_within(bot, std::time::Duration::from_secs(5)).await);
+    assert!(started.elapsed() >= std::time::Duration::from_millis(350), "a exclusão esperou o Codex sair");
+    exit.await.unwrap();
+    assert!(with_idle_account("delete-account", || Ok(())).is_ok(), "com o Codex fora, a conta fica livre");
+}
+
+#[tokio::test]
+async fn deleting_reports_a_codex_that_does_not_exit_in_time_and_keeps_the_account_reserved() {
+    let bot = "delete-stuck-bot";
+    let (_cancel, done) = register(bot);
+    stop(bot);
+    assert!(!stopped_within(bot, std::time::Duration::from_millis(100)).await);
+    let busy = with_idle_account("delete-account", || Ok(()));
+    assert!(busy.unwrap_err().to_string().starts_with("account_busy"), "a reserva continua enquanto o processo vive");
+    RUNNING.locked().as_mut().unwrap().remove(bot);
+    drop(done);
+    assert!(stopped_within(bot, std::time::Duration::from_millis(100)).await);
 }

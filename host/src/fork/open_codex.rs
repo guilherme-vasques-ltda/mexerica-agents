@@ -247,6 +247,7 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
         Ok::<_, anyhow::Error>(selection)
     })
     .await
+    .inspect_err(|error| tracing::warn!(%error, "a verificação do Codex da Open não terminou"))
     .ok()
     .and_then(Result::ok)
     .context("open_codex_unavailable")?;
