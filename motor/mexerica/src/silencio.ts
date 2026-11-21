@@ -26,6 +26,7 @@ export function comPrazoDeSilencio(base: Fetch, prazoMs = SILENCIO_MS): Fetch {
 		const silencio = new SilencioDoFornecedor(prazoMs);
 		const rearmar = () => {
 			clearTimeout(relogio);
+			if (corte.signal.aborted) return;
 			relogio = setTimeout(() => corte.abort(silencio), prazoMs);
 		};
 		// Cancelar de fora (inclusive o leitor que sai no evento final sem drenar o corpo) também desarma o prazo.
