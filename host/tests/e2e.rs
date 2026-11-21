@@ -105,6 +105,21 @@ impl Host {
         v
     }
 
+    /// Uma chamada que pode ser recusada: devolve o corpo, sucesso ou erro.
+    async fn try_call(&self, method: &str, body: Value) -> Value {
+        let res = reqwest::Client::new()
+            .post(format!("{}/api/{method}", self.base))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        let ok = res.status().is_success();
+        let v: Value = res.json().await.unwrap();
+        assert!(!ok || v.get("error").is_none(), "{method}: {v}");
+        v
+    }
+
     /// Polls the bot's history until `pred` matches an entry.
     async fn wait_for(&self, bot: &str, pred: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -683,9 +698,13 @@ async fn wire_shape_matches_the_snapshot() {
         .await;
     assert_eq!(sent["entry"]["data"]["contentOrigin"]["status"], "appReported");
     assert_eq!(sent["entry"]["data"]["contentOrigin"]["ingress"], json!({"caller":"local"}));
-    let retry = host.call("send", json!({"botId":bot,"text":"changed","clientNonce":"n1","human":true})).await;
+    // Reenvio com a mesma chave devolve a mensagem original, sem trocar a procedência; com outro texto é recusado.
+    let retry = host.call("send", json!({"botId":bot,"text":"go","clientNonce":"n1","human":true})).await;
+    assert_eq!(retry["entry"]["id"], sent["entry"]["id"]);
     assert_eq!(retry["entry"]["data"]["contentOrigin"], sent["entry"]["data"]["contentOrigin"]);
     assert_eq!(retry["entry"]["data"]["text"], "go");
+    let changed = host.try_call("send", json!({"botId":bot,"text":"changed","clientNonce":"n1","human":true})).await;
+    assert!(changed.to_string().contains("nonce_intent_conflict"), "{changed}");
     let card = host.wait_for(&bot, |e| e["kind"] == "permission" && e["data"]["status"] == "pending").await;
     host.call(
         "respondPermission",

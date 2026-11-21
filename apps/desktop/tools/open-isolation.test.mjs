@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,6 +14,12 @@ import { traduzir } from '../src/renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../src/shared/fork-idioma.ts'
 
 const require = createRequire(import.meta.url)
+
+function hardLinkToSymlink(source, target) {
+  const link = spawnSync('ln', ['-P', source, target], { encoding: 'utf8' })
+  assert.equal(link.status, 0, link.stderr)
+  assert.equal(lstatSync(target).nlink, 2)
+}
 
 test('a Open usa apenas identificadores próprios, no pacote e em execução', () => {
   const config = require('./open-builder.cjs')
@@ -121,7 +128,7 @@ test('a segunda execução passa pela guarda com as travas da instância aberta,
   assert.throws(() => openPaths(home, appData))
   rmSync(remote)
   reset()
-  linkSync(join(userData, 'SingletonLock'), join(home, 'outro-nome'))
+  hardLinkToSymlink(join(userData, 'SingletonLock'), join(home, 'outro-nome'))
   assert.throws(() => openPaths(home, appData))
   rmSync(join(home, 'outro-nome'))
   const nested = join(userData, 'Network')

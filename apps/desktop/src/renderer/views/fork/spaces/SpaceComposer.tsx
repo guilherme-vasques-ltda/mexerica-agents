@@ -3,13 +3,14 @@ import { Icon } from '../../../components/Icon'
 import { useT } from '../../../lib/fork-i18n/estado'
 import type { SpaceContext, SpaceMessage } from '../../../store/fork-space-context'
 import { erroDoEnvio, type ErroDoEnvio } from './erro-envio'
+import { filaCheia } from '../conversa/fila'
 
 /** Montado por Hub/Space/conversa: texto, nonce e erros nunca passam à próxima seleção. */
 export function SpaceComposer({ context }: { context: SpaceContext }) {
   const t = useT()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<false | ErroDoEnvio>(false)
+  const [error, setError] = useState<false | ErroDoEnvio | 'conversa.fila.erro.cheia'>(false)
   const field = useRef<HTMLTextAreaElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const pending = useRef<SpaceMessage | null>(null)
@@ -29,7 +30,7 @@ export function SpaceComposer({ context }: { context: SpaceContext }) {
       pending.current ??= context.prepareMessage(text)
       await pending.current.send()
       if (alive.current) { setText(''); pending.current = null }
-    } catch (e) { if (alive.current) setError(erroDoEnvio(e)) }
+    } catch (failure) { if (alive.current) setError(filaCheia(failure) ? 'conversa.fila.erro.cheia' : erroDoEnvio(failure)) }
     finally {
       locked.current = false
       if (alive.current) {

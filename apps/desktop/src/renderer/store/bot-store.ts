@@ -20,6 +20,8 @@ import {
 } from '@shared/models'
 import { FileDownloads } from './file-downloads'
 import { ErroFrase } from '../lib/fork-i18n/erro-frase'
+import { traduzir } from '../lib/fork-i18n/index.ts'
+import { idiomaAtual } from '../lib/fork-i18n/estado.ts'
 import { BotSync, sleep } from './bot-sync'
 import type { SessionIntent } from './fork-sessions'
 import { botEditorUpdate } from '@shared/bot-autonomy'
@@ -29,6 +31,12 @@ import { erroDoEnvio, recusaOpen } from '../views/fork/spaces/erro-envio'
 export { builtInBackendName, type Connection } from './bot-mirror'
 
 /** A file picked in the composer, sent with the next message. */
+/** O Hub recusou a mensagem nova porque a fila da conversa está cheia; nada foi criado. */
+const filaCheia = (error: unknown) => {
+  const message = (error as { message?: unknown } | null)?.message
+  return typeof message === 'string' && message.startsWith('queue_full')
+}
+
 export interface OutgoingFile {
   id: string
   name: string
@@ -184,13 +192,16 @@ export class BotStore extends BotSync {
           // link mudou; o texto não se perde e nada vai para a principal.
           const client = this.connectedClient
           const failure = !client || !this.sessions.current(session, client) ? 'linkChanged' : this.sessions.failureOf(error)
-          this.sessions.fail(botId, session.id, failure)
+          // Fila cheia no link atual: um aviso só, o de fila cheia; a bolha fica "não enviada" com Tentar de novo.
+          if (failure === 'failed' && filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
+          else this.sessions.fail(botId, session.id, failure)
           return this.markLocal(nonce, botId, 'failed')
         }
         if (!vinculo.aceitar()) return
         // Recusa tipada (ex.: mismatch) fica registrada como motivo, além da bolha "não enviada".
         if (error instanceof ErroFrase) this.acaoRecusada = error.frase
         if (this.outgoingFiles.has(nonce)) this.lastError = `Couldn't send the files: ${error instanceof Error ? error.message : error}`
+        if (filaCheia(error)) this.lastError = traduzir(idiomaAtual(), 'conversa.fila.erro.cheia')
         this.markLocal(nonce, botId, 'failed', recusaOpen(erroDoEnvio(error)))
       }
     })()

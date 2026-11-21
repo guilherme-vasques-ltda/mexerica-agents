@@ -88,3 +88,40 @@ async fn exact_engine_numbers_missing_size_and_same_bot_session_hub_epoch_withou
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn breakdown_separa_as_partes_e_nunca_inventa_numero() {
+    use crate::chat::context::Parts;
+    let parts = Parts { fixed: 4_000, skills: 400, memory: 801 };
+    let answer = breakdown(10_000, Some(parts));
+    assert_eq!(answer["charsPerToken"], 4);
+    let items = answer["items"].as_array().unwrap();
+    let ids: Vec<_> = items.iter().map(|item| item["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["fixo", "memoria", "skills", "ferramentas", "conversa"]);
+    // Texto contado por nós: tokens estimados (arredonda para cima), nunca marcados como informados.
+    assert_eq!(
+        (&items[0]["chars"], &items[0]["tokens"], &items[0]["origin"]),
+        (&json!(4_000), &json!(1_000), &json!("estimado"))
+    );
+    assert_eq!((&items[1]["chars"], &items[1]["tokens"]), (&json!(801), &json!(201)));
+    assert_eq!(items[2]["tokens"], 100);
+    // Nenhum motor informa as definições de ferramenta: aparece como não informado, sem número.
+    assert_eq!(
+        (&items[3]["origin"], &items[3]["tokens"], &items[3]["chars"]),
+        (&json!("naoInformado"), &json!(null), &json!(null))
+    );
+    // A conversa é o que sobra do total informado pelo motor.
+    assert_eq!((&items[4]["origin"], &items[4]["tokens"]), (&json!("estimado"), &json!(10_000 - 1_000 - 201 - 100)));
+    // Estimativas acima do total: não dá para separar, então não inventa.
+    let over = breakdown(500, Some(parts));
+    assert_eq!((&over["items"][4]["origin"], &over["items"][4]["tokens"]), (&json!("naoInformado"), &json!(null)));
+    // Sem contagem (sessão de antes da medição): nenhuma parte ganha número.
+    let none = breakdown(500, None);
+    assert!(
+        none["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["origin"] == "naoInformado" && item["tokens"].is_null())
+    );
+}

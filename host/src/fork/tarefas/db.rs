@@ -446,7 +446,7 @@ fn reply_turn(c: &Connection, execution: &ExecutionRef, bot: &str, comment_id: &
     let nonce = format!("mx142-task-aviso-{comment_id}-{bot}");
     let poke = c
         .query_row(
-            "SELECT id,turn FROM entries WHERE bot_id=?1 AND kind='user' AND json_extract(data,'$.clientNonce')=?2",
+            "SELECT id,turn FROM entries WHERE bot_id=?1 AND kind='user' AND json_valid(data) AND json_extract(data,'$.clientNonce')=?2",
             params![bot, nonce],
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
         )
