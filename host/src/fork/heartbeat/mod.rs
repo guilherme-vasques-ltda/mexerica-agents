@@ -159,6 +159,72 @@ pub(crate) struct Concessao {
     pub valida: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
+/// O estado das rotinas com uma época: o contador sobe toda vez que uma guarda de escrita do estado é solta, ainda sob o
+/// lock. Quem decidiu algo sob o lock guarda a época e, depois de qualquer espera, confere pelo contador atômico (sem
+/// lock) se o estado seguiu o mesmo: qualquer mudança desde a decisão (pausa, edição, exclusão, concessão) a invalida.
+pub(crate) struct EstadoRotinas<T> {
+    dentro: std::sync::Mutex<T>,
+    pub epoca: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl<T: Default> Default for EstadoRotinas<T> {
+    fn default() -> Self {
+        Self { dentro: std::sync::Mutex::default(), epoca: std::sync::Arc::default() }
+    }
+}
+
+/// Acesso direto ao `Mutex` por baixo (`lock`, `try_lock`): só para leitura; quem muda o estado passa por `locked`.
+impl<T> std::ops::Deref for EstadoRotinas<T> {
+    type Target = std::sync::Mutex<T>;
+    fn deref(&self) -> &Self::Target {
+        &self.dentro
+    }
+}
+
+pub(crate) struct GuardaEstado<'a, T> {
+    guarda: std::sync::MutexGuard<'a, T>,
+    epoca: &'a std::sync::atomic::AtomicU64,
+    mutou: bool,
+}
+
+impl<T> std::ops::Deref for GuardaEstado<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.guarda
+    }
+}
+
+impl<T> std::ops::DerefMut for GuardaEstado<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.mutou = true;
+        &mut self.guarda
+    }
+}
+
+impl<T> Drop for GuardaEstado<'_, T> {
+    fn drop(&mut self) {
+        if self.mutou {
+            self.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+impl<T> crate::LockExt<T> for EstadoRotinas<T> {
+    type Guard<'a>
+        = GuardaEstado<'a, T>
+    where
+        T: 'a;
+
+    #[track_caller]
+    fn locked(&self) -> Self::Guard<'_> {
+        GuardaEstado {
+            guarda: self.dentro.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            epoca: &self.epoca,
+            mutou: false,
+        }
+    }
+}
+
 /// O que se guarda no estado como identidade da concessão, sem a identidade bruta.
 pub(crate) fn identidade_de(bruta: &str) -> String {
     avaliar::resumir(&["concessao", bruta])

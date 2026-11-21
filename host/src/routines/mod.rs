@@ -212,7 +212,7 @@ type Fontes = std::collections::HashMap<(String, String), crate::fork::heartbeat
 type Travas = Vec<(std::sync::Weak<dyn crate::fork::heartbeat::Fonte>, Arc<std::sync::atomic::AtomicBool>)>;
 
 pub struct Routines {
-    state: Mutex<State>,
+    state: crate::fork::heartbeat::EstadoRotinas<State>,
     active: Mutex<HashSet<String>>,
     scheduler: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stopping: std::sync::atomic::AtomicBool,
@@ -230,6 +230,9 @@ pub struct Routines {
     /// Testes: roda entre o despacho de uma chamada e o início dela, para mudar o estado nessa janela.
     #[cfg(test)]
     pub(crate) entre_despacho_e_chamada: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Testes: roda na linha de execução da chamada, depois de a admissão positiva chegar e antes da chamada.
+    #[cfg(test)]
+    pub(crate) depois_da_admissao: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
     checando: Mutex<HashSet<String>>,
     /// Falhas transitórias injetadas em `prepare_attempt` nos testes.
@@ -243,7 +246,7 @@ pub struct Routines {
 impl Default for Routines {
     fn default() -> Self {
         Self {
-            state: Mutex::default(),
+            state: crate::fork::heartbeat::EstadoRotinas::default(),
             active: Mutex::default(),
             scheduler: Mutex::default(),
             stopping: std::sync::atomic::AtomicBool::default(),
@@ -254,6 +257,8 @@ impl Default for Routines {
             travas: Mutex::default(),
             #[cfg(test)]
             entre_despacho_e_chamada: Mutex::default(),
+            #[cfg(test)]
+            depois_da_admissao: Mutex::default(),
             checando: Mutex::default(),
             #[cfg(test)]
             fail_next: std::sync::atomic::AtomicUsize::new(0),
