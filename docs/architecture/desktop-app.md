@@ -33,6 +33,15 @@ reaching the end of a history response determines when there are no earlier mess
 The renderer owns all state; closing the window hides it, so the menu bar keeps its data.
 HTTP to the host leaves from the main process (the loopback API has no CORS).
 
+## Inspeção de tarefas
+
+No Mission Board, Lista e Quadro abrem a mesma ficha. **Quem faz** mostra o responsável registrado,
+sem indicar execução em curso. **Quem decide** e **Precisa de você?** só confirmam uma decisão para
+o usuário quando há uma pergunta ou permissão comum aberta para ele, numa sessão dedicada e
+ligada exclusivamente à tarefa no Space atual. Sem confirmação atual, a ficha diz **Não confirmado**.
+**Para conferir** agrupa tarefas em conferência, sem indicar obrigação. A leitura não chama um
+modelo, não copia mensagens e não cria outra fila para responder.
+
 ### Partes sob demanda (D249 E2)
 
 Todas as janelas abrem a mesma página (`renderer/index.html?window=…`), sem mudança no processo

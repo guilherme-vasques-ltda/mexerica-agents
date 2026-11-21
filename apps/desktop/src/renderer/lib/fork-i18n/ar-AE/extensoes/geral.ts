@@ -14,6 +14,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.pagina.credentials": "بيانات الاعتماد",
   "extensoes.plugins.sobre": "ميزات اختيارية في الـ Hub. انقر على ملحق لعرض خياراته.",
   "extensoes.plugins.whatsapp": "تقرأ روبوتاتك محادثات واتساب وترد عليها، ولكل روبوت رقمه الخاص.",
+  "extensoes.plugins.mailManager": "صناديق بريد في المعاينة، وما يستطيع كل روبوت أن يفعل فيها: عرض وإرسال وحذف.",
   "extensoes.plugins.abrir": "فتح الملحق {nome}",
   "extensoes.plugins.voltar": "الرجوع إلى قائمة الملحقات",
   "extensoes.cred.sobre": "كلمات المرور والمفاتيح وبيانات تسجيل الدخول التي تستخدمها الروبوتات. تُحفظ القيم في الـ Hub ولا تظهر على الشاشة أبدًا.",

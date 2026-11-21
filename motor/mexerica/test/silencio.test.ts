@@ -40,6 +40,76 @@ test("fornecedor que nem responde os cabeçalhos também é cortado", async () =
 	await assert.rejects(fetch("https://api.example.invalid/v1/responses"), SilencioDoFornecedor);
 });
 
+test("cancelar pelo sinal de um Request, sem init, cancela o pedido de baixo", async () => {
+	let recebido: AbortSignal | null | undefined;
+	const fetch = comPrazoDeSilencio((_input, init) => {
+		recebido = init?.signal;
+		return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+	}, 5000);
+	const dono = new AbortController();
+	const pedido = fetch(new Request("https://api.example.invalid/v1/responses", { signal: dono.signal }));
+	dono.abort(new Error("cancelado pelo dono"));
+	await assert.rejects(pedido, /cancelado pelo dono/);
+	assert.equal(recebido?.aborted, true);
+});
+
+test("sair sem drenar o corpo, cancelando de fora, não deixa o prazo armado", async () => {
+	const ativos = new Set<unknown>();
+	const { setTimeout: armar, clearTimeout: desarmar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		const relogio = armar(...args);
+		ativos.add(relogio);
+		return relogio;
+	}) as typeof setTimeout;
+	globalThis.clearTimeout = ((relogio: Parameters<typeof clearTimeout>[0]) => {
+		ativos.delete(relogio);
+		desarmar(relogio);
+	}) as typeof clearTimeout;
+	try {
+		const inicio = new TextEncoder().encode("data: {}\n\n");
+		const fetch = comPrazoDeSilencio(async () => new Response(corpoQueTrava(inicio), { status: 200 }), 60_000);
+		const dono = new AbortController();
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		const leitor = resposta.body!.getReader();
+		await leitor.read();
+		assert.equal(ativos.size, 1, "o prazo do silêncio está armado enquanto a resposta corre");
+		dono.abort();
+		assert.equal(ativos.size, 0, "cancelar de fora desarma o prazo");
+	} finally {
+		globalThis.setTimeout = armar;
+		globalThis.clearTimeout = desarmar;
+	}
+});
+
+test("cancelar entre a leitura e a continuação não arma um prazo novo", async () => {
+	let cancelado = false;
+	let armadosDepois = 0;
+	const { setTimeout: armar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		if (cancelado) armadosDepois++;
+		return armar(...args);
+	}) as typeof setTimeout;
+	try {
+		const dono = new AbortController();
+		type Leitura = { done: boolean; value?: Uint8Array };
+		let entregar!: (leitura: Leitura) => void;
+		const corpo = { getReader: () => ({ read: () => new Promise<Leitura>((resolve) => (entregar = resolve)), cancel: async () => {} }) };
+		const fetch = comPrazoDeSilencio(async () => ({ body: corpo, status: 200, statusText: "", headers: new Headers() }) as unknown as Response, 60_000);
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		await new Promise((resolve) => setImmediate(resolve));
+		entregar({ done: false, value: new Uint8Array([1]) });
+		queueMicrotask(() => {
+			cancelado = true;
+			dono.abort();
+		});
+		await resposta.body!.getReader().read().catch(() => {});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(armadosDepois, 0, "nenhum prazo é armado depois do cancelamento");
+	} finally {
+		globalThis.setTimeout = armar;
+	}
+});
+
 test("resposta lenta mas viva não é cortada", async () => {
 	const partes = [
 		{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } },
@@ -99,7 +169,9 @@ test("redirecionamento nunca leva a chave a outro endereço", async () => {
 		resposta.end("{}");
 	});
 	const portaOutro = await ouvir(outro);
+	let pedidosNoFornecedor = 0;
 	const fornecedor = createServer((_pedido, resposta) => {
+		pedidosNoFornecedor += 1;
 		resposta.writeHead(307, { location: `http://127.0.0.1:${portaOutro}/roubar` });
 		resposta.end();
 	});
@@ -111,7 +183,9 @@ test("redirecionamento nunca leva a chave a outro endereço", async () => {
 		await globalThis.fetch(url, init);
 		assert.deepEqual(recebidos, ["chave-ficticia-de-teste"]);
 		recebidos.length = 0;
+		pedidosNoFornecedor = 0;
 		await assert.rejects(comPrazoDeSilencio(semRedirecionar, 2000)(url, init));
+		assert.equal(pedidosNoFornecedor, 1, "o pedido protegido tinha de chegar ao fornecedor antes de virar erro");
 		assert.deepEqual(recebidos, [], "o pedido com a chave não pode chegar ao outro endereço");
 	} finally {
 		fornecedor.close();

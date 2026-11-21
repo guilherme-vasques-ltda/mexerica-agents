@@ -314,3 +314,14 @@ test('função de fundo: a aba inicial é a do motor da escolha, nunca um motor 
   assert.equal(abaInicialDaFuncao('codex', ps, {}), 'codex', 'aceito')
   assert.equal(abaInicialDaFuncao('', [], {}), '', 'sem motores')
 })
+
+test('favorito de motor que o Hub deixou de oferecer não aparece nem pode ser escolhido', () => {
+  const semKilo: Provedor[] = [
+    { id: 'claude', name: 'Claude', models: [{ id: 'modelo-a', name: 'Modelo A' }] },
+    { id: 'codex', name: 'Codex', models: [{ id: 'modelo-b', name: 'Modelo B' }] },
+  ]
+  const favoritos = ['kilo/modelo', 'codex/modelo-b']
+  assert.deepEqual(favoritosNoCatalogo(favoritos, semKilo).map((f) => f.modelo.id), ['modelo-b'])
+  assert.equal(atalho(favoritos, semKilo, 1), null, 'o atalho do favorito sumido não escolhe nada')
+  assert.equal(atalho(favoritos, semKilo, 2)?.modelo.id, 'modelo-b')
+})

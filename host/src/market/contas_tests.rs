@@ -211,6 +211,7 @@ static CHAVE: Servico = Servico {
             escopos: &[],
             url: None,
             ferramentas: &["listar"],
+            curadas: &[],
             padrao: true,
             disponivel: true,
             imposicao: None,

@@ -25,16 +25,20 @@ export function ApiDireta() {
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
   const [enderecos, setEnderecos] = useState<EnderecoProprio[]>([])
   const [falhou, setFalhou] = useState(false)
+  const geracao = useRef(0)
 
   const reler = async () => {
     const client = liveClient(store)
     if (!client) return
+    const minha = ++geracao.current
     try {
       const lista = await listarChaves(client)
+      if (minha !== geracao.current) return
       setFornecedores(lista.fornecedores)
       setEnderecos(lista.enderecos)
       setFalhou(false)
     } catch {
+      if (minha !== geracao.current) return
       setFalhou(true)
     }
   }

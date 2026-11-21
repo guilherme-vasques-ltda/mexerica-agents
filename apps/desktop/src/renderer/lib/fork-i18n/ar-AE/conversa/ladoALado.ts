@@ -1,0 +1,35 @@
+import type { Traducao } from '../../index.ts'
+import type { textos as fonte } from '../../pt-BR/conversa/ladoALado.ts'
+
+// conversa/ladoALado (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos: Traducao<typeof fonte> = {
+  'conversa.ladoALado.titulo': "جنبًا إلى جنب",
+  'conversa.ladoALado.entrar': "فتح جنبًا إلى جنب",
+  'conversa.ladoALado.sair': "العودة إلى محادثة واحدة",
+  'conversa.ladoALado.abrirNoMenu': "فتح جنبًا إلى جنب",
+  'conversa.ladoALado.regiao': "لوحة جنبًا إلى جنب",
+  'conversa.ladoALado.contagem': "{atual} من {maximo}",
+  'conversa.ladoALado.adicionar': "إضافة محادثة",
+  'conversa.ladoALado.adicionarCurto': "إضافة",
+  'conversa.ladoALado.semConversas': "لا توجد محادثة أخرى متاحة في هذا الـ Space",
+  'conversa.ladoALado.principal': "الرئيسية",
+  'conversa.ladoALado.painelDe': "لوحة {nome}",
+  'conversa.ladoALado.painelDeSessao': "لوحة {nome} · {sessao}",
+  'conversa.ladoALado.trocar': "تبديل المحادثة",
+  'conversa.ladoALado.moverEsquerda': "نقل إلى اليسار",
+  'conversa.ladoALado.moverDireita': "نقل إلى اليمين",
+  'conversa.ladoALado.soEsta': "فتح هذه المحادثة فقط",
+  'conversa.ladoALado.fecharPainel': "إغلاق لوحة {nome}",
+  'conversa.ladoALado.fecharAviso': "تجاهل التنبيه",
+  'conversa.ladoALado.vazioTitulo': "اختر محادثة أخرى",
+  'conversa.ladoALado.vazioDetalhe': "حدد محادثة أدناه أو في الشريط الجانبي لمتابعتها جنبًا إلى جنب.",
+  'conversa.ladoALado.avisoLimite': "تم بلوغ الحد الأقصى وهو {maximo} محادثات جنبًا إلى جنب. أغلق لوحة لفتح أخرى.",
+  'conversa.ladoALado.avisoRemovida': "غادرت محادثة اللوحة لأنها لم تعد متاحة.",
+  'conversa.ladoALado.avisoRemovidas': "غادرت {n} محادثات اللوحة لأنها لم تعد متاحة.",
+  'conversa.ladoALado.janelaEstreitaUnico': "النافذة ضيقة جدًا لعرض المحادثات جنبًا إلى جنب. وسّع العرض أو اطوِ الشريط الجانبي.",
+  'conversa.ladoALado.janelaEstreitaParcial': "تتسع {cabem} من {total} لوحات فقط في هذا العرض. وسّع النافذة أو اطوِ الشريط الجانبي لرؤية الكل.",
+  'conversa.ladoALado.recolherBarra': "طي الشريط الجانبي",
+  'conversa.ladoALado.anuncioAdicionada': "أُضيفت {nome} إلى لوحة جنبًا إلى جنب.",
+  'conversa.ladoALado.anuncioFechada': "أُغلقت لوحة {nome}.",
+  'conversa.ladoALado.atalhoPainel': "التبديل بين اللوحات بمفتاح F6",
+}

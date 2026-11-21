@@ -38,6 +38,11 @@ pub(crate) trait Mediation {
     fn before_send(&mut self, _frame: &Value, _method: &str) -> Result<()> {
         Ok(())
     }
+    /// Admissão final no Hub, imediatamente antes de o POST existir: a revogação feita depois da decisão do alvo
+    /// ainda barra o envio. Recusa com `PolicyDenied`.
+    async fn admit(&mut self, _frame: &Value, _method: &str) -> Result<()> {
+        Ok(())
+    }
     fn correlated_result(&mut self, _frame: &Value, _method: &str) -> Result<()> {
         Ok(())
     }
@@ -493,6 +498,7 @@ impl<M: Mediation> Session<M> {
         let mut held = None;
         let send = request.send();
         tokio::pin!(send);
+        self.mediation.admit(frame, method).await?;
         self.mediation.before_send(frame, method)?;
         // Pollar o mesmo futuro imediatamente após o CAS, antes de observar GET.
         // Mesmo se o GET ficar pronto primeiro depois, nenhum futuro/frame se perde.
@@ -587,6 +593,7 @@ impl<M: Mediation> Session<M> {
                     .header("accept", "application/json, text/event-stream")
                     .json(&frame)
                     .timeout(self.mediation.post_timeout());
+                self.mediation.admit(&frame, &method).await?;
                 self.mediation.before_send(&frame, &method)?;
                 let response =
                     request.send().await.map_err(|_| anyhow!("HTTP MCP indisponível; não repetir automaticamente"))?;

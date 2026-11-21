@@ -25,4 +25,5 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.fila.erro.permissao': '此设备已不能再修改队列。',
   'conversa.fila.erro.pendente': '电脑未及时确认，请检查队列。',
   'conversa.fila.erro.falhou': '无法修改队列。',
+  'conversa.fila.erro.cheia': '此对话的队列已满。请等几条消息发出后再发送。',
 }

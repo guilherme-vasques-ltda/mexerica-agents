@@ -50,6 +50,8 @@ const MAX_LABEL: usize = 128;
 /// encerradas, mais as vivas): teto de verdade, e por quanto tempo sem atividade.
 const MAX_SESSIONS: usize = 64;
 const IDLE_TTL: Duration = Duration::from_secs(12 * 3600);
+/// O que o modelo lê no lugar do resultado de uma chamada que o Hub não viu terminar.
+const UNKNOWN_RESULT: &str = "resultado desconhecido: a ação pode ter sido executada; confirme antes de repetir";
 const TRUNCATED: &str = "\n[truncado pelo Hub]";
 
 fn redact_text(text: &str, known: &[String]) -> String {
@@ -132,7 +134,8 @@ fn usage(raw: &Value) -> Value {
     })
 }
 
-/// Blocos de texto de `content` (string ou lista), limpos e dentro do orçamento.
+/// Blocos de texto de `content` (string ou lista), limpos e dentro do orçamento. O teto de blocos conta
+/// só os de texto: os outros tipos não gastam o teto.
 fn text_blocks(content: &Value, known: &[String], budget: &mut usize) -> Vec<Value> {
     match content {
         Value::String(text) => {
@@ -140,8 +143,8 @@ fn text_blocks(content: &Value, known: &[String], budget: &mut usize) -> Vec<Val
         }
         Value::Array(blocks) => blocks
             .iter()
-            .take(MAX_BLOCKS)
             .filter(|block| block["type"] == "text")
+            .take(MAX_BLOCKS)
             .filter_map(|block| clean_text(block["text"].as_str()?, known, budget))
             .map(|t| json!({"type": "text", "text": t}))
             .collect(),
@@ -161,13 +164,23 @@ fn build(message: &Value, known: &[String], mut budget: usize) -> Option<Value> 
             let stop = stop_reason(&message["stopReason"])?;
             let mut content = Vec::new();
             let mut call_ids: Vec<String> = Vec::new();
-            for block in message["content"].as_array()?.iter().take(MAX_BLOCKS) {
+            let mut texts = 0;
+            for block in message["content"].as_array()? {
                 match block["type"].as_str() {
-                    Some("text") => content.extend(
-                        clean_text(block["text"].as_str()?, known, &mut budget)
-                            .map(|t| json!({"type": "text", "text": t})),
-                    ),
+                    Some("text") => {
+                        texts += 1;
+                        if texts <= MAX_BLOCKS {
+                            content.extend(
+                                clean_text(block["text"].as_str()?, known, &mut budget)
+                                    .map(|t| json!({"type": "text", "text": t})),
+                            );
+                        }
+                    }
                     Some("toolCall") => {
+                        // Cada chamada precisa do resultado dela: passar do teto de chamadas descarta a mensagem.
+                        if call_ids.len() >= MAX_BLOCKS {
+                            return None;
+                        }
                         let mut arguments = redigir_json(&block["arguments"], known);
                         if !arguments.is_object() || arguments.to_string().len() > budget {
                             arguments = json!({});
@@ -319,8 +332,8 @@ impl TurnLog {
             return;
         }
         if role(&message) != "toolResult" {
-            // Uma mensagem nova fecha a volta anterior: a chamada que ficou sem resultado sai agora, não enterrada.
-            self.drop_open_calls();
+            // Uma mensagem nova fecha a volta anterior: a chamada que ficou sem resultado é fechada agora.
+            self.close_open_calls();
         }
         self.bytes += size(&message);
         self.messages.push(message);
@@ -341,24 +354,37 @@ impl TurnLog {
             })
     }
 
-    /// Uma volta de ferramentas que não terminou (turno cancelado ou processo morto no meio): a mensagem do assistente
-    /// e os resultados que já chegaram saem juntos. A conversa guardada nunca tem chamada sem o resultado dela.
-    fn drop_open_calls(&mut self) {
+    /// Uma volta de ferramentas que não terminou (turno cancelado ou processo morto no meio): cada chamada sem
+    /// resultado ganha um resultado de erro "desconhecido". A conversa guardada nunca tem chamada sem o resultado dela, e
+    /// o modelo sabe que a ação pode ter sido executada em vez de repeti-la por conta própria.
+    fn close_open_calls(&mut self) {
         let Some(start) = self.messages.iter().rposition(|m| role(m) != "toolResult") else { return };
-        let calls = self.messages[start]["content"]
-            .as_array()
-            .map_or(0, |blocks| blocks.iter().filter(|b| b["type"] == "toolCall").count());
-        let answered = self.messages.len() - start - 1;
-        if role(&self.messages[start]) == "assistant" && calls > answered {
-            self.messages.truncate(start);
-            self.bytes = self.messages.iter().map(size).sum();
-            self.dropped = true;
+        if role(&self.messages[start]) != "assistant" {
+            return;
         }
+        let answered: Vec<Value> = self.messages[start + 1..].iter().map(|m| m["toolCallId"].clone()).collect();
+        let timestamp = self.messages[start]["timestamp"].clone();
+        let missing: Vec<Value> = self.messages[start]["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|block| block["type"] == "toolCall" && !answered.contains(&block["id"]))
+            .map(|block| {
+                json!({"role": "toolResult", "toolCallId": block["id"], "toolName": block["name"], "isError": true,
+                    "content": [{"type": "text", "text": UNKNOWN_RESULT}], "timestamp": timestamp})
+            })
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        self.bytes += missing.iter().map(size).sum::<usize>();
+        self.messages.extend(missing);
+        self.dropped = true;
     }
 
     /// O que o turno guardou e se algo foi descartado (o processo vivo ainda tem esse algo).
     pub(super) fn take(&mut self) -> (Vec<Value>, bool) {
-        self.drop_open_calls();
+        self.close_open_calls();
         self.bytes = 0;
         (std::mem::take(&mut self.messages), std::mem::take(&mut self.dropped))
     }

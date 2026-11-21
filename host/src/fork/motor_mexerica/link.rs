@@ -63,6 +63,7 @@ pub(crate) struct Link {
     pending: Mutex<acp::Pending>,
     next_out: AtomicU64,
     /// So as provas do ator com o motor real dispensam os servidores MCP: o executavel deles seria o binario de testes.
+    #[cfg(test)]
     skip_mcp: std::sync::atomic::AtomicBool,
     /// Limites do modelo escolhido (contexto e teto de saída) guardados pelo «Testar acesso».
     limits: std::sync::OnceLock<LimitsSource>,
@@ -105,6 +106,32 @@ fn provider_of(model_id: &str) -> Result<(String, String)> {
         bail!("o modelo do Motor Mexerica precisa vir como <provedor>/<modelo>: {model_id}")
     };
     Ok((provider.to_owned(), model_id.to_owned()))
+}
+
+/// O texto do `systemPrompt` do ACP: texto puro, ou o objeto `{mode: "append", content: [{type: "text", text}]}` que
+/// o Hub manda (os blocos de texto são juntados; o motor não tem texto próprio, então `append` é o texto inteiro).
+/// Objeto em outro formato é recusado: o bot não pode seguir sem as instruções sem que ninguém saiba.
+pub(super) fn system_text(value: &Value) -> Result<Option<String>> {
+    let blocks = match value {
+        Value::Null => return Ok(None),
+        Value::String(text) => return Ok(Some(text.clone()).filter(|text| !text.is_empty())),
+        Value::Object(prompt) => {
+            ensure!(
+                prompt.get("mode").is_none_or(|mode| mode == "append"),
+                "systemPrompt do Motor Mexerica só aceita o modo append"
+            );
+            prompt.get("content").and_then(Value::as_array).context("systemPrompt do Motor Mexerica sem content")?
+        }
+        _ => bail!("systemPrompt do Motor Mexerica tem de ser texto ou objeto"),
+    };
+    let texts = blocks
+        .iter()
+        .map(|block| match (block["type"].as_str(), block["text"].as_str()) {
+            (Some("text"), Some(text)) => Ok(text),
+            _ => Err(anyhow!("systemPrompt do Motor Mexerica só aceita blocos de texto")),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(texts.join("\n\n")).filter(|text| !text.is_empty()))
 }
 
 /// Geração de uma credencial: impressão digital (só em memória, nunca registrada) do que o cofre guarda para
@@ -233,6 +260,7 @@ impl Link {
             outgoing: Mutex::new(HashMap::new()),
             pending: Mutex::new(acp::Pending::default()),
             next_out: AtomicU64::new(1),
+            #[cfg(test)]
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
             limits: std::sync::OnceLock::new(),
             proprios: std::sync::OnceLock::new(),
@@ -242,6 +270,7 @@ impl Link {
     }
 
     /// Dispensa os servidores MCP deste adaptador (so a prova do ator com o motor real).
+    #[cfg(test)]
     pub(crate) fn skip_mcp_servers(&self) {
         self.skip_mcp.store(true, Ordering::Relaxed);
     }
@@ -437,7 +466,11 @@ impl Link {
         // Falha ao abrir os servidores recusa a sessão: sem isso o bot seguiria sem ferramentas e sem aviso.
         // Só a prova do ator com o motor real (`actor_extra_env` vazio fora dela) dispensa os servidores: o
         // executável deles seria o binário de testes, não um Hub.
-        let servers = if self.skip_mcp.load(Ordering::Relaxed) { json!([]) } else { params["mcpServers"].clone() };
+        #[cfg(test)]
+        let skip = self.skip_mcp.load(Ordering::Relaxed);
+        #[cfg(not(test))]
+        let skip = false;
+        let servers = if skip { json!([]) } else { params["mcpServers"].clone() };
         let mcp = McpHost::start(&servers, &cwd)
             .await
             .map(|host| Some(Arc::new(host)))
@@ -448,7 +481,7 @@ impl Link {
             mcp,
             provider: Mutex::new(String::new()),
             model: Mutex::new(String::new()),
-            system_prompt: Mutex::new(params["systemPrompt"].as_str().map(str::to_owned)),
+            system_prompt: Mutex::new(system_text(&params["systemPrompt"])?),
             pid: Mutex::new(None),
             cancel,
             busy: std::sync::atomic::AtomicBool::new(false),
@@ -548,13 +581,20 @@ impl Link {
         let _busy = BusyGuard(&session.busy);
         self.ensure_engine(&session, &provider, &Credentials::read(&self.vault, &provider, self.proprios.get()))
             .await?;
-        let mut engine = session.engine.lock().await;
-        let engine = engine.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
+        let mut slot = session.engine.lock().await;
+        let engine = slot.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
         let limits = match self.limits.get() {
             Some(source) => source(&provider, &model)?,
             None => json!({}),
         };
-        engine.set_model(&provider, &model, &limits).await?;
+        let result = engine.set_model(&provider, &model, &limits).await;
+        if let Err(error) = result {
+            // O slot nunca guarda um processo cuja conversa de comandos falhou:
+            // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
+            // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
+            *slot = None;
+            return Err(error);
+        }
         *session.provider.locked() = provider;
         *session.model.locked() = model;
         Ok(())
@@ -589,6 +629,12 @@ impl Link {
             let provider = session.provider.locked().clone();
             let model = session.model.locked().clone();
             ensure!(!model.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
+            // Os mesmos limites do set_model: o turno reenvia o modelo ao processo, e reenviar sem limites
+            // devolveria o modelo aos padrões do fornecedor.
+            let limits = match self.limits.get() {
+                Some(source) => source(&provider, &model)?,
+                None => json!({}),
+            };
             // Nada do turno foi entregue ao bot enquanto isto for falso.
             let delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
             // Mensagens que o motor terminou de emitir neste turno (limpas, dentro do teto): viram a
@@ -624,7 +670,7 @@ impl Link {
                     session.history.remember(finished.locked().take());
                     false
                 }
-                result = owned.prompt_with(&provider, &model, &text, &runner, &mut on_event) => {
+                result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
                     if let Err(error) = result {
                         // Falha no meio do turno (processo morto, linha inválida ou
                         // acima do teto, erro do modelo): o stdout pode ter eventos
