@@ -1,7 +1,8 @@
 //! O agente ACP da ponte: atende o Hub pela entrada/saída padrão e conduz, por sessão, um processo do programa
 //! oficial no modo sem tela (`claude -p --input-format stream-json --output-format stream-json`). Um processo
 //! vive enquanto a sessão estiver aberta; se cair, ou se o modelo mudar, o turno seguinte abre outro com
-//! `--resume` na mesma sessão. Cancelar envia SIGINT, que o programa documenta como fim do turno.
+//! `--resume` na mesma sessão. Cancelar envia SIGINT, que o programa documenta como fim do turno; fora do Unix não
+//! há esse sinal e o cancelamento vale pelo prazo e pelo encerramento do processo.
 
 use super::opcoes::{self, Arquivos, ESFORCOS, Opcoes, PromptSistema};
 use super::permissao;
@@ -255,8 +256,10 @@ fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
                         .push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{t}\n</context>")}));
                 } else if let Some(dados) = b["resource"]["blob"].as_str() {
                     let tipo = b["resource"]["mimeType"].as_str().unwrap_or_default();
-                    if !tipo.starts_with("image/") {
-                        return Err(Erro::parametros("recurso binário que não é imagem não é suportado"));
+                    if !["image/jpeg", "image/png", "image/gif", "image/webp"].contains(&tipo) {
+                        return Err(Erro::parametros(
+                            "recurso binário que não é imagem JPEG, PNG, GIF ou WebP não é suportado",
+                        ));
                     }
                     contexto.push(
                         json!({"type": "image", "source": {"type": "base64", "data": dados, "media_type": tipo}}),
