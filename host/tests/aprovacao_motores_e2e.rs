@@ -40,7 +40,9 @@ impl Falsos {
             falsos.escrever(
                 &format!("bin/{motor}"),
                 format!(
-                    "#!/bin/sh\n[ \"$1\" = '--version' ] && echo '{motor} 1.0.0' && exit 0\nexec '{}' -X utf8 -u '{}' {motor} \"$@\"\n",
+                    "#!/bin/sh\n[ \"$1\" = '--version' ] && echo '{motor} 1.0.0' && exit 0\nflags=''\n[ -f '{}' ] && read -r flags < '{}'\nexec '{}' -X utf8 -u '{}' {motor} \"$@\" $flags\n",
+                    quoted(&falsos.raiz.join(format!("bandeiras-{motor}"))),
+                    quoted(&falsos.raiz.join(format!("bandeiras-{motor}"))),
                     quoted(&python),
                     quoted(&fixture)
                 ),
@@ -59,9 +61,18 @@ impl Falsos {
         self.raiz.join("bin").join(motor)
     }
 
+    /// Argumentos que o motor de mentira recebe a mais, como se o usuário o tivesse configurado assim.
+    fn bandeiras(&self, motor: &str, texto: &str) {
+        std::fs::write(self.raiz.join(format!("bandeiras-{motor}")), texto).unwrap();
+    }
+
     async fn hub(&self) -> Host {
+        Host::start_isolado(&self.env()).await
+    }
+
+    fn env(&self) -> Vec<(&'static str, OsString)> {
         let em = |sub: &str| self.raiz.join(sub).into_os_string();
-        let env: Vec<(&str, OsString)> = vec![
+        vec![
             ("HOME", em("home")),
             ("PATH", em("bin")),
             ("SHELL", em("shell-falso")),
@@ -73,8 +84,7 @@ impl Falsos {
             ("MEXERICA_TESTE_ISOLADO", "1".into()),
             // Se o Hub herdasse isto do ambiente, o teste do Kilo passaria sem o Hub impor nada.
             ("KILO_PERMISSION", "{}".into()),
-        ];
-        Host::start_isolado(&env).await
+        ]
     }
 }
 
@@ -105,7 +115,17 @@ async fn enviar(host: &Host, bot: &str, texto: &str) {
 }
 
 /// O cartão de permissão pendente, ou `None` se o turno terminou antes de aparecer um.
-async fn cartao_pendente(host: &Host, bot: &str) -> Option<Value> {
+async fn finais(host: &Host, bot: &str) -> usize {
+    let historico = host.call("history", json!({"botId": bot})).await;
+    historico["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
+        .count()
+}
+
+async fn cartao_pendente(host: &Host, bot: &str, finais_antes: usize) -> Option<Value> {
     let fim = Instant::now() + Duration::from_secs(20);
     while Instant::now() < fim {
         let historico = host.call("history", json!({"botId": bot})).await;
@@ -113,7 +133,7 @@ async fn cartao_pendente(host: &Host, bot: &str) -> Option<Value> {
         if let Some(cartao) = entradas.iter().find(|e| e["kind"] == "permission" && e["data"]["status"] == "pending") {
             return Some(cartao.clone());
         }
-        if entradas.iter().any(|e| e["kind"] == "agent" && e["data"]["final"] == true) {
+        if entradas.iter().filter(|e| e["kind"] == "agent" && e["data"]["final"] == true).count() > finais_antes {
             return None;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -138,10 +158,11 @@ const CLINE: [&str; 4] = ["read", "edit", "bash", "manage_update_bot"];
 /// Roda um turno: toda ferramenta precisa virar cartão antes de executar. Aprova tudo menos o comando, que recusa.
 /// Devolve as opções do primeiro cartão.
 async fn turno_com_cartoes(host: &Host, bot: &str, com_cartao: &[&str], aprovar: &str, recusar: &str) -> Vec<String> {
+    let antes = finais(host, bot).await;
     enviar(host, bot, "faça as alterações").await;
     let mut opcoes = Vec::new();
     for ferramenta in com_cartao {
-        let cartao = cartao_pendente(host, bot)
+        let cartao = cartao_pendente(host, bot, antes)
             .await
             .unwrap_or_else(|| panic!("{ferramenta}: o motor executou sem pedir cartão: {:?}", decisoes(host, bot)));
         assert!(!executou(host, bot, ferramenta), "{ferramenta}: executou antes de o dono decidir");
@@ -155,7 +176,7 @@ async fn turno_com_cartoes(host: &Host, bot: &str, com_cartao: &[&str], aprovar:
         }
         responder(host, &cartao, if *ferramenta == "bash" { recusar } else { aprovar }).await;
     }
-    assert!(cartao_pendente(host, bot).await.is_none(), "sobrou cartão além dos esperados");
+    assert!(cartao_pendente(host, bot, antes).await.is_none(), "sobrou cartão além dos esperados");
     opcoes
 }
 
@@ -218,9 +239,9 @@ async fn cline_nao_liga_aprovacao_automatica_pelas_opcoes_do_bot() {
 #[tokio::test]
 async fn cline_lancado_com_aprovacao_automatica_volta_a_perguntar() {
     let falsos = Falsos::nova();
+    falsos.bandeiras("cline", "--auto-approve true");
     let host = falsos.hub().await;
-    let comando = format!("{} --acp --auto-approve true", falsos.binario("cline").display());
-    let bot = criar_bot(&host, "cline", json!({"command": comando})).await;
+    let bot = criar_bot(&host, "cline", json!({})).await;
     turno_com_cartoes(&host, &bot, &CLINE, "allow_once", "reject_once").await;
     confere_efeitos(&host, &bot, &CLINE);
     let pedidos = std::fs::read_to_string(pasta(&host, &bot).join("requests.jsonl")).unwrap();
@@ -230,33 +251,45 @@ async fn cline_lancado_com_aprovacao_automatica_volta_a_perguntar() {
     );
 }
 
-/// Cline com a aprovação automática ligada que o Hub não consegue desligar, ou que nem informa o estado: o turno
-/// não começa e nada executa.
-async fn cline_recusado(flags: &str) {
-    let falsos = Falsos::nova();
-    let host = falsos.hub().await;
-    let comando = format!("{} --acp --auto-approve true {flags}", falsos.binario("cline").display());
-    let bot = criar_bot(&host, "cline", json!({"command": comando})).await;
-    enviar(&host, &bot, "faça as alterações").await;
+/// O motor não deixa o turno começar: o bot fica indisponível, sem `session/prompt` e sem ferramenta executada.
+async fn espera_recusa(host: &Host, bot: &str) {
     let fim = Instant::now() + Duration::from_secs(30);
     loop {
         let estado = host.snapshot().await;
-        if common::snapshot_bot(&estado, &bot)["status"] == "unavailable" {
+        if common::snapshot_bot(&estado, bot)["status"] == "unavailable" {
             break;
         }
         assert!(
             Instant::now() < fim,
-            "o Hub não registrou a recusa do motor: {}",
-            common::snapshot_bot(&estado, &bot)["status"]
+            "o Hub não registrou a recusa do motor: {} {}",
+            common::snapshot_bot(&estado, bot)["status"],
+            host.call("history", json!({"botId": bot})).await["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| format!("{}:{}", e["kind"], e["data"]["title"]))
+                .collect::<Vec<_>>()
+                .join(" | ")
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let pedidos = std::fs::read_to_string(pasta(&host, &bot).join("requests.jsonl")).unwrap_or_default();
-    assert!(pedidos.contains("session/new"), "o motor nem chegou a abrir a sessão: {pedidos}");
-    assert!(!pedidos.contains("session/prompt"), "o turno não pode começar com a aprovação automática ligada");
+    let pedidos = std::fs::read_to_string(pasta(host, bot).join("requests.jsonl")).unwrap_or_default();
+    assert!(!pedidos.contains("session/prompt"), "o turno não pode começar: {pedidos}");
     for ferramenta in ["read", "edit", "bash", "manage_update_bot"] {
-        assert!(!executou(&host, &bot, ferramenta), "{ferramenta} executou");
+        assert!(!executou(host, bot, ferramenta), "{ferramenta} executou");
     }
+}
+
+/// Cline com a aprovação automática ligada que o Hub não consegue desligar, ou que nem informa o estado.
+async fn cline_recusado(bandeiras: &str) {
+    let falsos = Falsos::nova();
+    falsos.bandeiras("cline", &format!("--auto-approve true {bandeiras}"));
+    let host = falsos.hub().await;
+    let bot = criar_bot(&host, "cline", json!({})).await;
+    enviar(&host, &bot, "faça as alterações").await;
+    espera_recusa(&host, &bot).await;
+    let pedidos = std::fs::read_to_string(pasta(&host, &bot).join("requests.jsonl")).unwrap();
+    assert!(pedidos.contains("session/new"), "o motor nem chegou a abrir a sessão: {pedidos}");
 }
 
 #[tokio::test]
@@ -267,4 +300,87 @@ async fn cline_que_nao_desliga_a_aprovacao_automatica_nao_executa_nada() {
 #[tokio::test]
 async fn cline_que_nao_informa_a_aprovacao_automatica_nao_executa_nada() {
     cline_recusado("--sem-opcao").await;
+}
+
+/// Regra por agente na config global do Kilo (vem depois da regra geral) e curinga do usuário para as ferramentas do Hub:
+/// o Hub lê de volta a regra efetiva do agente e não abre o Kilo se ela libera algo sem cartão.
+#[tokio::test]
+async fn kilo_com_regra_por_agente_ou_curinga_na_config_global_nao_abre() {
+    for liberado in [
+        json!({"agent": {"build": {"permission": {"bash": "allow", "edit": "allow"}}}}),
+        json!({"agent": {"build": {"permission": {"manage_*": "allow"}}}}),
+        json!({"agent": {"build": {"permission": "allow"}}}),
+    ] {
+        let falsos = Falsos::nova();
+        let pasta_kilo = falsos.raiz.join("config/kilo");
+        std::fs::create_dir_all(&pasta_kilo).unwrap();
+        std::fs::write(pasta_kilo.join("kilo.json"), liberado.to_string()).unwrap();
+        let host = falsos.hub().await;
+        let bot = criar_bot(&host, "kilo", json!({})).await;
+        enviar(&host, &bot, "faça as alterações").await;
+        espera_recusa(&host, &bot).await;
+    }
+}
+
+/// Sem como ler a regra efetiva, ou com a sessão num agente que o Hub não leu, o Kilo não abre.
+#[tokio::test]
+async fn kilo_sem_prova_da_regra_efetiva_ou_do_agente_nao_abre() {
+    for bandeiras in ["--sem-debug", "--agente-plan"] {
+        let falsos = Falsos::nova();
+        falsos.bandeiras("kilo", bandeiras);
+        let host = falsos.hub().await;
+        let bot = criar_bot(&host, "kilo", json!({})).await;
+        enviar(&host, &bot, "faça as alterações").await;
+        espera_recusa(&host, &bot).await;
+    }
+}
+
+/// O Kilo carrega uma sessão antiga com a permissão que ela já tinha. O Hub nunca a retoma: abre sessão nova.
+#[tokio::test]
+async fn kilo_nao_retoma_sessao_antiga_com_permissao_antiga() {
+    let falsos = Falsos::nova();
+    let mut host = falsos.hub().await;
+    let bot = criar_bot(&host, "kilo", json!({})).await;
+    turno_com_cartoes(&host, &bot, &KILO, "once", "reject").await;
+    host.restart_isolado(&falsos.env()).await;
+    let pasta_do_bot = pasta(&host, &bot);
+    let todas: Value =
+        serde_json::from_str(&std::fs::read_to_string(pasta_do_bot.join("sessions.json")).unwrap()).unwrap();
+    let antigas: serde_json::Map<String, Value> =
+        todas.as_object().unwrap().keys().map(|id| (id.clone(), json!({"allow_everything": true}))).collect();
+    std::fs::write(pasta_do_bot.join("sessions.json"), Value::Object(antigas).to_string()).unwrap();
+    for arquivo in ["decisions.jsonl", "executou-edit", "executou-bash", "executou-manage_update_bot", "executou-read"]
+    {
+        let _ = std::fs::remove_file(pasta_do_bot.join(arquivo));
+    }
+    let metodos = || -> String {
+        std::fs::read_to_string(pasta_do_bot.join("requests.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap()["method"].as_str().unwrap_or("").to_owned())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    turno_com_cartoes(&host, &bot, &KILO, "once", "reject").await;
+    let pedidos = metodos();
+    assert!(!pedidos.contains("session/load"), "o Hub retomou a sessão antiga: {pedidos}");
+}
+
+/// Comando próprio na configuração do bot: a Mexerica não aceita, nem ao criar nem ao editar, e o lançamento também recusa
+/// (teste unitário em `launcher.rs`) uma configuração antiga que já o tenha gravado.
+#[tokio::test]
+async fn kilo_e_cline_nao_aceitam_comando_proprio() {
+    for motor in ["kilo", "cline"] {
+        let falsos = Falsos::nova();
+        let marca = falsos.raiz.join("EXECUTOU-O-COMANDO");
+        falsos.escrever("bin/comando-proprio", format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marca.display()));
+        let host = falsos.hub().await;
+        let comando = falsos.binario("comando-proprio").display().to_string();
+        let bot = json!({"name": motor, "backend": motor, "connectors": [], "notify": false, "permission": "ask", "command": comando});
+        assert!(host.refused("createBot", bot).await.contains("não aceita comando próprio"), "{motor}");
+        let sem_comando = criar_bot(&host, motor, json!({})).await;
+        let edicao = json!({"id": sem_comando, "command": comando});
+        assert!(host.refused("updateBot", edicao).await.contains("não aceita comando próprio"), "{motor}");
+        assert!(!marca.exists(), "{motor}: o comando próprio foi executado");
+    }
 }

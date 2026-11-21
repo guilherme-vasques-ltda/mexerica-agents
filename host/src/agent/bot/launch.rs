@@ -44,6 +44,9 @@ impl Actor {
         if self.cfg.backend == "cline" {
             return self.lock_cline_approval(sid, res).await;
         }
+        if self.cfg.backend == "kilo" {
+            return self.confirmar_agente_do_kilo(res).await;
+        }
         let adapter = self.conn.as_ref().map(|c| c.adapter);
         let expected = match adapter {
             Some(Adapter::Claude) => "default",

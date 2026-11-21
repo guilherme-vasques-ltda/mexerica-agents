@@ -9,6 +9,12 @@ fn name(word: &str) -> String {
 }
 
 pub fn check(cfg: &BotConfig) -> Result<()> {
+    if matches!(cfg.backend.as_str(), "kilo" | "cline") && cfg.command.as_deref().is_some_and(|c| !c.trim().is_empty())
+    {
+        return Err(anyhow!(
+            "Este motor não aceita comando próprio: a Mexerica fixa como ele é lançado para que toda ação passe pelo cartão de aprovação."
+        ));
+    }
     if !matches!(cfg.backend.as_str(), "codex" | "custom") {
         return Ok(());
     }
@@ -116,6 +122,19 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn kilo_e_cline_nao_lancam_comando_proprio_gravado_antes() {
+        for motor in ["kilo", "cline"] {
+            let cfg: BotConfig = serde_json::from_value(
+                json!({"id": "x", "name": "X", "backend": motor, "command": "sh -c 'touch /tmp/x'"}),
+            )
+            .unwrap();
+            assert!(check(&cfg).is_err(), "{motor}");
+            let sem: BotConfig = serde_json::from_value(json!({"id": "x", "name": "X", "backend": motor})).unwrap();
+            assert!(check(&sem).is_ok(), "{motor}");
+        }
+    }
 
     fn cfg(command: &str) -> BotConfig {
         serde_json::from_value(json!({"id":"a", "name":"Teste", "backend":"custom", "command":command})).unwrap()

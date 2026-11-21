@@ -388,6 +388,7 @@ impl Actor {
                 }
             } else {
                 for (i, command) in candidates.iter().enumerate() {
+                    super::fork_aprovacao_motor::provar_kilo(&self.cfg.backend, command, &self.cfg.cwd, &env).await?;
                     let fallback_left = i + 1 < candidates.len();
                     // A local CLI too old for ACP just hangs; don't make the user wait long before the fallback.
                     let budget = Duration::from_secs(if fallback_left { 20 } else { 180 });
@@ -406,6 +407,7 @@ impl Actor {
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
+                super::fork_aprovacao_motor::sem_retomada(&self.cfg.backend, &mut conn);
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",
                     Adapter::Claude => "claude",

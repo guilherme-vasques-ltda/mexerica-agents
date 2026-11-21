@@ -57,10 +57,21 @@ def deep_merge(base, overlay):
     return merged
 
 
+def user_global_config():
+    config = Path(os.environ.get("XDG_CONFIG_HOME", "/nonexistent")) / "kilo" / "kilo.json"
+    return json.loads(config.read_text()) if config.is_file() else {}
+
+
+def user_agent_permission():
+    """Regra por agente na config global (`agent.build.permission`): vem DEPOIS da regra geral (agent.ts)."""
+    permission = user_global_config().get("agent", {}).get("build", {}).get("permission", {})
+    return {"*": permission} if isinstance(permission, str) else permission
+
+
 def user_global_permission():
     """Config global do usuário (`$XDG_CONFIG_HOME/kilo/kilo.json`), mesclada por baixo de KILO_PERMISSION (config.ts)."""
     config = Path(os.environ.get("XDG_CONFIG_HOME", "/nonexistent")) / "kilo" / "kilo.json"
-    permission = json.loads(config.read_text()).get("permission", {}) if config.is_file() else {}
+    permission = user_global_config().get("permission", {})
     return {"*": permission} if isinstance(permission, str) else permission
 
 
@@ -74,7 +85,7 @@ def kilo_rules():
     patch = from_config({"bash": {"*": "ask", "cat *": "allow", "ls *": "allow"}, "recall": "ask"})
     build = from_config({"question": "allow", "suggest": "allow", "plan_enter": "allow"})
     user = from_config(deep_merge(user_global_permission(), json.loads(os.environ.get("KILO_PERMISSION") or "{}")))
-    return defaults + patch + build + user
+    return defaults + patch + build + user + from_config(user_agent_permission())
 
 
 def kilo_decision(permission, target):
@@ -83,6 +94,27 @@ def kilo_decision(permission, target):
         if wild(rule_permission, permission) and wild(pattern, target):
             last = action
     return last
+
+
+if engine == "kilo" and args[:2] == ["debug", "agent"]:
+    # `kilo debug agent <nome>`: o agente com a regra efetiva já resolvida (cli/cmd/debug/agent.handler.ts).
+    if "--sem-debug" in args:
+        sys.exit(1)
+    print(json.dumps({"name": args[2], "permission": [
+        {"permission": p, "pattern": pattern, "action": action} for p, pattern, action in kilo_rules()]}))
+    sys.exit(0)
+
+SESSIONS = cwd / "sessions.json"
+
+
+def sessions():
+    return json.loads(SESSIONS.read_text()) if SESSIONS.is_file() else {}
+
+
+def kilo_options():
+    agent = "plan" if "--agente-plan" in args else "build"
+    return [{"id": "mode", "category": "mode", "type": "select", "currentValue": agent,
+             "options": [{"value": "build"}, {"value": "plan"}]}]
 
 
 def launched_with_auto_approve():
@@ -119,8 +151,11 @@ OPTIONS = {
 }
 
 
-def decide(permission, target):
+def decide(permission, target, session=None):
     if engine == "kilo":
+        # Uma sessão carregada traz as permissões que já tinha (allowEverything, kilocode/permission/allow-everything.ts).
+        if session and sessions().get(session, {}).get("allow_everything"):
+            return "allow"
         return kilo_decision(permission, target)
     return "allow" if auto_approve else "ask"
 
@@ -134,7 +169,7 @@ def run_tool(session, number, tool):
     call = f"t{number}"
     update(session, {"sessionUpdate": "tool_call", "toolCallId": call, "title": title, "kind": kind,
                      "status": "pending", "rawInput": raw})
-    decision = decide(permission, target)
+    decision = decide(permission, target, session)
     entry = {"tool": permission, "decision": decision, "options": None, "executed": False}
     if decision == "ask":
         send({"id": 900 + number, "method": "session/request_permission", "params": {
@@ -165,11 +200,18 @@ for line in sys.stdin:
         continue
     result = {}
     if method == "initialize":
-        result = {"protocolVersion": 1, "agentCapabilities": {"loadSession": False}}
+        result = {"protocolVersion": 1, "agentCapabilities": {"loadSession": engine == "kilo"}}
     elif method == "session/new":
         result = {"sessionId": "s1"}
+        if engine == "kilo":
+            todas = sessions()
+            result = {"sessionId": f"k{len(todas) + 1}", "configOptions": kilo_options()}
+            todas[result["sessionId"]] = {"allow_everything": False}
+            SESSIONS.write_text(json.dumps(todas))
         if engine == "cline":
             result["configOptions"] = cline_options()
+    elif method == "session/load":
+        result = {"configOptions": kilo_options()}
     elif method == "session/set_config_option":
         if engine == "cline" and params.get("configId") == "auto_approve":
             value = params["value"]
