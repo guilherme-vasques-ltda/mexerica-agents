@@ -2,6 +2,7 @@
 import type { CoresControles } from './janela-faixa'
 import type { AppLanguage } from './fork-idioma'
 import type { ForkCloudIntent, ForkCloudResult, ForkCloudCallResult, ForkCloudEventsBody, ForkCloudStreamError } from './fork-cloud'
+import type { BrowserFrame } from './relay-protocol/browser-frames.ts'
 import type { VozBridge } from './fork-voz'
 import type { AccountProfileBridge } from './fork-account-profile'
 import type { SignInFailure, SignInProvider } from './analytics'
@@ -13,6 +14,7 @@ import type { ErrorReport } from './error-report'
 import type { OriginReport } from './guard-hub'
 import type { AppIconId } from './app-icons'
 import type { PonteCofreChat } from './fork-cofre-seguro'
+import type { ReleaseNoticeState } from './fork-release-notice'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
@@ -167,6 +169,9 @@ export type ResendEmailCodeResult =
   | { kind: 'limit'; retryAt: number }
   | { kind: 'error'; code: 'not_pending' | 'busy' | 'refused' | 'network' | 'cancelled' }
 
+/** Nível 1 de atualizações: o aviso discreto de nova versão (shared/fork-release-notice). */
+export type { ReleaseNoticeState }
+
 export interface CodyncBridge {
   /** MX-200: presente só na ponte web (src/web/platform.ts); o Electron nunca o preenche. */
   web?: true
@@ -175,6 +180,12 @@ export interface CodyncBridge {
     onChange(cb: (result: ForkCloudResult) => void): () => void
     call(connectionId: string, method: string, body: unknown, timeoutMs: number): Promise<ForkCloudCallResult>
     subscribeEvents(connectionId: string, body: ForkCloudEventsBody, onEvent: (event: unknown) => void, onEnd: (error: ForkCloudStreamError | null) => void): () => void
+    /**
+     * Quadros binários do navegador do bot (fatia 2, B2), entregues sem passar por JSON. Um quadro por vez: o
+     * próximo só sai depois de `consumed()`, e a fila guarda só o mais recente. `onEnd` com `status` 501 = o Hub
+     * não aceitou a capacidade; qualquer fim fecha a tela.
+     */
+    subscribeFrames(connectionId: string, onFrame: (frame: BrowserFrame, waitedMs: number) => void, onEnd: (error: ForkCloudStreamError | null) => void): { cancel(): void; consumed(): void; opened: Promise<boolean> }
   }
   /** MX-209: o chat só pede a janela do cartão seguro e ouve avisos sem valor (shared/fork-cofre-seguro.ts). */
   forkCofre: PonteCofreChat
@@ -287,6 +298,15 @@ export interface CodyncBridge {
     install(): void
     setAutoCheck(on: boolean): void
     setAutoDownload(on: boolean): void
+  }
+  /** Nível 1 de atualizações: só avisa e abre a página da release; nunca baixa nem instala. */
+  releaseNotice: {
+    state(): Promise<ReleaseNoticeState>
+    /** Procurar atualização (manual): respeita o cooldown curto e mostra erro quando falha. */
+    check(): Promise<ReleaseNoticeState>
+    dismiss(): Promise<ReleaseNoticeState>
+    openDownload(): Promise<boolean>
+    onChange(cb: (s: ReleaseNoticeState) => void): () => void
   }
   files: {
     begin(file: SharedFile): Promise<string | null>

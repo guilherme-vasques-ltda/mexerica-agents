@@ -1005,6 +1005,11 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             json!({"hubId":HUB_PORTA,"spaceId":crate::fork::spaces::PERSONAL,"projectId":uuid::Uuid::new_v4().to_string(),"taskId":uuid::Uuid::new_v4().to_string(),"clientRequestId":uuid::Uuid::new_v4().to_string(),"startAt":null}),
             true,
         ),
+        (
+            "donnaTaskProposalDecide",
+            json!({"hubId":HUB_PORTA,"spaceId":crate::fork::spaces::PERSONAL,"proposalId":uuid::Uuid::new_v4().to_string(),"expectedVersion":1,"clientRequestId":uuid::Uuid::new_v4().to_string(),"decision":"approve"}),
+            true,
+        ),
         ("donnaScreenAccess", json!({"botId":"donna","target":format!("host:{HUB_PORTA}"),"enabled":true}), true),
         ("updateBot", json!({"id":"donna","connectors":["porta"]}), true),
         ("donnaBotEditorSave", json!({"botId":"donna","patch":{"fastMode":true}}), true),
@@ -1044,6 +1049,13 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
         ("marketGoogleAppRemover", json!({}), true),
         ("marketContaDesconectar", json!({"id":"$conector"}), true),
         ("marketBotContasDefinir", json!({"botId":"donna","ligar":["$conector"]}), true),
+        // Fatia 2: ligar ação perigosa recusa antes de gravar sem conta do catálogo ligada; desligar grava pelo ponto do dono.
+        (
+            "marketFerramentaLigar",
+            json!({"botId":"donna","conta":"$conector","ferramenta":"x","digest":"d","vinculo":0,"confirmo":true}),
+            false,
+        ),
+        ("marketFerramentaDesligar", json!({"botId":"donna","conta":"$conector","ferramenta":"x"}), true),
         ("importConnectors", json!({"config":"{\"mcpServers\":{\"Importado\":{\"command\":\"imp-mcp\"}}}"}), true),
         ("credentialSaveLogin", json!({"site":"exemplo.com","username":"novo","password":"segredo"}), true),
         ("credentialLabelLogin", json!({"id":"$login","label":"Rótulo"}), true),

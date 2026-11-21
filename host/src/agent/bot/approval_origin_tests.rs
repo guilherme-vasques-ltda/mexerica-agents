@@ -79,6 +79,7 @@ async fn manage_pessoal_recusa_reemissao_apos_queue_check_sem_adotar_b_e_aceita_
                 buf: "não publicar após revogar".into(),
                 flushed: Instant::now(),
                 dirty: true,
+                solta: false,
             };
             Some(entry)
         } else {

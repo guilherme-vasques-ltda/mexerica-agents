@@ -41,6 +41,7 @@ export const textos: Traducao<typeof fonte> = {
   "bots.editor.apagar.arquivosFicam": "The files it changed on the computer stay as they are.",
   "bots.editor.apagar.canal": "Delete channel and conversation",
   "bots.editor.apagar.bot": "Delete bot and conversation",
+  "bots.editor.apagar.resposta": "Stop the reply before deleting the bot.",
   "bots.editor.ajustes": "Settings",
   "bots.editor.criadoPor": "Created by",
   "bots.editor.criadoPorData": "{bot} · {data}",

@@ -306,7 +306,10 @@ pub(crate) fn create(
         tx.query_row("SELECT EXISTS(SELECT 1 FROM donna_genui_charts WHERE invocation=?1)", [invocation], |r| {
             r.get(0)
         })?;
-    ensure!(!used_by_chart, "genui_invocation_conflict");
+    if used_by_chart {
+        tracing::warn!("escolha recusada: a invocação já pertence a um gráfico");
+        anyhow::bail!("genui_invocation_conflict");
+    }
     let existing: Option<String> = tx
         .query_row("SELECT id FROM donna_genui_questions WHERE invocation=?1", [invocation], |r| r.get(0))
         .optional()?;

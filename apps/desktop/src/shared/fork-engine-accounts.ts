@@ -17,8 +17,8 @@ export interface EngineAccountModel {
 export interface EngineAccount {
   id: string
   label: string
-  brand: 'Anthropic' | 'OpenAI'
-  backend: 'claude' | 'codex'
+  brand: 'Anthropic' | 'OpenAI' | 'xAI'
+  backend: 'claude' | 'codex' | 'grok'
   billing: 'subscription' | 'paid_api' | 'unverified'
   state: 'connected' | 'unverified' | 'unavailable' | 'disconnected'
   // Vazio significa catálogo não comprovado; nunca completar pela marca ou pelo modelo do bot.
@@ -34,7 +34,7 @@ export interface EngineAccounts {
 }
 
 // D164: identificador opaco gerado pelo Hub, independente do titular/plano.
-export type Engine = 'codex' | 'claude'
+export type Engine = 'codex' | 'claude' | 'grok'
 export type AccountId = string
 
 export interface ManagedAccount extends EngineAccount {

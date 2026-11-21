@@ -13,6 +13,8 @@ mod bot_deletion;
 mod bound_save;
 #[path = "../fork/cadeias/rotinas.rs"]
 mod cadeias;
+#[path = "../fork/heartbeat/routines.rs"]
+mod checagem;
 mod pause;
 #[path = "../fork/rotina_resultado/routines.rs"]
 mod resultado;
@@ -84,6 +86,12 @@ pub struct Routine {
     /// Ainda aguarda a primeira liberação humana; não é sinônimo de pausa posterior.
     #[serde(default)]
     pub(crate) external_release_pending: Option<ExternalRelease>,
+    /// Checagem silenciosa (Heartbeat): declarada só pelo dono, pelo app; nunca recebida do modelo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) heartbeat: Option<crate::fork::heartbeat::Declaracao>,
+    /// O que a checagem sabe entre uma leitura e outra (marcador, pendências já avisadas, última checagem).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) heartbeat_state: Option<crate::fork::heartbeat::Estado>,
 }
 
 /// Campos editáveis e identidade; metadados do agendador não são edições do usuário.
@@ -100,6 +108,7 @@ pub(crate) fn same_team_routines(a: &[Routine], b: &[Routine]) -> bool {
                     && a.timeout_seconds == b.timeout_seconds
                     && a.webhook_key == b.webhook_key
                     && a.deleted == b.deleted
+                    && a.heartbeat == b.heartbeat
             })
         })
 }
@@ -125,6 +134,7 @@ impl Status {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools, reason = "marcadores independentes de pendência, atraso e origem da execução")]
 pub struct Run {
     pub id: String,
     pub routine_id: String,
@@ -157,6 +167,12 @@ pub struct Run {
     /// Retentativas limitadas de execução catch-up após falha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub attempts: u64,
+    /// Execução gravada por uma checagem silenciosa: nunca passou pela IA; o texto do aviso sai do histórico ao publicar.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    heartbeat: bool,
+    /// O texto do aviso da checagem, só até a publicação. Nunca vai às listagens (`public_run`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    heartbeat_texto: Option<String>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if exige fn(&u64) -> bool")]
@@ -168,6 +184,10 @@ fn is_zero(v: &u64) -> bool {
 struct State {
     #[serde(default)]
     paused: bool,
+    /// Quantas vezes a pausa geral mudou. Uma checagem em leitura descarta o resultado se ela mudou, mesmo que a
+    /// pausa tenha sido desfeita antes da gravação.
+    #[serde(default)]
+    pausas: u64,
     /// Último instante em que o Hub pôde executar ocorrências (boot/despausa).
     /// Ocorrência com `at < available_at` é atrasada por indisponibilidade —
     /// critério verificável, sem tolerância arbitrária (MX-110).
@@ -185,13 +205,36 @@ fn guard_live_runs(state: &State) -> impl Iterator<Item = (&str, &str)> {
         .map(|run| (run.bot_id.as_str(), run.id.as_str()))
 }
 
+/// Fontes concedidas, por (bot, nome): a concessão e a fonte.
+type Fontes = std::collections::HashMap<(String, String), crate::fork::heartbeat::Concessao>;
+
+/// Trava de chamadas de cada instância de fonte, presa por referência fraca à própria fonte.
+type Travas = Vec<(std::sync::Weak<dyn crate::fork::heartbeat::Fonte>, Arc<std::sync::atomic::AtomicBool>)>;
+
 pub struct Routines {
-    state: Mutex<State>,
+    state: crate::fork::heartbeat::EstadoRotinas<State>,
     active: Mutex<HashSet<String>>,
     scheduler: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stopping: std::sync::atomic::AtomicBool,
     /// Bumped whenever the webhook set the relay registers (`hooks()`) changes.
     hooks_rev: tokio::sync::watch::Sender<u64>,
+    /// Fontes que cada bot pode ler nas checagens silenciosas: (bot, nome). Vazio até um conector registrar uma.
+    fontes: Mutex<Fontes>,
+    /// Numera cada registro de fonte nesta execução do Hub: quem lê só grava se o registro não mudou desde a leitura.
+    concessoes: std::sync::atomic::AtomicU64,
+    /// Prazo de cada chamada a uma fonte, em milissegundos.
+    prazo_fonte_ms: std::sync::atomic::AtomicU64,
+    /// Trava de chamadas por instância de fonte (a mesma fonte recadastrada reaproveita a trava): a entrada some quando
+    /// a fonte deixa de existir.
+    travas: Mutex<Travas>,
+    /// Testes: roda entre o despacho de uma chamada e o início dela, para mudar o estado nessa janela.
+    #[cfg(test)]
+    pub(crate) entre_despacho_e_chamada: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Testes: roda na linha de execução da chamada, depois de a admissão positiva chegar e antes da chamada.
+    #[cfg(test)]
+    pub(crate) depois_da_admissao: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Checagens em andamento, para que a mesma rotina nunca tenha duas rodadas sobrepostas.
+    checando: Mutex<HashSet<String>>,
     /// Falhas transitórias injetadas em `prepare_attempt` nos testes.
     #[cfg(test)]
     pub(crate) fail_next: std::sync::atomic::AtomicUsize,
@@ -203,11 +246,20 @@ pub struct Routines {
 impl Default for Routines {
     fn default() -> Self {
         Self {
-            state: Mutex::default(),
+            state: crate::fork::heartbeat::EstadoRotinas::default(),
             active: Mutex::default(),
             scheduler: Mutex::default(),
             stopping: std::sync::atomic::AtomicBool::default(),
             hooks_rev: tokio::sync::watch::channel(0).0,
+            fontes: Mutex::default(),
+            concessoes: std::sync::atomic::AtomicU64::new(0),
+            prazo_fonte_ms: std::sync::atomic::AtomicU64::new(crate::fork::heartbeat::PRAZO_PADRAO_MS),
+            travas: Mutex::default(),
+            #[cfg(test)]
+            entre_despacho_e_chamada: Mutex::default(),
+            #[cfg(test)]
+            depois_da_admissao: Mutex::default(),
+            checando: Mutex::default(),
             #[cfg(test)]
             fail_next: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -260,6 +312,36 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
     let id = body["id"].as_str().map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_owned);
     let updated = body["id"].is_string();
     let old = check::replaced(s, bot, body, &triggers, now)?;
+    let heartbeat = match body.get("heartbeat") {
+        None => old.as_ref().and_then(|r| r.heartbeat.clone()),
+        Some(Value::Null) => None,
+        Some(declaration) => Some(crate::fork::heartbeat::Declaracao::parse(declaration)?),
+    };
+    if heartbeat.is_some()
+        && (triggers.is_empty()
+            || triggers.iter().any(|t| !matches!(t, Trigger::Interval { .. } | Trigger::Cron { .. })))
+    {
+        bail!(crate::fork::heartbeat::SO_NO_HORARIO);
+    }
+    if heartbeat.is_some()
+        && let Some(old) = old.as_ref().filter(|old| old.heartbeat.is_none())
+    {
+        // Converter uma rotina comum: sem origem de bot (a descendente tem agenda e orçamento próprios) e sem
+        // execução já reservada, que ainda poderia chegar à IA.
+        anyhow::ensure!(
+            old.creation_origin.is_none(),
+            "Uma rotina criada pelo bot não vira checagem silenciosa; crie uma nova."
+        );
+        anyhow::ensure!(
+            !s.runs.iter().any(|run| run.routine_id == old.id
+                && matches!(run.status, Status::Starting | Status::Running | Status::Recovering)),
+            "Esta rotina está em execução; espere terminar para convertê-la em checagem silenciosa."
+        );
+        cancel_pending(s, &old.id);
+    }
+    // Uma checagem silenciosa nasce pausada: só liga quando o dono diz `enabled: true`, de propósito.
+    let explicit_enable = old.as_ref().is_some_and(|r| r.heartbeat.is_some()) || body["enabled"] == true;
+    let instruction = if heartbeat.is_some() { crate::fork::heartbeat::INSTRUCAO.to_owned() } else { instruction };
     if !updated && s.routines.iter().filter(|r| !r.deleted).count() >= MAX_ROUTINES {
         bail!("routine limit reached");
     }
@@ -275,9 +357,10 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
         bot_id: bot.to_owned(),
         name,
         instruction,
-        enabled: body["enabled"].as_bool().unwrap_or_else(|| old.as_ref().is_none_or(|r| r.enabled)),
+        enabled: (heartbeat.is_none() || explicit_enable)
+            && body["enabled"].as_bool().unwrap_or_else(|| old.as_ref().is_none_or(|r| r.enabled)),
         created_at: old.as_ref().map_or(now, |r| r.created_at),
-        updated_at: now,
+        updated_at: old.as_ref().map_or(now, |r| now.max(r.updated_at.saturating_add(1))),
         next_runs: if let Some(old) = &old
             && old.triggers == triggers
             && (body["enabled"] != true || old.enabled)
@@ -298,12 +381,26 @@ fn save_in(s: &mut State, bot: &str, body: &Value) -> Result<Routine> {
             .as_ref()
             .and_then(|r| r.external_release_pending)
             .filter(|_| body["enabled"] != true),
+        heartbeat_state: old.as_ref().and_then(|r| r.heartbeat_state.clone()).filter(|_| {
+            old.as_ref()
+                .and_then(|r| r.heartbeat.as_ref())
+                .zip(heartbeat.as_ref())
+                .is_some_and(|(antes, agora)| antes.mesma_observacao(agora))
+        }),
+        heartbeat,
     };
     if !(1..=86_400).contains(&r.timeout_seconds) {
         bail!("timeoutSeconds must be between 1 and 86400");
     }
     if !r.enabled {
         cancel_pending(s, &id);
+    } else if r.triggers.is_empty() && old.as_ref().is_some_and(|old| !old.triggers.is_empty()) {
+        // Virou «só quando eu mandar»: o que a agenda antiga já enfileirou não roda sozinho; o pedido manual segue.
+        for run in &mut s.runs {
+            if run.routine_id == id && run.status == Status::Pending && run.event["source"] != "test" {
+                cancel_run(run);
+            }
+        }
     }
     s.routines.retain(|r| r.id != id);
     s.routines.push(r.clone());
@@ -318,8 +415,10 @@ fn duplicate_body(source: &Routine) -> Value {
         "name": format!("{} (cópia)", source.name),
         "instruction": source.instruction,
         "triggers": source.triggers,
+        "manual": source.triggers.is_empty(),
         "enabled": false,
         "timeoutSeconds": source.timeout_seconds,
+        "heartbeat": source.heartbeat,
     })
 }
 
@@ -435,6 +534,9 @@ impl Routines {
             run.finished_at = Some(now_ms());
             run.report_pending = false;
         }
+        // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
+        // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let result = commit(&serde_json::to_string(&next)?)?;
         let hooks_changed = hook_set(&state) != hook_set(&next);
         *state = next;
@@ -462,6 +564,15 @@ impl Routines {
         next.routines.retain(|r| r.bot_id != bot);
         for routine in before {
             let mut restored = routine.clone();
+            // Desfazer uma edição não desfaz o que a checagem já avisou: o progresso mais recente fica. E a versão da
+            // rotina só avança (nunca volta ao valor antigo), para uma leitura em andamento não passar por válida.
+            if let Some(atual) = current.iter().find(|r| r.id == restored.id) {
+                restored.updated_at = now_ms().max(atual.updated_at.max(restored.updated_at).saturating_add(1));
+                if atual.heartbeat.as_ref().zip(restored.heartbeat.as_ref()).is_some_and(|(a, b)| a.mesma_observacao(b))
+                {
+                    restored.heartbeat_state.clone_from(&atual.heartbeat_state);
+                }
+            }
             restored.next_runs = restored.triggers.iter().map(|t| t.next(now_ms())).collect::<Result<_>>()?;
             restored.schedule_generation = current
                 .iter()
@@ -471,6 +582,9 @@ impl Routines {
                 .context("Não foi possível atualizar a agenda desta rotina")?;
             next.routines.push(restored);
         }
+        // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
+        // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let result = commit(&serde_json::to_string(&next)?)?;
         let hooks_changed = hook_set(&state) != hook_set(&next);
         *state = next;
@@ -532,11 +646,13 @@ impl Routines {
         bodies: &[Value],
         commit: impl FnOnce(&str, &[Routine]) -> Result<T>,
     ) -> Result<(T, Vec<Value>)> {
+        anyhow::ensure!(!bodies.iter().any(|body| body.get("heartbeat").is_some()), crate::fork::heartbeat::SO_O_DONO);
         let mut state = self.state.locked();
         let mut next = state.clone();
         let saved =
             bodies.iter().map(|body| save_in(&mut next, bot, body).map(|r| public(&r))).collect::<Result<_>>()?;
         bound_save::ensure_no_model_release(&state, &next)?;
+        bound_save::ensure_no_model_heartbeat(&state, &next)?;
         let after: Vec<_> = next.routines.iter().filter(|r| r.bot_id == bot && !r.deleted).cloned().collect();
         let result = commit(&serde_json::to_string(&next)?, &after)?;
         let hooks_changed = hook_set(&state) != hook_set(&next);
@@ -575,7 +691,7 @@ impl Routines {
             if enabled {
                 r.external_release_pending = None;
             }
-            r.updated_at = now_ms();
+            r.updated_at = now_ms().max(r.updated_at.saturating_add(1));
             if !enabled {
                 for run in &mut s.runs {
                     if run.routine_id == id && run.status == Status::Pending {
@@ -627,6 +743,15 @@ impl Routines {
         test: bool,
         origin: Option<&tool_origin::ToolOrigin>,
     ) -> Result<Value> {
+        anyhow::ensure!(
+            !self
+                .state
+                .locked()
+                .routines
+                .iter()
+                .any(|r| r.id == id && r.bot_id == bot && !r.deleted && r.heartbeat.is_some()),
+            crate::fork::heartbeat::SO_NO_HORARIO
+        );
         if let Some(result) = self.enqueue_descendant(
             store,
             bot,
@@ -698,7 +823,7 @@ impl Routines {
                     .find(|r| r.id == id && r.bot_id == bot && !r.deleted)
                     .context("routine not found")?;
                 r.webhook_key = webhook_key();
-                r.updated_at = now_ms();
+                r.updated_at = now_ms().max(r.updated_at.saturating_add(1));
                 Ok(())
             })?;
         }
@@ -755,8 +880,8 @@ fn required<'a>(body: &'a Value, key: &str) -> Result<&'a str> {
 }
 fn public(r: &Routine) -> Value {
     json!({"id":r.id,"botId":r.bot_id,"name":r.name,"instruction":r.instruction,"triggers":r.triggers,"enabled":r.enabled,"createdAt":r.created_at,"updatedAt":r.updated_at,
-        "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
-        "triggerDescriptions":r.triggers.iter().map(Trigger::description).collect::<Vec<_>>(),"agenda":calendar::agenda(&r.triggers),"nextRunAt": if r.enabled {r.next_runs.iter().flatten().min().copied()} else {None}})
+        "timeoutSeconds":r.timeout_seconds,"lastError":r.last_error,"heartbeat":r.heartbeat,"heartbeatStatus":r.heartbeat_state.as_ref().map(crate::fork::heartbeat::Estado::public),"externalReleasePending":r.external_creation && r.external_release_pending.is_some() && !r.enabled,
+        "manual":r.triggers.is_empty(),"triggerDescriptions":r.triggers.iter().map(Trigger::description).collect::<Vec<_>>(),"agenda":calendar::agenda(&r.triggers),"nextRunAt": if r.enabled {r.next_runs.iter().flatten().min().copied()} else {None}})
 }
 fn public_run(run: &Run) -> Value {
     json!({"id":run.id,"routineId":run.routine_id,"botId":run.bot_id,"status":run.status,
@@ -786,6 +911,8 @@ fn new_run(r: &Routine, event: Value, delivery_id: Option<String>) -> Run {
         outcome: None,
         catchup: false,
         attempts: 0,
+        heartbeat: false,
+        heartbeat_texto: None,
     }
 }
 
@@ -825,7 +952,7 @@ pub(crate) fn enable_for_review(routine: &mut Routine) -> Result<()> {
         routine.schedule_generation.checked_add(1).context("Não foi possível atualizar a agenda desta rotina")?;
     routine.enabled = true;
     routine.external_release_pending = None;
-    routine.updated_at = now_ms();
+    routine.updated_at = now_ms().max(routine.updated_at.saturating_add(1));
     Ok(())
 }
 fn cancel_pending(state: &mut State, id: &str) {
@@ -915,6 +1042,10 @@ fn call_in_origin(
     args: &Value,
     origin: Option<&tool_origin::ToolOrigin>,
 ) -> Result<Value> {
+    anyhow::ensure!(
+        !matches!(name, "save_routine" | "duplicate_routine") || args.get("heartbeat").is_none(),
+        crate::fork::heartbeat::SO_O_DONO
+    );
     if origin.is_none() {
         let changes = matches!(name, "save_routine" | "set_routine_enabled" | "delete_routine" | "run_routine")
             || (name == "routine_webhook" && args["rotate"] == true);
@@ -964,7 +1095,7 @@ pub fn tools_for(slot: Option<&str>) -> Value {
     let mut tools = vec![
         json!({"name":"list_routines","description":"Lista as rotinas deste bot e seu histórico, com o estado atual, os motivos de interrupção já confirmados e o desfecho de cada execução (outcome: o que o bot declarou ou a falha que o Hub observou; declaração não prova efeito externo).","inputSchema":{"type":"object","properties":{}}}),
     ];
-    tools.push(json!({"name":"save_routine","description":"Create or replace a routine. Omit id to create; include id to update. triggers is an OR list. Use cron for recurring clock schedules; interval is for explicitly requested elapsed-duration semantics or existing schedules: interval {type:interval,seconds}; once {type:once,at:Unix milliseconds}; cron {type:cron,expression:five cron fields,timeZone:IANA zone}; webhook {type:webhook}; event {type:event,source:slack/github/origin/microsoftTeams/linear/sentry/pagerduty/email,event:event name or *,filters:field-to-value map}. Events require a configured webhook sender. Minimum interval is one second. D538/D544: todos os bots, inclusive o Berga, podem criar suas próprias rotinas e recordações (once), sem plugin ou concessão por bot. O bot só acessa suas tarefas, dentro do seu Space; criação dispensa pedido humano, mas gasta cota e gera aviso/cartão ao dono; edição exige pedido do dono na sessão de origem. Criação a partir de conteúdo de fora (D125) nasce pausada e o modelo não liga nem roda: só o dono libera no app. Para criar omita id (null é inválido).","inputSchema":{"type":"object","properties":{"id":id,"name":{"type":"string"},"instruction":{"type":"string"},"enabled":{"type":"boolean"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":86400},"triggers":{"type":"array","items":{"type":"object"}}},"required":["name","instruction","triggers"]}}));
+    tools.push(json!({"name":"save_routine","description":"Create or replace a routine. Omit id to create; include id to update. triggers is an OR list. Use cron for recurring clock schedules; interval is for explicitly requested elapsed-duration semantics or existing schedules: interval {type:interval,seconds}; once {type:once,at:Unix milliseconds}; cron {type:cron,expression:five cron fields,timeZone:IANA zone}; webhook {type:webhook}; event {type:event,source:slack/github/origin/microsoftTeams/linear/sentry/pagerduty/email,event:event name or *,filters:field-to-value map}. Uma rotina que só roda quando o dono manda (botão Rodar agora ou run_routine) leva manual:true e triggers vazio ou ausente; sem manual:true, lista vazia é recusada, então nunca omita os gatilhos por esquecimento. Events require a configured webhook sender. Minimum interval is one second. Todos os bots podem criar suas próprias rotinas e recordações (once), sem plugin ou concessão por bot. O bot só acessa suas tarefas, dentro do seu Space; criação dispensa pedido humano, mas gasta cota e gera aviso/cartão ao dono; edição exige pedido do dono na sessão de origem. Criação a partir de conteúdo de fora nasce pausada e o modelo não liga nem roda: só o dono libera no app. Para criar omita id (null é inválido).","inputSchema":{"type":"object","properties":{"id":id,"name":{"type":"string"},"instruction":{"type":"string"},"enabled":{"type":"boolean"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":86400},"triggers":{"type":"array","items":{"type":"object"}},"manual":{"type":"boolean","description":"true só quando o dono pediu uma rotina sem horário nem gatilho, que roda apenas quando ele mandar; exige triggers vazio ou ausente."}},"required":["name","instruction"]}}));
     tools.push(json!({"name":"duplicate_routine","description":"Duplicate one of this bot's routines. Creates a disabled copy named \"<name> (cópia)\" with the same instruction, clock and event triggers; webhook triggers keep working under a fresh secret and the original keeps working. The copy never inherits runs, errors or computed schedules. Like any creation it spends quota and notifies the owner. Needs the routine id.","inputSchema":{"type":"object","properties":{"id":id},"required":["id"]}}));
     for (name, description) in [
         ("set_routine_enabled", "Pause or resume a routine; enabled boolean is required."),
@@ -1023,6 +1154,8 @@ mod tests {
             creation_origin: None,
             external_creation: false,
             external_release_pending: None,
+            heartbeat: None,
+            heartbeat_state: None,
         }
     }
     #[test]
@@ -1387,4 +1520,136 @@ mod tests {
         assert_eq!(s.runs.len(), 1);
         assert!(s.runs[0].status == Status::Pending);
     }
+
+    fn manual_body() -> Value {
+        json!({"name":"Botão","instruction":"Somente tarefa sintética","manual":true,"triggers":[]})
+    }
+
+    #[test]
+    fn manual_routine_is_saved_and_never_scheduled_even_after_reload() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let saved = routines.change(&store, |s| save_in(s, "bot", &manual_body())).unwrap();
+        assert!(matches!(saved.triggers.as_slice(), []));
+        assert!(matches!(saved.next_runs.as_slice(), []));
+        assert!(saved.enabled);
+        let listed = public(&saved);
+        assert_eq!(listed["manual"], true);
+        assert_eq!(listed["triggers"], json!([]));
+        assert_eq!(listed["agenda"], "Só quando eu mandar");
+        assert_eq!(listed["nextRunAt"], Value::Null);
+        assert!(!routines.keeps_awake());
+        routines.schedule_due(&store, i64::MAX / 2).unwrap();
+        assert!(routines.state.locked().runs.is_empty());
+        let reloaded = Routines::default();
+        reloaded.restore(&store).unwrap();
+        assert!(!reloaded.keeps_awake());
+        reloaded.schedule_due(&store, i64::MAX / 2).unwrap();
+        let state = reloaded.state.locked();
+        assert!(state.runs.is_empty());
+        assert_eq!(state.routines.len(), 1);
+        assert!(state.routines[0].triggers.is_empty() && state.routines[0].next_runs.is_empty());
+    }
+
+    #[test]
+    fn manual_routine_stays_manual_through_pause_resume_and_rename() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let id = routines.change(&store, |s| save_in(s, "bot", &manual_body())).unwrap().id;
+        routines.set_enabled(&store, "bot", &id, false).unwrap();
+        routines.set_enabled(&store, "bot", &id, true).unwrap();
+        routines.set_paused(&store, true).unwrap();
+        routines.set_paused(&store, false).unwrap();
+        let mut renamed = manual_body();
+        renamed["id"] = json!(id);
+        renamed["name"] = json!("Botão novo");
+        routines.change(&store, |s| save_in(s, "bot", &renamed)).unwrap();
+        routines.schedule_due(&store, i64::MAX / 2).unwrap();
+        let state = routines.state.locked();
+        assert_eq!(state.routines[0].name, "Botão novo");
+        assert!(matches!(state.routines[0].next_runs.as_slice(), []));
+        assert!(state.runs.is_empty());
+    }
+
+    #[test]
+    fn empty_trigger_list_is_refused_without_the_explicit_manual_intent() {
+        let refused = |body: Value| format!("{:#}", Checked::parse(&body).err().expect("deve recusar"));
+        let base = json!({"name":"Botão","instruction":"Somente tarefa sintética"});
+        let with = |extra: Value| {
+            let mut body = base.clone();
+            for (key, value) in extra.as_object().unwrap() {
+                body[key] = value.clone();
+            }
+            body
+        };
+        assert_eq!(refused(with(json!({"triggers":[]}))), "A rotina precisa de pelo menos um gatilho.");
+        assert_eq!(refused(with(json!({"triggers":[],"manual":false}))), "A rotina precisa de pelo menos um gatilho.");
+        assert_eq!(refused(with(json!({"triggers":[],"manual":"true"}))), "A rotina precisa de pelo menos um gatilho.");
+        assert!(refused(base.clone()).contains("invalid triggers"));
+        assert_eq!(refused(with(json!({"schedule":{"kind":"keep"}}))), "A rotina precisa de pelo menos um gatilho.");
+        assert!(
+            refused(with(json!({"manual":true,"triggers":[{"type":"webhook"}]})))
+                .contains("não tem horário nem gatilho")
+        );
+        assert!(
+            refused(with(json!({"manual":true,"schedule":{"kind":"interval","amount":"60","unit":1}})))
+                .contains("não tem horário nem gatilho")
+        );
+        assert!(matches!(Checked::parse(&with(json!({"manual":true}))).unwrap().triggers.as_slice(), []));
+        assert!(matches!(
+            Checked::parse(&with(json!({"schedule":{"kind":"manual"}}))).unwrap().triggers.as_slice(),
+            []
+        ));
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let error = routines.change(&store, |s| save_in(s, "bot", &with(json!({"triggers":[]})))).err().unwrap();
+        assert!(format!("{error:#}").contains("pelo menos um gatilho"));
+        assert!(routines.state.locked().routines.is_empty());
+    }
+
+    #[test]
+    fn manual_routine_can_become_scheduled_and_back_and_duplicates_as_manual() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let id = routines.change(&store, |s| save_in(s, "bot", &manual_body())).unwrap().id;
+        let scheduled = json!({"id":id,"name":"Botão","instruction":"Somente tarefa sintética","triggers":[{"type":"interval","seconds":60}]});
+        let saved = routines.change(&store, |s| save_in(s, "bot", &scheduled)).unwrap();
+        assert!(saved.next_runs[0].is_some());
+        assert_eq!(public(&saved)["manual"], false);
+        let mut back = manual_body();
+        back["id"] = json!(id);
+        let saved = routines.change(&store, |s| save_in(s, "bot", &back)).unwrap();
+        assert!(matches!(saved.next_runs.as_slice(), []));
+        let copy = routines.change(&store, |s| duplicate_in(s, "bot", &id)).unwrap();
+        assert!(copy.triggers.is_empty() && copy.next_runs.is_empty() && !copy.enabled);
+    }
+
+    #[test]
+    fn becoming_manual_cancels_queued_automatic_runs_but_keeps_a_manual_request() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let timed = json!({"name":"Botão","instruction":"Somente tarefa sintética","triggers":[{"type":"interval","seconds":60}]});
+        let id = routines.change(&store, |s| save_in(s, "bot", &timed)).unwrap().id;
+        routines
+            .change(&store, |s| {
+                let routine = s.routines[0].clone();
+                s.runs.push(new_run(&routine, json!({"source":"schedule"}), None));
+                s.runs.push(new_run(&routine, json!({"source":"test"}), None));
+                Ok(())
+            })
+            .unwrap();
+        let mut manual = manual_body();
+        manual["id"] = json!(id);
+        routines.change(&store, |s| save_in(s, "bot", &manual)).unwrap();
+        let state = routines.state.locked();
+        assert!(state.runs[0].status == Status::Cancelled);
+        assert!(state.runs[1].status == Status::Pending);
+    }
 }
+
+#[cfg(test)]
+#[path = "../fork/heartbeat/testes_cenarios.rs"]
+mod heartbeat_cenarios_tests;
+#[cfg(test)]
+#[path = "../fork/heartbeat/testes_rotina.rs"]
+mod heartbeat_rotina_tests;

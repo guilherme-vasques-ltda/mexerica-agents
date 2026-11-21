@@ -385,6 +385,27 @@ async fn mesma_invocacao_nao_vale_para_grafico_e_escolha_ao_mesmo_tempo() {
 }
 
 #[tokio::test]
+async fn grafico_recusa_invocacao_vazia_ou_acima_do_limite_sem_gravar() {
+    let f = Fixture::new();
+    let context = f.context();
+    let lane = context.lane();
+    let origin = context.turn.message.clone().unwrap();
+    let scope = Context { lane: &lane, space: &context.cfg.space_id, origin_entry: &origin, domain: context.domain() };
+    let longa = "x".repeat(257);
+    let before = (count(&f.hub), charts_rows(&f.hub));
+    {
+        let mut db = f.hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        for invocation in ["", longa.as_str()] {
+            let error = chart_store::create(&tx, &scope, invocation, &chart("Vendas")).unwrap_err().to_string();
+            assert_eq!(error, "genui_invalid_invocation");
+        }
+        tx.rollback().unwrap();
+    }
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), before);
+}
+
+#[tokio::test]
 async fn grafico_reaberto_apos_reinicio_vem_do_banco_sem_nova_chamada() {
     let f = Fixture::new();
     let shown = show_chart(&f.hub, &f.context(), "ponte:1", &chart("Vendas")).unwrap();

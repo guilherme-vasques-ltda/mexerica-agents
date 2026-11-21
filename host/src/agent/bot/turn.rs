@@ -112,6 +112,11 @@ impl Actor {
             "{}{prompt}",
             crate::fork::delegacao::turno(&self.hub.store, &self.cfg, self.active_group.is_some())
         );
+        // Instruções do dono para todos os bots e para o Space, por turno; nunca em turno de Canal.
+        prompt = format!(
+            "{}{prompt}",
+            crate::fork::instrucao_geral::turno(&self.hub.store, &self.cfg, self.active_group.is_some())
+        );
         prompt = format!(
             "{}{prompt}",
             if self.cfg.context.is_some() {
@@ -311,6 +316,7 @@ impl Actor {
         };
         self.lane = lane.clone();
         self.turn = Some(turn);
+        self.mudo_iniciar(turn);
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
         let from_user = owner_words(
             hidden,
@@ -584,9 +590,16 @@ impl Actor {
             *used = Instant::now();
         }
         self.files.cancel();
-        self.flush(true);
-        self.seg = Seg::None;
         let stopped = self.stop_requested || matches!(&done, Ok(v) if v["stopReason"] == "cancelled");
+        // Turno cortado: o trecho aberto vai inteiro para o disco ainda com `streaming`, que só a marca de interrompida
+        // tira; se ela falhar, a varredura sem ator marca depois.
+        let cut_early = stopped || done.is_err() || limited;
+        let sealed = if cut_early {
+            self.flush(true);
+            !matches!(self.seg, Seg::Open { dirty: true, .. })
+        } else {
+            self.close_seg()
+        };
         self.close_turn_work(stopped || done.is_err() || limited);
         let mut final_text = None;
         // R1: a entrada `agent` que originou a resposta, só referência (sem copiar o texto).
@@ -607,7 +620,22 @@ impl Actor {
             // A reaction (or one it held back) was its whole reply: what it wrote stays in the trace too.
             self.last_text = None;
         }
-        if let Some(id) = self.last_text.take().filter(|_| !stopped)
+        let last_text = self.last_text.take();
+        // Fim que ficou só na memória (selagem que falhou em algum trecho do turno): o disco ainda diz `streaming`.
+        let unsealed =
+            last_text.as_ref().and_then(|id| self.hub.store.entry(id)).is_some_and(|e| e.data["streaming"] == true);
+        let cut = cut_early || !sealed || unsealed;
+        // Resposta cortada que vai à conversa: só a marca tira o `streaming`; se ela falhar, a varredura marca depois.
+        let shows_cut = cut && !delegated && last_text.is_some();
+        if shows_cut {
+            if let Some(id) = &last_text {
+                self.mark_interrupted(id);
+            }
+        } else {
+            self.close_seg();
+        }
+        self.seg = Seg::None;
+        if let Some(id) = last_text.filter(|_| !cut)
             && let Some(mut e) = self.hub.store.entry(&id)
         {
             let text = e.data["text"].as_str().map(str::to_owned);

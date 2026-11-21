@@ -60,7 +60,7 @@ export function seletorDaFuncao(o: { data: FunctionSnapshot; functionId: string;
   const { data, functionId, draft, textos } = o
   const rotulos = rotulosUnicos(data.accounts, textos.legacy)
   const motivos = new Map(data.accounts.map((a) => [a.id, motivoDaConta(a, functionId)] as const))
-  const contas: ContaMotor[] = data.accounts.filter((a) => !motivos.get(a.id)).map((a) => ({ id: a.id, label: rotulos.get(a.id)!, backend: a.backend, state: 'connected', origin: 'managed', models: a.models.map((m) => ({ id: m.id })), automatico: automaticoResolvivel(a, functionId) }))
+  const contas: ContaMotor[] = data.accounts.filter((a) => !motivos.get(a.id)).map((a) => ({ id: a.id, label: rotulos.get(a.id)!, backend: a.backend, state: 'connected', origin: 'managed', billing: a.billing, models: a.models.map((m) => ({ id: m.id })), automatico: automaticoResolvivel(a, functionId) }))
   const acao = (motivo: Motivo) => motivo === 'desconectada' ? { rotulo: textos.conectar, fazer: o.abrirContas } : motivo === 'naoConfirmada' ? { rotulo: textos.confirmarLogin, fazer: o.abrirContas } : undefined
   const inativas: ContaInativa[] = data.accounts.flatMap((a) => {
     const motivo = motivos.get(a.id)

@@ -14,6 +14,7 @@ impl Routines {
             // A outbox não publica resultado ou aviso para um bot excluído.
             run.report_pending = false;
             run.result = None;
+            run.heartbeat_texto = None;
         }
         let rev = store.delete_bot_with_routines(bot, &serde_json::to_string(&next)?, guard_live_runs(&next))?;
         let hooks_changed = hook_set(&state) != hook_set(&next);

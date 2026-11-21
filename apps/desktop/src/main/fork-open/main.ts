@@ -9,6 +9,7 @@ import type { SSHState } from '../../shared/ssh'
 import { privateDirectory } from '../../shared/fork-private-files'
 import { bringToFront, isOpenAsset, open, openPaths } from './isolation'
 import { registerOpenHub } from './hub'
+import { registerReleaseNotice } from '../fork-release-notice'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
     JSON.stringify(JSON.parse(readFileSync(join(process.resourcesPath, 'open-profile.json'), 'utf8'))) !== JSON.stringify(open)) {
@@ -78,6 +79,15 @@ if (!app.requestSingleInstanceLock()) {
     }
     for (const [channel, value] of Object.entries(state)) ipcMain.handle(channel, () => value)
     registerOpenHub(homeConfig, temp, chatURL, () => window)
+    // Nível 1 de atualizações: o perfil Open também avisa de nova versão; handlers só aceitam a
+    // própria janela do chat (a mesma guarda do hub), e o estado em `userData` segue 0600/regular.
+    registerReleaseNotice({
+      windows: () => (window && !window.isDestroyed() && window.webContents.getURL() === chatURL ? [window] : []),
+      userDataDir: userData,
+      currentVersion: app.getVersion(),
+      allowed: (event) => event.sender === window?.webContents &&
+        event.senderFrame !== null && event.senderFrame === event.sender.mainFrame && event.senderFrame.url === chatURL,
+    })
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
       { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },

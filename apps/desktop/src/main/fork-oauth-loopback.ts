@@ -13,6 +13,9 @@ import type { AppLanguage } from '../shared/fork-idioma.ts'
 export const PORTA_PRINCIPAL = 19424
 export const PORTA_DEV = 19425
 export const CAMINHO = '/oauth/callback'
+/** O caminho que o login do ChatGPT exige no retorno; o ouvinte atende os dois na mesma porta. */
+export const CAMINHO_AUTH = '/auth/callback'
+const CAMINHOS = [CAMINHO, CAMINHO_AUTH]
 const ESPERA_MAX_MS = 10 * 60_000
 const RESPOSTA_MAX_MS = 30_000
 const CABECALHOS = {
@@ -30,7 +33,7 @@ const ERRO_TEMPO = 'O login demorou demais.' // textos-ok: erro técnico interno
 const ERRO_NAO_ABRIU = 'Não foi possível abrir o endereço de login.' // textos-ok: erro técnico interno; o renderer só fecha o ouvinte e não o mostra
 const ERRO_CANCELADO = 'O login foi cancelado.' // textos-ok: erro técnico interno; o renderer só fecha o ouvinte e não o mostra
 
-export const redirectDoApp = (porta: number) => `http://127.0.0.1:${porta}${CAMINHO}`
+export const redirectDoApp = (porta: number, caminho: string = CAMINHO) => `http://127.0.0.1:${porta}${caminho}`
 
 /** O login não voltou: outro começou no lugar, a pessoa desistiu ou o tempo acabou. */
 export class LoginEncerrado extends Error {
@@ -44,21 +47,34 @@ export class LoginEncerrado extends Error {
 const loopback = (u: URL) => u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]'
 
 /**
- * O pedido do Hub: a página de login do fornecedor (https; http só em loopback, como o Hub aceita) cujo `redirect_uri`
- * é EXATAMENTE o do ouvinte deste app e que traz um único `state`. Qualquer outra coisa recusa: este ouvinte não abre
- * login de outro lugar nem espera um retorno que o Hub não tenha preparado para ele.
+ * O pedido do Hub: a página de login do fornecedor (https; http só em loopback, como o Hub aceita) cujo endereço de
+ * retorno é EXATAMENTE o do ouvinte deste app — `redirect_uri` (OAuth comum) ou `callback_url` (OpenRouter), um dos
+ * dois, nunca os dois — e que traz um único `state`. O retorno pode pedir qualquer um dos dois caminhos conhecidos
+ * do ouvinte; o navegador tem de voltar pelo mesmo. O pedido com `callback_url` é o login do OpenRouter e só abre no
+ * endereço oficial dele; qualquer outra coisa recusa: este ouvinte não abre login de outro lugar nem espera um
+ * retorno que o Hub não tenha preparado para ele.
  */
 export function lerPedido(url: unknown, porta: number): { state: string } | null {
+  const pedido = lerPedidoTodo(url, porta)
+  return pedido ? { state: pedido.state } : null
+}
+
+/** O pedido inteiro: o `state` e o caminho de retorno que ele pediu, para o navegador voltar pelo mesmo. */
+function lerPedidoTodo(url: unknown, porta: number): { state: string; caminho: string } | null {
   if (typeof url !== 'string') return null
   let alvo: URL
   try { alvo = new URL(url) } catch { return null }
   if (alvo.username || alvo.password || alvo.hash) return null
   if (alvo.protocol !== 'https:' && !(alvo.protocol === 'http:' && loopback(alvo))) return null
-  const redirects = alvo.searchParams.getAll('redirect_uri')
+  const retornos = [...alvo.searchParams.getAll('redirect_uri'), ...alvo.searchParams.getAll('callback_url')]
   const states = alvo.searchParams.getAll('state')
-  if (redirects.length !== 1 || redirects[0] !== redirectDoApp(porta)) return null
+  const caminho = retornos.length === 1 ? CAMINHOS.find((c) => retornos[0] === redirectDoApp(porta, c)) : undefined
+  if (!caminho) return null
+  // O retorno em `callback_url` é o login do OpenRouter: só a origem oficial dele (sem porta alternativa), aqui no
+  // processo principal.
+  if (alvo.searchParams.has('callback_url') && alvo.origin !== 'https://openrouter.ai') return null
   if (states.length !== 1 || states[0] === '') return null
-  return { state: states[0] }
+  return { state: states[0], caminho }
 }
 
 const igual = (a: string, b: string) => {
@@ -94,6 +110,8 @@ export interface Opcoes {
 
 interface Espera {
   state: string
+  /** O caminho que o pedido pediu no retorno; o navegador só volta por ele. */
+  caminho: string
   resolve: (voltou: string) => void
   reject: (erro: Error) => void
   timer: NodeJS.Timeout
@@ -145,13 +163,14 @@ export class RetornoDoLogin {
   /** Abre a página de login e espera o retorno desta tentativa; devolve a URL de retorno (a mesma que o navegador chamou). */
   esperar(tentativa: unknown, url: unknown): Promise<string> {
     if (tentativa !== this.tentativa) return Promise.reject(new LoginEncerrado('cancelado', ERRO_OUTRO))
-    const pedido = this.servidor ? lerPedido(url, this.portaReal) : null
+    const pedido = this.servidor ? lerPedidoTodo(url, this.portaReal) : null
     if (!pedido) { this.fechar(); return Promise.reject(new Error(ERRO_PEDIDO)) }
     const anterior = this.espera
     if (anterior) { clearTimeout(anterior.timer); anterior.reject(new LoginEncerrado('cancelado', ERRO_OUTRO)) }
     return new Promise<string>((resolve, reject) => {
       const espera: Espera = {
         state: pedido.state,
+        caminho: pedido.caminho,
         resolve,
         reject,
         timer: setTimeout(() => {
@@ -221,7 +240,9 @@ export class RetornoDoLogin {
     let alvo: URL
     try { alvo = new URL(req.url ?? '', `http://127.0.0.1:${this.portaReal}`) } catch { return parado() }
     const espera = this.espera
-    if (alvo.pathname !== CAMINHO || !espera) return parado()
+    // O retorno desta tentativa volta pelo caminho que o pedido pediu — um pedido em /oauth/callback não aceita
+    // retorno em /auth/callback, nem o contrário — e tem exatamente um state, igual ao do pedido; o resto nunca passa.
+    if (!espera || alvo.pathname !== espera.caminho) return parado()
     // O retorno desta tentativa tem exatamente um state, igual ao do pedido; o resto (outra aba, outro login) nunca passa.
     const states = alvo.searchParams.getAll('state')
     if (states.length !== 1 || !igual(states[0], espera.state)) return this.recusar(res, 400, traduzir(idioma, 'mercado.retorno.outro.titulo'), traduzir(idioma, 'mercado.retorno.outro.texto'))

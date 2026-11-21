@@ -54,6 +54,13 @@ pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
     if contextual || body.get("hubId").is_some() {
         ensure!(body["hubId"].as_str() == Some(hub.host_id.as_str()), "hub_context_mismatch");
     }
+    if crate::fork::mail_manager::api::METHODS.contains(&method) {
+        if !body.get("spaceId").is_none_or(|v| v.is_null() || v.as_str() == Some(PERSONAL)) {
+            tracing::warn!(reason = "invalid_space", "mail_manager: operação negada");
+            return Err(anyhow!("invalid_space"));
+        }
+        return Ok(());
+    }
     let space = match body.get("spaceId") {
         Some(v) => v.as_str().ok_or_else(|| anyhow!("invalid_space"))?,
         None => PERSONAL,
@@ -73,6 +80,10 @@ pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
     }
     // A lista aceita botId vazio para o Space e valida o vínculo dentro da transação.
     if crate::fork::nunca_fazer::METHODS.contains(&method) {
+        return Ok(());
+    }
+    // O campo geral não tem Space; o do Space é validado na própria transação.
+    if crate::fork::instrucao_geral::METHODS.contains(&method) {
         return Ok(());
     }
     // MX-264: o lote de extensões é intenção do dono para o Hub inteiro, sem

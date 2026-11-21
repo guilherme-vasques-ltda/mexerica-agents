@@ -36,27 +36,34 @@ import { MemoryNotice } from './MemoryNotice'
 import { RascunhoDaConversa } from '../fork/skill-drafts/RascunhoDaConversa'
 import { ToolSteps } from './cards/ToolSteps'
 import type { TurnSteps } from './cards/tool-steps'
+import { ChangesTrigger } from '../fork/mudancas/MudancasDaResposta'
+import type { TurnChanges } from '../fork/mudancas/mudancas'
 import type { WorkingBlock } from './working-blocks'
 import { bubbleRect, ReceiptPopover, ReceiptTrigger } from '../fork/recibo/ReciboDoTurno'
 import type { ReceiptAnchor } from '../fork/recibo/presentation'
 import { AvisoDeEspera } from '../fork/conversa/LimitesDeUso'
 import { alvoDaEspera, paradaDaEspera } from '../fork/conversa/limites'
+import { AvisoMotorMudo } from '../fork/conversa/AvisoMotorMudo'
+import { lerMotorMudo } from '../fork/conversa/motor-mudo'
 import { superficieIdioma, tradutor, useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { AcaoDaMensagemFalha, AvisoDeFalhaDeConta, BotaoAbrirContas } from '../fork/contas-ia/FalhaDeConta'
 import { ehAvisoDePreparo, lerReason } from '../fork/contas-ia/falha-de-conta'
+import { avisoOpen, recusaOpen } from '../fork/spaces/erro-envio'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
 }
 
 /** One chat-visible entry, with what can be done to it. */
-export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, onReply, steps, receipt }: {
+export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, onReply, steps, receipt, changes, onOpenChanges }: {
   entry: Entry
   /** Rota-03b: a resposta que abre o turno, com onde ler o recibo dele. */
   receipt?: ReceiptAnchor
   groupStart: boolean
   /** D165 fase F: the steps the Hub recorded for this reply's turn (tool entries). */
   steps?: TurnSteps
+  changes?: TurnChanges
+  onOpenChanges?: (c: TurnChanges) => void
   chat: Bot | null
   openTrace: () => void
   /** Quotes this message in the composer; absent where the computer can't take replies. */
@@ -76,7 +83,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
         <VStack align="flex-start" gap={4} className={groupStart ? 'chat-row group-start' : 'chat-row'}>
           {/* D165 fase E + D169 (MessageBubble): name and time live inside the bubble; the bot's 28px face
               sits beside it at the start of its run, in every conversation. */}
-          <AgentBubble entry={entry} openTrace={openTrace} reply={reply} meta={groupStart} face fallbackAuthor={chat} steps={steps} receipt={receipt} />
+          <AgentBubble entry={entry} openTrace={openTrace} reply={reply} meta={groupStart} face fallbackAuthor={chat} steps={steps} receipt={receipt} changes={changes} onOpenChanges={onOpenChanges} />
           <VStack gap={4} className="chat-row-indent">
             <ReactionsRow entry={entry} />
           </VStack>
@@ -194,9 +201,11 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
       return <Text size="caption2" tone="tertiary">{t(botWorking ? 'conversa.mensagens.naFilaAte' : 'conversa.mensagens.naFila')}</Text>
     case 'failed': {
       const reason = lerReason(entry.data.reason)
+      const recusa = recusaOpen(entry.data.recusa)
       return (
         <HStack as="span" gap={2}>
           <Text size="caption2" weight="semibold" tone="danger" className="user-status-error">{t('conversa.mensagens.naoEnviada')}</Text>
+          {recusa ? <Text size="caption2" tone="danger" role="alert">{t(recusa)}</Text> : null}
           {reason ? <AcaoDaMensagemFalha reason={reason} botId={entry.data.author ?? entry.botId} botName={store.bots.get(entry.data.author ?? entry.botId)?.name ?? ''} /> : null}
           <IconButton title={t('conversa.mensagens.reenviar')} icon="arrow.clockwise" size={24} onClick={() => store.retry(entry)} />
           <IconButton title={t('conversa.mensagens.apagar')} icon="trash" size={24} onClick={() => store.discard(entry)} />
@@ -210,7 +219,7 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
   }
 }
 
-export function AgentBubble({ entry, openTrace, reply, meta = false, face = false, fallbackAuthor = null, steps, receipt }: { entry: Entry; openTrace: () => void; reply?: () => void; meta?: boolean; face?: boolean; fallbackAuthor?: Bot | null; steps?: TurnSteps; receipt?: ReceiptAnchor }) {
+export function AgentBubble({ entry, openTrace, reply, meta = false, face = false, fallbackAuthor = null, steps, receipt, changes, onOpenChanges }: { entry: Entry; openTrace: () => void; reply?: () => void; meta?: boolean; face?: boolean; fallbackAuthor?: Bot | null; steps?: TurnSteps; receipt?: ReceiptAnchor; changes?: TurnChanges; onOpenChanges?: (c: TurnChanges) => void }) {
   const store = useStore()
   const [hovering, setHovering] = useState(false)
   const t = useT()
@@ -247,7 +256,9 @@ export function AgentBubble({ entry, openTrace, reply, meta = false, face = fals
           {/* D169 (ToolSteps): the work comes first, under the name, then the answer. */}
           {steps ? <ToolSteps steps={steps} /> : null}
           {entry.data.files?.length ? <div className="file-message-cards">{entry.data.files.map((file) => <FileDownloadCard key={file.id} entry={entry} file={file} />)}</div> : <MarkdownText text={entry.data.text ?? ''} />}
+          {entry.kind === 'agent' && entry.data.interrupted === true ? <Text size="caption2" tone="secondary">{t('conversa.mensagens.respostaInterrompida')}</Text> : null}
           {entry.kind === 'agent' && entry.data.final === true && !entry.data.files?.length ? <RascunhoDaConversa entry={entry} nomeAutor={author?.name} /> : null}
+          {changes && onOpenChanges ? <ChangesTrigger changes={changes} onOpen={() => onOpenChanges(changes)} /> : null}
         </Bubble>
         <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy}
           explain={receipt ? (from) => setExplain({ rect: bubbleRect(from), from }) : undefined} />
@@ -262,7 +273,8 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   const t = useT()
   const idioma = useIdioma()
   // MX-245: a espera do limite (Hub antigo, sem `waitId`) também diz "Parou pelo limite do plano; volta às HH:MM".
-  const text = paradaDaEspera(t, idioma, entry) ?? entry.data.text ?? ''
+  const aviso = avisoOpen(entry.data.code)
+  const text = paradaDaEspera(t, idioma, entry) ?? (aviso ? t(aviso) : entry.data.text ?? '')
   if (entry.data.callSeconds !== undefined) {
     const s = entry.data.callSeconds
     return (
@@ -274,6 +286,7 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   }
   // DON-907 C4: a espera do limite com "Não retomar"/"Retomar agora", quando o Hub anuncia a espera (fork/conversa).
   if (alvoDaEspera(entry)) return <AvisoDeEspera entry={entry} />
+  if (lerMotorMudo(entry)) return <AvisoMotorMudo entry={entry} />
   switch (entry.data.style) {
     case 'error': {
       // Hub novo: `reason` vira a frase com a conta e o botão. Hub antigo: o texto de sempre; no aviso de preparo, só o botão para as contas.

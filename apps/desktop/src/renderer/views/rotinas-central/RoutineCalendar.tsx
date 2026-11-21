@@ -12,7 +12,7 @@ import { atMinutes, dayLabel, rangeLabel, startOfDay, startOfMonth, stepAnchor, 
 import { BotsPanel } from './BotsPanel'
 import { MiniMonth } from './MiniMonth'
 import { MonthGrid } from './MonthGrid'
-import { isOnDemand, type CalendarItem, type OverviewRoutine } from './model'
+import { isManual, isOnDemand, type CalendarItem, type OverviewRoutine } from './model'
 import { LoadState, OnDemandBand } from './parts'
 import { idioma, texts } from './texts'
 import { TimeGrid } from './TimeGrid'
@@ -67,7 +67,8 @@ export function RoutineCalendar({ view, setView, anchor, setAnchor, range, today
   onToggleBot: (botId: string) => void
 }) {
   const onDemand = routines.filter(isOnDemand)
-  const frequent = routines.filter((r) => dense.has(r.id) && !isOnDemand(r))
+  const manual = routines.filter(isManual)
+  const frequent = routines.filter((r) => dense.has(r.id) && !isOnDemand(r) && !isManual(r))
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const toggle = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement>(null)
@@ -133,7 +134,7 @@ export function RoutineCalendar({ view, setView, anchor, setAnchor, range, today
               <SegmentedChoice selection={view} options={texts.views} onChange={setView} />
             </div>
           </div>
-          <OnDemandBand onDemand={onDemand} frequent={frequent} bots={bots} onOpen={onOpenRoutine} />
+          <OnDemandBand onDemand={onDemand} manual={manual} frequent={frequent} bots={bots} onOpen={onOpenRoutine} />
           {empty && !loading && !error ? <p className="rc-banner">{texts.emptyCalendar}</p> : null}
           {!empty && hasData && query.trim() && routines.length === 0 ? (
             <p className="rc-banner" role="status">

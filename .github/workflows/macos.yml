@@ -1,0 +1,137 @@
+# Build e testes do app no macOS, sempre no runner macos-15 do GitHub. Fica fora do selo ci-ok. Guia: docs/guides/ci.md.
+name: macOS
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'apps/desktop/**'
+      - 'host/**'
+      - 'motor/**'
+      - 'packaging/**'
+      - 'rust-toolchain.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - '.github/workflows/macos.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  macos:
+    # PR de fork e rascunho nao rodam; o disparo manual so roda a partir da main.
+    if: ${{ ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    runs-on: macos-15
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    env:
+      OPEN_APP: dist/open/mac-arm64/Mexerica Open.app
+    steps:
+      # O Actions compara texto sem diferenciar maiusculas: uma ref como refs/heads/MAIN passa na condicao do job.
+      # Aqui a comparacao e exata e para antes do checkout e do build.
+      - name: Recusar disparo manual fora da main
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || { echo '::error::O disparo manual so roda a partir da main.'; exit 1; }
+      - name: Marcar o inicio para o resumo de minutos
+        run: echo "MACOS_INICIO=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Conferir a plataforma (macOS arm64 com Xcode)
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      # Sem rustup na imagem, instala o rustup-init 1.29.3 com SHA256 fixo; a versao do Rust vem do rust-toolchain.toml.
+      - name: Garantir rustup
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl --fail --silent --show-error --location --retry 3 https://static.rust-lang.org/rustup/archive/1.29.3/aarch64-apple-darwin/rustup-init -o "$RUNNER_TEMP/rustup-init"
+            echo "63752a1919a3a4793173ec70f8f212621a7ce38ba6a246095984482f4de20f9f  $RUNNER_TEMP/rustup-init" | shasum -a 256 --check
+            chmod +x "$RUNNER_TEMP/rustup-init"
+            "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Instalar o Rust fixado
+        working-directory: host
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: host
+          key: macos
+      - name: Testes nativos do Codex da Open no Hub
+        working-directory: host
+        env:
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: cargo test --locked --bin donnabot-host fork::open_codex
+      - name: Hub isolado da Open (open_hub)
+        working-directory: host
+        env:
+          CODYNC_ENV: open
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: cargo test --locked --test open_hub
+      - name: Dependencias do app
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      - name: Testes da Open no macOS
+        working-directory: apps/desktop
+        run: npm run test:open
+      - name: Empacotar a Open (perfil oficial, assinatura ad hoc)
+        working-directory: apps/desktop
+        run: npm run dist:mac:open
+      - name: Conferir assinatura e arquitetura do pacote
+        working-directory: apps/desktop
+        run: |
+          codesign --verify --deep --strict "$OPEN_APP"
+          hub="$OPEN_APP/Contents/Resources/mexerica-open-hub"
+          speech="$OPEN_APP/Contents/Resources/codync-speech"
+          test "$(lipo -archs "$hub")" = arm64
+          test "$(lipo -archs "$speech")" = arm64
+          codesign --verify --strict "$hub"
+          codesign --verify --strict "$speech"
+          printf 'Hub embutido: %s\n' "$(lipo -archs "$hub")" >> "$GITHUB_STEP_SUMMARY"
+      # So no disparo manual a partir da main: zip de teste de CI com o commit no nome, como artefato do proprio
+      # Actions, sem release nem upload externo. Nao e versao oficial.
+      - name: Gerar zip de teste e SHA256SUMS
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        working-directory: apps/desktop
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          out="$RUNNER_TEMP/open-macos"
+          zip="Mexerica-Open-macos-arm64-teste-ci-${GITHUB_SHA::12}.zip"
+          mkdir -p "$out"
+          ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/$zip"
+          (cd "$out" && shasum -a 256 "$zip" > SHA256SUMS && cat SHA256SUMS)
+          {
+            echo 'Teste de CI, nao e versao oficial: a assinatura ad hoc e o hash so provam a integridade desta rodada, nao autoria nem aprovacao. Nao compartilhar nem instalar sobre a versao de uso.'
+            printf 'Commit: %s (%s)\n' "$GITHUB_SHA" "$GITHUB_REF"
+            printf 'Zip: %s\n' "$(cut -d ' ' -f 1 "$out/SHA256SUMS")"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          name: mexerica-open-macos-arm64-teste-ci-${{ github.sha }}
+          path: ${{ runner.temp }}/open-macos/
+          retention-days: 3
+          if-no-files-found: error
+      - name: Minutos gastos
+        if: ${{ always() }}
+        run: |
+          test -n "${MACOS_INICIO:-}" || exit 0
+          minutos=$(( ($(date +%s) - MACOS_INICIO + 59) / 60 ))
+          printf 'Minutos no macOS: %s\n' "$minutos" >> "$GITHUB_STEP_SUMMARY"

@@ -213,6 +213,20 @@ as regras por ferramenta, MCP, rotina ou webhook; só o dono as edita no app. Bo
 outros Spaces não recebem as regras do Pessoal, e turnos em Canais não as trazem. O
 recibo do turno guarda a versão em vigor quando você delega ("Regras de delegação v N").
 
+**Instruções do dono para todos os bots e para o Space.** Em Ajustes → Instruções, o
+dono escreve uma vez como quer que os bots trabalhem (por exemplo, respostas curtas
+e sem perguntar detalhe de execução) no campo "Para todos os meus bots", e no campo
+"Neste Space" o que vale só para o Space aberto. Cada campo tem até 2.000
+caracteres. Os textos chegam no início de cada turno, num bloco `<instrucoes_do_dono>`,
+para todo bot que não seja de Canal, em qualquer motor. A ordem de precedência, da
+mais específica para a mais geral, é: as instruções do próprio bot, as do Space, as
+de todos os bots; em conflito vale a mais específica. Uma mudança vale na mensagem
+seguinte, sem reiniciar nada. O bloco termina com um aviso fixo do Hub: as
+instruções orientam o jeito de trabalhar, não liberam permissão, ferramenta, modelo
+nem conta, e não mudam as regras fixas do sistema. O texto do dono vem com `<`, `>` e
+`&` escapados e nunca é marcação. Bots e ferramentas não leem nem alteram os campos;
+só o dono os edita, no computador do Hub.
+
 **Contrato da tarefa (T2a, DON-912).** Ao delegar por `ask_bot`/`message_bot`, você pode
 propor um contrato curto no campo opcional `contract`: `result` (resultado esperado,
 obrigatório no contrato, até 500 caracteres), `acceptance` (como conferir que ficou pronto:
@@ -703,6 +717,8 @@ autoriza criar ou alterar rotina (D84/D121). O cartão de proposta 10.1b ainda
 não foi implementado por este PR.
 
 **Prometer aviso futuro (D417):** só prometa avisar depois quando já houver uma Rotina autorizada, salva e ativa para o acompanhamento. Informe a frequência e onde o aviso chega. Pedido pontual não autoriza recorrência, e a promessa não autoriza criar uma Rotina. Sem essa condição, não anuncie acompanhamento configurado. As verificações e aprovações de criação/ativação continuam as existentes.
+
+**Rotina «só quando eu mandar»:** uma Rotina pode não ter horário nem gatilho; ela nunca roda sozinha e só executa quando o dono aperta **Rodar agora** no app ou pede a você (`run_routine`). Só crie assim quando o dono pedir essa forma, enviando `manual: true` com `triggers` vazio ou ausente em `save_routine`. Sem `manual: true`, uma lista de gatilhos vazia é recusada: nunca omita o gatilho por esquecimento. Com `manual: true` e algum gatilho, o pedido também é recusado.
 
 ### Bloqueado tecnicamente
 

@@ -29,6 +29,35 @@ pub(super) fn ensure_no_model_release(before: &State, after: &State) -> Result<(
     Ok(())
 }
 
+/// Heartbeat: o modelo não declara, não altera (declaração, nome, horário, tempo limite, chave de webhook), não apaga nem liga uma checagem
+/// silenciosa; isso é gesto do dono no app. Pausar é permitido.
+pub(super) fn ensure_no_model_heartbeat(before: &State, after: &State) -> Result<()> {
+    let same = |a: &super::Routine, b: &super::Routine| a.id == b.id && a.bot_id == b.bot_id;
+    for old in before.routines.iter().filter(|old| old.heartbeat.is_some() && !old.deleted) {
+        let kept = after.routines.iter().find(|r| same(r, old)).is_some_and(|r| {
+            !r.deleted
+                && r.heartbeat == old.heartbeat
+                && r.name == old.name
+                && r.webhook_key == old.webhook_key
+                && r.triggers == old.triggers
+                && r.timeout_seconds == old.timeout_seconds
+                && (old.enabled || !r.enabled)
+        });
+        if !kept {
+            tracing::warn!(routine = %old.id, bot = %old.bot_id, "o modelo tentou alterar, apagar ou ligar uma checagem silenciosa; recusado");
+        }
+        anyhow::ensure!(kept, crate::fork::heartbeat::SO_O_DONO);
+    }
+    for routine in after.routines.iter().filter(|r| !r.deleted && r.heartbeat.is_some()) {
+        let declared_before = before.routines.iter().any(|old| same(old, routine) && old.heartbeat.is_some());
+        if !declared_before {
+            tracing::warn!(routine = %routine.id, bot = %routine.bot_id, "o modelo tentou declarar uma checagem silenciosa; recusado");
+        }
+        anyhow::ensure!(declared_before, crate::fork::heartbeat::SO_O_DONO);
+    }
+    Ok(())
+}
+
 pub(super) fn retain_history(next: &mut State) {
     let mut kept = 0;
     next.runs.reverse();
@@ -65,9 +94,13 @@ impl Routines {
         let result = update(&mut next)?;
         if origin.is_some() {
             ensure_no_model_release(&guard, &next)?;
+            ensure_no_model_heartbeat(&guard, &next)?;
         }
         retain_history(&mut next);
         let raw = serde_json::to_string(&next)?;
+        // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
+        // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         #[cfg(test)]
         crate::fork::sessoes::call_tests::before_effect(store, "routine_commit");
         if origin.is_some() {
@@ -251,7 +284,11 @@ impl Routines {
         // até o commit. Retry devolve a cópia já criada; sem TOCTOU com edição.
         let source = if replay.is_none() {
             match body.get("duplicateOf").and_then(Value::as_str) {
-                Some(source_id) => Some(duplicate_source(&next, &cfg.id, source_id)?),
+                Some(source_id) => {
+                    let found = duplicate_source(&next, &cfg.id, source_id)?;
+                    anyhow::ensure!(found.heartbeat.is_none(), crate::fork::heartbeat::SO_O_DONO);
+                    Some(found)
+                }
                 None => None,
             }
         } else {

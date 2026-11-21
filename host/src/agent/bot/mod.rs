@@ -31,6 +31,7 @@ mod fork_custo;
 mod fork_fallback;
 mod fork_fila;
 mod fork_genui;
+mod fork_motor_mudo;
 mod fork_owner_question;
 mod fork_profile_skills;
 mod fork_queue;
@@ -163,7 +164,7 @@ pub enum Cmd {
     CancelGroup {
         chat: String,
     },
-    #[cfg(test)]
+    /// Para tudo o que o bot faz: turno em andamento e fila. Usado ao desconectar a conta do bot.
     Stop,
     UsageWaitChanged {
         wait_id: String,
@@ -363,6 +364,7 @@ fn new_actor(hub: Arc<Hub>, cfg: BotConfig) -> Actor {
         restart_after_turn: false,
         fast_support,
         idle_checked: Instant::now(),
+        mudo: fork_motor_mudo::Vigia::new(),
     }
 }
 
@@ -440,6 +442,8 @@ pub(crate) enum CompactionUsage {
 
 pub(crate) struct Conn {
     ponte: Option<crate::fork::ponte_credencial::Revogador>,
+    /// Sessão do repasse local do plano de código (o código que o OpenCode usa no lugar da chave).
+    plano: Option<crate::fork::planos_codigo::Concessao>,
     curated: crate::fork::conectores::Pool,
     pub(crate) acp: Arc<Acp>,
     pub(crate) rx: mpsc::UnboundedReceiver<Incoming>,
@@ -530,7 +534,7 @@ enum SegKind {
 
 enum Seg {
     None,
-    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool },
+    Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool, solta: bool },
 }
 
 // These flags describe independent actor concerns, not interchangeable states.
@@ -657,6 +661,8 @@ struct Actor {
     fast_support: FastModeSupport,
     /// When idle sessions and agents were last looked for.
     idle_checked: Instant,
+    /// Vigia do silêncio do motor durante o pedido aberto.
+    mudo: fork_motor_mudo::Vigia,
 }
 
 #[cfg(test)]
@@ -683,6 +689,7 @@ impl Actor {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<PromptDone>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
+        self.mudo_restaurar();
         if let Err(error) = self.restore_dispatch() {
             tracing::error!(%error, "recuperação de despacho bloqueada; evidência preservada");
         }
@@ -755,6 +762,7 @@ impl Actor {
                         self.cancel_deadline = None;
                         if let Some(c) = self.conn.take() { c.kill().await; }
                     }
+                    self.mudo_conferir();
                     self.release_idle().await;
                     // The idle check may have queued a compaction.
                     if self.turn.is_none() && !self.queue.is_empty() {
@@ -861,13 +869,22 @@ mod fork_genui_tests;
 #[cfg(test)]
 mod fork_fila_tests;
 #[cfg(test)]
+mod fork_reinicio_tests;
+#[cfg(test)]
 mod fork_sessoes_tests;
 #[cfg(test)]
 mod waiting_tests;
 
 #[cfg(test)]
+mod cartao_projecao_tests;
+
+#[cfg(test)]
 #[path = "context_effects_tests.rs"]
 mod context_effects_tests;
+
+#[cfg(test)]
+#[path = "mascara_codigo_tests.rs"]
+mod mascara_codigo_tests;
 
 #[cfg(test)]
 #[path = "../../fork/cadeias/ator_testes.rs"]
@@ -877,5 +894,9 @@ mod cadeias_tests;
 #[path = "../../fork/whatsapp/passos_tests.rs"]
 mod whatsapp_passos_tests;
 
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "../../fork/motor_mexerica/conversa_ator_tests.rs"]
+mod motor_conversa_tests;
 #[cfg(test)]
 mod skills_tests;

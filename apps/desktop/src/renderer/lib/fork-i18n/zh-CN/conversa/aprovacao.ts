@@ -48,6 +48,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.status.permitiu": "你已允许",
   "conversa.aprovacao.status.recusou": "你已拒绝",
   "conversa.aprovacao.detalhes": "详情",
+  "conversa.aprovacao.avisoDetalheCortado": "文本已截断；未显示的内容无法核对。",
   "conversa.aprovacao.dica.toque": "点按即可允许。拒绝只需点一下。",
   "conversa.aprovacao.dica.segure": "按住即可允许；提前松开则取消。拒绝只需点一下。",
   "conversa.aprovacao.segurar.ative": "{opcao}：激活以确认",

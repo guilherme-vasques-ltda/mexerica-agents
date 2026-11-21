@@ -9,7 +9,7 @@ use crate::{
     hub::Hub,
     store::now_ms,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Result, anyhow, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -58,7 +58,7 @@ fn attempt_nonce(f: &Fire) -> String {
 pub(crate) fn nonce_accepted(c: &Connection, nonce: &str) -> Result<bool> {
     Ok(c.query_row(
         "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='user'
-         AND json_extract(data,'$.clientNonce')=?1)",
+         AND json_valid(data) AND json_extract(data,'$.clientNonce')=?1)",
         params![nonce],
         |r| r.get(0),
     )?)
@@ -419,6 +419,9 @@ async fn conclude(hub: &Arc<Hub>, f: &Fire, ok: bool, error: Option<String>) -> 
         let tx = db.unchecked_transaction()?;
         let (state, bump) = if ok {
             ("started", false)
+        } else if error.as_deref().is_some_and(|e| e.contains("queue_full")) {
+            // Fila da conversa cheia: tenta de novo mais tarde sem gastar tentativa.
+            ("scheduled", false)
         } else if f.attempts + 1 >= MAX_ATTEMPTS {
             ("failed", true)
         } else {
@@ -543,12 +546,25 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
         Step::Fire(fire) => fire,
     };
     let space = fire.space_id.clone();
-    let ok = perform(hub, &fire).await.is_ok();
-    let error = if ok { None } else { Some("send_failed".to_owned()) };
+    let result = perform(hub, &fire).await;
+    let ok = result.is_ok();
+    // Fila da conversa cheia: a agenda fica `scheduled` e tenta de novo sem gastar tentativa.
+    let waiting = result.as_ref().err().is_some_and(crate::fork::owner_question::queue_full);
+    let error = match (ok, waiting) {
+        (true, _) => None,
+        (false, true) => Some("queue_full".to_owned()),
+        (false, false) => Some("send_failed".to_owned()),
+    };
     conclude(hub, &fire, ok, error).await?;
+    // O recibo segue o contrato do app (`started`/`failed`); com a fila cheia a agenda tenta de novo sozinha.
+    let (state, reason) = match (ok, waiting) {
+        (true, _) => ("started", Value::Null),
+        (false, true) => ("failed", json!("queue_full")),
+        (false, false) => ("failed", json!("send_unavailable")),
+    };
     let answer = json!({
         "receipt": {"clientRequestId": request.as_str()},
-        "start": {"state": if ok { "started" } else { "failed" }, "reason": if ok { Value::Null } else { json!("send_unavailable") }},
+        "start": {"state": state, "reason": reason},
     });
     // Recibo final com o resultado real (o claim não grava recibo).
     let hub = hub.clone();
@@ -567,6 +583,46 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
     Ok(answer)
 }
 
+/// Vaga de início de proposta no Space: no máximo duas ativas no total e uma
+/// por bot. Ativa é linha com `proposal_id`, estado starting/started e tarefa
+/// em `backlog/in_progress` no JSON do Projeto — review, done, blocked,
+/// cancelled e tarefa removida liberam a vaga.
+/// Prova de entrega do poke de uma linha de proposta: a entrada `user` com o
+/// nonce da tentativa. Usa a MESMA expressão do índice
+/// `donna_task_delivery_probe`, então a busca não varre o log inteiro.
+fn nonce_proved(c: &Connection, nonce: &str) -> Result<bool> {
+    let attempt = format!("mx142-task-start-{nonce}");
+    let proved: i64 = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='user' \
+          AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END, '') <> '' \
+          AND CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END = ?1)",
+        params![attempt],
+        |r| r.get(0),
+    )?;
+    Ok(proved == 1)
+}
+
+fn proposal_slot(c: &Connection, hub: &str, space: &str, bot: &str, now: i64) -> Result<bool> {
+    let base = "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
+         WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
+           AND a.state IN ('starting','started')
+           AND (a.state='started' OR a.updated_at>?3 OR EXISTS(
+             SELECT 1 FROM entries WHERE kind='user'
+              AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END, '') <> ''
+              AND CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END = 'mx142-task-start-'||a.nonce))
+           AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
+           AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')";
+    let total: i64 = c.query_row(base, params![hub, space, now - STALE_STARTING_MS], |r| r.get(0))?;
+    if total >= 2 {
+        return Ok(false);
+    }
+    let mine: i64 =
+        c.query_row(&format!("{base} AND a.bot_id=?4"), params![hub, space, now - STALE_STARTING_MS, bot], |r| {
+            r.get(0)
+        })?;
+    Ok(mine < 1)
+}
+
 /// Tick do agendador: reivindica `scheduled` vencidas e `starting` órfãs,
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
 /// Claim das linhas vencidas do agendador, tudo numa tx: revalida gate por
@@ -575,7 +631,7 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
 pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>> {
     let tx = c.unchecked_transaction()?;
     let mut st = tx.prepare(
-        "SELECT space_id,project_id,task_id,bot_id,start_at,state,session_id,attempts,nonce,last_error,updated_at
+        "SELECT space_id,project_id,task_id,bot_id,start_at,state,session_id,attempts,nonce,proposal_id,last_error,updated_at
          FROM donna_task_agenda
          WHERE hub_id=?1 AND ((state='scheduled' AND not_before<=?2)
             OR (state='starting' AND updated_at<=?3))",
@@ -591,11 +647,12 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
             r.get::<_, Option<String>>(6)?,
             r.get::<_, i64>(7)?,
             r.get::<_, String>(8)?,
+            r.get::<_, Option<String>>(9)?,
         ))
     })?;
     let mut fires = Vec::new();
     for row in rows {
-        let (space, project, task, agenda_bot, start_at, state, session, attempts, nonce) = row?;
+        let (space, project, task, agenda_bot, start_at, state, session, attempts, nonce, proposal_id) = row?;
         // Revalida gate antes de gastar poke: tarefa sumiu/sem responsável → refused.
         // Tarefa/projeto removido é PERMANENTE (invalid_field): marca
         // refused terminal e segue — antes um único sumiço envenenava
@@ -625,6 +682,33 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
                 continue;
             }
         };
+        // Linha de proposta de tarefa que já avançou de estado é obsoleta:
+        // o início automático não faz mais sentido e a vaga é liberada.
+        if proposal_id.is_some() {
+            let row = store::load_task(&tx, hub, &space, &project, &task)?;
+            let task_state = row.task["state"].as_str().unwrap_or_default().to_owned();
+            if !matches!(task_state.as_str(), "backlog" | "in_progress") {
+                tx.execute(
+                    "UPDATE donna_task_agenda SET state='refused',last_error='inicio dispensado: a tarefa avancou de estado',updated_at=?5
+                     WHERE hub_id=?1 AND space_id=?2 AND project_id=?3 AND task_id=?4 AND nonce=?6",
+                    params![hub, space, project, task, now_ms(), nonce],
+                )?;
+                continue;
+            }
+        }
+        // Teto de início por proposta: quem não cabe no Space fica para o
+        // próximo tick, sem gastar tentativa. Vale para `scheduled` e para
+        // órfã `starting` sem entrega provada — essa não conta como vaga,
+        // então precisa de vaga livre (total e do bot de destino) para ser
+        // recuperada. Órfã com entrega provada já ocupa vaga real e segue
+        // direto: a recuperação só conclui o que de fato aconteceu.
+        let unproved_orphan = proposal_id.is_some() && state == "starting" && !nonce_proved(&tx, &nonce)?;
+        if proposal_id.is_some()
+            && (state == "scheduled" || unproved_orphan)
+            && !proposal_slot(&tx, hub, &space, &bot, now)?
+        {
+            continue;
+        }
         // Claim fenced por nonce+state: um reagendamento concorrente
         // trocou o nonce — a linha não casa, o fire velho não dispara.
         // Reconcilia bot_id com o responsável atual do gate (TEC-25): se a
@@ -667,6 +751,42 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
 pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
     let now = now_ms();
+    let result = run_due(hub, now).await;
+    let changed: Result<Vec<String>> = {
+        let hub = hub.clone();
+        let queried = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
+            let db = hub.store.db.locked();
+            let spaces = db
+                .prepare("SELECT DISTINCT space_id FROM donna_task_agenda WHERE hub_id=?1 AND updated_at>=?2")?
+                .query_map(params![hub.host_id, now], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(spaces)
+        })
+        .await;
+        match queried {
+            Ok(queried) => queried,
+            Err(error) => Err(anyhow!("tasks_unavailable: {error:#}")),
+        }
+    };
+    match (&result, &changed) {
+        (Ok(()), Err(error)) => {
+            return Err(anyhow!("falha ao avisar espaços com início de proposta alterado: {error:#}"));
+        }
+        (Err(_), Err(error)) => {
+            tracing::warn!(%error, "sem aviso de agenda alterada neste tick");
+        }
+        _ => {}
+    }
+    if let Ok(spaces) = changed {
+        for space in spaces {
+            let _ =
+                hub.events.send(json!({"type": crate::fork::projetos::EVENT, "hubId": hub.host_id, "spaceId": space}));
+        }
+    }
+    result
+}
+
+async fn run_due(hub: &Arc<Hub>, now: i64) -> Result<()> {
     let due = {
         let hub = hub.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<Fire>> {
@@ -758,9 +878,13 @@ pub(crate) fn restore_starting(c: &Connection, hub_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Entrada autenticada do bot (executor A): `task_create_child(start:true)` e
-/// futuros `task_start`. O bot precisa ser o responsável OU o coordenador do
-/// projeto — nunca eleva autoridade, só dispara o poke de início.
+/// Entrada autenticada do bot (executor A): início direto numa execução viva.
+/// Sem chamador nas ferramentas correntes — o início de tarefa proposta flui
+/// pela decisão do dono; mantida como contrato do runtime.
+#[allow(
+    dead_code,
+    reason = "Início direto por bot autenticado aguarda consumidor; o caminho corrente de início é a decisão do dono."
+)]
 pub(crate) async fn start_in_execution(
     hub: &Arc<Hub>,
     execution: &bindings::ExecutionRef,

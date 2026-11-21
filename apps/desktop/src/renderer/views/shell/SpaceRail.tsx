@@ -43,6 +43,8 @@ export interface RailActions {
   spaces?: RailSpaces | null
   /** VG-02: o Hub da faixa, para o ponto do Mission Board (views/fork/torre/badge.ts); ausente, sem ponto. */
   torreStore?: BotStore | null
+  /** Quadro Lado a lado: alterna o quadro no escopo atual (Pessoal ou Space). */
+  ladoALado?: { active: boolean; available: boolean; onToggle: () => void } | null
 }
 
 export interface RailSpaces {
@@ -99,6 +101,18 @@ export function SpaceRail(props: RailActions) {
       {/* D169 (28/10, pedido do dono): Pessoal is a place, like the spaces under it: it always goes (back) to Pessoal,
           from a space or Rotinas, with its draft, selection and focus kept. The account has "Conta e suporte". */}
       <div className="space-rail-gap" />
+      {props.ladoALado ? (
+        <button
+          className={`space-rail-button${props.ladoALado.active ? ' is-active' : ''}`}
+          title={t(props.ladoALado.active ? 'conversa.ladoALado.sair' : 'conversa.ladoALado.entrar')}
+          aria-label={t(props.ladoALado.active ? 'conversa.ladoALado.sair' : 'conversa.ladoALado.entrar')}
+          aria-pressed={props.ladoALado.active}
+          disabled={!props.ladoALado.available}
+          onClick={props.ladoALado.onToggle}
+        >
+          <Icon name="donna.ladoalado" size={RAIL_ICON} weight="light" />
+        </button>
+      ) : null}
       {/* Barra05: o rodapé, depois de um separador de 18px: Mission Board, Rotinas, Aplicativos e a engrenagem, em alvos
           de 32×28 com ícones de 16px no mesmo peso (`light`), SF Symbols no Mac e Lucide no resto (components/Icon). */}
       <span className="space-rail-sep" aria-hidden />

@@ -7,7 +7,7 @@ use super::{
     storage::{self, Context},
 };
 use crate::store::{EntryKind, insert_visible_on};
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, bail};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::json;
 
@@ -50,7 +50,10 @@ pub(crate) fn create(
     chart: &ValidatedChart,
 ) -> Result<Receipt> {
     let turn = storage::context(tx, ctx)?;
-    ensure!(!invocation.is_empty() && invocation.len() <= 256, "genui_invalid_invocation");
+    if invocation.is_empty() || invocation.len() > 256 {
+        tracing::warn!("gráfico recusado: identificador de invocação vazio ou acima do limite");
+        bail!("genui_invalid_invocation");
+    }
     let snapshot = chart.snapshot()?;
     let hash = crate::agent::registry::sha256_hex(snapshot.as_bytes());
     let used_by_question: bool =

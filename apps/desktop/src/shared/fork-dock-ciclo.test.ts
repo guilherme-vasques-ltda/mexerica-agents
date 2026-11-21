@@ -230,6 +230,7 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     './host-controller': { devPort: null, HostController: Inert, prefs: { get: (key: string) => prefs.get(key), set: (key: string, value: unknown) => { prefWrites.push([key, value]); prefs.set(key, value) } } }, './file-saves': { registerFileSaves: none }, './host-proxy': { registerHostProxy: none },
     './files': { readClipboardFiles: none, readFiles: none }, './tray': { Tray: MenuBar }, './dock': dockModule, './account': { AccountService: Inert },
     './updates': { Updates: Inert, yieldsToInstall: () => false },
+    './fork-release-notice': { registerReleaseNotice: none },
     './auth': authModule,
     './fork-oauth-loopback-ipc': { registerOAuthLoopbackIPC: none },
     './speech': { registerSpeech: none }, './screen': { registerScreenIPC: none }, './cloud': { registerCloud: () => { startup.push('cloud') } }, './ssh': { registerSSH: none }, './fork-cofre-seguro/janela': { registrarCofreSeguro: none },

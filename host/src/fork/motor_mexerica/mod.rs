@@ -22,8 +22,20 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[cfg(unix)]
+pub(crate) mod chaves;
+#[cfg(unix)]
+pub(crate) mod entrar_chatgpt;
+#[cfg(unix)]
+pub(crate) mod entrar_chatgpt_jwt;
+#[cfg(unix)]
+pub(crate) mod entrar_openrouter;
+#[cfg(unix)]
+pub(crate) mod historico;
+#[cfg(unix)]
 pub(crate) mod link;
 pub(crate) mod mcp_host;
+#[cfg(unix)]
+pub(crate) mod proprio;
 pub(crate) mod tools;
 pub(crate) use tools::{ToolRunner, ToolSpec};
 
@@ -43,6 +55,11 @@ pub(crate) const REQUIRED_ENV: &str = "MEXERICA_MOTOR_TESTS_REQUIRED";
 /// `motor-mexerica/<provider>` e devolve a chave, sem nunca registrar o valor.
 /// No bot o leitor fecha sobre o `Arc<Hub>`; nos testes, sobre um `Arc<Store>`.
 pub(crate) type VaultSource = Arc<dyn Fn(&str) -> Result<Option<String>> + Send + Sync>;
+/// Limites (`contextWindow`, `maxTokens`) de `(fornecedor, modelo)`; `{}` quando não há.
+pub(crate) type LimitsSource = Arc<dyn Fn(&str, &str) -> Result<Value> + Send + Sync>;
+/// Nomes (`proprio-…`) dos endereços próprios registrados no cofre; cada um entra na leitura de proteção do
+/// turno, mesmo sem ser o provedor desta conversa.
+pub(crate) type PropriosSource = Arc<dyn Fn() -> Result<Vec<String>> + Send + Sync>;
 
 /// Fonte do cofre sobre um `Store` próprio (provas e testes).
 pub(crate) fn store_vault(store: Arc<Store>) -> VaultSource {
@@ -54,13 +71,132 @@ pub(crate) fn hub_vault(hub: Arc<crate::hub::Hub>) -> VaultSource {
     Arc::new(move |slot: &str| crate::market::vault::read(&hub.store, slot))
 }
 
+/// Métodos do app para as chaves do motor (veja `chaves`).
+pub(crate) const CHAVE_METHODS: [&str; 5] =
+    ["motorChaves", "motorChaveTestar", "motorChaveSalvar", "motorChaveRemover", "motorEnderecoSalvar"];
+
+pub(crate) async fn chaves_call(
+    hub: &Arc<crate::hub::Hub>,
+    caller: &crate::api::devices::Caller,
+    method: &str,
+    body: Value,
+) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (hub, caller, method, body);
+        bail!("motor_desligado: o Motor Mexerica não roda nesta plataforma.")
+    }
+    #[cfg(unix)]
+    {
+        chaves::call(hub, caller, method, body).await
+    }
+}
+
+/// Métodos do app para entrar com `OpenRouter` (veja `entrar_openrouter`).
+pub(crate) const ENTRAR_METHODS: [&str; 2] = ["openrouterEntrar", "openrouterEntrarConcluir"];
+
+pub(crate) async fn entrar_openrouter_call(
+    hub: &Arc<crate::hub::Hub>,
+    caller: &crate::api::devices::Caller,
+    method: &str,
+    body: Value,
+) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (hub, caller, method, body);
+        bail!("motor_desligado: o Motor Mexerica não roda nesta plataforma.")
+    }
+    #[cfg(unix)]
+    {
+        entrar_openrouter::call(hub, caller, method, body).await
+    }
+}
+
+/// Métodos do app para entrar com `ChatGPT` (veja `entrar_chatgpt`).
+pub(crate) const CHATGPT_METHODS: [&str; 4] =
+    ["chatgptEntrar", "chatgptEntrarConcluir", "chatgptEstado", "chatgptSair"];
+
+pub(crate) async fn entrar_chatgpt_call(
+    hub: &Arc<crate::hub::Hub>,
+    caller: &crate::api::devices::Caller,
+    method: &str,
+    body: Value,
+) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (hub, caller, method, body);
+        bail!("motor_desligado: o Motor Mexerica não roda nesta plataforma.")
+    }
+    #[cfg(unix)]
+    {
+        entrar_chatgpt::call(hub, caller, method, body).await
+    }
+}
+
+/// Modelos da escolha do bot no backend do motor (veja `chaves::catalogo`).
+pub(crate) fn catalogo(store: &Store, space: &str) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (store, space);
+        Ok(json!({"models": [], "currentModelId": null, "fastMode": false}))
+    }
+    #[cfg(unix)]
+    {
+        // Com o motor desligado não há modelo do motor para escolher.
+        if !enabled() {
+            return Ok(json!({"models": [], "currentModelId": null, "fastMode": false}));
+        }
+        chaves::catalogo(store, space)
+    }
+}
+
 /// Slot do cofre por provedor: `motor-mexerica/<provider>`.
-fn credential_slot(provider_id: &str) -> String {
+pub(crate) fn credential_slot(provider_id: &str) -> String {
     format!("motor-mexerica/{provider_id}")
 }
 
+/// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
+#[cfg(unix)]
+const PROVIDERS: [&str; 8] = ["anthropic", "openai", "google", "xai", "openrouter", "meta", "faux", "faux2"];
+
+#[cfg(unix)]
+const OWNER_SEPARATOR: char = '\u{1f}';
+
+/// O dono de uma conversa guardada: o bot e a identidade com que a sessão abriu (Space, conta, revisão e perfil de
+/// login). Outra identidade nunca reabre a conversa.
+#[cfg(unix)]
+pub(crate) fn conversation_owner(bot: &str, identity: &str) -> String {
+    format!("{bot}{OWNER_SEPARATOR}{identity}")
+}
+
+/// Apaga a conversa guardada de UMA sessão do bot (a sessão foi invalidada). Sem o motor (fora do Unix) não há
+/// conversa guardada, e o ator chama isto sem `cfg` espalhado.
+#[cfg(unix)]
+pub(crate) fn forget_conversation(bot: &str, session: &str) {
+    historico::forget_session(bot, session);
+}
+
+#[cfg(not(unix))]
+pub(crate) fn forget_conversation(_bot: &str, _session: &str) {}
+
 fn enabled_value(flag: Option<&std::ffi::OsStr>) -> bool {
     flag.is_some_and(|v| v == "1")
+}
+
+/// Ambiente extra do motor aberto pelo ator do bot: vazio em produção; só as provas
+/// ligam o provedor falso (ator real sobre o motor real).
+#[cfg(not(test))]
+pub(crate) fn actor_extra_env() -> &'static [(&'static str, &'static str)] {
+    &[]
+}
+
+/// Só para provas: o ator do bot abre o motor com o provedor falso e o adaptador não abre os servidores MCP do Hub.
+#[cfg(test)]
+pub(crate) static ACTOR_FAUX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+pub(crate) fn actor_extra_env() -> &'static [(&'static str, &'static str)] {
+    if ACTOR_FAUX.load(std::sync::atomic::Ordering::Relaxed) { &[(FAUX_ENV, "1")] } else { &[] }
 }
 
 /// Desligada por padrão: só `MEXERICA_MOTOR=1` registra o motor.
@@ -77,7 +213,23 @@ pub(crate) fn entry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../motor/mexerica/rpc.ts")
 }
 
-fn node_path() -> Option<PathBuf> {
+/// Prazo de um comando de preparo do motor (envio e resposta).
+fn setup_deadline() -> std::time::Duration {
+    #[cfg(test)]
+    {
+        std::time::Duration::from_millis(SETUP_DEADLINE_MS.load(std::sync::atomic::Ordering::Relaxed))
+    }
+    #[cfg(not(test))]
+    {
+        std::time::Duration::from_secs(60)
+    }
+}
+
+/// Só provas: encurta o prazo para um motor de mentira que não lê a entrada.
+#[cfg(test)]
+pub(super) static SETUP_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(60_000);
+
+pub(crate) fn node_path() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(path) = std::env::var_os("DONNABOT_MEX_NODE_TEST") {
         return Some(path.into());
@@ -138,6 +290,8 @@ pub(crate) struct Engine {
     stderr: Option<tokio::task::JoinHandle<Vec<u8>>>,
     vault: Option<tokio::task::JoinHandle<Result<()>>>,
     provider: String,
+    /// Geração da credencial com que o cofre deste processo foi preso (ver `link::pinned`); vazia = não preso.
+    pub(super) credential: String,
     /// Um turno largado no meio deixa eventos velhos no stdout: prompt novo com a marca presa é recusado.
     turn_open: bool,
     /// Nomes declarados por `set_tools`: um `tool_request` fora da lista nunca chega ao executor.
@@ -268,6 +422,7 @@ impl Engine {
             stderr: Some(stderr_task),
             vault: Some(vault),
             provider: provider.to_owned(),
+            credential: String::new(),
             turn_open: false,
             tools: std::collections::HashSet::new(),
             _home: home,
@@ -303,14 +458,35 @@ impl Engine {
     }
 
     /// `set_model` do provedor fixado no nascimento. Fora de um turno.
-    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str) -> Result<()> {
+    /// `limits` leva `contextWindow`/`maxTokens` do último «Testar acesso», quando há.
+    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str, limits: &Value) -> Result<()> {
         ensure!(provider == self.provider, "este motor está preso ao provedor {}", self.provider);
         self.next_id += 1;
         let set_id = format!("set-{}", self.next_id);
-        self.send(json!({"id": set_id, "type": "set_model", "provider": provider, "modelId": model_id})).await?;
-        let res = self.response(&set_id).await?;
+        let mut command = json!({"id": set_id, "type": "set_model", "provider": provider, "modelId": model_id});
+        for field in ["contextWindow", "maxTokens"] {
+            if let Some(n) = limits[field].as_u64() {
+                command[field] = n.into();
+            }
+        }
+        let res = self.call(&set_id, command, "set_model").await?;
         ensure!(res["success"] == true, "set_model recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
+    }
+
+    /// «Testar acesso»: a lista de modelos que a chave do cofre enxerga, como o motor a devolveu
+    /// (`{ok, modelos}` ou `{ok: false, erro, status}`). Nenhuma conversa é aberta.
+    pub(crate) async fn list_models(&mut self) -> Result<Value> {
+        self.next_id += 1;
+        let id = format!("list-{}", self.next_id);
+        let command = json!({"id": id, "type": "list_models", "provider": self.provider});
+        let res = self.call(&id, command, "list_models").await?;
+        ensure!(
+            res["success"] == true,
+            "o motor recusou o teste de acesso: {}",
+            res["error"].as_str().unwrap_or_default()
+        );
+        Ok(res["data"].clone())
     }
 
     /// Provedor fixado no nascimento do processo.
@@ -322,7 +498,18 @@ impl Engine {
     /// Devolve o texto final da assistente e todos os eventos recebidos (para
     /// provas). O provedor precisa ser o fixado no nascimento do processo.
     pub(crate) async fn prompt(&mut self, provider: &str, model_id: &str, message: &str) -> Result<Turn> {
-        self.prompt_with(provider, model_id, message, &tools::NoTools, &mut |_| {}).await
+        self.prompt_with(provider, model_id, &json!({}), message, &tools::NoTools, &mut |_| {}).await
+    }
+
+    /// Um comando de preparo (envio e resposta) com prazo: um motor que para de ler a entrada ou de responder não segura a
+    /// sessão para sempre. Estourou, o erro sobe e o processo é descartado por quem chamou.
+    async fn call(&mut self, id: &str, command: Value, what: &str) -> Result<Value> {
+        let deadline = setup_deadline();
+        let exchange = async {
+            self.send(command).await?;
+            self.response(id).await
+        };
+        tokio::time::timeout(deadline, exchange).await.map_err(|_| anyhow!("o motor não respondeu a tempo: {what}"))?
     }
 
     /// Substitui a lista inteira de ferramentas do motor (vai antes do prompt).
@@ -330,11 +517,9 @@ impl Engine {
     pub(crate) async fn set_tools(&mut self, specs: &[ToolSpec]) -> Result<()> {
         self.next_id += 1;
         let id = format!("tools-{}", self.next_id);
-        self.send(
-            json!({"id": id, "type": "set_tools", "tools": specs.iter().map(ToolSpec::wire).collect::<Vec<_>>()}),
-        )
-        .await?;
-        let res = self.response(&id).await?;
+        let command =
+            json!({"id": id, "type": "set_tools", "tools": specs.iter().map(ToolSpec::wire).collect::<Vec<_>>()});
+        let res = self.call(&id, command, "set_tools").await?;
         ensure!(res["success"] == true, "set_tools recusado: {}", res["error"].as_str().unwrap_or_default());
         self.tools = specs.iter().map(|spec| spec.name.clone()).collect();
         Ok(())
@@ -344,9 +529,23 @@ impl Engine {
     pub(crate) async fn set_system_prompt(&mut self, prompt: &str) -> Result<()> {
         self.next_id += 1;
         let id = format!("sys-{}", self.next_id);
-        self.send(json!({"id": id, "type": "set_system_prompt", "prompt": prompt})).await?;
-        let res = self.response(&id).await?;
+        let command = json!({"id": id, "type": "set_system_prompt", "prompt": prompt});
+        let res = self.call(&id, command, "set_system_prompt").await?;
         ensure!(res["success"] == true, "set_system_prompt recusado: {}", res["error"].as_str().unwrap_or_default());
+        Ok(())
+    }
+
+    /// Devolve ao processo novo a conversa que o Hub guardou (cancelamento,
+    /// troca de provedor ou queda mataram o processo antigo). Vai depois do
+    /// prompt de sistema e das ferramentas, antes do prompt. Fora de um turno.
+    pub(crate) async fn restore_history(&mut self, messages: &[Value]) -> Result<()> {
+        self.next_id += 1;
+        let id = format!("hist-{}", self.next_id);
+        // Cada mensagem cruza a fronteira como o texto JSON que o Hub mediu: o motor mede esses mesmos bytes.
+        let wire: Vec<String> = messages.iter().map(Value::to_string).collect();
+        let command = json!({"id": id, "type": "restore_history", "messages": wire});
+        let res = self.call(&id, command, "restore_history").await?;
+        ensure!(res["success"] == true, "restore_history recusado: {}", res["error"].as_str().unwrap_or_default());
         Ok(())
     }
 
@@ -357,13 +556,14 @@ impl Engine {
         &mut self,
         provider: &str,
         model_id: &str,
+        limits: &Value,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
         ensure!(!self.turn_open, "há um turno aberto neste motor; encerre ou mate o processo antes de outro prompt");
         self.turn_open = true;
-        let result = self.drive(provider, model_id, message, runner, on_event).await;
+        let result = self.drive(provider, model_id, limits, message, runner, on_event).await;
         self.turn_open = false;
         result
     }
@@ -375,11 +575,12 @@ impl Engine {
         &mut self,
         provider: &str,
         model_id: &str,
+        limits: &Value,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
-        self.set_model(provider, model_id).await?;
+        self.set_model(provider, model_id, limits).await?;
         self.next_id += 1;
         self.send(json!({"id": format!("p-{}", self.next_id), "type": "prompt", "message": message})).await?;
 
@@ -530,6 +731,10 @@ async fn serve_vault(vault_source: VaultSource, socket: tokio::net::UnixStream, 
         let reply = match req["method"].as_str() {
             Some("credential.read") if req["params"]["providerId"].as_str() == Some(provider.as_str()) => {
                 match vault_source(&slot) {
+                    Ok(Some(raw)) if proprio::eh_proprio(&provider) => match proprio::credencial_do_motor(&raw) {
+                        Ok(credencial) => json!({"id": id, "result": credencial}),
+                        Err(_) => json!({"id": id, "error": {"message": "registro do endereço próprio ilegível"}}),
+                    },
                     Ok(Some(key)) => json!({"id": id, "result": {"type": "api_key", "key": key}}),
                     Ok(None) => json!({"id": id, "result": null}),
                     Err(e) => json!({"id": id, "error": {"message": format!("{e:#}")}}),
@@ -561,3 +766,12 @@ mod tests_link;
 
 #[cfg(test)]
 mod tests_paridade;
+
+#[cfg(test)]
+mod tests_chaves;
+
+#[cfg(test)]
+mod tests_entrar_openrouter;
+
+#[cfg(test)]
+mod tests_entrar_chatgpt;
