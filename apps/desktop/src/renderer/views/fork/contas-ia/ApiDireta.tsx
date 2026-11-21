@@ -10,17 +10,21 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { amostraDeModelos, chaveDoErro, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
+import { amostraDeModelos, aoMudarChaves, chaveDoErro, chavesMudaram, estadoDoTeste, listarChaves, mostrarApiDireta, removerChave, salvarChave, testarChave, type Acesso, type FornecedorDaChave } from './api-direta'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
+import { ehOpen } from './conexoes'
 import '../../settings/settings.css'
 
-/** Conexões de IA → API direta: uma linha por fornecedor, com a chave guardada no cofre do Hub deste computador. */
+/**
+ * Conexões de IA → Chaves de API: uma linha por chave já salva no cofre do Hub deste computador (testar, trocar, remover).
+ * Para ligar uma chave nova, «Adicionar conexão». Na edição Open nunca aparece.
+ */
 export function ApiDireta() {
   const store = useModel(useStore())
   const t = useT()
   const idioma = useIdioma()
   const online = store.connection.kind === 'online' && !store.mismatch
-  const visivel = mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
+  const visivel = !ehOpen(window.codync) && mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
   const [fornecedores, setFornecedores] = useState<FornecedorDaChave[] | null>(null)
   const [falhou, setFalhou] = useState(false)
   const geracao = useRef(0)
@@ -42,6 +46,7 @@ export function ApiDireta() {
   useEffect(() => {
     if (visivel && online) void reler()
   }, [visivel, online, store.hello?.hostId])
+  useEffect(() => (visivel && online ? aoMudarChaves(() => void reler()) : undefined), [visivel, online, store])
 
   if (!visivel) return null
   return (
@@ -50,13 +55,14 @@ export function ApiDireta() {
         {!online ? <Text tone="secondary">{t('contas.apiDireta.semConexao')}</Text> : null}
         {online && falhou ? <Text size="caption" tone="secondary" role="status">{t('contas.apiDireta.erroLista')}</Text> : null}
         {online && !fornecedores && !falhou ? <Spinner size={12} /> : null}
-        {online ? fornecedores?.map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} aoMudar={reler} />) : null}
+        {online && fornecedores && !fornecedores.some((f) => f.configurada) ? <Text size="caption" tone="secondary">{t('contas.apiDireta.vazio')}</Text> : null}
+        {online ? fornecedores?.filter((f) => f.configurada).map((f) => <LinhaDoFornecedor key={f.id} fornecedor={f} />) : null}
       </CardSection>
     </div>
   )
 }
 
-function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorDaChave; aoMudar: () => Promise<void> }) {
+export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaChave }) {
   const store = useStore()
   const t = useT()
   const [editando, setEditando] = useState(false)
@@ -81,7 +87,7 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
         }
         // A escolha de modelo do bot relê a lista do motor na próxima abertura.
         esquecerModelos(store.computer.id, 'mexerica')
-        return aoMudar()
+        chavesMudaram()
       })
       .catch((e: unknown) => setResultado({ ok: false, motivo: e instanceof Error ? e.message : String(e) }))
       .finally(() => {
@@ -145,21 +151,36 @@ function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: FornecedorD
   )
 }
 
+const ESTADOS = {
+  conta_reconhecida: 'contas.apiDireta.estado.contaReconhecida',
+  modelos_no_catalogo: 'contas.apiDireta.estado.modelosNoCatalogo',
+  acesso_nao_confirmado: 'contas.apiDireta.estado.acessoNaoConfirmado',
+  nao_verificado: 'contas.apiDireta.estado.naoVerificado',
+  recusada: 'contas.apiDireta.estado.recusada',
+} as const
+
+/** O resultado do «Testar acesso»: o estado, a frase do detalhe e, quando há lista de modelos, o aviso de que ela não prova acesso. */
 function ResultadoDoTeste({ resultado }: { resultado: Acesso | { ok: false; motivo: string } }) {
   const t = useT()
-  let texto: string
+  const estado = 'motivo' in resultado ? 'nao_verificado' : estadoDoTeste(resultado)
+  let detalhe: string
   if (resultado.ok) {
     const { nomes, restantes } = amostraDeModelos(resultado.modelos)
-    texto = resultado.modelos.length === 0
+    detalhe = resultado.modelos.length === 0
       ? t('contas.apiDireta.okSemModelos')
       : restantes > 0 ? t('contas.apiDireta.okComMais', { nomes, n: restantes }) : t('contas.apiDireta.ok', { nomes })
   } else {
-    texto = 'motivo' in resultado ? t('contas.apiDireta.erro.desconhecido', { motivo: resultado.motivo }) : (t as unknown as (chave: ChaveTexto) => string)(chaveDoErro(resultado.erro))
+    detalhe = 'motivo' in resultado ? t('contas.apiDireta.erro.desconhecido', { motivo: resultado.motivo }) : (t as unknown as (chave: ChaveTexto) => string)(chaveDoErro(resultado.erro))
   }
+  const positivo = estado === 'conta_reconhecida' || estado === 'modelos_no_catalogo'
   return (
-    <HStack as="span" gap={5} role="status" className={`settings-key-result ${resultado.ok ? '' : 'failed'}`}>
-      <Icon name={resultado.ok ? 'checkmark.circle.fill' : 'exclamationmark.circle.fill'} size={10} />
-      <Text size="caption" className="selectable">{texto}</Text>
-    </HStack>
+    <VStack gap={2} role="status" data-estado={estado} className={`settings-key-result ${positivo ? '' : 'failed'}`}>
+      <HStack as="span" gap={5}>
+        <Icon name={positivo ? 'checkmark.circle.fill' : 'exclamationmark.circle.fill'} size={10} />
+        <Text size="caption" className="selectable">{t(ESTADOS[estado])}</Text>
+      </HStack>
+      <Text size="caption" tone="secondary" className="selectable">{detalhe}</Text>
+      {estado === 'modelos_no_catalogo' ? <Text size="caption" tone="tertiary">{t('contas.apiDireta.catalogoNaoProva')}</Text> : null}
+    </VStack>
   )
 }
