@@ -79,11 +79,17 @@ impl Screen {
         Ok(())
     }
 
+    /// Linhas completas do texto: enquanto o programa roda, a última linha sem quebra fica fora (pode estar
+    /// no meio de ser impressa); com o programa encerrado, ela é final e entra na conferência.
+    fn complete(&self) -> &str {
+        if self.settled { &self.text } else { self.text.rsplit_once('\n').map_or("", |(done, _)| done) }
+    }
+
     /// Endereço e código só saem de linhas completas, para nunca mostrar um código cortado ao meio.
     /// Fail-closed: duas páginas diferentes, dois códigos diferentes (no texto ou na consulta das URLs) ou qualquer
     /// dúvida derrubam o login em vez de mostrar um dos dois.
     fn challenge(&self) -> Result<Option<Challenge>> {
-        let Some((done, _)) = self.text.rsplit_once('\n') else { return Ok(None) };
+        let done = self.complete();
         let mut urls: Vec<&str> = Vec::new();
         for word in official_urls(done) {
             // URL em site da xAI que não passa na validação derruba o login, em vez de ser ignorada.
@@ -114,7 +120,7 @@ impl Screen {
     /// Depois do desafio na tela: qualquer outro código impresso (no texto ou no parâmetro de código de uma URL da xAI)
     /// derruba o login. Outras páginas da xAI, como a da conta no texto de sucesso, e outros parâmetros delas não contam.
     fn code_conflict(&self, shown: &str) -> bool {
-        let text = self.text.rsplit_once('\n').map_or("", |(done, _)| done);
+        let text = self.complete();
         let from_urls = official_urls(text).any(|raw| {
             reqwest::Url::parse(raw).is_ok_and(|url| {
                 url.query_pairs().any(|(key, code)| {
@@ -340,7 +346,7 @@ pub(super) fn erase(store: &Store, id: &str, home: &Path) -> Result<()> {
         return Ok(());
     }
     managed::remove_profile_home(home)
-        .map_err(|_| anyhow!("credential_not_erased: não foi possível apagar o login local. Remova a conta ou conecte de novo para tentar outra vez."))
+        .map_err(|_| anyhow!("credential_not_erased: não foi possível apagar o login local. Remova a conta para apagar o que sobrar dele."))
 }
 
 /// Antes de desconectar ou remover uma conta Grok, fora da trava de contas (a espera pode durar alguns segundos) e só

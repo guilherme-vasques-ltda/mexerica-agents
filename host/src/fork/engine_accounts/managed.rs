@@ -623,6 +623,20 @@ pub(crate) fn adapter_names(backend: &str) -> &'static [&'static str] {
     }
 }
 
+/// Bot com conta Grok executa exatamente o executável gravado na conta, o mesmo que o login conferiu e que
+/// `resolve_for_bot` valida. Candidato do PATH ou do catálogo nunca recebe o perfil autenticado; sem o
+/// executável gravado disponível, o lançamento recusa em vez de escolher outro.
+pub(crate) fn recorded_command(store: &Store, bot: &BotConfig) -> Result<Vec<String>> {
+    let registry = Registry::load(store)?;
+    let account = registry.account(bot.fork_editor.engine_account_id.as_deref().unwrap_or_default())?;
+    ensure!(account.backend == Backend::Grok, "account_incompatible: conta e motor incompatíveis.");
+    let LaunchReference::CliProfile { executable, .. } = &account.launch else {
+        anyhow::bail!("cli_unavailable: prepare o conector da conta.");
+    };
+    ensure!(crate::fork::motor_install::executable(executable), "cli_unavailable: prepare o conector da conta.");
+    Ok(vec![crate::shell::quote(&executable.to_string_lossy())])
+}
+
 pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<String>> {
     for name in adapter_names(backend) {
         if let Some(path) = crate::agent::backends::which(name) {

@@ -617,10 +617,34 @@ async fn programa_sem_nome_de_grok_nao_serve_e_login_antigo_que_nao_sai_trava_o_
             .await
             .unwrap();
             assert_eq!(failed["errorCode"], "credential_not_erased");
-            assert_eq!(f.home(&account["id"]), home, "a conta continua apontando para o login anterior");
+            // A gravação vem antes do apagamento: a conta já aponta para o login novo, e o antigo fica
+            // no disco (ninguém perde credencial) até a conta ser removida.
+            assert_ne!(f.home(&account["id"]), home, "a conta aponta para o login novo");
+            assert!(home.join(".grok/auth.json").is_file(), "o login antigo não saiu, mas também não se perdeu");
         }
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
+}
+
+#[test]
+fn ultima_linha_sem_quebra_do_grok_entra_na_conferencia_quando_o_programa_encerra() {
+    let mut screen = Screen::default();
+    screen.push(b"https://auth.x.ai/device\nThen enter this code: ABCD-EFGH\n").unwrap();
+    let shown = screen.challenge().unwrap().unwrap().code.clone().unwrap();
+    screen.settled = true;
+    // Código divergente na última linha, sem quebra final: não pode passar despercebido.
+    screen.push(b"Then enter this code: WXYZ-2468").unwrap();
+    assert!(screen.code_conflict(&shown));
+    // O mesmo numa URL da xAI na última linha parcial.
+    let mut other = Screen::default();
+    other.push(b"https://auth.x.ai/device?user_code=ABCD-EFGH\n").unwrap();
+    other.settled = true;
+    other.push(b"See https://auth.x.ai/device?user_code=WXYZ-2468").unwrap();
+    assert!(other.code_conflict("ABCD-EFGH"));
+    // Enquanto o programa roda, a linha sem quebra continua fora: pode estar no meio de ser impressa.
+    let mut live = Screen::default();
+    live.push(b"https://auth.x.ai/device\nThen enter this code: ABCD-EF").unwrap();
+    assert!(live.challenge().unwrap().is_none());
 }
 
 #[test]

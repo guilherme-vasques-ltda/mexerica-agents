@@ -559,6 +559,36 @@ fn indisponibilidade_nao_ressuscita_conta_desconectada_e_cofre_fechado_nao_deslo
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn bot_com_conta_grok_executa_so_o_executavel_gravado_na_conta() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("grok-cmd-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let executable = dir.join("grok");
+    std::fs::write(&executable, b"#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let created = managed::create(&store, Backend::Grok, "Fixture", "cli", "cmd-proof").unwrap();
+    let id = created["id"].as_str().unwrap();
+    let mut registry = Registry::load(&store).unwrap();
+    let revision = registry.account(id).unwrap().managed.as_ref().unwrap().revision;
+    registry.account_mut(id, revision).unwrap().launch =
+        LaunchReference::CliProfile { executable: executable.clone(), directory: dir.clone() };
+    registry.persist(&store).unwrap();
+    let bot: crate::store::BotConfig = serde_json::from_value(
+        json!({"id":"fixture","name":"Fixture","backend":"grok","forkEditor":{"engineAccountId":id}}),
+    )
+    .unwrap();
+    // O comando é exatamente o executável gravado, o mesmo que o login conferiu.
+    assert_eq!(managed::recorded_command(&store, &bot).unwrap(), vec![executable.to_string_lossy().into_owned()]);
+    // Fail-closed: sem o executável gravado, nenhum candidato do PATH ou do catálogo é usado.
+    std::fs::remove_file(&executable).unwrap();
+    let erro = managed::recorded_command(&store, &bot).unwrap_err().to_string();
+    assert!(erro.starts_with("cli_unavailable"), "{erro}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn catalogo_claude_preserva_prova_exata_e_recusa_identidade_perfil_ou_revisao_trocados() {
     let store = Store::open(std::path::Path::new(":memory:")).unwrap();

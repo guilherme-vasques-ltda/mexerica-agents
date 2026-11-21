@@ -101,6 +101,7 @@ pub(crate) fn verify_codex_background_mode(res: &Value) -> Result<()> {
 /// Shell commands that may start the bot's agent over ACP, best first.
 /// `progress` receives short status lines with their stable code ("Downloading Cursor…", `downloading`).
 pub(crate) async fn launch_commands(
+    store: &crate::store::Store,
     cfg: &BotConfig,
     progress: impl Fn(&str, Option<ActivityKind>),
 ) -> Result<Vec<String>> {
@@ -112,6 +113,10 @@ pub(crate) async fn launch_commands(
         crate::agent::codex_audit::check_user_config().map_err(|e| EngineNotReady::wrap(&e))?;
     }
     if cfg.fork_editor.engine_account_id.is_some() {
+        // Conta Grok: só o executável gravado na conta, nunca um candidato do PATH ou do catálogo.
+        if cfg.backend == "grok" {
+            return crate::fork::engine_accounts::managed::recorded_command(store, cfg);
+        }
         return crate::fork::engine_accounts::managed::adapter_commands(&cfg.backend).await;
     }
     Ok(match cfg.command.as_deref().map(str::trim) {
@@ -395,7 +400,8 @@ mod tests {
     async fn omp_salvo_e_recusado_antes_de_executar() {
         let cfg: BotConfig =
             serde_json::from_value(json!({"id":"omp-antigo", "name":"Antigo", "backend":"omp"})).unwrap();
-        let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();
+        let store = crate::store::Store::open(std::path::Path::new(":memory:"));
+        let erro = launch_commands(&store.unwrap(), &cfg, |_, _| {}).await.unwrap_err().to_string();
         assert!(erro.contains("oh-my-pi") && erro.contains("Escolha outro motor"));
     }
 
@@ -410,7 +416,11 @@ mod tests {
         for id in nomes {
             let cfg: BotConfig =
                 serde_json::from_value(json!({"id":"antigo", "name":"Antigo", "backend": id})).unwrap();
-            let erro = launch_commands(&cfg, |_, _| {}).await.unwrap_err().to_string();
+            let erro =
+                launch_commands(&crate::store::Store::open(std::path::Path::new(":memory:")).unwrap(), &cfg, |_, _| {})
+                    .await
+                    .unwrap_err()
+                    .to_string();
             assert!(erro.starts_with("O motor "), "{id}: {erro}");
             assert!(erro.contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
             assert!(erro.ends_with("Escolha outro motor nas configurações do bot."), "{id}: {erro}");

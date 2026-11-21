@@ -47,10 +47,29 @@ pub fn codex_options(mut options: Vec<Value>) -> Vec<Value> {
     options
 }
 
+/// O Grok persiste `allow_always` no próprio perfil, fora do Hub. Aprovação persistente pertence ao Hub
+/// (D106): para o motor Grok a opção nunca chega ao cartão — cada chamada volta a perguntar.
+pub fn grok_options(options: Vec<Value>) -> Vec<Value> {
+    options.into_iter().filter(|option| option["kind"].as_str() != Some("allow_always")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn grok_nunca_recebe_opcao_de_aprovacao_persistente() {
+        let options = vec![
+            json!({"optionId":"once","name":"Permitir","kind":"allow_once"}),
+            json!({"optionId":"always","name":"Permitir sempre","kind":"allow_always"}),
+            json!({"optionId":"allow_session","kind":"allow_always"}),
+            json!({"optionId":"deny","kind":"reject_once"}),
+        ];
+        let kept = grok_options(options);
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().all(|option| option["kind"] != "allow_always"));
+    }
 
     #[test]
     fn reenvio_so_confirma_a_mesma_opcao_de_um_cartao_respondido() {

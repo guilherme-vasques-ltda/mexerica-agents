@@ -814,19 +814,18 @@ async fn start_authorized(
                 if request.action == Step::Login {
                     account.bind_catalog();
                 }
-                // O login anterior sai antes de a conta apontar para o novo: se não der para apagá-lo, nada muda.
-                if request.action == Step::Login
-                    && let Some(home) = &superseded
-                {
-                    if !op.authority.current(&hub) {
-                        tracing::warn!("login do Grok interrompido: autoridade da operação perdida");
-                        bail!("setup_authority_lost");
-                    }
-                    grok::erase(&hub.store, &request.engine_account_id, home)?;
-                }
+                // A gravação do ponteiro novo vem primeiro: se ela falhar, a conta continua apontando para o
+                // login antigo, intacto. Só então o login anterior sai — se o apagamento falhar, sobra pasta
+                // antiga sem dono, nunca credencial perdida. O perfil novo já é o da conta, então a limpeza
+                // de preparo desarma antes do apagamento.
                 op.authority.persist(&hub, &registry)?;
                 op.revision = revision;
                 cleanup.0 = None;
+                if request.action == Step::Login
+                    && let Some(home) = &superseded
+                {
+                    grok::erase(&hub.store, &request.engine_account_id, home)?;
+                }
                 accounts::invalidate();
                 clear(op, Phase::Connected, None);
                 Ok(())
