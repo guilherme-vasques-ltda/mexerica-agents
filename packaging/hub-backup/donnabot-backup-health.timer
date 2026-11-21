@@ -1,0 +1,10 @@
+[Unit]
+Description=Conferir idade dos backups Donnabot a cada hora
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1h
+Unit=donnabot-backup-health.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Alerta de backup Donnabot atrasado ou interrompido
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 %h/.local/lib/donnabot-backup/backup.py check-health --config %h/.config/donnabot-backup/config.json
+TimeoutStartSec=1min
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
+SyslogLevel=err

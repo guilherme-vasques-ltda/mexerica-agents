@@ -1,0 +1,6 @@
+[Unit]
+Description=Backups independentes do Hub e do cofre Donnabot
+Wants=donnabot-backup.service donnabot-vault-backup.service
+After=donnabot-backup.service donnabot-vault-backup.service
+# Cada disparo precisa ativar de novo os dois serviços oneshot.
+StopWhenUnneeded=yes
