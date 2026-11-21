@@ -25,4 +25,5 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.fila.erro.permissao': 'Cet appareil ne peut plus modifier la file.',
   'conversa.fila.erro.pendente': "L'ordinateur n'a pas confirmé à temps. Vérifiez la file.",
   'conversa.fila.erro.falhou': 'Impossible de modifier la file.',
+  'conversa.fila.erro.cheia': 'La file de cette conversation est pleine. Attendez que quelques messages partent, puis renvoyez.',
 }

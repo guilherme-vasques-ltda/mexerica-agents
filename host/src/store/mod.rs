@@ -15,9 +15,10 @@ mod devices;
 mod entries;
 pub(crate) use entries::{
     ENTRY_COLS, QUEUE_ORDER, check_execution_on, entry_on, history_in_session_on, insert_visible_on, queue_key,
-    row_entry,
+    row_entry, send_intent,
 };
 mod fork_donna;
+mod fork_reinicio;
 mod fork_settings;
 mod guard_hub;
 mod management_guard;
