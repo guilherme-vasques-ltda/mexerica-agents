@@ -404,6 +404,30 @@ async fn ferramenta_com_ref_para_alvo_removido_pela_projecao_fica_indisponivel()
     assert!(erro.to_string().starts_with("descricao_invalida"), "{erro}");
 }
 
+#[tokio::test]
+async fn pattern_properties_com_chave_ref_e_nome_de_padrao_e_a_ferramenta_passa() {
+    let hub = hub();
+    let conta = conta_com_bot(&hub);
+    let mut tool = acao("update_row", &json!("Atualiza uma linha."));
+    tool["inputSchema"] = json!({
+        "type": "object",
+        "patternProperties": {"$ref": {"type": "string"}}
+    });
+    // A chave `"$ref"` de `patternProperties` é o nome de um padrão de propriedade, não uma referência: a ferramenta
+    // continua válida, o nome do padrão aparece na confirmação e o texto chega ao modelo após a liberação.
+    assert_eq!(listar_para_o_bot(&hub, &conta, from_ref(&tool)), Vec::<Value>::new(), "nova nasce desligada");
+    let vista = tela(&hub, &conta, "update_row").await.unwrap();
+    let campos = vista["campos"].as_array().unwrap();
+    assert!(campos.contains(&json!(["$ref", ""])), "{campos:?}");
+    ligar(&hub, &conta, "update_row", &digest(&tool)).await.unwrap();
+    assert_eq!(
+        lido(&listar_para_o_bot(&hub, &conta, from_ref(&tool))),
+        lido(from_ref(&tool)),
+        "o texto chega ao modelo"
+    );
+    assert_eq!(decidir(&hub, &conta, "update_row"), Estado::Ligada);
+}
+
 /// Todo texto de um schema: valores de texto (menos os tipos sob a palavra-chave `"type"`, que é vocabulário fechado)
 /// e os nomes de campos, separados. Palavra de tipo como texto do fornecedor (uma `description`, um `enum`) é texto
 /// como outro qualquer e precisa chegar à confirmação. Dentro de `not`, os nomes de `"required"` também são texto

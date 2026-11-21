@@ -660,14 +660,17 @@ fn ref_local_valida(referencia: &str, raiz: &Value) -> bool {
 
 /// Todo `$ref` do schema projetado resolve dentro dele. Um `$ref` que apontava para o que a projeção removeu deixaria
 /// o modelo com uma referência sem alvo, então a ferramenta fica indisponível, como com o texto acima do teto.
+/// Chaves de mapas de subschemas (`properties`, `patternProperties`, …) são nomes de campos ou padrões, e o conteúdo
+/// de `const`/`enum` são valores: nenhum deles é palavra-chave, então nenhum `$ref` é procurado neles.
 fn refs_locais_validos(schema: &Value, raiz: &Value) -> bool {
     match schema {
-        Value::Object(mapa) => mapa.iter().all(|(chave, valor)| {
-            if chave.as_str() == "$ref" {
-                valor.as_str().is_some_and(|r| ref_local_valida(r, raiz))
-            } else {
-                refs_locais_validos(valor, raiz)
+        Value::Object(mapa) => mapa.iter().all(|(chave, valor)| match chave.as_str() {
+            "$ref" => valor.as_str().is_some_and(|r| ref_local_valida(r, raiz)),
+            "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas" => {
+                valor.as_object().is_some_and(|filhos| filhos.values().all(|filho| refs_locais_validos(filho, raiz)))
             }
+            "const" | "enum" => true,
+            _ => refs_locais_validos(valor, raiz),
         }),
         Value::Array(itens) => itens.iter().all(|i| refs_locais_validos(i, raiz)),
         _ => true,
@@ -1160,7 +1163,10 @@ pub(crate) fn registrar_descoberta(
     if conta.servico.is_none() {
         return Ok(());
     }
-    let _pol = politica(conta)?.ok_or_else(|| anyhow!("conta sem ficha"))?;
+    let Some(_pol) = politica(conta)? else {
+        tracing::warn!(conta = %conta.id, "descoberta recusada: conta sem ficha");
+        return Err(anyhow!("conta sem ficha"));
+    };
     let mediados = nomes_mediados(mediado);
     let completa = lista_completa(pedido, bruto) && mediados.is_some();
     let textos = descricoes_mediadas(mediado);
@@ -1386,8 +1392,24 @@ pub(crate) fn conferir_ligar(store: &Store, pedido: &PedidoLigar<'_>, confirmado
         classe(&pol, pedido.ferramenta, linha.dica) != Classe::Fora,
         "ferramenta_fora_da_ficha: a ficha desta conta não oferece essa ferramenta."
     );
-    ensure!(!linha.descricao_invalida, "{DESCRICAO_INVALIDA}");
-    ensure!(linha.apresentacao.is_some(), "{DESCRICAO_DESCONHECIDA}");
+    if linha.descricao_invalida {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "ligação recusada: descrição inválida"
+        );
+        return Err(anyhow!("{DESCRICAO_INVALIDA}"));
+    }
+    if linha.apresentacao.is_none() {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "ligação recusada: descrição ainda não lida"
+        );
+        return Err(anyhow!("{DESCRICAO_DESCONHECIDA}"));
+    }
     ensure!(linha.digest == pedido.digest, "{FERRAMENTA_MUDOU}");
     Ok(())
 }
@@ -1412,8 +1434,24 @@ pub(crate) fn gravar_liberacao(tx: &Connection, pedido: &PedidoLigar<'_>) -> Res
         .optional()?;
     let (digest, invalida, apresentacao, partes) = atual.ok_or_else(|| anyhow!("{FERRAMENTA_MUDOU}"))?;
     ensure!(digest == pedido.digest, "{FERRAMENTA_MUDOU}");
-    ensure!(!invalida, "{DESCRICAO_INVALIDA}");
-    let apresentacao = apresentacao.ok_or_else(|| anyhow!("{DESCRICAO_DESCONHECIDA}"))?;
+    if invalida {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "gravação de liberação recusada: descrição inválida"
+        );
+        return Err(anyhow!("{DESCRICAO_INVALIDA}"));
+    }
+    let Some(apresentacao) = apresentacao else {
+        tracing::warn!(
+            bot = pedido.bot,
+            conta = pedido.conta,
+            ferramenta = pedido.ferramenta,
+            "gravação de liberação recusada: descrição ainda não lida"
+        );
+        return Err(anyhow!("{DESCRICAO_DESCONHECIDA}"));
+    };
     tx.execute(
         "INSERT INTO mexerica_ferramenta_liberacoes(bot,conta,nome,digest,em,partes,apresentacao)
          VALUES(?1,?2,?3,?4,?5,?6,?7)

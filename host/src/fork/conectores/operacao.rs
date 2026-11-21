@@ -182,10 +182,10 @@ impl SnapshotAcesso {
         ensure!(self.conta.is_some(), "conta_saida_nao_identificada: fonte sem conta de saída canônica");
         for rule in self.rules.values() {
             ensure!(digest(&rule.schema) == rule.schema_digest, "Schema curado divergente");
-            ensure!(
-                !rule.descricao.trim().is_empty() && rule.descricao.len() <= DESCRICAO_MAX,
-                "Descrição aprovada ausente ou acima do teto"
-            );
+            if rule.descricao.trim().is_empty() || rule.descricao.len() > DESCRICAO_MAX {
+                tracing::warn!(instance = %self.instance, "descrição aprovada ausente ou acima do teto");
+                bail!("Descrição aprovada ausente ou acima do teto");
+            }
             let curto = |v: &str, max: usize| !v.trim().is_empty() && v.len() <= max;
             ensure!(
                 curto(&rule.presentation, 120) && rule.fields.values().all(|f| curto(&f.rotulo, 64)),
