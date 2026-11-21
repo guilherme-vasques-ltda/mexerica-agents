@@ -410,6 +410,7 @@ fn delete_space_data(c: &rusqlite::Connection, space_id: &str, hub_id: &str, bot
         "donna_space_principal_receipts",
         "donna_nunca_fazer",
         "donna_nunca_fazer_revisoes",
+        "donna_instrucao_geral",
     ] {
         c.execute(&format!("DELETE FROM {table} WHERE space_id=?1"), [space_id])?;
     }

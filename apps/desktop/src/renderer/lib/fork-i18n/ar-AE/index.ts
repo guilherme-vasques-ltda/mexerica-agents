@@ -38,6 +38,7 @@ import { textos as conversaTroca } from './conversa/troca.ts'
 import { textos as conversaNavegacao } from './conversa/navegacao.ts'
 import { textos as delegacao } from './delegacao.ts'
 import { textos as nuncaFazer } from './nuncaFazer.ts'
+import { textos as instrucoes } from './instrucoes.ts'
 import { textos as grupos } from './grupos.ts'
 import { textos as conectoresCartao } from './conectores/cartao.ts'
 import { textos as skillsCatalogo } from './skills/catalogo.ts'
@@ -120,6 +121,7 @@ export const arAE: Catalogo = {
   ...conversaNavegacao,
   ...delegacao,
   ...nuncaFazer,
+  ...instrucoes,
   ...grupos,
   ...conectoresCartao,
   ...skillsCatalogo,
