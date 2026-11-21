@@ -308,6 +308,7 @@ impl Operation {
     }
 
     #[cfg(test)]
+    #[allow(clippy::unwrap_used)]
     fn is_registered(&self) -> bool {
         self.state.lock().unwrap().registered
     }

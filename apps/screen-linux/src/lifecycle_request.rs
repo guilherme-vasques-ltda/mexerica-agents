@@ -46,7 +46,7 @@ pub(crate) fn prepare_rpc(
                 p["session"].as_str().context("session is required")?,
                 rpc_id,
                 expected,
-            )?)
+            )?);
         }
         "close" => {
             let id = p["session"].as_str().context("session is required")?;
@@ -135,6 +135,7 @@ pub(crate) async fn answer(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     pub(super) fn helper() -> Arc<Helper> {
@@ -205,6 +206,7 @@ mod tests {
 
 #[cfg(test)]
 mod correlation_tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::native_stop::tests::live_pipeline;
     use gst::prelude::*;

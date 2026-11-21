@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 use glib::subclass::prelude::*;
-use gst::{glib, prelude::*};
+use gst::glib;
 
 pub(crate) fn live_pipeline() -> gst::Pipeline {
     gst::init().unwrap();

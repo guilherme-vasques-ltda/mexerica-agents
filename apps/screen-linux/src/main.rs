@@ -176,7 +176,10 @@ async fn handle(
         }
         "input" => {
             let d = display()?;
-            input::perform(&portal, &d, &p["event"]).await?;
+            // Caminho one-shot do Hub, ordenado pelo leitor: sem sessão própria
+            // a cancelar; o cancelamento vive no consumidor da sessão.
+            let alive = || true;
+            input::perform(&portal, &d, &p["event"], &alive).await?;
             json!({})
         }
         "uiTree" => a11y::frontmost(&display()?).await?,
@@ -220,7 +223,7 @@ impl Helper {
     }
 
     /// A session's WebRTC connection ended on its own.
-    pub fn ended(self: &Arc<Self>, id: &str, operation: &Arc<lifecycle::Operation>) {
+    pub(crate) fn ended(self: &Arc<Self>, id: &str, operation: &Arc<lifecycle::Operation>) {
         let this = self.clone();
         let id = id.to_owned();
         let operation = operation.clone();

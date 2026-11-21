@@ -61,19 +61,34 @@ async fn consume(consumer: Consumer, mut rx: mpsc::UnboundedReceiver<Value>) {
         }
         let reply = match msg["type"].as_str() {
             Some("view") => Some(consumer.view.apply(&msg)),
-            Some("clipboard") => set_clipboard(msg["text"].as_str().unwrap_or_default())
-                .await
-                .err()
-                .as_ref()
-                .map(error_msg),
-            _ => match consumer.helper.portal().await {
+            Some("clipboard") => match consumer.helper.portal().await {
+                // Requer portal ativo: revogação do compartilhamento pela
+                // interface do sistema nega também a escrita na área de
+                // transferência, como já negava os eventos de entrada.
                 // Reconfere depois do await do portal, imediatamente antes do efeito.
                 Ok(_) if !open(&consumer.original) => return,
-                Ok(portal) => input::perform(&portal, &consumer.display, &msg)
+                Ok(_) => set_clipboard(msg["text"].as_str().unwrap_or_default())
                     .await
                     .err()
                     .as_ref()
                     .map(error_msg),
+                // Portal revogado: nenhum efeito e nenhuma resposta ao par revogado.
+                Err(_) => None,
+            },
+            _ => match consumer.helper.portal().await {
+                // Reconfere depois do await do portal, imediatamente antes do efeito.
+                Ok(_) if !open(&consumer.original) => return,
+                Ok(portal) => {
+                    // Cancelamento percorre perform: sessão fechada a meio
+                    // interrompe os efeitos restantes e libera o que segurou.
+                    let original = consumer.original.clone();
+                    let alive = move || open(&original);
+                    input::perform(&portal, &consumer.display, &msg, &alive)
+                        .await
+                        .err()
+                        .as_ref()
+                        .map(error_msg)
+                }
                 Err(error) => Some(error_msg(&error)),
             },
         };

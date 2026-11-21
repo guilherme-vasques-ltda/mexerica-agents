@@ -176,10 +176,9 @@ impl Session {
                 state,
                 gst_webrtc::WebRTCICEConnectionState::Failed
                     | gst_webrtc::WebRTCICEConnectionState::Closed
-            ) {
-                if let Some(original) = original.upgrade() {
-                    helper.ended(&id, &original);
-                }
+            ) && let Some(original) = original.upgrade()
+            {
+                helper.ended(&id, &original);
             }
         });
         operation.with_pipeline(&pipeline, || {

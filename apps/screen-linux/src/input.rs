@@ -11,7 +11,24 @@ const BTN_LEFT: i32 = 0x110;
 const BTN_RIGHT: i32 = 0x111;
 const BTN_MIDDLE: i32 = 0x112;
 
-pub async fn perform(portal: &Portal, display: &Display, event: &Value) -> Result<()> {
+/// Barreira de teste: prende `perform` dentro do arrasto, entre passos, para
+/// fechar a Operation a meio da sequência. Só existe em build de teste.
+#[cfg(test)]
+pub(crate) static DRAG_CUT: std::sync::Mutex<
+    Option<(
+        tokio::sync::oneshot::Sender<()>,
+        tokio::sync::oneshot::Receiver<()>,
+    )>,
+> = std::sync::Mutex::new(None);
+
+/// `alive` é reconsultado entre efeitos: sessão fechada a meio interrompe a
+/// sequência e libera teclas e botões que este evento segurou.
+pub async fn perform(
+    portal: &Portal,
+    display: &Display,
+    event: &Value,
+    alive: &(dyn Fn() -> bool + Send + Sync),
+) -> Result<()> {
     let (d, e) = (display, event);
     let rd = portal.remote();
     let session = portal.session();
@@ -59,6 +76,10 @@ pub async fn perform(portal: &Portal, display: &Display, event: &Value) -> Resul
         "down" | "up" => {
             let (px, py) = point()?;
             move_to(px, py).await?;
+            if e["type"] == "down" && !alive() {
+                // Sessão fechada: o press deixaria um botão seguro sem soltura.
+                return Ok(());
+            }
             let state = if e["type"] == "down" {
                 KeyState::Pressed
             } else {
@@ -73,6 +94,11 @@ pub async fn perform(portal: &Portal, display: &Display, event: &Value) -> Resul
             hold(true).await?;
             let count = e["count"].as_u64().unwrap_or(1).clamp(1, 3);
             for _ in 0..count {
+                if !alive() {
+                    // Sessão fechada a meio: solta modificadores presos e para.
+                    hold(false).await?;
+                    return Ok(());
+                }
                 rd.notify_pointer_button(session, button, KeyState::Pressed, Default::default())
                     .await?;
                 rd.notify_pointer_button(session, button, KeyState::Released, Default::default())
@@ -91,6 +117,29 @@ pub async fn perform(portal: &Portal, display: &Display, event: &Value) -> Resul
                 .await?;
             for i in 1..=20 {
                 tokio::time::sleep(Duration::from_millis(15)).await;
+                #[cfg(test)]
+                {
+                    // A guarda do mutex morre antes do await: o future é Send.
+                    let cut = crate::input::DRAG_CUT
+                        .lock()
+                        .expect("barreira de teste do arrasto")
+                        .take();
+                    if let Some((signal, resume)) = cut {
+                        let _ = signal.send(());
+                        let _ = resume.await;
+                    }
+                }
+                if !alive() {
+                    // Sessão fechada a meio do arrasto: solta o botão e para.
+                    rd.notify_pointer_button(
+                        session,
+                        BTN_LEFT,
+                        KeyState::Released,
+                        Default::default(),
+                    )
+                    .await?;
+                    return Ok(());
+                }
                 let t = f64::from(i) / 20.0;
                 move_to(px + (tx - px) * t, py + (ty - py) * t).await?;
             }
@@ -125,6 +174,10 @@ pub async fn perform(portal: &Portal, display: &Display, event: &Value) -> Resul
         }
         "text" => {
             for c in e["text"].as_str().unwrap_or_default().chars() {
+                if !alive() {
+                    // Sessão fechada: nada mais é digitado; sem tecla presa.
+                    return Ok(());
+                }
                 let sym = char_keysym(c);
                 rd.notify_keyboard_keysym(session, sym, KeyState::Pressed, Default::default())
                     .await?;
@@ -136,6 +189,11 @@ pub async fn perform(portal: &Portal, display: &Display, event: &Value) -> Resul
             let name = e["key"].as_str().unwrap_or_default();
             let sym = keysym(name).ok_or_else(|| anyhow!("unknown key {name}"))?;
             hold(true).await?;
+            if !alive() {
+                // Sessão fechada: solta modificadores presos, sem tocar a tecla.
+                hold(false).await?;
+                return Ok(());
+            }
             rd.notify_keyboard_keysym(session, sym, KeyState::Pressed, Default::default())
                 .await?;
             rd.notify_keyboard_keysym(session, sym, KeyState::Released, Default::default())
