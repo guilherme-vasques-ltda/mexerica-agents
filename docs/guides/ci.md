@@ -129,6 +129,45 @@ enquanto estabilizam.
 Para entrar no `ci-ok`, falta: rodadas estáveis em PRs reais, um tempo de rodada aceitável
 e mover o job (ou o check dele) para a lista do selo, num PR à parte.
 
+## Release (rascunho manual)
+
+O workflow [Release](../../.github/workflows/release.yml) monta os instaladores das três
+plataformas e deixa tudo pronto, mas **nunca publica sozinho**: no modo `release` ele cria
+apenas um **rascunho** no GitHub Releases (`--draft --prerelease`), sem tag e sem
+publicação; virar release de verdade é sempre um passo manual de quem mantém o repositório.
+Ele fica fora do `ci-ok`, como o workflow macOS: aparece só nas Actions.
+
+- **Quando roda:** só por disparo manual (Actions → Release → Run workflow) **a partir da
+  `main`**, e só com o repositório público. Cada job repete a barreira antes do checkout:
+  runner do GitHub, repositório público e ref exatamente `main` (comparação exata: um branch
+  `MAIN` não passa, mesmo passando na condição do job).
+- **Modos:** `release` exige a versão no formato `v0.0.1` (sufixo opcional como `-rc.1`),
+  recusa se a tag ou uma release publicada dessa versão já existem, apaga rascunhos antigos
+  da mesma versão e recria o rascunho limpo com as notas e os arquivos. `preview` não usa a
+  versão: nomeia os arquivos com `preview-<commit>` e os deixa só nos artefatos do Actions,
+  com o aviso de que não é versão oficial.
+- **Máquinas:** só runners grátis do GitHub (`macos-15`, `ubuntu-24.04`, `windows-latest`),
+  com timeouts de 75/45/75/15 minutos e artefatos guardados por 7 dias.
+- **O que sai:** `Mexerica-Open-<versão>-macos-arm64.zip`,
+  `mexerica-open-<versão>-linux-amd64.deb`,
+  `mexerica-open-<versão>-linux-x86_64.AppImage`,
+  `mexerica-open-<versão>-windows-x64-setup.exe`,
+  `mexerica-open-<versão>-windows-x64-portable.zip` e o `SHA256SUMS.txt`. Cada job confere o
+  que empacotou (assinatura e `arm64` no macOS, conteúdo do `.deb` e ELF do `.AppImage` no
+  Linux, binários nativos e `--version` do Hub no Windows) e gera o próprio hash; o job
+  final baixa os três artefatos, reconfere os hashes e monta o `SHA256SUMS.txt`.
+- **Notas:** `tools/ci-release-notes.mjs` pede o resumo automático à API do GitHub, passa
+  pela mesma trava de bastidor do `ci-bastidor.mjs` (linha com achado sai sem aparecer em
+  log) e escreve em português o texto com o aviso honesto de pré-lançamento sem assinatura;
+  o texto final é re-verificado antes de sair e qualquer achado reprova a rodada.
+- **Segurança:** `permissions: {}` no topo; os três jobs de build só têm `contents: read`;
+  o `draft-release` é o único com `contents: write` (criar o rascunho) e `actions: read`
+  (baixar artefatos). Nenhum secret: só o `github.token` do próprio job. Actions da mesma
+  lista fechada por SHA, checkout sem credencial persistida e downloads de rustup e
+  cua-driver conferidos por SHA-256. `tools/ci-workflow.test.mjs` cobre o contrato inteiro
+  e roda no job `leves` do CI.
+
+
 ## Regras do ci-ok
 
 - Roda sempre (`if: always()`), sem checkout e sem permissões.
@@ -145,7 +184,9 @@ e mover o job (ou o check dele) para a lista do selo, num PR à parte.
 ## Segurança do workflow
 
 - O CI só tem o evento `pull_request`. Não há `pull_request_target`, `push`, `schedule`
-  nem `workflow_dispatch`. O workflow macOS acrescenta só o disparo manual, sem entradas.
+  nem `workflow_dispatch`. O workflow macOS acrescenta só o disparo manual, sem entradas;
+  o Release acrescenta o disparo manual com as entradas `mode` e `version`, e só roda
+  a partir da `main` de um repositório público.
 - `permissions: {}` no topo e permissões explícitas por job, só leitura.
 - Actions fixadas por SHA completo. Todo checkout usa `persist-credentials: false`.
 - Concorrência por PR com cancelamento da rodada anterior. Todo job tem `timeout-minutes`.
