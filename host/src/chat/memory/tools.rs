@@ -59,7 +59,7 @@ pub fn tools() -> Value {
         },
     ]);
     if let Some(list) = tools.as_array_mut() {
-        list.push(crate::fork::browser::definition());
+        list.extend(crate::fork::browser::definitions());
         list.extend(crate::fork::historico::definitions());
         list.extend(super::file_tools::definitions());
     }
@@ -179,6 +179,9 @@ async fn call_bound(
         args[crate::fork::memory_auto::transport::ARG].as_str(),
         mutating(name),
     )?;
+    if crate::fork::browser::is_page_tool(name) {
+        return crate::fork::browser::call_page(hub, bot_id, name, args, context, execution).await;
+    }
     if name == "__tools" {
         // D298: a lista é a mesma desde o preparo; descrição não concede uso. Chamadas
         // mutantes abaixo continuam exigindo `engine` (token ativo, depois da liberação).
@@ -191,7 +194,14 @@ async fn call_bound(
             )?,
         };
         let mut list = tools();
+        // G2: as ferramentas de página só são anunciadas depois que este vínculo negociou o contrato v3.
+        let negotiated = execution
+            .and_then(|execution| execution.acp_binding())
+            .is_some_and(|binding| hub.browser.negotiated(binding));
         if let Some(list) = list.as_array_mut() {
+            list.retain(|tool| {
+                negotiated || !crate::fork::browser::is_page_tool(tool["name"].as_str().unwrap_or_default())
+            });
             list.retain(|tool| {
                 listed.as_deref().is_some_and(|backend| backend != "codex")
                     || !mutating(tool["name"].as_str().unwrap_or_default())
