@@ -3,6 +3,7 @@ import { Text } from '../../../components/Text'
 import { StoreContext, useApp } from '../../../store/context'
 import { ApiDireta } from './ApiDireta'
 import { ContasDoHub } from './ContasDoHub'
+import { EntrarComChatGPT } from './EntrarComChatGPT'
 import { MotoresDoHub } from './MotoresDoHub'
 import { useTextosContas } from './use-textos'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
@@ -41,6 +42,7 @@ export function ContasIaPage({ aba = null }: { aba?: 'contas' | 'motores' | null
         <StoreContext.Provider key={store.computer.id} value={store}>
           {open || aba !== 'motores' ? <ContasDoHub /> : null}
           {open || aba !== 'motores' ? <ApiDireta /> : null}
+          {open || aba !== 'motores' ? <EntrarComChatGPT /> : null}
           {!open && aba !== 'contas' ? <MotoresDoHub /> : null}
         </StoreContext.Provider>
       ))}
