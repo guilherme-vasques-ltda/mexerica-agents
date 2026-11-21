@@ -554,6 +554,12 @@ impl Link {
             let provider = session.provider.locked().clone();
             let model = session.model.locked().clone();
             ensure!(!model.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
+            // Os mesmos limites do set_model: o turno reenvia o modelo ao processo, e reenviar sem limites
+            // devolveria o modelo aos padrões do fornecedor.
+            let limits = match self.limits.get() {
+                Some(source) => source(&provider, &model)?,
+                None => json!({}),
+            };
             // Nada do turno foi entregue ao bot enquanto isto for falso.
             let delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
             // Mensagens que o motor terminou de emitir neste turno (limpas, dentro do teto): viram a
@@ -589,7 +595,7 @@ impl Link {
                     session.history.remember(finished.locked().take());
                     false
                 }
-                result = owned.prompt_with(&provider, &model, &text, &runner, &mut on_event) => {
+                result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
                     if let Err(error) = result {
                         // Falha no meio do turno (processo morto, linha inválida ou
                         // acima do teto, erro do modelo): o stdout pode ter eventos

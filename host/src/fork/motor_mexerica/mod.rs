@@ -437,6 +437,7 @@ impl Engine {
         );
         Ok(res["data"].clone())
     }
+
     /// Provedor fixado no nascimento do processo.
     pub(crate) fn provider(&self) -> &str {
         &self.provider
@@ -446,7 +447,7 @@ impl Engine {
     /// Devolve o texto final da assistente e todos os eventos recebidos (para
     /// provas). O provedor precisa ser o fixado no nascimento do processo.
     pub(crate) async fn prompt(&mut self, provider: &str, model_id: &str, message: &str) -> Result<Turn> {
-        self.prompt_with(provider, model_id, message, &tools::NoTools, &mut |_| {}).await
+        self.prompt_with(provider, model_id, &json!({}), message, &tools::NoTools, &mut |_| {}).await
     }
 
     /// Um comando de preparo (envio e resposta) com prazo: um motor que para de ler a entrada ou de responder não segura a
@@ -504,13 +505,14 @@ impl Engine {
         &mut self,
         provider: &str,
         model_id: &str,
+        limits: &Value,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
         ensure!(!self.turn_open, "há um turno aberto neste motor; encerre ou mate o processo antes de outro prompt");
         self.turn_open = true;
-        let result = self.drive(provider, model_id, message, runner, on_event).await;
+        let result = self.drive(provider, model_id, limits, message, runner, on_event).await;
         self.turn_open = false;
         result
     }
@@ -522,11 +524,12 @@ impl Engine {
         &mut self,
         provider: &str,
         model_id: &str,
+        limits: &Value,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
-        self.set_model(provider, model_id, &json!({})).await?;
+        self.set_model(provider, model_id, limits).await?;
         self.next_id += 1;
         self.send(json!({"id": format!("p-{}", self.next_id), "type": "prompt", "message": message})).await?;
 

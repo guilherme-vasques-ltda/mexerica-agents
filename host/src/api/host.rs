@@ -160,8 +160,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 // pessoal (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
                 // valem; sem nenhum deles, o erro da descoberta segue para a tela.
                 let planos = backend == "opencode"
-                    && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL)
-                        == crate::fork::spaces::PERSONAL;
+                    && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL) == crate::fork::spaces::PERSONAL;
                 let (mut catalog, falha) = match descoberta {
                     Ok(catalog) => (catalog, None),
                     Err(erro) if planos => (json!({"models": []}), Some(erro)),
