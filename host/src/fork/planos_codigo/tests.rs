@@ -356,3 +356,66 @@ async fn trocar_ou_remover_a_chave_muda_o_carimbo_e_remover_apaga_chave_lista_e_
     assert_eq!(lista["planos"][0]["configurada"], false);
     assert_eq!(lista["planos"][0]["modelos"], Value::Null);
 }
+
+#[tokio::test]
+async fn filtro_do_motor_tira_o_perfil_mas_o_ambiente_do_plano_vence() {
+    let hub = hub_de_prova();
+    com_chave(&hub).await;
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let nomes = ["HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
+
+    let mut so_o_filtro = ambiente.env.clone();
+    crate::agent::harness::apply(&mut so_o_filtro, "opencode", "");
+    assert!(
+        nomes.iter().all(|nome| !so_o_filtro.iter().any(|(k, _)| k == nome)),
+        "o filtro do motor tira casa e XDG_*: é por isso que o plano entra depois dele"
+    );
+
+    let mut env = vec![
+        ("HOME".to_owned(), "/casa/do/dono".to_owned()),
+        ("XDG_DATA_HOME".to_owned(), "/dados/do/dono".to_owned()),
+    ];
+    aplicar_ambiente(&mut env, "opencode", "", Some(&ambiente));
+    for (nome, valor) in &ambiente.env {
+        let valores: Vec<_> = env.iter().filter(|(k, _)| k == nome).map(|(_, v)| v.as_str()).collect();
+        assert_eq!(valores, [valor.as_str()], "{nome} tem de valer uma vez, com o valor do plano");
+    }
+    assert!(!env.iter().any(|(_, v)| v.contains("/do/dono")));
+
+    let mut sem_plano = Vec::new();
+    aplicar_ambiente(&mut sem_plano, "opencode", "", None);
+    assert!(!sem_plano.iter().any(|(k, _)| k == "OPENCODE_API_KEY"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn o_carimbo_nunca_e_mais_novo_que_a_chave_com_que_o_processo_abre() {
+    let hub = hub_de_prova();
+    let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    // A chave n é gravada na revisão n: um lançamento com a chave j e o carimbo r só é coerente se r <= j.
+    let chave_n = |n: u32| format!("chave-ficticia-rotacao-{n:04}");
+    salvar(&hub, &PLANOS[0], &url, Zeroizing::new(chave_n(1))).await.unwrap();
+    let escritor = {
+        let (hub, url) = (hub.clone(), url.clone());
+        tokio::spawn(async move {
+            for n in 2..=60 {
+                salvar(&hub, &PLANOS[0], &url, Zeroizing::new(chave_n(n))).await.unwrap();
+            }
+        })
+    };
+    let mut lancamentos = 0;
+    while !escritor.is_finished() {
+        let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+        let chave = ambiente.env.iter().find(|(k, _)| k == "OPENCODE_API_KEY").unwrap().1.clone();
+        let da_chave: u64 = chave.rsplit('-').next().unwrap().parse().unwrap();
+        let do_carimbo: u64 = ambiente.carimbo.rsplit(':').next().unwrap().parse().unwrap();
+        assert!(do_carimbo <= da_chave, "carimbo {do_carimbo} mais novo que a chave {da_chave}");
+        lancamentos += 1;
+        tokio::task::yield_now().await;
+    }
+    escritor.await.unwrap();
+    assert!(lancamentos > 0);
+}

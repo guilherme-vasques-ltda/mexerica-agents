@@ -365,10 +365,8 @@ impl Actor {
             self.hub.set_runtime(&self.id(), |r| r.set_activity("Starting agent…", Some(ActivityKind::StartingAgent)));
             // Keys saved from an "environment variable" sign-in. O motor
             // interno lê a chave do cofre pelo canal fd 3, nunca do ambiente.
-            let mut env = if selected.is_some() || interno {
+            let mut env = if selected.is_some() || interno || plano.is_some() {
                 Vec::new()
-            } else if let Some(plano) = &plano {
-                plano.env.clone()
             } else {
                 crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?
             };
@@ -376,7 +374,12 @@ impl Actor {
                 env.push(("CODEX_CONFIG".into(), "{}".into()));
             }
             own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
-            crate::agent::harness::apply(&mut env, &self.cfg.backend, &crate::agent::harness::compile());
+            crate::fork::planos_codigo::aplicar_ambiente(
+                &mut env,
+                &self.cfg.backend,
+                &crate::agent::harness::compile(),
+                plano.as_ref(),
+            );
             if selected.is_none() && plano.is_none() {
                 env.extend(crate::fork::terminal_login::runtime_env(
                     &self.hub.store,

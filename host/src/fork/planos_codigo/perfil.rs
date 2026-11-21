@@ -62,6 +62,9 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<O
         "plano_indisponivel: os planos de código ainda não rodam no executor isolado."
     );
     crate::market::vault::unlock(hub.clone()).await?;
+    // A revisão é lida ANTES da chave: quem grava troca a chave e só depois sobe a revisão. Assim o carimbo nunca é
+    // mais novo que a chave com que o processo abre (o pior caso é um reinício a mais, nunca uma chave velha mantida).
+    let revisao = revisao(&hub.store, plano)?;
     let chave = crate::market::vault::read(&hub.store, &slot_chave(plano))?
         .map(Zeroizing::new)
         .ok_or_else(|| anyhow!("plano_sem_chave: cadastre a chave do plano em Conexões de IA."))?;
@@ -76,5 +79,14 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<O
         ("XDG_CACHE_HOME".into(), pasta(".cache")),
         (plano.variavel.into(), chave.to_string()),
     ];
-    Ok(Some(Ambiente { env, carimbo: format!("plano:{}:{}", plano.id, revisao(&hub.store, plano)?) }))
+    Ok(Some(Ambiente { env, carimbo: format!("plano:{}:{revisao}", plano.id) }))
+}
+
+/// Aplica o filtro do motor (que tira casa e pastas `XDG_*` herdadas) e só depois entrega o ambiente do plano: o
+/// perfil e a chave do plano são sempre os últimos a valer, nunca os do dono.
+pub(crate) fn aplicar_ambiente(env: &mut Vec<(String, String)>, backend: &str, system: &str, plano: Option<&Ambiente>) {
+    crate::agent::harness::apply(env, backend, system);
+    let Some(plano) = plano else { return };
+    env.retain(|(nome, _)| !plano.env.iter().any(|(do_plano, _)| do_plano == nome));
+    env.extend(plano.env.iter().cloned());
 }

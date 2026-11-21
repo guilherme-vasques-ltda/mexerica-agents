@@ -9,7 +9,7 @@ mod perfil;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use perfil::ambiente_do_bot;
+pub(crate) use perfil::{ambiente_do_bot, aplicar_ambiente};
 
 use crate::{api::devices::Caller, hub::Hub, store::Store};
 use anyhow::{Result, anyhow, bail, ensure};
