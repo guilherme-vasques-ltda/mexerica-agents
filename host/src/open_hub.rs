@@ -45,7 +45,7 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
 }
 
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
-fn open_allows(method: &str, body: &Value) -> bool {
+pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
     match method {
         "hello"
         | "refreshBackends"

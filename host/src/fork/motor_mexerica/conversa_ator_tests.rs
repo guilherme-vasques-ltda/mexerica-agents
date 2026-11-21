@@ -186,3 +186,27 @@ async fn trocar_a_conta_do_bot_apaga_a_conversa_guardada_e_comeca_sem_copia() {
     );
     c.encerrar().await;
 }
+
+#[tokio::test]
+async fn as_instrucoes_fixas_do_bot_chegam_ao_motor_mexerica_pelo_ator() {
+    let Some(mut c) = cenario(
+        "agent::bot::motor_conversa_tests::as_instrucoes_fixas_do_bot_chegam_ao_motor_mexerica_pelo_ator",
+        "bot-instrucoes",
+    )
+    .await
+    else {
+        return;
+    };
+    // Uma marca no perfil do bot: o texto fixo que o Hub renderiza para a sessão a leva.
+    c.actor.cfg.description = "PERFIL-DO-BOT-5W".into();
+    c.hub.store.save_bot(&c.actor.cfg).unwrap();
+    let resposta = c.turno("/pedido MENSAGEM-DO-DONO-8J").await;
+    let pedido: serde_json::Value = serde_json::from_str(resposta.strip_prefix("pedido: ").unwrap()).unwrap();
+    let sistema: String = pedido["sistema"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
+    let usuario: String = pedido["usuario"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
+    assert_eq!(sistema.matches("PERFIL-DO-BOT-5W").count(), 1, "o perfil do bot não chegou ao motor: {sistema:?}");
+    assert!(!sistema.contains("MENSAGEM-DO-DONO-8J"), "{sistema:?}");
+    assert_eq!(usuario.matches("MENSAGEM-DO-DONO-8J").count(), 1, "{usuario:?}");
+    assert!(!usuario.contains("PERFIL-DO-BOT-5W"), "o texto fixo foi também na mensagem: {usuario:?}");
+    c.encerrar().await;
+}

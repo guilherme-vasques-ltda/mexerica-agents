@@ -1,0 +1,35 @@
+import type { Traducao } from '../../index.ts'
+import type { textos as fonte } from '../../pt-BR/conversa/ladoALado.ts'
+
+// conversa/ladoALado (registro.ts). Chaves completas; docs/guides/idiomas.md.
+export const textos: Traducao<typeof fonte> = {
+  'conversa.ladoALado.titulo': "Lado a lado",
+  'conversa.ladoALado.entrar': "Abrir Lado a lado",
+  'conversa.ladoALado.sair': "Volver a una conversación",
+  'conversa.ladoALado.abrirNoMenu': "Abrir lado a lado",
+  'conversa.ladoALado.regiao': "Tablero Lado a lado",
+  'conversa.ladoALado.contagem': "{atual} de {maximo}",
+  'conversa.ladoALado.adicionar': "Añadir conversación",
+  'conversa.ladoALado.adicionarCurto': "Añadir",
+  'conversa.ladoALado.semConversas': "No hay otra conversación disponible en este space",
+  'conversa.ladoALado.principal': "Principal",
+  'conversa.ladoALado.painelDe': "Panel de {nome}",
+  'conversa.ladoALado.painelDeSessao': "Panel de {nome} · {sessao}",
+  'conversa.ladoALado.trocar': "Cambiar conversación",
+  'conversa.ladoALado.moverEsquerda': "Mover a la izquierda",
+  'conversa.ladoALado.moverDireita': "Mover a la derecha",
+  'conversa.ladoALado.soEsta': "Abrir solo esta conversación",
+  'conversa.ladoALado.fecharPainel': "Cerrar panel de {nome}",
+  'conversa.ladoALado.fecharAviso': "Descartar aviso",
+  'conversa.ladoALado.vazioTitulo': "Elige otra conversación",
+  'conversa.ladoALado.vazioDetalhe': "Selecciona una conversación abajo o en la barra lateral para seguirla lado a lado.",
+  'conversa.ladoALado.avisoLimite': "Se alcanzó el límite de {maximo} conversaciones lado a lado. Cierra un panel para abrir otro.",
+  'conversa.ladoALado.avisoRemovida': "Una conversación salió del tablero porque ya no está disponible.",
+  'conversa.ladoALado.avisoRemovidas': "{n} conversaciones salieron del tablero porque ya no están disponibles.",
+  'conversa.ladoALado.janelaEstreitaUnico': "La ventana es demasiado estrecha para mostrar conversaciones lado a lado. Amplía el ancho o contrae la barra lateral.",
+  'conversa.ladoALado.janelaEstreitaParcial': "Solo caben {cabem} de {total} paneles en este ancho. Amplía la ventana o contrae la barra lateral para verlos todos.",
+  'conversa.ladoALado.recolherBarra': "Contraer barra lateral",
+  'conversa.ladoALado.anuncioAdicionada': "{nome} añadida al tablero Lado a lado.",
+  'conversa.ladoALado.anuncioFechada': "Panel de {nome} cerrado.",
+  'conversa.ladoALado.atalhoPainel': "Alternar entre paneles con F6",
+}

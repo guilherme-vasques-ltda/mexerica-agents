@@ -71,6 +71,26 @@ test('o retorno com erro do fornecedor vai ao Hub como {state, erro} e o Acesso 
   assert.ok(registro.includes('responder:7:false:'), 'sem nome de conector no desfecho de erro')
 })
 
+test('o retorno que já estava em trânsito quando o Cancelar foi clicado não conclui o login', async () => {
+  let cancelar: () => void = () => {}
+  const corpos: unknown[] = []
+  const client = {
+    call: async (metodo: string, corpo: unknown) => {
+      corpos.push(corpo)
+      if (metodo === 'openrouterEntrar') return { url: URL_DO_HUB }
+      throw new Error(`inesperado: ${metodo}`)
+    },
+  } as unknown as HostClient
+  const { ouvinte, registro } = ponte(() => { cancelar(); return Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&code=codigo-ficticio') })
+  const entrada = entrarComOpenRouter(client, ouvinte)
+  cancelar = entrada.cancelar
+  const desfecho = entrada.fim.then(() => null, (e: unknown) => e)
+  const falha = await desfecho
+  assert.ok(falha instanceof FalhaOpenRouter && falha.tipo === 'cancelado')
+  assert.equal(corpos.length, 1, 'o Hub não recebe a conclusão depois do cancelamento')
+  assert.ok(!registro.some((r) => r.startsWith('responder:7:')), 'o navegador não recebe desfecho de sucesso')
+})
+
 test('cancelar desliga o ouvinte e a espera termina como cancelado', async () => {
   const { client } = hub(() => ({ ok: true, modelos: [] }))
   const { ouvinte, registro, esperou } = ponte(() => new Promise<string>(() => {}))

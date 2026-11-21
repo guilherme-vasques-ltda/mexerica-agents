@@ -29,7 +29,9 @@ export const fraseDaFalha = (tipo: FalhaOpenRouter['tipo']): ChaveTexto =>
     : tipo === 'tempo' ? 'contas.apiDireta.openrouter.erro.tempo'
       : 'contas.apiDireta.openrouter.erro.falha'
 
-const PRAZO_MS = 60_000
+// A conclusão cobre o pior caso do Hub: a troca (15 s), o destravamento do cofre (até 60 s) e o
+// teste da chave antes de gravar (45 s). Cortar antes disso deixaria a chave salva com a tela dizendo que não.
+const PRAZO_MS = 150_000
 /** O ouvinte corta a espera em 10 minutos; aqui corta um pouco antes, para a frase ser a de tempo e não a genérica. */
 const ESPERA_MAX_MS = 10 * 60_000 - 2_000
 
@@ -68,6 +70,8 @@ export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte,
       } finally {
         clearTimeout(temporizador)
       }
+      // O retorno pode já estar em trânsito quando o Cancelar foi clicado: o login para aqui e o Hub nunca grava.
+      if (cancelado) throw new FalhaOpenRouter('cancelado')
       let retorno: ReturnType<typeof lerRetornoLogin>
       try { retorno = lerRetornoLogin(volta) } catch { throw new FalhaOpenRouter('falha') }
       // Daqui em diante o Hub troca o código e grava a chave: não há mais o que cancelar.

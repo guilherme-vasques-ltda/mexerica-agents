@@ -106,6 +106,32 @@ fn provider_of(model_id: &str) -> Result<(String, String)> {
     Ok((provider.to_owned(), model_id.to_owned()))
 }
 
+/// O texto do `systemPrompt` do ACP: texto puro, ou o objeto `{mode: "append", content: [{type: "text", text}]}` que
+/// o Hub manda (os blocos de texto são juntados; o motor não tem texto próprio, então `append` é o texto inteiro).
+/// Objeto em outro formato é recusado: o bot não pode seguir sem as instruções sem que ninguém saiba.
+pub(super) fn system_text(value: &Value) -> Result<Option<String>> {
+    let blocks = match value {
+        Value::Null => return Ok(None),
+        Value::String(text) => return Ok(Some(text.clone()).filter(|text| !text.is_empty())),
+        Value::Object(prompt) => {
+            ensure!(
+                prompt.get("mode").is_none_or(|mode| mode == "append"),
+                "systemPrompt do Motor Mexerica só aceita o modo append"
+            );
+            prompt.get("content").and_then(Value::as_array).context("systemPrompt do Motor Mexerica sem content")?
+        }
+        _ => bail!("systemPrompt do Motor Mexerica tem de ser texto ou objeto"),
+    };
+    let texts = blocks
+        .iter()
+        .map(|block| match (block["type"].as_str(), block["text"].as_str()) {
+            (Some("text"), Some(text)) => Ok(text),
+            _ => Err(anyhow!("systemPrompt do Motor Mexerica só aceita blocos de texto")),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(texts.join("\n\n")).filter(|text| !text.is_empty()))
+}
+
 /// Geração de uma credencial: impressão digital (só em memória, nunca registrada) do que o cofre guarda para
 /// `provider`. Vazia quando o provedor não tem credencial.
 pub(super) fn credential_generation(provider: &str, key: Option<&str>) -> String {
@@ -413,7 +439,7 @@ impl Link {
             mcp,
             provider: Mutex::new(String::new()),
             model: Mutex::new(String::new()),
-            system_prompt: Mutex::new(params["systemPrompt"].as_str().map(str::to_owned)),
+            system_prompt: Mutex::new(system_text(&params["systemPrompt"])?),
             pid: Mutex::new(None),
             cancel,
             busy: std::sync::atomic::AtomicBool::new(false),

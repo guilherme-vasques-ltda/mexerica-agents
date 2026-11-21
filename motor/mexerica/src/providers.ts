@@ -73,7 +73,8 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 	// `/paralelo <N> <nome> <json>` chama a ferramenta N vezes na MESMA mensagem; `/ferramentagrande <nome> <N>` chama a
 	// ferramenta com um argumento `x` de N caracteres;
 	// `/historico` responde com todos os textos de usuário que o modelo recebeu;
-	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu.
+	// `/contexto` responde `contexto: <mensagens> <bytes>` do que o provedor recebeu;
+	// `/pedido` responde `pedido: <json>` com os textos de sistema e de usuário que o provedor recebeu.
 	let chained = 0;
 	let issued: number | undefined;
 	const echo: FauxResponseFactory = async (context) => {
@@ -108,6 +109,10 @@ export function registerProviders(models: MutableModels): FauxProviderHandle | u
 			const declared = context.messages.flatMap((m) => (m.role === "system" ? ((m as { toolsAdded?: unknown[] }).toolsAdded ?? []) : [])).length;
 			const orphans = kept.filter((m) => m.role === "toolResult" && !asked.has(m.toolCallId)).length;
 			return fauxAssistantMessage(`contexto: ${kept.length} ${Buffer.byteLength(JSON.stringify(kept))} orfaos=${orphans} ferramentas=${declared}`);
+		}
+		if (text.includes("/pedido")) {
+			const sistema = context.messages.filter((m) => m.role === "system").map(userText);
+			return fauxAssistantMessage(`pedido: ${JSON.stringify({ sistema, usuario: users.map(userText) })}`);
 		}
 		if (text.includes("/historico")) return fauxAssistantMessage("historico: " + users.map(userText).join(" | "));
 		const call = /^\/ferramenta (\S+) ([\s\S]*)$/.exec(text) ?? /^\/cadeia \d+ (\S+) ([\s\S]*)$/.exec(text);

@@ -69,8 +69,11 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
   const [loginConcluindo, setLoginConcluindo] = useState(false)
   const ocupadoRef = useRef(false)
   const cancelarLoginRef = useRef<(() => void) | null>(null)
-  // Sair da tela no meio da digitação não deixa a chave em estado nenhum.
-  useEffect(() => () => setChave(''), [])
+  // Sair da tela no meio da digitação não deixa a chave em estado nenhum; no meio do login, desiste dele.
+  useEffect(() => () => {
+    setChave('')
+    cancelarLoginRef.current?.()
+  }, [])
 
   const rodar = (
     trabalho: () => Promise<Acesso | { ok: boolean }>,
@@ -102,6 +105,8 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
       })
   }
   const client = () => liveClient(store)!
+  // A chave do login é a do dono, só usada pelos bots do Space pessoal: o botão só aparece com o Pessoal aberto.
+  const espacoPessoal = (store.spaceId ?? store.spaces?.personalSpaceId) === store.spaces?.personalSpaceId
   const salvar = () => {
     if (!chave.trim()) return
     rodar(() => salvarChave(client(), f.id, chave, () => setChave('')), (r) => r.ok && setEditando(false))
@@ -117,7 +122,7 @@ export function LinhaDoFornecedor({ fornecedor: f, aoMudar }: { fornecedor: Forn
   }
   const cancelar = () => { setChave(''); setEditando(false); setResultado(null) }
   const quantos = f.modelos?.length ?? 0
-  const botaoEntrar = f.id === 'openrouter' ? (
+  const botaoEntrar = f.id === 'openrouter' && espacoPessoal ? (
     <button className="settings-quiet-button" onClick={entrar}>{t('contas.apiDireta.openrouter.entrar')}</button>
   ) : null
 

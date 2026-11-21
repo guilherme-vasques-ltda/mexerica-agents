@@ -68,9 +68,21 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     }
 }
 
+/// A chave trocada é a do dono, só usada pelos bots do Space pessoal dele: o login também só
+/// acontece com o Space pessoal aberto (o app manda o Space aberto em todo pedido).
+fn assegurar_space_pessoal(body: &Value) -> Result<()> {
+    let space = body.get("spaceId").and_then(Value::as_str).unwrap_or(crate::fork::spaces::PERSONAL);
+    ensure!(
+        space == crate::fork::spaces::PERSONAL,
+        "space_invalido: o login com OpenRouter vale só no Space pessoal deste computador."
+    );
+    Ok(())
+}
+
 /// Passo 1: exige a porta do ouvinte do app, gera o PKCE e o `state`, guarda a tentativa (a nova
 /// substitui qualquer pendente) e devolve só a URL de autorização.
 pub(super) fn entrar(body: &Value) -> Result<Value> {
+    assegurar_space_pessoal(body)?;
     let Ok(Some(porta)) = crate::fork::conectores::oauth_desktop::do_pedido(body) else {
         bail!("porta_invalida: o retorno deste login cai no ouvinte do app; informe uma das portas dele.")
     };
@@ -110,6 +122,7 @@ fn base_do_login() -> String {
 /// (uso único, também no erro) e troca o código pela chave, que segue ao cofre pelo caminho da
 /// chave colada. Um `state` que não confere não derruba o login em andamento.
 pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
+    assegurar_space_pessoal(body)?;
     let Some(Ok(state)) = body.get("state").and_then(Value::as_str).map(crypto::unb64_n::<32>) else {
         bail!(ENTRADA_INVALIDA)
     };
@@ -119,7 +132,11 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
             guard.as_ref().is_some_and(|t| t.criada_em.elapsed() < VALIDADE && crypto::ct_eq(&t.state, &state));
         if confere { guard.take() } else { None }
     };
-    let Some(tentativa) = tentativa else { bail!(ENTRADA_INVALIDA) };
+    let Some(tentativa) = tentativa else {
+        // A recusa é registrada sem o `state`, o código nem a porta: uma fila delas denuncia retorno forjado.
+        tracing::warn!("retorno do login com OpenRouter recusado: nenhuma tentativa viva confere com o retorno");
+        bail!(ENTRADA_INVALIDA)
+    };
     tracing::debug!(porta = tentativa.porta, "retorno do login com OpenRouter reconhecido");
     // O fornecedor disse não: recusa fixa, sem ecoar o motivo recebido.
     if body.get("erro").and_then(Value::as_str).is_some() {

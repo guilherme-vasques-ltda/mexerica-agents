@@ -237,7 +237,7 @@ export const textos: Traducao<typeof fonte> = {
   // MX-142 TEC-722-17: regras dos bots (decisões 2–4), Concluída declarada e jornada do Geral.
   'projetos.tarefas.declarada': "已完成（声明）",
   'projetos.tarefas.declaradaPor': "由 {bot} 声明；证明在证据中。",
-  'projetos.tarefas.regraBotDono': "负责的机器人：只能修改自己子任务的状态、备注和证据。标记为已完成时必须留下证明。",
+  'projetos.tarefas.regraBotDono': "负责的机器人：只能更新自己子任务的进度和备注，并提交到「核对中」。只有你可以标记完成、重新打开或编辑证据。",
   'projetos.tarefas.regraBotsOutros': "主管和协调者：可以修改其他机器人的子任务；修改会记录在动态中。",
   'projetos.tarefas.regraBotsCriam': "任何机器人都可以为其他机器人创建子任务，最多 100 个任务、3 层。",
   'projetos.tarefas.geral': "Geral",
