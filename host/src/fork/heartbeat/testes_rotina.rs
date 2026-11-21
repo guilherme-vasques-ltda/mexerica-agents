@@ -996,3 +996,72 @@ fn mudanca_entre_o_despacho_e_o_inicio_da_chamada_impede_a_leitura() {
         assert_eq!(avisos(&hub).len(), 0, "{caso}");
     }
 }
+
+#[test]
+fn mudanca_depois_da_resposta_de_admissao_e_antes_da_chamada_impede_a_leitura() {
+    struct Conta(Arc<AtomicUsize>);
+    impl Fonte for Conta {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![])
+        }
+    }
+    for caso in ["pausa geral", "editar o escopo", "apagar", "prazo vencido"] {
+        let hub = hub();
+        hub.routines.prazo_fonte_ms.store(150, Ordering::SeqCst);
+        let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+        let chamadas = Arc::new(AtomicUsize::new(0));
+        hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", Arc::new(Conta(chamadas.clone())));
+        let (h, i) = (hub.clone(), id.clone());
+        let feito = std::sync::atomic::AtomicBool::new(false);
+        let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            if feito.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            match caso {
+                "pausa geral" => {
+                    h.routines.set_paused(&h.store, true).unwrap();
+                }
+                "editar o escopo" => {
+                    let mut nova = declaracao();
+                    nova["escopo"] = json!("outra fila");
+                    h.routines.save(&h, "bot", &corpo(&json!({"id": i, "heartbeat": nova, "enabled": true}))).unwrap();
+                }
+                "apagar" => {
+                    h.routines.remove(&h.store, "bot", &i).unwrap();
+                }
+                _ => std::thread::sleep(std::time::Duration::from_millis(400)),
+            }
+        });
+        *hub.routines.depois_da_admissao.locked() = Some(mudar);
+        checa(&hub, &id, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(chamadas.load(Ordering::SeqCst), 0, "{caso}: a fonte não pode ser chamada");
+        assert_eq!(avisos(&hub).len(), 0, "{caso}");
+        if caso == "prazo vencido" {
+            let ultima = estado(&hub, &id).ultima.unwrap();
+            assert_eq!(ultima.resultado, crate::fork::heartbeat::Resultado::FonteIndisponivel);
+            assert!(execucoes(&hub).iter().all(|r| r.heartbeat_texto.is_none()), "expirar não alerta sobre permissão");
+        }
+    }
+}
+
+#[test]
+fn mudanca_alheia_depois_da_admissao_so_repete_o_pedido_e_a_fonte_e_chamada() {
+    let (hub, fonte, id) = com_fonte();
+    fonte.define(&[("7", "v1", "aguardando")]);
+    let h = hub.clone();
+    let feito = std::sync::atomic::AtomicBool::new(false);
+    let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        if !feito.swap(true, Ordering::SeqCst) {
+            h.routines.state.locked().available_at = 0;
+        }
+    });
+    *hub.routines.depois_da_admissao.locked() = Some(mudar);
+    checa(&hub, &id, 1);
+    assert!(fonte.leituras.load(Ordering::SeqCst) > 0, "o estado de outra coisa mudou: a fonte ainda é lida");
+}

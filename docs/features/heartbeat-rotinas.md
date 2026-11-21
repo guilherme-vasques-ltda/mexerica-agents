@@ -69,9 +69,13 @@ andamento. Sem concessão registrada ainda (logo após reiniciar), a checagem s�
 
 Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
 de uma leitura descarta o resultado: nada é gravado nem avisado. Além disso, a porta fecha imediatamente antes de cada
-chamada: a linha de execução da chamada pede a admissão ao agendador, que confere de novo a pausa geral, a rotina
-(existe, está ligada, mesma versão e mesma declaração), o registro e a concessão, e o prazo da chamada. Depois de
-qualquer uma dessas mudanças, ou com o prazo vencido, a fonte não é chamada (nem a segunda chamada da mesma checagem). Uma chamada
+chamada, na própria linha de execução que vai chamar a fonte: o agendador decide sob o estado das rotinas (pausa geral,
+rotina existe, está ligada, mesma versão e mesma declaração, registro e concessão) e devolve a época do estado em que
+decidiu; ao receber a resposta, a linha de execução confere sozinha, sem lock, o prazo absoluto da chamada, se o
+agendador já desistiu, se a concessão ainda vale e se a época do estado é a mesma. Mudou o estado: ela pede de novo e a
+nova decisão recusa o que deixou de valer; venceu o prazo ou o agendador desistiu: a fonte não é chamada (isso conta
+como fonte fora do ar, não como falta de acesso). A única janela que sobra é a de poucas instruções entre essa última
+leitura e a chamada. Uma chamada
 que já estava em curso não é cancelada: o prazo a abandona e o resultado dela é descartado. Uma fonte só é lida pelo bot
 a que foi concedida.
 
