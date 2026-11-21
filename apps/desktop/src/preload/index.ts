@@ -160,7 +160,7 @@ const bridge: CodyncBridge = {
     setAutoCheck: (on) => ipcRenderer.send('updates:autoCheck', on),
     setAutoDownload: (on) => ipcRenderer.send('updates:autoDownload', on),
   },
-  // Nível 1 de atualizações: canais escritos de propósito (mesma regra de forkCofre, MX-209).
+  // Nível 1 de atualizações: canais escritos inline de propósito para funcionar no preload com sandbox.
   releaseNotice: {
     state: () => ipcRenderer.invoke('releaseNotice:state') as Promise<ReleaseNoticeState>,
     check: () => ipcRenderer.invoke('releaseNotice:check') as Promise<ReleaseNoticeState>,

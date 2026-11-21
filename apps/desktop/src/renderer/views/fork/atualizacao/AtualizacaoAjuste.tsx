@@ -7,6 +7,7 @@ import { HStack } from '../../../components/Stack'
 import { Text } from '../../../components/Text'
 import { Superficie } from '../../settings/rotulo'
 import { useReleaseNotice } from './use-release-notice'
+import './aviso-atualizacao.css'
 
 /**
  * Ajustes → Geral, seção de atualizações do Nível 1: a versão atual, o botão de procurar e o que a
@@ -24,6 +25,7 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
     ? t('ajustes.atualizacoes.ultima', { quando: formatarData(idioma, state.lastCheckAt, { dateStyle: 'medium', timeStyle: 'short' }) })
     : null
   const versaoAtual = state.currentVersion.startsWith('v') ? state.currentVersion : `v${state.currentVersion}`
+  const releaseAvailable = state.availableVersion !== null && state.availableTag !== null && state.releaseUrl !== null
   return (
     <Superficie>
       <CardSection title={t('ajustes.atualizacoes.titulo')}>
@@ -35,17 +37,21 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
             </Button>
           </HStack>
         </ValueRow>
-        {state.availableVersion !== null && state.availableTag !== null && state.releaseUrl !== null ? (
-          <ValueRow label={t('ajustes.atualizacoes.novaVersao', { versao: ltr(state.availableTag) })}>
+        {releaseAvailable ? (
+          <ValueRow label={t('ajustes.atualizacoes.novaVersao', { versao: ltr(state.availableTag ?? '') })}>
             <Button kind="primary" onClick={onOpenDownload}>{t('ajustes.atualizacoes.verBaixar')}</Button>
           </ValueRow>
-        ) : state.status === 'up-to-date' ? (
+        ) : null}
+      </CardSection>
+      {/* Região viva persistente: o leitor de tela anuncia o resultado da checagem sem linha fantasma dentro do cartão. */}
+      <div className="aviso-atualizacao-retorno" role="status" aria-live="polite">
+        {!releaseAvailable && state.status === 'up-to-date' ? (
           <Text size="footnote" tone="secondary">{t('ajustes.atualizacoes.atualizado')}</Text>
         ) : null}
         {state.status === 'error' ? (
           <Text size="footnote" tone="attention" dir="auto">{t('ajustes.atualizacoes.erro')}</Text>
         ) : null}
-      </CardSection>
+      </div>
     </Superficie>
   )
 }

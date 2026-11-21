@@ -43,13 +43,13 @@ test('fetch: segue redirect permitido (api.github.com → github.com) e chega na
     const destino = String(url)
     pedidas.push(destino)
     if (destino === GITHUB_RELEASES_API_URL) {
-      return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/guilherme-vasques-ltda/mexerica-agents/releases/99' } })
+      return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/example/example/releases/99' } })
     }
     return resposta(200, {}, PAYLOAD_NOVO).resposta
   }) as typeof fetch
   const resultado = await fetchLatestRelease({ currentVersion: 'v0.1.0', fetcher })
   assert.deepEqual(resultado, { ok: true, result: { kind: 'available', version: '0.2.0', tag: 'v0.2.0', url: TAG_URL } })
-  assert.deepEqual(pedidas, [GITHUB_RELEASES_API_URL, 'https://api.github.com/repos/guilherme-vasques-ltda/mexerica-agents/releases/99'])
+  assert.deepEqual(pedidas, [GITHUB_RELEASES_API_URL, 'https://api.github.com/repos/example/example/releases/99'])
 })
 
 test('fetch: redirect para fora dos hosts permitidos, HTTP ou acima do limite de 3 falha fechado', async () => {
@@ -78,7 +78,7 @@ test('fetch: tempo esgotado derruba a busca (o sinal de aborto chega ao fetcher)
 test('fetch: o prazo vale para a busca inteira — o mesmo sinal corta o segundo salto', async () => {
   const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
     if (String(url) === GITHUB_RELEASES_API_URL) {
-      return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/guilherme-vasques-ltda/mexerica-agents/releases/99' } })
+      return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/example/example/releases/99' } })
     }
     return await new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('timeout')), { once: true })
@@ -237,6 +237,26 @@ test('cooldown manual: dentro da janela, o status volta ao cache sem rede', asyn
   assert.equal(manual.getState().status, 'up-to-date')
 })
 
+test('relógio do sistema recuado não prende o cooldown: automática e manual voltam à rede', async () => {
+  let agora = 2_000_000
+  const agoraFn = () => agora
+  let chamadas = 0
+  const fetcher = (async () => {
+    chamadas += 1
+    return chamadas === 1 ? resposta(500, {}, 'erro').resposta : resposta(200, {}, PAYLOAD_NOVO).resposta
+  }) as typeof fetch
+  const aviso = controlador({
+    fetcher, now: agoraFn,
+    store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: agora + 500_000, cachedRelease: null }),
+  })
+  await aviso.check({ manual: false })
+  assert.equal(chamadas, 1, 'lastCheckAt no futuro não bloqueia a checagem automática')
+  assert.equal(aviso.getState().status, 'idle', 'falha automática segue silenciosa')
+  await aviso.check({ manual: true })
+  assert.equal(chamadas, 2, 'a manual consulta em vez de ficar presa no cooldown')
+  assert.equal(aviso.getState().status, 'available')
+})
+
 test('checadas ao mesmo tempo são deduplicadas: uma só batida na rede', async () => {
   const rede = fetchDe([PAYLOAD_NOVO])
   const um = controlador({ fetcher: rede.fetcher })
@@ -301,12 +321,15 @@ test('arquivo de estado corrompido, com URL inválida ou substituído por symlin
     assert.equal(lido.dismissedVersion, '0.2.0')
     assert.equal(lido.cachedRelease, null, 'URL que não passa na validação não volta do disco')
 
-    const alvo = join(dir, 'alvo.json')
-    writeFileSync(alvo, '{}')
-    rmSync(arquivo)
-    symlinkSync(alvo, arquivo)
-    assert.deepEqual(createFileReleaseNoticeStore(arquivo).load(), { dismissedVersion: null, lastCheckAt: null, cachedRelease: null }, 'leitura não segue symlink')
-    assert.throws(() => createFileReleaseNoticeStore(arquivo).save({ dismissedVersion: null, lastCheckAt: null, cachedRelease: null }), 'escrita não segue symlink')
+    // Symlink é coisa de POSIX: no Windows a criação exige privilégio e o teste fica pulado.
+    if (process.platform !== 'win32') {
+      const alvo = join(dir, 'alvo.json')
+      writeFileSync(alvo, '{}')
+      rmSync(arquivo)
+      symlinkSync(alvo, arquivo)
+      assert.deepEqual(createFileReleaseNoticeStore(arquivo).load(), { dismissedVersion: null, lastCheckAt: null, cachedRelease: null }, 'leitura não segue symlink')
+      assert.throws(() => createFileReleaseNoticeStore(arquivo).save({ dismissedVersion: null, lastCheckAt: null, cachedRelease: null }), 'escrita não segue symlink')
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -416,6 +439,17 @@ test('adaptador: remetente negado não recebe o estado real e nenhum handler age
     const estadoReal = handlers.get('releaseNotice:state')!(permitido) as ReleaseNoticeState
     assert.equal(estadoReal.supported, true)
     assert.equal(estadoReal.availableVersion, '0.2.0', 'o cache do disco voltou')
+
+    const checkNegado = await handlers.get('releaseNotice:check')!(negado) as ReleaseNoticeState
+    assert.equal(checkNegado.supported, false, 'check negado devolve o estado negado, sem checar nada')
+    assert.equal(checkNegado.availableVersion, null)
+    assert.equal(checkNegado.status, 'idle')
+    const dispensaNegada = await handlers.get('releaseNotice:dismiss')!(negado) as ReleaseNoticeState
+    assert.equal(dispensaNegada.supported, false, 'dispensa negada devolve o estado negado')
+    assert.equal(dispensaNegada.dismissedVersion, null)
+    const depoisDaNegacao = handlers.get('releaseNotice:state')!(permitido) as ReleaseNoticeState
+    assert.equal(depoisDaNegacao.dismissedVersion, null, 'nenhuma dispensa foi gravada')
+    assert.equal(depoisDaNegacao.availableVersion, '0.2.0')
 
     assert.equal(await handlers.get('releaseNotice:openDownload')!(negado), false)
     assert.deepEqual(abertas, [], 'negado não abre nada')

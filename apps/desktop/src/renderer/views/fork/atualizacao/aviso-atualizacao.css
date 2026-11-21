@@ -39,6 +39,12 @@
   outline-offset: 2px;
   border-radius: var(--radius-s);
 }
+.aviso-atualizacao-retorno:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px 0;
+}
 @keyframes aviso-atualizacao-entra {
   from { opacity: 0; }
 }

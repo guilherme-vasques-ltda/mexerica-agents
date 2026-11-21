@@ -270,7 +270,11 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
   let inFlight: Promise<ReleaseNoticeState> | null = null
   let inFlightManual = false
 
-  const withinCooldown = (cooldownMs: number) => state.lastCheckAt !== null && now() - state.lastCheckAt < cooldownMs
+  const withinCooldown = (cooldownMs: number) => {
+    if (state.lastCheckAt === null) return false
+    const elapsed = now() - state.lastCheckAt
+    return elapsed >= 0 && elapsed < cooldownMs
+  }
   const setState = (change: Partial<ReleaseNoticeState>) => {
     state = { ...state, ...change }
     deps.onChange?.(state)

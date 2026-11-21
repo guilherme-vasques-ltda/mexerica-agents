@@ -32,8 +32,8 @@ export function registerReleaseNotice(options: RegisterReleaseNoticeOptions) {
     releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
   })
   ipcMain.handle('releaseNotice:state', (event) => (admit(event) ? controller.getState() : estadoNegado()))
-  ipcMain.handle('releaseNotice:check', (event) => (admit(event) ? controller.check({ manual: true }) : controller.getState()))
-  ipcMain.handle('releaseNotice:dismiss', (event) => (admit(event) ? controller.dismiss() : controller.getState()))
+  ipcMain.handle('releaseNotice:check', (event) => (admit(event) ? controller.check({ manual: true }) : Promise.resolve(estadoNegado())))
+  ipcMain.handle('releaseNotice:dismiss', (event) => (admit(event) ? controller.dismiss() : Promise.resolve(estadoNegado())))
   ipcMain.handle('releaseNotice:openDownload', (event) => (admit(event) ? controller.openDownload() : Promise.resolve(false)))
   controller.start()
   app.on('before-quit', () => controller.stop())

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { build, type Plugin } from 'esbuild'
@@ -18,7 +19,7 @@ const reactNoServidor: Plugin = {
     b.onLoad({ filter: /.*/, namespace: 'react-servidor' }, () => ({
       contents: `const R = require(${JSON.stringify(createRequire(import.meta.url).resolve('react'))});
         module.exports = { ...R, useSyncExternalStore: (s, g, gs) => R.useSyncExternalStore(s, g, gs ?? g) };`,
-      loader: 'js', resolveDir: new URL('.', import.meta.url).pathname,
+      loader: 'js', resolveDir: fileURLToPath(new URL('.', import.meta.url)),
     }))
   },
 }
@@ -29,10 +30,10 @@ const bundle = await build({
       export { AtualizacaoAjusteView } from './fork/atualizacao/AtualizacaoAjuste';
       export { createElement } from 'react';
       export { renderToStaticMarkup } from 'react-dom/server';`,
-    resolveDir: new URL('../../', import.meta.url).pathname, loader: 'ts',
+    resolveDir: fileURLToPath(new URL('../../', import.meta.url)), loader: 'ts',
   },
   bundle: true, platform: 'node', format: 'cjs', write: false, jsx: 'automatic', logLevel: 'silent', plugins: [reactNoServidor],
-  alias: { '@shared': new URL('../../../../shared', import.meta.url).pathname },
+  alias: { '@shared': fileURLToPath(new URL('../../../../shared', import.meta.url)) },
   loader: { '.css': 'empty', '.png': 'empty', '.jpg': 'empty', '.svg': 'empty', '.webp': 'empty', '.mp3': 'empty', '.json': 'json' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta': '__importMeta' },
 })
@@ -140,4 +141,19 @@ test('css: o botão de dispensar tem anel de foco visível pelo teclado', () => 
   const css = readFileSync(new URL('./aviso-atualizacao.css', import.meta.url), 'utf8')
   assert.match(css, /\.aviso-atualizacao-dispensar:focus-visible/)
   assert.match(css, /var\(--focus-ring, var\(--accent\)\)/)
+})
+
+test('ajuste: a região viva role=status existe sempre e as mensagens ficam dentro dela', () => {
+  const parado = ajuste(estado({ status: 'idle', availableVersion: null, availableTag: null, releaseUrl: null }))
+  assert.match(parado, /class="aviso-atualizacao-retorno"[^>]*role="status"/)
+  assert.match(parado, /aria-live="polite"/)
+
+  const atualizado = ajuste(estado({ status: 'up-to-date', availableVersion: null, availableTag: null, releaseUrl: null }))
+  const marco = atualizado.indexOf('aviso-atualizacao-retorno')
+  assert.ok(marco >= 0)
+  assert.ok(atualizado.indexOf(t('ajustes.atualizacoes.atualizado')) > marco, 'a frase de atualizado fica dentro da região viva')
+
+  const erro = ajuste(estado({ status: 'error', availableVersion: null, availableTag: null, releaseUrl: null }))
+  const marcoDoErro = erro.indexOf('aviso-atualizacao-retorno')
+  assert.ok(erro.indexOf(t('ajustes.atualizacoes.erro')) > marcoDoErro, 'a frase de erro fica dentro da região viva')
 })
