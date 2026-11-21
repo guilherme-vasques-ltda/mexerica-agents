@@ -74,8 +74,8 @@ const snapshotSample: TaskProposalsSnapshot = {
         {
           id: 'i-1',
           title: 'Escrever texto principal',
-          description: '',
-          acceptance: '',
+          description: 'Redigir chamada e subtítulo da dobra inicial',
+          acceptance: 'Texto aprovado com até 120 caracteres',
           assigneeBotId: 'b-copy',
           included: true,
           taskId: null,
@@ -183,9 +183,56 @@ test('cartão em pt-BR mostra aviso antes do ok, regra de início, review aguard
     onDismissWrite: () => {},
   })
   assert.match(html, /Nada começou ainda/)
+  assert.match(html, /Redigir chamada e subtítulo da dobra inicial/)
+  assert.match(html, /Critério de aceite/)
+  assert.match(html, /Texto aprovado com até 120 caracteres/)
   assert.match(html, /Aprovar começa o trabalho; máx\. 2 ao mesmo tempo, 1 por bot\./)
   assert.match(html, /Em conferência · aguardando você/)
   assert.match(html, /Aguardando vaga/)
+})
+
+test('cartão mostra erro de leitura inicial com ação Tentar de novo em todos os idiomas', () => {
+  for (const idioma of Object.keys(CATALOGOS) as AppLanguage[]) {
+    const html = render({
+      snapshot: null,
+      write: null,
+      stale: false,
+      rereadFailed: false,
+      canDecide: false,
+      readError: 'failed',
+      retryingRead: false,
+      botName: () => 'Bot',
+      t: tradutor(idioma),
+      idioma,
+      onApprove: () => {},
+      onReject: () => {},
+      onRetry: () => {},
+      onDismissWrite: () => {},
+      onRetryRead: () => {},
+    })
+    assert.ok(html.length > 0)
+    assert.doesNotMatch(html, /\{\w+\}/)
+    assert.match(html, /role="alert"/)
+  }
+  const pt = render({
+    snapshot: null,
+    write: null,
+    stale: false,
+    rereadFailed: false,
+    canDecide: false,
+    readError: 'failed',
+    retryingRead: false,
+    botName: () => 'Bot',
+    t: tradutor('pt-BR'),
+    idioma: 'pt-BR',
+    onApprove: () => {},
+    onReject: () => {},
+    onRetry: () => {},
+    onDismissWrite: () => {},
+    onRetryRead: () => {},
+  })
+  assert.match(pt, /Não foi possível carregar as propostas agora\./)
+  assert.match(pt, /Tentar de novo/)
 })
 
 test('cartão não renderiza quando só há propostas recusadas ou aprovadas já concluídas', () => {

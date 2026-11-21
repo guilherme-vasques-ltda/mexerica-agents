@@ -153,7 +153,7 @@ fn canonical_payload(
     project: &str,
     title: &str,
     items: &[(String, String, String, Option<String>)],
-) -> String {
+) -> Result<String> {
     let list: Vec<Value> = items
         .iter()
         .map(|(title, description, acceptance, assignee)| {
@@ -161,12 +161,11 @@ fn canonical_payload(
         })
         .collect();
     let raw =
-        serde_json::to_vec(&json!({"method":"task_propose","bot":bot,"projectId":project,"title":title,"items":list}))
-            .unwrap_or_default();
-    Sha256::digest(raw).iter().fold(String::new(), |mut out, byte| {
+        serde_json::to_vec(&json!({"method":"task_propose","bot":bot,"projectId":project,"title":title,"items":list}))?;
+    Ok(Sha256::digest(raw).iter().fold(String::new(), |mut out, byte| {
         let _ = write!(out, "{byte:02x}");
         out
-    })
+    }))
 }
 
 /// Ferramenta do bot `task_propose`: cria SÓ o registro pendente — nenhuma
@@ -203,7 +202,7 @@ pub(crate) fn propose(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Val
         ));
     }
     let project_id = resolve_project(&tx, &hub.host_id, &actor.space, args["projectId"].as_str())?;
-    let canonical = canonical_payload(&actor.id, &project_id, title, &items);
+    let canonical = canonical_payload(&actor.id, &project_id, title, &items)?;
     let prior: Option<(String, String, String)> = tx
         .query_row(
             "SELECT project_id,title,items FROM donna_task_proposals WHERE hub_id=?1 AND space_id=?2 AND request_id=?3",
@@ -218,7 +217,7 @@ pub(crate) fn propose(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Val
             .map(|i| (i.title.clone(), i.description.clone(), i.acceptance.clone(), i.assignee_bot_id.clone()))
             .collect();
         ensure!(
-            canonical_payload(&actor.id, &prior_project, &prior_title, &tuples) == canonical,
+            canonical_payload(&actor.id, &prior_project, &prior_title, &tuples)? == canonical,
             "idempotency_conflict: pedido reutilizado com outro conteúdo."
         );
         let prior_id: String = tx

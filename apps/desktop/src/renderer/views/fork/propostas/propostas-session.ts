@@ -8,6 +8,8 @@ import type { TowerLink, TowerSource } from '../torre/torre-session.ts'
 const REREAD_DELAY = 250
 const RELISTEN_MIN = 2_000
 const RELISTEN_MAX = 30_000
+const INITIAL_RETRY_BASE = 2_000
+const MAX_INITIAL_RETRIES = 2
 
 export type ProposalsFailure = 'offline' | 'lostAccess' | 'authority' | 'invalid' | 'failed'
 
@@ -86,6 +88,28 @@ function hubDetail(e: unknown): string | null {
   return m.replace(/^[a-z][a-z_]*:\s*/i, '').slice(0, 300) || null
 }
 
+function mergeDecidedProposal(existing: TaskProposal | undefined, decided: TaskProposal): TaskProposal {
+  if (!existing) return decided
+  if (existing.version > decided.version) return existing
+  if (existing.version === decided.version && existing.state !== 'pending') {
+    const byId = new Map(existing.items.map((it) => [it.id, it]))
+    return {
+      ...decided,
+      items: decided.items.map((it) => {
+        const prev = byId.get(it.id)
+        if (!prev) return it
+        return {
+          ...it,
+          taskId: prev.taskId ?? it.taskId,
+          taskState: prev.taskState ?? it.taskState,
+          startState: prev.startState ?? it.startState,
+        }
+      }),
+    }
+  }
+  return decided
+}
+
 /**
  * Sessão observável das propostas do Berga para um Hub + Space em memória.
  * Assina o stream antes de ler, relê em `donnaProjectsChanged`, aceita uma decisão por vez
@@ -99,6 +123,7 @@ export class PropostasSession extends Observable {
   offlineSince: number | null = null
   readAt: number | null = null
   rereadFailed = false
+  retryingRead = false
   authority: 'ok' | 'pending' = 'ok'
   write: DecideState | null = null
 
@@ -112,8 +137,10 @@ export class PropostasSession extends Observable {
   private reading: Origin | null = null
   private reads = 0
   private dirty = false
+  private initialRetries = 0
   private rereadTimer: ReturnType<typeof setTimeout> | null = null
   private relistenTimer: ReturnType<typeof setTimeout> | null = null
+  private initialRetryTimer: ReturnType<typeof setTimeout> | null = null
   private relistenDelay = RELISTEN_MIN
   private unwatch: (() => void) | null = null
   private stopEvents: (() => void) | null = null
@@ -157,6 +184,8 @@ export class PropostasSession extends Observable {
 
   open(source: TowerSource, spaceId: string) {
     this.release()
+    this.initialRetries = 0
+    this.retryingRead = false
     if (this.sourceRef !== source) this.sourceGen++
     if (this.sourceRef && this.sourceRef !== source) {
       this.gen++
@@ -180,13 +209,43 @@ export class PropostasSession extends Observable {
     this.gen++
     this.origin = null
     this.verified = false
-    this.dropWrite()
+    this.reading = null
+    this.dirty = false
+    this.retryingRead = false
+    if (this.write?.status === 'sending') {
+      this.writeSeq++
+      this.writeOp = null
+      this.write = { ...this.write, status: 'uncertain', detail: null }
+    } else if (this.write && this.write.status !== 'uncertain') {
+      this.dropWrite()
+    }
     this.changed()
   }
 
   reread() {
     const origin = this.origin
     if (origin && this.current(origin)) void this.read(origin)
+  }
+
+  /** Tenta ler novamente após falha na carga inicial ou reconexão. */
+  retryRead() {
+    if (this.initialRetryTimer) {
+      clearTimeout(this.initialRetryTimer)
+      this.initialRetryTimer = null
+    }
+    this.initialRetries = 0
+    const origin = this.origin
+    if (origin && this.current(origin)) {
+      if (!this.snapshot) {
+        this.retryingRead = true
+        this.changed()
+      }
+      void this.read(origin)
+      return
+    }
+    if (this.sourceRef && this.spaceId) {
+      this.connect(this.sourceRef)
+    }
   }
 
   dismissWrite() {
@@ -234,12 +293,13 @@ export class PropostasSession extends Observable {
         return { ok: false, status: 'uncertain', requestId: w.clientRequestId }
       }
       const { proposal } = parseProposalDecideAnswer(answer, { hubId: origin.hostId, spaceId }, w.proposalId)
+      this.reads++
       this.writeOp = null
       this.write = null
       if (this.snapshot) {
         const exists = this.snapshot.proposals.some((p) => p.id === proposal.id)
         const proposals = exists
-          ? this.snapshot.proposals.map((p) => (p.id === proposal.id ? proposal : p))
+          ? this.snapshot.proposals.map((p) => (p.id === proposal.id ? mergeDecidedProposal(p, proposal) : p))
           : [...this.snapshot.proposals, proposal]
         this.snapshot = { ...this.snapshot, proposals }
       }
@@ -249,6 +309,12 @@ export class PropostasSession extends Observable {
       return { ok: true, proposal }
     } catch (e) {
       if (!this.sameAuthority(op)) return { ok: false, status: 'blocked' }
+      if (!this.current(origin)) {
+        this.writeOp = null
+        this.write = { ...w, status: 'uncertain', detail: null }
+        this.changed()
+        return { ok: false, status: 'uncertain', requestId: w.clientRequestId }
+      }
       const kind = decideProposalFailure(e)
       if (kind === 'lostAccess') {
         this.lostAccess()
@@ -268,24 +334,32 @@ export class PropostasSession extends Observable {
         this.changed()
         return { ok: false, status: 'rejected' }
       }
-      const status = this.current(origin) ? kind : 'uncertain'
       this.writeOp = null
-      this.write = { ...w, status, detail: status === 'uncertain' ? null : hubDetail(e) }
+      this.write = { ...w, status: kind, detail: kind === 'uncertain' ? null : hubDetail(e) }
       this.changed()
-      if (status === 'conflict' || status === 'decided') this.reread()
-      return status === 'uncertain' ? { ok: false, status, requestId: w.clientRequestId } : { ok: false, status }
+      if (kind === 'conflict' || kind === 'decided') this.reread()
+      return kind === 'uncertain' ? { ok: false, status: kind, requestId: w.clientRequestId } : { ok: false, status: kind }
     }
   }
 
   private connect(source: TowerSource) {
     this.stopEvents?.()
     this.stopEvents = null
+    if (this.initialRetryTimer) {
+      clearTimeout(this.initialRetryTimer)
+      this.initialRetryTimer = null
+    }
+    this.initialRetries = 0
+    this.retryingRead = false
     const gen = ++this.gen
     const hostId = source.hello?.hostId
     const client = source.connectedClient
     this.verified = false
     if (hostId && this.hostId && this.hostId !== hostId) this.forget()
     if (hostId) this.hostId = hostId
+    if (this.write && ((hostId && this.write.body.hubId !== hostId) || (this.spaceId && this.write.body.spaceId !== this.spaceId))) {
+      this.dropWrite()
+    }
     if (!hostId || !client || !this.spaceId) {
       this.origin = null
       if (this.link === 'live') this.offlineSince = this.now()
@@ -317,6 +391,8 @@ export class PropostasSession extends Observable {
       }
     }, () => {
       if (!this.current(origin)) return
+      this.verified = false
+      this.reads++
       this.events = 'paused'
       if (this.offlineSince === null) this.offlineSince = this.now()
       this.changed()
@@ -325,7 +401,6 @@ export class PropostasSession extends Observable {
         this.relistenTimer = null
         if (!this.current(origin)) return
         this.events = 'live'
-        this.offlineSince = null
         this.stopEvents?.()
         this.listen(origin, spaceId)
         void this.read(origin)
@@ -420,11 +495,24 @@ export class PropostasSession extends Observable {
   }
 
   private authorized() {
-    this.verified = true
-    if (this.authority === 'pending') {
-      this.authority = 'ok'
-      if (this.link === 'live' && this.events === 'live') this.offlineSince = null
+    if (this.link === 'live' && this.events === 'live') {
+      this.verified = true
+      if (this.authority === 'pending') this.authority = 'ok'
+      this.offlineSince = null
     }
+  }
+
+  private scheduleInitialRetry(origin: Origin) {
+    if (this.initialRetries >= MAX_INITIAL_RETRIES) return
+    if (this.initialRetryTimer) clearTimeout(this.initialRetryTimer)
+    const delay = INITIAL_RETRY_BASE * 2 ** this.initialRetries
+    this.initialRetries++
+    this.initialRetryTimer = setTimeout(() => {
+      this.initialRetryTimer = null
+      if (this.current(origin) && !this.snapshot && this.phase.kind === 'error') {
+        void this.read(origin)
+      }
+    }, delay)
   }
 
   private release() {
@@ -432,6 +520,8 @@ export class PropostasSession extends Observable {
     this.rereadTimer = null
     if (this.relistenTimer) clearTimeout(this.relistenTimer)
     this.relistenTimer = null
+    if (this.initialRetryTimer) clearTimeout(this.initialRetryTimer)
+    this.initialRetryTimer = null
     this.stopEvents?.()
     this.stopEvents = null
     this.unwatch?.()
@@ -451,6 +541,11 @@ export class PropostasSession extends Observable {
     try {
       const answer = await origin.client.call('donnaTaskProposals', { hubId: origin.hostId, spaceId })
       if (!fresh()) return
+      this.initialRetries = 0
+      if (this.initialRetryTimer) {
+        clearTimeout(this.initialRetryTimer)
+        this.initialRetryTimer = null
+      }
       this.snapshot = parseTaskProposals(answer, { hubId: origin.hostId, spaceId })
       this.phase = { kind: 'ready' }
       this.rereadFailed = false
@@ -475,12 +570,16 @@ export class PropostasSession extends Observable {
         this.verified = false
         this.snapshot = null
         this.phase = { kind: 'error', reason }
+        if (reason === 'failed' || reason === 'offline') this.scheduleInitialRetry(origin)
       } else {
         this.rereadFailed = true
       }
     } finally {
       if (this.reading === origin) this.reading = null
-      if (this.current(origin)) this.changed()
+      if (this.current(origin)) {
+        this.retryingRead = false
+        this.changed()
+      }
       const latest = this.origin
       if (this.dirty && latest && this.current(latest)) this.scheduleRead(latest)
     }

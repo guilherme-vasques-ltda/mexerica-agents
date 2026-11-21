@@ -194,11 +194,16 @@
   background: var(--surface);
   min-width: 0;
 }
+.prp-item.is-pending {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
 .prp-item.is-omitted { opacity: 0.55; }
 
 .prp-check {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   flex: 1;
   min-width: 0;
@@ -208,10 +213,37 @@
   flex: none;
   width: 15px;
   height: 15px;
+  margin-top: 2px;
   accent-color: var(--accent);
   cursor: pointer;
 }
 .prp-check input:disabled { cursor: default; }
+
+.prp-item-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-inline-start: 23px;
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+}
+.prp-item-desc,
+.prp-item-acceptance {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+.prp-item-acceptance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+}
+.prp-item-detail-label {
+  font-weight: 600;
+  color: var(--ink);
+}
 
 .prp-item-main {
   flex: 1;

@@ -17,7 +17,7 @@ import type { AppLanguage } from '../../../../shared/fork-idioma'
 import { listEqual, useModel, useSelector } from '../../../lib/observable'
 import type { BotStore } from '../../../store/bot-store'
 import type { TowerSource } from '../torre/torre-session'
-import { PropostasSession, type DecideState } from './propostas-session'
+import { PropostasSession, type DecideState, type ProposalsFailure } from './propostas-session'
 import './propostas.css'
 
 const sessions = new WeakMap<BotStore, PropostasSession>()
@@ -38,6 +38,8 @@ export interface PropostasCardProps {
   stale: boolean
   rereadFailed: boolean
   canDecide: boolean
+  readError?: ProposalsFailure | null
+  retryingRead?: boolean
   botName: (botId: string | null) => string
   t: Tradutor
   idioma: AppLanguage
@@ -45,6 +47,7 @@ export interface PropostasCardProps {
   onReject: (proposal: TaskProposal) => void
   onRetry: () => void
   onDismissWrite: () => void
+  onRetryRead?: () => void
 }
 
 /** Cartão recolhível com propostas pendentes e tarefas abertas de propostas aprovadas. */
@@ -54,6 +57,8 @@ export function PropostasCard({
   stale,
   rereadFailed,
   canDecide,
+  readError = null,
+  retryingRead = false,
   botName,
   t,
   idioma,
@@ -61,6 +66,7 @@ export function PropostasCard({
   onReject,
   onRetry,
   onDismissWrite,
+  onRetryRead,
 }: PropostasCardProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [omittedById, setOmittedById] = useState<Record<string, ReadonlySet<string>>>({})
@@ -77,7 +83,7 @@ export function PropostasCard({
     [snapshot],
   )
 
-  if (proposals.length === 0 && !write) return null
+  if (proposals.length === 0 && !write && !readError) return null
 
   const toggleItem = (proposalId: string, itemId: string, include: boolean) => {
     setOmittedById((prev) => {
@@ -120,8 +126,34 @@ export function PropostasCard({
 
         {!collapsed ? (
           <div className="prp-body" id={bodyId}>
-            <WriteNotice write={write} t={t} onRetry={onRetry} onDismiss={onDismissWrite} />
-            {stale ? (
+            <WriteNotice write={write} stale={stale} t={t} onRetry={onRetry} onDismiss={onDismissWrite} />
+            {readError ? (
+              <div className="prp-banner is-error" role="alert">
+                <Icon name="exclamationmark.triangle" size={13} />
+                <p>
+                  {t(
+                    readError === 'lostAccess'
+                      ? 'propostas.erro.semAcesso'
+                      : readError === 'offline'
+                        ? 'propostas.semConexao'
+                        : 'propostas.erro.leitura',
+                  )}
+                </p>
+                {onRetryRead ? (
+                  <div className="prp-banner-actions">
+                    <button
+                      type="button"
+                      className="prp-btn is-primary"
+                      disabled={retryingRead}
+                      aria-busy={retryingRead || undefined}
+                      onClick={onRetryRead}
+                    >
+                      {t('propostas.tentarDeNovo')}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : stale ? (
               <div className="prp-banner" role="status">
                 <Icon name="exclamationmark.triangle" size={13} />
                 <p>{t('propostas.semConexao')}</p>
@@ -152,8 +184,11 @@ export function PropostasCard({
                     <ul className="prp-items">
                       {proposal.items.map((item) => {
                         const checked = item.included && !omitted.has(item.id)
+                        const description = item.description.trim()
+                        const acceptance = item.acceptance.trim()
+                        const hasDetails = description.length > 0 || acceptance.length > 0
                         return (
-                          <li key={item.id} className={`prp-item${checked ? '' : ' is-omitted'}`}>
+                          <li key={item.id} className={`prp-item is-pending${checked ? '' : ' is-omitted'}`}>
                             <label className="prp-check">
                               <input
                                 type="checkbox"
@@ -167,6 +202,17 @@ export function PropostasCard({
                                 <span className="prp-item-title">{item.title}</span>
                               </span>
                             </label>
+                            {hasDetails ? (
+                              <div className="prp-item-details">
+                                {description ? <p className="prp-item-desc">{description}</p> : null}
+                                {acceptance ? (
+                                  <p className="prp-item-acceptance">
+                                    <span className="prp-item-detail-label">{t('propostas.aceite')}</span>
+                                    <span>{acceptance}</span>
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </li>
                         )
                       })}
@@ -243,11 +289,13 @@ export function PropostasCard({
 
 function WriteNotice({
   write,
+  stale,
   t,
   onRetry,
   onDismiss,
 }: {
   write: DecideState | null
+  stale: boolean
   t: Tradutor
   onRetry: () => void
   onDismiss: () => void
@@ -267,7 +315,7 @@ function WriteNotice({
         <Icon name="exclamationmark.triangle" size={13} />
         <p>{t('propostas.erro.incerto')}</p>
         <div className="prp-banner-actions">
-          <button type="button" className="prp-btn is-primary" onClick={onRetry}>{t('propostas.tentarDeNovo')}</button>
+          <button type="button" className="prp-btn is-primary" disabled={stale} onClick={onRetry}>{t('propostas.tentarDeNovo')}</button>
           <button type="button" className="prp-btn" onClick={onDismiss}>{t('propostas.descartar')}</button>
         </div>
       </div>
@@ -328,7 +376,7 @@ export function PropostasDoBerga({
     return () => session.close()
   }, [session, store, isPrincipalChat, spaceId])
 
-  if (!isPrincipalChat || session.phase.kind === 'unavailable') return null
+  if (!isPrincipalChat || session.phase.kind === 'unavailable' || session.phase.kind === 'moved') return null
 
   const botName = (id: string | null) => {
     if (!id) return t('propostas.semResponsavel')
@@ -342,6 +390,8 @@ export function PropostasDoBerga({
       stale={session.stale}
       rereadFailed={session.rereadFailed}
       canDecide={session.canDecide}
+      readError={session.phase.kind === 'error' ? session.phase.reason : null}
+      retryingRead={session.retryingRead}
       botName={botName}
       t={t}
       idioma={idioma}
@@ -349,6 +399,7 @@ export function PropostasDoBerga({
       onReject={(proposal) => { void session.decide(proposal, 'reject') }}
       onRetry={() => { void session.retry() }}
       onDismissWrite={() => session.dismissWrite()}
+      onRetryRead={session.link === 'live' ? () => session.retryRead() : undefined}
     />
   )
 }

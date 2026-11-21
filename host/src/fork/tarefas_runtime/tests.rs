@@ -1446,6 +1446,28 @@ fn claim_respeita_teto_de_uma_ativa_por_bot() {
 }
 
 #[test]
+fn orfa_de_proposta_reatribuida_espera_a_vaga_do_novo_bot() {
+    let c = fixture();
+    proposal_bots(&c, &["b1"]);
+    // t1 era de um bot antigo (removido do exemplo), foi reatribuída a b1 e
+    // ficou órfã em `starting`; b1 já tem t2 ativa de proposta.
+    proposal_tasks(&c, &[("t1", "b1", "backlog"), ("t2", "b1", "backlog")]);
+    proposal_agenda_row(&c, "t1", "b1-old", "starting", Some("prop-e"));
+    proposal_agenda_row(&c, "t2", "b1", "started", Some("prop-e"));
+    // A recuperação NÃO transfere t1 para b1: ele já ocupa a vaga dele.
+    let fires = acordar::claim_due(&c, HUB, 1_000_000_000_000).unwrap();
+    assert!(fires.is_empty());
+    let snapshot = agenda_snapshot(&c);
+    assert_eq!(snapshot["t1"], ("starting".to_owned(), 0));
+    // A vaga de b1 libera (t2 vai para review) e a transferência acontece.
+    proposal_tasks(&c, &[("t1", "b1", "backlog"), ("t2", "b1", "review")]);
+    let fires = acordar::claim_due(&c, HUB, 1_000_000_000_000).unwrap();
+    assert_eq!(fires.len(), 1);
+    assert_eq!(fires[0].task_id, "t1");
+    assert_eq!(fires[0].bot_id, "b1");
+}
+
+#[test]
 fn vaga_libera_quando_a_tarefa_va_para_review() {
     let c = fixture();
     proposal_bots(&c, &["b1", "b2", "b3"]);

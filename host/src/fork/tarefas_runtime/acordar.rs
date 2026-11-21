@@ -9,7 +9,7 @@ use crate::{
     hub::Hub,
     store::now_ms,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Result, anyhow, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -666,6 +666,17 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
         if proposal_id.is_some() && state == "scheduled" && !proposal_slot(&tx, hub, &space, &bot)? {
             continue;
         }
+        // Órfã de `starting` reatribuída a outro bot: a vaga do destino é
+        // conferida antes de transferir — um bot já ativo não recebe segunda
+        // tarefa de proposta pela recuperação. Sem vaga, a linha espera o
+        // próximo tick, sem gastar tentativa.
+        if proposal_id.is_some()
+            && state == "starting"
+            && agenda_bot != bot
+            && proposal_bot_busy(&tx, hub, &space, &bot, &task)?
+        {
+            continue;
+        }
         // Claim fenced por nonce+state: um reagendamento concorrente
         // trocou o nonce — a linha não casa, o fire velho não dispara.
         // Reconcilia bot_id com o responsável atual do gate (TEC-25): se a
@@ -706,18 +717,47 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
 
 /// Tick do agendador: reivindica `scheduled` vencidas e `starting` órfãs,
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
+/// Vaga do BOT de destino numa transferência de órfã de proposta: conta as
+/// ativas dele, fora a própria linha que está sendo reatribuída.
+fn proposal_bot_busy(c: &Connection, hub: &str, space: &str, bot: &str, task: &str) -> Result<bool> {
+    let busy: i64 = c.query_row(
+        "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
+         WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
+           AND a.state IN ('starting','started') AND a.bot_id=?3 AND a.task_id<>?4
+           AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
+           AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')",
+        params![hub, space, bot, task],
+        |r| r.get(0),
+    )?;
+    Ok(busy >= 1)
+}
+
 pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
     let now = now_ms();
     let result = run_due(hub, now).await;
-    let changed: Vec<String> = {
-        let db = hub.store.db.locked();
-        db.prepare("SELECT DISTINCT space_id FROM donna_task_agenda WHERE hub_id=?1 AND updated_at>=?2")
-            .and_then(|mut st| {
-                st.query_map(params![hub.host_id, now], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()
-            })
-            .unwrap_or_default()
+    let changed: Result<Vec<String>> = {
+        let hub = hub.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
+            let db = hub.store.db.locked();
+            let spaces = db
+                .prepare("SELECT DISTINCT space_id FROM donna_task_agenda WHERE hub_id=?1 AND updated_at>=?2")?
+                .query_map(params![hub.host_id, now], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(spaces)
+        })
+        .await
+        .map_err(|error| anyhow!("tasks_unavailable: {error:#}"))?
     };
-    for space in changed {
+    match (&result, &changed) {
+        (Ok(()), Err(error)) => {
+            return Err(anyhow!("falha ao avisar espaços com início de proposta alterado: {error:#}"));
+        }
+        (Err(_), Err(error)) => {
+            tracing::warn!(%error, "sem aviso de agenda alterada neste tick");
+        }
+        _ => {}
+    }
+    for space in changed.unwrap_or_default() {
         let _ = hub.events.send(json!({"type": crate::fork::projetos::EVENT, "hubId": hub.host_id, "spaceId": space}));
     }
     result
