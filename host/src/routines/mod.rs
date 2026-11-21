@@ -932,7 +932,7 @@ pub(crate) fn creation_schedule(routine: &Routine) -> String {
     if routine.triggers.iter().any(|t| matches!(t, Trigger::Once { .. })) { format!("{text} (UTC)") } else { text }
 }
 
-fn cancel_run(run: &mut Run) {
+pub(crate) fn cancel_run(run: &mut Run) {
     run.status = Status::Cancelled;
     run.finished_at = Some(now_ms());
     run.event = Value::Null;
@@ -1647,3 +1647,6 @@ mod tests {
 #[cfg(test)]
 #[path = "../fork/heartbeat/testes_rotina.rs"]
 mod heartbeat_rotina_tests;
+
+#[cfg(test)]
+mod manual_despacho_tests;
