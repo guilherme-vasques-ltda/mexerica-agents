@@ -171,17 +171,17 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     } else {
         None
     };
-    // Ferramenta do Hub que muda algo, chamada por um motor sem cartão provado: cartão do Hub antes de qualquer efeito.
-    if let Some(execution) = &execution
-        && crate::fork::aprovacao_despacho::cobre(method)
-    {
+    // Chamada do motor ao Hub pela ponte de ferramentas: cartão do Hub antes de qualquer efeito, quando o motor do turno
+    // não tem cartão provado. Vale para todo método da ponte, não só os de ferramenta conhecidos.
+    if let Caller::Ponte { bot, sessao, .. } = caller {
         crate::fork::aprovacao_despacho::exigir(
             hub,
-            str_arg(&b, "botId")?,
+            bot,
+            sessao,
             method,
-            str_arg(&b, "name")?,
+            b["name"].as_str().unwrap_or_default(),
             &b["arguments"],
-            execution,
+            execution.as_ref(),
         )
         .await?;
     }

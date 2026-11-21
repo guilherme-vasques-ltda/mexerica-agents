@@ -534,10 +534,6 @@ impl Mediation for HubMediation {
         if matches!(method, "tools/call" | "resources/read" | "prompts/get") {
             let hub = self.hub.upgrade().ok_or_else(|| anyhow!("Hub encerrado"))?;
             let context = self.request.locked().clone().ok_or_else(|| anyhow!("Sem contexto"))?;
-            if method == "tools/call" && !crate::fork::aprovacao_despacho::conector_curado_liberado(&hub, &context.bot)
-            {
-                return Err(mcp::http::PolicyDenied.into());
-            }
             let _boundary = hub.store.memory_boundary.locked();
             match crate::fork::rules::mcp::check(
                 &hub.store,

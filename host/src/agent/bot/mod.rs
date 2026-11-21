@@ -192,6 +192,9 @@ pub enum Cmd {
         execution: Option<crate::fork::sessoes::ExecutionRef>,
         title: String,
         detail: String,
+        /// A ferramenta do Hub que o cartão autoriza, quando é uma: as regras da pessoa avaliam o nome e os argumentos
+        /// reais, não o título.
+        identity: Option<crate::fork::aprovacao_despacho::FerramentaDoHub>,
         reply: tokio::sync::oneshot::Sender<bool>,
     },
     /// `newSession` legado na principal (Sessões PR5: recomeça só a principal). A autoridade ORIGINAL do pedido vai

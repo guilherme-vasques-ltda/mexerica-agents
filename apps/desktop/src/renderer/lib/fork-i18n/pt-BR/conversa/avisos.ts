@@ -24,7 +24,7 @@ export const textos = {
   "conversa.avisos.equipe.desfazer": "Desfazer",
   "conversa.avisos.motor.opencode": "Na OpenCode, a trava de segurança não cobre tudo: ela pode usar configurações do computador dos bots e iniciar extensões (MCP e plugins) sem pedir.",
   "conversa.avisos.motor.semAprovacaoSelo": "Age sem pedir",
-  "conversa.avisos.motor.semAprovacao": "Este motor executa ações no seu computador sem pedir sua aprovação. O Hub não consegue impor o cartão de aprovação nele.",
+  "conversa.avisos.motor.semAprovacao": "Este motor pode agir no seu computador (editar arquivos, rodar comandos) sem o cartão de aprovação do Hub: o Hub não consegue garantir esse cartão nele. As ferramentas do Hub continuam pedindo cartão, e conectores externos não são oferecidos a este motor.",
   "conversa.avisos.pergunta.aria": "Pergunta de {bot}: {estado}",
   "conversa.avisos.falha.contasConectadas": "Contas conectadas: {lista}.",
   "conversa.avisos.falha.nenhumaConectada": "Nenhuma conta de IA está conectada.",

@@ -392,7 +392,7 @@ async fn approve(
         );
     }
     let (reply, answer) = oneshot::channel();
-    hub.send_cmd(&source.id, Cmd::Approve { title, detail, execution: execution.cloned(), reply })?;
+    hub.send_cmd(&source.id, Cmd::Approve { title, detail, execution: execution.cloned(), identity: None, reply })?;
     let answer = tokio::time::timeout(APPROVAL_TIMEOUT, answer).await;
     crate::fork::sessoes::bindings::recheck_optional(hub, execution)?;
     match answer {

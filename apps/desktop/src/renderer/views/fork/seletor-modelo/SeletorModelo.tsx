@@ -63,10 +63,15 @@ const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolh
   const { provedor, modelo, atalho: n, oculto: escondido } = item
   const contexto = tamanhoContexto(idioma, modelo.contextTokens)
   const dicaId = `${idBase}-ctx-${item.k}`
+  // Em Favoritos e na busca a linha vem de qualquer motor: o aviso do motor que age sem pedir acompanha a escolha do modelo.
+  const semAprovacao = item.comMotor && provedor.semAprovacao === true
+  const semAprovacaoTextos = textosSemAprovacao(idioma)
+  const semAprovacaoId = `${idBase}-sem-aprovacao-${item.k}`
+  const descricoes = [contexto ? dicaId : null, semAprovacao ? semAprovacaoId : null].filter(Boolean).join(' ') || undefined
   return (
     <div className={`seletor-linha${escolhido ? ' on' : ''}`} data-i={indice} style={{ top: indice * ALTURA_LINHA }}>
-      <button role="option" aria-selected={escolhido} aria-posinset={item.posicao} aria-setsize={total} className="seletor-modelo-nome" onClick={() => acoes.escolher(provedor, modelo)} disabled={!!motivo} title={motivo ?? (escondido ? t('conversa.seletor.ocultoEmUso') : undefined)}
-        aria-label={`${modelo.name}, ${provedor.name}${escondido ? `, ${t('conversa.seletor.oculto')}` : ''}`} aria-describedby={contexto ? dicaId : undefined}
+      <button role="option" aria-selected={escolhido} aria-posinset={item.posicao} aria-setsize={total} className="seletor-modelo-nome" onClick={() => acoes.escolher(provedor, modelo)} disabled={!!motivo} title={motivo ?? (semAprovacao ? semAprovacaoTextos.texto : escondido ? t('conversa.seletor.ocultoEmUso') : undefined)}
+        aria-label={`${modelo.name}, ${provedor.name}${escondido ? `, ${t('conversa.seletor.oculto')}` : ''}`} aria-describedby={descricoes}
         aria-keyshortcuts={n ? `${isMac ? 'Meta' : 'Control'}+${n}` : undefined}>
         {marca(escolhido)}
         <AgentIcon registry={provedor.registry ?? provedor.id} size={14} />
@@ -75,6 +80,8 @@ const LinhaModelo = memo(function LinhaModelo({ indice, item, total, fav, escolh
         {escondido ? <span className="seletor-etiqueta"><Icon name="eye.slash" size={10} />{t('conversa.seletor.oculto')}</span> : null}
         <span className="seletor-meta">
           {item.comMotor ? <span>{provedor.name}</span> : null}
+          {semAprovacao ? <span className="seletor-etiqueta" aria-hidden="true">{semAprovacaoTextos.selo}</span> : null}
+          {semAprovacao ? <span id={semAprovacaoId} hidden>{semAprovacaoTextos.texto}</span> : null}
           {contexto ? <span id={dicaId}>{t('conversa.seletor.contexto', { tamanho: contexto })}</span> : null}
         </span>
       </button>

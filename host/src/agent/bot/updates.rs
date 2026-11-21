@@ -435,6 +435,7 @@ impl Actor {
         title: &str,
         detail: &str,
         execution: ExecutionRef,
+        identity: Option<&crate::fork::aprovacao_despacho::FerramentaDoHub>,
         reply: oneshot::Sender<bool>,
     ) {
         if self.turn.is_none() || self.waiting_for_reset() {
@@ -452,8 +453,13 @@ impl Actor {
             Answer::Codync(reply),
             execution,
             PolicyRequest {
-                params: json!({"toolCall": {"kind": "other", "title": title, "rawInput": {"command": detail}}}),
-                recorded: None,
+                params: json!({"toolCall": {
+                    "kind": "other", "title": title,
+                    "rawInput": identity.map_or_else(|| json!({"command": detail}), |tool| tool.arguments.clone()),
+                }}),
+                recorded: identity.map(
+                    |tool| json!({"mcpServer": tool.server, "title": format!("mcp.{}.{}", tool.server, tool.name)}),
+                ),
                 adapter: super::Adapter::Other,
                 origin: crate::fork::rules::avaliacao::Origem::Derivada,
             },

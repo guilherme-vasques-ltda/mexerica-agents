@@ -26,7 +26,7 @@ test('só o motor que o Hub marcou com actsWithoutApproval verdadeiro mostra o a
 test('o selo e a explicação existem nos seis idiomas e dizem o que o motor faz', () => {
   const pt = textosSemAprovacao('pt-BR')
   assert.equal(pt.selo, 'Age sem pedir')
-  assert.match(pt.texto, /sem pedir sua aprovação/)
+  assert.match(pt.texto, /sem o cartão de aprovação do Hub/)
   for (const idioma of APP_LANGUAGES) {
     const catalogo = CATALOGOS[idioma] as Record<string, string | undefined>
     assert.ok(catalogo['conversa.avisos.motor.semAprovacaoSelo'], `selo em ${idioma}`)

@@ -27,7 +27,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.equipe.desfazer": "Annuler",
   "conversa.avisos.motor.opencode": "Avec OpenCode, le verrou de sécurité ne couvre pas tout : il peut utiliser des réglages de l'ordinateur des bots et lancer des extensions (MCP et plugins) sans demander.",
   "conversa.avisos.motor.semAprovacaoSelo": "Agit sans demander",
-  "conversa.avisos.motor.semAprovacao": "Ce moteur exécute des actions sur votre ordinateur sans demander votre approbation. Le Hub ne peut pas lui imposer la carte d'approbation.",
+  "conversa.avisos.motor.semAprovacao": "Ce moteur peut agir sur votre ordinateur (modifier des fichiers, lancer des commandes) sans la carte d'approbation du Hub : le Hub ne peut pas garantir cette carte pour lui. Les outils du Hub demandent toujours une carte, et les connecteurs externes ne sont pas proposés à ce moteur.",
   "conversa.avisos.pergunta.aria": "Question de {bot} : {estado}",
   "conversa.avisos.falha.contasConectadas": "Comptes connectés : {lista}.",
   "conversa.avisos.falha.nenhumaConectada": "Aucun compte d’IA n’est connecté.",

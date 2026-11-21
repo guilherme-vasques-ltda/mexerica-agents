@@ -86,6 +86,14 @@ pub(super) fn migrate(c: &Connection) -> Result<()> {
     if !has_slot {
         c.execute("ALTER TABLE donna_session_bindings ADD COLUMN slot TEXT", [])?;
     }
+    let has_backend: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('donna_session_bindings') WHERE name='backend')",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_backend {
+        c.execute("ALTER TABLE donna_session_bindings ADD COLUMN backend TEXT", [])?;
+    }
     c.execute_batch("CREATE TABLE IF NOT EXISTS donna_session_bindings(
         id TEXT PRIMARY KEY, bot TEXT NOT NULL, chat TEXT NOT NULL, session TEXT NOT NULL,
         acp_session TEXT, revoked_at INTEGER);
@@ -282,6 +290,14 @@ fn activate_inner(
         "UPDATE donna_session_bindings SET acp_session=?2 WHERE id=?1 AND acp_session IS NULL",
         params![binding.id.as_str(), acp],
     )?;
+    if let Some(cfg) = expected {
+        // O motor que a execução admitida usa neste vínculo, gravado pelo Hub na ativação: é ele que o porteiro das
+        // ferramentas do Hub consulta, nunca o cadastro do bot, que pode mudar depois de o turno começar.
+        tx.execute(
+            "UPDATE donna_session_bindings SET backend=?2 WHERE id=?1",
+            params![binding.id.as_str(), cfg.backend],
+        )?;
+    }
     tx.execute(
         "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
         params![active_key(&binding.bot), binding.id.as_str()],
@@ -365,6 +381,35 @@ pub(crate) fn recheck(hub: &Hub, execution: &ExecutionRef) -> Result<SessionRef>
     let binding = acp_execution_live(&hub.store.db.locked(), execution)?;
     capture(hub, &binding.bot, binding.id.as_str())?;
     Ok(binding.session_ref)
+}
+
+/// Como `recheck`, e ainda exige que o turno vigente seja o mesmo da execução capturada: um pedido atrasado de um turno
+/// anterior no mesmo vínculo não vale.
+pub(crate) fn recheck_turn(hub: &Hub, execution: &ExecutionRef) -> Result<SessionRef> {
+    let binding = acp_execution_live(&hub.store.db.locked(), execution)?;
+    let current = capture(hub, &binding.bot, binding.id.as_str())?;
+    ensure!(current.turn_token() == execution.turn_token(), STALE);
+    Ok(binding.session_ref)
+}
+
+/// O ator grava o motor da execução assim que determina o vínculo, antes de a sessão abrir: pontes que chamam o Hub
+/// durante a abertura da sessão (a descoberta de ferramentas, o gateway dos conectores) já têm o motor registrado.
+pub(crate) fn record_backend(store: &Store, binding: &BindingRef, backend: &str) -> Result<()> {
+    store.db.locked().execute(
+        "UPDATE donna_session_bindings SET backend=?2 WHERE id=?1 AND revoked_at IS NULL",
+        params![binding.id.as_str(), backend],
+    )?;
+    Ok(())
+}
+
+/// O motor gravado pelo ator no vínculo vivo; `None` se o vínculo não existe, foi revogado ou nunca foi ativado pelo
+/// ator (nesse caso ninguém prova qual motor roda).
+pub(crate) fn backend(c: &Connection, binding: &str) -> Result<Option<String>> {
+    Ok(c.query_row("SELECT backend FROM donna_session_bindings WHERE id=?1 AND revoked_at IS NULL", [binding], |r| {
+        r.get::<_, Option<String>>(0)
+    })
+    .optional()?
+    .flatten())
 }
 
 pub(crate) fn mark(c: &Connection, bot: &str, acp: &str, reason: &str) -> Result<()> {

@@ -39,7 +39,7 @@ test('o motor que age sem pedir aprovação ganha o selo e a explicação, sem e
   assert.equal(marcado.selo, 'Sem login')
   assert.equal(marcado.detalhe, 'Instalado; falta entrar neste motor.')
   assert.equal(marcado.semAprovacao?.selo, 'Age sem pedir')
-  assert.match(marcado.semAprovacao?.texto ?? '', /sem pedir sua aprovação/)
+  assert.match(marcado.semAprovacao?.texto ?? '', /sem o cartão de aprovação do Hub/)
   const naoInstalado = motorEstado(b('pi', { curated: true, canInstall: true, actsWithoutApproval: true }), 'en')
   assert.equal(naoInstalado.selo, 'Not installed')
   assert.equal(naoInstalado.semAprovacao?.selo, 'Acts without asking')

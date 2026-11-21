@@ -27,7 +27,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.equipe.desfazer": "تراجع",
   "conversa.avisos.motor.opencode": "في OpenCode لا يغطي قفل الأمان كل شيء: قد يستخدم إعدادات حاسوب البوتات ويشغّل إضافات (MCP ومكوّنات إضافية) دون أن يسأل.",
   "conversa.avisos.motor.semAprovacaoSelo": "يتصرّف دون إذن",
-  "conversa.avisos.motor.semAprovacao": "ينفّذ هذا المحرك إجراءات على حاسوبك دون طلب موافقتك. لا يستطيع الـ Hub فرض بطاقة الموافقة عليه.",
+  "conversa.avisos.motor.semAprovacao": "قد يتصرّف هذا المحرك على حاسوبك (تعديل الملفات وتشغيل الأوامر) دون بطاقة موافقة الـ Hub: لا يستطيع الـ Hub ضمان هذه البطاقة له. تظل أدوات الـ Hub تطلب بطاقة، ولا تُعرض الموصلات الخارجية على هذا المحرك.",
   "conversa.avisos.pergunta.aria": "سؤال من {bot}: {estado}",
   "conversa.avisos.falha.contasConectadas": "الحسابات المتصلة: {lista}.",
   "conversa.avisos.falha.nenhumaConectada": "لا يوجد أي حساب ذكاء اصطناعي متصل.",

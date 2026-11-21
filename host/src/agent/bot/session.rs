@@ -109,12 +109,13 @@ impl Actor {
         binding: &crate::fork::sessoes::bindings::BindingRef,
     ) -> Result<(Value, crate::fork::conectores::Definitions)> {
         let catchup = self.active_routine.as_deref().is_some_and(|id| self.hub.routines.run_is_catchup(id));
-        let offered = crate::fork::spaces::tool_servers::decide(
+        let mut offered = crate::fork::spaces::tool_servers::decide(
             &self.hub.store,
             &self.cfg,
             self.active_routine.is_some(),
             catchup,
         );
+        crate::fork::aprovacao_despacho::sem_conectores(&self.cfg.backend, &mut offered);
         let Ok(exe) = std::env::current_exe() else {
             tracing::warn!("can't locate donnabot-host for MCP servers");
             return Ok((json!([]), crate::fork::conectores::Definitions::default()));
@@ -382,9 +383,7 @@ impl Actor {
                 &self.cfg.backend,
                 &crate::service::data_dir().join("motores").join("kilo"),
             )?);
-            for command in &mut candidates {
-                *command = super::fork_aprovacao_motor::fixar_executavel(&self.cfg.backend, command, &env)?;
-            }
+
             let mut last_err = None;
             let mut spawned = None;
             if interno {
@@ -460,6 +459,7 @@ impl Actor {
                 None,
             )?
         };
+        crate::fork::sessoes::bindings::record_backend(&self.hub.store, &binding, &self.cfg.backend)?;
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut rebuild_history = self.cfg.context.is_some();
         let current = self.session_for(slot);

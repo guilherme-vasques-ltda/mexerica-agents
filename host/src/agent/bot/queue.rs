@@ -261,11 +261,11 @@ impl Actor {
             Cmd::Permission { entry_id, option_id, reply, origem } => {
                 let _ = reply.send(self.answer_permission_from(&entry_id, option_id, origem.as_ref()).await);
             }
-            Cmd::Approve { title, detail, execution, reply } => {
+            Cmd::Approve { title, detail, execution, identity, reply } => {
                 if let Some(execution) = execution
-                    && crate::fork::sessoes::bindings::recheck(&self.hub, &execution).is_ok()
+                    && crate::fork::sessoes::bindings::recheck_turn(&self.hub, &execution).is_ok()
                 {
-                    self.ask_approval(&title, &detail, execution, reply);
+                    self.ask_approval(&title, &detail, execution, identity.as_ref(), reply);
                 }
             }
             Cmd::Reconfigure(cfg) => {

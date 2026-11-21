@@ -447,3 +447,24 @@ async fn kilo_reconectado_recebe_o_resumo_da_conversa_no_segundo_pedido() {
     assert_eq!(prompts.len(), 2, "{pedidos}");
     assert!(prompts[1].contains("marcador-zeta"), "o segundo pedido não levou o resumo da conversa: {}", prompts[1]);
 }
+
+/// O porteiro lê o motor que o Hub gravou no vínculo do turno, não o cadastro: trocar o padrão do bot no meio do turno não
+/// tira o cartão de quem continua rodando no Kilo.
+#[tokio::test]
+async fn padrao_do_bot_trocado_no_meio_do_turno_nao_tira_o_cartao() {
+    let falsos = Falsos::nova();
+    falsos.bandeiras("kilo", "--hub-tools");
+    let host = falsos.hub().await;
+    let bot = criar_bot(&host, "kilo", json!({})).await;
+    let antes = finais(&host, &bot).await;
+    enviar(&host, &bot, "mexa nas coisas do Hub").await;
+    let primeiro = cartao_pendente(&host, &bot, antes).await.expect("o primeiro cartão");
+    assert_eq!(primeiro["data"]["title"], "Permitir memory: remember");
+    host.call("updateBot", json!({"id": bot, "backend": "claude"})).await;
+    responder(&host, &primeiro, "deny").await;
+    let segundo = cartao_pendente(&host, &bot, antes).await.unwrap_or_else(|| {
+        panic!("com o padrão trocado a chamada passou sem cartão: {:?}", chamadas_do_hub(&host, &bot))
+    });
+    assert_eq!(segundo["data"]["title"], "Permitir chat: set_name");
+    responder(&host, &segundo, "deny").await;
+}

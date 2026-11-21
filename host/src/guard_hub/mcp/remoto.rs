@@ -137,19 +137,6 @@ pub(super) async fn call(
         // real por último, nunca o prazo de outro par rotativo em current.
         crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
         target.validate_delivery()?;
-        if let Some(context) = &context
-            && method == "tools/call"
-            && !crate::fork::aprovacao_despacho::conector_liberado(
-                hub,
-                &context.bot,
-                &context.connector,
-                body,
-                intent.execution(),
-            )
-            .await
-        {
-            return Ok(json!({"ruleDenied":true}));
-        }
         if let Some(context) = &context {
             let _boundary = hub.store.memory_boundary.locked();
             intent.validate_live(hub)?;

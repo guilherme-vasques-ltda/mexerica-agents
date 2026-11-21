@@ -145,7 +145,10 @@ async fn manage_pessoal_recusa_reemissao_apos_queue_check_sem_adotar_b_e_aceita_
     let (reply, mut answer) = tokio::sync::oneshot::channel();
     let (done, _) = mpsc::unbounded_channel();
     actor
-        .on_cmd(Cmd::Approve { title: "Sem captura".into(), detail: String::new(), execution: None, reply }, &done)
+        .on_cmd(
+            Cmd::Approve { title: "Sem captura".into(), detail: String::new(), execution: None, identity: None, reply },
+            &done,
+        )
         .await;
     assert!(matches!(answer.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Closed)));
     assert!(actor.perms.is_empty());

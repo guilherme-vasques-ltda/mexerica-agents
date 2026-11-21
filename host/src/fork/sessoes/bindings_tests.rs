@@ -439,3 +439,34 @@ async fn projecao_de_audiencia_nao_expoe_execucao_privada_nem_autoriza_captura_a
     }
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Idle, "indisponível só existe na projeção");
 }
+
+#[test]
+fn o_motor_gravado_pelo_ator_e_o_que_o_porteiro_le() {
+    let f = Fixture::new();
+    let db = || f.hub.store.db.locked();
+    assert_eq!(backend(&db(), f.a.id.as_str()).unwrap(), None, "vínculo sem motor gravado não prova motor");
+    let mut cfg = f.hub.store.bot("bot").unwrap().unwrap().config;
+    cfg.backend = "kilo".into();
+    f.hub.store.save_bot(&cfg).unwrap();
+    record_backend(&f.hub.store, &f.a, &cfg.backend).unwrap();
+    assert_eq!(backend(&db(), f.a.id.as_str()).unwrap().as_deref(), Some("kilo"));
+    cfg.backend = "claude".into();
+    f.hub.store.save_bot(&cfg).unwrap();
+    assert_eq!(
+        backend(&db(), f.a.id.as_str()).unwrap().as_deref(),
+        Some("kilo"),
+        "trocar o padrão do bot depois não muda o motor registrado para a execução em andamento"
+    );
+    revoke(&f.hub.store, "bot", Some("acp-a")).unwrap();
+    assert_eq!(backend(&db(), f.a.id.as_str()).unwrap(), None, "vínculo revogado não prova nada");
+}
+
+#[test]
+fn pedido_de_turno_anterior_nao_passa_pelo_recheck_de_turno() {
+    let f = Fixture::new();
+    let original = f.execution();
+    recheck_turn(&f.hub, &original).unwrap();
+    f.hub.set_runtime("bot", |r| r.memory_turn_token = Some(uuid::Uuid::new_v4().to_string()));
+    assert!(recheck(&f.hub, &original).is_ok(), "o recheck antigo só confere o vínculo");
+    assert!(recheck_turn(&f.hub, &original).is_err(), "o pedido do turno anterior precisa ser rejeitado");
+}

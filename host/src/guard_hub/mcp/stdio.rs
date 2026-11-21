@@ -560,11 +560,7 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
         {
             body.extend(obj.clone());
         }
-        crate::http()
-            .post(format!("{url}{method}"))
-            .bearer_auth(token)
-            .json(&body)
-            .timeout(Duration::from_secs(30) + crate::fork::aprovacao_despacho::ESPERA)
+        crate::http().post(format!("{url}{method}")).bearer_auth(token).json(&body).timeout(Duration::from_secs(30))
     };
     let mut bridge_id = uuid::Uuid::new_v4().to_string();
     // Uma única saída garante a liberação inclusive se a resposta ao Runtime

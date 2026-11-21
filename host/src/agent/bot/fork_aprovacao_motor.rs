@@ -3,8 +3,8 @@
 //! - As ferramentas do Hub (memória, rotinas, gestão, conectores…) não dependem do motor: o Hub exige o cartão no ponto em
 //!   que recebe a chamada (`fork::aprovacao_despacho`).
 //! - O que o motor faz sozinho no computador (editar arquivo, rodar comando) o Hub não consegue garantir de fora. O Kilo
-//!   roda por construção no modo «perguntar» (variável `KILO_PERMISSION`, perfil de configuração do Hub, caminho
-//!   absoluto do executável, sem retomar sessão, sem «sempre permitir» no cartão), mas segue marcado como «age no
+//!   roda por construção no modo «perguntar» (variável `KILO_PERMISSION`, perfil de configuração do Hub, sem retomar
+//!   sessão, sem «sempre permitir» no cartão; o caminho do executável já vem fixado pelo lançador), mas segue marcado como «age no
 //!   computador sem pedir aprovação»: o Hub não lê de volta nem prova a configuração do motor.
 //! - Cline pergunta por padrão em ACP, mas a opção de sessão `auto_approve` liga a aprovação automática. O Hub nunca
 //!   a repassa do bot e confere que está desligada em toda sessão (nova ou retomada); se não conseguir, derruba o motor.
@@ -69,33 +69,6 @@ pub(super) fn launch_env(backend: &str, perfil: &Path) -> Result<Vec<(String, St
         ("XDG_STATE_HOME".to_owned(), texto(real("XDG_STATE_HOME", ".local/state")?)),
     ]);
     Ok(env)
-}
-
-/// O Kilo roda pelo caminho absoluto do executável, resolvido uma vez antes do lançamento: um programa de mesmo nome
-/// colocado depois, num diretório anterior do PATH, não o substitui.
-pub(super) fn fixar_executavel(backend: &str, comando: &str, env: &[(String, String)]) -> Result<String> {
-    if backend != "kilo" {
-        return Ok(comando.to_owned());
-    }
-    let comando = comando.trim();
-    let (programa, resto) = comando.split_once(char::is_whitespace).unwrap_or((comando, ""));
-    if Path::new(programa).is_absolute() {
-        return Ok(comando.to_owned());
-    }
-    let path = env
-        .iter()
-        .rev()
-        .find(|(chave, _)| chave == "PATH")
-        .map(|(_, valor)| std::ffi::OsString::from(valor))
-        .or_else(|| std::env::var_os("PATH"))
-        .unwrap_or_default();
-    let achado = std::env::split_paths(&path)
-        .map(|dir| dir.join(programa))
-        .find(|candidato| candidato.is_file())
-        .with_context(|| format!("o Hub não encontrou o executável {programa} para fixar o caminho"))?;
-    let achado = achado.to_string_lossy();
-    let achado = if achado.contains(char::is_whitespace) { format!("\"{achado}\"") } else { achado.into_owned() };
-    Ok(format!("{achado} {resto}").trim_end().to_owned())
 }
 
 /// Opção de modelo que muda como o motor aprova ou executa: só o Hub decide isso, nunca o bot.
@@ -234,19 +207,5 @@ mod tests {
         ] {
             assert!(!auto_approve_desligada(&ruim), "{ruim}");
         }
-    }
-
-    #[test]
-    fn executavel_do_kilo_vira_caminho_absoluto() {
-        let pasta = std::env::temp_dir().join(format!("mexerica-bin-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&pasta).unwrap();
-        std::fs::write(pasta.join("kilo"), "").unwrap();
-        let env = vec![("PATH".to_owned(), pasta.to_string_lossy().into_owned())];
-        let fixo = fixar_executavel("kilo", "kilo acp", &env).unwrap();
-        assert_eq!(fixo, format!("{} acp", pasta.join("kilo").display()));
-        assert_eq!(fixar_executavel("kilo", &fixo, &[]).unwrap(), fixo, "já absoluto não muda");
-        assert!(fixar_executavel("kilo", "outro acp", &env).is_err());
-        assert_eq!(fixar_executavel("cline", "cline acp", &env).unwrap(), "cline acp");
-        let _ = std::fs::remove_dir_all(&pasta);
     }
 }
