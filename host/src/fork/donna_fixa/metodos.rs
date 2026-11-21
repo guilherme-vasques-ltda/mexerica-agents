@@ -42,6 +42,8 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("nuncaFazerEditar", LocalOnly),
     ("nuncaFazerRemover", LocalOnly),
     ("nuncaFazerReordenar", LocalOnly),
+    ("instrucaoGeral", LocalOnly),
+    ("instrucaoGeralSalvar", LocalOnly),
     // api/bots.rs
     ("answerMemory", Comum),
     ("archiveMemory", Comum),

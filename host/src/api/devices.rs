@@ -109,6 +109,8 @@ const LOCAL_ONLY: &[&str] = &[
     "nuncaFazerEditar",
     "nuncaFazerRemover",
     "nuncaFazerReordenar",
+    "instrucaoGeral",
+    "instrucaoGeralSalvar",
     "donnaRules",
     "donnaApprovalSet",
     "donnaRuleSave",

@@ -11,7 +11,7 @@ use crate::{
     hub::Hub,
     store::{Entry, EntryKind, Lane, entry_on, insert_visible_on, next_rev, now_ms},
 };
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 use rusqlite::{Connection, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -334,19 +334,48 @@ pub(crate) fn ask(
 
 /// Grava a mensagem HUMANA e, na mesma transação, responde as perguntas pendentes da conversa/sessão.
 /// Substitui `Hub::add_entry` nos envios do dono (`send` da conversa/canal e da conversa de Space).
-pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value) -> Option<Entry> {
-    let result = commit(hub, |c| {
+/// A chave antiduplicata (`clientNonce`) e o limite da fila são conferidos na mesma transação da gravação: dois
+/// envios simultâneos com a mesma chave dão uma linha só, e a fila cheia recusa sem criar nada.
+pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value) -> Result<Human> {
+    commit(hub, |c| {
+        if let Some(original) = crate::store::Store::replay_on(c, &lane.chat, data)? {
+            return Ok((Human::Replayed(original), Vec::new()));
+        }
+        if data["status"] == "queued" {
+            let waiting: i64 = c.query_row(
+                "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
+                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'
+                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.choice_response') END) IS NULL
+                    AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.from') END, '') <> 'host'",
+                [&lane.chat],
+                |r| r.get(0),
+            )?;
+            ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
+        }
         let (marker, entry) =
             insert_visible_on(c, &uuid::Uuid::new_v4().to_string(), lane, EntryKind::User, turn, data)?;
         let answered = answer_on(c, lane, &entry.id)?;
         let mut entries: Vec<Entry> = marker.into_iter().collect();
         entries.push(entry.clone());
         entries.extend(answered);
-        Ok((entry, entries))
-    });
-    result
-        .map_err(|error| tracing::error!(error = format!("{error:#}"), chat = lane.chat, "couldn't save message"))
-        .ok()
+        Ok((Human::New(entry), entries))
+    })
+}
+
+/// Recusa por fila cheia: quem envia sozinho (tarefas) espera a vez sem contar como falha.
+pub(crate) fn queue_full(error: &anyhow::Error) -> bool {
+    format!("{error:#}").contains("queue_full")
+}
+
+/// Mensagens novas do dono que uma conversa pode ter esperando a vez; a seguinte é recusada com `queue_full`.
+/// Respostas a cartões do próprio bot e confirmações do Hub não passam por aqui, nunca são recusadas e não contam.
+pub(crate) const QUEUE_MAX: i64 = 50;
+
+/// O que o envio do dono gravou.
+pub(crate) enum Human {
+    New(Entry),
+    /// Reenvio com a mesma chave e a mesma intenção: a mensagem original, sem linha nova.
+    Replayed(Entry),
 }
 
 /// Reinício, limpeza ou fechamento da conversa (todas as sessões quando `session` é `None`).

@@ -155,6 +155,13 @@ fn key(bot: &str) -> String {
 }
 
 /// Checkpoints inválidos não podem bloquear as operações normais do bot.
+impl Actor {
+    /// A conclusão do turno já está salva para publicar: o texto dela não muda mais.
+    pub(super) fn completing(&self) -> bool {
+        self.waiting.as_ref().is_some_and(|w| w.phase == Phase::Completing)
+    }
+}
+
 pub(crate) fn read_waiting_checkpoint(store: &Store, bot: &str) -> Result<Option<Value>> {
     let key = key(bot);
     let Some(raw) = store.kv_read(&key)? else { return Ok(None) };
@@ -364,8 +371,21 @@ impl Actor {
         self.turn_limit = None;
         let reset = resets_at
             .or_else(|| subscription::usage_reset(&self.hub.usage.locked(), &backend, self.cfg.model.as_deref(), now));
-        self.flush(true);
-        self.seg = Seg::None;
+        // A tentativa cortada pelo limite fica na conversa como interrompida, como no fim de turno sem espera; só a marca
+        // tira o `streaming`, e se ela falhar a varredura marca depois.
+        let shown = self.sent.is_empty()
+            && matches!(self.reacted, super::Reacted::No)
+            && !self.active_request.as_ref().is_some_and(crate::chat::team::BotRequest::expects_reply);
+        match self.last_text.clone().filter(|_| shown) {
+            Some(id) => {
+                self.flush(true);
+                self.mark_interrupted(&id);
+                self.seg = Seg::None;
+            }
+            None => {
+                self.close_seg();
+            }
+        }
         self.files.cancel();
         self.close_turn_work(true);
         let had_waiting = self.waiting.is_some();

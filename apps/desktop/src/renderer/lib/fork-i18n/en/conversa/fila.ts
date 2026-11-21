@@ -25,4 +25,5 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.fila.erro.permissao': 'This device can no longer change the queue.',
   'conversa.fila.erro.pendente': "The computer didn't confirm in time. Check the queue.",
   'conversa.fila.erro.falhou': "Couldn't change the queue.",
+  'conversa.fila.erro.cheia': "This conversation's queue is full. Wait for a few messages to go out, then send again.",
 }

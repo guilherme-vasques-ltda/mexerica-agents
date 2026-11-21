@@ -109,6 +109,7 @@ pub struct Hub {
     pub groups: crate::chat::group::Rooms,
     pub store: Store,
     pub(crate) conectores: crate::fork::conectores::State,
+    pub(crate) browser: crate::fork::browser::State,
     pub(crate) whatsapp: crate::fork::whatsapp::State,
     /// Fase 2b: jobs do gerador de conjuntos 3D (um ativo por Hub).
     pub gerador: crate::fork_avatars::gerador::State,
@@ -173,6 +174,7 @@ impl Hub {
             groups: crate::chat::group::Rooms::default(),
             store,
             conectores: crate::fork::conectores::State::default(),
+            browser: crate::fork::browser::State::default(),
             whatsapp: crate::fork::whatsapp::State::default(),
             gerador: crate::fork_avatars::gerador::State::default(),
             host_id,
@@ -224,6 +226,7 @@ impl Hub {
         // Aprovações e canais transitórios expiram; humanos queued continuam elegíveis.
         self.store.conector_recover()?;
         crate::fork::conectores::whatsapp_human::recover(self)?;
+        self.store.interrupt_open_work()?;
         self.store.expire_pending()?;
         if !crate::environment::Environment::is_open() {
             crate::screen::fork_permission::restore_pending(self)?;
@@ -307,6 +310,9 @@ impl Hub {
         if tokio::time::timeout(Duration::from_secs(5), &mut bots).await.is_err() {
             tracing::warn!("some bots didn't stop within 5 s; waiting for their final turns");
             bots.await;
+        }
+        if let Err(error) = self.store.interrupt_open_work() {
+            tracing::error!(%error, "resposta cortada não marcada no desligamento; o próximo início marca");
         }
         // Keep polling the same join future after the deadline: completed handles
         // must not be polled twice, and cancelling a worker would lose its queue.
