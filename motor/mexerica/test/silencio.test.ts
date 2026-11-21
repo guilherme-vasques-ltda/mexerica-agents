@@ -79,6 +79,35 @@ test("sair sem drenar o corpo, cancelando de fora, não deixa o prazo armado", a
 	}
 });
 
+test("cancelar entre a leitura e a continuação não arma um prazo novo", async () => {
+	let cancelado = false;
+	let armadosDepois = 0;
+	const { setTimeout: armar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		if (cancelado) armadosDepois++;
+		return armar(...args);
+	}) as typeof setTimeout;
+	try {
+		const dono = new AbortController();
+		type Leitura = { done: boolean; value?: Uint8Array };
+		let entregar!: (leitura: Leitura) => void;
+		const corpo = { getReader: () => ({ read: () => new Promise<Leitura>((resolve) => (entregar = resolve)), cancel: async () => {} }) };
+		const fetch = comPrazoDeSilencio(async () => ({ body: corpo, status: 200, statusText: "", headers: new Headers() }) as unknown as Response, 60_000);
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		await new Promise((resolve) => setImmediate(resolve));
+		entregar({ done: false, value: new Uint8Array([1]) });
+		queueMicrotask(() => {
+			cancelado = true;
+			dono.abort();
+		});
+		await resposta.body!.getReader().read().catch(() => {});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(armadosDepois, 0, "nenhum prazo é armado depois do cancelamento");
+	} finally {
+		globalThis.setTimeout = armar;
+	}
+});
+
 test("resposta lenta mas viva não é cortada", async () => {
 	const partes = [
 		{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } },

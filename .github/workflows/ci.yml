@@ -60,8 +60,9 @@ jobs:
           host=false
           desktop=false
           while IFS= read -r -d '' path; do
+            # So o proprio ci.yml muda os jobs pesados; outros workflows e as ferramentas de CI rodam so em leves.
             case "$path" in
-              .github/*|tools/ci-*) host=true; desktop=true ;;
+              .github/workflows/ci.yml) host=true; desktop=true ;;
             esac
             # Hub: codigo, motor, toolchain e arquivos de outras pastas lidos pelos testes do Hub.
             case "$path" in
@@ -74,6 +75,7 @@ jobs:
             case "$path" in
               host/src/fork/skill_catalog/registry.json|host/src/fork/personal_link/*|host/src/fork/conectores/fichas/*) desktop=true ;;
               host/*|motor/*|apps/screen-linux/*) ;;
+              .github/*|tools/ci-*|docs/guides/ci.md) ;;
               *) desktop=true ;;
             esac
           done < "$RUNNER_TEMP/alterados.z"
@@ -284,10 +286,12 @@ jobs:
           probe() { bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev true 2> /dev/null; }
           if ! probe; then
             if [ -f /etc/apparmor.d/bwrap ] && command -v apparmor_parser > /dev/null; then
-              sudo -n apparmor_parser -r /etc/apparmor.d/bwrap
+              sudo -n apparmor_parser -r /etc/apparmor.d/bwrap || echo '::warning::perfil do bwrap nao carregou; a prova final decide.'
             fi
             if ! probe && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
-              sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+              if [ "${RUNNER_ENVIRONMENT:-}" = 'github-hosted' ]; then
+                sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || echo '::warning::sysctl do user namespace nao liberou; a prova final decide.'
+              fi
             fi
           fi
           # Prova minima em segundos: o bwrap precisa criar o mapa de UID. Se nao der, o job
@@ -305,7 +309,7 @@ jobs:
           set -euo pipefail
           alvo=$(readlink -f /etc/localtime)
           case "$alvo" in /*) ;; *) echo "::error::/etc/localtime nao resolve para caminho absoluto: $alvo"; exit 1 ;; esac
-          [ -f "$alvo" ] || { echo "::error::origem de /etc/localtime ausente: $alvo"; exit 1; }
+          [ -e "$alvo" ] || { echo "origem de /etc/localtime ausente (o sandbox ignora): $alvo"; exit 0; }
           fora=0
           caminho="$alvo"
           while [ -n "$caminho" ] && [ "$caminho" != "/" ]; do

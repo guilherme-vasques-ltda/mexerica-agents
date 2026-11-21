@@ -1237,3 +1237,75 @@ async fn falha_da_consulta_v3_nao_publica_as_ferramentas_de_pagina() {
     assert_eq!(depois, antes, "a listagem de uma ponte sem negociação confirmada foi publicada");
     assert!(mcp.classify("mcp__memory__browser_open").is_none());
 }
+const MARCA_SISTEMA: &str = "MARCA-DO-SISTEMA-7Q";
+const MARCA_USUARIO: &str = "MARCA-DO-USUARIO-3K";
+
+/// O que o provedor falso recebeu no pedido (`/pedido`): textos de sistema e de usuário.
+fn pedido_recebido(texto: &str) -> (String, Vec<String>) {
+    let pedido: Value =
+        serde_json::from_str(texto.strip_prefix("pedido: ").unwrap_or_else(|| panic!("{texto}"))).unwrap();
+    let textos = |campo: &str| -> Vec<String> {
+        pedido[campo].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_owned()).collect()
+    };
+    (textos("sistema").join("\n"), textos("usuario"))
+}
+
+#[test]
+fn texto_de_sistema_vale_como_texto_ou_objeto_do_hub_e_recusa_o_resto() {
+    use super::link::system_text;
+    assert_eq!(system_text(&Value::Null).unwrap(), None);
+    assert_eq!(system_text(&json!("só texto")).unwrap().as_deref(), Some("só texto"));
+    assert_eq!(system_text(&crate::agent::bot::system_prompt("do Hub")).unwrap().as_deref(), Some("do Hub"));
+    let dois = json!({"mode": "append", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]});
+    assert_eq!(system_text(&dois).unwrap().as_deref(), Some("a\n\nb"));
+    for invalido in [
+        json!({"mode": "replace", "content": [{"type": "text", "text": "a"}]}),
+        json!({"mode": "append"}),
+        json!({"mode": "append", "content": [{"type": "image", "data": "x"}]}),
+        json!({"mode": "append", "content": [{"type": "text"}]}),
+        json!(42),
+        json!(["a"]),
+    ] {
+        assert!(system_text(&invalido).is_err(), "aceitou {invalido}");
+    }
+}
+
+#[tokio::test]
+async fn instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez() {
+    let case = caso!("instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("initialize", json!({})).await.unwrap();
+    // O mesmo objeto que o ator do bot manda no session/new (`launch::system_prompt`).
+    let params =
+        json!({"cwd": case.dir, "mcpServers": [], "systemPrompt": crate::agent::bot::system_prompt(MARCA_SISTEMA)});
+    let sid = acp.request("session/new", params).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let prompt = json!({"sessionId": sid, "prompt": [{"type": "text", "text": format!("/pedido {MARCA_USUARIO}")}]});
+    let answer = acp.send("session/prompt", prompt).await.unwrap();
+    let (result, updates, _) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    let texto: String = updates
+        .iter()
+        .filter(|u| u["sessionUpdate"] == "agent_message_chunk")
+        .filter_map(|u| u["content"]["text"].as_str().map(str::to_owned))
+        .collect();
+    let (sistema, usuario) = pedido_recebido(&texto);
+    assert_eq!(sistema.matches(MARCA_SISTEMA).count(), 1, "o texto de sistema não chegou uma vez: {sistema:?}");
+    assert!(!sistema.contains(MARCA_USUARIO), "a mensagem foi parar no texto de sistema: {sistema:?}");
+    assert_eq!(usuario.concat().matches(MARCA_USUARIO).count(), 1, "{usuario:?}");
+    assert!(!usuario.concat().contains(MARCA_SISTEMA), "o texto de sistema foi parar na mensagem: {usuario:?}");
+    acp.kill_and_wait().await;
+}
+
+#[tokio::test]
+async fn systemprompt_invalido_recusa_a_sessao() {
+    let case = caso!("systemprompt_invalido_recusa_a_sessao");
+    let (acp, _rx) = acp_motor(novo_store());
+    acp.request("initialize", json!({})).await.unwrap();
+    let params =
+        json!({"cwd": case.dir, "mcpServers": [], "systemPrompt": {"mode": "append", "content": [{"type": "image"}]}});
+    assert!(acp.request("session/new", params).await.is_err(), "objeto inválido não pode abrir sessão sem instruções");
+    acp.kill_and_wait().await;
+}
