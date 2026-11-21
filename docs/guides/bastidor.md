@@ -19,37 +19,46 @@ Nome de produto que é o **assunto** da mudança passa: «conectar o Codex», «
 ou revisão («revisado por») atribuída a um modelo ou ferramenta de IA.
 
 A saída informa a categoria, o campo (`titulo`, `descricao`, `branch`, `commit abc1234`,
-`comentario`) e a linha. Ela nunca repete o trecho achado.
+`comentario`) e a linha. Ela nunca repete o trecho achado e lista no máximo 50 achados.
 
 ## Onde roda
 
-- **Bastidor** (`.github/workflows/bastidor.yml`): em `pull_request` (aberto, editado, reaberto,
-  novo push). Um job só, leve. Corrigir a descrição ou o título refaz a checagem sem rodar o resto
-  do CI. Título, descrição e commits são lidos pela API a cada execução.
+- **Bastidor** (`.github/workflows/bastidor.yml`): em `pull_request_target` (aberto, editado,
+  reaberto, novo push). Um job só, leve. Corrigir a descrição ou o título refaz a checagem sem rodar
+  o resto do CI. É o **único** workflow do repositório em `pull_request_target`, e por um motivo:
+  ele roda a partir da branch protegida, então o PR não consegue editá-lo nem desligá-lo, e PR de
+  fork também é verificado. Para isso ser seguro: permissões só de leitura, nenhum checkout da ref do
+  PR, nenhum código do PR é executado, e título, descrição, branch e commits chegam ao verificador
+  como dado, lidos pela API, nunca em linha de comando. Se o PR mudar durante a verificação, a
+  execução reprova e a mais nova verifica o estado atual.
 - **Bastidor em comentários** (`.github/workflows/bastidor-comentarios.yml`): em comentário de PR
   ou issue, comentário de revisão em linha e corpo de revisão. Se o autor tem escrita no
-  repositório ou é a automação do projeto, o comentário é removido (o corpo de uma revisão enviada
-  não pode ser apagado pela API e fica oculto) e um aviso neutro diz a categoria. Comentário de
-  gente de fora e de robôs de terceiros não é tocado, e nem liga uma máquina.
+  repositório ou é a automação do projeto, o job lê o comentário de novo e, só se o texto atual
+  ainda reprovar, o remove (o corpo de uma revisão enviada não pode ser apagado pela API e fica
+  oculto, o que só é anunciado depois de a API confirmar). Um aviso neutro diz a categoria.
+  Comentário de gente de fora e de robôs de terceiros não é tocado, e nem liga uma máquina.
 
-Os dois baixam o verificador e as regras da branch padrão pela API e não executam nada que
-venha do PR. Só o PR que introduz o verificador usa a versão do próprio PR.
+Os dois baixam o verificador e as regras da branch padrão pela API, os dois do mesmo commit, e não
+executam nada que venha do PR. Se o download falhar, o job falha.
 
-## Regras e variável do repositório
+## Regras, segredo e variável
 
 - `.github/security/bastidor.json`: regras genéricas (padrões em minúsculas e sem acento).
-- Variável de Actions `BASTIDOR_NOMES_INTERNOS`: o que revelaria nomes internos não fica no código.
-  É um JSON em uma linha:
+- **Segredo** de Actions `BASTIDOR_NOMES_INTERNOS`: o que revelaria nomes internos não fica no
+  código nem em variável (variável aparece no log e não é mascarada). É um JSON em uma linha:
 
 ```json
-{"prefixosTarefa":["AB","CD"],"plataformas":["nome-da-plataforma"],"termosInternos":["termo"],"automacao":["conta-da-automacao[bot]"]}
+{"prefixosTarefa":["AB","CD"],"plataformas":["nome-da-plataforma"],"termosInternos":["termo"]}
 ```
 
-  - `prefixosTarefa`: prefixos de código de tarefa (2 a 8 letras); reprova `AB-123` e `ab_123`.
-  - `plataformas` e `termosInternos`: palavras que não podem aparecer; reprova a palavra inteira.
-  - `automacao`: contas de robô do próprio projeto cujo comentário também é removido.
-  - Todas as chaves são opcionais. Valor inválido faz a checagem falhar sem mostrar o conteúdo.
-  - Sem a variável, o verificador roda só com as regras genéricas e emite um aviso.
+  - `prefixosTarefa` (2 a 8 letras; reprova `AB-123` e `ab_123`) e `plataformas` são obrigatórios;
+    `termosInternos` é opcional. Reprovam a palavra inteira, sem maiúscula e acento.
+  - Sem o segredo, vazio ou inválido, a checagem de PR **reprova** e a moderação de comentários
+    falha **sem escrever nada**. Nenhum passo imprime a lista; o verificador ainda mascara cada termo.
+- **Variável** de Actions `BASTIDOR_AUTOMACAO` (sem sigilo): array JSON com os logins das contas de
+  automação do projeto cujo comentário também é removido, por exemplo `["conta-da-automacao[bot]"]`.
+  Vazia, nenhum robô é tocado. Não inclua robô cujos comentários devam ser mantidos (revisores
+  automáticos, por exemplo).
 
 ## Rodar antes de publicar
 
@@ -58,8 +67,8 @@ venha do PR. Só o PR que introduz o verificador usa a versão do próprio PR.
 node tools/ci-bastidor.mjs local --base origin/main --titulo "título do PR" --descricao descricao.md
 ```
 
-Para incluir os nomes internos, exporte `BASTIDOR_NOMES_INTERNOS` com o mesmo valor da variável.
-Os testes do verificador: `node --test tools/ci-bastidor.test.mjs`.
+Sem `BASTIDOR_NOMES_INTERNOS` no ambiente, o modo local roda **parcial** (só as regras genéricas) e
+avisa. Os testes do verificador: `node --test tools/ci-bastidor.test.mjs`.
 
 ## Se reprovar
 
@@ -69,8 +78,11 @@ positivo (por exemplo, frase de produto parecida com um crédito) também se res
 
 ## O que a trava não pega
 
-- Frase quebrada em duas linhas e variações de redação que as regras não conhecem.
+- Frase quebrada em duas linhas, homógrafos de outros alfabetos, entidades HTML além de espaço
+  rígido, links encurtados e variações de redação que as regras não conhecem.
 - Texto dentro de arquivos do PR (código, docs): quem confere é a revisão e o job de vazamento.
-- Título, descrição ou comentário depois de publicados e lidos: o texto pode ter sido visto ou
-  notificado antes da remoção; a trava reduz a exposição, não a desfaz.
-- Issues e o corpo de comentários de fork; texto de revisão enviada só é ocultado.
+- Texto já publicado: título, descrição ou comentário podem ter sido vistos ou notificados antes da
+  remoção e ficam no histórico de edição; a trava reduz a exposição, não a desfaz.
+- Citação: se alguém com escrita repetir em comentário próprio um texto de fora, o comentário é
+  tratado como dele e removido.
+- Issues (só PR e comentários nesta fatia) e o texto de revisão enviada, que só é ocultado.

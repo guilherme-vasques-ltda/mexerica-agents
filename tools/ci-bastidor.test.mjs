@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { compilarRegras, lerInternos, verificar, formatar, normalizar, tratarComentario, lerPr, main } from './ci-bastidor.mjs';
+import { compilarRegras, lerInternos, exigirInternos, lerAutomacao, mascaras, verificar, formatar, normalizar, tratarComentario, lerPr, main } from './ci-bastidor.mjs';
 
 const arquivoRegras = resolve('.github/security/bastidor.json');
 const config = JSON.parse(readFileSync(arquivoRegras, 'utf8'));
@@ -12,8 +12,8 @@ const brutoInternos = JSON.stringify({
   prefixosTarefa: ['ZZ'],
   plataformas: ['plataforma-ficticia'],
   termosInternos: ['termo-ficticio'],
-  automacao: ['robo-ficticio[bot]'],
 });
+const AUTOMACAO = ['robo-ficticio[bot]'];
 const internos = lerInternos(brutoInternos);
 const genericas = compilarRegras(config, null);
 const completas = compilarRegras(config, internos);
@@ -210,7 +210,9 @@ function resposta(status, corpo) {
   return { ok: status >= 200 && status < 300, status, json: async () => corpo };
 }
 
-function apiFalsa({ pr, commits = [], permissao = 'write', atual = 'Feito com Claude' }) {
+const CONFIRMA = { data: { minimizeComment: { minimizedComment: { isMinimized: true } } } };
+
+function apiFalsa({ pr, commits = [], permissao = 'write', atual = 'Feito com Claude', autorAtual = 'pessoa-ficticia', minimizar = CONFIRMA }) {
   const chamadas = [];
   const corpos = [];
   const buscar = async (url, opcoes = {}) => {
@@ -224,10 +226,10 @@ function apiFalsa({ pr, commits = [], permissao = 'write', atual = 'Feito com Cl
       return resposta(200, commits.slice((pagina - 1) * 100, pagina * 100));
     }
     if (rota.startsWith('GET /repos/o/r/collaborators/')) return resposta(200, { permission: permissao });
-    if (/^GET \/repos\/o\/r\/(issues\/comments|pulls\/comments|pulls\/7\/reviews)\/\d+$/.test(rota)) return atual === null ? resposta(404, {}) : resposta(200, { body: atual });
+    if (/^GET \/repos\/o\/r\/(issues\/comments|pulls\/comments|pulls\/7\/reviews)\/\d+$/.test(rota)) return atual === null ? resposta(404, {}) : resposta(200, { body: atual, user: { login: autorAtual } });
     if (rota.startsWith('DELETE ')) return resposta(204, null);
     if (rota.startsWith('POST /repos/')) return resposta(201, {});
-    if (rota === 'POST /api/graphql' || rota === 'POST /graphql') return resposta(200, { data: {} });
+    if (rota === 'POST /api/graphql' || rota === 'POST /graphql') return resposta(200, minimizar);
     return resposta(404, {});
   };
   return { buscar, chamadas, corpos };
@@ -276,7 +278,7 @@ const eventoIssue = (corpo, usuario = humano(), action = 'created') => ({ action
 
 test('comentário de quem tem escrita com bastidor é removido e recebe aviso neutro', async () => {
   const api = apiFalsa({ pr: {}, permissao: 'write' });
-  const r = await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, api.buscar);
+  const r = await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, AUTOMACAO, api.buscar);
   assert.equal(r.resultado, 'removido');
   assert.deepEqual(api.chamadas, ['GET /repos/o/r/collaborators/pessoa-ficticia/permission', 'GET /repos/o/r/issues/comments/55', 'DELETE /repos/o/r/issues/comments/55', 'POST /repos/o/r/issues/7/comments']);
   const aviso = api.corpos.join('');
@@ -287,46 +289,46 @@ test('comentário de quem tem escrita com bastidor é removido e recebe aviso ne
 test('comentário de revisão em linha é removido e corpo de revisão enviada fica oculto', async () => {
   const linha = apiFalsa({ pr: {} });
   const evento = { action: 'created', pull_request: { number: 7 }, comment: { id: 66, node_id: 'NO_2', body: 'revisado por Opus', user: humano() } };
-  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review_comment', evento, completas, internos, linha.buscar)).resultado, 'removido');
+  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review_comment', evento, completas, AUTOMACAO, linha.buscar)).resultado, 'removido');
   assert.ok(linha.chamadas.includes('DELETE /repos/o/r/pulls/comments/66'));
   const revisao = apiFalsa({ pr: {} });
   const evento2 = { action: 'submitted', pull_request: { number: 7 }, review: { id: 77, node_id: 'NO_3', body: 'Revisão: Sonnet', user: humano() } };
-  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review', evento2, completas, internos, revisao.buscar)).resultado, 'ocultado');
+  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review', evento2, completas, AUTOMACAO, revisao.buscar)).resultado, 'ocultado');
   assert.ok(revisao.chamadas.includes('POST /graphql'));
   assert.ok(!revisao.chamadas.some((c) => c.startsWith('DELETE')));
 });
 
 test('gente de fora, robô de terceiro, texto limpo e evento apagado não são tocados', async () => {
   const semEscrita = apiFalsa({ pr: {}, permissao: 'read' });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, semEscrita.buscar)).resultado, 'fora-do-escopo');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, AUTOMACAO, semEscrita.buscar)).resultado, 'fora-do-escopo');
   assert.ok(!semEscrita.chamadas.some((c) => /^(DELETE|POST)/.test(c)));
   const terceiro = apiFalsa({ pr: {} });
   const bot = { login: 'revisor-externo[bot]', type: 'Bot' };
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', bot), completas, internos, terceiro.buscar)).resultado, 'fora-do-escopo');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', bot), completas, AUTOMACAO, terceiro.buscar)).resultado, 'fora-do-escopo');
   assert.deepEqual(terceiro.chamadas, []);
   const limpo = apiFalsa({ pr: {} });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Conectar o Codex'), completas, internos, limpo.buscar)).resultado, 'limpo');
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', humano(), 'deleted'), completas, internos, limpo.buscar)).resultado, 'ignorado');
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue(''), completas, internos, limpo.buscar)).resultado, 'ignorado');
-  assert.equal((await tratarComentario(AMBIENTE, 'push', {}, completas, internos, limpo.buscar)).resultado, 'ignorado');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Conectar o Codex'), completas, AUTOMACAO, limpo.buscar)).resultado, 'limpo');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', humano(), 'deleted'), completas, AUTOMACAO, limpo.buscar)).resultado, 'ignorado');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue(''), completas, AUTOMACAO, limpo.buscar)).resultado, 'ignorado');
+  assert.equal((await tratarComentario(AMBIENTE, 'push', {}, completas, AUTOMACAO, limpo.buscar)).resultado, 'ignorado');
   assert.deepEqual(limpo.chamadas, []);
 });
 
 test('a automação da lista da variável tem o comentário removido; sem lista, nenhum robô; login estranho é recusado', async () => {
   const bot = { login: 'robo-ficticio[bot]', type: 'Bot' };
-  const api = apiFalsa({ pr: {} });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', bot), completas, internos, api.buscar)).resultado, 'removido');
+  const api = apiFalsa({ pr: {}, autorAtual: 'robo-ficticio[bot]' });
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', bot), completas, AUTOMACAO, api.buscar)).resultado, 'removido');
   assert.ok(!api.chamadas.some((c) => c.includes('/collaborators/')));
   const sem = apiFalsa({ pr: {} });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', bot), genericas, null, sem.buscar)).resultado, 'fora-do-escopo');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', bot), genericas, [], sem.buscar)).resultado, 'fora-do-escopo');
   const injecao = apiFalsa({ pr: {} });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', humano('x/../y')), completas, internos, injecao.buscar)).resultado, 'fora-do-escopo');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude', humano('x/../y')), completas, AUTOMACAO, injecao.buscar)).resultado, 'fora-do-escopo');
   assert.deepEqual(injecao.chamadas, []);
 });
 
 test('falha da API na permissão ou na remoção reprova o job em vez de fingir sucesso', async () => {
   const quebrada = async () => resposta(500, {});
-  await assert.rejects(tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, quebrada), /API recusou/);
+  await assert.rejects(tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, AUTOMACAO, quebrada), /API recusou/);
 });
 
 test('modo local usa o branch, os commits da base e o título informado', () => {
@@ -360,7 +362,7 @@ test('workflows: só ASCII, permissões mínimas, actions fixadas por SHA e sem 
   for (const [nome, texto] of Object.entries(WORKFLOWS)) {
     assert.ok(!/[^\x00-\x7F]/.test(texto), nome + ' deve ser ASCII');
     assert.match(texto, /^permissions: \{\}$/m, nome);
-    for (const proibido of ['pull_request_target', 'workflow_run', 'schedule', 'push:', 'workflow_dispatch', 'merge_group', 'actions/checkout', 'container:', 'services:']) {
+    for (const proibido of ['workflow_run', 'schedule', 'push:', 'workflow_dispatch', 'merge_group', 'actions/checkout', 'container:', 'services:']) {
       assert.ok(!texto.includes(proibido), nome + ': ' + proibido);
     }
     const usos = [...texto.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
@@ -369,8 +371,10 @@ test('workflows: só ASCII, permissões mínimas, actions fixadas por SHA e sem 
     assert.ok(texto.includes("    runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}"), nome);
     assert.ok(!/ubuntu-|windows-|macos-|self-hosted|boat|nscloud/i.test(texto), nome + ': rótulo de máquina fora do padrão');
     assert.match(texto, /^    timeout-minutes: [1-9][0-9]*$/m, nome);
-    assert.deepEqual([...new Set([...texto.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))].sort(), ['BASTIDOR_NOMES_INTERNOS', 'CI_MAQUINA_LEVE'], nome);
+    assert.deepEqual([...new Set([...texto.matchAll(/\bsecrets\.(\w+)/g)].map((m) => m[1]))], ['BASTIDOR_NOMES_INTERNOS'], nome + ': só o segredo da lista interna');
     assert.match(texto, /if: \$\{\{ runner\.environment == 'github-hosted' && github\.event\.repository\.private \}\}/, nome + ': recusa máquina do GitHub em repositório privado');
+    assert.ok(texto.includes('Accept: application/vnd.github.sha') && texto.includes('--data-urlencode "ref=$sha"'), nome + ': verificador e regras do mesmo commit');
+    assert.ok(!/github\.(head_ref|event\.pull_request\.head\.ref)/.test(texto), nome + ': nunca baixa nem executa código do PR');
   }
 });
 
@@ -390,23 +394,27 @@ test('workflows: texto de PR e de comentário nunca entra em comando nem em expr
   }
 });
 
-test('workflow de PR: só os quatro eventos, leitura apenas e verificador da branch padrão', () => {
+test('workflow de PR: pull_request_target justificado, só leitura, sem checkout e verificador da base', () => {
   const texto = WORKFLOWS['bastidor.yml'];
-  assert.match(texto, /^on:\n  pull_request:\n    types: \[opened, edited, reopened, synchronize\]\n\n/m);
+  assert.match(texto, /^on:\n  pull_request_target:\n    types: \[opened, edited, reopened, synchronize\]\n\n/m);
+  assert.match(texto, /^# Unico workflow do repositorio em pull_request_target, e so por isto:/m);
   assert.ok(!/: write\b/.test(texto));
-  assert.ok(texto.includes('if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}'));
+  assert.ok(!texto.includes('head.repo.full_name'), 'PR de fork também é verificado');
   assert.match(texto, /group: bastidor-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true/);
-  assert.ok(texto.includes('baixar "$DEFAULT_BRANCH" tools/ci-bastidor.mjs'));
-  assert.match(texto, /\[ "\$codigo" = 404 \]/);
+  assert.deepEqual([...new Set([...texto.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))], ['CI_MAQUINA_LEVE']);
+  assert.ok(!texto.includes('404'), 'sem caminho alternativo para o código do PR');
   assert.ok(texto.includes('node "$RUNNER_TEMP/bastidor/ci-bastidor.mjs" pr'));
+  assert.ok(texto.includes('BASTIDOR_NOMES_INTERNOS: ${{ secrets.BASTIDOR_NOMES_INTERNOS }}'));
 });
 
 test('workflow de comentários: três eventos, escrita só em issues e pull-requests, robô de terceiro não liga máquina', () => {
   const texto = WORKFLOWS['bastidor-comentarios.yml'];
+  assert.ok(!texto.includes('pull_request_target'));
   assert.match(texto, /^on:\n  issue_comment:\n    types: \[created, edited\]\n  pull_request_review:\n    types: \[submitted, edited\]\n  pull_request_review_comment:\n    types: \[created, edited\]\n\n/m);
   assert.deepEqual([...texto.matchAll(/^      ([a-z-]+): (read|write)$/gm)].map((m) => m[1] + ':' + m[2]), ['contents:read', 'issues:write', 'pull-requests:write']);
+  assert.deepEqual([...new Set([...texto.matchAll(/\bvars\.(\w+)/g)].map((m) => m[1]))].sort(), ['BASTIDOR_AUTOMACAO', 'CI_MAQUINA_LEVE']);
   const condicao = /^    if: >-\n((?:      .+\n)+)/m.exec(texto)[1];
-  for (const trecho of ['OWNER', 'MEMBER', 'COLLABORATOR', 'github-actions[bot]', 'head.repo.full_name == github.repository', "fromJSON(vars.BASTIDOR_NOMES_INTERNOS || '{}').automacao"]) {
+  for (const trecho of ['OWNER', 'MEMBER', 'COLLABORATOR', 'github-actions[bot]', 'head.repo.full_name == github.repository', "fromJSON(vars.BASTIDOR_AUTOMACAO || '[]')"]) {
     assert.ok(condicao.includes(trecho), 'condição sem ' + trecho);
   }
   assert.ok(!texto.includes('PR_HEAD_SHA'), 'comentário nunca roda verificador vindo do PR');
@@ -432,13 +440,69 @@ test('linhas longas e adversariais terminam rápido e não escondem o que cruza 
 
 test('evento antigo: comentário já corrigido ou já apagado não é removido', async () => {
   const corrigido = apiFalsa({ pr: {}, atual: 'Texto corrigido, sem bastidor' });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, corrigido.buscar)).resultado, 'limpo');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, AUTOMACAO, corrigido.buscar)).resultado, 'limpo');
   assert.ok(!corrigido.chamadas.some((c) => /^(DELETE|POST)/.test(c)));
   const apagado = apiFalsa({ pr: {}, atual: null });
-  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, apagado.buscar)).resultado, 'ignorado');
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, AUTOMACAO, apagado.buscar)).resultado, 'ignorado');
   assert.ok(!apagado.chamadas.some((c) => /^(DELETE|POST)/.test(c)));
   const revisao = apiFalsa({ pr: {}, atual: 'ok' });
   const evento = { action: 'edited', pull_request: { number: 7 }, review: { id: 77, node_id: 'NO_3', body: 'Revisão: Sonnet', user: humano() } };
-  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review', evento, completas, internos, revisao.buscar)).resultado, 'limpo');
+  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review', evento, completas, AUTOMACAO, revisao.buscar)).resultado, 'limpo');
   assert.ok(!revisao.chamadas.includes('POST /graphql'));
+});
+
+test('nos modos automáticos a lista interna é obrigatória e a falha não repete o conteúdo', async () => {
+  const api = apiFalsa({ pr: { title: 'ok', body: '', head: { ref: 'b', sha: 'a'.repeat(40) }, commits: 0 } });
+  for (const valor of [undefined, '', '   ', '{}', '{"prefixosTarefa":[],"plataformas":[]}', '{"prefixosTarefa":["ZZ"]}']) {
+    for (const modo of ['pr', 'comentario']) {
+      const env = { ...AMBIENTE, ...(valor === undefined ? {} : { BASTIDOR_NOMES_INTERNOS: valor }) };
+      await assert.rejects(main([modo, '--regras', arquivoRegras], env, api.buscar), (e) => e.controlado === true && /BASTIDOR_NOMES_INTERNOS/.test(e.message));
+    }
+  }
+  assert.deepEqual(api.chamadas, [], 'sem lista, nenhuma chamada nem escrita');
+  assert.equal(exigirInternos('{"prefixosTarefa":["ZZ"],"plataformas":["xx-ficticia"]}').prefixosTarefa.length, 1);
+});
+
+test('a lista interna sai mascarada no log e a automação é lida à parte', () => {
+  const linhas = mascaras(internos);
+  assert.ok(linhas.includes('::add-mask::plataforma-ficticia') && linhas.includes('::add-mask::termo-ficticio'));
+  assert.ok(linhas.every((l) => /^::add-mask::[A-Za-z0-9. -]+$/.test(l)));
+  assert.deepEqual(lerAutomacao(undefined), []);
+  assert.deepEqual(lerAutomacao('["robo-ficticio[bot]"]'), ['robo-ficticio[bot]']);
+  assert.throws(() => lerAutomacao('{"a":1}'), /BASTIDOR_AUTOMACAO inválida|inválida/);
+  assert.throws(() => lerAutomacao('["a b"]'), /inválida/);
+  assert.throws(() => lerInternos('{"prefixosTarefa":["ZZ"],"plataformas":["x1"],"automacao":["a"]}'), /inválida/);
+});
+
+test('modo pr reprova se o PR mudou durante a verificação ou se a API devolve campos faltando', async () => {
+  const sha = 'a'.repeat(40);
+  const env = { ...AMBIENTE, PR_HEAD_SHA: sha, BASTIDOR_NOMES_INTERNOS: brutoInternos };
+  const ok = apiFalsa({ pr: { title: 'ok', body: null, head: { ref: 'feat/x', sha }, commits: 1 }, commits: [commit(1)] });
+  assert.equal((await capturar(() => main(['pr', '--regras', arquivoRegras], env, ok.buscar))).codigo, 0);
+  const mudou = apiFalsa({ pr: { title: 'ok', body: null, head: { ref: 'feat/x', sha: 'b'.repeat(40) }, commits: 1 }, commits: [commit(1)] });
+  await assert.rejects(capturar(() => main(['pr', '--regras', arquivoRegras], env, mudou.buscar)), /mudou durante a verificação/);
+  const semCampos = apiFalsa({ pr: { body: '', head: {} }, commits: [] });
+  await assert.rejects(lerPr(AMBIENTE, semCampos.buscar), /sem os campos do PR/);
+  const semMensagem = apiFalsa({ pr: { title: 'a', body: '', head: { ref: 'b' }, commits: 1 }, commits: [{ sha: 'c'.repeat(40) }] });
+  await assert.rejects(lerPr(AMBIENTE, semMensagem.buscar), /sem as mensagens/);
+});
+
+test('texto enorme estoura o orçamento sem validar entrada truncada e a saída é limitada', () => {
+  assert.throws(() => verificar({ descricao: 'a'.repeat(2_000_001) }, completas), (e) => e.controlado === true && /grande demais/.test(e.message));
+  const achados = Array.from({ length: 80 }, (_, i) => ({ categoria: 'autoria-ia', regra: 'credito-autoria', campo: 'descricao', linha: i + 1 }));
+  const saida = formatar(achados, completas).split('\n');
+  assert.equal(saida.filter((l) => l.startsWith('::error')).length, 51);
+  assert.ok(saida.some((l) => /e mais 30 achado/.test(l)));
+});
+
+test('antes de agir o job relê o autor atual e só confirma a ocultação se a API confirmar', async () => {
+  const outroAutor = apiFalsa({ pr: {}, autorAtual: 'outra-pessoa' });
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, AUTOMACAO, outroAutor.buscar)).resultado, 'ignorado');
+  assert.ok(!outroAutor.chamadas.some((c) => /^(DELETE|POST)/.test(c)));
+  const evento = { action: 'submitted', pull_request: { number: 7 }, review: { id: 77, node_id: 'NO_3', body: 'Revisão: Sonnet', user: humano() } };
+  for (const minimizar of [{ data: {} }, { data: { minimizeComment: { minimizedComment: { isMinimized: false } } } }, { errors: [{ message: 'x' }] }]) {
+    const api = apiFalsa({ pr: {}, atual: 'Revisão: Sonnet', minimizar });
+    await assert.rejects(tratarComentario(AMBIENTE, 'pull_request_review', evento, completas, AUTOMACAO, api.buscar), /não confirmou a ocultação/);
+    assert.ok(!api.chamadas.some((c) => c.startsWith('POST /repos/')), 'sem aviso de ocultado sem confirmação');
+  }
 });

@@ -1,10 +1,13 @@
 # Trava contra bastidor em titulo, descricao, branch e commits do PR. Guia: docs/guides/bastidor.md.
-# So pull_request e sem checkout: o verificador e as regras vem da branch padrao pela API e nenhum codigo do PR roda.
-# Titulo, descricao e commits sao lidos pela API a cada execucao, entao corrigir a descricao e rodar de novo basta.
+# Unico workflow do repositorio em pull_request_target, e so por isto: ele roda a partir da branch protegida (o PR
+# nao consegue editar nem desligar a trava) e cobre PR de fork. Permissoes minimas (leitura), nenhum checkout da ref
+# do PR, nenhum codigo do PR e executado, e titulo, descricao, branch e commits chegam ao verificador como dado,
+# lidos pela API, nunca em linha de comando. O verificador e as regras vem da branch padrao, os dois do mesmo commit.
+# A lista interna e o segredo BASTIDOR_NOMES_INTERNOS (mascarado); nenhum passo a imprime.
 name: Bastidor
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, reopened, synchronize]
 
 concurrency:
@@ -15,7 +18,6 @@ permissions: {}
 
 jobs:
   bastidor:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 5
     permissions:
@@ -30,36 +32,33 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
-      - name: Baixar o verificador e as regras da branch padrao
+      - name: Baixar o verificador e as regras da branch padrao, os dois do mesmo commit
         env:
           GH_TOKEN: ${{ github.token }}
           API_URL: ${{ github.api_url }}
           REPO: ${{ github.repository }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/bastidor"
           mkdir -p "$dir"
+          sha=$(curl --fail --silent --show-error --location --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.sha" -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL/repos/$REPO/commits/$DEFAULT_BRANCH")
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
           baixar() {
             curl --silent --show-error --location --max-time 30 -G \
               -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" -H "X-GitHub-Api-Version: 2022-11-28" \
-              --data-urlencode "ref=$1" "$API_URL/repos/$REPO/contents/$2" -o "$3" -w '%{http_code}'
+              --data-urlencode "ref=$sha" "$API_URL/repos/$REPO/contents/$1" -o "$2" -w '%{http_code}'
           }
-          codigo=$(baixar "$DEFAULT_BRANCH" tools/ci-bastidor.mjs "$dir/ci-bastidor.mjs")
-          ref="$DEFAULT_BRANCH"
-          if [ "$codigo" = 404 ]; then
-            # Somente no PR que introduz o verificador: a branch padrao ainda nao o tem.
-            [[ "$PR_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
-            ref="$PR_HEAD_SHA"
-            codigo=$(baixar "$ref" tools/ci-bastidor.mjs "$dir/ci-bastidor.mjs")
-          fi
+          codigo=$(baixar tools/ci-bastidor.mjs "$dir/ci-bastidor.mjs")
           [ "$codigo" = 200 ]
-          codigo=$(baixar "$ref" .github/security/bastidor.json "$dir/bastidor.json")
+          codigo=$(baixar .github/security/bastidor.json "$dir/bastidor.json")
           [ "$codigo" = 200 ]
       - name: Verificar titulo, descricao, branch e commits
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASTIDOR_NOMES_INTERNOS: ${{ vars.BASTIDOR_NOMES_INTERNOS }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASTIDOR_NOMES_INTERNOS: ${{ secrets.BASTIDOR_NOMES_INTERNOS }}
         run: node "$RUNNER_TEMP/bastidor/ci-bastidor.mjs" pr --regras "$RUNNER_TEMP/bastidor/bastidor.json"

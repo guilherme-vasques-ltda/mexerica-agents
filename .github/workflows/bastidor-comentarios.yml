@@ -1,7 +1,10 @@
 # Trava contra bastidor em comentarios e revisoes. Guia: docs/guides/bastidor.md.
-# Comentario de quem tem escrita no repositorio ou da automacao do projeto com bastidor e removido
-# (corpo de revisao enviada fica oculto) e recebe um aviso neutro. Gente de fora e robos de terceiros nao sao tocados.
-# O verificador e as regras vem da branch padrao pela API; o texto do comentario so chega ao verificador pelo arquivo do evento.
+# Comentario de quem tem escrita no repositorio ou da automacao do projeto (variavel BASTIDOR_AUTOMACAO, lista de
+# logins, sem sigilo) com bastidor e removido; o corpo de uma revisao enviada nao tem como ser apagado pela API e fica
+# oculto. Antes de agir o job le de novo o comentario e so age se o texto atual ainda reprovar. Gente de fora e robos
+# de terceiros nao sao tocados. Sem o segredo BASTIDOR_NOMES_INTERNOS o job falha sem escrever nada.
+# O verificador e as regras vem da branch padrao pela API, os dois do mesmo commit; o texto do comentario so chega ao
+# verificador pelo arquivo do evento. A lista interna e segredo (mascarado) e nenhum passo a imprime.
 name: Bastidor em comentarios
 
 on:
@@ -25,7 +28,7 @@ jobs:
       ${{ (github.event_name == 'issue_comment' || github.event.pull_request.head.repo.full_name == github.repository)
       && (github.event.comment.user.login || github.event.review.user.login) != 'github-actions[bot]'
       && (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association)
-      || contains(fromJSON(vars.BASTIDOR_NOMES_INTERNOS || '{}').automacao, github.event.comment.user.login || github.event.review.user.login)) }}
+      || contains(fromJSON(vars.BASTIDOR_AUTOMACAO || '[]'), github.event.comment.user.login || github.event.review.user.login)) }}
     runs-on: ${{ vars.CI_MAQUINA_LEVE || 'instabox-small' }}
     timeout-minutes: 5
     permissions:
@@ -41,7 +44,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
-      - name: Baixar o verificador e as regras da branch padrao
+      - name: Baixar o verificador e as regras da branch padrao, os dois do mesmo commit
         env:
           GH_TOKEN: ${{ github.token }}
           API_URL: ${{ github.api_url }}
@@ -51,17 +54,22 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/bastidor"
           mkdir -p "$dir"
+          sha=$(curl --fail --silent --show-error --location --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.sha" -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL/repos/$REPO/commits/$DEFAULT_BRANCH")
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
           baixar() {
             curl --silent --show-error --location --max-time 30 -G \
               -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" -H "X-GitHub-Api-Version: 2022-11-28" \
-              --data-urlencode "ref=$1" "$API_URL/repos/$REPO/contents/$2" -o "$3" -w '%{http_code}'
+              --data-urlencode "ref=$sha" "$API_URL/repos/$REPO/contents/$1" -o "$2" -w '%{http_code}'
           }
-          codigo=$(baixar "$DEFAULT_BRANCH" tools/ci-bastidor.mjs "$dir/ci-bastidor.mjs")
+          codigo=$(baixar tools/ci-bastidor.mjs "$dir/ci-bastidor.mjs")
           [ "$codigo" = 200 ]
-          codigo=$(baixar "$DEFAULT_BRANCH" .github/security/bastidor.json "$dir/bastidor.json")
+          codigo=$(baixar .github/security/bastidor.json "$dir/bastidor.json")
           [ "$codigo" = 200 ]
       - name: Verificar o comentario e remover se tiver bastidor
         env:
           GH_TOKEN: ${{ github.token }}
-          BASTIDOR_NOMES_INTERNOS: ${{ vars.BASTIDOR_NOMES_INTERNOS }}
+          BASTIDOR_AUTOMACAO: ${{ vars.BASTIDOR_AUTOMACAO }}
+          BASTIDOR_NOMES_INTERNOS: ${{ secrets.BASTIDOR_NOMES_INTERNOS }}
         run: node "$RUNNER_TEMP/bastidor/ci-bastidor.mjs" comentario --regras "$RUNNER_TEMP/bastidor/bastidor.json"
