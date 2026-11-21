@@ -501,7 +501,8 @@ test('release: barreiras antes do checkout nos quatro jobs; inputs nunca interpo
       `test "$GITHUB_REF" = refs/heads/main || { echo ${REL_VERSAO_ERRO}; exit 1; }`,
       '[[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]',
       'case "$RELEASE_MODE" in',
-      '[[ "$RELEASE_VERSION" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.]+)?$ ]]',
+      "test \"${#RELEASE_VERSION}\" -le 64",
+      '[[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]]',
       '[[ "$RELEASE_VERSION" != *..* ]]',
       '[[ "$RELEASE_VERSION" != *-.* ]]',
       '[[ "$RELEASE_VERSION" != *. ]]',
@@ -571,6 +572,8 @@ test('release: macOS segue o padrão provado do macos.yml, empacota e confere as
     ')" = "$RELEASE_SEMVER"',
   ]) assert.ok(job.includes(cmd), cmd);
   assert.match(job, /key: release-macos/);
+  const rustCache = job.split('uses: Swatinem/rust-cache@')[1].split('\n      - ')[0];
+  assert.match(rustCache, /save-if: false/, 'o build de release só lê o cache do Cargo');
   const upload = job.split('uses: actions/upload-artifact@')[1].split('\n      - ')[0];
   assert.match(upload, /name: release-macos-arm64/);
   assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/release-macos\//);
@@ -596,8 +599,9 @@ test('release: Linux empacota deb e AppImage, confere o conteúdo e gera hash', 
     'file "$out/$appimage_name" | grep -q \'ELF 64-bit LSB executable, x86-64\'',
     'sha256sum "$deb_name" "$appimage_name" > linux.sha256',
     'if [ -n "${RELEASE_SEMVER:-}" ]; then',
-    'test "$(dpkg-deb -f "$out/$deb_name" Version)" = "$RELEASE_SEMVER"',
+    'test "$(dpkg-deb -f "$out/$deb_name" Version)" = "${RELEASE_SEMVER//-/~}"',
   ]) assert.ok(job.includes(cmd), cmd);
+  assert.ok(!job.includes('Version)" = "$RELEASE_SEMVER"'), 'a versão do .deb é conferida no formato Debian, com - virando ~');
   assert.match(job, /deb_name="mexerica-open-\$\{RELEASE_LABEL\}-linux-amd64\.deb"/);
   assert.match(job, /appimage_name="mexerica-open-\$\{RELEASE_LABEL\}-linux-x86_64\.AppImage"/);
   assert.ok(!job.includes('sha256sum "$deb" "$appimage"'), 'hash do Linux com nome relativo, não com caminho absoluto');
@@ -635,6 +639,8 @@ test('release: Windows compila o Hub nativo, valida o cua-driver e empacota NSIS
   assert.ok(!conferencia.includes('working-directory:'), 'conferência roda da raiz do repo, onde o script e os caminhos existem');
   assert.match(job, /CODYNC_ENV: main/);
   assert.match(job, /key: release-windows/);
+  const rustCache = job.split('uses: Swatinem/rust-cache@')[1].split('\n      - ')[0];
+  assert.match(rustCache, /save-if: false/, 'o build de release só lê o cache do Cargo');
   const upload = job.split('uses: actions/upload-artifact@')[1].split('\n      - ')[0];
   assert.match(upload, /name: release-windows-x64/);
   assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/release-windows\//);
@@ -677,10 +683,21 @@ const configBastidor = JSON.parse(readFileSync(new URL('../.github/security/bast
 const regrasBastidor = compilarRegras(configBastidor, null);
 
 test('notas: validarVersao aceita o formato fechado e recusa o resto', () => {
-  for (const ok of ['v0.0.1', 'v1.2.3', 'v1.2.3-rc.1', 'v0.0.1-beta.11']) assert.equal(validarVersao(ok), true, ok);
-  for (const ruim of ['0.0.1', 'V0.0.1', 'v0.0.1; rm -rf', 'v0.0.1-..', 'v0.0.1-a..b', 'v0.0.1-.1', 'v0.0.1-RC1', 'v0.0.1.', 'v0.0.1-', 'v0.0.1 ', '', null, undefined, 42]) {
+  for (const ok of ['v0.0.1', 'v1.2.3', 'v1.2.3-rc.1', 'v0.0.1-beta.11', 'v1.2.3-0', 'v1.2.3-0a', 'v0.0.1-' + 'a'.repeat(57)]) assert.equal(validarVersao(ok), true, ok.length === 64 ? '64 caracteres passam' : ok);
+  for (const ruim of ['0.0.1', 'V0.0.1', 'v0.0.1; rm -rf', 'v0.0.1-..', 'v0.0.1-a..b', 'v0.0.1-.1', 'v0.0.1-RC1', 'v0.0.1.', 'v0.0.1-', 'v0.0.1 ', 'v01.2.3', 'v1.02.3', 'v1.2.03', 'v1.2.3-01', 'v1.2.3-rc.01', 'v0.0.1-' + 'a'.repeat(58), '', null, undefined, 42]) {
     assert.equal(validarVersao(ruim), false, String(ruim));
   }
+});
+
+test('notas: a ERE estrita do workflow casa com as versões válidas e rejeita as outras', () => {
+  // A ERE vem do próprio release.yml: o teste reprova se alguém descompassar os dois lados.
+  const linha = rel.split('\n').find((l) => l.includes('RELEASE_VERSION" =~ ^v(0|'));
+  assert.ok(linha, 'guarda do workflow com a ERE estrita de SemVer');
+  const ere = linha.slice(linha.indexOf('=~ ') + 3, linha.indexOf(' ]]'));
+  // A guarda do workflow e o par limite de 64 caracteres + ERE; a prova roda os dois, como no job.
+  const casa = (versao) => spawnSync('bash', ['-c', `test "\${#1}" -le 64 && [[ "$1" =~ ${ere} ]]`, 'bash', versao]).status;
+  for (const ok of ['v0.0.1', 'v1.2.3-rc.1', 'v1.2.3-0', 'v1.2.3-0a', 'v0.0.1-' + 'a'.repeat(57)]) assert.equal(casa(ok), 0, ok);
+  for (const ruim of ['v01.2.3', 'v1.2.3-01', 'v0.0.1-' + 'a'.repeat(58)]) assert.notEqual(casa(ruim), 0, ruim);
 });
 
 test('notas: filtrarChangelog mantém o comum e omite bastidor sem imprimir a linha', () => {
@@ -837,7 +854,7 @@ test('notas: o comando de hash do Linux confere só o arquivo baixado e falha fe
 test('versao: versaoSemver tira o v e reprova versão inválida', () => {
   assert.equal(versaoSemver('v0.0.1'), '0.0.1');
   assert.equal(versaoSemver('v0.0.1-rc.1'), '0.0.1-rc.1');
-  for (const ruim of ['0.0.1', 'v0.0.1-.1', 'v0.0.1-..', '', null, undefined]) {
+  for (const ruim of ['0.0.1', 'v01.2.3', 'v1.2.3-01', 'v0.0.1-.1', 'v0.0.1-..', '', null, undefined]) {
     assert.throws(() => versaoSemver(ruim), (erro) => erro.controlado === true, String(ruim));
   }
 });
@@ -876,6 +893,8 @@ test('versao: aplicarVersaoPacote grava só o campo version e confirma na releit
     const { version: fora, ...esperado } = original;
     assert.deepEqual(resto, esperado, 'só o campo version muda');
     assert.throws(() => aplicarVersaoPacote(caminho, '1.2.3'), (erro) => erro.controlado === true, 'versão sem v reprova');
+    assert.throws(() => aplicarVersaoPacote(caminho, 'v01.2.3'), (erro) => erro.controlado === true, 'zero à esquerda reprova');
+    assert.throws(() => aplicarVersaoPacote(caminho, 'v1.2.3-rc.01'), (erro) => erro.controlado === true, 'zero à esquerda no sufixo reprova');
     writeFileSync(join(dir, 'sem-version.json'), '{"name":"x"}');
     assert.throws(() => aplicarVersaoPacote(join(dir, 'sem-version.json'), 'v1.0.0'), (erro) => erro.controlado === true, 'package.json sem version reprova');
   } finally {

@@ -13,9 +13,13 @@ const PRAZO_API_MS = 30_000;
 // Só mensagens controladas chegam ao log: erro de parse ou de rede pode trazer pedaço do que lia.
 const falha = (mensagem) => Object.assign(new Error(mensagem), { controlado: true });
 
+// SemVer estrito: sem zeros a esquerda no core e nos identificadores puramente numericos, e no maximo 64 caracteres.
+const VERSAO_ER = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$/;
+
 export function validarVersao(versao) {
   if (typeof versao !== 'string') return false;
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$/.test(versao)) return false;
+  if (versao.length > 64) return false;
+  if (!VERSAO_ER.test(versao)) return false;
   if (versao.includes('..') || versao.includes('-.') || versao.endsWith('.')) return false;
   return true;
 }
