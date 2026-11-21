@@ -26,15 +26,21 @@ export function registerReleaseNotice(options: RegisterReleaseNoticeOptions) {
       }
     },
   })
-  const admit = (event: IpcMainEvent | IpcMainInvokeEvent) => options.allowed?.(event) !== false
+  const admit = (channel: string, event: IpcMainEvent | IpcMainInvokeEvent) => {
+    if (options.allowed?.(event) === false) {
+      console.warn('[release-notice] denied: unauthorized sender', { channel })
+      return false
+    }
+    return true
+  }
   const estadoNegado = (): ReleaseNoticeState => ({
     supported: false, currentVersion: options.currentVersion, status: 'idle', availableVersion: null, availableTag: null,
     releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
   })
-  ipcMain.handle('releaseNotice:state', (event) => (admit(event) ? controller.getState() : estadoNegado()))
-  ipcMain.handle('releaseNotice:check', (event) => (admit(event) ? controller.check({ manual: true }) : Promise.resolve(estadoNegado())))
-  ipcMain.handle('releaseNotice:dismiss', (event) => (admit(event) ? controller.dismiss() : Promise.resolve(estadoNegado())))
-  ipcMain.handle('releaseNotice:openDownload', (event) => (admit(event) ? controller.openDownload() : Promise.resolve(false)))
+  ipcMain.handle('releaseNotice:state', (event) => (admit('state', event) ? controller.getState() : estadoNegado()))
+  ipcMain.handle('releaseNotice:check', (event) => (admit('check', event) ? controller.check({ manual: true }) : Promise.resolve(estadoNegado())))
+  ipcMain.handle('releaseNotice:dismiss', (event) => (admit('dismiss', event) ? controller.dismiss() : Promise.resolve(estadoNegado())))
+  ipcMain.handle('releaseNotice:openDownload', (event) => (admit('openDownload', event) ? controller.openDownload() : Promise.resolve(false)))
   controller.start()
   app.on('before-quit', () => controller.stop())
 }

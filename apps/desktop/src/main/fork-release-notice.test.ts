@@ -417,6 +417,7 @@ test('adaptador: remetente negado não recebe o estado real e nenhum handler age
     const ouvidas: string[] = []
     const abertas: string[] = []
     const enviadas: unknown[] = []
+    const avisos: unknown[][] = []
     const janela = { isDestroyed: () => false, webContents: { send: (_canal: string, estado: unknown) => { enviadas.push(estado) } } }
     const modulo = loadMainModule<{ registerReleaseNotice: (options: { windows: () => unknown[]; userDataDir: string; currentVersion: string; allowed: (event: unknown) => boolean }) => void }>('fork-release-notice', {
       electron: {
@@ -425,7 +426,7 @@ test('adaptador: remetente negado não recebe o estado real e nenhum handler age
         shell: { openExternal: async (url: string) => { abertas.push(url) } },
       },
       'node:fs': fs, 'node:path': path,
-    }, { process: { platform: 'linux' }, setTimeout: () => 0, clearTimeout: () => {}, URL })
+    }, { process: { platform: 'linux' }, setTimeout: () => 0, clearTimeout: () => {}, URL, console: { log() {}, error() {}, warn: (...args: unknown[]) => { avisos.push(args) } } })
     modulo.registerReleaseNotice({ windows: () => [janela], userDataDir: dir, currentVersion: 'v0.1.0', allowed: (event) => (event as { ok: boolean }).ok })
     assert.deepEqual([...handlers.keys()].sort(), ['releaseNotice:check', 'releaseNotice:dismiss', 'releaseNotice:openDownload', 'releaseNotice:state'])
     assert.deepEqual(ouvidas, ['before-quit'])
@@ -455,6 +456,14 @@ test('adaptador: remetente negado não recebe o estado real e nenhum handler age
     assert.deepEqual(abertas, [], 'negado não abre nada')
     assert.equal(await handlers.get('releaseNotice:openDownload')!(permitido), true)
     assert.deepEqual(abertas, [TAG_URL])
+
+    assert.equal(avisos.length, 4, 'cada canal negado registra o motivo uma vez')
+    assert.deepEqual(avisos.map(([, detalhe]) => (detalhe as { channel: string }).channel), ['state', 'check', 'dismiss', 'openDownload'])
+    for (const args of avisos) {
+      assert.equal(args.length, 2, 'só a mensagem e o canal; nada do remetente nem do evento')
+      assert.equal(args[0], '[release-notice] denied: unauthorized sender')
+      assert.deepEqual(Object.keys(args[1] as object), ['channel'])
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
