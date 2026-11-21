@@ -15,15 +15,16 @@ pelo instalador). O preparo instala `dbus`, `dbus-user-session`,
 `systemd-timesyncd` e `python3-cryptography`.
 
 O Hub legado da VM precisa ser **realmente anterior ao gate de partida**: o
-`donnabot-host` compilado no merge-base do PR com `main`, em pasta e alvo próprios
-(nunca o build atual, que já tem o gate e mascararia o corte). O preparo recusa um
-legado que conheça `coordenar-atualizacao`.
+`donnabot-host` legado compilado em pasta e alvo próprios, nunca o build atual
+(que já tem o gate e mascararia o corte). O histórico público começa na
+importação que já contém o gate, então não há revisão anterior para compilar
+aqui: forneça em `LEGADO_ANTERIOR` um binário construído de uma revisão
+anterior ao gate e confirme antes que ele desconhece o comando. O preparo
+recusa um legado que conheça `coordenar-atualizacao`.
 
 ```sh
-git worktree add /data/base "$(git merge-base origin/main HEAD)"
-(cd /data/base/host && CARGO_TARGET_DIR=/data/target-base cargo build --bin donnabot-host)
-sudo CARGO_TARGET_DIR=/data/target LEGADO_ANTERIOR=/data/target-base/debug/donnabot-host bash preparar.sh
-sudo bash cenarios.sh      # imprime OK/FALHA e "RESULTADO: N falha(s)"
+sudo LEGADO_ANTERIOR=/data/legado-anterior/donnabot-host bash preparar.sh
+sudo bash cenarios.sh      # imprime OK/FALHA e "RESULTADO: N falha(s)" e falha se houver falhas
 ```
 
 Antes da primeira migração, `cenarios.sh` e `reboot.sh instalar` (`preparatoria.sh`)

@@ -185,3 +185,4 @@ AUD=$(ls -d /var/lib/donnabot/atualizacao.revogada-* | tail -1)/auditoria
 grep -c '"operacao":"administrar"' $AUD | sed 's/^/  eventos administrativos: /'
 grep -c '"origem":"guarda_root"' $AUD | sed 's/^/  eventos do guard: /'
 echo; echo "RESULTADO: $FALHAS falha(s)"
+[ "$FALHAS" = 0 ]

@@ -464,18 +464,18 @@ mod ice_tests {
     fn turn_uri_preserves_transport_and_escapes_credentials() {
         assert_eq!(
             ice_uri(
-                "turns:turn.cloudflare.com:443?transport=tcp",
+                "turns:turn.example.invalid:443?transport=tcp",
                 Some("a:b"),
                 Some("c+/@")
             )
             .unwrap(),
-            "turns://a%3Ab:c%2B%2F%40@turn.cloudflare.com:443?transport=tcp"
+            "turns://a%3Ab:c%2B%2F%40@turn.example.invalid:443?transport=tcp"
         );
         assert_eq!(
-            ice_uri("stun:stun.cloudflare.com:3478", None, None).unwrap(),
-            "stun://stun.cloudflare.com:3478"
+            ice_uri("stun:stun.example.invalid:3478", None, None).unwrap(),
+            "stun://stun.example.invalid:3478"
         );
-        assert!(ice_uri("turn:turn.cloudflare.com:3478", None, None).is_err());
+        assert!(ice_uri("turn:turn.example.invalid:3478", None, None).is_err());
     }
 }
 

@@ -5,9 +5,9 @@
 set -euo pipefail
 umask 077
 D=$(dirname "$(readlink -f "$0")"); T=${CARGO_TARGET_DIR:-/data/target}/debug; S=/srv/prova
-# Hub legado REAL, anterior ao gate de partida: donnabot-host do merge-base com main (ver
+# Hub legado REAL, anterior ao gate de partida: donnabot-host de uma revisão anterior ao gate (ver
 # README). O build atual não serve de legado: ele já tem o gate e mascararia o corte.
-L=${LEGADO_ANTERIOR:?defina LEGADO_ANTERIOR com o donnabot-host compilado no merge-base com main}
+L=${LEGADO_ANTERIOR:?defina LEGADO_ANTERIOR com o binário donnabot-host anterior ao gate}
 if "$L" coordenar-atualizacao --help >/dev/null 2>&1; then
   echo "LEGADO_ANTERIOR conhece coordenar-atualizacao: não é anterior ao gate" >&2; exit 1
 fi

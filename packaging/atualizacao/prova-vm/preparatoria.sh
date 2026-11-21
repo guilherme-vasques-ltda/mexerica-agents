@@ -1,6 +1,6 @@
 # Incluído (source) por cenarios.sh e reboot.sh (instalar), depois de definirem como_hub,
 # servico, exe_hub, espera e confere. O Hub legado da VM é um build ANTERIOR ao gate de
-# partida (merge-base com main, ver preparar.sh): o coordenador do build atual recusa
+# partida (revisão anterior ao gate, ver preparar.sh): o coordenador do build atual recusa
 # migrá-lo sem nenhum efeito; só depois da atualização preparatória (o legado passa a ser
 # o build atual, com o gate) a migração segue.
 preparatoria() {
