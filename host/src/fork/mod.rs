@@ -61,7 +61,6 @@ pub(crate) mod genui;
 #[cfg(target_os = "linux")]
 pub(crate) mod guarda_atualizacao;
 pub(crate) mod harness_guidance;
-#[allow(dead_code, reason = "contrato publicado antes do agendador, que o consome no PR seguinte")]
 pub(crate) mod heartbeat;
 pub(crate) mod historico;
 pub(crate) mod idioma_app;

@@ -257,12 +257,17 @@ impl Routines {
     /// alerts; a failed one leaves a notice. The entry ID deduplicates a crash after SQLite inserted the notice but
     /// before this ack.
     /// I-023: aviso e alerta conforme o desfecho gravado (`visibleReply` incluso), sem recalcular pela trilha.
-    fn publish(&self, hub: &Hub) -> Result<()> {
+    pub(super) fn publish(&self, hub: &Hub) -> Result<()> {
         let pending: Vec<_> = {
             let state = self.state.locked();
             state.runs.iter().filter(|r| r.report_pending).map(|r| (routine_name(&state, &r.id), r.clone())).collect()
         };
-        for (name, run) in pending {
+        for (name, mut run) in pending {
+            if let (Some(texto), Some(crate::fork::rotina_resultado::Lenient::Ok(outcome))) =
+                (run.heartbeat_texto.take(), &mut run.outcome)
+            {
+                outcome.summary = Some(texto);
+            }
             let publication = crate::fork::rotina_resultado::publication(
                 run.outcome.as_ref(),
                 run.status,
@@ -280,6 +285,7 @@ impl Routines {
                 if let Some(r) = s.runs.iter_mut().find(|r| r.id == run.id) {
                     r.report_pending = false;
                     r.result = None;
+                    r.heartbeat_texto = None;
                 }
                 Ok(())
             })?;
@@ -318,13 +324,14 @@ impl Routines {
     }
 
     pub(super) fn schedule_due(&self, store: &Store, now: i64) -> Result<()> {
+        // O mesmo instante em que `now` foi amostrado: o horário de cada consulta é `now` mais o que já passou desde aqui.
+        let amostra = Instant::now();
         self.schedule_descendants_due(store, now)?;
         let due = {
             let state = self.state.locked();
             !state.paused
                 && state.routines.iter().any(|r| {
                     r.creation_origin.is_none()
-                        && r.heartbeat.is_none()
                         && !r.deleted
                         && r.enabled
                         && r.next_runs.iter().flatten().any(|at| *at <= now)
@@ -333,16 +340,13 @@ impl Routines {
         if !due {
             return Ok(());
         }
+        let mut checks = Vec::new();
         self.change(store, |s| {
             if s.paused {
                 return Ok(());
             }
             for routine in &mut s.routines {
-                if routine.deleted
-                    || !routine.enabled
-                    || routine.creation_origin.is_some()
-                    || routine.heartbeat.is_some()
-                {
+                if routine.deleted || !routine.enabled || routine.creation_origin.is_some() {
                     continue;
                 }
                 let anchor = routine
@@ -369,6 +373,11 @@ impl Routines {
                         }
                     }
                 }
+                // Checagem silenciosa: a ocorrência não vira execução com IA; só marca a consulta à fonte.
+                if fired && routine.enabled && routine.heartbeat.is_some() {
+                    checks.push((routine.id.clone(), routine.updated_at));
+                    continue;
+                }
                 // Keep one pending wake while a prior run is active. This also
                 // preserves a one-shot trigger that occurs during a long run.
                 if fired
@@ -382,7 +391,11 @@ impl Routines {
                 }
             }
             Ok(())
-        })
+        })?;
+        self.check_collected(store, &checks, || {
+            now.saturating_add(i64::try_from(amostra.elapsed().as_millis()).unwrap_or(i64::MAX))
+        });
+        Ok(())
     }
 }
 

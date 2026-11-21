@@ -98,6 +98,9 @@ impl Routines {
         }
         retain_history(&mut next);
         let raw = serde_json::to_string(&next)?;
+        // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
+        // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         #[cfg(test)]
         crate::fork::sessoes::call_tests::before_effect(store, "routine_commit");
         if origin.is_some() {

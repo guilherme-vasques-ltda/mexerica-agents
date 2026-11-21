@@ -44,8 +44,42 @@ Enquanto a fonte falha, a checagem espera cada vez mais entre as tentativas (at�
 sabia: ao voltar, uma pendência já avisada não é avisada de novo. Uma pendência que sai da fonte e volta é
 decisão nova.
 
+## Como roda
+
+No horário da rotina (relógio ou intervalo), o agendador das Rotinas consulta a fonte sem passar pela IA: uma
+rodada por vez por rotina, e nunca antes do intervalo mínimo declarado. O Hub grava, na própria rotina, a última
+checagem, o resumo do marcador e as pendências já avisadas; por isso o aviso não se repete depois de reiniciar. Só o
+resultado que importa vira execução no histórico (mudança sem decisão, decisão pendente e a primeira falha de uma
+sequência); `sem mudança` só atualiza a hora da última checagem, que aparece em `heartbeatStatus` na rotina. O texto
+do aviso (fato e escolha) fica só num campo privado até ser publicado (nenhuma listagem o devolve), vai ao dono pelo
+chat e pelo alerta do celular e é apagado depois de publicado; o histórico guarda só o resultado.
+
+Só gatilhos de relógio (cron ou intervalo) valem para uma checagem; gatilho único é recusado. O alerta no celular é
+de melhor esforço: o aviso no chat é a confirmação durável. Cada chamada à fonte tem prazo de 30 segundos: estourado o
+prazo, a checagem registra a fonte como indisponível (nunca «sem mudança») e segue para a próxima rotina do ciclo. Uma
+chamada que não voltou fica numa linha de execução à parte e mantém a fonte ocupada: ela não recebe outra chamada até
+terminar, mesmo que a mesma fonte seja registrada de novo ou retirada e concedida outra vez enquanto isso. A fonte
+não deve entrar em pânico com conteúdo.
+
+Se o Hub cair justamente durante uma consulta, aquela ocorrência não é refeita: a checagem segue no horário seguinte
+da rotina (é uma amostragem periódica, não um compromisso a cumprir). Quem registra uma fonte informa a identidade da conta ou
+do vínculo (a mesma entre reinícios). Outra identidade (outra conta ou vínculo) começa do zero e não herda marcador,
+espera nem pendências já avisadas; registrar de novo a mesma identidade mantém o progresso e só descarta uma leitura em
+andamento. Sem concessão registrada ainda (logo após reiniciar), a checagem só registra a falha e conserva o que sabia.
+
+Pausar a rotina, pausar todas as rotinas, apagar a rotina, retirar a concessão da fonte ou editar a declaração no meio
+de uma leitura descarta o resultado: nada é gravado nem avisado. Além disso, a porta fecha imediatamente antes de cada
+chamada, na própria linha de execução que vai chamar a fonte: o agendador decide sob o estado das rotinas (pausa geral,
+rotina existe, está ligada, mesma versão e mesma declaração, registro e concessão) e devolve a época do estado em que
+decidiu; ao receber a resposta, a linha de execução confere sozinha, sem lock, o prazo absoluto da chamada, se o
+agendador já desistiu, se a concessão ainda vale e se a época do estado é a mesma. Mudou o estado: ela pede de novo e a
+nova decisão recusa o que deixou de valer; venceu o prazo ou o agendador desistiu: a fonte não é chamada (isso conta
+como fonte fora do ar, não como falta de acesso). A única janela que sobra é a de poucas instruções entre essa última
+leitura e a chamada. Uma chamada
+que já estava em curso não é cancelada: o prazo a abandona e o resultado dela é descartado. Uma fonte só é lida pelo bot
+a que foi concedida.
+
 ## Estado desta entrega
 
-A declaração, a validação, as regras acima e as guardas de permissão estão no Hub; o agendador passa a
-consultar a fonte na entrega seguinte. Ainda não existe fonte real: o registro de fontes nasce vazio, e uma
-rotina que aponta para uma fonte não registrada fica como fonte indisponível. Testes usam fontes fictícias.
+Ainda não existe fonte real: o registro de fontes nasce vazio e uma rotina que aponta para uma fonte não concedida
+ao bot fica como fonte indisponível (sem acesso), com alerta. Os testes usam fontes fictícias.
