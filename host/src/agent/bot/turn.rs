@@ -112,6 +112,11 @@ impl Actor {
             "{}{prompt}",
             crate::fork::delegacao::turno(&self.hub.store, &self.cfg, self.active_group.is_some())
         );
+        // Instruções do dono para todos os bots e para o Space, por turno; nunca em turno de Canal.
+        prompt = format!(
+            "{}{prompt}",
+            crate::fork::instrucao_geral::turno(&self.hub.store, &self.cfg, self.active_group.is_some())
+        );
         prompt = format!(
             "{}{prompt}",
             if self.cfg.context.is_some() {
