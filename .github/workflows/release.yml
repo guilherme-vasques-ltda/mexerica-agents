@@ -2,6 +2,12 @@
 # maquinas gratis do GitHub e so com o repositorio publico. O modo release cria um rascunho
 # (--draft --prerelease) no GitHub Releases, sem publicar nem criar tag oficial; o modo
 # preview so deixa os artefatos no Actions. Guia: docs/guides/ci.md.
+# Versao: no modo release, o semver sem o v (tools/ci-release-version.mjs) entra em
+# apps/desktop/package.json na VM descartavel, antes de empacotar, para app.getVersion(),
+# Info.plist, .deb, .AppImage e NSIS reportarem a versao da rodada. No preview, os metadados
+# internos mantem a versao base do package.json: preview-<commit> nao e versao valida para
+# .deb nem NSIS e vai so no nome dos arquivos e no resumo. Os binarios do Hub mantem a
+# versao do host/Cargo.toml, preservando builds --locked.
 name: Release
 
 on:
@@ -61,10 +67,12 @@ jobs:
             [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
             [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
             RELEASE_LABEL="$RELEASE_VERSION"
+            RELEASE_SEMVER="${RELEASE_VERSION#v}"
           else
             RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+            RELEASE_SEMVER=""
           fi
-          printf 'RELEASE_LABEL=%s\n' "$RELEASE_LABEL" >> "$GITHUB_ENV"
+          printf 'RELEASE_LABEL=%s\nRELEASE_SEMVER=%s\n' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -100,6 +108,14 @@ jobs:
       - name: Dependencias do app
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
+      # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
+      # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
+      # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
+      - name: Aplicar versao da release aos metadados do app
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
       - name: Empacotar a Open (perfil oficial, assinatura ad hoc)
         working-directory: apps/desktop
         run: npm run dist:mac:open
@@ -113,6 +129,9 @@ jobs:
           test "$(lipo -archs "$speech")" = arm64
           codesign --verify --strict "$hub"
           codesign --verify --strict "$speech"
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$OPEN_APP/Contents/Info.plist")" = "$RELEASE_SEMVER"
+          fi
       - name: Compactar o app e gerar o hash
         working-directory: apps/desktop
         run: |
@@ -161,10 +180,12 @@ jobs:
             [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
             [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
             RELEASE_LABEL="$RELEASE_VERSION"
+            RELEASE_SEMVER="${RELEASE_VERSION#v}"
           else
             RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+            RELEASE_SEMVER=""
           fi
-          printf 'RELEASE_LABEL=%s\n' "$RELEASE_LABEL" >> "$GITHUB_ENV"
+          printf 'RELEASE_LABEL=%s\nRELEASE_SEMVER=%s\n' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -176,6 +197,14 @@ jobs:
       - name: Dependencias do app
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
+      # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
+      # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
+      # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
+      - name: Aplicar versao da release aos metadados do app
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
       - name: Preparar a configuracao e construir o app
         working-directory: apps/desktop
         run: |
@@ -206,6 +235,9 @@ jobs:
           chmod +x "$out/$appimage_name"
           test -s "$out/$appimage_name"
           file "$out/$appimage_name" | grep -q 'ELF 64-bit LSB executable, x86-64'
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            test "$(dpkg-deb -f "$out/$deb_name" Version)" = "$RELEASE_SEMVER"
+          fi
           # O hash precisa gravar o nome relativo: quem confere no job final baixa em outra pasta.
           (cd "$out" && sha256sum "$deb_name" "$appimage_name" > linux.sha256 && cat linux.sha256)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -250,10 +282,12 @@ jobs:
             [[ "$RELEASE_VERSION" != *-.* ]] || { echo '::error::Sufixo da versao nao pode comecar com ponto.'; exit 1; }
             [[ "$RELEASE_VERSION" != *. ]] || { echo '::error::Versao nao pode terminar com ponto.'; exit 1; }
             RELEASE_LABEL="$RELEASE_VERSION"
+            RELEASE_SEMVER="${RELEASE_VERSION#v}"
           else
             RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"
+            RELEASE_SEMVER=""
           fi
-          printf 'RELEASE_LABEL=%s\n' "$RELEASE_LABEL" >> "$GITHUB_ENV"
+          printf 'RELEASE_LABEL=%s\nRELEASE_SEMVER=%s\n' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -291,6 +325,14 @@ jobs:
       - name: Dependencias do app
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
+      # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
+      # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
+      # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
+      - name: Aplicar versao da release aos metadados do app
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
       - name: Preparar a configuracao e construir o app
         working-directory: apps/desktop
         run: |
@@ -307,6 +349,15 @@ jobs:
           for arquivo in dist/donnabot-windows-x64.exe dist/win-unpacked/Mexerica.exe dist/win-unpacked/resources/donnabot-host.exe dist/win-unpacked/resources/donnabot-hostw.exe dist/win-unpacked/resources/cua-driver.exe dist/win-unpacked/resources/account-config.json; do
             test -s "$arquivo" || { echo "::error::$arquivo ausente ou vazio."; exit 1; }
           done
+      - name: Conferir a versao gravada nos metadados do Windows
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_SEMVER:-}"
+          test "$(node -p "require('./apps/desktop/package.json').version")" = "$RELEASE_SEMVER"
+          node tools/ci-release-version.mjs --check-asar apps/desktop/dist/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"
       - name: Preparar os arquivos da release Windows
         working-directory: apps/desktop
         run: |

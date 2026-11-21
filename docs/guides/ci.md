@@ -148,6 +148,20 @@ Ele fica fora do `ci-ok`, como o workflow macOS: aparece só nas Actions.
   com o aviso de que não é versão oficial.
 - **Máquinas:** só runners grátis do GitHub (`macos-15`, `ubuntu-24.04`, `windows-latest`),
   com timeouts de 75/45/75/15 minutos e artefatos guardados por 7 dias.
+- **Versão:** no modo `release`, `tools/ci-release-version.mjs` grava o semver (sem o `v`) no
+  `apps/desktop/package.json` da VM descartável antes de empacotar, então `app.getVersion()`,
+  o `Info.plist` do macOS, o `.deb`, o `.AppImage` e o NSIS reportam exatamente a versão da
+  rodada — e cada job confere o que empacotou: `CFBundleShortVersionString` no macOS, campo
+  `Version` do `.deb` no Linux e o `package.json` de dentro do `app.asar` no Windows. No modo
+  `preview`, `preview-<commit>` não é versão válida para `.deb` nem NSIS: os metadados internos
+  mantêm a versão base do `package.json` e `preview-<commit>` vai só no nome dos arquivos e no
+  resumo. Os binários do Hub continuam com a versão do `host/Cargo.toml`, preservando builds
+  `--locked`.
+- **Perfis:** apenas o pacote de macOS usa o perfil isolado `Mexerica Open`
+  (`~/.mexerica-open`, porta `19524`). Os pacotes de Linux e Windows usam o perfil padrão do
+  app (`Donnabot` / `.mexerica`, porta `19422`) e não são isolados de uma instalação
+  existente — as notas de lançamento avisam isso e trazem, para cada plataforma, o comando de
+  hash que confere só o arquivo baixado.
 - **O que sai:** `Mexerica-Open-<versão>-macos-arm64.zip`,
   `mexerica-open-<versão>-linux-amd64.deb`,
   `mexerica-open-<versão>-linux-x86_64.AppImage`,
