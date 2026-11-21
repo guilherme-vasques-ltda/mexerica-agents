@@ -655,7 +655,7 @@ struct Actor {
     fast_support: FastModeSupport,
     /// When idle sessions and agents were last looked for.
     idle_checked: Instant,
-    /// GUI-192: vigia do silêncio do motor durante o pedido aberto.
+    /// Vigia do silêncio do motor durante o pedido aberto.
     mudo: fork_motor_mudo::Vigia,
 }
 

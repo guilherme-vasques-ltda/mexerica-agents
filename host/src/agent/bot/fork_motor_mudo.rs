@@ -345,6 +345,12 @@ mod tests {
 
     fn ator_vazio() -> (Actor, Arc<crate::hub::Hub>) {
         let dir = std::env::temp_dir().join(format!("motor-mudo-{}", uuid::Uuid::new_v4()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        }
+        #[cfg(not(unix))]
         std::fs::create_dir_all(&dir).unwrap();
         let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
         let cfg: crate::store::BotConfig =
