@@ -580,8 +580,11 @@ fn bot_com_conta_grok_executa_so_o_executavel_gravado_na_conta() {
         json!({"id":"fixture","name":"Fixture","backend":"grok","forkEditor":{"engineAccountId":id}}),
     )
     .unwrap();
-    // O comando é exatamente o executável gravado, o mesmo que o login conferiu.
-    assert_eq!(managed::recorded_command(&store, &bot).unwrap(), vec![executable.to_string_lossy().into_owned()]);
+    // O comando é exatamente o executável gravado, o mesmo que o login conferiu, com o modo ACP nativo.
+    assert_eq!(
+        managed::recorded_command(&store, &bot).unwrap(),
+        vec![format!("{} agent stdio", executable.to_string_lossy())]
+    );
     // Fail-closed: sem o executável gravado, nenhum candidato do PATH ou do catálogo é usado.
     std::fs::remove_file(&executable).unwrap();
     let erro = managed::recorded_command(&store, &bot).unwrap_err().to_string();

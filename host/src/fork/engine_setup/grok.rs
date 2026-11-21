@@ -32,6 +32,8 @@ struct Screen {
     /// Depois de o desafio ir para a tela, a espera pode redesenhar linhas por minutos: o limite de saída deixa de valer
     /// e só a cauda do texto fica guardada, para conferir se aparece outro código ou o motivo do fim.
     settled: bool,
+    /// O stream do programa encerrou: a última linha sem quebra é final e entra na conferência.
+    eof: bool,
 }
 
 impl Screen {
@@ -79,10 +81,11 @@ impl Screen {
         Ok(())
     }
 
-    /// Linhas completas do texto: enquanto o programa roda, a última linha sem quebra fica fora (pode estar
-    /// no meio de ser impressa); com o programa encerrado, ela é final e entra na conferência.
+    /// Linhas completas do texto: enquanto o stream está aberto, a última linha sem quebra fica fora (pode
+    /// estar no meio de ser impressa, mesmo depois do desafio); com o stream encerrado, ela é final e entra
+    /// na conferência.
     fn complete(&self) -> &str {
-        if self.settled { &self.text } else { self.text.rsplit_once('\n').map_or("", |(done, _)| done) }
+        if self.eof { &self.text } else { self.text.rsplit_once('\n').map_or("", |(done, _)| done) }
     }
 
     /// Endereço e código só saem de linhas completas, para nunca mostrar um código cortado ao meio.
@@ -259,7 +262,9 @@ pub(super) async fn login(
     };
     pty.reaped = true;
     drop(pty);
-    // Última saída do programa, para distinguir código vencido de recusa.
+    // Última saída do programa, para distinguir código vencido de recusa; o stream encerrou, então a
+    // última linha sem quebra é final e entra na conferência.
+    screen.eof = true;
     while let Ok(Some(bytes)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
         screen.push(&bytes)?;
         if let Some(shown) = &offered {
@@ -338,6 +343,26 @@ pub(super) fn wipe(store: &Store, id: &str, home: &Path) -> Result<()> {
         }
     }
     managed::private_dir(&directory).map_err(|_| failed())
+}
+
+/// Perfis órfãos da conta: pasta com o formato exato do Hub, no lugar da conta, que o registro não aponta
+/// mais — sobra de um apagamento que falhou depois de a conta já apontar para outro. Sai no fim de um login
+/// bem-sucedido, na desconexão e na remoção; falha em uma pasta vira aviso e não impede as outras.
+pub(super) fn sweep_orphans(store: &Store, id: &str, keep: Option<&Path>) {
+    let root = store.engine_setup_root.join("accounts").join(id);
+    let Ok(entries) = std::fs::read_dir(&root) else { return };
+    for entry in entries.flatten() {
+        let home = entry.path();
+        if keep.is_some_and(|keep| home == keep) {
+            continue;
+        }
+        // Pasta que não existe ou sem o formato exato do Hub não é nossa: fica.
+        if let Ok(Some(_)) = checked_home(store, id, &home)
+            && let Err(error) = managed::remove_profile_home(&home)
+        {
+            tracing::warn!(home = %home.display(), %error, "perfil órfão do Grok não removido");
+        }
+    }
 }
 
 /// Remover a conta ou aposentar o perfil de um login anterior: a pasta inteira sai.

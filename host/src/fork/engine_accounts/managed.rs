@@ -634,7 +634,17 @@ pub(crate) fn recorded_command(store: &Store, bot: &BotConfig) -> Result<Vec<Str
         anyhow::bail!("cli_unavailable: prepare o conector da conta.");
     };
     ensure!(crate::fork::motor_install::executable(executable), "cli_unavailable: prepare o conector da conta.");
-    Ok(vec![crate::shell::quote(&executable.to_string_lossy())])
+    // Mesmos argumentos do modo ACP nativo do motor ("{bin} agent stdio" no molde local).
+    let args = crate::agent::backends::harness(account.backend.id())
+        .and_then(|harness| harness.local)
+        .map(|template| template.strip_prefix("{bin}").unwrap_or(template).trim().to_owned())
+        .unwrap_or_default();
+    let mut command = crate::shell::quote(&executable.to_string_lossy());
+    if !args.is_empty() {
+        command.push(' ');
+        command.push_str(&args);
+    }
+    Ok(vec![command])
 }
 
 pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<String>> {

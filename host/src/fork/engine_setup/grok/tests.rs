@@ -627,24 +627,52 @@ async fn programa_sem_nome_de_grok_nao_serve_e_login_antigo_que_nao_sai_trava_o_
 }
 
 #[test]
-fn ultima_linha_sem_quebra_do_grok_entra_na_conferencia_quando_o_programa_encerra() {
+fn ultima_linha_sem_quebra_do_grok_entra_na_conferencia_so_no_fim_do_stream() {
     let mut screen = Screen::default();
     screen.push(b"https://auth.x.ai/device\nThen enter this code: ABCD-EFGH\n").unwrap();
     let shown = screen.challenge().unwrap().unwrap().code.clone().unwrap();
+    // Com o desafio na tela (settled) mas o programa ainda rodando, a linha sem quebra fica fora:
+    // um código no meio de ser impresso não é conflito.
     screen.settled = true;
-    // Código divergente na última linha, sem quebra final: não pode passar despercebido.
+    screen.push(b"Then enter this code: WXYZ-24").unwrap();
+    assert!(!screen.code_conflict(&shown), "código parcial não é conflito");
+    // Com o stream encerrado, a última linha sem quebra é final e conta.
+    screen.eof = true;
     screen.push(b"Then enter this code: WXYZ-2468").unwrap();
     assert!(screen.code_conflict(&shown));
-    // O mesmo numa URL da xAI na última linha parcial.
+    // O mesmo numa URL da xAI na última linha sem quebra.
     let mut other = Screen::default();
     other.push(b"https://auth.x.ai/device?user_code=ABCD-EFGH\n").unwrap();
-    other.settled = true;
+    other.eof = true;
     other.push(b"See https://auth.x.ai/device?user_code=WXYZ-2468").unwrap();
     assert!(other.code_conflict("ABCD-EFGH"));
-    // Enquanto o programa roda, a linha sem quebra continua fora: pode estar no meio de ser impressa.
+    // Enquanto nada encerrou, a linha sem quebra continua fora: pode estar no meio de ser impressa.
     let mut live = Screen::default();
     live.push(b"https://auth.x.ai/device\nThen enter this code: ABCD-EF").unwrap();
     assert!(live.challenge().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn varre_e_apaga_perfis_orfaos_da_conta_mantendo_o_atual() {
+    let f = Fixture::new("plain");
+    let account = f.create("grok-orphan").await;
+    let op = f.start(&account, "login", "grok-orphan-login").await;
+    f.phase(&op, "awaiting_authorization").await;
+    f.decide("approve");
+    f.phase(&op, "connected").await;
+    let home = f.home(&account["id"]);
+    let root = home.parent().unwrap().to_path_buf();
+    // Órfão com o formato exato do Hub: sai na varredura.
+    let orphan = root.join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(orphan.join(Backend::Grok.profile_directory())).unwrap();
+    std::fs::write(orphan.join(".donnabot-profile"), []).unwrap();
+    // Pasta sem o formato do Hub não é nossa: fica.
+    let foreign = root.join("nao-e-nosso");
+    std::fs::create_dir_all(&foreign).unwrap();
+    sweep_orphans(&f.hub.store, account["id"].as_str().unwrap(), Some(&home));
+    assert!(!orphan.exists(), "o perfil órfão foi apagado");
+    assert!(foreign.exists(), "pasta sem formato do Hub não é tocada");
+    assert!(home.exists(), "o perfil atual da conta fica");
 }
 
 #[test]

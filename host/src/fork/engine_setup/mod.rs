@@ -372,8 +372,10 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             if let Err(error) = grok::erase(&hub.store, id, home) {
                                 tracing::warn!(%error, "pasta vazia do Grok não removida");
                             }
+                            grok::sweep_orphans(&hub.store, id, None);
                         } else {
                             grok::wipe(&hub.store, id, home)?;
+                            grok::sweep_orphans(&hub.store, id, Some(home));
                         }
                     }
                     #[cfg(test)]
@@ -825,6 +827,9 @@ async fn start_authorized(
                     && let Some(home) = &superseded
                 {
                     grok::erase(&hub.store, &request.engine_account_id, home)?;
+                }
+                if request.action == Step::Login && backend == Backend::Grok {
+                    grok::sweep_orphans(&hub.store, &request.engine_account_id, profile.parent());
                 }
                 accounts::invalidate();
                 clear(op, Phase::Connected, None);
