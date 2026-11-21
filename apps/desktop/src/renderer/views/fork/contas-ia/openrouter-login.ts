@@ -41,7 +41,13 @@ const ESPERA_MAX_MS = 10 * 60_000 - 2_000
  * navegador. `cancelar` desiste enquanto o navegador não voltou: desliga o ouvinte e a espera termina como «cancelado»;
  * depois do retorno (`aoConcluir`) ele não faz mais nada, porque o Hub já está gravando a chave.
  */
-export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte, esperaMs = ESPERA_MAX_MS, aoConcluir?: () => void) {
+export function entrarComOpenRouter(
+  client: HostClient,
+  ouvinte: PonteDoOuvinte,
+  space: string,
+  esperaMs = ESPERA_MAX_MS,
+  aoConcluir?: () => void,
+) {
   let tentativa: number | null = null
   let cancelado = false
   let concluindo = false
@@ -52,7 +58,7 @@ export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte,
     try {
       if (cancelado) throw new FalhaOpenRouter('cancelado')
       let url: string
-      try { url = (await client.call<{ url: string }>('openrouterEntrar', { loopbackPort: aberto.porta }, 15_000)).url }
+      try { url = (await client.call<{ url: string }>('openrouterEntrar', { loopbackPort: aberto.porta, spaceId: space }, 15_000)).url }
       catch { throw new FalhaOpenRouter('falha') }
       if (cancelado) throw new FalhaOpenRouter('cancelado')
       let temporizador: ReturnType<typeof setTimeout> | undefined
@@ -80,7 +86,7 @@ export function entrarComOpenRouter(client: HostClient, ouvinte: PonteDoOuvinte,
       let acesso: Acesso
       try {
         acesso = await client.call<Acesso>('openrouterEntrarConcluir',
-          retorno.code !== null ? { state: retorno.state, code: retorno.code } : { state: retorno.state, erro: retorno.error ?? '' }, PRAZO_MS)
+          retorno.code !== null ? { state: retorno.state, code: retorno.code, spaceId: space } : { state: retorno.state, erro: retorno.error ?? '', spaceId: space }, PRAZO_MS)
       } catch { throw new FalhaOpenRouter('falha') }
       ouvinte.responder(aberto.tentativa, acesso.ok ? { ok: true, nome: 'OpenRouter' } : { ok: false })
       if (!acesso.ok && (acesso.erro as string) === 'entrada_negada') throw new FalhaOpenRouter('cancelado')

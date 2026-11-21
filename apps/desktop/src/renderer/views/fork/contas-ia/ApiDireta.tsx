@@ -120,9 +120,10 @@ export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaC
   }
   const entrar = () => {
     const client = liveClient(store)
-    if (!client || ocupadoRef.current) return
+    const space = store.spaceId ?? store.spaces?.personalSpaceId
+    if (!client || !space || ocupadoRef.current) return
     setEditando(false)
-    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno, undefined, () => setLoginConcluindo(true))
+    const { fim, cancelar } = entrarComOpenRouter(client, window.codync.app.loginRetorno, space, undefined, () => setLoginConcluindo(true))
     cancelarLoginRef.current = cancelar
     setLoginAberto(true)
     rodar(() => fim, undefined, (e) => (e instanceof FalhaOpenRouter ? { ok: false, frase: fraseDaFalha(e.tipo) } : undefined))

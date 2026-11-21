@@ -50,11 +50,11 @@ function hub(responderConcluir: (corpo: unknown) => Acesso) {
 test('o login inteiro: pede a URL ao Hub com a porta do ouvinte, entrega o retorno e devolve o Acesso', async () => {
   const { client, corpos } = hub(() => ({ ok: true, modelos: [{ id: 'x/a', name: 'A' }] }))
   const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&code=codigo-ficticio'))
-  const { fim } = entrarComOpenRouter(client, ouvinte)
+  const { fim } = entrarComOpenRouter(client, ouvinte, 'pessoal-1')
   assert.deepEqual(await fim, { ok: true, modelos: [{ id: 'x/a', name: 'A' }] })
   assert.deepEqual(corpos, [
-    { metodo: 'openrouterEntrar', corpo: { loopbackPort: 19424 } },
-    { metodo: 'openrouterEntrarConcluir', corpo: { state: 'estado-1', code: 'codigo-ficticio' } },
+    { metodo: 'openrouterEntrar', corpo: { loopbackPort: 19424, spaceId: 'pessoal-1' } },
+    { metodo: 'openrouterEntrarConcluir', corpo: { state: 'estado-1', code: 'codigo-ficticio', spaceId: 'pessoal-1' } },
   ])
   assert.ok(registro[0] === 'esperar:7:' + URL_DO_HUB, 'o ouvinte recebe a URL do Hub com a tentativa certa')
   assert.ok(registro.includes('responder:7:true:OpenRouter'), 'o navegador vê o desfecho de sucesso')
@@ -65,9 +65,9 @@ test('o retorno com erro do fornecedor vai ao Hub como {state, erro} e o Acesso 
   let recebido: unknown
   const { client } = hub((corpo) => { recebido = corpo; return { ok: false, erro: 'fornecedor_falhou' } })
   const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&error=access_denied'))
-  const { fim } = entrarComOpenRouter(client, ouvinte)
+  const { fim } = entrarComOpenRouter(client, ouvinte, 'pessoal-1')
   assert.deepEqual(await fim, { ok: false, erro: 'fornecedor_falhou' })
-  assert.deepEqual(recebido, { state: 'estado-1', erro: 'access_denied' })
+  assert.deepEqual(recebido, { state: 'estado-1', erro: 'access_denied', spaceId: 'pessoal-1' })
   assert.ok(registro.includes('responder:7:false:'), 'sem nome de conector no desfecho de erro')
 })
 
@@ -82,7 +82,7 @@ test('o retorno que já estava em trânsito quando o Cancelar foi clicado não c
     },
   } as unknown as HostClient
   const { ouvinte, registro } = ponte(() => { cancelar(); return Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&code=codigo-ficticio') })
-  const entrada = entrarComOpenRouter(client, ouvinte)
+  const entrada = entrarComOpenRouter(client, ouvinte, 'pessoal-1')
   cancelar = entrada.cancelar
   const desfecho = entrada.fim.then(() => null, (e: unknown) => e)
   const falha = await desfecho
@@ -94,7 +94,7 @@ test('o retorno que já estava em trânsito quando o Cancelar foi clicado não c
 test('cancelar desliga o ouvinte e a espera termina como cancelado', async () => {
   const { client } = hub(() => ({ ok: true, modelos: [] }))
   const { ouvinte, registro, esperou } = ponte(() => new Promise<string>(() => {}))
-  const { fim, cancelar } = entrarComOpenRouter(client, ouvinte)
+  const { fim, cancelar } = entrarComOpenRouter(client, ouvinte, 'pessoal-1')
   const desfecho = fim.catch((e: unknown) => e)
   await esperou
   cancelar()
@@ -107,7 +107,7 @@ test('cancelar desliga o ouvinte e a espera termina como cancelado', async () =>
 test('sem retorno a tempo a espera termina como tempo e desliga o ouvinte', async () => {
   const { client } = hub(() => ({ ok: true, modelos: [] }))
   const { ouvinte, registro } = ponte(() => new Promise<string>(() => {}))
-  const { fim } = entrarComOpenRouter(client, ouvinte, 20)
+  const { fim } = entrarComOpenRouter(client, ouvinte, 'pessoal-1', 20)
   const falha = await fim.then(() => null, (e: unknown) => e)
   assert.ok(falha instanceof FalhaOpenRouter && falha.tipo === 'tempo')
   assert.ok(registro.includes('fechar:7'))
@@ -119,13 +119,13 @@ test('sem porta livre para o ouvinte, ou Hub que não responde, a falha é a gen
     abrir: async () => null, esperar: () => Promise.reject(new Error('nunca')),
     responder() {}, fechar() {},
   }
-  const { fim } = entrarComOpenRouter(client, semOuvinte)
+  const { fim } = entrarComOpenRouter(client, semOuvinte, 'pessoal-1')
   assert.equal(await fim.then(() => 'ok', (e: unknown) => (e as FalhaOpenRouter).tipo), 'falha')
   assert.deepEqual(corpos, [], 'sem ouvinte o Hub nem é chamado')
 
   const hubFora: HostClient = { call: async () => { throw new Error('sem resposta') } } as unknown as HostClient
   const { ouvinte, registro } = ponte(() => new Promise<string>(() => {}))
-  const { fim: fim2 } = entrarComOpenRouter(hubFora as HostClient, ouvinte)
+  const { fim: fim2 } = entrarComOpenRouter(hubFora as HostClient, ouvinte, 'pessoal-1')
   assert.equal(await fim2.then(() => 'ok', (e: unknown) => (e as FalhaOpenRouter).tipo), 'falha')
   assert.ok(registro.includes('fechar:7'), 'o ouvinte não fica aberto quando o Hub falhou')
 })
@@ -138,7 +138,7 @@ test('o Hub que falha ao concluir vira a falha genérica, sem deixar o navegador
     },
   } as unknown as HostClient
   const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&code=xyz'))
-  const { fim } = entrarComOpenRouter(client, ouvinte)
+  const { fim } = entrarComOpenRouter(client, ouvinte, 'pessoal-1')
   assert.equal(await fim.then(() => 'ok', (e: unknown) => (e as FalhaOpenRouter).tipo), 'falha')
   assert.ok(registro.includes('fechar:7'))
 })
@@ -153,7 +153,7 @@ test('cada falha do login tem frase nos seis idiomas', () => {
 test('o Hub respondendo «entrada negada» vira login cancelado, sem culpar o fornecedor', async () => {
   const { client } = hub(() => ({ ok: false, erro: 'entrada_negada' }) as unknown as Acesso)
   const { ouvinte } = ponte(() => Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&error=access_denied'))
-  const { fim } = entrarComOpenRouter(client, ouvinte)
+  const { fim } = entrarComOpenRouter(client, ouvinte, 'pessoal-1')
   await assert.rejects(fim, (e: unknown) => e instanceof FalhaOpenRouter && e.tipo === 'cancelado')
 })
 
@@ -169,7 +169,7 @@ test('depois que o navegador voltou, cancelar não faz mais nada: o Hub já est�
   } as unknown as HostClient
   const { ouvinte, registro } = ponte(() => Promise.resolve('http://127.0.0.1:19424/oauth/callback?state=estado-1&code=codigo-ficticio'))
   let concluindo = 0
-  const { fim, cancelar } = entrarComOpenRouter(client, ouvinte, undefined, () => { concluindo += 1 })
+  const { fim, cancelar } = entrarComOpenRouter(client, ouvinte, 'pessoal-1', undefined, () => { concluindo += 1 })
   while (!chamadas.includes('openrouterEntrarConcluir')) await new Promise((r) => setTimeout(r, 5))
   cancelar()
   liberar({ ok: true, modelos: [] })
