@@ -383,17 +383,21 @@ async fn texto_dos_campos_do_schema_aparece_na_confirmacao_e_conta_como_mudanca(
     assert!(erro.to_string().starts_with("descricao_invalida"), "{erro}");
 }
 
-/// Todo texto de um schema: chaves dos mapas de nomes e valores de texto (menos os tipos do vocabulário fechado).
-fn textos_do_schema(schema: &Value, saida: &mut Vec<String>) {
+/// Todo texto de um schema: valores de texto (menos os tipos sob a palavra-chave `"type"`, que é vocabulário fechado)
+/// e os nomes de campos, separados. Palavra de tipo como texto do fornecedor (uma `description`, um `enum`) é texto
+/// como outro qualquer e precisa chegar à confirmação.
+fn textos_do_schema(schema: &Value, nomes: &mut Vec<String>, textos: &mut Vec<String>) {
     match schema {
-        Value::String(t) if !TIPOS.contains(&t.as_str()) => saida.push(t.clone()),
-        Value::Array(itens) => itens.iter().for_each(|i| textos_do_schema(i, saida)),
+        Value::String(t) => textos.push(t.clone()),
+        Value::Array(itens) => itens.iter().for_each(|i| textos_do_schema(i, nomes, textos)),
         Value::Object(mapa) => {
             for (chave, valor) in mapa {
                 if matches!(chave.as_str(), "properties" | "patternProperties" | "$defs" | "definitions") {
-                    saida.extend(valor.as_object().into_iter().flatten().map(|(n, _)| n.clone()));
+                    nomes.extend(valor.as_object().into_iter().flatten().map(|(n, _)| n.clone()));
                 }
-                textos_do_schema(valor, saida);
+                if !matches!(chave.as_str(), "type" | "required") {
+                    textos_do_schema(valor, nomes, textos);
+                }
             }
         }
         _ => {}
@@ -415,7 +419,10 @@ async fn nenhum_texto_do_schema_que_chega_ao_modelo_fica_fora_do_que_a_tela_rece
             "type": {"type": "string", "title": "Campo chamado type", "enum": ["a", {"objeto": "escondido"}]},
             "sem_texto": {"type": "integer"},
             "filtro": {"anyOf": [{"type": "string", "pattern": "^[a-z]+$"}, {"$ref": "#/$defs/Filtro"}]},
-            "lista": {"type": "array", "items": {"type": "string", "format": "email", "const": "fixo"}}
+            "lista": {"type": "array", "items": {"type": "string", "format": "email", "const": "fixo"}},
+            "palavras": {"type": "string", "description": "string", "enum": ["string", "number"]},
+            "short": {"type": "string", "description": "short"},
+            "shorttitle": {"type": "string", "description": "short title"}
         },
         "$defs": {"Filtro": {"type": "object", "description": "Filtro composto.", "additionalProperties": {"type": "string", "description": "Valor livre."}}},
         "additionalProperties": false
@@ -425,14 +432,29 @@ async fn nenhum_texto_do_schema_que_chega_ao_modelo_fica_fora_do_que_a_tela_rece
     let modelo = listar_para_o_bot(&hub, &conta, from_ref(&tool));
     assert_eq!(modelo.len(), 1);
     let schema = &modelo[0]["inputSchema"];
+    let mut nomes = Vec::new();
     let mut textos = Vec::new();
-    textos_do_schema(schema, &mut textos);
-    let campos = tela(&hub, &conta, "create_issue").await.unwrap()["campos"].to_string();
+    textos_do_schema(schema, &mut nomes, &mut textos);
+    // Comparação exata dos pares decodificados: texto parecido ou sobreposto ("short" e "short title") não cobre um
+    // pelo outro, e um texto que se perder faz a asserção falhar. Nome de campo chega como rótulo, sozinho ou como
+    // trecho do caminho do rótulo.
+    let campos: Vec<[String; 2]> =
+        serde_json::from_value(tela(&hub, &conta, "create_issue").await.unwrap()["campos"].clone()).unwrap();
+    let no_par = |texto: &str| campos.iter().any(|[campo, valor]| campo == texto || valor == texto);
+    let no_rotulo = |nome: &str| {
+        campos.iter().any(|[campo, _]| {
+            campo == nome
+                || campo.starts_with(&format!("{nome} ("))
+                || campo.starts_with(&format!("{nome} › "))
+                || campo.contains(&format!(" › {nome} ("))
+                || campo.contains(&format!(" › {nome} › "))
+        })
+    };
     for texto in &textos {
-        assert!(
-            campos.contains(&json!(texto).to_string()[1..json!(texto).to_string().len() - 1]),
-            "fora da tela: {texto:?} em {campos}"
-        );
+        assert!(no_par(texto), "fora da tela: {texto:?} em {campos:?}");
+    }
+    for nome in &nomes {
+        assert!(no_rotulo(nome), "campo fora da tela: {nome:?} em {campos:?}");
     }
     let entregue = schema.to_string();
     for escondido in [
@@ -455,8 +477,10 @@ async fn nenhum_texto_do_schema_que_chega_ao_modelo_fica_fora_do_que_a_tela_rece
         "email",
         "fixo",
         "sem_texto",
+        "short",
+        "short title",
     ] {
-        assert!(entregue.contains(visivel) && campos.contains(visivel), "{visivel}");
+        assert!(entregue.contains(visivel) && (no_par(visivel) || no_rotulo(visivel)), "{visivel}");
     }
 }
 
@@ -480,6 +504,44 @@ async fn outra_projecao_do_mesmo_bruto_derruba_a_liberacao_e_a_confirmacao_abert
     assert!(erro.to_string().starts_with("ferramenta_mudou"), "confirmação aberta com o texto antigo: {erro}");
     ligar(&hub, &conta, "create_issue", &digest(&tool)).await.unwrap();
     assert_eq!(listar_com_segredos(&hub, &conta, from_ref(&tool), from_ref(&segredo)).len(), 1);
+}
+
+#[tokio::test]
+async fn campo_declarado_em_allof_fica_em_required_e_o_fantasma_sai() {
+    let hub = hub();
+    let conta = conta_com_bot(&hub);
+    let mut tool = acao("create_issue", &json!("Cria uma issue."));
+    tool["inputSchema"] = json!({
+        "type": "object",
+        "required": ["assignee", "fantasma"],
+        "allOf": [{"properties": {"assignee": {"type": "string", "description": "Responsável pela issue."}}}]
+    });
+    listar_para_o_bot(&hub, &conta, from_ref(&tool));
+    ligar(&hub, &conta, "create_issue", &digest(&tool)).await.unwrap();
+    let modelo = listar_para_o_bot(&hub, &conta, from_ref(&tool));
+    assert_eq!(modelo[0]["inputSchema"]["required"], json!(["assignee"]), "declarado em allOf fica");
+    let campos: Vec<[String; 2]> =
+        serde_json::from_value(tela(&hub, &conta, "create_issue").await.unwrap()["campos"].clone()).unwrap();
+    assert!(
+        campos.iter().any(|[campo, texto]| campo.ends_with("assignee") && texto == "Responsável pela issue."),
+        "o campo de allOf aparece na confirmação: {campos:?}"
+    );
+}
+
+#[tokio::test]
+async fn redacao_mudou_sem_o_bruto_mudar_e_a_tela_diz_que_a_descricao_mudou() {
+    let hub = hub();
+    let conta = conta_com_bot(&hub);
+    let segredo = "segredo-sintetico-0123456789abcdef".to_owned();
+    let tool = acao("create_issue", &json!(format!("Cria uma issue. Chave: {segredo}.")));
+    listar_com_segredos(&hub, &conta, from_ref(&tool), &[]);
+    ligar(&hub, &conta, "create_issue", &digest(&tool)).await.unwrap();
+    assert_eq!(listar_com_segredos(&hub, &conta, from_ref(&tool), &[]).len(), 1);
+    // Mesmos bytes brutos, mas o filtro passou a esconder outro trecho do texto.
+    assert_eq!(listar_com_segredos(&hub, &conta, from_ref(&tool), from_ref(&segredo)), Vec::<Value>::new());
+    let depois = tela(&hub, &conta, "create_issue").await.unwrap();
+    assert_eq!(depois["motivo"], "alterada", "a liberação caiu");
+    assert_eq!(depois["mudou"], json!(["descricao"]), "e a tela diz que o texto que o bot lê mudou");
 }
 
 #[tokio::test]

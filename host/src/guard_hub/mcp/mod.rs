@@ -2,9 +2,9 @@
 pub mod contexto;
 mod entrada;
 pub(crate) use entrada::notification_method;
-pub(crate) use entrada::sem_envelope;
 #[cfg(unix)]
 pub(crate) use entrada::redigir_json;
+pub(crate) use entrada::sem_envelope;
 pub(crate) mod http;
 mod ponte_remota;
 mod remoto;

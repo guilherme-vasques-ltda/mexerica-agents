@@ -27,7 +27,7 @@ export function AcoesDaConta({ botId, botNome, conta }: { botId: string; botNome
     setFalhou(false); setConfirmando(null)
     try {
       const lida = await ferramentasDoBot(store, botId, conta.id)
-      if (minha === leitura.current) setDados(lida)
+      if (minha === leitura.current) { setDados(lida); setConfirmando(null) }
     } catch { if (minha === leitura.current) setFalhou(true) }
   }, [store, botId, conta.id])
   useEffect(() => { setDados(null); setConfirmando(null); setErro(null); void ler(); return () => { leitura.current += 1 } }, [ler])

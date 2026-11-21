@@ -426,33 +426,63 @@ const CAMPOS_MAX: usize = 16 * 1024;
 const TIPOS: &[&str] = &["string", "number", "integer", "boolean", "object", "array", "null"];
 
 /// O schema de entrada que vai ao modelo, reduzido a uma lista fechada de palavras-chave. Fica só a estrutura e o texto
-/// que a tela mostra (`campos_do_schema`); qualquer outra palavra-chave do fornecedor sai antes de chegar ao modelo.
+/// que a tela mostra (`campos_do_schema_limitado`); qualquer outra palavra-chave do fornecedor sai antes de chegar
+/// ao modelo.
 pub(crate) fn projetar_schema(schema: &Value) -> Value {
+    projetar_schema_com(schema, &propriedades_declaradas(schema))
+}
+
+/// Os nomes de campos declarados no schema todo, inclusive em ramos (`allOf`, `anyOf`, `oneOf`, `items`, `$defs`):
+/// `required` só derruba o nome que nenhum ramo declara.
+fn propriedades_declaradas(schema: &Value) -> BTreeSet<String> {
+    fn andar(v: &Value, nomes: &mut BTreeSet<String>) {
+        match v {
+            Value::Array(itens) => itens.iter().for_each(|i| andar(i, nomes)),
+            Value::Object(mapa) => {
+                for (chave, valor) in mapa {
+                    match chave.as_str() {
+                        "properties" | "patternProperties" | "$defs" | "definitions" => {
+                            for (nome, filho) in valor.as_object().into_iter().flatten() {
+                                nomes.insert(nome.clone());
+                                andar(filho, nomes);
+                            }
+                        }
+                        "items" | "allOf" | "anyOf" | "oneOf" | "additionalProperties" | "not" => andar(valor, nomes),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut nomes = BTreeSet::new();
+    andar(schema, &mut nomes);
+    nomes
+}
+
+fn projetar_schema_com(schema: &Value, declaradas: &BTreeSet<String>) -> Value {
     let Value::Object(mapa) = schema else {
         return if schema.is_boolean() { schema.clone() } else { json!({}) };
     };
     let escalar = |v: &Value| matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Null);
-    let propriedades: BTreeSet<&str> = mapa
-        .get("properties")
-        .and_then(Value::as_object)
-        .map(|p| p.keys().map(String::as_str).collect())
-        .unwrap_or_default();
     let mut saida = serde_json::Map::new();
     for (chave, valor) in mapa {
         let projetado = match (chave.as_str(), valor) {
             ("properties" | "patternProperties" | "$defs" | "definitions", Value::Object(filhos)) => {
-                Value::Object(filhos.iter().map(|(n, f)| (n.clone(), projetar_schema(f))).collect())
+                Value::Object(filhos.iter().map(|(n, f)| (n.clone(), projetar_schema_com(f, declaradas))).collect())
             }
             ("items" | "anyOf" | "oneOf" | "allOf", Value::Array(itens)) => {
-                Value::Array(itens.iter().map(projetar_schema).collect())
+                Value::Array(itens.iter().map(|i| projetar_schema_com(i, declaradas)).collect())
             }
-            ("items" | "additionalProperties" | "not", v) if v.is_object() || v.is_boolean() => projetar_schema(v),
+            ("items" | "additionalProperties" | "not", v) if v.is_object() || v.is_boolean() => {
+                projetar_schema_com(v, declaradas)
+            }
             ("type", Value::String(t)) if TIPOS.contains(&t.as_str()) => valor.clone(),
             ("type", Value::Array(ts)) if ts.iter().all(|t| t.as_str().is_some_and(|t| TIPOS.contains(&t))) => {
                 valor.clone()
             }
             ("required", Value::Array(nomes)) => Value::Array(
-                nomes.iter().filter(|n| n.as_str().is_some_and(|n| propriedades.contains(n))).cloned().collect(),
+                nomes.iter().filter(|n| n.as_str().is_some_and(|n| declaradas.contains(n))).cloned().collect(),
             ),
             ("enum", Value::Array(itens)) => Value::Array(itens.iter().filter(|i| escalar(i)).cloned().collect()),
             ("const", v) if escalar(v) => v.clone(),
@@ -472,7 +502,9 @@ pub(crate) fn projetar_schema(schema: &Value) -> Value {
 
 /// Todo texto de um schema já projetado, como `[campo, texto]`: nomes de campos (sozinhos, quando não há texto
 /// abaixo deles) e todo valor de texto que não seja um tipo do vocabulário fechado. É a lista que a tela mostra.
-fn campos_do_schema(schema: &Value) -> Vec<(String, String)> {
+/// Acima do teto somado (`limite`), para de andar na hora e devolve `None`: nada do resto é percorrido, serializado
+/// nem digerido.
+fn campos_do_schema_limitado(schema: &Value, limite: usize) -> Option<Vec<(String, String)>> {
     fn rotulo(caminho: &[String], chave: &str) -> String {
         let base = caminho.join(" › ");
         match (base.is_empty(), chave) {
@@ -481,24 +513,54 @@ fn campos_do_schema(schema: &Value) -> Vec<(String, String)> {
             (false, _) => format!("{base} ({chave})"),
         }
     }
-    fn texto(valor: &Value, caminho: &[String], chave: &str, saida: &mut Vec<(String, String)>) {
+    fn texto(
+        valor: &Value,
+        caminho: &[String],
+        chave: &str,
+        saida: &mut Vec<(String, String)>,
+        total: &mut usize,
+        limite: usize,
+    ) -> bool {
         match valor {
-            Value::String(t) => saida.push((rotulo(caminho, chave), t.clone())),
-            Value::Array(itens) => itens.iter().for_each(|i| texto(i, caminho, chave, saida)),
-            _ => {}
+            Value::String(t) => {
+                let rotulo = rotulo(caminho, chave);
+                *total += rotulo.len() + t.len();
+                if *total > limite {
+                    return false;
+                }
+                saida.push((rotulo, t.clone()));
+                true
+            }
+            Value::Array(itens) => itens.iter().all(|i| texto(i, caminho, chave, saida, total, limite)),
+            _ => true,
         }
     }
-    fn andar(schema: &Value, caminho: &mut Vec<String>, saida: &mut Vec<(String, String)>) {
-        let Value::Object(mapa) = schema else { return };
+    fn andar(
+        schema: &Value,
+        caminho: &mut Vec<String>,
+        saida: &mut Vec<(String, String)>,
+        total: &mut usize,
+        limite: usize,
+    ) -> bool {
+        let Value::Object(mapa) = schema else { return true };
         for (chave, valor) in mapa {
             match chave.as_str() {
                 "properties" | "patternProperties" | "$defs" | "definitions" => {
                     for (nome, filho) in valor.as_object().into_iter().flatten() {
                         caminho.push(nome.clone());
                         let antes = saida.len();
-                        andar(filho, caminho, saida);
+                        if !andar(filho, caminho, saida, total, limite) {
+                            caminho.pop();
+                            return false;
+                        }
                         if saida.len() == antes {
-                            saida.push((caminho.join(" › "), String::new()));
+                            let rotulo = caminho.join(" › ");
+                            *total += rotulo.len();
+                            if *total > limite {
+                                caminho.pop();
+                                return false;
+                            }
+                            saida.push((rotulo, String::new()));
                         }
                         caminho.pop();
                     }
@@ -507,29 +569,43 @@ fn campos_do_schema(schema: &Value) -> Vec<(String, String)> {
                     Value::Array(itens) => {
                         for (i, item) in itens.iter().enumerate() {
                             caminho.push(format!("{chave}[{i}]"));
-                            andar(item, caminho, saida);
+                            if !andar(item, caminho, saida, total, limite) {
+                                caminho.pop();
+                                return false;
+                            }
                             caminho.pop();
                         }
                     }
                     v => {
                         caminho.push(chave.clone());
-                        andar(v, caminho, saida);
+                        if !andar(v, caminho, saida, total, limite) {
+                            caminho.pop();
+                            return false;
+                        }
                         caminho.pop();
                     }
                 },
                 "additionalProperties" | "not" => {
                     caminho.push(chave.clone());
-                    andar(valor, caminho, saida);
+                    if !andar(valor, caminho, saida, total, limite) {
+                        caminho.pop();
+                        return false;
+                    }
                     caminho.pop();
                 }
                 "type" | "required" => {}
-                _ => texto(valor, caminho, chave, saida),
+                _ => {
+                    if !texto(valor, caminho, chave, saida, total, limite) {
+                        return false;
+                    }
+                }
             }
         }
+        true
     }
     let mut saida = Vec::new();
-    andar(schema, &mut Vec::new(), &mut saida);
-    saida
+    let mut total = 0;
+    if andar(schema, &mut Vec::new(), &mut saida, &mut total, limite) { Some(saida) } else { None }
 }
 
 /// O texto de uma ferramenta como a mediação do Guard o entrega ao bot, já sem segredos e escapado, com o schema na
@@ -551,25 +627,43 @@ pub(crate) fn descricoes_mediadas(mediado: &Value) -> BTreeMap<String, TextoMedi
         .into_iter()
         .flatten()
         .filter_map(|t| {
+            let nome = t["name"].as_str()?.to_owned();
             let descricao = crate::guard_hub::mcp::sem_envelope(t["description"].as_str()?)?.to_owned();
-            let campos = campos_do_schema(&projetar_schema(&t["inputSchema"]));
-            let grande = campos.iter().map(|(r, x)| r.len() + x.len()).sum::<usize>() > CAMPOS_MAX;
+            // Acima do teto, nada do texto é montado nem digerido: a ferramenta fica inválida, sem lista de campos.
+            let Some(campos) = campos_do_schema_limitado(&projetar_schema(&t["inputSchema"]), CAMPOS_MAX) else {
+                return Some((
+                    nome,
+                    TextoMediado {
+                        descricao: String::new(),
+                        campos: String::new(),
+                        apresentacao: String::new(),
+                        grande: true,
+                    },
+                ));
+            };
             let campos = json!(campos.iter().map(|(r, x)| [r, x]).collect::<Vec<_>>());
             let apresentacao = operacao::digest(&json!({"descricao": descricao, "campos": campos}));
-            Some((
-                t["name"].as_str()?.to_owned(),
-                TextoMediado { descricao, campos: campos.to_string(), apresentacao, grande },
-            ))
+            Some((nome, TextoMediado { descricao, campos: campos.to_string(), apresentacao, grande: false }))
         })
         .collect()
 }
 
 /// As partes que mudaram entre o que a pessoa ligou e o que o fornecedor mostra agora. Vazia quando uma das duas
-/// versões é anterior ao registro das partes: a tela diz só que a ação mudou.
+/// versões é anterior ao registro das partes: a tela diz só que a ação mudou. As chaves internas `_descricao_mediada`
+/// e `_campos_mediado` valem só quando presentes nas duas versões: a redação do Guard ou a projeção mudarem sem o
+/// bruto mudar conta como mudança de `descricao`/`entrada`, e linhas antigas, sem as chaves, não dão falso positivo.
 fn partes_que_mudaram(aprovadas: Option<&str>, atuais: Option<&str>) -> Vec<&'static str> {
     let ler = |p: Option<&str>| p.and_then(|t| serde_json::from_str::<BTreeMap<String, String>>(t).ok());
     let (Some(antes), Some(agora)) = (ler(aprovadas), ler(atuais)) else { return vec![] };
-    PARTES.into_iter().filter(|p| antes.get(*p) != agora.get(*p)).collect()
+    let mediada_mudou = |chave: &str| antes.get(chave).zip(agora.get(chave)).is_some_and(|(a, b)| a != b);
+    PARTES
+        .into_iter()
+        .filter(|p| match *p {
+            "descricao" => antes.get("descricao") != agora.get("descricao") || mediada_mudou("_descricao_mediada"),
+            "entrada" => antes.get("entrada") != agora.get("entrada") || mediada_mudou("_campos_mediado"),
+            _ => antes.get(*p) != agora.get(*p),
+        })
+        .collect()
 }
 
 struct Linha {
@@ -741,6 +835,18 @@ fn instalar_em(
             Some(t) => (Some(&t.descricao), Some(&t.campos), Some(&t.apresentacao)),
             None => (None, None, None),
         };
+        // As partes gravadas levam, junto das públicas, a impressão do texto mediado (chaves internas `_...`): a
+        // redação do Guard ou a projeção mudarem sem o bruto mudar conta como mudança de `descricao`/`entrada`.
+        // `partes_que_mudaram` só compara as chaves internas quando as duas versões as têm.
+        let partes = match mediado.filter(|_| !invalida) {
+            Some(t) => {
+                let mut mapa: BTreeMap<String, String> = serde_json::from_str(&visto.partes).unwrap_or_default();
+                mapa.insert("_descricao_mediada".to_owned(), operacao::digest(&Value::String(t.descricao.clone())));
+                mapa.insert("_campos_mediado".to_owned(), operacao::digest(&Value::String(t.campos.clone())));
+                json!(mapa).to_string()
+            }
+            None => visto.partes.clone(),
+        };
         match existentes.get(nome) {
             Some(antiga) if antiga.digest == visto.digest => {
                 tx.execute(
@@ -753,7 +859,7 @@ fn instalar_em(
                         agora,
                         texto,
                         i64::from(invalida),
-                        visto.partes,
+                        partes,
                         campos,
                         apresentacao
                     ],
@@ -785,7 +891,7 @@ fn instalar_em(
                 tx.execute(
                     "UPDATE mexerica_ferramenta_liberacoes SET partes=?3 WHERE conta=?1 AND nome=?2 AND digest=?4
                      AND partes IS NULL",
-                    params![conta, nome, visto.partes, visto.digest],
+                    params![conta, nome, partes, visto.digest],
                 )?;
             }
             Some(_) => {
@@ -800,7 +906,7 @@ fn instalar_em(
                         agora,
                         texto,
                         i64::from(invalida),
-                        visto.partes,
+                        partes,
                         campos,
                         apresentacao
                     ],
@@ -832,7 +938,7 @@ fn instalar_em(
                         agora,
                         texto,
                         i64::from(invalida),
-                        visto.partes,
+                        partes,
                         campos,
                         apresentacao
                     ],
@@ -980,9 +1086,10 @@ pub(crate) fn registrar_descoberta(
     geracao: Option<i64>,
 ) -> Result<()> {
     let tools = lista_do_frame(store, &conta.id, bruto)?;
-    if politica(conta)?.is_none() {
+    if conta.servico.is_none() {
         return Ok(());
     }
+    let _pol = politica(conta)?.ok_or_else(|| anyhow!("conta sem ficha"))?;
     let mediados = nomes_mediados(mediado);
     let completa = lista_completa(pedido, bruto) && mediados.is_some();
     let textos = descricoes_mediadas(mediado);
@@ -1048,6 +1155,8 @@ fn filtrar_lista_com(
     let tools = lista_do_frame(store, conta, bruto)?;
     let mediados = nomes_mediados(mediado);
     let mediados_ref = mediados.clone().unwrap_or_default();
+    // O texto mediado é projetado ANTES de abrir o banco: a projeção dos schemas não segura o lock.
+    let textos = descricoes_mediadas(mediado);
     // Instalar e decidir o que passa é uma transação só: só uma resposta aceita agora decide o que o bot vê, e só
     // pelos digests dela. Outra descoberta que reabra o inventário em seguida não empresta digest a esta resposta.
     let mut db = store.db.locked();
@@ -1057,7 +1166,7 @@ fn filtrar_lista_com(
         conta,
         tools,
         &mediados_ref,
-        &descricoes_mediadas(mediado),
+        &textos,
         lista_completa(pedido, bruto) && mediados.is_some(),
         geracao,
     )?;
