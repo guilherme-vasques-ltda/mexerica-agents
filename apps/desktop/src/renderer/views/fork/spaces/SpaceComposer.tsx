@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import { useT } from '../../../lib/fork-i18n/estado'
 import type { SpaceContext, SpaceMessage } from '../../../store/fork-space-context'
+import { erroDoEnvio, type ErroDoEnvio } from './erro-envio'
 import { filaCheia } from '../conversa/fila'
 
 /** Montado por Hub/Space/conversa: texto, nonce e erros nunca passam à próxima seleção. */
@@ -9,7 +10,7 @@ export function SpaceComposer({ context }: { context: SpaceContext }) {
   const t = useT()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<false | 'falhou' | 'cheia'>(false)
+  const [error, setError] = useState<false | ErroDoEnvio | 'conversa.fila.erro.cheia'>(false)
   const field = useRef<HTMLTextAreaElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const pending = useRef<SpaceMessage | null>(null)
@@ -29,7 +30,7 @@ export function SpaceComposer({ context }: { context: SpaceContext }) {
       pending.current ??= context.prepareMessage(text)
       await pending.current.send()
       if (alive.current) { setText(''); pending.current = null }
-    } catch (failure) { if (alive.current) setError(filaCheia(failure) ? 'cheia' : 'falhou') }
+    } catch (failure) { if (alive.current) setError(filaCheia(failure) ? 'conversa.fila.erro.cheia' : erroDoEnvio(failure)) }
     finally {
       locked.current = false
       if (alive.current) {
@@ -41,7 +42,7 @@ export function SpaceComposer({ context }: { context: SpaceContext }) {
     }
   }
   return <div className="space-composer-wrap">
-    {error ? <p className="space-composer-error" role="alert">{t(error === 'cheia' ? 'conversa.fila.erro.cheia' : 'spaces.compose.falhou')}</p> : null}
+    {error ? <p className="space-composer-error" role="alert">{t(error)}</p> : null}
     <form className="space-composer" aria-busy={busy} onSubmit={(e) => { e.preventDefault(); void send() }}>
       <textarea ref={field} dir="auto" aria-label={t('spaces.compose.mensagem')} placeholder={t('spaces.compose.mensagem')}
         value={text} rows={2} maxLength={250000} readOnly={busy} disabled={!context.canSend}

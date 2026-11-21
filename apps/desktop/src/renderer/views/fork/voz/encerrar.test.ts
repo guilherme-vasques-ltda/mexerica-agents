@@ -158,6 +158,7 @@ function chamada(plano: Plano, idioma = 'pt-BR', envioReal = false, contexto: { 
       '../fork/avatars/editor-store': {}, '@shared/fork-avatar-config': {}, '@shared/models': {},
       './file-downloads': { FileDownloads: class {} }, './bot-mirror': {}, '@shared/bot-autonomy': {},
       './fork-senha-bloqueio': { bloqueioSenha: { bloqueado: () => false }, destinoSenha: () => '' },
+      '../views/fork/spaces/erro-envio': { erroDoEnvio: () => 'spaces.compose.falhou', recusaOpen: () => null },
       '../lib/fork-i18n/estado': { idiomaAtual: () => 'en', tradutor: () => () => '' },
       './bot-sync': { BotSync: class {
         entries = new Map([['bot', mensagens]])

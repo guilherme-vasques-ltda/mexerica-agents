@@ -1,7 +1,7 @@
 //! MX-142 fatia 3a: ferramentas de bot para a área de Tarefas. Toda chamada exige um
 //! `ExecutionRef` vivo conferido na mesma transação da gravação; a autoridade é a do
 //! bot, nunca a do dono que o acionou. Comentários de bot nunca avisam ninguém.
-mod db;
+pub(crate) mod db;
 #[cfg(test)]
 mod tests;
 
@@ -20,7 +20,9 @@ Coordenador do Projeto e supervisor direto do responsável também atualizam sub
 Use task_comment para registrar texto na subtarefa (nunca avisa outro bot); se estiver respondendo a um aviso do dono, passe replyToCommentId com o id do comentário para marcá-lo como respondido. \
 Use task_create_child para criar uma subtarefa filha de uma tarefa sobre a qual você tem autoridade plena, \
 para você ou para outro bot do mesmo Space; os limites são 100 tarefas e 3 níveis. \
-Atribuir não inicia trabalho por si só; para criar já iniciando use task_create_child com start=true (requestId obrigatório).";
+Atribuir não inicia trabalho por si só, e criar já iniciando não existe mais. \
+Para propor várias subtarefas use task_propose (requestId obrigatório): a proposta fica pendente, nada é criado nem iniciado, \
+e só depois do ok do dono as tarefas são criadas e começam sozinhas, no máximo duas ao mesmo tempo no Space e uma por bot.";
 
 /// DDL idêntica à de `projetos::migrate` (dona do schema): `IF NOT EXISTS` torna a
 /// ordem de migração irrelevante enquanto as frentes não integram.
@@ -94,7 +96,7 @@ pub(crate) fn tools() -> Value {
         },
         {
             "name": "task_create_child",
-            "description": "Cria uma subtarefa filha de uma tarefa sobre a qual você tem autoridade plena, atribuída a você ou a outro bot visível do mesmo Space. Limites: 100 tarefas e 3 níveis por Projeto. Atribuir não inicia trabalho por si só; com start=true a subtarefa já é criada iniciada (requestId obrigatório para repetição idempotente).",
+            "description": "Cria uma subtarefa filha de uma tarefa sobre a qual você tem autoridade plena, atribuída a você ou a outro bot visível do mesmo Space. Limites: 100 tarefas e 3 níveis por Projeto. Atribuir não inicia trabalho por si só; criar já iniciando não existe mais — para várias subtarefas use task_propose.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -104,13 +106,44 @@ pub(crate) fn tools() -> Value {
                     "description": {"type": "string"},
                     "acceptance": {"type": "string", "description": "Critério de aceite (até 2000 caracteres)."},
                     "assigneeBotId": {"type": "string", "description": "botId responsável; omita para tarefa sem responsável."},
-                    "start": {"type": "boolean", "description": "true cria e já inicia a subtarefa; o resultado do início volta em start.state (started/already_running/refused/uncertain/failed)."},
-                    "requestId": {"type": "string", "description": "UUID opcional para repetição idempotente; OBRIGATÓRIO quando start=true — repita o mesmo requestId para refazer o gesto sem duplicar."},
+                    "start": {"type": "boolean", "description": "Recusado: o início automático saiu de uso. Proponha com task_propose; o início acontece sozinho depois do ok do dono."},
+                    "requestId": {"type": "string", "description": "UUID opcional para repetição idempotente."},
                 },
                 "required": ["projectId", "parentTaskId", "title"],
                 "additionalProperties": false,
             },
             "annotations": {"readOnlyHint": false, "idempotentHint": false},
+        },
+        {
+            "name": "task_propose",
+            "description": "Propõe subtarefas — nenhuma tarefa é criada nem iniciada agora. A proposta fica pendente até o dono aprovar ou recusar; aprovada, as tarefas nascem como raízes do Projeto e, quando têm responsável, começam sozinhas (no máximo 2 ao mesmo tempo no Space, 1 por bot). Idempotente por requestId.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "projectId": {"type": "string", "description": "ID do Projeto; omita para usar o Projeto padrão do Space."},
+                    "title": {"type": "string", "description": "Título da proposta (até 120 caracteres)."},
+                    "requestId": {"type": "string", "description": "UUID obrigatório para repetição idempotente."},
+                    "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "description": "Título da subtarefa (até 120 caracteres)."},
+                                "description": {"type": "string", "description": "Descrição (até 2000 caracteres)."},
+                                "acceptance": {"type": "string", "description": "Critério de aceite (até 2000 caracteres)."},
+                                "assigneeBotId": {"type": "string", "description": "botId responsável visível no Space; omita para subtarefa sem responsável."},
+                            },
+                            "required": ["title"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["title", "requestId", "items"],
+                "additionalProperties": false,
+            },
+            "annotations": {"readOnlyHint": false, "idempotentHint": true},
         }
     ])
 }
@@ -143,6 +176,15 @@ async fn call_bound(
     context: Option<&ToolContext>,
     execution: Option<&ExecutionRef>,
 ) -> Result<Value> {
+    // Barreira: criar já iniciando saiu de uso — o início só depois do ok do
+    // dono, nunca por aqui. Recusado antes de qualquer gravação.
+    if name == "task_create_child" && args["start"].as_bool() == Some(true) {
+        anyhow::bail!(
+            "proposal_required: criar já iniciando não é mais aceito. \
+             Use task_propose para propor as subtarefas; depois do ok do dono \
+             elas são criadas e começam sozinhas."
+        );
+    }
     bindings::recheck_optional(hub, execution)?;
     if let Some(context) = context {
         context.check(hub)?;
@@ -168,54 +210,16 @@ async fn call_bound(
         }
     }
     let args = &args;
-    let write = matches!(name, "task_update" | "task_comment" | "task_create_child");
+    let write = matches!(name, "task_update" | "task_comment" | "task_create_child" | "task_propose");
     let _guard = if write { Some(hub.store.team_lock.lock().await) } else { None };
-    let mut outcome = match name {
+    let outcome = match name {
         "task_read" => db::read(hub, &bot, execution, args)?,
         "task_update" => db::update(hub, &bot, execution, args)?,
         "task_comment" => db::comment(hub, &bot, execution, args)?,
         "task_create_child" => db::create_child(hub, &bot, execution, args)?,
+        "task_propose" => crate::fork::propostas::store::propose(hub, &bot, execution, args)?,
         _ => anyhow::bail!("unknown task tool: {name}"),
     };
-    // MX-142: "criar e já iniciar" — o start é do runtime, com clientRequestId
-    // próprio; o resultado parcial fica honesto no retorno da tool.
-    if name == "task_create_child"
-        && args["start"].as_bool() == Some(true)
-        && let Some(task_id) = outcome.value["task"]["id"].as_str().map(str::to_owned)
-    {
-        let project_id = outcome.value["project"]["id"]
-            .as_str()
-            .or_else(|| args["projectId"].as_str())
-            .unwrap_or_default()
-            .to_owned();
-        // clientRequestId derivado do requestId da criação: replay do gesto
-        // inteiro bate no recibo do runtime em vez de iniciar de novo.
-        let request = match args["requestId"].as_str() {
-            Some(id) => format!("bot:{bot}:{id}"),
-            None => uuid::Uuid::new_v4().to_string(),
-        };
-        match crate::fork::tarefas_runtime::start_task_in_execution(
-            hub,
-            execution,
-            &outcome.space,
-            &project_id,
-            &task_id,
-            &request,
-        )
-        .await
-        {
-            Ok(start) => outcome.value["start"] = start["start"].clone(),
-            Err(error) => {
-                let msg = format!("{error:#}");
-                let refused =
-                    msg.starts_with("forbidden") || msg.starts_with("invalid_field") || msg.starts_with("idempotency");
-                outcome.value["start"] = json!({
-                    "state": if refused { "refused" } else { "uncertain" },
-                    "reason": msg.chars().take(300).collect::<String>(),
-                });
-            }
-        }
-    }
     if outcome.changed {
         let _ = hub
             .events

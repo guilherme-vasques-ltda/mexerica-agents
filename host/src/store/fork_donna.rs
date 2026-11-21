@@ -10,6 +10,7 @@ const KEY: &str = "donna.defaultBot.v1";
 /// D366: a base canônica vive em `fork::donna_fixa::BASE`; o perfil salvo é só o registro da criação.
 const PROFILE: &str = crate::fork::donna_fixa::BASE;
 const SETUP_NOTICE: &str = "O Berga já está criado como seu bot principal. Para conversar, conecte e escolha uma conta de IA em Configurações do bot → Motor → Gerenciar contas de IA. Se este Hub já tem um login configurado para o Codex, ele continua disponível. Contas e ferramentas só são ligadas quando você escolher.";
+const OPEN_SETUP_NOTICE: &str = "O Berga já está criado como seu bot principal. Para conversar, conecte uma conta do Codex em Ajustes → Contas de IA. Nesta edição a conversa é só por texto.";
 
 impl Store {
     /// Antes de subir os atores e aceitar clientes. O marcador sobrevive à exclusão da Donna.
@@ -49,7 +50,12 @@ impl Store {
         // A identidade precisa existir antes do salvamento, que recusa manageTeam fora da principal.
         tx.execute("INSERT INTO kv(k,v) VALUES('team.settings.v1',?1)", [serde_json::to_string(&settings)?])?;
         super::bots::save_bot(&tx, &cfg)?;
-        let notice = crate::fork::spaces::stamp_entry(&tx, &cfg.id, &json!({"text": SETUP_NOTICE}))?;
+        let data = if crate::environment::Environment::is_open() {
+            json!({"text": OPEN_SETUP_NOTICE, "code": "open_setup"})
+        } else {
+            json!({"text": SETUP_NOTICE})
+        };
+        let notice = crate::fork::spaces::stamp_entry(&tx, &cfg.id, &data)?;
         tx.execute(
             "INSERT INTO entries(id,bot_id,rev,kind,turn,data,created_at,updated_at)
                 VALUES(?1,?2,?3,'notice',0,?4,?5,?5)",

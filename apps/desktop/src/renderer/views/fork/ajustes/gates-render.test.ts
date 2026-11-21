@@ -300,6 +300,8 @@ test('Conta conectada na Open: sem Testar, uso, reserva nem modelos que o Hub re
   assert.ok(!detalhe.includes(pt['contas.modelosTitulo']!), 'sem ocultar modelos')
   assert.ok(!detalhe.includes(pt['contas.uso']!), 'sem uso')
   assert.ok(!detalhe.includes(pt['contas.reserva.titulo']!), 'sem reserva')
+  assert.ok(detalhe.includes(pt['contas.botsOpen']!), 'explica qual conta os bots da Open usam')
+  assert.ok(!detalhe.includes(pt['contas.botsVazioDetalhe']!), 'não manda escolher a conta numa aba que a Open não mostra')
 })
 
 test('Ajustes do bot na Open: uma aba indisponível abre Identidade, sem mostrar Motor', () => {

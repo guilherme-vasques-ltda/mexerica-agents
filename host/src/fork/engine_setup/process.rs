@@ -77,9 +77,13 @@ pub(crate) enum Event {
 
 pub(crate) struct Rpc {
     child: Child,
+    /// Id do grupo (o pid do líder, que nasce com `process_group(0)`), guardado no nascimento: depois de o líder ser
+    /// colhido, o tokio devolve `None` em `child.id()` e o grupo deixaria de ser encerrado.
+    group: Option<u32>,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     pending: VecDeque<Value>,
+    limit: usize,
 }
 impl Drop for Rpc {
     fn drop(&mut self) {
@@ -106,10 +110,14 @@ impl Rpc {
         let child = crate::fork::motor_exec::spawn(cmd.args(["app-server"]).stdin(Stdio::piped()))?;
         Self::from_child(child)
     }
-    fn from_child(mut child: Child) -> Result<Self> {
+    pub(crate) fn from_child(mut child: Child) -> Result<Self> {
+        let group = child.id();
         let input = child.stdin.take().ok_or_else(|| anyhow!("setup_unavailable"))?;
         let output = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("setup_unavailable"))?);
-        Ok(Self { child, input: Some(input), output, pending: VecDeque::new() })
+        Ok(Self { child, group, input: Some(input), output, pending: VecDeque::new(), limit: 65_536 })
+    }
+    pub(crate) fn set_line_limit(&mut self, limit: usize) {
+        self.limit = limit;
     }
     pub(crate) async fn write(&mut self, value: Value) -> Result<()> {
         let input = self.input.as_mut().ok_or_else(|| anyhow!("auth_shutdown_failed"))?;
@@ -117,7 +125,7 @@ impl Rpc {
         input.flush().await?;
         Ok(())
     }
-    async fn finish(&mut self) -> Result<()> {
+    pub(crate) async fn finish(&mut self) -> Result<()> {
         // Codex removes its own arg0 helper symlinks during normal EOF shutdown.
         // Reap before validating/promoting the profile; Drop still kills on error/cancel.
         drop(self.input.take());
@@ -128,11 +136,22 @@ impl Rpc {
         ensure!(status.success(), "auth_shutdown_failed");
         Ok(())
     }
+    /// Encerra o grupo do processo e espera a saída, para que ninguém reaproveite a conta antes de ele sair. O grupo é
+    /// morto pelo id guardado mesmo com o líder já colhido, e a saída só é confirmada quando o grupo ficou vazio:
+    /// descendentes que sobreviveram ao líder contam como conta ainda em uso. Falso quando isso não aconteceu dentro
+    /// do prazo total de 5 s.
+    pub(crate) async fn terminate(&mut self) -> bool {
+        drop(self.input.take());
+        kill_group(self.group);
+        let prazo = tokio::time::Instant::now() + Duration::from_secs(5);
+        let lider = matches!(tokio::time::timeout_at(prazo, self.child.wait()).await, Ok(Ok(_)));
+        lider && grupo_vazio(self.group, prazo).await
+    }
     async fn line(&mut self) -> Result<Value> {
         use tokio::io::AsyncReadExt;
         let mut bytes = Vec::new();
-        let count = (&mut self.output).take(65_537).read_until(b'\n', &mut bytes).await?;
-        ensure!(count > 0 && count <= 65_536, "auth_protocol_invalid");
+        let count = (&mut self.output).take(self.limit as u64 + 1).read_until(b'\n', &mut bytes).await?;
+        ensure!(count > 0 && count <= self.limit, "auth_protocol_invalid");
         Ok(serde_json::from_slice(&bytes)?)
     }
     pub(crate) async fn next(&mut self) -> Result<Value> {
@@ -142,15 +161,20 @@ impl Rpc {
         self.line().await
     }
     pub(crate) async fn call(&mut self, id: u64, method: &str, params: Value) -> Result<Value> {
+        self.request(id, method, params).await?.map_err(|_| anyhow!("auth_capability_unavailable"))
+    }
+    /// A resposta da chamada, ou o objeto de erro JSON-RPC que o servidor devolveu.
+    pub(crate) async fn request(&mut self, id: u64, method: &str, params: Value) -> Result<Result<Value, Value>> {
         self.write(json!({"id":id,"method":method,"params":params})).await?;
         loop {
             let value = self.line().await?;
-            if value["id"] == id {
-                ensure!(value.get("error").is_none(), "auth_capability_unavailable");
-                return Ok(value["result"].clone());
-            }
             if value.get("method").is_some() && value.get("id").is_some() {
                 self.write(json!({"id":value["id"],"error":{"code":-32601,"message":"setup only"}})).await?;
+            } else if value["id"] == id {
+                return Ok(match value.get("error") {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(value["result"].clone()),
+                });
             } else {
                 ensure!(self.pending.len() < 64, "auth_protocol_limit");
                 self.pending.push_back(value);
@@ -198,6 +222,31 @@ pub(crate) fn kill_group(pid: Option<u32>) {
     let _ = pid;
 }
 
+/// Sonda o grupo com o sinal 0 até ele deixar de existir: `ESRCH` só chega quando o último processo (inclusive
+/// zumbi) saiu do grupo. Falso quando o prazo total vence antes disso.
+#[cfg(unix)]
+async fn grupo_vazio(grupo: Option<u32>, prazo: tokio::time::Instant) -> bool {
+    let Some(pgid) = grupo.and_then(|pid| i32::try_from(pid).ok()) else {
+        return true;
+    };
+    loop {
+        // SAFETY: sinal 0 só consulta o grupo criado por este módulo; o id nunca vem do cliente.
+        if unsafe { libc::kill(-pgid, 0) } == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        {
+            return true;
+        }
+        if tokio::time::Instant::now() >= prazo {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn grupo_vazio(_: Option<u32>, _: tokio::time::Instant) -> bool {
+    true
+}
+
 pub(crate) async fn login(
     backend: Backend,
     executable: &Path,
@@ -229,7 +278,7 @@ pub(crate) async fn login_open_codex(
     directory: &Path,
     events: mpsc::Sender<Event>,
 ) -> Result<(std::path::PathBuf, probe::Observation)> {
-    let launch = crate::fork::open_codex::app_server(directory).await?;
+    let launch = crate::fork::open_codex::app_server(directory, false).await?;
     let executable = launch.executable.clone();
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let proof = codex_device_flow(Rpc::from_child(child)?, &executable, directory, events).await?;

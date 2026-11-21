@@ -3,16 +3,16 @@
 //! `fork::projetos` e os comentários em `donna_task_comments` (frente de dados).
 //!
 //! Atribuir nunca dispara: o início só acontece por `donnaTaskStart` (dono),
-//! `donnaTaskSchedule` (dono, futuro) ou `start_task_in_execution` (bot
-//! autenticado). O disparo é uma mensagem do dono na sessão vinculada do bot,
-//! com `clientNonce` determinístico: reenvio após crash é deduplicado pelo
+//! `donnaTaskSchedule` (dono, futuro) ou pela aprovação de uma proposta do bot
+//! (`fork::propostas`), que agenda o início para este runtime executar. O
+//! disparo é uma mensagem do dono na sessão vinculada do bot, com
+//! `clientNonce` determinístico: reenvio após crash é deduplicado pelo
 //! `send`, e a evidência é a entrada existente, nunca um palpite.
 mod acordar;
 pub(crate) mod avisos;
 mod inspecao;
 mod store;
 
-pub(crate) use acordar::start_in_execution as start_task_in_execution;
 pub(crate) use store::session_task;
 #[cfg(test)]
 mod tests;
@@ -212,6 +212,12 @@ pub(crate) fn migrate(c: &rusqlite::Connection) -> Result<()> {
         -- ESTRUTURADO taskDispatch (só o caminho interno tipado grava) —
         -- texto livre citando o marcador não dispara o guard; nonce
         -- velho/forjado/coords divergentes não casam -> abort.
+        -- Prova de entrega por nonce, com a mesma expressão do índice que
+        -- sustenta a consulta: sem bot_id na frente, a busca por
+        -- clientNonce vira leitura indexada em vez de varredura do log.
+        CREATE INDEX IF NOT EXISTS donna_task_delivery_probe
+         ON entries((CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END))
+         WHERE kind='user' AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END, '') <> '';
         DROP TRIGGER IF EXISTS donna_task_deleg_guard;
         CREATE TRIGGER donna_task_deleg_guard
         BEFORE INSERT ON entries

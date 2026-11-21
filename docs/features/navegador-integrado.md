@@ -22,9 +22,18 @@ recusado, e nada que a página devolve volta como argumento):
 `unsupported_platform`, `preference_computer`, `preference_off`) e as ferramentas oferecidas.
 Quando responde `available`, o vínculo de execução daquele bot fica **negociado**: só então
 `browser_open` e `browser_read` aparecem no catálogo e são aceitos. Sem negociação, a chamada falha
-com `browser_negotiation_required`. Como o catálogo só muda depois da negociação, o motor ou cliente precisa listar as ferramentas de novo
-depois de `browser_status` v3 para vê-las; quem lista só no início da sessão não as enxerga. Clientes
-que usam a versão 2 continuam recebendo a recusa de sempre. Preferência `computer` ou `off` recusa abrir, sem cair em outro navegador.
+com `browser_negotiation_required`. Como o catálogo só muda depois da negociação, o cliente precisa listar as ferramentas de novo:
+
+- **Motores ACP** (a ponte `memory` fala MCP por stdio): a ponte anuncia `tools.listChanged` e, quando a
+  resposta de `browser_status` v3 diz `available`, envia uma vez `notifications/tools/list_changed`. O cliente
+  que obedece essa notificação (é o mecanismo padrão do MCP) relista e passa a ver `browser_open`,
+  `browser_read` e `browser_close`. Cliente que lista só no início da sessão e ignora a notificação não as vê.
+- **Motor Mexerica** (o Hub é o cliente MCP): antes de cada prompt, entre turnos, o Hub consulta `browser_status`
+  v3 pelo servidor interno `memory`, relista as ferramentas e, se mudaram, manda `set_tools` ao motor (que só
+  aceita essa troca fora de um turno). O bot vê as ferramentas no mesmo turno em que pede. Um servidor de
+  terceiro que se chame `memory` nunca é consultado nem relistado.
+
+Clientes que usam a versão 2 continuam recebendo a recusa de sempre. Preferência `computer` ou `off` recusa abrir, sem cair em outro navegador.
 
 ## Sessão
 

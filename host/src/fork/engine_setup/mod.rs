@@ -2,7 +2,7 @@
 pub(crate) mod access;
 mod grok;
 pub(crate) mod install;
-mod process;
+pub(crate) mod process;
 pub(crate) use process::{ProcessGroup, Rpc, background_claude_catalog};
 #[cfg(test)]
 mod tests;

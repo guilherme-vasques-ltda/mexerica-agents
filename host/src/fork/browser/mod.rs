@@ -33,7 +33,8 @@ use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
 
 pub(crate) const METHOD: &str = "donnaBrowserStatus";
-const TOOL: &str = "browser_status";
+pub(crate) const STATUS_TOOL: &str = "browser_status";
+const TOOL: &str = STATUS_TOOL;
 const OPEN: &str = "browser_open";
 const READ: &str = "browser_read";
 const CLOSE: &str = "browser_close";
