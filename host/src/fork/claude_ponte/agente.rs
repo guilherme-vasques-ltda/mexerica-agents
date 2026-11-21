@@ -53,7 +53,9 @@ impl Config {
             .or_else(|| {
                 std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
                     .map(|d| d.join(if cfg!(windows) { "claude.exe" } else { "claude" }))
-                    .find(|p| p.is_file())
+                    // Item relativo no PATH devolve caminho relativo; o programa roda depois de trocar a pasta
+                    // de trabalho, então o caminho vira absoluto uma vez, aqui, antes de qualquer uso.
+                    .find_map(|p| std::path::absolute(&p).ok().filter(|p| p.is_file()))
             });
         let pasta_config = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| {
             std::env::var_os("HOME")
@@ -115,6 +117,8 @@ pub(super) struct Sessao {
     iniciada: AtomicBool,
     /// Modelo ou esforço mudou: o processo atual precisa ser trocado no próximo turno.
     reabrir: AtomicBool,
+    /// Algum processo desta sessão já atendeu: sem histórico salvo, trocar o processo recomeça a conversa.
+    aberta: AtomicBool,
     processo: tokio::sync::Mutex<Option<Processo>>,
     /// Pedido de cancelamento do turno: avança e acorda quem espera o sinal.
     cancelar: watch::Sender<u64>,
@@ -250,6 +254,21 @@ fn imagem(tipo: &str, dados: &str, total: &mut usize) -> Result<Value, Erro> {
     Ok(json!({"type": "image", "source": {"type": "base64", "data": dados, "media_type": tipo}}))
 }
 
+/// Blob de texto anexado ao pedido: decodifica e devolve o conteúdo; o limite é o mesmo das imagens.
+fn anexo_texto(dados: &str) -> Result<String, Erro> {
+    use base64::Engine as _;
+    if dados.len() > LIMITE_IMAGEM / 3 * 4 + 4 {
+        return Err(Erro::parametros("anexo maior que o limite"));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(dados)
+        .map_err(|_| Erro::parametros("anexo com dados que não são base64 válido"))?;
+    if bytes.len() > LIMITE_IMAGEM {
+        return Err(Erro::parametros("anexo maior que o limite"));
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// Blocos ACP do pedido → blocos de mensagem do Claude.
 pub(super) fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
     let mut out = Vec::new();
@@ -272,7 +291,11 @@ pub(super) fn blocos(prompt: &Value) -> Result<Vec<Value>, Erro> {
                         .push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{t}\n</context>")}));
                 } else if let Some(dados) = b["resource"]["blob"].as_str() {
                     let tipo = b["resource"]["mimeType"].as_str().unwrap_or_default();
-                    contexto.push(imagem(tipo, dados, &mut total_imagens)?);
+                    if tipo.starts_with("text/") {
+                        contexto.push(json!({"type": "text", "text": format!("\n<context ref=\"{uri}\">\n{}\n</context>", anexo_texto(dados)?) }));
+                    } else {
+                        contexto.push(imagem(tipo, dados, &mut total_imagens)?);
+                    }
                 }
             }
             _ => {}
@@ -351,6 +374,7 @@ impl Sessao {
             esforco: Mutex::new(esforco),
             iniciada: AtomicBool::new(iniciada),
             reabrir: AtomicBool::new(false),
+            aberta: AtomicBool::new(false),
             processo: tokio::sync::Mutex::new(None),
             cancelar: watch::channel(0).0,
             traducao: Mutex::new(traducao),
@@ -596,6 +620,7 @@ async fn turno(
                     limite = Some(ev["rate_limit_info"].clone()).filter(|i| i["status"] == "rejected");
                 }
                 if ev["type"] == "system" && ev["subtype"] == "init" {
+                    s.aberta.store(true, Ordering::SeqCst);
                     if s.opcoes.persistir {
                         s.iniciada.store(true, Ordering::SeqCst);
                     }
@@ -702,13 +727,14 @@ async fn abrir_sessao(ponte: &Arc<Ponte>, params: &Value, carregar: bool) -> Res
 
 /// Valores que não podem sair no diagnóstico: o segredo da ponte e os valores das variáveis de
 /// ambiente dos servidores MCP desta sessão (mesmos que o arquivo de configuração leva e apaga).
-/// Valores curtos ficam de fora: não são distintivos e esconder «1» destruiria a linha inteira.
+/// Piso de 6 caracteres: credenciais curtas (códigos de 6 ou 7) entram, e palavras comuns de
+/// 1 a 5 caracteres («1», «true») ficam de fora para não destruir a linha.
 pub(super) fn mascaraveis(segredo: &str, servidores: &serde_json::Map<String, Value>) -> Vec<String> {
     let mut out = vec![segredo.to_owned()];
     for servidor in servidores.values() {
         for valor in servidor["env"].as_object().into_iter().flat_map(|env| env.values()) {
             if let Some(v) = valor.as_str()
-                && v.chars().count() >= 8
+                && v.chars().count() >= 6
             {
                 out.push(v.to_owned());
             }
@@ -717,7 +743,7 @@ pub(super) fn mascaraveis(segredo: &str, servidores: &serde_json::Map<String, Va
     out
 }
 
-/// Aplica a máscara a uma linha de diagnóstico; trecho curto de valor comum não é mascarado acima.
+/// Aplica a máscara a uma linha de diagnóstico; valor comum de até 5 caracteres não entra na lista.
 pub(super) fn mascarar(linha: std::borrow::Cow<'_, str>, segredos: &[String]) -> String {
     let mut texto = linha.into_owned();
     for s in segredos {
@@ -737,6 +763,11 @@ fn configurar(s: &Sessao, id: &str, valor: &Value) -> Result<Value, Erro> {
             }
             let mut m = s.modelo.locked();
             if *m != v {
+                if !s.opcoes.persistir && s.aberta.load(Ordering::SeqCst) {
+                    return Err(Erro::parametros(
+                        "a troca de modelo recomeça a conversa, e esta sessão não salva histórico para retomar",
+                    ));
+                }
                 v.clone_into(&mut m);
                 s.reabrir.store(true, Ordering::SeqCst);
             }
@@ -747,6 +778,11 @@ fn configurar(s: &Sessao, id: &str, valor: &Value) -> Result<Value, Erro> {
             }
             let mut e = s.esforco.locked();
             if *e != v {
+                if !s.opcoes.persistir && s.aberta.load(Ordering::SeqCst) {
+                    return Err(Erro::parametros(
+                        "a troca de esforço recomeça a conversa, e esta sessão não salva histórico para retomar",
+                    ));
+                }
                 v.clone_into(&mut e);
                 s.reabrir.store(true, Ordering::SeqCst);
             }

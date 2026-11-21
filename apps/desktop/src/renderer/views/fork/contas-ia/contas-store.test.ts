@@ -233,3 +233,15 @@ test('perfil inválido ao desconectar relê a lista: o Hub já gravou a conta de
   assert.equal(contas.account(original.id)?.state, 'disconnected', 'a lista relida já mostra a conta desconectada')
   assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a lista foi relida')
 })
+
+test('falha de desconexão sem código conhecido também relê a lista: o Hub já gravou o estado', async () => {
+  const original = account({ state: 'connected' })
+  const hub = fakeHub([original])
+  const contas = new ContasStore(client, hub.api)
+  await contas.load()
+  hub.set([{ ...original, state: 'disconnected', revision: 2 }])
+  hub.fail(new Error('erro cru de leitura do perfil'))
+  await assert.rejects(contas.disconnect(original).catch(falhaEm('pt-BR')))
+  assert.equal(contas.account(original.id)?.state, 'disconnected', 'a lista relida mostra a conta já desconectada')
+  assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a lista foi relida mesmo sem código conhecido')
+})

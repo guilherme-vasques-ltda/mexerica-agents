@@ -637,16 +637,44 @@ fn diagnostico_mascara_o_segredo_da_ponte_e_as_variaveis_mcp() {
     // Sem literal no formato de chave: os valores de exemplo são montados em tempo de execução.
     let ponte = ["segredo-da-ponte-", "0123456789"].concat();
     let valor = ["valor-exemplo-", "0123456789"].concat();
+    let codigo = ["a", "1b2c3"].concat();
     let servidores = json!({
-        "chat": {"type": "stdio", "command": "/bin/true", "env": {"TOKEN_EXEMPLO": valor, "NIVEL": "1"}},
+        "chat": {"type": "stdio", "command": "/bin/true", "env": {"TOKEN_EXEMPLO": valor, "CODIGO": codigo, "NIVEL": "1"}},
         "web": {"type": "http", "url": "http://127.0.0.1:1/mcp"},
     });
     let mapa = servidores.as_object().unwrap();
     let segredos = super::agente::mascaraveis(&ponte, mapa);
-    assert!(segredos.contains(&valor), "valor longo entra na máscara");
-    assert!(!segredos.contains(&"1".into()), "valor curto não entra");
-    let linha = format!("falha ao ligar com {ponte} e TOKEN_EXEMPLO={valor} nivel 1");
+    assert!(
+        segredos.contains(&valor) && segredos.contains(&codigo),
+        "valores a partir de 6 caracteres entram na máscara"
+    );
+    assert!(!segredos.contains(&"1".into()), "valor de até 5 caracteres não entra");
+    let linha = format!("falha ao ligar com {ponte} e TOKEN_EXEMPLO={valor} codigo {codigo} nivel 1");
     let texto = super::agente::mascarar(std::borrow::Cow::from(linha.as_str()), &segredos);
-    assert_eq!(texto, "falha ao ligar com *** e TOKEN_EXEMPLO=*** nivel 1");
+    assert_eq!(texto, "falha ao ligar com *** e TOKEN_EXEMPLO=*** codigo *** nivel 1");
     assert!(!texto.contains(ponte.as_str()) && !texto.contains("valor-exemplo"), "{texto}");
+}
+
+/// Blob de texto anexado vira contexto decodificado; o que não é texto nem imagem é recusado sem
+/// derrubar o resto do contrato: imagem segue pelo caminho próprio.
+#[test]
+fn blob_de_texto_vira_contexto_e_tipo_desconhecido_e_recusado() {
+    let texto = ["anexo de texto ", "simples"].concat();
+    let dados = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(texto.as_bytes())
+    };
+    let pedido = json!([{"type": "resource",
+        "resource": {"uri": "file:///docs/nota.txt", "blob": dados, "mimeType": "text/plain"}}]);
+    let blocos = super::agente::blocos(&pedido).unwrap();
+    let junto = blocos.iter().map(ToString::to_string).collect::<String>();
+    assert!(junto.contains("anexo de texto simples"), "{junto}");
+    assert!(junto.contains("file:///docs/nota.txt"), "a referência do anexo aparece");
+    let ruim = json!([{"type": "resource",
+        "resource": {"uri": "file:///docs/nao.txt", "blob": dados, "mimeType": "application/pdf"}}]);
+    let erro = match super::agente::blocos(&ruim) {
+        Err(e) => format!("{e:?}"),
+        Ok(_) => panic!("devia recusar"),
+    };
+    assert!(erro.contains("só imagens"), "{erro}");
 }

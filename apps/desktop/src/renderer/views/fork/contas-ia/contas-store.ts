@@ -144,7 +144,7 @@ export class ContasStore extends Observable {
     return this.mutate(account.id, async (client) => {
       this.put(await this.api.disconnect(client, { engineAccountId: account.id, expectedRevision: account.revision }))
       this.operations.delete(account.id)
-    })
+    }, true)
   }
 
   async remove(account: ManagedAccount) {
@@ -153,7 +153,7 @@ export class ContasStore extends Observable {
       this.accounts = this.accounts?.filter((a) => a.id !== account.id) ?? null
       this.kinds.delete(account.id)
       this.operations.delete(account.id)
-    })
+    }, true)
   }
 
   /** Chave de API pelo formulário existente, no cofre do Hub e só nesta conta. Os valores não ficam aqui. */
@@ -234,7 +234,7 @@ export class ContasStore extends Observable {
   }
 
   /** Um pedido por vez; conflito de revisão relê a lista para a pessoa conferir. */
-  private async mutate<T>(key: string, run: (client: HostClient) => Promise<T>): Promise<T> {
+  private async mutate<T>(key: string, run: (client: HostClient) => Promise<T>, reloadOnAnyError = false): Promise<T> {
     // textos-ok: código interno (`request_pending`), traduzido na tela por errorMessage.
     if (this.busy) throw new Error('request_pending: busy')
     this.busy = key
@@ -245,8 +245,11 @@ export class ContasStore extends Observable {
       try {
         return await run(client)
       } catch (error) {
-        // Desconexão gravada antes das conferências (saída não confirmada ou perfil inválido): a lista relida mostra a conta já desconectada.
-        if (['account_conflict', 'account_invalid', 'account_not_found', 'logout_failed', 'cli_unavailable', 'profile_invalid'].includes(errorCode(error) ?? '')) await this.reload(client).catch(() => {})
+        // Operações que gravam antes das conferências (desconectar, remover) relêem em qualquer
+        // falha: a saída do programa pode não ter sido confirmada e a lista já mostra o estado real.
+        // As outras relêem nos códigos em que o Hub mudou o que a tela tem na mão.
+        const known = ['account_conflict', 'account_invalid', 'account_not_found', 'logout_failed', 'cli_unavailable', 'profile_invalid'].includes(errorCode(error) ?? '')
+        if (reloadOnAnyError || known) await this.reload(client).catch(() => {})
         throw error
       }
     } finally {
