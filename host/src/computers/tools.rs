@@ -291,16 +291,16 @@ fn spec(name: &str, a: &Value) -> Result<(&'static str, Value, i64)> {
                 .filter_map(|r| r.as_array())
                 .flatten()
                 .any(|c| {
-                    c.as_i64().is_some_and(|i| i.unsigned_abs() > 1 << 53)
-                        || c.as_u64().is_some_and(|u| u > 1 << 53)
-                        // Decimal ou exponencial (9007199254740993.0, 9.007199254740993e15) já chega arredondado para 2^53:
-                        // a partir dele um f64 inteiro não prova qual era o valor pedido, então o limite é inclusivo.
-                        || (c.is_f64()
-                            && c.as_f64().is_some_and(|f| f.is_finite() && f.fract() == 0.0 && f.abs() >= 9_007_199_254_740_992.0))
+                    // O número passa por double no caminho até o Hub: 2^53 + 1 arredonda para 2^53, então 2^53 já não
+                    // prova qual era o valor pedido. Só os inteiros seguros (até 2^53 - 1) passam, em qualquer grafia.
+                    c.as_i64().is_some_and(|i| i.unsigned_abs() >= 1 << 53)
+                        || c.as_u64().is_some_and(|u| u >= 1 << 53)
+                        || c.as_f64()
+                            .is_some_and(|f| f.is_finite() && f.fract() == 0.0 && f.abs() >= 9_007_199_254_740_992.0)
                 });
             ensure!(
                 !imprecise,
-                "invalid_arguments: inteiro acima de 9007199254740992 perde precisão; passe como texto"
+                "invalid_arguments: inteiro de módulo igual ou acima de 9007199254740992 (2^53) perde precisão; use até 9007199254740991 ou passe como texto"
             );
             let sheets: Vec<super::xlsx::Sheet> = serde_json::from_value(a["sheets"].clone()).map_err(|_| {
                 anyhow!(
@@ -387,17 +387,21 @@ mod tests {
             "-9007199254740993.0",
             "9.007199254740993e15",
             "-9.007199254740993e15",
+            "9007199254740992",
+            "-9007199254740992",
             "9007199254740992.0",
             "-9007199254740992.0",
+            "9.007199254740992e15",
+            "-9.007199254740992e15",
             "3.5e18",
         ] {
             assert!(spec("create_spreadsheet", &sheet_with(risky)).is_err(), "{risky}");
         }
         for fine in [
             "9007199254740991",
+            "-9007199254740991",
             "9007199254740991.0",
-            "9007199254740992",
-            "-9007199254740992",
+            "-9007199254740991.0",
             "42",
             "-42.5",
             "0.1",
