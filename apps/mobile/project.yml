@@ -1,0 +1,216 @@
+# Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
+# Generate the Xcode project with: xcodegen generate --spec apps/mobile/project.yml
+name: MexericaMobile
+options:
+  bundleIdPrefix: app.mexerica
+  developmentLanguage: pt-BR
+  # iOS 26: o redesenho usa o Liquid Glass nativo.
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  fileTypes:
+    icon:
+      file: true
+packages:
+  Clerk:
+    url: https://github.com/clerk/clerk-ios
+    exactVersion: 1.5.6
+  CodyncKit:
+    path: ios/Kit
+configs:
+  Debug: debug
+  Release: release
+  DevDebug: debug
+  DevRelease: release
+settings:
+  base:
+    MARKETING_VERSION: 2.20.3
+    CURRENT_PROJECT_VERSION: 27
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Automatic
+    # Override with MEXERICA_SIGNING=full only with matching provisioning.
+    MEXERICA_SIGNING: free
+    # Configure the signing team locally in Xcode or pass it to xcodebuild via a .local.xcconfig or a command-line override.
+    DEVELOPMENT_TEAM: ""
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CODYNC_ENV: main
+    CODYNC_APP_NAME: Mexerica
+    CODYNC_IOS_BUNDLE_ID: app.mexerica.ios
+    CODYNC_APP_GROUP: group.app.mexerica.ios
+    CODYNC_KEYCHAIN_GROUP: app.mexerica.ios
+    CODYNC_URL_SCHEME: donnabot
+    CODYNC_DATA_FOLDER: .donnabot
+  configs:
+    Debug:
+      CODYNC_APNS_ENVIRONMENT: sandbox
+      MEXERICA_APS_ENVIRONMENT: development
+    Release:
+      CODYNC_APNS_ENVIRONMENT: production
+      MEXERICA_APS_ENVIRONMENT: production
+    DevDebug:
+      CODYNC_ENV: dev
+      CODYNC_APP_NAME: Mexerica Dev
+      CODYNC_IOS_BUNDLE_ID: app.mexerica.ios.dev
+      CODYNC_APP_GROUP: group.app.mexerica.ios.dev
+      CODYNC_KEYCHAIN_GROUP: app.mexerica.ios.dev
+      CODYNC_URL_SCHEME: donnabot-dev
+      CODYNC_DATA_FOLDER: .donnabot-dev
+      CODYNC_APNS_ENVIRONMENT: sandbox
+      MEXERICA_APS_ENVIRONMENT: development
+    DevRelease:
+      CODYNC_ENV: dev
+      CODYNC_APP_NAME: Mexerica Dev
+      CODYNC_IOS_BUNDLE_ID: app.mexerica.ios.dev
+      CODYNC_APP_GROUP: group.app.mexerica.ios.dev
+      CODYNC_KEYCHAIN_GROUP: app.mexerica.ios.dev
+      CODYNC_URL_SCHEME: donnabot-dev
+      CODYNC_DATA_FOLDER: .donnabot-dev
+      CODYNC_APNS_ENVIRONMENT: production
+      MEXERICA_APS_ENVIRONMENT: production
+schemes:
+  iOS:
+    build:
+      targets:
+        iOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  iOS Dev:
+    build:
+      targets:
+        iOS: all
+    run:
+      config: DevDebug
+    archive:
+      config: DevRelease
+    test:
+      config: DevDebug
+      targets:
+        - MexericaUITests
+targets:
+  iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios
+        excludes:
+          - Widgets
+          - NotificationService
+          - UITests
+          - WhatsNew.md
+          # The app's shared Swift package (models, client, screens), added as a package below.
+          - Kit
+      # The widget's bot buttons run this intent in the app.
+      - ios/Widgets/OpenBotIntent.swift
+    dependencies:
+      - package: Clerk
+        product: ClerkKit
+      - package: CodyncKit
+        product: CodyncKit
+      - package: CodyncKit
+        product: CodyncUI
+      - target: Widgets
+        embed: true
+      - target: NotificationService
+        embed: true
+    postBuildScripts:
+      - name: Mexerica environment
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+        script: |
+          # The scheme chooses an environment independently of Debug/Release optimization.
+          set -eu
+          SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" xcrun --sdk macosx swiftc \
+            -target "$(uname -m)-apple-macosx13.0" \
+            "$SRCROOT/ios/Kit/Sources/CodyncKit/Client/AccountConfiguration.swift" \
+            "$SRCROOT/shared/Scripts/main.swift" -o "$DERIVED_FILE_DIR/merge-account-config"
+          "$DERIVED_FILE_DIR/merge-account-config" \
+            "$SRCROOT/shared/Config/$CODYNC_ENV.plist" \
+            "$SRCROOT/shared/Config/$CODYNC_ENV.local.plist" \
+            "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist" \
+            "$CODYNC_ENV" "$CONFIGURATION" "$PLATFORM_NAME"
+    settings:
+      base:
+        PRODUCT_NAME: $(CODYNC_APP_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID)
+        INFOPLIST_FILE: ios/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: ios/Resources/iOS.$(MEXERICA_SIGNING).entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: Leia o código de pareamento mostrado no computador.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Converse com seus bots em uma chamada de voz.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Sua fala é transcrita neste iPhone e enviada ao bot como mensagem.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: A Mexerica se conecta ao computador que executa seus bots na rede local.
+        # Portrait everywhere except the screen viewer (AppDelegate + OrientationLock).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Black / white instead of the system blue in menus, alerts and system sheets.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  # Prova integrada do redesenho: alvo só de teste de UI; o app não muda. O XCUITest sobe um Hub de
+  # teste local (MXHubDeTeste, servidor WebSocket no 127.0.0.1) e pareia pelo CODYNC_PAIR_URL de Debug.
+  MexericaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      # hub-host é código do processo no Mac (o Hub de teste), não entra no bundle iOS.
+      - path: ios/UITests
+        excludes:
+          - hub-host
+    dependencies:
+      - target: iOS
+    settings:
+      base:
+        PRODUCT_NAME: MexericaUITests
+        PRODUCT_BUNDLE_IDENTIFIER: app.mexerica.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: iOS
+  Widgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ios/Widgets
+    dependencies:
+      - package: CodyncKit
+        product: CodyncKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_NAME: CodyncWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID).LiveActivity
+        INFOPLIST_FILE: ios/Widgets/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: ios/Widgets/Resources/Widgets.$(MEXERICA_SIGNING).entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  # Opens end-to-end sealed alert text (spec §6.7) with this account's push key from the shared Keychain.
+  NotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ios/NotificationService
+    dependencies:
+      - package: CodyncKit
+        product: CodyncKit
+    settings:
+      base:
+        PRODUCT_NAME: CodyncNotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID).NotificationService
+        INFOPLIST_FILE: ios/NotificationService/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: ios/NotificationService/NotificationService.$(MEXERICA_SIGNING).entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES

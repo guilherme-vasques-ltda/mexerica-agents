@@ -35,3 +35,15 @@ apps/desktop/playwright-report/
 # Pesquisa de concorrentes: vive nas Notes privadas do dono, nunca versionada
 # (só a pasta da raiz; docs/propostas/*/pesquisa/ segue valendo)
 /pesquisa/
+
+# Mobile: projeto gerado, configuração local e assinatura
+apps/mobile/MexericaMobile.xcodeproj/
+apps/mobile/shared/Config/*.local.plist
+*.local.plist
+*.local.xcconfig
+google-services.json
+*.mobileprovision
+*.p12
+codync.local.properties
+*.jks
+*.keystore

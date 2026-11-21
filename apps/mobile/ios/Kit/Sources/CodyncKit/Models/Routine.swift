@@ -1,0 +1,130 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
+import Foundation
+
+public struct Routine: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var botId: String
+    public var name: String
+    public var instruction: String
+    public var triggers: [RoutineTrigger]
+    public var enabled: Bool
+    public var createdAt: Int64
+    public var updatedAt: Int64
+    public var triggerDescriptions: [String]
+    public var nextRunAt: Int64?
+    public var timeoutSeconds: Int?
+    public var lastError: String?
+    /// The schedule in a ready phrase, written by the Hub in pt-BR; absent from an older Hub.
+    public var agenda: String?
+
+    /// The schedule line shown for the routine: the Hub's `agenda` in Portuguese, else the descriptions the
+    /// host sends (also what an older Hub, or another language, shows).
+    public func scheduleText(locale: Locale = .current) -> String {
+        Self.hubPhrase(agenda, locale: locale) ?? triggerDescriptions.joined(separator: " · ")
+    }
+
+    /// The Hub's phrase when the app is in Portuguese and the phrase is plain text of a sane size.
+    static func hubPhrase(_ phrase: String?, locale: Locale) -> String? {
+        guard locale.language.languageCode?.identifier == "pt", let phrase else { return nil }
+        let text = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty || text.count > 300 || text.contains(where: \.isNewline) ? nil : text
+    }
+
+    /// A timeout as typed, in words: whole hours, else whole minutes, else seconds; anything else as typed.
+    public static func timeoutText(_ text: String, locale: Locale = .current) -> String {
+        guard let seconds = Int(text), seconds >= 0 else { return "\(text)s" }
+        let unit: Duration.UnitsFormatStyle.Unit
+        if seconds > 0, seconds % 3600 == 0 {
+            unit = .hours
+        } else if seconds > 0, seconds % 60 == 0 {
+            unit = .minutes
+        } else {
+            unit = .seconds
+        }
+        return Duration.seconds(seconds).formatted(.units(allowed: [unit], width: .wide).locale(locale))
+    }
+}
+
+public struct RoutineTrigger: Codable, Hashable, Sendable {
+    public var type: String
+    public var seconds: Int64?
+    public var at: Int64?
+    public var expression: String?
+    public var timeZone: String?
+    public var source: String?
+    public var event: String?
+    public var filters: [String: String]?
+
+    public init(type: String, seconds: Int64? = nil, at: Int64? = nil, expression: String? = nil, timeZone: String? = nil) {
+        self.type = type
+        self.seconds = seconds
+        self.at = at
+        self.expression = expression
+        self.timeZone = timeZone
+    }
+}
+
+public struct RoutineRun: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var routineId: String
+    public var botId: String
+    public var status: String
+    public var createdAt: Int64
+    public var finishedAt: Int64?
+    public var detail: String?
+    public var isActive: Bool { ["pending", "starting", "running", "recovering"].contains(status) }
+}
+
+public struct RoutineListing: Codable, Sendable {
+    public var routines: [Routine]
+    public var runs: [RoutineRun]
+}
+
+/// A routine's webhook: `url` is public through the Codync cloud (nil while the cloud is off),
+/// `localUrl` works on the host itself.
+public struct RoutineWebhook: Codable, Sendable, Equatable {
+    public var url: String?
+    public var localUrl: String
+    public var key: String
+    public var connected: Bool
+}
+
+extension HostClient {
+    public func routines(botId: String) async throws -> RoutineListing {
+        struct Body: Encodable { let botId: String }
+        return try await call("routines", Body(botId: botId))
+    }
+
+    public func routineAction(_ method: String, botId: String, id: String, enabled: Bool? = nil) async throws {
+        struct Body: Encodable { let botId: String; let id: String; let enabled: Bool? }
+        let _: Empty = try await call(method, Body(botId: botId, id: id, enabled: enabled))
+    }
+
+    /// `rotate` replaces the key first; senders using the old one stop working.
+    public func routineWebhook(botId: String, id: String, rotate: Bool = false) async throws -> RoutineWebhook {
+        struct Body: Encodable { let botId: String; let id: String; let rotate: Bool }
+        return try await call("routineWebhook", Body(botId: botId, id: id, rotate: rotate))
+    }
+}
+
+extension HostClient {
+    /// Saves with these triggers exactly as the Hub sent them (the schedule was not edited). The timeout goes
+    /// as typed: the Hub validates it, and an invalid one is refused rather than replaced by a default.
+    public func saveRoutine(botId: String, id: String?, name: String, instruction: String,
+                            triggers: [RoutineTrigger], timeoutSeconds: String) async throws -> Routine {
+        struct Body: Encodable {
+            let botId: String
+            let id: String?
+            let name: String
+            let instruction: String
+            let triggers: [RoutineTrigger]
+            let timeoutSeconds: String
+        }
+        struct Response: Decodable { let routine: Routine }
+        let response: Response = try await routineCall {
+            try await call("saveRoutine", Body(botId: botId, id: id, name: name,
+                instruction: instruction, triggers: triggers, timeoutSeconds: timeoutSeconds))
+        }
+        return response.routine
+    }
+}
