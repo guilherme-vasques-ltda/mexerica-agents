@@ -210,7 +210,7 @@ function resposta(status, corpo) {
   return { ok: status >= 200 && status < 300, status, json: async () => corpo };
 }
 
-function apiFalsa({ pr, commits = [], permissao = 'write' }) {
+function apiFalsa({ pr, commits = [], permissao = 'write', atual = 'Feito com Claude' }) {
   const chamadas = [];
   const corpos = [];
   const buscar = async (url, opcoes = {}) => {
@@ -224,6 +224,7 @@ function apiFalsa({ pr, commits = [], permissao = 'write' }) {
       return resposta(200, commits.slice((pagina - 1) * 100, pagina * 100));
     }
     if (rota.startsWith('GET /repos/o/r/collaborators/')) return resposta(200, { permission: permissao });
+    if (/^GET \/repos\/o\/r\/(issues\/comments|pulls\/comments|pulls\/7\/reviews)\/\d+$/.test(rota)) return atual === null ? resposta(404, {}) : resposta(200, { body: atual });
     if (rota.startsWith('DELETE ')) return resposta(204, null);
     if (rota.startsWith('POST /repos/')) return resposta(201, {});
     if (rota === 'POST /api/graphql' || rota === 'POST /graphql') return resposta(200, { data: {} });
@@ -277,7 +278,7 @@ test('comentário de quem tem escrita com bastidor é removido e recebe aviso ne
   const api = apiFalsa({ pr: {}, permissao: 'write' });
   const r = await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, api.buscar);
   assert.equal(r.resultado, 'removido');
-  assert.deepEqual(api.chamadas, ['GET /repos/o/r/collaborators/pessoa-ficticia/permission', 'DELETE /repos/o/r/issues/comments/55', 'POST /repos/o/r/issues/7/comments']);
+  assert.deepEqual(api.chamadas, ['GET /repos/o/r/collaborators/pessoa-ficticia/permission', 'GET /repos/o/r/issues/comments/55', 'DELETE /repos/o/r/issues/comments/55', 'POST /repos/o/r/issues/7/comments']);
   const aviso = api.corpos.join('');
   assert.ok(!aviso.toLowerCase().includes('claude'));
   assert.match(aviso, /categoria: autoria-ia/);
@@ -427,4 +428,17 @@ test('linhas longas e adversariais terminam rápido e não escondem o que cruza 
   assert.ok(Date.now() - inicio < 5000, 'verificação lenta demais');
   const longa = 'x'.repeat(1990) + ' feito com Claude ' + 'y'.repeat(3000);
   assert.deepEqual(ids({ descricao: longa }), ['credito-autoria']);
+});
+
+test('evento antigo: comentário já corrigido ou já apagado não é removido', async () => {
+  const corrigido = apiFalsa({ pr: {}, atual: 'Texto corrigido, sem bastidor' });
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, corrigido.buscar)).resultado, 'limpo');
+  assert.ok(!corrigido.chamadas.some((c) => /^(DELETE|POST)/.test(c)));
+  const apagado = apiFalsa({ pr: {}, atual: null });
+  assert.equal((await tratarComentario(AMBIENTE, 'issue_comment', eventoIssue('Feito com Claude'), completas, internos, apagado.buscar)).resultado, 'ignorado');
+  assert.ok(!apagado.chamadas.some((c) => /^(DELETE|POST)/.test(c)));
+  const revisao = apiFalsa({ pr: {}, atual: 'ok' });
+  const evento = { action: 'edited', pull_request: { number: 7 }, review: { id: 77, node_id: 'NO_3', body: 'Revisão: Sonnet', user: humano() } };
+  assert.equal((await tratarComentario(AMBIENTE, 'pull_request_review', evento, completas, internos, revisao.buscar)).resultado, 'limpo');
+  assert.ok(!revisao.chamadas.includes('POST /graphql'));
 });

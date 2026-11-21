@@ -149,7 +149,7 @@ async function api(env, caminho, { metodo = 'GET', corpo } = {}, buscar = fetch)
     },
     body: corpo ? JSON.stringify(corpo) : undefined,
   });
-  if (!resposta.ok) throw new Error(`API recusou ${metodo} (${resposta.status})`);
+  if (!resposta.ok) throw Object.assign(new Error(`API recusou ${metodo} (${resposta.status})`), { status: resposta.status });
   return resposta.status === 204 ? null : resposta.json();
 }
 
@@ -201,6 +201,15 @@ export async function tratarComentario(env, nomeEvento, evento, regras, internos
   if (!achados.length) return { resultado: 'limpo', achados };
   if (!(await autorElegivel(env, dados.usuario, internos, buscar))) return { resultado: 'fora-do-escopo', achados };
   const repo = repositorio(env);
+  // O evento pode ser antigo: só o texto atual decide, e comentário já apagado não tem o que remover.
+  const caminho = { issue: `/repos/${repo}/issues/comments/${dados.id}`, 'comentario-de-revisao': `/repos/${repo}/pulls/comments/${dados.id}`, revisao: `/repos/${repo}/pulls/${dados.numero}/reviews/${dados.id}` }[dados.tipo];
+  let atual;
+  try { atual = await api(env, caminho, {}, buscar); } catch (erro) {
+    if (erro.status === 404) return { resultado: 'ignorado', achados: [] };
+    throw erro;
+  }
+  const achadosAtuais = verificar({ comentario: atual.body ?? '' }, regras);
+  if (!achadosAtuais.length) return { resultado: 'limpo', achados: achadosAtuais };
   let acao;
   if (dados.tipo === 'issue') {
     await api(env, `/repos/${repo}/issues/comments/${dados.id}`, { metodo: 'DELETE' }, buscar);
@@ -221,11 +230,11 @@ export async function tratarComentario(env, nomeEvento, evento, regras, internos
     if (corpo.errors) throw new Error('API recusou ocultar a revisão');
     acao = 'ocultado';
   }
-  const categorias = [...new Set(achados.map((a) => a.categoria))].join(', ');
+  const categorias = [...new Set(achadosAtuais.map((a) => a.categoria))].join(', ');
   const aviso = `Um comentário de @${dados.usuario.login} foi ${acao} por conter texto interno (categoria: ${categorias}). `
     + 'Reescreva só com o que mudou, por quê, como foi testado e o que ficou sem provar. Guia: docs/guides/bastidor.md.';
   await api(env, `/repos/${repo}/issues/${dados.numero}/comments`, { metodo: 'POST', corpo: { body: aviso } }, buscar);
-  return { resultado: acao, achados };
+  return { resultado: acao, achados: achadosAtuais };
 }
 
 function lerArgumentos(argv) {
