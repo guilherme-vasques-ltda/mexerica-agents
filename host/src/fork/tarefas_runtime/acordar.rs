@@ -708,6 +708,22 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
 pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
     let now = now_ms();
+    let result = run_due(hub, now).await;
+    let changed: Vec<String> = {
+        let db = hub.store.db.locked();
+        db.prepare("SELECT DISTINCT space_id FROM donna_task_agenda WHERE hub_id=?1 AND updated_at>=?2")
+            .and_then(|mut st| {
+                st.query_map(params![hub.host_id, now], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()
+            })
+            .unwrap_or_default()
+    };
+    for space in changed {
+        let _ = hub.events.send(json!({"type": crate::fork::projetos::EVENT, "hubId": hub.host_id, "spaceId": space}));
+    }
+    result
+}
+
+async fn run_due(hub: &Arc<Hub>, now: i64) -> Result<()> {
     let due = {
         let hub = hub.clone();
         tokio::task::spawn_blocking(move || -> Result<Vec<Fire>> {

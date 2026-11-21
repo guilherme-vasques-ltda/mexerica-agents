@@ -323,6 +323,25 @@ async fn aprovar_duas_vezes_nunca_cria_dois_conjuntos() {
 }
 
 #[tokio::test]
+async fn lista_nunca_esconde_pendente_atras_do_historico_decidido() {
+    let f = Fixture::new();
+    f.default_project(PERSONAL).await;
+    let exec = f.exec("a");
+    let first = f.propose("a", Some(&exec), propose_args(&uuid::Uuid::new_v4().to_string(), &items_2())).await.unwrap();
+    let pending = first["proposal"]["id"].as_str().unwrap().to_owned();
+    for _ in 0..52 {
+        let out =
+            f.propose("a", Some(&exec), propose_args(&uuid::Uuid::new_v4().to_string(), &items_2())).await.unwrap();
+        let id = out["proposal"]["id"].as_str().unwrap().to_owned();
+        f.decide(&id, 1, &uuid::Uuid::new_v4().to_string(), "reject", None).await.unwrap();
+    }
+    let list = f.proposals(PERSONAL).await;
+    let all = list["proposals"].as_array().unwrap();
+    assert!(all.iter().any(|p| p["id"] == pending.as_str() && p["state"] == "pending"));
+    assert_eq!(all.len(), 51);
+}
+
+#[tokio::test]
 async fn recusar_deixa_um_desfecho_so() {
     let f = Fixture::new();
     let project = f.default_project(PERSONAL).await;

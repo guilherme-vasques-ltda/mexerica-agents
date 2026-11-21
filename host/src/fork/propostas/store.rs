@@ -496,7 +496,10 @@ fn list(c: &Connection, hub: &str, body: Value) -> Result<(Value, bool)> {
     let mut st = c.prepare(
         "SELECT id,project_id,bot_id,title,items,state,version,created_at,decided_at,decision_request_id
          FROM donna_task_proposals WHERE hub_id=?1 AND space_id=?2
-         ORDER BY created_at DESC, rowid DESC LIMIT 50",
+           AND (state='pending' OR rowid IN (
+             SELECT rowid FROM donna_task_proposals WHERE hub_id=?1 AND space_id=?2 AND state<>'pending'
+             ORDER BY created_at DESC, rowid DESC LIMIT 50))
+         ORDER BY created_at DESC, rowid DESC",
     )?;
     let rows = st.query_map(params![hub, r.space_id], proposal_of)?;
     let mut proposals = Vec::new();
