@@ -951,3 +951,48 @@ fn recadastrar_a_mesma_fonte_nao_abre_chamada_em_paralelo() {
     hub.routines.check_due(&hub.store, std::slice::from_ref(&id), || 1000 * PASSO);
     assert_eq!(travada.0.load(Ordering::SeqCst), 2, "a chamada anterior voltou: pode consultar de novo");
 }
+
+#[test]
+fn mudanca_entre_o_despacho_e_o_inicio_da_chamada_impede_a_leitura() {
+    struct Conta(Arc<AtomicUsize>);
+    impl Fonte for Conta {
+        fn marcador(&self, _: &str) -> Result<Option<String>, Motivo> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+        fn ler(&self, _: &str) -> Result<Vec<Item>, Motivo> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![])
+        }
+    }
+    for caso in ["pausa geral", "desligar", "editar o escopo", "apagar", "prazo vencido"] {
+        let hub = hub();
+        hub.routines.prazo_fonte_ms.store(150, Ordering::SeqCst);
+        let id = salva(&hub, &corpo(&json!({"enabled": true})))["id"].as_str().unwrap().to_owned();
+        let chamadas = Arc::new(AtomicUsize::new(0));
+        hub.routines.registrar_fonte("bot", "pedidos.ficticio", "conta-1", Arc::new(Conta(chamadas.clone())));
+        let (h, i) = (hub.clone(), id.clone());
+        let mudar: Arc<dyn Fn() + Send + Sync> = Arc::new(move || match caso {
+            "pausa geral" => {
+                h.routines.set_paused(&h.store, true).unwrap();
+            }
+            "desligar" => {
+                h.routines.set_enabled(&h.store, "bot", &i, false).unwrap();
+            }
+            "editar o escopo" => {
+                let mut nova = declaracao();
+                nova["escopo"] = json!("outra fila");
+                h.routines.save(&h, "bot", &corpo(&json!({"id": i, "heartbeat": nova, "enabled": true}))).unwrap();
+            }
+            "apagar" => {
+                h.routines.remove(&h.store, "bot", &i).unwrap();
+            }
+            _ => std::thread::sleep(std::time::Duration::from_millis(400)),
+        });
+        *hub.routines.entre_despacho_e_chamada.locked() = Some(mudar);
+        checa(&hub, &id, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(chamadas.load(Ordering::SeqCst), 0, "{caso}: a fonte não pode ser chamada");
+        assert_eq!(avisos(&hub).len(), 0, "{caso}");
+    }
+}
