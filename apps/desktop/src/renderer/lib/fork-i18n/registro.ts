@@ -35,6 +35,7 @@ export const MODULOS: readonly { readonly modulo: string; readonly prefixo: stri
   { modulo: 'conversa/avisos', prefixo: 'conversa.avisos.' },
   { modulo: 'conversa/cartoes', prefixo: 'conversa.cartoes.' },
   { modulo: 'conversa/escolha', prefixo: 'conversa.escolha.' },
+  { modulo: 'conversa/mudancas', prefixo: 'conversa.mudancas.' },
   { modulo: 'conversa/recibo', prefixo: 'conversa.recibo.' },
   { modulo: 'conversa/skills', prefixo: 'conversa.skills.' },
   { modulo: 'conversa/arquivar', prefixo: 'conversa.arquivar.' },

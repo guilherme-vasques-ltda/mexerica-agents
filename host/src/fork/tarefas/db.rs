@@ -348,30 +348,39 @@ pub(crate) fn update(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Valu
         &loaded.tasks[pos],
     )?;
     ensure!(field(&loaded.tasks[pos], "state") != "cancelled", "task_forbidden: subtarefa cancelada.");
-    let state = args["state"].as_str().map(str::to_owned);
-    if let Some(state) = &state {
-        ensure!(
-            matches!(state.as_str(), "backlog" | "in_progress" | "review" | "done" | "blocked"),
-            "invalid_field: estado de bot não pode ser cancelled."
-        );
-    }
-    let evidence = args["evidence"].as_str().map(str::to_owned);
+    // Trava de aceite humano: tarefa concluída só o usuário altera ou reabre —
+    // nenhum bot (responsável, supervisor, coordenador) escreve nela.
+    ensure!(
+        field(&loaded.tasks[pos], "state") != "done",
+        "task_accepted: tarefa concluída só pode ser alterada ou reaberta pelo usuário."
+    );
+    // A prova do trabalho é do usuário: qualquer envio de `evidence`, mesmo
+    // nulo, é recusado antes de tocar a tarefa.
+    ensure!(
+        !args.as_object().is_some_and(|o| o.contains_key("evidence")),
+        "task_forbidden: apenas o usuário pode registrar ou alterar a prova de uma tarefa."
+    );
+    // Concluir também é gesto do usuário: bot só declara estados abertos e
+    // entrega o trabalho em `review` para conferência.
+    let state = match args.get("state") {
+        Some(state) if !state.is_null() => {
+            let state = state.as_str().ok_or_else(|| anyhow!("invalid_field: estado de bot não permitido."))?;
+            ensure!(
+                state != "done",
+                "task_forbidden: apenas o usuário pode concluir uma tarefa; mova para review para enviar à conferência."
+            );
+            ensure!(
+                matches!(state, "backlog" | "in_progress" | "review" | "blocked"),
+                "invalid_field: estado de bot não permitido."
+            );
+            Some(state.to_owned())
+        }
+        _ => None,
+    };
     let description = args["description"].as_str().map(str::to_owned);
-    if let Some(e) = &evidence {
-        text(e, 4000, false)?;
-    }
     if let Some(d) = &description {
         text(d, 4000, false)?;
     }
-    let merged_evidence = evidence.clone().unwrap_or_else(|| field(&loaded.tasks[pos], "evidence").to_owned());
-    let resulting_state = state.clone().unwrap_or_else(|| field(&loaded.tasks[pos], "state").to_owned());
-    if resulting_state == "done" {
-        ensure!(
-            !merged_evidence.trim().is_empty(),
-            "task_evidence_required: tarefa concluída exige prova em evidence."
-        );
-    }
-    let prior_state = field(&loaded.tasks[pos], "state").to_owned();
     let mut changed_fields = Vec::new();
     {
         let task = &mut loaded.tasks[pos];
@@ -380,12 +389,6 @@ pub(crate) fn update(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Valu
         {
             changed_fields.push(format!("estado {} → {}", state_name(field(task, "state")), state_name(&state)));
             task["state"] = json!(state);
-        }
-        if let Some(evidence) = evidence
-            && field(task, "evidence") != evidence
-        {
-            changed_fields.push("evidência".to_owned());
-            task["evidence"] = json!(evidence);
         }
         if let Some(description) = description
             && field(task, "description") != description
@@ -400,18 +403,6 @@ pub(crate) fn update(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Valu
             changed: false,
             space: actor.space,
         });
-    }
-    if resulting_state == "done" && prior_state != "done" {
-        crate::fork::projetos::store::declare_task_done(
-            &tx,
-            &hub.host_id,
-            &actor.space,
-            project_id,
-            task_id,
-            &actor.id,
-        )?;
-    } else if resulting_state != "done" {
-        crate::fork::projetos::store::clear_task_declaration(&tx, &hub.host_id, &actor.space, project_id, task_id)?;
     }
     let now = crate::store::now_ms();
     history(
