@@ -1,10 +1,15 @@
-// Contrato dos workflows: CI na Instabox por padrão (variável só troca a máquina), macOS na Namespace ou, pela variável, no GitHub com o repositório público, nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho.
+// Contrato dos workflows: CI na Instabox por padrão (variável só troca a máquina), macOS na Namespace ou, pela variável, no GitHub com o repositório público, nunca GitHub em repositório privado, permissões explícitas, actions por SHA e ci-ok sem atalho. O release é disparo manual nos runners grátis do GitHub e só cria rascunho.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { compilarRegras, verificar } from './ci-bastidor.mjs';
+import { validarVersao, filtrarChangelog, montarNotas, gerarNotasGithub, main } from './ci-release-notes.mjs';
+import { versaoSemver, aplicarVersaoPacote, conferirVersaoAsar, main as mainVersao } from './ci-release-version.mjs';
 
 const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const lines = ci.split('\n');
@@ -210,8 +215,8 @@ const ACTIONS = new Set([
   'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
 ]);
 
-test('só ci.yml, macos.yml e bastidor.yml existem como workflows', () => {
-  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'macos.yml']);
+test('só bastidor.yml, ci.yml, macos.yml e release.yml existem como workflows', () => {
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'macos.yml', 'release.yml']);
 });
 
 test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
@@ -354,6 +359,8 @@ test('seleção por caminhos: o laço do workflow marca Hub e Desktop pelos arqu
   assert.equal(select(['.github/workflows/ci.yml']), 'true true', 'o próprio ci.yml muda os jobs pesados');
   assert.equal(select(['tools/ci-vazamento.mjs']), 'false false', 'ferramentas de CI rodam só em leves');
   assert.equal(select(['tools/ci-workflow.test.mjs', 'docs/guides/ci.md', '.github/workflows/macos.yml', '.github/actionlint.yaml']), 'false false', 'workflow do macOS, guia e ferramentas de CI não ligam Hub nem Desktop');
+  assert.equal(select(['.github/workflows/release.yml', 'tools/ci-release-notes.mjs']), 'false false', 'workflow de release e gerador de notas rodam só em leves');
+  assert.equal(select(['tools/ci-release-version.mjs']), 'false false', 'gravador de versão da release roda só em leves');
   assert.equal(select(['.github/security/vazamento.json']), 'false false');
   assert.equal(select(['tools/textos-legado.json']), 'false true', 'arquivo de ferramenta lido pelos testes do Desktop continua ligando o Desktop');
   assert.equal(select(['docs/guides/idiomas.md']), 'false true', 'doc lido pelos testes do Desktop continua ligando o Desktop');
@@ -405,4 +412,547 @@ test('Semgrep: Python em modo isolado e fora da árvore analisada', () => {
   assert.match(leves, /- name: Semgrep - validar plataforma e instalar Semgrep OSS fixado\n        working-directory: \$\{\{ runner\.temp \}\}/);
   for (const cmd of ["python3 -I -c 'import sys", 'python3 -I -m venv', 'cd "$RUNNER_TEMP"\n          python3 -I - <<']) assert.ok(leves.includes(cmd), cmd);
   assert.ok(!/python3 (?!-I)/.test(leves), 'nenhum python3 sem -I');
+});
+
+// Release: disparo manual multiplataforma; runners grátis do GitHub, só repositório público, rascunho sem publicar.
+const rel = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+const relLines = rel.split('\n');
+const relJobs = {};
+let relCurrent = null;
+for (const line of relLines.slice(relLines.indexOf('jobs:') + 1)) {
+  const header = /^  ([a-z][a-z-]*):$/.exec(line);
+  if (header) { relCurrent = header[1]; relJobs[relCurrent] = []; continue; }
+  if (relCurrent) relJobs[relCurrent].push(line);
+}
+const relBody = (name) => relJobs[name].join('\n');
+const relSteps = (name) => relBody(name).split('\n    steps:\n')[1].split('\n      - ').map((st) => st.replace(/^(?:      #.*\n)+/, ''));
+const REL_IF = "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' }}";
+const REL_GUARD = "${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}";
+const REL_VERSAO_ERRO = "'::error::O workflow de release so roda a partir da main.'";
+
+test('release: ASCII, só workflow_dispatch com mode e version, sem gatilho proibido e sem secrets', () => {
+  assert.ok(!/[^\x00-\x7F]/.test(rel), 'release.yml deve ser ASCII');
+  assert.match(rel, /^on:\n  workflow_dispatch:\n    inputs:\n      mode:\n        description: '[^'\n]+'\n        type: choice\n        required: true\n        default: 'release'\n        options: \['release', 'preview'\]\n      version:\n        description: '[^'\n]+'\n        type: string\n        required: false\n        default: 'v0\.0\.1'\n\n/m);
+  for (const trigger of ['pull_request', 'pull_request_target', 'workflow_call', 'workflow_run', 'issue_comment', 'schedule', 'push:', 'merge_group']) {
+    assert.ok(!rel.includes(trigger), `gatilho proibido: ${trigger}`);
+  }
+  assert.match(rel, /^permissions: \{\}$/m);
+  assert.match(rel, /^concurrency:\n  group: release-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
+  assert.ok(!/secrets\./.test(rel), 'release sem secrets');
+  assert.ok(!/container:|services:/.test(rel), 'sem container/services');
+});
+
+test('release: quatro jobs nos runners grátis do GitHub, com timeout e sem rótulo pago', () => {
+  assert.deepEqual(Object.keys(relJobs), ['build-macos', 'build-linux', 'build-windows', 'draft-release']);
+  const esperados = { 'build-macos': 'macos-15', 'build-linux': 'ubuntu-24.04', 'build-windows': 'windows-latest', 'draft-release': 'ubuntu-24.04' };
+  for (const [name, job] of Object.entries(relJobs)) {
+    const texto = job.join('\n');
+    const runsOn = job.filter((l) => /^    runs-on:/.test(l));
+    assert.equal(runsOn.length, 1, `${name}: exatamente um runs-on`);
+    assert.equal(runsOn[0].replace(/^    runs-on: /, ''), esperados[name], `${name}: runs-on do contrato`);
+    const timeout = /^    timeout-minutes: (\d+)$/m.exec(texto);
+    assert.ok(timeout && Number(timeout[1]) > 0 && Number(timeout[1]) <= 90, `${name}: timeout de no máximo 90 minutos`);
+    assert.ok(!/ubuntu-latest|self-hosted|blacksmith|buildjet|depot-|boat|instabox|nscloud/i.test(texto), `${name}: nenhum rótulo variável, pago ou de outro fornecedor`);
+  }
+  assert.match(relBody('build-windows'), /^    defaults:\n      run:\n        shell: bash$/m);
+});
+
+test('release: separação de privilégios; escrita só no draft-release e nenhum secret', () => {
+  for (const name of ['build-macos', 'build-linux', 'build-windows']) {
+    assert.match(relBody(name), /^    permissions:\n      contents: read$/m, `${name}: só contents read`);
+    assert.ok(!/: write\b/.test(relBody(name)), `${name}: sem permissão de escrita`);
+  }
+  assert.match(relBody('draft-release'), /^    needs: \[build-macos, build-linux, build-windows\]$/m);
+  assert.match(relBody('draft-release'), /^    permissions:\n      contents: write\n      actions: read$/m);
+  assert.equal((rel.match(/GH_TOKEN: \$\{\{ github\.token \}\}/g) || []).length, 5, 'github.token só no draft-release');
+});
+
+test('release: actions da lista fechada por SHA; checkout sem credencial persistida', () => {
+  const uses = [...rel.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
+  assert.ok(uses.length > 0);
+  for (const ref of uses) assert.ok(ACTIONS.has(ref), `action fora da lista: ${ref}`);
+  for (const c of rel.split('uses: actions/checkout@').slice(1)) assert.match(c.split('\n      - ')[0], /persist-credentials: false/);
+});
+
+test('release: condição dos quatro jobs só libera disparo manual na main de repositório público', () => {
+  for (const name of Object.keys(relJobs)) {
+    const linha = relJobs[name].find((l) => l.startsWith('    if: '));
+    assert.equal(linha, `    if: ${REL_IF}`, `${name}: condição do contrato`);
+  }
+  // O Actions compara texto sem caixa: refs/heads/MAIN passa na condição e a barreira do passo a para.
+  for (const event of ['workflow_dispatch', 'push', 'pull_request', 'schedule', '']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/MAIN', 'refs/heads/outro', '']) {
+      for (const visibility of VISIBILITIES) {
+        const ctx = { event, ref, visibility };
+        const esperado = String(event).toLowerCase() === 'workflow_dispatch' && String(ref).toLowerCase() === 'refs/heads/main' && visibility === 'public';
+        assert.equal(evalExpr(REL_IF, ctx), esperado, `condição do job: ${JSON.stringify(ctx)}`);
+      }
+    }
+  }
+});
+
+test('release: barreiras antes do checkout nos quatro jobs; inputs nunca interpolados em run', () => {
+  for (const name of Object.keys(relJobs)) {
+    const steps = relSteps(name);
+    assert.ok(steps[0].startsWith(`      - name: Recusar repositorio privado ou maquina fora do GitHub\n        if: ${REL_GUARD}\n        working-directory: \${{ runner.temp }}\n        run: |\n          echo '::error::O build de release so roda em maquina gratis do GitHub com o repositorio publico.'\n          exit 1`), `${name}: guarda de repositório e máquina no primeiro passo`);
+    assert.ok(steps[1].startsWith(`name: Validar branch main e parametros da rodada\n        working-directory: \${{ runner.temp }}\n        env:\n          RELEASE_MODE: \${{ inputs.mode }}\n          RELEASE_VERSION: \${{ inputs.version }}\n`), `${name}: parâmetros chegam por env no segundo passo`);
+    for (const trecho of [
+      'set -euo pipefail',
+      `test "$GITHUB_REF" = refs/heads/main || { echo ${REL_VERSAO_ERRO}; exit 1; }`,
+      '[[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]',
+      'case "$RELEASE_MODE" in',
+      "test \"${#RELEASE_VERSION}\" -le 64",
+      '[[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]]',
+      '[[ "$RELEASE_VERSION" != *..* ]]',
+      '[[ "$RELEASE_VERSION" != *-.* ]]',
+      '[[ "$RELEASE_VERSION" != *. ]]',
+      'RELEASE_LABEL="preview-${GITHUB_SHA:0:12}"',
+      '>> "$GITHUB_ENV"',
+    ]) assert.ok(steps[1].includes(trecho), `${name}: falta ${trecho}`);
+    assert.ok(steps[2].startsWith('uses: actions/checkout@'), `${name}: checkout só depois das duas barreiras`);
+  }
+  // O semver e exportado apenas nos jobs de build; o draft-release nao empacota nada.
+  for (const name of ['build-macos', 'build-linux', 'build-windows']) {
+    for (const trecho of [
+      'RELEASE_SEMVER="${RELEASE_VERSION#v}"',
+      'RELEASE_SEMVER=""',
+      'printf \'RELEASE_LABEL=%s\\nRELEASE_SEMVER=%s\\n\' "$RELEASE_LABEL" "$RELEASE_SEMVER" >> "$GITHUB_ENV"',
+    ]) assert.ok(relSteps(name)[1].includes(trecho), `${name}: falta ${trecho}`);
+  }
+  assert.ok(!relBody('draft-release').includes('RELEASE_SEMVER'), 'draft-release não exporta semver');
+  for (const environment of ['github-hosted', 'self-hosted', '', undefined]) {
+    for (const visibility of VISIBILITIES) {
+      assert.equal(evalExpr(REL_GUARD, { environment, visibility }), environment !== 'github-hosted' || visibility !== 'public', `guarda: ${environment} ${visibility}`);
+    }
+  }
+  for (const linha of rel.split('\n')) {
+    if (linha.includes('${{ inputs.')) assert.match(linha, /^\s*(?:if: |RELEASE_(?:MODE|VERSION): )/, `inputs fora de env/if: ${linha}`);
+  }
+});
+
+test('release: a versão entra nos metadados do app entre o npm ci e o build, só no modo release', () => {
+  const depoisDe = {
+    'build-macos': 'Empacotar a Open (perfil oficial, assinatura ad hoc)',
+    'build-linux': 'Preparar a configuracao e construir o app',
+    'build-windows': 'Preparar a configuracao e construir o app',
+  };
+  for (const [name, seguinte] of Object.entries(depoisDe)) {
+    const steps = relSteps(name).map((st) => st.replace(/^      - /, ''));
+    const idx = (trecho) => steps.findIndex((st) => st.startsWith(`name: ${trecho}`));
+    const npmCi = idx('Dependencias do app');
+    const versao = idx('Aplicar versao da release aos metadados do app');
+    assert.ok(npmCi >= 0 && versao === npmCi + 1 && idx(seguinte) === versao + 1, `${name}: passo da versão entre o npm ci e o build`);
+    const passo = steps[versao];
+    assert.ok(passo.includes("if: ${{ inputs.mode == 'release' }}"), `${name}: passo da versão só no modo release`);
+    assert.ok(passo.includes('RELEASE_VERSION: ${{ inputs.version }}'), `${name}: versão chega por env, nunca em run`);
+    assert.ok(passo.includes('node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"'), `${name}: chamada do gravador de versão`);
+  }
+});
+
+test('release: macOS segue o padrão provado do macos.yml, empacota e confere assinatura', () => {
+  const job = relBody('build-macos');
+  assert.match(job, /^    env:\n      OPEN_APP: dist\/open\/mac-arm64\/Mexerica Open\.app$/m);
+  for (const cmd of [
+    'node-version: \'24.22.3\'',
+    'cache: npm',
+    'cache-dependency-path: apps/desktop/package-lock.json',
+    'test "$(uname -s)" = Darwin',
+    'test "$(uname -m)" = arm64',
+    '63752a1919a3a4793173ec70f8f212621a7ce38ba6a246095984482f4de20f9f',
+    'rustup show active-toolchain || rustup toolchain install',
+    'npm ci --no-audit --no-fund',
+    'npm run dist:mac:open',
+    'codesign --verify --deep --strict "$OPEN_APP"',
+    'test "$(lipo -archs "$hub")" = arm64',
+    'codesign --verify --strict "$speech"',
+    'ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/$zip"',
+    'shasum -a 256 "$zip" > macos.sha256',
+    'if [ -n "${RELEASE_SEMVER:-}" ]; then',
+    "/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \"$OPEN_APP/Contents/Info.plist\"",
+    ')" = "$RELEASE_SEMVER"',
+  ]) assert.ok(job.includes(cmd), cmd);
+  assert.match(job, /key: release-macos/);
+  const rustCache = job.split('uses: Swatinem/rust-cache@')[1].split('\n      - ')[0];
+  assert.match(rustCache, /save-if: false/, 'o build de release só lê o cache do Cargo');
+  const upload = job.split('uses: actions/upload-artifact@')[1].split('\n      - ')[0];
+  assert.match(upload, /name: release-macos-arm64/);
+  assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/release-macos\//);
+  assert.match(upload, /retention-days: 7/);
+  assert.match(upload, /if-no-files-found: error/);
+});
+
+test('release: Linux empacota deb e AppImage, confere o conteúdo e gera hash', () => {
+  const job = relBody('build-linux');
+  for (const cmd of [
+    'node tools/account-config.mjs main',
+    'npm run build',
+    'npx electron-builder --linux deb AppImage --publish never',
+    'dpkg-deb --info "$out/$deb_name"',
+    'dpkg-deb --contents "$out/$deb_name"',
+    'opt/Mexerica/donnabot$',
+    'opt/Mexerica/resources/account-config.json$',
+    'avisos/LICENSE$',
+    'avisos/NOTICE$',
+    'usr/share/applications/donnabot.desktop$',
+    'chmod +x "$out/$appimage_name"',
+    'test -s "$out/$appimage_name"',
+    'file "$out/$appimage_name" | grep -q \'ELF 64-bit LSB executable, x86-64\'',
+    'sha256sum "$deb_name" "$appimage_name" > linux.sha256',
+    'if [ -n "${RELEASE_SEMVER:-}" ]; then',
+    'test "$(dpkg-deb -f "$out/$deb_name" Version)" = "${RELEASE_SEMVER//-/~}"',
+  ]) assert.ok(job.includes(cmd), cmd);
+  assert.ok(!job.includes('Version)" = "$RELEASE_SEMVER"'), 'a versão do .deb é conferida no formato Debian, com - virando ~');
+  assert.match(job, /deb_name="mexerica-open-\$\{RELEASE_LABEL\}-linux-amd64\.deb"/);
+  assert.match(job, /appimage_name="mexerica-open-\$\{RELEASE_LABEL\}-linux-x86_64\.AppImage"/);
+  assert.ok(!job.includes('sha256sum "$deb" "$appimage"'), 'hash do Linux com nome relativo, não com caminho absoluto');
+  const upload = job.split('uses: actions/upload-artifact@')[1].split('\n      - ')[0];
+  assert.match(upload, /name: release-linux-amd64/);
+  assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/release-linux\//);
+});
+
+test('release: Windows compila o Hub nativo, valida o cua-driver e empacota NSIS e portátil', () => {
+  const job = relBody('build-windows');
+  for (const cmd of [
+    'rustup target add x86_64-pc-windows-msvc',
+    'cargo build --locked --release --target x86_64-pc-windows-msvc --bin donnabot-host --bin donnabot-hostw',
+    'cp target/x86_64-pc-windows-msvc/release/donnabot-host.exe ../apps/desktop/build/native/',
+    'cp target/x86_64-pc-windows-msvc/release/donnabot-hostw.exe ../apps/desktop/build/native/',
+    'node packaging/cua-driver/fetch.mjs windows-x86_64 apps/desktop/build/native',
+    './apps/desktop/build/native/donnabot-host.exe --version',
+    'CSC_IDENTITY_AUTO_DISCOVERY: \'false\'',
+    'npx electron-builder --win nsis --publish never',
+    'dist/donnabot-windows-x64.exe',
+    'dist/win-unpacked/Mexerica.exe',
+    'dist/win-unpacked/resources/donnabot-host.exe',
+    'dist/win-unpacked/resources/donnabot-hostw.exe',
+    'dist/win-unpacked/resources/cua-driver.exe',
+    'dist/win-unpacked/resources/account-config.json',
+    'win_zip=$(cygpath -w "$out/$zip")',
+    '/c/Windows/System32/tar.exe -a -c -f "$win_zip" .',
+    '/c/Windows/System32/tar.exe -tf "$win_zip" | grep -Eq \'^(\\./)?Mexerica\\.exe$\'',
+    'sed \'s/ \\*/  /\' | tr -d \'\\r\' > windows.sha256',
+    'test "$(node -p "require(\'./apps/desktop/package.json\').version")" = "$RELEASE_SEMVER"',
+    'node tools/ci-release-version.mjs --check-asar apps/desktop/dist/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"',
+  ]) assert.ok(job.includes(cmd), cmd);
+  const conferencia = job.split('\n      - ').find((st) => st.includes('name: Conferir a versao gravada nos metadados do Windows'));
+  assert.ok(conferencia, 'passo de conferência da versão no Windows');
+  assert.ok(!conferencia.includes('working-directory:'), 'conferência roda da raiz do repo, onde o script e os caminhos existem');
+  assert.match(job, /CODYNC_ENV: main/);
+  assert.match(job, /key: release-windows/);
+  const rustCache = job.split('uses: Swatinem/rust-cache@')[1].split('\n      - ')[0];
+  assert.match(rustCache, /save-if: false/, 'o build de release só lê o cache do Cargo');
+  const upload = job.split('uses: actions/upload-artifact@')[1].split('\n      - ')[0];
+  assert.match(upload, /name: release-windows-x64/);
+  assert.match(upload, /path: \$\{\{ runner\.temp \}\}\/release-windows\//);
+});
+
+test('release: draft-release baixa artefatos com gh, confere hashes e cria só rascunho', () => {
+  const job = relBody('draft-release');
+  assert.ok(job.includes('gh run download "$RUN_ID" --repo "$REPO" -n release-macos-arm64 -n release-linux-amd64 -n release-windows-x64 -D "$RUNNER_TEMP/downloads"'));
+  for (const trecho of [
+    'for par in release-macos-arm64/macos.sha256 release-linux-amd64/linux.sha256 release-windows-x64/windows.sha256',
+    'test -f "$RUNNER_TEMP/downloads/$par"',
+    'sha256sum -c "$(basename "$par")"',
+    '[ ! -f "$caminho" ] || [ -L "$caminho" ] || [ ! -s "$caminho" ]',
+    'sha256sum \\\n              "Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip" \\\n              "mexerica-open-${RELEASE_LABEL}-linux-amd64.deb" \\\n              "mexerica-open-${RELEASE_LABEL}-linux-x86_64.AppImage" \\\n              "mexerica-open-${RELEASE_LABEL}-windows-x64-setup.exe" \\\n              "mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip" \\\n              | LC_ALL=C sort -k2,2 > SHA256SUMS.txt',
+    'sha256sum -c SHA256SUMS.txt',
+    'node tools/ci-release-notes.mjs --version "$RELEASE_VERSION" --sha "$GITHUB_SHA" --out "$RUNNER_TEMP/release-notes.md"',
+    'gh api --paginate "repos/$REPO/git/matching-refs/tags/$RELEASE_VERSION" | jq -s \'add // []\' > "$RUNNER_TEMP/tags.json"',
+    'any(.[]; .ref == $ref)',
+    'Ja existe release publicada para $RELEASE_VERSION.',
+    'gh api -X DELETE "repos/$REPO/releases/$id"',
+    'gh release create "$RELEASE_VERSION" --repo "$REPO" --draft --prerelease --target "$GITHUB_SHA" --title "Mexerica Open $RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"',
+    '$assets/Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip',
+    '$assets/mexerica-open-${RELEASE_LABEL}-linux-x86_64.AppImage',
+    '$assets/mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip',
+    '$assets/SHA256SUMS.txt',
+    '.draft == true and .prerelease == true and .target_commitish == $sha and (.assets | length) == 6',
+    '"::error::Rascunho da versao $RELEASE_VERSION nao encontrado."',
+    'GITHUB_STEP_SUMMARY',
+  ]) assert.ok(job.includes(trecho), `falta ${trecho}`);
+  assert.equal((job.match(/releases\?per_page=100" \| jq -s 'add \/\/ \[\]' > "\$RUNNER_TEMP\/releases\.json"/g) || []).length, 2, 'as duas listas de releases passam pelo jq -s da paginação');
+  assert.ok(!job.includes('*.zip *.deb'), 'SHA256SUMS.txt sem glob: os cinco arquivos vêm pelo nome');
+  const preview = job.split('\n      - ').filter((st) => st.includes("if: ${{ inputs.mode == 'preview' }}"));
+  assert.ok(preview.some((st) => st.includes('name: mexerica-open-preview-${{ github.sha }}')), 'preview sobe artefato consolidado do Actions');
+  assert.ok(preview.some((st) => st.includes('nao e versao oficial')), 'resumo da prévia avisa que não é versão oficial');
+  assert.equal((job.match(/if: \$\{\{ inputs\.mode == 'release' \}\}/g) || []).length, 4, 'quatro passos do modo release');
+});
+
+// Gerador de notas de release: mesmas regras de bastidor, falha fechada, texto honesto.
+const configBastidor = JSON.parse(readFileSync(new URL('../.github/security/bastidor.json', import.meta.url), 'utf8'));
+const regrasBastidor = compilarRegras(configBastidor, null);
+
+test('notas: validarVersao aceita o formato fechado e recusa o resto', () => {
+  for (const ok of ['v0.0.1', 'v1.2.3', 'v1.2.3-rc.1', 'v0.0.1-beta.11', 'v1.2.3-0', 'v1.2.3-0a', 'v0.0.1-' + 'a'.repeat(57)]) assert.equal(validarVersao(ok), true, ok.length === 64 ? '64 caracteres passam' : ok);
+  for (const ruim of ['0.0.1', 'V0.0.1', 'v0.0.1; rm -rf', 'v0.0.1-..', 'v0.0.1-a..b', 'v0.0.1-.1', 'v0.0.1-RC1', 'v0.0.1.', 'v0.0.1-', 'v0.0.1 ', 'v01.2.3', 'v1.02.3', 'v1.2.03', 'v1.2.3-01', 'v1.2.3-rc.01', 'v0.0.1-' + 'a'.repeat(58), '', null, undefined, 42]) {
+    assert.equal(validarVersao(ruim), false, String(ruim));
+  }
+});
+
+test('notas: a ERE estrita do workflow casa com as versões válidas e rejeita as outras', () => {
+  // A ERE vem do próprio release.yml: o teste reprova se alguém descompassar os dois lados.
+  const linha = rel.split('\n').find((l) => l.includes('RELEASE_VERSION" =~ ^v(0|'));
+  assert.ok(linha, 'guarda do workflow com a ERE estrita de SemVer');
+  const ere = linha.slice(linha.indexOf('=~ ') + 3, linha.indexOf(' ]]'));
+  // A guarda do workflow e o par limite de 64 caracteres + ERE; a prova roda os dois, como no job.
+  const casa = (versao) => spawnSync('bash', ['-c', `test "\${#1}" -le 64 && [[ "$1" =~ ${ere} ]]`, 'bash', versao]).status;
+  for (const ok of ['v0.0.1', 'v1.2.3-rc.1', 'v1.2.3-0', 'v1.2.3-0a', 'v0.0.1-' + 'a'.repeat(57)]) assert.equal(casa(ok), 0, ok);
+  for (const ruim of ['v01.2.3', 'v1.2.3-01', 'v0.0.1-' + 'a'.repeat(58)]) assert.notEqual(casa(ruim), 0, ruim);
+});
+
+test('notas: filtrarChangelog mantém o comum e omite bastidor sem imprimir a linha', () => {
+  const bruto = [
+    '* Correção do aviso de conexão',
+    'Notas escritas por Claude',
+    'conversa jam_0123456789abcdef',
+    'Closes GUI-1234',
+    '* Botão de exportar',
+    '',
+  ].join('\n');
+  const { linhas, omitidas } = filtrarChangelog(bruto, regrasBastidor);
+  assert.deepEqual(linhas, ['* Correção do aviso de conexão', '* Botão de exportar']);
+  assert.equal(omitidas, 3);
+});
+
+test('notas: filtrarChangelog omite o título da API sem contar achado e rebaixa cabeçalhos', () => {
+  const bruto = [
+    "## What's Changed",
+    '* Nova tela de ajustes',
+    '## New Contributors',
+    '* @alguem fez a primeira contribuicao',
+    '',
+  ].join('\n');
+  const { linhas, omitidas } = filtrarChangelog(bruto, regrasBastidor);
+  assert.deepEqual(linhas, ['* Nova tela de ajustes', '#### New Contributors', '* @alguem fez a primeira contribuicao']);
+  assert.equal(omitidas, 0, 'o cabeçalho da API sai sem virar achado de bastidor');
+});
+
+test('notas: montarNotas é honesto, lista os seis arquivos e passa limpo pelo bastidor', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const notas = montarNotas({ version: 'v0.2.7', sha, changelog: ['* Nova tela de ajustes', '* Botão de exportar'], regras: regrasBastidor });
+  for (const trecho of [
+    'Mexerica Open v0.2.7',
+    'Mexerica-Open-v0.2.7-macos-arm64.zip',
+    'mexerica-open-v0.2.7-linux-amd64.deb',
+    'mexerica-open-v0.2.7-linux-x86_64.AppImage',
+    'mexerica-open-v0.2.7-windows-x64-setup.exe',
+    'mexerica-open-v0.2.7-windows-x64-portable.zip',
+    'SHA256SUMS.txt',
+    'Gatekeeper',
+    'SmartScreen',
+    'awk -v f="Mexerica-Open-v0.2.7-macos-arm64.zip" \'$2 == f\' SHA256SUMS.txt | shasum -a 256 -c -',
+    'awk -v f="mexerica-open-v0.2.7-linux-amd64.deb" \'$2 == f\' SHA256SUMS.txt | sha256sum -c -',
+    'Get-FileHash',
+    'sudo apt install ./mexerica-open-v0.2.7-linux-amd64.deb',
+    'Executar assim mesmo',
+    `Commit: ${sha}`,
+    '* Nova tela de ajustes',
+  ]) assert.ok(notas.includes(trecho), trecho);
+  assert.deepEqual(verificar({ titulo: 'Mexerica Open v0.2.7', descricao: notas }, regrasBastidor), [], 'o texto final não pode carregar bastidor');
+  const semMudancas = montarNotas({ version: 'v0.0.1', sha, changelog: [], regras: regrasBastidor });
+  assert.ok(semMudancas.includes('Primeira versão de pré-lançamento publicada a partir da branch main.'), 'changelog vazio ganha frase simples');
+  assert.throws(() => montarNotas({ version: 'v0.0.1', sha, changelog: ['Feito com Claude'], regras: regrasBastidor }), (erro) => erro.controlado === true, 'linha de bastidor reprova o texto inteiro');
+});
+
+test('notas: gerarNotasGithub faz o POST certo e falha controlado sem vazar o token', async () => {
+  const chamadas = [];
+  const aceito = async (url, opcoes) => { chamadas.push({ url, opcoes }); return { status: 200, json: async () => ({ body: '* Nota da API' }) }; };
+  const corpo = await gerarNotasGithub({ repo: 'dono/repo', version: 'v0.0.1', sha: '0'.repeat(40), token: 'token-ficticio', apiUrl: 'https://api.example.invalid' }, aceito);
+  assert.equal(corpo, '* Nota da API');
+  assert.equal(chamadas.length, 1);
+  assert.equal(chamadas[0].url, 'https://api.example.invalid/repos/dono/repo/releases/generate-notes');
+  assert.equal(chamadas[0].opcoes.method, 'POST');
+  assert.deepEqual(JSON.parse(chamadas[0].opcoes.body), { tag_name: 'v0.0.1', target_commitish: '0'.repeat(40) });
+  assert.equal(chamadas[0].opcoes.headers.Authorization, 'Bearer token-ficticio');
+  assert.equal(chamadas[0].opcoes.headers.Accept, 'application/vnd.github+json');
+  assert.equal(chamadas[0].opcoes.headers['X-GitHub-Api-Version'], '2022-11-28');
+  assert.equal(chamadas[0].opcoes.headers['Content-Type'], 'application/json');
+  assert.ok(chamadas[0].opcoes.signal, 'chamada com prazo curto');
+  const recusas = [
+    async () => ({ status: 404, json: async () => ({}) }),
+    async () => ({ status: 401, json: async () => ({ message: 'bad credentials token-ficticio' }) }),
+    async () => { throw new TypeError('rede caiu com token-ficticio'); },
+  ];
+  for (const buscar of recusas) {
+    await assert.rejects(
+      () => gerarNotasGithub({ repo: 'dono/repo', version: 'v0.0.1', sha: '0'.repeat(40), token: 'token-ficticio', apiUrl: 'https://api.example.invalid' }, buscar),
+      (erro) => erro.controlado === true && !erro.message.includes('token-ficticio'),
+      'erro controlado e sem o token na mensagem',
+    );
+  }
+  for (const entrada of [{ repo: 'dono/repo', version: '0.0.1' }, { repo: '../ruim', version: 'v0.0.1' }, { repo: 'dono/repo', version: 'v0.0.1', sha: 'abc' }]) {
+    await assert.rejects(() => gerarNotasGithub({ ...entrada, sha: entrada.sha ?? '0'.repeat(40), token: 't', apiUrl: 'https://api.example.invalid' }), (erro) => erro.controlado === true);
+  }
+});
+
+test('notas: main gera o arquivo com changelog limpo e avisa as linhas omitidas', async (t) => {
+  const log = t.mock.method(console, 'log', () => {});
+  const dir = mkdtempSync(join(tmpdir(), 'notas-release-'));
+  try {
+    const saida = join(dir, 'release-notes.md');
+    const buscar = async () => ({ status: 200, json: async () => ({ body: '* Nova tela de ajustes\nFeito com Claude\n' }) });
+    const codigo = await main(['--version', 'v0.1.0', '--sha', '0'.repeat(40), '--out', saida], { GITHUB_REPOSITORY: 'dono/repo', GH_TOKEN: 't', GITHUB_API_URL: 'https://api.example.invalid' }, buscar);
+    assert.equal(codigo, 0);
+    const texto = readFileSync(saida, 'utf8');
+    assert.ok(texto.includes('Mexerica Open v0.1.0'));
+    assert.ok(texto.includes('* Nova tela de ajustes'));
+    assert.ok(!texto.includes('Claude'), 'linha de bastidor não chega ao arquivo');
+    assert.ok(log.mock.calls.some((c) => String(c.arguments[0]).includes('1 linha(s) omitida(s) do resumo automatico pela verificacao de bastidor.')), 'aviso genérico das linhas omitidas');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    log.mock.restore();
+  }
+  await assert.rejects(() => main(['--version', '0.1.0', '--sha', '0'.repeat(40), '--out', 'x.md']), (erro) => erro.controlado === true, 'versão sem v reprova fechado');
+});
+
+test('notas: só o macOS promete perfil isolado; Linux e Windows avisam o perfil padrão', () => {
+  const notas = montarNotas({ version: 'v0.2.7', sha: '0'.repeat(40), changelog: [], regras: regrasBastidor });
+  assert.ok(notas.includes('Apenas o pacote de macOS usa o'), 'o aviso delimita qual pacote é isolado');
+  assert.ok(notas.includes('perfil isolado `Mexerica Open`; os pacotes de Linux e Windows usam o perfil padrão do app'), 'o aviso nomeia o perfil padrão para Linux e Windows');
+  assert.ok(notas.includes('### Como instalar e abrir'), 'título novo da seção de instalação');
+  assert.ok(!notas.includes('Como abrir sem mexer em instalação existente'), 'o título antigo, que prometia isolamento geral, saiu');
+  assert.ok(!notas.includes('use pastas separadas da instalação'), 'a frase genérica de isolamento saiu');
+  const secao = notas.slice(notas.indexOf('### Arquivos incluídos'), notas.indexOf('### Como instalar e abrir'));
+  const pacotes = secao.split('\n').filter((l) => l.startsWith('- `') && !l.includes('SHA256SUMS.txt'));
+  for (const l of pacotes) {
+    if (l.includes('-macos-arm64.zip')) assert.ok(l.includes('perfil isolado') && l.includes('separado de instalações existentes'), l);
+    else assert.ok(l.includes('perfil padrão') && l.includes('não isolado'), `Linux e Windows sem promessa de isolamento: ${l}`);
+  }
+  assert.deepEqual(verificar({ titulo: 'Mexerica Open v0.2.7', descricao: notas }, regrasBastidor), [], 'o texto novo continua limpo de bastidor');
+});
+
+test('notas: o comando de hash do Linux confere só o arquivo baixado e falha fechado', () => {
+  const notas = montarNotas({ version: 'v0.2.7', sha: '0'.repeat(40), changelog: [], regras: regrasBastidor });
+  const linha = notas.split('\n').find((l) => l.includes('SHA256SUMS.txt | sha256sum -c -'));
+  assert.ok(linha, 'as notas trazem o comando de hash do Linux');
+  const comando = linha.trim();
+  const dir = mkdtempSync(join(tmpdir(), 'hash-notas-'));
+  try {
+    const nome = 'mexerica-open-v0.2.7-linux-amd64.deb';
+    const conteudo = 'conteudo ficticio do deb';
+    const hash = createHash('sha256').update(conteudo).digest('hex');
+    const rodar = () => spawnSync('bash', ['-c', comando], { cwd: dir, encoding: 'utf8' });
+    // 1) arquivo presente, mesmo com outro arquivo do manifesto ausente no disco: passa para o baixado.
+    writeFileSync(join(dir, nome), conteudo);
+    writeFileSync(join(dir, 'SHA256SUMS.txt'), `${hash}  ${nome}\n${'a'.repeat(64)}  mexerica-open-v0.2.7-linux-x86_64.AppImage\n`);
+    assert.equal(rodar().status, 0, 'passa com o arquivo baixado presente');
+    // 2) arquivo ausente no disco: falha.
+    rmSync(join(dir, nome));
+    assert.notEqual(rodar().status, 0, 'falha com o arquivo ausente no disco');
+    // 3) arquivo fora do manifesto: o awk não acha a linha e o sha256sum reprova a entrada vazia.
+    writeFileSync(join(dir, nome), conteudo);
+    writeFileSync(join(dir, 'SHA256SUMS.txt'), `${'a'.repeat(64)}  outro-arquivo.deb\n`);
+    assert.notEqual(rodar().status, 0, 'falha com o arquivo fora do manifesto');
+    // 4) arquivo alterado: hash divergente.
+    writeFileSync(join(dir, 'SHA256SUMS.txt'), `${'b'.repeat(64)}  ${nome}\n`);
+    assert.notEqual(rodar().status, 0, 'falha com o hash divergente');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('versao: versaoSemver tira o v e reprova versão inválida', () => {
+  assert.equal(versaoSemver('v0.0.1'), '0.0.1');
+  assert.equal(versaoSemver('v0.0.1-rc.1'), '0.0.1-rc.1');
+  for (const ruim of ['0.0.1', 'v01.2.3', 'v1.2.3-01', 'v0.0.1-.1', 'v0.0.1-..', '', null, undefined]) {
+    assert.throws(() => versaoSemver(ruim), (erro) => erro.controlado === true, String(ruim));
+  }
+});
+
+// Cabeçalho do asar: [0-3]=4, [4-7]=bloco, [8-11]=payload, [12-15]=JSON, [16..]=JSON, arquivos em 8+bloco.
+const montarAsarSintetico = (caminho, versao, semPackage) => {
+  const conteudo = Buffer.from(`${JSON.stringify({ name: 'app-ficticio', version: versao }, null, 2)}\n`);
+  const arquivos = semPackage ? {} : { 'package.json': { offset: '0', size: conteudo.length } };
+  const json = Buffer.from(JSON.stringify({ files: arquivos }));
+  const payload = Buffer.alloc(4 + json.length + ((4 - ((4 + json.length) % 4)) % 4));
+  payload.writeUInt32LE(json.length, 0);
+  json.copy(payload, 4);
+  const bloco = 4 + payload.length;
+  const arquivo = Buffer.alloc(8 + bloco + conteudo.length);
+  arquivo.writeUInt32LE(4, 0);
+  arquivo.writeUInt32LE(bloco, 4);
+  arquivo.writeUInt32LE(payload.length, 8);
+  payload.copy(arquivo, 12);
+  conteudo.copy(arquivo, 8 + bloco);
+  writeFileSync(caminho, arquivo);
+};
+
+
+test('versao: aplicarVersaoPacote grava só o campo version e confirma na releitura', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'versao-pkg-'));
+  try {
+    const caminho = join(dir, 'package.json');
+    const original = { name: 'app-ficticio', version: '0.0.0', main: 'out/main/index.js', scripts: { build: 'vazio' } };
+    writeFileSync(caminho, `${JSON.stringify(original, null, 2)}\n`);
+    assert.equal(aplicarVersaoPacote(caminho, 'v1.2.3-rc.4'), '1.2.3-rc.4');
+    const gravado = readFileSync(caminho, 'utf8');
+    assert.match(gravado, /\n$/);
+    const pkg = JSON.parse(gravado);
+    assert.equal(pkg.version, '1.2.3-rc.4');
+    const { version, ...resto } = pkg;
+    const { version: fora, ...esperado } = original;
+    assert.deepEqual(resto, esperado, 'só o campo version muda');
+    assert.throws(() => aplicarVersaoPacote(caminho, '1.2.3'), (erro) => erro.controlado === true, 'versão sem v reprova');
+    assert.throws(() => aplicarVersaoPacote(caminho, 'v01.2.3'), (erro) => erro.controlado === true, 'zero à esquerda reprova');
+    assert.throws(() => aplicarVersaoPacote(caminho, 'v1.2.3-rc.01'), (erro) => erro.controlado === true, 'zero à esquerda no sufixo reprova');
+    writeFileSync(join(dir, 'sem-version.json'), '{"name":"x"}');
+    assert.throws(() => aplicarVersaoPacote(join(dir, 'sem-version.json'), 'v1.0.0'), (erro) => erro.controlado === true, 'package.json sem version reprova');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('versao: conferirVersaoAsar lê o package.json de dentro do app.asar', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'versao-asar-'));
+  try {
+    montarAsarSintetico(join(dir, 'ok.asar'), '3.2.1-rc.7', false);
+    assert.equal(conferirVersaoAsar(join(dir, 'ok.asar'), 'v3.2.1-rc.7'), '3.2.1-rc.7');
+    assert.throws(() => conferirVersaoAsar(join(dir, 'ok.asar'), 'v3.2.1'), (erro) => erro.controlado === true, 'versão divergente dentro do asar reprova');
+    montarAsarSintetico(join(dir, 'sem-package.asar'), '3.2.1', true);
+    assert.throws(() => conferirVersaoAsar(join(dir, 'sem-package.asar'), 'v3.2.1'), (erro) => erro.controlado === true, 'asar sem package.json reprova fechado');
+    montarAsarSintetico(join(dir, 'truncado.asar'), '3.2.1', false);
+    const inteiro = readFileSync(join(dir, 'truncado.asar'));
+    writeFileSync(join(dir, 'truncado.asar'), inteiro.subarray(0, 20));
+    assert.throws(() => conferirVersaoAsar(join(dir, 'truncado.asar'), 'v3.2.1'), (erro) => erro.controlado === true, 'asar truncado reprova fechado');
+    // offset que apontaria antes da base dos arquivos reprova fechado
+    montarAsarSintetico(join(dir, 'offset-negativo.asar'), '3.2.1', false);
+    const inteiro2 = readFileSync(join(dir, 'offset-negativo.asar'));
+    const tamanhoJson = inteiro2.readUInt32LE(12);
+    const cabecalho = JSON.parse(inteiro2.subarray(16, 16 + tamanhoJson).toString('utf8'));
+    cabecalho.files['package.json'].offset = '-8';
+    const novoJson = Buffer.from(JSON.stringify(cabecalho));
+    const copia = Buffer.from(inteiro2);
+    copia.writeUInt32LE(novoJson.length, 12);
+    novoJson.copy(copia, 16);
+    writeFileSync(join(dir, 'offset-negativo.asar'), copia);
+    assert.throws(() => conferirVersaoAsar(join(dir, 'offset-negativo.asar'), 'v3.2.1'), (erro) => erro.controlado === true, 'offset antes da base dos arquivos reprova fechado');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('versao: a CLI da versão funciona de ponta a ponta, com --package e --check-asar', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'versao-cli-'));
+  const executavel = fileURLToPath(new URL('../tools/ci-release-version.mjs', import.meta.url));
+  try {
+    // main() importado: as duas chaves com hifen chegam onde devem.
+    montarAsarSintetico(join(dir, 'app.asar'), '3.2.1', false);
+    assert.equal(mainVersao(['--check-asar', join(dir, 'app.asar'), '--version', 'v3.2.1']), '3.2.1', '--check-asar pela função main');
+    writeFileSync(join(dir, 'package.json'), '{"name":"app-ficticio","version":"0.0.0"}\n');
+    assert.equal(mainVersao(['--package', join(dir, 'package.json'), '--version', 'v1.0.0-rc.2']), '1.0.0-rc.2', '--package pela função main');
+    assert.equal(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version, '1.0.0-rc.2');
+    assert.throws(() => mainVersao(['--check-asar', join(dir, 'app.asar'), '--package', join(dir, 'package.json'), '--version', 'v1.0.0']), (erro) => erro.controlado === true, 'os dois argumentos juntos recusam');
+    assert.throws(() => mainVersao(['--desconhecido', 'x']), (erro) => erro.controlado === true, 'argumento desconhecido recusado');
+    // CLI de verdade, pelo node: o caminho feliz e o erro controlado com exit 1.
+    const ok = spawnSync(process.execPath, [executavel, '--check-asar', join(dir, 'app.asar'), '--version', 'v3.2.1'], { encoding: 'utf8' });
+    assert.equal(ok.status, 0, ok.stderr);
+    const ruim = spawnSync(process.execPath, [executavel, '--check-asar', join(dir, 'app.asar'), '--version', '3.2.1'], { encoding: 'utf8' });
+    assert.equal(ruim.status, 1, 'versão inválida encerra com exit 1');
+    assert.match(ruim.stdout, /::error title=Versao da release::/, 'erro sai como anotação controlada');
+    const gravar = spawnSync(process.execPath, [executavel, '--package', join(dir, 'package.json'), '--version', 'v2.0.0'], { encoding: 'utf8' });
+    assert.equal(gravar.status, 0, gravar.stderr);
+    assert.equal(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version, '2.0.0');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
