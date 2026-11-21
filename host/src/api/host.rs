@@ -118,6 +118,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             let (cols, rows) = term_size(&b);
             // Node.js belongs to the computer, not to one agent.
             let backend = if step == crate::agent::term::Step::Node { "" } else { str_arg(&b, "backend")? };
+            crate::fork::motores_retirados::exigir_oferecido(backend)?;
             let id = if step == crate::agent::term::Step::Login && !matches!(caller, Caller::Local) {
                 anyhow::ensure!(b.get("engineAccountId").is_none(), "Use o login da conta em Contas de IA.");
                 hub.terms
@@ -137,6 +138,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         }
         "agentModels" => {
             let backend = str_arg(&b, "backend")?;
+            crate::fork::motores_retirados::exigir_oferecido(backend)?;
             let env = crate::fork::terminal_login::runtime_env(
                 &hub.store,
                 backend,
@@ -150,6 +152,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         }
         "agentAuth" | "agentAuthenticate" | "setAgentEnv" => {
             let backend = str_arg(&b, "backend")?;
+            crate::fork::motores_retirados::exigir_oferecido(backend)?;
             let status = match method {
                 "agentAuth" if matches!(caller, Caller::Local) => {
                     crate::agent::auth::check(&hub.store, backend).await?

@@ -204,6 +204,7 @@ pub(crate) mod motor_roots;
 #[cfg(unix)]
 pub(crate) mod motor_uploads;
 pub(crate) mod motor_workspace_memory;
+pub(crate) mod motores_retirados;
 
 #[cfg(all(test, unix))]
 mod motor_roots_tests;
