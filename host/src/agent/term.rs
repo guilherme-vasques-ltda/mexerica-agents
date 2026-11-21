@@ -619,7 +619,8 @@ mod authority_tests {
     }
 
     /// GUI-145: instalar um motor por script do fornecedor mostra o comando e só executa
-    /// com confirmação no terminal; recusar não baixa nem executa nada.
+    /// com confirmação no terminal; recusar não baixa nem executa nada. O Cursor serve de
+    /// motor mantido com instalação por script (o Amp saiu da oferta desta versão).
     #[cfg(unix)]
     #[tokio::test]
     async fn instalacao_por_script_pede_confirmacao_no_terminal() {
@@ -632,14 +633,17 @@ mod authority_tests {
             "fixture".into(),
             0,
         );
-        // O Amp instala pelo script do fornecedor (curl | bash), sem hash fixado.
-        let id =
-            dispatch(&hub, &Caller::Local, "agentSetup", json!({"backend":"amp","step":"install","cols":80,"rows":24}))
-                .await
-                .unwrap()["term"]
-                .as_str()
-                .unwrap()
-                .to_owned();
+        let id = dispatch(
+            &hub,
+            &Caller::Local,
+            "agentSetup",
+            json!({"backend":"cursor","step":"install","cols":80,"rows":24}),
+        )
+        .await
+        .unwrap()["term"]
+            .as_str()
+            .unwrap()
+            .to_owned();
         let term = hub.terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();
         dispatch(&hub, &Caller::Local, "termInput", json!({"term":id,"data":B64.encode("n\n")})).await.unwrap();
@@ -660,7 +664,7 @@ mod authority_tests {
         .unwrap();
         assert_eq!(codigo, 130, "recusar não é sucesso de instalação: {text}");
         // O terminal mostra o comando exato e a pergunta antes de qualquer download.
-        assert!(text.contains("curl -fsSL https://ampcode.com/install.sh | bash"), "{text}");
+        assert!(text.contains("curl https://cursor.com/install -fsS | bash"), "{text}");
         assert!(text.contains("Rodar agora? [s/N]"), "{text}");
         assert!(text.contains("Cancelado: nada foi executado."), "{text}");
         dispatch(&hub, &Caller::Local, "termClose", json!({"term":id})).await.unwrap();

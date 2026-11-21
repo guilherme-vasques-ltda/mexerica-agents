@@ -1,0 +1,158 @@
+// Prazo de silêncio do fornecedor com rede falsa.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { normalizeContext, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses.ts";
+import { comPrazoDeSilencio, SilencioDoFornecedor } from "../src/silencio.ts";
+
+const MODEL: Model<"openai-responses"> = {
+	id: "gpt-5", name: "GPT-5", api: "openai-responses", provider: "openai", baseUrl: "https://api.example.invalid/v1",
+	input: ["text"], reasoning: true, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 400000, maxTokens: 128000,
+};
+const sse = (eventos: object[]) => new TextEncoder().encode(eventos.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""));
+const nunca = () => new Promise<never>(() => {});
+const corpoQueTrava = (inicio: Uint8Array) =>
+	new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(inicio);
+		},
+	});
+
+async function turno(fetch: typeof globalThis.fetch, signal?: AbortSignal): Promise<AssistantMessage> {
+	const stream = streamSimple(MODEL, normalizeContext({ messages: [{ role: "user", content: "oi", timestamp: 1 }] }), { apiKey: "chave-ficticia-de-teste", fetch, signal });
+	return (await stream.result()) as AssistantMessage;
+}
+
+test("corpo que para no meio encerra o turno com erro de silêncio", async () => {
+	const inicio = sse([{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } }]);
+	const fetch = comPrazoDeSilencio(async () => new Response(corpoQueTrava(inicio), { status: 200, headers: { "content-type": "text/event-stream" } }), 200);
+	const antes = Date.now();
+	const mensagem = await turno(fetch);
+	assert.equal(mensagem.stopReason, "error");
+	assert.match(mensagem.errorMessage ?? "", /sem responder/);
+	assert.ok(Date.now() - antes < 5000);
+});
+
+test("fornecedor que nem responde os cabeçalhos também é cortado", async () => {
+	const fetch = comPrazoDeSilencio(nunca, 200);
+	await assert.rejects(fetch("https://api.example.invalid/v1/responses"), SilencioDoFornecedor);
+});
+
+test("cancelar pelo sinal de um Request, sem init, cancela o pedido de baixo", async () => {
+	let recebido: AbortSignal | null | undefined;
+	const fetch = comPrazoDeSilencio((_input, init) => {
+		recebido = init?.signal;
+		return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+	}, 5000);
+	const dono = new AbortController();
+	const pedido = fetch(new Request("https://api.example.invalid/v1/responses", { signal: dono.signal }));
+	dono.abort(new Error("cancelado pelo dono"));
+	await assert.rejects(pedido, /cancelado pelo dono/);
+	assert.equal(recebido?.aborted, true);
+});
+
+test("sair sem drenar o corpo, cancelando de fora, não deixa o prazo armado", async () => {
+	const ativos = new Set<unknown>();
+	const { setTimeout: armar, clearTimeout: desarmar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		const relogio = armar(...args);
+		ativos.add(relogio);
+		return relogio;
+	}) as typeof setTimeout;
+	globalThis.clearTimeout = ((relogio: Parameters<typeof clearTimeout>[0]) => {
+		ativos.delete(relogio);
+		desarmar(relogio);
+	}) as typeof clearTimeout;
+	try {
+		const inicio = new TextEncoder().encode("data: {}\n\n");
+		const fetch = comPrazoDeSilencio(async () => new Response(corpoQueTrava(inicio), { status: 200 }), 60_000);
+		const dono = new AbortController();
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		const leitor = resposta.body!.getReader();
+		await leitor.read();
+		assert.equal(ativos.size, 1, "o prazo do silêncio está armado enquanto a resposta corre");
+		dono.abort();
+		assert.equal(ativos.size, 0, "cancelar de fora desarma o prazo");
+	} finally {
+		globalThis.setTimeout = armar;
+		globalThis.clearTimeout = desarmar;
+	}
+});
+
+test("cancelar entre a leitura e a continuação não arma um prazo novo", async () => {
+	let cancelado = false;
+	let armadosDepois = 0;
+	const { setTimeout: armar } = globalThis;
+	globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		if (cancelado) armadosDepois++;
+		return armar(...args);
+	}) as typeof setTimeout;
+	try {
+		const dono = new AbortController();
+		type Leitura = { done: boolean; value?: Uint8Array };
+		let entregar!: (leitura: Leitura) => void;
+		const corpo = { getReader: () => ({ read: () => new Promise<Leitura>((resolve) => (entregar = resolve)), cancel: async () => {} }) };
+		const fetch = comPrazoDeSilencio(async () => ({ body: corpo, status: 200, statusText: "", headers: new Headers() }) as unknown as Response, 60_000);
+		const resposta = await fetch("https://api.example.invalid/v1/responses", { signal: dono.signal });
+		await new Promise((resolve) => setImmediate(resolve));
+		entregar({ done: false, value: new Uint8Array([1]) });
+		queueMicrotask(() => {
+			cancelado = true;
+			dono.abort();
+		});
+		await resposta.body!.getReader().read().catch(() => {});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(armadosDepois, 0, "nenhum prazo é armado depois do cancelamento");
+	} finally {
+		globalThis.setTimeout = armar;
+	}
+});
+
+test("resposta lenta mas viva não é cortada", async () => {
+	const partes = [
+		{ type: "response.created", response: { id: "r", status: "in_progress", output: [] } },
+		{ type: "response.output_item.added", output_index: 0, item: { type: "message", id: "m", role: "assistant", status: "in_progress", content: [] } },
+		{ type: "response.output_text.delta", output_index: 0, content_index: 0, item_id: "m", delta: "devagar" },
+		{ type: "response.output_item.done", output_index: 0, item: { type: "message", id: "m", role: "assistant", status: "completed", content: [{ type: "output_text", text: "devagar", annotations: [] }] } },
+		{ type: "response.completed", response: { id: "r", status: "completed", output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
+	];
+	const corpo = new ReadableStream<Uint8Array>({
+		async start(controller) {
+			for (const parte of partes) {
+				await new Promise((r) => setTimeout(r, 120));
+				controller.enqueue(sse([parte]));
+			}
+			controller.close();
+		},
+	});
+	const fetch = comPrazoDeSilencio(async () => new Response(corpo, { status: 200, headers: { "content-type": "text/event-stream" } }), 300);
+	const mensagem = await turno(fetch);
+	assert.equal(mensagem.stopReason, "stop", mensagem.errorMessage);
+});
+
+test("cancelar continua sendo cancelar, não silêncio", async () => {
+	const parar = new AbortController();
+	const fetch = comPrazoDeSilencio((_i, init) => new Promise((_r, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))), 10_000);
+	const pedido = fetch("https://api.example.invalid/v1/responses", { signal: parar.signal });
+	parar.abort(new Error("cancelado pelo usuário"));
+	await assert.rejects(pedido, /cancelado pelo usuário/);
+});
+
+
+test("pedido já cancelado não deixa rejeição solta", async () => {
+	const soltas: unknown[] = [];
+	const anotar = (motivo: unknown) => soltas.push(motivo);
+	process.on("unhandledRejection", anotar);
+	try {
+		const parar = new AbortController();
+		parar.abort(new Error("cancelado antes de começar"));
+		const fetch = comPrazoDeSilencio(async () => {
+			throw new Error("o fetch recusou o sinal cancelado");
+		}, 10_000);
+		await assert.rejects(fetch("https://api.example.invalid/v1/responses", { signal: parar.signal }), /cancelado antes de começar/);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.deepEqual(soltas, []);
+	} finally {
+		process.off("unhandledRejection", anotar);
+	}
+});
