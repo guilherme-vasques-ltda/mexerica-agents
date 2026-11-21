@@ -245,6 +245,7 @@ export const textos: Traducao<typeof fonte> = {
   // Entrega 3 (revisão do app): bots e modelos dentro da conta, com Ocultar.
   "contas.botsTitulo": "البوتات على هذا الحساب",
   "contas.botsVazioDetalhe": "لربط بوت، افتح إعداداته واختر هذا الحساب في «المحرّك».",
+  "contas.botsOpen": "في Open، تردّ البوتات بحساب Codex الذي تم ربطه مؤخرًا. لا حاجة لاختيار أي شيء.",
   "contas.botModeloPadrao": "افتراضي المحرّك",
   "contas.modelosTitulo": "النماذج",
   "contas.modelosResumo": "في المحدِّد: {visiveis} من {total}",

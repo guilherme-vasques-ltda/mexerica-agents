@@ -41,6 +41,7 @@ export const textos: Traducao<typeof fonte> = {
   "bots.editor.apagar.arquivosFicam": "它在电脑上修改过的文件保持原样。",
   "bots.editor.apagar.canal": "删除频道和对话",
   "bots.editor.apagar.bot": "删除机器人和对话",
+  "bots.editor.apagar.resposta": "请先停止回复再删除机器人。",
   "bots.editor.ajustes": "设置",
   "bots.editor.criadoPor": "创建者",
   "bots.editor.criadoPorData": "{bot} · {data}",

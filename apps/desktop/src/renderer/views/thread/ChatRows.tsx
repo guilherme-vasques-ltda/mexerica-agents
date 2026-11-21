@@ -46,6 +46,7 @@ import { alvoDaEspera, paradaDaEspera } from '../fork/conversa/limites'
 import { superficieIdioma, tradutor, useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { AcaoDaMensagemFalha, AvisoDeFalhaDeConta, BotaoAbrirContas } from '../fork/contas-ia/FalhaDeConta'
 import { ehAvisoDePreparo, lerReason } from '../fork/contas-ia/falha-de-conta'
+import { avisoOpen, recusaOpen } from '../fork/spaces/erro-envio'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
@@ -198,9 +199,11 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
       return <Text size="caption2" tone="tertiary">{t(botWorking ? 'conversa.mensagens.naFilaAte' : 'conversa.mensagens.naFila')}</Text>
     case 'failed': {
       const reason = lerReason(entry.data.reason)
+      const recusa = recusaOpen(entry.data.recusa)
       return (
         <HStack as="span" gap={2}>
           <Text size="caption2" weight="semibold" tone="danger" className="user-status-error">{t('conversa.mensagens.naoEnviada')}</Text>
+          {recusa ? <Text size="caption2" tone="danger" role="alert">{t(recusa)}</Text> : null}
           {reason ? <AcaoDaMensagemFalha reason={reason} botId={entry.data.author ?? entry.botId} botName={store.bots.get(entry.data.author ?? entry.botId)?.name ?? ''} /> : null}
           <IconButton title={t('conversa.mensagens.reenviar')} icon="arrow.clockwise" size={24} onClick={() => store.retry(entry)} />
           <IconButton title={t('conversa.mensagens.apagar')} icon="trash" size={24} onClick={() => store.discard(entry)} />
@@ -268,7 +271,8 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   const t = useT()
   const idioma = useIdioma()
   // MX-245: a espera do limite (Hub antigo, sem `waitId`) também diz "Parou pelo limite do plano; volta às HH:MM".
-  const text = paradaDaEspera(t, idioma, entry) ?? entry.data.text ?? ''
+  const aviso = avisoOpen(entry.data.code)
+  const text = paradaDaEspera(t, idioma, entry) ?? (aviso ? t(aviso) : entry.data.text ?? '')
   if (entry.data.callSeconds !== undefined) {
     const s = entry.data.callSeconds
     return (
