@@ -300,7 +300,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, busc
   const arquivo = opcoes.regras ?? REGRAS_PADRAO;
   // Nos modos automáticos a lista interna é obrigatória; o modo local pode rodar parcial e avisa.
   const internos = modo === 'local' ? lerInternos(env[VARIAVEL]) : exigirInternos(env[VARIAVEL]);
-  if (internos) for (const linha of mascaras(internos)) console.log(linha);
+  if (internos && modo !== 'local') for (const linha of mascaras(internos)) console.log(linha);
   const regras = compilarRegras(JSON.parse(readFileSync(arquivo, 'utf8')), internos);
   if (modo === 'comentario') {
     const evento = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
