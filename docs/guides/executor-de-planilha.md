@@ -86,5 +86,5 @@ inode) é registrada antes de qualquer byte. Após a queda:
 - A pasta de estado do executor fica na conta do próprio usuário. Quem já pode escrever nela
   (ou em pastas acima dela) é considerado fora do modelo de ameaça desta fatia; o estado não
   é aberto por descritor como a pasta liberada.
-- Números inteiros escritos como inteiro são aceitos até ±9007199254740992 e recusados acima disso (perderiam precisão). Escritos como decimal ou exponencial (`9007199254740992.0`, `9.007199254740993e15`), qualquer valor inteiro de módulo igual ou acima de 9007199254740992 é recusado, porque já chega arredondado e não prova qual era o valor pedido: passe como texto.
+- Inteiros até ±(2^53 − 1), isto é, ±9007199254740991, são aceitos; de ±9007199254740992 (2^53) em diante são recusados, em qualquer grafia (inteiro, decimal ou exponencial), porque o número passa por double no caminho e 2^53 + 1 arredonda para 2^53: acima disso, mande como texto.
 - Parar por revogação depende da mensagem do Hub no canal; a verificação não é tipada.
