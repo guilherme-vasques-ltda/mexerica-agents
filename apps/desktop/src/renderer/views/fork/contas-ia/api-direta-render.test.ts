@@ -65,20 +65,22 @@ const renderiza = (componente: unknown, props: Record<string, unknown> = {}, loj
 
 const fornecedor = (id: string, configurada: boolean) => ({ id, nome: id === 'openrouter' ? 'OpenRouter' : 'Fornecedor Exemplo', configurada, modelos: configurada ? [] : null, conferidoEm: null })
 
-test('o botão de entrar pelo navegador só existe no Space pessoal aberto', () => {
+test('o botão de entrar pelo navegador só existe no Space pessoal conhecido e aberto', () => {
   const entrar = 'Entrar com OpenRouter'
   const pessoal = { ...store, spaces: { personalSpaceId: 'pessoal-1' } }
   const outro = { ...pessoal, spaceId: 'space-outro' }
   assert.ok(renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, pessoal).includes(entrar), 'com o Pessoal aberto tem o botão')
   assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, outro).includes(entrar), 'com outro Space aberto não tem')
+  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }).includes(entrar), 'sem saber qual é o Pessoal não tem')
 })
 
 test('o botão de entrar pelo navegador existe só na linha do OpenRouter, ao lado do de colar a chave', () => {
   const entrar = 'Entrar com OpenRouter'
-  const semChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) })
+  const comSpaces = { ...store, spaces: { personalSpaceId: 'pessoal-1' } }
+  const semChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', false) }, comSpaces)
   assert.ok(semChave.includes(entrar), 'OpenRouter sem chave tem o botão')
   assert.ok(semChave.includes('Adicionar chave'), 'o caminho de colar a chave segue ao lado')
-  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openai', false) }).includes(entrar), 'outro fornecedor não tem')
-  const comChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', true) })
+  assert.ok(!renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openai', false) }, comSpaces).includes(entrar), 'outro fornecedor não tem')
+  const comChave = renderiza(m.LinhaDoFornecedor, { fornecedor: fornecedor('openrouter', true) }, comSpaces)
   assert.ok(comChave.includes(entrar) && comChave.includes('Trocar'), 'com chave salva o botão segue ao lado de Trocar')
 })

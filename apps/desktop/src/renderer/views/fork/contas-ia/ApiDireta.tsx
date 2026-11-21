@@ -110,8 +110,10 @@ export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaC
       })
   }
   const client = () => liveClient(store)!
-  // A chave do login é a do dono, só usada pelos bots do Space pessoal: o botão só aparece com o Pessoal aberto.
-  const espacoPessoal = (store.spaceId ?? store.spaces?.personalSpaceId) === store.spaces?.personalSpaceId
+  // A chave do login é a do dono, só usada pelos bots do Space pessoal: sem saber qual é o Pessoal, ou com outro
+  // Space aberto, o botão não aparece.
+  const pessoal = store.spaces?.personalSpaceId
+  const espacoPessoal = pessoal !== undefined && (store.spaceId ?? pessoal) === pessoal
   const salvar = () => {
     if (!chave.trim()) return
     rodar(() => salvarChave(client(), f.id, chave, () => setChave('')), (r) => r.ok && setEditando(false))
