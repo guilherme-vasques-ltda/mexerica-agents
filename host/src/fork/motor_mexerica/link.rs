@@ -514,6 +514,10 @@ impl Link {
             tracing::info!("endereço próprio novo para esta conversa; a conversa recomeça sem a cópia");
             session.history.restart_for(provider, &generation);
             discard = true;
+        } else if super::proprio::eh_proprio(provider) && !session.history.has_content() {
+            // A conversa está vazia: só ESCOLHER o endereço não o marca como recebedor — quem marca é a vez em
+            // que a pessoa de fato conversa nele. Sem isso, a conversa que nascer depois em outro provedor
+            // seguiria para um endereço que nunca a recebeu.
         } else if !session.history.bind_credential(provider, &generation) {
             tracing::info!(provider, "a credencial do provedor mudou; a conversa recomeça");
             discard = true;
@@ -665,12 +669,19 @@ impl Link {
             let alive = tokio::select! {
                 _ = cancel.changed() => {
                     // Cancelar o turno mata o processo do motor.
+                    if let Ok(generation) = creds.generation(&provider) {
+                        session.history.bind_credential(&provider, &generation);
+                    }
                     let _ = owned.kill().await;
                     *session.pid.locked() = None;
                     session.history.remember(finished.locked().take());
                     false
                 }
                 result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
+                    // O turno roda neste provedor: este endereço passa a ser recebedor da conversa que ele vê.
+                    if let Ok(generation) = creds.generation(&provider) {
+                        session.history.bind_credential(&provider, &generation);
+                    }
                     if let Err(error) = result {
                         // Falha no meio do turno (processo morto, linha inválida ou
                         // acima do teto, erro do modelo): o stdout pode ter eventos

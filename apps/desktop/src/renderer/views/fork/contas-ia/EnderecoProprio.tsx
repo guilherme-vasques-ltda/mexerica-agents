@@ -98,13 +98,14 @@ function NovoEnderecoForm({ aoFechar, aoMudar }: { aoFechar: () => void; aoMudar
   const t = useT()
   const [dados, setDados] = useState<NovoEndereco>(VAZIO)
   const { ocupado, resultado, rodar } = useRodar(aoMudar)
-  // Fechar a tela no meio da digitação não deixa a chave em estado nenhum.
-  useEffect(() => () => setDados(VAZIO), [])
+  // O formulário que saiu não fecha o que veio depois dele: a resposta de um salvar antigo não vale mais.
+  const montado = useRef(true)
+  useEffect(() => () => { montado.current = false; setDados(VAZIO) }, [])
   const mudar = <K extends keyof NovoEndereco>(campo: K, valor: NovoEndereco[K]) => setDados((d) => ({ ...d, [campo]: valor }))
   const salvar = () => {
     if (!enderecoPronto(dados)) return
     rodar((c) => salvarEndereco(c, dados, () => mudar('chave', '')), (r) => {
-      if (fechaDepoisDeSalvar(r)) {
+      if (fechaDepoisDeSalvar(r) && montado.current) {
         setDados(VAZIO)
         aoFechar()
       }

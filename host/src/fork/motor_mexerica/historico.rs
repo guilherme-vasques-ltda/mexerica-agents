@@ -480,6 +480,12 @@ impl History {
         true
     }
 
+    /// Há conversa guardada (conteúdo que alguém recebeu) neste momento.
+    pub(super) fn has_content(&self) -> bool {
+        let Ok(state) = self.state.lock() else { return false };
+        !state.messages.is_empty()
+    }
+
     /// `provider` já recebeu esta conversa, ou não há conversa a transferir.
     pub(super) fn received_by(&self, provider: &str) -> bool {
         let Ok(state) = self.state.lock() else { return false };

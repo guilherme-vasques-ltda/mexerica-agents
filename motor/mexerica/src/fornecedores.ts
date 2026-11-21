@@ -262,7 +262,10 @@ export async function testarAcesso(
 		const destino = erro instanceof DestinoRecusado || (erro instanceof Error && erro.cause instanceof DestinoRecusado);
 		return { ok: false, erro: erro instanceof RespostaInvalida ? "resposta_invalida" : destino ? "destino_recusado" : "sem_resposta" };
 	}
-	return { ok: true, modelos: modelos.filter((m) => idValido(m.id)) };
+	// O serviço pode repetir a chave enviada no id ou no nome de um modelo: ela não sai daqui — nem para o
+	// catálogo guardado, nem para a tela.
+	const semChave = (valor: string) => (valor.includes(chave) ? valor.split(chave).join("[removido]") : valor);
+	return { ok: true, modelos: modelos.filter((m) => idValido(m.id)).map((m) => ({ ...m, id: semChave(m.id), name: semChave(m.name) })) };
 }
 
 // Endereço próprio: um serviço qualquer num dos três formatos, com endereço e chave da pessoa. O endereço passa pelo
@@ -313,10 +316,12 @@ export function fornecedorProprio(e: Endereco): Fornecedor {
 						headers: { "x-api-key": chave, "anthropic-version": "2023-06-01" },
 					}
 				: { url: `${e.baseUrl}/models`, headers: bearer(chave) },
-		ler: (corpo) => ({
-			modelos: lista(corpo, "data").flatMap((item) => comId(item)),
-			proxima: anthropic && (corpo as Objeto)["has_more"] === true ? texto((corpo as Objeto)["last_id"]) : undefined,
-		}),
+		ler: (corpo) => {
+			const temMais = anthropic && (corpo as Objeto)["has_more"] === true;
+			const proxima = temMais ? texto((corpo as Objeto)["last_id"]) : undefined;
+			if (temMais && !proxima) throw new RespostaInvalida();
+			return { modelos: lista(corpo, "data").flatMap((item) => comId(item)), proxima };
+		},
 	};
 }
 
@@ -333,6 +338,6 @@ export function modeloProprio(provider: string, e: Endereco, id: string, listado
 		reasoning: false,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: listado?.contextWindow ?? f.contextWindow,
-		maxTokens: Math.min(listado?.maxTokens ?? f.maxTokens, f.maxTokens * 4),
+		maxTokens: listado?.maxTokens ?? f.maxTokens,
 	};
 }

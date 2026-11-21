@@ -202,8 +202,11 @@ test("«Testar acesso» nos formatos OpenAI lista {base}/models com a chave", as
 		assert.equal(s.pedidos[0]!.method, "GET");
 		assert.equal(s.pedidos[0]!.headers.authorization, `Bearer ${SECRET}`);
 	} finally {
-		await semVazar(proc);
-		s.fechar();
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
 	}
 });
 
@@ -217,8 +220,33 @@ test("«Testar acesso» no formato Anthropic Messages usa /v1/models com x-api-k
 		assert.equal(s.pedidos[0]!.headers["x-api-key"], SECRET);
 		assert.ok(s.pedidos[0]!.headers["anthropic-version"]);
 	} finally {
-		await semVazar(proc);
-		s.fechar();
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
+	}
+});
+
+test("«Testar acesso» com a chave repetida no id ou no nome devolve tudo mascarado", async () => {
+	const s = await servico((p, res) =>
+		p.path === "/v1/models"
+			? json(res, { data: [{ id: "modelo-local", name: `minha ${SECRET}` }, { id: `dono/${SECRET}`, name: "Outro" }] })
+			: json(res, {}, 404));
+	const proc = motorCom({ baseUrl: `${s.base}/v1`, formato: "chat-completions", local: true });
+	try {
+		const acesso = await testar(proc);
+		assert.equal(acesso.ok, true, JSON.stringify(acesso));
+		assert.equal(JSON.stringify(acesso).includes(SECRET), false, "a chave saiu no catálogo de modelos");
+		const modelos = acesso.modelos as { id: string; name: string }[];
+		assert.ok(modelos[0]!.name.includes("[removido]"), JSON.stringify(modelos));
+		assert.ok(modelos[1]!.id.includes("[removido]"), JSON.stringify(modelos));
+	} finally {
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
 	}
 });
 
@@ -228,8 +256,11 @@ test("serviço sem lista de modelos devolve «sem_lista», não chave inválida"
 	try {
 		assert.deepEqual(await testar(proc), { ok: false, erro: "sem_lista", status: 404 });
 	} finally {
-		await semVazar(proc);
-		s.fechar();
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
 	}
 });
 
@@ -240,8 +271,11 @@ test("endereço local sem a opção local é recusado sem nenhum pedido", async 
 		assert.deepEqual(await testar(proc), { ok: false, erro: "destino_recusado" });
 		assert.equal(s.pedidos.length, 0);
 	} finally {
-		await semVazar(proc);
-		s.fechar();
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
 	}
 });
 
@@ -266,8 +300,11 @@ test("conversa pelo formato Chat Completions chega ao endereço próprio com a c
 		assert.equal(conversa.headers.authorization, `Bearer ${SECRET}`);
 		assert.equal(JSON.parse(conversa.body).model, "modelo-local");
 	} finally {
-		await semVazar(proc);
-		s.fechar();
+		try {
+			await semVazar(proc);
+		} finally {
+			s.fechar();
+		}
 	}
 });
 

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
-const INDICE: &str = "motor-mexerica.proprios";
+pub(super) const INDICE: &str = "motor-mexerica.proprios";
 const MAX_ENDERECOS: usize = 20;
 const MAX_URL: usize = 2048;
 
@@ -52,10 +52,13 @@ pub(super) fn novo_id() -> String {
     format!("proprio-{}", &uuid::Uuid::new_v4().simple().to_string()[..12])
 }
 
+/// Índice ausente é lista vazia; índice ILEGÍVEL é erro: sem saber quais endereços existem, quem protege a
+/// conversa não pode presumir que não há chaves a mascarar (a proteção falha fechada, não calada).
 pub(super) fn ids(store: &Store) -> Result<Vec<String>> {
     Ok(store
         .kv_read(INDICE)?
-        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .map(|raw| serde_json::from_str::<Vec<String>>(&raw).context("índice de endereços ilegível"))
+        .transpose()?
         .unwrap_or_default()
         .into_iter()
         .filter(|id| eh_proprio(id))
