@@ -95,10 +95,12 @@ export function ensaiar(cena, { agora, preferencias, historico = [], leitor }) {
   if (r.silencioProprio) return calar(r.silencioProprio);
   if (dados.resolvido) return calar("respondido");
   if (!r.pendente) return calar("nada_pendente");
-  if (historico.some((h) => h.chave === dados.chave && h.assinatura === saida.assinatura)) return calar("repetido");
+  if (historico.some((h) => h.chave === dados.chave && h.assinatura === saida.assinatura && h.entregue !== false)) return calar("repetido");
 
   const resumo = { tipo: "resumo", canal: "privado", quando: preferencias.resumoManha };
   if (!r.interromper) return { ...saida, oferta: resumo };
+
+  if (!preferencias.fuso) return { ...saida, oferta: resumo, silencio: { motivo: "sem_fuso", ate: preferencias.resumoManha } };
 
   const h = hora(agora, preferencias.fuso);
   if (calado(h, preferencias.silencioInicio, preferencias.silencioFim)) return { ...saida, oferta: resumo, silencio: { motivo: "fora_de_hora", ate: preferencias.resumoManha } };

@@ -25,7 +25,8 @@ function rodar(cena, { patch = {}, historico = false, historicoAgora, historicoP
   leitor.chamadas = 0;
   const ctx = { agora: agoraPatch ?? contexto.agora, preferencias: contexto.preferencias, leitor };
   const anterior = historicoPatch ? mesclar(cena, historicoPatch) : cena;
-  const hist = historico ? [{ chave: cena.dados.chave, assinatura: ensaiar(anterior, { ...ctx, agora: historicoAgora ?? ctx.agora, leitor: (x) => x.dados }).assinatura }] : [];
+  const prev = historico ? ensaiar(anterior, { ...ctx, agora: historicoAgora ?? ctx.agora, leitor: (x) => x.dados }) : null;
+  const hist = prev ? [{ chave: cena.dados.chave, assinatura: prev.assinatura, entregue: Boolean(prev.oferta) && !prev.silencio }] : [];
   return { saida: ensaiar(c, { ...ctx, historico: hist }), leitor };
 }
 const cena = (id) => cenas.find((c) => c.id === id);
@@ -107,6 +108,22 @@ test("janela de silêncio que não cruza a meia-noite só cala dentro dela", () 
   const roda = (agora) => ensaiar(proxima, { agora, preferencias: prefs, leitor: (x) => x.dados });
   assert.equal(roda("2026-11-18T15:00:00-03:00").oferta.tipo, "interromper");
   assert.equal(roda("2026-11-18T03:00:00-03:00").silencio?.motivo, "fora_de_hora");
+});
+
+test("sem fuso configurado, interrupção vira resumo (fail-closed)", () => {
+  const prefs = { ...contexto.preferencias, fuso: undefined };
+  const saida = ensaiar(cena("multa"), { agora: contexto.agora, preferencias: prefs, leitor: (x) => x.dados });
+  assert.equal(saida.silencio?.motivo, "sem_fuso");
+  assert.equal(saida.oferta.tipo, "resumo");
+});
+
+test("avaliação adiada pelo horário de silêncio não conta como repetido", () => {
+  const multa = cena("multa");
+  const primeira = rodar(multa, { patch: { agora: "2026-11-18T23:30:00-03:00" } });
+  assert.equal(primeira.saida.silencio?.motivo, "fora_de_hora");
+  const segunda = rodar(multa, { historico: true, historicoAgora: "2026-11-18T23:30:00-03:00", patch: { agora: "2026-11-19T08:00:00-03:00" } });
+  assert.equal(segunda.saida.silencio, null);
+  assert.equal(segunda.saida.oferta.tipo, "interromper");
 });
 
 test("origem informa prazo da multa e data da renovação", () => {
