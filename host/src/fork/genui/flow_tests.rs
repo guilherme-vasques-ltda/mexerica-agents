@@ -411,6 +411,10 @@ async fn grafico_mascara_codigo_efemero_antes_de_persistir_publicar_e_repetir() 
     let replay = show_chart(&f.hub, &context, "ponte:redaction", &chart).unwrap();
     assert_eq!(replay["chartId"], chart_id);
     assert!(!replay.to_string().contains(&code));
+    let other_code = format!("mxs_{}", "1a2b3c4d".repeat(8));
+    let other = ValidatedChart::parse(&chart_json("bar_chart", &other_code).to_string()).unwrap();
+    let conflict = show_chart(&f.hub, &context, "ponte:redaction", &other).unwrap_err().to_string();
+    assert_eq!(conflict, "genui_invocation_conflict");
 }
 
 #[tokio::test]

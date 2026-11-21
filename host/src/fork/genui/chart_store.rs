@@ -54,9 +54,9 @@ pub(crate) fn create(
         tracing::warn!("gráfico recusado: identificador de invocação vazio ou acima do limite");
         bail!("genui_invalid_invocation");
     }
+    let hash = crate::agent::registry::sha256_hex(chart.snapshot()?.as_bytes());
     let chart = chart.redacted()?;
     let snapshot = chart.snapshot()?;
-    let hash = crate::agent::registry::sha256_hex(snapshot.as_bytes());
     let used_by_question: bool =
         tx.query_row("SELECT EXISTS(SELECT 1 FROM donna_genui_questions WHERE invocation=?1)", [invocation], |r| {
             r.get(0)

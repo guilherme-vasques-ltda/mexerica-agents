@@ -246,7 +246,7 @@ fn add_exact(partials: &mut Vec<f64>, mut value: f64) {
 
 fn text(value: &str, max: usize) -> Result<()> {
     ensure!(
-        !value.trim().is_empty()
+        !value.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}').is_empty()
             && value.chars().count() <= max
             && !value.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t')),
         "genui_chart_invalid_text"
