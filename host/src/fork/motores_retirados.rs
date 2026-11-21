@@ -21,7 +21,13 @@ pub(crate) fn decidir(id: &str, liberado: bool) -> bool {
 
 /// A oferta antiga liberada pela chave de desenvolvimento.
 fn liberado() -> bool {
-    cfg!(debug_assertions) && std::env::var_os(CHAVE_DEV).is_some_and(|v| v == "1")
+    chave_vale(cfg!(debug_assertions), std::env::var_os(CHAVE_DEV).as_deref())
+}
+
+/// Decisão pura da chave de desenvolvimento: só um build com `debug_assertions` e o valor exato
+/// `"1"` devolvem a oferta antiga. Um build de `release` nunca a honra, mesmo com a variável ligada.
+fn chave_vale(debug_assertions: bool, valor: Option<&std::ffi::OsStr>) -> bool {
+    debug_assertions && valor.is_some_and(|v| v == std::ffi::OsStr::new("1"))
 }
 
 /// O motor `id` saiu da oferta da Mexerica nesta versão.
@@ -123,6 +129,38 @@ mod tests {
         }
         assert!(!decidir("claude", false));
         assert!(!decidir("inexistente", false));
+    }
+
+    /// Como o binário distribuído decide a chave: em `release` a variável ligada nunca libera.
+    #[test]
+    fn chave_de_dev_nunca_libera_em_build_de_release() {
+        let um = std::ffi::OsStr::new("1");
+        assert!(!chave_vale(false, Some(um)), "release com a variável ligada não devolve a oferta antiga");
+        assert!(!chave_vale(false, None));
+        assert!(chave_vale(true, Some(um)));
+        assert!(!chave_vale(true, Some(std::ffi::OsStr::new("0"))));
+        assert!(!chave_vale(true, None));
+        let liberado_release = chave_vale(false, Some(um));
+        for id in [
+            "kilo",
+            "cline",
+            "goose",
+            "amp",
+            "minimax",
+            "pi",
+            "qwen",
+            "omp",
+            "junie",
+            "vibe",
+            "qwen-code",
+            "pi-acp",
+            "amp-acp",
+            "minimax-code",
+            "mistral-vibe",
+            "KILO",
+        ] {
+            assert!(decidir(id, liberado_release), "{id} segue retirado em build de release");
+        }
     }
 
     #[test]

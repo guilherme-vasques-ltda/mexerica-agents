@@ -680,6 +680,10 @@ pub fn list() -> Vec<Value> {
 static SIGNED_IN: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
 
 pub fn signed_in(id: &str) -> Option<bool> {
+    // Motor retirado: nunca houve sondagem e o estado devolvido é não entrou.
+    if crate::fork::motores_retirados::retirado(id) {
+        return Some(false);
+    }
     SIGNED_IN.locked().iter().find(|(h, _)| h == id).map(|(_, ok)| *ok)
 }
 
@@ -698,6 +702,10 @@ pub async fn refresh_sign_in(store: &crate::store::Store) {
         return;
     }
     let checks = HARNESSES.iter().filter_map(|h| {
+        // Motor retirado: nenhuma sondagem, nenhum processo.
+        if crate::fork::motores_retirados::retirado(h.id) {
+            return None;
+        }
         let check = h.signed_in?;
         let bin = h.bins.iter().find_map(|b| which(b))?;
         Some(async move {
@@ -715,7 +723,7 @@ pub async fn refresh_sign_in(store: &crate::store::Store) {
 /// A login completed outside the app must not leave new bots stuck on a stale fallback.
 /// Keep the known state if the short check cannot finish or the CLI cannot be started.
 pub async fn recheck_signed_out(store: &crate::store::Store, id: &str) {
-    if signed_in(id) != Some(false) {
+    if crate::fork::motores_retirados::retirado(id) || signed_in(id) != Some(false) {
         return;
     }
     let Some(h) = harness(id) else { return };
@@ -776,10 +784,10 @@ pub async fn launch_candidates(
     id: &str,
     progress: impl Fn(&str, Option<crate::fork::activity_code::ActivityKind>),
 ) -> anyhow::Result<Vec<registry::Cmd>> {
-    crate::open_hub::require_executor()?;
     if crate::fork::motores_retirados::retirado(id) {
         return Err(acp::Failure::error(acp::FailureKind::NotSetUp, crate::fork::motores_retirados::msg_lancar(id)));
     }
+    crate::open_hub::require_executor()?;
     if id == crate::fork::motor_mexerica::ENGINE_ID {
         return crate::fork::motor_mexerica::launch_candidates();
     }
@@ -827,12 +835,20 @@ fn registry_cli(h: &Harness) -> Option<Value> {
 
 /// Codync's own sign-in command for `id` can run now.
 pub fn login_available(id: &str) -> bool {
+    if crate::fork::motores_retirados::retirado(id) {
+        return false;
+    }
     harness(id)
         .is_some_and(|h| h.bins.iter().any(|b| on_path(b)) || !h.login.contains("{bin}") || registry_cli(h).is_some())
 }
 
 /// Codync's own sign-in command for `id`, with `{bin}` resolved.
 pub async fn login_command(id: &str) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        !crate::fork::motores_retirados::retirado(id),
+        "{}",
+        crate::fork::motores_retirados::msg_lancar(id)
+    );
     let h = harness(id).ok_or_else(|| anyhow::anyhow!("no sign-in command for {id}"))?;
     let bin = match h.bins.iter().find_map(|b| which(b)) {
         Some(p) => shell::quote(&p.to_string_lossy()),
@@ -847,6 +863,10 @@ pub async fn login_command(id: &str) -> anyhow::Result<String> {
 
 /// The installed CLI's own ACP mode, if it has one and it's installed.
 pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
+    // Motor retirado: o executável local não é resolvido, nem com o CLI instalado.
+    if crate::fork::motores_retirados::retirado(id) {
+        return None;
+    }
     let h = harness(id)?;
     let template = h.local?;
     let path = h.bins.iter().find_map(|b| which(b))?;
@@ -985,6 +1005,70 @@ mod tests {
         for id in ["claude", "codex", "opencode"] {
             assert!(ids.contains(&id), "{id} continua oferecido");
         }
+    }
+
+    /// Pelo nome do catálogo ACP ou em outra caixa: o lançamento recusa com a mensagem de retirada,
+    /// em vez de cair na resolução local ou no registro.
+    #[tokio::test]
+    async fn launch_candidates_de_motor_retirado_recusa_pelo_nome_do_catalogo() {
+        for id in ["qwen-code", "pi-acp", "amp-acp", "minimax-code", "mistral-vibe", "KILO", "Qwen-Code"] {
+            let erro = match launch_candidates(id, |_, _| {}).await {
+                Ok(candidatos) => panic!("{id}: lançou {} candidato(s) de um motor retirado", candidatos.len()),
+                Err(erro) => erro,
+            };
+            assert!(
+                matches!(erro.downcast_ref::<acp::Failure>(), Some(f) if matches!(f.kind, acp::FailureKind::NotSetUp)),
+                "{id}: {erro:#}"
+            );
+            assert!(erro.to_string().starts_with("O motor "), "{id}: {erro}");
+            assert!(erro.to_string().contains("não está disponível nesta versão da Mexerica"), "{id}: {erro}");
+        }
+    }
+
+    /// Resolução local e sondagem de login não podem tocar o CLI de um motor retirado, nem com ele
+    /// instalado no PATH: roda em processo próprio, com um `kilo` falso que deixa marca se for aberto.
+    #[cfg(unix)]
+    #[test]
+    fn sondagem_e_resolucao_de_motor_retirado_nao_executam_o_cli() {
+        use std::os::unix::fs::PermissionsExt;
+
+        const FIXTURE: &str = "MEXERICA_TESTE_SONDAGEM_RETIRADOS";
+        if let Some(marca) = std::env::var_os(FIXTURE) {
+            let marca = PathBuf::from(marca);
+            let store = crate::store::Store::open(Path::new(":memory:")).unwrap();
+            for id in ["kilo", "junie", "KILO", "qwen-code"] {
+                assert!(local_candidate(id).is_none(), "{id}: motor retirado não resolve executável local");
+            }
+            assert!(!login_available("kilo"), "o login do motor retirado não fica disponível");
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let erro = login_command("kilo").await.unwrap_err().to_string();
+                assert!(erro.starts_with("O motor Kilo não está disponível nesta versão da Mexerica"), "{erro}");
+                refresh_sign_in(&store).await;
+            });
+            assert_eq!(signed_in("kilo"), Some(false), "sem executar nada, o motor retirado devolve não entrou");
+            assert!(!marca.exists(), "a sondagem ou a resolução abriu o CLI de um motor retirado");
+            return;
+        }
+        let raiz = tempfile::tempdir().unwrap();
+        let bin = raiz.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let marca = raiz.path().join("abriu-kilo");
+        for nome in ["kilo", "junie"] {
+            let exe = bin.join(nome);
+            std::fs::write(&exe, format!("#!/bin/sh\n: > '{}'\n", marca.display())).unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let saida = std::process::Command::new(std::env::current_exe().unwrap())
+            .env(FIXTURE, &marca)
+            .env(TESTE_ISOLADO, "1")
+            .env("PATH", &bin)
+            .env("MEXERICA_HOME", raiz.path())
+            .args(["--exact", "agent::backends::tests::sondagem_e_resolucao_de_motor_retirado_nao_executam_o_cli"])
+            .output()
+            .unwrap();
+        assert!(saida.status.success(), "{}", String::from_utf8_lossy(&saida.stdout));
+        assert!(String::from_utf8_lossy(&saida.stdout).contains("1 passed"));
+        assert!(!marca.exists(), "nenhum processo abriu o CLI falso do motor retirado");
     }
 
     #[test]
