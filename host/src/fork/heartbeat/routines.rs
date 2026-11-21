@@ -13,7 +13,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_RESUMO: usize = 300;
@@ -30,11 +30,20 @@ impl Fonte for Indisponivel {
     }
 }
 
+/// O que a linha de execução de uma chamada diz ao agendador: um pedido de admissão (com a caixa da resposta) ou o fim.
+enum Pedido<T> {
+    Pedir(mpsc::Sender<bool>),
+    Fim(std::thread::Result<Result<T, Motivo>>),
+}
+
 /// A fonte com prazo por chamada: cada `marcador` ou `ler` roda numa linha de execução à parte e, se não voltar a tempo
 /// (ou entrar em pânico), vira `Motivo::Fora`. Uma chamada que ficou para trás mantém a fonte `ocupada`: nova chamada
-/// não é aberta até ela terminar, para uma fonte travada não acumular linhas de execução. Cada chamada só é aberta se
-/// `admitir` ainda a permite (a concessão, a rotina e a pausa continuam como na coleta) e `valida` segue de pé até o
-/// instante de chamar a fonte; uma chamada já em curso não é cancelada, mas seu resultado é descartado na gravação.
+/// não é aberta até ela terminar, para uma fonte travada não acumular linhas de execução.
+///
+/// A admissão é feita num ponto só, imediatamente antes de a fonte ser chamada: a linha de execução pede a admissão
+/// ao agendador (que tem acesso ao estado das rotinas) e só chama a fonte se `admitir` ainda a permite (pausa, rotina
+/// e versão, registro e concessão) e o prazo da chamada ainda não venceu. Se o agendador já desistiu, o pedido não é
+/// respondido e a fonte não é chamada. Uma chamada já em curso não é cancelada: seu resultado é descartado na gravação.
 struct ComPrazo<'a> {
     fonte: Arc<dyn Fonte>,
     prazo: Duration,
@@ -48,30 +57,35 @@ impl ComPrazo<'_> {
         &self,
         chamada: impl FnOnce(&dyn Fonte) -> Result<T, Motivo> + Send + 'static,
     ) -> Result<T, Motivo> {
-        if !(self.admitir)() {
-            return Err(Motivo::SemAcesso);
-        }
         if self.ocupada.swap(true, Ordering::AcqRel) {
             return Err(Motivo::Fora);
         }
+        let limite = Instant::now() + self.prazo;
         let (envia, recebe) = mpsc::channel();
         let (fonte, ocupada, valida) = (self.fonte.clone(), self.ocupada.clone(), self.valida.clone());
         let aberta = std::thread::Builder::new().spawn(move || {
-            let resultado = if valida.load(Ordering::Acquire) {
+            let (pede, resposta) = mpsc::channel();
+            let admitida = envia.send(Pedido::Pedir(pede)).is_ok() && resposta.recv().unwrap_or(false);
+            let resultado = if admitida && valida.load(Ordering::Acquire) {
                 std::panic::catch_unwind(AssertUnwindSafe(|| chamada(&*fonte)))
             } else {
                 Ok(Err(Motivo::SemAcesso))
             };
             ocupada.store(false, Ordering::Release);
-            let _ = envia.send(resultado);
+            let _ = envia.send(Pedido::Fim(resultado));
         });
         if aberta.is_err() {
             self.ocupada.store(false, Ordering::Release);
             return Err(Motivo::Fora);
         }
-        match recebe.recv_timeout(self.prazo) {
-            Ok(Ok(resultado)) => resultado,
-            _ => Err(Motivo::Fora),
+        loop {
+            match recebe.recv_timeout(limite.saturating_duration_since(Instant::now())) {
+                Ok(Pedido::Pedir(resposta)) => {
+                    let _ = resposta.send((self.admitir)() && Instant::now() < limite);
+                }
+                Ok(Pedido::Fim(Ok(resultado))) => return resultado,
+                _ => return Err(Motivo::Fora),
+            }
         }
     }
 }
@@ -142,9 +156,12 @@ impl Routines {
     /// Revoga a concessão: a próxima checagem já não consulta a fonte, e a que está lendo descarta o resultado.
     pub(crate) fn retirar_fonte(&self, bot: &str, nome: &str) {
         let _estado = self.state.locked();
-        if let Some(retirada) = self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned())) {
+        let retirada = self.fontes.locked().remove(&(bot.to_owned(), nome.to_owned()));
+        if let Some(retirada) = retirada {
             retirada.valida.store(false, Ordering::Release);
         }
+        // A concessão retirada já não segura a fonte: some a trava de quem não tem mais chamada viva.
+        self.travas.locked().retain(|(viva, _)| viva.strong_count() > 0);
     }
 }
 
@@ -209,10 +226,10 @@ impl Routines {
         }
         let _vaga = EmAndamento { routines: self, id };
         let prazo = Duration::from_millis(self.prazo_fonte_ms.load(Ordering::Relaxed));
-        // Antes de cada chamada à fonte (não só ao gravar): pausa geral, exclusão, desligamento, outra edição da rotina
-        // e concessão retirada ou trocada fecham a porta para leituras novas. Os dois locks são pegos na mesma ordem
-        // das mudanças e soltos antes da chamada, que nunca roda com lock.
-        let admitir = || {
+        // Imediatamente antes de cada chamada à fonte (não só ao gravar): pausa geral, exclusão, desligamento, outra
+        // edição da rotina e concessão retirada ou trocada fecham a porta para leituras novas. Os dois locks são pegos
+        // na mesma ordem das mudanças e soltos antes da chamada, que nunca roda com lock.
+        let decide = || {
             let s = self.state.locked();
             if s.paused || s.pausas != pausas {
                 return false;
@@ -227,6 +244,16 @@ impl Routines {
                     && r.updated_at == geracao
                     && r.heartbeat.as_ref() == Some(&declaracao)
             })
+        };
+        let admitir = || {
+            #[cfg(test)]
+            {
+                let gancho = self.entre_despacho_e_chamada.locked().take();
+                if let Some(gancho) = gancho {
+                    gancho();
+                }
+            }
+            decide()
         };
         let fonte: Box<dyn Fonte + '_> = concedida.map_or_else(
             || Box::new(Indisponivel(Motivo::SemAcesso)) as Box<dyn Fonte + '_>,
