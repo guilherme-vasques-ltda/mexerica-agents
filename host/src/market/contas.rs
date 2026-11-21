@@ -344,6 +344,7 @@ pub(crate) fn desconectar(store: &Store, id: &str, space: &str) -> Result<Value>
         },
         // O recibo nasce na mesma transação que apaga a conta do cofre.
         |tx, (instancia, servico)| {
+            super::ferramentas::esquecer_conta(tx, id)?;
             contas_recibos::registrar_em(tx, Acao::Desconectar, instancia, servico.as_deref(), space, "ok")
         },
     )?;
@@ -386,6 +387,8 @@ pub(crate) fn listar(store: &Store, space: &str) -> Result<Value> {
 /// o padrão precisa ser uma conta do serviço, do Space e ligada; padrão cuja conta saiu da lista é apagado.
 /// Só abre o cofre quando algo relevante mudou.
 pub(crate) fn validar_vinculo(store: &Store, antes: Option<&BotConfig>, cfg: &mut BotConfig) -> Result<()> {
+    // Conta que sai do bot leva junto o que a pessoa tinha ligado nela, mas só quando a gravação vale: o apagamento
+    // roda na transação do `save_bot`, não aqui (esta conferência pode ser seguida de recusa ou de outra falha).
     let novas: Vec<String> =
         cfg.connectors.iter().filter(|id| antes.is_none_or(|a| !a.connectors.contains(id))).cloned().collect();
     // Padrões novos ou trocados nesta gravação (os antigos só são conferidos se a conta saiu da lista).

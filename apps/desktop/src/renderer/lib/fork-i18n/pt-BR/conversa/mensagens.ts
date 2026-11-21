@@ -3,6 +3,7 @@ export const textos = {
   "conversa.mensagens.copiar": "Copiar",
   "conversa.mensagens.responder": "Responder",
   "conversa.mensagens.verTrabalho": "Ver o que ele fez",
+  "conversa.mensagens.respostaInterrompida": "Resposta interrompida antes do fim.",
   "conversa.mensagens.comoFoi": "Como foi respondida",
   "conversa.mensagens.enviando": "Enviando…",
   "conversa.mensagens.naFilaAte": "Na fila até esta resposta terminar",
