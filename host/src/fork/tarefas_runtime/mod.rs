@@ -212,6 +212,12 @@ pub(crate) fn migrate(c: &rusqlite::Connection) -> Result<()> {
         -- ESTRUTURADO taskDispatch (só o caminho interno tipado grava) —
         -- texto livre citando o marcador não dispara o guard; nonce
         -- velho/forjado/coords divergentes não casam -> abort.
+        -- Prova de entrega por nonce, com a mesma expressão do índice que
+        -- sustenta a consulta: sem bot_id na frente, a busca por
+        -- clientNonce vira leitura indexada em vez de varredura do log.
+        CREATE INDEX IF NOT EXISTS donna_task_delivery_probe
+         ON entries((CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END))
+         WHERE kind='user' AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END, '') <> '';
         DROP TRIGGER IF EXISTS donna_task_deleg_guard;
         CREATE TRIGGER donna_task_deleg_guard
         BEFORE INSERT ON entries

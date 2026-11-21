@@ -587,13 +587,29 @@ pub(crate) async fn start_rpc(hub: &Arc<Hub>, authority: &Autoridade, body: Valu
 /// por bot. Ativa é linha com `proposal_id`, estado starting/started e tarefa
 /// em `backlog/in_progress` no JSON do Projeto — review, done, blocked,
 /// cancelled e tarefa removida liberam a vaga.
+/// Prova de entrega do poke de uma linha de proposta: a entrada `user` com o
+/// nonce da tentativa. Usa a MESMA expressão do índice
+/// `donna_task_delivery_probe`, então a busca não varre o log inteiro.
+fn nonce_proved(c: &Connection, nonce: &str) -> Result<bool> {
+    let attempt = format!("mx142-task-start-{nonce}");
+    let proved: i64 = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM entries WHERE kind='user' \
+          AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END, '') <> '' \
+          AND CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END = ?1)",
+        params![attempt],
+        |r| r.get(0),
+    )?;
+    Ok(proved == 1)
+}
+
 fn proposal_slot(c: &Connection, hub: &str, space: &str, bot: &str, now: i64) -> Result<bool> {
     let base = "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
          WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
            AND a.state IN ('starting','started')
            AND (a.state='started' OR a.updated_at>?3 OR EXISTS(
-             SELECT 1 FROM entries e WHERE e.kind='user' AND json_valid(e.data)
-              AND json_extract(e.data,'$.clientNonce')='mx142-task-start-'||a.nonce))
+             SELECT 1 FROM entries WHERE kind='user'
+              AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END, '') <> ''
+              AND CASE WHEN json_valid(data) THEN json_extract(data,'$.clientNonce') END = 'mx142-task-start-'||a.nonce))
            AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
            AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')";
     let total: i64 = c.query_row(base, params![hub, space, now - STALE_STARTING_MS], |r| r.get(0))?;
@@ -680,21 +696,16 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
                 continue;
             }
         }
-        // Teto de início por proposta: quem não cabe no Space fica `scheduled`
-        // e é reavaliada no próximo tick, sem gastar tentativa. Órfã sem
-        // entrega provada não segura vaga; entrega provada ou claim recente
-        // seguem contando, inclusive as claimadas neste mesmo laço.
-        if proposal_id.is_some() && state == "scheduled" && !proposal_slot(&tx, hub, &space, &bot, now)? {
-            continue;
-        }
-        // Órfã de `starting` reatribuída a outro bot: a vaga do destino é
-        // conferida antes de transferir — um bot já ativo não recebe segunda
-        // tarefa de proposta pela recuperação. Sem vaga, a linha espera o
-        // próximo tick, sem gastar tentativa.
+        // Teto de início por proposta: quem não cabe no Space fica para o
+        // próximo tick, sem gastar tentativa. Vale para `scheduled` e para
+        // órfã `starting` sem entrega provada — essa não conta como vaga,
+        // então precisa de vaga livre (total e do bot de destino) para ser
+        // recuperada. Órfã com entrega provada já ocupa vaga real e segue
+        // direto: a recuperação só conclui o que de fato aconteceu.
+        let unproved_orphan = proposal_id.is_some() && state == "starting" && !nonce_proved(&tx, &nonce)?;
         if proposal_id.is_some()
-            && state == "starting"
-            && agenda_bot != bot
-            && proposal_bot_busy(&tx, hub, &space, &bot, &task, now)?
+            && (state == "scheduled" || unproved_orphan)
+            && !proposal_slot(&tx, hub, &space, &bot, now)?
         {
             continue;
         }
@@ -738,24 +749,6 @@ pub(crate) fn claim_due(c: &Connection, hub: &str, now: i64) -> Result<Vec<Fire>
 
 /// Tick do agendador: reivindica `scheduled` vencidas e `starting` órfãs,
 /// dispara cada poke e conclui. Chamado por `tarefas_runtime::start`.
-/// Vaga do BOT de destino numa transferência de órfã de proposta: conta as
-/// ativas dele, fora a própria linha que está sendo reatribuída.
-fn proposal_bot_busy(c: &Connection, hub: &str, space: &str, bot: &str, task: &str, now: i64) -> Result<bool> {
-    let busy: i64 = c.query_row(
-        "SELECT COUNT(*) FROM donna_task_agenda a, donna_projects p, json_each(p.tasks) t
-         WHERE a.hub_id=?1 AND a.space_id=?2 AND a.proposal_id IS NOT NULL
-           AND a.state IN ('starting','started') AND a.bot_id=?3 AND a.task_id<>?4
-           AND (a.state='started' OR a.updated_at>?5 OR EXISTS(
-             SELECT 1 FROM entries e WHERE e.kind='user' AND json_valid(e.data)
-              AND json_extract(e.data,'$.clientNonce')='mx142-task-start-'||a.nonce))
-           AND p.hub_id=a.hub_id AND p.space_id=a.space_id AND p.id=a.project_id
-           AND t.value->>'id'=a.task_id AND t.value->>'state' IN ('backlog','in_progress')",
-        params![hub, space, bot, task, now - STALE_STARTING_MS],
-        |r| r.get(0),
-    )?;
-    Ok(busy >= 1)
-}
-
 pub(crate) async fn tick(hub: &Arc<Hub>) -> Result<()> {
     let now = now_ms();
     let result = run_due(hub, now).await;

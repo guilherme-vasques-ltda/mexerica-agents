@@ -1535,6 +1535,25 @@ fn orfa_com_entrega_provada_continua_reservando_a_vaga_do_bot() {
 }
 
 #[test]
+fn orfa_nao_provada_espera_vaga_alem_das_scheduled_claimadas() {
+    let c = fixture();
+    proposal_bots(&c, &["b1", "b2", "b3"]);
+    // Duas `scheduled` são claimadas antes no mesmo laço e ocupam o teto do
+    // Space e a vaga de b1; a órfã `starting` sem prova não fura nada —
+    // fica para o próximo tick, sem gastar tentativa.
+    proposal_tasks(&c, &[("t1", "b1", "backlog"), ("t2", "b2", "backlog"), ("t3", "b1", "backlog")]);
+    proposal_agenda_row(&c, "t1", "b1", "scheduled", Some("prop-i"));
+    proposal_agenda_row(&c, "t2", "b2", "scheduled", Some("prop-i"));
+    proposal_agenda_row(&c, "t3", "b1", "starting", Some("prop-i"));
+    let fires = acordar::claim_due(&c, HUB, 1_000_000_000_000).unwrap();
+    assert_eq!(fires.len(), 2);
+    let snapshot = agenda_snapshot(&c);
+    assert_eq!(snapshot["t1"].0, "starting");
+    assert_eq!(snapshot["t2"].0, "starting");
+    assert_eq!(snapshot["t3"], ("starting".to_owned(), 0));
+}
+
+#[test]
 fn vaga_libera_quando_a_tarefa_va_para_review() {
     let c = fixture();
     proposal_bots(&c, &["b1", "b2", "b3"]);

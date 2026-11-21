@@ -310,6 +310,10 @@ export class PropostasSession extends Observable {
       }
       const { proposal } = parseProposalDecideAnswer(answer, { hubId: origin.hostId, spaceId }, w.proposalId)
       this.reads++
+      // A leitura em voo foi invalidada; aposentar o token deixa a
+      // reconciliação agendada começar uma leitura nova em vez de
+      // marcar `dirty` e perder a releitura quando a antiga terminar.
+      this.reading = null
       this.writeOp = null
       this.write = null
       if (this.snapshot) {
