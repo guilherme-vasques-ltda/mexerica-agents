@@ -187,9 +187,12 @@ impl McpHost {
             return Ok(false);
         };
         let status = json!({"name": crate::fork::browser::STATUS_TOOL, "arguments": {"version": 3, "target": "host"}});
-        if let Err(error) = server.request("tools/call", status, STATUS_TIMEOUT).await {
-            tracing::debug!(%error, "consulta de navegador v3 recusada; lista de ferramentas mantida");
-        }
+        // Fail-closed: sem a confirmação da negociação v3 neste turno, a relistagem não continua. O erro sobe
+        // para o chamador, que mantém o catálogo anterior; as ferramentas de página só voltam com a consulta de pé.
+        server
+            .request("tools/call", status, STATUS_TIMEOUT)
+            .await
+            .context("consulta de navegador v3 recusada; catálogo mantido")?;
         // A substituição é montada inteira numa cópia e só entra se a listagem completa couber e for válida:
         // refresh que falha (erro da ponte, página malformada, ferramentas demais) preserva o catálogo que já funcionava.
         let mut catalog = self.catalog.lock().map_err(|_| anyhow!("catálogo de ferramentas corrompido"))?.clone();

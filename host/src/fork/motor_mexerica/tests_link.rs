@@ -1207,3 +1207,33 @@ async fn parada_que_chega_durante_o_preparo_do_motor_nao_envia_o_prompt() {
     assert!(texto_do_turno(&updates).is_empty(), "o prompt chegou ao motor depois da parada: {updates:?}");
     acp.kill_and_wait().await;
 }
+
+/// Servidor `memory` de mentira cuja consulta `browser_status` v3 falha, mas cuja listagem ofereceria as
+/// ferramentas de página: sem a confirmação da negociação, a relistagem não pode publicar essa lista.
+const SERVIDOR_MEMORY_STATUS_FALHA: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const abrir = { name: 'browser_open', description: 'abre', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, abrir] : [status] });
+  else console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'sem navegador' } }));
+});
+";
+
+#[tokio::test]
+async fn falha_da_consulta_v3_nao_publica_as_ferramentas_de_pagina() {
+    let case = caso!("falha_da_consulta_v3_nao_publica_as_ferramentas_de_pagina");
+    let mcp = memory_com_servidor(&case, SERVIDOR_MEMORY_STATUS_FALHA).await;
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status"]);
+    assert!(mcp.refresh_browser().await.is_err(), "a consulta que falhou virou relistagem normal");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes, "a listagem de uma ponte sem negociação confirmada foi publicada");
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+}

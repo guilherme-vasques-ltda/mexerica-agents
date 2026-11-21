@@ -589,7 +589,19 @@ impl Link {
                         let _ = owned.kill().await;
                         return Ok(json!({"stopReason": "cancelled"}));
                     }
-                    Some(result) => result?,
+                    Some(Ok(())) => {}
+                    Some(Err(error)) => {
+                        // A relistagem acontece antes do prompt: nada foi entregue ainda. Um motor que caiu aqui
+                        // entra no mesmo reinício único do turno (o Drop mata e colhe o processo antigo).
+                        *session.pid.locked() = None;
+                        drop(owned);
+                        if !retried && super::engine_gone(&error) {
+                            tracing::warn!("o Motor Mexerica caiu antes do prompt; reabrindo e repetindo uma vez");
+                            retried = true;
+                            continue;
+                        }
+                        return Err(error);
+                    }
                 }
             }
             let provider = session.provider.locked().clone();
