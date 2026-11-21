@@ -6,12 +6,15 @@ import { Pill } from '../../../components/Controls'
 import { Icon } from '../../../components/Icon'
 import { useEscape } from '../../../components/Overlay'
 import { useT } from '../../../lib/fork-i18n/estado'
+import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 import type { BotStore } from '../../../store/bot-store'
-import { Superficie } from '../../settings/rotulo'
+import { semParametros, Superficie } from '../../settings/rotulo'
 import { PluginsPage as DetalheWhatsapp } from '../whatsapp/PluginsPage'
 import { MarcaW, useWhatsapp } from '../whatsapp/partes'
+import { MailManagerPage as DetalheMailManager, MarcaMail, useMailManager } from '../mail-manager/MailManagerPage'
 
 export const PLUGIN_WHATSAPP = 'whatsapp'
+export const PLUGIN_MAIL_MANAGER = 'mail-manager'
 
 export function PaginaPlugins({ store, aberto, onAbrir, openVoice }: {
   store: BotStore
@@ -23,10 +26,14 @@ export function PaginaPlugins({ store, aberto, onAbrir, openVoice }: {
   if (aberto === PLUGIN_WHATSAPP) {
     return <PluginAberto onVoltar={() => onAbrir(null)}><DetalheWhatsapp store={store} openVoice={openVoice} /></PluginAberto>
   }
+  if (aberto === PLUGIN_MAIL_MANAGER) {
+    return <PluginAberto onVoltar={() => onAbrir(null)}><DetalheMailManager store={store} /></PluginAberto>
+  }
   return (
     <Superficie>
       <div className="ext-plugins" role="list">
         <LinhaWhatsapp store={store} onAbrir={() => onAbrir(PLUGIN_WHATSAPP)} />
+        <LinhaMailManager store={store} onAbrir={() => onAbrir(PLUGIN_MAIL_MANAGER)} />
       </div>
       <PeDaLista />
     </Superficie>
@@ -40,7 +47,7 @@ function PeDaLista() {
 }
 
 /** A linha fechada: nada de opção aqui; ligar e desligar ficam dentro, junto do aviso e do que cada bot pode. */
-function LinhaPlugin({ marca, nome, detalhe, ligado, onAbrir }: { marca: ReactNode; nome: string; detalhe: string; /** `null`: ainda lendo ou sem leitura. */ ligado: boolean | null; onAbrir: () => void }) {
+function LinhaPlugin({ marca, nome, detalhe, ligado, seloLigado = 'whatsapp.estados.ligado', seloDesligado = 'whatsapp.estados.desligado', onAbrir }: { marca: ReactNode; nome: string; detalhe: string; /** `null`: ainda lendo ou sem leitura. */ ligado: boolean | null; seloLigado?: ChaveTexto; seloDesligado?: ChaveTexto; onAbrir: () => void }) {
   const t = useT()
   return (
     <div role="listitem">
@@ -50,7 +57,7 @@ function LinhaPlugin({ marca, nome, detalhe, ligado, onAbrir }: { marca: ReactNo
           <span className="ext-plugin-nome">{nome}</span>
           <span className="ext-plugin-detalhe">{detalhe}</span>
         </span>
-        {ligado === null ? null : <Pill className={ligado ? 'ext-plugin-selo on' : 'ext-plugin-selo'}><span className="ext-plugin-ponto" aria-hidden="true" />{t(ligado ? 'whatsapp.estados.ligado' : 'whatsapp.estados.desligado')}</Pill>}
+        {ligado === null ? null : <Pill className={ligado ? 'ext-plugin-selo on' : 'ext-plugin-selo'}><span className="ext-plugin-ponto" aria-hidden="true" />{semParametros(t)(ligado ? seloLigado : seloDesligado)}</Pill>}
         <Icon name="chevron.right" size={11} weight="semibold" className="ext-plugin-seta" />
       </button>
     </div>
@@ -61,6 +68,12 @@ function LinhaWhatsapp({ store, onAbrir }: { store: BotStore; onAbrir: () => voi
   const t = useT()
   const estado = useWhatsapp(store)
   return <LinhaPlugin marca={<MarcaW />} nome={t('whatsapp.ajustes.nomePlugin')} detalhe={t('extensoes.plugins.whatsapp')} ligado={estado.leitura ? estado.leitura.plugin.enabled : null} onAbrir={onAbrir} />
+}
+
+function LinhaMailManager({ store, onAbrir }: { store: BotStore; onAbrir: () => void }) {
+  const t = useT()
+  const estado = useMailManager(store)
+  return <LinhaPlugin marca={<MarcaMail />} nome={t('mailManager.nomePlugin')} detalhe={t('extensoes.plugins.mailManager')} ligado={estado.leitura ? estado.leitura.plugin.enabled : null} seloLigado="mailManager.selo.ligado" seloDesligado="mailManager.selo.desligado" onAbrir={onAbrir} />
 }
 
 /** O plugin aberto: uma linha de Voltar (e Esc) sobre a tela dele; o foco entra no Voltar. */

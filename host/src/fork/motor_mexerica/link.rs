@@ -10,7 +10,7 @@
 use super::historico::{self, History, TurnLog};
 use super::tools::{ToolFuture, ToolRunner};
 use super::{
-    Engine, VaultSource,
+    Engine, LimitsSource, VaultSource,
     mcp_host::{McpHost, ToolClass},
 };
 use crate::LockExt;
@@ -65,6 +65,8 @@ pub(crate) struct Link {
     /// So as provas do ator com o motor real dispensam os servidores MCP: o executavel deles seria o binario de testes.
     #[cfg(test)]
     skip_mcp: std::sync::atomic::AtomicBool,
+    /// Limites do modelo escolhido (contexto e teto de saída) guardados pelo «Testar acesso».
+    limits: std::sync::OnceLock<LimitsSource>,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -83,7 +85,7 @@ impl Drop for BusyGuard<'_> {
 }
 
 /// Menor credencial que dá para achar no texto sem estragá-lo: abaixo disto a conversa não é guardada.
-const MIN_SECRET_LEN: usize = 8;
+pub(super) const MIN_SECRET_LEN: usize = 8;
 
 /// Provedor do modelo `provider/model` ou do nome (`gemini-*` → google,
 /// `gpt-*`/`o*` → openai). Sem provedor reconhecido, falha fechada.
@@ -224,6 +226,7 @@ impl Link {
             next_out: AtomicU64::new(1),
             #[cfg(test)]
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
+            limits: std::sync::OnceLock::new(),
             stop,
             task: Mutex::new(None),
         })
@@ -233,6 +236,11 @@ impl Link {
     #[cfg(test)]
     pub(crate) fn skip_mcp_servers(&self) {
         self.skip_mcp.store(true, Ordering::Relaxed);
+    }
+
+    /// Fonte dos limites de cada modelo; sem ela, o motor usa os padrões do fornecedor.
+    pub(crate) fn use_limits(&self, source: LimitsSource) {
+        let _ = self.limits.set(source);
     }
 
     /// Liga o adaptador ao transporte: `read` recebe os quadros JSON-RPC do
@@ -526,7 +534,11 @@ impl Link {
         self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
         let mut slot = session.engine.lock().await;
         let engine = slot.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
-        let result = engine.set_model(&provider, &model).await;
+        let limits = match self.limits.get() {
+            Some(source) => source(&provider, &model)?,
+            None => json!({}),
+        };
+        let result = engine.set_model(&provider, &model, &limits).await;
         if let Err(error) = result {
             // O slot nunca guarda um processo cuja conversa de comandos falhou:
             // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
@@ -568,6 +580,12 @@ impl Link {
             let provider = session.provider.locked().clone();
             let model = session.model.locked().clone();
             ensure!(!model.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
+            // Os mesmos limites do set_model: o turno reenvia o modelo ao processo, e reenviar sem limites
+            // devolveria o modelo aos padrões do fornecedor.
+            let limits = match self.limits.get() {
+                Some(source) => source(&provider, &model)?,
+                None => json!({}),
+            };
             // Nada do turno foi entregue ao bot enquanto isto for falso.
             let delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
             // Mensagens que o motor terminou de emitir neste turno (limpas, dentro do teto): viram a
@@ -603,7 +621,7 @@ impl Link {
                     session.history.remember(finished.locked().take());
                     false
                 }
-                result = owned.prompt_with(&provider, &model, &text, &runner, &mut on_event) => {
+                result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
                     if let Err(error) = result {
                         // Falha no meio do turno (processo morto, linha inválida ou
                         // acima do teto, erro do modelo): o stdout pode ter eventos

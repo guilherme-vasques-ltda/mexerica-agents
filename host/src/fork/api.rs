@@ -130,6 +130,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         m if super::memory_learning::METHODS.contains(&m) => {
             super::memory_learning::call(hub, caller, method, body).map(ControlFlow::Break)
         }
+        m if super::mail_manager::api::METHODS.contains(&m) => {
+            super::mail_manager::api::call(hub, caller, method, body).map(ControlFlow::Break)
+        }
         "functionModels"
         | "saveFunctionModel"
         | "restoreFunctionModel"

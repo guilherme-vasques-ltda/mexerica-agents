@@ -22,6 +22,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[cfg(unix)]
+pub(crate) mod chaves;
+#[cfg(unix)]
 pub(crate) mod historico;
 #[cfg(unix)]
 pub(crate) mod link;
@@ -45,6 +47,8 @@ pub(crate) const REQUIRED_ENV: &str = "MEXERICA_MOTOR_TESTS_REQUIRED";
 /// `motor-mexerica/<provider>` e devolve a chave, sem nunca registrar o valor.
 /// No bot o leitor fecha sobre o `Arc<Hub>`; nos testes, sobre um `Arc<Store>`.
 pub(crate) type VaultSource = Arc<dyn Fn(&str) -> Result<Option<String>> + Send + Sync>;
+/// Limites (`contextWindow`, `maxTokens`) de `(fornecedor, modelo)`; `{}` quando não há.
+pub(crate) type LimitsSource = Arc<dyn Fn(&str, &str) -> Result<Value> + Send + Sync>;
 
 /// Fonte do cofre sobre um `Store` próprio (provas e testes).
 pub(crate) fn store_vault(store: Arc<Store>) -> VaultSource {
@@ -56,6 +60,44 @@ pub(crate) fn hub_vault(hub: Arc<crate::hub::Hub>) -> VaultSource {
     Arc::new(move |slot: &str| crate::market::vault::read(&hub.store, slot))
 }
 
+/// Métodos do app para as chaves do motor (veja `chaves`).
+pub(crate) const CHAVE_METHODS: [&str; 4] =
+    ["motorChaves", "motorChaveTestar", "motorChaveSalvar", "motorChaveRemover"];
+
+pub(crate) async fn chaves_call(
+    hub: &Arc<crate::hub::Hub>,
+    caller: &crate::api::devices::Caller,
+    method: &str,
+    body: Value,
+) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (hub, caller, method, body);
+        bail!("motor_desligado: o Motor Mexerica não roda nesta plataforma.")
+    }
+    #[cfg(unix)]
+    {
+        chaves::call(hub, caller, method, body).await
+    }
+}
+
+/// Modelos da escolha do bot no backend do motor (veja `chaves::catalogo`).
+pub(crate) fn catalogo(store: &Store, space: &str) -> Result<Value> {
+    #[cfg(not(unix))]
+    {
+        let _ = (store, space);
+        Ok(json!({"models": [], "currentModelId": null, "fastMode": false}))
+    }
+    #[cfg(unix)]
+    {
+        // Com o motor desligado não há modelo do motor para escolher.
+        if !enabled() {
+            return Ok(json!({"models": [], "currentModelId": null, "fastMode": false}));
+        }
+        chaves::catalogo(store, space)
+    }
+}
+
 /// Slot do cofre por provedor: `motor-mexerica/<provider>`.
 pub(crate) fn credential_slot(provider_id: &str) -> String {
     format!("motor-mexerica/{provider_id}")
@@ -63,7 +105,7 @@ pub(crate) fn credential_slot(provider_id: &str) -> String {
 
 /// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
 #[cfg(unix)]
-const PROVIDERS: [&str; 4] = ["google", "openai", "faux", "faux2"];
+const PROVIDERS: [&str; 8] = ["anthropic", "openai", "google", "xai", "openrouter", "meta", "faux", "faux2"];
 
 #[cfg(unix)]
 const OWNER_SEPARATOR: char = '\u{1f}';
@@ -363,6 +405,38 @@ impl Engine {
         }
     }
 
+    /// `set_model` do provedor fixado no nascimento. Fora de um turno.
+    /// `limits` leva `contextWindow`/`maxTokens` do último «Testar acesso», quando há.
+    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str, limits: &Value) -> Result<()> {
+        ensure!(provider == self.provider, "este motor está preso ao provedor {}", self.provider);
+        self.next_id += 1;
+        let set_id = format!("set-{}", self.next_id);
+        let mut command = json!({"id": set_id, "type": "set_model", "provider": provider, "modelId": model_id});
+        for field in ["contextWindow", "maxTokens"] {
+            if let Some(n) = limits[field].as_u64() {
+                command[field] = n.into();
+            }
+        }
+        let res = self.call(&set_id, command, "set_model").await?;
+        ensure!(res["success"] == true, "set_model recusado: {}", res["error"].as_str().unwrap_or_default());
+        Ok(())
+    }
+
+    /// «Testar acesso»: a lista de modelos que a chave do cofre enxerga, como o motor a devolveu
+    /// (`{ok, modelos}` ou `{ok: false, erro, status}`). Nenhuma conversa é aberta.
+    pub(crate) async fn list_models(&mut self) -> Result<Value> {
+        self.next_id += 1;
+        let id = format!("list-{}", self.next_id);
+        let command = json!({"id": id, "type": "list_models", "provider": self.provider});
+        let res = self.call(&id, command, "list_models").await?;
+        ensure!(
+            res["success"] == true,
+            "o motor recusou o teste de acesso: {}",
+            res["error"].as_str().unwrap_or_default()
+        );
+        Ok(res["data"].clone())
+    }
+
     /// Provedor fixado no nascimento do processo.
     pub(crate) fn provider(&self) -> &str {
         &self.provider
@@ -372,7 +446,7 @@ impl Engine {
     /// Devolve o texto final da assistente e todos os eventos recebidos (para
     /// provas). O provedor precisa ser o fixado no nascimento do processo.
     pub(crate) async fn prompt(&mut self, provider: &str, model_id: &str, message: &str) -> Result<Turn> {
-        self.prompt_with(provider, model_id, message, &tools::NoTools, &mut |_| {}).await
+        self.prompt_with(provider, model_id, &json!({}), message, &tools::NoTools, &mut |_| {}).await
     }
 
     /// Um comando de preparo (envio e resposta) com prazo: um motor que para de ler a entrada ou de responder não segura a
@@ -384,17 +458,6 @@ impl Engine {
             self.response(id).await
         };
         tokio::time::timeout(deadline, exchange).await.map_err(|_| anyhow!("o motor não respondeu a tempo: {what}"))?
-    }
-
-    /// `set_model` do provedor fixado no nascimento. Fora de um turno.
-    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str) -> Result<()> {
-        ensure!(provider == self.provider, "este motor está preso ao provedor {}", self.provider);
-        self.next_id += 1;
-        let set_id = format!("set-{}", self.next_id);
-        let command = json!({"id": set_id, "type": "set_model", "provider": provider, "modelId": model_id});
-        let res = self.call(&set_id, command, "set_model").await?;
-        ensure!(res["success"] == true, "set_model recusado: {}", res["error"].as_str().unwrap_or_default());
-        Ok(())
     }
 
     /// Substitui a lista inteira de ferramentas do motor (vai antes do prompt).
@@ -441,13 +504,14 @@ impl Engine {
         &mut self,
         provider: &str,
         model_id: &str,
+        limits: &Value,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
         ensure!(!self.turn_open, "há um turno aberto neste motor; encerre ou mate o processo antes de outro prompt");
         self.turn_open = true;
-        let result = self.drive(provider, model_id, message, runner, on_event).await;
+        let result = self.drive(provider, model_id, limits, message, runner, on_event).await;
         self.turn_open = false;
         result
     }
@@ -459,11 +523,12 @@ impl Engine {
         &mut self,
         provider: &str,
         model_id: &str,
+        limits: &Value,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
-        self.set_model(provider, model_id).await?;
+        self.set_model(provider, model_id, limits).await?;
         self.next_id += 1;
         self.send(json!({"id": format!("p-{}", self.next_id), "type": "prompt", "message": message})).await?;
 
@@ -645,3 +710,6 @@ mod tests_link;
 
 #[cfg(test)]
 mod tests_paridade;
+
+#[cfg(test)]
+mod tests_chaves;

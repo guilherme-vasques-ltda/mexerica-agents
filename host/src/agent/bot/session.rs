@@ -427,7 +427,7 @@ impl Actor {
             let mut last_err = None;
             let mut spawned = None;
             if interno {
-                match start_mexerica(&self.hub, &self.cfg.id, crate::fork::motor_mexerica::actor_extra_env()).await {
+                match start_mexerica(&self.hub, &self.cfg, crate::fork::motor_mexerica::actor_extra_env()).await {
                     Ok(conn) => spawned = Some(conn),
                     Err(e) => last_err = Some(e),
                 }

@@ -25,6 +25,8 @@ export interface EngineOpts {
 	ignoreVaultRequest?: boolean;
 	/** Arquivo JSONL onde o stub de fetch registra as chamadas. */
 	fetchLog?: string;
+	/** Stub de rede carregado no lugar do padrão (`stub-fetch.mjs`). */
+	fetchStub?: string;
 	/** Pasta de trabalho do processo (a prova do MCP inerte a enche de configs). */
 	cwd?: string;
 }
@@ -39,7 +41,7 @@ export interface Proc {
 
 export function startEngine(env: NodeJS.ProcessEnv, opts: EngineOpts = {}): Proc {
 	// O fd 3 do stdio do Node é um socket par bidirecional: o canal do cofre.
-	const args = opts.fetchLog ? ["--import", FETCH_STUB, ENTRY] : [ENTRY];
+	const args = opts.fetchLog ? ["--import", opts.fetchStub ?? FETCH_STUB, ENTRY] : [ENTRY];
 	const child = spawn(process.execPath, args, {
 		cwd: opts.cwd,
 		env: { ...env, ...(opts.fetchLog ? { MEXERICA_MOTOR_FETCH_LOG: opts.fetchLog } : {}) },
