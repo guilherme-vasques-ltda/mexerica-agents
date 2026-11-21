@@ -27,6 +27,9 @@ export const MAX_POINTS = 500
 export const MAX_SERIES = 3
 export const PIE_MAX_SLICES = 5
 export const UNAVAILABLE = 'Indisponível'
+/** Words the model needs from the language catalog; the pt-BR defaults keep the pure tests catalog-free. */
+export interface Words { unavailable: string; category: string; date: string }
+export const PT_WORDS: Words = { unavailable: UNAVAILABLE, category: 'Categoria', date: 'Data' }
 export const KIND_LABEL: Record<Component, string> = { line_chart: 'Linha', bar_chart: 'Barras', pie_chart: 'Pizza' }
 
 const COMPONENTS: readonly string[] = ['line_chart', 'bar_chart', 'pie_chart']
@@ -130,9 +133,9 @@ function payloadToChart(raw: unknown): Chart {
   return Object.freeze(chart)
 }
 
-function guarded(raw: string, read: (value: unknown) => Chart): Parsed {
+function guarded(raw: string, read: (value: unknown) => Chart, maxBytes = MAX_BYTES): Parsed {
   try {
-    if (typeof raw !== 'string' || new TextEncoder().encode(raw).length > MAX_BYTES) return { ok: false, code: 'genui_chart_too_large' }
+    if (typeof raw !== 'string' || new TextEncoder().encode(raw).length > maxBytes) return { ok: false, code: 'genui_chart_too_large' }
     const parsed = parseClosedJson(raw, { unsignedIntegerFields: ['version'] })
     if (!parsed.ok) return { ok: false, code: 'genui_chart_invalid_payload' }
     return { ok: true, chart: read(parsed.value) }
@@ -151,7 +154,7 @@ export const parseChartSnapshot = (raw: string): Parsed => guarded(raw, (value) 
   const chart = payloadToChart(s.payload)
   ensure(s.requested === chart.requested && s.effective === chart.effective, 'genui_chart_invalid_snapshot')
   return chart
-})
+}, MAX_BYTES + 256)
 
 /** Increasing nonoverlapping expansion, matching the Hub's TwoSum comparison. Never collapse the
  * residue before comparing the exact sum with MAX_VALUE; MAX + 0.1 exceeds it in either order. */
@@ -188,8 +191,8 @@ export function formatExact(n: number): string {
 }
 
 /** Inverse of formatExact for the table's sort; Indisponível sorts before every number. */
-export function parseExact(cell: string): number | null {
-  if (cell === UNAVAILABLE) return -Infinity
+export function parseExact(cell: string, unavailable = UNAVAILABLE): number | null {
+  if (cell === unavailable) return -Infinity
   if (!/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(cell)) return null
   return Number(cell.replace(/\./g, '').replace(',', '.'))
 }
@@ -275,26 +278,26 @@ export function pieSlices(values: readonly number[]): Slice[] {
 
 // ── Text equivalents ────────────────────────────────────────────────────────
 
-const valueText = (v: number | null, unit: string) => (v === null ? UNAVAILABLE : `${formatExact(v)} ${unit}`)
+const valueText = (v: number | null, unit: string, unavailable: string) => (v === null ? unavailable : `${formatExact(v)} ${unit}`)
 
 /** What the focused point/bar/slice says, the same for keyboard, pointer and the live region. */
-export function readout(chart: Chart, index: number, visible: readonly boolean[]): string {
+export function readout(chart: Chart, index: number, visible: readonly boolean[], unavailable = UNAVAILABLE): string {
   const label = chart.labels[index] ?? ''
   if (chart.effective === 'pie_chart' || chart.requested === 'pie_chart') {
     const v = chart.series[0]!.values[index] ?? 0
-    return `${label}: ${valueText(v, chart.unit)} · ${percentText(v, pieTotal(chart), chart.series[0]!.values.some((n, i) => i !== index && n !== null && n > 0))}`
+    return `${label}: ${valueText(v, chart.unit, unavailable)} · ${percentText(v, pieTotal(chart), chart.series[0]!.values.some((n, i) => i !== index && n !== null && n > 0))}`
   }
-  if (chart.series.length === 1) return `${label}: ${valueText(chart.series[0]!.values[index] ?? null, chart.unit)}`
-  const parts = chart.series.filter((_, i) => visible[i]).map((s) => `${s.label} ${valueText(s.values[index] ?? null, chart.unit)}`)
+  if (chart.series.length === 1) return `${label}: ${valueText(chart.series[0]!.values[index] ?? null, chart.unit, unavailable)}`
+  const parts = chart.series.filter((_, i) => visible[i]).map((s) => `${s.label} ${valueText(s.values[index] ?? null, chart.unit, unavailable)}`)
   return `${label}: ${parts.join('; ')}`
 }
 
 /** Ver dados: every label and value, exact; null as Indisponível. Plain text cells. */
-export function tableData(chart: Chart): { header: string[]; rows: string[][] } {
-  const first = chart.xKind === 'date' ? 'Data' : 'Categoria'
+export function tableData(chart: Chart, words: Words = PT_WORDS): { header: string[]; rows: string[][] } {
+  const first = chart.xKind === 'date' ? words.date : words.category
   return {
     header: [first, ...chart.series.map((s) => s.label)],
-    rows: chart.labels.map((label, i) => [label, ...chart.series.map((s) => { const v = s.values[i]; return v === null || v === undefined ? UNAVAILABLE : formatExact(v) })]),
+    rows: chart.labels.map((label, i) => [label, ...chart.series.map((s) => { const v = s.values[i]; return v === null || v === undefined ? words.unavailable : formatExact(v) })]),
   }
 }
 

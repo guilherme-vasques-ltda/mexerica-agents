@@ -28,6 +28,7 @@ import { ConectorCard } from '../fork/conector-card/ConectorCard'
 import { WhatsappDraftCard } from '../fork/conector-card/WhatsappDraftCard'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { OwnerQuestionCard } from '../fork/pergunta-dono/OwnerQuestionCard'
+import { genuiChartRow } from '../fork/genui/GenuiChartRow'
 import { genuiChoiceRow } from '../fork/genui/GenuiChoiceRow'
 import { HandoffNotice } from './HandoffNotice'
 import { LinhaTroca } from '../fork/troca-modelo/LinhaTroca'
@@ -99,6 +100,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
     default:
       if (entry.data.conectorDraft) return <div className="chat-row group-start"><WhatsappDraftCard entry={entry} /></div>
       { const card = genuiChoiceRow(entry, chat, groupStart); if (card) return card } // G1b: pela projeção válida, sem data.card
+      { const card = genuiChartRow(entry, chat, groupStart); if (card) return card } // gráfico de leitura: só a projeção válida
       if (entry.data.card === 'ownerQuestion') return <div className={groupStart ? 'chat-row group-start' : 'chat-row'}><OwnerQuestionCard entry={entry} chat={chat} /></div>
       if (entry.data.connectionRequest) return <div className="chat-row group-start"><ConnectionRequestCard entry={entry} /></div>
       if (entry.data.teamChange) return <div className="chat-row notice"><TeamChangeNotice entry={entry} /></div>
