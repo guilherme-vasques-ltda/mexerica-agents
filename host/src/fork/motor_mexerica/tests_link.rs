@@ -1122,6 +1122,303 @@ async fn conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu() {
     acp.kill_and_wait().await;
 }
 
+// ---------------------------------------------------------------------------
+// Catálogo do navegador: o Hub (cliente MCP do motor) negocia a v3 e relista.
+// ---------------------------------------------------------------------------
+
+/// Servidor `memory` de mentira: `browser_open` só aparece na lista depois de `browser_status` v3 ser chamado.
+const SERVIDOR_MEMORY_NAVEGADOR: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const abrir = { name: 'browser_open', description: 'abre', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, abrir] : [status] });
+  else if (m.method === 'tools/call' && m.params.name === 'browser_status') {
+    const v3 = m.params.arguments.version === 3;
+    negociado = negociado || v3;
+    reply({ content: [{ type: 'text', text: JSON.stringify({ version: v3 ? 3 : 2, status: v3 ? 'available' : 'unavailable' }) }], isError: false });
+  } else if (m.method === 'tools/call') reply({ content: [{ type: 'text', text: 'aberto:' + m.params.name }], isError: false });
+});
+";
+
+#[tokio::test]
+async fn hub_negocia_o_navegador_v3_e_relista_as_ferramentas_para_o_motor() {
+    let case = caso!("hub_negocia_o_navegador_v3_e_relista_as_ferramentas_para_o_motor");
+    let script = case.dir.join("memory-navegador.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_NAVEGADOR).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let definicoes = json!([{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}]);
+    let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
+    let nomes = |mcp: &McpHost| mcp.specs().into_iter().map(|spec| spec.name).collect::<Vec<_>>();
+    assert_eq!(nomes(&mcp), ["mcp__memory__browser_status"], "controle positivo: sem negociação só o status aparece");
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+    assert!(mcp.refresh_browser().await.unwrap(), "a negociação v3 muda o conjunto de ferramentas");
+    assert_eq!(nomes(&mcp), ["mcp__memory__browser_status", "mcp__memory__browser_open"]);
+    let classe = mcp.classify("mcp__memory__browser_open").expect("a ferramenta nova precisa de rota");
+    assert!(classe.hub && classe.tool == "browser_open", "continua sendo ferramenta interna do Hub");
+    let saida = mcp.call("c1", "mcp__memory__browser_open", json!({})).await;
+    assert_eq!(saida.unwrap(), "aberto:browser_open");
+    assert!(!mcp.refresh_browser().await.unwrap(), "relistar de novo sem mudança não pede set_tools");
+}
+
+#[tokio::test]
+async fn servidor_de_terceiro_chamado_memory_nunca_e_negociado_nem_relistado() {
+    let case = caso!("servidor_de_terceiro_chamado_memory_nunca_e_negociado_nem_relistado");
+    let script = case.dir.join("memory-navegador.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_NAVEGADOR).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let definicoes = json!([{"name": "memory", "command": node_path().unwrap(), "args": [script], "env": []}]);
+    let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
+    assert!(!mcp.refresh_browser().await.unwrap(), "só o servidor interno do Hub é negociado");
+    assert_eq!(mcp.specs().len(), 1);
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+}
+
+/// Servidor `memory` de mentira cujo `browser_status` nunca responde (a negociação v3 fica pendurada).
+const SERVIDOR_MEMORY_PENDURADO: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: [status] });
+});
+";
+
+#[tokio::test]
+async fn cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno() {
+    let case = caso!("cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno");
+    let script = case.dir.join("memory-pendurado.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_PENDURADO).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let link = Link::new(store_vault(novo_store()), "bot-de-prova", &[(FAUX_ENV, "1")]);
+    link.set_hub_exe_for_tests(hub.clone());
+    let (acp, _rx) = Acp::spawn_link(link);
+    acp.request("initialize", json!({})).await.unwrap();
+    let res = acp
+        .request(
+            "session/new",
+            json!({
+                "cwd": case.dir,
+                "mcpServers": [{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}],
+                "systemPrompt": "Você é um bot da Mexerica.",
+            }),
+        )
+        .await
+        .unwrap();
+    let sid = res["sessionId"].as_str().unwrap().to_owned();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    let started = Instant::now();
+    let answer = acp
+        .send("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": "oi"}]}))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), answer.response())
+        .await
+        .expect("o cancelamento tem de interromper a negociação do navegador, não esperar o prazo dela")
+        .unwrap();
+    assert_eq!(result["stopReason"], "cancelled");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    acp.kill_and_wait().await;
+}
+
+/// Servidor `memory` de mentira cuja lista passa de 256 ferramentas depois da negociação v3.
+const SERVIDOR_MEMORY_ENORME: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const antiga = { name: 'ler_memoria', description: 'lê', inputSchema: { type: 'object' } };
+const muitas = Array.from({ length: 300 }, (_, i) => ({ name: 'extra_' + i, description: 'x', inputSchema: { type: 'object' } }));
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, antiga, ...muitas] : [status, antiga] });
+  else if (m.method === 'tools/call' && m.params.name === 'browser_status') {
+    negociado = m.params.arguments.version === 3;
+    reply({ content: [{ type: 'text', text: JSON.stringify({ version: 3, status: 'available' }) }], isError: false });
+  } else if (m.method === 'tools/call') reply({ content: [{ type: 'text', text: 'ok:' + m.params.name }], isError: false });
+});
+";
+
+#[tokio::test]
+async fn relistagem_que_estoura_o_limite_preserva_o_catalogo_que_funcionava() {
+    let case = caso!("relistagem_que_estoura_o_limite_preserva_o_catalogo_que_funcionava");
+    let script = case.dir.join("memory-enorme.mjs");
+    std::fs::write(&script, SERVIDOR_MEMORY_ENORME).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &script);
+    let definicoes = json!([{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}]);
+    let mcp = McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap();
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status", "mcp__memory__ler_memoria"]);
+    assert!(mcp.refresh_browser().await.is_err(), "a lista nova não cabe no limite do motor");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes, "o catálogo anterior foi trocado por uma lista parcial");
+    let saida = mcp.call("c1", "mcp__memory__ler_memoria", json!({})).await;
+    assert_eq!(saida.unwrap(), "ok:ler_memoria", "a ferramenta antiga perdeu a rota");
+}
+
+/// Servidor `memory` de mentira que, depois da negociação v3, lista páginas sem fim (`por_pagina` ferramentas
+/// com descrição de `descricao` bytes cada) e anota uma linha em `marca` a cada `tools/list` desse tipo.
+fn servidor_memory_paginado(marca: &Path, por_pagina: usize, descricao: usize) -> String {
+    format!(
+        r"
+import readline from 'node:readline';
+import fs from 'node:fs';
+const rl = readline.createInterface({{ input: process.stdin }});
+let negociado = false;
+const status = {{ name: 'browser_status', description: 'status', inputSchema: {{ type: 'object' }} }};
+const antiga = {{ name: 'ler_memoria', description: 'lê', inputSchema: {{ type: 'object' }} }};
+const pagina = () => Array.from({{ length: {por_pagina} }}, (_, i) => ({{ name: 'extra_' + i, description: 'x'.repeat({descricao}), inputSchema: {{ type: 'object' }} }}));
+rl.on('line', (line) => {{
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({{ jsonrpc: '2.0', id: m.id, result }}));
+  if (m.method === 'initialize') reply({{ protocolVersion: '2025-06-18', capabilities: {{ tools: {{}} }}, serverInfo: {{ name: 'fake', version: '1' }} }});
+  else if (m.method === 'tools/list') {{
+    if (!negociado) return reply({{ tools: [status, antiga] }});
+    fs.appendFileSync('{}', 'p\n');
+    reply({{ tools: pagina().map((t, i) => ({{ ...t, name: 'extra_' + fs.readFileSync('{}', 'utf8').length + '_' + i }})), nextCursor: 'mais' }});
+  }} else if (m.method === 'tools/call' && m.params.name === 'browser_status') {{
+    negociado = m.params.arguments.version === 3;
+    reply({{ content: [{{ type: 'text', text: JSON.stringify({{ version: 3, status: 'available' }}) }}], isError: false }});
+  }} else if (m.method === 'tools/call') reply({{ content: [{{ type: 'text', text: 'ok:' + m.params.name }}], isError: false }});
+}});
+",
+        marca.display(),
+        marca.display()
+    )
+}
+
+async fn memory_com_servidor(case: &crate::fork::motor_exec::test_support::Case, script: &str) -> McpHost {
+    let arquivo = case.dir.join("memory-falso.mjs");
+    std::fs::write(&arquivo, script).unwrap();
+    let hub = exe_do_hub_falso(&case.dir, &arquivo);
+    let definicoes = json!([{"name": "memory", "command": hub, "args": ["mcp", "memory"], "env": []}]);
+    McpHost::start_as(&definicoes, &case.dir, Some(&hub)).await.unwrap()
+}
+
+#[tokio::test]
+async fn listagem_para_de_pedir_paginas_ao_atingir_o_limite_de_ferramentas() {
+    let case = caso!("listagem_para_de_pedir_paginas_ao_atingir_o_limite_de_ferramentas");
+    let marca = case.dir.join("paginas.txt");
+    let mcp = memory_com_servidor(&case, &servidor_memory_paginado(&marca, 100, 1)).await;
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert!(mcp.refresh_browser().await.is_err(), "páginas sem fim não cabem no limite do motor");
+    let pedidas = std::fs::read_to_string(&marca).unwrap().lines().count();
+    assert!(pedidas <= 3, "o Hub pediu {pedidas} páginas: a leitura tem de parar quando passa de 256 ferramentas");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes);
+}
+
+#[tokio::test]
+async fn listagem_para_de_pedir_paginas_ao_atingir_o_teto_de_bytes() {
+    let case = caso!("listagem_para_de_pedir_paginas_ao_atingir_o_teto_de_bytes");
+    let marca = case.dir.join("paginas.txt");
+    let mcp = memory_com_servidor(&case, &servidor_memory_paginado(&marca, 2, 1_500_000)).await;
+    assert!(mcp.refresh_browser().await.is_err(), "descrições gigantes não cabem no teto de bytes");
+    let pedidas = std::fs::read_to_string(&marca).unwrap().lines().count();
+    assert!(pedidas <= 2, "o Hub pediu {pedidas} páginas: a leitura tem de parar no teto de bytes");
+}
+
+/// Servidor `memory` de mentira cuja relistagem depois da negociação v3 vem malformada (sem a lista de ferramentas).
+const SERVIDOR_MEMORY_MALFORMADO: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const antiga = { name: 'ler_memoria', description: 'lê', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply(negociado ? { items: [] } : { tools: [status, antiga] });
+  else if (m.method === 'tools/call' && m.params.name === 'browser_status') {
+    negociado = m.params.arguments.version === 3;
+    reply({ content: [{ type: 'text', text: JSON.stringify({ version: 3, status: 'available' }) }], isError: false });
+  } else if (m.method === 'tools/call') reply({ content: [{ type: 'text', text: 'ok:' + m.params.name }], isError: false });
+});
+";
+
+#[tokio::test]
+async fn pagina_malformada_e_erro_e_preserva_o_catalogo_anterior() {
+    let case = caso!("pagina_malformada_e_erro_e_preserva_o_catalogo_anterior");
+    let mcp = memory_com_servidor(&case, SERVIDOR_MEMORY_MALFORMADO).await;
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status", "mcp__memory__ler_memoria"]);
+    assert!(mcp.refresh_browser().await.is_err(), "página sem a lista de ferramentas virou lista vazia válida");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes, "a ferramenta de memória foi retirada em silêncio");
+    let saida = mcp.call("c1", "mcp__memory__ler_memoria", json!({})).await;
+    assert_eq!(saida.unwrap(), "ok:ler_memoria");
+}
+
+#[tokio::test]
+async fn parada_que_chega_durante_o_preparo_do_motor_nao_envia_o_prompt() {
+    let case = caso!("parada_que_chega_durante_o_preparo_do_motor_nao_envia_o_prompt");
+    let (acp, mut rx) = acp_motor(novo_store());
+    acp.request("initialize", json!({})).await.unwrap();
+    let sid = sessao(&acp, &case).await;
+    // O motor cai entre turnos: o prompt sobe outro, e a parada chega enquanto ele ainda está subindo.
+    matar_o_motor(acp.pid().unwrap()).await;
+    let answer = acp
+        .send(
+            "session/prompt",
+            json!({"sessionId": sid, "prompt": [{"type": "text", "text": "não deve chegar ao provedor"}]}),
+        )
+        .await
+        .unwrap();
+    acp.notify("session/cancel", json!({"sessionId": sid})).await.unwrap();
+    let (result, updates, permissions) = dirigir(&acp, answer, &mut rx, true).await;
+    assert_eq!(result["stopReason"], "cancelled", "{result}");
+    assert_eq!(permissions, 0);
+    assert!(texto_do_turno(&updates).is_empty(), "o prompt chegou ao motor depois da parada: {updates:?}");
+    acp.kill_and_wait().await;
+}
+
+/// Servidor `memory` de mentira cuja consulta `browser_status` v3 falha, mas cuja listagem ofereceria as
+/// ferramentas de página: sem a confirmação da negociação, a relistagem não pode publicar essa lista.
+const SERVIDOR_MEMORY_STATUS_FALHA: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const abrir = { name: 'browser_open', description: 'abre', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, abrir] : [status] });
+  else console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, error: { code: -32000, message: 'sem navegador' } }));
+});
+";
+
+#[tokio::test]
+async fn falha_da_consulta_v3_nao_publica_as_ferramentas_de_pagina() {
+    let case = caso!("falha_da_consulta_v3_nao_publica_as_ferramentas_de_pagina");
+    let mcp = memory_com_servidor(&case, SERVIDOR_MEMORY_STATUS_FALHA).await;
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status"]);
+    assert!(mcp.refresh_browser().await.is_err(), "a consulta que falhou virou relistagem normal");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes, "a listagem de uma ponte sem negociação confirmada foi publicada");
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
+}
 const MARCA_SISTEMA: &str = "MARCA-DO-SISTEMA-7Q";
 const MARCA_USUARIO: &str = "MARCA-DO-USUARIO-3K";
 
@@ -1193,4 +1490,34 @@ async fn systemprompt_invalido_recusa_a_sessao() {
         json!({"cwd": case.dir, "mcpServers": [], "systemPrompt": {"mode": "append", "content": [{"type": "image"}]}});
     assert!(acp.request("session/new", params).await.is_err(), "objeto inválido não pode abrir sessão sem instruções");
     acp.kill_and_wait().await;
+}
+
+/// Servidor `memory` de mentira que responde `browser_status` com `isError` (o formato da ponte real) e cuja
+/// listagem ofereceria as ferramentas de página: falha também aqui não pode virar relistagem.
+const SERVIDOR_MEMORY_STATUS_ERRO_FERRAMENTA: &str = r"
+import readline from 'node:readline';
+const rl = readline.createInterface({ input: process.stdin });
+let negociado = false;
+const status = { name: 'browser_status', description: 'status', inputSchema: { type: 'object' } };
+const abrir = { name: 'browser_open', description: 'abre', inputSchema: { type: 'object' } };
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }));
+  if (m.method === 'initialize') reply({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } });
+  else if (m.method === 'tools/list') reply({ tools: negociado ? [status, abrir] : [status] });
+  else reply({ content: [{ type: 'text', text: 'sem navegador' }], isError: true });
+});
+";
+
+#[tokio::test]
+async fn browser_status_com_iserror_tambem_interrompe_a_relistagem() {
+    let case = caso!("browser_status_com_iserror_tambem_interrompe_a_relistagem");
+    let mcp = memory_com_servidor(&case, SERVIDOR_MEMORY_STATUS_ERRO_FERRAMENTA).await;
+    let antes: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(antes, ["mcp__memory__browser_status"]);
+    assert!(mcp.refresh_browser().await.is_err(), "falha entregue como isError virou relistagem normal");
+    let depois: Vec<String> = mcp.specs().into_iter().map(|spec| spec.name).collect();
+    assert_eq!(depois, antes);
+    assert!(mcp.classify("mcp__memory__browser_open").is_none());
 }
