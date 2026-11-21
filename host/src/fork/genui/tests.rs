@@ -23,8 +23,8 @@ fn contrato_e_catalogo_fechados_sem_contexto_nem_codigo() {
     let schema = descriptor();
     let input = &schema["inputSchema"];
     assert_eq!(input["additionalProperties"], false);
-    assert_eq!(input["properties"]["component"]["enum"], json!(["choice"]));
-    let data = &input["properties"]["data"];
+    assert_eq!(input["properties"]["component"]["enum"], json!(["choice", "line_chart", "bar_chart", "pie_chart"]));
+    let data = &input["properties"]["data"]["anyOf"][0];
     assert_eq!(data["additionalProperties"], false);
     assert_eq!(data["properties"]["options"]["items"]["additionalProperties"], false);
     for key in [

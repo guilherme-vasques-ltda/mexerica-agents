@@ -5,6 +5,8 @@
 //!
 //! Só conversa capturada (adicional, com `ToolContext`) ou extra selada do Pessoal (C6, variante pessoal do
 //! `ToolContext`). Na conversa principal do bot a ferramenta não aparece: falta o vínculo de sessão da principal.
+use super::chart_store;
+use super::charts::ValidatedChart;
 use super::contract::{Answer, ValidatedChoice};
 use super::storage::{self, Context, Domain, State};
 use crate::{
@@ -29,7 +31,8 @@ pub(crate) const INSTRUCTIONS: &str = "Quando o dono precisar escolher entre pou
 use mostrar_componente com component \"choice\": o Hub mostra um cartão de escolha nesta conversa ou sessão. Depois, encerre o \
 turno e espere: a resposta chega como uma nova mensagem (opção, \"Nenhuma destas\" ou texto livre). Escolher não \
 autoriza nenhuma ação nem vale como aprovação; no turno da resposta as ferramentas desta conversa ficam recusadas, \
-então responda pela mensagem final.";
+então responda pela mensagem final. \
+Para mostrar números ao dono (evolução, comparação, partes de um todo), use mostrar_componente com component \"line_chart\", \"bar_chart\" ou \"pie_chart\", só com dados reais que você já tem e sem inventar valores; o dono vê o gráfico e pode abrir Ver dados para a tabela. O gráfico só mostra: não espera resposta, então siga o turno e diga o essencial em texto.";
 
 /// Recusa clara, sem eco, fora da conversa capturada.
 pub(crate) const MAIN_REFUSAL: &str = "genui_conversation_required: mostrar_componente só existe numa conversa \
@@ -38,11 +41,14 @@ vínculo de sessão da principal).";
 
 /// Identidade de invocação vinda do envelope da ponte. Sem ela, recusa: nunca cai para hash do payload.
 pub(crate) fn invocation(body: &Value) -> Result<String> {
-    let raw = body[INVOCATION].as_str().ok_or_else(|| anyhow!("genui_invocation_required"))?;
-    ensure!(
-        !raw.is_empty() && raw.len() <= MAX_INVOCATION && raw.bytes().all(|b| b.is_ascii_graphic()),
-        "genui_invocation_required"
-    );
+    let Some(raw) = body[INVOCATION].as_str() else {
+        tracing::warn!("gráfico recusado: invocação ausente ou inválida na ponte");
+        return Err(anyhow!("genui_invocation_required"));
+    };
+    if raw.is_empty() || raw.len() > MAX_INVOCATION || !raw.bytes().all(|b| b.is_ascii_graphic()) {
+        tracing::warn!("gráfico recusado: invocação ausente ou inválida na ponte");
+        return Err(anyhow!("genui_invocation_required"));
+    }
     Ok(raw.to_owned())
 }
 
@@ -111,6 +117,30 @@ pub(crate) fn show(hub: &Hub, ctx: &ToolContext, invocation: &str, payload: &Val
         "state": receipt.state,
         "status": "waitingForAnswer",
     }))
+}
+
+/// Grava (ou devolve no replay) o gráfico de leitura do turno vivo. Mesma guarda da pergunta: o ator já conferiu o
+/// turno e segura a barreira comum; aqui a execução e o vínculo são rechecados na mesma transação.
+pub(crate) fn show_chart(hub: &Hub, ctx: &ToolContext, invocation: &str, chart: &ValidatedChart) -> Result<Value> {
+    let execution = ctx.turn.execution.as_ref().ok_or_else(|| anyhow!("chamada vencida: execução ausente"))?;
+    let origin = ctx.turn.message.clone().ok_or_else(|| anyhow!("human_turn_required"))?;
+    let key = invocation_key(execution, &ctx.cfg.id, invocation);
+    let lane = ctx.lane();
+    let _emit = hub.emit_lock.locked();
+    let (receipt, entries) = ctx.com_origem(hub, || {
+        let mut db = hub.store.db.locked();
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ctx.conferir_origem_on(&tx)?;
+        crate::store::check_execution_on(&tx, &lane, Some(execution))?;
+        let scope = Context { lane: &lane, space: &ctx.cfg.space_id, origin_entry: &origin, domain: ctx.domain() };
+        let receipt = chart_store::create(&tx, &scope, &key, chart)?;
+        // Replay republica as mesmas entradas, sem reinserir.
+        let entries = collect(&tx, [receipt.marker_entry.as_deref(), Some(receipt.entry_id.as_str())])?;
+        tx.commit()?;
+        Ok((receipt, entries))
+    })?;
+    publish(hub, entries);
+    Ok(json!({"shown": true, "chartId": receipt.chart_id, "status": "shown"}))
 }
 
 /// Resultado da resposta, para a RPC devolver ao app.

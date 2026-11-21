@@ -1,5 +1,5 @@
 //! D70: contrato puro, sem bot, rede, banco ou prova de autoridade.
-use super::{MAX_BYTES, MAX_VALUE, ValidatedChart, descriptor};
+use super::{MAX_BYTES, MAX_VALUE, ValidatedChart, data_schemas};
 use serde_json::{Value, json};
 
 fn payload(component: &str, count: usize) -> Value {
@@ -31,25 +31,22 @@ fn error(value: &Value) -> String {
 }
 
 #[test]
-fn catalogo_fechado_e_descritor_separado() {
-    let schema = descriptor();
-    assert!(schema.get("name").is_none());
-    let variants = schema["oneOf"].as_array().unwrap();
-    assert_eq!(variants.len(), 3);
+fn catalogo_fechado_e_descritor_da_ferramenta() {
+    let schemas = data_schemas();
+    assert_eq!(schemas.len(), 3);
     for (index, component) in ["line_chart", "bar_chart", "pie_chart"].iter().enumerate() {
-        let variant = &variants[index];
-        assert_eq!(variant["additionalProperties"], false);
-        assert_eq!(variant["properties"]["component"]["const"], *component);
-        let data = &variant["properties"]["data"];
+        let data = &schemas[index];
         assert_eq!(data["additionalProperties"], false);
         assert_eq!(data["properties"]["series"]["items"]["additionalProperties"], false);
         let value = payload(component, 2);
         assert_eq!(snapshot(&parse(&value))["requested"], *component);
     }
-    assert_eq!(
-        super::super::contract::descriptor()["inputSchema"]["properties"]["component"]["enum"],
-        json!(["choice"])
-    );
+    let tool = super::super::contract::descriptor();
+    let input = &tool["inputSchema"];
+    assert_eq!(input["additionalProperties"], false);
+    assert_eq!(input["properties"]["component"]["enum"], json!(["choice", "line_chart", "bar_chart", "pie_chart"]));
+    assert_eq!(input["properties"]["data"]["anyOf"].as_array().unwrap().len(), 4);
+    assert!(input.get("oneOf").is_none() && input.get("anyOf").is_none(), "esquema raiz sem oneOf/anyOf");
     for component in ["choice", "table", "steps", "svg", "SENTINELA_PRIVADA"] {
         let value = payload(component, 1);
         assert_eq!(error(&value), "genui_chart_invalid_payload");
@@ -64,6 +61,15 @@ fn catalogo_fechado_e_descritor_separado() {
         value.as_object_mut().unwrap().remove(key);
         assert_eq!(error(&value), "genui_chart_invalid_payload");
     }
+}
+
+#[test]
+fn listas_posicionais_no_lugar_de_objetos_sao_recusadas() {
+    let mut value = payload("bar_chart", 2);
+    value["data"]["series"] = json!([["volume", "Quantidade", [1, 2]]]);
+    assert_eq!(error(&value), "genui_chart_invalid_payload");
+    let raw = r#"["version","component","title","summary","data"]"#;
+    assert_eq!(ValidatedChart::parse(raw).unwrap_err().to_string(), "genui_chart_invalid_payload");
 }
 
 #[test]

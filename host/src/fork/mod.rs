@@ -144,6 +144,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     atividades::escopo_migracao::migrate(store)?;
     rules::migrate::migrate(&store.db.locked())?;
     genui::storage::migrate(&store.db.locked())?;
+    genui::chart_store::migrate(&store.db.locked())?;
     onde_roda::store::migrate(&store.db.locked())?;
     times::migrate(&store.db.locked())?;
     projetos::migrate(&store.db.locked())?;
@@ -177,6 +178,7 @@ pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> 
     lider_canal::on_bot_deleted(c, id)?;
     native_catalog::on_bot_deleted(c, id)?;
     genui::storage::on_bot_deleted(c, id)?;
+    genui::chart_store::on_bot_deleted(c, id)?;
     plugins::on_bot_deleted(c, id)?;
     whatsapp::on_bot_deleted(c, id)?;
     mail_manager::on_bot_deleted(c, id)?;

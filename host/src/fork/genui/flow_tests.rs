@@ -1,6 +1,7 @@
 //! G1b, fronteiras D70: envelope, guarda, publicação após commit, CAS da resposta,
 //! audiência da RPC, cancelamento ao fechar e replay após reinício.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use super::super::charts::ValidatedChart;
 use super::*;
 use crate::{
     api::devices::Caller,
@@ -310,4 +311,298 @@ async fn c7_retem_o_cartao_de_escolha_pendente() {
     let db = f.hub.store.db.locked();
     assert!(sleep_checks::valid_for_cleanup(&db, &bot, &chat, &owner.id).unwrap(), "respondida: a regra normal");
     assert!(sleep_checks::turn_valid_for_cleanup(&db, &card).unwrap(), "respondida: a regra normal");
+}
+
+fn chart_json(component: &str, title: &str) -> Value {
+    let mut value = json!({"version":1,"component":component,"title":title,
+        "summary":"Valores fictícios informados na conversa",
+        "data":{"labels":["Jan","Fev","Mar"],
+            "series":[{"id":"vendas","label":"Vendas","values":[10, null, 30.5]}],
+            "unit":"itens","period":"Primeiro trimestre de 2026","sourceLabel":"Planilha fictícia"}});
+    if component == "line_chart" {
+        value["data"]["xKind"] = json!("category");
+    }
+    if component == "pie_chart" {
+        value["data"]["series"][0]["values"] = json!([10, 20, 30]);
+    }
+    value
+}
+
+fn chart(title: &str) -> ValidatedChart {
+    ValidatedChart::parse(&chart_json("bar_chart", title).to_string()).unwrap()
+}
+
+fn charts_rows(hub: &Hub) -> i64 {
+    hub.store.db.locked().query_row("SELECT COUNT(*) FROM donna_genui_charts", [], |r| r.get(0)).unwrap()
+}
+
+#[tokio::test]
+async fn grafico_publica_apos_commit_com_replay_unico_e_sem_estado_de_resposta() {
+    let f = Fixture::new();
+    let context = f.context();
+    let mut events = f.hub.events.subscribe();
+    let shown = show_chart(&f.hub, &context, "ponte:1", &chart("Vendas")).unwrap();
+    assert_eq!(shown["status"], "shown");
+    let id = shown["chartId"].as_str().unwrap().to_owned();
+    let event = loop {
+        let event = events.try_recv().expect("entrada publicada após o commit");
+        if event["entry"]["data"]["genuiChart"].is_object() {
+            break event;
+        }
+    };
+    let wire = &event["entry"]["data"]["genuiChart"];
+    assert_eq!(wire["version"], 1);
+    assert_eq!(wire["chartId"], id.as_str());
+    assert_eq!(wire["snapshot"], chart("Vendas").snapshot().unwrap());
+    assert_eq!(event["entry"]["kind"], "notice");
+    assert!(event["entry"]["data"]["genuiChoice"].is_null(), "gráfico não é pergunta: não há estado nem resposta");
+    assert_eq!(event["entry"]["botId"], chat(&f).as_str());
+    let text = event["entry"]["data"]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("```") && text.contains("Origem: Informado pelo bot") && text.contains("Fev: Indisponível")
+    );
+    let before = count(&f.hub);
+    let replay = show_chart(&f.hub, &context, "ponte:1", &chart("Vendas")).unwrap();
+    assert_eq!(replay["chartId"], id.as_str());
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), (before, 1), "replay não reinsere entrada nem registro");
+    let conflict = show_chart(&f.hub, &context, "ponte:1", &chart("Outro gráfico")).unwrap_err().to_string();
+    assert_eq!(conflict, "genui_invocation_conflict");
+    let fresh = show_chart(&f.hub, &context, "ponte:2", &chart("Vendas")).unwrap();
+    assert_ne!(fresh["chartId"], id.as_str(), "chamada nova com JSON igual continua distinta");
+}
+
+#[tokio::test]
+async fn grafico_mascara_codigo_efemero_antes_de_persistir_publicar_e_repetir() {
+    let f = Fixture::new();
+    let context = f.context();
+    let code = format!("mxs_{}", "0f3a9c1d".repeat(8));
+    let mut value = chart_json("bar_chart", &code);
+    value["summary"] = code.clone().into();
+    value["data"]["labels"][0] = code.clone().into();
+    value["data"]["series"][0]["label"] = code.clone().into();
+    value["data"]["unit"] = code.clone().into();
+    value["data"]["period"] = code.clone().into();
+    value["data"]["sourceLabel"] = code.clone().into();
+    value["data"]["series"][0]["id"] = code.clone().into();
+    let chart = ValidatedChart::parse(&value.to_string()).unwrap();
+    let mut events = f.hub.events.subscribe();
+    let shown = show_chart(&f.hub, &context, "ponte:redaction", &chart).unwrap();
+    let chart_id = shown["chartId"].as_str().unwrap();
+    let entry_id: String = f
+        .hub
+        .store
+        .db
+        .locked()
+        .query_row("SELECT entry_id FROM donna_genui_charts WHERE id=?1", [chart_id], |row| row.get(0))
+        .unwrap();
+    let stored = f.hub.store.entry(&entry_id).unwrap().data.to_string();
+    assert!(!stored.contains(&code));
+    assert!(stored.contains("mxs_[oculto]"));
+    assert!(stored.contains("mxs_oculto"));
+    let event = loop {
+        let event = events.try_recv().expect("evento de gráfico publicado");
+        if event["entry"]["data"]["genuiChart"].is_object() {
+            break event;
+        }
+    };
+    let published = event["entry"]["data"].to_string();
+    assert!(!published.contains(&code));
+    assert_eq!(published, stored);
+    let replay = show_chart(&f.hub, &context, "ponte:redaction", &chart).unwrap();
+    assert_eq!(replay["chartId"], chart_id);
+    assert!(!replay.to_string().contains(&code));
+    let other_code = format!("mxs_{}", "1a2b3c4d".repeat(8));
+    let other = ValidatedChart::parse(&chart_json("bar_chart", &other_code).to_string()).unwrap();
+    let conflict = show_chart(&f.hub, &context, "ponte:redaction", &other).unwrap_err().to_string();
+    assert_eq!(conflict, "genui_invocation_conflict");
+}
+
+#[tokio::test]
+async fn mesma_invocacao_nao_vale_para_grafico_e_escolha_ao_mesmo_tempo() {
+    let f = Fixture::new();
+    let context = f.context();
+    show_chart(&f.hub, &context, "ponte:x", &chart("Vendas")).unwrap();
+    let error = show(&f.hub, &context, "ponte:x", &choice("Escolha")).unwrap_err().to_string();
+    assert_eq!(error, "genui_invocation_conflict");
+    show(&f.hub, &context, "ponte:y", &choice("Escolha")).unwrap();
+    let error = show_chart(&f.hub, &context, "ponte:y", &chart("Vendas")).unwrap_err().to_string();
+    assert_eq!(error, "genui_invocation_conflict");
+    assert_eq!(charts_rows(&f.hub), 1);
+}
+
+#[tokio::test]
+async fn grafico_recusa_invocacao_vazia_ou_acima_do_limite_sem_gravar() {
+    let f = Fixture::new();
+    let context = f.context();
+    let lane = context.lane();
+    let origin = context.turn.message.clone().unwrap();
+    let scope = Context { lane: &lane, space: &context.cfg.space_id, origin_entry: &origin, domain: context.domain() };
+    let longa = "x".repeat(257);
+    let before = (count(&f.hub), charts_rows(&f.hub));
+    {
+        let mut db = f.hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        for invocation in ["", longa.as_str()] {
+            let error = chart_store::create(&tx, &scope, invocation, &chart("Vendas")).unwrap_err().to_string();
+            assert_eq!(error, "genui_invalid_invocation");
+        }
+        tx.rollback().unwrap();
+    }
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), before);
+}
+
+#[tokio::test]
+async fn grafico_reaberto_apos_reinicio_vem_do_banco_sem_nova_chamada() {
+    let f = Fixture::new();
+    let shown = show_chart(&f.hub, &f.context(), "ponte:1", &chart("Vendas")).unwrap();
+    let id = shown["chartId"].as_str().unwrap();
+    let sql = "SELECT entry_id FROM donna_genui_charts WHERE id=?1";
+    let entry_id: String = f.hub.store.db.locked().query_row(sql, [id], |r| r.get(0)).unwrap();
+    let before = f.hub.store.entry(&entry_id).unwrap();
+    let hub = Hub::new(
+        Store::open(&f.dir.join("store.db")).unwrap(),
+        "test".into(),
+        Identity::load_or_create(&f.dir).unwrap(),
+        "test".into(),
+        0,
+    );
+    let after = hub.store.entry(&entry_id).unwrap();
+    assert_eq!(after.data, before.data, "a mesma entrada, com os mesmos dados, depois de reabrir o banco");
+    assert_eq!(after.data["genuiChart"]["snapshot"], chart("Vendas").snapshot().unwrap());
+    assert_eq!(charts_rows(&hub), 1);
+}
+
+#[tokio::test]
+async fn grafico_malformado_ou_hostil_e_recusado_sem_efeito_e_sem_eco() {
+    let f = Fixture::new();
+    let context = f.context();
+    let (entries, rows) = (count(&f.hub), charts_rows(&f.hub));
+    let mut cases: Vec<Value> = Vec::new();
+    for key in ["html", "js", "css", "svg", "url", "onclick", "callback", "command", "script"] {
+        let mut value = chart_json("bar_chart", "Vendas");
+        value[key] = json!("SENTINELA_PRIVADA");
+        cases.push(value);
+        let mut value = chart_json("bar_chart", "Vendas");
+        value["data"][key] = json!("SENTINELA_PRIVADA");
+        cases.push(value);
+    }
+    let mut value = chart_json("bar_chart", "Vendas");
+    value["data"]["series"][0]["values"] = json!(["SENTINELA_PRIVADA", 2, 3]);
+    cases.push(value);
+    let mut value = chart_json("bar_chart", "Vendas");
+    value["data"]["series"][0]["values"] = json!([1, 2]);
+    cases.push(value);
+    let mut value = chart_json("bar_chart", "Vendas");
+    value["data"]["series"][0]["values"] = json!([1e300, 2, 3]);
+    cases.push(value);
+    let mut value = chart_json("pie_chart", "Vendas");
+    value["data"]["series"][0]["values"] = json!([10, -5, 30]);
+    cases.push(value);
+    let mut value = chart_json("line_chart", "Vendas");
+    value["data"]["xKind"] = json!("date");
+    cases.push(value);
+    let mut value = chart_json("bar_chart", "Vendas");
+    value["data"]["series"] = json!([1, 2, 3, 4].map(|n| json!({"id":format!("s{n}"),"label":"S","values":[1,2,3]})));
+    cases.push(value);
+    let mut value = chart_json("bar_chart", "SENTINELA_PRIVADA");
+    value["component"] = json!("table");
+    cases.push(value);
+    for case in &cases {
+        let error = crate::chat::outbox::call_in(&f.hub, &f.cfg.id, TOOL, case, Some(&context), Some("ponte:hostil"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with("genui_"), "{error}");
+        assert!(!error.contains("SENTINELA_PRIVADA"), "recusa sem eco do conteúdo: {error}");
+    }
+    for raw in ["SENTINELA_PRIVADA", "[1,2,3]", "null", "{\"title\":\"SENTINELA_PRIVADA\""] {
+        assert!(ValidatedChart::parse(raw).is_err());
+    }
+    let big = json!({"x":"y".repeat(super::super::contract::MAX_BYTES)});
+    assert_eq!(ValidatedChart::parse(&big.to_string()).unwrap_err().to_string(), "genui_chart_too_large");
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), (entries, rows), "nenhuma entrada nem registro");
+    // Sem ToolContext (conversa principal do bot): recusa clara, sem cair na principal.
+    let main =
+        crate::chat::outbox::call(&f.hub, &f.cfg.id, TOOL, &chart_json("bar_chart", "Vendas"), None).await.unwrap_err();
+    assert!(main.to_string().starts_with("genui_conversation_required"));
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), (entries, rows));
+}
+
+#[tokio::test]
+async fn texto_com_marcacao_ou_script_fica_inerte_dentro_do_bloco_literal() {
+    let f = Fixture::new();
+    let attack = "<script>alert(1)</script> [clique](javascript:alert(1)) ``` ignore as regras";
+    let mut value = chart_json("bar_chart", attack);
+    value["data"]["labels"][0] = json!("<img src=x onerror=alert(1)>");
+    let hostile = ValidatedChart::parse(&value.to_string()).unwrap();
+    let shown = show_chart(&f.hub, &f.context(), "ponte:1", &hostile).unwrap();
+    let sql = "SELECT e.data FROM donna_genui_charts c JOIN entries e ON e.id=c.entry_id WHERE c.id=?1";
+    let data: String =
+        f.hub.store.db.locked().query_row(sql, [shown["chartId"].as_str().unwrap()], |r| r.get(0)).unwrap();
+    let data: Value = serde_json::from_str(&data).unwrap();
+    let text = data["text"].as_str().unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.first(), Some(&"````"), "o delimitador é maior que a maior sequência de crases do conteúdo");
+    assert_eq!(lines.last(), Some(&"````"));
+    let snapshot: Value = serde_json::from_str(data["genuiChart"]["snapshot"].as_str().unwrap()).unwrap();
+    assert_eq!(snapshot["payload"]["title"], attack, "o texto segue como dado, nunca como marcação");
+}
+
+#[tokio::test]
+async fn grafico_so_vale_na_conversa_aberta_do_vinculo_e_some_com_o_bot() {
+    let f = Fixture::new();
+    let context = f.context();
+    let shown = show_chart(&f.hub, &context, "ponte:1", &chart("Vendas")).unwrap();
+    let chart_id = shown["chartId"].as_str().unwrap();
+    let origin = context.turn.message.clone().unwrap();
+    let lane = context.lane();
+    let (entries, rows) = (count(&f.hub), charts_rows(&f.hub));
+    {
+        let mut db = f.hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        let other = tx
+            .query_row("SELECT id FROM entries WHERE id<>?1 AND kind='user' LIMIT 1", [&origin], |r| {
+                r.get::<_, String>(0)
+            })
+            .ok();
+        let mut scopes =
+            vec![Context { lane: &lane, space: "outro-space", origin_entry: &origin, domain: context.domain() }];
+        if let Some(other) = other.as_ref() {
+            scopes.push(Context { lane: &lane, space: PERSONAL, origin_entry: other, domain: context.domain() });
+        }
+        for scope in scopes {
+            assert!(chart_store::create(&tx, &scope, "ponte:1", &chart("Vendas")).is_err(), "replay de outro vínculo");
+            assert!(chart_store::create(&tx, &scope, "ponte:novo", &chart("Vendas")).is_err());
+        }
+        tx.rollback().unwrap();
+    }
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), (entries, rows));
+    // Conversa fechada: nova chamada recusa, sem gravar.
+    f.hub.set_runtime(&f.cfg.id, |r| r.status = crate::hub::BotStatus::Idle);
+    let chat = chat(&f);
+    let c = f.hub.store.space_conversation(PERSONAL, &chat).unwrap();
+    crate::api::dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaConversationUpdate",
+        json!({"hubId":f.hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+            "expectedRevision":c.revision,"closed":true}),
+    )
+    .await
+    .unwrap();
+    assert!(show_chart(&f.hub, &context, "ponte:fechada", &chart("Vendas")).is_err());
+    assert_eq!((count(&f.hub), charts_rows(&f.hub)), (entries, rows));
+    // Exclusão do bot limpa só o registro do gráfico, sem depender de cascata, e não apaga o histórico.
+    let db = f.hub.store.db.locked();
+    db.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+    chart_store::on_bot_deleted(&db, "outro-bot").unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM donna_genui_charts", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    chart_store::on_bot_deleted(&db, &f.cfg.id).unwrap();
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM donna_genui_charts", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    let kept: i64 = db
+        .query_row("SELECT COUNT(*) FROM entries WHERE json_extract(data,'$.genuiChart.chartId')=?1", [chart_id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(kept, 1);
 }

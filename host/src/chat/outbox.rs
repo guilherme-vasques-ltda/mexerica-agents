@@ -105,7 +105,7 @@ async fn call_bound(
     Ok(json!({"sent": true}))
 }
 
-/// G1b: cartão de escolha só na conversa capturada, com invocação do envelope da ponte.
+/// G1b: componente (escolha ou gráfico de leitura) só na conversa capturada, com invocação do envelope da ponte.
 async fn show_choice(
     hub: &Hub,
     bot: &str,
@@ -115,11 +115,18 @@ async fn show_choice(
 ) -> Result<Value> {
     let context = context.ok_or_else(|| anyhow!(crate::fork::genui::flow::MAIN_REFUSAL))?;
     let invocation = invocation.ok_or_else(|| anyhow!("genui_invocation_required"))?.to_owned();
-    // Parse sem eco; o objeto validado não carrega escopo nem identidade.
-    let payload = crate::fork::genui::contract::ValidatedChoice::parse(&args.to_string())?;
-    context.check(hub)?;
     let (reply, delivered) = oneshot::channel();
-    let command = Cmd::ShowChoice { invocation, payload: Box::new(payload), reply };
+    // Parse sem eco; o objeto validado não carrega escopo nem identidade.
+    let chart = args["component"].as_str().is_some_and(|c| crate::fork::genui::charts::COMPONENTS.contains(&c));
+    let command = if chart {
+        let payload = crate::fork::genui::charts::ValidatedChart::parse(&args.to_string())?;
+        context.check(hub)?;
+        Cmd::ShowChart { invocation, payload: Box::new(payload), reply }
+    } else {
+        let payload = crate::fork::genui::contract::ValidatedChoice::parse(&args.to_string())?;
+        context.check(hub)?;
+        Cmd::ShowChoice { invocation, payload: Box::new(payload), reply }
+    };
     hub.send_cmd(bot, context.command(command))?;
     tokio::time::timeout(DELIVERY_TIMEOUT, delivered)
         .await

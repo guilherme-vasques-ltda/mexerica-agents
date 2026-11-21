@@ -88,7 +88,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 68: rotina «só quando eu mandar» — a projeção pública das rotinas (`routines`, `routinesOverview`) traz `manual` e a
 // lista de gatilhos pode vir vazia. As rotinas são lidas sob demanda e não entram no mirror; o bump só segue a regra de campo
 // novo do Hub. App antigo ignora o campo e lê a lista vazia como lista.
-export const MIRROR_SCHEMA = 68
+// Schema 69: gráfico de leitura do bot (`Entry.data.genuiChart`, mostrar_componente com gráfico); cache anterior não tem a projeção.
+export const MIRROR_SCHEMA = 69
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

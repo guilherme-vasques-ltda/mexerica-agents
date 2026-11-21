@@ -122,6 +122,12 @@ pub enum Cmd {
         payload: Box<crate::fork::genui::contract::ValidatedChoice>,
         reply: tokio::sync::oneshot::Sender<Result<Value>>,
     },
+    /// `mostrar_componente` com gráfico de leitura v1. Só chega dentro de `ContextTool`, da conversa capturada.
+    ShowChart {
+        invocation: String,
+        payload: Box<crate::fork::genui::charts::ValidatedChart>,
+        reply: tokio::sync::oneshot::Sender<Result<Value>>,
+    },
     /// I-023: `report_routine_result` do servidor `routines`, com o vínculo original capturado em E1.
     RoutineResult {
         execution: crate::fork::sessoes::ExecutionRef,

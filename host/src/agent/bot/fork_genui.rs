@@ -2,6 +2,7 @@
 //! outro bot/Times, rotina e canal não têm dono na conversa e recusam.
 use super::Actor;
 use crate::LockExt;
+use crate::fork::genui::{charts::ValidatedChart, contract::ValidatedChoice, flow};
 use crate::fork::spaces::tool_context::ToolContext;
 use serde_json::Value;
 
@@ -10,7 +11,24 @@ impl Actor {
         &mut self,
         context: &ToolContext,
         invocation: &str,
-        payload: &crate::fork::genui::contract::ValidatedChoice,
+        payload: &ValidatedChoice,
+    ) -> anyhow::Result<Value> {
+        self.show_component(context, |hub| flow::show(hub, context, invocation, payload))
+    }
+
+    pub(super) fn show_chart(
+        &mut self,
+        context: &ToolContext,
+        invocation: &str,
+        chart: &ValidatedChart,
+    ) -> anyhow::Result<Value> {
+        self.show_component(context, |hub| flow::show_chart(hub, context, invocation, chart))
+    }
+
+    fn show_component(
+        &mut self,
+        context: &ToolContext,
+        write: impl FnOnce(&crate::hub::Hub) -> anyhow::Result<Value>,
     ) -> anyhow::Result<Value> {
         anyhow::ensure!(self.turn.is_some() && !self.waiting_for_reset(), "no turn is running");
         anyhow::ensure!(
@@ -23,6 +41,6 @@ impl Actor {
         // Mesma barreira de updateBot/exclusão/troca de turno: nada muda entre a conferência e o commit.
         let _boundary = hub.store.memory_boundary.locked();
         context.check_actor(&hub, &self.cfg, &self.lane, self.turn_session.as_deref())?;
-        crate::fork::genui::flow::show(&hub, context, invocation, payload)
+        write(&hub)
     }
 }
