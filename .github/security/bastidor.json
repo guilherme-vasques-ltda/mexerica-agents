@@ -18,7 +18,7 @@
     {
       "id": "selo-html",
       "categoria": "plataforma",
-      "padrao": "<!--\\s*[a-z0-9_-]*badge\\s*:\\s*(?:start|end)\\s*-->"
+      "padrao": "<!--\\s*[a-z0-9_-]{0,40}badge\\s*:\\s*(?:start|end)\\s*-->"
     },
     {
       "id": "id-conversa",
@@ -28,12 +28,12 @@
     {
       "id": "link-conversa",
       "categoria": "plataforma",
-      "padrao": "https?://[^\\s)>\\]\"']+/(?:threads?|jams?|conversations?)/(?=[a-z0-9_-]*\\d)[a-z0-9_-]{8,}"
+      "padrao": "https?://[^\\s)>\\]\"']{1,200}/(?:threads?|jams?|conversations?)/(?=[a-z0-9_-]*\\d)[a-z0-9_-]{8,}"
     },
     {
       "id": "link-ferramenta-ia",
       "categoria": "plataforma",
-      "padrao": "https?://(?:[a-z0-9-]+\\.)*(?:claude\\.ai/(?:chat|share|code|new)|chatgpt\\.com/(?:c|g|share|codex)|chat\\.openai\\.com|app\\.devin\\.ai|gemini\\.google\\.com/(?:app|share)|jules\\.google|cursor\\.com/(?:agents|background))"
+      "padrao": "https?://(?:[a-z0-9-]+\\.){0,6}(?:claude\\.ai/(?:chat|share|code|new)|chatgpt\\.com/(?:c|g|share|codex)|chat\\.openai\\.com|app\\.devin\\.ai|gemini\\.google\\.com/(?:app|share)|jules\\.google|cursor\\.com/(?:agents|background))"
     },
     {
       "id": "selo-robo",
@@ -126,12 +126,12 @@
     {
       "id": "custo-interno",
       "categoria": "coordenacao",
-      "padrao": "(?<![a-z0-9])(?:custo\\s+(?:d[aeo]s?|dessa|desta|nessa|nesta|em)\\s+(?:rodadas?|tarefas?|execucoes?|revisoes?|sessoes?|threads?|equipes?|maquinas?|creditos|ci|prs?)|\\d[\\d.,]*\\s+creditos?\\s+(?:gastos?|consumidos?|usados?)|(?:gast\\w+|cust\\w+)[^.\\n]{0,40}(?:us\\$|r\\$)\\s?\\d[\\d.,]*[^.\\n]{0,40}(?:rodadas?|tarefas?|revisoes?|creditos|sandbox))(?![a-z0-9])"
+      "padrao": "(?<![a-z0-9])(?:custo\\s+(?:d[aeo]s?|dessa|desta|nessa|nesta|em)\\s+(?:rodadas?|tarefas?|execucoes?|revisoes?|sessoes?|threads?|equipes?|maquinas?|creditos|ci|prs?)|\\d[\\d.,]{0,15}\\s+creditos?\\s+(?:gastos?|consumidos?|usados?)|(?:gast\\w+|cust\\w+)[^.\\n]{0,40}(?:us\\$|r\\$)\\s?\\d[\\d.,]{0,15}[^.\\n]{0,40}(?:rodadas?|tarefas?|revisoes?|creditos|sandbox))(?![a-z0-9])"
     },
     {
       "id": "contagem-maquinas",
       "categoria": "coordenacao",
-      "padrao": "(?<![a-z0-9.,])(?:\\d[\\d.,]*\\s+(?:maquinas?|runners?|sandboxes?|vms)\\s+(?:ligad\\w+|iniciad\\w+|criad\\w+|usad\\w+|em\\s+\\d|por\\s+(?:rodada|hora|dia|pr))|\\d[\\d.,]*\\s+inicios\\s+(?:de\\s+maquinas?\\s+)?(?:por\\s+(?:hora|dia|rodada)|em\\s+\\d)|contagem\\s+de\\s+maquinas)"
+      "padrao": "(?<![a-z0-9.,])(?:\\d[\\d.,]{0,15}\\s+(?:maquinas?|runners?|sandboxes?|vms)\\s+(?:ligad\\w+|iniciad\\w+|criad\\w+|usad\\w+|em\\s+\\d|por\\s+(?:rodada|hora|dia|pr))|\\d[\\d.,]{0,15}\\s+inicios\\s+(?:de\\s+maquinas?\\s+)?(?:por\\s+(?:hora|dia|rodada)|em\\s+\\d)|contagem\\s+de\\s+maquinas)"
     }
   ]
 }

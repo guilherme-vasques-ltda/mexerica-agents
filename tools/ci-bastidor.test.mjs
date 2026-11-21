@@ -416,3 +416,15 @@ test('o contrato dos workflows e o teste do verificador rodam no CI de ferrament
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   assert.ok(ci.includes('tools/ci-bastidor.test.mjs'));
 });
+
+test('linhas longas e adversariais terminam rápido e não escondem o que cruza o pedaço', () => {
+  const lixos = ['1,1,1,', 'https://a/', '<a ', 'feito com ', 'custo ', 'revisao independente ', 'gastou us$ 1,', 'co-authored-by: ', '1 maquinas ', 'o dono ', 'thread ', 'a '];
+  const inicio = Date.now();
+  for (const lixo of lixos) {
+    const texto = lixo.repeat(Math.ceil(200000 / lixo.length));
+    verificar({ titulo: texto, descricao: texto }, completas);
+  }
+  assert.ok(Date.now() - inicio < 5000, 'verificação lenta demais');
+  const longa = 'x'.repeat(1990) + ' feito com Claude ' + 'y'.repeat(3000);
+  assert.deepEqual(ids({ descricao: longa }), ['credito-autoria']);
+});

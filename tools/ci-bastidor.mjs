@@ -20,7 +20,7 @@ export const normalizar = (texto) => texto
 
 // Marcação (tags, ênfase, colchetes) não pode partir uma frase: cada linha é testada crua e sem marcação.
 const semMarcacao = (linha) => linha
-  .replace(/<(?!!--)[^>\n]*>/g, ' ')
+  .replace(/<(?!!--)[^>\n]{0,200}>/g, ' ')
   .replace(/[*`[\]~]/g, '')
   .replace(/(?<![a-z0-9])_|_(?![a-z0-9])/g, '');
 
@@ -88,6 +88,16 @@ export function carregarRegras(arquivo = REGRAS_PADRAO, bruto = process.env[VARI
 
 const rotuloCommit = (sha, indice) => `commit ${/^[0-9a-f]{7,40}$/i.test(sha ?? '') ? sha.slice(0, 7).toLowerCase() : indice + 1}`;
 
+// Linha longa é testada em pedaços sobrepostos: o custo cresce de forma linear e nenhum padrão vira laço quadrático.
+const PEDACO = 2000;
+const SOBRA = 300;
+const pedacos = (linha) => {
+  if (linha.length <= PEDACO) return [linha];
+  const saida = [];
+  for (let i = 0; i < linha.length; i += PEDACO - SOBRA) saida.push(linha.slice(i, i + PEDACO));
+  return saida;
+};
+
 // entrada: { titulo, descricao, branch, commits: [{ sha, mensagem }], comentario }. Devolve só posições, nunca o trecho.
 export function verificar(entrada, { regras }) {
   const campos = [];
@@ -101,7 +111,7 @@ export function verificar(entrada, { regras }) {
     const tipo = campo.split(' ')[0];
     const vistos = new Set();
     normalizar(String(texto)).split(/\r\n|\r|\n/).forEach((linha, i) => {
-      const variantes = [linha, semMarcacao(linha)];
+      const variantes = pedacos(linha).flatMap((pedaco) => [pedaco, semMarcacao(pedaco)]);
       for (const regra of regras) {
         if (regra.campos && !regra.campos.includes(tipo)) continue;
         const chave = `${regra.id}|${i}`;
