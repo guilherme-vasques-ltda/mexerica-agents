@@ -394,12 +394,14 @@ function ChatSplitView() {
     paused: !!editing || !!creating || routinesOpen || settingsOpen || searching })
 
   const quadroModel = useModel(ladoALadoStore)
-  const escopoLadoALado = useMemo<LadoALadoEscopo | null>(
-    () => (openSpaceRecord && spacesStore
-      ? { computerId: spacesStore.computer.id, hostId: spacesStore.hello?.hostId, spaceId: openSpaceRecord.id }
-      : null),
-    [openSpaceRecord?.id, spacesStore?.computer.id, spacesStore?.hello?.hostId],
-  )
+  // O escopo vem da identidade do Space ativo, não do registro carregado: durante a reconexão
+  // o registro (ou a lista de Spaces) falta por um instante e o quadro não pode cair no pessoal.
+  const espelhoAtivo = app.spaceMirrors.active
+  const escopoLadoALado = useMemo<LadoALadoEscopo | null>(() => {
+    if (!espelhoAtivo) return null
+    const hostId = espelhoAtivo.hostId ?? spacesStore?.hello?.hostId
+    return { computerId: espelhoAtivo.computerId, spaceId: espelhoAtivo.spaceId, ...(hostId ? { hostId } : {}) }
+  }, [espelhoAtivo?.computerId, espelhoAtivo?.spaceId, espelhoAtivo?.hostId, spacesStore?.hello?.hostId])
   const quadroEstado = quadroModel.estado(escopoLadoALado)
   const rosterParaReconciliar = app.roster
   const rosterKeysReconciliar = rosterParaReconciliar.map((i) => refKey(i.ref)).join('|')

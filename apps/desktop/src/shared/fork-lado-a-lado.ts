@@ -230,8 +230,16 @@ function parseRef(valor: unknown): LadoALadoRef | null {
   const v = valor as Record<string, unknown>
   if (typeof v.computerId !== 'string' || !v.computerId || typeof v.botId !== 'string' || !v.botId) return null
   const ref: LadoALadoRef = { computerId: v.computerId, botId: v.botId }
-  if (typeof v.spaceId === 'string' && v.spaceId) ref.spaceId = v.spaceId
-  if (typeof v.hubId === 'string' && v.hubId) ref.hubId = v.hubId
+  // Fail-closed: opcional fornecido com tipo errado rejeita a referência inteira (spaceId: 7
+  // não vira escopo pessoal); omitido (undefined/null) segue válido.
+  if (v.spaceId !== undefined && v.spaceId !== null) {
+    if (typeof v.spaceId !== 'string' || !v.spaceId) return null
+    ref.spaceId = v.spaceId
+  }
+  if (v.hubId !== undefined && v.hubId !== null) {
+    if (typeof v.hubId !== 'string' || !v.hubId) return null
+    ref.hubId = v.hubId
+  }
   return ref
 }
 

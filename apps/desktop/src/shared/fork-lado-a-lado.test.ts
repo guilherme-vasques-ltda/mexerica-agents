@@ -403,6 +403,26 @@ test('parse: entrada inválida é ignorada; painel ruim cai; passa do máximo n�
   assert.equal(estourado.pessoal.paineis.length, MAX_PAINEIS)
 })
 
+test('parse: spaceId ou hubId fornecido com tipo errado rejeita a referência inteira', () => {
+  const base = { computerId: 'comp-1', botId: 'bot-1' }
+  // Fail-closed: um opcional com tipo errado não pode sumir e virar conversa do escopo pessoal.
+  const rejeitados = parseLadoALadoMapa({ pessoal: { ativo: true, focoId: 'p1', paineis: [
+    { id: 'p1', ref: { ...base, spaceId: 7 } },
+    { id: 'p2', ref: { ...base, hubId: false } },
+    { id: 'p3', ref: { ...base, spaceId: '' } },
+  ] } })
+  assert.deepEqual(rejeitados.pessoal.paineis, [])
+  assert.equal(rejeitados.pessoal.ativo, false)
+  // Omitido (undefined ou null) segue válido, como antes.
+  const boas = parseLadoALadoMapa({ pessoal: { ativo: true, focoId: 'p1', paineis: [
+    { id: 'p1', ref: base },
+    { id: 'p2', ref: { ...base, spaceId: null, hubId: null } },
+  ] } })
+  assert.equal(boas.pessoal.paineis.length, 2)
+  assert.deepEqual(boas.pessoal.paineis[0].ref, base)
+  assert.deepEqual(boas.pessoal.paineis[1].ref, base)
+})
+
 test('constantes: máximo de painéis, largura mínima e chave de gravação', () => {
   assert.equal(MAX_PAINEIS, 3)
   assert.equal(MIN_LARGURA_PAINEL, 360)

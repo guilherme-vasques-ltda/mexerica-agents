@@ -23,7 +23,15 @@ export class LadoALadoStore extends Observable {
 
   constructor(storage?: Pick<Storage, 'getItem' | 'setItem'> | null) {
     super()
-    this.storage = storage === undefined ? (typeof localStorage !== 'undefined' ? localStorage : null) : storage
+    // O `localStorage` padrão pode lançar (acesso negado pelo agente): sem disco, o quadro
+    // segue só em memória em vez de derrubar a importação do módulo.
+    if (storage === undefined) {
+      let padrao: Pick<Storage, 'getItem' | 'setItem'> | null = null
+      try { padrao = typeof localStorage !== 'undefined' ? localStorage : null } catch { padrao = null }
+      this.storage = padrao
+    } else {
+      this.storage = storage
+    }
     this.mapa = this.lerDoDisco()
     if (this.storage && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('storage', (evento) => {
@@ -77,9 +85,12 @@ export class LadoALadoStore extends Observable {
     opcoes?: { sessionId?: string | null; inicial?: LadoALadoRef | null; inicialSessionId?: string | null },
   ): ResultadoAbrirPainel {
     const chave = escopoDoSpace(escopo)
-    let atual = this.mapa[chave] ?? ESTADO_VAZIO
+    const base = this.mapa[chave] ?? ESTADO_VAZIO
     const sessionId = opcoes?.sessionId ?? null
     const inicialSessionId = opcoes?.inicialSessionId ?? null
+    // Fail-closed: pedido fora do escopo não abre nem o painel inicial que o acompanha.
+    if (abrirNoQuadro(base, ref, escopo, { sessionId }).resultado === 'escopo_invalido') return 'escopo_invalido'
+    let atual = base
     if (atual.paineis.length === 0 && opcoes?.inicial
       && (!mesmaRefLadoALado(opcoes.inicial, ref) || inicialSessionId !== sessionId)) {
       atual = abrirNoQuadro(atual, opcoes.inicial, escopo, { sessionId: inicialSessionId, ativar: true }).estado
@@ -138,7 +149,13 @@ export class LadoALadoStore extends Observable {
     const atual = this.mapa[chave] ?? ESTADO_VAZIO
     if (proximo === atual) return
     this.mapa = { ...this.mapa, [chave]: proximo }
-    try { this.storage?.setItem(CHAVE_ARMAZENAMENTO_LADO_A_LADO, JSON.stringify(this.mapa)) } catch {}
+    // Gravação por escopo: relê o disco e troca só esta chave, para o mapa defasado de uma aba
+    // não apagar o que outra aba gravou num escopo diferente.
+    try {
+      const bruto = this.storage?.getItem(CHAVE_ARMAZENAMENTO_LADO_A_LADO)
+      const disco = bruto ? parseLadoALadoMapa(JSON.parse(bruto)) : {}
+      this.storage?.setItem(CHAVE_ARMAZENAMENTO_LADO_A_LADO, JSON.stringify({ ...disco, [chave]: proximo }))
+    } catch { /* disco indisponível ou ilegível: o quadro segue em memória */ }
     this.changed()
   }
 

@@ -518,6 +518,10 @@ function PainelColuna({
   const t = useT()
   const swapBtnRef = useRef<HTMLButtonElement>(null)
   const [swapOpen, setSwapOpen] = useState(false)
+  // Em RTL a linha começa pela direita: mover "para a esquerda" é avançar no índice.
+  const rtl = superficie.dir === 'rtl'
+  const deltaEsquerda: -1 | 1 = rtl ? 1 : -1
+  const deltaDireita: -1 | 1 = rtl ? -1 : 1
   const swapItems = useCallback(
     () =>
       buildMenuItems(
@@ -584,15 +588,15 @@ function PainelColuna({
                 size={24}
                 icon="chevron.left"
                 title={t('conversa.ladoALado.moverEsquerda')}
-                disabled={indice <= 0}
-                onClick={() => onMover(painel.id, -1)}
+                disabled={rtl ? indice >= totalPaineis - 1 : indice <= 0}
+                onClick={() => onMover(painel.id, deltaEsquerda)}
               />
               <IconButtonBase
                 size={24}
                 icon="chevron.right"
                 title={t('conversa.ladoALado.moverDireita')}
-                disabled={indice < 0 || indice >= totalPaineis - 1}
-                onClick={() => onMover(painel.id, 1)}
+                disabled={rtl ? indice <= 0 : indice >= totalPaineis - 1}
+                onClick={() => onMover(painel.id, deltaDireita)}
               />
             </>
           ) : null}

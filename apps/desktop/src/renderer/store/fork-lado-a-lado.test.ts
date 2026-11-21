@@ -126,6 +126,47 @@ test('loja: abrir recusado não grava nada nem avisa', async () => {
   off()
 })
 
+test('loja: pedido inválido não abre nem o painel inicial que o acompanha', () => {
+  const disco = memoria()
+  const loja = new LadoALadoStore(disco)
+  const resultado = loja.abrir(escopo, ref('bot-fora'), { inicial: ref('bot-a', { spaceId: 'esp-1', hubId: 'hub-1' }) })
+  assert.equal(resultado, 'escopo_invalido')
+  // Nada gravado, nada ativado, disco intacto.
+  assert.deepEqual(loja.estado(escopo), { ativo: false, focoId: null, paineis: [] })
+  assert.deepEqual(disco.dump(), {})
+})
+
+test('loja: localStorage que lança no construtor não derruba o quadro', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('negado') } })
+  try {
+    const loja = new LadoALadoStore()
+    assert.deepEqual(loja.estado(null), { ativo: false, focoId: null, paineis: [] })
+    loja.abrir(null, ref('bot-a'))
+    assert.equal(loja.estado(null).paineis.length, 1)
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original)
+    else delete (globalThis as Record<string, unknown>).localStorage
+  }
+})
+
+test('loja: aba defasada não apaga o escopo que a outra gravou', () => {
+  const disco = memoria()
+  const abaA = new LadoALadoStore(disco)
+  const abaB = new LadoALadoStore(disco)
+  // Cada aba com seu mapa em memória, sem recarregar entre as gravações.
+  abaA.abrir(null, ref('bot-a'))
+  abaB.abrir(escopo, ref('bot-b', { spaceId: 'esp-1' }))
+  const leitor = new LadoALadoStore(disco)
+  assert.equal(leitor.estado(null).paineis.length, 1)
+  assert.equal(leitor.estado(escopo).paineis.length, 1)
+  // E o mapa defasado da primeira aba também não perde o que a segunda gravou.
+  abaA.abrir(null, ref('bot-c'))
+  const leitorFinal = new LadoALadoStore(disco)
+  assert.equal(leitorFinal.estado(null).paineis.length, 2)
+  assert.equal(leitorFinal.estado(escopo).paineis.length, 1)
+})
+
 test('loja: entrar restaura painéis salvos; sem nenhum, abre o inicial dado', () => {
   const loja = new LadoALadoStore(memoria())
   loja.abrir(escopo, ref('bot-a', { spaceId: 'esp-1' }))

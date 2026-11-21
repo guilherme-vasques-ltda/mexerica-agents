@@ -255,7 +255,14 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   }, [panelActive, bergaRequest, store, botId, openTab])
 
   // UI-01: "+", "Nova sessão" do painel e do menu do bot criam no Hub e abrem a aba devolvida, sem enviar nada.
-  const newSession = useNewSession(store, bot, useOpenFocused(openTab, openSession, root))
+  // A sessão criada fica selecionada no painel; o foco na caixa só vai se o painel ainda for o ativo
+  // quando a criação assíncrona terminar (o usuário pode ter trocado de painel no meio).
+  const abrirSessaoCriada = useOpenFocused(openTab, openSession, root)
+  const abrirSessaoCriadaSeAtiva = useCallback((sessionId: string) => {
+    if (!panelActiveRef.current) return openTab(sessionId)
+    abrirSessaoCriada(sessionId)
+  }, [abrirSessaoCriada, openTab])
+  const newSession = useNewSession(store, bot, abrirSessaoCriadaSeAtiva)
   useConsumeNewRequest(store, panelActive ? botId : '', panelActive ? (newSession?.run ?? null) : null)
   const extras = extrasAllowed(store, bot)
   const openRow = openSession === null ? null : store.sessions.of(botId)?.find((s) => s.id === openSession) ?? null
