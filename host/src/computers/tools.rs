@@ -293,8 +293,9 @@ fn spec(name: &str, a: &Value) -> Result<(&'static str, Value, i64)> {
                 .any(|c| {
                     c.as_i64().is_some_and(|i| i.unsigned_abs() > 1 << 53)
                         || c.as_u64().is_some_and(|u| u > 1 << 53)
-                        // Decimal ou exponencial (9007199254740993.0, 9.007199254740993e15) já chega arredondado.
-                        || c.as_f64().is_some_and(|f| f.is_finite() && f.fract() == 0.0 && f.abs() > 9_007_199_254_740_992.0)
+                        // Decimal ou exponencial (9007199254740993.0, 9.007199254740993e15) já chega arredondado para 2^53:
+                        // a partir dele um f64 inteiro não prova qual era o valor pedido, então o limite é inclusivo.
+                        || c.as_f64().is_some_and(|f| f.is_finite() && f.fract() == 0.0 && f.abs() >= 9_007_199_254_740_992.0)
                 });
             ensure!(
                 !imprecise,
@@ -368,6 +369,31 @@ fn capability(c: &registry::Computer, kind: &str, spec: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sheet_with(number: &str) -> Value {
+        let json = format!(
+            r#"{{"location":"desktop","filename":"A.xlsx","reason":"teste","sheets":[{{"name":"Vendas","rows":[[{number}]]}}]}}"#
+        );
+        serde_json::from_str(&json).expect("json")
+    }
+
+    #[test]
+    fn spreadsheet_numbers_that_would_be_rounded_are_refused_in_every_spelling() {
+        for risky in [
+            "9007199254740993",
+            "-9007199254740993",
+            "9007199254740993.0",
+            "9.007199254740993e15",
+            "9007199254740992.0",
+            "-9007199254740992.0",
+            "3.5e18",
+        ] {
+            assert!(spec("create_spreadsheet", &sheet_with(risky)).is_err(), "{risky}");
+        }
+        for fine in ["9007199254740991", "9007199254740991.0", "42", "-42.5", "0.1", "1e3"] {
+            assert!(spec("create_spreadsheet", &sheet_with(fine)).is_ok(), "{fine}");
+        }
+    }
 
     #[test]
     fn file_paths_optional_hash_and_read_pages_match_the_schema() {

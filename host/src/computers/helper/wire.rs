@@ -3,7 +3,7 @@
 use crate::remote::crypto::{self, Opener, Sealer};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use ed25519_dalek::SigningKey;
-use futures::{SinkExt as _, StreamExt as _};
+use futures::{SinkExt as _, Stream, StreamExt as _};
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -59,9 +59,14 @@ pub fn channel_url(base: &str) -> Result<String> {
 }
 
 /// `end` é um prazo absoluto: quadros de controle ou de outros ids não o renovam.
-async fn next_text(ws: &mut Socket, end: tokio::time::Instant) -> Result<Value> {
+async fn next_text<S>(ws: &mut S, end: tokio::time::Instant) -> Result<Value>
+where
+    S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
     loop {
         let msg = tokio::time::timeout_at(end, ws.next()).await.context("o Hub não respondeu a tempo")?;
+        // Uma mensagem que já estava pronta não vale depois do prazo: o prazo limita a chamada inteira.
+        ensure!(tokio::time::Instant::now() <= end, "o Hub não respondeu a tempo");
         match msg {
             Some(Ok(Message::Text(t))) => return Ok(serde_json::from_str(t.as_str()).unwrap_or(Value::Null)),
             Some(Ok(Message::Close(frame))) => bail!(
@@ -133,9 +138,11 @@ impl Session {
     pub async fn call(&mut self, method: &str, body: Value, wait: Duration) -> Result<Value> {
         self.next_id += 1;
         let id = self.next_id;
-        self.send(&json!({"id":id,"m":method,"b":body})).await?;
-        // Um prazo só para a chamada inteira: quadros de outros ids não renovam o tempo.
+        // Um prazo só para a chamada inteira (envio e recepção): quadros de outros ids não renovam o tempo.
         let end = tokio::time::Instant::now() + wait;
+        tokio::time::timeout_at(end, self.send(&json!({"id":id,"m":method,"b":body})))
+            .await
+            .context("o Hub não aceitou o envio a tempo")??;
         loop {
             let v = self.recv(end).await?;
             if v["id"] != id {
@@ -166,5 +173,27 @@ impl Session {
 
     pub async fn close(mut self) {
         let _ = self.ws.close(None).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::time::Duration;
+
+    fn ready(text: &str) -> impl Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin {
+        futures::stream::iter(vec![Ok(Message::Text(text.to_owned().into()))])
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_was_already_waiting_is_refused_after_the_deadline() {
+        let past = tokio::time::Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        let late = next_text(&mut ready(r#"{"t":"f"}"#), past).await;
+        assert!(late.is_err(), "resposta pronta depois do prazo não pode ser aceita");
+
+        let future = tokio::time::Instant::now() + Duration::from_secs(5);
+        let on_time = next_text(&mut ready(r#"{"t":"f"}"#), future).await.unwrap();
+        assert_eq!(on_time["t"], "f");
     }
 }
