@@ -430,15 +430,6 @@ impl Routines {
                     .find(|run| run.id == id && run.bot_id == bot)
                     .context("Execução de rotina não encontrada")?;
                 ensure!(matches!(run.status, Status::Starting | Status::Recovering), Recusa::ReciboInvalido);
-                if requirement == PreparationRequirement::Dispatch
-                    && run.event["source"] != "test"
-                    && state.routines.iter().any(|r| r.id == run.routine_id && r.triggers.is_empty())
-                {
-                    // A rotina virou «só quando eu mandar» depois de esta execução automática ser reservada.
-                    crate::routines::cancel_run(run);
-                    preparada = true;
-                    return Ok(None);
-                }
                 if requirement == PreparationRequirement::LegacyWithoutReceipt {
                     ensure!(run.status == Status::Recovering && run.chain.is_none(), Recusa::ReciboInvalido);
                 }
