@@ -70,6 +70,10 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // App antigo ignora os campos; o novo não mostra o bloco quando eles não vêm.
 // Schema 61: resposta cortada (parada, erro ou Hub desligado) chega com `Entry.data.interrupted` e passa a aparecer na
 // conversa com o aviso de interrompida; cache anterior não tem o campo e a esconderia na trilha.
+// Schema 62: o aviso da conversa da Open traz `Entry.data.code` (código de lista fechada) e a mensagem recusada traz o
+// motivo; cache anterior não tem o campo e o aviso cairia no texto gravado em vez da frase no idioma do app.
+// Schema 63: a lista de chaves de API do motor traz `enderecos` (endereços próprios já salvos, sem a chave); cache
+// anterior não tem o campo e a tela mostraria a lista vazia até a próxima leitura. App antigo ignora o campo.
 // Schema 64: conta por assinatura do Claude conduzida pelo programa oficial (Claude Code no perfil da própria conta) em
 // vez do adaptador legado; catálogo de motores e listagem de contas vêm com esse modo. Ambos são lidos sob demanda e
 // não entram no mirror; o bump só segue a regra de campo novo do Hub. App antigo ignora; o novo não mostra o selo

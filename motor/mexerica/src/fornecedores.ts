@@ -2,6 +2,7 @@
 // chave enxerga. A lista não é escrita aqui: vem do próprio fornecedor («Testar acesso»), e o modelo escolhido é
 // montado a partir do fornecedor. Listar modelos não gera cobrança; nenhuma conversa é aberta para testar.
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { conferirUrl, DestinoRecusado } from "./destino.ts";
 
 export type FornecedorId = "anthropic" | "openai" | "google" | "xai" | "openrouter" | "meta";
 
@@ -12,8 +13,12 @@ export interface ModeloListado {
 	maxTokens?: number;
 }
 
-interface Fornecedor {
+export interface Fornecedor {
 	nome: string;
+	/** O Google responde 400 para chave que não existe. */
+	chaveInvalidaEm400?: boolean;
+	/** Endereço próprio: lista de modelos ausente (404/405) não é erro de chave; a pessoa digita o modelo. */
+	listaOpcional?: boolean;
 	api: Api;
 	baseUrl: string;
 	contextWindow: number;
@@ -37,7 +42,7 @@ const comId = (item: Objeto, extra: Partial<ModeloListado> = {}): ModeloListado[
 	const id = texto(item["id"]);
 	if (!id) return [];
 	const nome = texto(item["display_name"]) ?? texto(item["name"]) ?? id;
-	return [{ id, name: [...nome].slice(0, 120).join(""), ...extra }];
+	return [{ id, name: nome, ...extra }];
 };
 
 /** Modelos que não conversam (voz, imagem, vetores, moderação): ficam fora da escolha do bot. */
@@ -76,6 +81,7 @@ export const FORNECEDORES: Record<FornecedorId, Fornecedor> = {
 	},
 	google: {
 		nome: "Google",
+		chaveInvalidaEm400: true,
 		api: "google-generative-ai",
 		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
 		contextWindow: 1048576,
@@ -168,7 +174,15 @@ export function modeloDoFornecedor(fornecedor: FornecedorId, id: string, listado
 	};
 }
 
-export type ErroDeAcesso = "chave_invalida" | "sem_permissao" | "limite" | "fornecedor_falhou" | "sem_resposta" | "resposta_invalida";
+export type ErroDeAcesso =
+	| "chave_invalida"
+	| "sem_permissao"
+	| "limite"
+	| "fornecedor_falhou"
+	| "sem_resposta"
+	| "resposta_invalida"
+	| "sem_lista"
+	| "destino_recusado";
 
 export class RespostaInvalida extends Error {
 	constructor() {
@@ -177,10 +191,10 @@ export class RespostaInvalida extends Error {
 }
 
 /** Classifica a resposta HTTP sem nunca olhar o corpo (ele pode repetir a chave). */
-function erroDoStatus(fornecedor: FornecedorId, status: number): ErroDeAcesso {
+function erroDoStatus(f: Fornecedor, status: number): ErroDeAcesso {
 	if (status === 401) return "chave_invalida";
-	// O Google responde 400 (API_KEY_INVALID) para chave que não existe.
-	if (status === 400 && fornecedor === "google") return "chave_invalida";
+	if (status === 400 && f.chaveInvalidaEm400) return "chave_invalida";
+	if ((status === 404 || status === 405) && f.listaOpcional) return "sem_lista";
 	if (status === 403) return "sem_permissao";
 	if (status === 429) return "limite";
 	return "fornecedor_falhou";
@@ -218,8 +232,13 @@ async function jsonLimitado(resposta: Response, limite: number): Promise<unknown
 }
 
 /** «Testar acesso»: lista os modelos que a chave enxerga. Só GET de listagem; nenhuma conversa, nenhuma cobrança. */
-export async function testarAcesso(fornecedor: FornecedorId, chave: string, fetch: typeof globalThis.fetch, signal: AbortSignal): Promise<Acesso> {
-	const f = FORNECEDORES[fornecedor];
+export async function testarAcesso(
+	f: Fornecedor,
+	chave: string,
+	fetch: typeof globalThis.fetch,
+	signal: AbortSignal,
+	idValido: (id: string) => boolean,
+): Promise<Acesso> {
 	const modelos: ModeloListado[] = [];
 	let pagina: string | undefined;
 	try {
@@ -228,19 +247,110 @@ export async function testarAcesso(fornecedor: FornecedorId, chave: string, fetc
 			const resposta = await fetch(pedido.url, { headers: { accept: "application/json", ...pedido.headers }, signal, redirect: "error" });
 			if (!resposta.ok) {
 				await resposta.body?.cancel().catch(() => {});
-				return { ok: false, erro: erroDoStatus(fornecedor, resposta.status), status: resposta.status };
+				return { ok: false, erro: erroDoStatus(f, resposta.status), status: resposta.status };
 			}
 			const lido = f.ler(await jsonLimitado(resposta, MAX_BYTES_PAGINA));
 			for (const modelo of lido.modelos) {
 				if (modelos.length >= MAX_MODELOS) break;
-				if (modeloValido(fornecedor, modelo.id) && !modelos.some((m) => m.id === modelo.id)) modelos.push(modelo);
+				// Modelo cujo id ecoa a chave é excluído em vez de virar um id falso com «[removido]».
+				if ((!chave || !modelo.id.includes(chave)) && idValido(modelo.id) && !modelos.some((m) => m.id === modelo.id)) {
+					modelos.push(modelo);
+				}
 			}
 			if (lido.proxima && lido.proxima.length > MAX_MARCADOR) throw new RespostaInvalida();
 			pagina = lido.proxima;
 			if (!pagina) break;
 		}
 	} catch (erro) {
-		return { ok: false, erro: erro instanceof RespostaInvalida ? "resposta_invalida" : "sem_resposta" };
+		const destino = erro instanceof DestinoRecusado || (erro instanceof Error && erro.cause instanceof DestinoRecusado);
+		return { ok: false, erro: erro instanceof RespostaInvalida ? "resposta_invalida" : destino ? "destino_recusado" : "sem_resposta" };
 	}
-	return { ok: true, modelos: modelos.filter((m) => modeloValido(fornecedor, m.id)) };
+	// A chave sai do nome ANTES do corte em 120 caracteres: se ela cruzasse o limite, o prefixo não sobrevive.
+	const semChave = (valor: string) => (chave && valor.includes(chave) ? valor.split(chave).join("[removido]") : valor);
+	const nomeLimpo = (valor: string) => [...semChave(valor)].slice(0, 120).join("");
+	return {
+		ok: true,
+		modelos: modelos
+			.filter((m) => (!chave || !m.id.includes(chave)) && idValido(m.id))
+			.map((m) => ({ ...m, name: nomeLimpo(m.name) })),
+	};
+}
+
+// Endereço próprio: um serviço qualquer num dos três formatos, com endereço e chave da pessoa. O endereço passa pelo
+// portão de `destino.ts` na hora de salvar (no Hub) e em cada conexão (aqui).
+
+export type Formato = "chat-completions" | "responses" | "anthropic-messages";
+
+export interface Endereco {
+	baseUrl: string;
+	formato: Formato;
+	local: boolean;
+}
+
+const API_DO_FORMATO: Record<Formato, Api> = {
+	"chat-completions": "openai-completions",
+	responses: "openai-responses",
+	"anthropic-messages": "anthropic-messages",
+};
+
+export const ehProprio = (id: string) => /^proprio-[a-z0-9]{8,32}$/.test(id);
+
+/** O endereço que veio do cofre, conferido de novo aqui (defesa em profundidade). */
+export function enderecoDoCofre(valor: unknown): Endereco {
+	const e = valor as Partial<Endereco> | null;
+	if (!e || typeof e.baseUrl !== "string" || typeof e.local !== "boolean" || !e.formato || !Object.hasOwn(API_DO_FORMATO, e.formato)) {
+		throw new DestinoRecusado("configuração do endereço próprio inválida");
+	}
+	conferirUrl(e.baseUrl, e.local);
+	return { baseUrl: e.baseUrl.replace(/\/+$/, ""), formato: e.formato, local: e.local };
+}
+
+/** O mesmo formato de id do OpenRouter: serviços próprios costumam usar `dono/modelo` e `:`. */
+export const modeloProprioValido = (id: string) => modeloValido("openrouter", id);
+
+export function fornecedorProprio(e: Endereco): Fornecedor {
+	const anthropic = e.formato === "anthropic-messages";
+	return {
+		nome: "Endereço próprio",
+		api: API_DO_FORMATO[e.formato],
+		baseUrl: e.baseUrl,
+		contextWindow: 128000,
+		maxTokens: 8192,
+		listaOpcional: true,
+		lista: (chave, pagina) =>
+			anthropic
+				? {
+						url: `${e.baseUrl}/v1/models?limit=1000${pagina ? `&after_id=${encodeURIComponent(pagina)}` : ""}`,
+						headers: { "x-api-key": chave, "anthropic-version": "2023-06-01" },
+					}
+				: { url: `${e.baseUrl}/models`, headers: bearer(chave) },
+		ler: (corpo) => {
+			const temMais = anthropic && (corpo as Objeto)["has_more"] === true;
+			const proxima = temMais ? texto((corpo as Objeto)["last_id"]) : undefined;
+			if (temMais && !proxima) throw new RespostaInvalida();
+			return {
+				modelos: lista(corpo, "data").flatMap((item) =>
+					comId(item, anthropic ? { contextWindow: numero(item["max_input_tokens"]), maxTokens: numero(item["max_tokens"]) } : {}),
+				),
+				proxima,
+			};
+		},
+	};
+}
+
+export function modeloProprio(provider: string, e: Endereco, id: string, listado?: ModeloListado): Model<Api> | undefined {
+	if (!modeloProprioValido(id)) return undefined;
+	const f = fornecedorProprio(e);
+	return {
+		id,
+		name: id,
+		api: f.api,
+		provider,
+		baseUrl: e.baseUrl,
+		input: ["text"],
+		reasoning: false,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: listado?.contextWindow ?? f.contextWindow,
+		maxTokens: listado?.maxTokens ?? f.maxTokens,
+	};
 }

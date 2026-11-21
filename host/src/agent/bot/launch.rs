@@ -226,6 +226,7 @@ pub(crate) async fn start_mexerica(
         let vault = crate::fork::motor_mexerica::chaves::owner_vault(hub.clone(), cfg);
         let link = crate::fork::motor_mexerica::link::Link::new(vault, &cfg.id, extra_env);
         link.use_limits(crate::fork::motor_mexerica::chaves::fonte_de_limites(hub.clone()));
+        link.use_proprios(crate::fork::motor_mexerica::chaves::fonte_de_proprios(hub.clone()));
         #[cfg(test)]
         if !extra_env.is_empty() {
             link.skip_mcp_servers();

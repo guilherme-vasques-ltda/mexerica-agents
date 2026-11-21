@@ -10,7 +10,7 @@
 use super::historico::{self, History, TurnLog};
 use super::tools::{ToolFuture, ToolRunner};
 use super::{
-    Engine, LimitsSource, VaultSource,
+    Engine, LimitsSource, PropriosSource, VaultSource,
     mcp_host::{McpHost, ToolClass},
 };
 use crate::LockExt;
@@ -70,6 +70,8 @@ pub(crate) struct Link {
     skip_mcp: std::sync::atomic::AtomicBool,
     /// Limites do modelo escolhido (contexto e teto de saída) guardados pelo «Testar acesso».
     limits: std::sync::OnceLock<LimitsSource>,
+    /// Nomes dos endereços próprios registrados; entram na leitura de proteção mesmo sem ser o da conversa.
+    proprios: std::sync::OnceLock<PropriosSource>,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Só testes: o executável que conta como "o Hub" ao abrir os servidores MCP da sessão.
@@ -165,44 +167,78 @@ pub(super) fn credential_generation(provider: &str, key: Option<&str>) -> String
 /// credencial, então o que foi autorizado e o que foi protegido são a mesma identidade (não há segunda leitura
 /// que possa trocar a conta depois da decisão).
 struct Credentials {
-    reads: Vec<(&'static str, Result<Option<String>>)>,
+    reads: Vec<(String, Result<Option<String>>)>,
+    /// Falha ao listar os endereços próprios registrados: sem ela a proteção não pode decidir nada.
+    erro_proprios: Option<anyhow::Error>,
 }
 
 impl Credentials {
-    fn read(vault: &VaultSource) -> Self {
-        Self {
-            reads: super::PROVIDERS
-                .iter()
-                .map(|provider| (*provider, vault(&super::credential_slot(provider))))
-                .collect(),
+    /// Os provedores fixos, o desta conversa e os demais endereços próprios registrados (uma chave de qualquer
+    /// um deles colada no texto sai antes de a conversa ser guardada).
+    fn read(vault: &VaultSource, provider: &str, proprios: Option<&PropriosSource>) -> Self {
+        let mut names: Vec<String> = super::PROVIDERS.iter().map(|p| (*p).to_owned()).collect();
+        if !names.iter().any(|name| name == provider) {
+            names.push(provider.to_owned());
         }
+        let mut reads: Vec<(String, Result<Option<String>>)> = names
+            .into_iter()
+            .map(|provider| {
+                let read = vault(&super::credential_slot(&provider));
+                (provider, read)
+            })
+            .collect();
+        // A fonte falha alto: sem conseguir listar os endereços, a proteção não presume "sem chaves" — o erro
+        // guarda a mesma consequência de uma leitura do cofre que falha.
+        let erro_proprios = match proprios.map(|fonte| fonte()) {
+            None => None,
+            Some(Ok(ids)) => {
+                for id in ids {
+                    if !reads.iter().any(|(name, _)| *name == id) {
+                        let read = vault(&super::credential_slot(&id));
+                        reads.push((id, read));
+                    }
+                }
+                None
+            }
+            Some(Err(error)) => Some(anyhow!("lendo os endereços próprios registrados: {error:#}")),
+        };
+        Self { reads, erro_proprios }
     }
 
-    fn key(&self, provider: &str) -> Result<Option<&str>> {
-        match self.reads.iter().find(|(name, _)| *name == provider) {
+    /// O registro do cofre como está: a chave, ou o registro inteiro (chave e destino) de um endereço próprio.
+    fn raw(&self, provider: &str) -> Result<Option<&str>> {
+        match self.reads.iter().find(|(name, _)| name == provider) {
             None | Some((_, Ok(None))) => Ok(None),
-            Some((_, Ok(Some(key)))) => Ok(Some(key.as_str())),
+            Some((_, Ok(Some(raw)))) => Ok(Some(raw.as_str())),
             Some((name, Err(error))) => bail!("lendo a credencial do provedor {name}: {error:#}"),
         }
     }
 
-    /// Geração da credencial do provedor. Cofre ilegível: erro (nada é autorizado sem saber qual conta recebe).
+    /// Geração da credencial do provedor, sobre o registro inteiro: trocar o destino de um endereço próprio também
+    /// muda a geração. Cofre ilegível: erro (nada é autorizado sem saber qual conta recebe).
     fn generation(&self, provider: &str) -> Result<String> {
-        Ok(credential_generation(provider, self.key(provider)?))
+        Ok(credential_generation(provider, self.raw(provider)?))
     }
 
     /// Chaves do cofre de todos os provedores: saem do texto antes de a conversa ser guardada. A proteção não pode
     /// falhar calada: se uma leitura falha, ou uma chave é curta demais para ser achada no texto sem estragá-lo, a
     /// conversa não é guardada.
     fn known(&self) -> Result<Vec<String>> {
+        if let Some(error) = &self.erro_proprios {
+            bail!("{error:#}");
+        }
         let mut keys = Vec::new();
         for (provider, _) in &self.reads {
-            let Some(key) = self.key(provider)?.filter(|key| !key.is_empty()) else { continue };
+            let Some(raw) = self.raw(provider)? else { continue };
+            let key = super::proprio::segredo(provider, raw)?;
+            if key.is_empty() {
+                continue;
+            }
             ensure!(
                 key.len() >= MIN_SECRET_LEN,
                 "a credencial do provedor {provider} é curta demais para ser protegida"
             );
-            keys.push(key.to_owned());
+            keys.push(key);
         }
         Ok(keys)
     }
@@ -240,6 +276,7 @@ impl Link {
             #[cfg(test)]
             skip_mcp: std::sync::atomic::AtomicBool::new(false),
             limits: std::sync::OnceLock::new(),
+            proprios: std::sync::OnceLock::new(),
             stop,
             task: Mutex::new(None),
             #[cfg(test)]
@@ -256,6 +293,11 @@ impl Link {
     /// Fonte dos limites de cada modelo; sem ela, o motor usa os padrões do fornecedor.
     pub(crate) fn use_limits(&self, source: LimitsSource) {
         let _ = self.limits.set(source);
+    }
+
+    /// Fonte dos endereços próprios registrados; sem ela, a proteção cobre só os provedores fixos e o da conversa.
+    pub(crate) fn use_proprios(&self, source: PropriosSource) {
+        let _ = self.proprios.set(source);
     }
 
     /// Liga o adaptador ao transporte: `read` recebe os quadros JSON-RPC do
@@ -492,6 +534,16 @@ impl Link {
             tracing::warn!(error = format!("{error:#}"), "sem proteger a conversa não há cópia nem contexto vivo");
             session.history.drop_unprotected();
             discard = true;
+        } else if super::proprio::eh_proprio(provider) && !session.history.received_by(provider) {
+            // Destino escolhido pela pessoa que ainda não recebeu esta conversa: ela não é transferida sem
+            // consentimento. A conversa recomeça nesse endereço.
+            tracing::info!("endereço próprio novo para esta conversa; a conversa recomeça sem a cópia");
+            session.history.restart_for(provider, &generation);
+            discard = true;
+        } else if super::proprio::eh_proprio(provider) && !session.history.has_content() {
+            // A conversa está vazia: só ESCOLHER o endereço não o marca como recebedor — quem marca é a vez em
+            // que a pessoa de fato conversa nele. Sem isso, a conversa que nascer depois em outro provedor
+            // seguiria para um endereço que nunca a recebeu.
         } else if !session.history.bind_credential(provider, &generation) {
             tracing::info!(provider, "a credencial do provedor mudou; a conversa recomeça");
             discard = true;
@@ -526,10 +578,24 @@ impl Link {
             return Ok(());
         }
         *slot = None; // Drop mata o processo e o cofre do provedor antigo.
+        let history = session.history.snapshot();
+        let engine = self.spawn_engine(session, provider, &generation, &history).await?;
+        session.history.take_resync();
+        *slot = Some(engine);
+        Ok(())
+    }
+
+    async fn spawn_engine(
+        self: &Arc<Self>,
+        session: &Session,
+        provider: &str,
+        generation: &str,
+        history: &[Value],
+    ) -> Result<Engine> {
         let extra: Vec<(&str, &str)> = self.extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let mut engine =
-            Engine::spawn_with(pinned(self.vault.clone(), provider, generation.clone()), provider, &extra)?;
-        engine.credential = generation;
+            Engine::spawn_with(pinned(self.vault.clone(), provider, generation.to_owned()), provider, &extra)?;
+        engine.credential = generation.to_owned();
         let system_prompt = session.system_prompt.locked().clone();
         if let Some(prompt) = system_prompt {
             engine.set_system_prompt(&prompt).await?;
@@ -537,17 +603,14 @@ impl Link {
         if let Some(mcp) = &session.mcp {
             engine.set_tools(&mcp.specs()).await?;
         }
-        let history = session.history.snapshot();
         if !history.is_empty() {
-            engine.restore_history(&history).await?;
+            engine.restore_history(history).await?;
         }
-        session.history.take_resync();
         #[cfg(test)]
         if PAUSE_AFTER_RESTORE.load(Ordering::Relaxed) {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
-        *slot = Some(engine);
-        Ok(())
+        Ok(engine)
     }
 
     async fn set_model(self: &Arc<Self>, params: &Value) -> Result<()> {
@@ -557,20 +620,75 @@ impl Link {
         let session = self.sessions.locked().get(sid).cloned().ok_or_else(|| anyhow!("sessão desconhecida: {sid}"))?;
         ensure!(!session.busy.swap(true, Ordering::AcqRel), "a sessão já tem um turno em curso");
         let _busy = BusyGuard(&session.busy);
-        self.ensure_engine(&session, &provider, &Credentials::read(&self.vault)).await?;
+        let creds = Credentials::read(&self.vault, &provider, self.proprios.get());
         let mut slot = session.engine.lock().await;
-        let engine = slot.as_mut().ok_or_else(|| anyhow!("o motor não subiu"))?;
+        let generation = match creds.generation(&provider) {
+            Ok(generation) => generation,
+            Err(error) => {
+                if slot.as_ref().is_some_and(|e| e.provider() == provider) {
+                    *slot = None;
+                }
+                return Err(error);
+            }
+        };
         let limits = match self.limits.get() {
             Some(source) => source(&provider, &model)?,
             None => json!({}),
         };
-        let result = engine.set_model(&provider, &model, &limits).await;
-        if let Err(error) = result {
-            // O slot nunca guarda um processo cuja conversa de comandos falhou:
-            // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
-            // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
-            *slot = None;
-            return Err(error);
+        let unprotected = creds.known().is_err();
+        let restart_proprio =
+            !unprotected && super::proprio::eh_proprio(&provider) && !session.history.received_by(&provider);
+        let credential_changed =
+            !unprotected && !restart_proprio && session.history.would_reset_credential(&provider, &generation);
+        let reset_history = unprotected || restart_proprio || credential_changed;
+        let same_ready = !reset_history
+            && slot.as_mut().is_some_and(|e| e.alive() && e.provider() == provider && e.credential == generation);
+
+        if same_ready {
+            let engine = slot.as_mut().expect("verificado acima");
+            if session.history.take_resync()
+                && let Err(error) = engine.restore_history(&session.history.snapshot()).await
+            {
+                *slot = None;
+                return Err(error);
+            }
+            if let Err(error) = engine.set_model(&provider, &model, &limits).await {
+                // O slot nunca guarda um processo cuja conversa de comandos falhou:
+                // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
+                // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
+                *slot = None;
+                return Err(error);
+            }
+            if !super::proprio::eh_proprio(&provider) || session.history.has_content() {
+                session.history.bind_credential(&provider, &generation);
+            }
+        } else {
+            // Prepara o processo candidato e valida `set_model` ANTES de efetivar o recomeço no histórico:
+            // se o preparo ou a troca de modelo falharem, a conversa do provedor anterior permanece intacta.
+            let candidate_history = if reset_history { Vec::new() } else { session.history.snapshot() };
+            let mut candidate = self.spawn_engine(&session, &provider, &generation, &candidate_history).await?;
+            if let Err(error) = candidate.set_model(&provider, &model, &limits).await {
+                if slot.as_ref().is_some_and(|e| e.provider() == provider) {
+                    *slot = None;
+                }
+                return Err(error);
+            }
+            if unprotected {
+                tracing::warn!("sem proteger a conversa não há cópia nem contexto vivo");
+                session.history.drop_unprotected();
+            } else if restart_proprio {
+                tracing::info!("endereço próprio novo para esta conversa; a conversa recomeça sem a cópia");
+                session.history.restart_for(&provider, &generation);
+            } else if super::proprio::eh_proprio(&provider) && !session.history.has_content() {
+                // A conversa está vazia: só escolher o endereço não o marca como recebedor até o primeiro turno.
+            } else {
+                if credential_changed {
+                    tracing::info!(provider, "a credencial do provedor mudou; a conversa recomeça");
+                }
+                session.history.bind_credential(&provider, &generation);
+            }
+            session.history.take_resync();
+            *slot = Some(candidate);
         }
         *session.provider.locked() = provider;
         *session.model.locked() = model;
@@ -594,7 +712,7 @@ impl Link {
             let current_provider = session.provider.locked().clone();
             ensure!(!current_provider.is_empty(), "nenhum modelo escolhido (session/set_model antes do prompt)");
             // Uma leitura do cofre por turno: a mesma identidade decide a retomada, a proteção e a credencial servida.
-            let creds = Credentials::read(&self.vault);
+            let creds = Credentials::read(&self.vault, &current_provider, self.proprios.get());
             let ready = tokio::select! {
                 biased;
                 () = stopped_since(&mut cancel, admitted) => false,
@@ -683,13 +801,27 @@ impl Link {
             let alive = tokio::select! {
                 biased;
                 () = stopped_since(&mut cancel, admitted) => {
-                    // Cancelar o turno mata o processo do motor.
+                    // Cancelar o turno mata o processo do motor. Só marca recebedor se o turno já entregou
+                    // algum evento (antes disso o pedido não começou a sair para o provedor).
+                    if delivered.load(Ordering::Relaxed)
+                        && let Ok(generation) = creds.generation(&provider)
+                    {
+                        session.history.bind_credential(&provider, &generation);
+                    }
                     let _ = owned.kill().await;
                     *session.pid.locked() = None;
                     session.history.remember(finished.locked().take());
                     false
                 }
                 result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
+                    // Só marca o endereço como recebedor quando o turno completou ou já entregou eventos (o prompt
+                    // já entrou no motor/rede do provedor e a coleta do turno pode conter mensagens). Uma falha
+                    // antes de qualquer entrega (ex.: set_model recusado ou queda antes de iniciar) não vincula.
+                    if (result.is_ok() || delivered.load(Ordering::Relaxed))
+                        && let Ok(generation) = creds.generation(&provider)
+                    {
+                        session.history.bind_credential(&provider, &generation);
+                    }
                     if let Err(error) = result {
                         // Falha no meio do turno (processo morto, linha inválida ou
                         // acima do teto, erro do modelo): o stdout pode ter eventos
