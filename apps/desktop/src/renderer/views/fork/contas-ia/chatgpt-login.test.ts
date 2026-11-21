@@ -117,6 +117,14 @@ test('ativar o uso do plano refaz o login pedindo consentimento; o escopo conced
   assert.deepEqual(corpos[0], { metodo: 'chatgptEntrar', corpo: { loopbackPort: 19424, spaceId: 'pessoal-1', consentir: true } })
 })
 
+test('a descrição que acompanha o erro não mascara o código: «access_denied» segue ao Hub como código', async () => {
+  let recebido: unknown
+  const { client } = hub((corpo) => { recebido = corpo; return { ok: false, erro: 'entrada_negada' } })
+  const { ouvinte } = ponte(() => Promise.resolve('http://127.0.0.1:19424/auth/callback?state=estado-1&error=access_denied&error_description=a+pessoa+desistiu'))
+  await entrarComChatGPT(client, ouvinte, false, 'pessoal-1').fim.then(() => null, () => null)
+  assert.deepEqual(recebido, { state: 'estado-1', erro: 'access_denied', spaceId: 'pessoal-1' })
+})
+
 test('o retorno negado pela pessoa vai ao Hub como {state, erro} e o desfecho recusado segue ao navegador', async () => {
   let recebido: unknown
   const { client } = hub((corpo) => { recebido = corpo; return { ok: false, erro: 'entrada_negada' } })

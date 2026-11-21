@@ -107,11 +107,13 @@ export function entrarComChatGPT(
       concluindo = true
       aoConcluir?.()
       // O cliente emitido volta no retorno do primeiro registro; repetido ou vazio, o retorno é recusado.
-      const clientes = new URL(volta).searchParams.getAll('client_id')
+      const parametros = new URL(volta).searchParams
+      const clientes = parametros.getAll('client_id')
       if (clientes.length > 1 || clientes[0] === '') throw new FalhaChatGPT('falha')
-      // O erro do fornecedor vale antes de qualquer código no mesmo retorno.
+      // O erro do fornecedor vale antes de qualquer código no mesmo retorno. O Hub classifica o
+      // código `error`; a descrição que o acompanha (lida como `retorno.error`) não o substitui.
       const corpo = retorno.error !== null
-        ? { state: retorno.state, erro: retorno.error, spaceId: space }
+        ? { state: retorno.state, erro: parametros.get('error') ?? retorno.error, spaceId: space }
         : { state: retorno.state, code: retorno.code ?? '', spaceId: space, ...(clientes.length === 1 ? { client_id: clientes[0] } : {}) }
       let desfecho: { ok: boolean; conta?: { rotulo: string | null; planoHabilitado: boolean }; erro?: string; avisoAnteriorSemConfirmacao?: boolean }
       try {

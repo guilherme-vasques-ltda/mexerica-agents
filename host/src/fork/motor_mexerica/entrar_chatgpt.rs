@@ -319,6 +319,8 @@ pub(super) async fn concluir(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     // desistindo; qualquer outro erro do fornecedor tem código próprio, sem o texto cru na tela.
     if let Some(erro) = body.get("erro").and_then(Value::as_str) {
         let codigo = if erro == "access_denied" { "entrada_negada" } else { "fornecedor_negou" };
+        // Recusa registrada sem ecoar o motivo recebido: só o código fixo, sem `state`, `code` nem porta.
+        tracing::warn!(codigo, "retorno do login com `ChatGPT` recusado: o emissor não concedeu a entrada");
         return Ok(json!({"ok": false, "erro": codigo}));
     }
     let Some(code) = body.get("code").and_then(Value::as_str).filter(|code| !code.is_empty()) else {
