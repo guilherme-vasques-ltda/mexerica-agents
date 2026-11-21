@@ -96,7 +96,7 @@ async fn descricao_igual_mantem_a_liberacao_e_o_modelo_recebe_o_texto_que_a_pess
     ligar(&hub, &conta, "create_issue", vista["digest"].as_str().unwrap()).await.unwrap();
     assert_eq!(
         lido(&listar_para_o_bot(&hub, &conta, from_ref(&original))),
-        lido(&[original.clone()]),
+        lido(from_ref(&original)),
         "o mesmo texto chega ao modelo"
     );
     assert_eq!(lido(&listar_para_o_bot(&hub, &conta, from_ref(&original))), lido(&[original]), "e continua chegando");
@@ -173,7 +173,7 @@ async fn ferramenta_nova_nasce_desligada_e_a_removida_leva_a_liberacao_e_o_aviso
     let nova = acao("delete_issue", &json!("Apaga uma issue."));
     assert_eq!(
         lido(&listar_para_o_bot(&hub, &conta, &[antiga.clone(), nova])),
-        lido(&[antiga.clone()]),
+        lido(from_ref(&antiga)),
         "a nova não chega ao modelo"
     );
     let vista = tela(&hub, &conta, "delete_issue").await.unwrap();

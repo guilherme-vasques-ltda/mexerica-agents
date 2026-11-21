@@ -621,10 +621,14 @@ impl Mediation for HubMediation {
                     if let Some(rule) = tool["name"].as_str().and_then(|name| self.source.rules.get(name)) {
                         ensure!(seen.insert(tool["name"].as_str()), "Descoberta com ferramenta duplicada");
                         ensure!(operacao::digest(&tool["inputSchema"]) == rule.schema_digest, "Schema remoto alterado");
-                        ensure!(
-                            tool["description"].as_str() == Some(rule.descricao.as_str()),
-                            "Descrição remota alterada"
-                        );
+                        if tool["description"].as_str() != Some(rule.descricao.as_str()) {
+                            tracing::warn!(
+                                ferramenta = tool["name"].as_str().unwrap_or("?"),
+                                conector = %self.source.instance,
+                                "descrição remota diferente da aprovada; lista de ferramentas recusada"
+                            );
+                            bail!("Descrição remota alterada");
+                        }
                         // O modelo recebe só o que foi aprovado: título, anotações e saída do fornecedor não passam.
                         filtered.push(
                             json!({"name":tool["name"],"description":rule.descricao,"inputSchema":tool["inputSchema"]}),

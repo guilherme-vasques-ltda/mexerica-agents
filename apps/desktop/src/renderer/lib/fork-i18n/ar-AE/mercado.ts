@@ -274,7 +274,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.mudou": "تغيّر منذ أن شغّلته: {partes}.",
   "mercado.acoes.parte.descricao": "النص الذي يقرؤه الروبوت عنه",
   "mercado.acoes.parte.entrada": "البيانات التي يستقبلها",
-  "mercado.acoes.parte.titulo": "الاسم الذي يعرضه",
+  "mercado.acoes.parte.titulo": "العنوان الذي يعرضه",
   "mercado.acoes.parte.saida": "البيانات التي يعيدها",
   "mercado.acoes.parte.anotacoes": "ملاحظات المزوّد عنه",
   "mercado.acoes.confirmar.descricao": "ما سيقرؤه الروبوت عن هذا الإجراء، كما كتبه المزوّد:",

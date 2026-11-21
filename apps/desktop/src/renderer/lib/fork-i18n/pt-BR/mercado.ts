@@ -262,7 +262,7 @@ export const textos = {
   "mercado.acoes.mudou": "Mudou desde que você ligou: {partes}.",
   "mercado.acoes.parte.descricao": "o texto que o bot lê sobre ela",
   "mercado.acoes.parte.entrada": "os dados que ela recebe",
-  "mercado.acoes.parte.titulo": "o nome que ela mostra",
+  "mercado.acoes.parte.titulo": "o título que ela mostra",
   "mercado.acoes.parte.saida": "os dados que ela devolve",
   "mercado.acoes.parte.anotacoes": "os avisos do fornecedor sobre ela",
   "mercado.acoes.confirmar.descricao": "O que o bot vai ler sobre esta ação, escrito pelo fornecedor:",

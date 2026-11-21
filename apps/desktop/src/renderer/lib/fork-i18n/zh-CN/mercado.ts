@@ -259,7 +259,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.mudou": "自你开启后已更改：{partes}。",
   "mercado.acoes.parte.descricao": "机器人读到的说明",
   "mercado.acoes.parte.entrada": "它接收的数据",
-  "mercado.acoes.parte.titulo": "它显示的名称",
+  "mercado.acoes.parte.titulo": "它显示的标题",
   "mercado.acoes.parte.saida": "它返回的数据",
   "mercado.acoes.parte.anotacoes": "服务商对它的提示",
   "mercado.acoes.confirmar.descricao": "机器人将读到的关于此操作的说明（由服务商撰写）：",

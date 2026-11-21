@@ -265,7 +265,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.mudou": "Cambió desde que la activaste: {partes}.",
   "mercado.acoes.parte.descricao": "el texto que el bot lee sobre ella",
   "mercado.acoes.parte.entrada": "los datos que recibe",
-  "mercado.acoes.parte.titulo": "el nombre que muestra",
+  "mercado.acoes.parte.titulo": "el título que muestra",
   "mercado.acoes.parte.saida": "los datos que devuelve",
   "mercado.acoes.parte.anotacoes": "los avisos del proveedor sobre ella",
   "mercado.acoes.confirmar.descricao": "Lo que el bot va a leer sobre esta acción, escrito por el proveedor:",

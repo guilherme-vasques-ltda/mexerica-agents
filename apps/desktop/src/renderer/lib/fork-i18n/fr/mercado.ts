@@ -265,7 +265,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.mudou": "Modifiée depuis que vous l’avez activée : {partes}.",
   "mercado.acoes.parte.descricao": "le texte que le bot lit à son sujet",
   "mercado.acoes.parte.entrada": "les données qu’elle reçoit",
-  "mercado.acoes.parte.titulo": "le nom qu’elle affiche",
+  "mercado.acoes.parte.titulo": "le titre qu’elle affiche",
   "mercado.acoes.parte.saida": "les données qu’elle renvoie",
   "mercado.acoes.parte.anotacoes": "les indications du fournisseur à son sujet",
   "mercado.acoes.confirmar.descricao": "Ce que le bot lira sur cette action, écrit par le fournisseur :",
