@@ -446,11 +446,15 @@ struct Lab {
     unconfirmed: bool,
     stage: Stage,
     child_stage: Option<i32>,
+    create_error: Option<u32>,
 }
 
 impl Lab {
     fn report_refusal(&self) {
         eprintln!("LAB_STAGE={:?}", self.stage);
+        if let Some(code) = self.create_error {
+            eprintln!("LAB_WIN32={code}");
+        }
         if let Some(stage) = self.child_stage {
             eprintln!("CHILD_STAGE={stage}");
         }
@@ -459,6 +463,7 @@ impl Lab {
     fn catalog(&mut self, before_resume: impl FnOnce() -> Result<()>) -> Result<&'static [u8]> {
         self.stage = Stage::Preparo;
         self.child_stage = None;
+        self.create_error = None;
         require(!self.unconfirmed)?;
         // SAFETY: GetCurrentProcess returns the current process pseudohandle.
         let parent = token(unsafe { GetCurrentProcess() })?;
@@ -527,22 +532,28 @@ impl Lab {
         let mut process = PROCESS_INFORMATION::default();
         // SAFETY: terminated paths/command, a writable command line, an explicit empty UTF-16 environment,
         // and live attributes/handles. The process enters the Job atomically and starts suspended.
-        require(
-            unsafe {
-                CreateProcessW(
-                    wide(&image).as_ptr(),
-                    command.as_mut_ptr(),
-                    null(),
-                    null(),
-                    1,
-                    CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
-                    environment.as_ptr().cast(),
-                    wide(root.path()).as_ptr(),
-                    &start.StartupInfo,
-                    &mut process,
-                )
-            } != 0,
-        )?;
+        let image_path = wide(&image);
+        let current_dir = wide(root.path());
+        let created = unsafe {
+            CreateProcessW(
+                image_path.as_ptr(),
+                command.as_mut_ptr(),
+                null(),
+                null(),
+                1,
+                CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
+                environment.as_ptr().cast(),
+                current_dir.as_ptr(),
+                &start.StartupInfo,
+                &mut process,
+            )
+        };
+        if created == 0 {
+            // SAFETY: reads this thread's last error immediately after CreateProcessW fails.
+            let code = unsafe { GetLastError() };
+            self.create_error = (1..=99_999).contains(&code).then_some(code);
+            return Err(REFUSED);
+        }
         self.unconfirmed = true;
         let process_handle = handle(process.hProcess);
         let thread = handle(process.hThread);
