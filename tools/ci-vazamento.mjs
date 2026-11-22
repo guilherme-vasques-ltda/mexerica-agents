@@ -32,7 +32,7 @@ function placeholder(value, policy) {
   return /^0+(?:-0+)*$/.test(value) || /^<[^>]+>$/.test(value) || policy.placeholderValues.includes(normalize(value));
 }
 const bareClerkTld = /^(?:[a-z]{2}|app|biz|cloud|com|dev|edu|example|gov|info|int|invalid|local|mil|name|net|online|org|site|tech|test|xyz|xn--[a-z\d-]+)$/i;
-const genericVaultSegments = new Set(['vault', 'cofre', 'item', 'field', 'campo', 'section', 'seção']);
+const genericVaultSegments = new Set(['vault', 'cofre', 'item', 'field', 'campo', 'section', 'seção'].map(normalize));
 function privateIP(value) {
   const version = isIP(value);
   if (version === 4) {
@@ -63,10 +63,10 @@ export function publicRules(line, policy, path = '', marker = true) {
   const service = (value) => { if (!placeholder(value, policy)) found.add('id-servico'); };
   for (const m of line.matchAll(/\b(?:[ps]k_(?:live|test)_|whsec_)([\w-]+|<[^>]+>)/g)) service(m[1]);
   for (const m of line.matchAll(/\b(?:ins|user)_([A-Za-z\d]{16,}|<[^>]+>)/g)) service(m[1]);
-  for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(?:([a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)\.|https?:\/\/)clerk\.accounts\.dev\.?(?![\w.-]|\s*\(|\?\.)/giu)) {
+  for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(?:([a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)\.|https?:\/\/)clerk\.accounts\.dev\.?(?![\w.-]|\(|\?\.)/giu)) {
     if (!m[1] || !placeholder(m[1], policy)) found.add('id-servico');
   }
-  for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(https?:\/\/)?clerk\.((?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z](?:[a-z\d-]{0,61}[a-z\d])?)\.?(?![\w.-]|\s*\(|\?\.)/giu)) {
+  for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(https?:\/\/)?clerk\.((?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z](?:[a-z\d-]{0,61}[a-z\d])?)\.?(?![\w.-]|\(|\?\.)/giu)) {
     const domain = m[2];
     if (!m[1] && !bareClerkTld.test(domain.split('.').at(-1))) continue;
     const reserved = /\.(?:invalid|test)$|(?:^|\.)example\.(?:com|org|net)$/i.test(domain);

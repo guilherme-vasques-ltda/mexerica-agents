@@ -46,6 +46,7 @@ test('Clerk: SDK móvel não é domínio de instância', () => {
     'Clerk.' + 'auth.sessions.any { it.user?.id == old.userId }',
     'let calls = ["clerk.' + 'handle(", "verifyMfaCode("]',
     'meuClerk.auth.getToken()',
+    'clerk.' + 'accounts.dev(',
   ]) assert.ok(!ids(line).includes('id-servico'), line);
   for (const domain of ['clerk.' + 'instancia-ficticia.invalid', 'https://clerk.' + 'instancia-ficticia.accounts.dev', 'clerk.' + 'instancia-ficticia.com.']) {
     assert.ok(ids(domain).includes('id-servico'));
@@ -54,6 +55,8 @@ test('Clerk: SDK móvel não é domínio de instância', () => {
   for (const host of ['instancia-ficticia.' + suffix, 'https://instancia-ficticia.' + suffix, 'https://' + suffix]) {
     assert.ok(ids(host).includes('id-servico'));
   }
+  assert.ok(ids('instancia-ficticia.' + suffix + ' (texto)').includes('id-servico'));
+  assert.ok(ids('clerk.' + 'instancia-ficticia.com (texto)').includes('id-servico'));
   for (const host of ['example.' + suffix, 'https://example.' + suffix, 'instancia-ficticia.' + suffix + '.example.invalid']) {
     assert.ok(!ids(host).includes('id-servico'));
   }
@@ -61,7 +64,7 @@ test('Clerk: SDK móvel não é domínio de instância', () => {
 
 test('cofre: esquema e caminhos inteiramente genéricos não são referências reais', () => {
   const scheme = 'op:' + '//';
-  for (const text of ['Password or %s reference', 'Você pode usar uma referência %s.', 'Use %svault/item/field in a connector', 'Use %scofre/item/campo no campo', '%sexemplo/item']) {
+  for (const text of ['Password or %s reference', 'Você pode usar uma referência %s.', 'Use %svault/item/field in a connector', 'Use %scofre/item/campo no campo', '%sexemplo/item', '%scofre/item/seção']) {
     assert.ok(!ids(text.replace('%s', scheme)).includes('cofre'));
   }
   for (const path of ['Equipe/Agenda/dado', 'cofre/Agenda/campo', 'Time%20A/Item%20B']) {
