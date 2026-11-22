@@ -13,7 +13,7 @@ aproveitado de outro lugar.
 
 ## Escopo desta cópia
 
-Conferido em 20/11/2026 contra a árvore deste repositório e, para cada trecho copiado, contra a origem no commit citado.
+Conferido em 21/11/2026 contra a árvore deste repositório e, para cada trecho copiado, contra a origem no commit citado.
 Não é parecer jurídico.
 
 - Código derivado do Codync v2.20.3 (modificações em `MODIFICACOES.md`) e trechos de commits posteriores do Codync (tabela abaixo).
@@ -27,6 +27,7 @@ Não é parecer jurídico.
 - Pacotes npm `lucide` (ISC) e `@noble/ciphers` (MIT), dependências do desktop.
 - As logos dos serviços do catálogo de conectores em `apps/desktop/src/renderer/assets/marcas/` (marcas de seus titulares, só para identificar o serviço).
 - Electron (MIT), WebRTC de `stasel/WebRTC` (BSD-3-Clause) e o driver Cua (MIT): os textos de licença estão em `packaging/avisos/` e `packaging/cua-driver/`.
+- Clientes móveis em `apps/mobile/` (seção "Clientes móveis (apps/mobile)" abaixo): xterm.js, ThinkingOrbs, fontes Inter, Nunito e DM Sans (SIL OFL 1.1) e vetores do Material Symbols incluídos no repositório, e as dependências declaradas nos manifestos iOS e Android.
 - Registro de tstack (MIT), mantido: os arquivos de destino citados (`.claude/`, `AGENTS.md`, `.github/`) não estão nesta cópia.
 
 Registre abaixo cada cópia de código ou de ativo de terceiros, inclusive com ajustes. Adaptações reescritas e traduções não entram.
@@ -362,6 +363,54 @@ nos arquivos. Licença: SIL Open Font License 1.1, com o texto completo ao lado 
 | Geist | `geist-latin-wght-normal.woff2` | https://github.com/vercel/geist-font | Copyright 2024 The Geist Project Authors |
 | Manrope | `manrope-latin-wght-normal.woff2` | https://github.com/sharanda/manrope | Copyright 2019 The Manrope Project Authors |
 | IBM Plex Sans | `ibm-plex-sans-latin-wght-normal.woff2` | https://github.com/IBM/plex | Copyright 2019 IBM Corp. |
+
+## Clientes móveis (apps/mobile)
+
+Os clientes iOS e Android desta cópia vivem em `apps/mobile/`. Esta seção lista o que está copiado dentro do repositório e as
+dependências declaradas nos manifestos (`apps/mobile/project.yml`, `apps/mobile/ios/Kit/Package.swift`,
+`apps/mobile/android/gradle/libs.versions.toml`, `apps/mobile/android/app/build.gradle.kts` e `apps/mobile/android/core/build.gradle.kts`).
+As versões abaixo são as fixadas nesses arquivos em 21/11/2026.
+
+### Material incluído no repositório
+
+| Material | Onde fica | Licença | Aviso de licença |
+| --- | --- | --- | --- |
+| xterm.js: `@xterm/xterm` 6.0.0, `@xterm/addon-fit` 0.11.0 e `@xterm/addon-web-links` 0.12.0 (arquivos minificados com esbuild 0.28.2) | `apps/mobile/android/app/src/main/assets/terminal/` | MIT | `LICENSE.xterm`, `LICENSE.addon-fit` e `LICENSE.addon-web-links` na mesma pasta; origem, versão e hashes em `vendor-manifest.json` |
+| ThinkingOrbs — Copyright (c) 2026 Jakub Antalik | `apps/mobile/ios/Kit/Sources/CodyncKit/Design/ThinkingOrb*.swift` e `apps/mobile/android/design/src/main/kotlin/com/codync/android/design/ThinkingOrb*.kt` | MIT | `apps/mobile/ios/Kit/Sources/CodyncKit/Resources/ThirdPartyNotices/thinking-orbs-LICENSE.txt` (iOS) e `apps/mobile/android/app/src/main/assets/licenses/thinking-orbs-LICENSE.txt` (Android) |
+| Inter (Copyright 2016 The Inter Project Authors) | `apps/mobile/android/design/src/main/res/font/inter.ttf` | SIL OFL 1.1 | `apps/mobile/android/app/src/main/assets/licenses/inter-OFL.txt` |
+| Nunito (Copyright 2014 The Nunito Project Authors) | `apps/mobile/ios/Kit/Sources/CodyncUI/Resources/Redesign/Fontes/Nunito-VariableFont_wght.ttf` | SIL OFL 1.1 | `Nunito-OFL.txt` na mesma pasta |
+| DM Sans (Copyright 2014 The DM Sans Project Authors) | `apps/mobile/ios/Kit/Sources/CodyncUI/Resources/Redesign/Fontes/DMSans-VariableFont_opsz-wght.ttf` | SIL OFL 1.1 | `DMSans-OFL.txt` na mesma pasta |
+| Material Symbols Rounded — Google (vetores `sf_*.xml`, gerados por `apps/mobile/android/tools/symbols.py`) | `apps/mobile/android/design/src/main/res/drawable/` | Apache-2.0 | texto da Apache-2.0 em `LICENSE` na raiz deste repositório |
+
+Notas:
+
+- As fontes `CodyncBot-*.ttf` e `CodyncOrb-*.ttf` (em `apps/mobile/ios/Widgets/Resources/Fonts/`) vêm do Codync v2.20.3 e fazem parte do código derivado (Apache-2.0, ver `MODIFICACOES.md`).
+- Os vetores `apple_logo.xml` (Simple Icons, CC0) e `google_logo.xml`, além de 32 vetores `agent_*.xml` (gerados por `apps/mobile/android/tools/agent_icons.py`) em `apps/mobile/android/app/src/main/res/drawable/`, e os conjuntos `apps/mobile/ios/Kit/Sources/CodyncUI/Resources/AgentIcons.xcassets/` e `apps/mobile/ios/Kit/Sources/CodyncKit/Resources/ProviderIcons.xcassets/` no iOS identificam serviços, provedores ou agentes de código e pertencem aos seus titulares (uso nominativo herdado do Codync v2.20.3; alinhamento com `TRADEMARK.md` e `MODIFICACOES.md` pendente de revisão).
+- Os arquivos `apps/mobile/shared/Config/*.plist` ficam neutros (sem nuvem e sem conta); os valores locais ficam em `*.local.plist`, ignorado pelo Git.
+
+### Dependências declaradas nos manifestos
+
+Não estão copiadas no repositório: o gerenciador de pacotes (Swift Package Manager ou Gradle) as baixa na construção.
+
+| Dependência | Versão | Plataforma | Licença | Observação |
+| --- | --- | --- | --- | --- |
+| [Clerk iOS SDK](https://github.com/clerk/clerk-ios) | 1.5.6 | iOS | MIT | `apps/mobile/project.yml` |
+| Clerk Android (`com.clerk:clerk-android-api`) | 1.1.11 | Android | MIT | |
+| [WebRTC](https://github.com/stasel/WebRTC) (`stasel/WebRTC`) | 153.0.0 | iOS | BSD-3-Clause | aviso em `packaging/avisos/webrtc-stasel-LICENSE.md` |
+| WebRTC Android (`io.github.webrtc-sdk:android`) | 125.6422.07 | Android | BSD-3-Clause | |
+| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | 1.18.0 | iOS | MIT | |
+| Firebase BoM e Firebase Messaging; plugin `google-services` 4.5.0 | 34.19.0 | Android | Apache-2.0 | o iOS usa APNs, sem Firebase |
+| Vosk Android (`com.alphacephei:vosk-android`) | 0.3.75 | Android | Apache-2.0 | `vosk-APACHE-2.0.txt` em `apps/mobile/android/app/src/main/assets/licenses/` |
+| Modelo de voz `vosk-model-small-en-us` | 0.15 | Android | Apache-2.0 | baixado na construção, com SHA-256 fixado e conferido em `apps/mobile/android/app/build.gradle.kts` |
+| Bouncy Castle (`bcprov-jdk18on`) | 1.86 | Android | Bouncy Castle License (estilo MIT) | |
+| JNA (`net.java.dev.jna:jna`) | 5.18.1 | Android | Apache-2.0 ou LGPL-2.1+ (usada sob Apache-2.0) | `jna-APACHE-2.0.txt` e `jna-NOTICE.txt` em `apps/mobile/android/app/src/main/assets/licenses/` |
+| CommonMark (`commonmark`, `commonmark-ext-gfm-tables`, `commonmark-ext-gfm-strikethrough`) | 0.30.0 | Android | BSD-2-Clause | |
+| Coil (`coil-compose`, `coil-network-okhttp`) | 3.4.0 | Android | Apache-2.0 | |
+| ZXing Core (`com.google.zxing:core`) | 3.5.4 | Android | Apache-2.0 | |
+| Kyant AndroidLiquidGlass (`backdrop`, `shapes`) | 2.0.1 e 1.2.1 | Android | Apache-2.0 | |
+| JUnit | 4.13.2 | Android | EPL-1.0 | só testes unitários; não vai no APK |
+| `com.android.tools:desugar_jdk_libs` | 2.1.5 | Android | GPL-2.0 with Classpath Exception, dependência de build/runtime, não vendorizada | usado na construção (desugaring de bibliotecas Java) |
+| esbuild | 0.28.2 | desenvolvimento | MIT | só para regenerar os arquivos do terminal (`apps/mobile/android/tools/vendor-terminal.py`); não vai no APK |
 
 ## Arte própria da Mexerica (restaurada em 19/11/2026)
 

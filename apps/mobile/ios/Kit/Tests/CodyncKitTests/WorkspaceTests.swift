@@ -1,0 +1,20 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
+import Foundation
+import Testing
+@testable import CodyncKit
+
+@Test func personalWorkspaceDraftDoesNotReuseAnotherBotsDirectory() throws {
+    let bot = try JSONDecoder().decode(Bot.self, from: Data(#"{"id":"one","name":"One","cwd":"/data/bots/one/workspace","managedWorkspace":true}"#.utf8))
+    let draft = BotDraft(bot)
+    #expect(draft.cwd.isEmpty)
+    #expect(bot.folderName == String(localized: "Espaço de trabalho pessoal", bundle: RelativeTime.resourceBundle))
+    let encoded = try JSONEncoder().encode(draft)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(object["cwd"] as? String == "")
+}
+
+@Test func existingProjectFolderRemainsExplicit() throws {
+    let bot = try JSONDecoder().decode(Bot.self, from: Data(#"{"id":"one","name":"One","cwd":"/projects/app"}"#.utf8))
+    #expect(!bot.managedWorkspace)
+    #expect(BotDraft(bot).cwd == "/projects/app")
+}

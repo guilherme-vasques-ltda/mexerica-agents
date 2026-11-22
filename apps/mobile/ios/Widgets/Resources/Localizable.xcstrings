@@ -1,0 +1,438 @@
+{
+  "sourceLanguage": "pt-BR",
+  "strings": {
+    "Conecte a Mexerica ao seu computador": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte a Mexerica ao seu computador"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect Mexerica to your computer"
+          }
+        }
+      }
+    },
+    "Conectar um computador": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar um computador"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect a computer"
+          }
+        }
+      }
+    },
+    "Nenhum uso ainda": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum uso ainda"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usage yet"
+          }
+        }
+      }
+    },
+    "Bots que precisam de você, tarefas em andamento e suas atividades atuais.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bots que precisam de você, tarefas em andamento e suas atividades atuais."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bots that need you, running tasks, and their current activity."
+          }
+        }
+      }
+    },
+    "Organograma": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organograma"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Org chart"
+          }
+        }
+      }
+    },
+    "Veja quatro bots de relance. Edite o widget para escolher o computador e quem fica em cada posição.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veja quatro bots de relance. Edite o widget para escolher o computador e quem fica em cada posição."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Four bots at a glance. Edit the widget to choose the computer and who sits in each spot."
+          }
+        }
+      }
+    },
+    "Computador": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computador"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        }
+      }
+    },
+    "Escolha um computador e um bot para cada posição; as posições vazias mostram os bots que precisam de você.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha um computador e um bot para cada posição; as posições vazias mostram os bots que precisam de você."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a computer and a bot for each spot; empty spots show the bots that need you."
+          }
+        }
+      }
+    },
+    "Superior esquerdo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superior esquerdo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top left"
+          }
+        }
+      }
+    },
+    "Superior direito": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superior direito"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top right"
+          }
+        }
+      }
+    },
+    "Inferior esquerdo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inferior esquerdo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom left"
+          }
+        }
+      }
+    },
+    "Inferior direito": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inferior direito"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom right"
+          }
+        }
+      }
+    },
+    "O bot que mais precisa de você. Toque para abri-lo.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O bot que mais precisa de você. Toque para abri-lo."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bot that needs you most. Tap to open it."
+          }
+        }
+      }
+    },
+    "Limites de uso": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limites de uso"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage limits"
+          }
+        }
+      }
+    },
+    "Limites de assinatura informados pelo computador para cada provedor.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limites de assinatura informados pelo computador para cada provedor."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription limits your computer reports, for every provider."
+          }
+        }
+      }
+    },
+    "Provedor": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provedor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider"
+          }
+        }
+      }
+    },
+    "Uso por provedor": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso por provedor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider usage"
+          }
+        }
+      }
+    },
+    "Limites da sessão e da semana em um cartão compacto e fácil de ler.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limites da sessão e da semana em um cartão compacto e fácil de ler."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session and weekly limits in a compact, easy-to-read card."
+          }
+        }
+      }
+    },
+    "Limites de uso da sessão e da semana do Claude Code.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limites de uso da sessão e da semana do Claude Code."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code session and weekly usage limits."
+          }
+        }
+      }
+    },
+    "Limites de uso da sessão e da semana do Codex.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limites de uso da sessão e da semana do Codex."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex session and weekly usage limits."
+          }
+        }
+      }
+    },
+    "Abra a Mexerica para parear com seu computador.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abra a Mexerica para parear com seu computador."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Mexerica to pair with your computer."
+          }
+        }
+      }
+    },
+    "Nenhum uso informado ainda.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum uso informado ainda."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usage reported yet."
+          }
+        }
+      }
+    },
+    "Tudo tranquilo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo tranquilo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All quiet"
+          }
+        }
+      }
+    },
+    "Abrir bot": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir bot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Bot"
+          }
+        }
+      }
+    },
+    "Reinicia %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinicia %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resets %@"
+          }
+        }
+      }
+    },
+    "Abra a Mexerica para conectar um computador e ver o uso de %@.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abra a Mexerica para conectar um computador e ver o uso de %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Mexerica to connect a computer and check %@ usage."
+          }
+        }
+      }
+    },
+    "Reviewer: precisa de você": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer: precisa de você"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer: Needs you"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "simples-v2",
+    "name": "Minha simples",
+    "avatarConfig": {
+      "shape": "oval",
+      "color": "#f28a1e",
+      "eye": "auto",
+      "head": "none",
+      "face": "glasses",
+      "ears": "none",
+      "chin": "none",
+      "neck": "none",
+      "cheeks": "none",
+      "badge": "none",
+      "badgeStyle": "light"
+    },
+    "mexeriquinha": {
+      "v": 2,
+      "estilo": "simples",
+      "modeloId": "berga",
+      "aparencia": {
+        "cor": "laranja",
+        "olhos": "oculos-redondos",
+        "roupa": "blazer",
+        "acessorio": "coroa",
+        "objeto": "gravata"
+      }
+    }
+  },
+  {
+    "id": "pelucia-v2",
+    "name": "Minha pelúcia",
+    "avatarConfig": {
+      "shape": "oval",
+      "color": "#8d56d8",
+      "eye": "auto",
+      "head": "none",
+      "face": "none",
+      "ears": "none",
+      "chin": "none",
+      "neck": "none",
+      "cheeks": "none",
+      "badge": "none",
+      "badgeStyle": "light"
+    },
+    "mexeriquinha": {
+      "v": 2,
+      "estilo": "3d",
+      "modeloId": "codaba",
+      "conjuntoId": "developer"
+    }
+  }
+]

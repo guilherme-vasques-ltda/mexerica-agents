@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mexerica laranja (#F58A1F): the app icon's background. -->
+    <color name="ic_launcher_background">#F58A1F</color>
+    <!-- iOS LaunchBackground: the app's ground behind the launch splash. -->
+    <color name="launch_background">#FFFFFF</color>
+</resources>

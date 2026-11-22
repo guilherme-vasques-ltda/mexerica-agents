@@ -1,0 +1,181 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
+import CodyncKit
+import SwiftUI
+
+/// A bot's routines; a row opens its editor.
+struct RoutinesView: View {
+    let botId: String
+    var initialId: String?
+    /// Goes back to the chat once a request to the bot is in the composer.
+    var leave: (() -> Void)?
+    @Environment(BotStore.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
+    @State private var routines: [Routine] = []
+    @State private var runs: [RoutineRun] = []
+    /// The open editor: on a routine, or (`routineId` nil) setting up a new one.
+    @State private var editing: EditorTarget?
+    @State private var loaded = false
+    @State private var busy = false
+    @State private var error: String?
+    @State private var loadError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(String(localized: "Rotinas", bundle: .module))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.text)
+                    .padding(.leading, 2)
+                Spacer(minLength: 0)
+                askInChat
+                IconButton(String(localized: "Configurar rotina", bundle: .module), systemImage: "plus") { open(nil) }
+                    .disabled(model.isOffline)
+            }
+            if let loadError { Text(loadError).font(.caption).foregroundStyle(Palette.danger) }
+            if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            listing
+        }
+        .foregroundStyle(Palette.text)
+        .font(.system(size: 13))
+        .onChange(of: initialId) { _, id in
+            if let id { open(id) }
+        }
+        .task(id: botId) {
+            if let initialId { open(initialId) }
+            repeat {
+                await load()
+                do { try await Task.sleep(for: .seconds(3)) } catch { break }
+            } while !Task.isCancelled
+        }
+        // Item-based, so the editor always gets the routine it was opened on; it opens once that routine is listed.
+        .codyncSheet(item: Binding(get: { editing.flatMap { $0.isReady(in: routines) ? $0 : nil } }, set: { editing = $0 })) { target in
+            RoutineEditorView(botId: botId, routine: routines.first { $0.id == target.routineId }) { saved in
+                if let i = routines.firstIndex(where: { $0.id == saved?.id }), let saved { routines[i] = saved }
+                else if let saved { routines.append(saved) }
+                // A new webhook routine stays open: its URL and key exist only now.
+                if target.routineId == nil, let saved, saved.triggers.contains(where: { $0.type == "webhook" }) {
+                    editing = EditorTarget(id: target.id, routineId: saved.id)
+                } else {
+                    animate { editing = nil }
+                }
+                Task { await load() }
+            }
+            // The list is part of bot details; a routine's editor is the routines screen, as on the desktop.
+            .tracked(.screenViewed(.routines))
+        }
+    }
+
+    private var listing: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if routines.isEmpty {
+                Text(loaded ? String(localized: "Nenhuma rotina ainda. Peça uma ao bot ou configure você mesmo com +.", bundle: .module) : String(localized: "Carregando rotinas…", bundle: .module))
+                    .font(.system(size: 12))
+                    .lineSpacing(3)
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .outlinedCard(vertical: 14)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(routines) { routine in
+                        row(routine).outlinedCard(vertical: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(_ routine: Routine) -> some View {
+        HStack(spacing: 12) {
+            Button { open(routine.id) } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(routine.name).foregroundStyle(Palette.text)
+                    Text(summary(routine))
+                        .font(.caption)
+                        .foregroundStyle(routine.lastError == nil ? Palette.secondary : Palette.danger)
+                }
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Toggle(isOn: Binding(get: { routine.enabled }, set: { action("setRoutineEnabled", routine, enabled: $0) })) { EmptyView() }
+                .toggleStyle(.codync)
+                .fixedSize()
+                .accessibilityLabel(routine.name)
+                .disabled(busy || model.isOffline)
+        }
+    }
+
+    /// The row's second line: what's happening now, else when it runs.
+    private func summary(_ routine: Routine) -> String {
+        if let active = runs.first(where: { $0.routineId == routine.id && $0.isActive }) { return runLabel(active) }
+        if routine.lastError != nil { return String(localized: "O agendamento precisa de atenção", bundle: .module) }
+        if let last = runs.first(where: { $0.routineId == routine.id }), ["failed", "interrupted"].contains(last.status) {
+            return String(localized: "Última execução: \(runLabel(last).localizedLowercase)", bundle: .module)
+        }
+        return routine.scheduleText(locale: locale)
+    }
+
+    private var askInChat: some View {
+        IconButton(String(localized: "Pedir uma rotina ao bot", bundle: .module), systemImage: "text.bubble") {
+            edit(String(localized: "Quero uma rotina que ", bundle: .module))
+        }
+        .disabled(model.isOffline)
+    }
+
+    private func runLabel(_ run: RoutineRun) -> String {
+        switch run.status {
+        case "pending": String(localized: "Na fila", bundle: .module)
+        case "starting": String(localized: "Iniciando", bundle: .module)
+        case "running": String(localized: "Executando", bundle: .module)
+        case "recovering": String(localized: "Retomando após reiniciar", bundle: .module)
+        case "failed": String(localized: "Falhou", bundle: .module)
+        case "interrupted": String(localized: "Interrompida", bundle: .module)
+        default: run.status.capitalized
+        }
+    }
+
+    private func animate(_ change: () -> Void) { withAnimation(Motion.reduced(Motion.layout, reduceMotion), change) }
+    private func open(_ id: String?) { animate { editing = EditorTarget(id: UUID().uuidString, routineId: id) } }
+    private func edit(_ text: String) {
+        animate {
+            model.routineDrafts[botId] = text
+            leave?()
+        }
+    }
+    private func action(_ method: String, _ routine: Routine, enabled: Bool? = nil) {
+        guard !busy, let client = model.client else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                try await client.routineAction(method, botId: botId, id: routine.id, enabled: enabled)
+                error = nil
+                await load()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+    private func load() async {
+        guard let client = model.client else { return }
+        do {
+            let result = try await client.routines(botId: botId)
+            routines = result.routines
+            runs = result.runs
+            loaded = true
+            loadError = nil
+        } catch is CancellationError {} catch { self.loadError = error.localizedDescription }
+    }
+}
+
+struct EditorTarget: Identifiable {
+    /// One per opening; kept when a new routine is saved and the editor stays on it.
+    let id: String
+    let routineId: String?
+
+    /// A routine's editor waits until the routine is listed: a chat link can name one before the
+    /// first load (or the next poll), and an empty form would save defaults over it.
+    func isReady(in routines: [Routine]) -> Bool {
+        routineId == nil || routines.contains { $0.id == routineId }
+    }
+}

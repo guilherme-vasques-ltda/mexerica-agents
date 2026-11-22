@@ -1,0 +1,167 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
+import Foundation
+
+public struct EntryData: Codable, Hashable, Sendable {
+    public var connectionRequest: ConnectionRequest?
+    /// A memory line an older host put in the chat. Memory lives in the bot's memory settings, so it isn't shown.
+    public var memory: MemoryLine?
+    public var memoryFile: MemoryLine?
+    /// notice: the agent summarized its context.
+    public var compaction: Compaction?
+    /// notice: the bot's chat starts over with this handoff.
+    public var handoff: HandoffCard?
+    public var routineId: String?
+    public var runId: String?
+    public var text: String?
+    public var final: Bool?
+    /// user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired
+    public var status: String?
+    public var clientNonce: String?
+    /// Posição autoritativa na fila, quando o Hub já a reordenou.
+    public var queueOrder: Int64?
+    public var title: String?
+    public var toolKind: String?
+    /// D98: missing/unknown means approval in the app only.
+    public var voiceApproval: String?
+    public var output: String?
+    public var diffs: [FileDiff]?
+    public var locations: [Location]?
+    public var options: [PermissionOption]?
+    public var selected: String?
+    public var command: String?
+    public var detail: String?
+    public var cwd: String?
+    public var entries: [PlanItem]?
+    /// notice: info | error
+    public var style: String?
+    /// Structured conversation data added to the existing team-tool notice.
+    public var botMessage: BotMessage?
+    public var heading: String?
+    public var delegationId: String?
+    public var sourceBotId: String?
+    public var targetBotId: String?
+    /// The bot that wrote it (a group shows who spoke).
+    public var author: String?
+    /// user: the message it replies to, as the computer quoted it.
+    public var replyTo: ReplyQuote?
+    /// The user's emoji reactions, oldest first.
+    public var reactions: [String]?
+    /// The bots' reactions, one per bot, oldest first.
+    public var botReactions: [BotReaction]?
+    /// Files sent with a user message.
+    public var attachments: [Attachment]?
+    /// Immutable files explicitly sent by the bot.
+    public var files: [SharedFile]?
+    /// notice: a finished voice call's length.
+    public var callSeconds: Int?
+
+    public init(text: String? = nil, status: String? = nil, clientNonce: String? = nil) {
+        self.text = text
+        self.status = status
+        self.clientNonce = clientNonce
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        connectionRequest = try c.decodeIfPresent(ConnectionRequest.self, forKey: .connectionRequest)
+        memory = try c.decodeIfPresent(MemoryLine.self, forKey: .memory)
+        memoryFile = try c.decodeIfPresent(MemoryLine.self, forKey: .memoryFile)
+        compaction = try c.decodeIfPresent(Compaction.self, forKey: .compaction)
+        handoff = try c.decodeIfPresent(HandoffCard.self, forKey: .handoff)
+        routineId = try c.decodeIfPresent(String.self, forKey: .routineId)
+        runId = try c.decodeIfPresent(String.self, forKey: .runId)
+        text = try c.decodeIfPresent(String.self, forKey: .text)
+        final = try c.decodeIfPresent(Bool.self, forKey: .final)
+        status = try c.decodeIfPresent(String.self, forKey: .status)
+        clientNonce = try c.decodeIfPresent(String.self, forKey: .clientNonce)
+        // Seq e queueOrder são inteiros não negativos; o teto preserva a precisão no desktop (JavaScript).
+        let order = try? c.decodeIfPresent(Int64.self, forKey: .queueOrder)
+        queueOrder = order.flatMap { (0...9_007_199_254_740_991).contains($0) ? $0 : nil }
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        toolKind = try c.decodeIfPresent(String.self, forKey: .toolKind)
+        voiceApproval = try c.decodeIfPresent(String.self, forKey: .voiceApproval)
+        output = try c.decodeIfPresent(String.self, forKey: .output)
+        diffs = try c.decodeIfPresent([FileDiff].self, forKey: .diffs)
+        locations = try c.decodeIfPresent([Location].self, forKey: .locations)
+        options = try c.decodeIfPresent([PermissionOption].self, forKey: .options)
+        selected = try c.decodeIfPresent(String.self, forKey: .selected)
+        command = try c.decodeIfPresent(String.self, forKey: .command)
+        detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        entries = try c.decodeIfPresent([PlanItem].self, forKey: .entries)
+        style = try c.decodeIfPresent(String.self, forKey: .style)
+        botMessage = try c.decodeIfPresent(BotMessage.self, forKey: .botMessage)
+        heading = try c.decodeIfPresent(String.self, forKey: .heading)
+        delegationId = try c.decodeIfPresent(String.self, forKey: .delegationId)
+        sourceBotId = try c.decodeIfPresent(String.self, forKey: .sourceBotId)
+        targetBotId = try c.decodeIfPresent(String.self, forKey: .targetBotId)
+        author = try c.decodeIfPresent(String.self, forKey: .author)
+        replyTo = try c.decodeIfPresent(ReplyQuote.self, forKey: .replyTo)
+        reactions = try c.decodeIfPresent([String].self, forKey: .reactions)
+        botReactions = try c.decodeIfPresent([BotReaction].self, forKey: .botReactions)
+        attachments = try c.decodeIfPresent([Attachment].self, forKey: .attachments)
+        files = try c.decodeIfPresent([SharedFile].self, forKey: .files)
+        callSeconds = try c.decodeIfPresent(Int.self, forKey: .callSeconds)
+    }
+}
+
+/// The message a reply quotes: its entry, who wrote it (`user` or a bot id) and its text (at most 500
+/// characters, or its file names). A partial quote still decodes, so the message itself always shows.
+public struct ReplyQuote: Codable, Hashable, Sendable {
+    public var id: String
+    public var author: String
+    public var text: String
+
+    public init(id: String, author: String, text: String) {
+        self.id = id
+        self.author = author
+        self.text = text
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+    }
+}
+
+/// A memory line from an older host, known only to keep it out of the chat.
+public struct MemoryLine: Codable, Hashable, Sendable {}
+
+/// One bot's emoji on a message.
+public struct BotReaction: Codable, Hashable, Sendable {
+    public var bot: String
+    public var emoji: String
+}
+
+extension EntryData {
+    /// The bots' reactions by emoji, in the order each first appeared.
+    public var botReactionGroups: [(emoji: String, bots: [String])] {
+        (botReactions ?? []).reduce(into: []) { groups, r in
+            if let i = groups.firstIndex(where: { $0.emoji == r.emoji }) {
+                groups[i].bots.append(r.bot)
+            } else {
+                groups.append((r.emoji, [r.bot]))
+            }
+        }
+    }
+}
+
+/// A file sent with a message; the agent reads it on the computer.
+public struct Attachment: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var size: Int64
+
+    public init(id: String, name: String, size: Int64) {
+        self.id = id
+        self.name = name
+        self.size = size
+    }
+
+    public var isImage: Bool {
+        ["png", "jpg", "jpeg", "heic", "gif", "webp", "tiff", "bmp"].contains((name as NSString).pathExtension.lowercased())
+    }
+}
+
