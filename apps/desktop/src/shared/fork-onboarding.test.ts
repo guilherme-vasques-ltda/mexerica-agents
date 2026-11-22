@@ -95,6 +95,8 @@ test('resolveLocalInstallStage exige consentimento e nunca fabrica instalacao qu
 test('mapAiTestOutcome distingue resultados de chave sem falsificar acesso', () => {
   assert.equal(mapAiTestOutcome({ ok: true, modelosCount: 5 }), 'modelos_no_catalogo')
   assert.equal(mapAiTestOutcome({ ok: false, erro: 'sem_lista' }), 'acesso_nao_confirmado')
+  assert.equal(mapAiTestOutcome({ ok: false, erro: 'sem_lista', salvo: true }), 'chave_salva_sem_lista')
+  assert.equal(mapAiTestOutcome({ ok: true, modelosCount: 0 }), 'chave_salva_sem_lista')
   assert.equal(mapAiTestOutcome({ ok: false, erro: 'sem_resposta' }), 'nao_verificado')
   assert.equal(mapAiTestOutcome({ ok: false, erro: 'chave_invalida' }), 'recusada')
 })

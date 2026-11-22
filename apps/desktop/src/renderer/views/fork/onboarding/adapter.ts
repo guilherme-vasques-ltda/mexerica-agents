@@ -76,11 +76,12 @@ export async function saveAndTestApiKey(
   clearField: () => void,
 ): Promise<AiActionResult> {
   const result = await salvarChave(client, provider, rawKey, clearField)
-  chavesMudaram()
+  if (result.ok || result.salvo === true) chavesMudaram()
   const modelsCount = result.modelos?.length ?? 0
   return {
     outcome: mapAiTestOutcome({
       ok: result.ok,
+      salvo: !result.ok && result.salvo === true,
       estado: result.estado,
       erro: result.ok ? undefined : result.erro,
       modelosCount: modelsCount,
@@ -104,11 +105,12 @@ export function startOpenRouterSignIn(
   const { fim, cancelar } = entrarComOpenRouter(client, ouvinte, spaceId, undefined, onCompleting)
   const promise = fim
     .then((res): AiActionResult => {
-      chavesMudaram()
+      if (res.ok || res.salvo === true) chavesMudaram()
       const modelsCount = res.modelos?.length ?? 0
       return {
         outcome: mapAiTestOutcome({
           ok: res.ok,
+          salvo: !res.ok && res.salvo === true,
           estado: res.estado,
           erro: res.ok ? undefined : res.erro,
           modelosCount: modelsCount,

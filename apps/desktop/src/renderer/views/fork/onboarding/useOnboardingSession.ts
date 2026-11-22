@@ -9,10 +9,13 @@ import {
 import type { HostClient } from '../../../client/host-client'
 import { useAccount } from '../../../store/account'
 import type { AppModel } from '../../../store/app-model'
-import { useModel } from '../../../lib/observable'
+import { useModel, useSelector } from '../../../lib/observable'
 import { liveClient } from '../../settings/parts'
 import { fetchOnboardingStatus, saveOnboardingState } from './adapter'
 import type { OnboardingControllerValue } from './OnboardingContext'
+import { aoMudarChaves } from '../contas-ia/api-direta'
+import { settingsScreen } from '../ajustes/tela'
+import { esquecerModelos } from '../seletor-modelo/catalogo'
 
 export function useOnboardingSession(
   app: AppModel,
@@ -38,6 +41,13 @@ export function useOnboardingSession(
   const [whereChoice, setWhereChoice] = useState<WhereChoice>('local')
 
   const activeStore = useModel(app.local)
+  const screenEpoch = activeStore?.screenEpoch
+  const bergaId = activeStore?.principal.id
+  const berga = bergaId ? activeStore?.bots.get(bergaId) : undefined
+  const engine = useSelector(activeStore?.sessions, (sessions) => {
+    const engine = bergaId ? sessions?.of(bergaId)?.find((session) => session.principal)?.engine : null
+    return engine ? JSON.stringify(engine) : null
+  })
   const localClient: HostClient | null = activeStore && !activeStore.mismatch ? liveClient(activeStore) : null
   const client = whereChoice === 'local' && isPersonalContext ? localClient : null
 
@@ -54,6 +64,9 @@ export function useOnboardingSession(
   const dismissalScope = accountUserId ? JSON.stringify([accountUserId, revision]) : null
   const currentDismissalScope = useRef(dismissalScope)
   currentDismissalScope.current = dismissalScope
+  const loadScope = useMemo(() => ({}), [localClient, isPersonalContext, contextKey.storageKey, revision, dismissalScope])
+  const currentLoadScope = useRef(loadScope)
+  currentLoadScope.current = loadScope
 
   // Isola o estado visual ao trocar conta ou space sem reaproveitar rascunho de outra sessao.
   useEffect(() => {
@@ -94,15 +107,31 @@ export function useOnboardingSession(
         accountKey: contextKey.accountKey,
         spaceId: contextKey.spaceId,
       })
-      if (gen === loadGen.current) setStatus(next)
+      if (gen === loadGen.current && currentLoadScope.current === loadScope) setStatus(next)
     } catch {
       // Mantem ultimo estado real conhecido; nunca fabrica prontidao.
     }
-  }, [localClient, isPersonalContext, contextKey.accountKey, contextKey.spaceId])
+  }, [localClient, isPersonalContext, contextKey.accountKey, contextKey.spaceId, loadScope])
 
   useEffect(() => {
     void reload()
-  }, [reload])
+  }, [reload, screenEpoch, bergaId, berga?.backend, berga?.model, engine])
+
+  useEffect(() => {
+    if (!localClient || !isPersonalContext) return
+    const onChange = () => { if (currentLoadScope.current === loadScope) void reload() }
+    const stopKeys = aoMudarChaves(() => {
+      if (activeStore && currentLoadScope.current === loadScope) esquecerModelos(activeStore.computer.id, 'mexerica')
+      onChange()
+    })
+    let wasOpen = settingsScreen.open
+    const stopSettings = settingsScreen.subscribe(() => {
+      const closed = wasOpen && !settingsScreen.open
+      wasOpen = settingsScreen.open
+      if (closed) onChange()
+    })
+    return () => { stopKeys(); stopSettings() }
+  }, [activeStore, localClient, isPersonalContext, loadScope, reload])
 
   useEffect(() => {
     if (!marker?.deferred || !accountUserId || !bridge || !localClient || !isPersonalContext) return
@@ -113,35 +142,34 @@ export function useOnboardingSession(
       spaceId: contextKey.spaceId,
       deferredBeforeHub: true,
     }).then(async (next) => {
-      if (!active || currentDismissalScope.current !== dismissalScope) return
+      if (!active || currentDismissalScope.current !== dismissalScope || currentLoadScope.current !== loadScope) return
       if (generation === loadGen.current) {
         loadGen.current += 1
         setStatus(next)
       }
-      if (await bridge(accountUserId, 'clear') === false && active && currentDismissalScope.current === dismissalScope) {
+      if (await bridge(accountUserId, 'clear') === false && active && currentDismissalScope.current === dismissalScope && currentLoadScope.current === loadScope) {
         setDismissal({ userId: accountUserId, revision, deferred: false })
       }
     }).catch(() => {})
     return () => { active = false }
-  }, [marker, accountUserId, bridge, localClient, isPersonalContext, contextKey.spaceId, revision, dismissalScope])
+  }, [marker, accountUserId, bridge, localClient, isPersonalContext, contextKey.spaceId, revision, dismissalScope, loadScope])
 
   const persist = useCallback(
     async (patch: { step?: 1 | 2 | 3 | 4; where?: WhereChoice; aiSkipped?: boolean; completed?: boolean }, targetClient = localClient) => {
       if (!targetClient || !isPersonalContext) return
       const generation = ++loadGen.current
-      const storageKey = contextKey.storageKey
       try {
         const next = await saveOnboardingState(targetClient, {
           accountKey: contextKey.accountKey,
           spaceId: contextKey.spaceId,
           ...patch,
         })
-        if (generation === loadGen.current && targetClient === localClient && storageKey === contextKey.storageKey) setStatus(next)
+        if (generation === loadGen.current && currentLoadScope.current === loadScope) setStatus(next)
       } catch {
         // Sem mascara de sucesso em caso de erro de gravacao.
       }
     },
-    [localClient, isPersonalContext, contextKey.accountKey, contextKey.spaceId, contextKey.storageKey],
+    [localClient, isPersonalContext, contextKey.accountKey, contextKey.spaceId, loadScope],
   )
 
   const dismissalLoaded = !accountUserId || !bridge || marker !== null
@@ -199,7 +227,6 @@ export function useOnboardingSession(
     whereChoice,
     contextKey,
     status: visibleStatus,
-    setStatus,
     showStep3,
     explicitStep3,
     selectWhere: (where: WhereChoice) => {

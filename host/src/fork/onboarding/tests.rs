@@ -45,16 +45,17 @@ async fn status_reflects_real_readiness_and_never_fabricates_ai() {
     assert_eq!(with_berga["ai"]["hasReadyAi"], false);
     assert_eq!(with_berga["readiness"]["readyCount"], 1);
 
-    // Connecting a real EngineAccount flips hasReadyAi to true and increments readiness.
     let mut reg = Registry::load(&env.hub.store).unwrap();
     let id = reg.fingerprint(Backend::Codex, "test", "acct-codex-1");
+    let executable = env._dir.path().join("connector");
+    std::fs::write(&executable, "fixture").unwrap();
     reg.accounts.push(Account {
         managed: None,
-        id,
+        id: id.clone(),
         backend: Backend::Codex,
         billing: Billing::PaidApi,
         state: State::Connected,
-        launch: LaunchReference::VaultProfile { slot: "test".into() },
+        launch: LaunchReference::CliProfile { executable, directory: env._dir.path().to_path_buf() },
         scope: AuthorizedScope::Owner,
         quota_identity: None,
         verified_at: None,
@@ -64,10 +65,52 @@ async fn status_reflects_real_readiness_and_never_fabricates_ai() {
     });
     env.hub.store.kv_set(ACCOUNTS_SLOT, &serde_json::to_string(&reg).unwrap()).unwrap();
 
+    let unselected = crate::api::dispatch(&env.hub, &Caller::Local, STATUS_METHOD, json!({})).await.unwrap();
+    assert_eq!(unselected["ai"]["connectedAccounts"], 1);
+    assert_eq!(unselected["ai"]["hasReadyAi"], false);
+    let berga = env.hub.store.team_settings().unwrap().primary_bot_id.unwrap();
+    {
+        use crate::fork::sessoes::{engine_choice, store};
+        let mut db = env.hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        store::ensure_principal(&tx, &berga).unwrap();
+        let revision = store::get(&tx, &berga).unwrap().unwrap().revision;
+        let selection = serde_json::from_value(json!({
+            "accountId":id,"backend":"codex","model":null,"modelOptions":{},"fastMode":false
+        }))
+        .unwrap();
+        engine_choice::set(&tx, &berga, &berga, revision, &selection).unwrap();
+        tx.commit().unwrap();
+    }
     let with_ai = crate::api::dispatch(&env.hub, &Caller::Local, STATUS_METHOD, json!({})).await.unwrap();
     assert_eq!(with_ai["ai"]["hasReadyAi"], true);
     assert_eq!(with_ai["ai"]["connectedAccounts"], 1);
     assert_eq!(with_ai["readiness"]["readyCount"], 2);
+    reg.accounts[0].state = State::Disconnected;
+    env.hub.store.kv_set(ACCOUNTS_SLOT, &serde_json::to_string(&reg).unwrap()).unwrap();
+    let disconnected = crate::api::dispatch(&env.hub, &Caller::Local, STATUS_METHOD, json!({})).await.unwrap();
+    assert_eq!(disconnected["ai"]["hasReadyAi"], false);
+}
+
+#[cfg(unix)]
+#[test]
+fn direct_key_does_not_configure_berga_without_its_selected_model() {
+    let env = TestEnv::new();
+    env.hub.store.initialize_default_donna().unwrap();
+    let id = env.hub.store.team_settings().unwrap().primary_bot_id.unwrap();
+    let mut bot = env.hub.store.bot(&id).unwrap().unwrap().config;
+    let registry = Registry::load(&env.hub.store).unwrap();
+    let providers = ["anthropic".to_string()];
+    assert!(!berga_ai_configured(&env.hub.store, &bot, &registry, true, &providers));
+    bot.backend = crate::fork::motor_mexerica::ENGINE_ID.into();
+    bot.model = Some("anthropic/fixture-model".into());
+    assert!(!berga_ai_configured(&env.hub.store, &bot, &registry, true, &providers));
+    env.hub
+        .store
+        .kv_set("motor-mexerica.modelos/anthropic", r#"{"modelos":[{"id":"anthropic/fixture-model"}]}"#)
+        .unwrap();
+    assert!(!berga_ai_configured(&env.hub.store, &bot, &registry, true, &[]));
+    assert!(berga_ai_configured(&env.hub.store, &bot, &registry, true, &providers));
 }
 
 #[tokio::test]

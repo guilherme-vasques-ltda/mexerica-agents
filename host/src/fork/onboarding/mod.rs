@@ -11,12 +11,12 @@ use crate::{
     agent::backends,
     api::devices::Caller,
     fork::{
-        engine_accounts::{Registry, State},
+        engine_accounts::{Billing, LaunchReference, Registry, State, managed},
         engine_setup,
         runtime_audiencia::screen as screen_projection,
     },
     hub::Hub,
-    store::{Store, now_ms},
+    store::{BotConfig, Lane, Store, now_ms},
 };
 use anyhow::{Result, anyhow, ensure};
 use rusqlite::OptionalExtension;
@@ -132,6 +132,60 @@ fn read_persisted(store: &Store, key: &str) -> Result<Option<PersistedOnboarding
     Ok(Some(parsed))
 }
 
+fn berga_ai_configured(
+    store: &Store,
+    bot: &BotConfig,
+    registry: &Registry,
+    motor_available: bool,
+    key_providers: &[String],
+) -> bool {
+    if bot.backend == crate::fork::motor_mexerica::ENGINE_ID {
+        #[cfg(unix)]
+        if motor_available
+            && bot.command.is_none()
+            && bot.fork_editor.engine_account_id.is_none()
+            && let Some(model) = bot.model.as_deref()
+            && let Ok((provider, model)) = crate::fork::motor_mexerica::link::provider_of(model)
+        {
+            return key_providers.contains(&provider)
+                && crate::fork::motor_mexerica::chaves::modelo_no_catalogo(store, &provider, &model).unwrap_or(false);
+        }
+        #[cfg(not(unix))]
+        let _ = (motor_available, key_providers);
+        return false;
+    }
+    let Some(account) =
+        bot.fork_editor.engine_account_id.as_deref().and_then(|id| registry.accounts.iter().find(|a| a.id == id))
+    else {
+        return false;
+    };
+    if (account.billing == Billing::Subscription && !account.subscription_verified())
+        || managed::validate_selection_in(registry, bot).is_err()
+        || engine_setup::in_setup(store, &account.id)
+    {
+        return false;
+    }
+    match &account.launch {
+        LaunchReference::CliProfile { executable, directory } => {
+            crate::fork::motor_install::executable(executable)
+                && if account.managed.is_some() || managed::migrated_legacy(account) {
+                    managed::validate_profile(store, &account.id, directory).is_ok()
+                } else {
+                    directory.is_dir()
+                }
+        }
+        LaunchReference::VaultProfile { slot } => {
+            store.kv_read(slot).is_ok_and(|slot| slot.is_some())
+                && backends::which(account.backend.id()).is_some()
+                && account
+                    .managed
+                    .as_ref()
+                    .and_then(|meta| meta.profile.as_ref())
+                    .is_none_or(|profile| managed::validate_profile(store, &account.id, profile).is_ok())
+        }
+    }
+}
+
 fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -> Result<Value> {
     let open = crate::environment::Environment::is_open();
     let can_manage_accounts = engine_setup::access::resolve(hub, caller).is_ok();
@@ -145,7 +199,14 @@ fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -
         registry.accounts.retain(engine_setup::is_open_account);
     }
     let connected_accounts = if can_manage_accounts {
-        registry.accounts.iter().filter(|account| account.state == State::Connected).count()
+        registry
+            .accounts
+            .iter()
+            .filter(|account| {
+                account.state == State::Connected
+                    && (account.billing != Billing::Subscription || account.subscription_verified())
+            })
+            .count()
     } else {
         0
     };
@@ -157,7 +218,25 @@ fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -
         crate::fork::motor_mexerica::onboarding_ai_summary(&hub.store)?
     };
     let configured_keys = key_providers.len();
-    let has_ready_ai = connected_accounts > 0 || configured_keys > 0;
+    let berga = if personal_space {
+        match hub.store.team_settings()?.primary_bot_id {
+            Some(id) => hub
+                .store
+                .bot(&id)?
+                .filter(|row| !row.deleted && !row.config.is_group() && row.config.space_id == space_id),
+            None => None,
+        }
+    } else {
+        None
+    };
+    let has_ready_ai = can_manage_accounts
+        && berga.as_ref().is_some_and(|row| {
+            let mut config = row.config.clone();
+            let lane = Lane::main(&config.id);
+            let selection =
+                crate::fork::sessoes::admissao::apply_configured(&hub.store.db.locked(), &lane, &mut config);
+            selection.is_ok() && berga_ai_configured(&hub.store, &config, &registry, local_keys_oauth, &key_providers)
+        });
 
     let screen = screen_projection::state(hub, space_id);
     let screen_connected = screen["connected"] == true;
@@ -172,7 +251,7 @@ fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -
         screen_enabled && screen_connected && screen_capture && screen_input
     };
 
-    let hub_ready = personal_space && hub.store.team_settings().is_ok_and(|settings| settings.primary_bot_id.is_some());
+    let hub_ready = berga.is_some();
 
     let mut items = vec![
         json!({ "id": "hub", "ready": hub_ready, "available": true }),
@@ -363,6 +442,12 @@ async fn detect_readonly(hub: &Arc<Hub>, caller: &Caller) -> Result<Value> {
     }))
 }
 
+async fn read_status(hub: &Arc<Hub>, caller: &Caller, account_key: String, space_id: String) -> Result<Value> {
+    let hub = hub.clone();
+    let caller = caller.clone();
+    tokio::task::spawn_blocking(move || build_status(&hub, &caller, &account_key, &space_id)).await?
+}
+
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
     match method {
         STATUS_METHOD => {
@@ -371,7 +456,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
                 serde_json::from_value(body).map_err(|_| anyhow!("invalid_field: consulta de onboarding invalida."))?;
             let account_key = normalize_account_key(query.account_key.as_deref())?;
             let space_id = normalize_space_id(query.space_id.as_deref())?;
-            build_status(hub, caller, &account_key, &space_id)
+            read_status(hub, caller, account_key, space_id).await
         }
         SAVE_METHOD => {
             engine_setup::require_local(caller)?;
@@ -393,47 +478,49 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
                     "invalid_field: adiamento inicial exige conta e Space pessoal, sem outras alterações."
                 );
             }
-            let key = kv_key(&account_key, &space_id);
-            let now = now_ms();
-            let mut db = hub.store.db.locked();
-            let tx = db.transaction()?;
-            let existing_raw: Option<String> =
-                tx.query_row("SELECT v FROM kv WHERE k = ?1", [&key], |r| r.get(0)).optional()?;
-            if req.deferred_before_hub && existing_raw.is_some() {
-                drop(tx);
-                drop(db);
-                return build_status(hub, caller, &account_key, &space_id);
-            }
-            let mut state = match existing_raw {
-                Some(raw) => serde_json::from_str::<PersistedOnboarding>(&raw)
-                    .map_err(|_| anyhow!("onboarding_unavailable: estado salvo invalido."))?,
-                None => PersistedOnboarding::default(),
-            };
-            if let Some(step) = req.step {
-                state.step = Some(step);
-            }
-            if let Some(where_choice) = req.where_choice {
-                state.where_choice = Some(where_choice);
-            }
-            if req.deferred_before_hub {
-                state.ai_skipped = true;
-            } else if let Some(ai_skipped) = req.ai_skipped {
-                state.ai_skipped = ai_skipped;
-            }
-            if let Some(completed) = req.completed {
-                state.completed = completed;
-            }
-            state.updated_at = Some(now);
-            let serialized = serde_json::to_string(&state)?;
-            tx.execute(
-                "INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-                rusqlite::params![key, serialized],
-            )?;
-            tx.commit()?;
-            drop(db);
-            build_status(hub, caller, &account_key, &space_id)
+            save_progress(&hub.store, &account_key, &space_id, &req)?;
+            read_status(hub, caller, account_key, space_id).await
         }
         DETECT_METHOD => detect_readonly(hub, caller).await,
         _ => Err(anyhow!("metodo desconhecido: {method}")),
     }
+}
+
+fn save_progress(store: &Store, account_key: &str, space_id: &str, req: &SaveRequest) -> Result<()> {
+    let key = kv_key(account_key, space_id);
+    let now = now_ms();
+    let mut db = store.db.locked();
+    let tx = db.transaction()?;
+    let existing_raw: Option<String> =
+        tx.query_row("SELECT v FROM kv WHERE k = ?1", [&key], |r| r.get(0)).optional()?;
+    if req.deferred_before_hub && existing_raw.is_some() {
+        return Ok(());
+    }
+    let mut state = match existing_raw {
+        Some(raw) => serde_json::from_str::<PersistedOnboarding>(&raw)
+            .map_err(|_| anyhow!("onboarding_unavailable: estado salvo invalido."))?,
+        None => PersistedOnboarding::default(),
+    };
+    if let Some(step) = req.step {
+        state.step = Some(step);
+    }
+    if let Some(where_choice) = req.where_choice {
+        state.where_choice = Some(where_choice);
+    }
+    if req.deferred_before_hub {
+        state.ai_skipped = true;
+    } else if let Some(ai_skipped) = req.ai_skipped {
+        state.ai_skipped = ai_skipped;
+    }
+    if let Some(completed) = req.completed {
+        state.completed = completed;
+    }
+    state.updated_at = Some(now);
+    let serialized = serde_json::to_string(&state)?;
+    tx.execute(
+        "INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+        rusqlite::params![key, serialized],
+    )?;
+    tx.commit()?;
+    Ok(())
 }

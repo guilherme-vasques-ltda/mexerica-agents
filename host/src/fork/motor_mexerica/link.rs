@@ -102,7 +102,7 @@ pub(super) const MIN_SECRET_LEN: usize = 8;
 
 /// Provedor do modelo `provider/model` ou do nome (`gemini-*` → google,
 /// `muse-*` → meta, `gpt-*`/`o*` → openai). Sem provedor reconhecido, falha fechada.
-fn provider_of(model_id: &str) -> Result<(String, String)> {
+pub(crate) fn provider_of(model_id: &str) -> Result<(String, String)> {
     if let Some((provider, model)) = model_id.split_once('/') {
         ensure!(!provider.is_empty() && !model.is_empty(), "modelo do motor inválido: {model_id}");
         return Ok((provider.to_owned(), model.to_owned()));

@@ -130,12 +130,14 @@ export function resolveLocalInstallStage(input: LocalInstallInputs): LocalInstal
 
 export type AiTestOutcome =
   | 'modelos_no_catalogo'
+  | 'chave_salva_sem_lista'
   | 'acesso_nao_confirmado'
   | 'nao_verificado'
   | 'recusada'
 
 export interface AiTestInput {
   ok: boolean
+  salvo?: boolean
   estado?: string
   erro?: string
   modelosCount?: number
@@ -145,10 +147,9 @@ export interface AiTestInput {
  * Unifica os 4+1 desfechos do teste de IA para a tela do passo 3 sem inventar sucesso quando a verificacao falhou.
  */
 export function mapAiTestOutcome(input: AiTestInput): AiTestOutcome {
-  if (input.ok) {
-    return (input.modelosCount ?? 0) > 0 ? 'modelos_no_catalogo' : 'acesso_nao_confirmado'
-  }
-  if (input.estado === 'recusada' || input.erro === 'chave_invalida') return 'recusada'
+  if (input.ok) return (input.modelosCount ?? 0) > 0 ? 'modelos_no_catalogo' : 'chave_salva_sem_lista'
+  if (input.salvo === true) return 'chave_salva_sem_lista'
+  if (input.estado === 'recusada' || input.erro === 'chave_invalida' || input.erro === 'entrada_negada') return 'recusada'
   if (input.estado === 'acesso_nao_confirmado' || input.erro === 'sem_lista') return 'acesso_nao_confirmado'
   return 'nao_verificado'
 }

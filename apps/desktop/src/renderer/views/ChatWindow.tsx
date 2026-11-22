@@ -214,7 +214,6 @@ function ChatShell() {
           status={onboarding.status}
           initialWhere={onboarding.whereChoice}
           onSelectWhere={onboarding.selectWhere}
-          onStatusChange={onboarding.setStatus}
           onOpenComputers={() => {
             onboarding.dismissForComputers()
             settingsScreen.show('computers')

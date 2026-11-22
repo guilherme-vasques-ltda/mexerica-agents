@@ -37,7 +37,6 @@ export function Step3Wizard({
   initialWhere,
   installPort = liveInstallPort,
   onSelectWhere,
-  onStatusChange,
   onOpenComputers,
   onSkip,
   onContinue,
@@ -53,7 +52,6 @@ export function Step3Wizard({
   initialWhere: WhereChoice
   installPort?: OnboardingInstallPort
   onSelectWhere: (where: WhereChoice) => void
-  onStatusChange: (next: OnboardingStatusPayload) => void
   onOpenComputers: () => void
   onSkip: () => void
   onContinue: () => void
@@ -100,18 +98,6 @@ export function Step3Wizard({
   const personalSpaceId = status?.spaceContext?.personalSpaceId ?? null
   const isPersonalSpace = !!personalSpaceId && spaceId === personalSpaceId
 
-  const refreshStatus = async () => {
-    if (!client) return
-    const request = ++requestRevision.current
-    const context = latestContext.current
-    const next = await client.call<OnboardingStatusPayload>(
-      'donnaOnboardingStatus',
-      { ...(accountKey ? { accountKey } : {}), spaceId },
-      10_000,
-    ).catch(() => null)
-    if (next && request === requestRevision.current && context.client === latestContext.current.client && context.spaceId === latestContext.current.spaceId && context.accountKey === latestContext.current.accountKey) onStatusChange(next)
-  }
-
   const runReadOnlyDetect = async () => {
     if (!client || detecting) return
     const context = latestContext.current
@@ -139,7 +125,6 @@ export function Step3Wizard({
       const res = await saveAndTestApiKey(client, provider, apiKey, () => setApiKey(''))
       if (request !== requestRevision.current || context.client !== latestContext.current.client || context.accountKey !== latestContext.current.accountKey || context.spaceId !== latestContext.current.spaceId) return
       setAiResult(res)
-      await refreshStatus()
     } catch {
       setAiResult({ outcome: 'nao_verificado', modelsCount: 0 })
     } finally {
@@ -156,10 +141,9 @@ export function Step3Wizard({
     const runner = startOpenRouterSignIn(client, spaceId, () => {})
     cancelOAuthRef.current = runner.cancel
     void runner.promise
-      .then(async (res) => {
+      .then((res) => {
         if (request !== requestRevision.current || context.client !== latestContext.current.client || context.accountKey !== latestContext.current.accountKey || context.spaceId !== latestContext.current.spaceId) return
         setAiResult(res)
-        await refreshStatus()
       })
       .finally(() => {
         cancelOAuthRef.current = null
