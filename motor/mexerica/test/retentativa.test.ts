@@ -186,6 +186,7 @@ test("5xx não repete: o pedido pode ter sido processado", async () => {
 		const fim = await proc.waitFor(turnoTerminou, 30_000);
 		assert.match(JSON.stringify(fim), /error/, "o turno tinha de terminar em erro");
 		assert.equal(chamadas(log).length, 1, "5xx não prova recusa antes do processamento: nenhuma repetição");
+		assert.ok(!JSON.stringify(proc.lines).includes(SECRET), "a chave vazou na saída RPC");
 	} finally {
 		await fechar();
 	}
@@ -235,6 +236,17 @@ test("o orçamento de espera é do turno, não de cada chamada", async () => {
 		/limite de uso/,
 	);
 	assert.equal(tentativasNaSegunda, 1, "orçamento do turno gasto: a repetição não começa");
+	// Orçamento zerado não repete nem quando o fornecedor pede espera zero.
+	let tentativasSemSaldo = 0;
+	const semEspera = async () => {
+		tentativasSemSaldo += 1;
+		throw Object.assign(new Error("limite de uso"), { status: 429, headers: new Headers({ "retry-after": "0" }) });
+	};
+	await assert.rejects(
+		retryProviderRequest(semEspera, { maxRetries: 2, retryBudget: { remainingMs: 0 } }),
+		/limite de uso/,
+	);
+	assert.equal(tentativasSemSaldo, 1, "sem saldo não há repetição, nem com espera zero");
 });
 
 test("a política de repetição é limitada e só repete a recusa de pedido não aceito", () => {
