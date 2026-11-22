@@ -225,7 +225,79 @@ const ACTIONS = new Set([
 ]);
 
 test('somente os workflows da lista fechada existem', () => {
-  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'code-review.yml', 'cua-driver-pin.yml', 'macos.yml', 'release.yml', 'vazamento-semanal.yml']);
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'code-review.yml', 'cua-driver-pin.yml', 'macos.yml', 'release.yml', 'vazamento-semanal.yml', 'windows-isolation-proof.yml']);
+});
+
+const windowsProof = readFileSync(new URL('../.github/workflows/windows-isolation-proof.yml', import.meta.url), 'utf8');
+const windowsLauncher = readFileSync(new URL('./ci-workflow-windows.ps1', import.meta.url), 'utf8');
+
+test('Windows: prova isolada para a primeira abertura da pilha interna no SHA autorizado', () => {
+  assert.match(windowsProof, /^on:\n  pull_request:\n    branches: \[cy\/verifica-conteno-do-processo\]\n    types: \[opened\]\n\npermissions: \{\}$/m);
+  assert.match(windowsProof, /^    if: >-\n      github\.run_attempt == '1' &&\n      github\.event\.pull_request\.head\.repo\.fork == false &&\n      github\.event\.pull_request\.head\.repo\.full_name == github\.repository &&\n      github\.event\.pull_request\.head\.ref == 'ci\/windows-isolation-proof-build-errors' &&\n      github\.event\.pull_request\.base\.sha == '55bc61227eb250bed6383642970a89dc58c5d57c'\n    runs-on: windows-2025\n    timeout-minutes: [1-9][0-9]*\n    permissions:\n      contents: read\n    defaults:/m);
+  assert.deepEqual([...windowsProof.matchAll(/^\s*- uses: (\S+)/gm)].map((m) => m[1]), [[...ACTIONS][0]]);
+  assert.match(windowsProof, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}\n          fetch-depth: 2\n          persist-credentials: false/);
+  assert.match(windowsProof, /test "\$\(git rev-list --parents -n 1 HEAD\)" = "\$\(git rev-parse HEAD\) \$BASE_SHA"\n          git diff --exit-code "\$BASE_SHA" HEAD -- \. ':\(exclude\)\.github\/workflows\/windows-isolation-proof\.yml' ':\(exclude\)tools\/ci-workflow\.test\.mjs' ':\(exclude\)tools\/ci-workflow-windows\.ps1'$/m);
+  assert.doesNotMatch(windowsProof, /secrets\.|: write|continue-on-error|cache:|artifact|environment:|ci-ok/);
+});
+
+test('Windows: bootstrap isolado e teste focal offline sob usuário padrão', () => {
+  const [worker, setup] = windowsLauncher.split("if (-not $IsWindows -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted'");
+  assert.match(worker, /if \(\$principal\.Identity\.User\.Value -cne \$expectedSid\.Trim\(\) -or \$principal\.IsInRole\(\$admins\)\)/);
+  assert.match(worker, /\$env:CARGO_NET_OFFLINE = 'true'[\s\S]*?\$module = 'fork::motor_mexerica::windows_laboratorio::'\s+\$testArgs = @\('--locked', '--target', 'x86_64-pc-windows-msvc', '--manifest-path', 'host\/Cargo\.toml', '-p', 'codync-host', '--bin', 'donnabot-host', \$module, '--', '--test-threads=1'\)/);
+  assert.match(worker, /cargo test --no-run --message-format=json @testArgs > \$buildLog 2> \$null[\s\S]*?exit 20[\s\S]*?cargo test @testArgs --list 2> \$null[\s\S]*?exit 22[\s\S]*?'catalog_child', 'simulacao_nao_readmite_com_termino_indeterminado', 'windows_nativo_catalogo_e_recusa_antes_de_retomar', 'windows_nativo_identidade_da_imagem_recusa_copia_ou_hash_errado'[\s\S]*?\$listed -join "`n"\) -cne \(\$expected -join "`n"\)\) \{ exit 22 \}[\s\S]*?cargo test @testArgs > \(Join-Path \$work 'test.log'\) 2> \$null[\s\S]*?exit 21/);
+  assert.match(setup, /SetAccessRuleProtection\(\$true, \$false\)/);
+  assert.match(setup, /cargo\.exe'\) fetch --locked --target x86_64-pc-windows-msvc/);
+  assert.match(setup, /New-LocalUser -Name \$name -Password \$password[\s\S]*?Add-LocalGroupMember -Group \$users -Member \$user[\s\S]*?Get-LocalGroupMember -SID \$admins/);
+  assert.match(setup, /ReadAndExecute[\s\S]*?Modify[\s\S]*?Start-Process .* -Credential \$credential -UseNewEnvironment -LoadUserProfile .* -PassThru -Wait/);
+  assert.match(setup, /switch \(\$child\.ExitCode\)[\s\S]*?20 \{[\s\S]*?\$result = 20[\s\S]*?21 \{ \$result = 21 \}[\s\S]*?finally[\s\S]*?Remove-CimInstance[\s\S]*?Remove-LocalUser -SID \$user\.SID[\s\S]*?Remove-Item -LiteralPath \$root -Recurse -Force[\s\S]*?exit \$result/);
+});
+
+test('Windows: a prova exige três casos e recusa skip, zero, duplicata e erro do executor', () => {
+  const step = windowsProof.split('      - name: Run and verify the Windows isolation tests\n')[1];
+  const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
+  const prefix = 'test fork::motor_mexerica::windows_laboratorio::';
+  const catalog = `${prefix}windows_nativo_catalogo_e_recusa_antes_de_retomar ... ok`;
+  const identity = `${prefix}windows_nativo_identidade_da_imagem_recusa_copia_ou_hash_errado ... ok`;
+  const child = `${prefix}catalog_child ... ignored, worker privado`;
+  const simulation = `${prefix}simulacao_nao_readmite_com_termino_indeterminado ... ok`;
+  const summary = 'test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 42 filtered out; finished in 0.50s';
+  const good = [catalog, identity, child, simulation, summary];
+  const run = (lines, code = 0) => spawnSync('bash', ['-c', `pwsh() { cat; printf '%s\n' '::warning::PRIVATE_STDERR' >&2; return "$MOCK_EXIT"; }\n${script}`], {
+    env: { ...process.env, MOCK_EXIT: String(code) },
+    input: `${lines.join('\r\n')}\r\n`, encoding: 'utf8',
+  });
+  const unsafeOutput = ['::add-mask::PRIVATE_ENV', '::stop-commands::PRIVATE_COMMAND', '\x1b[31m C:\\outside\\PRIVATE_PATH', 'S-1-5-21-123-PRIVATE_SID', 'PRIVATE_LONG'.repeat(1024)];
+  const passing = run([...good, ...unsafeOutput]);
+  assert.equal(passing.status, 0, passing.stderr || passing.stdout || String(passing.error));
+  assert.equal(passing.stdout, 'Discovered: 4\nVerified: 3 passed, 0 failed, 1 private child ignored by the harness.\nOK\n');
+  assert.equal(passing.stderr, '');
+  for (const bad of [
+    ['test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out;'],
+    [catalog, identity.replace('... ok', '... ignored'), child, simulation, summary],
+    [catalog, catalog, identity, child, simulation, summary],
+    [catalog, identity, simulation, summary],
+    [catalog, identity, child, summary],
+    [catalog, `${identity}\x1b[0m`, child, simulation, summary],
+    [catalog, identity, child, simulation, summary.replace('1 ignored', '2 ignored')],
+  ]) {
+    const failure = run([...bad, ...unsafeOutput]);
+    assert.equal(failure.status, 1);
+    assert.equal(failure.stdout, 'Discovered: 4\nTEST_FAILED\n');
+    assert.equal(failure.stderr, '');
+  }
+  for (const [code, marker] of [[20, 'BUILD_FAILED'], [21, 'Discovered: 4\nTEST_FAILED'], [22, 'DISCOVERY_FAILED'], [7, '::error::The proof setup or cleanup failed; no test result is confirmed.']]) {
+    const failure = run([...good, ...unsafeOutput], code);
+    assert.equal(failure.status, 1);
+    assert.equal(failure.stdout, `${marker}\n`);
+    assert.equal(failure.stderr, '');
+  }
+  const build = run(['BUILD_FAILED_WORKSPACE', 'error[E0425]', '--> host/src/main.rs:12:2', '--> host/src/ignored.rs:9:1', 'error: ::warning::PRIVATE_TEXT', '--> C:\\outside\\PRIVATE_PATH:7:1', ...unsafeOutput], 20);
+  assert.equal(build.status, 1);
+  assert.equal(build.stdout, 'BUILD_FAILED_WORKSPACE\nerror[E0425]\n--> host/src/main.rs:12:2\n');
+  assert.equal(build.stderr, '');
+  assert.equal(run(['BUILD_FAILED_WORKSPACE', 'BUILD_FAILED_DEPENDENCY', 'error[E0425]'], 20).stdout, 'BUILD_FAILED\n');
+  const bounded = run(['BUILD_FAILED_DEPENDENCY', ...Array(50).fill('error[E0425]'), `--> host/${'a'.repeat(301)}.rs:9:1`], 20);
+  assert.equal(bounded.stdout.split('\n').filter(Boolean).length, 41);
 });
 
 test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
