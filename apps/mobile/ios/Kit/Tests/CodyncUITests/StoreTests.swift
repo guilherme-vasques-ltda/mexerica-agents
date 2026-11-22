@@ -2315,6 +2315,55 @@ private let cartaoAprovavel = #"{"type":"entry","entry":{"id":"p1","seq":5,"botI
     #expect(await !fake.calls.contains("respondPermission"))
 }
 
+/// OpenAI GA: the API confirms a created item with `conversation.item.added` and finalizes it with
+/// `conversation.item.done`; the beta `conversation.item.created` is still accepted. A confirmation the
+/// phone doesn't recognize leaves the delivery pending, and speech stays unauthorized until it arrives.
+@MainActor @Test(.timeLimit(.minutes(1))) func realtimeCallAcceptsTheGACreationConfirmations() async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaPronta(storage, fake)
+    defer { store.retire() }
+    await fake.emit(cartaoAprovavel)
+    await quando { store.chat("b1").contains { $0.id == "p1" } }
+    let op = CallOperator(model: store, botId: "b1")
+    op.audioComecou()
+    let engine = OpenAIRealtimeEngine(credential: { "ek_test" }, op: op)
+    defer { engine.end() }
+
+    let confirmacoes: [(tipo: String, id: String)] = [
+        (tipo: "conversation.item.created", id: "mx_beta"),
+        (tipo: "conversation.item.added", id: "mx_ga"),
+        (tipo: "conversation.item.done", id: "mx_done"),
+    ]
+    for (indice, confirmacao) in confirmacoes.enumerated() {
+        let texto = "oi \(indice)"
+        // A tool result carries the computer's data: until the provider confirms it, speech doesn't act.
+        _ = op.call("recent_messages", arguments: [:], confirmacao: confirmacao.id)
+        op.falaDetectada()
+        #expect(op.call("send_to_bot", arguments: ["text": texto]).contains("error"))
+        // The confirmation arrives in the shape the API sends it, and the next spoken turn acts again.
+        engine.received(Data(#"{"type":"\#(confirmacao.tipo)","item":{"id":"\#(confirmacao.id)"}}"#.utf8))
+        op.falaDetectada()
+        #expect(op.call("send_to_bot", arguments: ["text": texto]).contains("sent"))
+        await quando { store.chat("b1").contains { $0.data.text == texto } }
+    }
+    #expect(await fake.sent == ["oi 0", "oi 1", "oi 2"])
+
+    // Another event, and a confirmation without the item id, confirm nothing: the delivery stays pending.
+    _ = op.call("recent_messages", arguments: [:], confirmacao: "mx_other")
+    engine.received(Data(#"{"type":"conversation.item.input_audio_transcription.completed","item":{"id":"mx_other"}}"#.utf8))
+    engine.received(Data(#"{"type":"conversation.item.added"}"#.utf8))
+    op.falaDetectada()
+    #expect(op.call("send_to_bot", arguments: ["text": "fora"]).contains("error"))
+    // With the id, the GA event confirms it and speech acts again.
+    engine.received(Data(#"{"type":"conversation.item.added","item":{"id":"mx_other"}}"#.utf8))
+    op.falaDetectada()
+    #expect(op.call("send_to_bot", arguments: ["text": "fora"]).contains("sent"))
+    await quando { store.chat("b1").contains { $0.data.text == "fora" } }
+    #expect(await fake.sent == ["oi 0", "oi 1", "oi 2", "fora"])
+}
+
 /// Gemini: a buffer captured before the bot's data reached the model but processed after it keeps the
 /// epoch it was captured at (stamped off the main actor, as the microphone's tap does), so its speech
 /// doesn't authorize.
