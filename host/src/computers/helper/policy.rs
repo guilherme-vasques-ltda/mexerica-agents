@@ -393,24 +393,33 @@ fn verify_file(
 /// A pasta mudou depois de gravar: o arquivo já existe no disco, então a falha é incerta, nunca "nada foi gravado".
 fn verify_location_after_write(
     plan: &Plan,
+    root: &Path,
     root_dir: &Dir,
     root_id: Option<FileId>,
     folder_id: Option<FileId>,
     path: &Path,
     folder_created: bool,
 ) -> Result<(), Failure> {
-    if let Some(folder) = &plan.folder
-        && (root_id.is_some_and(|id| root_dir.identity().ok() != Some(id))
-            || root_dir.entry_identity(folder).ok() != folder_id)
-    {
-        return fail(
+    let verify = || {
+        let folder = plan.folder.as_ref().map_or(String::new(), |f| format!(" ({f})"));
+        fail::<()>(
             "verify_failed",
             format!(
-                "o arquivo foi gravado mas a pasta mudou durante a conferência ({folder}); confira {} à mão",
+                "o arquivo foi gravado mas a pasta mudou durante a conferência{folder}; confira {} à mão",
                 path.display()
             ),
             json!({"folderCreated":folder_created,"path":path.display().to_string()}),
-        );
+        )
+    };
+    let Ok(reopened_root) = Dir::open_root(root) else { return verify() };
+    let Some(expected_root) = root_id.or_else(|| root_dir.identity().ok()) else { return verify() };
+    if reopened_root.identity().ok() != Some(expected_root) {
+        return verify();
+    }
+    if let Some(folder) = &plan.folder
+        && reopened_root.entry_identity(folder).ok() != folder_id
+    {
+        return verify();
     }
     Ok(())
 }
@@ -514,7 +523,7 @@ pub fn execute(
     let receipt = checked?;
     // No POSIX, entre `openat` da pasta e `create_new` não há trava interprocesso do diretório pai: a conferência
     // pós-gravação garante que só fica confirmado o arquivo que permaneceu na pasta liberada.
-    verify_location_after_write(plan, &root_dir, root_id, folder_id, &path, folder_created)?;
+    verify_location_after_write(plan, root, &root_dir, root_id, folder_id, &path, folder_created)?;
     Ok(receipt)
 }
 
@@ -567,12 +576,14 @@ pub fn recover(
         return None;
     }
     let receipt = verify_file(plan, Ok(file), &shown.join(&plan.filename), None, Some(created)).ok()?;
-    if root_id.is_some_and(|id| root_dir.identity().ok() != Some(id)) {
+    let reopened_root = Dir::open_root(root).ok()?;
+    let expected_root = root_id.or_else(|| root_dir.identity().ok())?;
+    if reopened_root.identity().ok() != Some(expected_root) {
         return None;
     }
     if let Some(folder) = &plan.folder {
         let expected = expected_folder?;
-        if root_dir.entry_identity(folder).ok() != Some(expected) || dir.identity().ok() != Some(expected) {
+        if reopened_root.entry_identity(folder).ok() != Some(expected) || dir.identity().ok() != Some(expected) {
             return None;
         }
     }
@@ -927,7 +938,8 @@ mod tests {
         let root_dir = Dir::open_root(&root).unwrap();
         std::fs::rename(&folder, root.join("Pasta antiga")).unwrap();
         std::fs::create_dir(&folder).unwrap();
-        let failed = verify_location_after_write(&plan, &root_dir, None, Some(folder_id), &path, true).unwrap_err();
+        let failed =
+            verify_location_after_write(&plan, &root, &root_dir, None, Some(folder_id), &path, true).unwrap_err();
         assert_eq!(failed.code, "verify_failed");
         assert!(!failed.message.contains("nada foi gravado"), "{}", failed.message);
         assert_eq!(failed.detail["folderCreated"], json!(true));
@@ -943,6 +955,41 @@ mod tests {
         assert_eq!(std::fs::read_dir(written.join("Pasta antiga")).unwrap().count(), 1);
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(written).unwrap();
+    }
+
+    #[test]
+    fn replacing_the_granted_root_after_the_write_fails_verification_and_recovery() {
+        use std::cell::Cell;
+        let base = tmp("rootswap");
+        let root = base.join("root");
+        std::fs::create_dir(&root).unwrap();
+        let plan = plan_of(Some("Pasta X"), "Vendas.xlsx");
+        let root_id = dir_identity(&root).unwrap();
+        let created = Cell::new(None);
+        assert!(
+            execute(&plan, &root, Some(root_id), &|id, folder| {
+                created.set(Some((id, folder)));
+                Ok(())
+            })
+            .is_ok()
+        );
+        let (file_id, folder_id) = created.get().expect("a identidade é registrada antes dos bytes");
+        let folder_id = folder_id.expect("o pedido tem subpasta");
+        let root_dir = Dir::open_root(&root).unwrap();
+        let path = root.join("Pasta X").join("Vendas.xlsx");
+        assert_eq!(root_dir.identity().ok(), Some(root_id));
+        assert_eq!(root_dir.entry_identity("Pasta X").ok(), Some(folder_id));
+
+        std::fs::rename(&root, base.join("oldroot")).unwrap();
+        std::fs::create_dir(&root).unwrap();
+        assert_ne!(dir_identity(&root).unwrap(), root_id);
+
+        let failed = verify_location_after_write(&plan, &root, &root_dir, Some(root_id), Some(folder_id), &path, true)
+            .unwrap_err();
+        assert_eq!(failed.code, "verify_failed");
+        assert!(!failed.message.contains("nada foi gravado"), "{}", failed.message);
+        assert!(recover(&plan, &root, Some(root_id), Some(folder_id), file_id).is_none());
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

@@ -81,12 +81,16 @@ impl Home {
         );
         ensure!(!is_link(path), "a pasta de estado não pode ser um link");
         private_dir(path)?;
+        let home = Self(path.to_path_buf());
+        let _lock = home.lock()?;
         if !marker.exists() {
             private_write(&marker, b"estado do executor da Mexerica\n")?;
-            let auth = path.join("state.epoch");
-            private_write(&auth, crypto::b64(&crypto::random::<16>()).as_bytes())?;
-            let binding = path.join("binding.epoch");
-            private_write(&binding, crypto::b64(&crypto::random::<16>()).as_bytes())?;
+        }
+        for epoch in ["state.epoch", "binding.epoch"] {
+            let file = home.file(epoch);
+            if fs::symlink_metadata(&file).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+                private_write(&file, crypto::b64(&crypto::random::<16>()).as_bytes())?;
+            }
         }
         ensure!(fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file()), "marcador do estado inválido");
         for sub in ["outbox", "running"] {
@@ -94,7 +98,7 @@ impl Home {
             ensure!(!is_link(&dir), "{} não pode ser um link", dir.display());
             private_dir(&dir)?;
         }
-        Ok(Self(path.to_path_buf()))
+        Ok(home)
     }
     fn file(&self, name: &str) -> PathBuf {
         self.0.join(name)
@@ -451,6 +455,29 @@ mod tests {
         assert!(refused.to_string().contains("já existe um cadastro em andamento nesta pasta de estado"));
         drop(first);
         assert!(home.enroll_lock().is_ok());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reopening_the_state_folder_never_replaces_its_epochs() {
+        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let home = Home::open(&dir).unwrap();
+        let binding = home.binding_epoch().unwrap();
+        let auth = home.auth_epoch().unwrap();
+        assert!(!binding.is_empty() && !auth.is_empty());
+        for _ in 0..3 {
+            let again = Home::open(&dir).unwrap();
+            assert_eq!(again.binding_epoch().unwrap(), binding);
+            assert_eq!(again.auth_epoch().unwrap(), auth);
+        }
+        fs::remove_file(dir.join("binding.epoch")).unwrap();
+        let again = Home::open(&dir).unwrap();
+        assert_eq!(again.auth_epoch().unwrap(), auth);
+        let new_binding = again.binding_epoch().unwrap();
+        assert!(!new_binding.is_empty() && new_binding != binding);
+        let last = Home::open(&dir).unwrap();
+        assert_eq!(last.binding_epoch().unwrap(), new_binding);
+        assert_eq!(last.auth_epoch().unwrap(), auth);
         fs::remove_dir_all(dir).unwrap();
     }
 
