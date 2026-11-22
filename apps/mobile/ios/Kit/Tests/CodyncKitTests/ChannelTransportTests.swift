@@ -347,6 +347,27 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     await t.shutdown()
 }
 
+@Test(.timeLimit(.minutes(1))) func upgradeRejectIsNotMaskedByDirectIdentityFailure() async throws {
+    let (dial, sockets) = fakeDialer()
+    var computer = v.computer
+    computer.boxKey = nil
+    computer.urls = ["http://192.0.2.1:19222", "http://192.0.2.2:19222"]
+    computer.cloud = nil
+    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: v.str("pairing", "code"), dial: dial,
+                             directBudget: .seconds(5), watchesNetwork: false)
+    await t.start()
+    var it = sockets.makeAsyncIterator()
+    var stranger = HostSide(try #require(await it.next()))
+    try await stranger.accept(hostSigner: Curve25519.Signing.PrivateKey())
+    let other = try #require(await it.next())
+    let older = HostSide(other)
+    _ = try await older.raw()
+    await older.push(["t": "reject", "code": "unsupportedVersion"])
+    #expect(await t.settled(within: .seconds(5)) == .failed("Versão do app incompatível com o computador. Atualize o app."))
+    #expect(await t.needsUpgrade)
+    await t.shutdown()
+}
+
 @Test(.timeLimit(.minutes(1))) func invalidDirectWelcomeFallsBackToTheRelay() async throws {
     let (dial, sockets) = fakeDialer()
     var computer = v.computer
@@ -390,7 +411,8 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     try await relay.accept()
     #expect(await waitFor(t.states()) { $0 == .ready(.relay) } == .ready(.relay))
     await relayed.toDevice.close(1006)
-    guard case .failed = await t.settled(within: .seconds(5)) else { Issue.record("expected a retryable drop"); return }
+    let failed = await waitFor(t.states()) { if case .failed = $0 { true } else { false } }
+    guard case .failed? = failed else { Issue.record("expected a retryable drop"); return }
     #expect(await !t.isStopped)
     _ = try #require(await it.next())
     await t.shutdown()

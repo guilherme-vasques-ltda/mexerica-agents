@@ -195,8 +195,10 @@ extension ChannelTransport {
                 if decided { group.cancelAll() }
             }
             if case .none = winner {
-                if let identityFailure { return .identityFailure(identityFailure) }
+                // A reject asking for an action (upgrade, revocation) still wins over an
+                // unproven identity failure recorded at another saved address.
                 if let rejection { return .rejected(rejection.0, isUpgrade: rejection.1) }
+                if let identityFailure { return .identityFailure(identityFailure) }
             }
             return winner
         }
