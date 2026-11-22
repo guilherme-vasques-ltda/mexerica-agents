@@ -7,9 +7,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { encerrar, startEngine, turnoTerminou, type Proc } from "./helpers.ts";
+import { retryProviderRequest } from "../../vendor/pi-mono/packages/ai/src/utils/provider-retry.ts";
 import {
 	ESPERA_MAXIMA_MS,
 	MAX_TENTATIVAS,
+	OPCOES_DE_REPETICAO,
+	orcamentoDoTurno,
 	STATUS_SEM_REPETICAO,
 	TETO_DE_ESPERA_DO_TURNO_MS,
 } from "../src/retentativa.ts";
@@ -149,6 +152,46 @@ test("ferramenta já executada não é repetida: a repetição é o pedido segui
 	}
 });
 
+test("queda de conexão sem resposta não repete: o pedido pode ter sido processado", async () => {
+	const { proc, log, fechar } = motor("queda_de_conexao");
+	try {
+		await modelo(proc);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		const fim = await proc.waitFor(turnoTerminou, 30_000);
+		assert.match(JSON.stringify(fim), /error/, "o turno tinha de terminar em erro");
+		assert.equal(chamadas(log).length, 1, "erro sem status HTTP não prova recusa: nenhuma repetição");
+	} finally {
+		await fechar();
+	}
+});
+
+test("o orçamento de espera é do turno, não de cada chamada", async () => {
+	assert.equal(orcamentoDoTurno().remainingMs, TETO_DE_ESPERA_DO_TURNO_MS, "o turno começa com o teto inteiro");
+	const recusa = () => Object.assign(new Error("limite de uso"), { status: 429, headers: new Headers({ "retry-after": "0.03" }) });
+	// Um orçamento pequeno, compartilhado como no turno: 40 ms, e cada espera pede 30 ms.
+	const orcamento = { remainingMs: 40 };
+	let tentativas = 0;
+	const pedido = async () => {
+		tentativas += 1;
+		if (tentativas === 1) throw recusa();
+		return "ok";
+	};
+	assert.equal(await retryProviderRequest(pedido, { maxRetries: 2, retryBudget: orcamento }), "ok");
+	assert.equal(tentativas, 2, "a primeira chamada repetiu uma vez");
+	assert.ok(Math.abs(orcamento.remainingMs - 10) < 1, `a espera saiu do orçamento: sobrou ${orcamento.remainingMs}`);
+	// A chamada seguinte do mesmo turno (depois de uma ferramenta, por exemplo) usa o MESMO orçamento, já gasto.
+	let tentativasNaSegunda = 0;
+	const pedidoQueNaoCabe = async () => {
+		tentativasNaSegunda += 1;
+		throw recusa();
+	};
+	await assert.rejects(
+		retryProviderRequest(pedidoQueNaoCabe, { maxRetries: 2, retryBudget: orcamento }),
+		/limite de uso/,
+	);
+	assert.equal(tentativasNaSegunda, 1, "orçamento do turno gasto: a repetição não começa");
+});
+
 test("a política de repetição é limitada e veta a recusa definitiva", () => {
 	assert.ok(MAX_TENTATIVAS >= 2 && MAX_TENTATIVAS <= 3, "poucas tentativas: 1 pedido e no máximo 2 repetições");
 	assert.ok(ESPERA_MAXIMA_MS <= 30_000, "a espera de uma repetição não passa de 30 s");
@@ -159,4 +202,6 @@ test("a política de repetição é limitada e veta a recusa definitiva", () => 
 	for (const status of [408, 409, 429, 500, 503]) {
 		assert.ok(!STATUS_SEM_REPETICAO.includes(status), `${status} é recusa temporária e pode repetir`);
 	}
+	assert.equal(OPCOES_DE_REPETICAO.retryWithoutStatus, false, "erro sem status não prova recusa");
+	assert.equal(OPCOES_DE_REPETICAO.maxRetryDelayMs, ESPERA_MAXIMA_MS);
 });

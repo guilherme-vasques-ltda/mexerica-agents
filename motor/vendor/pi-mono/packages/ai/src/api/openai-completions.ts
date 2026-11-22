@@ -387,6 +387,8 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 					maxRetries: options?.maxRetries,
 					maxRetryDelayMs: options?.maxRetryDelayMs,
 					noRetryStatuses: options?.noRetryStatuses,
+					retryWithoutStatus: options?.retryWithoutStatus,
+					retryBudget: options?.retryBudget,
 					signal: options?.signal,
 				},
 			);

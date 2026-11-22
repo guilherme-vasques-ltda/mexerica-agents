@@ -224,6 +224,8 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 					maxRetries: options?.maxRetries,
 					maxRetryDelayMs: options?.maxRetryDelayMs,
 					noRetryStatuses: options?.noRetryStatuses,
+					retryWithoutStatus: options?.retryWithoutStatus,
+					retryBudget: options?.retryBudget,
 					signal: options?.signal,
 				},
 			);

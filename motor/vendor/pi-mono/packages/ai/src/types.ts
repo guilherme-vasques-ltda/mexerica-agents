@@ -222,6 +222,18 @@ export interface ProviderRequestOptions<TModel = Model<Api>> {
 	 * is never repeated, whatever `x-should-retry` says.
 	 */
 	noRetryStatuses?: readonly number[];
+	/**
+	 * Whether an error with no HTTP status is retried. Such an error is a connection failure:
+	 * the provider may already have received and processed the request, so repeating it can
+	 * duplicate the work. Default: true. Set to false to retry only explicit HTTP rejections.
+	 */
+	retryWithoutStatus?: boolean;
+	/**
+	 * Wait budget shared by every request of one turn: each retry delay is subtracted from
+	 * `remainingMs`, and a delay that would go past it fails the request instead of waiting.
+	 * Omit it for a budget that restarts with each request.
+	 */
+	retryBudget?: { remainingMs: number };
 }
 
 export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {

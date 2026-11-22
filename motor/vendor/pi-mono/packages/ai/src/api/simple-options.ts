@@ -75,6 +75,8 @@ export function buildBaseOptions(
 		maxRetries: options?.maxRetries,
 		maxRetryDelayMs: options?.maxRetryDelayMs,
 		noRetryStatuses: options?.noRetryStatuses,
+		retryWithoutStatus: options?.retryWithoutStatus,
+		retryBudget: options?.retryBudget,
 		metadata: options?.metadata,
 		env: options?.env,
 	};

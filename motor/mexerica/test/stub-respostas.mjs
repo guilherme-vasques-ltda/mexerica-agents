@@ -1,5 +1,5 @@
 // Servidor de mentira no formato da API Responses, só para testes (--import): nada sai da máquina. O cenário vem de
-// MEXERICA_TEST_CENARIO — ok, 429_duas_vezes, retry_longo, 401_de_retry, ferramenta_429. Cada chamada (url, método,
+// MEXERICA_TEST_CENARIO — ok, 429_duas_vezes, retry_longo, 401_de_retry, ferramenta_429, queda_de_conexao. Cada chamada (url, método,
 // cabeçalhos e o corpo do pedido) vai para MEXERICA_MOTOR_FETCH_LOG, com a credencial só em resumo. Toda recusa repete
 // a credencial recebida no corpo, como uma API que devolve a chave no erro: a saída do motor não pode contê-la.
 import { appendFileSync } from "node:fs";
@@ -84,6 +84,9 @@ globalThis.fetch = async (input, init) => {
 		case "ferramenta_429":
 			if (chamadas === 1) return ferramenta();
 			return chamadas === 2 ? recusa(429, { "retry-after": "1" }, "limite de uso") : texto("resposta simulada");
+		// A conexão cai depois da saída do pedido: o fornecedor pode tê-lo processado.
+		case "queda_de_conexao":
+			throw new TypeError("fetch failed");
 		default:
 			return texto("resposta simulada");
 	}

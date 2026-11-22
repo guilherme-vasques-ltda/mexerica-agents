@@ -18,7 +18,7 @@ import { HubCredentialStore } from "./src/credentials.ts";
 import { parseHistory } from "./src/history.ts";
 import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
-import { OPCOES_DE_REPETICAO } from "./src/retentativa.ts";
+import { OPCOES_DE_REPETICAO, orcamentoDoTurno } from "./src/retentativa.ts";
 import { fauxAcesso, registerProviders, registrarProprio } from "./src/providers.ts";
 import { comPrazoDeSilencio, semRedirecionar } from "./src/silencio.ts";
 import { fetchGuardado } from "./src/destino.ts";
@@ -68,6 +68,8 @@ const fauxHandle = registerProviders(models);
 
 /** Identidade de cache da conversa, vinda do Hub junto com o modelo (ver `src/cache.ts`). */
 let cache: string | undefined;
+/** Orçamento de espera de repetição do turno em curso: um só, gasto por todas as chamadas dele. */
+let orcamento = orcamentoDoTurno();
 const hubTools = new HubTools(write);
 // Um único fetch para todos os pedidos (o cliente da Anthropic é reaproveitado enquanto o fetch é o mesmo).
 const fetchDoFornecedor = comPrazoDeSilencio(semRedirecionar);
@@ -84,6 +86,7 @@ const agent = new Agent({
 		models.streamSimple(model, context, {
 			...options,
 			...OPCOES_DE_REPETICAO,
+			retryBudget: orcamento,
 			sessionId: cache,
 			fetch: fetchPorProvedor.get(model.provider) ?? fetchDoFornecedor,
 		}),
@@ -149,6 +152,8 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		if (!model) throw new Error("nenhum modelo escolhido (set_model antes do prompt)");
 		respond(command.id, "prompt", { disposition: "started" });
 		streaming = true;
+		// O teto de espera de repetição vale para o turno inteiro, não para cada chamada dele.
+		orcamento = orcamentoDoTurno();
 		try {
 			await agent.prompt(String(command.message ?? ""));
 		} catch (error) {
@@ -194,6 +199,7 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		hubTools.failAll("sessão reiniciada");
 		agent.state.messages = [];
 		cache = undefined;
+		orcamento = orcamentoDoTurno();
 		respond(command.id, "new_session", { cancelled: true });
 	},
 	// «Testar acesso»: só lista os modelos que a chave do cofre enxerga. A resposta nunca leva corpo do fornecedor.
