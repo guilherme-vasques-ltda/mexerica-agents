@@ -37,6 +37,8 @@ pub(crate) mod mcp_host;
 #[cfg(unix)]
 pub(crate) mod proprio;
 pub(crate) mod tools;
+#[cfg(all(windows, test))]
+mod windows_laboratorio;
 pub(crate) use tools::{ToolRunner, ToolSpec};
 
 pub(crate) const ENGINE_ID: &str = "mexerica";
