@@ -1,0 +1,84 @@
+name: Windows isolation proof
+
+on:
+  pull_request:
+    branches: [cy/verifica-conteno-do-processo]
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  windows-isolation:
+    if: >-
+      github.run_attempt == '1' &&
+      github.event.pull_request.head.repo.fork == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ci/windows-isolation-proof-recheck' &&
+      github.event.pull_request.base.sha == '7efc330cfb4496ad38286eba269288165052a425'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify the proof commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          test "$(git rev-list --parents -n 1 HEAD)" = "$(git rev-parse HEAD) $BASE_SHA"
+          git diff --exit-code "$BASE_SHA" HEAD -- . ':(exclude).github/workflows/windows-isolation-proof.yml' ':(exclude)tools/ci-workflow.test.mjs' ':(exclude)tools/ci-workflow-windows.ps1'
+          git log -1 --format='Proof commit: %H; tested base: %P'
+      - name: Run and verify the Windows isolation tests
+        run: |
+          set -euo pipefail
+          status=0
+          output=$(pwsh -NoProfile -NonInteractive -File tools/ci-workflow-windows.ps1 2>&1) || status=$?
+          case $status in
+            0) ;;
+            20)
+              awk '
+                { sub(/\r$/, "") }
+                /^BUILD_FAILED(_WORKSPACE|_DEPENDENCY)?$/ { marker = $0; markers++; associated = 0; next }
+                /^error(\[E[0-9][0-9][0-9][0-9]\]|: compilation failed)$/ {
+                  associated = count < 40
+                  if (associated) details[++count] = $0
+                  next
+                }
+                /^--> (host\/([A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.rs|<externo>):[1-9][0-9]*:[1-9][0-9]*$/ {
+                  if (associated && count < 40 && length($0) <= 300) details[++count] = $0
+                }
+                { associated = 0 }
+                END {
+                  print (markers == 1 ? marker : "BUILD_FAILED")
+                  if (markers == 1) for (i = 1; i <= count; i++) print details[i]
+                }
+              ' <<< "$output"
+              exit 1 ;;
+            21) echo 'Discovered: 4'; echo 'TEST_FAILED'; exit 1 ;;
+            22) echo 'DISCOVERY_FAILED'; exit 1 ;;
+            *) echo '::error::The proof setup or cleanup failed; no test result is confirmed.'; exit 1 ;;
+          esac
+          echo 'Discovered: 4'
+          awk '
+            { sub(/\r$/, "") }
+            /^test fork::motor_mexerica::windows_laboratorio::windows_nativo_catalogo_e_recusa_antes_de_retomar \.\.\. ok$/ { catalog++ }
+            /^test fork::motor_mexerica::windows_laboratorio::windows_nativo_identidade_da_imagem_recusa_copia_ou_hash_errado \.\.\. ok$/ { identity++ }
+            /^test fork::motor_mexerica::windows_laboratorio::simulacao_nao_readmite_com_termino_indeterminado \.\.\. ok$/ { simulation++ }
+            /^test fork::motor_mexerica::windows_laboratorio::catalog_child \.\.\. ignored(, .*)?$/ { child++ }
+            /^test result: ok\. 3 passed; 0 failed; 1 ignored; 0 measured; [0-9]+ filtered out;/ { summary++ }
+            END {
+              if (!(catalog == 1 && identity == 1 && simulation == 1 && child == 1 && summary == 1)) exit 1
+              print "Verified: 3 passed, 0 failed, 1 private child ignored by the harness."
+              print "OK"
+            }
+          ' <<< "$output" || {
+            echo 'TEST_FAILED'
+            exit 1
+          }
