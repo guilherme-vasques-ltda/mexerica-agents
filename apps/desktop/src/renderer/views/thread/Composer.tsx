@@ -40,6 +40,7 @@ import { BarraContexto } from '../fork/contexto/BarraContexto'
 import { MotivoCompactando, useCompactacao } from '../fork/contexto/Compactando'
 import { bloqueiaEnvioCompactando } from '../fork/contexto/estado'
 import { applyStarterDraft } from '../fork/onboarding/starter-draft'
+import type { StarterDraft } from '../fork/onboarding/useStarterTour'
 import { builtInCommand, slashCommands, slashQuery, type SlashCommand } from './slash-commands'
 // DON-907 (D431): a fila como bandeja no mesmo bloco do campo (módulo próprio, D71).
 import { BandejaFila, BarraEdicao, StatusDaFila, useFila } from '../fork/conversa/BandejaFila'
@@ -54,8 +55,8 @@ type Trailing = 'interrupt' | 'stop' | 'send'
  * message it quotes sits at the top of the box and goes out with the next send.
  */
 interface StarterDraftProps {
-  starterDraft?: { scope: string; prompt: string } | null
-  onStarterDraftHandled?: (applied: boolean) => void
+  starterDraft?: StarterDraft | null
+  onStarterDraftHandled?: (origin?: OriginDraft) => void
 }
 
 export function Composer({ botId, sessionId = null, reply = null, cancelReply, onCall, onInterrupt, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
@@ -168,17 +169,14 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
     field.current?.focus({ preventScroll: true })
   }, [routineDraft, botId, store, drafts, bloqueado, compactando])
 
-  const lastStarter = useRef<{ scope: string; origin: OriginDraft } | null>(null)
   useEffect(() => {
     if (!starterDraft) return
     if (sessionId !== null || congelado.current || editando || input.composing) {
-      onStarterDraftHandled?.(false)
+      onStarterDraftHandled?.()
       return
     }
-    const last = lastStarter.current
-    const origin = applyStarterDraft(drafts, botId, starterDraft.prompt, last?.scope === starterDraft.scope ? last.origin : undefined)
-    lastStarter.current = origin ? { scope: starterDraft.scope, origin } : null
-    onStarterDraftHandled?.(!!origin)
+    const origin = applyStarterDraft(drafts, botId, starterDraft.prompt, starterDraft.previous())
+    onStarterDraftHandled?.(origin)
     if (origin) field.current?.focus({ preventScroll: true })
   }, [starterDraft, onStarterDraftHandled, sessionId, botId, drafts, editando, field, input])
 

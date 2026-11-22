@@ -293,14 +293,15 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const hasUserMessages = entries.some((e) => e.kind === 'user')
   const hasConversationMessages = entries.some((e) => e.kind === 'user' || e.kind === 'agent')
   const principalId = useSelector(store.principal, (principal) => principal.id)
-  const showFirstChat = !store.mismatch && sameOnboardingHub && openSession === null && !hasConversationMessages && shouldShowFirstChatOnboarding({
+  const tourEligible = !store.mismatch && sameOnboardingHub && !hasConversationMessages && shouldShowFirstChatOnboarding({
     isPrincipalBot: !!bot && bot.id === principalId && !isGroup(bot),
     isGroup: !!bot && isGroup(bot),
     hasUserMessages,
     dismissedLocally: onboarding.firstChatDismissed,
   })
 
-  const starterTour = useStarterTour(showFirstChat ? tourKey : null)
+  const showFirstChat = tourEligible && openSession === null
+  const starterTour = useStarterTour(tourEligible ? tourKey : null, openSession !== null, store.composerDrafts, botId)
 
   const dismissSpotlight = () => {
     starterTour.dismiss()

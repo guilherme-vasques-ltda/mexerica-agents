@@ -59,20 +59,22 @@ const ABRIR = `
   function Editor() {
     const [starterDraft, setStarterDraft] = App.useState(null);
     const [sessionId, setSessionId] = App.useState(null);
-    window.__sugerir = prompt => setStarterDraft({ scope: 'principal', prompt });
+    const previous = window.__aplicada;
+    window.__sugerir = prompt => setStarterDraft({ prompt, previous: () => previous?.files === store.composerDrafts.files('b') ? previous.origin : undefined });
     window.__sessao = setSessionId;
-    return App.createElement(App.Composer, { botId: 'b', sessionId, starterDraft, onStarterDraftHandled: applied => {
-      window.__sugestaoAplicada = applied;
+    return App.createElement(App.Composer, { botId: 'b', sessionId, starterDraft, onStarterDraftHandled: origin => {
+      window.__sugestaoAplicada = !!origin;
+      if (origin) window.__aplicada = { origin, files: store.composerDrafts.files('b') };
       setStarterDraft(null);
     } });
   }
   function TourEditor() {
-    const [view, setView] = App.useState({ scope: 'A', deliver: true });
-    const tour = App.useStarterTour(view.scope);
-    window.__mudarTour = (scope, deliver) => setView({ scope, deliver });
+    const [view, setView] = App.useState({ scope: 'A', deliver: true, paused: false });
+    const tour = App.useStarterTour(view.scope, view.paused, store.composerDrafts, 'b');
+    window.__mudarTour = (scope, deliver, paused) => setView({ scope, deliver, paused });
     window.__sugerir = tour.pick;
     return App.createElement('div', { 'data-spotlight': tour.spotlightOpen, 'data-pending': tour.starterDraft !== null },
-      App.createElement(App.Composer, { botId: 'b', starterDraft: view.deliver ? tour.starterDraft : null, onStarterDraftHandled: tour.handled }));
+      App.createElement(App.Composer, { botId: 'b', sessionId: view.paused ? 'extra' : null, starterDraft: view.deliver ? tour.starterDraft : null, onStarterDraftHandled: tour.handled }));
   }
   window.__montar = (tour = false) => { window.__raiz = App.createRoot(document.getElementById('root')); window.__raiz.render(App.createElement(App.StoreContext.Provider, { value: store }, App.createElement(tour ? TourEditor : Editor))); };
   window.__montar();
@@ -136,8 +138,8 @@ test('o tour descarta a sugestão ao perder o compositor ou trocar de escopo, se
     await c.assentar()
     const field = c.page.locator('textarea')
     await field.fill('')
-    const change = async (scope: string | null, deliver = true) => {
-      await c.page.evaluate(([id, enabled]) => (window as any).__mudarTour(id, enabled), [scope, deliver] as const)
+    const change = async (scope: string | null, deliver = true, paused = false) => {
+      await c.page.evaluate(([id, enabled, pause]) => (window as any).__mudarTour(id, enabled, pause), [scope, deliver, paused] as const)
       await c.assentar()
     }
     const pick = async (prompt: string) => {
@@ -159,6 +161,38 @@ test('o tour descarta a sugestão ao perder o compositor ou trocar de escopo, se
     await pick('Sugestão aceita')
     assert.equal(await field.inputValue(), 'Sugestão aceita')
     assert.equal(await tour.getAttribute('data-spotlight'), 'true')
+    const revision = () => c.page.evaluate(() => (window as any).__store.composerDrafts.origin('b').revision)
+    const initialRevision = await revision()
+    await change('A', true, true)
+    await pick('Não entra na extra')
+    assert.equal(await field.inputValue(), '')
+    assert.equal(await tour.getAttribute('data-spotlight'), 'false')
+    await change('A')
+    assert.equal(await field.inputValue(), 'Sugestão aceita')
+    assert.equal(await revision(), initialRevision)
+    assert.equal(await tour.getAttribute('data-spotlight'), 'true')
+    await change('A', false)
+    await pick('Pendente antes da pausa')
+    assert.equal(await tour.getAttribute('data-pending'), 'true')
+    await change('A', true, true)
+    await change('A')
+    assert.equal(await tour.getAttribute('data-pending'), 'false')
+    assert.equal(await revision(), initialRevision)
+    await pick('Troca explícita')
+    assert.equal(await field.inputValue(), 'Troca explícita')
+    assert.equal(await revision(), initialRevision + 1)
+    await c.page.evaluate(() => {
+      const drafts = (window as any).__store.composerDrafts
+      drafts.setFiles('b', [{ id: 'a', name: 'notas.txt', data: new Uint8Array() }])
+      drafts.setFiles('b', [])
+    })
+    await c.assentar()
+    assert.equal(await tour.getAttribute('data-spotlight'), 'false')
+    await change('A', true, true)
+    await change('A')
+    await pick('Não substitui após anexo')
+    assert.equal(await field.inputValue(), 'Troca explícita')
+    assert.equal(await revision(), initialRevision + 1)
     await field.fill('Minha edição')
     await change(null)
     await change('A')
