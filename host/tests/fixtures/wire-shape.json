@@ -46,6 +46,7 @@
     "engineAccounts.accounts[].models[].options[].values": "array",
     "engineAccounts.accounts[].models[].options[].values[]": "string",
     "engineAccounts.accounts[].origin": "string",
+    "engineAccounts.accounts[].paused": "bool",
     "engineAccounts.accounts[].revision": "number",
     "engineAccounts.accounts[].state": "string",
     "event:bot": "object",

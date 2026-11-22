@@ -125,6 +125,13 @@ export function textosEm(idioma: AppLanguage) {
     renomearTitulo: t('contas.renomearTitulo'),
     desconectarTitulo: (nome: string) => t('contas.desconectarTitulo', { nome: iso(nome) }),
     desconectarMensagem: t('contas.desconectarMensagem'),
+    // Pausar/reativar sem apagar credencial.
+    desativar: t('contas.desativar'),
+    desativarTitulo: (nome: string) => t('contas.desativarTitulo', { nome: iso(nome) }),
+    desativarMensagem: t('contas.desativarMensagem'),
+    desativada: t('contas.desativada'),
+    detalheDesativada: t('contas.detalheDesativada'),
+    reativar: t('contas.reativar'),
     removerTitulo: (nome: string) => t('contas.removerTitulo', { nome: iso(nome) }),
     removerMensagem: t('contas.removerMensagem'),
     removerComBots: (nomes: string) => t('contas.removerComBots', { nomes }),

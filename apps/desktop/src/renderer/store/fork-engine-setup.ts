@@ -1,5 +1,5 @@
 import type { HostClient } from '../client/host-client'
-import type { AccountId, AccountMutation, AccountUsage, FallbackAction, FallbackSave, FallbackState, CreateAccount, EngineAccounts, EngineAccountsQuery, ManagedAccount, ModelVisibility } from '../../shared/fork-engine-accounts'
+import type { AccountId, AccountMutation, AccountUsage, FallbackAction, FallbackSave, FallbackState, CreateAccount, EngineAccounts, EngineAccountsQuery, ManagedAccount, ModelVisibility, SetAccountEnabled } from '../../shared/fork-engine-accounts'
 import type { SetupAction, SetupOperation, StartSetup } from '../../shared/fork-engine-setup'
 
 /** Intenções tipadas pelo transporte existente. Nenhuma operação SSH no renderer. */
@@ -17,6 +17,7 @@ export const engineSetup = {
   start: (client: HostClient, request: StartSetup) => client.call<SetupOperation>('donnaEngineSetupStart', request),
   action: (client: HostClient, request: SetupAction) => client.call<SetupOperation>('donnaEngineSetupAction', request),
   disconnect: (client: HostClient, request: AccountMutation) => client.call<ManagedAccount>('donnaEngineAccountDisconnect', request),
+  setEnabled: (client: HostClient, request: SetAccountEnabled) => client.call<ManagedAccount>('donnaEngineAccountSetEnabled', request),
   remove: (client: HostClient, request: AccountMutation) => client.call<Record<string, never>>('donnaEngineAccountRemove', request),
   // Segredo explícito do formulário existente; sem retorno da chave e sem alterar slot legado.
   setApiEnv: (client: HostClient, request: AccountMutation & { backend: string; vars: Record<string, string> }) => client.call<unknown>('setAgentEnv', request, 300_000),

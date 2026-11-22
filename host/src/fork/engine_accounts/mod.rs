@@ -211,6 +211,8 @@ impl Account {
                 self.models.clone()
             },
             hidden_model_ids: self.hidden_model_ids.clone(),
+            // `true` = pausada pelo dono com credencial preservada; legada e saída destrutiva são `false`.
+            paused: self.managed.as_ref().is_some_and(|m| m.paused),
         }
     }
 }
@@ -231,6 +233,9 @@ pub(crate) struct AccountDto {
     pub(crate) models: Vec<Model>,
     // Sempre presente na resposta do Hub novo; a ausência marca um Hub antigo sem o recurso.
     pub(crate) hidden_model_ids: Vec<String>,
+    // `true` = pausa do dono com credencial preservada (não é o desconectar destrutivo). Sempre
+    // presente na resposta do Hub novo; a ausência marca um Hub antigo sem pausar/reativar.
+    pub(crate) paused: bool,
 }
 
 #[derive(Deserialize, Serialize)]
