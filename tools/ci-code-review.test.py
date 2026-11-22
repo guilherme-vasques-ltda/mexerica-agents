@@ -178,7 +178,7 @@ class ProjectCliTest(unittest.TestCase):
         self.enterContext(patch.object(review, 'build_opener'))
         self.snapshot = self.enterContext(patch.object(review, 'snapshot', return_value=('/fixture', FILES)))
 
-    def assert_refused(self, phase=None, args=('project',)):
+    def assert_refused(self, phase=None, args=('project',), *, schema=None):
         stdout, stderr = StringIO(), StringIO()
         with (patch.object(review.sys, 'argv', ['ci-code-review.py', *args]),
               redirect_stdout(stdout), redirect_stderr(stderr), self.assertRaises(SystemExit) as raised):
@@ -186,6 +186,8 @@ class ProjectCliTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 1)
         self.assertEqual(stdout.getvalue(), '')
         suffix = '' if phase is None else f' Fase: {phase}.'
+        if schema is not None:
+            suffix += f' Classe: {schema}.'
         self.assertEqual(stderr.getvalue(), f'Open Code Review: operação recusada ou indisponível.{suffix}\n')
         self.assertFalse(self.artifact.exists())
 
@@ -217,8 +219,6 @@ class ProjectCliTest(unittest.TestCase):
         cases = (
             ('Json', b'fixture-invalid-json'),
             ('Json', b' ' * (review.MAX_JSON + 1)),
-            ('Esquema', result(fixture_field='fixture-schema')),
-            ('Esquema', result(status='fixture-status')),
             ('Achado', result({**FINDING, 'path': 'fixture-outside.txt'})),
             ('Achado', result({**FINDING, 'category': 'fixture-category'})),
             ('Render', result({**FINDING, 'start_line': 'fixture-line'})),
@@ -228,6 +228,49 @@ class ProjectCliTest(unittest.TestCase):
             with self.subTest(phase=phase):
                 self.source.write_bytes(data)
                 self.assert_refused(phase)
+
+    def test_schema_reports_only_the_first_fixed_class(self):
+        manifest = dict(schema_version='ocr.run-manifest/v1', operation='review', terminal_state='complete',
+                        coverage={'failed': []})
+        budget = {'comments': 1, 'budget_exceeded': True}
+        cases = (
+            ('Estrutura', b'["fixture-structure"]'),
+            ('Estrutura', result(fixture_field='fixture-schema', status='fixture-status')),
+            ('Comentarios', result(comments='fixture-comments', status='fixture-status')),
+            ('Estado', result(status='fixture-status', summary='fixture-summary')),
+            ('Resumo', result(summary={'comments': False}, warnings='fixture-warnings')),
+            ('Avisos', result(warnings='fixture-warnings', manifest='fixture-manifest')),
+            ('Manifesto', result(manifest={**manifest, 'terminal_state': 'fixture-state'}, warnings=[{}])),
+            ('Avisos', result(manifest=manifest, summary=budget, warnings=[{'type': 'token_budget_reached'}])),
+            ('Resumo', result(manifest=manifest, summary=budget)),
+            ('Estado', result(status='skipped')),
+            ('Cobertura', result(manifest={**manifest, 'coverage': {'failed': [{}]}})),
+            ('Resumo', result(status='partial')),
+            ('Manifesto', result(status='partial', summary=budget)),
+            ('Avisos', result(status='partial', summary=budget, manifest={**manifest, 'terminal_state': 'partial'},
+                              warnings=[{'type': 'review_limit_reached', 'file': 'fixture-group',
+                                         'message': 'fixture-warning'}])),
+            ('Cobertura', result(status='partial', summary=budget, manifest={**manifest, 'terminal_state': 'partial',
+                                                                            'coverage': 'fixture-coverage'})),
+        )
+        for index, (schema, data) in enumerate(cases):
+            with self.subTest(case=index, schema=schema):
+                self.source.write_bytes(data)
+                self.assert_refused('Esquema', schema=schema)
+
+    def test_complete_upstream_result_with_warning_stays_refused(self):
+        item = {'item_id': 'fixture-item', 'path': FILES[0]['filename']}
+        self.source.write_bytes(result(
+            summary={'files_reviewed': 1, 'comments': 1, 'input_tokens': 10, 'output_tokens': 2,
+                     'total_tokens': 12, 'elapsed': '1s'},
+            tool_calls={'total': 0, 'by_tool': {}, 'failure': 0, 'failure_by_tool': {}, 'failure_details': []},
+            manifest={'schema_version': 'ocr.run-manifest/v1', 'run_id': 'fixture-run', 'operation': 'review',
+                      'terminal_state': 'complete', 'repository': {}, 'input': {'mode': 'range'}, 'execution': {},
+                      'coverage': {'selected': [item], 'completed': [item], 'reused': [], 'failed': [],
+                                   'waived': [], 'excluded': []}, 'elapsed_ms': 1000},
+            warnings=[{'type': 'review_round_failed', 'file': 'fixture-group', 'message': 'fixture-warning'}],
+        ))
+        self.assert_refused('Esquema', schema='Avisos')
 
     def test_write_limit_and_partial_write_report_only_write(self):
         with patch.object(review, 'MAX_ARTIFACT', 1):

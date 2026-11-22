@@ -12,6 +12,9 @@ mod rollback_data;
 #[cfg(target_os = "linux")]
 mod root;
 
+#[cfg(all(target_os = "linux", test))]
+mod assisted;
+
 #[derive(Subcommand)]
 pub(crate) enum Migration {
     /// Copia, instala e chama migrar-raizes da F3. Somente instalação de teste do dono.
