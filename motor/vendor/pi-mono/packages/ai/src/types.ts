@@ -216,6 +216,12 @@ export interface ProviderRequestOptions<TModel = Model<Api>> {
 	 * Default: 60000 (60 seconds). Set to 0 to disable the cap.
 	 */
 	maxRetryDelayMs?: number;
+	/**
+	 * HTTP statuses that fail at once, even when the provider asks for a retry.
+	 * A definitive rejection (bad request, credential, unknown model, oversized payload)
+	 * is never repeated, whatever `x-should-retry` says.
+	 */
+	noRetryStatuses?: readonly number[];
 }
 
 export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {

@@ -22,6 +22,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[cfg(unix)]
+mod cache;
+#[cfg(unix)]
 pub(crate) mod chaves;
 #[cfg(unix)]
 pub(crate) mod entrar_chatgpt;
@@ -44,6 +46,9 @@ pub(crate) const ENGINE_ID: &str = "mexerica";
 pub(crate) const FLAG: &str = "MEXERICA_MOTOR";
 /// Caminho do entrypoint Node; em desenvolvimento cai no `motor/` do checkout.
 pub(crate) const ENTRY_ENV: &str = "MEXERICA_MOTOR_ENTRY";
+/// Sem identidade de cache: o pedido ao fornecedor não leva chave de cache (provas e turnos sem Hub).
+#[cfg(unix)]
+pub(crate) const SEM_CACHE: &str = "";
 /// Liga o provedor `faux` local (eco), somente para testes do Hub e do motor.
 pub(crate) const FAUX_ENV: &str = "MEXERICA_MOTOR_FAUX";
 /// Marca CI/prova obrigatória: com `MEXERICA_MOTOR_TESTS_REQUIRED=1`, os testes
@@ -458,8 +463,15 @@ impl Engine {
     }
 
     /// `set_model` do provedor fixado no nascimento. Fora de um turno.
-    /// `limits` leva `contextWindow`/`maxTokens` do último «Testar acesso», quando há.
-    pub(crate) async fn set_model(&mut self, provider: &str, model_id: &str, limits: &Value) -> Result<()> {
+    /// `limits` leva `contextWindow`/`maxTokens` do último «Testar acesso», quando há; `cache` é a identidade de
+    /// cache da conversa (vazia = sem identidade, e o pedido não leva o campo).
+    pub(crate) async fn set_model(
+        &mut self,
+        provider: &str,
+        model_id: &str,
+        limits: &Value,
+        cache: &str,
+    ) -> Result<()> {
         ensure!(provider == self.provider, "este motor está preso ao provedor {}", self.provider);
         self.next_id += 1;
         let set_id = format!("set-{}", self.next_id);
@@ -468,6 +480,9 @@ impl Engine {
             if let Some(n) = limits[field].as_u64() {
                 command[field] = n.into();
             }
+        }
+        if !cache.is_empty() {
+            command["cacheKey"] = cache.into();
         }
         let res = self.call(&set_id, command, "set_model").await?;
         ensure!(res["success"] == true, "set_model recusado: {}", res["error"].as_str().unwrap_or_default());
@@ -498,7 +513,7 @@ impl Engine {
     /// Devolve o texto final da assistente e todos os eventos recebidos (para
     /// provas). O provedor precisa ser o fixado no nascimento do processo.
     pub(crate) async fn prompt(&mut self, provider: &str, model_id: &str, message: &str) -> Result<Turn> {
-        self.prompt_with(provider, model_id, &json!({}), message, &tools::NoTools, &mut |_| {}).await
+        self.prompt_with(provider, model_id, &json!({}), SEM_CACHE, message, &tools::NoTools, &mut |_| {}).await
     }
 
     /// Um comando de preparo (envio e resposta) com prazo: um motor que para de ler a entrada ou de responder não segura a
@@ -557,13 +572,14 @@ impl Engine {
         provider: &str,
         model_id: &str,
         limits: &Value,
+        cache: &str,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
         ensure!(!self.turn_open, "há um turno aberto neste motor; encerre ou mate o processo antes de outro prompt");
         self.turn_open = true;
-        let result = self.drive(provider, model_id, limits, message, runner, on_event).await;
+        let result = self.drive(provider, model_id, limits, cache, message, runner, on_event).await;
         self.turn_open = false;
         result
     }
@@ -576,11 +592,12 @@ impl Engine {
         provider: &str,
         model_id: &str,
         limits: &Value,
+        cache: &str,
         message: &str,
         runner: &dyn ToolRunner,
         on_event: &mut (dyn FnMut(&Value) + Send),
     ) -> Result<Turn> {
-        self.set_model(provider, model_id, limits).await?;
+        self.set_model(provider, model_id, limits, cache).await?;
         self.next_id += 1;
         self.send(json!({"id": format!("p-{}", self.next_id), "type": "prompt", "message": message})).await?;
 

@@ -37,6 +37,14 @@ O arquivo tem teto de 64 conversas e 12 horas sem atividade, contadas da última
 
 Trocar de modelo no app fecha a conexão e o bot abre outra com `session/load`. O motor retoma sem modelo escolhido e não anuncia nenhum, então o bot seleciona o modelo configurado de novo depois do `load`, como faz na sessão nova.
 
+## Nova tentativa e cache do pedido
+
+- Uma recusa do fornecedor **antes** de qualquer processamento ou stream (408, 409, 429 e 5xx) é repetida no mesmo pedido e na mesma conta: no máximo duas repetições, cada espera dentro do que o fornecedor pediu, até 30 s, e no máximo 60 s de espera de repetição por turno. Espera pedida acima do teto falha na hora, com a mensagem do teto. Cancelar o turno durante a espera encerra o pedido sem chamada nova.
+- 400 (inclusive estouro de contexto), 401, 403, 404, 413 e 422 nunca são repetidos, mesmo que o fornecedor peça no cabeçalho `x-should-retry`.
+- A repetição acontece na abertura da resposta HTTP: resposta que já começou a chegar, geração incerta e ferramenta já executada pelo Hub não são repetidas, e a conta (nem o plano) nunca é trocada por causa de uma recusa. No Google a repetição também vale, mas sem o `retry-after`: o SDK dele não expõe os cabeçalhos, então a espera é a do próprio motor.
+- A identidade de cache é um valor aleatório do Hub por conversa, conta e fornecedor — nunca o id da sessão que a ponte usa para controle, o id do bot ou texto da pessoa. O motor a manda como identidade de sessão do pedido (a chave de cache da OpenAI e os cabeçalhos de afinidade de quem os usa); sem ela, o campo não existe no pedido; trocar de conta ou de fornecedor cria outro valor.
+- `set_system_prompt` substitui o prompt anterior: a transcrição passa a ter uma única mensagem de sistema, no início, em vez de somar o texto de duas.
+
 ## Limites conhecidos
 
 - A conversa guardada não garante que uma ação externa aconteça uma única vez. Se o serviço aceitou a ação mas o motor não recebeu o resultado (queda, cancelamento, teto de tamanho), o modelo vê "resultado desconhecido" e uma nova geração ainda pode pedir a mesma ação, com nova decisão de permissão no cartão. Para ações que não podem se repetir é preciso conferir o estado do serviço ou ter idempotência; restaurar a conversa nunca reexecuta uma ferramenta.
@@ -52,5 +60,5 @@ O módulo `historico` só existe em Unix, e o Hub no Windows o chama só por `mo
 
 ## Testes
 
-- `motor/`: `npm test`. Os testes de `motor/mexerica/test/history.test.ts` cobrem os tetos no processo vivo, o receptor, os pares e o acumulador do turno.
+- `motor/`: `npm test`. Os testes de `motor/mexerica/test/history.test.ts` cobrem os tetos no processo vivo, o receptor, os pares e o acumulador do turno; `retentativa.test.ts` cobre a nova tentativa (limites, veto, cancelamento e ferramenta não repetida) e `cache.test.ts` a identidade de cache e o prompt de sistema que substitui.
 - `host/`: `fork::motor_mexerica` (cópia enxuta, redação, tetos, retenção, credencial presa à geração, cofre indisponível, troca de provedor, queda e cancelamento) e `agent::bot::motor_conversa_tests` (troca de modelo e de conta pelo ator real do bot). Rode com `MEXERICA_MOTOR_TESTS_REQUIRED=1` para que a falta do Node reprove em vez de pular.

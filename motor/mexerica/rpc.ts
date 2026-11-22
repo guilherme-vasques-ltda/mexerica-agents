@@ -13,10 +13,12 @@ import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
 import { createModels, type AssistantMessageEvent, type Model } from "@earendil-works/pi-ai";
 import { attachJsonlLineReader, serializeJsonLine } from "../vendor/pi-mono/packages/coding-agent/src/modes/rpc/jsonl.ts";
 import { emptyAuthContext } from "./src/auth-context.ts";
+import { identidadeDeCache } from "./src/cache.ts";
 import { HubCredentialStore } from "./src/credentials.ts";
 import { parseHistory } from "./src/history.ts";
 import { batchOpen, boundInPlace, fitMessages } from "./src/limits.ts";
 import { HubTools, parseToolSpecs } from "./src/hub-tools.ts";
+import { OPCOES_DE_REPETICAO } from "./src/retentativa.ts";
 import { fauxAcesso, registerProviders, registrarProprio } from "./src/providers.ts";
 import { comPrazoDeSilencio, semRedirecionar } from "./src/silencio.ts";
 import { fetchGuardado } from "./src/destino.ts";
@@ -64,6 +66,8 @@ const credentials = new HubCredentialStore(channel, (key) => {
 const models = createModels({ credentials, authContext: emptyAuthContext() });
 const fauxHandle = registerProviders(models);
 
+/** Identidade de cache da conversa, vinda do Hub junto com o modelo (ver `src/cache.ts`). */
+let cache: string | undefined;
 const hubTools = new HubTools(write);
 // Um único fetch para todos os pedidos (o cliente da Anthropic é reaproveitado enquanto o fetch é o mesmo).
 const fetchDoFornecedor = comPrazoDeSilencio(semRedirecionar);
@@ -75,8 +79,14 @@ const PRAZO_DO_TESTE_MS = prazoDeTeste * 2;
 /** O endereço próprio desta conversa conecta só pelo portão de `destino.ts`. */
 const fetchPorProvedor = new Map<string, typeof globalThis.fetch>();
 const agent = new Agent({
+	// O pedido leva a identidade de cache da conversa e a política de repetição do motor; a rede é a do provedor.
 	streamFn: (model, context, options) =>
-		models.streamSimple(model, context, { ...options, fetch: fetchPorProvedor.get(model.provider) ?? fetchDoFornecedor }),
+		models.streamSimple(model, context, {
+			...options,
+			...OPCOES_DE_REPETICAO,
+			sessionId: cache,
+			fetch: fetchPorProvedor.get(model.provider) ?? fetchDoFornecedor,
+		}),
 	toolExecution: "parallel",
 	// Os tetos da conversa valem em cada chamada ao provedor, também no meio de um turno gigante. O corte vale
 	// também para a lista do próprio laço (ela é a mesma que chega aqui), que então não cresce sem limite.
@@ -165,6 +175,9 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 			found = models.getModel(provider, modelId) ?? (ehFornecedor(provider) ? modeloDoFornecedor(provider, modelId, listado) : undefined);
 		}
 		if (!found) throw new Error(`modelo desconhecido: ${command.provider}/${command.modelId}`);
+		// O Hub manda a identidade de cache desta conversa, da conta e do provedor a cada turno: ela substitui a
+		// anterior, e o modelo recusado acima não chega a trocá-la.
+		cache = identidadeDeCache(command.cacheKey);
 		model = found;
 		agent.state.model = found;
 		respond(command.id, "set_model", { model: found });
@@ -180,6 +193,7 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 		agent.abort();
 		hubTools.failAll("sessão reiniciada");
 		agent.state.messages = [];
+		cache = undefined;
 		respond(command.id, "new_session", { cancelled: true });
 	},
 	// «Testar acesso»: só lista os modelos que a chave do cofre enxerga. A resposta nunca leva corpo do fornecedor.
@@ -211,8 +225,11 @@ const handlers: Record<string, (command: Command) => Promise<void> | void> = {
 	set_system_prompt(command) {
 		if (streaming || agent.state.isStreaming) throw new Error("set_system_prompt só vale fora de um turno");
 		if (typeof command.prompt !== "string") throw new Error("set_system_prompt exige `prompt` texto");
-		// O prompt vive na transcrição: uma mensagem de sistema nova o substitui.
-		agent.state.messages = [...agent.state.messages, { role: "system", content: command.prompt, timestamp: Date.now() }];
+		// O prompt de sistema é UM: a mensagem nova substitui a anterior (o Pi junta o texto de todas as mensagens de
+		// sistema, então acrescentar uma segunda somaria os dois prompts ao pedido). A lista de ferramentas vive em
+		// `state.tools`, fora da transcrição, e continua valendo.
+		const conversa = agent.state.messages.filter((message) => message.role !== "system");
+		agent.state.messages = [{ role: "system", content: command.prompt, timestamp: Date.now() }, ...conversa];
 		respond(command.id, "set_system_prompt");
 	},
 	// Substitui a lista inteira; o Hub a manda antes do prompt, nunca durante o turno.

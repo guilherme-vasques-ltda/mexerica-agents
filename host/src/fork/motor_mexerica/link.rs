@@ -35,6 +35,8 @@ struct Session {
     provider: Mutex<String>,
     model: Mutex<String>,
     system_prompt: Mutex<Option<String>>,
+    /// Identidade de cache desta conversa no fornecedor: valor opaco por conversa, conta e fornecedor (veja `cache`).
+    cache: Mutex<super::cache::IdentidadeDeCache>,
     /// Pid do motor tomado pelo turno em curso (o slot do `engine` fica vazio).
     pid: Mutex<Option<u32>>,
     /// Contador de paradas da sessão: cada `session/cancel` soma um. Um turno guarda o valor visto quando o
@@ -508,6 +510,7 @@ impl Link {
             provider: Mutex::new(String::new()),
             model: Mutex::new(String::new()),
             system_prompt: Mutex::new(system_text(&params["systemPrompt"])?),
+            cache: Mutex::new(super::cache::IdentidadeDeCache::default()),
             pid: Mutex::new(None),
             cancel,
             busy: std::sync::atomic::AtomicBool::new(false),
@@ -643,6 +646,8 @@ impl Link {
         let reset_history = unprotected || restart_proprio || credential_changed;
         let same_ready = !reset_history
             && slot.as_mut().is_some_and(|e| e.alive() && e.provider() == provider && e.credential == generation);
+        // Uma identidade de cache por conversa, conta e fornecedor: trocar o fornecedor ou a credencial cria outra.
+        let cache = session.cache.locked().para(&provider, &generation);
 
         if same_ready {
             let engine = slot.as_mut().expect("verificado acima");
@@ -652,7 +657,7 @@ impl Link {
                 *slot = None;
                 return Err(error);
             }
-            if let Err(error) = engine.set_model(&provider, &model, &limits).await {
+            if let Err(error) = engine.set_model(&provider, &model, &limits, &cache).await {
                 // O slot nunca guarda um processo cuja conversa de comandos falhou:
                 // o `Drop` encerra o grupo de processos e colhe o filho, e o próximo
                 // comando sobe outro. Acontece antes de `BusyGuard` soltar a trava.
@@ -667,7 +672,7 @@ impl Link {
             // se o preparo ou a troca de modelo falharem, a conversa do provedor anterior permanece intacta.
             let candidate_history = if reset_history { Vec::new() } else { session.history.snapshot() };
             let mut candidate = self.spawn_engine(&session, &provider, &generation, &candidate_history).await?;
-            if let Err(error) = candidate.set_model(&provider, &model, &limits).await {
+            if let Err(error) = candidate.set_model(&provider, &model, &limits, &cache).await {
                 if slot.as_ref().is_some_and(|e| e.provider() == provider) {
                     *slot = None;
                 }
@@ -771,6 +776,9 @@ impl Link {
                 Some(source) => source(&provider, &model)?,
                 None => json!({}),
             };
+            // A mesma identidade de cache do `set_model` desta conversa, conta e fornecedor.
+            let geracao = creds.generation(&provider)?;
+            let cache = session.cache.locked().para(&provider, &geracao);
             // Nada do turno foi entregue ao bot enquanto isto for falso.
             let delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
             // Mensagens que o motor terminou de emitir neste turno (limpas, dentro do teto): viram a
@@ -813,7 +821,7 @@ impl Link {
                     session.history.remember(finished.locked().take());
                     false
                 }
-                result = owned.prompt_with(&provider, &model, &limits, &text, &runner, &mut on_event) => {
+                result = owned.prompt_with(&provider, &model, &limits, &cache, &text, &runner, &mut on_event) => {
                     // Só marca o endereço como recebedor quando o turno completou ou já entregou eventos (o prompt
                     // já entrou no motor/rede do provedor e a coleta do turno pode conter mensagens). Uma falha
                     // antes de qualquer entrega (ex.: set_model recusado ou queda antes de iniciar) não vincula.
@@ -1002,6 +1010,7 @@ impl Link {
             provider: Mutex::new(String::new()),
             model: Mutex::new(String::new()),
             system_prompt: Mutex::new(None),
+            cache: Mutex::new(super::cache::IdentidadeDeCache::default()),
             pid: Mutex::new(None),
             cancel,
             busy: std::sync::atomic::AtomicBool::new(false),

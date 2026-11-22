@@ -223,6 +223,7 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 				{
 					maxRetries: options?.maxRetries,
 					maxRetryDelayMs: options?.maxRetryDelayMs,
+					noRetryStatuses: options?.noRetryStatuses,
 					signal: options?.signal,
 				},
 			);

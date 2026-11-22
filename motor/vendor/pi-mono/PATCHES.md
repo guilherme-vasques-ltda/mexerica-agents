@@ -38,6 +38,14 @@ o que mudou e por quê.
    (`commentary`/`final_answer`) anunciada no `output_item.added` vale quando o
    `output_item.done` vem sem ela; antes ela se perdia no replay da conversa.
    Prova: A8 no mesmo arquivo de teste.
+10. `packages/ai/src/types.ts` (`noRetryStatuses` em `ProviderRequestOptions`),
+    `api/simple-options.ts` e as três APIs que repetem pedido
+    (`openai-responses.ts`, `openai-completions.ts`, `anthropic-messages.ts`) —
+    o ajudante de repetição já sabia vetar status (`provider-retry.ts`), mas as
+    opções do pedido não levavam essa lista adiante. Sem ela, um 400 ou 401 com
+    `x-should-retry: true` era repetido mesmo sendo recusa definitiva. Nenhum
+    comportamento muda sem a opção: a lista é opcional e vazia por padrão.
+    Prova em `mexerica/test/retentativa.test.ts`.
 
 Nota de instalação (não é patch, é registro): `npm ci` em `motor/` ainda executa
 os scripts de instalação de duas dependências transitivas — `@google/genai`

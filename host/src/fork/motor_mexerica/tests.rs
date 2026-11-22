@@ -146,6 +146,30 @@ async fn conversa_responde_pelo_provedor_falso() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn identidade_de_cache_chega_ao_motor_e_e_conferida() {
+    let Some(_case) = crate::fork::motor_exec::test_support::case(
+        "fork::motor_mexerica::tests::identidade_de_cache_chega_ao_motor_e_e_conferida",
+    ) else {
+        return;
+    };
+    if !require_motor() {
+        return;
+    }
+    let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+    let mut engine = Engine::spawn(store, "faux", &[(FAUX_ENV, "1")]).unwrap();
+    // O valor opaco que o Hub gera vai no `set_model`: o motor o aceita e o turno segue.
+    engine.set_model("faux", "faux-1", &json!({}), "0123456789abcdef0123456789abcdef").await.unwrap();
+    // Fora do formato, o motor recusa: nada de texto arbitrário no pedido ao fornecedor.
+    let recusa = engine.set_model("faux", "faux-1", &json!({}), "identidade com espaço").await;
+    assert!(recusa.is_err(), "identidade fora do formato tinha de ser recusada");
+    engine.set_model("faux", "faux-1", &json!({}), "0123456789abcdef0123456789abcdef").await.unwrap();
+    let turn = engine.prompt("faux", "faux-1", "ola mexerica").await.unwrap();
+    assert!(turn.text.contains("eco: ola mexerica"), "esperava eco, veio: {}", turn.text);
+    engine.finish().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn chave_nunca_em_argv_log_ou_saida() {
     let Some(_case) =
         crate::fork::motor_exec::test_support::case("fork::motor_mexerica::tests::chave_nunca_em_argv_log_ou_saida")
