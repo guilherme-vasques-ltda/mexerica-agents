@@ -35,7 +35,9 @@ COMMENT_FIELDS = set('path content suggestion_code existing_code start_line end_
 
 
 class Refused(ValueError):
-    pass
+    def __init__(self, schema=None):
+        super().__init__()
+        self.schema = schema
 
 
 class ProjectPhase(Enum):
@@ -49,9 +51,19 @@ class ProjectPhase(Enum):
     WRITE = 'Gravacao'
 
 
-def require(condition):
+class SchemaClass(Enum):
+    STRUCTURE = 'Estrutura'
+    COMMENTS = 'Comentarios'
+    STATUS = 'Estado'
+    SUMMARY = 'Resumo'
+    WARNINGS = 'Avisos'
+    MANIFEST = 'Manifesto'
+    COVERAGE = 'Cobertura'
+
+
+def require(condition, schema=None):
     if not condition:
-        raise Refused()
+        raise Refused(schema)
 
 
 def unique_pairs(pairs):
@@ -88,30 +100,36 @@ def contains_provider_value(finding, values):
 
 def review_status(report, findings):
     status, summary = report.get('status'), report.get('summary')
-    require(status in ('complete', 'skipped', 'partial'))
+    require(status in ('complete', 'skipped', 'partial'), SchemaClass.STATUS)
     if summary is not None:
-        require(type(summary) is dict and type(summary.get('comments')) is int and summary['comments'] == len(findings))
+        require(type(summary) is dict and type(summary.get('comments')) is int
+                and summary['comments'] == len(findings), SchemaClass.SUMMARY)
     warnings = report.get('warnings', [])
-    require(type(warnings) is list)
+    require(type(warnings) is list, SchemaClass.WARNINGS)
     manifest = report.get('manifest')
     if manifest is not None:
         require(type(manifest) is dict and manifest.get('schema_version') == 'ocr.run-manifest/v1'
                 and manifest.get('operation') == 'review' and manifest.get('terminal_state') == status
-                and 'run_failure' not in manifest)
+                and 'run_failure' not in manifest, SchemaClass.MANIFEST)
     if status != 'partial':
-        require(not warnings and (summary is None or summary.get('budget_exceeded', False) is False))
-        require(status != 'skipped' or not findings)
+        require(not warnings, SchemaClass.WARNINGS)
+        require(summary is None or summary.get('budget_exceeded', False) is False, SchemaClass.SUMMARY)
+        require(status != 'skipped' or not findings, SchemaClass.STATUS)
         if manifest is not None:
-            require(type(manifest.get('coverage')) is dict and manifest['coverage'].get('failed') in (None, []))
+            require(type(manifest.get('coverage')) is dict
+                    and manifest['coverage'].get('failed') in (None, []), SchemaClass.COVERAGE)
         return False
-    require(summary is not None and summary.get('budget_exceeded') is True and manifest is not None)
-    require(all(type(w) is dict and w.get('type') == 'token_budget_reached' for w in warnings))
+    require(summary is not None and summary.get('budget_exceeded') is True, SchemaClass.SUMMARY)
+    require(manifest is not None, SchemaClass.MANIFEST)
+    require(all(type(w) is dict and w.get('type') == 'token_budget_reached' for w in warnings), SchemaClass.WARNINGS)
     coverage = manifest.get('coverage')
-    require(type(coverage) is dict and type(coverage.get('completed')) is list and coverage['completed'])
+    require(type(coverage) is dict and type(coverage.get('completed')) is list and coverage['completed'],
+            SchemaClass.COVERAGE)
     require(all(type(item) is dict and type(item.get('item_id')) is str and item['item_id']
-                and 'classification' not in item for item in coverage['completed']))
+                and 'classification' not in item for item in coverage['completed']), SchemaClass.COVERAGE)
     failed = coverage.get('failed')
-    require(type(failed) is list and failed and all(type(item) is dict and item.get('classification') == 'budget' for item in failed))
+    require(type(failed) is list and failed
+            and all(type(item) is dict and item.get('classification') == 'budget' for item in failed), SchemaClass.COVERAGE)
     return True
 
 
@@ -170,11 +188,11 @@ def project(raw, files, secrets=(), *, set_phase=lambda _: None):
     set_phase(ProjectPhase.JSON)
     report = parse(raw)
     set_phase(ProjectPhase.SCHEMA)
-    require(type(report) is dict and set(report) <= REVIEW_FIELDS)
+    require(type(report) is dict and set(report) <= REVIEW_FIELDS, SchemaClass.STRUCTURE)
     findings = report.get('comments')
     if findings is None and 'comments' in report:
         findings = []
-    require(type(findings) is list and len(findings) <= 500)
+    require(type(findings) is list and len(findings) <= 500, SchemaClass.COMMENTS)
     partial = review_status(report, findings)
     set_phase(ProjectPhase.FINDING)
     entries, digest = indexed(files)
@@ -350,10 +368,12 @@ def cli():
 
     try:
         main(sys.argv[1], set_phase)
-    except Exception:
+    except Exception as exc:
         message = 'Open Code Review: operação recusada ou indisponível.'
         if phase is not None:
             message += f' Fase: {phase.value}.'
+        if phase is ProjectPhase.SCHEMA and isinstance(exc, Refused) and isinstance(exc.schema, SchemaClass):
+            message += f' Classe: {exc.schema.value}.'
         print(message, file=sys.stderr)
         sys.exit(1)
 
