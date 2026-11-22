@@ -9,37 +9,58 @@ test('official session requires live provider proof and closes on offline, expir
   let now = 1_800_000_000_000
   let expiry = now + 90_000
   let offline = false
+  let stored: Buffer | null = null
+  let callback = ''
   let nextTimer = 0
   const timers = new Map<number, () => Promise<void>>()
   const config = { clerkFrontendOrigin: 'https://clerk.example.invalid', clerkProxyOrigin: 'https://auth.example.invalid', clerkTokenOrigin: 'https://app.example.invalid' }
   const setup = (configured: boolean) => loadMainModule<typeof import('../main/account.ts')>('account', {
     'node:events': { EventEmitter }, 'node:crypto': { randomBytes },
-    electron: { app: { getPath: () => '/fixture', getVersion: () => 'fixture' }, ipcMain: {}, safeStorage: { isEncryptionAvailable: () => true } },
+    electron: { app: { getPath: () => '/fixture', getVersion: () => 'fixture' }, ipcMain: {}, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value: string) => Buffer.from(value), decryptString: (value: Buffer) => value.toString() } },
     './environment': { identity: { appId: 'app.fixture' }, buildConfig: {}, officialLoginConfig: configured ? config : null },
     '../shared/fork-features': { forkFeatures: { cloudAccess: false }, officialDesktop: true },
-    './auth': {}, './fork-account/config': { accountConfig, accountBrowserURL },
-    './fork-account/storage': { AccountStorage: class { async load() { return { kind: 'empty' } } async clear() {} } },
+    './auth': { authenticate: async () => callback, AuthenticationEnded: class extends Error {} }, './fork-account/config': { accountConfig, accountBrowserURL },
+    './fork-account/storage': { AccountStorage: class {
+      async hasArchives() { return false }
+      async load() { return stored ? { kind: 'active', sealed: stored } : { kind: 'empty' } }
+      async retain(data: Buffer, _state: string, current: () => void) { current(); stored = data }
+      async clear() { stored = null }
+    } },
     './fork-account/password-attempt': { PasswordAttemptStore: class { async load() { return null } async clear() {} } },
   }, {
     URL, URLSearchParams, Buffer, process: { platform: 'darwin' }, Date: { now: () => now },
     setTimeout: (action: () => Promise<void>) => { const id = ++nextTimer; timers.set(id, action); return { id, unref() {} } },
     clearTimeout: (timer?: { id: number }) => { if (timer) timers.delete(timer.id) },
-    fetch: async () => {
+    fetch: async (url: URL, init: { method: string; body?: string }) => {
       if (offline) throw new Error('offline')
-      return { ok: true, headers: new Headers(), json: async () => ({ response: { last_active_session_id: 'session', sessions: [{ id: 'session', status: 'active', expire_at: expiry, user: { id: 'user' } }] } }) }
+      let response: unknown
+      const headers = new Headers()
+      if (url.pathname === '/v1/client/sign_ins' && init.method === 'POST') {
+        callback = new URLSearchParams(init.body).get('redirect_url')!
+        headers.set('authorization', 'fixture-native-client')
+        response = { id: 'signin', status: 'needs_first_factor' }
+      } else if (url.pathname.endsWith('/prepare_first_factor')) {
+        response = { id: 'signin', status: 'needs_first_factor', first_factor_verification: { external_verification_redirect_url: 'https://clerk.example.invalid/oauth' } }
+      } else if (url.pathname === '/v1/client/sign_ins/signin') {
+        response = { id: 'signin', status: 'complete', created_session_id: 'session' }
+      } else {
+        response = { last_active_session_id: 'session', sessions: [{ id: 'session', status: 'active', expire_at: expiry, user: { id: 'user' } }] }
+      }
+      return { ok: true, headers, json: async () => ({ response }) }
     },
   })
   const noConfig = new (setup(false).AccountService)()
   assert.equal(noConfig.state.configured, false)
   assert.equal(noConfig.officialSessionCurrent(), false)
   const service = new (setup(true).AccountService)()
-  const fixture = service as unknown as { refreshClient(): Promise<void>; deviceToken: string; set(change: { ready: boolean }): void }
-  fixture.set({ ready: true })
+  const restore = (account: typeof service) => (account as unknown as { restore(): Promise<void> }).restore()
+  await restore(service)
   assert.equal(service.officialSessionCurrent(), false)
-  fixture.deviceToken = 'fixture-native-client'
-  await fixture.refreshClient()
+  service.state.socialProviders = ['google']
+  assert.equal(await service.signIn('google'), null)
   assert.equal(service.officialSessionCurrent(), true)
   assert.equal(service.state.user?.userId, 'user')
+  assert.equal(timers.size, 2)
 
   offline = true
   now += 10_000
@@ -49,16 +70,25 @@ test('official session requires live provider proof and closes on offline, expir
   assert.equal(service.reconciliationState().kind, 'session_unverified')
 
   offline = false
+  now += 10_000
   await timers.get(nextTimer)!()
-  assert.equal(service.officialSessionCurrent(), true)
-  now = expiry
-  assert.equal(service.officialSessionCurrent(), false)
-
-  expiry += 90_000
-  await fixture.refreshClient()
   assert.equal(service.officialSessionCurrent(), true)
   const signingOut = service.signOut()
   assert.equal(service.officialSessionCurrent(), false)
   await signingOut
   assert.equal(service.state.user, null)
+  assert.equal(timers.size, 0)
+
+  stored = Buffer.from(JSON.stringify({ version: 3, token: 'fixture-native-client', principal: { userId: 'user', sessionId: 'session' } }))
+  const restored = new (setup(true).AccountService)()
+  await restore(restored)
+  assert.equal(restored.officialSessionCurrent(), true)
+  assert.equal(timers.size, 2)
+  now += 10_000
+  await timers.get(nextTimer)!()
+  assert.equal(restored.officialSessionCurrent(), true)
+  now = expiry
+  assert.equal(restored.officialSessionCurrent(), false)
+  await timers.get(nextTimer)!()
+  assert.equal(restored.state.user, null)
 })

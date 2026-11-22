@@ -16,6 +16,17 @@ test('official IPC denies privileged and unknown channels before login and after
   ipc.handle('host:call', () => 'hub')
   ipc.handle('account:newPrivilegedFeature', () => 'future')
   ipc.on('host:install', () => { starts++ })
+  for (const channel of ['speech:available', 'island:supported']) {
+    ipc.on(channel, (event: Event) => { event.returnValue = true })
+    const entry: Event = { entry: true }
+    const other: Event = {}
+    ipc.emit(channel, entry)
+    ipc.emit(channel, other)
+    assert.equal(entry.returnValue, true)
+    assert.equal(other.returnValue, null)
+  }
+  ipc.on('speech:start', () => { starts++ })
+  ipc.emit('speech:start', { entry: true })
   const opening = { entry: true }
   assert.equal(handlers.get('account:state')!(opening), 'state')
   assert.throws(() => handlers.get('account:state')!({}), /account_required/)

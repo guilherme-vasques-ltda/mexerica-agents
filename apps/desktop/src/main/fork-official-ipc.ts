@@ -4,6 +4,7 @@ const entryChannels = new Set([
   'app:name', 'app:scheme', 'app:version', 'app:suggestedLanguage', 'app:setLanguage',
   'app:windowControls', 'app:isFullScreen', 'app:openedAtLogin', 'app:debugOpen',
   'host:snapshot',
+  'speech:available', 'island:supported',
   'account:state', 'account:signIn', 'account:signInWithPassword', 'account:reconcileSignInWithPassword',
   'account:attemptSecondFactor', 'account:signUpWithPassword', 'account:signInWithEmailCode', 'account:verifyEmailCode',
   'account:forgotPassword', 'account:resetPassword', 'account:resendEmailCode', 'account:cancelPending',
