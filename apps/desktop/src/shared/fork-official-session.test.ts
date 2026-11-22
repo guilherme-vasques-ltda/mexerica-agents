@@ -18,6 +18,7 @@ test('official session requires live provider proof and closes on offline, expir
   const removed: string[] = []
   let nextTimer = 0
   const timers = new Map<number, () => Promise<void>>()
+  const deadlines = new Map<number, number>()
   const config = { clerkFrontendOrigin: 'https://clerk.example.invalid', clerkProxyOrigin: 'https://auth.example.invalid', clerkTokenOrigin: 'https://app.example.invalid' }
   const setup = (configured: boolean) => loadMainModule<typeof import('../main/account.ts')>('account', {
     'node:events': { EventEmitter }, 'node:crypto': { randomBytes },
@@ -41,8 +42,8 @@ test('official session requires live provider proof and closes on offline, expir
     './fork-account/password-attempt': { PasswordAttemptStore: class { async load() { return null } async loadForExit() { return null } async clear() {} } },
   }, {
     URL, URLSearchParams, Buffer, process: { platform: 'darwin' }, Date: { now: () => now },
-    setTimeout: (action: () => Promise<void>) => { const id = ++nextTimer; timers.set(id, action); return { id, unref() {} } },
-    clearTimeout: (timer?: { id: number }) => { if (timer) timers.delete(timer.id) },
+    setTimeout: (action: () => Promise<void>, delay: number) => { const id = ++nextTimer; timers.set(id, action); deadlines.set(id, now + delay); return { id, unref() {} } },
+    clearTimeout: (timer?: { id: number }) => { if (timer) { timers.delete(timer.id); deadlines.delete(timer.id) } },
     fetch: async (url: URL, init: { method: string; body?: string }) => {
       if (offline) throw new Error('offline')
       let response: unknown
@@ -65,7 +66,7 @@ test('official session requires live provider proof and closes on offline, expir
           headers.set('authorization', 'fixture-native-client')
         }
       }
-      return { ok: true, headers, json: async () => ({ response }) }
+      return { ok: true, headers, json: async () => url.pathname === '/v1/me' ? { response: {}, client: response } : { response } }
     },
   })
   const noConfig = new (setup(false).AccountService)()
@@ -158,4 +159,36 @@ test('official session requires live provider proof and closes on offline, expir
   assert.equal(restored.officialSessionCurrent(), true)
   assert.equal(stored, savedReplacement)
   assert.ok(removed.every(path => !path.includes('/replacement/')))
+
+  const profileCheckAt = deadlines.get(nextTimer)!
+  const proofDeadline = deadlines.get(nextTimer - 1)!
+  now += 4_000
+  await restored.profileCall('GET', '/v1/me')
+  assert.equal(deadlines.get(nextTimer), profileCheckAt)
+  assert.equal(deadlines.get(nextTimer - 1), proofDeadline)
+  const sidecarRace = deferred()
+  heldRefresh = sidecarRace
+  now = profileCheckAt
+  const pendingProfileCheck = timers.get(nextTimer)!()
+  await restored.profileCall('GET', '/v1/me')
+  sidecarRace.resolve()
+  await pendingProfileCheck
+  assert.equal(deadlines.get(nextTimer - 1), proofDeadline)
+  now = proofDeadline
+  await timers.get(nextTimer - 1)!()
+  assert.equal(restored.officialSessionCurrent(), false)
+  await timers.get(nextTimer)!()
+  assert.equal(restored.officialSessionCurrent(), true)
+
+  await restored.signOut()
+  expiry = now + 15_000
+  assert.equal(await restored.signIn('google'), null)
+  const sessionDeadline = expiry
+  expiry += 90_000
+  await restored.profileCall('GET', '/v1/me')
+  assert.equal(deadlines.get(nextTimer - 1), sessionDeadline)
+  now = sessionDeadline
+  await timers.get(nextTimer - 1)!()
+  assert.equal(restored.officialSessionCurrent(), false)
+  assert.equal(stored, null)
 })

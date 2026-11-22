@@ -265,7 +265,9 @@ export class AccountService extends EventEmitter {
       }
       await this.recheckOfficialSession(session.id, userId)
     }
-    this.officialSessionTimer = setTimeout(check, Math.max(0, Math.min(10_000, expires - Date.now())))
+    const now = Date.now()
+    const nextCheck = this.officialProof ? this.officialProof.until - 10_000 : now + 10_000
+    this.officialSessionTimer = setTimeout(check, Math.max(0, Math.min(nextCheck, expires) - now))
     this.officialSessionTimer.unref()
   }
   private async recheckOfficialSession(sessionId: string, userId: string | undefined) {
@@ -282,7 +284,13 @@ export class AccountService extends EventEmitter {
       this.watchOfficialSession()
     })
     this.officialRefresh = pending
-    try { await pending } finally { if (this.officialRefresh === pending) this.officialRefresh = null }
+    try { await pending } finally {
+      if (this.officialRefresh === pending) {
+        this.officialRefresh = null
+        const current = this.selectedSession
+        if (epoch === this.epoch && current !== session && current?.id === sessionId && current.user?.id === userId) this.watchOfficialSession()
+      }
+    }
   }
   private set(change: Partial<AccountState>) {
     const next = { ...this.state, ...change }
@@ -769,16 +777,26 @@ export class AccountService extends EventEmitter {
     return (json.response ?? json) as T
   }
 
-  private applyClient(client: ClerkClient | null) {
+  private applyClient(client: ClerkClient | null, verified = false) {
     const previousClient = this.client
-    const previous = this.activeSession
+    const previous = officialDesktop ? this.selectedSession : this.activeSession
     this.client = client
-    const next = this.activeSession
+    const next = officialDesktop ? this.selectedSession : this.activeSession
     if (previous && (previous.id !== next?.id || previous.user?.id !== next?.user?.id)) {
       this.client = previousClient
       this.cachedToken = null
       if (terminalSession(client, previous.id)) void this.expire()
       else this.retryLater()
+    }
+    if (officialDesktop && !verified && previous && next && this.selectedSession === next && previous.id === next.id && previous.user?.id === next.user?.id) {
+      next.expire_at = typeof previous.expire_at === 'number' && Number.isSafeInteger(previous.expire_at) &&
+        typeof next.expire_at === 'number' && Number.isSafeInteger(next.expire_at)
+        ? Math.min(previous.expire_at, next.expire_at) : previous.expire_at
+    }
+    if (officialDesktop) {
+      const selected = this.selectedSession
+      if (selected && this.expireOfficialSession(this.epoch, selected)) return
+      this.watchOfficialSession()
     }
     this.set({})
   }
@@ -800,8 +818,7 @@ export class AccountService extends EventEmitter {
         ? { sessionId: session.id, userId: session.user.id, until: Date.now() + 20_000 }
         : null
     }
-    this.applyClient(client)
-    if (officialDesktop) this.watchOfficialSession()
+    this.applyClient(client, true)
   }
 
   private async passwordCall(record: PasswordAttempt, epoch: number, path: string, method: 'GET' | 'POST', body?: Record<string, string>): Promise<{ ok: boolean; status: number; value: SignInResource; codes: string[]; credential: string | null }> {
