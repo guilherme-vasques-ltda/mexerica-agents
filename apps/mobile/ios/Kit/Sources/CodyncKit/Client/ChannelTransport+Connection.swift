@@ -93,7 +93,12 @@ extension ChannelTransport {
         } catch {
             return identityFailure ?? .retry(HostError.unreachable.localizedDescription)
         }
+        let channelBeforeRelay = channelGeneration
         let relayed = await serve(socket, route: .relay, keys: nil)
+        if channelGeneration > channelBeforeRelay {
+            // A completed relay handshake proved the pinned key; a later drop is a new problem.
+            return relayed
+        }
         switch relayed {
         case .again, .stop:
             // The pinned computer answered through the relay: its own terminal result wins.
