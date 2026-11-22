@@ -12,7 +12,7 @@ use tokio::{io::AsyncWriteExt, net::TcpListener};
 
 struct TestEnv {
     hub: Arc<Hub>,
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
 }
 
 impl TestEnv {
@@ -21,7 +21,7 @@ impl TestEnv {
         let store = Store::open(&dir.path().join("test.db")).unwrap();
         let identity = Identity::load_or_create(dir.path()).unwrap();
         let hub = Hub::new(store, "test-host".into(), identity, "test-token".into(), 0);
-        Self { hub, _dir: dir }
+        Self { hub, dir }
     }
 }
 
@@ -47,7 +47,7 @@ async fn status_reflects_real_readiness_and_never_fabricates_ai() {
 
     let mut reg = Registry::load(&env.hub.store).unwrap();
     let id = reg.fingerprint(Backend::Codex, "test", "acct-codex-1");
-    let executable = env._dir.path().join("connector");
+    let executable = env.dir.path().join("connector");
     std::fs::write(&executable, "fixture").unwrap();
     reg.accounts.push(Account {
         managed: None,
@@ -55,7 +55,7 @@ async fn status_reflects_real_readiness_and_never_fabricates_ai() {
         backend: Backend::Codex,
         billing: Billing::PaidApi,
         state: State::Connected,
-        launch: LaunchReference::CliProfile { executable, directory: env._dir.path().to_path_buf() },
+        launch: LaunchReference::CliProfile { executable, directory: env.dir.path().to_path_buf() },
         scope: AuthorizedScope::Owner,
         quota_identity: None,
         verified_at: None,
