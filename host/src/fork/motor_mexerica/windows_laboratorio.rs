@@ -218,6 +218,14 @@ fn query_token_data(
     class: TOKEN_INFORMATION_CLASS,
     minimum: usize,
 ) -> std::result::Result<Vec<usize>, TokenRefusal> {
+    query_token_buffer(token, class, minimum).map(|(data, _)| data)
+}
+
+fn query_token_buffer(
+    token: &OwnedHandle,
+    class: TOKEN_INFORMATION_CLASS,
+    minimum: usize,
+) -> std::result::Result<(Vec<usize>, usize), TokenRefusal> {
     let mut len = 0;
     // SAFETY: this first call only asks for the required size.
     unsafe { GetTokenInformation(token.as_raw_handle(), class, null_mut(), 0, &mut len) };
@@ -228,7 +236,7 @@ fn query_token_data(
     require(unsafe { GetTokenInformation(token.as_raw_handle(), class, data.as_mut_ptr().cast(), len, &mut len) } != 0)
         .map_err(|_| TokenRefusal::Api)?;
     require(len as usize >= minimum).map_err(|_| TokenRefusal::Api)?;
-    Ok(data)
+    Ok((data, len as usize))
 }
 
 fn token_value(token: &OwnedHandle, class: TOKEN_INFORMATION_CLASS) -> Result<u32> {
@@ -392,11 +400,88 @@ struct TokenProbe {
     broad_access: Local,
 }
 
+enum ProbeRefusal {
+    Token(TokenField, TokenRefusal),
+    RemocaoPrivilegios(TokenRefusal),
+}
+
+impl From<(TokenField, TokenRefusal)> for ProbeRefusal {
+    fn from((field, reason): (TokenField, TokenRefusal)) -> Self {
+        Self::Token(field, reason)
+    }
+}
+
+fn privilege_inventory(token: &OwnedHandle) -> std::result::Result<Vec<LUID_AND_ATTRIBUTES>, TokenRefusal> {
+    let offset = offset_of!(TOKEN_PRIVILEGES, Privileges);
+    let (data, len) = query_token_buffer(token, TokenPrivileges, offset)?;
+    // SAFETY: the buffer is aligned and the query checks that it contains the count.
+    let count = unsafe { *data.as_ptr().cast::<u32>() } as usize;
+    let expected = count
+        .checked_mul(size_of::<LUID_AND_ATTRIBUTES>())
+        .and_then(|bytes| offset.checked_add(bytes))
+        .ok_or(TokenRefusal::Formato)?;
+    require(expected == len && len <= size_of_val(data.as_slice())).map_err(|_| TokenRefusal::Formato)?;
+    // SAFETY: the size check covers every entry in the returned token buffer.
+    let entries = unsafe {
+        std::slice::from_raw_parts(data.as_ptr().cast::<u8>().add(offset).cast::<LUID_AND_ATTRIBUTES>(), count)
+    };
+    let mut seen = std::collections::HashSet::new();
+    for entry in entries {
+        require(seen.insert((entry.Luid.HighPart, entry.Luid.LowPart))).map_err(|_| TokenRefusal::Formato)?;
+    }
+    Ok(entries.to_vec())
+}
+
+fn traverse_privilege() -> std::result::Result<LUID, TokenRefusal> {
+    let mut traverse = LUID::default();
+    // SAFETY: the name is terminated and traverse points to writable LUID storage.
+    require(unsafe { LookupPrivilegeValueW(null(), wide("SeChangeNotifyPrivilege").as_ptr(), &mut traverse) } != 0)
+        .map_err(|_| TokenRefusal::Api)?;
+    Ok(traverse)
+}
+
+fn remove_extra_privileges(process: HANDLE) -> std::result::Result<Option<u32>, TokenRefusal> {
+    let adjust = open_token(process, TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES)?;
+    let entries = privilege_inventory(&adjust).map_err(|_| TokenRefusal::Formato)?;
+    let traverse = traverse_privilege().map_err(|_| TokenRefusal::Formato)?;
+    let mut retained = None;
+    let mut removals = Vec::new();
+    for entry in entries {
+        if entry.Luid.HighPart == traverse.HighPart && entry.Luid.LowPart == traverse.LowPart {
+            retained = Some(entry.Attributes);
+            continue;
+        }
+        removals.push(LUID_AND_ATTRIBUTES { Luid: entry.Luid, Attributes: SE_PRIVILEGE_REMOVED });
+    }
+    if !removals.is_empty() {
+        let count = u32::try_from(removals.len()).map_err(|_| TokenRefusal::Formato)?;
+        let offset = offset_of!(TOKEN_PRIVILEGES, Privileges);
+        let size = offset + size_of_val(removals.as_slice());
+        let mut buffer = vec![0usize; size.div_ceil(size_of::<usize>())];
+        // SAFETY: the aligned buffer covers the count and all entries, and the source does not overlap it.
+        let (adjusted, status) = unsafe {
+            let bytes = buffer.as_mut_ptr().cast::<u8>();
+            bytes.cast::<u32>().write(count);
+            bytes.add(offset).cast::<LUID_AND_ATTRIBUTES>().copy_from_nonoverlapping(removals.as_ptr(), removals.len());
+            let adjusted = AdjustTokenPrivileges(adjust.as_raw_handle(), 0, bytes.cast(), 0, null_mut(), null_mut());
+            (adjusted, GetLastError())
+        };
+        require(adjusted != 0).map_err(|_| TokenRefusal::Api)?;
+        require(status == ERROR_SUCCESS).map_err(|_| TokenRefusal::Valor)?;
+    }
+    Ok(retained)
+}
+
 impl TokenProbe {
-    fn check(&self, process: HANDLE, container: Container) -> std::result::Result<(), (TokenField, TokenRefusal)> {
+    fn check(&self, process: HANDLE, container: Container) -> std::result::Result<(), ProbeRefusal> {
+        {
+            let identity = open_token(process, TOKEN_QUERY).map_err(|reason| (TokenField::Abertura, reason))?;
+            verify_token(&identity, self.owner, self.package, PrivilegeCheck::AntesDoAjuste)?;
+        }
+        let retained = remove_extra_privileges(process).map_err(ProbeRefusal::RemocaoPrivilegios)?;
         let token =
             open_token(process, TOKEN_QUERY | TOKEN_DUPLICATE).map_err(|reason| (TokenField::Abertura, reason))?;
-        verify_token(&token, self.owner, self.package)?;
+        verify_token(&token, self.owner, self.package, PrivilegeCheck::DepoisDoAjuste(retained))?;
         let mut raw = null_mut();
         // SAFETY: only a query handle to an identification copy is requested; it is never installed on a thread.
         require(
@@ -441,13 +526,19 @@ impl TokenProbe {
     }
 }
 
+enum PrivilegeCheck {
+    AntesDoAjuste,
+    DepoisDoAjuste(Option<u32>),
+}
+
 fn verify_token(
     child: &OwnedHandle,
     owner: PSID,
     expected: PSID,
+    privilege_check: PrivilegeCheck,
 ) -> std::result::Result<(), (TokenField, TokenRefusal)> {
     use TokenField as Field;
-    use TokenRefusal::{Api, Formato, Valor};
+    use TokenRefusal::{Formato, Valor};
     let value = |field, class, expected| {
         let actual = query_token_value(child, class).map_err(|reason| (field, reason))?;
         require(actual == expected).map_err(|_| (field, Valor))
@@ -459,7 +550,6 @@ fn verify_token(
     let user = data(Field::Usuario, TokenUser, size_of::<TOKEN_USER>())?;
     let integrity = data(Field::Integridade, TokenIntegrityLevel, size_of::<TOKEN_MANDATORY_LABEL>())?;
     let groups = data(Field::Grupos, TokenGroups, offset_of!(TOKEN_GROUPS, Groups))?;
-    let privileges = data(Field::Privilegios, TokenPrivileges, offset_of!(TOKEN_PRIVILEGES, Privileges))?;
     value(Field::Capacidades, TokenCapabilities, 0)?;
     // SAFETY: token_data checked the buffer sizes; the token API fills embedded SID pointers.
     unsafe {
@@ -490,25 +580,15 @@ fn verify_token(
             )
             .map_err(|_| (Field::Grupos, Valor))?;
         }
-        let count = *privileges.as_ptr().cast::<u32>() as usize;
-        require(
-            count
-                <= (size_of_val(privileges.as_slice()) - offset_of!(TOKEN_PRIVILEGES, Privileges))
-                    / size_of::<LUID_AND_ATTRIBUTES>(),
-        )
-        .map_err(|_| (Field::Privilegios, Formato))?;
-        let entries = privileges
-            .as_ptr()
-            .cast::<u8>()
-            .add(offset_of!(TOKEN_PRIVILEGES, Privileges))
-            .cast::<LUID_AND_ATTRIBUTES>();
-        let mut traverse = std::mem::zeroed();
-        require(LookupPrivilegeValueW(null(), wide("SeChangeNotifyPrivilege").as_ptr(), &mut traverse) != 0)
-            .map_err(|_| (Field::LuidTransito, Api))?;
-        for entry in std::slice::from_raw_parts(entries, count) {
+    }
+    if let PrivilegeCheck::DepoisDoAjuste(retained) = privilege_check {
+        let entries = privilege_inventory(child).map_err(|reason| (Field::Privilegios, reason))?;
+        let traverse = traverse_privilege().map_err(|reason| (Field::LuidTransito, reason))?;
+        for entry in &entries {
             require(entry.Luid.HighPart == traverse.HighPart && entry.Luid.LowPart == traverse.LowPart)
                 .map_err(|_| (Field::Privilegios, Valor))?;
         }
+        require(entries.first().map(|entry| entry.Attributes) == retained).map_err(|_| (Field::Privilegios, Valor))?;
     }
     Ok(())
 }
@@ -714,16 +794,19 @@ struct Lab {
     stage: Stage,
     child_stage: Option<i32>,
     create_error: Option<u32>,
-    token_refusal: Option<(TokenField, TokenRefusal)>,
+    token_refusal: Option<ProbeRefusal>,
 }
 
 impl Lab {
     fn report_refusal(&self) {
         eprintln!("LAB_STAGE={:?}", self.stage);
         if matches!(self.stage, Stage::TokenComparador | Stage::TokenLpac)
-            && let Some((field, reason)) = self.token_refusal
+            && let Some(ref refusal) = self.token_refusal
         {
-            eprintln!("LAB_TOKEN={field:?}:{reason:?}");
+            match refusal {
+                ProbeRefusal::Token(field, reason) => eprintln!("LAB_TOKEN={field:?}:{reason:?}"),
+                ProbeRefusal::RemocaoPrivilegios(reason) => eprintln!("LAB_TOKEN=RemocaoPrivilegios:{reason:?}"),
+            }
         }
         if let Some(code) = self.create_error {
             eprintln!("LAB_WIN32={code}");
