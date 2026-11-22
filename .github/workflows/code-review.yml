@@ -28,13 +28,64 @@ jobs:
     outputs:
       ready: ${{ steps.upload.outcome == 'success' }}
     steps:
+      - name: Test filesystem isolation without credentials
+        id: isolation
+        timeout-minutes: 2
+        run: |
+          if ! command -v bwrap > /dev/null; then
+            sudo -n apt-get update -qq > /dev/null 2>&1
+            sudo -n apt-get install -y -qq bubblewrap > /dev/null 2>&1
+          fi
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          mkdir -- "$work/tmp" "$work/profile" "$work/repo"
+          probe() {
+            timeout --kill-after=2s 8s bwrap --unshare-all --share-net --die-with-parent --cap-drop ALL \
+              --clearenv --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin \
+              --ro-bind /etc/ssl/certs /etc/ssl/certs --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
+              --proc /proc --dev /dev --bind "$work/tmp" /tmp --bind "$work/profile" /profile \
+              --ro-bind "$work/repo" /review --chdir /review \
+              --setenv HOME /profile --setenv TMPDIR /tmp --setenv PATH /usr/bin:/bin \
+              /usr/bin/bash -ec 'test "$PWD" = /review && test -z "${GITHUB_WORKSPACE+x}" && ! touch /review/marker 2>/dev/null && touch /tmp/marker' \
+              > /dev/null 2> "$work/probe.log"
+          }
+          if probe && test -f "$work/tmp/marker"; then
+            echo 'Open Code Review: sandbox starts under the default policy.'
+            exit 0
+          fi
+          if grep -Eq 'No permissions to create a new namespace|Operation not permitted|Permission denied' "$work/probe.log"; then
+            echo 'Open Code Review: default sandbox failed with a permission error.'
+          else
+            echo 'Open Code Review: default sandbox failed for an unclassified reason.'
+          fi
+          test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          test "$(readlink -f "$(command -v bwrap)")" = /usr/bin/bwrap
+          test "$(stat -Lc '%u:%g:%a' /usr/bin/bwrap)" = 0:0:755
+          cat > "$work/bwrap.profile" <<'EOF'
+          abi <abi/4.0>,
+          profile ocr-bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          EOF
+          if ! sudo -n apparmor_parser -a "$work/bwrap.profile" > /dev/null 2>&1; then
+            echo 'Open Code Review: scoped sandbox profile could not be loaded.'
+            exit 1
+          fi
+          trap 'sudo -n apparmor_parser -R "$work/bwrap.profile" >/dev/null 2>&1; rm -rf -- "$work"' EXIT
+          if ! probe || ! test -f "$work/tmp/marker"; then
+            echo 'Open Code Review: sandbox failed with the scoped profile.'
+            exit 1
+          fi
+          test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          echo 'Open Code Review: scoped profile enables the sandbox with global protection unchanged.'
       - name: Check configuration
         id: config
+        if: steps.isolation.outputs.credentials_allowed == 'true'
         env:
           OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
           OCR_LLM_AUTH_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
-          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
-          OCR_LLM_PROTOCOL: ${{ vars.OCR_LLM_PROTOCOL || 'openai' }}
+          OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
+          OCR_LLM_PROTOCOL: ${{ (vars.OCR_LLM_PROTOCOL == '' || vars.OCR_LLM_PROTOCOL == 'openai') && 'openai' || vars.OCR_LLM_PROTOCOL == 'openai-responses' && 'openai-responses' || vars.OCR_LLM_PROTOCOL == 'anthropic' && 'anthropic' || 'invalid' }}
           OCR_EFFORT: ${{ vars.OCR_EFFORT || 'medium' }}
           OCR_LANGUAGE: ${{ vars.OCR_LANGUAGE || 'Portuguese' }}
           OCR_MAX_TOKENS_BUDGET: ${{ vars.OCR_MAX_TOKENS_BUDGET || '500000' }}
@@ -114,8 +165,8 @@ jobs:
         env:
           OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
           OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
-          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
-          OCR_LLM_PROTOCOL: ${{ vars.OCR_LLM_PROTOCOL || 'openai' }}
+          OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
+          OCR_LLM_PROTOCOL: ${{ (vars.OCR_LLM_PROTOCOL == '' || vars.OCR_LLM_PROTOCOL == 'openai') && 'openai' || vars.OCR_LLM_PROTOCOL == 'openai-responses' && 'openai-responses' || vars.OCR_LLM_PROTOCOL == 'anthropic' && 'anthropic' || 'invalid' }}
           OCR_EFFORT: ${{ vars.OCR_EFFORT || 'medium' }}
           OCR_LANGUAGE: ${{ vars.OCR_LANGUAGE || 'Portuguese' }}
           OCR_MAX_TOKENS_BUDGET: ${{ vars.OCR_MAX_TOKENS_BUDGET || '500000' }}
@@ -149,6 +200,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
           OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
         run: umask 077; python3 -I tools/ci-code-review.py project
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: upload
