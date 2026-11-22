@@ -92,14 +92,22 @@ globalThis.fetch = async (input, init) => {
 		// A conexão cai depois da saída do pedido: o fornecedor pode tê-lo processado.
 		case "queda_de_conexao":
 			throw new TypeError("fetch failed");
-		// A resposta começou a chegar e o corpo quebra: nada de repetir o que já veio.
+		// A resposta começou a chegar (texto parcial de verdade) e o corpo quebra no meio: nada de repetir o que veio.
 		case "resposta_parcial": {
-			const bytes = new TextEncoder().encode(
-				`data: ${JSON.stringify({ type: "response.created", response: { id: "resp-1", status: "in_progress", output: [] } })}\n\n`,
-			);
+			const entrega = [
+				{ type: "response.created", response: { id: "resp-1", status: "in_progress", output: [] } },
+				{ type: "response.output_item.added", output_index: 0, item: { type: "message", id: "msg-1", content: [] } },
+				{ type: "response.output_text.delta", output_index: 0, delta: "resposta pela metade" },
+			];
+			const bytes = new TextEncoder().encode(entrega.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""));
+			let entregue = false;
 			const corpo = new ReadableStream({
-				start(controller) {
-					controller.enqueue(bytes);
+				pull(controller) {
+					if (!entregue) {
+						entregue = true;
+						controller.enqueue(bytes);
+						return;
+					}
 					controller.error(new Error("conexão interrompida no meio da resposta"));
 				},
 			});

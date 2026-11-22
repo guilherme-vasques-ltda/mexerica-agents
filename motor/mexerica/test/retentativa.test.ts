@@ -197,6 +197,12 @@ test("resposta que já começou a chegar não é repetida", async () => {
 		await modelo(proc);
 		proc.send({ id: "p", type: "prompt", message: "oi" });
 		const fim = await proc.waitFor(turnoTerminou, 30_000);
+		const parciais = proc.lines.filter(
+			(v) =>
+				v.type === "message_update" &&
+				(v.assistantMessageEvent as { type?: string } | undefined)?.type === "text_delta",
+		);
+		assert.ok(parciais.length > 0, "o texto parcial tinha de chegar antes da falha");
 		assert.match(JSON.stringify(fim), /error/, "o turno tinha de terminar em erro");
 		assert.equal(chamadas(log).length, 1, "resposta parcial não se repete");
 	} finally {
