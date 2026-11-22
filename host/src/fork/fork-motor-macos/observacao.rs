@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, num::NonZeroU32};
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, TransactionBehavior};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,26 +54,29 @@ pub(super) struct Geracao {
 impl Geracao {
     pub(super) fn inicializar(db: &Connection) -> Result<()> {
         configurar_durabilidade(db)?;
-        let tx = db.unchecked_transaction()?;
+        let tx = db.unchecked_transaction().context("iniciar registro da geração")?;
         tx.execute_batch(
             "CREATE TABLE cerca_macos (
                  id INTEGER PRIMARY KEY CHECK (id = 1),
                  geracao INTEGER NOT NULL CHECK (geracao > 0)
              ) STRICT;
              INSERT INTO cerca_macos (id, geracao) VALUES (1, 1);",
-        )?;
-        tx.commit()?;
+        )
+        .context("criar registro da geração")?;
+        tx.commit().context("persistir registro inicial da geração")?;
         Ok(())
     }
 
     pub(super) fn recuperar(db: &mut Connection) -> Result<Self> {
         configurar_durabilidade(db)?;
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let valor =
-            tx.query_row("UPDATE cerca_macos SET geracao = geracao + 1 WHERE id = 1 RETURNING geracao", [], |row| {
+        let tx =
+            db.transaction_with_behavior(TransactionBehavior::Immediate).context("iniciar recuperação da geração")?;
+        let valor = tx
+            .query_row("UPDATE cerca_macos SET geracao = geracao + 1 WHERE id = 1 RETURNING geracao", [], |row| {
                 row.get(0)
-            })?;
-        tx.commit()?;
+            })
+            .context("avançar geração na recuperação")?;
+        tx.commit().context("persistir geração recuperada")?;
         Ok(Self { valor })
     }
 
@@ -90,15 +93,19 @@ impl Geracao {
         ler: impl FnOnce() -> Result<(Censo, Option<ParAutenticado>)>,
     ) -> Result<Observacao> {
         configurar_durabilidade(db)?;
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx =
+            db.transaction_with_behavior(TransactionBehavior::Immediate).context("iniciar invalidação da geração")?;
         ensure!(
-            tx.execute("UPDATE cerca_macos SET geracao = geracao + 1 WHERE id = 1 AND geracao = ?1", [self.valor])?
+            tx.execute("UPDATE cerca_macos SET geracao = geracao + 1 WHERE id = 1 AND geracao = ?1", [self.valor])
+                .context("atualizar geração para invalidar a observação")?
                 == 1,
             "geração do observador não está vigente"
         );
-        tx.commit()?;
-        let (censo, depois) = ler()?;
-        let vigente = db.query_row("SELECT geracao FROM cerca_macos WHERE id = 1", [], |row| row.get::<_, i64>(0))?;
+        tx.commit().context("persistir invalidação da geração")?;
+        let (censo, depois) = ler().context("ler censo após invalidar a geração")?;
+        let vigente = db
+            .query_row("SELECT geracao FROM cerca_macos WHERE id = 1", [], |row| row.get::<_, i64>(0))
+            .context("reconferir geração após o censo")?;
         ensure!(self.valor.checked_add(1) == Some(vigente), "geração mudou durante a observação");
         let uid = uid_motor.get();
         if censo.uid_real_observador != titular.get()
@@ -148,9 +155,10 @@ impl Geracao {
 }
 
 fn configurar_durabilidade(db: &Connection) -> Result<()> {
-    let journal: String = db.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+    let journal: String =
+        db.pragma_query_value(None, "journal_mode", |row| row.get(0)).context("consultar journal da geração")?;
     ensure!(journal == "delete", "journal da geração não é durável no modo previsto");
-    db.pragma_update(None, "synchronous", "FULL")?;
-    db.pragma_update(None, "fullfsync", true)?;
+    db.pragma_update(None, "synchronous", "FULL").context("configurar sincronização da geração")?;
+    db.pragma_update(None, "fullfsync", true).context("configurar flush da geração")?;
     Ok(())
 }
