@@ -62,10 +62,13 @@ extension ChannelTransport {
             return await serve(socket, route: .relay, keys: nil)
         }
         let directURLs = computer.urls.compactMap(Self.channelURL)
+        var identityFailure: Outcome?
         if !directURLs.isEmpty {
             switch await raceDirect(directURLs) {
             case let .connected(socket, keys): return await serve(socket, route: .direct, keys: keys)
-            case let .outcome(end): return end
+            case let .identityFailure(end):
+                identityFailure = end
+                if computer.cloud == nil { return end }
             case let .rejected(end, isUpgrade):
                 // A plaintext `reject` isn't signed: whatever answers at a saved LAN address can
                 // send one. With a relay, ask the pinned computer through it; without one, only a
@@ -81,14 +84,23 @@ extension ChannelTransport {
             }
         }
         // Already tried first, or ruled out by the user (privacy): no second relay attempt.
-        guard let cloud = computer.cloud, route == .automatic else { return .retry(HostError.unreachable.localizedDescription) }
+        guard let cloud = computer.cloud, route == .automatic else {
+            return identityFailure ?? .retry(HostError.unreachable.localizedDescription)
+        }
         let socket: any ChannelSocket
         do {
             socket = try await dial(.relay(relayRequest(cloud)))
         } catch {
-            return .retry(HostError.unreachable.localizedDescription)
+            return identityFailure ?? .retry(HostError.unreachable.localizedDescription)
         }
-        return await serve(socket, route: .relay, keys: nil)
+        let relayed = await serve(socket, route: .relay, keys: nil)
+        switch relayed {
+        case .again, .stop:
+            // The pinned computer answered through the relay: its own terminal result wins.
+            return relayed
+        case .retry, .wait:
+            return identityFailure ?? relayed
+        }
     }
 
     /// `http://h:p` → `ws://h:p/channel?v=1`.
@@ -117,8 +129,9 @@ extension ChannelTransport {
 
     private enum DirectResult: Sendable {
         case connected(any ChannelSocket, RelayCrypto.ChannelKeys)
-        /// Authenticated (the pinned key signed it): the identity changed.
-        case outcome(Outcome)
+        /// A `welcome` that the pinned key did not sign. Recorded, but it never wins the race:
+        /// another direct address or the relay may still reach the pinned computer.
+        case identityFailure(Outcome)
         /// An unauthenticated `reject` from some address.
         case rejected(Outcome, isUpgrade: Bool)
         case none
@@ -142,6 +155,7 @@ extension ChannelTransport {
             }
             var winner = DirectResult.none
             var rejection: (Outcome, Bool)?
+            var identityFailure: Outcome?
             var decided = false
             var failed = 0
             for await finish in group {
@@ -154,20 +168,31 @@ extension ChannelTransport {
                 case .timeout:
                     decided = true
                 case let .attempt(result):
-                    // A reject only fails that address; another may be the real computer.
-                    if case let .rejected(o, isUpgrade) = result, rejection == nil { rejection = (o, isUpgrade) }
                     switch result {
-                    case .none, .rejected:
+                    case let .identityFailure(end):
+                        // An unproven answer at one saved address says nothing about the others.
+                        if identityFailure == nil { identityFailure = end }
                         failed += 1
                         decided = failed == urls.count
-                    default:
+                    case let .rejected(o, isUpgrade):
+                        // A reject only fails that address; another may be the real computer.
+                        if rejection == nil { rejection = (o, isUpgrade) }
+                        failed += 1
+                        decided = failed == urls.count
+                    case .none:
+                        failed += 1
+                        decided = failed == urls.count
+                    case .connected:
                         winner = result
                         decided = true
                     }
                 }
                 if decided { group.cancelAll() }
             }
-            if case .none = winner, let rejection { return .rejected(rejection.0, isUpgrade: rejection.1) }
+            if case .none = winner {
+                if let identityFailure { return .identityFailure(identityFailure) }
+                if let rejection { return .rejected(rejection.0, isUpgrade: rejection.1) }
+            }
             return winner
         }
     }
@@ -191,7 +216,7 @@ extension ChannelTransport {
                             return .connected(socket, try hs.finish(ekH: ek, sig: sig))
                         } catch {
                             socket.close(code: 4001)
-                            return .outcome(.stop(.unauthorized(identityChanged)))
+                            return .identityFailure(.stop(.unauthorized(identityChanged)))
                         }
                     case "reject":
                         socket.close(code: 1000)

@@ -325,6 +325,81 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     await t.shutdown()
 }
 
+@Test(.timeLimit(.minutes(1))) func invalidDirectWelcomeDoesNotCancelAnotherDirectCandidate() async throws {
+    let (dial, sockets) = fakeDialer()
+    var computer = v.computer
+    computer.boxKey = nil
+    computer.urls = ["http://192.0.2.1:19222", "http://192.0.2.2:19222"]
+    computer.cloud = nil
+    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial,
+                             directBudget: .seconds(5), watchesNetwork: false)
+    await t.start()
+    var it = sockets.makeAsyncIterator()
+    // Something at the first saved address answers with a well-formed welcome signed by another key.
+    var stranger = HostSide(try #require(await it.next()))
+    try await stranger.accept(hostSigner: Curve25519.Signing.PrivateKey())
+    let second = try #require(await it.next())
+    guard case .direct = second.endpoint else { Issue.record("expected the second direct address"); return }
+    var host = HostSide(second)
+    try await host.accept()
+    #expect(await t.settled(within: .seconds(5)) == .ready(.direct))
+    #expect(await !t.isStopped)
+    await t.shutdown()
+}
+
+@Test(.timeLimit(.minutes(1))) func invalidDirectWelcomeFallsBackToTheRelay() async throws {
+    let (dial, sockets) = fakeDialer()
+    var computer = v.computer
+    computer.boxKey = nil
+    computer.urls = ["http://192.0.2.1:19222"]
+    computer.cloud = URL(string: "https://cloud.example.dev")
+    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial,
+                             directBudget: .seconds(5), watchesNetwork: false)
+    let screenRoute = Task { try await t.screenRelayRequired() }
+    await t.start()
+    var it = sockets.makeAsyncIterator()
+    var stranger = HostSide(try #require(await it.next()))
+    try await stranger.accept(hostSigner: Curve25519.Signing.PrivateKey())
+    let relayed = try #require(await it.next())
+    guard case .relay = relayed.endpoint else { Issue.record("expected the relay"); return }
+    var relay = HostSide(relayed)
+    await relay.push(["t": "presence", "online": true, "lastSeenAt": NSNull()])
+    try await relay.accept()
+    #expect(await t.settled(within: .seconds(5)) == .ready(.relay))
+    #expect(try await screenRoute.value)
+    #expect(await !t.isStopped)
+    await t.shutdown()
+}
+
+@Test(.timeLimit(.minutes(1))) func invalidDirectWelcomeStopsWithoutRetryWhenRelayFails() async throws {
+    let (sockets, sink) = AsyncStream<FakeSocket>.makeStream()
+    let relays = Pipe()
+    let dial: Dialer = { endpoint in
+        switch endpoint {
+        case .direct:
+            let socket = FakeSocket(endpoint)
+            sink.yield(socket)
+            return socket
+        case .relay:
+            await relays.push("relay")
+            throw HostError.unreachable
+        }
+    }
+    var computer = v.computer
+    computer.urls = ["http://192.0.2.1:19222"]
+    computer.cloud = URL(string: "https://cloud.example.dev")
+    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial,
+                             directBudget: .seconds(5), watchesNetwork: false)
+    await t.start()
+    var it = sockets.makeAsyncIterator()
+    var stranger = HostSide(try #require(await it.next()))
+    try await stranger.accept(hostSigner: Curve25519.Signing.PrivateKey())
+    #expect(await t.settled(within: .seconds(5)) == .unauthorized(ChannelTransport.identityChanged))
+    #expect(await t.isStopped)
+    #expect(try await relays.pop() == "relay")
+    await t.shutdown()
+}
+
 @Test(.timeLimit(.minutes(1))) func directRejectFallsBackToTheRelay() async throws {
     let (dial, sockets) = fakeDialer()
     var computer = v.computer
