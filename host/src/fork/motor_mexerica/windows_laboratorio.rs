@@ -178,7 +178,6 @@ fn restrict_path(path: &Path, sddl: &str) -> Result<()> {
 enum TokenField {
     Abertura,
     AppContainer,
-    Lpac,
     Elevacao,
     Pacote,
     Usuario,
@@ -187,6 +186,9 @@ enum TokenField {
     Privilegios,
     Capacidades,
     LuidTransito,
+    CopiaIdentificacao,
+    AcessoPacote,
+    AcessoAmplo,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -197,13 +199,13 @@ enum TokenRefusal {
 }
 
 fn token(process: HANDLE) -> Result<OwnedHandle> {
-    open_token(process).map_err(|_| REFUSED)
+    open_token(process, TOKEN_QUERY).map_err(|_| REFUSED)
 }
 
-fn open_token(process: HANDLE) -> std::result::Result<OwnedHandle, TokenRefusal> {
+fn open_token(process: HANDLE, rights: TOKEN_ACCESS_MASK) -> std::result::Result<OwnedHandle, TokenRefusal> {
     let mut raw = null_mut();
     // SAFETY: process is a live process handle or the current-process pseudohandle.
-    require(unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut raw) } != 0).map_err(|_| TokenRefusal::Api)?;
+    require(unsafe { OpenProcessToken(process, rights, &mut raw) } != 0).map_err(|_| TokenRefusal::Api)?;
     handle(raw).map_err(|_| TokenRefusal::Formato)
 }
 
@@ -377,17 +379,81 @@ fn local_app_data(token: &OwnedHandle) -> Result<(Vec<File>, Vec<u16>)> {
     Ok((handles, local[4..].to_vec()))
 }
 
-fn verify_token(process: HANDLE, owner: PSID, expected: PSID) -> std::result::Result<(), (TokenField, TokenRefusal)> {
+#[derive(Clone, Copy)]
+enum Container {
+    Comparador,
+    Lpac,
+}
+
+struct TokenProbe {
+    owner: PSID,
+    package: PSID,
+    package_access: Local,
+    broad_access: Local,
+}
+
+impl TokenProbe {
+    fn check(&self, process: HANDLE, container: Container) -> std::result::Result<(), (TokenField, TokenRefusal)> {
+        let token =
+            open_token(process, TOKEN_QUERY | TOKEN_DUPLICATE).map_err(|reason| (TokenField::Abertura, reason))?;
+        verify_token(&token, self.owner, self.package)?;
+        let mut raw = null_mut();
+        // SAFETY: only a query handle to an identification copy is requested; it is never installed on a thread.
+        require(
+            unsafe {
+                DuplicateTokenEx(
+                    token.as_raw_handle(),
+                    TOKEN_QUERY,
+                    null(),
+                    SecurityIdentification,
+                    TokenImpersonation,
+                    &mut raw,
+                )
+            } != 0,
+        )
+        .map_err(|_| (TokenField::CopiaIdentificacao, TokenRefusal::Api))?;
+        let copy = handle(raw).map_err(|_| (TokenField::CopiaIdentificacao, TokenRefusal::Formato))?;
+        for (sd, field, expected) in [
+            (&self.package_access, TokenField::AcessoPacote, true),
+            (&self.broad_access, TokenField::AcessoAmplo, matches!(container, Container::Comparador)),
+        ] {
+            let (mut granted, mut allowed) = (0, 0);
+            let mut privileges = PRIVILEGE_SET::default();
+            let mut length = u32::try_from(size_of_val(&privileges)).map_err(|_| (field, TokenRefusal::Formato))?;
+            // SAFETY: the descriptor, identification copy and output buffers live through this in-memory check.
+            let checked = unsafe {
+                AccessCheck(
+                    sd.0,
+                    copy.as_raw_handle(),
+                    1,
+                    &GENERIC_MAPPING::default(),
+                    &mut privileges,
+                    &mut length,
+                    &mut granted,
+                    &mut allowed,
+                )
+            };
+            require(checked != 0).map_err(|_| (field, TokenRefusal::Api))?;
+            require(matches!((allowed, granted), (0, 0) | (1, 1))).map_err(|_| (field, TokenRefusal::Formato))?;
+            require((allowed == 1) == expected).map_err(|_| (field, TokenRefusal::Valor))?;
+        }
+        Ok(())
+    }
+}
+
+fn verify_token(
+    child: &OwnedHandle,
+    owner: PSID,
+    expected: PSID,
+) -> std::result::Result<(), (TokenField, TokenRefusal)> {
     use TokenField as Field;
     use TokenRefusal::{Api, Formato, Valor};
-    let child = open_token(process).map_err(|reason| (Field::Abertura, reason))?;
     let value = |field, class, expected| {
-        let actual = query_token_value(&child, class).map_err(|reason| (field, reason))?;
+        let actual = query_token_value(child, class).map_err(|reason| (field, reason))?;
         require(actual == expected).map_err(|_| (field, Valor))
     };
-    let data = |field, class, minimum| query_token_data(&child, class, minimum).map_err(|reason| (field, reason));
+    let data = |field, class, minimum| query_token_data(child, class, minimum).map_err(|reason| (field, reason));
     value(Field::AppContainer, TokenIsAppContainer, 1)?;
-    value(Field::Lpac, TokenIsLessPrivilegedAppContainer, 1)?;
     value(Field::Elevacao, TokenElevation, 0)?;
     let package = data(Field::Pacote, TokenAppContainerSid, size_of::<TOKEN_APPCONTAINER_INFORMATION>())?;
     let user = data(Field::Usuario, TokenUser, size_of::<TOKEN_USER>())?;
@@ -466,16 +532,15 @@ fn pipe(sd: &Local, child_reads: bool) -> Result<(OwnedHandle, OwnedHandle)> {
 struct Attributes(LPPROC_THREAD_ATTRIBUTE_LIST, Vec<usize>);
 
 impl Attributes {
-    fn new() -> Result<Self> {
-        const COUNT: u32 = 5;
+    fn new(count: u32) -> Result<Self> {
         let mut bytes = 0;
         // SAFETY: null requests the required allocation size and does not initialize anything.
-        unsafe { InitializeProcThreadAttributeList(null_mut(), COUNT, 0, &mut bytes) };
+        unsafe { InitializeProcThreadAttributeList(null_mut(), count, 0, &mut bytes) };
         require((1..=64 * 1024).contains(&bytes))?;
         let mut allocation = vec![0usize; bytes.div_ceil(size_of::<usize>())];
         let list = allocation.as_mut_ptr().cast();
         // SAFETY: the aligned allocation covers bytes and is kept alive until Delete.
-        require(unsafe { InitializeProcThreadAttributeList(list, COUNT, 0, &mut bytes) } != 0)?;
+        require(unsafe { InitializeProcThreadAttributeList(list, count, 0, &mut bytes) } != 0)?;
         Ok(Self(list, allocation))
     }
 
@@ -628,7 +693,9 @@ enum Stage {
     Job,
     Atributos,
     AtributoLpac,
+    CriacaoComparador,
     CriacaoSuspensa,
+    TokenComparador,
     TokenLpac,
     Imagem,
     Loopback,
@@ -638,6 +705,7 @@ enum Stage {
     Ipc,
     Filho,
     Termino,
+    TerminoComparador,
 }
 
 #[derive(Default)]
@@ -652,7 +720,7 @@ struct Lab {
 impl Lab {
     fn report_refusal(&self) {
         eprintln!("LAB_STAGE={:?}", self.stage);
-        if let Stage::TokenLpac = self.stage
+        if matches!(self.stage, Stage::TokenComparador | Stage::TokenLpac)
             && let Some((field, reason)) = self.token_refusal
         {
             eprintln!("LAB_TOKEN={field:?}:{reason:?}");
@@ -708,142 +776,183 @@ impl Lab {
         require(fs::read(&broad).map_err(|_| REFUSED)? == b"sentinela-pacotes")?;
 
         let sd = descriptor(&format!("D:P(A;;GA;;;{owner_text})"))?;
-        let (input, child_in) = pipe(&sd, true)?;
-        let (quiet, child_out) = pipe(&sd, false)?;
-        let (output, child_reply) = pipe(&sd, false)?;
-        let (marker, not_allowlisted) = pipe(&sd, false)?;
-        self.stage = Stage::Job;
-        let job = job()?;
-        let jobs = [job.as_raw_handle()];
-        let inherited = [child_in.as_raw_handle(), child_out.as_raw_handle(), child_reply.as_raw_handle()];
-        let capabilities = SECURITY_CAPABILITIES { AppContainerSid: profile.sid, ..Default::default() };
-        let no_children = 1u32;
-        let package_policy = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
-        self.stage = Stage::Atributos;
-        let mut attrs = Attributes::new()?;
-        attrs.add(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
-        attrs.add(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
-        attrs.add(PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, &capabilities)?;
-        attrs.add(PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, &no_children)?;
-        self.stage = Stage::AtributoLpac;
-        attrs.add(PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY, &package_policy)?;
-        self.stage = Stage::CriacaoSuspensa;
-        let mut start = STARTUPINFOEXW::default();
-        start.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>()).map_err(|_| REFUSED)?;
-        start.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-        [start.StartupInfo.hStdInput, start.StartupInfo.hStdOutput, start.StartupInfo.hStdError] = inherited;
-        start.lpAttributeList = attrs.0;
-        let (_, tests) = module_path!().split_once("::").ok_or(REFUSED)?;
-        let mut command = wide(format!("{WORKER} --ignored --exact {tests}::catalog_child --quiet"));
-        let mut system_root = vec![0u16; 32_768];
-        let capacity = u32::try_from(system_root.len()).map_err(|_| REFUSED)?;
-        // SAFETY: system_root has room for capacity UTF-16 units.
-        let length = unsafe { GetSystemWindowsDirectoryW(system_root.as_mut_ptr(), capacity) } as usize;
-        require(length > 0 && length < system_root.len() && system_root[length] == 0)?;
-        let system_root = &system_root[..length];
-        require(!system_root.contains(&0))?;
-        let root_path = PathBuf::from(OsString::from_wide(system_root));
-        require(root_path.is_absolute())?;
-        let (_system_dirs, _) = directory_chain(system_root)?;
-        let mut environment: Vec<u16> = "LOCALAPPDATA=".encode_utf16().collect();
-        environment.extend(local_data);
-        environment.push(0);
-        environment.extend("SystemRoot=".encode_utf16());
-        environment.extend_from_slice(system_root);
-        environment.extend([0, 0]);
-        let mut process = PROCESS_INFORMATION::default();
-        // SAFETY: terminated paths/command, a writable command line, an explicit UTF-16 environment,
-        // and live attributes/handles. The process enters the Job atomically and starts suspended.
-        let image_path = wide(&image);
-        let current_dir = wide(root.path());
-        let created = unsafe {
-            CreateProcessW(
-                image_path.as_ptr(),
-                command.as_mut_ptr(),
-                null(),
-                null(),
-                1,
-                CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
-                environment.as_ptr().cast(),
-                current_dir.as_ptr(),
-                &start.StartupInfo,
-                &mut process,
-            )
+        let probe = TokenProbe {
+            owner: owner_sid,
+            package: profile.sid,
+            package_access: descriptor(&format!("O:SYG:SYD:P(A;;0x1;;;{owner_text})(A;;0x1;;;{package})"))?,
+            broad_access: descriptor(&format!("O:SYG:SYD:P(A;;0x1;;;{owner_text})(A;;0x1;;;S-1-15-2-1)"))?,
         };
-        if created == 0 {
-            // SAFETY: reads this thread's last error immediately after CreateProcessW fails.
-            let code = unsafe { GetLastError() };
-            self.create_error = (1..=99_999).contains(&code).then_some(code);
-            return Err(REFUSED);
-        }
-        self.unconfirmed = true;
-        let process_handle = handle(process.hProcess);
-        let thread = handle(process.hThread);
-        drop((attrs, child_in, child_out, child_reply, not_allowlisted));
-        let result = (|| {
-            let (process, thread) =
-                (process_handle.as_ref().map_err(|_| REFUSED)?, thread.as_ref().map_err(|_| REFUSED)?);
+        let mut before_resume = Some(before_resume);
+        for container in [Container::Comparador, Container::Lpac] {
+            let comparator = matches!(container, Container::Comparador);
+            self.stage = Stage::Preparo;
+            let (input, child_in) = pipe(&sd, true)?;
+            let (quiet, child_out) = pipe(&sd, false)?;
+            let (output, child_reply) = pipe(&sd, false)?;
+            let (marker, not_allowlisted) = pipe(&sd, false)?;
             self.stage = Stage::Job;
-            verify_job(&job, process)?;
-            self.stage = Stage::TokenLpac;
-            if let Err(refusal) = verify_token(process.as_raw_handle(), owner_sid, profile.sid) {
-                self.token_refusal = Some(refusal);
+            let job = job()?;
+            let jobs = [job.as_raw_handle()];
+            let inherited = [child_in.as_raw_handle(), child_out.as_raw_handle(), child_reply.as_raw_handle()];
+            let capabilities = SECURITY_CAPABILITIES { AppContainerSid: profile.sid, ..Default::default() };
+            let no_children = 1u32;
+            let package_policy = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
+            self.stage = Stage::Atributos;
+            let mut attrs = Attributes::new(if comparator { 4 } else { 5 })?;
+            attrs.add(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
+            attrs.add(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
+            attrs.add(PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, &capabilities)?;
+            attrs.add(PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, &no_children)?;
+            if !comparator {
+                self.stage = Stage::AtributoLpac;
+                attrs.add(PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY, &package_policy)?;
+            }
+            self.stage = if comparator { Stage::CriacaoComparador } else { Stage::CriacaoSuspensa };
+            let mut start = STARTUPINFOEXW::default();
+            start.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>()).map_err(|_| REFUSED)?;
+            start.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            [start.StartupInfo.hStdInput, start.StartupInfo.hStdOutput, start.StartupInfo.hStdError] = inherited;
+            start.lpAttributeList = attrs.0;
+            let (_, tests) = module_path!().split_once("::").ok_or(REFUSED)?;
+            let mut command = wide(format!("{WORKER} --ignored --exact {tests}::catalog_child --quiet"));
+            let mut system_root = vec![0u16; 32_768];
+            let capacity = u32::try_from(system_root.len()).map_err(|_| REFUSED)?;
+            // SAFETY: system_root has room for capacity UTF-16 units.
+            let length = unsafe { GetSystemWindowsDirectoryW(system_root.as_mut_ptr(), capacity) } as usize;
+            require(length > 0 && length < system_root.len() && system_root[length] == 0)?;
+            let system_root = &system_root[..length];
+            require(!system_root.contains(&0))?;
+            let root_path = PathBuf::from(OsString::from_wide(system_root));
+            require(root_path.is_absolute())?;
+            let (_system_dirs, _) = directory_chain(system_root)?;
+            let mut environment: Vec<u16> = "LOCALAPPDATA=".encode_utf16().collect();
+            environment.extend_from_slice(&local_data);
+            environment.push(0);
+            environment.extend("SystemRoot=".encode_utf16());
+            environment.extend_from_slice(system_root);
+            environment.extend([0, 0]);
+            let mut process = PROCESS_INFORMATION::default();
+            // SAFETY: terminated paths/command, a writable command line, an explicit UTF-16 environment,
+            // and live attributes/handles. The process enters the Job atomically and starts suspended.
+            let image_path = wide(&image);
+            let current_dir = wide(root.path());
+            let created = unsafe {
+                CreateProcessW(
+                    image_path.as_ptr(),
+                    command.as_mut_ptr(),
+                    null(),
+                    null(),
+                    1,
+                    CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
+                    environment.as_ptr().cast(),
+                    current_dir.as_ptr(),
+                    &start.StartupInfo,
+                    &mut process,
+                )
+            };
+            if created == 0 {
+                if !comparator {
+                    // SAFETY: reads this thread's last error immediately after CreateProcessW fails.
+                    let code = unsafe { GetLastError() };
+                    self.create_error = (1..=99_999).contains(&code).then_some(code);
+                }
                 return Err(REFUSED);
             }
-            self.stage = Stage::Imagem;
-            verify_image(process, &locked, expected)?;
-            self.stage = Stage::Loopback;
-            profile.no_loopback()?;
-            self.stage = Stage::Handles;
-            // SAFETY: marker is an open read handle. Its inheritable writer was not allowlisted.
-            require(unsafe {
-                PeekNamedPipe(marker.as_raw_handle(), null_mut(), 0, null_mut(), null_mut(), null_mut()) == 0
-                    && GetLastError() == ERROR_BROKEN_PIPE
-            })?;
-            self.stage = Stage::RecusaEsperada;
-            before_resume()?;
-            self.stage = Stage::Retomada;
-            // SAFETY: live thread handle of the verified, still-suspended worker.
-            require(unsafe { ResumeThread(thread.as_raw_handle()) } == 1)?;
-            self.stage = Stage::Ipc;
-            File::from(input).write_all(REQUEST).map_err(|_| REFUSED)?;
-            self.stage = Stage::Filho;
-            // SAFETY: bounded wait on the verified worker; no blocking read before exit.
-            require(unsafe { WaitForSingleObject(process.as_raw_handle(), 5_000) } == WAIT_OBJECT_0)?;
-            let mut exit = 1;
-            // SAFETY: exit is writable and the process handle remains live after exit.
-            require(unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut exit) } != 0)?;
-            self.child_stage = match i32::try_from(exit) {
-                Ok(stage @ (CHILD_ACL | CHILD_IPC)) => Some(stage),
-                _ => None,
-            };
-            require(exit == 0)?;
-            self.stage = Stage::Termino;
-            require(active(&job)? == 0)?;
-            self.stage = Stage::Ipc;
-            let mut reply = Vec::new();
-            File::from(output).take((RESPONSE.len() + 1) as u64).read_to_end(&mut reply).map_err(|_| REFUSED)?;
-            require(reply == RESPONSE)?;
-            Ok(RESPONSE)
-        })();
-        drop(quiet);
-        if result.is_err() {
-            // SAFETY: this is the exclusively owned Job, never the current process's Job.
-            unsafe { TerminateJobObject(job.as_raw_handle(), 1) };
-        }
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let stage = self.stage;
-        self.stage = Stage::Termino;
-        loop {
-            if active(&job)? == 0 {
+            self.unconfirmed = true;
+            let process_handle = handle(process.hProcess);
+            let thread = handle(process.hThread);
+            drop((attrs, child_in, child_out, child_reply, not_allowlisted));
+            let result = (|| {
+                let (process, thread) =
+                    (process_handle.as_ref().map_err(|_| REFUSED)?, thread.as_ref().map_err(|_| REFUSED)?);
+                self.stage = Stage::Job;
+                verify_job(&job, process)?;
+                self.stage = Stage::Imagem;
+                verify_image(process, &locked, expected)?;
+                self.stage = if comparator { Stage::TokenComparador } else { Stage::TokenLpac };
+                if let Err(refusal) = probe.check(process.as_raw_handle(), container) {
+                    self.token_refusal = Some(refusal);
+                    return Err(REFUSED);
+                }
+                self.stage = Stage::Loopback;
+                profile.no_loopback()?;
+                self.stage = Stage::Handles;
+                // SAFETY: marker is an open read handle. Its inheritable writer was not allowlisted.
+                require(unsafe {
+                    PeekNamedPipe(marker.as_raw_handle(), null_mut(), 0, null_mut(), null_mut(), null_mut()) == 0
+                        && GetLastError() == ERROR_BROKEN_PIPE
+                })?;
+                if comparator {
+                    return Ok(None);
+                }
+                self.stage = Stage::RecusaEsperada;
+                before_resume.take().ok_or(REFUSED)?()?;
+                self.stage = Stage::Retomada;
+                // SAFETY: live thread handle of the verified, still-suspended worker.
+                require(unsafe { ResumeThread(thread.as_raw_handle()) } == 1)?;
+                self.stage = Stage::Ipc;
+                File::from(input).write_all(REQUEST).map_err(|_| REFUSED)?;
+                self.stage = Stage::Filho;
+                // SAFETY: bounded wait on the verified worker; no blocking read before exit.
+                require(unsafe { WaitForSingleObject(process.as_raw_handle(), 5_000) } == WAIT_OBJECT_0)?;
+                let mut exit = 1;
+                // SAFETY: exit is writable and the process handle remains live after exit.
+                require(unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut exit) } != 0)?;
+                self.child_stage = match i32::try_from(exit) {
+                    Ok(stage @ (CHILD_ACL | CHILD_IPC)) => Some(stage),
+                    _ => None,
+                };
+                require(exit == 0)?;
+                self.stage = Stage::Termino;
+                require(active(&job)? == 0)?;
+                self.stage = Stage::Ipc;
+                let mut reply = Vec::new();
+                File::from(output).take((RESPONSE.len() + 1) as u64).read_to_end(&mut reply).map_err(|_| REFUSED)?;
+                require(reply == RESPONSE)?;
+                Ok(Some(RESPONSE))
+            })();
+            drop(quiet);
+            if comparator {
+                let stage = self.stage;
+                self.stage = Stage::TerminoComparador;
+                let deadline = Instant::now() + Duration::from_secs(2);
+                // SAFETY: this private Job contains only the suspended comparator.
+                require(unsafe { TerminateJobObject(job.as_raw_handle(), 1) } != 0)?;
+                let process = process_handle.as_ref().map_err(|_| REFUSED)?;
+                let remaining = u32::try_from(deadline.saturating_duration_since(Instant::now()).as_millis())
+                    .map_err(|_| REFUSED)?;
+                // SAFETY: the comparator's process handle is live and remains in scope through the wait.
+                require(unsafe { WaitForSingleObject(process.as_raw_handle(), remaining) } == WAIT_OBJECT_0)?;
+                while active(&job)? != 0 {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    require(!remaining.is_zero())?;
+                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                }
+                require(Instant::now() <= deadline)?;
                 self.unconfirmed = false;
-                break;
+                self.stage = stage;
+                result?;
+                continue;
             }
-            require(Instant::now() < deadline)?;
-            std::thread::sleep(Duration::from_millis(10));
+            if result.is_err() {
+                // SAFETY: this is the exclusively owned Job, never the current process's Job.
+                unsafe { TerminateJobObject(job.as_raw_handle(), 1) };
+            }
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let stage = self.stage;
+            self.stage = Stage::Termino;
+            loop {
+                if active(&job)? == 0 {
+                    self.unconfirmed = false;
+                    break;
+                }
+                require(Instant::now() < deadline)?;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            self.stage = stage;
+            return result?.ok_or(REFUSED);
         }
-        self.stage = stage;
-        result
+        Err(REFUSED)
     }
 }
 
@@ -851,7 +960,7 @@ impl Lab {
 #[ignore = "worker privado: iniciado somente pelo teste de contenção"]
 fn catalog_child() {
     // SAFETY: GetCurrentProcess returns the current process pseudohandle.
-    let worker = token(unsafe { GetCurrentProcess() }).and_then(|t| token_value(&t, TokenIsLessPrivilegedAppContainer));
+    let worker = token(unsafe { GetCurrentProcess() }).and_then(|t| token_value(&t, TokenIsAppContainer));
     if worker != Ok(1) {
         return;
     }
