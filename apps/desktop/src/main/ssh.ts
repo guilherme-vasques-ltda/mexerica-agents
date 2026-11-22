@@ -704,7 +704,7 @@ class SSHComputers {
 }
 
 /** SSH computers for every window: `ssh:*` handlers, `ssh:change` events, tunnels stopped on quit. */
-export function registerSSH(getWindows: () => BrowserWindow[], canConnect = () => true) {
+export function registerSSH(getWindows: () => BrowserWindow[], canConnect: () => boolean) {
   const ssh = new SSHComputers(join(app.getPath('userData'), 'ssh-profiles.json'), (state) => {
     for (const w of getWindows()) if (!w.isDestroyed()) w.webContents.send('ssh:change', state)
   }, canConnect)

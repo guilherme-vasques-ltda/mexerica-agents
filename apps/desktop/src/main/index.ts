@@ -60,10 +60,10 @@ if (!app.isPackaged && process.env.CODYNC_REMOTE_DEBUG) app.commandLine.appendSw
 
 const generalWindows = generalWindowProvider(() => BrowserWindow.getAllWindows())
 registerMexeriquinhaScheme()
-const host = new HostController(() => !officialDesktop || account.officialSessionCurrent())
+const account = new AccountService()
+const host = new HostController(desktopSessionAllows)
 registerErrorReports(host)
 host.on('setupFailed', reportHostSetupFailure)
-const account = new AccountService()
 const updates = new Updates(host)
 let chat: BrowserWindow | null = null
 let pairing: BrowserWindow | null = null
@@ -166,6 +166,10 @@ function openChat() {
 
 function accountConfirmed() {
   return officialDesktop ? account.officialSessionCurrent() : isAccountConfirmed(account.state)
+}
+
+function desktopSessionAllows() {
+  return !officialDesktop || account.officialSessionCurrent()
 }
 
 // Ilha e bandeja: a versão sem login as mostra direto (dono, 05/11/2026); o pareamento segue em accountConfirmed.
@@ -392,7 +396,7 @@ if (yieldsToInstall()) {
     registerSpeech()
     if (!officialDesktop) registerScreenIPC()
     registerCloud(account)
-    const localSSH = registerSSH(generalWindows, () => !officialDesktop || account.officialSessionCurrent())
+    const localSSH = registerSSH(generalWindows, desktopSessionAllows)
     // MX-209: o cartão seguro (janela própria, módulo do fork); o main resolve o Hub e busca a entrada.
     // SSH usa a captura com guardas do túnel (nunca o anexo cru); nuvem/relay não entra.
     registrarCofreSeguro({ pai: () => chat, gerais: generalWindows, hubs: { local: () => host.local, ssh: (computerId, current) => localSSH.captureRequest(computerId, current) }, url: rendererURL('cofre-seguro') })

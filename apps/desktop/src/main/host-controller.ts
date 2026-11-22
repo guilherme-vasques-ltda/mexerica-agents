@@ -146,7 +146,7 @@ export class HostController extends EventEmitter {
   private failures = 0
   private preparingForUpdate = false
 
-  constructor(private readonly canUseHost = () => true) { super() }
+  constructor(private readonly canUseHost: () => boolean) { super() }
 
   suspend() {
     this.installToken++
