@@ -567,6 +567,8 @@ impl Engine {
     /// Como [`Engine::prompt`], mas atende cada `tool_request` com `runner` e
     /// entrega cada evento a `on_event` (streaming). Cancelar = largar este
     /// futuro e chamar [`Engine::kill`]: o motor não executa nada por conta própria.
+    // O turno reenvia o alvo do `set_model` inteiro (provedor, modelo, limites e identidade de cache) antes do prompt.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn prompt_with(
         &mut self,
         provider: &str,
@@ -587,6 +589,7 @@ impl Engine {
     /// O laço do turno em si: `prompt` + eventos até `agent_end`/`error`.
     /// Eventos só são acumulados em `cfg(test)` (provas): em produção cada um
     /// vai a `on_event` e morre — nada cresce ao quadrado da resposta.
+    #[allow(clippy::too_many_arguments)] // Os mesmos argumentos de `prompt_with`, que é quem o chama.
     async fn drive(
         &mut self,
         provider: &str,
