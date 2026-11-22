@@ -27,6 +27,9 @@ export interface EngineAccount {
   // filtra a listagem/escolha nova; modelo oculto em uso continua valendo. Ausente = Hub antigo
   // sem o recurso ("não suportado"); tratar como lista vazia sem oferecer Ocultar/Mostrar.
   hiddenModelIds?: string[]
+  // `false` = conexão pausada pelo dono, com a credencial preservada (não é o
+  // desconectar, que sai da conta). Ausente = Hub antigo sem o recurso: nada de pausar/reativar.
+  enabled?: boolean
 }
 
 export interface EngineAccounts {
@@ -59,6 +62,12 @@ export interface AccountMutation {
 export interface ModelVisibility extends AccountMutation {
   modelId: string
   hidden: boolean
+}
+
+// Pausar (`false`) preserva a credencial; reativar (`true`) volta sem prova —
+// o Hub só reconecta depois de confirmar a mesma conta.
+export interface SetAccountEnabled extends AccountMutation {
+  enabled: boolean
 }
 
 // MEX-1294/F6-A: uso lido no perfil da própria conta, por Space. `unavailable` = sem leitura

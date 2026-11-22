@@ -67,6 +67,8 @@ export function ContasDoHub({ forBot, onChanged }: {
   }
   const run = (account: ManagedAccount, action: AccountAction | 'new') => {
     if (action === 'refresh') void contas.load(local)
+    // Reativar é gesto direto no Hub; a lista relida mostra o estado de verdade.
+    else if (action === 'enable') void contas.setEnabled(account, true).then(() => onChanged?.()).catch(() => {})
     // Perfil antigo desconectado: o Hub não o reconecta; entra uma conta nova do mesmo motor.
     else if (action === 'new') setRoute({ kind: 'new', engine: account.backend })
     else if (action === 'key' && store.isLoopback) setRoute({ kind: 'key', id: account.id })
@@ -164,6 +166,16 @@ function ContaLinha({ store, contas, account, local, onAction, onOpen, onChanged
       setTeste({ error: e })
     }
   }
+  // Reativar é um pedido ao Hub; falha aparece na própria linha, sem rota nova.
+  const reativar = async () => {
+    setErro(null)
+    try {
+      await contas.setEnabled(account, true)
+      onChanged?.()
+    } catch (e) {
+      setErro(e)
+    }
+  }
   const excluir = async () => {
     setErro(null)
     setTeste(null)
@@ -206,7 +218,7 @@ function ContaLinha({ store, contas, account, local, onAction, onOpen, onChanged
             </button>
           ) : null}
           {acoes.connect ? (
-            <button className="capsule-action" disabled={ocupado} aria-label={`${acoes.connect.label}: ${nome}`} onClick={() => { setTeste(null); setErro(null); onAction(account, acoes.connect!.action) }}>{acoes.connect.label}</button>
+            <button className="capsule-action" disabled={ocupado} aria-label={`${acoes.connect.label}: ${nome}`} onClick={() => { setTeste(null); setErro(null); if (acoes.connect!.action === 'enable') void reativar(); else onAction(account, acoes.connect!.action) }}>{acoes.connect.label}</button>
           ) : view.primary?.action === 'refresh' && !acoes.test ? (
             <button className="capsule-action" disabled={ocupado} onClick={() => onAction(account, view.primary!.action)}>{view.primary.label}</button>
           ) : null}
@@ -257,7 +269,7 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
   const [usage, setUsage] = useState<AccountUsage | null | 'erro'>(null)
   const [renaming, setRenaming] = useState(false)
   const [label, setLabel] = useState(account.label)
-  const [confirm, setConfirm] = useState<'disconnect' | 'remove' | null>(null)
+  const [confirm, setConfirm] = useState<'disconnect' | 'disable' | 'remove' | null>(null)
   // Entrega 3: ocultar um modelo que algum bot desta conta usa pede confirmação, com os nomes.
   const [ocultarEmUso, setOcultarEmUso] = useState<{ id: string; nome: string; bots: string } | null>(null)
   // DON-917: o erro cru do Hub, ou `comBots` (a frase sai na hora, com os nomes de agora).
@@ -298,6 +310,9 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
     }
   }
   const reconnect: AccountAction | null = !local || !managed || (kind === 'api' && !store.isLoopback) ? null : kind === 'api' ? 'key' : account.state === 'disconnected' ? 'connect' : 'reconnect'
+  // Pausada pelo dono volta com um gesto; a credencial ficou no cofre ou no perfil.
+  const pausada = managed && account.enabled === false && account.state === 'disconnected'
+  const podeDesativar = local && managed && account.enabled !== false && (account.state === 'connected' || account.state === 'unavailable')
 
   return (
     <SheetPage><div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
@@ -438,11 +453,14 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
               else setConfirm('remove')
             }}>{textos.remover}</button>
             {account.state !== 'disconnected' || viaProgramaOficial(account, kind) ? <Button kind="secondary" disabled={busy} onClick={() => setConfirm('disconnect')}>{textos.desconectar}</Button> : null}
+            {podeDesativar ? <Button kind="secondary" disabled={busy} onClick={() => setConfirm('disable')}>{textos.desativar}</Button> : null}
             <Button kind="secondary" disabled={busy || renaming} onClick={() => { setLabel(account.label); setRenaming(true) }}>{textos.renomear}</Button>
           </>
         ) : null}
         <Spacer />
-        {reconnect ? (
+        {pausada ? (
+          <Button disabled={busy} onClick={() => void act(() => contas.setEnabled(account, true))}>{textos.reativar}</Button>
+        ) : reconnect ? (
           <Button disabled={busy} onClick={() => onAction(reconnect)}>
             {reconnect === 'key' ? (account.state === 'disconnected' ? textos.informarChave : textos.trocarChave) : reconnect === 'connect' ? textos.conectar : textos.reconectar}
           </Button>
@@ -458,6 +476,16 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
         language={superficieIdioma(idioma)}
         onClose={() => setConfirm(null)}
         actions={[{ title: textos.desconectar, destructive: true, action: () => void act(() => contas.disconnect(account)) }]}
+      />
+      {/* Pausar não sai da conta — a chave/login fica guardado; bots ligados ficam sem motor. */}
+      <Dialog
+        open={confirm === 'disable'}
+        title={textos.desativarTitulo(account.label)}
+        message={textos.desativarMensagem}
+        cancel={textos.cancelar}
+        language={superficieIdioma(idioma)}
+        onClose={() => setConfirm(null)}
+        actions={[{ title: textos.desativar, action: () => void act(() => contas.setEnabled(account, false)) }]}
       />
       <Dialog
         open={ocultarEmUso !== null}

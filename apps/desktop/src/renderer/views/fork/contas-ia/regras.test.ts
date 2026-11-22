@@ -209,3 +209,22 @@ test('Grok Build conectado aparece como assinatura e, sem o programa, a tela exp
   assert.match(failureMessage('grok_not_installed', 'pt-BR'), /Grok Build/)
   assert.notEqual(failureMessage('grok_not_installed', 'en'), failureMessage('grok_not_installed', 'pt-BR'))
 })
+
+test('conta pausada (enabled false) aparece Desativada e volta com Reativar; desconectada de verdade segue igual', () => {
+  // Pausada: credencial guardada; um gesto reativa, sem relogin nem chave nova.
+  const pausada = accountView(account({ state: 'disconnected', enabled: false }), 'api', 'pt-BR')
+  assert.equal(pausada.state, 'Desativada')
+  assert.deepEqual(pausada.primary, { action: 'enable', label: 'Reativar' })
+  const linha = rowActions(account({ state: 'disconnected', enabled: false }), 'api', 'pt-BR')
+  assert.deepEqual(linha.connect, { action: 'enable', label: 'Reativar' })
+  // Desconectada de verdade (Hub antigo sem o campo, ou saída destrutiva com enabled true): como antes.
+  const antiga = accountView(account({ state: 'disconnected' }), 'api', 'pt-BR')
+  assert.equal(antiga.state, 'Desconectada')
+  assert.deepEqual(antiga.primary, { action: 'key', label: 'Informar chave' })
+  const cliAntiga = rowActions(account({ state: 'disconnected' }), 'cli', 'pt-BR')
+  assert.deepEqual(cliAntiga.connect, { action: 'connect', label: 'Reconectar' })
+  // Perfil antigo nunca pausa: sem `enabled`, comportamento de sempre.
+  const legada = accountView(account({ origin: 'legacy', state: 'disconnected' }), 'cli', 'pt-BR')
+  assert.equal(legada.state, 'Desconectada')
+  assert.equal(legada.primary, null)
+})
