@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import androidx.compose.animation.AnimatedVisibility
@@ -220,7 +221,7 @@ import com.kyant.shapes.Capsule
 /** The messages: all this phone has, earlier ones from the computer near the top, following the newest. */
 @Composable private fun Transcript(bot: Bot, state: AppState, store: AppStore, connect: ConnectionRequestActions, padding: PaddingValues,
     indicatorTop: Dp, openRoutine: (String) -> Unit, reply: (Entry) -> Unit, openPeer: (String) -> Unit) {
-    val entries = state.entries.filter { it.botId == bot.id && it.isChat }
+    val entries = state.entries.mainChat(bot.id).filter { it.isChat }
     val pending = state.pending.filter { it.botId == bot.id }
     val items = chatItems(entries, pending)
     val working = bot.isWorking(bot.id) && state.connection is LinkState.Ready
@@ -248,6 +249,6 @@ import com.kyant.shapes.Capsule
                 is ChatItem.Exchanges -> BotMessageRow(item.group, state) { openPeer(item.group.peerId) }
             }
         }
-        if (working) item("working") { WorkingIndicator(bot, currentThinking(state.entries, bot.id)) }
+        if (working) item("working") { WorkingIndicator(bot, currentThinking(state.entries.mainChat(bot.id), bot.id)) }
     }
 }

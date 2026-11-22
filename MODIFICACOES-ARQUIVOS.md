@@ -252,13 +252,16 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreNotifications.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreScreen.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreVoice.kt`
+- `apps/mobile/android/app/src/main/kotlin/com/codync/android/BotConversation.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/BotEditor.kt`
+- `apps/mobile/android/app/src/main/kotlin/com/codync/android/ChatScreen.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/CodyncWidgets.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/CredentialsView.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/LaunchSplash.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/LiveUpdateGallery.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/MainActivity.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/MarketplaceView.kt`
+- `apps/mobile/android/app/src/main/kotlin/com/codync/android/MirrorDatabase.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/NativeAccounts.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/PairingView.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/RoutinesScreen.kt`
@@ -279,6 +282,7 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/ChannelSocket.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/CloudClient.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/Compatibility.kt`
+- `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/Conversation.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/EncryptedChannel.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/GeminiLiveEngine.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/HostConnector.kt`

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.content.ContentValues
@@ -18,7 +19,7 @@ import kotlinx.serialization.json.jsonObject
 
 /** All entity writes, send reconciliation and the event cursor commit together. */
 class MirrorDatabase(context: Context, directory: File, computerId: String) :
-    SQLiteOpenHelper(context, File(directory, "mirror-$computerId.db").absolutePath, null, 3) {
+    SQLiteOpenHelper(context, File(directory, "mirror-$computerId.db").absolutePath, null, 4) {
     init { require(computerId.matches(Regex("[A-Za-z0-9_-]{22}"))) }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -29,13 +30,22 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
     }
     /** The conversation is a cache of the computer's: an older schema's is dropped and fetched again; unsent messages stay. */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS entries")
-        db.execSQL("DROP TABLE IF EXISTS history")
-        createConversation(db)
+        if (oldVersion < 3) {
+            db.execSQL("DROP TABLE IF EXISTS entries")
+            db.execSQL("DROP TABLE IF EXISTS history")
+            createConversation(db)
+            setMeta(db, "rev", "0")
+            return
+        }
+        // v3 wrote no session id, so kept entries cannot be told apart from the main chat's:
+        // fetch the conversation again and label the sessions from the computer itself (unsent stays).
+        db.execSQL("ALTER TABLE entries ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+        db.delete("entries", null, null)
+        db.delete("history", null, null)
         setMeta(db, "rev", "0")
     }
     private fun createConversation(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE entries(id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, seq INTEGER NOT NULL, rev INTEGER NOT NULL, nonce TEXT, payload TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE entries(id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, seq INTEGER NOT NULL, rev INTEGER NOT NULL, nonce TEXT, session_id TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)")
         db.execSQL("CREATE INDEX entries_chat ON entries(bot_id, seq)")
         db.execSQL("CREATE INDEX entries_nonce ON entries(bot_id, nonce)")
         db.execSQL("CREATE TABLE history(lane TEXT PRIMARY KEY)")
@@ -139,6 +149,7 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
         check(db.insertWithOnConflict("entries", null, ContentValues().apply {
             put("id", entry.id); put("bot_id", entry.botId)
             put("seq", entry.seq); put("rev", entry.rev); put("payload", WireJson.encodeToString(entry))
+            put("session_id", entry.sessionId ?: entry.botId)
             put("nonce", entry.clientNonce?.takeIf { entry.kind == "user" })
         }, SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "Couldn't save the conversation update." }
         entry.clientNonce?.takeIf { entry.kind == "user" && it.isNotEmpty() }?.let { db.delete("pending", "nonce=?", arrayOf(it)) }

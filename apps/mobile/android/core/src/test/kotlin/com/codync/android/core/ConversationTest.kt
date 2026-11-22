@@ -95,4 +95,23 @@ class ConversationTest {
             assertFails<IllegalArgumentException> { Entry.decode(value) }
         }
     }
+
+    @Test fun `entries keep the session they talk in and legacy ones read as the main session`() {
+        assertTrue(entry("user").isMainSession)
+        assertTrue(Entry("e", 1, "b", rev = 1, kind = "user", sessionId = "b").isMainSession)
+        assertFalse(Entry("e", 1, "b", rev = 1, kind = "user", sessionId = "extra").isMainSession)
+    }
+
+    @Test fun `decoding keeps the session id the computer sends and refuses an invalid one`() {
+        fun withSession(sessionId: JsonObjectBuilder.() -> Unit) = buildJsonObject {
+            put("id", "e"); put("seq", 1); put("botId", "b"); put("rev", 1); put("kind", "user"); put("turn", 0)
+            put("data", buildJsonObject { put("text", "hi") }); put("createdAt", 0); put("updatedAt", 0)
+            sessionId()
+        }
+        assertEquals("extra", Entry.decode(withSession { put("sessionId", "extra") }).sessionId)
+        assertNull(Entry.decode(withSession { }).sessionId)
+        assertNull(Entry.decode(withSession { put("sessionId", JsonNull) }).sessionId)
+        for (bad in listOf("", " ".repeat(5), "s".repeat(257))) assertFails<IllegalArgumentException> { Entry.decode(withSession { put("sessionId", bad) }) }
+        assertFails<kotlinx.serialization.SerializationException> { Entry.decode(withSession { put("sessionId", 3) }) }
+    }
 }
