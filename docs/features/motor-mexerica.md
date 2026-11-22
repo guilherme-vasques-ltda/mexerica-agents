@@ -2,6 +2,10 @@
 
 O Motor Mexerica é um processo Node separado (`motor/mexerica`) que roda o laço de agente do Pi e fala com o Hub por JSONL em stdin/stdout. Ele é experimental e fica desligado: só aparece no registro de motores quando o Hub sobe com `MEXERICA_MOTOR=1`.
 
+## Disponibilidade no macOS
+
+O Motor Mexerica não executa localmente no macOS. O Hub recusa sua abertura com `motor_macos_indisponivel`, mesmo com `MEXERICA_MOTOR=1`, antes de abrir o processo do motor ou seus servidores MCP. Isso é independente da disponibilidade do app de desktop no macOS.
+
 Este documento descreve só como a conversa sobrevive ao processo. O processo do motor é descartável: cancelar o turno, trocar de provedor ou de modelo no app, ou uma queda o encerram. Quem guarda a conversa é o Hub (`host/src/fork/motor_mexerica/historico.rs`), e o processo novo a recebe de volta antes do próximo turno (comando `restore_history`).
 
 ## O que é guardado
