@@ -20,6 +20,10 @@ pub(crate) struct Metadata {
     pub revision: u64,
     pub generation: u64,
     pub enabled: bool,
+    /// Pausa que preserva a credencial (`true` só via pausar/reativar; sair da conta apaga). Um
+    /// Hub antigo lendo um registro com `paused` gravado recusa e preserva a configuração.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
     pub request_id: String,
     pub principal: Option<String>,
     #[serde(default)]
@@ -594,6 +598,7 @@ pub(crate) fn create_with(
             revision: 1,
             generation: 0,
             enabled: false,
+            paused: false,
             request_id: request.into(),
             principal: None,
             profile: Some(profile),

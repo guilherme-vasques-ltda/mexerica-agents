@@ -150,17 +150,22 @@ export class ContasStore extends Observable {
   }
 
   /**
-   * Pausar ou reativar sem tocar credencial. Pausar tira a conta de todo uso novo
-   * (o Hub a deixa `disconnected` e mantém chave/login); reativar volta sem prova — a conta só
-   * reaparece conectada quando o Hub confirma (cofre ou sondagem). Recarrega em qualquer falha:
-   * o estado no cadastro é o que vale, mesmo se o pedido não concluiu.
+   * Pausar ou reativar sem tocar credencial. Pausar tira a conta de todo uso novo (o Hub a
+   * deixa `disconnected` e mantém chave/login). Reativar volta sem prova — a resposta chega
+   * `unverified`, então a leitura seguinte é disparada aqui: é ela que confirma pelo cofre ou
+   * sonda o CLI e devolve a conta no estado de verdade. Em qualquer falha o cadastro é relido:
+   * o estado no Hub é o que vale, mesmo se o pedido não concluiu.
    */
   async setEnabled(account: ManagedAccount, enabled: boolean) {
     return this.mutate(account.id, async (client) => {
       const saved = await this.api.setEnabled(client, { engineAccountId: account.id, expectedRevision: account.revision, enabled })
       this.put(saved)
-      if (!enabled) this.operations.delete(account.id)
-      return saved
+      if (!enabled) {
+        this.operations.delete(account.id)
+        return saved
+      }
+      const contas = await this.reload(client)
+      return contas.find((a) => a.id === account.id) ?? saved
     }, true)
   }
 

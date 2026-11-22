@@ -232,7 +232,6 @@ pub(crate) fn open_login_method(method: &str) -> bool {
         method,
         "donnaEngineAccountCreate"
             | "donnaEngineAccountRename"
-            | "donnaEngineAccountSetEnabled"
             | "donnaEngineAccountDisconnect"
             | "donnaEngineAccountRemove"
             | "donnaEngineSetupStart"
@@ -346,6 +345,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
                             meta.catalog = None;
                             meta.enabled = request.enabled;
+                            // A marca de pausa só vale na pausa que preserva a credencial: reativar
+                            // apaga, e a saída destrutiva (desconectar) também a apaga.
+                            meta.paused = !request.enabled;
                             meta.revision += 1;
                         }
                         authority.persist(hub, &registry)?;
@@ -424,6 +426,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             account.models.clear();
                             let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
                             meta.enabled = false;
+                            meta.paused = false;
                             meta.catalog = None;
                             meta.revision += 1;
                             authority.persist(hub, &registry)?;

@@ -311,8 +311,8 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
   }
   const reconnect: AccountAction | null = !local || !managed || (kind === 'api' && !store.isLoopback) ? null : kind === 'api' ? 'key' : account.state === 'disconnected' ? 'connect' : 'reconnect'
   // Pausada pelo dono volta com um gesto; a credencial ficou no cofre ou no perfil.
-  const pausada = managed && account.enabled === false && account.state === 'disconnected'
-  const podeDesativar = local && managed && account.enabled !== false && (account.state === 'connected' || account.state === 'unavailable')
+  const pausada = managed && account.paused === true && account.state === 'disconnected'
+  const podeDesativar = local && managed && !open && account.paused !== undefined && (account.state === 'connected' || account.state === 'unavailable')
 
   return (
     <SheetPage><div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>

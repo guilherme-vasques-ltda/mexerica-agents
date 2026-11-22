@@ -40,7 +40,7 @@ function fakeHub(initial: ManagedAccount[]) {
     usage: (_c, engineAccountId) => run('usage', engineAccountId, () => ({ engineAccountId, state: 'unavailable' as const, source: null, updatedAt: null, windows: [] })),
     disconnect: (_c, request) => run('disconnect', request, () => ({ ...accounts.find((a) => a.id === request.engineAccountId)!, state: 'disconnected' as const })),
     setEnabled: (_c, request) => run('setEnabled', request, () => {
-      const updated = { ...accounts.find((a) => a.id === request.engineAccountId)!, enabled: request.enabled, revision: request.expectedRevision + 1 }
+      const updated = { ...accounts.find((a) => a.id === request.engineAccountId)!, paused: !request.enabled, revision: request.expectedRevision + 1 }
       accounts = accounts.map((a) => (a.id === updated.id ? updated : a))
       return updated
     }),
@@ -252,27 +252,29 @@ test('falha de desconexão sem código conhecido também relê a lista: o Hub j�
 })
 
 test('pausar manda o estado novo ao Hub e relê a lista em qualquer falha', async () => {
-  const original = account({ state: 'connected', enabled: true })
+  const original = account({ state: 'connected', paused: false })
   const hub = fakeHub([original])
   const contas = new ContasStore(client, hub.api)
   await contas.load()
-  hub.set([{ ...original, state: 'disconnected', enabled: false, revision: 2 }])
+  hub.set([{ ...original, state: 'disconnected', paused: true, revision: 2 }])
   hub.fail(new Error('erro cru'))
   await assert.rejects(contas.setEnabled(original, false).catch(falhaEm('pt-BR')))
   assert.deepEqual(hub.calls.find((c) => c.method === 'setEnabled')?.body, { engineAccountId: original.id, expectedRevision: 1, enabled: false })
   const pausada = contas.account(original.id)
-  assert.equal(pausada?.enabled, false, 'a lista relida mostra a pausa já gravada no Hub')
+  assert.equal(pausada?.paused, true, 'a lista relida mostra a pausa já gravada no Hub')
   assert.equal(pausada?.state, 'disconnected')
   assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'relê o cadastro mesmo sem código conhecido')
 })
 
-test('reativar devolve a conta do Hub com a revisão nova; o estado de conexão é sempre do Hub', async () => {
-  const pausada = account({ state: 'disconnected', enabled: false, revision: 2 })
+test('reativar devolve a conta confirmada pela leitura seguinte (o Hub responde sem prova)', async () => {
+  const pausada = account({ state: 'disconnected', paused: true, revision: 2 })
   const hub = fakeHub([pausada])
   const contas = new ContasStore(client, hub.api)
   await contas.load()
+  hub.set([{ ...pausada, state: 'connected', paused: false, revision: 3 }])
   const reativada = await contas.setEnabled(pausada, true)
   assert.deepEqual(hub.calls.find((c) => c.method === 'setEnabled')?.body, { engineAccountId: pausada.id, expectedRevision: 2, enabled: true })
-  assert.equal(reativada.revision, 3)
-  assert.equal(contas.account(pausada.id)?.enabled, true)
+  assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a leitura seguinte confirma a conta')
+  assert.equal(reativada.state, 'connected', 'o estado devolvido é o confirmado pelo Hub, não o da resposta da mutação')
+  assert.equal(reativada.paused, false)
 })

@@ -2632,7 +2632,7 @@ async fn pausa_reativa_sem_apagar_credencial() {
     .await
     .unwrap();
     assert_eq!(pausada["state"], "disconnected");
-    assert_eq!(pausada["enabled"], false);
+    assert_eq!(pausada["paused"], true);
     assert!(
         crate::market::vault::read(&f.hub.store, &slot).unwrap().unwrap().contains("API_FIXTURE"),
         "pausa preserva a credencial"
@@ -2662,7 +2662,7 @@ async fn pausa_reativa_sem_apagar_credencial() {
     .await
     .unwrap();
     assert_eq!(reativada["state"], "unverified");
-    assert_eq!(reativada["enabled"], true);
+    assert_eq!(reativada["paused"], false);
     assert_eq!(reativada["models"], json!([]));
     let accounts = crate::api::dispatch(&f.hub, &Caller::Local, "donnaEngineAccounts", json!({})).await.unwrap();
     let depois = accounts["accounts"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap();
