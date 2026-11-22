@@ -710,7 +710,6 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/ios/Widgets/Resources/Info.plist`
 - `apps/mobile/shared/Config/dev.plist`
 - `apps/mobile/shared/Config/main.plist`
-- `cloud/test/e2e/tsconfig.json`
 - `docs/architecture/desktop-app.md`
 - `docs/architecture/overview.md`
 - `docs/reference/fixtures/README.md`

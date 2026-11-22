@@ -13,7 +13,7 @@ aproveitado de outro lugar.
 
 ## Escopo desta cópia
 
-Conferido em 21/11/2026 contra a árvore deste repositório e, para cada trecho copiado, contra a origem no commit citado.
+Conferido em 22/11/2026 contra a árvore deste repositório e, para cada trecho copiado, contra a origem no commit citado.
 Não é parecer jurídico.
 
 - Código derivado do Codync v2.20.3 (modificações em `MODIFICACOES.md`) e trechos de commits posteriores do Codync (tabela abaixo).
@@ -24,7 +24,8 @@ Não é parecer jurídico.
 - Skills inteiras de terceiros no catálogo do Hub (`host/src/fork/skill_catalog/registry.json`), com a licença de cada uma.
 - pi-mono (MIT) vendorizado em `motor/vendor/pi-mono/`, com as dependências npm do motor (Anthropic, OpenAI, Google).
 - Fontes da interface (SIL OFL 1.1, texto ao lado de cada arquivo) em `apps/desktop/src/renderer/assets/fonts/`.
-- Pacotes npm `lucide` (ISC) e `@noble/ciphers` (MIT), dependências do desktop.
+- Pacotes npm de produção do desktop listados em `packaging/avisos/INVENTARIO-DEPENDENCIAS.md`, incluindo `lucide` (ISC), `@noble/ciphers` (MIT), `@noble/curves` (MIT), `@noble/hashes` (MIT), `@clerk/clerk-js` (MIT) e `electron-updater` (MIT).
+- Helper de tela do Linux (`apps/screen-linux/`, pacote `codync-screen`): crates declaradas em `apps/screen-linux/Cargo.toml` e fixadas em `apps/screen-linux/Cargo.lock` (licenças permissivas como Apache-2.0 e MIT, ainda fora do inventário consolidado de `host/`).
 - As logos dos serviços do catálogo de conectores em `apps/desktop/src/renderer/assets/marcas/` (marcas de seus titulares, só para identificar o serviço).
 - Electron (MIT), WebRTC de `stasel/WebRTC` (BSD-3-Clause) e o driver Cua (MIT): os textos de licença estão em `packaging/avisos/` e `packaging/cua-driver/`.
 - Clientes móveis em `apps/mobile/` (seção "Clientes móveis (apps/mobile)" abaixo): xterm.js, ThinkingOrbs, fontes Inter, Nunito e DM Sans (SIL OFL 1.1) e vetores do Material Symbols incluídos no repositório, e as dependências declaradas nos manifestos iOS e Android.
