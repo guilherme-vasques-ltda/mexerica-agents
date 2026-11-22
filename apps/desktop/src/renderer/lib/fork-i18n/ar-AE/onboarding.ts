@@ -14,7 +14,7 @@ export const textos = {
   'onboarding.passo3.bergaFala': 'أهلاً! لنجهز كل شيء دون أي تعديل قبل موافقتك.',
   'onboarding.passo3.local.titulo': 'الاستخدام على هذا الجهاز',
   'onboarding.passo3.local.desc': 'يثبت ويشغّل الخدمة المحلية على هذا الجهاز للمحادثة والتنفيذ هنا.',
-  'onboarding.passo3.remoto.titulo': 'التثبيت أو الإقران على جهاز آخر',
+  'onboarding.passo3.remoto.titulo': 'ربط جهاز كمبيوتر موجود',
   'onboarding.passo3.remoto.desc': 'اربط جهازاً أو خادماً عبر SSH لتشغيل الوكلاء هناك.',
   'onboarding.passo3.local.consentimentoTitulo': 'الموافقة قبل التثبيت',
   'onboarding.passo3.local.consentimentoDesc': 'بالتأكيد، يجهز التطبيق الخدمة المحلية ويشغلها في الخلفية على هذا الجهاز.',

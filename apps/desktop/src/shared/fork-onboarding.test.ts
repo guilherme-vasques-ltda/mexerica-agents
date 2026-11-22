@@ -1,16 +1,28 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  isOnboardingStep3Pending,
+  onboardingNavigationKey,
   isLocalPersonalContext,
   mapAiTestOutcome,
-  resolveAccountContextKey,
   resolveLocalInstallStage,
   shouldShowFirstChatOnboarding,
   STARTER_TASKS,
   summarizeReadiness,
   TOTAL_ONBOARDING_STEPS,
 } from './fork-onboarding.ts'
+
+test('a escolha de navegação só reaparece no mesmo contexto em memória', () => {
+  const key = onboardingNavigationKey(1, 'account-a', 'computer-a', 'hub-a', 'space-a')
+  const choices = { [key]: 'remote' }
+  for (const other of [
+    onboardingNavigationKey(1, 'account-b', 'computer-a', 'hub-a', 'space-a'),
+    onboardingNavigationKey(1, null, 'computer-a', 'hub-a', 'space-a'),
+    onboardingNavigationKey(1, 'account-a', 'computer-a', 'hub-b', 'space-a'),
+    onboardingNavigationKey(1, 'account-a', 'computer-a', 'hub-a', 'space-b'),
+    onboardingNavigationKey(2, 'account-a', 'computer-a', 'hub-a', 'space-a'),
+  ]) assert.equal(choices[other], undefined)
+  assert.equal(choices[onboardingNavigationKey(1, 'account-a', 'computer-a', 'hub-a', 'space-a')], 'remote')
+})
 
 test('fluxo oficial tem 4 etapas e oferece 6 tarefas', () => {
   assert.equal(TOTAL_ONBOARDING_STEPS, 4)
@@ -101,33 +113,13 @@ test('mapAiTestOutcome distingue resultados de chave sem falsificar acesso', () 
   assert.equal(mapAiTestOutcome({ ok: false, erro: 'chave_invalida' }), 'recusada')
 })
 
-test('retomada e isolada por conta e space e passo 4 some apos primeira mensagem ou conclusao', () => {
-  const a1 = resolveAccountContextKey('user_1', 'pessoal')
-  const a2 = resolveAccountContextKey('user_2', 'pessoal')
-  const a3 = resolveAccountContextKey('user_1', 'trabalho')
-  assert.notEqual(a1.storageKey, a2.storageKey)
-  assert.notEqual(a1.storageKey, a3.storageKey)
-
-  assert.equal(
-    isOnboardingStep3Pending({ persisted: null, hasReadyAi: false, dismissedInSession: false }),
-    true,
-  )
-  assert.equal(
-    isOnboardingStep3Pending({ persisted: { aiSkipped: true }, hasReadyAi: false, dismissedInSession: false }),
-    false,
-  )
-  assert.equal(
-    isOnboardingStep3Pending({ persisted: null, hasReadyAi: true, dismissedInSession: false }),
-    false,
-  )
-
+test('a primeira conversa deixa de mostrar o guia após a primeira mensagem', () => {
   assert.equal(
     shouldShowFirstChatOnboarding({
       isPrincipalBot: true,
       isGroup: false,
       hasUserMessages: false,
-      persistedCompleted: false,
-      dismissedLocally: false,
+        dismissedLocally: false,
     }),
     true,
   )
@@ -136,8 +128,7 @@ test('retomada e isolada por conta e space e passo 4 some apos primeira mensagem
       isPrincipalBot: true,
       isGroup: false,
       hasUserMessages: true,
-      persistedCompleted: false,
-      dismissedLocally: false,
+        dismissedLocally: false,
     }),
     false,
   )

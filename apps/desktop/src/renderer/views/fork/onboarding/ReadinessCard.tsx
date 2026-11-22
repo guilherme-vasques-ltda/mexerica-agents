@@ -27,7 +27,7 @@ export function ReadinessCard({
         <span className="onboarding-readiness-title">{t('onboarding.passo4.prontidaoTitulo', { prontos: readyCount, total: totalCount })}</span>
         <span className="onboarding-readiness-sub">{t('onboarding.passo4.prontidaoSubtitulo')}</span>
       </div>
-      <div className="onboarding-readiness-bar" role="progressbar" aria-valuenow={readyCount} aria-valuemin={0} aria-valuemax={totalCount}>
+      <div className="onboarding-readiness-bar" role="progressbar" aria-label={t('onboarding.passo4.prontidaoSubtitulo')} aria-valuenow={readyCount} aria-valuemin={0} aria-valuemax={totalCount}>
         <span style={{ width: `${pct}%` }} />
       </div>
       <ul className="onboarding-readiness-list">

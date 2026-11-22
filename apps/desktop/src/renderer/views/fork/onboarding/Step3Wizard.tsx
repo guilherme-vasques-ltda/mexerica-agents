@@ -27,14 +27,13 @@ import './onboarding.css'
 
 export function Step3Wizard({
   client,
-  accountKey,
   spaceId,
   hostState,
   devHost = false,
   localHubSupported = false,
   platform,
   status,
-  initialWhere,
+  where,
   installPort = liveInstallPort,
   onSelectWhere,
   onOpenComputers,
@@ -42,14 +41,13 @@ export function Step3Wizard({
   onContinue,
 }: {
   client: HostClient | null
-  accountKey?: string
   spaceId: string
   hostState: HostState
   devHost?: boolean
   localHubSupported?: boolean
   platform: 'darwin' | 'linux' | 'win32'
   status: OnboardingStatusPayload | null
-  initialWhere: WhereChoice
+  where: WhereChoice
   installPort?: OnboardingInstallPort
   onSelectWhere: (where: WhereChoice) => void
   onOpenComputers: () => void
@@ -57,7 +55,6 @@ export function Step3Wizard({
   onContinue: () => void
 }) {
   const t = useT()
-  const [where, setWhere] = useState<WhereChoice>(initialWhere)
   const [consentGiven, setConsentGiven] = useState(false)
   const [detecting, setDetecting] = useState(false)
   const [detected, setDetected] = useState<OnboardingDetectPayload | null>(null)
@@ -68,20 +65,16 @@ export function Step3Wizard({
   const [aiBusy, setAiBusy] = useState<'key' | 'openrouter' | null>(null)
   const [aiResult, setAiResult] = useState<AiActionResult | null>(null)
   const cancelOAuthRef = useRef<(() => void) | null>(null)
-  const latestContext = useRef({ client, accountKey, spaceId })
-  latestContext.current = { client, accountKey, spaceId }
-  const requestRevision = useRef(0)
+  const latestContext = useRef({ client, spaceId })
+  latestContext.current = { client, spaceId }
+  const detectRevision = useRef(0)
+  const aiRevision = useRef(0)
 
   useEffect(() => () => {
-    requestRevision.current += 1
-    setApiKey('')
+    detectRevision.current += 1
+    aiRevision.current += 1
     cancelOAuthRef.current?.()
   }, [])
-
-  const chooseWhere = (choice: WhereChoice) => {
-    setWhere(choice)
-    onSelectWhere(choice)
-  }
 
   const localStage = resolveLocalInstallStage({
     hostKind: hostState.kind,
@@ -101,16 +94,17 @@ export function Step3Wizard({
   const runReadOnlyDetect = async () => {
     if (!client || detecting) return
     const context = latestContext.current
-    const request = ++requestRevision.current
+    const request = ++detectRevision.current
+    const current = () => request === detectRevision.current && context.client === latestContext.current.client && context.spaceId === latestContext.current.spaceId
     setDetecting(true)
     setDetectError(false)
     try {
       const payload = await detectOnboardingReadOnly(client)
-      if (request === requestRevision.current && context.client === latestContext.current.client && context.spaceId === latestContext.current.spaceId) setDetected(payload)
+      if (current()) setDetected(payload)
     } catch {
-      if (request === requestRevision.current && context.client === latestContext.current.client && context.spaceId === latestContext.current.spaceId) setDetectError(true)
+      if (current()) setDetectError(true)
     } finally {
-      if (request === requestRevision.current) setDetecting(false)
+      if (current()) setDetecting(false)
     }
   }
 
@@ -120,15 +114,15 @@ export function Step3Wizard({
     setAiBusy('key')
     setAiResult(null)
     const context = latestContext.current
-    const request = ++requestRevision.current
+    const request = ++aiRevision.current
+    const current = () => request === aiRevision.current && context.client === latestContext.current.client && context.spaceId === latestContext.current.spaceId
     try {
       const res = await saveAndTestApiKey(client, provider, apiKey, () => setApiKey(''))
-      if (request !== requestRevision.current || context.client !== latestContext.current.client || context.accountKey !== latestContext.current.accountKey || context.spaceId !== latestContext.current.spaceId) return
-      setAiResult(res)
+      if (current()) setAiResult(res)
     } catch {
-      setAiResult({ outcome: 'nao_verificado', modelsCount: 0 })
+      if (current()) setAiResult({ outcome: 'nao_verificado', modelsCount: 0 })
     } finally {
-      setAiBusy(null)
+      if (current()) setAiBusy(null)
     }
   }
 
@@ -137,34 +131,35 @@ export function Step3Wizard({
     setAiBusy(kind)
     setAiResult(null)
     const context = latestContext.current
-    const request = ++requestRevision.current
+    const request = ++aiRevision.current
+    const current = () => request === aiRevision.current && context.client === latestContext.current.client && context.spaceId === latestContext.current.spaceId
     const runner = startOpenRouterSignIn(client, spaceId, () => {})
     cancelOAuthRef.current = runner.cancel
     void runner.promise
       .then((res) => {
-        if (request !== requestRevision.current || context.client !== latestContext.current.client || context.accountKey !== latestContext.current.accountKey || context.spaceId !== latestContext.current.spaceId) return
-        setAiResult(res)
+        if (current()) setAiResult(res)
       })
       .finally(() => {
-        cancelOAuthRef.current = null
-        setAiBusy(null)
+        if (current()) {
+          cancelOAuthRef.current = null
+          setAiBusy(null)
+        }
       })
   }
 
   useEffect(() => {
-    requestRevision.current += 1
+    detectRevision.current += 1
+    aiRevision.current += 1
     cancelOAuthRef.current?.()
     cancelOAuthRef.current = null
     setConsentGiven(false)
     setDetected(null)
+    setDetecting(false)
+    setDetectError(false)
     setAiResult(null)
     setApiKey('')
     setAiBusy(null)
-  }, [client, accountKey, spaceId])
-
-  useEffect(() => {
-    setWhere(initialWhere)
-  }, [initialWhere])
+  }, [client, spaceId])
 
   return (
     <div className="onboarding-step3">
@@ -197,7 +192,7 @@ export function Step3Wizard({
               role="radio"
               aria-checked={where === 'local'}
               className={`onboarding-choice-card ${where === 'local' ? 'is-selected' : ''}`}
-              onClick={() => chooseWhere('local')}
+              onClick={() => onSelectWhere('local')}
             >
               <Icon name="desktopcomputer" size={20} />
               <div>
@@ -210,7 +205,7 @@ export function Step3Wizard({
               role="radio"
               aria-checked={where === 'remote'}
               className={`onboarding-choice-card ${where === 'remote' ? 'is-selected' : ''}`}
-              onClick={() => chooseWhere('remote')}
+              onClick={() => onSelectWhere('remote')}
             >
               <Icon name="server.rack" size={20} />
               <div>

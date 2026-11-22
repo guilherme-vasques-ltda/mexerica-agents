@@ -1,7 +1,6 @@
 //! Estado e capacidades reais de onboarding da 1a instalacao.
 //!
-//! O Hub comprova apenas o que de fato existe no computador/cofre/cadastro; o estado de
-//! navegacao do assistente e isolado por conta/contexto e jamais fabrica prontidao.
+//! O Hub comprova o que existe no computador/cofre/cadastro, sem expor progresso por conta.
 
 #[cfg(test)]
 mod tests;
@@ -16,87 +15,27 @@ use crate::{
         runtime_audiencia::screen as screen_projection,
     },
     hub::Hub,
-    store::{BotConfig, Lane, Store, now_ms},
+    store::{BotConfig, Lane, Store},
 };
 use anyhow::{Result, anyhow, ensure};
-use rusqlite::OptionalExtension;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
-use std::{fmt::Write as _, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 pub(crate) const STATUS_METHOD: &str = "donnaOnboardingStatus";
 pub(crate) const SAVE_METHOD: &str = "donnaOnboardingSave";
 pub(crate) const DETECT_METHOD: &str = "donnaOnboardingDetect";
 pub(crate) const METHODS: [&str; 3] = ["donnaOnboardingStatus", "donnaOnboardingSave", "donnaOnboardingDetect"];
 
-const KV_PREFIX: &str = "fork.onboarding.v1.";
-const MAX_ACCOUNT_KEY: usize = 128;
 const MAX_SPACE_ID: usize = 128;
 
 #[cfg(test)]
 pub(super) static OLLAMA_PROBE_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum WhereChoice {
-    Local,
-    Remote,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PersistedOnboarding {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) step: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) where_choice: Option<WhereChoice>,
-    #[serde(default)]
-    pub(crate) ai_skipped: bool,
-    #[serde(default)]
-    pub(crate) completed: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) updated_at: Option<i64>,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StatusQuery {
-    #[serde(default)]
-    account_key: Option<String>,
-    #[serde(default)]
     space_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SaveRequest {
-    #[serde(default)]
-    account_key: Option<String>,
-    #[serde(default)]
-    space_id: Option<String>,
-    #[serde(default)]
-    step: Option<u8>,
-    #[serde(default, rename = "where")]
-    where_choice: Option<WhereChoice>,
-    #[serde(default)]
-    ai_skipped: Option<bool>,
-    #[serde(default)]
-    deferred_before_hub: bool,
-    #[serde(default)]
-    completed: Option<bool>,
-}
-
-fn normalize_account_key(raw: Option<&str>) -> Result<String> {
-    let key = raw.map(str::trim).unwrap_or_default();
-    if key.is_empty() {
-        return Ok("default".to_owned());
-    }
-    ensure!(
-        key.len() <= MAX_ACCOUNT_KEY && !key.contains('\0') && key.chars().all(|c| !c.is_control()),
-        "invalid_field: identificador de conta invalido."
-    );
-    Ok(key.to_owned())
 }
 
 fn normalize_space_id(raw: Option<&str>) -> Result<String> {
@@ -109,27 +48,6 @@ fn normalize_space_id(raw: Option<&str>) -> Result<String> {
         "invalid_field: spaceId invalido."
     );
     Ok(space.to_owned())
-}
-
-pub(crate) fn kv_key(account_key: &str, space_id: &str) -> String {
-    let mut hash = Sha256::new();
-    hash.update(account_key.as_bytes());
-    hash.update([0]);
-    hash.update(space_id.as_bytes());
-    let mut hex = String::with_capacity(64);
-    for byte in hash.finalize() {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    format!("{KV_PREFIX}{hex}")
-}
-
-fn read_persisted(store: &Store, key: &str) -> Result<Option<PersistedOnboarding>> {
-    let Some(raw) = store.kv_read(key)? else {
-        return Ok(None);
-    };
-    let parsed: PersistedOnboarding =
-        serde_json::from_str(&raw).map_err(|_| anyhow!("onboarding_unavailable: estado salvo invalido."))?;
-    Ok(Some(parsed))
 }
 
 fn berga_ai_configured(
@@ -186,7 +104,7 @@ fn berga_ai_configured(
     }
 }
 
-fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -> Result<Value> {
+fn build_status(hub: &Hub, caller: &Caller, space_id: &str) -> Result<Value> {
     let open = crate::environment::Environment::is_open();
     let can_manage_accounts = engine_setup::access::resolve(hub, caller).is_ok();
     let is_local = matches!(caller, Caller::Local);
@@ -266,8 +184,6 @@ fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -
     let total_count = available_items.len();
     let ready_count = available_items.iter().filter(|item| item["ready"] == true).count();
 
-    let key = kv_key(account_key, space_id);
-    let persisted = read_persisted(&hub.store, &key)?;
     let spaces = hub.store.spaces().ok();
     let personal_space_id = spaces.as_ref().map(|snapshot| snapshot.personal_space_id.as_str());
 
@@ -307,7 +223,7 @@ fn build_status(hub: &Hub, caller: &Caller, account_key: &str, space_id: &str) -
             "totalCount": total_count,
             "items": items,
         },
-        "persisted": persisted,
+        "persisted": Value::Null,
     }))
 }
 
@@ -442,10 +358,10 @@ async fn detect_readonly(hub: &Arc<Hub>, caller: &Caller) -> Result<Value> {
     }))
 }
 
-async fn read_status(hub: &Arc<Hub>, caller: &Caller, account_key: String, space_id: String) -> Result<Value> {
+async fn read_status(hub: &Arc<Hub>, caller: &Caller, space_id: String) -> Result<Value> {
     let hub = hub.clone();
     let caller = caller.clone();
-    tokio::task::spawn_blocking(move || build_status(&hub, &caller, &account_key, &space_id)).await?
+    tokio::task::spawn_blocking(move || build_status(&hub, &caller, &space_id)).await?
 }
 
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
@@ -454,73 +370,11 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
             engine_setup::require_local(caller)?;
             let query: StatusQuery =
                 serde_json::from_value(body).map_err(|_| anyhow!("invalid_field: consulta de onboarding invalida."))?;
-            let account_key = normalize_account_key(query.account_key.as_deref())?;
             let space_id = normalize_space_id(query.space_id.as_deref())?;
-            read_status(hub, caller, account_key, space_id).await
+            read_status(hub, caller, space_id).await
         }
-        SAVE_METHOD => {
-            engine_setup::require_local(caller)?;
-            let req: SaveRequest =
-                serde_json::from_value(body).map_err(|_| anyhow!("invalid_field: pedido de onboarding invalido."))?;
-            if let Some(step) = req.step {
-                ensure!((1..=4).contains(&step), "invalid_field: etapa de onboarding invalida.");
-            }
-            let account_key = normalize_account_key(req.account_key.as_deref())?;
-            let space_id = normalize_space_id(req.space_id.as_deref())?;
-            if req.deferred_before_hub {
-                ensure!(
-                    req.account_key.as_deref().is_some_and(|key| !key.trim().is_empty())
-                        && req.space_id.as_deref() == Some(crate::fork::spaces::PERSONAL)
-                        && req.step.is_none()
-                        && req.where_choice.is_none()
-                        && req.ai_skipped.is_none()
-                        && req.completed.is_none(),
-                    "invalid_field: adiamento inicial exige conta e Space pessoal, sem outras alterações."
-                );
-            }
-            save_progress(&hub.store, &account_key, &space_id, &req)?;
-            read_status(hub, caller, account_key, space_id).await
-        }
+        SAVE_METHOD => Err(crate::api::devices::Forbidden.into()),
         DETECT_METHOD => detect_readonly(hub, caller).await,
         _ => Err(anyhow!("metodo desconhecido: {method}")),
     }
-}
-
-fn save_progress(store: &Store, account_key: &str, space_id: &str, req: &SaveRequest) -> Result<()> {
-    let key = kv_key(account_key, space_id);
-    let now = now_ms();
-    let mut db = store.db.locked();
-    let tx = db.transaction()?;
-    let existing_raw: Option<String> =
-        tx.query_row("SELECT v FROM kv WHERE k = ?1", [&key], |r| r.get(0)).optional()?;
-    if req.deferred_before_hub && existing_raw.is_some() {
-        return Ok(());
-    }
-    let mut state = match existing_raw {
-        Some(raw) => serde_json::from_str::<PersistedOnboarding>(&raw)
-            .map_err(|_| anyhow!("onboarding_unavailable: estado salvo invalido."))?,
-        None => PersistedOnboarding::default(),
-    };
-    if let Some(step) = req.step {
-        state.step = Some(step);
-    }
-    if let Some(where_choice) = req.where_choice {
-        state.where_choice = Some(where_choice);
-    }
-    if req.deferred_before_hub {
-        state.ai_skipped = true;
-    } else if let Some(ai_skipped) = req.ai_skipped {
-        state.ai_skipped = ai_skipped;
-    }
-    if let Some(completed) = req.completed {
-        state.completed = completed;
-    }
-    state.updated_at = Some(now);
-    let serialized = serde_json::to_string(&state)?;
-    tx.execute(
-        "INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-        rusqlite::params![key, serialized],
-    )?;
-    tx.commit()?;
-    Ok(())
 }

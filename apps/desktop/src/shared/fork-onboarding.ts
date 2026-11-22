@@ -3,6 +3,10 @@
 
 export const TOTAL_ONBOARDING_STEPS = 4
 export const PERSONAL_SPACE_ID = '00000000-0000-4000-8000-000000000001'
+
+export function onboardingNavigationKey(revision: number, accountId: string | null, computerId: string | null, hubId: string | null, spaceId: string): string {
+  return JSON.stringify([revision, accountId, computerId, hubId, spaceId])
+}
 export function isLocalPersonalContext(input: {
   activeComputerId: string | null
   localComputerId: string | null
@@ -27,14 +31,6 @@ export interface OnboardingReadinessItem {
   id: 'hub' | 'ai' | 'voice' | 'computer'
   ready: boolean
   available: boolean
-}
-
-export interface PersistedOnboardingState {
-  step?: number | null
-  whereChoice?: WhereChoice | null
-  aiSkipped?: boolean
-  completed?: boolean
-  updatedAt?: number | null
 }
 
 export interface OnboardingStatusPayload {
@@ -67,7 +63,7 @@ export interface OnboardingStatusPayload {
     totalCount: number
     items: OnboardingReadinessItem[]
   }
-  persisted: PersistedOnboardingState | null
+  persisted: null
 }
 
 export interface DetectedEngineSummary {
@@ -216,20 +212,6 @@ export const STARTER_TASKS: readonly StarterTaskSpec[] = [
 ] as const
 
 
-export function resolveAccountContextKey(accountUserId: string | null | undefined, spaceId: string | null | undefined): {
-  accountKey: string
-  spaceId: string
-  storageKey: string
-} {
-  const accountKey = accountUserId?.trim() || 'local'
-  const space = spaceId?.trim() || PERSONAL_SPACE_ID
-  return {
-    accountKey,
-    spaceId: space,
-    storageKey: `mexerica.onboarding.ui.v1.${accountKey}.${space}`,
-  }
-}
-
 export function summarizeReadiness(status: OnboardingStatusPayload | null): {
   readyCount: number
   totalCount: number
@@ -247,22 +229,9 @@ export function shouldShowFirstChatOnboarding(input: {
   isPrincipalBot: boolean
   isGroup: boolean
   hasUserMessages: boolean
-  persistedCompleted: boolean
   dismissedLocally: boolean
 }): boolean {
   if (!input.isPrincipalBot || input.isGroup) return false
-  if (input.hasUserMessages || input.persistedCompleted || input.dismissedLocally) return false
-  return true
-}
-
-export function isOnboardingStep3Pending(input: {
-  persisted: PersistedOnboardingState | null
-  hasReadyAi: boolean
-  dismissedInSession: boolean
-}): boolean {
-  if (input.dismissedInSession) return false
-  if (input.persisted?.completed) return false
-  if (input.persisted?.aiSkipped) return false
-  if (input.hasReadyAi) return false
+  if (input.hasUserMessages || input.dismissedLocally) return false
   return true
 }

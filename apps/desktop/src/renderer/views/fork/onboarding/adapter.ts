@@ -3,7 +3,6 @@ import type {
   AiTestOutcome,
   OnboardingDetectPayload,
   OnboardingStatusPayload,
-  WhereChoice,
 } from '../../../../shared/fork-onboarding.ts'
 import { mapAiTestOutcome } from '../../../../shared/fork-onboarding.ts'
 import { chavesMudaram, salvarChave } from '../contas-ia/api-direta'
@@ -39,30 +38,8 @@ export const liveInstallPort: OnboardingInstallPort = {
   restartLocal: () => window.codync.host.restart(),
 }
 
-export async function fetchOnboardingStatus(
-  client: HostClient,
-  context: { accountKey: string; spaceId: string },
-): Promise<OnboardingStatusPayload> {
-  return client.call<OnboardingStatusPayload>(
-    'donnaOnboardingStatus',
-    { accountKey: context.accountKey, spaceId: context.spaceId },
-    10_000,
-  )
-}
-
-export async function saveOnboardingState(
-  client: HostClient,
-  payload: {
-    accountKey: string
-    spaceId: string
-    step?: 1 | 2 | 3 | 4
-    where?: WhereChoice
-    aiSkipped?: boolean
-    deferredBeforeHub?: true
-    completed?: boolean
-  },
-): Promise<OnboardingStatusPayload> {
-  return client.call<OnboardingStatusPayload>('donnaOnboardingSave', payload, 10_000)
+export async function fetchOnboardingStatus(client: HostClient, spaceId: string): Promise<OnboardingStatusPayload> {
+  return client.call<OnboardingStatusPayload>('donnaOnboardingStatus', { spaceId }, 10_000)
 }
 
 export async function detectOnboardingReadOnly(client: HostClient): Promise<OnboardingDetectPayload> {

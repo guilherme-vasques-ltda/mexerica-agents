@@ -14,7 +14,7 @@ export const textos = {
   'onboarding.passo3.bergaFala': 'Hey! Let us get everything ready without changing anything before your approval.',
   'onboarding.passo3.local.titulo': 'Use on this computer',
   'onboarding.passo3.local.desc': 'Installs and starts the local service on this machine to chat and act here.',
-  'onboarding.passo3.remoto.titulo': 'Install or pair on another computer',
+  'onboarding.passo3.remoto.titulo': 'Connect an existing computer',
   'onboarding.passo3.remoto.desc': 'Connect a computer or server over SSH to run agents there.',
   'onboarding.passo3.local.consentimentoTitulo': 'Consent before installing',
   'onboarding.passo3.local.consentimentoDesc': 'Confirming sets up the local service and starts it in the background on this computer.',

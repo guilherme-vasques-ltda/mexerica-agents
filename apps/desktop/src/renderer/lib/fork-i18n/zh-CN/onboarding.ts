@@ -14,7 +14,7 @@ export const textos = {
   'onboarding.passo3.bergaFala': '你好！未经您的同意，我们不会改动任何内容，一起把准备工作做好吧。',
   'onboarding.passo3.local.titulo': '在这台电脑上使用',
   'onboarding.passo3.local.desc': '在此设备上安装并启动本地服务，直接在这里对话与执行任务。',
-  'onboarding.passo3.remoto.titulo': '在另一台电脑安装或配对',
+  'onboarding.passo3.remoto.titulo': '连接已有电脑',
   'onboarding.passo3.remoto.desc': '通过 SSH 连接您的电脑或服务器，在远端运行代理。',
   'onboarding.passo3.local.consentimentoTitulo': '安装前确认',
   'onboarding.passo3.local.consentimentoDesc': '确认后，应用将在此电脑准备本地服务并在后台启动。',

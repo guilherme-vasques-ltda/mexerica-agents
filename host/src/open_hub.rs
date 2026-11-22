@@ -61,7 +61,6 @@ pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
         | "donnaEngineAccounts"
         | "donnaEngineAccess"
         | "donnaOnboardingStatus"
-        | "donnaOnboardingSave"
         | "donnaOnboardingDetect"
         | "donnaBotEditor"
         | "donnaBotEditorSave"
@@ -96,6 +95,7 @@ mod tests {
         assert!(open_allows("hello", &json!({})));
         assert!(open_allows("donnaOnboardingStatus", &json!({})));
         assert!(open_allows("donnaOnboardingDetect", &json!({})));
+        assert!(!open_allows("donnaOnboardingSave", &json!({})));
         assert!(open_allows("createBot", &json!({})));
         assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
         assert!(open_allows("send", &json!({"text": "oi"})));

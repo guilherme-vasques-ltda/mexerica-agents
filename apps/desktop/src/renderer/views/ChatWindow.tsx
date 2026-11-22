@@ -203,16 +203,15 @@ function ChatShell() {
       <Summaries />
       {step3Active ? (
         <Step3Wizard
-          key={`${onboarding.controller.storageKey}.${app.local?.computer.id ?? 'unavailable'}`}
+          key={`${onboarding.controller.navigationKey}.${app.local?.computer.id ?? 'unavailable'}`}
           client={onboarding.client}
-          accountKey={onboarding.contextKey.accountKey}
-          spaceId={onboarding.contextKey.spaceId}
+          spaceId={onboarding.spaceId}
           hostState={app.host.state}
           devHost={app.host.dev}
           localHubSupported={forkFeatures.localHost || (forkFeatures.macLocalHub && window.codync.platform === 'darwin' && app.host.state.kind !== 'disabled')}
           platform={window.codync.platform}
           status={onboarding.status}
-          initialWhere={onboarding.whereChoice}
+          where={onboarding.whereChoice}
           onSelectWhere={onboarding.selectWhere}
           onOpenComputers={() => {
             onboarding.dismissForComputers()
@@ -244,7 +243,7 @@ function ChatShell() {
 function SidebarReadinessCard() {
   const onboarding = useOnboarding()
   if (!onboarding.status) return null
-  if (onboarding.status.persisted?.completed && onboarding.status.readiness.readyCount >= onboarding.status.readiness.totalCount) return null
+  if (onboarding.status.readiness.readyCount >= onboarding.status.readiness.totalCount) return null
   return (
     <ReadinessCard
       status={onboarding.status}

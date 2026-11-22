@@ -14,7 +14,7 @@ export const textos = {
   'onboarding.passo3.bergaFala': '¡Hola! Dejemos todo listo sin cambiar nada sin tu permiso.',
   'onboarding.passo3.local.titulo': 'Usar en este equipo',
   'onboarding.passo3.local.desc': 'Instala e inicia el servicio local en este dispositivo para chatear y actuar aquí.',
-  'onboarding.passo3.remoto.titulo': 'Instalar o emparejar en otro equipo',
+  'onboarding.passo3.remoto.titulo': 'Conectar un equipo existente',
   'onboarding.passo3.remoto.desc': 'Conecta un ordenador o servidor por SSH para ejecutar los agentes allí.',
   'onboarding.passo3.local.consentimentoTitulo': 'Permiso antes de instalar',
   'onboarding.passo3.local.consentimentoDesc': 'Al confirmar, la app prepara el servicio local y lo inicia en segundo plano en este equipo.',

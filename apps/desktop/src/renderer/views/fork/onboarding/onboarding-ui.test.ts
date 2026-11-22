@@ -105,12 +105,11 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
   const disabledMacHtml = renderToStaticMarkup(
       createElement(Step3Wizard, {
         client: null,
-        accountKey: 'user-fixture',
         spaceId: 'pessoal',
       hostState: { kind: 'disabled' },
       platform: 'darwin',
       status: macStatus,
-      initialWhere: 'local',
+      where: 'local',
       onSelectWhere() {},
       onOpenComputers() {},
       onSkip() {},
@@ -124,7 +123,6 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
   const remoteConfirmHtml = renderToStaticMarkup(
     createElement(Step3Wizard, {
       client: {} as never,
-      accountKey: 'user-fixture',
       spaceId: 'pessoal',
       hostState: { kind: 'running' },
       platform: 'linux',
@@ -134,7 +132,7 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
         spaceContext: { currentSpaceId: 'pessoal', personalSpaceId: 'pessoal' },
         capabilities: { ...macStatus.capabilities, motorMexerica: true, localKeysAndOAuth: true },
       },
-      initialWhere: 'remote',
+      where: 'remote',
       onSelectWhere() {},
       onOpenComputers() {},
       onSkip() {},

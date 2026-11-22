@@ -114,127 +114,34 @@ fn direct_key_does_not_configure_berga_without_its_selected_model() {
 }
 
 #[tokio::test]
-async fn save_and_status_isolate_by_account_and_space_and_reject_invalid() {
+async fn local_transport_cannot_read_or_write_account_progress() {
     let env = TestEnv::new();
-    let personal = crate::fork::spaces::PERSONAL;
-    let spaces_snap =
-        crate::api::dispatch(&env.hub, &Caller::Local, "donnaSpaces", json!({ "hubId": env.hub.host_id.clone() }))
-            .await
-            .unwrap();
-    let rev = spaces_snap["revision"].as_u64().unwrap();
-    let created = crate::api::dispatch(
-        &env.hub,
-        &Caller::Local,
-        "donnaSpaceCreate",
-        json!({
-            "hubId": env.hub.host_id.clone(),
-            "expectedRevision": rev,
-            "name": "Trabalho",
-            "tile": { "color": "oceano", "style": "soft", "symbol": { "kind": "letters", "value": "TR" } },
-        }),
-    )
-    .await
-    .unwrap();
-    let work_space = created["spaces"][1]["id"].as_str().unwrap().to_owned();
-
-    let saved = crate::api::dispatch(
-        &env.hub,
-        &Caller::Local,
-        SAVE_METHOD,
-        json!({
-            "accountKey": "user-alpha",
-            "spaceId": personal,
-            "step": 3,
-            "where": "local",
-            "aiSkipped": false,
-            "completed": false,
-        }),
-    )
-    .await
-    .unwrap();
-    assert_eq!(saved["persisted"]["step"], 3);
-    assert_eq!(saved["persisted"]["whereChoice"], "local");
-    assert_eq!(saved["persisted"]["aiSkipped"], false);
-    assert_eq!(saved["persisted"]["completed"], false);
-
-    // Different accountKey must not see user-alpha's progress.
-    let other_account = crate::api::dispatch(
-        &env.hub,
-        &Caller::Local,
-        STATUS_METHOD,
-        json!({ "accountKey": "user-beta", "spaceId": personal }),
-    )
-    .await
-    .unwrap();
-    assert!(other_account["persisted"].is_null());
-
-    // Different spaceId must not see personal's progress.
-    let other_space = crate::api::dispatch(
-        &env.hub,
-        &Caller::Local,
-        STATUS_METHOD,
-        json!({ "accountKey": "user-alpha", "spaceId": work_space }),
-    )
-    .await
-    .unwrap();
-    assert!(other_space["persisted"].is_null());
-
-    // Invalid step or control chars fail closed.
-    assert!(crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, json!({ "step": 0 })).await.is_err());
-    assert!(crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, json!({ "step": 5 })).await.is_err());
-    assert!(
-        crate::api::dispatch(&env.hub, &Caller::Local, STATUS_METHOD, json!({ "accountKey": "bad\nkey" }),)
-            .await
-            .is_err()
-    );
-
-    // Non-owner device cannot save onboarding state.
-    let remote = Caller::Device { key: "dev-1".into(), scopes: vec![Scope::Control], autoridade: None };
+    for key in ["fork.onboarding.v1.fixture-a", "fork.onboarding.v1.fixture-b"] {
+        env.hub.store.kv_set(key, r#"{"step":3}"#).unwrap();
+    }
+    for account in [json!(null), json!("account-a"), json!("account-b")] {
+        let body = if account.is_null() { json!({}) } else { json!({"accountKey": account}) };
+        let status = crate::api::dispatch(&env.hub, &Caller::Local, STATUS_METHOD, body.clone()).await;
+        if account.is_null() {
+            assert!(status.unwrap()["persisted"].is_null());
+        } else {
+            assert!(status.is_err());
+        }
+        assert!(crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, body).await.is_err());
+    }
     assert!(
         crate::api::dispatch(
             &env.hub,
-            &remote,
-            STATUS_METHOD,
-            json!({ "accountKey": "user-alpha", "spaceId": personal }),
+            &Caller::Local,
+            SAVE_METHOD,
+            json!({"accountKey":"account-a", "deferredBeforeHub":true})
         )
         .await
         .is_err()
     );
-    assert!(
-        crate::api::dispatch(&env.hub, &remote, SAVE_METHOD, json!({ "step": 4, "completed": true }),).await.is_err()
-    );
-}
-
-#[tokio::test]
-async fn initial_deferral_is_local_personal_and_does_not_replace_saved_state() {
-    let env = TestEnv::new();
-    let request = json!({"accountKey":"account-a", "spaceId":crate::fork::spaces::PERSONAL, "deferredBeforeHub":true});
-    let first = crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, request.clone()).await.unwrap();
-    assert_eq!(first["persisted"]["aiSkipped"], true);
-    assert!(first["persisted"].get("step").is_none());
-    assert_eq!(first["persisted"]["completed"], false);
-    assert_eq!(first["hubReady"], false);
-    assert_eq!(first["ai"]["hasReadyAi"], false);
-    let repeated = crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, request.clone()).await.unwrap();
-    assert_eq!(first["persisted"], repeated["persisted"]);
-
-    let saved = crate::api::dispatch(
-        &env.hub,
-        &Caller::Local,
-        SAVE_METHOD,
-        json!({"accountKey":"account-b", "spaceId":crate::fork::spaces::PERSONAL, "step":4, "completed":true, "aiSkipped":false}),
-    ).await.unwrap();
-    let mut other = request.clone();
-    other["accountKey"] = json!("account-b");
-    let preserved = crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, other).await.unwrap();
-    assert_eq!(saved["persisted"], preserved["persisted"]);
-
-    let mut wrong_space = request.clone();
-    wrong_space["spaceId"] = json!("another-space");
-    assert!(crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, wrong_space).await.is_err());
-    let mut mixed = request;
-    mixed["completed"] = json!(true);
-    assert!(crate::api::dispatch(&env.hub, &Caller::Local, SAVE_METHOD, mixed).await.is_err());
+    for key in ["fork.onboarding.v1.fixture-a", "fork.onboarding.v1.fixture-b"] {
+        assert_eq!(env.hub.store.kv_read(key).unwrap().as_deref(), Some(r#"{"step":3}"#));
+    }
 }
 
 #[tokio::test]

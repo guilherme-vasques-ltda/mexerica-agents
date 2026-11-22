@@ -286,46 +286,35 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const storeSpaceId = store.spaceId ?? store.spaces?.personalSpaceId ?? null
   const sameOnboardingHub = !!store.hello?.hostId && store.hello.hostId === onboarding.hubId
     && store.computer.id === onboarding.computerId && storeSpaceId === onboarding.spaceId
-  const tourKey = `${onboarding.storageKey}.${store.computer.id}.${store.hello?.hostId ?? 'unknown'}.tour`
-  const [tourDismissed, setTourDismissed] = useState(() => {
-    try { return globalThis.localStorage?.getItem(tourKey) === '1' } catch { return false }
-  })
-  const [spotlightOpen, setSpotlightOpen] = useState(false)
-  useEffect(() => {
-    try { setTourDismissed(globalThis.localStorage?.getItem(tourKey) === '1') } catch { setTourDismissed(false) }
-    setSpotlightOpen(false)
-  }, [tourKey])
+  const tourKey = JSON.stringify([onboarding.navigationKey, store.computer.id, store.hello?.hostId, botId])
+  const [dismissedTours, setDismissedTours] = useState<ReadonlySet<string>>(() => new Set())
+  const [spotlightKey, setSpotlightKey] = useState<string | null>(null)
 
   const entries = chatEntriesOf(store, botId)
   const hasUserMessages = entries.some((e) => e.kind === 'user')
   const hasConversationMessages = entries.some((e) => e.kind === 'user' || e.kind === 'agent')
-  const isPrincipalBot = !!bot && bot.id === store.principal.id && !isGroup(bot)
-  useEffect(() => {
-    if (isPrincipalBot && hasUserMessages) {
-      setSpotlightOpen(false)
-      if (sameOnboardingHub) onboarding.markStep4Completed()
-    }
-  }, [isPrincipalBot, hasUserMessages, onboarding, sameOnboardingHub])
-
-  const showFirstChat = openSession === null && !hasConversationMessages && shouldShowFirstChatOnboarding({
-    isPrincipalBot,
+  const principalId = useSelector(store.principal, (principal) => principal.id)
+  const showFirstChat = sameOnboardingHub && openSession === null && !hasConversationMessages && shouldShowFirstChatOnboarding({
+    isPrincipalBot: !!bot && bot.id === principalId && !isGroup(bot),
     isGroup: !!bot && isGroup(bot),
     hasUserMessages,
-    persistedCompleted: sameOnboardingHub && onboarding.status?.persisted?.completed === true,
-    dismissedLocally: tourDismissed,
+    dismissedLocally: dismissedTours.has(tourKey),
   })
 
   const handlePickStarterTask = useCallback((promptText: string) => {
     store.setRoutineDraft(botId, promptText)
-    setSpotlightOpen(true)
-  }, [store, botId])
+    setSpotlightKey(tourKey)
+  }, [store, botId, tourKey])
 
-  const handleSkipTour = useCallback(() => {
-    setSpotlightOpen(false)
-    setTourDismissed(true)
-    try { globalThis.localStorage?.setItem(tourKey, '1') } catch {}
-    if (sameOnboardingHub) onboarding.markStep4Completed()
-  }, [tourKey, onboarding, sameOnboardingHub])
+  const dismissSpotlight = () => {
+    setSpotlightKey(null)
+    requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus({ preventScroll: true }))
+  }
+  const handleSkipTour = () => {
+    if (!sameOnboardingHub) return
+    dismissSpotlight()
+    setDismissedTours((previous) => new Set([...previous, tourKey]))
+  }
 
   const openTrace = useCallback(() => setShowTrace(true), [])
 
@@ -378,12 +367,12 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
           {!calling ? <RotuloModelo store={store} chat={bot} sessionId={openSession} /> : null}
         </div>
         {/* An update card takes the composer's place, so there's nothing to reply with. */}
-        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && sameOnboardingHub && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={handlePickStarterTask} onConnectAi={onboarding.openStep3} /> : undefined} />
+        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={handlePickStarterTask} onConnectAi={onboarding.openStep3} /> : undefined} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
           <PropostasDoBerga store={store} botId={botId} openSession={openSession} />
-          <ComposerSpotlight open={spotlightOpen && !hasUserMessages && openSession === null} onDismiss={() => setSpotlightOpen(false)} onSkipTour={handleSkipTour} />
+          <ComposerSpotlight open={sameOnboardingHub && spotlightKey === tourKey && !hasUserMessages && openSession === null} onDismiss={dismissSpotlight} onSkipTour={handleSkipTour} />
           {store.mismatch ? (
             <div className="composer-update-needed">
               <UpdateNeededCard />
