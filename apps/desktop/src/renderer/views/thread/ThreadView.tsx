@@ -65,6 +65,7 @@ import { shouldShowFirstChatOnboarding } from '../../../shared/fork-onboarding'
 import { ComposerSpotlight } from '../fork/onboarding/ComposerSpotlight'
 import { FirstChatOnboarding } from '../fork/onboarding/FirstChatOnboarding'
 import { useOnboarding } from '../fork/onboarding/OnboardingContext'
+import { useStarterTour } from '../fork/onboarding/useStarterTour'
 
 export interface ThreadPanelScope {
   panelId: string
@@ -287,31 +288,22 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const sameOnboardingHub = !!store.hello?.hostId && store.hello.hostId === onboarding.hubId
     && store.computer.id === onboarding.computerId && storeSpaceId === onboarding.spaceId
   const tourKey = JSON.stringify([onboarding.navigationKey, store.computer.id, store.hello?.hostId, botId])
-  const [spotlightKey, setSpotlightKey] = useState<string | null>(null)
-  const [starterDraft, setStarterDraft] = useState<{ scope: string; prompt: string } | null>(null)
 
   const entries = chatEntriesOf(store, botId)
   const hasUserMessages = entries.some((e) => e.kind === 'user')
   const hasConversationMessages = entries.some((e) => e.kind === 'user' || e.kind === 'agent')
   const principalId = useSelector(store.principal, (principal) => principal.id)
-  const showFirstChat = sameOnboardingHub && openSession === null && !hasConversationMessages && shouldShowFirstChatOnboarding({
+  const showFirstChat = !store.mismatch && sameOnboardingHub && openSession === null && !hasConversationMessages && shouldShowFirstChatOnboarding({
     isPrincipalBot: !!bot && bot.id === principalId && !isGroup(bot),
     isGroup: !!bot && isGroup(bot),
     hasUserMessages,
     dismissedLocally: onboarding.firstChatDismissed,
   })
 
-  const handlePickStarterTask = useCallback((promptText: string) => {
-    setStarterDraft({ scope: tourKey, prompt: promptText })
-    setSpotlightKey(null)
-  }, [tourKey])
-  const handleStarterDraftHandled = useCallback((applied: boolean) => {
-    setStarterDraft(null)
-    if (applied) setSpotlightKey(tourKey)
-  }, [tourKey])
+  const starterTour = useStarterTour(showFirstChat ? tourKey : null)
 
   const dismissSpotlight = () => {
-    setSpotlightKey(null)
+    starterTour.dismiss()
     requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus({ preventScroll: true }))
   }
   const handleSkipTour = () => {
@@ -371,12 +363,12 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
           {!calling ? <RotuloModelo store={store} chat={bot} sessionId={openSession} /> : null}
         </div>
         {/* An update card takes the composer's place, so there's nothing to reply with. */}
-        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={handlePickStarterTask} onConnectAi={onboarding.connectAi} /> : undefined} />
+        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={starterTour.pick} onConnectAi={onboarding.connectAi} /> : undefined} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
           <PropostasDoBerga store={store} botId={botId} openSession={openSession} />
-          <ComposerSpotlight open={sameOnboardingHub && spotlightKey === tourKey && !hasUserMessages && openSession === null} onDismiss={dismissSpotlight} onSkipTour={handleSkipTour} />
+          <ComposerSpotlight open={starterTour.spotlightOpen} onDismiss={dismissSpotlight} onSkipTour={handleSkipTour} />
           {store.mismatch ? (
             <div className="composer-update-needed">
               <UpdateNeededCard />
@@ -391,8 +383,8 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
               <Composer
                 botId={botId}
                 sessionId={openSession}
-                starterDraft={showFirstChat && starterDraft?.scope === tourKey ? starterDraft : null}
-                onStarterDraftHandled={handleStarterDraftHandled}
+                starterDraft={starterTour.starterDraft}
+                onStarterDraftHandled={starterTour.handled}
                 reply={replyTo}
                 cancelReply={cancelReply}
                 onCall={openSession === null && voiceAvailable && !calling && !vozBloqueada && bot ? () => setCalling(true) : null}
