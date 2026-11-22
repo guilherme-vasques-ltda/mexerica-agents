@@ -190,6 +190,7 @@ test("5xx não repete: o pedido pode ter sido processado", async () => {
 	} finally {
 		await fechar();
 	}
+	assert.ok(!proc.stderr().includes(SECRET), "a chave vazou no stderr do motor");
 });
 
 test("resposta que já começou a chegar não é repetida", async () => {
