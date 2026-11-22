@@ -1,8 +1,11 @@
 import importlib.util
 import json
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('review', Path(__file__).with_name('ci-code-review.py'))
 review = importlib.util.module_from_spec(spec)
@@ -156,6 +159,106 @@ class ReviewTest(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(review.Refused):
                 review.publish(request, 'org/repo', 7, BASE, HEAD, review.project(result(), FILES))
             self.assertEqual(seen, [('/repos/org/repo/pulls/7', None)])
+
+
+class ProjectCliTest(unittest.TestCase):
+    def setUp(self):
+        tmp = self.enterContext(TemporaryDirectory())
+        work = Path(tmp) / 'mexerica-ocr'
+        work.mkdir()
+        self.source = work / 'result.json'
+        self.artifact = work / 'review.json'
+        self.source.write_bytes(result(llm='fixture-model', session_id='fixture-result'))
+        self.env = self.enterContext(patch.dict(review.os.environ, {
+            'RUNNER_TEMP': tmp, 'PR_NUMBER': '7', 'GITHUB_REPOSITORY': 'fixture/repo',
+            'BASE_SHA': BASE, 'HEAD_SHA': HEAD, 'GH_TOKEN': 'fixture-github',
+            'OCR_LLM_TOKEN': 'fixture-provider', 'OCR_LLM_URL': 'https://fixture.example.invalid',
+            'OCR_LLM_MODEL': 'fixture-model',
+        }, clear=True))
+        self.enterContext(patch.object(review, 'build_opener'))
+        self.snapshot = self.enterContext(patch.object(review, 'snapshot', return_value=('/fixture', FILES)))
+
+    def assert_refused(self, phase=None, args=('project',)):
+        stdout, stderr = StringIO(), StringIO()
+        with (patch.object(review.sys, 'argv', ['ci-code-review.py', *args]),
+              redirect_stdout(stdout), redirect_stderr(stderr), self.assertRaises(SystemExit) as raised):
+            review.cli()
+        self.assertEqual(raised.exception.code, 1)
+        self.assertEqual(stdout.getvalue(), '')
+        suffix = '' if phase is None else f' Fase: {phase}.'
+        self.assertEqual(stderr.getvalue(), f'Open Code Review: operação recusada ou indisponível.{suffix}\n')
+        self.assertFalse(self.artifact.exists())
+
+    def test_snapshot_failures_report_only_snapshot(self):
+        with patch.dict(self.env, PR_NUMBER='fixture-pr-number'):
+            self.assert_refused('Snapshot')
+        self.snapshot.assert_not_called()
+        self.snapshot.side_effect = OSError('fixture-snapshot-exception')
+        self.assert_refused('Snapshot')
+
+    def test_missing_or_empty_provider_settings_report_only_environment(self):
+        for key in ('OCR_LLM_TOKEN', 'OCR_LLM_URL', 'OCR_LLM_MODEL'):
+            for missing in (True, False):
+                with self.subTest(key=key, missing=missing), patch.dict(self.env):
+                    if missing:
+                        del self.env[key]
+                    else:
+                        self.env[key] = ''
+                    self.assert_refused('Ambiente')
+
+    def test_missing_file_or_read_exception_reports_only_read(self):
+        self.source.unlink()
+        self.assert_refused('Leitura')
+        with patch.object(Path, 'open') as opened:
+            opened.return_value.__enter__.return_value.read.side_effect = OSError('fixture-read-exception')
+            self.assert_refused('Leitura')
+
+    def test_projection_failures_report_only_the_current_phase(self):
+        cases = (
+            ('Json', b'fixture-invalid-json'),
+            ('Json', b' ' * (review.MAX_JSON + 1)),
+            ('Esquema', result(fixture_field='fixture-schema')),
+            ('Esquema', result(status='fixture-status')),
+            ('Achado', result({**FINDING, 'path': 'fixture-outside.txt'})),
+            ('Achado', result({**FINDING, 'category': 'fixture-category'})),
+            ('Render', result({**FINDING, 'start_line': 'fixture-line'})),
+            ('Render', result({**FINDING, 'end_line': 4, 'thinking': 'fixture-render'})),
+        )
+        for phase, data in cases:
+            with self.subTest(phase=phase):
+                self.source.write_bytes(data)
+                self.assert_refused(phase)
+
+    def test_write_limit_and_partial_write_report_only_write(self):
+        with patch.object(review, 'MAX_ARTIFACT', 1):
+            self.assert_refused('Gravacao')
+
+        write_bytes = Path.write_bytes
+
+        def partial_write(path, data):
+            self.assertEqual(path, self.artifact)
+            write_bytes(path, data[:8])
+            raise OSError('fixture-write-exception')
+
+        with patch.object(Path, 'write_bytes', partial_write):
+            self.assert_refused('Gravacao')
+        self.assertTrue(self.source.is_file())
+
+    def test_failure_without_project_phase_keeps_the_original_message(self):
+        self.assert_refused(args=())
+        self.snapshot.side_effect = OSError('fixture-snapshot-exception')
+        self.assert_refused(args=('preflight',))
+
+    def test_valid_project_is_silent_and_writes_the_same_payload(self):
+        expected = review.project(result(), FILES)
+        stdout, stderr = StringIO(), StringIO()
+        with (patch.object(review.sys, 'argv', ['ci-code-review.py', 'project']),
+              redirect_stdout(stdout), redirect_stderr(stderr)):
+            review.cli()
+        self.assertEqual(stdout.getvalue(), '')
+        self.assertEqual(stderr.getvalue(), '')
+        self.assertEqual(self.artifact.read_bytes(),
+                         json.dumps(expected, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
 
 
 if __name__ == '__main__':
