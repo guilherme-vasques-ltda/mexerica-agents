@@ -11,6 +11,9 @@ import kotlinx.serialization.json.*
 
 // Conversations: opening a bot, history, sending and its retries.
 
+/** One chat's main-session entries: extra sessions stay out of the main view while no session picker exists. */
+internal fun List<Entry>.mainChat(botId: String): List<Entry> = filter { it.botId == botId && it.isMainSession }
+
 fun AppStore.openBot(id: String?) {
     mutableState.update { it.copy(selectedBot = id, trace = false) }
     if (id != null) acknowledgeVisible()
@@ -45,9 +48,9 @@ fun AppStore.loadHistory() {
             mutableState.update { it.copy(historyComplete = it.historyComplete + id) }
             return@action
         }
-        val before = state.value.entries.filter { it.botId == id }.minOfOrNull(Entry::seq) ?: Long.MAX_VALUE
+        val before = state.value.entries.mainChat(id).minOfOrNull(Entry::seq) ?: Long.MAX_VALUE
         val active = ready()
-        val response = active.call("history", buildJsonObject { put("botId", id); put("beforeSeq", before); put("limit", 100) })
+        val response = active.call("history", buildJsonObject { put("botId", id); put("beforeSeq", before); put("sessionId", id); put("limit", 100) })
         val entries = response.jsonObject.getValue("entries").jsonArray.map { Entry.decode(it.jsonObject) }
         withContext(Dispatchers.IO) {
             mirror.receive(entries)

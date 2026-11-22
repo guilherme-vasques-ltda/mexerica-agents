@@ -150,7 +150,7 @@ internal fun AppStore.speakToCall(entries: List<Entry>, bots: List<Bot>) {
     val call = voiceBinding ?: return
     if (bots.none { it.id == call.botId && !it.deleted }) { endVoice("Voice chat ended because its bot was removed."); return }
     val engine = call.engine
-    for (cue in call.replies.observe(entries, bots)) if (cue.notice) engine?.announce(cue.text) else engine?.speak(cue.text)
+    for (cue in call.replies.observe(entries.filter { it.botId != call.botId || it.isMainSession }, bots)) if (cue.notice) engine?.announce(cue.text) else engine?.speak(cue.text)
 }
 
 fun AppStore.endVoice(error: String? = null) {

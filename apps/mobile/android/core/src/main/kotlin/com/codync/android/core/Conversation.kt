@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
 import kotlinx.serialization.Serializable
@@ -27,7 +28,11 @@ data class Entry(
     val data: JsonObject = JsonObject(emptyMap()),
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
+    /** The session the entry talks in: the main one carries the chat's id, extra sessions their own; older mirrors hold null. */
+    val sessionId: String? = null,
 ) {
+    /** True when the entry talks in the chat's main session: extra sessions carry their own id, legacy ones none. */
+    val isMainSession: Boolean get() = sessionId == null || sessionId == botId
     val text: String get() = data.text("text").orEmpty()
     val clientNonce: String? get() = data.text("clientNonce")
     val status: String? get() = data.text("status")
@@ -54,6 +59,10 @@ data class Entry(
         fun decode(value: JsonObject): Entry {
             val entry = WireJson.decodeFromJsonElement<Entry>(value)
             require(entry.id.isNotBlank() && entry.botId.isNotBlank() && entry.kind.isNotBlank() && entry.seq >= 0 && entry.rev >= 0) {
+                "The computer sent an invalid conversation update."
+            }
+            val session = entry.sessionId
+            require(session == null || session.isNotBlank() && session.length <= 256) {
                 "The computer sent an invalid conversation update."
             }
             // Validate the fields used by rendering before the mirror can checkpoint them.
