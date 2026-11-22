@@ -4,7 +4,8 @@ Hub em Rust, Motor, app de desktop, versão Web local e clientes móveis de uma 
 O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop**, a **versão Web local** e os **clientes móveis** mostram as conversas e enviam o que você escolher; o **Motor** (baseado no Pi, vendorizado) executa o laço do agente preso ao Hub.
 
 > **Estado:** em desenvolvimento. O [guia do Mexerica Open](docs/guides/app-mac-open.md) descreve conversa local
-> por texto no macOS com um Codex CLI compatível e login local configurado; o [Motor Mexerica não
+> por texto no macOS com um Codex CLI compatível, conta autorizada no navegador e sessão armazenada
+> localmente; o [Motor Mexerica não
 > executa nesse sistema](docs/features/motor-mexerica.md). A disponibilidade dos demais motores depende
 > da plataforma e da configuração.
 > Ainda não há versão publicada, instalador público para download ou serviço hospedado; nenhuma conta
