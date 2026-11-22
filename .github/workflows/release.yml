@@ -40,6 +40,7 @@ jobs:
       contents: read
     env:
       OPEN_APP: dist/open/mac-arm64/Mexerica Open.app
+      MAIN_APP: dist/mac-arm64/Mexerica.app
     steps:
       - name: Recusar repositorio privado ou maquina fora do GitHub
         if: ${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}
@@ -62,6 +63,7 @@ jobs:
             *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
           esac
           if [ "$RELEASE_MODE" = release ]; then
+            test "$GITHUB_REPOSITORY" = guilherme-vasques-ltda/mexerica-agents || { echo '::error::O build oficial so roda no repositorio oficial.'; exit 1; }
             test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
             [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
             [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
@@ -119,21 +121,38 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
-      - name: Empacotar a Open (perfil oficial, assinatura ad hoc)
+      - name: Empacotar o app oficial macOS (assinatura ad hoc)
+        if: ${{ inputs.mode == 'release' && github.repository == 'guilherme-vasques-ltda/mexerica-agents' }}
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          MEXERICA_DESKTOP_MAIN_PLIST: ${{ secrets.MEXERICA_DESKTOP_MAIN_PLIST }}
+          MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON: ${{ secrets.MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON }}
+        run: npm run dist:mac:official
+      - name: Empacotar a previa Open isolada
+        if: ${{ inputs.mode == 'preview' }}
         working-directory: apps/desktop
         run: npm run dist:mac:open
       - name: Conferir assinatura e arquitetura do pacote
         working-directory: apps/desktop
         run: |
-          codesign --verify --deep --strict "$OPEN_APP"
-          hub="$OPEN_APP/Contents/Resources/mexerica-open-hub"
-          speech="$OPEN_APP/Contents/Resources/codync-speech"
+          app="$OPEN_APP"
+          hub_name=mexerica-open-hub
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            app="$MAIN_APP"
+            hub_name=donnabot-host
+            cmp -s resources/account-config.json "$app/Contents/Resources/account-config.json"
+            test -d "$app/Contents/Library/LoginItems/DonnabotScreen.app"
+          fi
+          codesign --verify --deep --strict "$app"
+          hub="$app/Contents/Resources/$hub_name"
+          speech="$app/Contents/Resources/codync-speech"
           test "$(lipo -archs "$hub")" = arm64
           test "$(lipo -archs "$speech")" = arm64
           codesign --verify --strict "$hub"
           codesign --verify --strict "$speech"
           if [ -n "${RELEASE_SEMVER:-}" ]; then
-            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$OPEN_APP/Contents/Info.plist")" = "$RELEASE_SEMVER"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$RELEASE_SEMVER"
           fi
       - name: Compactar o app e gerar o hash
         working-directory: apps/desktop
@@ -142,7 +161,9 @@ jobs:
           out="$RUNNER_TEMP/release-macos"
           zip="Mexerica-Open-${RELEASE_LABEL}-macos-arm64.zip"
           mkdir -p "$out"
-          ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/$zip"
+          app="$OPEN_APP"
+          if [ -n "${RELEASE_SEMVER:-}" ]; then app="$MAIN_APP"; fi
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$out/$zip"
           (cd "$out" && shasum -a 256 "$zip" > macos.sha256 && cat macos.sha256)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -178,6 +199,7 @@ jobs:
             *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
           esac
           if [ "$RELEASE_MODE" = release ]; then
+            test "$GITHUB_REPOSITORY" = guilherme-vasques-ltda/mexerica-agents || { echo '::error::O build oficial so roda no repositorio oficial.'; exit 1; }
             test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
             [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
             [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
@@ -209,14 +231,20 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
-      - name: Preparar a configuracao e construir o app
+      - name: Empacotar o app oficial Linux (deb e AppImage)
+        if: ${{ inputs.mode == 'release' && github.repository == 'guilherme-vasques-ltda/mexerica-agents' }}
+        working-directory: apps/desktop
+        env:
+          MEXERICA_DESKTOP_MAIN_PLIST: ${{ secrets.MEXERICA_DESKTOP_MAIN_PLIST }}
+          MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON: ${{ secrets.MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON }}
+        run: npm run dist:linux:official
+      - name: Empacotar a previa Linux (deb e AppImage)
+        if: ${{ inputs.mode == 'preview' }}
         working-directory: apps/desktop
         run: |
           node tools/account-config.mjs main
           npm run build
-      - name: Empacotar para Linux (deb e AppImage)
-        working-directory: apps/desktop
-        run: npx electron-builder --linux deb AppImage --publish never
+          npx electron-builder --linux deb AppImage --publish never
       - name: Conferir e renomear os pacotes Linux
         working-directory: apps/desktop
         run: |
@@ -232,6 +260,7 @@ jobs:
           cp "${debs[0]}" "$out/$deb_name"
           cp "${appimages[0]}" "$out/$appimage_name"
           dpkg-deb --info "$out/$deb_name" > /dev/null
+          cmp -s resources/account-config.json dist/linux-unpacked/resources/account-config.json
           conteudo=$(dpkg-deb --contents "$out/$deb_name")
           for trecho in 'opt/Mexerica/donnabot$' 'opt/Mexerica/resources/account-config.json$' 'avisos/LICENSE$' 'avisos/NOTICE$' 'usr/share/applications/donnabot.desktop$'; do
             grep -Eq "$trecho" <<< "$conteudo" || { echo "::error::$trecho nao encontrado no .deb."; exit 1; }
@@ -282,6 +311,7 @@ jobs:
             *) echo "::error::Modo invalido: use release ou preview."; exit 1 ;;
           esac
           if [ "$RELEASE_MODE" = release ]; then
+            test "$GITHUB_REPOSITORY" = guilherme-vasques-ltda/mexerica-agents || { echo '::error::O build oficial so roda no repositorio oficial.'; exit 1; }
             test "${#RELEASE_VERSION}" -le 64 || { echo '::error::Versao longa demais (maximo 64 caracteres).'; exit 1; }
             [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*)(\.((0|[1-9][0-9]*)|[0-9]*[a-z][a-z0-9]*))*)?$ ]] || { echo '::error::Versao invalida: use v0.0.1, sem zeros a esquerda, com sufixo opcional em minusculas (ex.: v0.0.1-rc.1).'; exit 1; }
             [[ "$RELEASE_VERSION" != *..* ]] || { echo '::error::Versao com trecho vazio entre pontos.'; exit 1; }
@@ -341,19 +371,27 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: node tools/ci-release-version.mjs --package apps/desktop/package.json --version "$RELEASE_VERSION"
-      - name: Preparar a configuracao e construir o app
-        working-directory: apps/desktop
-        run: |
-          node tools/account-config.mjs main
-          npm run build
-      - name: Empacotar o instalador Windows (NSIS)
+      - name: Empacotar o app oficial Windows (NSIS)
+        if: ${{ inputs.mode == 'release' && github.repository == 'guilherme-vasques-ltda/mexerica-agents' }}
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win nsis --publish never
+          MEXERICA_DESKTOP_MAIN_PLIST: ${{ secrets.MEXERICA_DESKTOP_MAIN_PLIST }}
+          MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON: ${{ secrets.MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON }}
+        run: npm run dist:win:official
+      - name: Empacotar a previa Windows (NSIS)
+        if: ${{ inputs.mode == 'preview' }}
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          node tools/account-config.mjs main
+          npm run build
+          npx electron-builder --win nsis --publish never
       - name: Conferir o pacote Windows
         working-directory: apps/desktop
         run: |
+          cmp -s resources/account-config.json dist/win-unpacked/resources/account-config.json
           for arquivo in dist/donnabot-windows-x64.exe dist/win-unpacked/Mexerica.exe dist/win-unpacked/resources/donnabot-host.exe dist/win-unpacked/resources/donnabot-hostw.exe dist/win-unpacked/resources/cua-driver.exe dist/win-unpacked/resources/account-config.json; do
             test -s "$arquivo" || { echo "::error::$arquivo ausente ou vazio."; exit 1; }
           done
