@@ -10,25 +10,39 @@ import { app, dialog } from 'electron'
 import { keychainFailure, readStorageGeneration } from './fork-keychain/generation'
 import { sandboxLabel } from '../shared/dev-sandbox'
 import { environmentProfile } from '../shared/environment'
+import { officialDesktop } from '../shared/fork-features'
+import { officialAccount, officialConfigHash } from '../shared/fork-official-account'
+
+declare const __MEXERICA_OFFICIAL_CONFIG_HASH__: string
 
 interface BuildConfig {
   environment: 'main' | 'dev'
-  clerkPublishableKey: string | null
-  cloudURL: string | null
-  clerkFrontendOrigin: string | null
-  clerkProxyOrigin: string | null
-  clerkTokenOrigin: string | null
-  clerkIssuer: string | null
-  deploymentId: string | null
-  deploymentEnv: 'main' | 'dev' | null
-  manifestHash: string | null
+  clerkPublishableKey?: string | null
+  cloudURL?: string | null
+  clerkFrontendOrigin?: string | null
+  clerkProxyOrigin?: string | null
+  clerkTokenOrigin?: string | null
+  clerkIssuer?: string | null
+  deploymentId?: string | null
+  deploymentEnv?: 'main' | 'dev' | null
+  manifestHash?: string | null
   deploymentManifest?: unknown
 }
 
 const path = app.isPackaged
   ? join(process.resourcesPath, 'account-config.json')
   : join(__dirname, '../../resources/account-config.json')
-export const buildConfig = JSON.parse(readFileSync(path, 'utf8')) as BuildConfig
+function readOfficialConfig() {
+  try {
+    const config = officialAccount(JSON.parse(readFileSync(path, 'utf8')))
+    return config && officialConfigHash(config) === __MEXERICA_OFFICIAL_CONFIG_HASH__ ? config : null
+  } catch { return null }
+}
+
+export const officialLoginConfig = officialDesktop ? readOfficialConfig() : null
+export const buildConfig: BuildConfig = officialDesktop
+  ? { environment: 'main' }
+  : JSON.parse(readFileSync(path, 'utf8')) as BuildConfig
 if (buildConfig.environment !== 'main' && buildConfig.environment !== 'dev') throw new Error('The app build environment is missing.')
 export const identity = environmentProfile(buildConfig.environment)
 export const hostDataDir = mexericaHome(homedir(), identity.dataFolder, process.env)

@@ -11,7 +11,7 @@ import type { HostSnapshot, WindowCommand } from '../shared/ipc'
 import { createAppIconController, registerAppIconIPC } from './fork-app-icon-controller'
 import { devPort, HostController, prefs } from './host-controller'
 import { registerFileSaves } from './file-saves'
-import { registerHostProxy } from './host-proxy'
+import { cancelHostStreams, registerHostProxy } from './host-proxy'
 import { registerProtocol as registerMexeriquinhaProtocol, registerScheme as registerMexeriquinhaScheme } from './fork-mexeriquinha-protocol'
 import { generalWindowProvider } from './fork-secret-box/contexts'
 import { readClipboardFiles, readFiles } from './files'
@@ -27,7 +27,8 @@ import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
 import { registerForkCloud } from './fork-cloud/register'
 import { registerForkCloudService } from './fork-cloud/service'
-import { forkFeatures } from '../shared/fork-features'
+import { forkFeatures, officialDesktop } from '../shared/fork-features'
+import { requireOfficialSession } from './fork-official-ipc'
 import { itensMenuApp, painelSobre } from '../shared/fork-menu-app'
 import { nomeVisivel } from '../shared/fork-nome-visivel'
 import { coresControles, FAIXA_ALTURA, SEMAFOROS } from '../shared/janela-faixa'
@@ -59,10 +60,10 @@ if (!app.isPackaged && process.env.CODYNC_REMOTE_DEBUG) app.commandLine.appendSw
 
 const generalWindows = generalWindowProvider(() => BrowserWindow.getAllWindows())
 registerMexeriquinhaScheme()
-const host = new HostController()
+const account = new AccountService()
+const host = new HostController(desktopSessionAllows)
 registerErrorReports(host)
 host.on('setupFailed', reportHostSetupFailure)
-const account = new AccountService()
 const updates = new Updates(host)
 let chat: BrowserWindow | null = null
 let pairing: BrowserWindow | null = null
@@ -82,7 +83,7 @@ function conteudoDoChat(conteudo: WebContents | null): boolean {
   return !!chat && !chat.isDestroyed() && chat.webContents === conteudo
 }
 
-function pedidoDoChat(event: IpcMainInvokeEvent): BrowserWindow | null {
+function pedidoDoChat(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>): BrowserWindow | null {
   const janela = chat
   if (!janela || janela.isDestroyed() || event.sender !== janela.webContents) return null
   const frame = event.senderFrame
@@ -96,13 +97,14 @@ function pedidoDoChat(event: IpcMainInvokeEvent): BrowserWindow | null {
 function registrarPermissoes() {
   const sessao = session.defaultSession
   sessao.setPermissionRequestHandler((conteudo, permissao, responder, detalhes) => {
-    responder(permiteNoChat(urlDoChat, {
+    responder((!officialDesktop || account.officialSessionCurrent()) && permiteNoChat(urlDoChat, {
       janelaPrincipal: conteudoDoChat(conteudo),
       framePrincipal: detalhes.isMainFrame,
       url: detalhes.requestingUrl,
     }, permissao, 'mediaTypes' in detalhes ? detalhes.mediaTypes : undefined, 'securityOrigin' in detalhes ? detalhes.securityOrigin : undefined))
   })
   sessao.setPermissionCheckHandler((conteudo, permissao, origem, detalhes) => {
+    if (officialDesktop && !account.officialSessionCurrent()) return false
     const solicitante = {
       janelaPrincipal: conteudoDoChat(conteudo),
       framePrincipal: detalhes.isMainFrame,
@@ -119,6 +121,7 @@ function registrarPermissoes() {
 const background = () => (nativeTheme.shouldUseDarkColors ? '#0A0A0A' : '#FFFFFF')
 
 function snapshot(): HostSnapshot {
+  if (officialDesktop && !accountConfirmed()) return { state: { kind: 'disabled' }, local: null, dev: false, logPath: '' }
   return { state: host.state, local: host.local, dev: devPort !== null, logPath: host.logPath }
 }
 
@@ -162,11 +165,15 @@ function openChat() {
 }
 
 function accountConfirmed() {
-  return isAccountConfirmed(account.state)
+  return officialDesktop ? account.officialSessionCurrent() : isAccountConfirmed(account.state)
+}
+
+function desktopSessionAllows() {
+  return !officialDesktop || account.officialSessionCurrent()
 }
 
 // Ilha e bandeja: a versão sem login as mostra direto (dono, 05/11/2026); o pareamento segue em accountConfirmed.
-const surfacesAllowed = () => canPresentSurfaces(account.state, forkFeatures.cloudAccess)
+const surfacesAllowed = () => officialDesktop ? accountConfirmed() : canPresentSurfaces(account.state, forkFeatures.cloudAccess)
 
 function openPairing() {
   if (!accountConfirmed()) { openChat(); return }
@@ -190,6 +197,10 @@ function openPairing() {
 }
 
 export function send(command: WindowCommand, show = true) {
+  if (officialDesktop && !accountConfirmed()) {
+    if (show) openChat()
+    return
+  }
   const window = show ? openChat() : chat
   if (show && isMac) app.focus({ steal: true })
   window?.webContents.send('app:command', command)
@@ -303,7 +314,7 @@ function registerIPC(tray: Tray) {
         cancelId: 0,
         noLink: true,
       })
-      if (response === 1 && pedidoDoChat(event) === janela && event.senderFrame === frame) await apagarTodosOsDados()
+      if (response === 1 && pedidoDoChat(event) === janela && event.senderFrame === frame && (!officialDesktop || accountConfirmed())) await apagarTodosOsDados()
     } finally {
       apagando = false
     }
@@ -333,7 +344,7 @@ if (yieldsToInstall()) {
   if (!app.isPackaged) console.error(`${app.getName()} is already running. Quit it first, or run another copy beside it: npm run dev -- --name <name>`)
   app.quit()
 } else {
-  registerWindowNavigation(urlDoChat)
+  registerWindowNavigation(urlDoChat, () => !officialDesktop || account.officialSessionCurrent())
   registerSchemes(keepDockHiddenAfterLink)
   app.on('second-instance', (_e, argv) => {
     const url = urlFromArgv(argv)
@@ -361,8 +372,14 @@ if (yieldsToInstall()) {
     // chat faz ao aparecer não ativa o app se a ilha (um painel que não ativa) apareceu antes com o item no Dock. Pede
     // aqui, uma vez, o mesmo pedido, antes da ilha e do chat; o pacote comum já chega ativo e o CODYNC_SHOW_INACTIVE não.
     if (isMac && !process.env.CODYNC_SHOW_INACTIVE && !app.isActive()) app.focus({ steal: true })
-    updateLoginItem()
+    if (!officialDesktop) updateLoginItem()
     registrarPermissoes()
+    if (officialDesktop) {
+      requireOfficialSession(ipcMain, () => account.officialSessionCurrent(), (event) => pedidoDoChat(event) !== null)
+      session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (request, reply) => {
+        reply({ cancel: request.webContentsId !== undefined && !account.officialSessionCurrent() })
+      })
+    }
     // A janela primeiro: a criação e a carga dela correm em paralelo com o resto do arranque
     // (ilha, bandeja e registros de IPC). `island:supported` é sendSync: o preload do chat o
     // chama ao carregar, então só esse handler precisa existir antes do loadURL. O resto
@@ -377,9 +394,9 @@ if (yieldsToInstall()) {
     registerAuthIPC()
     registerOAuthLoopbackIPC()
     registerSpeech()
-    registerScreenIPC()
+    if (!officialDesktop) registerScreenIPC()
     registerCloud(account)
-    const localSSH = registerSSH(generalWindows)
+    const localSSH = registerSSH(generalWindows, desktopSessionAllows)
     // MX-209: o cartão seguro (janela própria, módulo do fork); o main resolve o Hub e busca a entrada.
     // SSH usa a captura com guardas do túnel (nunca o anexo cru); nuvem/relay não entra.
     registrarCofreSeguro({ pai: () => chat, gerais: generalWindows, hubs: { local: () => host.local, ssh: (computerId, current) => localSSH.captureRequest(computerId, current) }, url: rendererURL('cofre-seguro') })
@@ -387,7 +404,22 @@ if (yieldsToInstall()) {
       const factory = registerForkCloud(account)
       if (factory) registerForkCloudService(account, factory, localSSH, generalWindows, [rendererURL('chat'), rendererURL('pairing'), rendererURL('island')], () => [chat, pairing].some(w => !!w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()))
     }
+    let hostAttached = false
     account.on('change', () => {
+      if (officialDesktop && hostAttached !== accountConfirmed()) {
+        hostAttached = accountConfirmed()
+        if (hostAttached) {
+          host.start()
+          void localSSH.connectAll()
+        }
+        else {
+          cancelHostStreams()
+          host.suspend()
+          localSSH.disconnectAll()
+          pairing?.destroy()
+          chat?.webContents.reload()
+        }
+      }
       if (!accountConfirmed()) pairing?.hide()
       if (!surfacesAllowed()) tray.clear()
       island.accountChanged()
@@ -407,6 +439,6 @@ if (yieldsToInstall()) {
       // Only the opaque windows: a color on the transparent notch island paints its whole panel.
       for (const w of [chat, pairing]) w?.setBackgroundColor(background())
     })
-    host.start()
+    if (!officialDesktop) host.start()
   })
 }

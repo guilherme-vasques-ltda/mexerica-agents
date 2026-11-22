@@ -327,7 +327,7 @@ class SSHComputers {
   /** Host key lines waiting for the user's "Trust and connect". */
   private pendingKeys = new Map<string, string[]>()
 
-  constructor(private file: string, private emit: (s: SSHState) => void) {
+  constructor(private file: string, private emit: (s: SSHState) => void, private canConnect: () => boolean) {
     try {
       this.profiles = JSON.parse(readFileSync(file, 'utf8')) as SSHProfile[]
     } catch {
@@ -413,6 +413,7 @@ class SSHComputers {
   }
 
   async connectAll() {
+    if (!this.canConnect()) return
     // Before this copy has tunnels of its own, so only leftovers from an earlier copy match.
     if (this.tunnels.size === 0 && this.tasks.size === 0) await killOrphanTunnels()
     for (const p of this.profiles) if (!this.tasks.has(p.id) && !this.tunnels.has(p.id)) this.connect(p.id)
@@ -445,6 +446,7 @@ class SSHComputers {
   }
 
   connect(id: string) {
+    if (!this.canConnect()) return
     const old = this.tasks.get(id)
     if (old) old.cancelled = true
     const token: Token = { cancelled: false }
@@ -529,15 +531,19 @@ class SSHComputers {
     const name = knownHostsName(resolved)
 
     // Host key (never by reading ssh's error text).
-    if ((await this.recordedKeys(name)).size === 0) {
+    const recorded = await this.recordedKeys(name)
+    if (token.cancelled || !this.canConnect()) return idle
+    if (recorded.size === 0) {
       if (usesProxy(resolved)) {
         return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.jump', { host: profile.host }) })
       }
       this.setStatus(id, { kind: 'connecting', ...etapa('ajustes.ssh.passo.chave') })
       const scan = await run(KEYSCAN, keyscanArguments(resolved))
+      if (token.cancelled || !this.canConnect()) return idle
       const lines = knownHostsLines(scan.stdout, name)
       if (lines.length === 0) return { kind: 'retry', ...falha('ajustes.ssh.erro.alcance', { host: resolved.hostname, porta: resolved.port }) }
       const prints = await run(KEYGEN, ['-l', '-f', '-'], lines.join('\n') + '\n')
+      if (token.cancelled || !this.canConnect()) return idle
       const fingerprints = prints.stdout.split(/\r?\n/).filter(Boolean)
       if (prints.status !== 0 || fingerprints.length === 0) return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.lerChave', { host: profile.host }) })
       this.pendingKeys.set(id, lines)
@@ -702,10 +708,10 @@ class SSHComputers {
 }
 
 /** SSH computers for every window: `ssh:*` handlers, `ssh:change` events, tunnels stopped on quit. */
-export function registerSSH(getWindows: () => BrowserWindow[]) {
+export function registerSSH(getWindows: () => BrowserWindow[], canConnect: () => boolean) {
   const ssh = new SSHComputers(join(app.getPath('userData'), 'ssh-profiles.json'), (state) => {
     for (const w of getWindows()) if (!w.isDestroyed()) w.webContents.send('ssh:change', state)
-  })
+  }, canConnect)
   ipcMain.handle('ssh:state', () => ssh.state)
   ipcMain.handle('ssh:save', (_e, profile: SSHProfile) => ssh.save(profile))
   ipcMain.on('ssh:remove', (_e, id: string) => ssh.remove(id))
@@ -719,7 +725,8 @@ export function registerSSH(getWindows: () => BrowserWindow[]) {
   // ssh children outlive the app unless stopped.
   app.on('will-quit', () => ssh.disconnectAll())
   void ssh.connectAll()
-  return { captureLocal: (profileId: string, current: () => boolean) => ssh.captureLocal(profileId, current),
+  return { connectAll: () => ssh.connectAll(), disconnectAll: () => ssh.disconnectAll(),
+    captureLocal: (profileId: string, current: () => boolean) => ssh.captureLocal(profileId, current),
     /** MX-209: captura com guardas para o cofre seguro, por computerId. */
     captureRequest: (computerId: string, current: () => boolean) => ssh.captureRequest(computerId, current),
     attachments: () => ssh.state.attachments }

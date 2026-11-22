@@ -1,6 +1,9 @@
 // Replaced with a literal by electron-vite: true only for a complete, matching Dev or qualified main
 // release (`admitsCloudBuild`). The legacy name is kept so the gate tests keep their fixture.
 declare const __DONNA_DEV_CLOUD_ACCESS__: boolean
+declare const __MEXERICA_OFFICIAL__: boolean
+
+export const officialDesktop = typeof __MEXERICA_OFFICIAL__ !== 'undefined' && __MEXERICA_OFFICIAL__
 
 /** Nenhuma preferência ou variável de ambiente do app reativa estes cortes. */
 export const forkFeatures = {
@@ -18,9 +21,8 @@ export const forkFeatures = {
   macLocalHub: false,
 }
 
-/** Account entrypoints belong to cloudAccess; the legacy transport does not enable them. */
 export function showsAccountControls(): boolean {
-  return forkFeatures.cloudAccess
+  return officialDesktop || forkFeatures.cloudAccess
 }
 
 /**
