@@ -55,29 +55,6 @@ pub(crate) struct InstallEvent {
     pub error: Option<InstallError>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum InstallAction {
-    Start,
-    Status,
-    Cancel,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct InstallRequest {
-    pub action: InstallAction,
-    pub job_id: Option<String>,
-    pub format: Option<PackageFormat>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum PackageFormat {
-    Deb,
-    AppImage,
-}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct InstallResult {
@@ -186,7 +163,12 @@ fn hex_decode(input: &str) -> Result<Vec<u8>> {
 }
 
 fn hex_encode(input: &[u8]) -> String {
-    input.iter().map(|byte| format!("{byte:02x}")).collect()
+    use std::fmt::Write;
+    let mut output = String::with_capacity(input.len() * 2);
+    for byte in input {
+        write!(output, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    output
 }
 
 #[cfg(test)]
