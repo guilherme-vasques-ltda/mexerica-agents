@@ -1,0 +1,109 @@
+name: Windows isolation proof
+
+on:
+  pull_request:
+    branches: [cy/verifica-conteno-do-processo]
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  windows-isolation:
+    if: >-
+      github.run_attempt == '1' &&
+      github.event.pull_request.head.repo.fork == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ci/windows-isolation-proof-win32-attrs' &&
+      github.event.pull_request.base.sha == '8ddab6a40f22f49cfed85286a85e3c0cf752299c'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify the proof commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          test "$(git rev-list --parents -n 1 HEAD)" = "$(git rev-parse HEAD) $BASE_SHA"
+          git diff --exit-code "$BASE_SHA" HEAD -- . ':(exclude).github/workflows/windows-isolation-proof.yml' ':(exclude)tools/ci-workflow.test.mjs' ':(exclude)tools/ci-workflow-windows.ps1'
+          git log -1 --format='Proof commit: %H; tested base: %P'
+      - name: Run and verify the Windows isolation tests
+        run: |
+          set -euo pipefail
+          status=0
+          output=$(pwsh -NoProfile -NonInteractive -File tools/ci-workflow-windows.ps1 2>&1) || status=$?
+          case $status in
+            0|21) ;;
+            20)
+              awk '
+                { sub(/\r$/, "") }
+                /^BUILD_FAILED(_WORKSPACE|_DEPENDENCY)?$/ { marker = $0; markers++; associated = 0; next }
+                /^error(\[E[0-9][0-9][0-9][0-9]\]|: compilation failed)$/ {
+                  associated = count < 40
+                  if (associated) details[++count] = $0
+                  next
+                }
+                /^--> (host\/([A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.rs|<externo>):[1-9][0-9]*:[1-9][0-9]*$/ {
+                  if (associated && count < 40 && length($0) <= 300) details[++count] = $0
+                }
+                { associated = 0 }
+                END {
+                  print (markers == 1 ? marker : "BUILD_FAILED")
+                  if (markers == 1) for (i = 1; i <= count; i++) print details[i]
+                }
+              ' <<< "$output"
+              exit 1 ;;
+            22) echo 'DISCOVERY_FAILED'; exit 1 ;;
+            *) echo '::error::The proof setup or cleanup failed; no test result is confirmed.'; exit 1 ;;
+          esac
+          echo 'Discovered: 4'
+          awk -v status="$status" '
+            BEGIN {
+              prefix = "test fork::motor_mexerica::windows_laboratorio::"
+              names[1] = "windows_nativo_catalogo_e_recusa_antes_de_retomar"
+              names[2] = "windows_nativo_identidade_da_imagem_recusa_copia_ou_hash_errado"
+              names[3] = "simulacao_nao_readmite_com_termino_indeterminado"
+              names[4] = "catalog_child"
+            }
+            { sub(/\r$/, "") }
+            /^---- .* ----$/ { section = ($0 == "---- " substr(prefix, 6) names[1] " stdout ----"); catalogSections += section; next }
+            /^failures:$/ || /^test result:/ { section = 0 }
+            status == 21 && section && /^LAB_STAGE=(Preparo|Perfil|Job|Atributos|AtributoLpac|CriacaoSuspensa|TokenLpac|Imagem|Loopback|Handles|RecusaEsperada|Retomada|Ipc|Filho|Termino)$/ { lab = $0; labs++; next }
+            status == 21 && section && /^CHILD_STAGE=(2|3)$/ { childStage = $0; childStages++; next }
+            status == 21 && section && /^LAB_WIN32=[0-9][0-9]?[0-9]?[0-9]?[0-9]?$/ { win32 = $0; win32Count++; next }
+            {
+              for (i = 1; i <= 4; i++) {
+                expected = prefix names[i] " ... "
+                if ($0 == expected "ok") { ok[i]++; seen[i]++ }
+                if ($0 == expected "FAILED") { failed[i]++; seen[i]++ }
+                if ($0 == expected "ignored" || (i == 4 && index($0, expected "ignored, ") == 1)) { ignored[i]++; seen[i]++ }
+              }
+            }
+            /^test result: ok\. 3 passed; 0 failed; 1 ignored; 0 measured; [0-9]+ filtered out;/ { summary++ }
+            END {
+              if (status != 0 || summary != 1 || seen[4] != 1 || ignored[4] != 1 || seen[1] != 1 || ok[1] != 1 || seen[2] != 1 || ok[2] != 1 || seen[3] != 1 || ok[3] != 1) {
+                for (i = 1; i <= 4; i++) {
+                  if (seen[i] == 1) print prefix names[i] " ... " (ok[i] ? "ok" : failed[i] ? "FAILED" : "ignored")
+                }
+                if (status == 21 && seen[1] == 1 && failed[1] == 1) {
+                  if (labs == 1) print lab
+                  if (catalogSections == 1 && labs == 1 && lab == "LAB_STAGE=CriacaoSuspensa" && win32Count == 1) print win32
+                  if (childStages == 1 && labs == 1) print childStage
+                }
+                exit 1
+              }
+              print "Verified: 3 passed, 0 failed, 1 private child ignored by the harness."
+              print "OK"
+            }
+          ' <<< "$output" || {
+            echo 'TEST_FAILED'
+            exit 1
+          }
