@@ -38,6 +38,18 @@ o que mudou e por quê.
    (`commentary`/`final_answer`) anunciada no `output_item.added` vale quando o
    `output_item.done` vem sem ela; antes ela se perdia no replay da conversa.
    Prova: A8 no mesmo arquivo de teste.
+10. `packages/ai/src/types.ts` (`retryStatuses`, `retryWithoutStatus` e
+    `retryBudget` em `ProviderRequestOptions`), `utils/provider-retry.ts`,
+    `api/simple-options.ts` e as APIs que repetem pedido
+    (`openai-responses.ts`, `openai-completions.ts`, `anthropic-messages.ts`,
+    `google-shared.ts`) —
+    o ajudante de repetição só conhecia a política do SDK, e ela repete 5xx e
+    erro sem status (conexão caída, com o pedido possivelmente já processado),
+    além de reiniciar a espera a cada pedido. `retryStatuses` é a política
+    inteira quando presente (o cabeçalho do servidor não acrescenta status),
+    `retryWithoutStatus` decide o erro sem status e `retryBudget` é o orçamento
+    de espera compartilhado. Sem nenhuma das três o comportamento é o de antes.
+    Prova em `mexerica/test/retentativa.test.ts`.
 
 Nota de instalação (não é patch, é registro): `npm ci` em `motor/` ainda executa
 os scripts de instalação de duas dependências transitivas — `@google/genai`
