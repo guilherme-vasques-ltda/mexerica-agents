@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import { admitsCloudBuild } from './src/shared/fork-cloud-build.ts'
+import { officialAccount, officialConfigHash } from './src/shared/fork-official-account.ts'
 
 // Fresh macOS checkouts must include SF Symbols without a separate manual icons step.
 if (process.platform === 'darwin') {
@@ -13,14 +14,29 @@ if (process.platform === 'darwin') {
 
 export default defineConfig(({ mode }) => {
   const open = mode === 'open'
+  const official = mode === 'official'
   let accountConfig: unknown = null
   if (!open) {
-    try { accountConfig = JSON.parse(readFileSync(resolve('resources/account-config.json'), 'utf8')) }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    try { accountConfig = JSON.parse(readFileSync(resolve(official ? 'build/official/account-config.json' : 'resources/account-config.json'), 'utf8')) }
+    catch (error) {
+      if (official) throw new Error('Official account configuration is missing or invalid.')
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
   }
-  const releaseDefines = { __DONNA_DEV_CLOUD_ACCESS__: JSON.stringify(!open && admitsCloudBuild(accountConfig)) }
+  const officialConfig = official ? officialAccount(accountConfig) : null
+  if (official && !officialConfig) throw new Error('Official account configuration is missing or invalid.')
+  const releaseDefines = {
+    __DONNA_DEV_CLOUD_ACCESS__: JSON.stringify(!open && !official && admitsCloudBuild(accountConfig)),
+    __MEXERICA_OFFICIAL__: JSON.stringify(official),
+  }
   return {
-    main: { define: releaseDefines, ...(open ? { build: { rollupOptions: { input: { open: resolve('src/main/fork-open/main.ts') } } } } : {}) },
+    main: {
+      define: { ...releaseDefines, __MEXERICA_OFFICIAL_CONFIG_HASH__: JSON.stringify(officialConfig ? officialConfigHash(officialConfig) : '') },
+      ...(officialConfig ? { plugins: [{ name: 'mexerica-official-config', generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'official-config.sha256', source: officialConfigHash(officialConfig) })
+      } }] } : {}),
+      ...(open ? { build: { rollupOptions: { input: { open: resolve('src/main/fork-open/main.ts') } } } } : {}),
+    },
     // Fork D277: preload próprio da caixa protegida, separado do geral.
     preload: { define: releaseDefines, build: { rollupOptions: { input: { index: resolve('src/preload/index.ts'), ...(open ? {} : { 'fork-secret-box': resolve('src/preload/fork-secret-box.ts'), 'fork-cofre-seguro': resolve('src/preload/fork-cofre-seguro.ts') }) } } } },
     renderer: {

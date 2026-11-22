@@ -10,6 +10,11 @@ import { isGeneralContext } from './fork-secret-box/contexts'
 
 const streams = new Map<string, AbortController>()
 
+export function cancelHostStreams() {
+  for (const controller of streams.values()) controller.abort()
+  streams.clear()
+}
+
 function isLoopback(url: string) {
   try {
     const host = new URL(url).hostname

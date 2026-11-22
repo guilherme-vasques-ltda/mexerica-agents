@@ -10,13 +10,13 @@ import type { HostState, LocalHost } from '../shared/ipc'
 import { unregisterScreenAgent } from './screen'
 import { identity, hostDataDir } from './environment'
 import { hostEnvironmentError, isCodyncDataDir, isCodyncPort } from '../shared/environment'
-import { forkFeatures } from '../shared/fork-features'
+import { forkFeatures, officialDesktop } from '../shared/fork-features'
 import { launchdServiceAbsent, localHostOff as localHostOffFor, macPlistValid, uninstallArgs, type UninstallLevel } from '../shared/fork-mac-local-hub'
 import { envAlias } from '../shared/env-alias'
 import type { HostSetupStage } from './analytics'
 
 /** `MEXERICA_PORT` (antiga `DONNABOT_PORT`, ainda aceita) / `MEXERICA_HOME` point the app at a dev host started with `donnabot-host serve`. */
-const devPortRaw = envAlias(process.env, 'MEXERICA_PORT', 'DONNABOT_PORT')
+const devPortRaw = officialDesktop ? undefined : envAlias(process.env, 'MEXERICA_PORT', 'DONNABOT_PORT')
 export const devPort = devPortRaw ? Number(devPortRaw) : null
 export const port = devPort ?? identity.port
 export const dataDir = hostDataDir
@@ -146,11 +146,23 @@ export class HostController extends EventEmitter {
   private failures = 0
   private preparingForUpdate = false
 
+  constructor(private readonly canUseHost = () => true) { super() }
+
+  suspend() {
+    this.installToken++
+    this.stopLoop()
+    this.setLocal(null)
+  }
+
   /**
    * Only Donnabot's own host: the one inside the app, `MEXERICA_HOST_BIN` (or legacy `DONNABOT_HOST_BIN`), this checkout's builds
    * (dev) or ~/.local/bin. Never PATH, Homebrew or any `codync-host`: that is the installed Codync's.
    */
   get binary(): string | null {
+    if (officialDesktop) {
+      const bin = join(process.resourcesPath, isWindows ? 'donnabot-host.exe' : 'donnabot-host')
+      return existsSync(bin) ? bin : null
+    }
     const candidates = [
       app.isPackaged && isMac ? join(process.resourcesPath, 'donnabot-host') : null,
       app.isPackaged && isWindows ? join(process.resourcesPath, 'donnabot-host.exe') : null,
@@ -194,8 +206,9 @@ export class HostController extends EventEmitter {
   }
 
   async refresh() {
-    if (this.preparingForUpdate) return
+    if (!this.canUseHost() || this.preparingForUpdate) return
     if (localHostOff()) {
+      if (officialDesktop) return this.setState({ kind: 'disabled' })
       this.installToken++
       this.stopLoop()
       try {
@@ -229,11 +242,11 @@ export class HostController extends EventEmitter {
   /** A service operation must never invoke the other environment's binary. */
   async install() {
     const bin = this.binary
-    if (this.preparingForUpdate || this.installing || !bin || devPort !== null || localHostOff()) return
+    if (!this.canUseHost() || this.preparingForUpdate || this.installing || !bin || devPort !== null || localHostOff()) return
     this.installing = true
     const token = this.installToken
     // A escolha pode mudar durante as esperas: perdeu a vez se o token mudou ou o Hub local saiu.
-    const cancelled = () => token !== this.installToken || localHostOff()
+    const cancelled = () => !this.canUseHost() || token !== this.installToken || localHostOff()
     let retry = false
     this.stopLoop()
     prefs.set('hostUninstalled', false)
@@ -241,15 +254,17 @@ export class HostController extends EventEmitter {
     try {
       await this.verifyBinary(bin)
       if (cancelled()) {
-        retry = !localHostOff()
+        retry = this.canUseHost() && !localHostOff()
         if (!retry) this.setState({ kind: 'disabled' })
         return
       }
       const result = await run(bin, ['install', '--port', String(port)])
       if (cancelled()) {
         // A escolha mudou durante o `install`: desfaz o que ele possa ter criado.
-        if (localHostOff()) await this.undoInstall()
-        else retry = true
+        if (this.canUseHost()) {
+          if (localHostOff()) await this.undoInstall()
+          else retry = true
+        }
       } else if (result.status !== 0) {
         this.setupFailed('install', { kind: 'failed', message: result.output || 'Install failed' })
       } else if (macLocalMode() && !serviceRuns(bin)) {
@@ -292,6 +307,7 @@ export class HostController extends EventEmitter {
 
   /** One loopback API call from the main process; throws when the host isn't running. */
   async call<T>(method: string, params: object = {}, timeoutMs = 5000): Promise<T> {
+    if (!this.canUseHost()) throw new Error('account_required')
     const local = this.local
     if (!local) throw new Error('The host isn’t running')
     const res = await fetch(`${local.baseURL}/api/${method}`, {
@@ -305,6 +321,7 @@ export class HostController extends EventEmitter {
   }
 
   async uninstall(level: UninstallLevel = 1): Promise<boolean> {
+    if (officialDesktop && localHostOff()) return true
     // Sem host neste computador, "Reset all data" não depende do binário (que o app local não traz).
     if (localHostOff()) {
       this.installToken++
@@ -375,17 +392,17 @@ export class HostController extends EventEmitter {
 
   /** Watches the host's health; the renderer's store handles the event stream itself. */
   private connect() {
-    if (this.preparingForUpdate || localHostOff()) return
+    if (!this.canUseHost() || this.preparingForUpdate || localHostOff()) return
     this.stopLoop()
     const generation = this.generation
     this.failures = 0
     let attached = false
     let firstFailureAt = 0
     const tick = async () => {
-      if (generation !== this.generation) return
+      if (!this.canUseHost() || generation !== this.generation) return
       const problem = await this.attachLocal()
       // It may have started a reinstall (a stale build), which connects on its own.
-      if (generation !== this.generation) return
+      if (!this.canUseHost() || generation !== this.generation) return
       if (!problem) {
         attached = true
         this.failures = 0

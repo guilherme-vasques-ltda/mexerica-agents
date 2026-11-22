@@ -5,9 +5,9 @@ import { randomBytes } from 'node:crypto'
 import { app, ipcMain, safeStorage, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import type { SignInFailure, SignInProvider } from '../../shared/analytics'
 import type { AccountState, AccountPendingStep, AccountReconciliationState as ReconciliationState, ResendEmailCodeResult, SecondFactorStrategy } from '../../shared/ipc'
-import { forkFeatures } from '../../shared/fork-features'
+import { forkFeatures, officialDesktop } from '../../shared/fork-features'
 import { authenticate, AuthenticationEnded } from '../auth'
-import { buildConfig, identity } from '../environment'
+import { buildConfig, identity, officialLoginConfig } from '../environment'
 import { accountConfig, accountBrowserURL } from './config'
 import { AccountStorage } from './storage'
 import { accountCallback } from './callback'
@@ -126,8 +126,15 @@ type CapturedRevoker = (jwt: string, current: () => boolean) => Promise<DeviceRe
 
 export class AccountService extends EventEmitter {
   private config = accountConfig(buildConfig)
-  browserURL(value: string): string { return accountBrowserURL(value, this.config) }
-  private base = forkFeatures.cloudAccess && this.config.kind === 'configured' ? this.config.proxyOrigin : null
+  browserURL(value: string): string {
+    if (officialDesktop && officialLoginConfig) return accountBrowserURL(value, { kind: 'configured', frontendOrigin: officialLoginConfig.clerkFrontendOrigin, proxyOrigin: officialLoginConfig.clerkProxyOrigin })
+    return accountBrowserURL(value, this.config)
+  }
+  private base = officialDesktop ? officialLoginConfig?.clerkProxyOrigin ?? null : forkFeatures.cloudAccess && this.config.kind === 'configured' ? this.config.proxyOrigin : null
+  private officialProof: { sessionId: string; userId: string; until: number } | null = null
+  private officialSessionTimer: NodeJS.Timeout | undefined
+  private officialDeadlineTimer: NodeJS.Timeout | undefined
+  private officialRefresh: Promise<void> | null = null
   private epoch = 0
   private locallyFenced = false
   private seals = new WeakSet<CloudSeal>()
@@ -171,13 +178,25 @@ export class AccountService extends EventEmitter {
   setDeviceRevoker(capture: (seal: CloudSeal, binding: DeviceBinding | null) => CapturedRevoker | null) { this.deviceRevoker = capture }
   setBindingRestorer(restore: (seal: CloudSeal, binding: DeviceBinding) => Promise<boolean>) { this.bindingRestorer = restore }
   get sessionEpoch() { return this.epoch }
-  private advanceEpoch() { this.epoch++; this.emit('epoch', this.epoch); return this.epoch }
+  private advanceEpoch() {
+    if (officialDesktop) {
+      this.officialProof = null
+      this.officialRefresh = null
+      clearTimeout(this.officialSessionTimer)
+      clearTimeout(this.officialDeadlineTimer)
+    }
+    this.epoch++
+    this.emit('epoch', this.epoch)
+    return this.epoch
+  }
   private fencePresentation() {
     this.locallyFenced = true; this.cachedToken = null
     this.state = { ...this.state, user: null }
     return this.advanceEpoch()
   }
-  reconciliationState(): ReconciliationState { return { kind: this.transient || this.localResetPending ? 'session_unverified' : 'none' } }
+  reconciliationState(): ReconciliationState {
+    return { kind: this.transient || this.localResetPending || (officialDesktop && !!this.activeSession && !this.officialProofCurrent()) ? 'session_unverified' : 'none' }
+  }
   deviceIdentityScope() {
     const c = this.config
     return c.kind === 'configured' ? { origin: c.cloudOrigin, issuer: c.issuer, deploymentId: c.deploymentId, manifestHash: c.manifestHash } : null
@@ -188,6 +207,7 @@ export class AccountService extends EventEmitter {
   }) }
   private get passwordStore() { return new PasswordAttemptStore(app.getPath('userData'), this.namespace) }
   private get namespace() {
+    if (officialDesktop && officialLoginConfig) return JSON.stringify(['desktop-account', officialLoginConfig.clerkFrontendOrigin, officialLoginConfig.clerkProxyOrigin, officialLoginConfig.clerkTokenOrigin])
     const c = this.config
     return c.kind === 'configured' ? JSON.stringify([c.deploymentId, c.issuer, c.cloudOrigin, c.frontendOrigin, c.proxyOrigin, c.manifestHash]) : 'unavailable'
   }
@@ -195,12 +215,60 @@ export class AccountService extends EventEmitter {
   private encryptionAvailable() { return safeStorage.isEncryptionAvailable() && !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') }
   private get activeSession(): ClerkSession | null {
     const matches = this.client?.sessions?.filter(s => s.id === this.client?.last_active_session_id) ?? []
-    return matches.length === 1 && matches[0].status === 'active' && typeof matches[0].user?.id === 'string' && !!matches[0].user.id ? matches[0] : null
+    const session = matches.length === 1 ? matches[0] : null
+    return session?.status === 'active' && typeof session.user?.id === 'string' && !!session.user.id &&
+      (!officialDesktop || (typeof session.expire_at === 'number' && Number.isSafeInteger(session.expire_at) && session.expire_at > Date.now())) ? session : null
+  }
+  officialSessionCurrent(): boolean {
+    return !!(this.base && this.state.user && this.officialProofCurrent() &&
+      this.state.ready && !this.state.busy && !this.restoring && !this.locallyFenced && !this.transient && !this.localResetPending && this.deviceToken)
+  }
+  private officialProofCurrent(): boolean {
+    const proof = this.officialProof
+    const session = this.activeSession
+    return !!(proof && session && proof.until > Date.now() && proof.sessionId === session.id && proof.userId === session.user?.id)
+  }
+  private watchOfficialSession() {
+    clearTimeout(this.officialSessionTimer)
+    clearTimeout(this.officialDeadlineTimer)
+    const session = this.activeSession
+    if (!session || !this.deviceToken || this.locallyFenced || this.transient || this.localResetPending) return
+    const epoch = this.epoch
+    const userId = session.user?.id
+    const expires = session.expire_at ?? 0
+    if (this.officialProof && this.officialProofCurrent()) {
+      this.officialDeadlineTimer = setTimeout(() => {
+        if (epoch === this.epoch) this.set({})
+      }, Math.max(0, Math.min(this.officialProof.until, expires) - Date.now()))
+      this.officialDeadlineTimer.unref()
+    }
+    const check = async () => {
+      if (epoch !== this.epoch) return
+      if (expires <= Date.now()) {
+        void this.expire()
+        return
+      }
+      await this.recheckOfficialSession(session.id, userId)
+    }
+    this.officialSessionTimer = setTimeout(check, Math.max(0, Math.min(10_000, expires - Date.now())))
+    this.officialSessionTimer.unref()
+  }
+  private async recheckOfficialSession(sessionId: string, userId: string | undefined) {
+    if (this.officialRefresh) return this.officialRefresh
+    const epoch = this.epoch
+    const pending = this.refreshClient(epoch, sessionId, undefined, userId).catch(() => {
+      if (epoch !== this.epoch) return
+      this.officialProof = null
+      this.set({})
+      this.watchOfficialSession()
+    })
+    this.officialRefresh = pending
+    try { await pending } finally { if (this.officialRefresh === pending) this.officialRefresh = null }
   }
   private set(change: Partial<AccountState>) {
     const next = { ...this.state, ...change }
     const user = this.activeSession?.user
-    const confirmed = next.ready && !next.busy && !this.restoring && !this.locallyFenced && !this.transient && !this.localResetPending && !!this.deviceToken && !this.secondFactor && !this.signUpAttempt && !this.emailSignIn && !this.newPassword
+    const confirmed = next.ready && !next.busy && !this.restoring && !this.locallyFenced && !this.transient && !this.localResetPending && !!this.deviceToken && !this.secondFactor && !this.signUpAttempt && !this.emailSignIn && !this.newPassword && (!officialDesktop || this.officialProofCurrent())
     const email = user?.email_addresses?.find(e => e.id === user.primary_email_address_id)?.email_address ?? user?.email_addresses?.[0]?.email_address ?? null
     const pending: AccountPendingStep | null = this.secondFactor?.epoch === this.epoch ? { kind: 'second_factor', strategies: [...this.secondFactor.strategies] }
       : this.signUpAttempt?.epoch === this.epoch ? { kind: 'email_code', purpose: 'sign_up', resendAt: this.signUpAttempt.resendAt }
@@ -541,6 +609,11 @@ export class AccountService extends EventEmitter {
     diag('check_entry', 'entered')
     if (action !== 'check' || this.state.busy || this.restoring || !this.state.ready) return { kind: 'unavailable' }
     if (this.localResetPending) { await this.resetLocal(null); return this.reconciliationState() }
+    if (officialDesktop && this.activeSession && !this.officialProofCurrent()) {
+      const { id, user } = this.activeSession
+      await this.recheckOfficialSession(id, user?.id)
+      return this.reconciliationState()
+    }
     if (!this.transient) return this.reconciliationState()
     await this.restore()
     return this.reconciliationState()
@@ -631,8 +704,9 @@ export class AccountService extends EventEmitter {
     // Clerk derives azp from Origin. Its explicit build pin is distinct from the FAPI;
     // never weaken the Worker's authorizedParties check for native tokens.
     if (method === 'POST' && /^\/v1\/client\/sessions\/[^/]+\/tokens$/.test(path)) {
-      if (this.config.kind !== 'configured') throw new Error('Invalid account configuration.')
-      headers.Origin = this.config.tokenOrigin
+      const tokenOrigin = officialDesktop ? officialLoginConfig?.clerkTokenOrigin : this.config.kind === 'configured' ? this.config.tokenOrigin : null
+      if (!tokenOrigin) throw new Error('Invalid account configuration.')
+      headers.Origin = tokenOrigin
     }
     if (this.deviceToken) headers.Authorization = this.deviceToken
     let payload: string | undefined
@@ -685,12 +759,21 @@ export class AccountService extends EventEmitter {
     }
     this.set({})
   }
-  private async refreshClient(epoch = this.epoch, expectedSession?: string, diagnosticStage?: RecoveryStage) {
+  private async refreshClient(epoch = this.epoch, expectedSession?: string, diagnosticStage?: RecoveryStage, expectedUser?: string) {
     const client = await this.request<ClerkClient | null>('GET', '/v1/client', undefined, undefined, epoch, false, diagnosticStage)
     this.current(epoch)
     if (!client || !Array.isArray(client.sessions) || client.sessions.some(s => !s || typeof s.id !== 'string' || typeof s.status !== 'string') || (client.last_active_session_id != null && typeof client.last_active_session_id !== 'string')) throw new InvalidStoredAnchor()
     if (expectedSession && (client?.last_active_session_id !== expectedSession || !client.sessions?.some((session) => session.id === expectedSession && session.status === 'active'))) throw new Error('Session could not be confirmed.')
+    if (officialDesktop) {
+      const next = client.sessions.filter(s => s.id === client.last_active_session_id)
+      const session = next.length === 1 ? next[0] : null
+      if (expectedUser !== undefined && expectedUser !== session?.user?.id) throw new InvalidStoredAnchor()
+      this.officialProof = session && typeof session.user?.id === 'string' && session.user.id
+        ? { sessionId: session.id, userId: session.user.id, until: Date.now() + 20_000 }
+        : null
+    }
     this.applyClient(client)
+    if (officialDesktop) this.watchOfficialSession()
   }
 
   private async passwordCall(record: PasswordAttempt, epoch: number, path: string, method: 'GET' | 'POST', body?: Record<string, string>): Promise<{ ok: boolean; status: number; value: SignInResource; codes: string[]; credential: string | null }> {

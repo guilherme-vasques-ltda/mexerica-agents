@@ -1,5 +1,9 @@
 /* D164: contas de IA. Tokens atuais de theme.css (sistema do redesenho #66 como referência). */
 
+.contas-conectar-sheet .modal-header > .icon-button {
+  --scale: 1;
+}
+
 .contas-panel-body {
   flex: 1;
   min-height: 0;

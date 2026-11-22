@@ -66,7 +66,7 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
   const title = reconnect ? textos.reconectarTitulo(account.label) : textos.conectarTitulo(account.label)
 
   const panel = (
-    <SheetPage><div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
+    <SheetPage className="contas-conectar-sheet"><div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
       <ModalHeader
         icon={<AgentTile registry={engineRegistry(engine)} icon={18} tile={32} radius={9} />}
         title={title}

@@ -36,7 +36,7 @@ export function accountConfig(input: { clerkPublishableKey?: unknown; cloudURL?:
 }
 
 /** Troca somente o endereço conhecido da FAPI; URLs externas do provedor seguem intactas. */
-export function accountBrowserURL(value: string, config: AccountConfig): string {
+export function accountBrowserURL(value: string, config: Extract<AccountConfig, { kind: 'unavailable' }> | Pick<Extract<AccountConfig, { kind: 'configured' }>, 'kind' | 'frontendOrigin' | 'proxyOrigin'>): string {
   if (config.kind !== 'configured') throw new Error('account_unavailable')
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('invalid_account_url')
