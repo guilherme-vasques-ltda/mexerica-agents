@@ -20,10 +20,12 @@ use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapFree};
 use windows_sys::Win32::System::Pipes::{CreatePipe, PeekNamedPipe};
 use windows_sys::Win32::System::SystemServices::{SE_GROUP_ENABLED, SECURITY_MANDATORY_LOW_RID};
 use windows_sys::Win32::System::Threading::*;
+use windows_sys::Win32::System::WindowsProgramming::PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
 
 const REFUSED: &str = "motor_windows_laboratorio_recusado";
 const WORKER: &str = "donnabot-motor-catalogo-teste.exe";
 const PRIVATE: &str = "somente-hub.txt";
+const BROAD_PACKAGES: &str = "pacotes-amplos.txt";
 const REQUEST: &[u8] = b"catalogo-sintetico-v1\n";
 const RESPONSE: &[u8] = b"catalogo-sintetico-v1:modelo-ficticio\n";
 const MEMORY: usize = 256 * 1024 * 1024;
@@ -191,7 +193,11 @@ fn token_value(token: &OwnedHandle, class: TOKEN_INFORMATION_CLASS) -> Result<u3
 }
 
 fn verify_token(child: &OwnedHandle, owner: PSID, expected: PSID) -> Result<()> {
-    require(token_value(child, TokenIsAppContainer)? == 1 && token_value(child, TokenElevation)? == 0)?;
+    require(
+        token_value(child, TokenIsAppContainer)? == 1
+            && token_value(child, TokenIsLessPrivilegedAppContainer)? == 1
+            && token_value(child, TokenElevation)? == 0,
+    )?;
     let package = token_data(child, TokenAppContainerSid, size_of::<TOKEN_APPCONTAINER_INFORMATION>())?;
     let user = token_data(child, TokenUser, size_of::<TOKEN_USER>())?;
     let integrity = token_data(child, TokenIntegrityLevel, size_of::<TOKEN_MANDATORY_LABEL>())?;
@@ -260,14 +266,15 @@ struct Attributes(LPPROC_THREAD_ATTRIBUTE_LIST, Vec<usize>);
 
 impl Attributes {
     fn new() -> Result<Self> {
+        const COUNT: u32 = 5;
         let mut bytes = 0;
         // SAFETY: null requests the required allocation size and does not initialize anything.
-        unsafe { InitializeProcThreadAttributeList(null_mut(), 4, 0, &mut bytes) };
+        unsafe { InitializeProcThreadAttributeList(null_mut(), COUNT, 0, &mut bytes) };
         require((1..=64 * 1024).contains(&bytes))?;
         let mut allocation = vec![0usize; bytes.div_ceil(size_of::<usize>())];
         let list = allocation.as_mut_ptr().cast();
         // SAFETY: the aligned allocation covers bytes and is kept alive until Delete.
-        require(unsafe { InitializeProcThreadAttributeList(list, 4, 0, &mut bytes) } != 0)?;
+        require(unsafe { InitializeProcThreadAttributeList(list, COUNT, 0, &mut bytes) } != 0)?;
         Ok(Self(list, allocation))
     }
 
@@ -447,6 +454,10 @@ impl Lab {
         let private = root.path().join(PRIVATE);
         File::create_new(&private).and_then(|mut f| f.write_all(b"sentinela-ficticia")).map_err(|_| REFUSED)?;
         restrict_path(&private, &format!("D:P(A;;FA;;;{owner_text})"))?;
+        let broad = root.path().join(BROAD_PACKAGES);
+        File::create_new(&broad).and_then(|mut f| f.write_all(b"sentinela-pacotes")).map_err(|_| REFUSED)?;
+        restrict_path(&broad, &format!("D:P(A;;FA;;;{owner_text})(A;;FR;;;S-1-15-2-1)"))?;
+        require(fs::read(&broad).map_err(|_| REFUSED)? == b"sentinela-pacotes")?;
 
         let sd = descriptor(&format!("D:P(A;;GA;;;{owner_text})"))?;
         let (input, child_in) = pipe(&sd, true)?;
@@ -458,11 +469,13 @@ impl Lab {
         let inherited = [child_in.as_raw_handle(), child_out.as_raw_handle(), child_reply.as_raw_handle()];
         let capabilities = SECURITY_CAPABILITIES { AppContainerSid: profile.sid, ..Default::default() };
         let no_children = 1u32;
+        let package_policy = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
         let mut attrs = Attributes::new()?;
         attrs.add(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
         attrs.add(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
         attrs.add(PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, &capabilities)?;
         attrs.add(PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, &no_children)?;
+        attrs.add(PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY, &package_policy)?;
         let mut start = STARTUPINFOEXW::default();
         start.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>()).map_err(|_| REFUSED)?;
         start.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -543,12 +556,13 @@ impl Lab {
 #[ignore = "worker privado: iniciado somente pelo teste de contenção"]
 fn catalog_child() {
     // SAFETY: GetCurrentProcess returns the current process pseudohandle.
-    let worker = token(unsafe { GetCurrentProcess() }).and_then(|t| token_value(&t, TokenIsAppContainer));
+    let worker = token(unsafe { GetCurrentProcess() }).and_then(|t| token_value(&t, TokenIsLessPrivilegedAppContainer));
     if worker != Ok(1) {
         return;
     }
     let result = (|| -> Result<()> {
         require(fs::read(PRIVATE).is_err_and(|error| error.kind() == io::ErrorKind::PermissionDenied))?;
+        require(fs::read(BROAD_PACKAGES).is_err_and(|error| error.kind() == io::ErrorKind::PermissionDenied))?;
         // SAFETY: these are the allowlisted standard handles owned by this process; each is taken once.
         unsafe {
             use windows_sys::Win32::System::Console::{
