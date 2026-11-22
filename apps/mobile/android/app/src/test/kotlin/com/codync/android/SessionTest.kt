@@ -28,4 +28,9 @@ class SessionTest {
         val entries = listOf(message("main"), message("extra", sessionId = "extra"), message("other", bot = "other", sessionId = "extra"))
         assertEquals(listOf("main", "other"), entries.filter { it.entry.botId != call || it.entry.isMainSession }.map { it.entry.id })
     }
+
+    @Test fun `the conversation between two bots reads only the main session on both sides`() {
+        val fetched = listOf(message("notice-main"), message("notice-extra", sessionId = "extra"), message("notice-legacy")).map { it.entry }
+        assertEquals(listOf("notice-main", "notice-legacy"), fetched.filter { it.isMainSession }.map { it.id })
+    }
 }

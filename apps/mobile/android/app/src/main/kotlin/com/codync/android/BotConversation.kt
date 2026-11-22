@@ -77,7 +77,7 @@ private fun AppState.authorName(id: String): String = bots.firstOrNull { it.id =
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { fetched = emptyList(); error = failure.message ?: "Couldn't load the conversation." }
     }
-    val rows = BotConversationRow.build(BotExchange.conversation(fetched.orEmpty(), state.entries.mainChat(bot.id), peerId))
+    val rows = BotConversationRow.build(BotExchange.conversation(fetched.orEmpty().filter { it.isMainSession }, state.entries.mainChat(bot.id), peerId))
     val list = rememberLazyListState()
     LaunchedEffect(rows.size) { if (rows.isNotEmpty()) list.scrollToItem(rows.lastIndex) }
     Column(Modifier.fillMaxSize().background(Palette.background)) {
