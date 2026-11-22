@@ -103,7 +103,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
       return { ok: true, json: async () => ({ environment: behavior.runningEnvironment, computerId: 'fixture-computer', busy: behavior.busy, binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }) }
     },
   })
-  const host = new module.HostController()
+  const host = new module.HostController(() => true)
   const tick = async (ms: number) => {
     for (const [id, timer] of [...timers]) {
       if (timer.ms !== ms) continue
