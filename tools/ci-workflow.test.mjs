@@ -225,7 +225,27 @@ const ACTIONS = new Set([
 ]);
 
 test('somente os workflows da lista fechada existem', () => {
-  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'code-review.yml', 'cua-driver-pin.yml', 'macos.yml', 'release.yml', 'vazamento-semanal.yml']);
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'code-review.yml', 'cua-driver-pin.yml', 'macos.yml', 'mobile.yml', 'release.yml', 'vazamento-semanal.yml']);
+});
+
+test('Mobile: dois runners oficiais, checkout por SHA e sem privilégios de publicação', () => {
+  const mobile = readFileSync(new URL('../.github/workflows/mobile.yml', import.meta.url), 'utf8');
+  const [config, android, ios] = mobile.split(/^jobs:\n  android:\n|^  ios:\n/m);
+  assert.match(config, /^on:\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n    paths:\n(?:      - '[^'\n]+'\n)+  workflow_dispatch:\n\n/m);
+  assert.match(config, /^permissions: \{\}$/m);
+  assert.deepEqual([...mobile.matchAll(/^  ([a-z_-]+):$/gm)].map((m) => m[1]), ['pull_request', 'workflow_dispatch', 'android', 'ios']);
+  assert.doesNotMatch(mobile, /\b(?:secrets|vars)\.|: write\b|cache:|environment:|container:|services:|continue-on-error:/);
+  for (const [job, runner] of [[android, GITHUB_LINUX], [ios, 'macos-26']]) {
+    assert.ok(job.includes(`\n    runs-on: ${runner}\n`));
+    assert.match(job, /^    permissions:\n      contents: read\n    steps:/m);
+    const refs = [...job.matchAll(/^\s+(?:- )?uses: (\S+)/gm)].map((m) => m[1]);
+    assert.equal(refs.length, 1);
+    assert.ok(ACTIONS.has(refs[0]) && refs[0].startsWith('actions/checkout@'));
+    assert.match(job, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}\n          persist-credentials: false/);
+    const gate = job.split('uses: actions/checkout@')[0];
+    assert.ok(gate.includes('test "$REPO_PRIVATE" = false') && gate.includes('"$GITHUB_REF" != refs/heads/main'));
+  }
+  assert.doesNotMatch(body('ci-ok'), /\b(?:android|ios|mobile)\b/);
 });
 
 test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
