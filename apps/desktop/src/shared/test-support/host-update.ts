@@ -7,7 +7,7 @@ import { forkFeatures } from '../fork-features.ts'
 import { THROTTLE_SECONDS, expectedProgramArguments, launchdServiceAbsent, localHostOff, macPlistValid, uninstallArgs } from '../fork-mac-local-hub.ts'
 import { loadMainModule, settle } from './main-module.ts'
 
-export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platform?: string; devPort?: string; devPortVar?: string; env?: Record<string, string>; existing?: string[]; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean; localHost?: boolean; macLocalHub?: boolean; hubLocation?: string } = {}) {
+export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platform?: string; devPort?: string; devPortVar?: string; env?: Record<string, string>; existing?: string[]; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean; localHost?: boolean; macLocalHub?: boolean; hubLocation?: string; canUseHost?: boolean } = {}) {
   const identity = environmentProfile(options.environment ?? 'main')
   const platform = options.platform ?? 'darwin'
   const binary = platform === 'win32' ? '/bundle/donnabot-host.exe' : platform === 'linux' ? '/home/usuario/.local/bin/donnabot-host' : '/bundle/donnabot-host'
@@ -103,7 +103,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
       return { ok: true, json: async () => ({ environment: behavior.runningEnvironment, computerId: 'fixture-computer', busy: behavior.busy, binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }) }
     },
   })
-  const host = new module.HostController(() => true)
+  const host = new module.HostController(() => options.canUseHost ?? true)
   const tick = async (ms: number) => {
     for (const [id, timer] of [...timers]) {
       if (timer.ms !== ms) continue

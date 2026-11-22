@@ -4,6 +4,19 @@ import test from 'node:test'
 import { hostUpdateFixture } from './test-support/host-update.ts'
 import { settle } from './test-support/main-module.ts'
 
+test('denied session cannot start, restart, install or call the local host', async () => {
+  const f = hostUpdateFixture({ installed: false, canUseHost: false })
+  f.host.start()
+  f.host.restart()
+  await f.host.refresh()
+  await f.host.install()
+  await assert.rejects(f.host.call('compat'), /account_required/)
+  await settle()
+  assert.deepEqual(f.calls, [])
+  assert.deepEqual(f.probes, [])
+  assert.equal(f.host.local, null)
+})
+
 for (const platform of ['darwin', 'win32']) {
   test(`${platform}: updating stops the bundled host after unregistering screen and persists restart`, async () => {
     const f = hostUpdateFixture({ platform })
