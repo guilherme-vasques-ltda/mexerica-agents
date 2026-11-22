@@ -1,0 +1,59 @@
+name: Windows isolation proof
+
+on:
+  pull_request:
+    branches: [cy/verifica-conteno-do-processo]
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  windows-isolation:
+    if: >-
+      github.run_attempt == '1' &&
+      github.event.pull_request.head.repo.fork == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ci/windows-isolation-proof' &&
+      github.event.pull_request.base.sha == '55bc61227eb250bed6383642970a89dc58c5d57c'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify the proof commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          test "$(git rev-list --parents -n 1 HEAD)" = "$(git rev-parse HEAD) $BASE_SHA"
+          git diff --exit-code "$BASE_SHA" HEAD -- . ':(exclude).github/workflows/windows-isolation-proof.yml' ':(exclude)tools/ci-workflow.test.mjs' ':(exclude)tools/ci-workflow-windows.ps1'
+          git log -1 --format='Proof commit: %H; tested base: %P'
+      - name: Run and verify the Windows isolation tests
+        run: |
+          set -euo pipefail
+          output=$(pwsh -NoProfile -NonInteractive -File tools/ci-workflow-windows.ps1) || {
+            echo '::error::The Windows proof failed. LPAC and a non-elevated test process are required; no fallback is allowed.'
+            exit 1
+          }
+          awk '
+            { sub(/\r$/, "") }
+            /^test fork::motor_mexerica::windows_laboratorio::windows_nativo_catalogo_e_recusa_antes_de_retomar \.\.\. ok$/ { catalog++; print }
+            /^test fork::motor_mexerica::windows_laboratorio::windows_nativo_identidade_da_imagem_recusa_copia_ou_hash_errado \.\.\. ok$/ { identity++; print }
+            /^test fork::motor_mexerica::windows_laboratorio::simulacao_nao_readmite_com_termino_indeterminado \.\.\. ok$/ { simulation++; print }
+            /^test fork::motor_mexerica::windows_laboratorio::catalog_child \.\.\. ignored(, .*)?$/ { child++ }
+            /^test result: ok\. 3 passed; 0 failed; 1 ignored; 0 measured; [0-9]+ filtered out;/ { summary++ }
+            END {
+              if (!(catalog == 1 && identity == 1 && simulation == 1 && child == 1 && summary == 1)) exit 1
+              print "Verified: 3 passed, 0 failed, 1 private child ignored by the harness."
+            }
+          ' <<< "$output" || {
+            echo '::error::Expected two passing native tests, three passes total and only the private child ignored.'
+            exit 1
+          }
