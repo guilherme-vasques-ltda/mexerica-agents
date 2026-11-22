@@ -109,7 +109,7 @@ pub async fn main(action: Action) -> Result<()> {
             let home = home(h)?;
             let _lock = home.lock()?;
             let mut auth = home.authorized()?;
-            home.bump_epoch()?;
+            home.bump_auth_epoch()?;
             auth.desktop = None;
             home.save_authorized(&auth)?;
             println!("Liberação de {location} removida. Pedidos para esse local serão recusados.");
@@ -122,16 +122,18 @@ pub async fn main(action: Action) -> Result<()> {
 }
 
 async fn enroll(home: &Home, hub: &str, code: &str, name: &str) -> Result<()> {
+    let _enrolling = home.enroll_lock()?;
     state::ensure_plain_url(hub)?;
     let name = name.trim();
     ensure!(!name.is_empty() && name.chars().count() <= 100, "nome inválido");
-    // Um cadastro por vez nesta pasta de estado: dois `enroll` não podem trocar a chave um do outro.
-    let enroll_epoch = {
+    // A chave é escolhida e guardada sob o trinco, antes de qualquer rede: um cadastro não pode trocar a chave do outro.
+    let (key, enroll_epoch) = {
         let _lock = home.lock()?;
         ensure!(!home.has_link_file(), "este computador já tem vínculo; revogue antes de cadastrar de novo");
-        let epoch = home.bump_epoch()?;
+        let epoch = home.bump_binding_epoch()?;
+        home.bump_auth_epoch()?;
         home.reset_binding()?;
-        epoch
+        (home.key(true)?, epoch)
     };
     let norm: String =
         code.chars().filter(|c| *c != '-' && !c.is_whitespace()).map(|c| c.to_ascii_uppercase()).collect();
@@ -161,7 +163,14 @@ async fn enroll(home: &Home, hub: &str, code: &str, name: &str) -> Result<()> {
     mac.update(cid.as_bytes());
     mac.verify_slice(&crypto::unb64(hello["mac"].as_str().unwrap_or_default())?)
         .map_err(|_| anyhow!("o Hub não provou conhecer o código; pode não ser o seu Hub. Cadastro recusado"))?;
-    let key = home.key(true)?;
+    {
+        let _lock = home.lock()?;
+        ensure!(
+            !home.has_link_file(),
+            "este computador foi cadastrado enquanto você informava o código; nada foi pareado"
+        );
+        ensure!(home.binding_epoch()? == enroll_epoch, "o estado local mudou durante o cadastro; nada foi pareado");
+    }
     let mut session = Session::connect(hub, &key, &sign_pub, true).await?;
     let ok = session
         .call(
@@ -174,13 +183,19 @@ async fn enroll(home: &Home, hub: &str, code: &str, name: &str) -> Result<()> {
     {
         let _lock = home.lock()?;
         ensure!(!home.has_link_file(), "este computador foi cadastrado durante o cadastro; nada foi salvo");
-        ensure!(home.epoch()? == enroll_epoch, "o estado local mudou durante o cadastro; nada foi salvo");
-        home.bump_epoch()?;
+        ensure!(home.binding_epoch()? == enroll_epoch, "o estado local mudou durante o cadastro; nada foi salvo");
+        let computer_id = ok["computerId"].as_str().unwrap_or_default();
+        ensure!(
+            computer_id == crypto::computer_id(&key.verifying_key().to_bytes()),
+            "o Hub cadastrou uma chave diferente desta; nada foi salvo"
+        );
+        home.bump_binding_epoch()?;
+        home.bump_auth_epoch()?;
         home.save_link(&HubLink {
             url: hub.trim_end_matches('/').into(),
             sign_pub: crypto::b64(&sign_pub),
             label: name.into(),
-            computer_id: ok["computerId"].as_str().unwrap_or_default().into(),
+            computer_id: computer_id.into(),
             binding_id: crypto::b64(&crypto::random::<16>()),
         })?;
     }
@@ -201,9 +216,9 @@ fn authorize(home: &Home, location: &str) -> Result<()> {
         root.display()
     );
     let (dev, ino) = policy::dir_identity(&root).ok_or_else(|| anyhow!("não consegui identificar a pasta"))?;
-    let (initial_link, initial_epoch) = {
+    let (initial_link, initial_auth_epoch) = {
         let _lock = home.lock()?;
-        (home.link().ok(), home.epoch()?)
+        (home.link().ok(), home.auth_epoch()?)
     };
     println!(
         "Você está liberando a Mexerica a CRIAR planilhas NOVAS em:\n  {}\nElas nunca sobrescrevem, apagam, movem nem leem arquivos seus. Dentro dessa pasta, pedidos explícitos do Berga não perguntam de novo.",
@@ -222,16 +237,16 @@ fn authorize(home: &Home, location: &str) -> Result<()> {
     ensure!(line.trim() == "AUTORIZAR", "cancelado; nada foi liberado");
     // Mesmo trinco da retirada, da revogação e da criação: uma liberação lenta não pode terminar depois delas.
     let _lock = home.lock()?;
-    state_unchanged(
+    auth_state_unchanged(
         home,
         initial_link.as_ref(),
-        &initial_epoch,
-        "o vínculo ou o estado local mudou enquanto você confirmava; nada foi liberado",
+        &initial_auth_epoch,
+        "o vínculo ou a liberação mudou enquanto você confirmava; nada foi liberado",
     )?;
     let mut auth = home.authorized()?;
     // A identidade guardada é a da pasta mostrada na confirmação: se ela foi trocada enquanto você lia, cancela.
     ensure!(policy::same_dir(&root, dev, ino), "a pasta mudou enquanto você confirmava; nada foi liberado");
-    home.bump_epoch()?;
+    home.bump_auth_epoch()?;
     auth.desktop = Some(Grant { path: root.to_string_lossy().into_owned(), at: crate::store::now_ms(), dev, ino });
     home.save_authorized(&auth)?;
     println!("Liberado: {location}. Para retirar: unauthorize --location {location}.");
@@ -263,9 +278,9 @@ fn status(home: &Home) -> Result<()> {
 async fn revoke(home: &Home, local_only: bool) -> Result<()> {
     // O vínculo que esta revogação alcança é o de agora: se mudar enquanto a rede responde, o novo não é apagado.
     // Vínculo e chave são lidos juntos, sob o trinco: um recadastro no meio não mistura o novo com o antigo.
-    let (link, key, initial_epoch) = {
+    let (link, key, initial_binding_epoch) = {
         let _lock = home.lock()?;
-        (home.link().ok(), home.key(false).ok(), home.epoch()?)
+        (home.link().ok(), home.key(false).ok(), home.binding_epoch()?)
     };
     if !local_only {
         let link = link.as_ref().context("este computador ainda não foi cadastrado no Hub")?;
@@ -287,8 +302,14 @@ async fn revoke(home: &Home, local_only: bool) -> Result<()> {
     // Mesmo trinco da criação, só durante a limpeza (não durante a rede): se um pedido está gravando, a revogação
     // espera; depois dela nada novo é criado.
     let _lock = home.lock()?;
-    state_unchanged(home, link.as_ref(), &initial_epoch, "o vínculo mudou durante a revogação; nada foi apagado")?;
-    home.bump_epoch()?;
+    binding_state_unchanged(
+        home,
+        link.as_ref(),
+        &initial_binding_epoch,
+        "o vínculo mudou durante a revogação; nada foi apagado",
+    )?;
+    home.bump_binding_epoch()?;
+    home.bump_auth_epoch()?;
     home.wipe_identity()?;
     println!("Identidade e liberações locais apagadas.");
     Ok(())
@@ -362,11 +383,21 @@ fn same_binding(home: &Home, link: &HubLink) -> Result<()> {
             && now.binding_id == link.binding_id,
         "o vínculo com o Hub mudou; este processo para"
     );
+    let key = home.key(false).context("a identidade do vínculo mudou; este processo para")?;
+    ensure!(
+        crypto::computer_id(&key.verifying_key().to_bytes()) == link.computer_id,
+        "a chave local não corresponde ao vínculo; este processo para"
+    );
     Ok(())
 }
 
-fn state_unchanged(home: &Home, link: Option<&HubLink>, epoch: &str, message: &str) -> Result<()> {
-    ensure!(home.link().ok().as_ref() == link && home.epoch()? == epoch, "{message}");
+fn auth_state_unchanged(home: &Home, link: Option<&HubLink>, epoch: &str, message: &str) -> Result<()> {
+    ensure!(home.link().ok().as_ref() == link && home.auth_epoch()? == epoch, "{message}");
+    Ok(())
+}
+
+fn binding_state_unchanged(home: &Home, link: Option<&HubLink>, epoch: &str, message: &str) -> Result<()> {
+    ensure!(home.link().ok().as_ref() == link && home.binding_epoch()? == epoch, "{message}");
     Ok(())
 }
 
@@ -501,12 +532,18 @@ fn recovered_result(home: &Home, link: &HubLink, job: &str, lease: &str) -> Resu
         let created = record["created"].as_array()?;
         let created = (created.first()?.as_u64()?, created.get(1)?.as_u64()?);
         let plan = policy::plan(record["kind"].as_str()?, &record["spec"]).ok()?;
+        let folder_id = if plan.folder.is_some() {
+            let folder = record["folderId"].as_array()?;
+            Some((folder.first()?.as_u64()?, folder.get(1)?.as_u64()?))
+        } else {
+            None
+        };
         let grant = home.authorized().ok()?.desktop?;
         let root = policy::authorized_root(&plan.location, Some(&grant.path)).ok()?;
         if grant.dev == 0 || grant.ino == 0 || !policy::same_dir(&root, grant.dev, grant.ino) {
             return None;
         }
-        policy::recover(&plan, &root, Some((grant.dev, grant.ino)), created).map(|r| Some(r.0))
+        policy::recover(&plan, &root, Some((grant.dev, grant.ino)), folder_id, created).map(|r| Some(r.0))
     })();
     Ok(match found {
         Some(Some(receipt)) => {
@@ -677,8 +714,8 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
     let job_id = id.clone();
     let work = tokio::task::spawn_blocking(move || {
         let _lock = lock;
-        policy::execute(&plan, &root, root_id, &|(dev, ino)| {
-            Home(state_dir.clone()).mark_created(&job_id, dev, ino).map_err(std::io::Error::other)
+        policy::execute(&plan, &root, root_id, &|(dev, ino), folder| {
+            Home(state_dir.clone()).mark_created(&job_id, dev, ino, folder).map_err(std::io::Error::other)
         })
     })
     .await?;
@@ -720,12 +757,14 @@ mod tests {
         let home = Home::open(&dir).unwrap();
         (dir, home)
     }
-    fn link(binding_id: &str) -> HubLink {
+    fn link(home: &Home, binding_id: &str) -> HubLink {
+        let key = home.key(true).unwrap();
+        let sign_pub = key.verifying_key().to_bytes();
         HubLink {
             url: "https://hub.example.invalid".into(),
-            sign_pub: crypto::b64(&[9u8; 32]),
+            sign_pub: crypto::b64(&sign_pub),
             label: "Computador".into(),
-            computer_id: "computer".into(),
+            computer_id: crypto::computer_id(&sign_pub),
             binding_id: binding_id.into(),
         }
     }
@@ -733,7 +772,7 @@ mod tests {
     #[test]
     fn a_stale_process_cannot_act_on_a_link_with_another_binding_id() {
         let (dir, home) = test_home();
-        let original = link("original");
+        let original = link(&home, "original");
         home.save_link(&original).unwrap();
         assert!(same_binding(&home, &original).is_ok());
         let mut reenrolled = original.clone();
@@ -745,36 +784,53 @@ mod tests {
     }
 
     #[test]
-    fn an_epoch_rotation_blocks_a_waiting_authorize_or_revoke_even_without_a_link() {
+    fn a_different_local_key_cannot_reuse_a_link_from_another_identity() {
         let (dir, home) = test_home();
-        let epoch = home.epoch().unwrap();
-        assert!(state_unchanged(&home, None, &epoch, "mudou").is_ok());
-        home.save_authorized(&Authorized { desktop: None }).unwrap();
-        let after_enroll = home.bump_epoch().unwrap();
-        assert!(state_unchanged(&home, None, &epoch, "mudou").is_err());
-        assert!(state_unchanged(&home, None, &after_enroll, "mudou").is_ok());
-        let bound = link("binding");
+        let original = link(&home, "binding");
+        home.save_link(&original).unwrap();
+        assert!(same_binding(&home, &original).is_ok());
+        std::fs::write(home.0.join("identity.key"), crypto::b64(&[42u8; 32])).unwrap();
+        let refused = same_binding(&home, &original).unwrap_err();
+        assert!(refused.to_string().contains("a chave local não corresponde ao vínculo"), "{refused:#}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn auth_epoch_rotation_leaves_the_binding_epoch_used_by_revoke_alone() {
+        let (dir, home) = test_home();
+        let binding = home.binding_epoch().unwrap();
+        let bound = link(&home, "binding");
         home.save_link(&bound).unwrap();
-        let after_authorize = home.bump_epoch().unwrap();
-        assert!(state_unchanged(&home, Some(&bound), &after_enroll, "mudou").is_err());
-        assert!(state_unchanged(&home, Some(&bound), &after_authorize, "mudou").is_ok());
-        home.bump_epoch().unwrap();
-        assert!(state_unchanged(&home, Some(&bound), &after_authorize, "mudou").is_err());
+        let auth = home.auth_epoch().unwrap();
+        home.bump_auth_epoch().unwrap();
+        assert_ne!(home.auth_epoch().unwrap(), auth);
+        assert_eq!(home.binding_epoch().unwrap(), binding);
+        assert!(auth_state_unchanged(&home, Some(&bound), &auth, "mudou").is_err());
+        assert!(binding_state_unchanged(&home, Some(&bound), &binding, "mudou").is_ok());
+        home.bump_auth_epoch().unwrap();
+        assert!(binding_state_unchanged(&home, Some(&bound), &binding, "mudou").is_ok());
+        let after_revoke = home.bump_binding_epoch().unwrap();
+        assert_ne!(after_revoke, binding);
+        home.bump_auth_epoch().unwrap();
+        assert!(binding_state_unchanged(&home, Some(&bound), &after_revoke, "mudou").is_ok());
+        assert!(binding_state_unchanged(&home, Some(&bound), &binding, "mudou").is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
-    async fn unauthorize_rotates_the_epoch_and_invalidates_a_state_captured_before_it() {
+    async fn unauthorize_rotates_only_the_auth_epoch_and_invalidates_a_state_captured_before_it() {
         let (dir, home) = test_home();
         home.save_authorized(&Authorized {
             desktop: Some(Grant { path: "caminho-de-teste".into(), at: crate::store::now_ms(), dev: 1, ino: 2 }),
         })
         .unwrap();
-        let before = home.epoch().unwrap();
+        let before = home.auth_epoch().unwrap();
+        let binding = home.binding_epoch().unwrap();
         main(Action::Unauthorize { location: "desktop".into(), home: Some(dir.clone()) }).await.unwrap();
         assert_eq!(home.authorized().unwrap().desktop, None);
-        assert_ne!(home.epoch().unwrap(), before);
-        assert!(state_unchanged(&home, None, &before, "mudou").is_err());
+        assert_ne!(home.auth_epoch().unwrap(), before);
+        assert_eq!(home.binding_epoch().unwrap(), binding);
+        assert!(auth_state_unchanged(&home, None, &before, "mudou").is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

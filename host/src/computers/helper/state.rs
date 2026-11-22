@@ -83,8 +83,10 @@ impl Home {
         private_dir(path)?;
         if !marker.exists() {
             private_write(&marker, b"estado do executor da Mexerica\n")?;
-            let epoch = path.join("state.epoch");
-            private_write(&epoch, crypto::b64(&crypto::random::<16>()).as_bytes())?;
+            let auth = path.join("state.epoch");
+            private_write(&auth, crypto::b64(&crypto::random::<16>()).as_bytes())?;
+            let binding = path.join("binding.epoch");
+            private_write(&binding, crypto::b64(&crypto::random::<16>()).as_bytes())?;
         }
         ensure!(fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file()), "marcador do estado inválido");
         for sub in ["outbox", "running"] {
@@ -131,19 +133,31 @@ impl Home {
     pub fn save_authorized(&self, auth: &Authorized) -> Result<()> {
         private_write(&self.file("auth.json"), &serde_json::to_vec_pretty(auth)?)
     }
-    /// Geração do estado local: troca a cada operação que pode mudar vínculo ou liberação.
-    /// Um estado antigo, sem o arquivo, entra com geração vazia e a primeira operação a cria.
-    pub fn epoch(&self) -> Result<String> {
-        match fs::read_to_string(self.file("state.epoch")) {
+    /// Gerações separadas: a de autorização muda ao liberar ou retirar um local; a de vínculo muda só no cadastro
+    /// e na revogação. Um estado antigo, sem o arquivo, entra com geração vazia e a primeira operação a cria.
+    fn read_epoch(&self, name: &str) -> Result<String> {
+        match fs::read_to_string(self.file(name)) {
             Ok(text) => Ok(text.trim().to_owned()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
             Err(e) => Err(e.into()),
         }
     }
-    pub fn bump_epoch(&self) -> Result<String> {
+    fn write_epoch(&self, name: &str) -> Result<String> {
         let epoch = crypto::b64(&crypto::random::<16>());
-        private_write(&self.file("state.epoch"), epoch.as_bytes())?;
+        private_write(&self.file(name), epoch.as_bytes())?;
         Ok(epoch)
+    }
+    pub fn auth_epoch(&self) -> Result<String> {
+        self.read_epoch("state.epoch")
+    }
+    pub fn bump_auth_epoch(&self) -> Result<String> {
+        self.write_epoch("state.epoch")
+    }
+    pub fn binding_epoch(&self) -> Result<String> {
+        self.read_epoch("binding.epoch")
+    }
+    pub fn bump_binding_epoch(&self) -> Result<String> {
+        self.write_epoch("binding.epoch")
     }
 
     pub fn running(&self, job: &str) -> PathBuf {
@@ -157,10 +171,13 @@ impl Home {
             json!({"jobId":job,"leaseToken":lease,"kind":kind,"spec":spec,"preexisting":preexisting,"phase":"planned"});
         private_write(&self.running(job), record.to_string().as_bytes())
     }
-    /// Registra, antes de qualquer byte, a identidade do arquivo que ESTA tentativa criou.
-    pub fn mark_created(&self, job: &str, dev: u64, ino: u64) -> Result<()> {
+    /// Registra, antes de qualquer byte, a identidade do arquivo e da subpasta que ESTA tentativa criou.
+    pub fn mark_created(&self, job: &str, dev: u64, ino: u64, folder: Option<(u64, u64)>) -> Result<()> {
         let mut record = self.running_record(job).ok_or_else(|| anyhow!("tentativa {job} não registrada"))?;
         record["created"] = json!([dev, ino]);
+        if let Some((fdev, fino)) = folder {
+            record["folderId"] = json!([fdev, fino]);
+        }
         private_write(&self.running(job), record.to_string().as_bytes())
     }
     /// Fase "writing": a partir daqui a tentativa pode ter criado a pasta ou o arquivo; só o disco diz o que houve.
@@ -271,6 +288,13 @@ impl Home {
         file.lock().context("trinco da liberação")?;
         Ok(file)
     }
+    /// Um só cadastro por pasta de estado, da escolha da chave até o fim do pareamento: dois `enroll` não podem
+    /// trocar a chave um do outro enquanto um deles espera a rede.
+    pub fn enroll_lock(&self) -> Result<fs::File> {
+        let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.file("enroll.lock"))?;
+        file.try_lock().map_err(|_| anyhow!("já existe um cadastro em andamento nesta pasta de estado"))?;
+        Ok(file)
+    }
     /// Um só `run` por pasta de estado: dois processos não podem reconciliar nem gravar a mesma tentativa.
     pub fn run_lock(&self) -> Result<fs::File> {
         let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.file("run.lock"))?;
@@ -376,11 +400,13 @@ mod tests {
     }
 
     #[test]
-    fn the_binding_identity_is_part_of_the_link_and_the_epoch_survives_cleanup() {
+    fn the_binding_identity_is_part_of_the_link_and_both_epochs_survive_cleanup() {
         let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
         let home = Home::open(&dir).unwrap();
-        let first = home.epoch().unwrap();
+        let first = home.auth_epoch().unwrap();
+        let binding = home.binding_epoch().unwrap();
         assert_ne!(first, "");
+        assert_ne!(binding, "");
         let link = HubLink {
             url: "https://hub.example.invalid".into(),
             sign_pub: crypto::b64(&[7u8; 32]),
@@ -389,11 +415,13 @@ mod tests {
             binding_id: "binding".into(),
         };
         home.save_link(&link).unwrap();
-        let next = home.bump_epoch().unwrap();
+        let next = home.bump_auth_epoch().unwrap();
         assert_ne!(next, first);
+        assert_eq!(home.binding_epoch().unwrap(), binding);
         home.save_outbox("job", &json!({"outcome":"done"})).unwrap();
         home.wipe_identity().unwrap();
-        assert_eq!(home.epoch().unwrap(), next);
+        assert_eq!(home.auth_epoch().unwrap(), next);
+        assert_eq!(home.binding_epoch().unwrap(), binding);
         assert_eq!(home.outbox().len(), 0);
         let old: HubLink = serde_json::from_value(json!({
             "url":"https://hub.example.invalid","sign_pub":"x","label":"x","computer_id":"x"
@@ -411,6 +439,30 @@ mod tests {
         fs::write(dir.join("trabalho.txt"), b"do dono").unwrap();
         assert!(Home::open(&dir).is_err());
         assert_eq!(fs::read(dir.join("trabalho.txt")).unwrap(), b"do dono");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_second_enroll_is_refused_while_the_first_one_holds_the_state_folder() {
+        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let home = Home::open(&dir).unwrap();
+        let first = home.enroll_lock().unwrap();
+        let refused = home.enroll_lock().unwrap_err();
+        assert!(refused.to_string().contains("já existe um cadastro em andamento nesta pasta de estado"));
+        drop(first);
+        assert!(home.enroll_lock().is_ok());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_created_record_keeps_the_identity_of_the_subfolder_that_received_the_file() {
+        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let home = Home::open(&dir).unwrap();
+        home.mark_running("job1", "lease", "fs.write", &json!({}), false).unwrap();
+        home.mark_created("job1", 11, 22, Some((33, 44))).unwrap();
+        let record = home.running_record("job1").unwrap();
+        assert_eq!((record["created"].clone(), record["folderId"].clone()), (json!([11, 22]), json!([33, 44])));
+        home.mark_created("job2", 11, 22, None).unwrap_err();
         fs::remove_dir_all(dir).unwrap();
     }
 }
