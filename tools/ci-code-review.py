@@ -5,6 +5,7 @@ import re
 import stat
 import sys
 import unicodedata
+from enum import Enum
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -35,6 +36,17 @@ COMMENT_FIELDS = set('path content suggestion_code existing_code start_line end_
 
 class Refused(ValueError):
     pass
+
+
+class ProjectPhase(Enum):
+    SNAPSHOT = 'Snapshot'
+    ENVIRONMENT = 'Ambiente'
+    READ = 'Leitura'
+    JSON = 'Json'
+    SCHEMA = 'Esquema'
+    FINDING = 'Achado'
+    RENDER = 'Render'
+    WRITE = 'Gravacao'
 
 
 def require(condition):
@@ -154,14 +166,17 @@ def indexed(files):
     return entries, digest
 
 
-def project(raw, files, secrets=()):
+def project(raw, files, secrets=(), *, set_phase=lambda _: None):
+    set_phase(ProjectPhase.JSON)
     report = parse(raw)
+    set_phase(ProjectPhase.SCHEMA)
     require(type(report) is dict and set(report) <= REVIEW_FIELDS)
     findings = report.get('comments')
     if findings is None and 'comments' in report:
         findings = []
     require(type(findings) is list and len(findings) <= 500)
     partial = review_status(report, findings)
+    set_phase(ProjectPhase.FINDING)
     entries, digest = indexed(files)
     indices = {path: i for i, (path, _) in enumerate(entries)}
     items = []
@@ -179,6 +194,7 @@ def project(raw, files, secrets=()):
         items.append([indices[path], finding.get('start_line'), finding.get('end_line'),
                       list(CATEGORIES).index(category), list(SEVERITIES).index(severity), text])
     payload = {'diff': digest, 'items': items[:MAX_FINDINGS], 'partial': partial}
+    set_phase(ProjectPhase.RENDER)
     render(payload, files, '0' * 40)
     return payload
 
@@ -266,7 +282,7 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def main(mode):
+def main(mode, set_phase):
     if mode == 'validate-provider':
         model = os.environ['OCR_LLM_MODEL']
         require(bool(model) and model == model.strip())
@@ -276,6 +292,8 @@ def main(mode):
         require(url.hostname and not url.username and url.password is None and not url.fragment and not url.query)
         require(url.port is None or 0 < url.port <= 65535)
         return
+    if mode == 'project':
+        set_phase(ProjectPhase.SNAPSHOT)
     token = os.environ['GH_TOKEN']
     require(bool(token))
     opener = build_opener(NoRedirect())
@@ -295,14 +313,26 @@ def main(mode):
         snapshot(request, *args)
     elif mode == 'project':
         _, files = snapshot(request, *args)
-        work = Path(os.environ['RUNNER_TEMP']) / 'mexerica-ocr'
+        set_phase(ProjectPhase.ENVIRONMENT)
         secrets = (os.environ['OCR_LLM_TOKEN'], os.environ['OCR_LLM_URL'], os.environ['OCR_LLM_MODEL'])
         require(all(secrets))
+        set_phase(ProjectPhase.READ)
+        work = Path(os.environ['RUNNER_TEMP']) / 'mexerica-ocr'
         with (work / 'result.json').open('rb') as raw:
-            payload = project(raw.read(MAX_JSON + 1), files, secrets)
+            data = raw.read(MAX_JSON + 1)
+        payload = project(data, files, secrets, set_phase=set_phase)
+        set_phase(ProjectPhase.WRITE)
         projected = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         require(len(projected) <= MAX_ARTIFACT)
-        (work / 'review.json').write_bytes(projected)
+        artifact = work / 'review.json'
+        try:
+            artifact.write_bytes(projected)
+        except OSError:
+            try:
+                artifact.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
     elif mode == 'publish':
         artifact = Path(os.environ['RUNNER_TEMP']) / 'mexerica-ocr-publish/review.json'
         count = publish_artifact(request, *args, artifact)
@@ -311,8 +341,22 @@ def main(mode):
         raise Refused()
 
 
-if __name__ == '__main__':
+def cli():
+    phase = None
+
+    def set_phase(value):
+        nonlocal phase
+        phase = value
+
     try:
-        main(sys.argv[1])
+        main(sys.argv[1], set_phase)
     except Exception:
-        sys.exit('Open Code Review: operação recusada ou indisponível.')
+        message = 'Open Code Review: operação recusada ou indisponível.'
+        if phase is not None:
+            message += f' Fase: {phase.value}.'
+        print(message, file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    cli()

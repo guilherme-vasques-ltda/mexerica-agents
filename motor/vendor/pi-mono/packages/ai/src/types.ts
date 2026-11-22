@@ -216,6 +216,24 @@ export interface ProviderRequestOptions<TModel = Model<Api>> {
 	 * Default: 60000 (60 seconds). Set to 0 to disable the cap.
 	 */
 	maxRetryDelayMs?: number;
+	/**
+	 * The HTTP statuses that may be retried, and the whole policy when present: a status outside
+	 * the list fails at once, and `x-should-retry: true` cannot add one, so an ambiguous gateway
+	 * error is never repeated. Omit it for the provider policy (408, 409, 429 and 5xx).
+	 */
+	retryStatuses?: readonly number[];
+	/**
+	 * Whether an error with no HTTP status is retried. Such an error is a connection failure:
+	 * the provider may already have received and processed the request, so repeating it can
+	 * duplicate the work. Default: true. Set to false to retry only explicit HTTP rejections.
+	 */
+	retryWithoutStatus?: boolean;
+	/**
+	 * Wait budget shared by every request of one turn: each retry delay is subtracted from
+	 * `remainingMs`, and a delay that would go past it fails the request instead of waiting.
+	 * Omit it for a budget that restarts with each request.
+	 */
+	retryBudget?: { remainingMs: number };
 }
 
 export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {

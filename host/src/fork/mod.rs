@@ -33,6 +33,8 @@ pub(crate) mod bot_admission;
 pub mod bot_editor;
 pub(crate) mod bot_skills;
 pub(crate) mod browser;
+#[cfg(test)]
+mod chatgpt_responses;
 pub(crate) mod claude_ponte;
 pub(crate) mod claude_tools;
 pub(crate) mod codex_usage;

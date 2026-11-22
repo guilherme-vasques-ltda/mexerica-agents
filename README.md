@@ -3,9 +3,15 @@
 Hub em Rust, Motor, app de desktop, versão Web local e clientes móveis de uma assistente pessoal com bots, conversas e ferramentas.
 O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop**, a **versão Web local** e os **clientes móveis** mostram as conversas e enviam o que você escolher; o **Motor** (baseado no Pi, vendorizado) executa o laço do agente preso ao Hub.
 
-> **Estado:** em desenvolvimento. O app abre, mas a conversa com os bots ainda não funciona nesta edição.
-> Não há instalador, versão publicada, serviço hospedado ou conta conectada. Nada aqui comprova instalação
-> ou uso em máquina real: isso precisa ser verificado por quem for usar. Não use com contas ou dados reais:
+> **Estado:** em desenvolvimento. O [guia do Mexerica Open](docs/guides/app-mac-open.md) descreve conversa local
+> por texto no macOS com um Codex CLI compatível, conta autorizada no navegador e sessão armazenada
+> localmente; o [Motor Mexerica não
+> executa nesse sistema](docs/features/motor-mexerica.md). A disponibilidade dos demais motores depende
+> da plataforma e da configuração.
+> Ainda não há versão publicada, instalador público para download ou serviço hospedado; nenhuma conta
+> vem pré-configurada. Há guias para [compilar o app no Mac](docs/guides/app-mac-local.md) e [instalar
+> o Hub no Linux](docs/guides/instalacao-hub-linux.md). Esses fluxos locais não validam instaladores de
+> distribuição nem login ou conversa com conta real. Não use com contas ou dados reais:
 > nesta edição, os motores de terceiros que agem sem pedir aprovação foram retirados da oferta, e os
 > motores oferecidos pedem aprovação antes de agir.
 > Esta cópia não promete compatibilidade com plataformas Apple além do que for testado em cada versão.

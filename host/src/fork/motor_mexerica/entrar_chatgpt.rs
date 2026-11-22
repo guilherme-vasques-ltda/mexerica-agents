@@ -65,10 +65,14 @@ const MAX_CORPO: usize = 64 * 1024;
 /// Um ano em segundos: teto de qualquer validade declarada pelo emissor.
 const ANO_EM_SEGUNDOS: i64 = 31_536_000;
 /// Renova o access quando faltam menos de cinco minutos para expirar.
+#[cfg(test)]
 const MARGEM_RENOVACAO: i64 = 5 * 60;
+#[cfg(test)]
+pub(super) static TENTATIVAS_RENOVACAO: AtomicU64 = AtomicU64::new(0);
 /// Recusa fixa do `state`: nunca ecoa o valor recebido.
 const ENTRADA_INVALIDA: &str = "entrada_invalida: comece o login de novo neste computador.";
 /// Erros do emissor que invalidam o refresh: apagam os tokens, a sessão precisa entrar de novo.
+#[cfg(test)]
 const INVALIDANTES: [&str; 6] = [
     "invalid_grant",
     "invalid_refresh_token",
@@ -163,7 +167,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     match method {
         "chatgptEntrar" => entrar(hub, &body).await,
         "chatgptEntrarConcluir" => concluir(hub, &body).await,
-        "chatgptEstado" => estado(hub).await,
+        "chatgptEstado" => estado(hub),
         "chatgptSair" => sair(hub).await,
         _ => bail!("{method} não é um método de entrada com `ChatGPT`"),
     }
@@ -496,17 +500,20 @@ async fn ler_corpo(resposta: &mut reqwest::Response) -> Result<Vec<u8>, FalhaCor
     Ok(corpo)
 }
 
-/// Estado para a tela: renova o access se faltar menos de cinco minutos e a sessão estiver
-/// conectada; falha de renovação por rede devolve o estado sem apagar nada.
-pub(super) async fn estado(hub: &Arc<Hub>) -> Result<Value> {
-    let _ = token_fresco(hub).await;
-    let conta = ler_conta(&hub.store)?;
+/// Estado passivo para a tela: não desbloqueia o cofre nem renova credenciais.
+pub(super) fn estado(hub: &Arc<Hub>) -> Result<Value> {
+    let conta = match ler_conta(&hub.store) {
+        Ok(conta) => conta,
+        Err(erro) if crate::market::vault::indisponivel(&erro) => None,
+        Err(erro) => return Err(erro),
+    };
     Ok(resposta_da_conta(conta.as_ref()))
 }
 
 /// Devolve o access token válido, renovando se faltar menos de cinco minutos; `None` sem sessão
 /// conectada (registro ausente, tokens apagados ou refresh invalidado nesta chamada). Erro é rede,
 /// 5xx ou `invalid_client`: nada foi apagado. Para o motor usar a conta nas chamadas de uso.
+#[cfg(test)]
 pub(crate) async fn token_fresco(hub: &Arc<Hub>) -> Result<Option<Zeroizing<String>>> {
     let Some(conta) = ler_conta_destravada(hub).await? else { return Ok(None) };
     let agora = crate::store::now_ms() / 1000;
@@ -520,7 +527,9 @@ pub(crate) async fn token_fresco(hub: &Arc<Hub>) -> Result<Option<Zeroizing<Stri
 /// «Sair» apagou a sessão), uma troca só, e o refresh novo fica gravado ANTES do access voltar.
 /// Erros que invalidam o refresh apagam os tokens e marcam «precisa entrar de novo»; `invalid_client`
 /// e rede/5xx são erro explícito sem apagar nada.
+#[cfg(test)]
 async fn renovar(hub: &Arc<Hub>) -> Result<Option<Zeroizing<String>>> {
+    TENTATIVAS_RENOVACAO.fetch_add(1, Ordering::SeqCst);
     let _serie = RENOVACAO.lock().await;
     let conta = ler_conta_destravada(hub).await?;
     let Some(conta) = conta else { return Ok(None) };
@@ -689,9 +698,9 @@ fn host_id(store: &Store) -> Result<String> {
 
 /// Lê o registro cifrado da conta; o erro nunca repete o conteúdo do registro.
 fn ler_conta(store: &Store) -> Result<Option<Conta>> {
-    crate::market::vault::read(store, SLOT_CONTA)?
-        .map(|texto| serde_json::from_str(&texto).map_err(|_| anyhow!("registro_invalido: entre de novo.")))
-        .transpose()
+    let Some(raw) = store.kv_read(SLOT_CONTA)? else { return Ok(None) };
+    let texto = crate::market::vault::open(store, SLOT_CONTA, &raw)?;
+    serde_json::from_str(&texto).map(Some).map_err(|_| anyhow!("registro_invalido: entre de novo."))
 }
 
 /// Lê o registro e, se o cofre estiver trancado, destrava antes de recusar.

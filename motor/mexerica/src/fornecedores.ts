@@ -45,6 +45,11 @@ const comId = (item: Objeto, extra: Partial<ModeloListado> = {}): ModeloListado[
 	return [{ id, name: nome, ...extra }];
 };
 
+/** O motor guarda a conversa: nenhum modelo usa a conversa no servidor do fornecedor (threads). Sem isso, a
+ * identidade de cache enviada como identidade de sessão ligaria o beta de threads da Anthropic, que guardaria estado
+ * do lado de lá e reenviaria o pedido por conta própria. */
+const SEM_THREADS = { supportsMessageThreads: false } as const;
+
 /** Modelos que não conversam (voz, imagem, vetores, moderação): ficam fora da escolha do bot. */
 const NAO_CONVERSA = /(embed|tts|whisper|transcribe|dall-e|image|imagen|imagine|veo|video|audio|realtime|moderation|aqa|sora|babbage|davinci|computer-use|segment-anything|^sam-)/i;
 
@@ -166,6 +171,7 @@ export function modeloDoFornecedor(fornecedor: FornecedorId, id: string, listado
 		api: f.api,
 		provider: fornecedor,
 		baseUrl: f.baseUrl,
+		compat: SEM_THREADS,
 		input: ["text"],
 		reasoning: false,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -347,6 +353,7 @@ export function modeloProprio(provider: string, e: Endereco, id: string, listado
 		api: f.api,
 		provider,
 		baseUrl: e.baseUrl,
+		compat: SEM_THREADS,
 		input: ["text"],
 		reasoning: false,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
