@@ -105,7 +105,11 @@ test('sessão mantém o pulo e o adiamento, protege a entrada remota e encaminha
 
     const emptySsh = { profiles: [], attachments: [] }
     await page.evaluate('changeAccount("alice")')
-    const setRemote = (snapshot: unknown) => page.evaluate(value => (window as Window & { remote: (snapshot: unknown) => void }).remote(value), snapshot)
+    const setRemote = (snapshot: unknown) => page.evaluate(value => {
+      const remote = (window as Window & { remote?: (snapshot: unknown) => void }).remote
+      if (!remote) throw new Error('Fixture de descoberta não montada')
+      remote(value)
+    }, snapshot)
     await setRemote({ ssh: emptySsh, cloud: null })
     await page.waitForSelector('[data-show="true"][data-where="remote"][data-ready="false"]')
     const cloud = { busy: null, unreachable: false, state: { kind: 'noHub' }, computers: [], attachment: null }
