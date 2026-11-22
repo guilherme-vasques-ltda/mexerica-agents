@@ -1,0 +1,14 @@
+{
+  "transport": "r2",
+  "hub_home": "/CAMINHO/DO/USUARIO/.mexerica",
+  "motor_work": null,
+  "state_dir": "/CAMINHO/DO/USUARIO/.local/state/donnabot-backup",
+  "public_key": "/CAMINHO/DO/USUARIO/.config/donnabot-backup/public.pem",
+  "credentials": "/CAMINHO/DO/USUARIO/.config/donnabot-backup/r2.json",
+  "account_id": "ID_DA_CONTA_R2",
+  "bucket": "donnabot-backups",
+  "external_workspaces": [],
+  "jurisdiction": "default",
+  "retention": "ESCOLHER_RETENCAO",
+  "credential_expires_at": "DATA_ISO8601_COM_FUSO"
+}
