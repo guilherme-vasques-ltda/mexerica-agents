@@ -38,6 +38,9 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
     private var responding = false
     /** Replies to hand over, and tool results as empty entries (a response is asked for once free). */
     private val pending = mutableListOf<String>()
+    private data class Delivery(val eventId: String, val itemType: String)
+    private val unconfirmed = mutableMapOf<String, Delivery>()
+    private var iceAvailable = true
     private var dropTimer: Job? = null
 
     init {
@@ -45,8 +48,6 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
             val secret = credential()
             if (ended) return@hop
             val offer = peer.offer(this)
-            // The microphone starts delivering audio from here: what is said in this call carries it.
-            operator.audioStarted()
             peer.mic(!muted)
             val answer = exchange(secret, offer)
             if (ended) return@hop
@@ -64,7 +65,7 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
     override fun mute(value: Boolean) = hop {
         operator.muteChanged(value)
         mutable.update { it.copy(muted = value, level = if (value) 0f else it.level) }
-        if (phase != VoicePhase.Interrupted) peer.mic(!value)
+        if (phase != VoicePhase.Interrupted) peer.mic(iceAvailable && !value)
     }
     override fun interrupt() = hop { if (phase == VoicePhase.Speaking) { cancelResponse(); phase(VoicePhase.Listening) } }
     override fun focus(active: Boolean) = hop {
@@ -74,13 +75,13 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
             if (phase == VoicePhase.Speaking) cancelResponse()
             level(0f); phase(VoicePhase.Interrupted)
         } else if (active && phase == VoicePhase.Interrupted) {
-            peer.mic(!muted); phase(VoicePhase.Listening)
-            operator.audioStarted(); flush()
+            phase(VoicePhase.Listening)
+            resumeListening(); flush()
         }
     }
 
     override fun opened() = hop {
-        dropTimer?.cancel()
+        if (iceAvailable) dropTimer?.cancel()
         send(buildJsonObject {
             put("type", "session.update")
             putJsonObject("session") {
@@ -90,24 +91,38 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
                 putJsonObject("audio") { putJsonObject("input") { putJsonObject("turn_detection") { put("type", "semantic_vad") } } }
             }
         })
-        phase(VoicePhase.Listening)
+        if (phase == VoicePhase.Starting) phase(VoicePhase.Listening)
+        resumeListening()
         flush()
     }
 
     override fun received(text: String) = hop {
         val message = runCatching { WireJson.parseToJsonElement(text).jsonObject }.getOrNull() ?: return@hop
-        when (message.text("type")) {
+        when (message.stringAt("type")) {
             "input_audio_buffer.speech_started" -> {
                 // The provider heard the user speaking: this turn may act. Audio alone isn't speech.
                 // While the model talks, what the microphone picks up may be its own voice coming back.
-                if (phase != VoicePhase.Speaking) operator.speechDetected()
-                level(if (muted) 0f else .7f)
+                if (phase == VoicePhase.Listening && iceAvailable) {
+                    operator.speechDetected()
+                    level(if (muted) 0f else .7f)
+                }
             }
             "input_audio_buffer.speech_stopped" -> level(0f)
             // The API confirms a created item with `conversation.item.added` (GA) and finalizes it with
             // `conversation.item.done`; the beta name is still accepted.
-            "conversation.item.added", "conversation.item.done", "conversation.item.created" ->
-                (message["item"] as? JsonObject)?.text("id")?.let(operator::confirmed)
+            "conversation.item.added", "conversation.item.done", "conversation.item.created" -> {
+                val item = message["item"] as? JsonObject ?: return@hop
+                val id = item.stringAt("id") ?: return@hop
+                val delivery = unconfirmed[id] ?: return@hop
+                if (item.stringAt("type") != delivery.itemType) return@hop
+                unconfirmed.remove(id)
+                operator.confirmed(id)
+            }
+            "error" -> {
+                val id = (message["error"] as? JsonObject)?.stringAt("event_id") ?: return@hop
+                // A rejection isn't an ACK: fail this link before teardown discards its pending IDs.
+                if (unconfirmed.values.any { it.eventId == id }) fail("OpenAI rejected an item sent during the call.")
+            }
             "output_audio_buffer.started" -> if (phase == VoicePhase.Listening) phase(VoicePhase.Speaking)
             "output_audio_buffer.stopped", "output_audio_buffer.cleared" -> if (phase == VoicePhase.Speaking) phase(VoicePhase.Listening)
             "response.created" -> responding = true
@@ -119,10 +134,9 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
                 // Our own id for the result: speech the provider reports before confirming it may predate it.
                 val item = itemId()
                 val output = operator.call(name, arguments ?: JsonObject(emptyMap()), item)
-                send(buildJsonObject {
-                    put("type", "conversation.item.create")
-                    putJsonObject("item") { put("id", item); put("type", "function_call_output"); put("call_id", id); put("output", output.toString()) }
-                })
+                createItem(item, "function_call_output") {
+                    put("call_id", id); put("output", output.toString())
+                }
                 // An empty entry asks for a response once this one is done, so the model speaks the result.
                 pending += ""
             }
@@ -131,10 +145,27 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
 
     override fun ice(state: RealtimePeer.Ice) = hop {
         when (state) {
-            RealtimePeer.Ice.Connected -> { dropTimer?.cancel(); operator.audioStarted() }
-            RealtimePeer.Ice.Disconnected -> { operator.stopListening(); drop(5_000, "Lost the connection to OpenAI.") { true } }
+            RealtimePeer.Ice.Connected -> {
+                if (!iceAvailable) {
+                    dropTimer?.cancel()
+                    if (phase == VoicePhase.Starting) drop(15_000, "Couldn't reach OpenAI.") { phase == VoicePhase.Starting }
+                }
+                iceAvailable = true
+                resumeListening(); flush()
+            }
+            RealtimePeer.Ice.Disconnected -> {
+                iceAvailable = false
+                operator.stopListening(); peer.mic(false); level(0f)
+                drop(5_000, "Lost the connection to OpenAI.") { !iceAvailable }
+            }
             RealtimePeer.Ice.Failed -> fail("Lost the connection to OpenAI.")
         }
+    }
+
+    private fun resumeListening() {
+        if (!active || !iceAvailable || !peer.isOpen) return
+        peer.mic(!muted)
+        operator.audioStarted()
     }
 
     /** Fails the call after `millis` unless something cancels the timer first. */
@@ -150,31 +181,42 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
 
     /** Hands waiting replies (and tool results, as empty entries) to the model once it's free. */
     private fun flush() {
-        if (responding || !active || !peer.isOpen || pending.isEmpty()) return
+        if (responding || !active || !iceAvailable || !peer.isOpen || pending.isEmpty()) return
         for (text in pending) if (text.isNotEmpty()) {
             // A bot's reply is the computer's data, never the user's speech: once it reaches the
             // model, only new speech can ask to send or approve.
             val item = itemId()
             operator.dataDelivered(item)
-            send(buildJsonObject {
-                put("type", "conversation.item.create")
-                putJsonObject("item") {
-                    put("id", item); put("type", "message"); put("role", "user")
-                    putJsonArray("content") { addJsonObject { put("type", "input_text"); put("text", text) } }
-                }
-            })
+            createItem(item, "message") {
+                put("role", "user")
+                putJsonArray("content") { addJsonObject { put("type", "input_text"); put("text", text) } }
+            }
         }
         pending.clear()
         responding = true
         send(buildJsonObject { put("type", "response.create") })
     }
 
+    private fun createItem(id: String, type: String, content: JsonObjectBuilder.() -> Unit) {
+        val eventId = "evt_" + UUID.randomUUID().toString()
+        if (operator.awaitsConfirmation(id)) unconfirmed[id] = Delivery(eventId, type)
+        send(buildJsonObject {
+            put("type", "conversation.item.create"); put("event_id", eventId)
+            putJsonObject("item") { put("id", id); put("type", type); content() }
+        })
+    }
+
+    private fun JsonObject.stringAt(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
     private fun send(event: JsonObject) { if (peer.isOpen) peer.send(event.toString()) }
 
     /** A client-chosen item id (up to 32 characters), echoed back in `conversation.item.created`. */
     private fun itemId() = "mx_" + UUID.randomUUID().toString().replace("-", "").take(29)
 
-    override suspend fun release() { dropTimer?.cancel(); peer.close() }
+    override suspend fun release() {
+        operator.resetLink(); unconfirmed.clear()
+        dropTimer?.cancel(); peer.close()
+    }
 
 
     companion object {

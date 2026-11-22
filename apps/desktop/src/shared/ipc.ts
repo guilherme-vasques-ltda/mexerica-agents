@@ -196,7 +196,8 @@ export interface CodyncBridge {
   platform: 'darwin' | 'linux' | 'win32'
   appName: string
   appScheme: string
-  hostPort: number
+  hostPort?: number
+  readHostPort?: () => number | null
   appVersion: string
   /** The computer's name ("Kevin's MacBook Pro"). */
   computerName: string

@@ -37,7 +37,7 @@ export function openSystemSettingsURL(value: unknown): Promise<boolean> {
 }
 
 /** Register before creating any windows, including the island, pairing and renderer children. */
-export function registerWindowNavigation(appURL: string) {
+export function registerWindowNavigation(appURL: string, externalAllowed = () => true) {
   const protectedContents = new WeakSet<WebContents>()
   function protect(contents: WebContents) {
     if (protectedContents.has(contents)) return
@@ -46,19 +46,19 @@ export function registerWindowNavigation(appURL: string) {
       const decision = decideNavigation(event.url, appURL)
       if (decision === 'allow') return
       event.preventDefault()
-      void openExternalURL(event.url)
+      if (externalAllowed()) void openExternalURL(event.url)
     }
     contents.on('will-navigate', navigate)
     contents.on('will-redirect', navigate)
     contents.setWindowOpenHandler(({ url }) => {
-      void openExternalURL(url)
+      if (externalAllowed()) void openExternalURL(url)
       return { action: 'deny' }
     })
     // Denied popups do not emit this event. Keep a defensive guard if a future handler allows one.
     contents.on('did-create-window', (child, { url }) => {
       protect(child.webContents)
       child.destroy()
-      void openExternalURL(url)
+      if (externalAllowed()) void openExternalURL(url)
     })
   }
   app.on('web-contents-created', (_event, contents) => {

@@ -2597,3 +2597,110 @@ async fn resposta_da_open_e_reconexao_se_excluem_nas_duas_ordens() {
     assert_eq!(refused.err().map(|error| error.to_string()).as_deref(), Some("open_chat_reconnecting"));
     let _ = f.action(&op, json!({"action":"cancel"}));
 }
+
+/// Pausar preserva a credencial e tira a conta de todo uso novo; reativar volta sem
+/// prova e só fica conectada quando o cofre (sem custo) confirma o conteúdo do mesmo slot.
+#[tokio::test]
+async fn pausa_reativa_sem_apagar_credencial() {
+    let f = Fixture::new();
+    let account = f.create("codex", "api", "f1-pausa").await;
+    set_api_env(
+        &f.hub,
+        &Caller::Local,
+        json!({"engineAccountId":account["id"],"expectedRevision":1,"backend":"codex","vars":{"OPENAI_API_KEY":"API_FIXTURE"}}),
+    )
+    .await
+    .unwrap();
+    let id = account["id"].as_str().unwrap().to_owned();
+    let slot = format!("agent-account:{id}");
+    assert!(crate::market::vault::read(&f.hub.store, &slot).unwrap().unwrap().contains("API_FIXTURE"));
+    let bot: crate::store::BotConfig = serde_json::from_value(
+        json!({"id":"f1-bot","name":"F1","backend":"codex","forkEditor":{"engineAccountId":id}}),
+    )
+    .unwrap();
+    f.hub.store.save_bot(&bot).unwrap();
+    let revision =
+        |f: &Fixture| Registry::load(&f.hub.store).unwrap().account(&id).unwrap().managed.as_ref().unwrap().revision;
+
+    // Pausar: desconectada no DTO, `enabled` false, cofre intacto e seleção para bot recusada.
+    let pausada = call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountSetEnabled",
+        json!({"engineAccountId":id,"expectedRevision":revision(&f),"enabled":false}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(pausada["state"], "disconnected");
+    assert_eq!(pausada["paused"], true);
+    assert!(
+        crate::market::vault::read(&f.hub.store, &slot).unwrap().unwrap().contains("API_FIXTURE"),
+        "pausa preserva a credencial"
+    );
+    assert!(managed::validate_selection(&f.hub.store, &bot).unwrap_err().to_string().contains("account_unavailable"));
+    // Revisão defasada recusa; nada muda.
+    assert!(
+        call(
+            &f.hub,
+            &Caller::Local,
+            "donnaEngineAccountSetEnabled",
+            json!({"engineAccountId":id,"expectedRevision":revision(&f) - 1,"enabled":true})
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("account_conflict")
+    );
+
+    // Reativar: volta sem prova; a leitura de contas confirma pelo cofre e devolve Connected sem inventar modelos.
+    let reativada = call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountSetEnabled",
+        json!({"engineAccountId":id,"expectedRevision":revision(&f),"enabled":true}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reativada["state"], "unverified");
+    assert_eq!(reativada["paused"], false);
+    assert_eq!(reativada["models"], json!([]));
+    let accounts = crate::api::dispatch(&f.hub, &Caller::Local, "donnaEngineAccounts", json!({})).await.unwrap();
+    let depois = accounts["accounts"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap();
+    assert_eq!(depois["state"], "connected", "o cofre confirma a reativação");
+    assert_eq!(depois["models"], json!([]), "reativar não inventa catálogo");
+    let launch = managed::resolve_for_bot(&f.hub.store, &bot).unwrap().unwrap();
+    assert!(launch.env.iter().any(|(key, value)| key == "OPENAI_API_KEY" && value == "API_FIXTURE"));
+
+    // Conta legada não pausa: o perfil do dono segue fora do alcance das mutações novas.
+    let profile = f.root.join("f1-legado");
+    std::fs::create_dir_all(&profile).unwrap();
+    let legacy_id = format!("ac_{}", "b".repeat(64));
+    let mut registry = Registry::load(&f.hub.store).unwrap();
+    registry.accounts.push(crate::fork::engine_accounts::Account {
+        managed: None,
+        id: legacy_id.clone(),
+        backend: Backend::Codex,
+        billing: Billing::PaidApi,
+        state: State::Connected,
+        launch: LaunchReference::VaultProfile { slot: "slot-f1-legacy".into() },
+        scope: crate::fork::engine_accounts::AuthorizedScope::Owner,
+        quota_identity: None,
+        verified_at: Some(crate::store::now_ms()),
+        subscription_proof: None,
+        models: Vec::new(),
+        hidden_model_ids: Vec::new(),
+    });
+    registry.persist(&f.hub.store).unwrap();
+    assert!(
+        call(
+            &f.hub,
+            &Caller::Local,
+            "donnaEngineAccountSetEnabled",
+            json!({"engineAccountId":legacy_id,"expectedRevision":1,"enabled":false})
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("legacy_preserved")
+    );
+}

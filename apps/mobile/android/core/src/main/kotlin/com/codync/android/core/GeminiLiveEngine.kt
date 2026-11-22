@@ -38,7 +38,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     /** After a local interrupt, the rest of the turn's audio is dropped. */
     private var dropping = false
     private val pending = mutableListOf<String>()
-    /** Where the user's current speech began, in deliveries, so a late frame can't authorize. */
+    /** The capture epoch when the user's speech began, so a late frame can't authorize. */
     private val onset = SpeechOnset()
 
     init { hop { connect() } }
@@ -65,7 +65,10 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
             operator.stopListening(); onset.reset()
             stopPlayback(); dropping = !turnDone; level(0f); phase(VoicePhase.Interrupted)
             send(buildJsonObject { putJsonObject("realtimeInput") { put("audioStreamEnd", true) } })
-        } else if (active && phase == VoicePhase.Interrupted) { phase(VoicePhase.Listening); operator.audioStarted(); flush() }
+        } else if (active && phase == VoicePhase.Interrupted) {
+            phase(VoicePhase.Listening)
+            if (ready) { operator.audioStarted(); flush() }
+        }
     }
 
     private suspend fun connect() {
@@ -88,7 +91,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     private suspend fun closed(webSocket: WebSocket, reason: String) {
         if (socket !== webSocket) return
         // The link went away: what was said on it no longer authorizes anything.
-        operator.stopListening(); onset.reset()
+        operator.resetLink(); onset.reset()
         socket = null; ready = false
         if (resumeHandle != null && reconnects < 3) { reconnects++; connect() }
         else fail(reason.ifEmpty { "Lost the connection to Gemini." })
@@ -116,13 +119,13 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
             if (!audioRunning) {
                 // Stamped as captured, before the hop: a frame heard before the computer's data reached
                 // the model keeps the older mark even when it is processed after it.
-                mic.start({ pcm, level -> val at = operator.delivery; hop { captured(pcm, level, at) } }) {
+                mic.start({ pcm, level -> val at = operator.captureEpoch; hop { captured(pcm, level, at) } }) {
                     hop { fail("Couldn't use the microphone. Check its permission and other audio apps.") }
                 }
                 audioRunning = true
             }
             // This session's microphone delivers audio from here: what is said in this call carries it.
-            operator.audioStarted()
+            if (phase != VoicePhase.Interrupted) operator.audioStarted()
             if (phase == VoicePhase.Starting) phase(VoicePhase.Listening)
             flush()
         }
@@ -133,7 +136,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
             }
             (content.objectAt("modelTurn")?.get("parts") as? JsonArray)?.let { parts ->
                 turnDone = false
-                for (part in parts) (part as? JsonObject)?.objectAt("inlineData")?.text("data")?.let { if (!dropping) play(it) }
+                for (part in parts) (part as? JsonObject)?.objectAt("inlineData")?.text("data")?.let { if (!dropping && phase != VoicePhase.Interrupted) play(it) }
             }
             if (content.flag("turnComplete")) {
                 turnDone = true; dropping = false
@@ -179,7 +182,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     }
 
     private fun captured(pcm: ByteArray, level: Float, at: Int) {
-        if (muted || !active) return
+        if (muted || !active || !ready) return
         // While the model talks, what the microphone hears is mostly its own voice coming back: that
         // never authorizes anything, so only audio heard while it is quiet can mark the user's speech.
         if (phase != VoicePhase.Speaking) onset.heard(pcm, level, at)?.let { operator.speechDetected(it) }
@@ -213,6 +216,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     private fun stopPlayback() { playGeneration++; queued = 0; player.stop() }
 
     override suspend fun release() {
+        operator.resetLink(); onset.reset()
         val open = socket; socket = null; ready = false
         open?.close(1000, null)
         stopPlayback()

@@ -1,7 +1,7 @@
 # Mexerica Agents
 
-Hub em Rust, Motor e app de desktop para Mac de uma assistente pessoal com bots, conversas e ferramentas.
-O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mostra as conversas e envia o que você escolher; o **Motor** (baseado no Pi, vendorizado) executa o laço do agente preso ao Hub.
+Hub em Rust, Motor, app de desktop, versão Web local e clientes móveis de uma assistente pessoal com bots, conversas e ferramentas.
+O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop**, a **versão Web local** e os **clientes móveis** mostram as conversas e enviam o que você escolher; o **Motor** (baseado no Pi, vendorizado) executa o laço do agente preso ao Hub.
 
 > **Estado:** em desenvolvimento. O app abre, mas a conversa com os bots ainda não funciona nesta edição.
 > Não há instalador, versão publicada, serviço hospedado ou conta conectada. Nada aqui comprova instalação
@@ -16,15 +16,17 @@ O **Hub** guarda o estado, as regras e roda os motores; o **app de desktop** mos
 |---|---|
 | `host/` | Hub (Rust): estado, persistência, regras, motores e API; crate de memória; catálogo de skills distribuído |
 | `motor/` | Motor Mexerica e o Pi vendorizado (`motor/vendor/pi-mono`, MIT) |
-| `apps/desktop/` | App Electron/React/TypeScript e operações locais do dispositivo |
+| `apps/desktop/` | App Electron/React/TypeScript, versão Web local (`src/web/`, [guia Web local](docs/guides/web-local.md)) e operações locais do dispositivo |
 | `apps/screen-macos/`, `apps/project.yml`, `apps/Mexerica.xcodeproj/` | Helper nativo de tela do Mac (Swift) e seu projeto Xcode |
-| `packaging/cua-driver/` | Fixação e verificação do driver de controle de computador (Cua, MIT), buscado na hora de gerar o pacote |
+| `apps/screen-linux/` | Helper nativo de tela do Linux em Rust (portais xdg, PipeWire e GStreamer WebRTC) |
+| `apps/mobile/` | Clientes móveis iOS e Android (Swift/Xcode e Kotlin/Gradle) |
+| `packaging/` | Driver de controle de computador (`cua-driver/`, Cua, MIT), avisos de dependências (`avisos/`), ferramentas de atualização (`atualizacao/`) e backup do Hub (`hub-backup/`) |
 | `brand/` e arte em `apps/desktop/` | Arte própria da Mexerica (mascote, Mexeriquinhas, ícones, logo, fundos e personagens), com a regra de uso em [brand/LICENCA-DA-ARTE.md](brand/LICENCA-DA-ARTE.md) |
-| `docs/` | Arquitetura, guia do app no Mac, manual do harness e vetores de teste |
+| `docs/` | Arquitetura, guias (Mac, Web local, bastidor), manual do harness e vetores de teste |
 
 ## O que não está aqui
 
-- Código de nuvem e relay hospedados, versão web e demo web.
+- Código de nuvem e relay hospedados (serviços em nuvem e versão web hospedada; a versão Web local e a demo local do desktop estão neste repositório).
 - Logos de agentes de terceiros e o logotipo da Apple: o app mostra ícones genéricos. As logos dos serviços do catálogo de conectores estão incluídas, só para identificar cada serviço, e continuam sendo marcas de seus titulares (ver [TRADEMARK.md](TRADEMARK.md) e [THIRD_PARTY.md](THIRD_PARTY.md)).
 - Arte de terceiros: os 43 ícones de agentes, o logotipo da Apple, `google.svg` e `computer-linux.svg` continuam neutros. Licenças e marca em [THIRD_PARTY.md](THIRD_PARTY.md) e [TRADEMARK.md](TRADEMARK.md). Da arte própria da Mexerica (ver "O que está aqui"), só as Mexeriquinhas e as 19 opções de ícone (`padrao.png` fora) são Apache-2.0; o resto da arte da Mexerica fica com os direitos reservados e só vale dentro da Mexerica (regra e caminhos em [brand/LICENCA-DA-ARTE.md](brand/LICENCA-DA-ARTE.md)).
 - Configuração de serviços e segredos (chaves, endereços reais, contas).

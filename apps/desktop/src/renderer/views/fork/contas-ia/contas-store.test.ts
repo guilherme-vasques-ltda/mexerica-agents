@@ -39,6 +39,11 @@ function fakeHub(initial: ManagedAccount[]) {
     }),
     usage: (_c, engineAccountId) => run('usage', engineAccountId, () => ({ engineAccountId, state: 'unavailable' as const, source: null, updatedAt: null, windows: [] })),
     disconnect: (_c, request) => run('disconnect', request, () => ({ ...accounts.find((a) => a.id === request.engineAccountId)!, state: 'disconnected' as const })),
+    setEnabled: (_c, request) => run('setEnabled', request, () => {
+      const updated = { ...accounts.find((a) => a.id === request.engineAccountId)!, paused: !request.enabled, revision: request.expectedRevision + 1 }
+      accounts = accounts.map((a) => (a.id === updated.id ? updated : a))
+      return updated
+    }),
     remove: (_c, request) => run('remove', request, () => {
       accounts = accounts.filter((a) => a.id !== request.engineAccountId)
       return {}
@@ -244,4 +249,63 @@ test('falha de desconexão sem código conhecido também relê a lista: o Hub j�
   await assert.rejects(contas.disconnect(original).catch(falhaEm('pt-BR')))
   assert.equal(contas.account(original.id)?.state, 'disconnected', 'a lista relida mostra a conta já desconectada')
   assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a lista foi relida mesmo sem código conhecido')
+})
+
+test('pausar manda o estado novo ao Hub e relê a lista em qualquer falha', async () => {
+  const original = account({ state: 'connected', paused: false })
+  const hub = fakeHub([original])
+  const contas = new ContasStore(client, hub.api)
+  await contas.load()
+  hub.set([{ ...original, state: 'disconnected', paused: true, revision: 2 }])
+  hub.fail(new Error('erro cru'))
+  await assert.rejects(contas.setEnabled(original, false).catch(falhaEm('pt-BR')))
+  assert.deepEqual(hub.calls.find((c) => c.method === 'setEnabled')?.body, { engineAccountId: original.id, expectedRevision: 1, enabled: false })
+  const pausada = contas.account(original.id)
+  assert.equal(pausada?.paused, true, 'a lista relida mostra a pausa já gravada no Hub')
+  assert.equal(pausada?.state, 'disconnected')
+  assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'relê o cadastro mesmo sem código conhecido')
+})
+
+test('reativar devolve a conta confirmada pela leitura seguinte (o Hub responde sem prova)', async () => {
+  const pausada = account({ state: 'disconnected', paused: true, revision: 2 })
+  const hub = fakeHub([pausada])
+  const contas = new ContasStore(client, hub.api)
+  await contas.load()
+  // A mutação responde sem prova (unverified); só a leitura seguinte confirma (connected).
+  hub.set([{ ...pausada, state: 'unverified' as const, paused: false, revision: 3 }])
+  const mutacao = hub.api.setEnabled
+  hub.api.setEnabled = async (...argumentos) => ({ ...(await mutacao(...argumentos)), state: 'unverified' })
+  const confirmado = [{ ...pausada, state: 'connected' as const, paused: false, revision: 3 }]
+  const leituras = hub.api.accounts
+  let leiturasFeitas = 0
+  hub.api.accounts = async (...argumentos) => {
+    leiturasFeitas += 1
+    hub.set(confirmado)
+    return leituras(...argumentos)
+  }
+  const reativada = await contas.setEnabled(pausada, true)
+  assert.deepEqual(hub.calls.find((c) => c.method === 'setEnabled')?.body, { engineAccountId: pausada.id, expectedRevision: 2, enabled: true })
+  assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a leitura seguinte confirma a conta')
+  assert.equal(leiturasFeitas, 1, 'a releitura foi feita após a mutação')
+  assert.equal(reativada.state, 'connected', 'o estado devolvido é o confirmado pela leitura, não o da resposta da mutação')
+  assert.equal(reativada.paused, false)
+})
+
+test('pausa invalida a leitura em voo: nenhuma resposta antiga volta a conta conectada', async () => {
+  const original = account({ state: 'connected', paused: false })
+  const hub = fakeHub([original])
+  const contas = new ContasStore(client, hub.api)
+  const clientLento = () => new Promise<HostClient>((resolver) => { setTimeout(() => resolver({} as HostClient), 30) })
+  const lenta = new ContasStore(clientLento, hub.api)
+  const emVoo = lenta.load()
+  // A mutação acontece enquanto a leitura antiga ainda não respondeu.
+  const pausa = lenta.setEnabled(original, false).catch((e) => e)
+  await new Promise((resolver) => { setTimeout(resolver, 5) })
+  hub.set([{ ...original, state: 'disconnected', paused: true, revision: 2 }])
+  await pausa
+  await emVoo
+  const pausada = lenta.account(original.id)
+  assert.equal(pausada?.state, 'disconnected', 'a resposta antiga não sobrescreve a pausa')
+  assert.equal(pausada?.paused, true)
+  await contas.load()
 })

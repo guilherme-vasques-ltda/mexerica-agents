@@ -39,7 +39,7 @@ const bridge: CodyncBridge = {
   platform: process.platform as CodyncBridge['platform'],
   appName: ipcRenderer.sendSync('app:name') as string,
   appScheme: ipcRenderer.sendSync('app:scheme') as string,
-  hostPort: ipcRenderer.sendSync('app:hostPort') as number,
+  readHostPort: () => ipcRenderer.sendSync('app:hostPort') as number | null,
   appVersion: ipcRenderer.sendSync('app:version') as string,
   computerName: ipcRenderer.sendSync('app:computerName') as string,
   suggestedLanguage: ipcRenderer.sendSync('app:suggestedLanguage') as CodyncBridge['suggestedLanguage'],

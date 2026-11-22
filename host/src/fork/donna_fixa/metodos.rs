@@ -370,6 +370,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaEngineFallbackSave", Dono),
     ("donnaEngineFallbackAction", Dono),
     ("donnaEngineAccountModelVisibility", Dono),
+    ("donnaEngineAccountSetEnabled", Dono),
     ("donnaEngineSetupAction", Dono),
     ("donnaEngineSetupStart", Dono),
     ("donnaResumoDiarioSave", Dono),

@@ -68,6 +68,24 @@ por `accountId` opaco e o app a procura nesta mesma lista: achada, mostra rótul
 e `state`; não achada, a frase admite que não confirmou em vez de inventar
 estado. Ver [falha de conta ou motor](setup-provedores.md#falha-de-conta-ou-motor-ao-preparar-um-pedido).
 
+## Pausar e reativar sem apagar credencial
+
+`donnaEngineAccountSetEnabled` pausa (`enabled: false`) ou reativa (`enabled: true`)
+uma conta gerenciada, e o DTO passa a carregar `paused` para o app distinguir a
+pausa da saída destrutiva. Pausar tira a conexão de todo uso novo: o seletor e o
+cadastro não a oferecem, e um bot ligado a ela falha com erro claro (`account_unavailable`),
+sem troca de conta em silêncio — inclusive o fallback entre contas não trata pausa
+como "cota acabou"; com a origem pausada nada troca. A credencial fica guardada
+como está (chave no cofre ou login no perfil isolado): sem logout, sem apagar slot.
+Reativar não confia no pedido: a conta volta `unverified` e só o cofre (slot com
+conteúdo) ou a sondagem do CLI oficial, confirmando a mesma identidade, devolvem
+`connected`. Pausar exige a conta sem turno em andamento e recusa revisão defasada;
+contas legadas do Hub recusam (`legacy_preserved`). «Desconectar» (sai da conta e
+apaga o login) e «Remover» (apaga a credencial do cofre) seguem como estavam.
+O app só oferece os gestos quando o Hub manda o campo novo; contas de motor são
+lidas direto do Hub, fora do mirror — o `MIRROR_SCHEMA` sobe para registrar o campo
+no stamp e descartar cache anterior.
+
 ## Uso por conta e por Space
 
 `donnaEngineAccountUsage` lê a cota da própria conta gerenciada, por conta e por

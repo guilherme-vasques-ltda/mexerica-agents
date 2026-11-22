@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import * as path from 'node:path'
@@ -19,6 +20,7 @@ function ambiente(environment: 'main' | 'dev') {
   const pastas: { path: string; create: boolean }[] = []
   let userData = ''
   const modulo = loadMainModule<typeof import('../main/environment.ts')>('environment', {
+    'node:crypto': { createHash },
     'node:fs': { readFileSync: () => JSON.stringify({ environment }) },
     'node:path': path,
     'node:os': { homedir: () => '/home/usuario' },

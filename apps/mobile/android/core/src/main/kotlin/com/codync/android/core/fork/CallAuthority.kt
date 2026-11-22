@@ -17,14 +17,26 @@ class CallEvidence {
     var speechThisTurn = false
     /** The call is muted: nothing said while muted counts, and nothing said before survives it. */
     var muted = false
-    /** How many times the computer's data reached the model; the microphone thread stamps each frame with it. */
-    val deliveries = AtomicInteger(0)
+    /** The microphone stamps each frame with the current authority epoch. */
+    val captureEpoch = AtomicInteger(0)
     /** Deliveries the provider hasn't confirmed yet: speech it reports meanwhile may predate them. */
     val unconfirmed = mutableSetOf<String>()
+
+    // Pausing doesn't change the link: only an ACK or link teardown retires its pending deliveries.
+    fun pause() {
+        audioStarted = false
+        speechThisTurn = false
+        captureEpoch.incrementAndGet()
+    }
+
+    fun resetLink() {
+        pause()
+        unconfirmed.clear()
+    }
 }
 
 /**
- * Where the user's current speech began, in deliveries: the first voiced stretch after a full pause,
+ * The capture epoch when the user's current speech began: the first voiced stretch after a full pause,
  * so a cough doesn't count as speech. Only that beginning is kept, so a pause in the middle of a
  * sentence never hands out a newer mark.
  */
@@ -34,7 +46,7 @@ class SpeechOnset {
     private var start: Int? = null
     private var reported = false
 
-    /** Takes one microphone frame captured at delivery [at]; returns where speech began, once per utterance. */
+    /** Takes a microphone frame captured in epoch [at]; returns the epoch where speech began, once per utterance. */
     fun heard(pcm: ByteArray, level: Float, at: Int): Int? {
         if (level > UtteranceDetector.THRESHOLD) {
             if (voiced == 0) start = at

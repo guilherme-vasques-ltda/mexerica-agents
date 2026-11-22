@@ -275,7 +275,7 @@ export const accountKind = (account: ManagedAccount, known?: AccountKind): Accou
 /** Conta por assinatura do Claude: roda pelo Claude Code oficial, no perfil próprio da conta. */
 export const viaProgramaOficial = (account: ManagedAccount, kind: AccountKind) => account.backend === 'claude' && kind === 'cli'
 
-export type AccountAction = 'connect' | 'reconnect' | 'key' | 'refresh'
+export type AccountAction = 'connect' | 'reconnect' | 'key' | 'refresh' | 'enable'
 
 /** Nome curto do estado de uma conta. */
 export const stateLabel = (state: ManagedAccount['state'], idioma: AppLanguage) => {
@@ -310,6 +310,9 @@ export function accountView(account: ManagedAccount, kind: AccountKind, idioma: 
   const login = (action: 'connect' | 'reconnect') => kind === 'api'
     ? { action: 'key' as const, label: action === 'connect' ? textos.informarChave : textos.trocarChave }
     : { action, label: action === 'connect' ? textos.conectar : textos.reconectar }
+  // Pausada (`paused` do Hub novo) não é desconectada: a credencial ficou
+  // guardada e volta com um gesto, sem relogin nem chave nova. Hub antigo (sem o campo) segue igual.
+  const pausada = managed && account.paused === true
   switch (account.state) {
     case 'connected':
       return { title, state: textos.conectada, tone: 'added', attention: false, detail: textos.detalheConectada, billing, primary: null, managed }
@@ -322,6 +325,9 @@ export function accountView(account: ManagedAccount, kind: AccountKind, idioma: 
     case 'unavailable':
       return { title, state: textos.indisponivel, tone: 'secondary', attention: true, detail: textos.detalheIndisponivel, billing, primary: { action: 'refresh', label: textos.tentarDeNovo }, managed }
     case 'disconnected':
+      if (pausada) {
+        return { title, state: textos.desativada, tone: 'secondary', attention: true, detail: textos.detalheDesativada, billing, primary: { action: 'enable', label: textos.reativar }, managed }
+      }
       return { title, state: textos.desconectada, tone: 'secondary', attention: true, detail: textos.detalheDesconectada, billing, primary: managed ? login('connect') : null, managed }
   }
 }
@@ -346,7 +352,11 @@ export function rowActions(account: ManagedAccount, kind: AccountKind, idioma: A
   const test = account.state === 'connected' || account.state === 'unavailable' || (account.state === 'unverified' && !noLogin)
   let connect: RowActions['connect'] = null
   if (managed && account.state === 'disconnected') {
-    connect = kind === 'api' ? { action: 'key', label: textos.trocarChave } : { action: 'connect', label: textos.reconectar }
+    // Pausada pelo dono volta com um gesto, sem relogin (a credencial ficou). Hub antigo ou
+    // saída destrutiva (sem `paused`): o caminho de sempre.
+    connect = account.paused === true
+      ? { action: 'enable', label: textos.reativar }
+      : kind === 'api' ? { action: 'key', label: textos.trocarChave } : { action: 'connect', label: textos.reconectar }
   } else if (noLogin) {
     connect = kind === 'api' ? { action: 'key', label: textos.informarChave } : { action: 'connect', label: textos.conectar }
   } else if (managed && account.state === 'unverified') {

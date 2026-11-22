@@ -297,13 +297,22 @@ pub(crate) fn engine_gone(error: &anyhow::Error) -> bool {
 /// antecede no caminho do bot (servidores MCP do `session/new`): desligada,
 /// nenhum processo — nem de motor, nem de servidor MCP.
 pub(crate) fn ensure_runnable() -> Result<()> {
-    ensure!(enabled(), "Motor Mexerica desligado (defina {FLAG}=1)");
-    ensure!(
-        cfg!(target_os = "linux") && crate::fork::motor_exec::configured(),
-        "Motor Mexerica exige identidade separada pelo ajudante Linux"
-    );
-    ensure!(!crate::fork::motor_install::worker(), "motor indisponível no worker de instalação");
-    Ok(())
+    #[cfg(target_os = "macos")]
+    {
+        #[path = "../fork-motor-macos/admissao.rs"]
+        mod admissao;
+        admissao::indisponivel()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        ensure!(enabled(), "Motor Mexerica desligado (defina {FLAG}=1)");
+        ensure!(
+            cfg!(target_os = "linux") && crate::fork::motor_exec::configured(),
+            "Motor Mexerica exige identidade separada pelo ajudante Linux"
+        );
+        ensure!(!crate::fork::motor_install::worker(), "motor indisponível no worker de instalação");
+        Ok(())
+    }
 }
 
 /// Um processo do motor preso a um canal de cofre (fd 3) e a uma conversa.
