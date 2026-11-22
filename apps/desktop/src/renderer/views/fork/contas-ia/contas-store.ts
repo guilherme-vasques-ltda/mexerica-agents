@@ -158,6 +158,9 @@ export class ContasStore extends Observable {
    */
   async setEnabled(account: ManagedAccount, enabled: boolean) {
     return this.mutate(account.id, async (client) => {
+      // Leituras começadas antes da mutação não podem gravar o estado de cima depois dela.
+      this.reads += 1
+      this.loading = false
       const saved = await this.api.setEnabled(client, { engineAccountId: account.id, expectedRevision: account.revision, enabled })
       this.put(saved)
       if (!enabled) {

@@ -67,8 +67,6 @@ export function ContasDoHub({ forBot, onChanged }: {
   }
   const run = (account: ManagedAccount, action: AccountAction | 'new') => {
     if (action === 'refresh') void contas.load(local)
-    // Reativar é gesto direto no Hub; a lista relida mostra o estado de verdade.
-    else if (action === 'enable') void contas.setEnabled(account, true).then(() => onChanged?.()).catch(() => {})
     // Perfil antigo desconectado: o Hub não o reconecta; entra uma conta nova do mesmo motor.
     else if (action === 'new') setRoute({ kind: 'new', engine: account.backend })
     else if (action === 'key' && store.isLoopback) setRoute({ kind: 'key', id: account.id })
@@ -311,7 +309,7 @@ export function ContaDetalhe({ store, contas, account, local, onAction, onClose 
   }
   const reconnect: AccountAction | null = !local || !managed || (kind === 'api' && !store.isLoopback) ? null : kind === 'api' ? 'key' : account.state === 'disconnected' ? 'connect' : 'reconnect'
   // Pausada pelo dono volta com um gesto; a credencial ficou no cofre ou no perfil.
-  const pausada = managed && account.paused === true && account.state === 'disconnected'
+  const pausada = local && managed && account.paused === true && account.state === 'disconnected'
   const podeDesativar = local && managed && !open && account.paused !== undefined && (account.state === 'connected' || account.state === 'unavailable')
 
   return (

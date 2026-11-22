@@ -271,10 +271,41 @@ test('reativar devolve a conta confirmada pela leitura seguinte (o Hub responde 
   const hub = fakeHub([pausada])
   const contas = new ContasStore(client, hub.api)
   await contas.load()
-  hub.set([{ ...pausada, state: 'connected', paused: false, revision: 3 }])
+  // A mutação responde sem prova (unverified); só a leitura seguinte confirma (connected).
+  hub.set([{ ...pausada, state: 'unverified' as const, paused: false, revision: 3 }])
+  const mutacao = hub.api.setEnabled
+  hub.api.setEnabled = async (...argumentos) => ({ ...(await mutacao(...argumentos)), state: 'unverified' })
+  const confirmado = [{ ...pausada, state: 'connected' as const, paused: false, revision: 3 }]
+  const leituras = hub.api.accounts
+  let leiturasFeitas = 0
+  hub.api.accounts = async (...argumentos) => {
+    leiturasFeitas += 1
+    hub.set(confirmado)
+    return leituras(...argumentos)
+  }
   const reativada = await contas.setEnabled(pausada, true)
   assert.deepEqual(hub.calls.find((c) => c.method === 'setEnabled')?.body, { engineAccountId: pausada.id, expectedRevision: 2, enabled: true })
   assert.equal(hub.calls.filter((c) => c.method === 'accounts').length, 2, 'a leitura seguinte confirma a conta')
-  assert.equal(reativada.state, 'connected', 'o estado devolvido é o confirmado pelo Hub, não o da resposta da mutação')
+  assert.equal(leiturasFeitas, 1, 'a releitura foi feita após a mutação')
+  assert.equal(reativada.state, 'connected', 'o estado devolvido é o confirmado pela leitura, não o da resposta da mutação')
   assert.equal(reativada.paused, false)
+})
+
+test('pausa invalida a leitura em voo: nenhuma resposta antiga volta a conta conectada', async () => {
+  const original = account({ state: 'connected', paused: false })
+  const hub = fakeHub([original])
+  const contas = new ContasStore(client, hub.api)
+  const clientLento = () => new Promise<HostClient>((resolver) => { setTimeout(() => resolver({} as HostClient), 30) })
+  const lenta = new ContasStore(clientLento, hub.api)
+  const emVoo = lenta.load()
+  // A mutação acontece enquanto a leitura antiga ainda não respondeu.
+  const pausa = lenta.setEnabled(original, false).catch((e) => e)
+  await new Promise((resolver) => { setTimeout(resolver, 5) })
+  hub.set([{ ...original, state: 'disconnected', paused: true, revision: 2 }])
+  await pausa
+  await emVoo
+  const pausada = lenta.account(original.id)
+  assert.equal(pausada?.state, 'disconnected', 'a resposta antiga não sobrescreve a pausa')
+  assert.equal(pausada?.paused, true)
+  await contas.load()
 })
