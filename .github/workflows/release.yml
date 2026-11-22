@@ -40,7 +40,7 @@ jobs:
       contents: read
     env:
       OPEN_APP: dist/open/mac-arm64/Mexerica Open.app
-      MAIN_APP: dist/mac-arm64/Mexerica.app
+      MAIN_APP: dist/official/mac-universal/Mexerica.app
     steps:
       - name: Recusar repositorio privado ou maquina fora do GitHub
         if: ${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}
@@ -113,6 +113,26 @@ jobs:
       - name: Dependencias do app
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
+      - name: Preparar Hub e fala universais para o macOS oficial
+        if: ${{ inputs.mode == 'release' }}
+        working-directory: apps/desktop
+        env:
+          CODYNC_ENV: main
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          mkdir -p build/native
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --locked --release --manifest-path ../../host/Cargo.toml --target "$target" --bin donnabot-host
+          done
+          lipo -create -output build/native/donnabot-host ../../host/target/{aarch64,x86_64}-apple-darwin/release/donnabot-host
+          for arch in arm64 x86_64; do
+            swift build -c release --arch "$arch" --package-path native/speech-macos
+            speech_dir=$(swift build -c release --arch "$arch" --package-path native/speech-macos --show-bin-path)
+            cp "$speech_dir/codync-speech" "$RUNNER_TEMP/codync-speech-$arch"
+          done
+          lipo -create -output build/native/codync-speech "$RUNNER_TEMP/codync-speech-arm64" "$RUNNER_TEMP/codync-speech-x86_64"
+          lipo -verify_arch arm64 x86_64 build/native/donnabot-host
+          lipo -verify_arch arm64 x86_64 build/native/codync-speech
       # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
       # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
       # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
@@ -127,8 +147,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           MEXERICA_DESKTOP_MAIN_PLIST: ${{ secrets.MEXERICA_DESKTOP_MAIN_PLIST }}
-          MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON: ${{ secrets.MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON }}
-        run: npm run dist:mac:official
+        run: bash ../../tools/ci-release-desktop.sh mac
       - name: Empacotar a previa Open isolada
         if: ${{ inputs.mode == 'preview' }}
         working-directory: apps/desktop
@@ -141,14 +160,20 @@ jobs:
           if [ -n "${RELEASE_SEMVER:-}" ]; then
             app="$MAIN_APP"
             hub_name=donnabot-host
-            cmp -s resources/account-config.json "$app/Contents/Resources/account-config.json"
-            test -d "$app/Contents/Library/LoginItems/DonnabotScreen.app"
+            cmp -s build/official/account-config.json "$app/Contents/Resources/account-config.json"
+            lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Mexerica"
+            test ! -e "$app/Contents/Library/LoginItems/DonnabotScreen.app"
           fi
           codesign --verify --deep --strict "$app"
           hub="$app/Contents/Resources/$hub_name"
           speech="$app/Contents/Resources/codync-speech"
-          test "$(lipo -archs "$hub")" = arm64
-          test "$(lipo -archs "$speech")" = arm64
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            lipo -verify_arch arm64 x86_64 "$hub"
+            lipo -verify_arch arm64 x86_64 "$speech"
+          else
+            test "$(lipo -archs "$hub")" = arm64
+            test "$(lipo -archs "$speech")" = arm64
+          fi
           codesign --verify --strict "$hub"
           codesign --verify --strict "$speech"
           if [ -n "${RELEASE_SEMVER:-}" ]; then
@@ -223,6 +248,16 @@ jobs:
       - name: Dependencias do app
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
+      - name: Preparar Hub x64 para o Linux oficial
+        if: ${{ inputs.mode == 'release' }}
+        working-directory: host
+        env:
+          CODYNC_ENV: main
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --locked --release --target x86_64-unknown-linux-gnu --bin donnabot-host
+          install -D -m 0755 target/x86_64-unknown-linux-gnu/release/donnabot-host ../apps/desktop/build/native/donnabot-host
+          file ../apps/desktop/build/native/donnabot-host | grep -q 'ELF 64-bit.*x86-64'
       # So no modo release: o semver (sem o v) entra nos metadados do pacote (app.getVersion,
       # Info.plist, deb e NSIS). No preview, os metadados mantem a versao base do package.json:
       # preview-<commit> nao e versao valida para deb nem NSIS e vai so no nome dos arquivos.
@@ -236,8 +271,7 @@ jobs:
         working-directory: apps/desktop
         env:
           MEXERICA_DESKTOP_MAIN_PLIST: ${{ secrets.MEXERICA_DESKTOP_MAIN_PLIST }}
-          MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON: ${{ secrets.MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON }}
-        run: npm run dist:linux:official
+        run: bash ../../tools/ci-release-desktop.sh linux
       - name: Empacotar a previa Linux (deb e AppImage)
         if: ${{ inputs.mode == 'preview' }}
         working-directory: apps/desktop
@@ -249,8 +283,14 @@ jobs:
         working-directory: apps/desktop
         run: |
           set -euo pipefail
-          mapfile -t debs < <(find dist -maxdepth 1 -type f -name '*.deb')
-          mapfile -t appimages < <(find dist -maxdepth 1 -type f -name '*.AppImage')
+          dist=dist
+          config=resources/account-config.json
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            dist=dist/official
+            config=build/official/account-config.json
+          fi
+          mapfile -t debs < <(find "$dist" -maxdepth 1 -type f -name '*.deb')
+          mapfile -t appimages < <(find "$dist" -maxdepth 1 -type f -name '*.AppImage')
           test "${#debs[@]}" -eq 1 || { echo '::error::Era esperado exatamente 1 pacote .deb em dist.'; exit 1; }
           test "${#appimages[@]}" -eq 1 || { echo '::error::Era esperado exatamente 1 pacote .AppImage em dist.'; exit 1; }
           out="$RUNNER_TEMP/release-linux"
@@ -260,7 +300,7 @@ jobs:
           cp "${debs[0]}" "$out/$deb_name"
           cp "${appimages[0]}" "$out/$appimage_name"
           dpkg-deb --info "$out/$deb_name" > /dev/null
-          cmp -s resources/account-config.json dist/linux-unpacked/resources/account-config.json
+          cmp -s "$config" "$dist/linux-unpacked/resources/account-config.json"
           conteudo=$(dpkg-deb --contents "$out/$deb_name")
           for trecho in 'opt/Mexerica/donnabot$' 'opt/Mexerica/resources/account-config.json$' 'avisos/LICENSE$' 'avisos/NOTICE$' 'usr/share/applications/donnabot.desktop$'; do
             grep -Eq "$trecho" <<< "$conteudo" || { echo "::error::$trecho nao encontrado no .deb."; exit 1; }
@@ -269,6 +309,8 @@ jobs:
           test -s "$out/$appimage_name"
           file "$out/$appimage_name" | grep -q 'ELF 64-bit LSB executable, x86-64'
           if [ -n "${RELEASE_SEMVER:-}" ]; then
+            grep -Eq 'opt/Mexerica/resources/donnabot-host$' <<< "$conteudo"
+            test ! -e "$dist/linux-unpacked/resources/cua-driver"
             # O Debian converte - em ~ na versao do pacote: a conferencia compara normalizado.
             test "$(dpkg-deb -f "$out/$deb_name" Version)" = "${RELEASE_SEMVER//-/~}"
           fi
@@ -353,10 +395,13 @@ jobs:
           cp target/x86_64-pc-windows-msvc/release/donnabot-host.exe ../apps/desktop/build/native/
           cp target/x86_64-pc-windows-msvc/release/donnabot-hostw.exe ../apps/desktop/build/native/
       - name: Baixar o cua-driver fixado
+        if: ${{ inputs.mode == 'preview' }}
         run: node packaging/cua-driver/fetch.mjs windows-x86_64 apps/desktop/build/native
       - name: Conferir os binarios nativos e fumar o Hub
         run: |
-          for arquivo in donnabot-host.exe donnabot-hostw.exe cua-driver.exe cua-driver-uia.exe cua-driver.LICENSE; do
+          arquivos=(donnabot-host.exe donnabot-hostw.exe)
+          if [ -z "${RELEASE_SEMVER:-}" ]; then arquivos+=(cua-driver.exe cua-driver-uia.exe cua-driver.LICENSE); fi
+          for arquivo in "${arquivos[@]}"; do
             test -s "apps/desktop/build/native/$arquivo" || { echo "::error::apps/desktop/build/native/$arquivo ausente ou vazio."; exit 1; }
           done
           ./apps/desktop/build/native/donnabot-host.exe --version
@@ -377,8 +422,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           MEXERICA_DESKTOP_MAIN_PLIST: ${{ secrets.MEXERICA_DESKTOP_MAIN_PLIST }}
-          MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON: ${{ secrets.MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON }}
-        run: npm run dist:win:official
+        run: bash ../../tools/ci-release-desktop.sh win
       - name: Empacotar a previa Windows (NSIS)
         if: ${{ inputs.mode == 'preview' }}
         working-directory: apps/desktop
@@ -391,9 +435,20 @@ jobs:
       - name: Conferir o pacote Windows
         working-directory: apps/desktop
         run: |
-          cmp -s resources/account-config.json dist/win-unpacked/resources/account-config.json
-          for arquivo in dist/donnabot-windows-x64.exe dist/win-unpacked/Mexerica.exe dist/win-unpacked/resources/donnabot-host.exe dist/win-unpacked/resources/donnabot-hostw.exe dist/win-unpacked/resources/cua-driver.exe dist/win-unpacked/resources/account-config.json; do
-            test -s "$arquivo" || { echo "::error::$arquivo ausente ou vazio."; exit 1; }
+          dist=dist
+          config=resources/account-config.json
+          if [ -n "${RELEASE_SEMVER:-}" ]; then
+            dist=dist/official
+            config=build/official/account-config.json
+            for helper in cua-driver.exe cua-driver-uia.exe; do
+              test ! -e "$dist/win-unpacked/resources/$helper"
+            done
+          else
+            test -s dist/win-unpacked/resources/cua-driver.exe
+          fi
+          cmp -s "$config" "$dist/win-unpacked/resources/account-config.json"
+          for arquivo in donnabot-windows-x64.exe win-unpacked/Mexerica.exe win-unpacked/resources/donnabot-host.exe win-unpacked/resources/donnabot-hostw.exe win-unpacked/resources/account-config.json; do
+            test -s "$dist/$arquivo" || { echo "::error::$dist/$arquivo ausente ou vazio."; exit 1; }
           done
       - name: Conferir a versao gravada nos metadados do Windows
         if: ${{ inputs.mode == 'release' }}
@@ -403,7 +458,7 @@ jobs:
           set -euo pipefail
           test -n "${RELEASE_SEMVER:-}"
           test "$(node -p "require('./apps/desktop/package.json').version")" = "$RELEASE_SEMVER"
-          node tools/ci-release-version.mjs --check-asar apps/desktop/dist/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"
+          node tools/ci-release-version.mjs --check-asar apps/desktop/dist/official/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"
       - name: Preparar os arquivos da release Windows
         working-directory: apps/desktop
         run: |
@@ -412,10 +467,12 @@ jobs:
           mkdir -p "$out"
           setup="mexerica-open-${RELEASE_LABEL}-windows-x64-setup.exe"
           zip="mexerica-open-${RELEASE_LABEL}-windows-x64-portable.zip"
-          cp dist/donnabot-windows-x64.exe "$out/$setup"
+          dist=dist
+          if [ -n "${RELEASE_SEMVER:-}" ]; then dist=dist/official; fi
+          cp "$dist/donnabot-windows-x64.exe" "$out/$setup"
           # O tar nativo do Windows le zip; um tar do Git Bash no PATH, nao.
           win_zip=$(cygpath -w "$out/$zip")
-          (cd dist/win-unpacked && /c/Windows/System32/tar.exe -a -c -f "$win_zip" .)
+          (cd "$dist/win-unpacked" && /c/Windows/System32/tar.exe -a -c -f "$win_zip" .)
           /c/Windows/System32/tar.exe -tf "$win_zip" | grep -Eq '^(\./)?Mexerica\.exe$'
           # sha256sum no Git Bash marca binario com *: o formato Unix e <hash>  <nome>, sem \r.
           (cd "$out" && sha256sum "$setup" "$zip" | sed 's/ \*/  /' | tr -d '\r' > windows.sha256 && cat windows.sha256)

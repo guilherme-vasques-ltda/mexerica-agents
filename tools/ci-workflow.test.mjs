@@ -506,7 +506,7 @@ test('release: a versão entra nos metadados do app entre o npm ci e o build, s�
     const idx = (trecho) => steps.findIndex((st) => st.startsWith(`name: ${trecho}`));
     const npmCi = idx('Dependencias do app');
     const versao = idx('Aplicar versao da release aos metadados do app');
-    assert.ok(npmCi >= 0 && versao === npmCi + 1 && idx(seguinte) === versao + 1, `${name}: passo da versão entre o npm ci e o build`);
+    assert.ok(npmCi >= 0 && versao > npmCi && idx(seguinte) === versao + 1, `${name}: passo da versão entre o npm ci e o build`);
     const passo = steps[versao];
     assert.ok(passo.includes("if: ${{ inputs.mode == 'release' }}"), `${name}: passo da versão só no modo release`);
     assert.ok(passo.includes('RELEASE_VERSION: ${{ inputs.version }}'), `${name}: versão chega por env, nunca em run`);
@@ -516,23 +516,40 @@ test('release: a versão entra nos metadados do app entre o npm ci e o build, s�
 
 test('release: configuração pública só chega ao passo oficial dos três builds, nunca à prévia', () => {
   const refs = [...rel.matchAll(/\bsecrets\.([A-Z0-9_]+)/g)].map((m) => m[1]);
-  const entradas = ['MEXERICA_DESKTOP_MAIN_PLIST', 'MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON'];
-  assert.deepEqual(refs, [...entradas, ...entradas, ...entradas]);
+  const input = 'MEXERICA_DESKTOP_MAIN_PLIST';
+  assert.deepEqual(refs, Array(3).fill(input));
   for (const [name, dist] of [['build-macos', 'mac'], ['build-linux', 'linux'], ['build-windows', 'win']]) {
     const steps = relSteps(name);
     assert.match(steps[1], /test "\$GITHUB_REPOSITORY" = guilherme-vasques-ltda\/mexerica-agents \|\| .*exit 1/);
     const [official, preview] = steps.filter((step) => step.startsWith('name: Empacotar o app oficial') || step.startsWith('name: Empacotar a previa'));
     assert.ok(official.includes("if: ${{ inputs.mode == 'release' && github.repository == 'guilherme-vasques-ltda/mexerica-agents' }}"));
     assert.ok(official.includes('working-directory: apps/desktop'));
-    assert.equal(official.split('\n').find((line) => line.includes('run:')), `        run: npm run dist:${dist}:official`);
+    assert.equal(official.split('\n').find((line) => line.includes('run:')), `        run: bash ../../tools/ci-release-desktop.sh ${dist}`);
     assert.ok(preview.includes("if: ${{ inputs.mode == 'preview' }}"));
     assert.doesNotMatch(preview, /:official|secrets\./);
-    for (const input of entradas) {
-      assert.ok(official.includes(`          ${input}: \${{ secrets.${input} }}`));
-      assert.ok(steps.filter((step) => step.includes(input)).every((step) => step === official));
-    }
+    assert.ok(official.includes(`          ${input}: \${{ secrets.${input} }}`));
+    assert.ok(steps.filter((step) => step.includes(input)).every((step) => step === official));
+    assert.doesNotMatch(relBody(name), /MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON|set -x/);
   }
   assert.doesNotMatch(relBody('draft-release'), /MEXERICA_DESKTOP_MAIN_/);
+});
+
+test('release: plist é temporário, não chega ao processo de build por env e volta mesmo se o alvo falhar', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-release-plist-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  assert.equal(spawnSync('mkdir', ['config'], { cwd: dir }).status, 0);
+  const file = join(dir, 'config/main.plist');
+  writeFileSync(file, '<plist/>\n');
+  const fixture = '<plist version="1.0"><dict></dict></plist>';
+  writeFileSync(join(dir, 'npm'), `#!/bin/bash\nset -eu\ntest "\${MEXERICA_DESKTOP_MAIN_PLIST+x}" = ''\ntest "$1" = run\ntest "$2" = dist:linux:official\ntest "$(cat config/main.plist)" = '${fixture}'\nexit "$FIXTURE_STATUS"\n`, { mode: 0o700 });
+  const script = fileURLToPath(new URL('./ci-release-desktop.sh', import.meta.url));
+  for (const [input, status] of [['', 1], [fixture, 0], [fixture, 42]]) {
+    const result = spawnSync('bash', [script, 'linux'], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MEXERICA_DESKTOP_MAIN_PLIST: input, FIXTURE_STATUS: String(status) } });
+    assert.equal(result.status, status);
+    assert.equal(result.stdout, input ? '' : '::error::A configuracao publica da conta oficial esta ausente.\n');
+    assert.doesNotMatch(result.stderr, /<plist/);
+    assert.equal(readFileSync(file, 'utf8'), '<plist/>\n');
+  }
 });
 
 test('release: guarda permite prévia sem configuração e recusa release de fork ou branch não confiável', (t) => {
@@ -561,8 +578,10 @@ test('release: macOS separa o app oficial completo da prévia isolada e confere 
     'rustup show active-toolchain || rustup toolchain install',
     'npm ci --no-audit --no-fund',
     "name: Empacotar a previa Open isolada\n        if: ${{ inputs.mode == 'preview' }}\n        working-directory: apps/desktop\n        run: npm run dist:mac:open",
-    'MAIN_APP: dist/mac-arm64/Mexerica.app',
-    'npm run dist:mac:official',
+    'MAIN_APP: dist/official/mac-universal/Mexerica.app',
+    'bash ../../tools/ci-release-desktop.sh mac',
+    'lipo -verify_arch arm64 x86_64 build/native/donnabot-host',
+    'lipo -verify_arch arm64 x86_64 build/native/codync-speech',
     'codesign --verify --deep --strict "$app"',
     'test "$(lipo -archs "$hub")" = arm64',
     'codesign --verify --strict "$speech"',
@@ -588,6 +607,9 @@ test('release: Linux empacota deb e AppImage, confere o conteúdo e gera hash', 
     'node tools/account-config.mjs main',
     'npm run build',
     'npx electron-builder --linux deb AppImage --publish never',
+    'cargo build --locked --release --target x86_64-unknown-linux-gnu --bin donnabot-host',
+    'install -D -m 0755 target/x86_64-unknown-linux-gnu/release/donnabot-host ../apps/desktop/build/native/donnabot-host',
+    'opt/Mexerica/resources/donnabot-host$',
     'dpkg-deb --info "$out/$deb_name"',
     'dpkg-deb --contents "$out/$deb_name"',
     'opt/Mexerica/donnabot$',
@@ -622,18 +644,18 @@ test('release: Windows compila o Hub nativo, valida o cua-driver e empacota NSIS
     './apps/desktop/build/native/donnabot-host.exe --version',
     'CSC_IDENTITY_AUTO_DISCOVERY: \'false\'',
     'npx electron-builder --win nsis --publish never',
-    'dist/donnabot-windows-x64.exe',
-    'dist/win-unpacked/Mexerica.exe',
-    'dist/win-unpacked/resources/donnabot-host.exe',
-    'dist/win-unpacked/resources/donnabot-hostw.exe',
+    '"$dist/donnabot-windows-x64.exe"',
+    'win-unpacked/Mexerica.exe',
+    'win-unpacked/resources/donnabot-host.exe',
+    'win-unpacked/resources/donnabot-hostw.exe',
     'dist/win-unpacked/resources/cua-driver.exe',
-    'dist/win-unpacked/resources/account-config.json',
+    'win-unpacked/resources/account-config.json',
     'win_zip=$(cygpath -w "$out/$zip")',
     '/c/Windows/System32/tar.exe -a -c -f "$win_zip" .',
     '/c/Windows/System32/tar.exe -tf "$win_zip" | grep -Eq \'^(\\./)?Mexerica\\.exe$\'',
     'sed \'s/ \\*/  /\' | tr -d \'\\r\' > windows.sha256',
     'test "$(node -p "require(\'./apps/desktop/package.json\').version")" = "$RELEASE_SEMVER"',
-    'node tools/ci-release-version.mjs --check-asar apps/desktop/dist/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"',
+    'node tools/ci-release-version.mjs --check-asar apps/desktop/dist/official/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"',
   ]) assert.ok(job.includes(cmd), cmd);
   const conferencia = job.split('\n      - ').find((st) => st.includes('name: Conferir a versao gravada nos metadados do Windows'));
   assert.ok(conferencia, 'passo de conferência da versão no Windows');
