@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
 import java.net.URLEncoder
@@ -36,6 +37,8 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     /** After a local interrupt, the rest of the turn's audio is dropped. */
     private var dropping = false
     private val pending = mutableListOf<String>()
+    /** Where the user's current speech began, in deliveries, so a late frame can't authorize. */
+    private val onset = SpeechOnset()
 
     init { hop { connect() } }
 
@@ -47,6 +50,8 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     override fun announce(notice: String) = hop { pending += operator.notice(notice); flush() }
     override fun mute(value: Boolean) = hop {
         if (value == muted) return@hop
+        operator.muteChanged(value)
+        onset.reset()
         mutable.update { it.copy(muted = value, level = 0f) }
         if (value) send(buildJsonObject { putJsonObject("realtimeInput") { put("audioStreamEnd", true) } })
     }
@@ -56,6 +61,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
     }
     override fun focus(active: Boolean) = hop {
         if (!active && this.active) {
+            operator.stopListening(); onset.reset()
             stopPlayback(); dropping = !turnDone; level(0f); phase(VoicePhase.Interrupted)
             send(buildJsonObject { putJsonObject("realtimeInput") { put("audioStreamEnd", true) } })
         } else if (active && phase == VoicePhase.Interrupted) { phase(VoicePhase.Listening); flush() }
@@ -80,6 +86,8 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
 
     private suspend fun closed(webSocket: WebSocket, reason: String) {
         if (socket !== webSocket) return
+        // The link went away: what was said on it no longer authorizes anything.
+        operator.stopListening(); onset.reset()
         socket = null; ready = false
         if (resumeHandle != null && reconnects < 3) { reconnects++; connect() }
         else fail(reason.ifEmpty { "Lost the connection to Gemini." })
@@ -105,7 +113,11 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
         if ("setupComplete" in message) {
             ready = true; reconnects = 0
             if (!audioRunning) {
-                mic.start({ pcm, level -> hop { captured(pcm, level) } }) {
+                // The microphone starts delivering audio from here: what is said in this call carries it.
+                operator.audioStarted()
+                // Stamped as captured, before the hop: a frame heard before the computer's data reached
+                // the model keeps the older mark even when it is processed after it.
+                mic.start({ pcm, level -> val at = operator.delivery; hop { captured(pcm, level, at) } }) {
                     hop { fail("Couldn't use the microphone. Check its permission and other audio apps.") }
                 }
                 audioRunning = true
@@ -155,6 +167,8 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
         if (!ready || !turnDone || queued != 0 || pending.isEmpty() || phase == VoicePhase.Interrupted) return
         val text = pending.joinToString("\n\n"); pending.clear()
         turnDone = false
+        // The bot's replies reach the model as data: from here only new speech can ask to send or approve.
+        operator.dataDelivered()
         send(buildJsonObject {
             putJsonObject("clientContent") {
                 putJsonArray("turns") { addJsonObject { put("role", "user"); putJsonArray("parts") { addJsonObject { put("text", text) } } } }
@@ -163,8 +177,11 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
         })
     }
 
-    private fun captured(pcm: ByteArray, level: Float) {
+    private fun captured(pcm: ByteArray, level: Float, at: Int) {
         if (muted || !active) return
+        // While the model talks, what the microphone hears is mostly its own voice coming back: that
+        // never authorizes anything, so only audio heard while it is quiet can mark the user's speech.
+        if (phase != VoicePhase.Speaking) onset.heard(pcm, level, at)?.let { operator.speechDetected(it) }
         level(if (phase == VoicePhase.Speaking) 0f else level)
         send(buildJsonObject {
             putJsonObject("realtimeInput") {

@@ -275,11 +275,14 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/WidgetSetupDemo.kt`
 - `apps/mobile/android/app/src/test/kotlin/com/codync/android/AnalyticsTest.kt`
 - `apps/mobile/android/core/build.gradle.kts`
+- `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/CallOperator.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/ChannelSocket.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/CloudClient.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/Compatibility.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/EncryptedChannel.kt`
+- `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/GeminiLiveEngine.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/HostConnector.kt`
+- `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/OpenAIRealtimeEngine.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/Pairing.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/PairingQr.kt`
 - `apps/mobile/android/core/src/main/kotlin/com/codync/android/core/PushRelay.kt`
@@ -292,6 +295,7 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/android/core/src/test/kotlin/com/codync/android/core/PairingTest.kt`
 - `apps/mobile/android/core/src/test/kotlin/com/codync/android/core/ScreenTest.kt`
 - `apps/mobile/android/core/src/test/kotlin/com/codync/android/core/UsageDestinationTest.kt`
+- `apps/mobile/android/core/src/test/kotlin/com/codync/android/core/VoiceEnginesTest.kt`
 - `apps/mobile/android/tools/agent_icons.py`
 - `apps/mobile/android/tools/launcher_icon.py`
 - `apps/mobile/ios/App/AccountSession.swift`

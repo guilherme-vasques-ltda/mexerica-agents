@@ -1,6 +1,8 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.update
@@ -43,6 +45,8 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
             val secret = credential()
             if (ended) return@hop
             val offer = peer.offer(this)
+            // The microphone starts delivering audio from here: what is said in this call carries it.
+            operator.audioStarted()
             peer.mic(!muted)
             val answer = exchange(secret, offer)
             if (ended) return@hop
@@ -58,12 +62,14 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
     }
     override fun announce(notice: String) = hop { pending += operator.notice(notice); flush() }
     override fun mute(value: Boolean) = hop {
+        operator.muteChanged(value)
         mutable.update { it.copy(muted = value, level = if (value) 0f else it.level) }
         if (phase != VoicePhase.Interrupted) peer.mic(!value)
     }
     override fun interrupt() = hop { if (phase == VoicePhase.Speaking) { cancelResponse(); phase(VoicePhase.Listening) } }
     override fun focus(active: Boolean) = hop {
         if (!active && this.active) {
+            operator.stopListening()
             peer.mic(false)
             if (phase == VoicePhase.Speaking) cancelResponse()
             level(0f); phase(VoicePhase.Interrupted)
@@ -90,8 +96,13 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
     override fun received(text: String) = hop {
         val message = runCatching { WireJson.parseToJsonElement(text).jsonObject }.getOrNull() ?: return@hop
         when (message.text("type")) {
-            "input_audio_buffer.speech_started" -> level(if (muted) 0f else .7f)
+            "input_audio_buffer.speech_started" -> {
+                // The provider heard the user speaking: this turn may act. Audio alone isn't speech.
+                operator.speechDetected()
+                level(if (muted) 0f else .7f)
+            }
             "input_audio_buffer.speech_stopped" -> level(0f)
+            "conversation.item.created" -> (message["item"] as? JsonObject)?.text("id")?.let(operator::confirmed)
             "output_audio_buffer.started" -> if (phase == VoicePhase.Listening) phase(VoicePhase.Speaking)
             "output_audio_buffer.stopped", "output_audio_buffer.cleared" -> if (phase == VoicePhase.Speaking) phase(VoicePhase.Listening)
             "response.created" -> responding = true
@@ -100,10 +111,12 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
                 val id = message.text("call_id") ?: return@hop
                 val name = message.text("name") ?: return@hop
                 val arguments = message.text("arguments")?.let { runCatching { WireJson.parseToJsonElement(it).jsonObject }.getOrNull() }
-                val output = operator.call(name, arguments ?: JsonObject(emptyMap()))
+                // Our own id for the result: speech the provider reports before confirming it may predate it.
+                val item = itemId()
+                val output = operator.call(name, arguments ?: JsonObject(emptyMap()), item)
                 send(buildJsonObject {
                     put("type", "conversation.item.create")
-                    putJsonObject("item") { put("type", "function_call_output"); put("call_id", id); put("output", output.toString()) }
+                    putJsonObject("item") { put("id", item); put("type", "function_call_output"); put("call_id", id); put("output", output.toString()) }
                 })
                 // An empty entry asks for a response once this one is done, so the model speaks the result.
                 pending += ""
@@ -114,7 +127,7 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
     override fun ice(state: RealtimePeer.Ice) = hop {
         when (state) {
             RealtimePeer.Ice.Connected -> dropTimer?.cancel()
-            RealtimePeer.Ice.Disconnected -> drop(5_000, "Lost the connection to OpenAI.") { true }
+            RealtimePeer.Ice.Disconnected -> { operator.stopListening(); drop(5_000, "Lost the connection to OpenAI.") { true } }
             RealtimePeer.Ice.Failed -> fail("Lost the connection to OpenAI.")
         }
     }
@@ -133,19 +146,28 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
     /** Hands waiting replies (and tool results, as empty entries) to the model once it's free. */
     private fun flush() {
         if (responding || !active || !peer.isOpen || pending.isEmpty()) return
-        for (text in pending) if (text.isNotEmpty()) send(buildJsonObject {
-            put("type", "conversation.item.create")
-            putJsonObject("item") {
-                put("type", "message"); put("role", "user")
-                putJsonArray("content") { addJsonObject { put("type", "input_text"); put("text", text) } }
-            }
-        })
+        for (text in pending) if (text.isNotEmpty()) {
+            // A bot's reply is the computer's data, never the user's speech: once it reaches the
+            // model, only new speech can ask to send or approve.
+            val item = itemId()
+            operator.dataDelivered(item)
+            send(buildJsonObject {
+                put("type", "conversation.item.create")
+                putJsonObject("item") {
+                    put("id", item); put("type", "message"); put("role", "user")
+                    putJsonArray("content") { addJsonObject { put("type", "input_text"); put("text", text) } }
+                }
+            })
+        }
         pending.clear()
         responding = true
         send(buildJsonObject { put("type", "response.create") })
     }
 
     private fun send(event: JsonObject) { if (peer.isOpen) peer.send(event.toString()) }
+
+    /** A client-chosen item id (up to 32 characters), echoed back in `conversation.item.created`. */
+    private fun itemId() = "mx_" + UUID.randomUUID().toString().replace("-", "").take(29)
 
     override suspend fun release() { dropTimer?.cancel(); peer.close() }
 
