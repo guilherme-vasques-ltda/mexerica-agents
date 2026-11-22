@@ -943,6 +943,31 @@ async fn cancelled_running_jobs_become_unknown_without_wedging_or_retention_leak
 }
 
 #[tokio::test]
+async fn a_late_result_after_retention_keeps_the_original_finish_time_and_no_result() {
+    let hub = hub();
+    let mut d = Executor::enroll(&hub).await;
+    let j = delivered(&hub, &mut d).await;
+    assert_eq!(update(&mut d, &j, "accepted").await["ok"]["go"], true);
+    assert_eq!(update(&mut d, &j, "start").await["ok"]["go"], true);
+    jobs::recover(&hub).unwrap();
+    let unknown = jobs::find(&hub, &j.id).unwrap();
+    assert_eq!(unknown.state, jobs::Phase::Unknown);
+    let body = json!({"jobId":j.id,"leaseToken":j.lease_token,"outcome":"unknown","code":"executor_restarted","decidedBy":"none","auditSeq":1});
+    assert_eq!(d.call("executorResult", body.clone()).await["ok"]["ack"], true);
+    assert_eq!(jobs::find(&hub, &j.id).unwrap().finished_at, unknown.finished_at);
+    let mut aged = unknown.clone();
+    aged.finished_at = Some(now_ms() - 2 * 86_400_000);
+    hub.store.save_computer_job(&aged).unwrap();
+    hub.store.clean_computer_jobs(now_ms()).unwrap();
+    assert!(jobs::find(&hub, &j.id).unwrap().result.is_none());
+    let late = d.call("executorResult", body).await;
+    assert_eq!(late["ok"]["ack"], true, "{late}");
+    let after = jobs::find(&hub, &j.id).unwrap();
+    assert_eq!(after.finished_at, aged.finished_at);
+    assert!(after.result.is_none());
+}
+
+#[tokio::test]
 async fn revogacao_antes_do_commit_do_start_nao_grava_running_nem_ultimo_uso() {
     let hub = hub();
     let d = Executor::enroll(&hub).await;
@@ -962,4 +987,101 @@ async fn revogacao_antes_do_commit_do_start_nao_grava_running_nem_ultimo_uso() {
     assert!(hub.store.save_computer_job_in_execution(&job, None, Some(&computer)).is_err());
     assert_eq!(jobs::find(&hub, &job.id).unwrap().state, jobs::Phase::Queued);
     assert_eq!(c(&hub, &d).last_used_at, previous);
+}
+
+fn sheet_args(filename: &str) -> Value {
+    json!({"location":"desktop","folder":"X","filename":filename,"reason":"teste","sheets":[{"name":"A","rows":[["a",1]]}]})
+}
+fn announce(capabilities: Value) -> Value {
+    let mut h = hello();
+    h["capabilities"] = capabilities;
+    h
+}
+
+#[tokio::test]
+async fn spreadsheet_needs_the_announced_capability_and_nothing_else_is_reachable_through_it() {
+    let hub = hub();
+    let mut d = Executor::enroll(&hub).await;
+    let computer = c(&hub, &d);
+    user_turn(&hub, Some(&computer.id));
+    // Anunciou só terminal/arquivos: planilha não é enfileirada.
+    let answer =
+        bound_call(&hub, &json!({"botId":"donna","name":"create_spreadsheet","arguments":sheet_args("V.xlsx")})).await;
+    assert!(
+        answer["isError"] == true && answer["content"][0]["text"].as_str().unwrap().contains("capability_missing"),
+        "{answer}"
+    );
+    // Anunciou só planilha: comando, leitura, listagem e gravação genérica ficam fora do alcance, sem fila.
+    assert!(d.call("executorHello", announce(json!({"planilha":true,"locais":["desktop"]}))).await["ok"].is_object());
+    for body in [
+        json!({"botId":"donna","name":"run_command","arguments":{"command":"ls","reason":"t"}}),
+        json!({"botId":"donna","name":"read_file","arguments":{"path":"~/x"}}),
+        json!({"botId":"donna","name":"list_dir","arguments":{"path":"~/"}}),
+        json!({"botId":"donna","name":"write_file","arguments":{"path":"~/x","mode":"overwrite","content":"x","reason":"t"}}),
+        json!({"botId":"donna","name":"create_spreadsheet","arguments":{"location":"documents","filename":"V.xlsx","reason":"t","sheets":[{"name":"A","rows":[]}]}}),
+        json!({"botId":"donna","name":"create_spreadsheet","arguments":{"location":"desktop","filename":"../V.xlsx","reason":"t","sheets":[{"name":"A","rows":[]}]}}),
+        json!({"botId":"donna","name":"create_spreadsheet","arguments":{"location":"desktop","folder":"a/b","filename":"V.xlsx","reason":"t","sheets":[{"name":"A","rows":[]}]}}),
+        json!({"botId":"donna","name":"create_spreadsheet","arguments":{"location":"desktop","path":"/etc/passwd","filename":"V.xlsx","reason":"t","sheets":[{"name":"A","rows":[]}]}}),
+    ] {
+        let answer = bound_call(&hub, &body).await;
+        assert_eq!(answer["isError"], true, "{body}: {answer}");
+    }
+    assert!(hub.store.computer_jobs().unwrap().is_empty());
+    // Local não anunciado também não passa.
+    assert!(d.call("executorHello", announce(json!({"planilha":true,"locais":[]}))).await["ok"].is_object());
+    let answer =
+        bound_call(&hub, &json!({"botId":"donna","name":"create_spreadsheet","arguments":sheet_args("V.xlsx")})).await;
+    assert!(answer["content"][0]["text"].as_str().unwrap().contains("capability_missing"), "{answer}");
+    assert!(hub.store.computer_jobs().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn spreadsheet_is_done_only_with_a_receipt_that_repeats_what_the_hub_sent() {
+    let hub = hub();
+    let mut d = Executor::enroll(&hub).await;
+    assert!(d.call("executorHello", announce(json!({"planilha":true,"locais":["desktop"]}))).await["ok"].is_object());
+    let computer = c(&hub, &d);
+    user_turn(&hub, Some(&computer.id));
+    for (filename, receipt_ok) in [("Falso.xlsx", false), ("Certo.xlsx", true)] {
+        let task = tokio::spawn({
+            let hub = hub.clone();
+            async move {
+                bound_call(&hub, &json!({"botId":"donna","name":"create_spreadsheet","arguments":sheet_args(filename)}))
+                    .await
+            }
+        });
+        let p = d.call("executorPoll", json!({"bootId":"boot-1","waitMs":1000,"presence":hello()["presence"]})).await;
+        let j = jobs::find(&hub, p["ok"]["jobs"][0]["jobId"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            (j.kind.as_str(), j.spec["purpose"].clone(), j.spec["mode"].clone(), j.spec["path"].clone()),
+            ("fs.write", json!("spreadsheet"), json!("create"), json!(filename))
+        );
+        assert_eq!((j.spec["location"].clone(), j.spec["folder"].clone()), (json!("desktop"), json!("X")));
+        let content =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, j.spec["content"].as_str().unwrap())
+                .unwrap();
+        assert_eq!(&content[..2], b"PK");
+        assert_eq!(update(&mut d, &j, "accepted").await["ok"]["go"], true);
+        assert_eq!(update(&mut d, &j, "start").await["ok"]["go"], true);
+        let mut receipt = json!({"path":format!("/Users/user/Desktop/X/{filename}"),"location":"desktop","folder":"X","created":true,"reopened":true,
+            "size":j.spec["size"],"sha256":j.spec["sha256"],"contentSha256":j.spec["contentSha256"],"sheets":j.spec["summary"]});
+        if !receipt_ok {
+            receipt["sha256"] = json!("0".repeat(64));
+        }
+        let r = d.call("executorResult", json!({"jobId":j.id,"leaseToken":j.lease_token,"outcome":"done","decidedBy":"policy","auditSeq":1,"receipt":receipt})).await;
+        assert_eq!(r["ok"]["ack"], true);
+        let answer = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        let text = answer["content"][0]["text"].as_str().unwrap();
+        if receipt_ok {
+            assert_eq!(answer["isError"], false, "{answer}");
+            assert!(
+                text.contains("\"outcome\":\"done\"") && text.contains("pasta liberada") && text.contains("Certo.xlsx"),
+                "{text}"
+            );
+        } else {
+            assert_eq!(answer["isError"], true);
+            assert!(text.starts_with("receipt_invalid") && text.contains("unknown_outcome"), "{text}");
+            assert_eq!(jobs::find(&hub, &j.id).unwrap().state, jobs::Phase::Unknown);
+        }
+    }
 }

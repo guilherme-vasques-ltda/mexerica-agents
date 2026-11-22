@@ -215,7 +215,8 @@ impl Store {
         let c = self.db.locked();
         // Spec may contain file contents too; only metadata survives the result retention.
         c.execute(
-            "UPDATE donna_computer_jobs SET result=NULL,spec='{}',origin='{}' WHERE finished_at < ?1",
+            // Só o tipo "planilha" sobrevive (sem conteúdo): sem ele um resultado tardio passaria sem a conferência do recibo.
+            "UPDATE donna_computer_jobs SET result=NULL,origin='{}',spec=CASE WHEN kind='fs.write' AND json_extract(spec,'$.purpose')='spreadsheet' THEN '{\"purpose\":\"spreadsheet\"}' ELSE '{}' END WHERE finished_at < ?1",
             [now - 86_400_000],
         )?;
         c.execute("DELETE FROM donna_computer_jobs WHERE finished_at < ?1", [now - 30 * 86_400_000])?;
