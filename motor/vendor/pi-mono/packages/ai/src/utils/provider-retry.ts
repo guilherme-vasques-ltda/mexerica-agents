@@ -132,7 +132,8 @@ export async function retryProviderRequest<T>(
 
 			const retryIndex = maxRetries - retriesRemaining;
 			retriesRemaining--;
-			const delayMs = getRetryDelayMs(error, retryIndex, options.maxRetryDelayMs);
+			// A server date already in the past can make the delay negative; the wait is never negative.
+			const delayMs = Math.max(0, getRetryDelayMs(error, retryIndex, options.maxRetryDelayMs));
 			// The turn's shared budget is spent, not renewed: a delay past it ends the request.
 			if (options.retryBudget) {
 				if (delayMs > options.retryBudget.remainingMs) throw error;

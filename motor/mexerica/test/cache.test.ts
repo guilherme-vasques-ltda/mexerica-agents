@@ -96,6 +96,39 @@ test("identidade de cache fora do formato é recusada sem ir para o pedido", asy
 	}
 });
 
+test("a Anthropic não recebe thread no servidor, mesmo com identidade de cache", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "motor-anthropic-"));
+	const log = join(dir, "fetch.jsonl");
+	const proc = startEngine(
+		{ MEXERICA_TEST_CENARIO: "anthropic" },
+		{ serveKey: SECRET, fetchLog: log, fetchStub: STUB },
+	);
+	try {
+		proc.send({ id: "m", type: "set_model", provider: "anthropic", modelId: "claude-teste", cacheKey: IDENTIDADE });
+		await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		await esperar(proc, (v) => v.type === "agent_end");
+		const linha = JSON.parse(readFileSync(log, "utf8").split("\n").filter(Boolean)[0]!) as {
+			headers: Record<string, string>;
+			body: string;
+		};
+		const corpo = JSON.parse(linha.body) as Record<string, unknown>;
+		assert.equal(corpo["thread"], undefined, "o motor guarda a conversa: nada de thread no fornecedor");
+		assert.equal(
+			Object.keys(linha.headers)
+				.filter((nome) => nome.toLowerCase() === "anthropic-beta")
+				.map((nome) => linha.headers[nome] ?? "")
+				.join(" ")
+				.includes("message-threads"),
+			false,
+			"o beta de threads não pode ser pedido",
+		);
+	} finally {
+		await encerrar(proc);
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("prompt de sistema novo substitui o anterior em vez de somar, e as ferramentas continuam", async () => {
 	const { proc, log, fechar } = motor();
 	try {

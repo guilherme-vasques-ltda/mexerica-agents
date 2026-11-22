@@ -84,9 +84,34 @@ globalThis.fetch = async (input, init) => {
 		case "ferramenta_429":
 			if (chamadas === 1) return ferramenta();
 			return chamadas === 2 ? recusa(429, { "retry-after": "1" }, "limite de uso") : texto("resposta simulada");
+		case "429_sempre":
+			return recusa(429, { "retry-after": "1" }, "limite de uso");
 		// A conexão cai depois da saída do pedido: o fornecedor pode tê-lo processado.
 		case "queda_de_conexao":
 			throw new TypeError("fetch failed");
+		// A resposta começou a chegar e o corpo quebra: nada de repetir o que já veio.
+		case "resposta_parcial": {
+			const bytes = new TextEncoder().encode(
+				`data: ${JSON.stringify({ type: "response.created", response: { id: "resp-1", status: "in_progress", output: [] } })}\n\n`,
+			);
+			const corpo = new ReadableStream({
+				start(controller) {
+					controller.enqueue(bytes);
+					controller.error(new Error("conexão interrompida no meio da resposta"));
+				},
+			});
+			return new Response(corpo, { status: 200, headers: { "content-type": "text/event-stream" } });
+		}
+		// Anthropic Messages: uma resposta completa, no formato que o adaptador lê.
+		case "anthropic": {
+			const corpo = `data: ${JSON.stringify({ type: "message_start", message: { id: "msg-1", type: "message", role: "assistant", model: "claude-teste", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 0 } } })}\n\n` +
+				`data: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}\n\n` +
+				`data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "resposta simulada" } })}\n\n` +
+				`data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n` +
+				`data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 2 } })}\n\n` +
+				`data: ${JSON.stringify({ type: "message_stop" })}\n\n`;
+			return new Response(corpo, { status: 200, headers: { "content-type": "text/event-stream" } });
+		}
 		default:
 			return texto("resposta simulada");
 	}

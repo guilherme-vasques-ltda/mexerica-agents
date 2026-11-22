@@ -646,8 +646,9 @@ impl Link {
         let reset_history = unprotected || restart_proprio || credential_changed;
         let same_ready = !reset_history
             && slot.as_mut().is_some_and(|e| e.alive() && e.provider() == provider && e.credential == generation);
-        // Uma identidade de cache por conversa, conta e fornecedor: trocar o fornecedor ou a credencial cria outra.
-        let cache = session.cache.locked().para(&provider, &generation);
+        // Uma identidade de cache por conversa, conta e fornecedor: trocar o fornecedor ou a credencial cria outra. Só
+        // é gravada no fim, quando o motor aceitou a troca: um `set_model` recusado não invalida o alvo anterior.
+        let cache = session.cache.locked().propor(&provider, &generation);
 
         if same_ready {
             let engine = slot.as_mut().expect("verificado acima");
@@ -695,6 +696,7 @@ impl Link {
             session.history.take_resync();
             *slot = Some(candidate);
         }
+        session.cache.locked().fixar(&provider, &generation, &cache);
         *session.provider.locked() = provider;
         *session.model.locked() = model;
         Ok(())

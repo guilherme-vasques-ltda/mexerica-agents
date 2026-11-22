@@ -44,6 +44,7 @@ Trocar de modelo no app fecha a conexão e o bot abre outra com `session/load`. 
 - 400 (inclusive estouro de contexto), 401, 403, 404, 413 e 422 nunca são repetidos, mesmo que o fornecedor peça no cabeçalho `x-should-retry`.
 - A repetição acontece na abertura da resposta HTTP: resposta que já começou a chegar, geração incerta e ferramenta já executada pelo Hub não são repetidas, e a conta (nem o plano) nunca é trocada por causa de uma recusa. No Google a repetição também vale, mas sem o `retry-after`: o SDK dele não expõe os cabeçalhos, então a espera é a do próprio motor.
 - A identidade de cache é um valor aleatório do Hub por conversa, conta e fornecedor — nunca o id da sessão que a ponte usa para controle, o id do bot ou texto da pessoa. O motor a manda como identidade de sessão do pedido (a chave de cache da OpenAI e os cabeçalhos de afinidade de quem os usa); sem ela, o campo não existe no pedido; trocar de conta ou de fornecedor cria outro valor.
+- O motor guarda a conversa: nenhum modelo usa a conversa no servidor do fornecedor (threads). Com a identidade de sessão, a Anthropic ligaria o beta de threads e passaria a guardar estado do lado dela, então isso fica desligado no modelo.
 - `set_system_prompt` substitui o prompt anterior: a transcrição passa a ter uma única mensagem de sistema, no início, em vez de somar o texto de duas.
 
 ## Limites conhecidos

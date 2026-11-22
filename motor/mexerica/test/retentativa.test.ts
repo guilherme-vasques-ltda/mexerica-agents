@@ -165,6 +165,32 @@ test("queda de conexão sem resposta não repete: o pedido pode ter sido process
 	}
 });
 
+test("a repetição é finita: três chamadas e o turno falha", async () => {
+	const { proc, log, fechar } = motor("429_sempre");
+	try {
+		await modelo(proc);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		const fim = await proc.waitFor(turnoTerminou, 40_000);
+		assert.match(JSON.stringify(fim), /error/, "o turno tinha de terminar em erro");
+		assert.equal(chamadas(log).length, MAX_TENTATIVAS, `esperava ${MAX_TENTATIVAS} chamadas e nenhuma quarta`);
+	} finally {
+		await fechar();
+	}
+});
+
+test("resposta que já começou a chegar não é repetida", async () => {
+	const { proc, log, fechar } = motor("resposta_parcial");
+	try {
+		await modelo(proc);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		const fim = await proc.waitFor(turnoTerminou, 30_000);
+		assert.match(JSON.stringify(fim), /error/, "o turno tinha de terminar em erro");
+		assert.equal(chamadas(log).length, 1, "resposta parcial não se repete");
+	} finally {
+		await fechar();
+	}
+});
+
 test("o orçamento de espera é do turno, não de cada chamada", async () => {
 	assert.equal(orcamentoDoTurno().remainingMs, TETO_DE_ESPERA_DO_TURNO_MS, "o turno começa com o teto inteiro");
 	const recusa = () => Object.assign(new Error("limite de uso"), { status: 429, headers: new Headers({ "retry-after": "0.03" }) });

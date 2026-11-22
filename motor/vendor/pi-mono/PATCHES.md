@@ -40,8 +40,9 @@ o que mudou e por quê.
    Prova: A8 no mesmo arquivo de teste.
 10. `packages/ai/src/types.ts` (`noRetryStatuses`, `retryWithoutStatus` e
     `retryBudget` em `ProviderRequestOptions`), `utils/provider-retry.ts`,
-    `api/simple-options.ts` e as três APIs que repetem pedido
-    (`openai-responses.ts`, `openai-completions.ts`, `anthropic-messages.ts`) —
+    `api/simple-options.ts` e as APIs que repetem pedido
+    (`openai-responses.ts`, `openai-completions.ts`, `anthropic-messages.ts`,
+    `google-shared.ts`) —
     o ajudante de repetição já sabia vetar status (`provider-retry.ts`), mas as
     opções do pedido não levavam essa lista adiante, e o laço repetia erro sem
     status (conexão caída, com o pedido possivelmente já processado) sem um

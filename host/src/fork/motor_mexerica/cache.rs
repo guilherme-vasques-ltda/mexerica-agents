@@ -11,16 +11,33 @@ pub(crate) struct IdentidadeDeCache {
 }
 
 impl IdentidadeDeCache {
-    /// O valor para este fornecedor e esta geração da credencial; fora um dos dois, cria outro.
-    pub(crate) fn para(&mut self, fornecedor: &str, geracao: &str) -> String {
-        if self.valor.is_empty() || self.fornecedor != fornecedor || self.geracao != geracao {
-            self.fornecedor.clear();
-            self.fornecedor.push_str(fornecedor);
-            self.geracao.clear();
-            self.geracao.push_str(geracao);
-            self.valor = uuid::Uuid::new_v4().simple().to_string();
+    /// O valor que o alvo já tem, ou um novo, sem gravar o alvo: quem grava é [`IdentidadeDeCache::fixar`], depois de
+    /// o motor aceitar a troca. Uma troca de provedor que falha não invalida o cache do provedor anterior.
+    pub(crate) fn propor(&self, fornecedor: &str, geracao: &str) -> String {
+        if !self.valor.is_empty() && self.fornecedor == fornecedor && self.geracao == geracao {
+            return self.valor.clone();
         }
-        self.valor.clone()
+        uuid::Uuid::new_v4().simple().to_string()
+    }
+
+    /// Grava o alvo com o valor aceito pelo motor.
+    pub(crate) fn fixar(&mut self, fornecedor: &str, geracao: &str, valor: &str) {
+        if self.fornecedor == fornecedor && self.geracao == geracao && self.valor == valor {
+            return;
+        }
+        self.fornecedor.clear();
+        self.fornecedor.push_str(fornecedor);
+        self.geracao.clear();
+        self.geracao.push_str(geracao);
+        self.valor.clear();
+        self.valor.push_str(valor);
+    }
+
+    /// `propor` e `fixar` de uma vez, para quando o processo já está preso ao alvo (o turno em curso).
+    pub(crate) fn para(&mut self, fornecedor: &str, geracao: &str) -> String {
+        let valor = self.propor(fornecedor, geracao);
+        self.fixar(fornecedor, geracao, &valor);
+        valor
     }
 }
 
@@ -36,7 +53,20 @@ mod tests {
         assert_ne!(cache.para("anthropic", "geracao-1"), primeiro, "outro fornecedor troca o valor");
         let terceiro = cache.para("openai", "geracao-2");
         assert_ne!(terceiro, primeiro, "outra conta troca o valor");
-        assert_eq!(cache.para("openai", "geracao-2"), terceiro, "voltar para o mesmo alvo mantém o valor daquele alvo");
+        assert_eq!(cache.para("openai", "geracao-2"), terceiro, "o alvo atual mantém o valor dele");
+        assert_ne!(cache.para("openai", "geracao-1"), primeiro, "voltar a um alvo antigo cria outro valor");
+    }
+
+    #[test]
+    fn propor_nao_grava_o_alvo_antes_do_aceite() {
+        let mut cache = IdentidadeDeCache::default();
+        let atual = cache.para("openai", "geracao-1");
+        // Uma troca proposta para outro provedor e não aceita não invalida o alvo atual.
+        let proposta = cache.propor("anthropic", "geracao-1");
+        assert_ne!(proposta, atual);
+        assert_eq!(cache.propor("openai", "geracao-1"), atual, "o alvo anterior continua com o valor dele");
+        cache.fixar("anthropic", "geracao-1", &proposta);
+        assert_eq!(cache.propor("anthropic", "geracao-1"), proposta, "o alvo aceito passa a valer");
     }
 
     #[test]
