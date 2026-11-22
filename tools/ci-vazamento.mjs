@@ -31,7 +31,7 @@ const binaryFile = (data) => data.includes(0);
 function placeholder(value, policy) {
   return /^0+(?:-0+)*$/.test(value) || /^<[^>]+>$/.test(value) || policy.placeholderValues.includes(normalize(value));
 }
-const bareClerkTld = /^(?:[a-z]{2}|app|biz|cloud|com|dev|edu|example|gov|info|int|invalid|local|mil|name|net|online|org|site|tech|test|xyz|xn--[a-z\d-]+)$/i;
+const bareClerkTld = /^(?:[a-z]{2}|app|biz|cloud|com|dev|edu|example|gov|info|int|invalid|local|mil|net|online|org|site|tech|test|xyz|xn--[a-z\d-]+)$/i;
 const genericVaultSegments = new Set(['vault', 'cofre', 'item', 'field', 'campo', 'section', 'seção'].map(normalize));
 function privateIP(value) {
   const version = isIP(value);
@@ -68,7 +68,7 @@ export function publicRules(line, policy, path = '', marker = true) {
   }
   for (const m of line.matchAll(/(?<![\p{ID_Continue}.$-])(https?:\/\/)?clerk\.((?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z](?:[a-z\d-]{0,61}[a-z\d])?)\.?(?![\w.-]|\(|\?\.)/giu)) {
     const domain = m[2];
-    if (!m[1] && !bareClerkTld.test(domain.split('.').at(-1))) continue;
+    if (!m[1] && !domain.includes('-') && !bareClerkTld.test(domain.split('.').at(-1))) continue;
     const reserved = /\.(?:invalid|test)$|(?:^|\.)example\.(?:com|org|net)$/i.test(domain);
     if (!(reserved && placeholder(domain.split('.')[0], policy))) found.add('id-servico');
   }

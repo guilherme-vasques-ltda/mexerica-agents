@@ -237,6 +237,7 @@ Ele fica fora do `ci-ok`, como o workflow macOS: aparece só nas Actions.
   percorrer os outros pais). O Gitleaks também verifica o histórico. Em repositório público,
   o resumo mostra só contagens por regra. Histórico incompleto, erro de leitura ou limite de
   varredura excedido reprovam sem publicar conteúdo.
+- Domínios Clerk sem protocolo, sem hífen e com sufixo fora da lista podem passar por se confundirem com acessos do SDK.
 
 ## Repositório público
 

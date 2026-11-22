@@ -47,8 +47,9 @@ test('Clerk: SDK móvel não é domínio de instância', () => {
     'let calls = ["clerk.' + 'handle(", "verifyMfaCode("]',
     'meuClerk.auth.getToken()',
     'clerk.' + 'accounts.dev(',
+    'clerk.' + 'organization.name',
   ]) assert.ok(!ids(line).includes('id-servico'), line);
-  for (const domain of ['clerk.' + 'instancia-ficticia.invalid', 'https://clerk.' + 'instancia-ficticia.accounts.dev', 'clerk.' + 'instancia-ficticia.com.']) {
+  for (const domain of ['clerk.' + 'instancia-ficticia.invalid', 'https://clerk.' + 'instancia-ficticia.accounts.dev', 'clerk.' + 'instancia-ficticia.com.', 'clerk.' + 'empresa-ficticia.solutions']) {
     assert.ok(ids(domain).includes('id-servico'));
   }
   const suffix = 'clerk.' + 'accounts.dev';
