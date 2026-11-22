@@ -2346,7 +2346,8 @@ private let cartaoAprovavel = #"{"type":"entry","entry":{"id":"p1","seq":5,"botI
         engine.received(Data(#"{"type":"\#(confirmacao.tipo)","item":{"id":"\#(confirmacao.id)"}}"#.utf8))
         op.falaDetectada()
         #expect(op.call("send_to_bot", arguments: ["text": texto]).contains("sent"))
-        await quando { store.chat("b1").contains { $0.data.text == texto } }
+        // Wait for the entry the computer confirmed, not the one shown before the send leaves.
+        await quando { store.chat("b1").contains { $0.id == "e\(indice + 1)" } }
     }
     #expect(await fake.sent == ["oi 0", "oi 1", "oi 2"])
 
@@ -2360,7 +2361,7 @@ private let cartaoAprovavel = #"{"type":"entry","entry":{"id":"p1","seq":5,"botI
     engine.received(Data(#"{"type":"conversation.item.added","item":{"id":"mx_other"}}"#.utf8))
     op.falaDetectada()
     #expect(op.call("send_to_bot", arguments: ["text": "fora"]).contains("sent"))
-    await quando { store.chat("b1").contains { $0.data.text == "fora" } }
+    await quando { store.chat("b1").contains { $0.id == "e4" } }
     #expect(await fake.sent == ["oi 0", "oi 1", "oi 2", "fora"])
 }
 
