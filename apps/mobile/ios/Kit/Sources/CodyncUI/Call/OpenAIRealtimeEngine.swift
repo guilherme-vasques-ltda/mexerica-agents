@@ -179,9 +179,11 @@ final class OpenAIRealtimeEngine: VoiceEngine {
             level = muted ? 0 : 0.7
         case "input_audio_buffer.speech_stopped": level = 0
         // GA confirms a created item with `conversation.item.added` and finalizes it with
-        // `conversation.item.done`; the beta name is still accepted.
+        // `conversation.item.done`; the beta name is still accepted. Only a function-call output is a
+        // delivery of the computer's data, so no other item carrying the same id confirms one.
         case "conversation.item.added", "conversation.item.done", "conversation.item.created":
-            if let item = (msg["item"] as? [String: Any])?["id"] as? String { op.confirmado(item) }
+            if let item = msg["item"] as? [String: Any], item["type"] as? String == "function_call_output",
+               let id = item["id"] as? String { op.confirmado(id) }
         case "output_audio_buffer.started": phase = .speaking
         case "output_audio_buffer.stopped", "output_audio_buffer.cleared": if phase == .speaking { phase = .listening }
         case "response.created": responding = true

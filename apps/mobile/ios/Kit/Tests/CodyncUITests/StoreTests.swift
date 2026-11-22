@@ -2343,7 +2343,7 @@ private let cartaoAprovavel = #"{"type":"entry","entry":{"id":"p1","seq":5,"botI
         op.falaDetectada()
         #expect(op.call("send_to_bot", arguments: ["text": texto]).contains("error"))
         // The confirmation arrives in the shape the API sends it, and the next spoken turn acts again.
-        engine.received(Data(#"{"type":"\#(confirmacao.tipo)","item":{"id":"\#(confirmacao.id)"}}"#.utf8))
+        engine.received(Data(#"{"type":"\#(confirmacao.tipo)","item":{"id":"\#(confirmacao.id)","type":"function_call_output"}}"#.utf8))
         op.falaDetectada()
         #expect(op.call("send_to_bot", arguments: ["text": texto]).contains("sent"))
         // Wait for the entry the computer confirmed, not the one shown before the send leaves.
@@ -2351,14 +2351,15 @@ private let cartaoAprovavel = #"{"type":"entry","entry":{"id":"p1","seq":5,"botI
     }
     #expect(await fake.sent == ["oi 0", "oi 1", "oi 2"])
 
-    // Another event, and a confirmation without the item id, confirm nothing: the delivery stays pending.
+    // Another event, another item carrying our id, and a confirmation without the id confirm nothing.
     _ = op.call("recent_messages", arguments: [:], confirmacao: "mx_other")
-    engine.received(Data(#"{"type":"conversation.item.input_audio_transcription.completed","item":{"id":"mx_other"}}"#.utf8))
+    engine.received(Data(#"{"type":"conversation.item.input_audio_transcription.completed","item":{"id":"mx_other","type":"function_call_output"}}"#.utf8))
+    engine.received(Data(#"{"type":"conversation.item.added","item":{"id":"mx_other","type":"message"}}"#.utf8))
     engine.received(Data(#"{"type":"conversation.item.added"}"#.utf8))
     op.falaDetectada()
     #expect(op.call("send_to_bot", arguments: ["text": "fora"]).contains("error"))
-    // With the id, the GA event confirms it and speech acts again.
-    engine.received(Data(#"{"type":"conversation.item.added","item":{"id":"mx_other"}}"#.utf8))
+    // Our own function-call output with the id confirms it and speech acts again.
+    engine.received(Data(#"{"type":"conversation.item.added","item":{"id":"mx_other","type":"function_call_output"}}"#.utf8))
     op.falaDetectada()
     #expect(op.call("send_to_bot", arguments: ["text": "fora"]).contains("sent"))
     await quando { store.chat("b1").contains { $0.id == "e4" } }
