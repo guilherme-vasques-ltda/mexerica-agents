@@ -66,6 +66,24 @@ pub enum Action {
     },
 }
 
+pub(crate) fn state_dir(action: &Action) -> Result<PathBuf> {
+    let custom = match action {
+        Action::Enroll { home, .. }
+        | Action::Authorize { home, .. }
+        | Action::Unauthorize { home, .. }
+        | Action::Status { home }
+        | Action::Run { home }
+        | Action::Revoke { home, .. } => home.clone(),
+    };
+    match custom {
+        Some(p) => Ok(p),
+        None => Ok(dirs::data_dir()
+            .ok_or_else(|| anyhow!("sem pasta de dados; use --home"))?
+            .join("Mexerica")
+            .join("executor")),
+    }
+}
+
 fn home(path: Option<PathBuf>) -> Result<Home> {
     let dir = match path {
         Some(p) => p,
@@ -221,7 +239,7 @@ fn authorize(home: &Home, location: &str) -> Result<()> {
         (home.link().ok(), home.auth_epoch()?)
     };
     println!(
-        "Você está liberando a Mexerica a CRIAR planilhas NOVAS em:\n  {}\nElas nunca sobrescrevem, apagam, movem nem leem arquivos seus. Dentro dessa pasta, pedidos explícitos do Berga não perguntam de novo.",
+        "Você está liberando a Mexerica a CRIAR planilhas NOVAS em:\n  {}\nElas nunca sobrescrevem, apagam, movem nem leem arquivos seus. Dentro dessa pasta, pedidos explícitos do assistente não perguntam de novo.",
         root.display()
     );
     // A confirmação é um ato do dono: entrada redirecionada por outro programa não vale (build de depuração, usado pelos
@@ -755,7 +773,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_home() -> (PathBuf, Home) {
-        let dir = std::env::temp_dir().join(format!("mexerica-helper-{}", uuid::Uuid::new_v4()));
+        let base = std::env::temp_dir().canonicalize().unwrap_or_else(|_| std::env::temp_dir());
+        let dir = base.join(format!("mexerica-helper-{}", uuid::Uuid::new_v4()));
         let home = Home::open(&dir).unwrap();
         (dir, home)
     }

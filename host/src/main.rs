@@ -613,14 +613,23 @@ async fn main() -> Result<()> {
     let cli = if environment::Environment::is_open() { open_hub::cli() } else { Cli::parse() };
     // MCP de sessão usa só credencial da ponte. A descoberta com SETUP_ENV
     // ainda lê token local e conserva todas as guardas de pasta.
-    if !environment::Environment::is_open()
-        && (!matches!(cli.cmd.as_ref(), Some(Sub::Mcp { .. } | Sub::Executor { .. }))
-            || std::env::var_os(fork::ponte_credencial::SETUP_ENV).is_some())
-    {
-        fork::data_home::validate_environment()?;
-        environment::ensure_own_data_dir(&service::home(), &service::data_dir())?;
-        #[cfg(unix)]
-        fork::private_fs::inspect(&service::data_dir())?;
+    // O executor usa sua própria pasta de estado (--home ou dados do usuário/Mexerica/executor),
+    // separada da pasta do Hub, mas aplica as mesmas guardas de ambiente, propriedade e permissões.
+    if !environment::Environment::is_open() {
+        if let Some(Sub::Executor { action }) = cli.cmd.as_ref() {
+            fork::data_home::validate_environment()?;
+            let executor_dir = computers::helper::state_dir(action)?;
+            environment::ensure_own_data_dir(&service::home(), &executor_dir)?;
+            #[cfg(unix)]
+            fork::private_fs::inspect(&executor_dir)?;
+        } else if !matches!(cli.cmd.as_ref(), Some(Sub::Mcp { .. }))
+            || std::env::var_os(fork::ponte_credencial::SETUP_ENV).is_some()
+        {
+            fork::data_home::validate_environment()?;
+            environment::ensure_own_data_dir(&service::home(), &service::data_dir())?;
+            #[cfg(unix)]
+            fork::private_fs::inspect(&service::data_dir())?;
+        }
     }
     match cli.cmd.unwrap_or(Sub::Serve { port: service::DEFAULT_PORT, bind: None, only_this_mac: false, web_dir: None })
     {

@@ -84,11 +84,12 @@ impl Hub {
 }
 
 async fn start_hub() -> Hub {
-    let home = std::env::temp_dir().join(format!("mexerica-computers-e2e-{}", uuid::Uuid::new_v4()));
+    let temp = std::env::temp_dir().canonicalize().unwrap_or_else(|_| std::env::temp_dir());
+    let home = temp.join(format!("mexerica-computers-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).unwrap();
     let (child, base) = common::serve(&home).await;
     let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
-    let work = std::env::temp_dir().join(format!("mexerica-computers-work-{}", uuid::Uuid::new_v4()));
+    let work = temp.join(format!("mexerica-computers-work-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&work).unwrap();
     let mut hub = Hub { child, base, token, home: home.clone(), work: work.clone(), bot: String::new() };
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agent_hold.py");
@@ -128,7 +129,10 @@ impl Drop for Pc {
 }
 impl Pc {
     fn new() -> Self {
-        let base = std::env::temp_dir().join(format!("mexerica-pc-{}", uuid::Uuid::new_v4()));
+        let base = std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join(format!("mexerica-pc-{}", uuid::Uuid::new_v4()));
         let (state, user_home, desktop) = (base.join("state"), base.join("home"), base.join("home/Desktop"));
         std::fs::create_dir_all(&desktop).unwrap();
         let user_home = user_home.canonicalize().unwrap();

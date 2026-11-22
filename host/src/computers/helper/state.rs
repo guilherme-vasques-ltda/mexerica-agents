@@ -40,14 +40,40 @@ pub struct Home(pub PathBuf);
 fn is_link(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
+#[cfg(not(unix))]
 fn private_dir(path: &Path) -> Result<()> {
     fs::create_dir_all(path).with_context(|| format!("criar {}", path.display()))?;
+    Ok(())
+}
+fn private_open(path: &Path, append: bool) -> Result<fs::File> {
+    ensure!(!is_link(path), "{} não pode ser um link", path.display());
+    let mut options = fs::OpenOptions::new();
+    options.create(true);
+    if append {
+        options.append(true);
+    } else {
+        options.truncate(false).write(true);
+    }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    Ok(())
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let meta = file.metadata()?;
+        ensure!(
+            meta.is_file()
+                && meta.uid() == crate::fork::private_fs::uid()
+                && meta.nlink() == 1
+                && meta.mode().trailing_zeros() >= 6,
+            "arquivo de estado inválido: {}",
+            path.display()
+        );
+    }
+    Ok(file)
 }
 fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()));
@@ -72,6 +98,12 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 impl Home {
     pub fn open(path: &Path) -> Result<Self> {
+        if let Some(user_home) = dirs::home_dir() {
+            crate::environment::ensure_own_data_dir(&user_home, path)?;
+        }
+        ensure!(!is_link(path), "a pasta de estado não pode ser um link");
+        #[cfg(unix)]
+        crate::fork::private_fs::inspect(path)?;
         let marker = path.join(".mexerica-executor");
         let foreign = !marker.exists() && fs::read_dir(path).is_ok_and(|mut d| d.next().is_some());
         ensure!(
@@ -79,7 +111,9 @@ impl Home {
             "a pasta de estado {} já tem outros arquivos; use uma pasta nova ou vazia (--home)",
             path.display()
         );
-        ensure!(!is_link(path), "a pasta de estado não pode ser um link");
+        #[cfg(unix)]
+        crate::fork::private_fs::Directory::open(path, true)?;
+        #[cfg(not(unix))]
         private_dir(path)?;
         let home = Self(path.to_path_buf());
         let _lock = home.lock()?;
@@ -96,6 +130,9 @@ impl Home {
         for sub in ["outbox", "running"] {
             let dir = path.join(sub);
             ensure!(!is_link(&dir), "{} não pode ser um link", dir.display());
+            #[cfg(unix)]
+            crate::fork::private_fs::Directory::open(&dir, true)?;
+            #[cfg(not(unix))]
             private_dir(&dir)?;
         }
         Ok(home)
@@ -245,7 +282,7 @@ impl Home {
         let path = self.file("journal.jsonl");
         // Uma queda no meio de uma linha não pode colar o registro novo no pedaço velho.
         let torn = fs::read(&path).is_ok_and(|b| b.last().is_some_and(|c| *c != b'\n'));
-        let mut f = fs::OpenOptions::new().create(true).append(true).open(path)?;
+        let mut f = private_open(&path, true)?;
         if torn {
             writeln!(f)?;
         }
@@ -288,20 +325,20 @@ impl Home {
     }
     /// Trinco exclusivo entre `unauthorize` e a criação do arquivo; solta ao sair de escopo.
     pub fn lock(&self) -> Result<fs::File> {
-        let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.file("auth.lock"))?;
+        let file = private_open(&self.file("auth.lock"), false)?;
         file.lock().context("trinco da liberação")?;
         Ok(file)
     }
     /// Um só cadastro por pasta de estado, da escolha da chave até o fim do pareamento: dois `enroll` não podem
     /// trocar a chave um do outro enquanto um deles espera a rede.
     pub fn enroll_lock(&self) -> Result<fs::File> {
-        let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.file("enroll.lock"))?;
+        let file = private_open(&self.file("enroll.lock"), false)?;
         file.try_lock().map_err(|_| anyhow!("já existe um cadastro em andamento nesta pasta de estado"))?;
         Ok(file)
     }
     /// Um só `run` por pasta de estado: dois processos não podem reconciliar nem gravar a mesma tentativa.
     pub fn run_lock(&self) -> Result<fs::File> {
-        let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.file("run.lock"))?;
+        let file = private_open(&self.file("run.lock"), false)?;
         file.try_lock().map_err(|_| anyhow!("já existe um executor rodando com esta pasta de estado"))?;
         Ok(file)
     }
@@ -350,9 +387,16 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    fn test_dir() -> PathBuf {
+        std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join(format!("mexerica-state-{}", uuid::Uuid::new_v4()))
+    }
+
     #[test]
     fn a_new_binding_never_inherits_pending_jobs_or_the_journal_of_the_previous_one() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         let home = Home::open(&dir).unwrap();
         home.mark_running("job1", "lease", "fs.write", &json!({}), false).unwrap();
         home.save_outbox("job2", &json!({"outcome":"done"})).unwrap();
@@ -389,7 +433,7 @@ mod tests {
 
     #[test]
     fn a_torn_last_journal_line_is_skipped_and_never_glued_to_the_next_record() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         let home = Home::open(&dir).unwrap();
         home.audit("job1", "intent", &json!({})).unwrap();
         let journal = dir.join("journal.jsonl");
@@ -405,7 +449,7 @@ mod tests {
 
     #[test]
     fn the_binding_identity_is_part_of_the_link_and_both_epochs_survive_cleanup() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         let home = Home::open(&dir).unwrap();
         let first = home.auth_epoch().unwrap();
         let binding = home.binding_epoch().unwrap();
@@ -438,7 +482,7 @@ mod tests {
 
     #[test]
     fn a_state_folder_that_already_holds_other_files_is_refused() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("trabalho.txt"), b"do dono").unwrap();
         assert!(Home::open(&dir).is_err());
@@ -448,7 +492,7 @@ mod tests {
 
     #[test]
     fn a_second_enroll_is_refused_while_the_first_one_holds_the_state_folder() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         let home = Home::open(&dir).unwrap();
         let first = home.enroll_lock().unwrap();
         let refused = home.enroll_lock().unwrap_err();
@@ -460,7 +504,7 @@ mod tests {
 
     #[test]
     fn reopening_the_state_folder_never_replaces_its_epochs() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         let home = Home::open(&dir).unwrap();
         let binding = home.binding_epoch().unwrap();
         let auth = home.auth_epoch().unwrap();
@@ -483,7 +527,7 @@ mod tests {
 
     #[test]
     fn the_created_record_keeps_the_identity_of_the_subfolder_that_received_the_file() {
-        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let dir = test_dir();
         let home = Home::open(&dir).unwrap();
         home.mark_running("job1", "lease", "fs.write", &json!({}), false).unwrap();
         home.mark_created("job1", 11, 22, Some((33, 44))).unwrap();
@@ -491,5 +535,25 @@ mod tests {
         assert_eq!((record["created"].clone(), record["folderId"].clone()), (json!([11, 22]), json!([33, 44])));
         home.mark_created("job2", 11, 22, None).unwrap_err();
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn home_open_refuses_symlinks_and_group_writable_state_directories() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let base = test_dir();
+        let target = base.join("real");
+        let link = base.join("alias");
+        fs::create_dir_all(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(Home::open(&link).is_err());
+        assert!(Home::open(&link.join("child")).is_err());
+
+        let loose = base.join("loose");
+        fs::create_dir_all(&loose).unwrap();
+        fs::set_permissions(&loose, fs::Permissions::from_mode(0o775)).unwrap();
+        assert!(Home::open(&loose).is_err());
+        assert!(Home::open(&loose.join("child")).is_err());
+        fs::remove_dir_all(base).unwrap();
     }
 }
