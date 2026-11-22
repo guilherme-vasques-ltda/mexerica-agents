@@ -18,6 +18,7 @@ use windows_sys::Win32::Storage::FileSystem::*;
 use windows_sys::Win32::System::JobObjects::*;
 use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapFree};
 use windows_sys::Win32::System::Pipes::{CreatePipe, PeekNamedPipe};
+use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
 use windows_sys::Win32::System::SystemServices::{SE_GROUP_ENABLED, SECURITY_MANDATORY_LOW_RID};
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::WindowsProgramming::PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
@@ -528,9 +529,20 @@ impl Lab {
         start.lpAttributeList = attrs.0;
         let (_, tests) = module_path!().split_once("::").ok_or(REFUSED)?;
         let mut command = wide(format!("{WORKER} --ignored --exact {tests}::catalog_child --quiet"));
-        let environment = [0u16; 2];
+        let mut system_root = vec![0u16; 32_768];
+        let capacity = u32::try_from(system_root.len()).map_err(|_| REFUSED)?;
+        // SAFETY: system_root has room for capacity UTF-16 units.
+        let length = unsafe { GetSystemWindowsDirectoryW(system_root.as_mut_ptr(), capacity) } as usize;
+        require(length > 0 && length < system_root.len() && system_root[length] == 0)?;
+        let system_root = &system_root[..length];
+        require(!system_root.contains(&0))?;
+        let root_path = PathBuf::from(OsString::from_wide(system_root));
+        require(root_path.is_absolute() && root_path.is_dir())?;
+        let mut environment: Vec<u16> = "SystemRoot=".encode_utf16().collect();
+        environment.extend_from_slice(system_root);
+        environment.extend([0, 0]);
         let mut process = PROCESS_INFORMATION::default();
-        // SAFETY: terminated paths/command, a writable command line, an explicit empty UTF-16 environment,
+        // SAFETY: terminated paths/command, a writable command line, an explicit UTF-16 environment,
         // and live attributes/handles. The process enters the Job atomically and starts suspended.
         let image_path = wide(&image);
         let current_dir = wide(root.path());
