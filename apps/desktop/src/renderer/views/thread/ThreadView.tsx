@@ -303,7 +303,11 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
 
   const handlePickStarterTask = useCallback((promptText: string) => {
     setStarterDraft({ scope: tourKey, prompt: promptText })
-    setSpotlightKey(tourKey)
+    setSpotlightKey(null)
+  }, [tourKey])
+  const handleStarterDraftHandled = useCallback((applied: boolean) => {
+    setStarterDraft(null)
+    if (applied) setSpotlightKey(tourKey)
   }, [tourKey])
 
   const dismissSpotlight = () => {
@@ -388,7 +392,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
                 botId={botId}
                 sessionId={openSession}
                 starterDraft={showFirstChat && starterDraft?.scope === tourKey ? starterDraft : null}
-                onStarterDraftHandled={setStarterDraft}
+                onStarterDraftHandled={handleStarterDraftHandled}
                 reply={replyTo}
                 cancelReply={cancelReply}
                 onCall={openSession === null && voiceAvailable && !calling && !vozBloqueada && bot ? () => setCalling(true) : null}

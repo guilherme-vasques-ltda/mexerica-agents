@@ -156,7 +156,7 @@ export function useOnboardingSession(
   const showStep3 = isPersonalContext && (hostState.kind === 'disabled'
     ? remoteEntry
     : explicitStep3 || (!marker?.deferred && step3Held) || localInstallPending || autoStep3Pending)
-  const canConnectInWizard = !!localClient && visibleStatus?.capabilities.localKeysAndOAuth === true
+  const canConnectInWizard = hostState.kind !== 'disabled' && !!localClient && visibleStatus?.capabilities.localKeysAndOAuth === true
     && visibleStatus.spaceContext?.personalSpaceId === spaceId
 
   const closeStep3 = useCallback(

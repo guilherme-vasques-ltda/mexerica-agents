@@ -57,8 +57,13 @@ const ABRIR = `
   window.__store = store; window.__modelo = App.modeloDe(store);
   function Editor() {
     const [starterDraft, setStarterDraft] = App.useState(null);
+    const [sessionId, setSessionId] = App.useState(null);
     window.__sugerir = prompt => setStarterDraft({ scope: 'principal', prompt });
-    return App.createElement(App.Composer, { botId: 'b', starterDraft, onStarterDraftHandled: setStarterDraft });
+    window.__sessao = setSessionId;
+    return App.createElement(App.Composer, { botId: 'b', sessionId, starterDraft, onStarterDraftHandled: applied => {
+      window.__sugestaoAplicada = applied;
+      setStarterDraft(null);
+    } });
   }
   window.__montar = () => { window.__raiz = App.createRoot(document.getElementById('root')); window.__raiz.render(App.createElement(App.StoreContext.Provider, { value: store }, App.createElement(Editor))); };
   window.__montar();
@@ -115,22 +120,27 @@ test('sugestão intacta é substituída no Composer real; edição, rotina e blo
   const c = await cena()
   const sugerir = async (texto: string) => {
     await c.page.evaluate((t) => (window as any).__sugerir(t), texto)
-    return c.estado()
+    const estado = await c.estado()
+    return [estado.rascunho, await c.page.evaluate(() => (window as any).__sugestaoAplicada)]
   }
   try {
     await c.page.locator('textarea').fill('')
-    assert.equal((await sugerir('Primeira tarefa')).rascunho, 'Primeira tarefa')
-    assert.equal((await sugerir('Segunda tarefa')).rascunho, 'Segunda tarefa')
+    assert.deepEqual(await sugerir('Primeira tarefa'), ['Primeira tarefa', true])
+    assert.deepEqual(await sugerir('Segunda tarefa'), ['Segunda tarefa', true])
     await c.compactando()
-    assert.equal((await sugerir('Terceira tarefa')).rascunho, 'Segunda tarefa')
+    assert.deepEqual(await sugerir('Terceira tarefa'), ['Segunda tarefa', false])
     await c.terminou()
     assert.equal((await c.estado()).rascunho, 'Segunda tarefa')
     await c.page.locator('textarea').fill('Minha edição')
-    assert.equal((await sugerir('Outra tarefa')).rascunho, 'Minha edição')
+    assert.deepEqual(await sugerir('Outra tarefa'), ['Minha edição', false])
     await c.page.evaluate(() => (window as any).__store.setRoutineDraft('b', 'Texto da rotina'))
     const final = await c.estado()
     assert.equal(final.rascunho, 'Minha edição\nTexto da rotina')
     assert.deepEqual(final.enviados, [])
+    await c.page.evaluate(() => (window as any).__sessao('extra'))
+    await c.assentar()
+    assert.deepEqual(await sugerir('Tarefa fora da conversa principal'), [final.rascunho, false])
+    assert.equal(await c.page.locator('textarea').inputValue(), '')
   } finally { await fecha(c) }
 })
 

@@ -55,7 +55,7 @@ type Trailing = 'interrupt' | 'stop' | 'send'
  */
 interface StarterDraftProps {
   starterDraft?: { scope: string; prompt: string } | null
-  onStarterDraftHandled?: (draft: null) => void
+  onStarterDraftHandled?: (applied: boolean) => void
 }
 
 export function Composer({ botId, sessionId = null, reply = null, cancelReply, onCall, onInterrupt, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
@@ -171,11 +171,14 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
   const lastStarter = useRef<{ scope: string; origin: OriginDraft } | null>(null)
   useEffect(() => {
     if (!starterDraft) return
-    onStarterDraftHandled?.(null)
-    if (sessionId !== null || congelado.current || editando || input.composing) return
+    if (sessionId !== null || congelado.current || editando || input.composing) {
+      onStarterDraftHandled?.(false)
+      return
+    }
     const last = lastStarter.current
     const origin = applyStarterDraft(drafts, botId, starterDraft.prompt, last?.scope === starterDraft.scope ? last.origin : undefined)
     lastStarter.current = origin ? { scope: starterDraft.scope, origin } : null
+    onStarterDraftHandled?.(!!origin)
     if (origin) field.current?.focus({ preventScroll: true })
   }, [starterDraft, onStarterDraftHandled, sessionId, botId, drafts, editando, field, input])
 

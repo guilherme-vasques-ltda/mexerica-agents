@@ -30,7 +30,8 @@ test('sessão mantém o pulo e o adiamento, protege a entrada remota e encaminha
         function App() {
           const [mount, update] = useState(0);
           const [remote, setRemote] = useState(null);
-          const session = useOnboardingSession(app, { kind: remote ? 'disabled' : 'notInstalled' }, !remote, null,
+          const [disabled, setDisabled] = useState(false);
+          const session = useOnboardingSession(app, { kind: remote || disabled ? 'disabled' : 'notInstalled' }, !remote, null,
             remote ? noConfiguredRemote(remote.ssh, remote.cloud) : false);
           window.remountTour = () => flushSync(() => update(x => x + 1));
           window.changeHub = (hostId) => { local.hello = { hostId }; window.remountTour(); };
@@ -45,6 +46,7 @@ test('sessão mantém o pulo e o adiamento, protege a entrada remota e encaminha
             flushSync(() => { setRemote(null); update(x => x + 1); });
           };
           window.defer = () => flushSync(session.closeStep3);
+          window.disableWithLocal = () => { settingsScreen.close(false); flushSync(() => setDisabled(true)); };
           return createElement('div', { 'data-show': String(session.showStep3), 'data-where': session.whereChoice, 'data-ready': String(session.controller.hasReadyAi) }, createElement(Tour, { key: mount, controller: session.controller }));
         }
         const root = createRoot(document.getElementById('root'));
@@ -138,6 +140,10 @@ test('sessão mantém o pulo e o adiamento, protege a entrada remota e encaminha
     await page.waitForSelector('[data-ready="true"]')
     assert.equal(await page.evaluate('connectAi()'), null)
     assert.equal(await page.locator('[data-show]').getAttribute('data-show'), 'true')
+    await page.evaluate('disableWithLocal()')
+    assert.equal(await page.locator('[data-ready]').getAttribute('data-ready'), 'true')
+    assert.equal(await page.evaluate('connectAi()'), 'ai-accounts')
+    assert.equal(await page.locator('[data-show]').getAttribute('data-show'), 'false')
   } finally {
     await browser.close()
   }

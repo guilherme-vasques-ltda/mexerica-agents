@@ -25,4 +25,6 @@ test('sugestão troca só o próprio rascunho intacto e não apaga texto nem ane
   assert.equal(applyStarterDraft(drafts, 'outro', 'Terceira tarefa', second), undefined)
   assert.equal(drafts.get('outro'), 'Meu texto')
   drafts.retire()
+  assert.equal(applyStarterDraft(drafts, 'outro', 'Outra tarefa', drafts.origin('outro')), undefined)
+  assert.equal(drafts.get('outro'), 'Meu texto')
 })
