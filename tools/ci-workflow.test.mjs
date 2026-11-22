@@ -40,7 +40,10 @@ test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de
   assert.match(publicar, /pull-requests: write/);
   assert.doesNotMatch(publicar, /secrets\.|OCR_LLM_/);
   assert.match(analizar, /uses: actions\/upload-artifact@[a-f0-9]{40}[\s\S]*?path: \$\{\{ runner.temp \}\}\/mexerica-ocr\/review\.json\n          if-no-files-found: error\n          retention-days: 1/);
-  assert.match(publicar, /uses: actions\/download-artifact@[a-f0-9]{40}[\s\S]*?name: ocr-projection-\$\{\{ github.run_attempt \}\}/);
+  assert.doesNotMatch(analizar, /actions: read/);
+  assert.match(publicar, /permissions:\n      actions: read\n      contents: read\n      pull-requests: write\n/);
+  assert.match(publicar, /gh run download "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY" \\\n\s+--name "ocr-projection-\$GITHUB_RUN_ATTEMPT" --dir "\$destination"/);
+  assert.doesNotMatch(publicar, /uses: actions\/download-artifact@/);
   assert.doesNotMatch(publicar, /github-token:|run-id:|repository:|REVIEW:/);
   assert.match(analizar, /--ro-bind "\$work\/repo" \/review --ro-bind "\$work\/ocr" \/ocr --chdir \/review/);
   assert.match(analizar, /OCR_MAX_TOKENS_BUDGET > 2000000/);
