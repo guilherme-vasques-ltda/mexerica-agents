@@ -518,7 +518,8 @@ class VoiceEnginesTest {
             assertEquals(true, answered("the second answer")["sent"]!!.jsonPrimitive.boolean)
             assertEquals(listOf("Ship it", "again"), desk.sent)
 
-            engine.end()
+            // The server's side has to close too, or `MockWebServer.use` waits for the socket forever.
+            server!!.close(1000, "done")
             withTimeout(5_000) { engine.awaitEnd() }
             assertEquals(1, mic.stops)
             scope.cancel(); dispatcher.close()
