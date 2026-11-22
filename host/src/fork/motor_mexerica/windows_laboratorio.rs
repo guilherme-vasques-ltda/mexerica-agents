@@ -28,6 +28,8 @@ const PRIVATE: &str = "somente-hub.txt";
 const BROAD_PACKAGES: &str = "pacotes-amplos.txt";
 const REQUEST: &[u8] = b"catalogo-sintetico-v1\n";
 const RESPONSE: &[u8] = b"catalogo-sintetico-v1:modelo-ficticio\n";
+const CHILD_ACL: i32 = 2;
+const CHILD_IPC: i32 = 3;
 const MEMORY: usize = 256 * 1024 * 1024;
 const LIMITS: u32 = JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_JOB_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 const UI: u32 = JOB_OBJECT_UILIMIT_HANDLES
@@ -419,13 +421,44 @@ fn verify_image(process: &OwnedHandle, locked: &File, expected: [u8; 32]) -> Res
     identity_checked(locked, &actual, expected)
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+enum Stage {
+    #[default]
+    Preparo,
+    Perfil,
+    Job,
+    Atributos,
+    AtributoLpac,
+    CriacaoSuspensa,
+    TokenLpac,
+    Imagem,
+    Loopback,
+    Handles,
+    RecusaEsperada,
+    Retomada,
+    Ipc,
+    Filho,
+    Termino,
+}
+
 #[derive(Default)]
 struct Lab {
     unconfirmed: bool,
+    stage: Stage,
+    child_stage: Option<i32>,
 }
 
 impl Lab {
+    fn report_refusal(&self) {
+        eprintln!("LAB_STAGE={:?}", self.stage);
+        if let Some(stage) = self.child_stage {
+            eprintln!("CHILD_STAGE={stage}");
+        }
+    }
+
     fn catalog(&mut self, before_resume: impl FnOnce() -> Result<()>) -> Result<&'static [u8]> {
+        self.stage = Stage::Preparo;
+        self.child_stage = None;
         require(!self.unconfirmed)?;
         // SAFETY: GetCurrentProcess returns the current process pseudohandle.
         let parent = token(unsafe { GetCurrentProcess() })?;
@@ -434,8 +467,11 @@ impl Lab {
         // SAFETY: owner is a live aligned buffer filled with TOKEN_USER.
         let owner_sid = unsafe { (*owner.as_ptr().cast::<TOKEN_USER>()).User.Sid };
         let owner_text = sid_text(owner_sid)?;
+        self.stage = Stage::Perfil;
         let profile = Profile::new()?;
+        self.stage = Stage::Loopback;
         profile.no_loopback()?;
+        self.stage = Stage::Preparo;
         let package = sid_text(profile.sid)?;
         let root = tempfile::tempdir().map_err(|_| REFUSED)?;
         require(
@@ -464,18 +500,22 @@ impl Lab {
         let (quiet, child_out) = pipe(&sd, false)?;
         let (output, child_reply) = pipe(&sd, false)?;
         let (marker, not_allowlisted) = pipe(&sd, false)?;
+        self.stage = Stage::Job;
         let job = job()?;
         let jobs = [job.as_raw_handle()];
         let inherited = [child_in.as_raw_handle(), child_out.as_raw_handle(), child_reply.as_raw_handle()];
         let capabilities = SECURITY_CAPABILITIES { AppContainerSid: profile.sid, ..Default::default() };
         let no_children = 1u32;
         let package_policy = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
+        self.stage = Stage::Atributos;
         let mut attrs = Attributes::new()?;
         attrs.add(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
         attrs.add(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
         attrs.add(PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, &capabilities)?;
         attrs.add(PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, &no_children)?;
+        self.stage = Stage::AtributoLpac;
         attrs.add(PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY, &package_policy)?;
+        self.stage = Stage::CriacaoSuspensa;
         let mut start = STARTUPINFOEXW::default();
         start.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>()).map_err(|_| REFUSED)?;
         start.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -510,25 +550,41 @@ impl Lab {
         let result = (|| {
             let (process, thread) =
                 (process_handle.as_ref().map_err(|_| REFUSED)?, thread.as_ref().map_err(|_| REFUSED)?);
+            self.stage = Stage::Job;
             verify_job(&job, process)?;
+            self.stage = Stage::TokenLpac;
             verify_token(&token(process.as_raw_handle())?, owner_sid, profile.sid)?;
+            self.stage = Stage::Imagem;
             verify_image(process, &locked, expected)?;
+            self.stage = Stage::Loopback;
             profile.no_loopback()?;
+            self.stage = Stage::Handles;
             // SAFETY: marker is an open read handle. Its inheritable writer was not allowlisted.
             require(unsafe {
                 PeekNamedPipe(marker.as_raw_handle(), null_mut(), 0, null_mut(), null_mut(), null_mut()) == 0
                     && GetLastError() == ERROR_BROKEN_PIPE
             })?;
+            self.stage = Stage::RecusaEsperada;
             before_resume()?;
+            self.stage = Stage::Retomada;
             // SAFETY: live thread handle of the verified, still-suspended worker.
             require(unsafe { ResumeThread(thread.as_raw_handle()) } == 1)?;
+            self.stage = Stage::Ipc;
             File::from(input).write_all(REQUEST).map_err(|_| REFUSED)?;
+            self.stage = Stage::Filho;
             // SAFETY: bounded wait on the verified worker; no blocking read before exit.
             require(unsafe { WaitForSingleObject(process.as_raw_handle(), 5_000) } == WAIT_OBJECT_0)?;
             let mut exit = 1;
             // SAFETY: exit is writable and the process handle remains live after exit.
-            require(unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut exit) } != 0 && exit == 0)?;
+            require(unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut exit) } != 0)?;
+            self.child_stage = match i32::try_from(exit) {
+                Ok(stage @ (CHILD_ACL | CHILD_IPC)) => Some(stage),
+                _ => None,
+            };
+            require(exit == 0)?;
+            self.stage = Stage::Termino;
             require(active(&job)? == 0)?;
+            self.stage = Stage::Ipc;
             let mut reply = Vec::new();
             File::from(output).take((RESPONSE.len() + 1) as u64).read_to_end(&mut reply).map_err(|_| REFUSED)?;
             require(reply == RESPONSE)?;
@@ -540,6 +596,8 @@ impl Lab {
             unsafe { TerminateJobObject(job.as_raw_handle(), 1) };
         }
         let deadline = Instant::now() + Duration::from_secs(2);
+        let stage = self.stage;
+        self.stage = Stage::Termino;
         loop {
             if active(&job)? == 0 {
                 self.unconfirmed = false;
@@ -548,6 +606,7 @@ impl Lab {
             require(Instant::now() < deadline)?;
             std::thread::sleep(Duration::from_millis(10));
         }
+        self.stage = stage;
         result
     }
 }
@@ -560,9 +619,11 @@ fn catalog_child() {
     if worker != Ok(1) {
         return;
     }
+    let mut failure = CHILD_ACL;
     let result = (|| -> Result<()> {
         require(fs::read(PRIVATE).is_err_and(|error| error.kind() == io::ErrorKind::PermissionDenied))?;
         require(fs::read(BROAD_PACKAGES).is_err_and(|error| error.kind() == io::ErrorKind::PermissionDenied))?;
+        failure = CHILD_IPC;
         // SAFETY: these are the allowlisted standard handles owned by this process; each is taken once.
         unsafe {
             use windows_sys::Win32::System::Console::{
@@ -580,29 +641,34 @@ fn catalog_child() {
         }
         Ok(())
     })();
-    std::process::exit(i32::from(result.is_err()));
+    std::process::exit(if result.is_err() { failure } else { 0 });
 }
 
 #[test]
 fn windows_nativo_catalogo_e_recusa_antes_de_retomar() {
     let mut lab = Lab::default();
     let mut verified = false;
-    assert_eq!(
-        lab.catalog(|| {
-            verified = true;
-            Err(REFUSED)
-        }),
+    let refusal = lab.catalog(|| {
+        verified = true;
         Err(REFUSED)
-    );
+    });
+    if refusal != Err(REFUSED) || !verified || lab.unconfirmed {
+        lab.report_refusal();
+    }
+    assert_eq!(refusal, Err(REFUSED));
     assert!(verified, "o negativo precisa chegar ao filho suspenso e verificado");
     assert!(!lab.unconfirmed);
-    assert_eq!(lab.catalog(|| Ok(())), Ok(RESPONSE));
+    let catalog = lab.catalog(|| Ok(()));
+    if catalog != Ok(RESPONSE) || lab.unconfirmed {
+        lab.report_refusal();
+    }
+    assert_eq!(catalog, Ok(RESPONSE));
     assert!(!lab.unconfirmed);
 }
 
 #[test]
 fn simulacao_nao_readmite_com_termino_indeterminado() {
-    let mut lab = Lab { unconfirmed: true };
+    let mut lab = Lab { unconfirmed: true, ..Lab::default() };
     assert_eq!(lab.catalog(|| panic!("não pode admitir processo")), Err(REFUSED));
     assert!(lab.unconfirmed);
 }
