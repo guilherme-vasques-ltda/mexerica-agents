@@ -103,7 +103,7 @@ class ConversationTest {
     }
 
     @Test fun `decoding keeps the session id the computer sends and refuses an invalid one`() {
-        fun withSession(sessionId: JsonObject.() -> Unit) = buildJsonObject {
+        fun withSession(sessionId: JsonObjectBuilder.() -> Unit) = buildJsonObject {
             put("id", "e"); put("seq", 1); put("botId", "b"); put("rev", 1); put("kind", "user"); put("turn", 0)
             put("data", buildJsonObject { put("text", "hi") }); put("createdAt", 0); put("updatedAt", 0)
             sessionId()
