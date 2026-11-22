@@ -7,7 +7,8 @@
 # VAZAMENTO_ISSUE_TOKEN em segredos; VAZAMENTO_ISSUE_REPO em variavel, apontando para
 # repositorio privado que nao sera arquivado), nunca no repositorio publico. O resumo volta
 # pelo gh do proprio run e tentativa, sempre com leitura de actions e falha fechada quando o
-# artefato nao chega. Guia: docs/guides/ci.md.
+# artefato nao chega. Reexecutar so a notificacao nao acha o resumo: a reexecucao precisa
+# incluir a varredura. Guia: docs/guides/ci.md.
 name: Vazamento operacional semanal
 
 on:
