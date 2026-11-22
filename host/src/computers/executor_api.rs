@@ -373,6 +373,9 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     let c = computer(hub, caller)?;
     jobs::sweep_locked(hub, now_ms())?;
     let mut j = owned(hub, &c, b)?;
+    if j.finished_at.is_some_and(|t| now_ms() - t >= 86_400_000) {
+        return Ok(json!({"ack":true}));
+    }
     // Um `done` já confirmado nunca muda: o reenvio do mesmo resultado só recebe o ACK (mesmo depois da retenção).
     if j.state == Phase::Done || (j.result.is_some() && j.state != Phase::Unknown) {
         return Ok(json!({"ack":true}));
@@ -432,7 +435,7 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
         j.outcome = Some(if phase == Phase::Unknown { "unknown_outcome".into() } else { outcome.into() });
         j.error_code = receipt_code.or_else(|| b["code"].as_str()).map(str::to_owned);
     }
-    j.finished_at = Some(now_ms());
+    j.finished_at.get_or_insert_with(now_ms);
     j.cancel_requested = false;
     // O computador provou que nada foi gravado (conferiu a mesma tentativa depois da queda): repetir deixa de ser risco.
     if j.spec["purpose"] == "spreadsheet" && phase == Phase::Failed && b["code"] == "not_written" {

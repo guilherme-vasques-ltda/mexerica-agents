@@ -105,7 +105,13 @@ pub fn validate(sheets: &[Sheet]) -> Result<()> {
             ensure!(row.len() <= MAX_COLS, "too_large: até {MAX_COLS} colunas");
             for cell in row {
                 match cell {
-                    Cell::Number(n) => ensure!(n.is_finite(), "invalid_arguments: número inválido"),
+                    Cell::Number(n) => {
+                        ensure!(n.is_finite(), "invalid_arguments: número inválido");
+                        ensure!(
+                            n.fract() != 0.0 || n.abs() < 9_007_199_254_740_992.0,
+                            "invalid_arguments: inteiro de módulo igual ou acima de 9007199254740992 (2^53) perde precisão; use até 9007199254740991 ou passe como texto"
+                        );
+                    }
                     Cell::Text(t) => ensure!(
                         t.chars().count() <= MAX_TEXT
                             && !t.chars().any(|c| (c.is_control() && !matches!(c, '\t' | '\n'))
@@ -230,9 +236,14 @@ fn sheet_xml(sheet: &Sheet) -> Result<String> {
                     );
                 }
                 Cell::Number(n) => {
-                    let n = serde_json::Number::from_f64(*n)
-                        .ok_or_else(|| anyhow!("invalid_arguments: número inválido"))?;
-                    let _ = write!(xml, "<c r=\"{at}\"><v>{n}</v></c>");
+                    let text = if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
+                        format!("{n:.0}")
+                    } else {
+                        serde_json::Number::from_f64(*n)
+                            .ok_or_else(|| anyhow!("invalid_arguments: número inválido"))?
+                            .to_string()
+                    };
+                    let _ = write!(xml, "<c r=\"{at}\"><v>{text}</v></c>");
                 }
                 Cell::Bool(b) => {
                     let _ = write!(xml, "<c r=\"{at}\" t=\"b\"><v>{}</v></c>", u8::from(*b));
@@ -248,6 +259,9 @@ fn sheet_xml(sheet: &Sheet) -> Result<String> {
 /// Monta o arquivo. Determinístico: mesma entrada, mesmos bytes.
 pub fn build(sheets: &[Sheet]) -> Result<Vec<u8>> {
     validate(sheets)?;
+    assemble(sheets)
+}
+fn assemble(sheets: &[Sheet]) -> Result<Vec<u8>> {
     let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
     let mut types = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>",
@@ -285,6 +299,11 @@ pub fn build(sheets: &[Sheet]) -> Result<Vec<u8>> {
     let file = zip_store(&all)?;
     ensure!(file.len() <= MAX_FILE, "too_large: a planilha passa de 128 KiB");
     Ok(file)
+}
+
+#[cfg(test)]
+pub(crate) fn build_unvalidated(sheets: &[Sheet]) -> Result<Vec<u8>> {
+    assemble(sheets)
 }
 
 fn le16(out: &mut Vec<u8>, v: u16) {
@@ -561,5 +580,33 @@ mod tests {
         let mut sheets = sample();
         sheets[0].name = "Vendas\u{fffe}".into();
         assert!(validate(&sheets).is_err(), "caractere inválido em XML não pode entrar no nome da aba");
+    }
+
+    #[test]
+    fn unsafe_integers_are_refused_and_the_last_safe_pair_round_trips() {
+        let reason = "inteiro de módulo igual ou acima de 9007199254740992";
+        for n in [9_007_199_254_740_992.0, -9_007_199_254_740_992.0, 3.5e18, -3.5e18] {
+            let sheets = vec![Sheet { name: "A".into(), rows: vec![vec![Cell::Number(n)]] }];
+            assert!(validate(&sheets).unwrap_err().to_string().contains(reason));
+            assert!(build(&sheets).unwrap_err().to_string().contains(reason));
+        }
+        let sheets = vec![Sheet {
+            name: "A".into(),
+            rows: vec![vec![Cell::Number(9_007_199_254_740_991.0)], vec![Cell::Number(-9_007_199_254_740_991.0)]],
+        }];
+        validate(&sheets).unwrap();
+        let bytes = build(&sheets).unwrap();
+        let xml = String::from_utf8_lossy(
+            &zip_entries(&bytes).unwrap().into_iter().find(|(n, _)| n == "xl/worksheets/sheet1.xml").unwrap().1,
+        )
+        .into_owned();
+        assert!(xml.contains("<v>9007199254740991</v>"), "{xml}");
+        assert!(xml.contains("<v>-9007199254740991</v>"), "{xml}");
+        let back = inspect(&bytes).unwrap();
+        assert_eq!(back, sheets);
+        assert_eq!(content_sha256(&back).unwrap(), content_sha256(&sheets).unwrap());
+        let rebuilt = build(&back).unwrap();
+        assert_eq!(rebuilt, bytes);
+        assert_eq!(hex(&crate::remote::crypto::sha256(&[&rebuilt])), hex(&crate::remote::crypto::sha256(&[&bytes])));
     }
 }

@@ -109,6 +109,7 @@ pub async fn main(action: Action) -> Result<()> {
             let home = home(h)?;
             let _lock = home.lock()?;
             let mut auth = home.authorized()?;
+            home.bump_epoch()?;
             auth.desktop = None;
             home.save_authorized(&auth)?;
             println!("Liberação de {location} removida. Pedidos para esse local serão recusados.");
@@ -125,9 +126,13 @@ async fn enroll(home: &Home, hub: &str, code: &str, name: &str) -> Result<()> {
     let name = name.trim();
     ensure!(!name.is_empty() && name.chars().count() <= 100, "nome inválido");
     // Um cadastro por vez nesta pasta de estado: dois `enroll` não podem trocar a chave um do outro.
-    let _lock = home.lock()?;
-    ensure!(!home.has_link_file(), "este computador já tem vínculo; revogue antes de cadastrar de novo");
-    home.reset_binding()?;
+    let enroll_epoch = {
+        let _lock = home.lock()?;
+        ensure!(!home.has_link_file(), "este computador já tem vínculo; revogue antes de cadastrar de novo");
+        let epoch = home.bump_epoch()?;
+        home.reset_binding()?;
+        epoch
+    };
     let norm: String =
         code.chars().filter(|c| *c != '-' && !c.is_whitespace()).map(|c| c.to_ascii_uppercase()).collect();
     ensure!(norm.len() == 16 && norm.is_ascii(), "o código tem 16 caracteres (4 grupos de 4)");
@@ -166,12 +171,19 @@ async fn enroll(home: &Home, hub: &str, code: &str, name: &str) -> Result<()> {
         )
         .await?;
     session.expect_paired_close().await?;
-    home.save_link(&HubLink {
-        url: hub.trim_end_matches('/').into(),
-        sign_pub: crypto::b64(&sign_pub),
-        label: name.into(),
-        computer_id: ok["computerId"].as_str().unwrap_or_default().into(),
-    })?;
+    {
+        let _lock = home.lock()?;
+        ensure!(!home.has_link_file(), "este computador foi cadastrado durante o cadastro; nada foi salvo");
+        ensure!(home.epoch()? == enroll_epoch, "o estado local mudou durante o cadastro; nada foi salvo");
+        home.bump_epoch()?;
+        home.save_link(&HubLink {
+            url: hub.trim_end_matches('/').into(),
+            sign_pub: crypto::b64(&sign_pub),
+            label: name.into(),
+            computer_id: ok["computerId"].as_str().unwrap_or_default().into(),
+            binding_id: crypto::b64(&crypto::random::<16>()),
+        })?;
+    }
     println!(
         "Cadastrado como {name}. Nenhum local foi liberado ainda: rode authorize para escolher onde a Mexerica pode criar planilhas."
     );
@@ -189,6 +201,10 @@ fn authorize(home: &Home, location: &str) -> Result<()> {
         root.display()
     );
     let (dev, ino) = policy::dir_identity(&root).ok_or_else(|| anyhow!("não consegui identificar a pasta"))?;
+    let (initial_link, initial_epoch) = {
+        let _lock = home.lock()?;
+        (home.link().ok(), home.epoch()?)
+    };
     println!(
         "Você está liberando a Mexerica a CRIAR planilhas NOVAS em:\n  {}\nElas nunca sobrescrevem, apagam, movem nem leem arquivos seus. Dentro dessa pasta, pedidos explícitos do Berga não perguntam de novo.",
         root.display()
@@ -206,9 +222,16 @@ fn authorize(home: &Home, location: &str) -> Result<()> {
     ensure!(line.trim() == "AUTORIZAR", "cancelado; nada foi liberado");
     // Mesmo trinco da retirada, da revogação e da criação: uma liberação lenta não pode terminar depois delas.
     let _lock = home.lock()?;
+    state_unchanged(
+        home,
+        initial_link.as_ref(),
+        &initial_epoch,
+        "o vínculo ou o estado local mudou enquanto você confirmava; nada foi liberado",
+    )?;
     let mut auth = home.authorized()?;
     // A identidade guardada é a da pasta mostrada na confirmação: se ela foi trocada enquanto você lia, cancela.
     ensure!(policy::same_dir(&root, dev, ino), "a pasta mudou enquanto você confirmava; nada foi liberado");
+    home.bump_epoch()?;
     auth.desktop = Some(Grant { path: root.to_string_lossy().into_owned(), at: crate::store::now_ms(), dev, ino });
     home.save_authorized(&auth)?;
     println!("Liberado: {location}. Para retirar: unauthorize --location {location}.");
@@ -240,13 +263,13 @@ fn status(home: &Home) -> Result<()> {
 async fn revoke(home: &Home, local_only: bool) -> Result<()> {
     // O vínculo que esta revogação alcança é o de agora: se mudar enquanto a rede responde, o novo não é apagado.
     // Vínculo e chave são lidos juntos, sob o trinco: um recadastro no meio não mistura o novo com o antigo.
-    let (link, key) = {
+    let (link, key, initial_epoch) = {
         let _lock = home.lock()?;
-        (home.link(), home.key(false))
+        (home.link().ok(), home.key(false).ok(), home.epoch()?)
     };
     if !local_only {
-        let link = link.as_ref().map_err(|e| anyhow!("{e:#}"))?;
-        let key = key.as_ref().map_err(|e| anyhow!("{e:#}"))?;
+        let link = link.as_ref().context("este computador ainda não foi cadastrado no Hub")?;
+        let key = key.as_ref().context("identidade do executor ausente; cadastre o computador antes")?;
         let sign_pub = crypto::unb64_n::<32>(&link.sign_pub)?;
         let mut session = Session::connect(&link.url, key, &sign_pub, false)
             .await
@@ -264,9 +287,8 @@ async fn revoke(home: &Home, local_only: bool) -> Result<()> {
     // Mesmo trinco da criação, só durante a limpeza (não durante a rede): se um pedido está gravando, a revogação
     // espera; depois dela nada novo é criado.
     let _lock = home.lock()?;
-    if let Ok(link) = &link {
-        same_binding(home, link).context("o vínculo mudou durante a revogação; nada foi apagado")?;
-    }
+    state_unchanged(home, link.as_ref(), &initial_epoch, "o vínculo mudou durante a revogação; nada foi apagado")?;
+    home.bump_epoch()?;
     home.wipe_identity()?;
     println!("Identidade e liberações locais apagadas.");
     Ok(())
@@ -334,9 +356,17 @@ async fn run(home: &Home) -> Result<()> {
 fn same_binding(home: &Home, link: &HubLink) -> Result<()> {
     let now = home.link().context("o vínculo com o Hub mudou ou foi removido; este processo para")?;
     ensure!(
-        now.computer_id == link.computer_id && now.url == link.url && now.sign_pub == link.sign_pub,
+        now.computer_id == link.computer_id
+            && now.url == link.url
+            && now.sign_pub == link.sign_pub
+            && now.binding_id == link.binding_id,
         "o vínculo com o Hub mudou; este processo para"
     );
+    Ok(())
+}
+
+fn state_unchanged(home: &Home, link: Option<&HubLink>, epoch: &str, message: &str) -> Result<()> {
+    ensure!(home.link().ok().as_ref() == link && home.epoch()? == epoch, "{message}");
     Ok(())
 }
 
@@ -354,62 +384,100 @@ fn journal_for_hello(home: &Home) -> Vec<Value> {
     rows
 }
 
+fn audit_refusal(home: &Home, link: &HubLink, id: &str, detail: &Value) -> Result<u64> {
+    let _lock = home.lock()?;
+    same_binding(home, link)?;
+    home.audit(id, "refused", detail)
+}
+fn abort_job(home: &Home, link: &HubLink, id: &str, why: &str) -> Result<()> {
+    let _lock = home.lock()?;
+    same_binding(home, link)?;
+    home.audit(id, "aborted", &json!({"why":why}))?;
+    home.clear_running(id);
+    Ok(())
+}
+fn clear_job(home: &Home, link: &HubLink, id: &str) -> Result<()> {
+    let _lock = home.lock()?;
+    same_binding(home, link)?;
+    home.clear_outbox(id);
+    home.clear_running(id);
+    Ok(())
+}
+
 async fn session_loop(s: &mut Session, home: &Home, boot: &str, link: &HubLink) -> Result<()> {
-    let hello = s
-        .call(
-            "executorHello",
-            json!({"proto":1,"bootId":boot,"version":env!("CARGO_PKG_VERSION"),"platform":platform()?,"arch":std::env::consts::ARCH,
-                "capabilities":capabilities(home),"presence":presence(),"journal":journal_for_hello(home),"routines":[]}),
-            Duration::from_secs(20),
-        )
-        .await?;
+    let hello_body = {
+        let _lock = home.lock()?;
+        same_binding(home, link)?;
+        json!({"proto":1,"bootId":boot,"version":env!("CARGO_PKG_VERSION"),"platform":platform()?,"arch":std::env::consts::ARCH,
+            "capabilities":capabilities(home),"presence":presence(),"journal":journal_for_hello(home),"routines":[]})
+    };
+    let hello = s.call("executorHello", hello_body, Duration::from_secs(20)).await?;
     for item in hello["reconcile"].as_array().into_iter().flatten() {
         let id = item["jobId"].as_str().unwrap_or_default();
         if item["action"] == "resend" {
-            match resend(s, home, id).await {
+            match resend(s, home, link, id).await {
                 Err(e) if e.downcast_ref::<HubError>().is_some_and(HubError::terminal) => {
                     println!("o Hub recusou o resultado de {id}: {e:#}; descartado aqui");
-                    home.clear_outbox(id);
-                    home.clear_running(id);
+                    clear_job(home, link, id)?;
                 }
                 other => other?,
             }
         } else {
-            home.clear_outbox(id);
-            home.clear_running(id);
+            clear_job(home, link, id)?;
         }
     }
-    sync_audit(s, home).await;
+    sync_audit(s, home, link).await;
     println!("Conectado. Aguardando pedidos.");
     loop {
-        same_binding(home, link)?;
-        let poll = s
-            .call(
-                "executorPoll",
-                json!({"bootId":boot,"waitMs":25_000,"presence":presence(),"capabilities":capabilities(home)}),
-                Duration::from_secs(40),
-            )
-            .await?;
+        let poll_body = {
+            let _lock = home.lock()?;
+            same_binding(home, link)?;
+            json!({"bootId":boot,"waitMs":25_000,"presence":presence(),"capabilities":capabilities(home)})
+        };
+        let poll = s.call("executorPoll", poll_body, Duration::from_secs(40)).await?;
         for job in poll["jobs"].as_array().into_iter().flatten() {
             handle(s, home, job, link).await?;
-            sync_audit(s, home).await;
+            sync_audit(s, home, link).await;
         }
-        sync_audit(s, home).await;
+        sync_audit(s, home, link).await;
     }
 }
 
-async fn resend(s: &mut Session, home: &Home, id: &str) -> Result<()> {
-    if let Some((_, result)) = home.outbox().into_iter().find(|(name, _)| name == id) {
-        s.call("executorResult", result, Duration::from_secs(20)).await?;
-        home.clear_outbox(id);
-        home.clear_running(id);
-    } else if let Some((job, lease)) = home.pending_running().into_iter().find(|(name, _)| name == id) {
+async fn resend(s: &mut Session, home: &Home, link: &HubLink, id: &str) -> Result<()> {
+    enum Source {
+        Saved(Value),
+        Recover(String, String),
+    }
+    let source = {
+        let _lock = home.lock()?;
+        same_binding(home, link)?;
+        if let Some((_, result)) = home.outbox().into_iter().find(|(name, _)| name == id) {
+            Some(Source::Saved(result))
+        } else {
+            home.pending_running()
+                .into_iter()
+                .find(|(name, _)| name == id)
+                .map(|(job, lease)| Source::Recover(job, lease))
+        }
+    };
+    let Some(source) = source else { return Ok(()) };
+    let from_running = matches!(&source, Source::Recover(_, _));
+    let result = match source {
+        Source::Saved(result) => result,
+        Source::Recover(job, lease) => recovered_result(home, link, &job, &lease)?,
+    };
+    if from_running {
         // O resultado reconstruído vira resultado guardado ANTES de ir ao Hub: se o envio falhar, o reenvio manda este
         // mesmo resultado, sem recalcular uma prova que o disco já pode não confirmar.
-        let result = recovered_result(home, &job, &lease)?;
+        let _lock = home.lock()?;
+        same_binding(home, link)?;
         home.save_outbox(id, &result)?;
         home.clear_running(id);
-        s.call("executorResult", result, Duration::from_secs(20)).await?;
+    }
+    s.call("executorResult", result, Duration::from_secs(20)).await?;
+    {
+        let _lock = home.lock()?;
+        same_binding(home, link)?;
         home.clear_outbox(id);
     }
     Ok(())
@@ -419,7 +487,9 @@ async fn resend(s: &mut Session, home: &Home, id: &str) -> Result<()> {
 /// - fase "planned" (nada no disco havia sido tocado): falha segura `not_written`, repetir é liberado;
 /// - fase "writing": só o arquivo íntegro cuja identidade (dispositivo e inode) a tentativa registrou ao criá-lo vira recibo `done`;
 /// - qualquer outra coisa (arquivo sumiu, alvo que já existia, dúvida) continua `unknown` e o Hub barra a repetição.
-fn recovered_result(home: &Home, job: &str, lease: &str) -> Result<Value> {
+fn recovered_result(home: &Home, link: &HubLink, job: &str, lease: &str) -> Result<Value> {
+    let _lock = home.lock()?;
+    same_binding(home, link)?;
     let found = (|| {
         let record = home.running_record(job)?;
         if record["phase"] == "planned" {
@@ -431,9 +501,12 @@ fn recovered_result(home: &Home, job: &str, lease: &str) -> Result<Value> {
         let created = record["created"].as_array()?;
         let created = (created.first()?.as_u64()?, created.get(1)?.as_u64()?);
         let plan = policy::plan(record["kind"].as_str()?, &record["spec"]).ok()?;
-        let granted = home.authorized().ok()?.desktop?.path;
-        let root = policy::authorized_root(&plan.location, Some(&granted)).ok()?;
-        policy::recover(&plan, &root, created).map(|r| Some(r.0))
+        let grant = home.authorized().ok()?.desktop?;
+        let root = policy::authorized_root(&plan.location, Some(&grant.path)).ok()?;
+        if grant.dev == 0 || grant.ino == 0 || !policy::same_dir(&root, grant.dev, grant.ino) {
+            return None;
+        }
+        policy::recover(&plan, &root, Some((grant.dev, grant.ino)), created).map(|r| Some(r.0))
     })();
     Ok(match found {
         Some(Some(receipt)) => {
@@ -462,16 +535,26 @@ fn crash_point(name: &str) {
     let _ = name;
 }
 
-async fn sync_audit(s: &mut Session, home: &Home) {
-    let acked = home.audit_acked();
-    let Ok(rows) = home.audit_rows() else { return };
-    let batch: Vec<Value> = rows.into_iter().filter(|r| r["seq"].as_u64().unwrap_or(0) > acked).take(50).collect();
+async fn sync_audit(s: &mut Session, home: &Home, link: &HubLink) {
+    let batch = {
+        let Ok(_lock) = home.lock() else { return };
+        if same_binding(home, link).is_err() {
+            return;
+        }
+        let Ok(rows) = home.audit_rows() else { return };
+        let acked = home.audit_acked();
+        rows.into_iter().filter(|r| r["seq"].as_u64().unwrap_or(0) > acked).take(50).collect::<Vec<_>>()
+    };
     if batch.is_empty() {
         return;
     }
     match s.call("executorAudit", json!({"records":batch}), Duration::from_secs(20)).await {
         Ok(ok) => {
             if let Some(seq) = ok["ackSeq"].as_u64() {
+                let Ok(_lock) = home.lock() else { return };
+                if same_binding(home, link).is_err() {
+                    return;
+                }
                 let _ = home.set_audit_acked(seq);
             }
         }
@@ -479,14 +562,24 @@ async fn sync_audit(s: &mut Session, home: &Home) {
     }
 }
 
-async fn finish(s: &mut Session, home: &Home, id: &str, result: Value) -> Result<()> {
-    home.save_outbox(id, &result)?;
-    home.clear_running(id);
+async fn finish(s: &mut Session, home: &Home, link: &HubLink, id: &str, result: Value) -> Result<()> {
+    {
+        let _lock = home.lock()?;
+        same_binding(home, link)?;
+        home.save_outbox(id, &result)?;
+        home.clear_running(id);
+    }
     crash_point("after_outbox");
     match s.call("executorResult", result, Duration::from_secs(20)).await {
-        Ok(_) => home.clear_outbox(id),
+        Ok(_) => {
+            let _lock = home.lock()?;
+            same_binding(home, link)?;
+            home.clear_outbox(id);
+        }
         Err(e) if e.downcast_ref::<HubError>().is_some_and(HubError::terminal) => {
             println!("o Hub recusou o resultado de {id}: {e:#}; descartado aqui");
+            let _lock = home.lock()?;
+            same_binding(home, link)?;
             home.clear_outbox(id);
         }
         Err(e) => return Err(e.context("o resultado fica guardado e é reenviado ao reconectar")),
@@ -507,8 +600,8 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
         Ok(p) => p,
         Err(r) => {
             println!("pedido {id} RECUSADO ({}): {}", r.code, r.message);
-            let seq = home.audit(&id, "refused", &json!({"code":r.code}))?;
-            return finish(s, home, &id, refuse(r.code, r.message, seq)).await;
+            let seq = audit_refusal(home, link, &id, &json!({"code":r.code}))?;
+            return finish(s, home, link, &id, refuse(r.code, r.message, seq)).await;
         }
     };
     let grant = home.authorized()?.desktop;
@@ -517,8 +610,8 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
         Ok(r) => r,
         Err(r) => {
             println!("pedido {id} RECUSADO ({}): {}", r.code, r.message);
-            let seq = home.audit(&id, "refused", &json!({"code":r.code,"location":plan.location}))?;
-            return finish(s, home, &id, refuse(r.code, r.message, seq)).await;
+            let seq = audit_refusal(home, link, &id, &json!({"code":r.code,"location":plan.location}))?;
+            return finish(s, home, link, &id, refuse(r.code, r.message, seq)).await;
         }
     };
     if let Some(g) = &grant
@@ -529,8 +622,8 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
             message: "a pasta liberada não é a mesma que você confirmou; libere de novo neste computador".into(),
         };
         println!("pedido {id} RECUSADO ({}): {}", r.code, r.message);
-        let seq = home.audit(&id, "refused", &json!({"code":r.code}))?;
-        return finish(s, home, &id, refuse(r.code, r.message, seq)).await;
+        let seq = audit_refusal(home, link, &id, &json!({"code":r.code}))?;
+        return finish(s, home, link, &id, refuse(r.code, r.message, seq)).await;
     }
     println!(
         "pedido {id}: criar planilha {:?} ({} abas) em {}{} — local liberado por você; nada será sobrescrito",
@@ -541,24 +634,26 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
     );
     // A tentativa é guardada ANTES de pedir o start: se a resposta do Hub se perder, o próximo hello ainda reconcilia.
     let preexisting = !policy::target_absent(&plan, &root);
-    home.mark_running(&id, &lease, job["kind"].as_str().unwrap_or_default(), &job["spec"], preexisting)?;
-    home.audit(
-        &id,
-        "intent",
-        &json!({"location":plan.location,"folder":plan.folder,"filename":plan.filename,"sha256":plan.sha256}),
-    )?;
+    {
+        let _lock = home.lock()?;
+        same_binding(home, link)?;
+        home.mark_running(&id, &lease, job["kind"].as_str().unwrap_or_default(), &job["spec"], preexisting)?;
+        home.audit(
+            &id,
+            "intent",
+            &json!({"location":plan.location,"folder":plan.folder,"filename":plan.filename,"sha256":plan.sha256}),
+        )?;
+    }
     match s.call("executorUpdate", step("start"), Duration::from_secs(20)).await {
         Ok(ok) if ok["go"] == true => {}
         Ok(_) => {
             println!("pedido {id} não iniciado: o Hub não liberou o start");
-            home.audit(&id, "aborted", &json!({"why":"start sem liberação"}))?;
-            home.clear_running(&id);
+            abort_job(home, link, &id, "start sem liberação")?;
             return Ok(());
         }
         Err(e) if e.downcast_ref::<HubError>().is_some_and(HubError::terminal) => {
             println!("pedido {id} não iniciado: {e:#}");
-            home.audit(&id, "aborted", &json!({"why":"start negado pelo Hub"}))?;
-            home.clear_running(&id);
+            abort_job(home, link, &id, "start negado pelo Hub")?;
             return Ok(());
         }
         Err(e) => return Err(e),
@@ -571,7 +666,8 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
         let seq = home.audit(&id, "failed", &json!({"code":"location_not_authorized"}))?;
         let revoked = json!({"jobId":id,"leaseToken":lease,"outcome":"failed","code":"location_not_authorized","decidedBy":"policy","auditSeq":seq,
             "message":"a liberação deste local foi retirada ou mudou antes da gravação; nada foi gravado"});
-        return finish(s, home, &id, revoked).await;
+        drop(lock);
+        return finish(s, home, link, &id, revoked).await;
     }
     crash_point("before_write");
     home.mark_writing(&id)?;
@@ -589,7 +685,11 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
     crash_point("after_write");
     let result = match work {
         Ok(receipt) => {
-            let seq = home.audit(&id, "created", &json!({"path":receipt.0["path"],"sha256":receipt.0["sha256"]}))?;
+            let seq = {
+                let _lock = home.lock()?;
+                same_binding(home, link)?;
+                home.audit(&id, "created", &json!({"path":receipt.0["path"],"sha256":receipt.0["sha256"]}))?
+            };
             println!("pedido {id}: criado e conferido em {}", receipt.0["path"].as_str().unwrap_or_default());
             json!({"jobId":id,"leaseToken":lease,"outcome":"done","decidedBy":"policy","auditSeq":seq,"receipt":receipt.0})
         }
@@ -597,10 +697,84 @@ async fn handle(s: &mut Session, home: &Home, job: &Value, link: &HubLink) -> Re
             // Depois de criar o arquivo, uma falha deixa algo no disco: o efeito é incerto, não "falhou sem efeito".
             let uncertain = matches!(f.code, "verify_failed" | "write_incomplete");
             let outcome = if uncertain { "unknown" } else { "failed" };
-            let seq = home.audit(&id, outcome, &json!({"code":f.code,"detail":f.detail}))?;
+            let seq = {
+                let _lock = home.lock()?;
+                same_binding(home, link)?;
+                home.audit(&id, outcome, &json!({"code":f.code,"detail":f.detail}))?
+            };
             println!("pedido {id}: {outcome} ({}): {}", f.code, f.message);
             json!({"jobId":id,"leaseToken":lease,"outcome":outcome,"code":f.code,"message":f.message,"detail":f.detail,"decidedBy":"policy","auditSeq":seq})
         }
     };
-    finish(s, home, &id, result).await
+    finish(s, home, link, &id, result).await
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::path::PathBuf;
+
+    fn test_home() -> (PathBuf, Home) {
+        let dir = std::env::temp_dir().join(format!("mexerica-helper-{}", uuid::Uuid::new_v4()));
+        let home = Home::open(&dir).unwrap();
+        (dir, home)
+    }
+    fn link(binding_id: &str) -> HubLink {
+        HubLink {
+            url: "https://hub.example.invalid".into(),
+            sign_pub: crypto::b64(&[9u8; 32]),
+            label: "Computador".into(),
+            computer_id: "computer".into(),
+            binding_id: binding_id.into(),
+        }
+    }
+
+    #[test]
+    fn a_stale_process_cannot_act_on_a_link_with_another_binding_id() {
+        let (dir, home) = test_home();
+        let original = link("original");
+        home.save_link(&original).unwrap();
+        assert!(same_binding(&home, &original).is_ok());
+        let mut reenrolled = original.clone();
+        reenrolled.binding_id = "reenrolled".into();
+        home.save_link(&reenrolled).unwrap();
+        assert!(same_binding(&home, &original).is_err());
+        assert!(same_binding(&home, &reenrolled).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_epoch_rotation_blocks_a_waiting_authorize_or_revoke_even_without_a_link() {
+        let (dir, home) = test_home();
+        let epoch = home.epoch().unwrap();
+        assert!(state_unchanged(&home, None, &epoch, "mudou").is_ok());
+        home.save_authorized(&Authorized { desktop: None }).unwrap();
+        let after_enroll = home.bump_epoch().unwrap();
+        assert!(state_unchanged(&home, None, &epoch, "mudou").is_err());
+        assert!(state_unchanged(&home, None, &after_enroll, "mudou").is_ok());
+        let bound = link("binding");
+        home.save_link(&bound).unwrap();
+        let after_authorize = home.bump_epoch().unwrap();
+        assert!(state_unchanged(&home, Some(&bound), &after_enroll, "mudou").is_err());
+        assert!(state_unchanged(&home, Some(&bound), &after_authorize, "mudou").is_ok());
+        home.bump_epoch().unwrap();
+        assert!(state_unchanged(&home, Some(&bound), &after_authorize, "mudou").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unauthorize_rotates_the_epoch_and_invalidates_a_state_captured_before_it() {
+        let (dir, home) = test_home();
+        home.save_authorized(&Authorized {
+            desktop: Some(Grant { path: "caminho-de-teste".into(), at: crate::store::now_ms(), dev: 1, ino: 2 }),
+        })
+        .unwrap();
+        let before = home.epoch().unwrap();
+        main(Action::Unauthorize { location: "desktop".into(), home: Some(dir.clone()) }).await.unwrap();
+        assert_eq!(home.authorized().unwrap().desktop, None);
+        assert_ne!(home.epoch().unwrap(), before);
+        assert!(state_unchanged(&home, None, &before, "mudou").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

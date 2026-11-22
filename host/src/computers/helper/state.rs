@@ -9,12 +9,14 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HubLink {
     pub url: String,
     pub sign_pub: String,
     pub label: String,
     pub computer_id: String,
+    #[serde(default)]
+    pub binding_id: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -81,6 +83,8 @@ impl Home {
         private_dir(path)?;
         if !marker.exists() {
             private_write(&marker, b"estado do executor da Mexerica\n")?;
+            let epoch = path.join("state.epoch");
+            private_write(&epoch, crypto::b64(&crypto::random::<16>()).as_bytes())?;
         }
         ensure!(fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file()), "marcador do estado inválido");
         for sub in ["outbox", "running"] {
@@ -126,6 +130,20 @@ impl Home {
     }
     pub fn save_authorized(&self, auth: &Authorized) -> Result<()> {
         private_write(&self.file("auth.json"), &serde_json::to_vec_pretty(auth)?)
+    }
+    /// Geração do estado local: troca a cada operação que pode mudar vínculo ou liberação.
+    /// Um estado antigo, sem o arquivo, entra com geração vazia e a primeira operação a cria.
+    pub fn epoch(&self) -> Result<String> {
+        match fs::read_to_string(self.file("state.epoch")) {
+            Ok(text) => Ok(text.trim().to_owned()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(e.into()),
+        }
+    }
+    pub fn bump_epoch(&self) -> Result<String> {
+        let epoch = crypto::b64(&crypto::random::<16>());
+        private_write(&self.file("state.epoch"), epoch.as_bytes())?;
+        Ok(epoch)
     }
 
     pub fn running(&self, job: &str) -> PathBuf {
@@ -354,6 +372,35 @@ mod tests {
         assert_eq!(home.audit("job1", "created", &json!({})).unwrap(), 2);
         let rows = home.audit_rows().unwrap();
         assert_eq!((rows.len(), rows[1]["event"].clone()), (2, json!("created")));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_binding_identity_is_part_of_the_link_and_the_epoch_survives_cleanup() {
+        let dir = std::env::temp_dir().join(format!("mexerica-state-{}", uuid::Uuid::new_v4()));
+        let home = Home::open(&dir).unwrap();
+        let first = home.epoch().unwrap();
+        assert_ne!(first, "");
+        let link = HubLink {
+            url: "https://hub.example.invalid".into(),
+            sign_pub: crypto::b64(&[7u8; 32]),
+            label: "Computador".into(),
+            computer_id: "computer".into(),
+            binding_id: "binding".into(),
+        };
+        home.save_link(&link).unwrap();
+        let next = home.bump_epoch().unwrap();
+        assert_ne!(next, first);
+        home.save_outbox("job", &json!({"outcome":"done"})).unwrap();
+        home.wipe_identity().unwrap();
+        assert_eq!(home.epoch().unwrap(), next);
+        assert_eq!(home.outbox().len(), 0);
+        let old: HubLink = serde_json::from_value(json!({
+            "url":"https://hub.example.invalid","sign_pub":"x","label":"x","computer_id":"x"
+        }))
+        .unwrap();
+        assert_eq!(old.binding_id, "");
+        assert_ne!(old, link);
         fs::remove_dir_all(dir).unwrap();
     }
 

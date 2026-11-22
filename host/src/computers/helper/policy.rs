@@ -227,6 +227,20 @@ mod dir {
             #[allow(clippy::unnecessary_cast)]
             Ok((st.st_dev as u64, st.st_ino as u64))
         }
+        /// Identidade do nome, sem abrir nem seguir link.
+        pub fn entry_identity(&self, child: &str) -> io::Result<(u64, u64)> {
+            let c = name(child)?;
+            let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+            // SAFETY: o descritor pertence a self, o nome é uma string C válida e `st` é buffer da chamada.
+            if unsafe { libc::fstatat(self.0.as_raw_fd(), c.as_ptr(), st.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) } != 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: fstatat devolveu sucesso, então o buffer foi preenchido.
+            let st = unsafe { st.assume_init() };
+            #[allow(clippy::unnecessary_cast)]
+            Ok((st.st_dev as u64, st.st_ino as u64))
+        }
         /// Só metadados, sem abrir nem seguir link: Ok se o nome existe, `NotFound` se não.
         pub fn exists(&self, child: &str) -> io::Result<()> {
             let c = name(child)?;
@@ -279,6 +293,9 @@ mod dir {
             unsupported()
         }
         pub fn identity(&self) -> io::Result<(u64, u64)> {
+            unsupported()
+        }
+        pub fn entry_identity(&self, _: &str) -> io::Result<(u64, u64)> {
             unsupported()
         }
     }
@@ -389,25 +406,28 @@ pub fn execute(
             json!({}),
         );
     };
-    // O descritor que vai gravar tem de ser a pasta que o dono confirmou, não só o caminho que a nomeia.
-    if let Some(id) = root_id
-        && root_dir.identity().ok() != Some(id)
-    {
-        return fail(
+    let changed = || {
+        fail::<Receipt>(
             "location_changed",
             "a pasta liberada não é a mesma que você confirmou; nada foi gravado",
             json!({}),
-        );
+        )
+    };
+    // Nada é criado se a raiz já não for a que o dono confirmou.
+    if let Some(id) = root_id
+        && root_dir.identity().ok() != Some(id)
+    {
+        return changed();
     }
-    let (dir, shown, folder_created) = match &plan.folder {
-        None => (root_dir, root.to_path_buf(), false),
+    let (child, shown, folder_created) = match &plan.folder {
+        None => (None, root.to_path_buf(), false),
         Some(folder) => {
             let created = match root_dir.mkdir(folder) {
                 Ok(created) => created,
                 Err(e) => return fail("folder_failed", format!("não foi possível criar a pasta: {e}"), json!({})),
             };
             match root_dir.open_dir(folder) {
-                Ok(dir) => (dir, root.join(folder), created),
+                Ok(dir) => (Some(dir), root.join(folder), created),
                 Err(_) => {
                     return fail(
                         "folder_not_directory",
@@ -418,6 +438,19 @@ pub fn execute(
             }
         }
     };
+    let dir = child.as_ref().unwrap_or(&root_dir);
+    // O descritor que vai gravar tem de ser a pasta que o dono confirmou, não só o caminho que a nomeia.
+    if let Some(id) = root_id
+        && root_dir.identity().ok() != Some(id)
+    {
+        return changed();
+    }
+    if let Some(folder) = &plan.folder {
+        let entry = root_dir.entry_identity(folder).ok();
+        if entry.is_none() || dir.identity().ok() != entry {
+            return changed();
+        }
+    }
     let path = shown.join(&plan.filename);
     let mut file = match dir.create_new(&plan.filename) {
         Ok(f) => f,
@@ -464,11 +497,23 @@ pub fn dir_identity(root: &Path) -> Option<FileId> {
 /// Depois de uma queda no meio da gravação: olha, sem gravar nada, o que a MESMA tentativa deixou. Só devolve
 /// recibo se o arquivo for exatamente o objeto (dispositivo e inode) que a tentativa registrou ao criá-lo e passar na
 /// mesma conferência completa de uma gravação normal. Conteúdo igual de outro arquivo não prova nada.
-pub fn recover(plan: &Plan, root: &Path, created: FileId) -> Option<Receipt> {
+pub fn recover(plan: &Plan, root: &Path, root_id: Option<FileId>, created: FileId) -> Option<Receipt> {
     let root_dir = Dir::open_root(root).ok()?;
+    if let Some(id) = root_id
+        && root_dir.identity().ok() != Some(id)
+    {
+        return None;
+    }
     let (dir, shown) = match &plan.folder {
         None => (root_dir, root.to_path_buf()),
-        Some(folder) => (root_dir.open_dir(folder).ok()?, root.join(folder)),
+        Some(folder) => {
+            let entry = root_dir.entry_identity(folder).ok()?;
+            let dir = root_dir.open_dir(folder).ok()?;
+            if dir.identity().ok() != Some(entry) {
+                return None;
+            }
+            (dir, root.join(folder))
+        }
     };
     let file = dir.open_read(&plan.filename).ok()?;
     if identity(&file.metadata().ok()?) != created {
@@ -494,7 +539,7 @@ pub fn target_absent(plan: &Plan, root: &Path) -> bool {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::computers::xlsx::{Cell, build, content_sha256, hex, summary};
+    use crate::computers::xlsx::{Cell, build, build_unvalidated, content_sha256, hex, summary};
 
     fn tmp(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("mexerica-executor-{tag}-{}", uuid::Uuid::new_v4()));
@@ -560,6 +605,21 @@ mod tests {
     }
 
     #[test]
+    fn plan_refuses_a_file_with_an_integer_beyond_the_safe_limit() {
+        for n in [9_007_199_254_740_992.0, -9_007_199_254_740_992.0, 3.5e18, -3.5e18] {
+            let sheets = vec![Sheet { name: "Vendas".into(), rows: vec![vec![Cell::Number(n)]] }];
+            let bytes = build_unvalidated(&sheets).unwrap();
+            let mut spec = spec_with(None, "Vendas.xlsx");
+            spec["size"] = json!(bytes.len());
+            spec["sha256"] = json!(hex(&crypto::sha256(&[&bytes])));
+            spec["contentSha256"] = json!(content_sha256(&sheets).unwrap());
+            spec["summary"] = json!(summary(&sheets));
+            spec["content"] = json!(STANDARD.encode(&bytes));
+            assert_eq!(plan("fs.write", &spec).err().unwrap().code, "bad_content", "{n}");
+        }
+    }
+
+    #[test]
     fn creates_the_folder_and_the_file_then_reopens_and_proves_the_content() {
         let root = tmp("ok");
         let receipt = execute(&plan_of(Some("Pasta X"), "Vendas.xlsx"), &root, None, &|_| Ok(())).ok().unwrap().0;
@@ -586,13 +646,13 @@ mod tests {
         let plan = plan_of(Some("Pasta X"), "Vendas.xlsx");
         let path = root.join("Pasta X").join("Vendas.xlsx");
         assert!(target_absent(&plan, &root));
-        assert!(recover(&plan, &root, (1, 1)).is_none());
+        assert!(recover(&plan, &root, None, (1, 1)).is_none());
         std::fs::create_dir(root.join("Pasta X")).unwrap();
         assert!(target_absent(&plan, &root));
         std::fs::write(&path, b"trabalho do dono").unwrap();
         assert!(!target_absent(&plan, &root));
         let meta = std::fs::metadata(&path).unwrap();
-        assert!(recover(&plan, &root, (meta.dev(), meta.ino())).is_none());
+        assert!(recover(&plan, &root, None, (meta.dev(), meta.ino())).is_none());
         assert_eq!(std::fs::read(&path).unwrap(), b"trabalho do dono", "recuperar nunca grava");
         std::fs::remove_file(&path).unwrap();
 
@@ -606,18 +666,21 @@ mod tests {
         );
         let id = created.get().expect("a identidade é registrada antes dos bytes");
         let before = std::fs::read(&path).unwrap();
-        let receipt = recover(&plan, &root, id).expect("o arquivo criado pela tentativa vira recibo");
+        let receipt = recover(&plan, &root, None, id).expect("o arquivo criado pela tentativa vira recibo");
         assert_eq!((receipt.0["reopened"].clone(), receipt.0["sha256"].clone()), (json!(true), json!(plan.sha256)));
         assert_eq!(std::fs::read(&path).unwrap(), before);
 
         // Conteúdo idêntico, mas de outro arquivo (outro inode): não prova autoria.
         std::fs::rename(&path, path.with_extension("antigo")).unwrap();
         std::fs::write(&path, &plan.bytes).unwrap();
-        assert!(recover(&plan, &root, id).is_none(), "arquivo igual de outro objeto não vira recibo");
+        assert!(recover(&plan, &root, None, id).is_none(), "arquivo igual de outro objeto não vira recibo");
         // Metade da gravação: o próprio arquivo, mas inválido.
         let meta = std::fs::metadata(&path).unwrap();
         std::fs::write(&path, &plan.bytes[..plan.bytes.len() / 2]).unwrap();
-        assert!(recover(&plan, &root, (meta.dev(), meta.ino())).is_none(), "gravação pela metade não vira recibo");
+        assert!(
+            recover(&plan, &root, None, (meta.dev(), meta.ino())).is_none(),
+            "gravação pela metade não vira recibo"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -736,5 +799,38 @@ mod tests {
             "critical_target"
         );
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn recovery_only_accepts_the_granted_root_and_the_same_subfolder() {
+        let root = tmp("recovergranted");
+        let plan = plan_of(Some("Pasta X"), "Vendas.xlsx");
+        let root_id = dir_identity(&root).unwrap();
+        assert!(execute(&plan, &root, Some(root_id), &|_| Ok(())).is_ok());
+        let path = root.join("Pasta X").join("Vendas.xlsx");
+        let created = identity(&std::fs::metadata(&path).unwrap());
+        assert!(recover(&plan, &root, Some(root_id), created).is_some());
+        assert!(recover(&plan, &root, Some((root_id.0, root_id.1 + 1)), created).is_none());
+        std::fs::rename(root.join("Pasta X"), root.join("Pasta antiga")).unwrap();
+        std::fs::create_dir(root.join("Pasta X")).unwrap();
+        std::fs::write(&path, &plan.bytes).unwrap();
+        let copied = identity(&std::fs::metadata(&path).unwrap());
+        assert_ne!(copied, created);
+        assert!(recover(&plan, &root, Some((root_id.0, root_id.1 + 1)), copied).is_none());
+        assert!(recover(&plan, &root, Some(root_id), created).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_swapped_subfolder_changes_the_identity_seen_from_the_granted_root() {
+        let root = tmp("entryid");
+        let dir = Dir::open_root(&root).unwrap();
+        std::fs::create_dir(root.join("Pasta X")).unwrap();
+        let before = dir.entry_identity("Pasta X").unwrap();
+        assert_eq!(before, dir_identity(&root.join("Pasta X")).unwrap());
+        std::fs::rename(root.join("Pasta X"), root.join("Pasta antiga")).unwrap();
+        std::fs::create_dir(root.join("Pasta X")).unwrap();
+        assert_ne!(before, dir.entry_identity("Pasta X").unwrap());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
