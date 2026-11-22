@@ -276,6 +276,8 @@ fn status(home: &Home) -> Result<()> {
 }
 
 async fn revoke(home: &Home, local_only: bool) -> Result<()> {
+    // Um cadastro em andamento pode estar a ponto de salvar o vínculo: revogar agora apagaria a chave que ele usa.
+    let _enrolling = home.enroll_lock()?;
     // O vínculo que esta revogação alcança é o de agora: se mudar enquanto a rede responde, o novo não é apagado.
     // Vínculo e chave são lidos juntos, sob o trinco: um recadastro no meio não mistura o novo com o antigo.
     let (link, key, initial_binding_epoch) = {
@@ -814,6 +816,27 @@ mod tests {
         home.bump_auth_epoch().unwrap();
         assert!(binding_state_unchanged(&home, Some(&bound), &after_revoke, "mudou").is_ok());
         assert!(binding_state_unchanged(&home, Some(&bound), &binding, "mudou").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn revoke_refuses_while_an_enroll_is_in_progress_without_erasing_the_identity() {
+        let (dir, home) = test_home();
+        let bound = link(&home, "binding");
+        home.save_link(&bound).unwrap();
+        let binding = home.binding_epoch().unwrap();
+        let auth = home.auth_epoch().unwrap();
+        let enrolling = home.enroll_lock().unwrap();
+        let refused = revoke(&home, true).await.unwrap_err();
+        assert!(refused.to_string().contains("já existe um cadastro em andamento"), "{refused:#}");
+        assert_eq!(home.link().unwrap(), bound);
+        assert_eq!(home.binding_epoch().unwrap(), binding);
+        assert_eq!(home.auth_epoch().unwrap(), auth);
+        assert!(home.0.join("identity.key").is_file());
+        assert!(home.0.join("hub.json").is_file());
+        drop(enrolling);
+        main(Action::Revoke { local_only: true, home: Some(dir.clone()) }).await.unwrap();
+        assert!(home.link().is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

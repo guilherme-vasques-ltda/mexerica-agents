@@ -390,6 +390,31 @@ fn verify_file(
     })))
 }
 
+/// A pasta mudou depois de gravar: o arquivo já existe no disco, então a falha é incerta, nunca "nada foi gravado".
+fn verify_location_after_write(
+    plan: &Plan,
+    root_dir: &Dir,
+    root_id: Option<FileId>,
+    folder_id: Option<FileId>,
+    path: &Path,
+    folder_created: bool,
+) -> Result<(), Failure> {
+    if let Some(folder) = &plan.folder
+        && (root_id.is_some_and(|id| root_dir.identity().ok() != Some(id))
+            || root_dir.entry_identity(folder).ok() != folder_id)
+    {
+        return fail(
+            "verify_failed",
+            format!(
+                "o arquivo foi gravado mas a pasta mudou durante a conferência ({folder}); confira {} à mão",
+                path.display()
+            ),
+            json!({"folderCreated":folder_created,"path":path.display().to_string()}),
+        );
+    }
+    Ok(())
+}
+
 /// Cria a pasta (se faltar), grava o arquivo SEM sobrescrever, reabre do disco e confere. Só chama depois do start do Hub.
 /// `on_created` recebe a identidade do arquivo recém-criado e da subpasta que o contém ANTES de qualquer byte ser gravado:
 /// são a prova durável de autoria que a recuperação pós-queda exige.
@@ -489,12 +514,7 @@ pub fn execute(
     let receipt = checked?;
     // No POSIX, entre `openat` da pasta e `create_new` não há trava interprocesso do diretório pai: a conferência
     // pós-gravação garante que só fica confirmado o arquivo que permaneceu na pasta liberada.
-    if let Some(folder) = &plan.folder
-        && (root_id.is_some_and(|id| root_dir.identity().ok() != Some(id))
-            || root_dir.entry_identity(folder).ok() != folder_id)
-    {
-        return changed();
-    }
+    verify_location_after_write(plan, &root_dir, root_id, folder_id, &path, folder_created)?;
     Ok(receipt)
 }
 
@@ -524,23 +544,39 @@ pub fn recover(
     {
         return None;
     }
-    let (dir, shown) = match &plan.folder {
-        None => (root_dir, root.to_path_buf()),
+    let expected_folder = match (&plan.folder, folder_id) {
+        (None, _) => None,
+        (Some(_), Some(id)) => Some(id),
+        (Some(_), None) => return None,
+    };
+    let (child, shown) = match &plan.folder {
+        None => (None, root.to_path_buf()),
         Some(folder) => {
-            let expected_folder = folder_id?;
+            let expected = expected_folder?;
             let entry = root_dir.entry_identity(folder).ok()?;
             let dir = root_dir.open_dir(folder).ok()?;
-            if entry != expected_folder || dir.identity().ok() != Some(expected_folder) {
+            if entry != expected || dir.identity().ok() != Some(expected) {
                 return None;
             }
-            (dir, root.join(folder))
+            (Some(dir), root.join(folder))
         }
     };
+    let dir = child.as_ref().unwrap_or(&root_dir);
     let file = dir.open_read(&plan.filename).ok()?;
     if identity(&file.metadata().ok()?) != created {
         return None;
     }
-    verify_file(plan, Ok(file), &shown.join(&plan.filename), None, Some(created)).ok()
+    let receipt = verify_file(plan, Ok(file), &shown.join(&plan.filename), None, Some(created)).ok()?;
+    if root_id.is_some_and(|id| root_dir.identity().ok() != Some(id)) {
+        return None;
+    }
+    if let Some(folder) = &plan.folder {
+        let expected = expected_folder?;
+        if root_dir.entry_identity(folder).ok() != Some(expected) || dir.identity().ok() != Some(expected) {
+            return None;
+        }
+    }
+    Some(receipt)
 }
 
 /// O alvo comprovadamente não existia antes desta tentativa? Qualquer erro além de "não existe" conta como "existia".
@@ -878,6 +914,35 @@ mod tests {
         assert!(recover(&plan, &root, Some((root_id.0, root_id.1 + 1)), Some(folder_id), copied).is_none());
         assert!(recover(&plan, &root, Some(root_id), Some(folder_id), created).is_none());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_folder_changed_after_the_write_is_verify_failed_not_nothing_written() {
+        let root = tmp("postwrite");
+        let plan = plan_of(Some("Pasta X"), "Vendas.xlsx");
+        let folder = root.join("Pasta X");
+        std::fs::create_dir(&folder).unwrap();
+        let folder_id = dir_identity(&folder).unwrap();
+        let path = folder.join("Vendas.xlsx");
+        let root_dir = Dir::open_root(&root).unwrap();
+        std::fs::rename(&folder, root.join("Pasta antiga")).unwrap();
+        std::fs::create_dir(&folder).unwrap();
+        let failed = verify_location_after_write(&plan, &root_dir, None, Some(folder_id), &path, true).unwrap_err();
+        assert_eq!(failed.code, "verify_failed");
+        assert!(!failed.message.contains("nada foi gravado"), "{}", failed.message);
+        assert_eq!(failed.detail["folderCreated"], json!(true));
+
+        let written = tmp("postwrite2");
+        let failure = execute(&plan, &written, None, &|_, _| {
+            std::fs::rename(written.join("Pasta X"), written.join("Pasta antiga"))?;
+            std::fs::create_dir(written.join("Pasta X"))
+        })
+        .err()
+        .expect("a conferência posterior recusa a subpasta trocada");
+        assert_eq!(failure.code, "verify_failed");
+        assert_eq!(std::fs::read_dir(written.join("Pasta antiga")).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(written).unwrap();
     }
 
     #[test]
