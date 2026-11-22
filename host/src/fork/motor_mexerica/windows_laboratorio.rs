@@ -174,29 +174,67 @@ fn restrict_path(path: &Path, sddl: &str) -> Result<()> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum TokenField {
+    Abertura,
+    AppContainer,
+    Lpac,
+    Elevacao,
+    Pacote,
+    Usuario,
+    Integridade,
+    Grupos,
+    Privilegios,
+    Capacidades,
+    LuidTransito,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum TokenRefusal {
+    Api,
+    Formato,
+    Valor,
+}
+
 fn token(process: HANDLE) -> Result<OwnedHandle> {
+    open_token(process).map_err(|_| REFUSED)
+}
+
+fn open_token(process: HANDLE) -> std::result::Result<OwnedHandle, TokenRefusal> {
     let mut raw = null_mut();
     // SAFETY: process is a live process handle or the current-process pseudohandle.
-    require(unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut raw) } != 0)?;
-    handle(raw)
+    require(unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut raw) } != 0).map_err(|_| TokenRefusal::Api)?;
+    handle(raw).map_err(|_| TokenRefusal::Formato)
 }
 
 fn token_data(token: &OwnedHandle, class: TOKEN_INFORMATION_CLASS, minimum: usize) -> Result<Vec<usize>> {
+    query_token_data(token, class, minimum).map_err(|_| REFUSED)
+}
+
+fn query_token_data(
+    token: &OwnedHandle,
+    class: TOKEN_INFORMATION_CLASS,
+    minimum: usize,
+) -> std::result::Result<Vec<usize>, TokenRefusal> {
     let mut len = 0;
     // SAFETY: this first call only asks for the required size.
     unsafe { GetTokenInformation(token.as_raw_handle(), class, null_mut(), 0, &mut len) };
-    require((minimum..=64 * 1024).contains(&(len as usize)))?;
+    require(len as usize >= minimum).map_err(|_| TokenRefusal::Api)?;
+    require(len <= 64 * 1024).map_err(|_| TokenRefusal::Formato)?;
     let mut data = vec![0usize; (len as usize).div_ceil(size_of::<usize>())];
     // SAFETY: data is properly aligned, zeroed, and covers len bytes.
-    require(
-        unsafe { GetTokenInformation(token.as_raw_handle(), class, data.as_mut_ptr().cast(), len, &mut len) } != 0,
-    )?;
-    require(len as usize >= minimum)?;
+    require(unsafe { GetTokenInformation(token.as_raw_handle(), class, data.as_mut_ptr().cast(), len, &mut len) } != 0)
+        .map_err(|_| TokenRefusal::Api)?;
+    require(len as usize >= minimum).map_err(|_| TokenRefusal::Api)?;
     Ok(data)
 }
 
 fn token_value(token: &OwnedHandle, class: TOKEN_INFORMATION_CLASS) -> Result<u32> {
-    let data = token_data(token, class, size_of::<u32>())?;
+    query_token_value(token, class).map_err(|_| REFUSED)
+}
+
+fn query_token_value(token: &OwnedHandle, class: TOKEN_INFORMATION_CLASS) -> std::result::Result<u32, TokenRefusal> {
+    let data = query_token_data(token, class, size_of::<u32>())?;
     // SAFETY: the queried class returns at least a DWORD at the start of the buffer.
     Ok(unsafe { *data.as_ptr().cast::<u32>() })
 }
@@ -339,55 +377,71 @@ fn local_app_data(token: &OwnedHandle) -> Result<(Vec<File>, Vec<u16>)> {
     Ok((handles, local[4..].to_vec()))
 }
 
-fn verify_token(child: &OwnedHandle, owner: PSID, expected: PSID) -> Result<()> {
-    require(
-        token_value(child, TokenIsAppContainer)? == 1
-            && token_value(child, TokenIsLessPrivilegedAppContainer)? == 1
-            && token_value(child, TokenElevation)? == 0,
-    )?;
-    let package = token_data(child, TokenAppContainerSid, size_of::<TOKEN_APPCONTAINER_INFORMATION>())?;
-    let user = token_data(child, TokenUser, size_of::<TOKEN_USER>())?;
-    let integrity = token_data(child, TokenIntegrityLevel, size_of::<TOKEN_MANDATORY_LABEL>())?;
-    let groups = token_data(child, TokenGroups, offset_of!(TOKEN_GROUPS, Groups))?;
-    let privileges = token_data(child, TokenPrivileges, offset_of!(TOKEN_PRIVILEGES, Privileges))?;
-    require(token_value(child, TokenCapabilities)? == 0)?;
+fn verify_token(process: HANDLE, owner: PSID, expected: PSID) -> std::result::Result<(), (TokenField, TokenRefusal)> {
+    use TokenField as Field;
+    use TokenRefusal::{Api, Formato, Valor};
+    let child = open_token(process).map_err(|reason| (Field::Abertura, reason))?;
+    let value = |field, class, expected| {
+        let actual = query_token_value(&child, class).map_err(|reason| (field, reason))?;
+        require(actual == expected).map_err(|_| (field, Valor))
+    };
+    let data = |field, class, minimum| query_token_data(&child, class, minimum).map_err(|reason| (field, reason));
+    value(Field::AppContainer, TokenIsAppContainer, 1)?;
+    value(Field::Lpac, TokenIsLessPrivilegedAppContainer, 1)?;
+    value(Field::Elevacao, TokenElevation, 0)?;
+    let package = data(Field::Pacote, TokenAppContainerSid, size_of::<TOKEN_APPCONTAINER_INFORMATION>())?;
+    let user = data(Field::Usuario, TokenUser, size_of::<TOKEN_USER>())?;
+    let integrity = data(Field::Integridade, TokenIntegrityLevel, size_of::<TOKEN_MANDATORY_LABEL>())?;
+    let groups = data(Field::Grupos, TokenGroups, offset_of!(TOKEN_GROUPS, Groups))?;
+    let privileges = data(Field::Privilegios, TokenPrivileges, offset_of!(TOKEN_PRIVILEGES, Privileges))?;
+    value(Field::Capacidades, TokenCapabilities, 0)?;
     // SAFETY: token_data checked the buffer sizes; the token API fills embedded SID pointers.
     unsafe {
         let package = (*package.as_ptr().cast::<TOKEN_APPCONTAINER_INFORMATION>()).TokenAppContainer;
         let user = (*user.as_ptr().cast::<TOKEN_USER>()).User.Sid;
         let level = (*integrity.as_ptr().cast::<TOKEN_MANDATORY_LABEL>()).Label.Sid;
-        require(!package.is_null() && !user.is_null() && !level.is_null())?;
-        require(EqualSid(package, expected) != 0 && EqualSid(user, owner) != 0)?;
+        require(!package.is_null()).map_err(|_| (Field::Pacote, Formato))?;
+        require(!user.is_null()).map_err(|_| (Field::Usuario, Formato))?;
+        require(!level.is_null()).map_err(|_| (Field::Integridade, Formato))?;
+        require(EqualSid(package, expected) != 0).map_err(|_| (Field::Pacote, Valor))?;
+        require(EqualSid(user, owner) != 0).map_err(|_| (Field::Usuario, Valor))?;
         let count = u32::from(*GetSidSubAuthorityCount(level));
-        require(count > 0 && *GetSidSubAuthority(level, count - 1) == SECURITY_MANDATORY_LOW_RID.cast_unsigned())?;
+        require(count > 0).map_err(|_| (Field::Integridade, Formato))?;
+        require(*GetSidSubAuthority(level, count - 1) == SECURITY_MANDATORY_LOW_RID.cast_unsigned())
+            .map_err(|_| (Field::Integridade, Valor))?;
         let count = *groups.as_ptr().cast::<u32>() as usize;
         require(
             count
                 <= (size_of_val(groups.as_slice()) - offset_of!(TOKEN_GROUPS, Groups))
                     / size_of::<SID_AND_ATTRIBUTES>(),
-        )?;
+        )
+        .map_err(|_| (Field::Grupos, Formato))?;
         let entries = groups.as_ptr().cast::<u8>().add(offset_of!(TOKEN_GROUPS, Groups)).cast::<SID_AND_ATTRIBUTES>();
         for entry in std::slice::from_raw_parts(entries, count) {
             require(
                 entry.Attributes & SE_GROUP_ENABLED.cast_unsigned() == 0
                     || IsWellKnownSid(entry.Sid, WinBuiltinAdministratorsSid) == 0,
-            )?;
+            )
+            .map_err(|_| (Field::Grupos, Valor))?;
         }
         let count = *privileges.as_ptr().cast::<u32>() as usize;
         require(
             count
                 <= (size_of_val(privileges.as_slice()) - offset_of!(TOKEN_PRIVILEGES, Privileges))
                     / size_of::<LUID_AND_ATTRIBUTES>(),
-        )?;
+        )
+        .map_err(|_| (Field::Privilegios, Formato))?;
         let entries = privileges
             .as_ptr()
             .cast::<u8>()
             .add(offset_of!(TOKEN_PRIVILEGES, Privileges))
             .cast::<LUID_AND_ATTRIBUTES>();
         let mut traverse = std::mem::zeroed();
-        require(LookupPrivilegeValueW(null(), wide("SeChangeNotifyPrivilege").as_ptr(), &mut traverse) != 0)?;
+        require(LookupPrivilegeValueW(null(), wide("SeChangeNotifyPrivilege").as_ptr(), &mut traverse) != 0)
+            .map_err(|_| (Field::LuidTransito, Api))?;
         for entry in std::slice::from_raw_parts(entries, count) {
-            require(entry.Luid.HighPart == traverse.HighPart && entry.Luid.LowPart == traverse.LowPart)?;
+            require(entry.Luid.HighPart == traverse.HighPart && entry.Luid.LowPart == traverse.LowPart)
+                .map_err(|_| (Field::Privilegios, Valor))?;
         }
     }
     Ok(())
@@ -592,11 +646,17 @@ struct Lab {
     stage: Stage,
     child_stage: Option<i32>,
     create_error: Option<u32>,
+    token_refusal: Option<(TokenField, TokenRefusal)>,
 }
 
 impl Lab {
     fn report_refusal(&self) {
         eprintln!("LAB_STAGE={:?}", self.stage);
+        if let Stage::TokenLpac = self.stage
+            && let Some((field, reason)) = self.token_refusal
+        {
+            eprintln!("LAB_TOKEN={field:?}:{reason:?}");
+        }
         if let Some(code) = self.create_error {
             eprintln!("LAB_WIN32={code}");
         }
@@ -609,6 +669,7 @@ impl Lab {
         self.stage = Stage::Preparo;
         self.child_stage = None;
         self.create_error = None;
+        self.token_refusal = None;
         require(!self.unconfirmed)?;
         let (_profile_dirs, local_data) = local_app_data(&profile_token()?)?;
         // SAFETY: GetCurrentProcess returns the current process pseudohandle.
@@ -725,7 +786,10 @@ impl Lab {
             self.stage = Stage::Job;
             verify_job(&job, process)?;
             self.stage = Stage::TokenLpac;
-            verify_token(&token(process.as_raw_handle())?, owner_sid, profile.sid)?;
+            if let Err(refusal) = verify_token(process.as_raw_handle(), owner_sid, profile.sid) {
+                self.token_refusal = Some(refusal);
+                return Err(REFUSED);
+            }
             self.stage = Stage::Imagem;
             verify_image(process, &locked, expected)?;
             self.stage = Stage::Loopback;
