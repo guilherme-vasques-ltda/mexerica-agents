@@ -86,6 +86,7 @@ async fn adaptadores_do_path_do_hub_nao_entram_no_modo_separado() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test]
 #[ignore = "somente VM descartável com root, ajudante e binário do host"]
 async fn instalador_prova_uid_real() {

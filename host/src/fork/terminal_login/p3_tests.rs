@@ -1,6 +1,8 @@
 //! Follow-up dos P3 da r3 do #827: modo agente, limpeza com links, perfil substituído e Space.
 use super::*;
+#[cfg(unix)]
 use crate::fork::terminal_login::{self, Login};
+#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(unix)]
@@ -16,6 +18,7 @@ fn promovivel(f: &Fixture, caller: &Caller, space: &str) -> Arc<Login> {
     let cli = script(f, "cursor-ok", "#!/usr/bin/python3\nprint('Logged in as fixture')\n");
     Login::fixture_in(&f.hub, caller, "cursor", cli, space).unwrap()
 }
+#[cfg(unix)]
 fn space_b(f: &Fixture) {
     let mut state = f.hub.store.spaces().unwrap();
     let mut space = state.spaces[0].clone();
@@ -25,6 +28,7 @@ fn space_b(f: &Fixture) {
     state.spaces.push(space);
     f.hub.store.kv_set("donna.spaces.v1", &serde_json::to_string(&state).unwrap()).unwrap();
 }
+#[cfg(unix)]
 fn vivo(pid: i32) -> bool {
     // SAFETY: sinal zero apenas consulta o PID criado pela fixture.
     unsafe { libc::kill(pid, 0) == 0 }

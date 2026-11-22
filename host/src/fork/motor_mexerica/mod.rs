@@ -760,7 +760,7 @@ async fn serve_vault(vault_source: VaultSource, socket: tokio::net::UnixStream, 
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests_tools;
 
 #[cfg(test)]
