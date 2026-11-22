@@ -195,6 +195,9 @@ extension ChannelTransport {
                 if decided { group.cancelAll() }
             }
             if case .none = winner {
+                // A saved computer with no relay ignores a plaintext reject, so the identity
+                // failure must survive to end the attempt without retrying.
+                if let identityFailure, !pair, computer.cloud == nil { return .identityFailure(identityFailure) }
                 // A reject asking for an action (upgrade, revocation) still wins over an
                 // unproven identity failure recorded at another saved address.
                 if let rejection { return .rejected(rejection.0, isUpgrade: rejection.1) }

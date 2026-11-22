@@ -368,6 +368,27 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     await t.shutdown()
 }
 
+@Test(.timeLimit(.minutes(1))) func savedComputerKeepsIdentityFailureOverPlainReject() async throws {
+    let (dial, sockets) = fakeDialer()
+    var computer = v.computer
+    computer.boxKey = nil
+    computer.urls = ["http://192.0.2.1:19222", "http://192.0.2.2:19222"]
+    computer.cloud = nil
+    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial,
+                             directBudget: .seconds(5), watchesNetwork: false)
+    await t.start()
+    var it = sockets.makeAsyncIterator()
+    var stranger = HostSide(try #require(await it.next()))
+    try await stranger.accept(hostSigner: Curve25519.Signing.PrivateKey())
+    let other = try #require(await it.next())
+    let rejecter = HostSide(other)
+    _ = try await rejecter.raw()
+    await rejecter.push(["t": "reject", "code": "unauthorized"])
+    #expect(await t.settled(within: .seconds(5)) == .unauthorized(ChannelTransport.identityChanged))
+    #expect(await t.isStopped)
+    await t.shutdown()
+}
+
 @Test(.timeLimit(.minutes(1))) func invalidDirectWelcomeFallsBackToTheRelay() async throws {
     let (dial, sockets) = fakeDialer()
     var computer = v.computer
