@@ -74,7 +74,7 @@ export function buildBaseOptions(
 		websocketConnectTimeoutMs: options?.websocketConnectTimeoutMs,
 		maxRetries: options?.maxRetries,
 		maxRetryDelayMs: options?.maxRetryDelayMs,
-		noRetryStatuses: options?.noRetryStatuses,
+		retryStatuses: options?.retryStatuses,
 		retryWithoutStatus: options?.retryWithoutStatus,
 		retryBudget: options?.retryBudget,
 		metadata: options?.metadata,

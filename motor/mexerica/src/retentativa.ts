@@ -12,16 +12,17 @@ export const ESPERA_MAXIMA_MS = 30_000;
 /** Teto de espera do turno inteiro, somando todas as chamadas dele (uma volta de ferramentas gasta o mesmo orçamento). */
 export const TETO_DE_ESPERA_DO_TURNO_MS = (MAX_TENTATIVAS - 1) * ESPERA_MAXIMA_MS;
 
-/** Recusa definitiva: repetir o mesmo pedido só gastaria uma chamada e devolveria o mesmo erro. 400 (pedido
- * inválido, inclusive estouro de contexto), 401/403 (credencial e autoridade), 404 (modelo ou rota inexistente),
- * 413 e 422 (tamanho e formato que o fornecedor não aceita). */
-export const STATUS_SEM_REPETICAO: readonly number[] = [400, 401, 403, 404, 413, 422];
+/** Recusa que o fornecedor usa para dizer que NÃO aceitou o pedido: 408 (ele desistiu de esperar), 409 (conflito) e
+ * 429 (limite de uso). É a lista inteira: 4xx de pedido inválido, credencial, autoridade, modelo, tamanho e formato, e
+ * qualquer 5xx, ficam de fora. Um 5xx pode vir de um pedido que o fornecedor já começou a processar, e repetir ali
+ * duplicaria geração e cobrança. */
+export const STATUS_DE_REPETICAO: readonly number[] = [408, 409, 429];
 
 /** Opções de cada pedido ao fornecedor: o laço de repetição do Pi respeita `retry-after` dentro destes limites. */
 export const OPCOES_DE_REPETICAO = {
 	maxRetries: MAX_TENTATIVAS - 1,
 	maxRetryDelayMs: ESPERA_MAXIMA_MS,
-	noRetryStatuses: STATUS_SEM_REPETICAO,
+	retryStatuses: STATUS_DE_REPETICAO,
 	// Erro sem status não prova que o fornecedor recusou antes de processar: não repete.
 	retryWithoutStatus: false,
 } as const;

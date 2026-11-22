@@ -217,11 +217,11 @@ export interface ProviderRequestOptions<TModel = Model<Api>> {
 	 */
 	maxRetryDelayMs?: number;
 	/**
-	 * HTTP statuses that fail at once, even when the provider asks for a retry.
-	 * A definitive rejection (bad request, credential, unknown model, oversized payload)
-	 * is never repeated, whatever `x-should-retry` says.
+	 * The HTTP statuses that may be retried, and the whole policy when present: a status outside
+	 * the list fails at once, and `x-should-retry: true` cannot add one, so an ambiguous gateway
+	 * error is never repeated. Omit it for the provider policy (408, 409, 429 and 5xx).
 	 */
-	noRetryStatuses?: readonly number[];
+	retryStatuses?: readonly number[];
 	/**
 	 * Whether an error with no HTTP status is retried. Such an error is a connection failure:
 	 * the provider may already have received and processed the request, so repeating it can

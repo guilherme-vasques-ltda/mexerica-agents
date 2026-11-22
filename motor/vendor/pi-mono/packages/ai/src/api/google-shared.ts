@@ -542,7 +542,7 @@ export function retryGoogleRequest<T>(
 	request: () => Promise<T>,
 	options?: Pick<
 		StreamOptions,
-		"maxRetries" | "maxRetryDelayMs" | "noRetryStatuses" | "retryWithoutStatus" | "retryBudget" | "signal"
+		"maxRetries" | "maxRetryDelayMs" | "retryStatuses" | "retryWithoutStatus" | "retryBudget" | "signal"
 	>,
 ): Promise<T> {
 	return retryProviderRequest(
@@ -559,7 +559,7 @@ export function retryGoogleRequest<T>(
 		{
 			maxRetries: options?.maxRetries,
 			maxRetryDelayMs: options?.maxRetryDelayMs,
-			noRetryStatuses: options?.noRetryStatuses,
+			retryStatuses: options?.retryStatuses,
 			retryWithoutStatus: options?.retryWithoutStatus,
 			retryBudget: options?.retryBudget,
 			signal: options?.signal,

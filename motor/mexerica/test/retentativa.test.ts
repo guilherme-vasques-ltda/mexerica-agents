@@ -13,7 +13,7 @@ import {
 	MAX_TENTATIVAS,
 	OPCOES_DE_REPETICAO,
 	orcamentoDoTurno,
-	STATUS_SEM_REPETICAO,
+	STATUS_DE_REPETICAO,
 	TETO_DE_ESPERA_DO_TURNO_MS,
 } from "../src/retentativa.ts";
 
@@ -178,6 +178,19 @@ test("a repetição é finita: três chamadas e o turno falha", async () => {
 	}
 });
 
+test("5xx não repete: o pedido pode ter sido processado", async () => {
+	const { proc, log, fechar } = motor("503_sempre");
+	try {
+		await modelo(proc);
+		proc.send({ id: "p", type: "prompt", message: "oi" });
+		const fim = await proc.waitFor(turnoTerminou, 30_000);
+		assert.match(JSON.stringify(fim), /error/, "o turno tinha de terminar em erro");
+		assert.equal(chamadas(log).length, 1, "5xx não prova recusa antes do processamento: nenhuma repetição");
+	} finally {
+		await fechar();
+	}
+});
+
 test("resposta que já começou a chegar não é repetida", async () => {
 	const { proc, log, fechar } = motor("resposta_parcial");
 	try {
@@ -218,15 +231,13 @@ test("o orçamento de espera é do turno, não de cada chamada", async () => {
 	assert.equal(tentativasNaSegunda, 1, "orçamento do turno gasto: a repetição não começa");
 });
 
-test("a política de repetição é limitada e veta a recusa definitiva", () => {
+test("a política de repetição é limitada e só repete a recusa de pedido não aceito", () => {
 	assert.ok(MAX_TENTATIVAS >= 2 && MAX_TENTATIVAS <= 3, "poucas tentativas: 1 pedido e no máximo 2 repetições");
 	assert.ok(ESPERA_MAXIMA_MS <= 30_000, "a espera de uma repetição não passa de 30 s");
 	assert.ok(TETO_DE_ESPERA_DO_TURNO_MS <= 60_000, "o turno não espera repetições por mais de 60 s");
-	for (const status of [400, 401, 403, 404, 413, 422]) {
-		assert.ok(STATUS_SEM_REPETICAO.includes(status), `${status} é recusa definitiva e não pode repetir`);
-	}
-	for (const status of [408, 409, 429, 500, 503]) {
-		assert.ok(!STATUS_SEM_REPETICAO.includes(status), `${status} é recusa temporária e pode repetir`);
+	assert.deepEqual([...STATUS_DE_REPETICAO], [408, 409, 429], "a lista é exatamente a recusa de pedido não aceito");
+	for (const status of [400, 401, 403, 404, 413, 422, 500, 502, 503, 504]) {
+		assert.ok(!STATUS_DE_REPETICAO.includes(status), `${status} pode vir depois de o fornecedor processar`);
 	}
 	assert.equal(OPCOES_DE_REPETICAO.retryWithoutStatus, false, "erro sem status não prova recusa");
 	assert.equal(OPCOES_DE_REPETICAO.maxRetryDelayMs, ESPERA_MAXIMA_MS);
