@@ -63,20 +63,23 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
     }
 
     /** The call's microphone delivers audio again, on the current link: only now can speech count. */
-    fun audioStarted() { evidence.audioStarted = true }
+    fun audioStarted() {
+        if (!evidence.audioStarted) evidence.captureEpoch.incrementAndGet()
+        evidence.audioStarted = true
+    }
 
-    /** Times the computer's data reached the model so far, for the microphone thread to stamp each frame. */
-    val delivery: Int get() = evidence.deliveries.get()
+    /** The microphone thread stamps each frame so old audio can't authorize after a delivery or pause. */
+    val captureEpoch: Int get() = evidence.captureEpoch.get()
 
     /**
      * The engine heard the user speaking: this turn may act. `at`: where that speech began, in
-     * deliveries, when the engine knows it — speech that began before the last delivery doesn't
+     * capture epochs, when the engine knows it — speech that began before the last delivery doesn't
      * authorize, however late it is noticed. While a delivery is unconfirmed, the provider's speech
      * events may predate it, so they don't count either.
      */
     fun speechDetected(at: Int? = null) {
         if (!evidence.audioStarted || evidence.muted || evidence.unconfirmed.isNotEmpty()) return
-        if (at != null && at != evidence.deliveries.get()) return
+        if (at != null && at != captureEpoch) return
         evidence.speechThisTurn = true
     }
 
@@ -86,27 +89,24 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
      */
     fun dataDelivered(confirmation: String? = null) {
         evidence.speechThisTurn = false
-        evidence.deliveries.incrementAndGet()
+        evidence.captureEpoch.incrementAndGet()
         if (confirmation != null) evidence.unconfirmed += confirmation
     }
 
-    /** The provider confirmed it received delivery [id]: speech it reports from now on came after it. */
+    /** The provider confirmed it received delivery [id]; an ACK doesn't itself authorize any speech. */
     fun confirmed(id: String) { evidence.unconfirmed -= id }
 
-    /**
-     * The call stopped listening (muted by the system, paused, or the link dropped): nothing said
-     * before authorizes, and late speech events are ignored until the engine reports audio again.
-     */
-    fun stopListening() {
-        evidence.speechThisTurn = false
-        evidence.audioStarted = false
-        // Confirmations belong to the link that dropped: kept, they would block the next link's speech.
-        evidence.unconfirmed.clear()
-    }
+    internal fun awaitsConfirmation(id: String): Boolean = id in evidence.unconfirmed
+
+    fun stopListening() = evidence.pause()
+
+    fun resetLink() = evidence.resetLink()
 
     fun muteChanged(muted: Boolean) {
+        if (muted == evidence.muted) return
         evidence.muted = muted
-        if (muted) evidence.speechThisTurn = false
+        evidence.speechThisTurn = false
+        evidence.captureEpoch.incrementAndGet()
     }
 
     /** How a reply is handed to the operator. */
