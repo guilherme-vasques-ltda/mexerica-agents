@@ -117,17 +117,17 @@ class VoiceEnginesTest {
 
     private fun sendCall(operator: CallOperator, text: String = "oi") = operator.call("send_to_bot", buildJsonObject { put("text", text) })
     private fun approveCall(operator: CallOperator) = operator.call("answer_approval", buildJsonObject { put("option", "allow") })
-    private fun refused(result: JsonObject) = "Nothing was heard from the user yet." == result["error"]?.jsonPrimitive?.content
+    private fun wasRefused(result: JsonObject) = "Nothing was heard from the user yet." == result["error"]?.jsonPrimitive?.content
 
     /** The user owns sending and approving: only their own fresh speech acts, and the computer's data ends it. */
     @Test fun theCallActsOnlyOnSpeechTheUserMadeAfterTheComputersData() {
         val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
         val operator = CallOperator("ada", desk)
 
-        assertTrue(refused(sendCall(operator)))       // No call yet.
+        assertTrue(wasRefused(sendCall(operator)))       // No call yet.
         operator.audioStarted()
-        assertTrue(refused(sendCall(operator)))       // The microphone is on, but nobody spoke.
-        assertTrue(refused(approveCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))       // The microphone is on, but nobody spoke.
+        assertTrue(wasRefused(approveCall(operator)))
         assertTrue(desk.sent.isEmpty()); assertTrue(desk.answered.isEmpty())
 
         operator.speechDetected()
@@ -138,8 +138,8 @@ class VoiceEnginesTest {
 
         // The bot's reply reached the model asking for more: that turn may no longer act.
         operator.dataDelivered()
-        assertTrue(refused(sendCall(operator)))
-        assertTrue(refused(approveCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
+        assertTrue(wasRefused(approveCall(operator)))
         assertEquals(listOf("oi"), desk.sent); assertEquals(1, desk.answered.size)
 
         // Speech after the delivery may act again.
@@ -156,21 +156,21 @@ class VoiceEnginesTest {
 
         operator.speechDetected()
         operator.muteChanged(true)
-        assertTrue(refused(sendCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
         operator.muteChanged(false) // Speech from before the mute doesn't come back.
-        assertTrue(refused(sendCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
         operator.speechDetected()
         operator.stopListening()    // The link dropped.
-        assertTrue(refused(sendCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
         operator.speechDetected()
         operator.muteChanged(true)
-        assertTrue(refused(approveCall(operator)))
+        assertTrue(wasRefused(approveCall(operator)))
         operator.muteChanged(false)
 
         // Every result but send_to_bot's own is the computer's data.
         operator.speechDetected()
         assertEquals("idle", operator.call("bot_status", JsonObject(emptyMap()))["status"]?.jsonPrimitive?.content)
-        assertTrue(refused(sendCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
         assertTrue(desk.sent.isEmpty()); assertTrue(desk.answered.isEmpty())
     }
 
@@ -183,12 +183,12 @@ class VoiceEnginesTest {
         val captured = operator.delivery // A frame heard before the data reached the model.
         operator.dataDelivered()
         operator.speechDetected(captured) // Processed later, it keeps its older mark.
-        assertTrue(refused(sendCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
 
         // While a delivery is unconfirmed, the provider's speech events may predate it.
         operator.dataDelivered("mx_1")
         operator.speechDetected()
-        assertTrue(refused(sendCall(operator)))
+        assertTrue(wasRefused(sendCall(operator)))
         operator.confirmed("mx_1")
         operator.speechDetected()
         assertEquals(true, sendCall(operator)["sent"]?.jsonPrimitive?.boolean)
