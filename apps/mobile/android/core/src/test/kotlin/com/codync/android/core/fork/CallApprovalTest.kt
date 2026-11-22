@@ -110,9 +110,23 @@ class CallApprovalTest {
             choice(null, "shared name", "reject_once"),
         )))
         val operator = CallOperator("test-bot", desk)
+        assertTrue(status(operator)["options"]!!.jsonArray.isEmpty())
         for (option in listOf("collision", " shared NAME ", "unrecognized")) {
             assertEquals(option, buildJsonObject { put("error", "Aprove no app") }, heardAnswer(operator, option))
         }
         assertTrue(desk.responses.isEmpty())
+    }
+
+    @Test fun statusUsesExactIdWhenTheOptionNameIsAmbiguous() {
+        val approval = card(JsonPrimitive("allow_once"),
+            choice("Once_V1", "Allow once"),
+            choice("blocked", " ALLOW ONCE ", "reject_once"),
+        )
+        val desk = Desk(listOf(approval))
+        val operator = CallOperator("test-bot", desk)
+
+        assertEquals(JsonArray(listOf(JsonPrimitive("Once_V1"))), status(operator)["options"])
+        assertEquals(JsonPrimitive("Allow once"), heardAnswer(operator, "Once_V1")["answered"])
+        assertEquals(listOf(approval to "Once_V1"), desk.responses)
     }
 }

@@ -14,7 +14,16 @@ internal class CallApproval(private val data: JsonObject) {
     fun status(): JsonObject = buildJsonObject {
         put("request", data.text("title") ?: data.text("command") ?: "")
         putJsonArray("options") {
-            if (voiceAllowed) eligibleOptions(options()).forEach { add(it.name ?: it.id) }
+            if (voiceAllowed) {
+                val options = options()
+                for (option in eligibleOptions(options)) {
+                    val name = option.name
+                    when {
+                        !name.isNullOrBlank() && matchingOptions(options, name).singleOrNull() == option -> add(name)
+                        matchingOptions(options, option.id).singleOrNull() == option -> add(option.id)
+                    }
+                }
+            }
         }
         put("voiceApproval", if (voiceAllowed) ALLOW_ONCE else "app_only")
         put("note", if (voiceAllowed) "Pela voz, apenas permitir uma vez." else APPROVE_IN_APP)
