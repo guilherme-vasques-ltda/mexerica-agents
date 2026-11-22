@@ -83,8 +83,9 @@ estão rodando. "Re-run failed jobs" repete só o que falhou e o que depende del
 
 O [Open Code Review](../../.github/workflows/code-review.yml) roda fora do `ci-ok` em PRs
 internos e sem rascunho para `main`, na abertura, reabertura ou atualização do código. Se a
-configuração estiver ausente, o job pula a revisão. Ele precisa dos Secrets `OCR_LLM_URL` e
-`OCR_LLM_AUTH_TOKEN` e da Variable `OCR_LLM_MODEL`. As Variables opcionais são
+configuração estiver ausente, o job pula a revisão. Ele precisa dos Secrets `OCR_LLM_URL`,
+`OCR_LLM_AUTH_TOKEN` e `OCR_LLM_MODEL`. O nome do modelo não é lido de uma Variable.
+As Variables opcionais são
 `OCR_LLM_PROTOCOL` (`openai`, `openai-responses` ou `anthropic`, padrão `openai`),
 `OCR_EFFORT` (`low`, `medium` ou `high`, padrão `medium`) e `OCR_LANGUAGE` (`Portuguese` ou
 `English`, padrão `Portuguese`) e `OCR_MAX_TOKENS_BUDGET` (inteiro positivo até 2.000.000,

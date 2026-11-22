@@ -267,7 +267,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def main(mode):
-    if mode == 'validate-url':
+    if mode == 'validate-provider':
+        model = os.environ['OCR_LLM_MODEL']
+        require(bool(model) and model == model.strip())
         raw = os.environ['OCR_LLM_URL']
         require(raw.isascii() and re.fullmatch(r'https://[^\s\\]+', raw))
         url = urlsplit(raw)
@@ -294,7 +296,7 @@ def main(mode):
     elif mode == 'project':
         _, files = snapshot(request, *args)
         work = Path(os.environ['RUNNER_TEMP']) / 'mexerica-ocr'
-        secrets = (os.environ['OCR_LLM_TOKEN'], os.environ['OCR_LLM_URL'])
+        secrets = (os.environ['OCR_LLM_TOKEN'], os.environ['OCR_LLM_URL'], os.environ['OCR_LLM_MODEL'])
         require(all(secrets))
         with (work / 'result.json').open('rb') as raw:
             payload = project(raw.read(MAX_JSON + 1), files, secrets)
