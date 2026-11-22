@@ -199,12 +199,14 @@ const DECLARADOS = new Set(modulosDeclarados())
 export type Modo = 'candidato' | 'base'
 
 /**
- * Fora do gate, cada um com motivo: testes e fixtures, a demo do site (dados fictícios) e os catálogos: só os
- * arquivos declarados no registro (`conferirModulos` valida a forma deles) e, na base, os planos antigos.
+ * Fora do gate, cada um com motivo: testes e fixtures, a demo do site (dados fictícios), a demo dos avatares
+ * (vitrine isolada da biblioteca, não é tela do produto) e os catálogos: só os arquivos declarados no registro
+ * (`conferirModulos` valida a forma deles) e, na base, os planos antigos.
  */
 export function foraDoGate(caminho: string, modo: Modo = 'candidato', declarados: ReadonlySet<string> = DECLARADOS): boolean {
   return /\.test\.(?:mts|cts|tsx?)$/.test(caminho) || /\.fixture\.(?:mts|cts|ts)$/.test(caminho) || /\.d\.(?:mts|cts|tsx?)$/.test(caminho)
     || caminho.startsWith('src/renderer/demo/')
+    || caminho.startsWith('src/renderer/lib/donnabot-avatars/demo/')
     || declarados.has(caminho)
     || (modo === 'base' && /^src\/renderer\/lib\/fork-i18n\/(pt-BR|en|es|fr|zh-CN|ar-AE)\.ts$/.test(caminho))
 }
