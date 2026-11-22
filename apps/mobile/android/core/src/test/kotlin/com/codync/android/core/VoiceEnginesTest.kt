@@ -78,7 +78,7 @@ class VoiceEnginesTest {
     private fun entry(id: String, seq: Long, kind: String, data: JsonObjectBuilder.() -> Unit, bot: String = "ada") =
         Entry(id, seq, bot, seq, kind, data = buildJsonObject(data))
     private val card = entry("card", 4, "permission", {
-        put("status", "pending"); put("title", "Run npm test")
+        put("status", "pending"); put("title", "Run npm test"); put("voiceApproval", "allow_once")
         putJsonArray("options") {
             addJsonObject { put("optionId", "allow_once"); put("name", "Allow once"); put("kind", "allow_once") }
             addJsonObject { put("optionId", "reject"); put("name", "Deny"); put("kind", "reject_once") }
@@ -101,10 +101,10 @@ class VoiceEnginesTest {
         assertEquals(listOf("ada" to "Started npm test", "approval request" to "Run npm test"),
             messages.map { it.jsonObject["from"]!!.jsonPrimitive.content.lowercase() to it.jsonObject["text"]!!.jsonPrimitive.content })
         operator.speechDetected() // A tool result can't answer the card; the user says which option.
-        assertEquals("Allow once", operator.call("answer_approval", buildJsonObject { put("option", "allow") })["answered"]?.jsonPrimitive?.content)
+        assertEquals("Allow once", approveCall(operator, "  ALLOW ONCE  ")["answered"]?.jsonPrimitive?.content)
         assertEquals(listOf("card" to "allow_once"), desk.answered)
         operator.speechDetected()
-        assertEquals(2, operator.call("answer_approval", buildJsonObject { put("option", "maybe") })["options"]!!.jsonArray.size)
+        assertEquals(listOf("allow_once"), approveCall(operator, "maybe")["options"]!!.jsonArray.map { it.jsonObject["optionId"]!!.jsonPrimitive.content })
         assertEquals("Unknown tool shell.", operator.call("shell", JsonObject(emptyMap()))["error"]?.jsonPrimitive?.content)
         assertEquals("[Ada replied] Done", operator.reply("**Done**")); assertEquals("[Notice] Hi", operator.notice("Hi"))
         val group = CallOperator("team", Desk(listOf(Bot("team", "Team", kind = "group", members = listOf("ada", "bo")), Bot("ada", "Ada"), Bot("bo", "Bo")), emptyList()))
@@ -117,7 +117,7 @@ class VoiceEnginesTest {
     }
 
     private fun sendCall(operator: CallOperator, text: String = "oi") = operator.call("send_to_bot", buildJsonObject { put("text", text) })
-    private fun approveCall(operator: CallOperator) = operator.call("answer_approval", buildJsonObject { put("option", "allow") })
+    private fun approveCall(operator: CallOperator, option: String = "allow_once") = operator.call("answer_approval", buildJsonObject { put("option", option) })
     private fun wasRefused(result: JsonObject) = "Nothing was heard from the user yet." == result["error"]?.jsonPrimitive?.content
     private fun wasSent(operator: CallOperator) = sendCall(operator)["sent"]?.jsonPrimitive?.boolean == true
 
