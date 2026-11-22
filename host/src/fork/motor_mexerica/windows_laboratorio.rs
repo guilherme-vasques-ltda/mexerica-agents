@@ -6,22 +6,28 @@ use std::mem::{offset_of, size_of, size_of_val};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::*;
+use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
 use windows_sys::Win32::NetworkManagement::WindowsFirewall::NetworkIsolationGetAppContainerConfig;
 use windows_sys::Win32::Security::Authorization::*;
 use windows_sys::Win32::Security::Isolation::*;
 use windows_sys::Win32::Security::*;
 use windows_sys::Win32::Storage::FileSystem::*;
+use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::JobObjects::*;
 use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapFree};
 use windows_sys::Win32::System::Pipes::{CreatePipe, PeekNamedPipe};
+use windows_sys::Win32::System::Registry::{HKEY_USERS, KEY_QUERY_VALUE, RegCloseKey, RegOpenKeyExW};
 use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
-use windows_sys::Win32::System::SystemServices::{SE_GROUP_ENABLED, SECURITY_MANDATORY_LOW_RID};
+use windows_sys::Win32::System::SystemServices::{
+    SE_GROUP_ENABLED, SECURITY_MANDATORY_LOW_RID, SECURITY_MANDATORY_MEDIUM_RID,
+};
 use windows_sys::Win32::System::Threading::*;
-use windows_sys::Win32::System::WindowsProgramming::PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
+use windows_sys::Win32::System::WindowsProgramming::{DRIVE_FIXED, PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT};
+use windows_sys::Win32::UI::Shell::{FOLDERID_LocalAppData, GetUserProfileDirectoryW, SHGetKnownFolderPath};
 
 const REFUSED: &str = "motor_windows_laboratorio_recusado";
 const WORKER: &str = "donnabot-motor-catalogo-teste.exe";
@@ -193,6 +199,144 @@ fn token_value(token: &OwnedHandle, class: TOKEN_INFORMATION_CLASS) -> Result<u3
     let data = token_data(token, class, size_of::<u32>())?;
     // SAFETY: the queried class returns at least a DWORD at the start of the buffer.
     Ok(unsafe { *data.as_ptr().cast::<u32>() })
+}
+
+fn profile_token() -> Result<OwnedHandle> {
+    let mut raw = null_mut();
+    // SAFETY: both pseudohandles refer to this thread/process; raw is valid output storage.
+    unsafe {
+        if OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, &mut raw) != 0 {
+            drop(handle(raw)?);
+            return Err(REFUSED);
+        }
+        require(GetLastError() == ERROR_NO_TOKEN)?;
+        require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_IMPERSONATE, &mut raw) != 0)?;
+    }
+    let token = handle(raw)?;
+    require(
+        token_value(&token, TokenElevation)? == 0
+            && token_value(&token, TokenElevationType)? == TokenElevationTypeDefault.cast_unsigned()
+            && token_value(&token, TokenIsAppContainer)? == 0,
+    )?;
+    let user = token_data(&token, TokenUser, size_of::<TOKEN_USER>())?;
+    let integrity = token_data(&token, TokenIntegrityLevel, size_of::<TOKEN_MANDATORY_LABEL>())?;
+    let groups = token_data(&token, TokenGroups, offset_of!(TOKEN_GROUPS, Groups))?;
+    // SAFETY: the buffers are aligned and contain the requested token structures and their SIDs.
+    unsafe {
+        let sid = (*user.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        let level = (*integrity.as_ptr().cast::<TOKEN_MANDATORY_LABEL>()).Label.Sid;
+        require(!sid.is_null() && !level.is_null())?;
+        for service in [WinLocalSystemSid, WinLocalServiceSid, WinNetworkServiceSid] {
+            require(IsWellKnownSid(sid, service) == 0)?;
+        }
+        let count = u32::from(*GetSidSubAuthorityCount(level));
+        require(count > 0 && *GetSidSubAuthority(level, count - 1) == SECURITY_MANDATORY_MEDIUM_RID.cast_unsigned())?;
+        let offset = offset_of!(TOKEN_GROUPS, Groups);
+        let count = *groups.as_ptr().cast::<u32>() as usize;
+        require(count <= (size_of_val(groups.as_slice()) - offset) / size_of::<SID_AND_ATTRIBUTES>())?;
+        let entries = groups.as_ptr().cast::<u8>().add(offset).cast::<SID_AND_ATTRIBUTES>();
+        for entry in std::slice::from_raw_parts(entries, count) {
+            require(!entry.Sid.is_null() && IsWellKnownSid(entry.Sid, WinBuiltinAdministratorsSid) == 0)?;
+        }
+        let mut hive = null_mut();
+        require(RegOpenKeyExW(HKEY_USERS, wide(sid_text(sid)?).as_ptr(), 0, KEY_QUERY_VALUE, &mut hive) == 0)?;
+        require(RegCloseKey(hive) == 0)?;
+    }
+    Ok(token)
+}
+
+fn equal_ignore_case(left: &[u16], right: &[u16]) -> Result<bool> {
+    let left_len = i32::try_from(left.len()).map_err(|_| REFUSED)?;
+    let right_len = i32::try_from(right.len()).map_err(|_| REFUSED)?;
+    // SAFETY: both explicit lengths match readable UTF-16 slices.
+    let compared = unsafe { CompareStringOrdinal(left.as_ptr(), left_len, right.as_ptr(), right_len, 1) };
+    require(compared != 0)?;
+    Ok(compared == CSTR_EQUAL)
+}
+
+fn directory_chain(path: &[u16]) -> Result<(Vec<File>, Vec<u16>)> {
+    require(path.get(2) == Some(&u16::from(b'\\')) && !path.contains(&0))?;
+    let mut components = path.split(|&unit| unit == u16::from(b'\\'));
+    let drive = components.next().ok_or(REFUSED)?;
+    let drive_path = PathBuf::from(OsString::from_wide(drive));
+    require(
+        matches!(drive_path.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_))),
+    )?;
+    require(drive.len() == 2)?;
+    let mut current = drive_path;
+    current.push("\\");
+    // SAFETY: the drive root is a terminated DOS drive path, not an input device or UNC prefix.
+    require(unsafe { GetDriveTypeW(wide(&current).as_ptr()) } == DRIVE_FIXED)?;
+    let mut handles = Vec::new();
+    let mut final_name = vec![0u16; 32_768];
+    let capacity = u32::try_from(final_name.len()).map_err(|_| REFUSED)?;
+    let mut end = 0;
+    for (index, part) in std::iter::once(&[][..]).chain(components).enumerate() {
+        if index != 0 {
+            let part = OsString::from_wide(part);
+            let mut parts = Path::new(&part).components();
+            require(matches!(parts.next(), Some(Component::Normal(name)) if name == part) && parts.next().is_none())?;
+            require(!part.encode_wide().any(|unit| matches!(unit, 0x2f | 0x3a)))?;
+            current.push(part);
+        }
+        let file = OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&current)
+            .map_err(|_| REFUSED)?;
+        let metadata = file.metadata().map_err(|_| REFUSED)?;
+        require(metadata.is_dir() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0)?;
+        // SAFETY: file is live and final_name has room for capacity UTF-16 units.
+        let count = unsafe {
+            GetFinalPathNameByHandleW(
+                file.as_raw_handle(),
+                final_name.as_mut_ptr(),
+                capacity,
+                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
+            )
+        } as usize;
+        require(count > 4 && count < final_name.len() && final_name[count] == 0)?;
+        let expected = wide(&current);
+        require(final_name.starts_with(&[0x5c, 0x5c, 0x3f, 0x5c]))?;
+        require(equal_ignore_case(&final_name[4..count], &expected[..expected.len() - 1])?)?;
+        end = count;
+        handles.push(file);
+    }
+    final_name.truncate(end);
+    Ok((handles, final_name))
+}
+
+fn local_app_data(token: &OwnedHandle) -> Result<(Vec<File>, Vec<u16>)> {
+    let mut profile = vec![0u16; 32_768];
+    let mut length = u32::try_from(profile.len()).map_err(|_| REFUSED)?;
+    // SAFETY: token is live and length gives the writable buffer size on entry.
+    require(unsafe { GetUserProfileDirectoryW(token.as_raw_handle(), profile.as_mut_ptr(), &mut length) } != 0)?;
+    let length = length as usize;
+    require(length > 1 && length <= profile.len() && profile[length - 1] == 0)?;
+    let (mut handles, profile) = directory_chain(&profile[..length - 1])?;
+    let mut raw = null_mut();
+    // SAFETY: the folder ID and token are valid; the API returns an owned, terminated UTF-16 string.
+    let result = unsafe { SHGetKnownFolderPath(&FOLDERID_LocalAppData, 0, token.as_raw_handle(), &mut raw) };
+    // SAFETY: when non-null, raw was allocated by the Shell API and is freed once below.
+    let path = unsafe {
+        let path = if result == 0 && !raw.is_null() {
+            (0..32_768).find(|&index| *raw.add(index) == 0).map(|len| std::slice::from_raw_parts(raw, len).to_vec())
+        } else {
+            None
+        };
+        CoTaskMemFree(raw.cast());
+        path
+    }
+    .ok_or(REFUSED)?;
+    let (local_handles, local) = directory_chain(&path)?;
+    require(local.len() > profile.len() + 1 && local[profile.len()] == u16::from(b'\\'))?;
+    require(equal_ignore_case(&local[..profile.len()], &profile)?)?;
+    let anchor = handles.last().ok_or(REFUSED)?;
+    let ancestor = local_handles.get(handles.len() - 1).ok_or(REFUSED)?;
+    require(file_id(anchor)? == file_id(ancestor)?)?;
+    handles.extend(local_handles);
+    Ok((handles, local[4..].to_vec()))
 }
 
 fn verify_token(child: &OwnedHandle, owner: PSID, expected: PSID) -> Result<()> {
@@ -466,6 +610,7 @@ impl Lab {
         self.child_stage = None;
         self.create_error = None;
         require(!self.unconfirmed)?;
+        let (_profile_dirs, local_data) = local_app_data(&profile_token()?)?;
         // SAFETY: GetCurrentProcess returns the current process pseudohandle.
         let parent = token(unsafe { GetCurrentProcess() })?;
         require(token_value(&parent, TokenElevation)? == 0 && token_value(&parent, TokenIsAppContainer)? == 0)?;
@@ -537,8 +682,12 @@ impl Lab {
         let system_root = &system_root[..length];
         require(!system_root.contains(&0))?;
         let root_path = PathBuf::from(OsString::from_wide(system_root));
-        require(root_path.is_absolute() && root_path.is_dir())?;
-        let mut environment: Vec<u16> = "SystemRoot=".encode_utf16().collect();
+        require(root_path.is_absolute())?;
+        let (_system_dirs, _) = directory_chain(system_root)?;
+        let mut environment: Vec<u16> = "LOCALAPPDATA=".encode_utf16().collect();
+        environment.extend(local_data);
+        environment.push(0);
+        environment.extend("SystemRoot=".encode_utf16());
         environment.extend_from_slice(system_root);
         environment.extend([0, 0]);
         let mut process = PROCESS_INFORMATION::default();
