@@ -4,8 +4,12 @@ interface ProviderRetryOptions {
 	maxRetries?: number;
 	maxRetryDelayMs?: number;
 	signal?: AbortSignal;
-	/** HTTP statuses that fail at once although the default policy would retry them. */
-	noRetryStatuses?: readonly number[];
+	/** The HTTP statuses that may be retried; when present it is the whole policy. */
+	retryStatuses?: readonly number[];
+	/** Whether an error with no HTTP status (a connection failure) is retried. Default: true. */
+	retryWithoutStatus?: boolean;
+	/** Wait budget shared across requests; a delay past `remainingMs` fails instead of waiting. */
+	retryBudget?: { remainingMs: number };
 }
 
 interface ProviderError extends Error {
@@ -22,18 +26,20 @@ function isProviderError(error: unknown): error is ProviderError {
 }
 
 /** Mirrors the pinned OpenAI/Anthropic SDK retry policy; review when either SDK is upgraded. */
-function isRetryableProviderError(error: ProviderError): boolean {
+function isRetryableProviderError(
+	error: ProviderError,
+	retryWithoutStatus = true,
+	retryStatuses?: readonly number[],
+): boolean {
 	const shouldRetry = error.headers?.get("x-should-retry");
-	if (shouldRetry === "true") return true;
 	if (shouldRetry === "false") return false;
 
-	if (error.status === undefined) return true;
-	return (
-		error.status === 408 ||
-		error.status === 409 ||
-		error.status === 429 ||
-		(typeof error.status === "number" && error.status >= 500)
-	);
+	// No status means the request failed before a response: the provider may have processed it.
+	if (error.status === undefined) return retryWithoutStatus;
+	// An explicit list is the whole policy: the header cannot add a status the caller did not allow.
+	if (retryStatuses !== undefined) return retryStatuses.includes(error.status);
+	if (shouldRetry === "true") return true;
+	return error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
 }
 
 function validateServerRetryDelayMs(
@@ -117,12 +123,23 @@ export async function retryProviderRequest<T>(
 			return await request();
 		} catch (error) {
 			if (options.signal?.aborted) throw createAbortError();
-			if (retriesRemaining <= 0 || !isProviderError(error) || !isRetryableProviderError(error)) throw error;
-			if (error.status !== undefined && options.noRetryStatuses?.includes(error.status)) throw error;
+			if (
+				retriesRemaining <= 0 ||
+				!isProviderError(error) ||
+				!isRetryableProviderError(error, options.retryWithoutStatus, options.retryStatuses)
+			)
+				throw error;
 
 			const retryIndex = maxRetries - retriesRemaining;
 			retriesRemaining--;
-			await abortableSleep(getRetryDelayMs(error, retryIndex, options.maxRetryDelayMs), options.signal);
+			// A server date already in the past can make the delay negative; the wait is never negative.
+			const delayMs = Math.max(0, getRetryDelayMs(error, retryIndex, options.maxRetryDelayMs));
+			// The turn's shared budget is spent, not renewed: a spent budget or a delay past it ends the request.
+			if (options.retryBudget) {
+				if (options.retryBudget.remainingMs <= 0 || delayMs > options.retryBudget.remainingMs) throw error;
+				options.retryBudget.remainingMs -= delayMs;
+			}
+			await abortableSleep(delayMs, options.signal);
 		}
 	}
 }

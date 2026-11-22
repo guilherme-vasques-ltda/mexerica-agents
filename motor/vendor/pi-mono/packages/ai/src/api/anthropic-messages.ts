@@ -885,6 +885,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				retryProviderRequest(() => client.beta.messages.create(body, requestOptions).asResponse(), {
 					maxRetries: options?.maxRetries,
 					maxRetryDelayMs: options?.maxRetryDelayMs,
+					retryStatuses: options?.retryStatuses,
+					retryWithoutStatus: options?.retryWithoutStatus,
+					retryBudget: options?.retryBudget,
 					signal: options?.signal,
 				});
 			let disablePreferredStrictTools = hasExceededStrictToolLimits(options?.sessionId);
