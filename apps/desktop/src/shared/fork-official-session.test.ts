@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
 import { accountBrowserURL, accountConfig } from '../main/fork-account/config.ts'
-import { loadMainModule } from './test-support/main-module.ts'
+import { deferred, loadMainModule } from './test-support/main-module.ts'
 
 test('official session requires live provider proof and closes on offline, expiry and logout', async () => {
   let now = 1_800_000_000_000
@@ -13,6 +13,9 @@ test('official session requires live provider proof and closes on offline, expir
   let callback = ''
   let slowWrite = false
   let failWrite = false
+  let sessionId = 'session'
+  let heldRefresh: ReturnType<typeof deferred<void>> | null = null
+  const removed: string[] = []
   let nextTimer = 0
   const timers = new Map<number, () => Promise<void>>()
   const config = { clerkFrontendOrigin: 'https://clerk.example.invalid', clerkProxyOrigin: 'https://auth.example.invalid', clerkTokenOrigin: 'https://app.example.invalid' }
@@ -35,7 +38,7 @@ test('official session requires live provider proof and closes on offline, expir
       }
       async clear() { stored = null }
     } },
-    './fork-account/password-attempt': { PasswordAttemptStore: class { async load() { return null } async clear() {} } },
+    './fork-account/password-attempt': { PasswordAttemptStore: class { async load() { return null } async loadForExit() { return null } async clear() {} } },
   }, {
     URL, URLSearchParams, Buffer, process: { platform: 'darwin' }, Date: { now: () => now },
     setTimeout: (action: () => Promise<void>) => { const id = ++nextTimer; timers.set(id, action); return { id, unref() {} } },
@@ -51,9 +54,16 @@ test('official session requires live provider proof and closes on offline, expir
       } else if (url.pathname.endsWith('/prepare_first_factor')) {
         response = { id: 'signin', status: 'needs_first_factor', first_factor_verification: { external_verification_redirect_url: 'https://clerk.example.invalid/oauth' } }
       } else if (url.pathname === '/v1/client/sign_ins/signin') {
-        response = { id: 'signin', status: 'complete', created_session_id: 'session' }
+        response = { id: 'signin', status: 'complete', created_session_id: sessionId }
       } else {
-        response = { last_active_session_id: 'session', sessions: [{ id: 'session', status: 'active', expire_at: expiry, user: { id: 'user' } }] }
+        response = { last_active_session_id: sessionId, sessions: [{ id: sessionId, status: 'active', expire_at: expiry, user: { id: 'user' } }] }
+        if (url.pathname.endsWith('/remove')) removed.push(url.pathname)
+        if (url.pathname === '/v1/client' && heldRefresh) {
+          const hold = heldRefresh
+          heldRefresh = null
+          await hold.promise
+          headers.set('authorization', 'fixture-native-client')
+        }
       }
       return { ok: true, headers, json: async () => ({ response }) }
     },
@@ -114,4 +124,38 @@ test('official session requires live provider proof and closes on offline, expir
   assert.equal(restored.officialSessionCurrent(), false)
   await timers.get(nextTimer)!()
   assert.equal(restored.state.user, null)
+
+  expiry = now + 15_000
+  restored.state.socialProviders = ['google']
+  assert.equal(await restored.signIn('google'), null)
+  assert.equal(restored.officialSessionCurrent(), true)
+  const late = deferred()
+  heldRefresh = late
+  now += 10_000
+  const pending = timers.get(nextTimer)!()
+  now = expiry
+  assert.equal(restored.officialSessionCurrent(), false)
+  late.resolve()
+  await pending
+  assert.equal(stored, null)
+  assert.equal(restored.state.user, null)
+
+  expiry = now + 15_000
+  assert.equal(await restored.signIn('google'), null)
+  const stale = deferred()
+  heldRefresh = stale
+  now += 10_000
+  const oldCheck = timers.get(nextTimer)!()
+  now = expiry
+  await timers.get(nextTimer - 1)!()
+  assert.equal(restored.officialSessionCurrent(), false)
+  sessionId = 'replacement'
+  expiry = now + 90_000
+  assert.equal(await restored.signIn('google'), null)
+  const savedReplacement = stored
+  stale.resolve()
+  await oldCheck
+  assert.equal(restored.officialSessionCurrent(), true)
+  assert.equal(stored, savedReplacement)
+  assert.ok(removed.every(path => !path.includes('/replacement/')))
 })

@@ -215,11 +215,19 @@ export class AccountService extends EventEmitter {
   }
   private current(epoch: number) { if (epoch !== this.epoch) throw new Error('Account operation superseded.') }
   private encryptionAvailable() { return safeStorage.isEncryptionAvailable() && !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') }
-  private get activeSession(): ClerkSession | null {
+  private get selectedSession(): ClerkSession | null {
     const matches = this.client?.sessions?.filter(s => s.id === this.client?.last_active_session_id) ?? []
     const session = matches.length === 1 ? matches[0] : null
-    return session?.status === 'active' && typeof session.user?.id === 'string' && !!session.user.id &&
-      (!officialDesktop || (typeof session.expire_at === 'number' && Number.isSafeInteger(session.expire_at) && session.expire_at > Date.now())) ? session : null
+    return session?.status === 'active' && typeof session.user?.id === 'string' && !!session.user.id ? session : null
+  }
+  private get activeSession(): ClerkSession | null {
+    const session = this.selectedSession
+    return session && (!officialDesktop || (typeof session.expire_at === 'number' && Number.isSafeInteger(session.expire_at) && session.expire_at > Date.now())) ? session : null
+  }
+  private expireOfficialSession(epoch: number, session: ClerkSession): Promise<void> | null {
+    if (epoch !== this.epoch || this.selectedSession !== session || !this.deviceToken || this.locallyFenced || this.transient || this.localResetPending ||
+        typeof session.expire_at !== 'number' || !Number.isSafeInteger(session.expire_at) || session.expire_at > Date.now()) return null
+    return this.expire()
   }
   officialSessionCurrent(): boolean {
     return !!(this.base && this.state.user && this.officialProofCurrent() &&
@@ -241,15 +249,18 @@ export class AccountService extends EventEmitter {
     const userId = session.user?.id
     const expires = session.expire_at ?? 0
     if (this.officialProof && this.officialProofCurrent()) {
-      this.officialDeadlineTimer = setTimeout(() => {
-        if (epoch === this.epoch) this.set({})
+      this.officialDeadlineTimer = setTimeout(async () => {
+        if (epoch !== this.epoch || this.selectedSession !== session) return
+        const expired = this.expireOfficialSession(epoch, session)
+        if (expired) await expired
+        else this.set({})
       }, Math.max(0, Math.min(this.officialProof.until, expires) - Date.now()))
       this.officialDeadlineTimer.unref()
     }
     const check = async () => {
-      if (epoch !== this.epoch) return
+      if (epoch !== this.epoch || this.selectedSession !== session) return
       if (expires <= Date.now()) {
-        void this.expire()
+        await this.expireOfficialSession(epoch, session)
         return
       }
       await this.recheckOfficialSession(session.id, userId)
@@ -260,8 +271,12 @@ export class AccountService extends EventEmitter {
   private async recheckOfficialSession(sessionId: string, userId: string | undefined) {
     if (this.officialRefresh) return this.officialRefresh
     const epoch = this.epoch
-    const pending = this.refreshClient(epoch, sessionId, undefined, userId).catch(() => {
-      if (epoch !== this.epoch) return
+    const session = this.selectedSession
+    if (!session || session.id !== sessionId || session.user?.id !== userId) return
+    const pending = this.refreshClient(epoch, sessionId, undefined, userId, session).catch(async () => {
+      if (epoch !== this.epoch || this.selectedSession !== session) return
+      const expired = this.expireOfficialSession(epoch, session)
+      if (expired) { await expired; return }
       this.officialProof = null
       this.set({})
       this.watchOfficialSession()
@@ -467,7 +482,7 @@ export class AccountService extends EventEmitter {
     this.set({ user: null, ready: true, busy: false, error: cofre ? `keychain.${cofre}` : 'Não foi possível verificar sua sessão agora' })
   }
   private targets(credential = this.deviceToken): ExitTarget[] {
-    const who = this.activeSession ?? this.unverifiedPrincipal ?? this.unverifiedBinding
+    const who = (officialDesktop ? this.selectedSession : this.activeSession) ?? this.unverifiedPrincipal ?? this.unverifiedBinding
     const targets: ExitTarget[] = []
     if (credential && validNativeCredential(credential)) targets.push({ credential, sessionId: who ? ('sessionId' in who ? who.sessionId : who.id) : undefined })
     const record = this.passwordAttempt
@@ -698,7 +713,7 @@ export class AccountService extends EventEmitter {
     }
   }
   private async failStorage() { this.fencePresentation(); this.retryLater() }
-  private async request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: Record<string, string | boolean>, query?: Record<string, string>, epoch = this.epoch, apply = true, diagnosticStage?: RecoveryStage): Promise<T> {
+  private async request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: Record<string, string | boolean>, query?: Record<string, string>, epoch = this.epoch, apply = true, diagnosticStage?: RecoveryStage, monitoredSession?: ClerkSession): Promise<T> {
     this.current(epoch)
     if (!this.base) throw new ClerkError(0, "Sign-in isn't configured in this build.")
     const url = new URL(`${this.base}${path}`)
@@ -725,9 +740,12 @@ export class AccountService extends EventEmitter {
     catch (error) { if (diagnosticStage) diag(diagnosticStage, 'transport_failed'); throw error }
     if (diagnosticStage) diag(diagnosticStage, res.ok ? 'response' : 'http_refused', recoveryStatus(res))
     if (epoch !== this.epoch) {
-      try { const credential = nativeAuthorization(res.headers.get('authorization') ?? headers.Authorization ?? ''); if (credential) this.backgroundExit([{ credential }]) } catch {}
+      if (!monitoredSession) {
+        try { const credential = nativeAuthorization(res.headers.get('authorization') ?? headers.Authorization ?? ''); if (credential) this.backgroundExit([{ credential }]) } catch {}
+      }
       this.current(epoch)
     }
+    if (monitoredSession && this.selectedSession !== monitoredSession) throw new InvalidStoredAnchor()
     const auth = res.headers.get('authorization') ?? undefined
     if (auth !== undefined) {
       let token: string | null
@@ -764,9 +782,14 @@ export class AccountService extends EventEmitter {
     }
     this.set({})
   }
-  private async refreshClient(epoch = this.epoch, expectedSession?: string, diagnosticStage?: RecoveryStage, expectedUser?: string) {
-    const client = await this.request<ClerkClient | null>('GET', '/v1/client', undefined, undefined, epoch, false, diagnosticStage)
+  private async refreshClient(epoch = this.epoch, expectedSession?: string, diagnosticStage?: RecoveryStage, expectedUser?: string, monitoredSession?: ClerkSession) {
+    const client = await this.request<ClerkClient | null>('GET', '/v1/client', undefined, undefined, epoch, false, diagnosticStage, monitoredSession)
     this.current(epoch)
+    if (monitoredSession) {
+      if (this.selectedSession !== monitoredSession) throw new InvalidStoredAnchor()
+      const expired = this.expireOfficialSession(epoch, monitoredSession)
+      if (expired) { await expired; return }
+    }
     if (!client || !Array.isArray(client.sessions) || client.sessions.some(s => !s || typeof s.id !== 'string' || typeof s.status !== 'string') || (client.last_active_session_id != null && typeof client.last_active_session_id !== 'string')) throw new InvalidStoredAnchor()
     if (expectedSession && (client?.last_active_session_id !== expectedSession || !client.sessions?.some((session) => session.id === expectedSession && session.status === 'active'))) throw new Error('Session could not be confirmed.')
     if (officialDesktop) {
