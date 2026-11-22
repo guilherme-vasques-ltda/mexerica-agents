@@ -67,6 +67,8 @@ const ANO_EM_SEGUNDOS: i64 = 31_536_000;
 /// Renova o access quando faltam menos de cinco minutos para expirar.
 #[cfg(test)]
 const MARGEM_RENOVACAO: i64 = 5 * 60;
+#[cfg(test)]
+pub(super) static TENTATIVAS_RENOVACAO: AtomicU64 = AtomicU64::new(0);
 /// Recusa fixa do `state`: nunca ecoa o valor recebido.
 const ENTRADA_INVALIDA: &str = "entrada_invalida: comece o login de novo neste computador.";
 /// Erros do emissor que invalidam o refresh: apagam os tokens, a sessão precisa entrar de novo.
@@ -527,6 +529,7 @@ pub(crate) async fn token_fresco(hub: &Arc<Hub>) -> Result<Option<Zeroizing<Stri
 /// e rede/5xx são erro explícito sem apagar nada.
 #[cfg(test)]
 async fn renovar(hub: &Arc<Hub>) -> Result<Option<Zeroizing<String>>> {
+    TENTATIVAS_RENOVACAO.fetch_add(1, Ordering::SeqCst);
     let _serie = RENOVACAO.lock().await;
     let conta = ler_conta_destravada(hub).await?;
     let Some(conta) = conta else { return Ok(None) };

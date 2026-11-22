@@ -1061,17 +1061,20 @@ async fn renovacao_com_invalid_client_ou_rede_nao_apaga_nada() {
     // Sem injeção, a renovação falha fechada (rede): erro sem apagar nada.
     *login::BASE_EM_TESTE.locked() = None;
     semear_conta(&hub, &conta_conectada(agora() + 60));
+    let tentativas_antes = login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst);
     let erro = login::token_fresco(&hub).await.unwrap_err().to_string();
+    assert_eq!(login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst), tentativas_antes + 1);
     assert!(erro.starts_with("renovacao_falhou"), "{erro}");
     let conta = conta_guardada(&hub);
     assert_eq!(conta["access_token"], ACCESS_VELHO, "{conta}");
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "{conta}");
-    // A consulta de estado é passiva, mesmo com access vencido: não envia pedido nem altera o registro.
-    let total_renovacoes = registros.renovacoes.lock().unwrap().len();
+    // A consulta de estado é passiva, mesmo com access vencido: não tenta renovar nem altera o registro.
+    semear_conta(&hub, &conta_conectada(agora() - 60));
+    let tentativas_antes = login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst);
     let estado = login::estado(&hub).unwrap();
     assert_eq!(estado["conectado"], true, "{estado}");
     assert_eq!(estado["rotulo"], ROTULO, "{estado}");
-    assert_eq!(registros.renovacoes.lock().unwrap().len(), total_renovacoes, "estado disparou renovação");
+    assert_eq!(login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst), tentativas_antes, "estado tentou renovar");
     let conta = conta_guardada(&hub);
     assert_eq!(conta["access_token"], ACCESS_VELHO, "estado alterou o access: {conta}");
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "estado alterou o refresh: {conta}");
