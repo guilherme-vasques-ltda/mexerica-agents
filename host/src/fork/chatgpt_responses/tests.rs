@@ -114,7 +114,7 @@ fn recusa_space_compartilhado_mesmo_quando_todos_os_vinculos_coincidem() {
     hub.inscricao.vinculo = compartilhado;
     hub.gesto.as_mut().unwrap().vinculo = compartilhado;
     assert_eq!(hub.enviar(compartilhado, NONCE, Pedido { modelo: MODELO, texto: TEXTO }), Err(Falha::Recusado));
-    assert!(hub.http.pedidos.is_empty());
+    assert_eq!(hub.http.pedidos.len(), 0);
     assert!(!hub.http.recebeu_credencial_do_cofre);
 }
 
