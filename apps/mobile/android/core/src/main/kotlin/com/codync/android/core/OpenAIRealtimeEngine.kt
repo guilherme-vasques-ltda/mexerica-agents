@@ -74,7 +74,8 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
             if (phase == VoicePhase.Speaking) cancelResponse()
             level(0f); phase(VoicePhase.Interrupted)
         } else if (active && phase == VoicePhase.Interrupted) {
-            peer.mic(!muted); phase(VoicePhase.Listening); flush()
+            peer.mic(!muted); phase(VoicePhase.Listening)
+            operator.audioStarted(); flush()
         }
     }
 
@@ -102,7 +103,10 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
                 level(if (muted) 0f else .7f)
             }
             "input_audio_buffer.speech_stopped" -> level(0f)
-            "conversation.item.created" -> (message["item"] as? JsonObject)?.text("id")?.let(operator::confirmed)
+            // The API confirms a created item with `conversation.item.added` (GA) and finalizes it with
+            // `conversation.item.done`; the beta name is still accepted.
+            "conversation.item.added", "conversation.item.done", "conversation.item.created" ->
+                (message["item"] as? JsonObject)?.text("id")?.let(operator::confirmed)
             "output_audio_buffer.started" -> if (phase == VoicePhase.Listening) phase(VoicePhase.Speaking)
             "output_audio_buffer.stopped", "output_audio_buffer.cleared" -> if (phase == VoicePhase.Speaking) phase(VoicePhase.Listening)
             "response.created" -> responding = true
@@ -126,7 +130,7 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
 
     override fun ice(state: RealtimePeer.Ice) = hop {
         when (state) {
-            RealtimePeer.Ice.Connected -> dropTimer?.cancel()
+            RealtimePeer.Ice.Connected -> { dropTimer?.cancel(); operator.audioStarted() }
             RealtimePeer.Ice.Disconnected -> { operator.stopListening(); drop(5_000, "Lost the connection to OpenAI.") { true } }
             RealtimePeer.Ice.Failed -> fail("Lost the connection to OpenAI.")
         }

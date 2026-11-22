@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
+import com.codync.android.core.fork.SpeechOnset
 import java.io.IOException
 import java.time.YearMonth
 import java.util.Base64
@@ -118,6 +119,7 @@ class VoiceEnginesTest {
     private fun sendCall(operator: CallOperator, text: String = "oi") = operator.call("send_to_bot", buildJsonObject { put("text", text) })
     private fun approveCall(operator: CallOperator) = operator.call("answer_approval", buildJsonObject { put("option", "allow") })
     private fun wasRefused(result: JsonObject) = "Nothing was heard from the user yet." == result["error"]?.jsonPrimitive?.content
+    private fun wasSent(operator: CallOperator) = sendCall(operator)["sent"]?.jsonPrimitive?.boolean == true
 
     /** The user owns sending and approving: only their own fresh speech acts, and the computer's data ends it. */
     @Test fun theCallActsOnlyOnSpeechTheUserMadeAfterTheComputersData() {
@@ -131,7 +133,7 @@ class VoiceEnginesTest {
         assertTrue(desk.sent.isEmpty()); assertTrue(desk.answered.isEmpty())
 
         operator.speechDetected()
-        assertEquals(true, sendCall(operator)["sent"]?.jsonPrimitive?.boolean)
+        assertTrue(wasSent(operator))
         operator.speechDetected()
         assertEquals("Allow once", approveCall(operator)["answered"]?.jsonPrimitive?.content)
         assertEquals(listOf("oi"), desk.sent); assertEquals(listOf("card" to "allow_once"), desk.answered)
@@ -144,7 +146,7 @@ class VoiceEnginesTest {
 
         // Speech after the delivery may act again.
         operator.speechDetected()
-        assertEquals(true, sendCall(operator)["sent"]?.jsonPrimitive?.boolean)
+        assertTrue(wasSent(operator))
         assertEquals(listOf("oi", "oi"), desk.sent)
     }
 
@@ -160,9 +162,18 @@ class VoiceEnginesTest {
         operator.muteChanged(false) // Speech from before the mute doesn't come back.
         assertTrue(wasRefused(sendCall(operator)))
         operator.speechDetected()
-        operator.stopListening()    // The link dropped.
+        assertTrue(wasSent(operator))
+
+        // The link dropped: what was said before it, and a late event from it, authorize nothing.
+        operator.speechDetected()
+        operator.stopListening()
         assertTrue(wasRefused(sendCall(operator)))
         operator.speechDetected()
+        assertTrue(wasRefused(sendCall(operator)))
+        operator.audioStarted()  // Listening again, on the new link.
+        operator.speechDetected()
+        assertTrue(wasSent(operator))
+
         operator.muteChanged(true)
         assertTrue(wasRefused(approveCall(operator)))
         operator.muteChanged(false)
@@ -171,7 +182,8 @@ class VoiceEnginesTest {
         operator.speechDetected()
         assertEquals("idle", operator.call("bot_status", JsonObject(emptyMap()))["status"]?.jsonPrimitive?.content)
         assertTrue(wasRefused(sendCall(operator)))
-        assertTrue(desk.sent.isEmpty()); assertTrue(desk.answered.isEmpty())
+        assertTrue(desk.answered.isEmpty())
+        assertEquals(listOf("oi", "oi"), desk.sent)
     }
 
     /** Speech from before the computer's data reached the model never authorizes, however late it arrives. */
@@ -191,7 +203,7 @@ class VoiceEnginesTest {
         assertTrue(wasRefused(sendCall(operator)))
         operator.confirmed("mx_1")
         operator.speechDetected()
-        assertEquals(true, sendCall(operator)["sent"]?.jsonPrimitive?.boolean)
+        assertTrue(wasSent(operator))
         assertTrue(desk.answered.isEmpty())
     }
 
@@ -276,7 +288,7 @@ class VoiceEnginesTest {
         engine.speak("Early reply"); runCurrent(); assertTrue(peer.sent.isEmpty()) // Waits for the channel.
         peer.isOpen = true; peer.events!!.opened(); runCurrent()
         assertEquals(listOf("session.update", "conversation.item.create", "response.create"), peer.types())
-        // The provider confirms it received the reply it was handed.
+        // The beta name of the same confirmation is still accepted.
         val early = peer.sent[1]["item"]!!.jsonObject["id"]!!.jsonPrimitive.content
         peer.events!!.received("""{"type":"conversation.item.created","item":{"id":"$early"}}""")
         assertEquals("[Ada replied] Early reply", peer.sent[1]["item"]!!.jsonObject["content"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content)
@@ -340,8 +352,9 @@ class VoiceEnginesTest {
         val outputs = created.filter { it["type"]!!.jsonPrimitive.content == "function_call_output" }.map { it["output"]!!.jsonPrimitive.content }
         assertEquals(2, outputs.size); assertTrue(outputs.all { "Nothing was heard from the user yet." in it })
 
-        // The provider confirms every item it was handed, then hears the user: now the turn may act.
-        for (item in created) peer.events!!.received("""{"type":"conversation.item.created","item":{"id":"${item["id"]!!.jsonPrimitive.content}"}}""")
+        // The API confirms every item it was handed (GA: `conversation.item.added`), then hears the
+        // user: now the turn may act.
+        for (item in created) peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"${item["id"]!!.jsonPrimitive.content}"}}""")
         peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
         peer.events!!.received("""{"type":"response.function_call_arguments.done","call_id":"c3","name":"send_to_bot","arguments":"{\"text\":\"Ship it\"}"}""")
         runCurrent()
@@ -413,10 +426,10 @@ class VoiceEnginesTest {
             }))
             val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
             val scope = CoroutineScope(SupervisorJob() + dispatcher)
-            val mic = Mic(); val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
+            val mic = Mic(); val player = Player(); val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
             val endpoint = mock.url("/live").toString().replace("http://", "ws://")
             val engine = GeminiLiveEngine(scope, VoiceSettings(), "gemini-live-test", "Puck", { "token" }, CallOperator("ada", desk),
-                mic, Player(), OkHttpClient(), endpoint)
+                mic, player, OkHttpClient(), endpoint)
             suspend fun until(check: (VoiceState) -> Boolean) = withTimeout(5_000) { engine.state.first(check) }
             /** The next message the engine sends, when [match] takes it. */
             fun outbound(what: String, match: (JsonObject) -> Boolean = { true }): JsonObject {
@@ -464,6 +477,16 @@ class VoiceEnginesTest {
             server!!.send("""{"toolCall":{"functionCalls":[{"id":"f5","name":"send_to_bot","args":{"text":"echo"}}]}}""")
             assertEquals("Nothing was heard from the user yet.", resultOf(outbound("the refusal while it talks"))["error"]!!.jsonPrimitive.content)
             assertEquals(listOf("Ship it"), desk.sent)
+
+            // Its turn ends and the same user asks again right away: a new utterance acts.
+            server!!.send("""{"serverContent":{"turnComplete":true}}""")
+            requireNotNull(player.chunks.poll(5, TimeUnit.SECONDS))()
+            until { it.phase == VoicePhase.Listening }
+            repeat(4) { mic.frames!!(ByteArray(3_200), .8f) }
+            repeat(4) { outbound("the audio after its turn") { "realtimeInput" in it } }
+            server!!.send("""{"toolCall":{"functionCalls":[{"id":"f6","name":"send_to_bot","args":{"text":"again"}}]}}""")
+            assertEquals(true, resultOf(outbound("the second answer"))["sent"]!!.jsonPrimitive.boolean)
+            assertEquals(listOf("Ship it", "again"), desk.sent)
 
             engine.end()
             withTimeout(5_000) { engine.awaitEnd() }

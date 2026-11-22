@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
+import com.codync.android.core.fork.SpeechOnset
 import java.net.URLEncoder
 import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
@@ -64,7 +65,7 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
             operator.stopListening(); onset.reset()
             stopPlayback(); dropping = !turnDone; level(0f); phase(VoicePhase.Interrupted)
             send(buildJsonObject { putJsonObject("realtimeInput") { put("audioStreamEnd", true) } })
-        } else if (active && phase == VoicePhase.Interrupted) { phase(VoicePhase.Listening); flush() }
+        } else if (active && phase == VoicePhase.Interrupted) { phase(VoicePhase.Listening); operator.audioStarted(); flush() }
     }
 
     private suspend fun connect() {
@@ -113,8 +114,6 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
         if ("setupComplete" in message) {
             ready = true; reconnects = 0
             if (!audioRunning) {
-                // The microphone starts delivering audio from here: what is said in this call carries it.
-                operator.audioStarted()
                 // Stamped as captured, before the hop: a frame heard before the computer's data reached
                 // the model keeps the older mark even when it is processed after it.
                 mic.start({ pcm, level -> val at = operator.delivery; hop { captured(pcm, level, at) } }) {
@@ -122,6 +121,8 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
                 }
                 audioRunning = true
             }
+            // This session's microphone delivers audio from here: what is said in this call carries it.
+            operator.audioStarted()
             if (phase == VoicePhase.Starting) phase(VoicePhase.Listening)
             flush()
         }
@@ -192,6 +193,9 @@ class GeminiLiveEngine(parent: CoroutineScope, settings: VoiceSettings, private 
 
     private fun play(base64: String) {
         val pcm = runCatching { Base64.getDecoder().decode(base64) }.getOrNull()?.takeIf { it.size >= 2 } ?: return
+        // The model took the turn: the user's previous utterance is over, so the next speech in the
+        // call is measured as a new one instead of waiting for a pause nobody will hear now.
+        if (phase != VoicePhase.Speaking) onset.reset()
         queued++
         level(0f); phase(VoicePhase.Speaking)
         val generation = playGeneration

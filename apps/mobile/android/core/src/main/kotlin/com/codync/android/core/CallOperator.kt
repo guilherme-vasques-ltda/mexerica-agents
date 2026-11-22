@@ -1,7 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
-import java.util.concurrent.atomic.AtomicInteger
+import com.codync.android.core.fork.CallEvidence
 import kotlinx.serialization.json.*
 
 /** What a call's operator works against: the app's mirror and its send/approval actions. */
@@ -29,62 +29,6 @@ data class CallTool(val name: String, val description: String, val parameters: J
             else -> value
         }
     })
-}
-
-/**
- * What a call may act on: only speech the user made in it, on its own microphone. The engine reports
- * that speech when it hears it, and every piece of the computer's data handed to the model (a bot's
- * reply, a notice, any tool result) clears it, so nothing the data says can ask for a new action.
- */
-class CallEvidence {
-    /** The call's microphone delivers audio: speech from here on belongs to this call. */
-    var audioStarted = false
-    /** The user spoke since the computer's data last reached the model. */
-    var speechThisTurn = false
-    /** The call is muted: nothing said while muted counts, and nothing said before survives it. */
-    var muted = false
-    /** How many times the computer's data reached the model; the microphone thread stamps each frame with it. */
-    val deliveries = AtomicInteger(0)
-    /** Deliveries the provider hasn't confirmed yet: speech it reports meanwhile may predate them. */
-    val unconfirmed = mutableSetOf<String>()
-}
-
-/**
- * Where the user's current speech began, in deliveries: the first voiced stretch after a full pause,
- * so a cough doesn't count as speech. Only that beginning is kept, so a pause in the middle of a
- * sentence never hands out a newer mark.
- */
-class SpeechOnset {
-    private var voiced = 0
-    private var quiet = 0
-    private var start: Int? = null
-    private var reported = false
-
-    /** Takes one microphone frame captured at delivery [at]; returns where speech began, once per utterance. */
-    fun heard(pcm: ByteArray, level: Float, at: Int): Int? {
-        if (level > UtteranceDetector.THRESHOLD) {
-            if (voiced == 0) start = at
-            voiced += pcm.size
-            quiet = 0
-            if (reported || voiced < VOICED) return null
-            reported = true
-            return start
-        }
-        if (voiced == 0) return null
-        quiet += pcm.size
-        if (quiet < PAUSE) return null
-        reset()
-        return null
-    }
-
-    fun reset() { voiced = 0; quiet = 0; start = null; reported = false }
-
-    private companion object {
-        /** A voiced stretch this long is speech; on-device calls already drop shorter ones. */
-        const val VOICED = Pcm.RATE * 2 * 4 / 10
-        /** Quiet this long ends the utterance; anything shorter is a word boundary. */
-        const val PAUSE = Pcm.RATE * 2
-    }
 }
 
 /**
@@ -118,7 +62,7 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
         """.trimIndent()
     }
 
-    /** The call's microphone started delivering audio; only the first time counts. */
+    /** The call's microphone delivers audio again, on the current link: only now can speech count. */
     fun audioStarted() { evidence.audioStarted = true }
 
     /** Times the computer's data reached the model so far, for the microphone thread to stamp each frame. */
@@ -149,8 +93,14 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
     /** The provider confirmed it received delivery [id]: speech it reports from now on came after it. */
     fun confirmed(id: String) { evidence.unconfirmed -= id }
 
-    /** Muted, paused or disconnected: what was said before no longer authorizes anything. */
-    fun stopListening() { evidence.speechThisTurn = false }
+    /**
+     * The call stopped listening (muted by the system, paused, or the link dropped): nothing said
+     * before authorizes, and late speech events are ignored until the engine reports audio again.
+     */
+    fun stopListening() {
+        evidence.speechThisTurn = false
+        evidence.audioStarted = false
+    }
 
     fun muteChanged(muted: Boolean) {
         evidence.muted = muted
