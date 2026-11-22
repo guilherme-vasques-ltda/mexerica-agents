@@ -16,6 +16,8 @@ test('official IPC denies privileged and unknown channels before login and after
   ipc.handle('host:call', () => 'hub')
   ipc.handle('account:newPrivilegedFeature', () => 'future')
   ipc.on('host:install', () => { starts++ })
+  ipc.on('app:hostPort', (event: Event) => { event.returnValue = 19422 })
+  const readPort = () => { const event: Event = { entry: true }; ipc.emit('app:hostPort', event); return event.returnValue }
   for (const channel of ['speech:available', 'island:supported']) {
     ipc.on(channel, (event: Event) => { event.returnValue = true })
     const entry: Event = { entry: true }
@@ -33,10 +35,13 @@ test('official IPC denies privileged and unknown channels before login and after
   for (const channel of ['host:call', 'account:newPrivilegedFeature']) assert.throws(() => handlers.get(channel)!(opening), /account_required/)
   ipc.emit('host:install', { entry: true })
   assert.equal(starts, 0)
+  assert.equal(readPort(), null)
   confirmed = true
+  assert.equal(readPort(), 19422)
   assert.equal(handlers.get('host:call')!(opening), 'hub')
   ipc.emit('host:install', { entry: true })
   confirmed = false
+  assert.equal(readPort(), null)
   assert.throws(() => handlers.get('host:call')!(opening), /account_required/)
   ipc.emit('host:install', { entry: true })
   assert.equal(starts, 1)

@@ -11,6 +11,8 @@ test('official session requires live provider proof and closes on offline, expir
   let offline = false
   let stored: Buffer | null = null
   let callback = ''
+  let slowWrite = false
+  let failWrite = false
   let nextTimer = 0
   const timers = new Map<number, () => Promise<void>>()
   const config = { clerkFrontendOrigin: 'https://clerk.example.invalid', clerkProxyOrigin: 'https://auth.example.invalid', clerkTokenOrigin: 'https://app.example.invalid' }
@@ -23,7 +25,14 @@ test('official session requires live provider proof and closes on offline, expir
     './fork-account/storage': { AccountStorage: class {
       async hasArchives() { return false }
       async load() { return stored ? { kind: 'active', sealed: stored } : { kind: 'empty' } }
-      async retain(data: Buffer, _state: string, current: () => void) { current(); stored = data }
+      async retain(data: Buffer, _state: string, current: () => void) {
+        current()
+        if (JSON.parse(data.toString()).principal) {
+          if (slowWrite) { slowWrite = false; now += 21_000 }
+          if (failWrite) throw new Error('fixture write failed')
+        }
+        stored = data
+      }
       async clear() { stored = null }
     } },
     './fork-account/password-attempt': { PasswordAttemptStore: class { async load() { return null } async clear() {} } },
@@ -53,13 +62,20 @@ test('official session requires live provider proof and closes on offline, expir
   assert.equal(noConfig.state.configured, false)
   assert.equal(noConfig.officialSessionCurrent(), false)
   const service = new (setup(true).AccountService)()
+  const projectedUser = () => service.state.user
   const restore = (account: typeof service) => (account as unknown as { restore(): Promise<void> }).restore()
   await restore(service)
   assert.equal(service.officialSessionCurrent(), false)
   service.state.socialProviders = ['google']
+  slowWrite = true
   assert.equal(await service.signIn('google'), null)
+  assert.equal(service.officialSessionCurrent(), false)
+  assert.equal(projectedUser(), null)
+  assert.equal(timers.size, 1)
+  now += 10_000
+  await timers.get(nextTimer)!()
   assert.equal(service.officialSessionCurrent(), true)
-  assert.equal(service.state.user?.userId, 'user')
+  assert.equal(projectedUser()?.userId, 'user')
   assert.equal(timers.size, 2)
 
   offline = true
@@ -81,7 +97,14 @@ test('official session requires live provider proof and closes on offline, expir
 
   stored = Buffer.from(JSON.stringify({ version: 3, token: 'fixture-native-client', principal: { userId: 'user', sessionId: 'session' } }))
   const restored = new (setup(true).AccountService)()
+  expiry = now + 90_000
+  failWrite = true
   await restore(restored)
+  assert.equal(restored.officialSessionCurrent(), false)
+  assert.equal(restored.reconciliationState().kind, 'session_unverified')
+  now += 21_000
+  failWrite = false
+  assert.equal((await restored.reconcile('check')).kind, 'none')
   assert.equal(restored.officialSessionCurrent(), true)
   assert.equal(timers.size, 2)
   now += 10_000

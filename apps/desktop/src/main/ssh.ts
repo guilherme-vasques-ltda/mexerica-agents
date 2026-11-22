@@ -531,15 +531,19 @@ class SSHComputers {
     const name = knownHostsName(resolved)
 
     // Host key (never by reading ssh's error text).
-    if ((await this.recordedKeys(name)).size === 0) {
+    const recorded = await this.recordedKeys(name)
+    if (token.cancelled || !this.canConnect()) return idle
+    if (recorded.size === 0) {
       if (usesProxy(resolved)) {
         return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.jump', { host: profile.host }) })
       }
       this.setStatus(id, { kind: 'connecting', ...etapa('ajustes.ssh.passo.chave') })
       const scan = await run(KEYSCAN, keyscanArguments(resolved))
+      if (token.cancelled || !this.canConnect()) return idle
       const lines = knownHostsLines(scan.stdout, name)
       if (lines.length === 0) return { kind: 'retry', ...falha('ajustes.ssh.erro.alcance', { host: resolved.hostname, porta: resolved.port }) }
       const prints = await run(KEYGEN, ['-l', '-f', '-'], lines.join('\n') + '\n')
+      if (token.cancelled || !this.canConnect()) return idle
       const fingerprints = prints.stdout.split(/\r?\n/).filter(Boolean)
       if (prints.status !== 0 || fingerprints.length === 0) return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.lerChave', { host: profile.host }) })
       this.pendingKeys.set(id, lines)

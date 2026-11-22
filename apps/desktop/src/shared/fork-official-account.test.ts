@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -37,7 +37,8 @@ test('official packaging rejects mismatched compilation and missing native stagi
   const dir = await mkdtemp(join(tmpdir(), 'desktop-official-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const builder = createRequire(import.meta.url)('../../tools/fork-official-builder.cjs')
-  const context = { packager: { projectDir: dir }, electronPlatformName: 'linux' }
+  const windows = process.platform === 'win32'
+  const context = { packager: { projectDir: dir }, electronPlatformName: windows ? 'win32' : 'linux' }
   const config = officialAccountPlist(plist(fields))!
   const stage = join(dir, 'build/official')
   const hash = join(stage, 'out/main/official-config.sha256')
@@ -49,6 +50,14 @@ test('official packaging rejects mismatched compilation and missing native stagi
   await writeFile(hash, officialConfigHash(config))
   await assert.rejects(builder.beforePack(context), /build\/native\/donnabot-host/)
   await mkdir(join(dir, 'build/native'))
-  await writeFile(join(dir, 'build/native/donnabot-host'), 'fixture', { mode: 0o700 })
+  if (windows) {
+    await writeFile(join(dir, 'build/native/donnabot-host.exe'), 'fixture')
+    await assert.rejects(builder.beforePack(context), /donnabot-hostw\.exe/)
+    await writeFile(join(dir, 'build/native/donnabot-hostw.exe'), 'fixture')
+  } else {
+    await writeFile(join(dir, 'build/native/donnabot-host'), 'fixture', { mode: 0o600 })
+    await assert.rejects(builder.beforePack(context), /build\/native\/donnabot-host/)
+    await chmod(join(dir, 'build/native/donnabot-host'), 0o700)
+  }
   await builder.beforePack(context)
 })

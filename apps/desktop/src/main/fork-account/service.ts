@@ -184,6 +184,8 @@ export class AccountService extends EventEmitter {
       this.officialRefresh = null
       clearTimeout(this.officialSessionTimer)
       clearTimeout(this.officialDeadlineTimer)
+      this.officialSessionTimer = undefined
+      this.officialDeadlineTimer = undefined
     }
     this.epoch++
     this.emit('epoch', this.epoch)
@@ -231,6 +233,8 @@ export class AccountService extends EventEmitter {
   private watchOfficialSession() {
     clearTimeout(this.officialSessionTimer)
     clearTimeout(this.officialDeadlineTimer)
+    this.officialSessionTimer = undefined
+    this.officialDeadlineTimer = undefined
     const session = this.activeSession
     if (!session || !this.deviceToken || this.locallyFenced || this.transient || this.localResetPending) return
     const epoch = this.epoch
@@ -266,7 +270,6 @@ export class AccountService extends EventEmitter {
     try { await pending } finally { if (this.officialRefresh === pending) this.officialRefresh = null }
   }
   private set(change: Partial<AccountState>) {
-    const wasPublished = this.state.user !== null
     const next = { ...this.state, ...change }
     const user = this.activeSession?.user
     const confirmed = next.ready && !next.busy && !this.restoring && !this.locallyFenced && !this.transient && !this.localResetPending && !!this.deviceToken && !this.secondFactor && !this.signUpAttempt && !this.emailSignIn && !this.newPassword && (!officialDesktop || this.officialProofCurrent())
@@ -276,7 +279,7 @@ export class AccountService extends EventEmitter {
       : this.emailSignIn?.epoch === this.epoch ? { kind: 'email_code', purpose: this.emailSignIn.step === 'first' ? 'sign_in' : this.emailSignIn.step === 'reset' ? 'reset_password' : 'device_trust', resendAt: this.emailSignIn.resendAt }
       : this.newPassword?.epoch === this.epoch && this.state.passwordReset ? { kind: 'new_password', minPasswordLength: this.state.passwordReset.minPasswordLength } : null
     this.state = { ...next, pending, waitlist: next.error === waitlistCopy, user: confirmed && user ? { userId: user.id, email, avatarURL: user.image_url?.startsWith('https://') ? user.image_url : null } : null }
-    if (officialDesktop && !wasPublished && this.state.user) this.watchOfficialSession()
+    if (officialDesktop && this.officialSessionTimer === undefined && next.ready && !next.busy && !this.restoring) this.watchOfficialSession()
     this.emit('change')
   }
   captureCloudSession(): CloudSeal | null { return this.restoring || !this.state.ready || this.state.busy ? null : this.issueCloudSession() }
@@ -611,7 +614,7 @@ export class AccountService extends EventEmitter {
     diag('check_entry', 'entered')
     if (action !== 'check' || this.state.busy || this.restoring || !this.state.ready) return { kind: 'unavailable' }
     if (this.localResetPending) { await this.resetLocal(null); return this.reconciliationState() }
-    if (officialDesktop && this.activeSession && !this.officialProofCurrent()) {
+    if (officialDesktop && !this.transient && this.activeSession && !this.officialProofCurrent()) {
       const { id, user } = this.activeSession
       await this.recheckOfficialSession(id, user?.id)
       return this.reconciliationState()
