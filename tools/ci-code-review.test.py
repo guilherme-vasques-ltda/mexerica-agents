@@ -45,6 +45,9 @@ class ReviewTest(unittest.TestCase):
         url = 'https://review.example.invalid/v1'
         payload = review.project(result({**FINDING, 'thinking': url}), FILES, (url,))
         self.assertEqual(payload['items'], [])
+        model = 'modelo fictício privado'
+        payload = review.project(result({**FINDING, 'content': f'Usou {model.upper()} na revisão.'}), FILES, (url, model))
+        self.assertEqual(payload['items'], [])
 
     def test_projection_caps_findings_and_comment_length(self):
         files = [{'filename': f'item-{i}.txt', 'patch': '@@ -0,0 +1 @@\n+abc', 'additions': 1, 'deletions': 0}
