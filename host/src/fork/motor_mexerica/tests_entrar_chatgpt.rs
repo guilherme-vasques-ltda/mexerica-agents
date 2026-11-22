@@ -1060,21 +1060,26 @@ async fn renovacao_com_invalid_client_ou_rede_nao_apaga_nada() {
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "{conta}");
     // Sem injeção, a renovação falha fechada (rede): erro sem apagar nada.
     *login::BASE_EM_TESTE.locked() = None;
-    semear_conta(&hub, &conta_conectada(agora() + 60));
+    semear_conta(&hub, &conta_conectada(agora() - 60));
+    let ciphertext_antes = hub.store.kv_read(login::SLOT_CONTA).unwrap();
     let tentativas_antes = login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst);
     let erro = login::token_fresco(&hub).await.unwrap_err().to_string();
     assert_eq!(login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst), tentativas_antes + 1);
     assert!(erro.starts_with("renovacao_falhou"), "{erro}");
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), ciphertext_antes);
     let conta = conta_guardada(&hub);
     assert_eq!(conta["access_token"], ACCESS_VELHO, "{conta}");
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "{conta}");
     // A consulta de estado é passiva, mesmo com access vencido: não tenta renovar nem altera o registro.
-    semear_conta(&hub, &conta_conectada(agora() - 60));
+    let ciphertext_antes = hub.store.kv_read(login::SLOT_CONTA).unwrap();
     let tentativas_antes = login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst);
+    let unlocks_antes = hub.store.vault_unlock_attempts.load(Ordering::SeqCst);
     let estado = login::estado(&hub).unwrap();
     assert_eq!(estado["conectado"], true, "{estado}");
     assert_eq!(estado["rotulo"], ROTULO, "{estado}");
     assert_eq!(login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst), tentativas_antes, "estado tentou renovar");
+    assert_eq!(hub.store.vault_unlock_attempts.load(Ordering::SeqCst), unlocks_antes, "estado tentou destravar cofre");
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), ciphertext_antes, "estado alterou o registro");
     let conta = conta_guardada(&hub);
     assert_eq!(conta["access_token"], ACCESS_VELHO, "estado alterou o access: {conta}");
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "estado alterou o refresh: {conta}");
