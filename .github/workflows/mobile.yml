@@ -93,6 +93,6 @@ jobs:
         working-directory: apps/mobile/ios/Kit
         run: |
           xcodebuild -list
-          xcodebuild test -scheme CodyncKit -only-testing:CodyncKitTests \
+          xcodebuild test -scheme CodyncKit-Package -only-testing:CodyncKitTests \
             -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
             -parallel-testing-enabled NO
