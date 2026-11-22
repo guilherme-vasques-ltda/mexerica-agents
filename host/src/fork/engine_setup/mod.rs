@@ -335,8 +335,10 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     );
                     managed::idle(hub, &request.engine_account_id)?;
                     let id = request.engine_account_id.as_str();
-                    let mut registry = Registry::load(&hub.store)?;
+                    // Leitura dentro da cerca, como no desconectar: um setup aceito no meio não perde
+                    // o pedido/geração gravado no registro.
                     hub.with_idle_engine_account(id, || {
+                        let mut registry = Registry::load(&hub.store)?;
                         ensure!(!open || is_open_account(registry.account(id)?), "open_codex_unavailable");
                         {
                             let account = registry.account_mut(id, request.expected_revision)?;

@@ -154,7 +154,8 @@ pub(crate) async fn decidir(hub: &Arc<Hub>, p: &Pedido<'_>) -> Result<Decisao> {
     let registry = Registry::load(&hub.store)?;
     let reservas = fila(&estado, p);
     // Sem lista (ou com a origem fora de "assinatura → assinatura"): nada muda, e uma sobreposição velha se desfaz.
-    let origem_ok = registry.account(p.origem).is_ok_and(|a| a.billing == Billing::Subscription)
+    // A origem precisa estar comprovada AGORA: conta pausada ou desconectada não é "acabou" — é Voltar, sem aviso de cota.
+    let origem_ok = registry.account(p.origem).is_ok_and(crate::fork::engine_accounts::Account::subscription_verified)
         && matches!(p.cfg.backend.as_str(), "claude" | "codex");
     if reservas.len() < 2 || !origem_ok {
         return Ok(if p.atual == p.origem { Decisao::SemFallback } else { Decisao::Voltar });
@@ -183,4 +184,77 @@ pub(crate) async fn decidir(hub: &Arc<Hub>, p: &Pedido<'_>) -> Result<Decisao> {
     }
     let (motivo, _) = primeiro.unwrap_or((Motivo::Esgotada, None));
     Ok(Decisao::Parar { conta: p.origem.to_owned(), motivo, volta_em: voltas.into_iter().min() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remote::identity::Identity;
+    use crate::store::Store;
+    use serde_json::json;
+
+    const CONTAA: &str = "ac_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    /// Conta gerenciada de assinatura com prova completa (`subscription_verified`); id hex de 64.
+    fn conta(hex: &str, pausada: bool) -> crate::fork::engine_accounts::Account {
+        use crate::fork::engine_accounts::{
+            AuthorizedScope, Backend, Billing, LaunchReference, State, SubscriptionProof,
+        };
+        assert_eq!(hex.len(), 64, "id de conta é hex de 64");
+        let id = hex;
+        crate::fork::engine_accounts::Account {
+            managed: Some(crate::fork::engine_accounts::managed::Metadata {
+                label: id.to_string(),
+                revision: 1,
+                generation: 0,
+                enabled: !pausada,
+                paused: pausada,
+                request_id: "teste".into(),
+                principal: None,
+                profile: None,
+                setup_request: None,
+                catalog: None,
+            }),
+            id: format!("ac_{id}"),
+            backend: Backend::Claude,
+            billing: Billing::Subscription,
+            state: if pausada { State::Disconnected } else { State::Connected },
+            launch: LaunchReference::CliProfile {
+                executable: "/fixture/claude".into(),
+                directory: std::path::PathBuf::from("/fixture"),
+            },
+            scope: AuthorizedScope::Owner,
+            quota_identity: Some(format!("ac_{id}")),
+            verified_at: Some(crate::store::now_ms()),
+            subscription_proof: Some(SubscriptionProof::ClaudeAuthStatus { plan: "pro".into() }),
+            models: Vec::new(),
+            hidden_model_ids: Vec::new(),
+        }
+    }
+
+    fn hub() -> Arc<Hub> {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let dir = store.engine_setup_root.clone();
+        std::fs::create_dir_all(&dir).unwrap();
+        Hub::new(store, "fallback-teste".into(), Identity::load_or_create(&dir).unwrap(), "teste".into(), 0)
+    }
+
+    /// Regra (a) na pausa: a origem pausada não é assinatura comprovada AGORA — nada troca com
+    /// aviso de cota; a conversa fica na origem e o turno seguinte falha alto (`account_unavailable`).
+    #[tokio::test]
+    async fn origem_pausada_nao_gera_troca_com_aviso_de_cota() {
+        let hub = hub();
+        {
+            let mut registry = Registry::load(&hub.store).unwrap();
+            registry.accounts.push(conta(&"a".repeat(64), true));
+            registry.accounts.push(conta(&"b".repeat(64), false));
+            registry.persist(&hub.store).unwrap();
+        }
+        let cfg: BotConfig = serde_json::from_value(
+            json!({"id":"bot","name":"Fallback","backend":"claude","forkEditor":{"engineAccountId":CONTAA}}),
+        )
+        .unwrap();
+        let pedido = Pedido { space: "pessoal", bot: "bot", origem: CONTAA, atual: CONTAA, cfg: &cfg };
+        assert_eq!(decidir(&hub, &pedido).await.unwrap(), Decisao::SemFallback);
+    }
 }
