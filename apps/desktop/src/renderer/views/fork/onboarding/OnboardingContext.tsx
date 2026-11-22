@@ -10,6 +10,8 @@ export interface OnboardingControllerValue {
   computerId: string | null
   hubId: string | null
   spaceId: string | null
+  firstChatDismissed: boolean
+  dismissFirstChat: () => void
 }
 
 const defaultController: OnboardingControllerValue = {
@@ -21,6 +23,8 @@ const defaultController: OnboardingControllerValue = {
   computerId: null,
   hubId: null,
   spaceId: null,
+  firstChatDismissed: false,
+  dismissFirstChat: () => {},
 }
 
 export const OnboardingContext = createContext<OnboardingControllerValue>(defaultController)

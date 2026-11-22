@@ -54,6 +54,9 @@ export function useOnboardingSession(
   const [explicitStep3, setExplicitStep3] = useState(false)
   const [dismissedInSession, setDismissedInSession] = useState(false)
   const [step3Held, setStep3Held] = useState(false)
+  const [dismissedTourScope, setDismissedTourScope] = useState<string | null>(null)
+  const tourScope = isPersonalContext && activeStore?.hello?.hostId && bergaId
+    ? JSON.stringify([navigationKey, bergaId]) : null
   const [dismissal, setDismissal] = useState<{ userId: string; revision: number; deferred: boolean } | null>(null)
   const loadGen = useRef(0)
   const bridge = window.codync.host.onboardingDismissal
@@ -61,6 +64,8 @@ export function useOnboardingSession(
   const dismissalScope = accountUserId ? JSON.stringify([accountUserId, revision]) : null
   const currentDismissalScope = useRef(dismissalScope)
   currentDismissalScope.current = dismissalScope
+  const currentTourScope = useRef(tourScope)
+  currentTourScope.current = tourScope
   const loadScope = useMemo(() => ({}), [localClient, isPersonalContext, navigationKey, revision, dismissalScope])
   const currentLoadScope = useRef(loadScope)
   currentLoadScope.current = loadScope
@@ -74,17 +79,30 @@ export function useOnboardingSession(
     setStep3Held(false)
   }, [navigationKey])
 
+  useEffect(() => { setDismissedTourScope(null) }, [tourScope])
+
   useEffect(() => {
+    if (!accountUserId || !bridge || marker !== null || !isPersonalContext) return
     let active = true
-    if (accountUserId && bridge) {
-      void bridge(accountUserId, 'read').catch(() => null).then((deferred) => {
-        if (deferred !== null && active && currentDismissalScope.current === dismissalScope) {
+    let attempt = 0
+    const read = async () => {
+      const generation = ++attempt
+      try {
+        const deferred = await bridge(accountUserId, 'read')
+        if (deferred !== null && active && generation === attempt && currentLoadScope.current === loadScope) {
           setDismissal({ userId: accountUserId, revision, deferred })
         }
-      })
+      } catch {
+        // A próxima confirmação da conta pode tornar a leitura disponível.
+      }
     }
-    return () => { active = false }
-  }, [accountUserId, revision, bridge, dismissalScope])
+    const stop = window.codync.account.onChange((state) => {
+      if (state.ready && !state.busy && state.user?.userId === accountUserId && currentLoadScope.current === loadScope) void read()
+      else attempt += 1
+    })
+    void read()
+    return () => { active = false; stop() }
+  }, [accountUserId, revision, bridge, marker, isPersonalContext, loadScope])
 
   useEffect(() => {
     loadGen.current += 1
@@ -162,8 +180,12 @@ export function useOnboardingSession(
       computerId: activeStore?.computer.id ?? null,
       hubId: activeStore?.hello?.hostId ?? null,
       spaceId,
+      firstChatDismissed: tourScope !== null && dismissedTourScope === tourScope,
+      dismissFirstChat: () => {
+        if (tourScope && currentTourScope.current === tourScope) setDismissedTourScope(tourScope)
+      },
     }),
-    [visibleStatus, openPermissions, navigationKey, activeStore, spaceId, reload],
+    [visibleStatus, openPermissions, navigationKey, activeStore, spaceId, reload, tourScope, dismissedTourScope],
   )
 
   return {

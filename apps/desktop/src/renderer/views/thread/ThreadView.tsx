@@ -287,7 +287,6 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const sameOnboardingHub = !!store.hello?.hostId && store.hello.hostId === onboarding.hubId
     && store.computer.id === onboarding.computerId && storeSpaceId === onboarding.spaceId
   const tourKey = JSON.stringify([onboarding.navigationKey, store.computer.id, store.hello?.hostId, botId])
-  const [dismissedTours, setDismissedTours] = useState<ReadonlySet<string>>(() => new Set())
   const [spotlightKey, setSpotlightKey] = useState<string | null>(null)
 
   const entries = chatEntriesOf(store, botId)
@@ -298,7 +297,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
     isPrincipalBot: !!bot && bot.id === principalId && !isGroup(bot),
     isGroup: !!bot && isGroup(bot),
     hasUserMessages,
-    dismissedLocally: dismissedTours.has(tourKey),
+    dismissedLocally: onboarding.firstChatDismissed,
   })
 
   const handlePickStarterTask = useCallback((promptText: string) => {
@@ -313,7 +312,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const handleSkipTour = () => {
     if (!sameOnboardingHub) return
     dismissSpotlight()
-    setDismissedTours((previous) => new Set([...previous, tourKey]))
+    onboarding.dismissFirstChat()
   }
 
   const openTrace = useCallback(() => setShowTrace(true), [])
