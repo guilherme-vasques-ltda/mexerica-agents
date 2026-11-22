@@ -60,6 +60,9 @@ pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
         | "donnaOwnerPresentation"
         | "donnaEngineAccounts"
         | "donnaEngineAccess"
+        | "donnaOnboardingStatus"
+        | "donnaOnboardingSave"
+        | "donnaOnboardingDetect"
         | "donnaBotEditor"
         | "donnaBotEditorSave"
         | "donnaConversations"
@@ -91,6 +94,8 @@ mod tests {
             assert!(!open_allows(method, &json!({})), "{method} não pode existir na Open");
         }
         assert!(open_allows("hello", &json!({})));
+        assert!(open_allows("donnaOnboardingStatus", &json!({})));
+        assert!(open_allows("donnaOnboardingDetect", &json!({})));
         assert!(open_allows("createBot", &json!({})));
         assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
         assert!(open_allows("send", &json!({"text": "oi"})));

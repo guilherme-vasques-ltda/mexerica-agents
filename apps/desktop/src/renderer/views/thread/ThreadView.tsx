@@ -1,6 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { focoBerga } from '../fork/atalho-berga/foco'
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isGroup, isWorkingIn, type Bot, type Entry } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
 import { Spinner } from '../../components/Controls'
@@ -61,6 +61,10 @@ import { bloqueioSenha, destinoSenha } from '../../store/fork-senha-bloqueio'
 import { TelaGrande, useTelaGrande } from '../fork/whatsapp/TelaGrande'
 import { SuperficieAVista } from '../fork/whatsapp/superficie'
 import { PropostasDoBerga } from '../fork/propostas/PropostasDoBerga'
+import { shouldShowFirstChatOnboarding } from '../../../shared/fork-onboarding'
+import { ComposerSpotlight } from '../fork/onboarding/ComposerSpotlight'
+import { FirstChatOnboarding } from '../fork/onboarding/FirstChatOnboarding'
+import { useOnboarding } from '../fork/onboarding/OnboardingContext'
 
 export interface ThreadPanelScope {
   panelId: string
@@ -278,6 +282,51 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const tela = useTelaGrande(panel, root, () => setDetailsTab('whatsapp'), () => openTab(null))
   const telaOn = tela.controle.expandida && !!bot
 
+  const onboarding = useOnboarding()
+  const storeSpaceId = store.spaceId ?? store.spaces?.personalSpaceId ?? null
+  const sameOnboardingHub = !!store.hello?.hostId && store.hello.hostId === onboarding.hubId
+    && store.computer.id === onboarding.computerId && storeSpaceId === onboarding.spaceId
+  const tourKey = `${onboarding.storageKey}.${store.computer.id}.${store.hello?.hostId ?? 'unknown'}.tour`
+  const [tourDismissed, setTourDismissed] = useState(() => {
+    try { return globalThis.localStorage?.getItem(tourKey) === '1' } catch { return false }
+  })
+  const [spotlightOpen, setSpotlightOpen] = useState(false)
+  useEffect(() => {
+    try { setTourDismissed(globalThis.localStorage?.getItem(tourKey) === '1') } catch { setTourDismissed(false) }
+    setSpotlightOpen(false)
+  }, [tourKey])
+
+  const entries = chatEntriesOf(store, botId)
+  const hasUserMessages = entries.some((e) => e.kind === 'user')
+  const hasConversationMessages = entries.some((e) => e.kind === 'user' || e.kind === 'agent')
+  const isPrincipalBot = !!bot && bot.id === store.principal.id && !isGroup(bot)
+  useEffect(() => {
+    if (isPrincipalBot && hasUserMessages) {
+      setSpotlightOpen(false)
+      if (sameOnboardingHub) onboarding.markStep4Completed()
+    }
+  }, [isPrincipalBot, hasUserMessages, onboarding, sameOnboardingHub])
+
+  const showFirstChat = openSession === null && !hasConversationMessages && shouldShowFirstChatOnboarding({
+    isPrincipalBot,
+    isGroup: !!bot && isGroup(bot),
+    hasUserMessages,
+    persistedCompleted: sameOnboardingHub && onboarding.status?.persisted?.completed === true,
+    dismissedLocally: tourDismissed,
+  })
+
+  const handlePickStarterTask = useCallback((promptText: string) => {
+    store.setRoutineDraft(botId, promptText)
+    setSpotlightOpen(true)
+  }, [store, botId])
+
+  const handleSkipTour = useCallback(() => {
+    setSpotlightOpen(false)
+    setTourDismissed(true)
+    try { globalThis.localStorage?.setItem(tourKey, '1') } catch {}
+    if (sameOnboardingHub) onboarding.markStep4Completed()
+  }, [tourKey, onboarding, sameOnboardingHub])
+
   const openTrace = useCallback(() => setShowTrace(true), [])
 
   const presentRoutine = useCallback((id: string | null) => {
@@ -329,11 +378,12 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
           {!calling ? <RotuloModelo store={store} chat={bot} sessionId={openSession} /> : null}
         </div>
         {/* An update card takes the composer's place, so there's nothing to reply with. */}
-        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} />
+        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && sameOnboardingHub && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={handlePickStarterTask} onConnectAi={onboarding.openStep3} /> : undefined} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
           <PropostasDoBerga store={store} botId={botId} openSession={openSession} />
+          <ComposerSpotlight open={spotlightOpen && !hasUserMessages && openSession === null} onDismiss={() => setSpotlightOpen(false)} onSkipTour={handleSkipTour} />
           {store.mismatch ? (
             <div className="composer-update-needed">
               <UpdateNeededCard />
@@ -419,7 +469,7 @@ function ConnectionSubtitle() {
 /** The messages: every loaded message, brought to the newest as it changes while the reader is at the bottom. */
 const PAGE = 40
 
-const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTrace, onReply, openRoutine, openBotChat }: { botId: string; sessionId: string | null; sessions: ChatSessions; openTrace: () => void; onReply?: (e: Entry) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTrace, onReply, openRoutine, openBotChat, firstChatOnboarding }: { botId: string; sessionId: string | null; sessions: ChatSessions; openTrace: () => void; onReply?: (e: Entry) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void; firstChatOnboarding?: ReactNode }) {
   const store = useStoreRef()
   // MX-4 (C9): a fatia do transcript — esta conversa, o bot, a conexão e os autores das linhas.
   useSelector(store, (s) => [
@@ -564,7 +614,7 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
               {loadingEarlier ? <Spinner size={14} /> : t('conversa.mensagens.anteriores')}
             </button>
           ) : null}
-          {items.length === 0 && bot ? <div className="transcript-intro">{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
+          {firstChatOnboarding ? <div className="transcript-intro">{firstChatOnboarding}</div> : items.length === 0 && bot ? <div className="transcript-intro">{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
           {items.map((item) => (
             <Fragment key={item.id}>
             {item.id === lineId ? <div className="chat-novas" role="separator" aria-label={t('conversa.navegacao.novasRotulo')}><span aria-hidden>{t('conversa.navegacao.novas')}</span></div> : null}
