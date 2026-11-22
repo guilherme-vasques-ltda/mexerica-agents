@@ -1109,6 +1109,7 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             json!({"engineAccountId":"x","expectedRevision":1,"modelId":"m","hidden":true}),
             false,
         ),
+        ("donnaEngineAccountSetEnabled", json!({"engineAccountId":"x","expectedRevision":1,"enabled":false}), false),
         // MEX-1391/F6-B: a ordem de reserva e as ações do fallback exigem o vínculo engine.accounts e a autoridade na Tx.
         ("donnaEngineFallbackSave", json!({"backend":"claude","accounts":[]}), false),
         ("donnaEngineFallbackAction", json!({"action":"backNow","engineAccountId":"x"}), false),
