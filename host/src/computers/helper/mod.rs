@@ -217,9 +217,16 @@ async fn enroll(home: &Home, hub: &str, code: &str, name: &str) -> Result<()> {
             binding_id: crypto::b64(&crypto::random::<16>()),
         })?;
     }
-    println!(
-        "Cadastrado como {name}. Nenhum local foi liberado ainda: rode authorize para escolher onde a Mexerica pode criar planilhas."
-    );
+    let locais = capabilities(home);
+    let granted = locais["locais"].as_array().filter(|l| !l.is_empty());
+    if let Some(list) = granted {
+        let names: Vec<&str> = list.iter().filter_map(|v| v.as_str()).collect();
+        println!("Cadastrado como {name}. Locais liberados: {}.", names.join(", "));
+    } else {
+        println!(
+            "Cadastrado como {name}. Nenhum local foi liberado ainda: rode authorize para escolher onde a Mexerica pode criar planilhas."
+        );
+    }
     Ok(())
 }
 
@@ -428,9 +435,19 @@ fn revoked(e: &anyhow::Error) -> bool {
 }
 
 fn journal_for_hello(home: &Home) -> Vec<Value> {
-    let mut rows: Vec<Value> =
-        home.outbox().into_iter().map(|(_, r)| json!({"jobId":r["jobId"],"state":"done"})).collect();
-    rows.extend(home.pending_running().into_iter().map(|(id, _)| json!({"jobId":id,"state":"unknown"})));
+    let mut seen = std::collections::HashSet::new();
+    let mut rows = Vec::new();
+    for (_, r) in home.outbox() {
+        if let Some(id) = r["jobId"].as_str() {
+            seen.insert(id.to_owned());
+        }
+        rows.push(json!({"jobId":r["jobId"],"state":"done"}));
+    }
+    for (id, _) in home.pending_running() {
+        if seen.insert(id.clone()) {
+            rows.push(json!({"jobId":id,"state":"unknown"}));
+        }
+    }
     rows.truncate(50);
     rows
 }

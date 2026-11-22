@@ -172,7 +172,7 @@ impl Session {
     }
 
     pub async fn close(mut self) {
-        let _ = self.ws.close(None).await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), self.ws.close(None)).await;
     }
 }
 

@@ -15,7 +15,9 @@ pub const MAX_TEXT: usize = 500;
 pub const MAX_NAME: usize = 31;
 const MAX_ENTRY: usize = 1 << 20;
 pub const MAX_FILE: usize = 128 * 1024;
-const PARTS: &[&str] = &["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels"];
+const PARTS: &[&str] =
+    &["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml"];
+const STYLES_XML: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts><fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills><borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs><cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs><cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -106,7 +108,7 @@ pub fn validate(sheets: &[Sheet]) -> Result<()> {
             for cell in row {
                 match cell {
                     Cell::Number(n) => {
-                        ensure!(n.is_finite(), "invalid_arguments: número inválido");
+                        ensure!(n.is_finite() && !n.is_subnormal(), "invalid_arguments: número inválido");
                         ensure!(
                             n.fract() != 0.0 || n.abs() < 9_007_199_254_740_992.0,
                             "invalid_arguments: inteiro de módulo igual ou acima de 9007199254740992 (2^53) perde precisão; use até 9007199254740991 ou passe como texto"
@@ -218,10 +220,11 @@ fn column(mut index: usize) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn sheet_xml(sheet: &Sheet) -> Result<String> {
+fn sheet_xml(sheet: &Sheet, budget: usize) -> Result<String> {
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>",
     );
+    ensure!(xml.len() <= budget, "too_large: a planilha passa de 128 KiB");
     for (r, row) in sheet.rows.iter().enumerate() {
         let _ = write!(xml, "<row r=\"{}\">", r + 1);
         for (c, cell) in row.iter().enumerate() {
@@ -249,10 +252,13 @@ fn sheet_xml(sheet: &Sheet) -> Result<String> {
                     let _ = write!(xml, "<c r=\"{at}\" t=\"b\"><v>{}</v></c>", u8::from(*b));
                 }
             }
+            ensure!(xml.len() <= budget, "too_large: a planilha passa de 128 KiB");
         }
         xml.push_str("</row>");
+        ensure!(xml.len() <= budget, "too_large: a planilha passa de 128 KiB");
     }
     xml.push_str("</sheetData></worksheet>");
+    ensure!(xml.len() <= budget, "too_large: a planilha passa de 128 KiB");
     Ok(xml)
 }
 
@@ -264,7 +270,7 @@ pub fn build(sheets: &[Sheet]) -> Result<Vec<u8>> {
 fn assemble(sheets: &[Sheet]) -> Result<Vec<u8>> {
     let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
     let mut types = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>",
     );
     let mut book = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>",
@@ -272,6 +278,7 @@ fn assemble(sheets: &[Sheet]) -> Result<Vec<u8>> {
     let mut rels = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
     );
+    let mut sheet_bytes_total = 0usize;
     for (i, sheet) in sheets.iter().enumerate() {
         let n = i + 1;
         let _ = write!(
@@ -283,8 +290,15 @@ fn assemble(sheets: &[Sheet]) -> Result<Vec<u8>> {
             rels,
             "<Relationship Id=\"rId{n}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{n}.xml\"/>"
         );
-        parts.push((format!("xl/worksheets/sheet{n}.xml"), sheet_xml(sheet)?.into_bytes()));
+        let xml = sheet_xml(sheet, MAX_FILE.saturating_sub(sheet_bytes_total))?.into_bytes();
+        sheet_bytes_total += xml.len();
+        parts.push((format!("xl/worksheets/sheet{n}.xml"), xml));
     }
+    let styles_id = sheets.len() + 1;
+    let _ = write!(
+        rels,
+        "<Relationship Id=\"rId{styles_id}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
+    );
     types.push_str("</Types>");
     book.push_str("</sheets></workbook>");
     rels.push_str("</Relationships>");
@@ -294,6 +308,7 @@ fn assemble(sheets: &[Sheet]) -> Result<Vec<u8>> {
         ("_rels/.rels".to_owned(), root.as_bytes().to_vec()),
         ("xl/workbook.xml".to_owned(), book.into_bytes()),
         ("xl/_rels/workbook.xml.rels".to_owned(), rels.into_bytes()),
+        ("xl/styles.xml".to_owned(), STYLES_XML.as_bytes().to_vec()),
     ];
     all.append(&mut parts);
     let file = zip_store(&all)?;
@@ -419,13 +434,18 @@ fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     Some(&tag[start..start + tag[start..].find('"')?])
 }
 
-/// Reabre o arquivo e devolve o conteúdo tipado. Recusa qualquer coisa que a escrita não produziria.
+/// Reabre o arquivo e devolve o conteúdo tipado.
+/// Confere a estrutura ZIP, as partes mínimas e as células em `<sheetData>`, mas não impõe bytes
+/// canônicos fora de `<sheetData>` (como comentários extras após o fechamento). Quem exigir
+/// entrada idêntica à do gerador deve comparar os bytes contra `build` (como faz o executor).
 pub fn inspect(file: &[u8]) -> Result<Vec<Sheet>> {
     let parts = zip_entries(file)?;
     let get = |name: &str| parts.iter().find(|(n, _)| n == name).map(|(_, d)| std::str::from_utf8(d)).transpose();
     for needed in PARTS {
         ensure!(parts.iter().any(|(n, _)| n == needed), "xlsx: falta a parte {needed}");
     }
+    let styles = get("xl/styles.xml")?.ok_or_else(|| anyhow!("xlsx: sem styles.xml"))?;
+    ensure!(styles.contains("<styleSheet"), "xlsx: styles.xml inválido");
     let book = get("xl/workbook.xml")?.ok_or_else(|| anyhow!("xlsx: sem workbook"))?;
     let mut sheets = Vec::new();
     for (i, tag) in book.split("<sheet ").skip(1).enumerate() {
@@ -608,5 +628,26 @@ mod tests {
         let rebuilt = build(&back).unwrap();
         assert_eq!(rebuilt, bytes);
         assert_eq!(hex(&crate::remote::crypto::sha256(&[&rebuilt])), hex(&crate::remote::crypto::sha256(&[&bytes])));
+    }
+
+    #[test]
+    fn workbook_includes_styles_rejects_subnormals_and_bounds_xml_expansion() {
+        let bytes = build(&sample()).unwrap();
+        let parts = zip_entries(&bytes).unwrap();
+        assert!(parts.iter().any(|(name, _)| name == "xl/styles.xml"));
+        let rels =
+            std::str::from_utf8(&parts.iter().find(|(n, _)| n == "xl/_rels/workbook.xml.rels").unwrap().1).unwrap();
+        assert!(rels.contains("Target=\"styles.xml\""));
+
+        for sub in [1e-310_f64, -1e-310_f64] {
+            let sheets = vec![Sheet { name: "A".into(), rows: vec![vec![Cell::Number(sub)]] }];
+            assert!(validate(&sheets).is_err());
+            assert!(build(&sheets).is_err());
+        }
+
+        let big_cell = "&".repeat(MAX_TEXT);
+        let row = vec![Cell::Text(big_cell); 10];
+        let sheets = vec![Sheet { name: "Cheia".into(), rows: vec![row; 50] }];
+        assert!(build(&sheets).unwrap_err().to_string().contains("too_large"));
     }
 }

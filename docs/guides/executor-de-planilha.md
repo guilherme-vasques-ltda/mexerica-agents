@@ -1,6 +1,6 @@
 # Planilha no computador escolhido
 
-O Berga, no Hub, pode pedir uma planilha `.xlsx` **nova** numa pasta que o dono liberou no
+O assistente, no Hub, pode pedir uma planilha `.xlsx` **nova** numa pasta que o dono liberou no
 próprio computador. Quem grava é um programa pequeno no computador (o executor); o Hub só
 diz "criado" quando o computador devolve um recibo conferido. Usa o canal direto e cifrado
 do Hub que os computadores do dono já usam, sem outro transporte.

@@ -95,7 +95,7 @@ async fn start_hub() -> Hub {
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agent_hold.py");
     let cwd = work;
     let bot = hub
-        .call("createBot", json!({"name":"Berga de teste","backend":"custom","command":common::python_agent(&agent),"cwd":cwd,"permission":"ask"}))
+        .call("createBot", json!({"name":"Assistente de teste","backend":"custom","command":common::python_agent(&agent),"cwd":cwd,"permission":"ask"}))
         .await["bot"]["id"]
         .as_str()
         .unwrap()
@@ -354,11 +354,11 @@ async fn the_computer_enforces_its_own_limits_not_the_prompt() {
     std::fs::remove_dir(&pc.desktop).unwrap();
     std::fs::rename(&old, &pc.desktop).unwrap();
 
-    // O dono tira a liberação no próprio PC; o Hub ainda tem a capacidade antiga por até 25 s e envia o pedido.
+    // O dono tira a liberação no próprio PC; o Hub pode ainda ter a capacidade antiga ou já ter recebido a atualização.
     let (ok, out) = pc.exec(&["unauthorize", "--location", "desktop"], "");
     assert!(ok, "{out}");
     let (error, text) = hub.tool("create_spreadsheet", args(None, Some("X"), "Vendas.xlsx")).await;
-    assert!(error && text.contains("location_not_authorized"), "{text}");
+    assert!(error && (text.contains("location_not_authorized") || text.contains("capability_missing")), "{text}");
     assert_eq!(listing(&pc.desktop), Vec::<String>::new(), "nada pode ter sido criado");
     // Depois do próximo batimento o Hub recusa antes de enfileirar.
     let end = Instant::now() + Duration::from_secs(40);
@@ -383,12 +383,10 @@ async fn critical_places_cannot_be_authorized_and_codes_are_single_use() {
         std::fs::create_dir_all(&dir).unwrap();
         let mut c = pc.command(&["authorize", "--location", "desktop"]);
         c.env("MEXERICA_EXECUTOR_TEST_DESKTOP", &dir)
-            .stdin(Stdio::piped())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = c.spawn().unwrap();
-        child.stdin.take().unwrap().write_all(b"AUTORIZAR\n").unwrap();
-        let out = child.wait_with_output().unwrap();
+        let out = c.output().unwrap();
         assert!(
             !out.status.success() && String::from_utf8_lossy(&out.stderr).contains("crítica"),
             "{critical}: {}",

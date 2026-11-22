@@ -105,7 +105,22 @@ impl Home {
         #[cfg(unix)]
         crate::fork::private_fs::inspect(path)?;
         let marker = path.join(".mexerica-executor");
-        let foreign = !marker.exists() && fs::read_dir(path).is_ok_and(|mut d| d.next().is_some());
+        let marker_exists = match fs::symlink_metadata(&marker) {
+            Ok(_) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => bail!("ler {}: {e}", marker.display()),
+        };
+        let empty_or_bootstrap = match fs::read_dir(path) {
+            Ok(mut d) => d.try_fold(true, |ok, entry| -> Result<bool> {
+                let entry = entry?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                Ok(ok && (name == "auth.lock" || name.starts_with(".mexerica-executor.tmp-")))
+            })?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+            Err(e) => bail!("ler {}: {e}", path.display()),
+        };
+        let foreign = !marker_exists && !empty_or_bootstrap;
         ensure!(
             !foreign,
             "a pasta de estado {} já tem outros arquivos; use uma pasta nova ou vazia (--home)",
@@ -117,7 +132,16 @@ impl Home {
         private_dir(path)?;
         let home = Self(path.to_path_buf());
         let _lock = home.lock()?;
-        if !marker.exists() {
+        if fs::symlink_metadata(&marker).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+            if let Ok(entries) = fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    if entry.file_name().to_string_lossy().starts_with(".mexerica-executor.tmp-")
+                        && entry.file_type().is_ok_and(|t| t.is_file())
+                    {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
             private_write(&marker, b"estado do executor da Mexerica\n")?;
         }
         for epoch in ["state.epoch", "binding.epoch"] {
@@ -554,6 +578,25 @@ mod tests {
         fs::set_permissions(&loose, fs::Permissions::from_mode(0o775)).unwrap();
         assert!(Home::open(&loose).is_err());
         assert!(Home::open(&loose.join("child")).is_err());
+
+        let interrupted = base.join("interrupted");
+        fs::create_dir_all(&interrupted).unwrap();
+        fs::set_permissions(&interrupted, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(interrupted.join("auth.lock"), b"").unwrap();
+        fs::set_permissions(interrupted.join("auth.lock"), fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(interrupted.join(".mexerica-executor.tmp-leftover"), b"x").unwrap();
+        assert!(Home::open(&interrupted).is_ok());
+        assert!(interrupted.join(".mexerica-executor").is_file());
+        assert!(!interrupted.join(".mexerica-executor.tmp-leftover").exists());
+
+        if crate::fork::private_fs::uid() != 0 {
+            let unreadable = base.join("unreadable");
+            fs::create_dir_all(&unreadable).unwrap();
+            fs::write(unreadable.join("trabalho.txt"), b"x").unwrap();
+            fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+            assert!(Home::open(&unreadable).is_err());
+            fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o700)).unwrap();
+        }
         fs::remove_dir_all(base).unwrap();
     }
 }
