@@ -396,7 +396,7 @@ const REL_IF = "${{ github.event_name == 'workflow_dispatch' && github.ref == 'r
 const REL_GUARD = "${{ runner.environment != 'github-hosted' || github.event.repository.visibility != 'public' }}";
 const REL_VERSAO_ERRO = "'::error::O workflow de release so roda a partir da main.'";
 
-test('release: ASCII, só workflow_dispatch com mode e version, sem gatilho proibido e sem secrets', () => {
+test('release: ASCII, só workflow_dispatch com mode e version, sem gatilho proibido', () => {
   assert.ok(!/[^\x00-\x7F]/.test(rel), 'release.yml deve ser ASCII');
   assert.match(rel, /^on:\n  workflow_dispatch:\n    inputs:\n      mode:\n        description: '[^'\n]+'\n        type: choice\n        required: true\n        default: 'release'\n        options: \['release', 'preview'\]\n      version:\n        description: '[^'\n]+'\n        type: string\n        required: false\n        default: 'v0\.0\.1'\n\n/m);
   for (const trigger of ['pull_request', 'pull_request_target', 'workflow_call', 'workflow_run', 'issue_comment', 'schedule', 'push:', 'merge_group']) {
@@ -404,7 +404,6 @@ test('release: ASCII, só workflow_dispatch com mode e version, sem gatilho proi
   }
   assert.match(rel, /^permissions: \{\}$/m);
   assert.match(rel, /^concurrency:\n  group: release-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
-  assert.ok(!/secrets\./.test(rel), 'release sem secrets');
   assert.ok(!/container:|services:/.test(rel), 'sem container/services');
 });
 
@@ -423,7 +422,7 @@ test('release: quatro jobs nos runners grátis do GitHub, com timeout e sem rót
   assert.match(relBody('build-windows'), /^    defaults:\n      run:\n        shell: bash$/m);
 });
 
-test('release: separação de privilégios; escrita só no draft-release e nenhum secret', () => {
+test('release: separação de privilégios; escrita só no draft-release', () => {
   for (const name of ['build-macos', 'build-linux', 'build-windows']) {
     assert.match(relBody(name), /^    permissions:\n      contents: read$/m, `${name}: só contents read`);
     assert.ok(!/: write\b/.test(relBody(name)), `${name}: sem permissão de escrita`);
@@ -498,16 +497,16 @@ test('release: barreiras antes do checkout nos quatro jobs; inputs nunca interpo
 
 test('release: a versão entra nos metadados do app entre o npm ci e o build, só no modo release', () => {
   const depoisDe = {
-    'build-macos': 'Empacotar a Open (perfil oficial, assinatura ad hoc)',
-    'build-linux': 'Preparar a configuracao e construir o app',
-    'build-windows': 'Preparar a configuracao e construir o app',
+    'build-macos': 'Empacotar o app oficial macOS',
+    'build-linux': 'Empacotar o app oficial Linux',
+    'build-windows': 'Empacotar o app oficial Windows',
   };
   for (const [name, seguinte] of Object.entries(depoisDe)) {
     const steps = relSteps(name).map((st) => st.replace(/^      - /, ''));
     const idx = (trecho) => steps.findIndex((st) => st.startsWith(`name: ${trecho}`));
     const npmCi = idx('Dependencias do app');
     const versao = idx('Aplicar versao da release aos metadados do app');
-    assert.ok(npmCi >= 0 && versao === npmCi + 1 && idx(seguinte) === versao + 1, `${name}: passo da versão entre o npm ci e o build`);
+    assert.ok(npmCi >= 0 && versao > npmCi && idx(seguinte) === versao + 1, `${name}: passo da versão entre o npm ci e o build`);
     const passo = steps[versao];
     assert.ok(passo.includes("if: ${{ inputs.mode == 'release' }}"), `${name}: passo da versão só no modo release`);
     assert.ok(passo.includes('RELEASE_VERSION: ${{ inputs.version }}'), `${name}: versão chega por env, nunca em run`);
@@ -515,7 +514,58 @@ test('release: a versão entra nos metadados do app entre o npm ci e o build, s�
   }
 });
 
-test('release: macOS segue o padrão provado do macos.yml, empacota e confere assinatura', () => {
+test('release: configuração pública só chega ao passo oficial dos três builds, nunca à prévia', () => {
+  const refs = [...rel.matchAll(/\bsecrets\.([A-Z0-9_]+)/g)].map((m) => m[1]);
+  const input = 'MEXERICA_DESKTOP_MAIN_PLIST';
+  assert.deepEqual(refs, Array(3).fill(input));
+  for (const [name, dist] of [['build-macos', 'mac'], ['build-linux', 'linux'], ['build-windows', 'win']]) {
+    const steps = relSteps(name);
+    assert.match(steps[1], /test "\$GITHUB_REPOSITORY" = guilherme-vasques-ltda\/mexerica-agents \|\| .*exit 1/);
+    const [official, preview] = steps.filter((step) => step.startsWith('name: Empacotar o app oficial') || step.startsWith('name: Empacotar a previa'));
+    assert.ok(official.includes("if: ${{ inputs.mode == 'release' && github.repository == 'guilherme-vasques-ltda/mexerica-agents' }}"));
+    assert.ok(official.includes('working-directory: apps/desktop'));
+    assert.equal(official.split('\n').find((line) => line.includes('run:')), `        run: bash ../../tools/ci-release-desktop.sh ${dist}`);
+    assert.ok(preview.includes("if: ${{ inputs.mode == 'preview' }}"));
+    assert.doesNotMatch(preview, /:official|secrets\./);
+    assert.ok(official.includes(`          ${input}: \${{ secrets.${input} }}`));
+    assert.ok(steps.filter((step) => step.includes(input)).every((step) => step === official));
+    assert.doesNotMatch(relBody(name), /MEXERICA_DESKTOP_MAIN_DEPLOYMENT_JSON|set -x/);
+  }
+  assert.doesNotMatch(relBody('draft-release'), /MEXERICA_DESKTOP_MAIN_/);
+});
+
+test('release: plist é temporário, não chega ao processo de build por env e volta mesmo se o alvo falhar', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-release-plist-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  assert.equal(spawnSync('mkdir', ['config'], { cwd: dir }).status, 0);
+  const file = join(dir, 'config/main.plist');
+  writeFileSync(file, '<plist/>\n');
+  const fixture = '<plist version="1.0"><dict></dict></plist>';
+  writeFileSync(join(dir, 'npm'), `#!/bin/bash\nset -eu\ntest "\${MEXERICA_DESKTOP_MAIN_PLIST+x}" = ''\ntest "$1" = run\ntest "$2" = dist:linux:official\ntest "$(cat config/main.plist)" = '${fixture}'\nexit "$FIXTURE_STATUS"\n`, { mode: 0o700 });
+  const script = fileURLToPath(new URL('./ci-release-desktop.sh', import.meta.url));
+  for (const [input, status] of [['', 1], [fixture, 0], [fixture, 42]]) {
+    const result = spawnSync('bash', [script, 'linux'], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MEXERICA_DESKTOP_MAIN_PLIST: input, FIXTURE_STATUS: String(status) } });
+    assert.equal(result.status, status);
+    assert.equal(result.stdout, input ? '' : '::error::A configuracao publica da conta oficial esta ausente.\n');
+    assert.doesNotMatch(result.stderr, /<plist/);
+    assert.equal(readFileSync(file, 'utf8'), '<plist/>\n');
+  }
+});
+
+test('release: guarda permite prévia sem configuração e recusa release de fork ou branch não confiável', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-release-guard-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'github-env');
+  for (const name of ['build-macos', 'build-linux', 'build-windows']) {
+    const script = relSteps(name)[1].split('\n        run: |\n')[1].split('\n').filter((line) => line.startsWith('          ')).join('\n');
+    const env = { ...process.env, GITHUB_REF: 'refs/heads/main', GITHUB_SHA: 'a'.repeat(40), GITHUB_ENV: file, RELEASE_VERSION: 'v1.2.3' };
+    assert.equal(spawnSync('bash', ['-c', script], { env: { ...env, GITHUB_REPOSITORY: 'example/fork', RELEASE_MODE: 'preview' } }).status, 0);
+    assert.equal(spawnSync('bash', ['-c', script], { env: { ...env, GITHUB_REPOSITORY: 'example/fork', RELEASE_MODE: 'release' } }).status, 1);
+    assert.equal(spawnSync('bash', ['-c', script], { env: { ...env, GITHUB_REPOSITORY: 'guilherme-vasques-ltda/mexerica-agents', GITHUB_REF: 'refs/heads/MAIN', RELEASE_MODE: 'release' } }).status, 1);
+  }
+});
+
+test('release: macOS separa o app oficial completo da prévia isolada e confere assinatura', () => {
   const job = relBody('build-macos');
   assert.match(job, /^    env:\n      OPEN_APP: dist\/open\/mac-arm64\/Mexerica Open\.app$/m);
   for (const cmd of [
@@ -527,14 +577,18 @@ test('release: macOS segue o padrão provado do macos.yml, empacota e confere as
     '63752a1919a3a4793173ec70f8f212621a7ce38ba6a246095984482f4de20f9f',
     'rustup show active-toolchain || rustup toolchain install',
     'npm ci --no-audit --no-fund',
-    'npm run dist:mac:open',
-    'codesign --verify --deep --strict "$OPEN_APP"',
+    "name: Empacotar a previa Open isolada\n        if: ${{ inputs.mode == 'preview' }}\n        working-directory: apps/desktop\n        run: npm run dist:mac:open",
+    'MAIN_APP: dist/official/mac-universal/Mexerica.app',
+    'bash ../../tools/ci-release-desktop.sh mac',
+    'lipo -verify_arch arm64 x86_64 build/native/donnabot-host',
+    'lipo -verify_arch arm64 x86_64 build/native/codync-speech',
+    'codesign --verify --deep --strict "$app"',
     'test "$(lipo -archs "$hub")" = arm64',
     'codesign --verify --strict "$speech"',
-    'ditto -c -k --sequesterRsrc --keepParent "$OPEN_APP" "$out/$zip"',
+    'ditto -c -k --sequesterRsrc --keepParent "$app" "$out/$zip"',
     'shasum -a 256 "$zip" > macos.sha256',
     'if [ -n "${RELEASE_SEMVER:-}" ]; then',
-    "/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \"$OPEN_APP/Contents/Info.plist\"",
+    "/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \"$app/Contents/Info.plist\"",
     ')" = "$RELEASE_SEMVER"',
   ]) assert.ok(job.includes(cmd), cmd);
   assert.match(job, /key: release-macos/);
@@ -553,6 +607,9 @@ test('release: Linux empacota deb e AppImage, confere o conteúdo e gera hash', 
     'node tools/account-config.mjs main',
     'npm run build',
     'npx electron-builder --linux deb AppImage --publish never',
+    'cargo build --locked --release --target x86_64-unknown-linux-gnu --bin donnabot-host',
+    'install -D -m 0755 target/x86_64-unknown-linux-gnu/release/donnabot-host ../apps/desktop/build/native/donnabot-host',
+    'opt/Mexerica/resources/donnabot-host$',
     'dpkg-deb --info "$out/$deb_name"',
     'dpkg-deb --contents "$out/$deb_name"',
     'opt/Mexerica/donnabot$',
@@ -587,18 +644,18 @@ test('release: Windows compila o Hub nativo, valida o cua-driver e empacota NSIS
     './apps/desktop/build/native/donnabot-host.exe --version',
     'CSC_IDENTITY_AUTO_DISCOVERY: \'false\'',
     'npx electron-builder --win nsis --publish never',
-    'dist/donnabot-windows-x64.exe',
-    'dist/win-unpacked/Mexerica.exe',
-    'dist/win-unpacked/resources/donnabot-host.exe',
-    'dist/win-unpacked/resources/donnabot-hostw.exe',
+    '"$dist/donnabot-windows-x64.exe"',
+    'win-unpacked/Mexerica.exe',
+    'win-unpacked/resources/donnabot-host.exe',
+    'win-unpacked/resources/donnabot-hostw.exe',
     'dist/win-unpacked/resources/cua-driver.exe',
-    'dist/win-unpacked/resources/account-config.json',
+    'win-unpacked/resources/account-config.json',
     'win_zip=$(cygpath -w "$out/$zip")',
     '/c/Windows/System32/tar.exe -a -c -f "$win_zip" .',
     '/c/Windows/System32/tar.exe -tf "$win_zip" | grep -Eq \'^(\\./)?Mexerica\\.exe$\'',
     'sed \'s/ \\*/  /\' | tr -d \'\\r\' > windows.sha256',
     'test "$(node -p "require(\'./apps/desktop/package.json\').version")" = "$RELEASE_SEMVER"',
-    'node tools/ci-release-version.mjs --check-asar apps/desktop/dist/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"',
+    'node tools/ci-release-version.mjs --check-asar apps/desktop/dist/official/win-unpacked/resources/app.asar --version "$RELEASE_VERSION"',
   ]) assert.ok(job.includes(cmd), cmd);
   const conferencia = job.split('\n      - ').find((st) => st.includes('name: Conferir a versao gravada nos metadados do Windows'));
   assert.ok(conferencia, 'passo de conferência da versão no Windows');
@@ -771,18 +828,18 @@ test('notas: main gera o arquivo com changelog limpo e avisa as linhas omitidas'
   await assert.rejects(() => main(['--version', '0.1.0', '--sha', '0'.repeat(40), '--out', 'x.md']), (erro) => erro.controlado === true, 'versão sem v reprova fechado');
 });
 
-test('notas: só o macOS promete perfil isolado; Linux e Windows avisam o perfil padrão', () => {
+test('notas: os pacotes oficiais avisam que usam o perfil padrão, inclusive no macOS', () => {
   const notas = montarNotas({ version: 'v0.2.7', sha: '0'.repeat(40), changelog: [], regras: regrasBastidor });
-  assert.ok(notas.includes('Apenas o pacote de macOS usa o'), 'o aviso delimita qual pacote é isolado');
-  assert.ok(notas.includes('perfil isolado `Mexerica Open`; os pacotes de Linux e Windows usam o perfil padrão do app'), 'o aviso nomeia o perfil padrão para Linux e Windows');
+  assert.ok(notas.includes('do app e podem compartilhar dados com instalações existentes.'));
+  assert.ok(notas.includes(' **macOS (perfil padrão):** descompacte o zip e abra o `Mexerica.app`.'));
+  assert.doesNotMatch(notas, /perfil isolado|19524|~\/\.mexerica-open/);
   assert.ok(notas.includes('### Como instalar e abrir'), 'título novo da seção de instalação');
   assert.ok(!notas.includes('Como abrir sem mexer em instalação existente'), 'o título antigo, que prometia isolamento geral, saiu');
   assert.ok(!notas.includes('use pastas separadas da instalação'), 'a frase genérica de isolamento saiu');
   const secao = notas.slice(notas.indexOf('### Arquivos incluídos'), notas.indexOf('### Como instalar e abrir'));
   const pacotes = secao.split('\n').filter((l) => l.startsWith('- `') && !l.includes('SHA256SUMS.txt'));
   for (const l of pacotes) {
-    if (l.includes('-macos-arm64.zip')) assert.ok(l.includes('perfil isolado') && l.includes('separado de instalações existentes'), l);
-    else assert.ok(l.includes('perfil padrão') && l.includes('não isolado'), `Linux e Windows sem promessa de isolamento: ${l}`);
+    assert.ok(l.includes('perfil padrão') && l.includes('não isolado'), l);
   }
   assert.deepEqual(verificar({ titulo: 'Mexerica Open v0.2.7', descricao: notas }, regrasBastidor), [], 'o texto novo continua limpo de bastidor');
 });
