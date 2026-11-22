@@ -288,6 +288,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
     && store.computer.id === onboarding.computerId && storeSpaceId === onboarding.spaceId
   const tourKey = JSON.stringify([onboarding.navigationKey, store.computer.id, store.hello?.hostId, botId])
   const [spotlightKey, setSpotlightKey] = useState<string | null>(null)
+  const [starterDraft, setStarterDraft] = useState<{ scope: string; prompt: string } | null>(null)
 
   const entries = chatEntriesOf(store, botId)
   const hasUserMessages = entries.some((e) => e.kind === 'user')
@@ -301,9 +302,9 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   })
 
   const handlePickStarterTask = useCallback((promptText: string) => {
-    store.setRoutineDraft(botId, promptText)
+    setStarterDraft({ scope: tourKey, prompt: promptText })
     setSpotlightKey(tourKey)
-  }, [store, botId, tourKey])
+  }, [tourKey])
 
   const dismissSpotlight = () => {
     setSpotlightKey(null)
@@ -366,7 +367,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
           {!calling ? <RotuloModelo store={store} chat={bot} sessionId={openSession} /> : null}
         </div>
         {/* An update card takes the composer's place, so there's nothing to reply with. */}
-        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={handlePickStarterTask} onConnectAi={onboarding.openStep3} /> : undefined} />
+        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={handlePickStarterTask} onConnectAi={onboarding.connectAi} /> : undefined} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
@@ -386,6 +387,8 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
               <Composer
                 botId={botId}
                 sessionId={openSession}
+                starterDraft={showFirstChat && starterDraft?.scope === tourKey ? starterDraft : null}
+                onStarterDraftHandled={setStarterDraft}
                 reply={replyTo}
                 cancelReply={cancelReply}
                 onCall={openSession === null && voiceAvailable && !calling && !vozBloqueada && bot ? () => setCalling(true) : null}

@@ -75,7 +75,8 @@ import { superficieIdioma, useIdioma, useT } from '../lib/fork-i18n/estado'
 import { comNos, no } from './settings/rotulo'
 import { useIslandSummary } from './island-summary'
 import { useSSH, useSSHAttachments } from './settings/ssh-model'
-import { useForkCloudAttachments } from './fork/cloud/use-fork-cloud'
+import { useForkCloud, useForkCloudAttachments } from './fork/cloud/use-fork-cloud'
+import { noConfiguredRemote } from './fork/onboarding/remote-entry'
 import { WithRoutinesScreen } from './rotinas-central/camada'
 import { routinesScreen } from './rotinas-central/navigation'
 import { settingsScreen, type SettingsPage } from './fork/ajustes/tela'
@@ -119,6 +120,7 @@ function ChatShell() {
   useSincronizarAtalhoVoz()
   // D171: o Hub pela nuvem, só com `cloudAccess` e anexo qualificado pelo Main; o SSH vem primeiro.
   useForkCloudAttachments(app)
+  const cloud = useForkCloud()
   const ssh = useSSH()
   const showsChat = shouldShowChat(app.host.state.kind, app.computers.length, ssh.state)
   // Sem host neste computador (D76), não há acesso a este computador para configurar.
@@ -128,6 +130,7 @@ function ChatShell() {
     app.host.state,
     forkFeatures.localHost || (forkFeatures.macLocalHub && window.codync.platform === 'darwin'),
     accessShown ? () => setShowAccess(true) : null,
+    noConfiguredRemote(ssh.hasSnapshot ? ssh.state : null, cloud),
   )
   const finishAccess = (ready: boolean) => {
     prefs.computerAccessSetup.set(ready ? 'ready' : 'later')
@@ -247,7 +250,7 @@ function SidebarReadinessCard() {
   return (
     <ReadinessCard
       status={onboarding.status}
-      onConnectAi={onboarding.openStep3}
+      onConnectAi={onboarding.connectAi}
       onConfigurePermissions={onboarding.openPermissions ?? undefined}
     />
   )

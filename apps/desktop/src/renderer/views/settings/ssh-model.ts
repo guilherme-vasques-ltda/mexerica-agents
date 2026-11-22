@@ -12,17 +12,22 @@ import { AnexosSSH } from './fork-ssh-anexos'
 /** The main process's SSH computers, mirrored for views. */
 class SSHModel extends Observable {
   state: SSHState = { profiles: [], status: {}, attachments: [] }
+  hasSnapshot = false
   private started = false
 
   start() {
     if (this.started) return
     this.started = true
     window.codync.ssh.onChange((s) => this.apply(s))
-    void window.codync.ssh.state().then((s) => this.apply(s))
+    void window.codync.ssh.state().then((s) => {
+      if (!this.hasSnapshot) this.apply(s)
+    }).catch(() => {})
   }
 
   private apply(s: SSHState) {
+    if (!Array.isArray(s?.profiles) || !Array.isArray(s.attachments)) return
     this.state = s
+    this.hasSnapshot = true
     this.changed()
   }
 

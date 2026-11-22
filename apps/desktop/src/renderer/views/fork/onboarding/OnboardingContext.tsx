@@ -4,7 +4,7 @@ import { type OnboardingStatusPayload } from '../../../../shared/fork-onboarding
 export interface OnboardingControllerValue {
   status: OnboardingStatusPayload | null
   hasReadyAi: boolean
-  openStep3: () => void
+  connectAi: () => void
   openPermissions: (() => void) | null
   navigationKey: string
   computerId: string | null
@@ -17,7 +17,7 @@ export interface OnboardingControllerValue {
 const defaultController: OnboardingControllerValue = {
   status: null,
   hasReadyAi: false,
-  openStep3: () => {},
+  connectAi: () => {},
   openPermissions: null,
   navigationKey: '',
   computerId: null,

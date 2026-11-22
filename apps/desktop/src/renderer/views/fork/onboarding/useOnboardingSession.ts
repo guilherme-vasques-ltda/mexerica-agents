@@ -12,6 +12,7 @@ import type { AppModel } from '../../../store/app-model'
 import { useModel, useSelector } from '../../../lib/observable'
 import { liveClient } from '../../settings/parts'
 import { fetchOnboardingStatus } from './adapter'
+import { officialDesktop } from '@shared/fork-features'
 import type { OnboardingControllerValue } from './OnboardingContext'
 import { aoMudarChaves } from '../contas-ia/api-direta'
 import { settingsScreen } from '../ajustes/tela'
@@ -22,6 +23,7 @@ export function useOnboardingSession(
   hostState: AppModel['host']['state'],
   allowLocalInstallGuide: boolean,
   openPermissions: (() => void) | null,
+  noConfiguredRemote = false,
 ) {
   const account = useAccount()
   const accountUserId = account.isReady && !account.isBusy && !account.isSigningOut && !account.isExitUnresolved
@@ -38,7 +40,7 @@ export function useOnboardingSession(
   const activeStore = useModel(app.local)
   const navigationKey = onboardingNavigationKey(revision, accountUserId, activeSpace?.computerId ?? activeStore?.computer.id ?? null, activeStore?.hello?.hostId ?? null, spaceId)
   const [choices, setChoices] = useState<Record<string, WhereChoice>>({})
-  const whereChoice = choices[navigationKey] ?? 'local'
+  const whereChoice = choices[navigationKey] ?? (hostState.kind === 'disabled' ? 'remote' : 'local')
 
   const screenEpoch = activeStore?.screenEpoch
   const bergaId = useSelector(activeStore?.principal, (principal) => principal?.id)
@@ -149,7 +151,13 @@ export function useOnboardingSession(
 
   const localInstallPending = dismissalLoaded && !marker?.deferred && allowLocalInstallGuide && app.computers.length === 0 && !localClient && !dismissedInSession
     && ['notInstalled', 'missingBinary', 'failed', 'starting'].includes(hostState.kind)
-  const showStep3 = isPersonalContext && (explicitStep3 || (!marker?.deferred && step3Held) || localInstallPending || autoStep3Pending)
+  const remoteEntry = officialDesktop && account.isConfigured && !!accountUserId && marker?.deferred === false
+    && hostState.kind === 'disabled' && !app.local && app.computers.length === 0 && noConfiguredRemote && !dismissedInSession
+  const showStep3 = isPersonalContext && (hostState.kind === 'disabled'
+    ? remoteEntry
+    : explicitStep3 || (!marker?.deferred && step3Held) || localInstallPending || autoStep3Pending)
+  const canConnectInWizard = !!localClient && visibleStatus?.capabilities.localKeysAndOAuth === true
+    && visibleStatus.spaceContext?.personalSpaceId === spaceId
 
   const closeStep3 = useCallback(
     () => {
@@ -171,7 +179,12 @@ export function useOnboardingSession(
     () => ({
       status: visibleStatus,
       hasReadyAi: visibleStatus?.ai.hasReadyAi ?? false,
-      openStep3: () => {
+      connectAi: () => {
+        if (!canConnectInWizard) {
+          settingsScreen.show('ai-accounts', 'contas')
+          return
+        }
+        setChoices((previous) => ({ ...previous, [navigationKey]: 'local' }))
         setExplicitStep3(true)
         void reload()
       },
@@ -185,7 +198,7 @@ export function useOnboardingSession(
         if (tourScope && currentTourScope.current === tourScope) setDismissedTourScope(tourScope)
       },
     }),
-    [visibleStatus, openPermissions, navigationKey, activeStore, spaceId, reload, tourScope, dismissedTourScope],
+    [visibleStatus, canConnectInWizard, openPermissions, navigationKey, activeStore, spaceId, reload, tourScope, dismissedTourScope],
   )
 
   return {
@@ -197,7 +210,7 @@ export function useOnboardingSession(
     explicitStep3,
     selectWhere: (where: WhereChoice) => {
       setChoices((previous) => ({ ...previous, [navigationKey]: where }))
-      setStep3Held(true)
+      if (hostState.kind !== 'disabled') setStep3Held(true)
     },
     dismissForComputers: closeStep3,
     closeStep3,

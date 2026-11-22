@@ -18,7 +18,7 @@ const pular = exe ? false : 'sem Chromium (defina CHROME=/caminho): o teste do C
 const bundle = pular ? null : await build({
   stdin: {
     contents: `export { createRoot } from 'react-dom/client';
-      export { createElement } from 'react';
+      export { createElement, useState } from 'react';
       export { Composer } from './views/thread/Composer';
       export { StoreContext } from './store/context';
       export { BotStore } from './store/bot-store';
@@ -55,7 +55,12 @@ const ABRIR = `
   store.send = (texto) => { window.__enviados.push(texto); store.composerDrafts.edit('b', '', 'typed'); return {}; };
   store.setFastMode = () => { window.__fast++; };
   window.__store = store; window.__modelo = App.modeloDe(store);
-  window.__montar = () => { window.__raiz = App.createRoot(document.getElementById('root')); window.__raiz.render(App.createElement(App.StoreContext.Provider, { value: store }, App.createElement(App.Composer, { botId: 'b' }))); };
+  function Editor() {
+    const [starterDraft, setStarterDraft] = App.useState(null);
+    window.__sugerir = prompt => setStarterDraft({ scope: 'principal', prompt });
+    return App.createElement(App.Composer, { botId: 'b', starterDraft, onStarterDraftHandled: setStarterDraft });
+  }
+  window.__montar = () => { window.__raiz = App.createRoot(document.getElementById('root')); window.__raiz.render(App.createElement(App.StoreContext.Provider, { value: store }, App.createElement(Editor))); };
   window.__montar();
 `
 const CHAVE = ['sk', '_live_', 'Qw3Er5Ty7Ui9Op1As3Df5Gh7'].join('')
@@ -105,6 +110,29 @@ async function cena(): Promise<Cena> {
   return c
 }
 const fecha = async (c: Cena) => { await c.page.close() }
+
+test('sugestão intacta é substituída no Composer real; edição, rotina e bloqueio são preservados', { skip: pular }, async () => {
+  const c = await cena()
+  const sugerir = async (texto: string) => {
+    await c.page.evaluate((t) => (window as any).__sugerir(t), texto)
+    return c.estado()
+  }
+  try {
+    await c.page.locator('textarea').fill('')
+    assert.equal((await sugerir('Primeira tarefa')).rascunho, 'Primeira tarefa')
+    assert.equal((await sugerir('Segunda tarefa')).rascunho, 'Segunda tarefa')
+    await c.compactando()
+    assert.equal((await sugerir('Terceira tarefa')).rascunho, 'Segunda tarefa')
+    await c.terminou()
+    assert.equal((await c.estado()).rascunho, 'Segunda tarefa')
+    await c.page.locator('textarea').fill('Minha edição')
+    assert.equal((await sugerir('Outra tarefa')).rascunho, 'Minha edição')
+    await c.page.evaluate(() => (window as any).__store.setRoutineDraft('b', 'Texto da rotina'))
+    const final = await c.estado()
+    assert.equal(final.rascunho, 'Minha edição\nTexto da rotina')
+    assert.deepEqual(final.enviados, [])
+  } finally { await fecha(c) }
+})
 
 test('sequência da revisão no Composer real: t=0 pedido, t=85 atividade, troca de conexão, t=90 libera; não volta a bloquear', { skip: pular }, async () => {
   const c = await cena()
