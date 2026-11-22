@@ -99,7 +99,8 @@ class OpenAIRealtimeEngine(parent: CoroutineScope, settings: VoiceSettings, priv
         when (message.text("type")) {
             "input_audio_buffer.speech_started" -> {
                 // The provider heard the user speaking: this turn may act. Audio alone isn't speech.
-                operator.speechDetected()
+                // While the model talks, what the microphone picks up may be its own voice coming back.
+                if (phase != VoicePhase.Speaking) operator.speechDetected()
                 level(if (muted) 0f else .7f)
             }
             "input_audio_buffer.speech_stopped" -> level(0f)

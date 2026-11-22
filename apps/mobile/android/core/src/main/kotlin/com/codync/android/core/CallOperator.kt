@@ -100,6 +100,8 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
     fun stopListening() {
         evidence.speechThisTurn = false
         evidence.audioStarted = false
+        // Confirmations belong to the link that dropped: kept, they would block the next link's speech.
+        evidence.unconfirmed.clear()
     }
 
     fun muteChanged(muted: Boolean) {
