@@ -37,9 +37,12 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
             setMeta(db, "rev", "0")
             return
         }
-        // v3 wrote no session id: label every kept entry with the chat's id, its main session.
+        // v3 wrote no session id, so kept entries cannot be told apart from the main chat's:
+        // fetch the conversation again and label the sessions from the computer itself (unsent stays).
         db.execSQL("ALTER TABLE entries ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
-        db.execSQL("UPDATE entries SET session_id = bot_id")
+        db.delete("entries", null, null)
+        db.delete("history", null, null)
+        setMeta(db, "rev", "0")
     }
     private fun createConversation(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE entries(id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, seq INTEGER NOT NULL, rev INTEGER NOT NULL, nonce TEXT, session_id TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)")

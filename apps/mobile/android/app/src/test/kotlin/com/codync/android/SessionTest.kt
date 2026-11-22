@@ -26,6 +26,6 @@ class SessionTest {
     @Test fun `a voice call hears only its bot's main session and keeps other bots untouched`() {
         val call = "bot"
         val entries = listOf(message("main"), message("extra", sessionId = "extra"), message("other", bot = "other", sessionId = "extra"))
-        assertEquals(listOf("other"), entries.filter { it.entry.botId != call || it.entry.isMainSession }.map { it.entry.id })
+        assertEquals(listOf("main", "other"), entries.filter { it.entry.botId != call || it.entry.isMainSession }.map { it.entry.id })
     }
 }
