@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { compilarRegras, verificar } from './ci-bastidor.mjs';
+import { notify } from './ci-vazamento.mjs';
 import { validarVersao, filtrarChangelog, montarNotas, gerarNotasGithub, main } from './ci-release-notes.mjs';
 import { versaoSemver, aplicarVersaoPacote, conferirVersaoAsar, main as mainVersao } from './ci-release-version.mjs';
 
@@ -221,7 +222,6 @@ const ACTIONS = new Set([
   'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1',
   'Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
   'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9',
-  'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333',
 ]);
 
 test('somente os workflows da lista fechada existem', () => {
@@ -1006,9 +1006,94 @@ test('vazamento-semanal: executor da main, credenciais nomeadas e aviso so quand
   const notificar = jobs.notificar.join('\n');
   assert.match(notificar, /^    needs: varredura$/m);
   assert.match(notificar, /!cancelled\(\) && github\.ref == 'refs\/heads\/main' && needs\.varredura\.result == 'failure'/, 'aviso so depois de varredura reprovada na main');
+  assert.ok(varredura.includes('name: vazamento-resumo-${{ github.run_attempt }}'), 'resumo nomeado pela tentativa do run');
+  assert.ok(!/uses: actions\/download-artifact@/.test(semanal), 'download-artifact fora da politica de actions permitidas');
+  assert.match(notificar, /^    permissions:\n      contents: read\n      actions: read$/m, 'leitura de actions no job consumidor');
+  const baixar = notificar.split('\n      - ').find((st) => st.startsWith('name: Baixar o resumo do proprio run'));
+  assert.ok(baixar, 'resumo baixado pelo gh do proprio run');
+  assert.match(baixar, /GH_TOKEN: \$\{\{ github\.token \}\}/, 'token do proprio run');
+  assert.match(baixar, /gh run download "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY" \\\n\s+--name "vazamento-resumo-\$GITHUB_RUN_ATTEMPT" --dir "\$destination"/, 'download escopado ao run e a tentativa');
+  assert.match(baixar, /umask 077/);
+  assert.match(baixar, /exit 1/, 'falha fechada quando o resumo nao chega');
+  assert.ok(notificar.indexOf('name: Baixar o resumo do proprio run') < notificar.indexOf('name: Abrir issue'), 'aviso so depois do download');
   assert.match(notificar, /VAZAMENTO_ISSUE_REPO: \$\{\{ vars\.VAZAMENTO_ISSUE_REPO \}\}/, 'destino vem da variavel nomeada');
   assert.match(notificar, /VAZAMENTO_ISSUE_TOKEN: \$\{\{ secrets\.VAZAMENTO_ISSUE_TOKEN \}\}/, 'token vem do segredo nomeado');
   assert.ok(!/GITHUB_TOKEN/.test(semanal), 'sem token de escrita do repositorio');
   const segredos = [...semanal.matchAll(/\$\{\{[^}]*\bsecrets\.(\w+)/g)].map((m) => m[1]).sort();
   assert.deepEqual(segredos, ['VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_ISSUE_TOKEN', 'VAZAMENTO_TERMOS', 'VAZAMENTO_TERMOS'], 'so os segredos nomeados');
+});
+
+// Sintético, sem rede e sem segredo real: o passo do workflow baixa o resumo do próprio run e
+// tentativa com um gh de mentira, e o aviso só transporta contagens quando o destino é privado.
+test('vazamento-semanal: download do proprio run e aviso falham fechados, sem conteudo de varredura', async () => {
+  const roteiroDoPasso = (job, nome) => {
+    const bloco = job.split('\n      - ').find((st) => st.startsWith(`name: ${nome}`));
+    assert.ok(bloco, `passo ausente: ${nome}`);
+    const linhas = bloco.split('\n');
+    const inicio = linhas.indexOf('        run: |');
+    assert.ok(inicio > 0, `${nome}: run em bloco`);
+    const roteiro = [];
+    for (const linha of linhas.slice(inicio + 1)) {
+      if (!linha.startsWith('          ')) break;
+      roteiro.push(linha.slice(10));
+    }
+    return roteiro.join('\n') + '\n';
+  };
+  const baixar = roteiroDoPasso(jobsDe(semanal).notificar.join('\n'), 'Baixar o resumo do proprio run sem expor conteudo');
+  const bin = mkdtempSync(join(tmpdir(), 'vazamento-gh-'));
+  const raiz = mkdtempSync(join(tmpdir(), 'vazamento-run-'));
+  try {
+    writeFileSync(join(bin, 'gh'), [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'test "$1" = run',
+      'test "$2" = download',
+      'test "$3" = "$GITHUB_RUN_ID"',
+      'destino=""',
+      'nome=""',
+      'anterior=""',
+      'for argumento in "$@"; do',
+      '  [ "$anterior" = --dir ] && destino="$argumento"',
+      '  [ "$anterior" = --name ] && nome="$argumento"',
+      '  anterior="$argumento"',
+      'done',
+      'test "$nome" = "vazamento-resumo-$GITHUB_RUN_ATTEMPT"',
+      'test -n "$destino"',
+      `test "\${STUB_GH:-}" = ok || { echo 'stub: artefato ausente' >&2; exit 1; }`,
+      `printf '%s\\n' '{"total":2,"rules":{"termo-pessoal":2}}' > "$destino/vazamento-report.json"`,
+      '',
+    ].join('\n'), { mode: 0o755 });
+    const executar = (stub, base) => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', baixar], {
+      env: {
+        PATH: `${bin}:${process.env.PATH}`, HOME: bin, RUNNER_TEMP: base,
+        GITHUB_RUN_ID: '424242', GITHUB_RUN_ATTEMPT: '2', GITHUB_REPOSITORY: 'fixture/repo',
+        GH_TOKEN: 'ficticio', STUB_GH: stub,
+      },
+      encoding: 'utf8',
+    });
+    const baseOk = mkdtempSync(join(raiz, 'ok-'));
+    const ok = executar('ok', baseOk);
+    assert.equal(ok.status, 0, ok.stderr);
+    const resumo = JSON.parse(readFileSync(join(baseOk, 'vazamento-resumo', 'vazamento-report.json'), 'utf8'));
+    assert.equal(resumo.total, 2, 'resumo do proprio run e tentativa');
+    const baseFalha = mkdtempSync(join(raiz, 'falha-'));
+    const falha = executar('falha', baseFalha);
+    assert.notEqual(falha.status, 0, 'sem resumo o job consumidor reprova');
+    assert.match(`${falha.stdout}${falha.stderr}`, /Resumo da varredura indisponivel/, 'erro generico, sem conteudo');
+    assert.ok(!readdirSync(join(baseFalha, 'vazamento-resumo')).includes('vazamento-report.json'), 'nada segue quando o download falha');
+
+    const chamadas = [];
+    const request = async (url, options) => { chamadas.push([url, options]); return { ok: true, json: async () => ({ private: true }) }; };
+    await notify(resumo, { sourcePrivate: false, repository: 'fixture/public', target: 'fixture/private', token: 'ficticio' }, request);
+    assert.equal(chamadas.length, 2, 'confere o destino privado e abre a issue');
+    const corpo = JSON.parse(chamadas[1][1].body);
+    assert.match(corpo.body, /termo-pessoal: 2/);
+    assert.ok(!corpo.body.includes('Caminhos') && !corpo.body.includes('vazamento-resumo'), 'origem publica envia so contagens');
+    chamadas.length = 0;
+    await assert.rejects(notify(resumo, { sourcePrivate: false, repository: 'fixture/public', target: '', token: 'ficticio' }, request));
+    assert.equal(chamadas.length, 0, 'sem destino privado confirmado nada e enviado');
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+    rmSync(raiz, { recursive: true, force: true });
+  }
 });

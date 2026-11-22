@@ -5,8 +5,10 @@
 # falha antes de gravar o resumo deixa um marcador sem conteudo para o aviso. Se a varredura
 # reprova, um segundo job abre issue em destino privado confirmado (VAZAMENTO_TERMOS e
 # VAZAMENTO_ISSUE_TOKEN em segredos; VAZAMENTO_ISSUE_REPO em variavel, apontando para
-# repositorio privado que nao sera arquivado), nunca no repositorio publico. Guia:
-# docs/guides/ci.md.
+# repositorio privado que nao sera arquivado), nunca no repositorio publico. O resumo volta
+# pelo gh do proprio run e tentativa, sempre com leitura de actions e falha fechada quando o
+# artefato nao chega. Reexecutar so a notificacao nao acha o resumo: a reexecucao precisa
+# incluir a varredura. Guia: docs/guides/ci.md.
 name: Vazamento operacional semanal
 
 on:
@@ -72,7 +74,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: vazamento-resumo
+          name: vazamento-resumo-${{ github.run_attempt }}
           path: ${{ runner.temp }}/vazamento-report.json
           if-no-files-found: ignore
           retention-days: 1
@@ -93,10 +95,19 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: vazamento-resumo
-          path: ${{ runner.temp }}/vazamento-resumo
+      - name: Baixar o resumo do proprio run sem expor conteudo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          umask 077
+          destination="$RUNNER_TEMP/vazamento-resumo"
+          mkdir -- "$destination"
+          if ! gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "vazamento-resumo-$GITHUB_RUN_ATTEMPT" --dir "$destination" > /dev/null 2>&1; then
+            echo '::error::Resumo da varredura indisponivel: o aviso semanal nao foi confirmado.'
+            exit 1
+          fi
+          test -s "$destination/vazamento-report.json" || { echo '::error::Resumo da varredura vazio: o aviso semanal nao foi confirmado.'; exit 1; }
       - name: Abrir issue somente em destino privado confirmado
         env:
           VAZAMENTO_SOURCE_PRIVATE: ${{ github.event.repository.private }}
