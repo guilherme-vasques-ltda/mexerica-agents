@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
+import com.codync.android.core.fork.CallApproval
 import com.codync.android.core.fork.CallEvidence
 import kotlinx.serialization.json.*
 
@@ -122,7 +123,7 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
             "send_to_bot" -> send(arguments.text("text").orEmpty())
             "bot_status" -> status()
             "recent_messages" -> recent(arguments["count"]?.jsonPrimitive?.let { it.intOrNull ?: it.doubleOrNull?.toInt() } ?: 6)
-            "answer_approval" -> answer(arguments.string("option").orEmpty())
+            "answer_approval" -> answer(arguments)
             else -> error("Unknown tool $name.")
         }
         // Every result but send_to_bot's own carries the computer's data (a status, messages, a
@@ -146,17 +147,7 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
         val bot = bot ?: return error("The bot isn't available.")
         return buildJsonObject {
             put("status", bot.status); put("activity", bot.activity)
-            pendingApproval?.let { card ->
-                val voiceAllowed = card.data.string("voiceApproval") == ALLOW_ONCE
-                putJsonObject("approval") {
-                    put("request", card.data.text("title") ?: card.data.text("command") ?: "")
-                    putJsonArray("options") {
-                        if (voiceAllowed) eligibleOptions(options(card)).forEach { add(it.name ?: it.id) }
-                    }
-                    put("voiceApproval", if (voiceAllowed) ALLOW_ONCE else "app_only")
-                    put("note", if (voiceAllowed) "Pela voz, apenas permitir uma vez." else APPROVE_IN_APP)
-                }
-            }
+            pendingApproval?.let { put("approval", CallApproval(it.data).status()) }
         }
     }
 
@@ -174,64 +165,17 @@ class CallOperator(private val botId: String, private val target: CallTarget, pr
         return buildJsonObject { put("messages", JsonArray(messages)) }
     }
 
-    private fun answer(option: String): JsonObject {
+    private fun answer(arguments: JsonObject): JsonObject {
         val card = pendingApproval ?: return error("Nothing is waiting for approval.")
-        if (card.data.string("voiceApproval") != ALLOW_ONCE) return error(APPROVE_IN_APP)
-        if (!heard) return error("Nothing was heard from the user yet.")
-        if (option.isBlank()) return error(APPROVE_IN_APP)
-        val options = options(card)
-        val matches = matchingOptions(options, option)
-        val eligible = eligibleOptions(options)
-        if (matches.isEmpty()) {
-            val suggestions = eligible.filter { matchingOptions(options, it.id).size == 1 }
-            if (suggestions.isEmpty()) return error(APPROVE_IN_APP)
-            return buildJsonObject {
-                put("error", "Opção não reconhecida")
-                putJsonArray("options") {
-                    suggestions.forEach { suggestion ->
-                        addJsonObject {
-                            put("name", suggestion.name ?: suggestion.id)
-                            put("optionId", suggestion.id)
-                            put("kind", ALLOW_ONCE)
-                        }
-                    }
-                }
-            }
-        }
-        val pick = matches.singleOrNull() ?: return error(APPROVE_IN_APP)
-        if (pick !in eligible) return error(APPROVE_IN_APP)
-        target.respond(card, pick.id)
-        return buildJsonObject { put("answered", pick.name ?: pick.id) }
+        return CallApproval(card.data).answer(arguments, heard) { target.respond(card, it) }
     }
 
     private val chat: List<Entry> get() = target.entries.filter { it.botId == botId }.sortedBy(Entry::seq)
     private val pendingApproval: Entry? get() = chat.lastOrNull { it.kind == "permission" && it.status == "pending" }
 
-    private data class ApprovalOption(val id: String, val name: String?, val kind: String?)
-
-    private fun options(card: Entry): List<ApprovalOption> = (card.data["options"] as? JsonArray).orEmpty().mapNotNull { option ->
-        val fields = option as? JsonObject ?: return@mapNotNull null
-        ApprovalOption(fields.string("optionId").orEmpty(), fields.string("name"), fields.string("kind"))
-    }
-
-    private fun eligibleOptions(options: List<ApprovalOption>): List<ApprovalOption> {
-        val idCounts = options.groupingBy { it.id }.eachCount()
-        return options.filter { it.kind == ALLOW_ONCE && it.id.isNotBlank() && idCounts[it.id] == 1 }
-    }
-
-    private fun matchingOptions(options: List<ApprovalOption>, option: String): List<ApprovalOption> {
-        val wanted = option.trim().lowercase()
-        return options.filter { it.id == option || it.name?.trim()?.lowercase() == wanted }
-    }
-
-    private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
     private fun error(message: String) = buildJsonObject { put("error", message) }
 
     companion object {
-        private const val ALLOW_ONCE = "allow_once"
-        private const val APPROVE_IN_APP = "Aprove no app"
-
         val tools = listOf(
             CallTool("send_to_bot", "Send a message to the bot on the computer, exactly as if the user typed it. Its reply arrives later.",
                 schema { putJsonObject("text") { put("type", "string"); put("description", "The message") } }.withRequired("text")),
