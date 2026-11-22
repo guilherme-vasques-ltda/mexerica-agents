@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::time::{Duration, Instant};
 
 const DESTINO: &str = "https://api.openai.com/v1/responses";
-const MAX_CORPO: usize = 1024 * 1024;
+pub(super) const MAX_CORPO: usize = 1024 * 1024;
 const PRAZO: Duration = Duration::from_secs(60);
 
 pub(super) struct CredencialFicticia(pub(super) &'static str);
@@ -103,17 +103,24 @@ pub(super) fn interpretar(resposta: Resposta) -> Result<String, Falha> {
     let mut tipo = None;
     let mut texto = String::new();
     let mut total = 0;
+    let mut depois_de_cr = false;
     for parte in resposta.partes {
-        if parte.len() > MAX_CORPO - total || inicio.elapsed() >= PRAZO {
+        if inicio.elapsed() >= PRAZO {
             return Err(Falha::RespostaInvalida);
         }
-        total += parte.len();
         for byte in parte {
-            if byte != b'\n' {
+            total += 1;
+            if total > MAX_CORPO {
+                return Err(Falha::RespostaInvalida);
+            }
+            if std::mem::replace(&mut depois_de_cr, byte == b'\r') && byte == b'\n' {
+                continue;
+            }
+            if !matches!(byte, b'\r' | b'\n') {
                 linha.push(byte);
                 continue;
             }
-            let campo = linha.strip_suffix(b"\r").unwrap_or(&linha);
+            let campo = linha.as_slice();
             if campo.is_empty() {
                 if !dados.is_empty() {
                     let valor: Value = serde_json::from_slice(&dados).map_err(|_| Falha::RespostaInvalida)?;

@@ -69,6 +69,34 @@ fn completo() -> String {
         ]}}))
 }
 
+#[test]
+fn sse_aceita_cr_lf_e_crlf_mesmo_entre_partes() {
+    for delimitador in ["\r", "\n", "\r\n"] {
+        let corpo = completo().replace("\r\n", delimitador);
+        let partes = corpo.as_bytes().chunks(1).map(<[u8]>::to_vec).collect();
+        assert_eq!(transporte::interpretar(Resposta { status: 200, sse: true, partes }), Ok("Olá".into()));
+
+        let corpo_incompleto = delta().replace("\r\n", delimitador);
+        let partes = corpo_incompleto.as_bytes().chunks(1).map(<[u8]>::to_vec).collect();
+        assert_eq!(transporte::interpretar(Resposta { status: 200, sse: true, partes }), Err(Falha::Incompleta));
+    }
+}
+
+#[test]
+fn sse_limita_bytes_consumidos_ate_o_terminal_independente_das_partes() {
+    let terminal = completo().replace("\r\n", "\n");
+    for extras in [0, 1] {
+        let preenchimento = transporte::MAX_CORPO - terminal.len() + extras;
+        let prefixo = format!(":{}\n", "x".repeat(preenchimento - 2));
+        let cauda = b"event: evento-invalido\ndata: invalido\n\n".to_vec();
+        let inteiro = [prefixo.as_bytes(), terminal.as_bytes(), &cauda].concat();
+        let esperado = if extras == 0 { Ok("Olá".into()) } else { Err(Falha::RespostaInvalida) };
+        for partes in [vec![inteiro], vec![prefixo.into_bytes(), terminal.as_bytes().to_vec(), cauda]] {
+            assert_eq!(transporte::interpretar(Resposta { status: 200, sse: true, partes }), esperado);
+        }
+    }
+}
+
 fn hub(path: &Path, criar: bool) -> HubDeProva<'static, HttpFalso> {
     HubDeProva {
         admissao: Admissao::abrir(path, criar).unwrap_or_else(|falha| panic!("abertura da fixture: {falha:?}")),
@@ -122,7 +150,6 @@ fn recusa_outro_vinculo_cofre_nonce_ou_conteudo() {
     let mut h = hub(&dir.path().join("admissao.db"), true);
     let t = Instant::now();
     h.consentir(&conta(VINCULO)).unwrap();
-    let nonce = h.confirmar(VINCULO, PEDIDO, t).unwrap_or_else(|_| panic!("gesto recusado"));
     for origem in [
         Vinculo { principal: "outro", ..VINCULO },
         Vinculo { emissor: "outro", ..VINCULO },
@@ -147,10 +174,12 @@ fn recusa_outro_vinculo_cofre_nonce_ou_conteudo() {
         let nonce = h.confirmar(VINCULO, PEDIDO, t).unwrap();
         assert_eq!(h.enviar(VINCULO, &inscricao, nonce, PEDIDO, t), Err(Falha::Recusado));
     }
+    let nonce = h.confirmar(VINCULO, PEDIDO, t).unwrap();
     let mut invalido = nonce;
     invalido.gesto[0] ^= 1;
     assert_eq!(h.enviar(VINCULO, &conta(VINCULO), invalido, PEDIDO, t), Err(Falha::Recusado));
-    let nonce = h.confirmar(VINCULO, PEDIDO, t).unwrap();
+    assert_eq!(h.http.pedidos.len(), 0);
+    assert!(h.gesto.as_ref().is_some_and(|gesto| gesto.nonce == nonce));
     assert_eq!(
         h.enviar(VINCULO, &conta(VINCULO), nonce, Pedido { texto: "Alterado", ..PEDIDO }, t),
         Err(Falha::Recusado)
@@ -277,12 +306,12 @@ fn saldo_unico_apos_troca_reconexao_reinicio_e_virada_da_janela() {
     assert_eq!(h.http.pedidos.len(), 3);
     drop(h);
     let mut h = hub(&path, false);
-    let reinicio = t + Duration::from_hours(72);
+    let reinicio = t + Duration::from_secs(60 * 60);
     assert_eq!(tentativa(&mut h, VINCULO, reinicio), Err(Falha::Recusado));
     h.consentir(&conta(VINCULO)).unwrap();
     assert_eq!(tentativa(&mut h, VINCULO, reinicio), Err(Falha::Cota));
-    assert_eq!(tentativa(&mut h, VINCULO, reinicio + Duration::from_hours(23)), Err(Falha::Cota));
-    assert!(tentativa(&mut h, VINCULO, reinicio + Duration::from_hours(24)).is_ok());
+    assert_eq!(tentativa(&mut h, VINCULO, reinicio + Duration::from_secs(24 * 60 * 60 - 1)), Err(Falha::Cota));
+    assert!(tentativa(&mut h, VINCULO, reinicio + Duration::from_secs(24 * 60 * 60)).is_ok());
     assert_eq!(tentativa(&mut h, VINCULO, reinicio), Err(Falha::Registro));
     assert_eq!(h.http.pedidos.len(), 1);
 }

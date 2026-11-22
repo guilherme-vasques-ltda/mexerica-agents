@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 const LIMITE: usize = 3;
-const JANELA: Duration = Duration::from_hours(24);
+const JANELA: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 pub(super) enum Space<'a> {
