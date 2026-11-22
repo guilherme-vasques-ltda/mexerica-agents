@@ -96,20 +96,40 @@ test("identidade de cache fora do formato é recusada sem ir para o pedido", asy
 	}
 });
 
-test("prompt de sistema novo substitui o anterior em vez de somar", async () => {
+test("prompt de sistema novo substitui o anterior em vez de somar, e as ferramentas continuam", async () => {
 	const { proc, log, fechar } = motor();
 	try {
 		proc.send({ id: "m", type: "set_model", provider: "openai", modelId: "gpt-teste" });
 		await proc.waitFor((v) => v.command === "set_model" && v.success === true);
+		proc.send({
+			id: "t",
+			type: "set_tools",
+			tools: [
+				{
+					name: "efeito",
+					description: "aplica um efeito uma vez",
+					inputSchema: { type: "object", properties: {} },
+					origin: { kind: "hub" },
+				},
+			],
+		});
+		await proc.waitFor((v) => v.command === "set_tools" && v.success === true);
 		proc.send({ id: "s1", type: "set_system_prompt", prompt: "PRIMEIRO-MANUAL" });
 		await proc.waitFor((v) => v.command === "set_system_prompt" && v.success === true);
 		proc.send({ id: "s2", type: "set_system_prompt", prompt: "SEGUNDO-MANUAL" });
 		await esperar(proc, (v) => v.command === "set_system_prompt", 2);
 		proc.send({ id: "p", type: "prompt", message: "oi" });
 		await esperar(proc, (v) => v.type === "agent_end");
-		const texto = JSON.stringify(corpos(log));
+		const [corpo] = corpos(log);
+		const texto = JSON.stringify(corpo);
 		assert.equal(texto.split("PRIMEIRO-MANUAL").length - 1, 0, "o prompt anterior continuou no pedido");
 		assert.equal(texto.split("SEGUNDO-MANUAL").length - 1, 1, "o prompt novo tinha de ir exatamente uma vez");
+		const ferramentas = (corpo?.["tools"] ?? []) as { name?: string }[];
+		assert.deepEqual(
+			ferramentas.map((f) => f.name),
+			["efeito"],
+			"as ferramentas declaradas continuam valendo depois do prompt novo",
+		);
 	} finally {
 		await fechar();
 	}
