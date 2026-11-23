@@ -246,7 +246,7 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     let transport = makeFixtureTransport()
     let bidiSubject = "Aviso \u{202E}gpj.exe\u{202C}\u{200B}\u{E0061}\u{2028}importante\u{0007}"
     let bidiSender = "Remetente\u{2066}Falso\u{2069}\u{200E}\u{200F}\u{061C}\u{200C}\u{FEFF}"
-    let body = "Linha 1\r\nLinha 2 \u{202E}inversa\u{202C}\u{2028}Linha 3\u{2029}Tag\u{E007F}\u{200B}\nשלום"
+    let body = "Linha 1\r\nLinha 2 \u{202E}inversa\u{202C}\u{2028}Linha 3\u{2029}Tag\u{E007F}\u{200B}\u{2060}\u{00AD}\u{FFF9}\u{1D173}\u{200D}\nשלום"
 
     transport.openResponses["space-alpha:mbox-inbox:thr-bidi"] = .success(
         MailInboxOpenThreadResponse(
@@ -279,7 +279,7 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     #expect(opened.subject == "Aviso gpj.exeimportante")
     #expect(opened.messages[0].fromDisplay == "RemetenteFalso")
     #expect(opened.messages[0].fromDomain == "xn--caf-dma.example.invalid")
-    #expect(opened.messages[0].bodyText == "Linha 1\nLinha 2 inversa\nLinha 3\nTag\nשלום")
+    #expect(opened.messages[0].bodyText == "Linha 1\nLinha 2 inversa\nLinha 3\nTag\u{200D}\nשלום")
     #expect(opened.messages[1].fromDomain == nil)
 
     #expect(MailInboxSanitizer.sanitizeDomain("good.-bad.example.invalid") == nil)
@@ -464,5 +464,56 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     }
 
     store.resetForContextChange()
+    #expect(!store.shouldMaskInAppSwitcher)
+}
+
+@Test @MainActor func revocationErrorsClearLoadedContentAndSelection() async {
+    let transport = makeFixtureTransport()
+    let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
+
+    await store.loadStatus(spaceId: "space-alpha")
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-100")
+    #expect(!store.threads.isEmpty)
+    #expect(store.openThread != nil)
+    #expect(store.selectedMailboxId == "mbox-inbox")
+    #expect(store.nextCursor == "cur-page-2")
+    #expect(store.hasLoadedFirstPage)
+
+    transport.openResponses["space-alpha:mbox-inbox:thr-100"] = .failure(MailInboxError.accessDenied)
+    await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-100")
+    #expect(store.lastError == .accessDenied)
+    #expect(store.threads.isEmpty)
+    #expect(store.openThread == nil)
+    #expect(store.nextCursor == nil)
+    #expect(store.selectedMailboxId == nil)
+    #expect(!store.hasLoadedFirstPage)
+    #expect(!store.shouldMaskInAppSwitcher)
+
+    await store.loadStatus(spaceId: "space-alpha")
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    #expect(!store.threads.isEmpty)
+    transport.statusResponses["space-alpha"] = .success(.reconnectRequired)
+    await store.loadStatus(spaceId: "space-alpha")
+    #expect(store.status == .reconnectRequired)
+    #expect(store.lastError == .reconnectRequired)
+    #expect(store.threads.isEmpty)
+    #expect(store.openThread == nil)
+    #expect(store.selectedMailboxId == nil)
+    #expect(!store.shouldMaskInAppSwitcher)
+
+    transport.statusResponses["space-alpha"] = .success(.ready(mailboxes: [
+        MailInboxMailbox(mailboxId: "mbox-inbox", label: "Caixa Principal")
+    ]))
+    await store.loadStatus(spaceId: "space-alpha")
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    transport.listResponses["space-alpha:mbox-inbox:cur-page-2"] = .failure(MailInboxError.notConnected)
+    await store.loadNextPage()
+    #expect(store.status == .notConnected)
+    #expect(store.lastError == .notConnected)
+    #expect(store.threads.isEmpty)
+    #expect(store.nextCursor == nil)
+    #expect(store.selectedMailboxId == nil)
+    #expect(!store.hasLoadedFirstPage)
     #expect(!store.shouldMaskInAppSwitcher)
 }

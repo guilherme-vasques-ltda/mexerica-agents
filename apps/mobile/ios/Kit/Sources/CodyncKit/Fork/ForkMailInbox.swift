@@ -337,10 +337,10 @@ public enum MailInboxSanitizer {
         scalars.reserveCapacity(normalized.unicodeScalars.count)
         for scalar in normalized.unicodeScalars {
             let v = scalar.value
-            if isBidiControl(v)
+            let isFormat = scalar.properties.generalCategory == .format
+            let keepFormat = v == 0x200C || v == 0x200D
+            if (isFormat && !keepFormat)
                 || isTagCharacter(v)
-                || v == 0x200B
-                || v == 0xFEFF
                 || isNonTextualControl(v, allowLineBreaksAndTabs: true) {
                 continue
             }
@@ -494,9 +494,11 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 status = .ready(mailboxes: sanitized)
                 lastError = nil
             case .notConnected:
+                clearSensitiveDataForRevocation()
                 status = .notConnected
                 lastError = .notConnected
             case .reconnectRequired:
+                clearSensitiveDataForRevocation()
                 status = .reconnectRequired
                 lastError = .reconnectRequired
             case .unavailable:
@@ -517,10 +519,7 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                   activeSpaceId == cleanSpaceId else { return }
             isLoadingStatus = false
             let mapped = Self.mapError(error)
-            if mapped == .unavailable || mapped == .notConnected || mapped == .reconnectRequired {
-                status = Self.statusFromError(mapped)
-            }
-            lastError = mapped
+            handleErrorState(mapped)
         }
     }
 
@@ -631,7 +630,7 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                   activeSpaceId == cleanSpaceId,
                   selectedMailboxId == cleanMailboxId else { return }
             isLoadingThreadDetail = false
-            lastError = Self.mapError(error)
+            handleErrorState(Self.mapError(error))
         }
     }
 
@@ -690,8 +689,36 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 await fetchPage(spaceId: spaceId, mailboxId: mailboxId, cursor: nil, isRestartFromCursorInvalid: true)
                 return
             }
-            lastError = mapped
+            handleErrorState(mapped)
         }
+    }
+
+    private func clearSensitiveDataForRevocation() {
+        pageRequestId &+= 1
+        detailRequestId &+= 1
+        selectedMailboxId = nil
+        threads = []
+        nextCursor = nil
+        hasLoadedFirstPage = false
+        openThread = nil
+        isLoadingThreads = false
+        isLoadingThreadDetail = false
+    }
+
+    private func handleErrorState(_ error: MailInboxError) {
+        switch error {
+        case .notConnected, .reconnectRequired:
+            clearSensitiveDataForRevocation()
+            status = Self.statusFromError(error)
+        case .accessDenied:
+            clearSensitiveDataForRevocation()
+            status = nil
+        case .unavailable:
+            status = .unavailable
+        case .invalidRequest, .cursorInvalid:
+            break
+        }
+        lastError = error
     }
 
     private static func nonEmpty(_ value: String) -> String? {

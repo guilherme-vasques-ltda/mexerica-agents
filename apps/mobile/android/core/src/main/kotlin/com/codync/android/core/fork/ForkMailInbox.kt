@@ -114,6 +114,9 @@ object MailInboxSanitizer {
         return codePoint in 0x0000..0x001F || codePoint in 0x007F..0x009F
     }
 
+    private fun isSurrogateCodePoint(codePoint: Int): Boolean =
+        codePoint in 0xD800..0xDFFF
+
     fun sanitizeSingleLine(raw: String?): String? {
         if (raw == null) return null
         val sb = StringBuilder(raw.length)
@@ -122,7 +125,8 @@ object MailInboxSanitizer {
             val cp = raw.codePointAt(i)
             val step = Character.charCount(cp)
             val isFormat = Character.getType(cp) == Character.FORMAT.toInt()
-            if (!isFormat &&
+            if (!isSurrogateCodePoint(cp) &&
+                !isFormat &&
                 !isTagCharacter(cp) &&
                 !isLineOrParagraphSeparator(cp) &&
                 !isNonTextualControl(cp, allowLineBreaksAndTabs = false)
@@ -139,7 +143,7 @@ object MailInboxSanitizer {
         if (cleaned.isEmpty() || cleaned.codePointCount(0, cleaned.length) > 253) return null
         val ascii = try {
             IDN.toASCII(cleaned, IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
-        } catch (_: IllegalArgumentException) {
+        } catch (_: Exception) {
             return null
         }
         if (ascii.isEmpty() || ascii.length > 253) return null
@@ -165,10 +169,11 @@ object MailInboxSanitizer {
         while (i < normalized.length) {
             val cp = normalized.codePointAt(i)
             val step = Character.charCount(cp)
-            if (!isBidiControl(cp) &&
+            val isFormat = Character.getType(cp) == Character.FORMAT.toInt()
+            val keepFormat = cp == 0x200C || cp == 0x200D
+            if (!isSurrogateCodePoint(cp) &&
+                (!isFormat || keepFormat) &&
                 !isTagCharacter(cp) &&
-                cp != 0x200B &&
-                cp != 0xFEFF &&
                 !isNonTextualControl(cp, allowLineBreaksAndTabs = true)
             ) {
                 sb.appendCodePoint(cp)
@@ -323,10 +328,12 @@ class ForkMailInboxStore(
                     lastError = null
                 }
                 MailInboxStatus.NotConnected -> {
+                    clearSensitiveDataForRevocation()
                     status = MailInboxStatus.NotConnected
                     lastError = MailInboxError.NOT_CONNECTED
                 }
                 MailInboxStatus.ReconnectRequired -> {
+                    clearSensitiveDataForRevocation()
                     status = MailInboxStatus.ReconnectRequired
                     lastError = MailInboxError.RECONNECT_REQUIRED
                 }
@@ -352,14 +359,7 @@ class ForkMailInboxStore(
                 return
             }
             isLoadingStatus = false
-            val mapped = mapError(t)
-            if (mapped == MailInboxError.UNAVAILABLE ||
-                mapped == MailInboxError.NOT_CONNECTED ||
-                mapped == MailInboxError.RECONNECT_REQUIRED
-            ) {
-                status = statusFromError(mapped)
-            }
-            lastError = mapped
+            handleErrorState(mapError(t))
         }
     }
 
@@ -485,7 +485,7 @@ class ForkMailInboxStore(
                 return
             }
             isLoadingThreadDetail = false
-            lastError = mapError(t)
+            handleErrorState(mapError(t))
         }
     }
 
@@ -555,8 +555,39 @@ class ForkMailInboxStore(
                 )
                 return
             }
-            lastError = mapped
+            handleErrorState(mapped)
         }
+    }
+
+    private fun clearSensitiveDataForRevocation() {
+        pageRequestId += 1L
+        detailRequestId += 1L
+        selectedMailboxId = null
+        threadBuffer.clear()
+        threads = emptyList()
+        nextCursor = null
+        hasLoadedFirstPage = false
+        openThread = null
+        isLoadingThreads = false
+        isLoadingThreadDetail = false
+    }
+
+    private fun handleErrorState(error: MailInboxError) {
+        when (error) {
+            MailInboxError.NOT_CONNECTED, MailInboxError.RECONNECT_REQUIRED -> {
+                clearSensitiveDataForRevocation()
+                status = statusFromError(error)
+            }
+            MailInboxError.ACCESS_DENIED -> {
+                clearSensitiveDataForRevocation()
+                status = null
+            }
+            MailInboxError.UNAVAILABLE -> {
+                status = MailInboxStatus.Unavailable
+            }
+            MailInboxError.INVALID_REQUEST, MailInboxError.CURSOR_INVALID -> Unit
+        }
+        lastError = error
     }
 
     private fun nonEmpty(value: String): String? = value.trim().ifEmpty { null }

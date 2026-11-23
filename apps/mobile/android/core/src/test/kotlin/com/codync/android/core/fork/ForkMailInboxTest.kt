@@ -208,7 +208,7 @@ class ForkMailInboxTest {
         val transport = makeFixtureTransport()
         val bidiSubject = "Aviso \u202Egpj.exe\u202C\u200B\uDB40\uDC61\u2028importante\u0007"
         val bidiSender = "Remetente\u2066Falso\u2069\u200E\u200F\u061C\u200C\uFEFF"
-        val body = "Linha 1\r\nLinha 2 \u202Einversa\u202C\u2028Linha 3\u2029Tag\uDB40\uDC7F\u200B\nשלום"
+        val body = "Linha 1\r\nLinha 2 \u202Einversa\u202C\u2028Linha 3\u2029Tag\uDB40\uDC7F\u200B\u2060\u00AD\uFFF9\uD834\uDD73\u200D\nשלום"
 
         transport.openResponses["space-alpha:mbox-inbox:thr-bidi"] = {
             MailInboxOpenThreadResponse(
@@ -241,7 +241,7 @@ class ForkMailInboxTest {
         assertEquals("Aviso gpj.exeimportante", opened.subject)
         assertEquals("RemetenteFalso", opened.messages[0].fromDisplay)
         assertEquals("xn--caf-dma.example.invalid", opened.messages[0].fromDomain)
-        assertEquals("Linha 1\nLinha 2 inversa\nLinha 3\nTag\nשלום", opened.messages[0].bodyText)
+        assertEquals("Linha 1\nLinha 2 inversa\nLinha 3\nTag\u200D\nשלום", opened.messages[0].bodyText)
         assertNull(opened.messages[1].fromDomain)
 
         assertNull(MailInboxSanitizer.sanitizeDomain("good.-bad.example.invalid"))
@@ -250,6 +250,10 @@ class ForkMailInboxTest {
         val longDomain = List(5) { "a".repeat(50) }.joinToString(".") + ".example.invalid"
         assertTrue(longDomain.length > 253)
         assertNull(MailInboxSanitizer.sanitizeDomain(longDomain))
+
+        val splitSurrogate = "A\uDB40\u200B\uDC61B"
+        assertEquals("AB", MailInboxSanitizer.sanitizeSingleLine(splitSurrogate))
+        assertEquals("AB", MailInboxSanitizer.sanitizeBodyText(splitSurrogate))
     }
 
     @Test fun `loadStatus in parallel with loadFirstPage on same space does not stall`() = runBlocking {
@@ -399,6 +403,61 @@ class ForkMailInboxTest {
         }
 
         store.resetForContextChange()
+        assertFalse(store.shouldMaskInAppSwitcher)
+    }
+
+    @Test fun `revocation errors clear loaded content and selection`() = runBlocking {
+        val transport = makeFixtureTransport()
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+
+        store.loadStatus("space-alpha")
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+        store.openThread("space-alpha", "mbox-inbox", "thr-100")
+        assertTrue(store.threads.isNotEmpty())
+        assertNotNull(store.openThread)
+        assertEquals("mbox-inbox", store.selectedMailboxId)
+        assertEquals("cur-page-2", store.nextCursor)
+        assertTrue(store.hasLoadedFirstPage)
+
+        transport.openResponses["space-alpha:mbox-inbox:thr-100"] = {
+            throw MailInboxException(MailInboxError.ACCESS_DENIED)
+        }
+        store.openThread("space-alpha", "mbox-inbox", "thr-100")
+        assertEquals(MailInboxError.ACCESS_DENIED, store.lastError)
+        assertTrue(store.threads.isEmpty())
+        assertNull(store.openThread)
+        assertNull(store.nextCursor)
+        assertNull(store.selectedMailboxId)
+        assertFalse(store.hasLoadedFirstPage)
+        assertFalse(store.shouldMaskInAppSwitcher)
+
+        store.loadStatus("space-alpha")
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+        assertTrue(store.threads.isNotEmpty())
+        transport.statusResponses["space-alpha"] = { MailInboxStatus.ReconnectRequired }
+        store.loadStatus("space-alpha")
+        assertEquals(MailInboxStatus.ReconnectRequired, store.status)
+        assertEquals(MailInboxError.RECONNECT_REQUIRED, store.lastError)
+        assertTrue(store.threads.isEmpty())
+        assertNull(store.openThread)
+        assertNull(store.selectedMailboxId)
+        assertFalse(store.shouldMaskInAppSwitcher)
+
+        transport.statusResponses["space-alpha"] = {
+            MailInboxStatus.Ready(listOf(MailInboxMailbox("mbox-inbox", "Caixa Principal")))
+        }
+        store.loadStatus("space-alpha")
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+        transport.listResponses["space-alpha:mbox-inbox:cur-page-2"] = {
+            throw MailInboxException(MailInboxError.NOT_CONNECTED)
+        }
+        store.loadNextPage()
+        assertEquals(MailInboxStatus.NotConnected, store.status)
+        assertEquals(MailInboxError.NOT_CONNECTED, store.lastError)
+        assertTrue(store.threads.isEmpty())
+        assertNull(store.nextCursor)
+        assertNull(store.selectedMailboxId)
+        assertFalse(store.hasLoadedFirstPage)
         assertFalse(store.shouldMaskInAppSwitcher)
     }
 }
