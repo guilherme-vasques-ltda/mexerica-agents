@@ -31,6 +31,9 @@ function ambiente(environment: 'main' | 'dev') {
     } },
     electron: { app: {
       isPackaged: true,
+      getName: () => environment === 'dev' ? 'Mexerica Dev' : 'Mexerica',
+      getVersion: () => '0.0.1',
+      getAppPath: () => '/Applications/Mexerica.app/Contents/Resources/app.asar',
       getPath: (nome: string) => {
         if (nome === 'userData') { assert.notEqual(userData, ''); return userData }
         assert.equal(nome, 'appData')

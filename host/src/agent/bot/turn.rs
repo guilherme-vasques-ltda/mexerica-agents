@@ -661,14 +661,18 @@ impl Actor {
         if final_text.is_none() {
             final_text = self.files.summary.take();
         }
+        // Retenção da conversa pausada (o permit recusou sem despacho): sem aviso de erro, sem alerta e sem status Error.
+        let held = done.as_ref().is_err_and(anyhow::Error::is::<crate::fork::bot_admission::ConversationPaused>);
         let stop_reason = match &done {
             Ok(v) => v["stopReason"].as_str().unwrap_or("end_turn").to_owned(),
+            Err(_) if held => PAUSED.into(),
             Err(_) => "error".into(),
         };
         let raw_stop_reason = done.as_ref().ok().and_then(|v| v["stopReason"].as_str()).map(str::to_owned);
         let mut invited = false;
         let limit_notice = self.subscription_limit_notice();
         let notice = match (&done, stop_reason.as_str()) {
+            _ if held => Ok(()),
             _ if limited && !stopped => self.try_notice(&limit_notice, NoticeStyle::Info),
             (Err(e), _) if !self.stop_requested => {
                 let tail = self.exit_tail.take().filter(|t| !t.is_empty());
@@ -695,7 +699,7 @@ impl Actor {
                 return;
             }
         }
-        let failure = done.as_ref().err().filter(|_| !self.stop_requested);
+        let failure = done.as_ref().err().filter(|_| !self.stop_requested && !held);
         let failed = failure.is_some() || limited;
         let reply = if stopped {
             Err(anyhow!("recipient was stopped; partial work may have happened"))
@@ -886,7 +890,13 @@ fn owner_words(hidden: bool, non_owner: NonOwner) -> bool {
 /// A finished turn alerts once the user's work is done: not when it's `quiet` (their next message
 /// is already queued, or it said nothing on purpose). A turn that ended short of `end_turn` always
 /// reports the failure.
+/// Motivo de fim de um turno que a conversa pausada reteve antes do despacho.
+const PAUSED: &str = "conversation_paused";
+
 fn turn_alert(failed: bool, stop_reason: &str, quiet: bool) -> Option<AlertKind> {
+    if stop_reason == PAUSED {
+        return None;
+    }
     if failed || !matches!(stop_reason, "end_turn" | "cancelled") {
         return Some(AlertKind::Failed);
     }
@@ -950,5 +960,6 @@ mod tests {
         assert_eq!(turn_alert(false, "cancelled", false), None);
         assert_eq!(turn_alert(false, "max_turn_requests", false), Some(AlertKind::Failed));
         assert_eq!(turn_alert(true, "error", true), Some(AlertKind::Failed));
+        assert_eq!(turn_alert(false, PAUSED, false), None, "a retenção da conversa pausada não alarma o dono");
     }
 }

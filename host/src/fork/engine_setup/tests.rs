@@ -2704,3 +2704,16 @@ async fn pausa_reativa_sem_apagar_credencial() {
         .contains("legacy_preserved")
     );
 }
+
+/// `teamSettings` passa pela classe `Control` e depois pela posse da conta: dono e este computador leem; aparelho
+/// com `control` sem vínculo ACS4 é recusado.
+#[tokio::test]
+async fn team_settings_exige_classe_e_posse() {
+    let f = Fixture::new();
+    let owner = f.owner();
+    assert!(crate::api::dispatch(&f.hub, &owner, "teamSettings", json!({})).await.is_ok());
+    let sem_vinculo =
+        Caller::Device { key: "sem-vinculo".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
+    assert!(crate::api::dispatch(&f.hub, &sem_vinculo, "teamSettings", json!({})).await.is_err());
+    assert!(crate::api::dispatch(&f.hub, &Caller::Local, "teamSettings", json!({})).await.is_ok());
+}

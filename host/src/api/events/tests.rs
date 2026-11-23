@@ -112,3 +112,36 @@ async fn evento_times_so_chega_ao_dono_no_space_correto() {
         }
     }
 }
+
+/// O evento `accessRequests` (que leva o código para o app deste computador) só chega a este computador; aparelho
+/// nenhum o recebe, nem o que tem `owner.devices`.
+#[tokio::test]
+async fn evento_de_pedidos_de_acesso_so_chega_a_este_computador() {
+    let f = Fixture::new();
+    for (nome, caller, recebe) in [
+        ("local", Caller::Local, true),
+        ("dono", Caller::Device { key: "dono".into(), scopes: vec![Scope::OwnerDevices], autoridade: None }, false),
+        (
+            "controle",
+            Caller::Device { key: "controle".into(), scopes: vec![Scope::Control, Scope::Screen], autoridade: None },
+            false,
+        ),
+        ("leitura", Caller::Device { key: "leitura".into(), scopes: vec![], autoridade: None }, false),
+    ] {
+        let stream = events_stream(&f.hub, f.hub.store.current_rev(), None, &caller).unwrap();
+        tokio::pin!(stream);
+        assert_eq!(stream.next().await.unwrap()["type"], "hello");
+        let _ = f
+            .hub
+            .events
+            .send(json!({"type":"accessRequests", "requests":[{"requestId":"req_evento", "code":"123456"}]}));
+        let _ = f.hub.events.send(json!({"type":"resync", "marker":"fim"}));
+        let next = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next()).await.unwrap().unwrap();
+        if recebe {
+            assert_eq!(next["type"], "accessRequests");
+            assert_eq!(stream.next().await.unwrap()["marker"], "fim");
+        } else {
+            assert_eq!(next["marker"], "fim", "{nome}");
+        }
+    }
+}

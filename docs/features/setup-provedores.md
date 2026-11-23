@@ -268,9 +268,8 @@ Contas gerenciadas de Claude/Codex continuam no fluxo de **Contas de IA**.
 | --- | --- | --- |
 | Cursor | `cursor-agent login`, com `NO_OPEN_BROWSER=1` | `cursor-agent status` no mesmo binário e perfil |
 | Grok | `grok login --device-auth` | `grok models`, sucesso e declaração explícita de login |
-| Antigravity | `agy`, sem argumentos | `agy models`, sucesso e linhas tabuladas de modelos |
 
-A lista do terminal remoto é fechada: apenas Cursor, Grok e Antigravity.
+A lista do terminal remoto é fechada: apenas Cursor e Grok.
 OpenCode, Cline, Kimi, Pi, Hermes e todos os outros motores ficam indisponíveis
 nesse terminal até terem prova própria contra escape. Não há fallback para o
 comando de login do cadastro nem para shell; use chave no cofre ou código de
@@ -294,7 +293,7 @@ scrollback, replay, histórico, mirror, analytics ou saída no chat. Ao perder a
 conexão, inicie outra tentativa; não se recupera o conteúdo anterior. Apenas o
 titular original lê ou digita, com reconferência a cada entrada/saída. A saída apresentada
 ao titular perde OSC, DCS, SOS, PM e APC, em 7 bits (`ESC ]`, `ESC P`, `ESC X`, `ESC ^`, `ESC _`) e em 8 bits (U+0090, U+0098, U+009D–U+009F, que chegam em UTF-8 como `C2 xx`), até BEL ou ST.
-O terminal só abre links dos motores oferecidos nele (Cursor, Grok e Antigravity).
+O terminal só abre links dos motores oferecidos nele (Cursor e Grok).
 
 O Hub consulta o login após três segundos, dobrando o intervalo até 60 segundos; após o envio do código ou confirmação, consulta imediatamente e a cada segundo. Cada consulta é limitada a cinco segundos. A entrada permanece fechada após o envio. Fecha a sessão após
 confirmação, fim do CLI, cancelamento, revogação ou
@@ -314,14 +313,10 @@ legado permanece no disco; ele não é copiado para o novo login. Seleção de v
 contas para esses motores ainda não faz parte deste contrato. O cofre Go usa o
 slot do motor já existente. Claude/Codex preservam seus perfis gerenciados.
 
-**Antigravity:** a dica é **Escolha Google OAuth, abra o link, entre e cole aqui o
-código**. O `agy` usa o retorno hospedado em
-`https://antigravity.google/oauth-callback`; não se cola URL de retorno nem se
-abre listener no Hub. Confirmar `agy models` confirma somente o CLI. O motor ACP
-atual tem credencial separada: não é marcado como conectado nem tem mensagens
-retomadas por esse login. Migrar a execução para `agy` (`print`/`stream-json` com
-isolamento de turno) ou comprovar um adaptador com a mesma credencial é a próxima
-etapa; o motor Antigravity completo permanece pendente.
+**Antigravity:** a integração no app está suspensa. Para uso pessoal, use o
+[CLI oficial em modo ACP](https://antigravity.google/docs/ide/extensions/acp/)
+em um editor interativo. Faça login diretamente no CLI com `agy acp --login`
+ou em uma sessão interativa do `agy`. O Hub não inicia o CLI nem gerencia a conta.
 
 Referências e trechos adaptados: [Tucano, login-terminal.ts](https://github.com/eduwxyz/tucano/blob/9474545f0415f4bb2a439e1a7727912254b69972/src/core/login-terminal.ts),
 [autenticação Cursor](https://cursor.com/docs/cli/reference/authentication),
@@ -330,7 +325,7 @@ e [OpenCode](https://opencode.ai/docs/cli/providers/). Procedência em
 `THIRD_PARTY.md`. Os testes com processos fictícios e Hub real não substituem o
 aceite com as contas e os binários instalados em desktop/web.
 
-Na API local, `agentAuth` mantém a descoberta ACP dos métodos e campos de chave,
+Para os motores compatíveis, na API local `agentAuth` mantém a descoberta ACP dos métodos e campos de chave,
 `agentAuthenticate` mantém a autenticação ACP e `setAgentEnv` mantém o cofre local.
 Uma confirmação positiva nesses métodos retoma as conversas que esperavam login.
 A projeção restrita de estado do perfil assistido aplica-se ao chamador remoto.
@@ -346,10 +341,7 @@ reutilizar credenciais. Ele não usa cota de modelo nem envia código de login.
 ### Sondagem dos CLIs sem autenticação
 
 Os comandos fixos de login são `cursor-agent login` (Cursor 2026.11.13),
-`grok login --device-auth` (Grok 1.0.77) e `agy` (Antigravity 1.5.9). Segundo
-o resultado informado pelo executor anterior, antes de autenticar, setas, Enter, Esc, Ctrl-C/D/Z, `!ls`,
-`/shell`, `$(id)`, crase e editor/pager ficaram na espera ou no eco, sem chegar
-a um shell. Após autenticar, o `agy` entra no agente interativo, que pode executar
-comandos. A proteção exige, portanto, fechar a entrada depois do envio e encerrar
-o processo ao confirmar o login ou detectar modo agente. Detectar o modo agente depois do código aceito fecha a entrada na hora (nenhum byte do cliente chega ao agente) e encerra o processo, mas não cancela a tentativa: a conferência final do CLI decide se o login foi concluído. A sondagem sem login não
-comprova o comportamento autenticado. Nenhum código de aparelho foi registrado.
+e `grok login --device-auth` (Grok 1.0.77). Antes de autenticar, os controles e
+as tentativas de escape ficaram na espera ou no eco, sem chegar a um shell. A
+sondagem sem login não comprova o comportamento autenticado. Nenhum código de
+aparelho foi registrado.

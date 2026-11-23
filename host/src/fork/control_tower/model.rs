@@ -25,6 +25,7 @@ pub(crate) struct TowerSnapshot {
     pub routine_creations: Observation<crate::fork::routine_creation::Reviews>,
     /// MEX-1391 (o).2: um cartão por troca de conta do fallback, últimos 7 dias.
     pub account_switches: Observation<crate::fork::fallback_contas::torre::Trocas>,
+    pub attention: Observation<super::attention::AttentionQueue>,
 }
 
 #[derive(Serialize)]

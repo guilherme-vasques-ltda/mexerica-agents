@@ -139,6 +139,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "Add Node.js",
   "extensoes.motor.conferindoPrimeira": "Checking with {motor}… The first check may download it.",
   "extensoes.terminal.dicaAntigravity": "Choose Google OAuth, open the link, sign in and paste the code here. agy sign-in does not confirm ACP.",
+  "extensoes.motor.antigravityInterativo": "Unavailable in this app. Use the official CLI with your own account in an interactive ACP client.",
   "extensoes.terminal.dicaOpenCode": "Pick the provider with the arrows and press Enter. For OpenCode Go, prefer the vault key.",
   "extensoes.terminal.dicaGrok": "Open the link in your browser and confirm the device code.",
   "extensoes.terminal.dicaCursor": "Open the link in your browser. Sign-in is checked automatically.",

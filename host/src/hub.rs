@@ -1177,6 +1177,7 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
     crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+    crate::agent::backends::require_supported_execution(&cfg.backend)?;
     validate_fields(cfg)
 }
 
@@ -1190,6 +1191,7 @@ pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result
     crate::fork::funcao::normalizar(cfg)?;
     if cfg.backend != before.backend {
         crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+        crate::agent::backends::require_supported_execution(&cfg.backend)?;
     }
     validate_fields(cfg)
 }

@@ -13,6 +13,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let sealed = info["sealed"] as? String,
               let computerId = info["computerId"] as? String,
               let ctx = info["ctx"] as? String,
+              ctx == SharedStore.activeContext.id,
               let alert = DeviceIdentity.openPush(sealed: sealed, computerId: computerId, contextID: ctx) else {
             Logger(subsystem: "app.mexerica.ios", category: "NotificationService")
                 .error("Showing notification fallback: sealed content or shared key unavailable")
@@ -48,7 +49,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let bots = faces + snapshot
         guard let botId, let chat = bots.first(where: { $0.id == botId }) else { return content }
         let members = chat.members.compactMap { id in bots.first { $0.id == id } }
-        let conversation = "\(computerId)/\(chat.id)"
+        let conversation = "\(ctx)/\(computerId)/\(chat.id)"
 
         let intent: INSendMessageIntent
         if chat.isGroup, let speaker = bots.first(where: { $0.id == alert.from }) {

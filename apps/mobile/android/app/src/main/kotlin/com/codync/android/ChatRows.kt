@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.content.ClipData
@@ -82,7 +83,7 @@ internal fun chatItems(entries: List<Entry>, pending: List<PendingSend>): List<C
         run += exchange
     }
     flush()
-    val slots = units + pending.filter { send -> entries.none { it.clientNonce == send.nonce } }.map { it.createdAt to it }
+    val slots = units + pending.filter { send -> entries.none { com.codync.android.core.fork.ConversationReplay.confirms(send, it) } }.map { it.createdAt to it }
     for ((at, slot) in slots.sortedBy { it.first }) {
         val id = when (slot) { is Entry -> slot.clientNonce?.takeIf { slot.kind == "user" && it.isNotEmpty() }?.let { "user-$it" } ?: slot.id
             is BotExchangeGroup -> "x-" + slot.id
