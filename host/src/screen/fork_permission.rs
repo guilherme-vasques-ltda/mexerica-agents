@@ -196,6 +196,10 @@ fn request(
         ensure!(!denied, "O dono recusou a tela deste computador. Não vou pedir de novo neste turno nem por uma hora; ele pode ligar em Configurações.");
         let existing: Option<String> = tx.query_row("SELECT id FROM entries WHERE kind='permission' AND json_extract(data,'$.toolKind')='screen_access' AND json_extract(data,'$.author')=?1 AND json_extract(data,'$.screenAccess.target')=?2 AND json_extract(data,'$.status')='pending' ORDER BY seq DESC LIMIT 1",
             params![attempt.bot, target], |r| r.get(0)).optional()?;
+        ensure!(
+            existing.as_ref().is_none_or(|id| !hub.store.expiration_failed(id)),
+            "O pedido de tela anterior não pôde ser encerrado."
+        );
         let mut events = vec![];
         let existing = existing.map(|id| Store::entry_on(&tx, &id)).transpose()?.flatten();
         let mut control = hub.screen.control.locked();
