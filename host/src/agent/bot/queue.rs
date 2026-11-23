@@ -133,9 +133,12 @@ impl Actor {
                 }
             }
             Cmd::Send { lane, entry_id, text } => {
-                if self.hub.store.entry(&entry_id).is_none_or(|entry| {
-                    entry.kind == crate::store::EntryKind::User.as_str() && entry.data["status"] != "queued"
-                }) {
+                if self
+                    .hub
+                    .store
+                    .entry(&entry_id)
+                    .is_none_or(|entry| entry.kind == EntryKind::User.as_str() && entry.data["status"] != "queued")
+                {
                     return true;
                 }
                 // O startup pode ter recuperado o SQLite enquanto este comando aguardava no canal.
@@ -151,12 +154,7 @@ impl Actor {
                     entry.data["subscriptionQueued"] = json!(true);
                     self.hub.set_entry(&entry_id, &entry.data);
                 }
-                if self
-                    .hub
-                    .store
-                    .entry(&entry_id)
-                    .is_some_and(|entry| entry.kind == crate::store::EntryKind::User.as_str())
-                {
+                if self.hub.store.entry(&entry_id).is_some_and(|entry| entry.kind == EntryKind::User.as_str()) {
                     self.compaction_reset(&lane);
                 }
                 self.queue.push_back(Queued::User { lane, entry_id, text });
@@ -1004,7 +1002,7 @@ impl Actor {
             r.message = None;
             r.session = None;
         });
-        if self.hub.add_entry(&lane, crate::store::EntryKind::Notice, self.hub.store.max_turn(&lane.chat),
+        if self.hub.add_entry(&lane, EntryKind::Notice, self.hub.store.max_turn(&lane.chat),
             &json!({"text":"O Hub reiniciou durante uma execução sem checkpoint de retomada comprovado. Confira o histórico antes de reenviar; nenhuma ação foi repetida automaticamente.","style":"info","author":self.cfg.id})).is_none()
         {
             tracing::error!("não foi possível salvar o aviso da execução legada");
