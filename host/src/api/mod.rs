@@ -82,6 +82,10 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
+    // Fail-closed: método sem classe em `fork::acesso_rpc` não existe para ninguém, nem para este computador.
+    if crate::fork::acesso_rpc::desconhecido(method) {
+        return Err(UnknownMethod.into());
+    }
     crate::open_hub::check_request(method, &b)?;
     // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368.
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
@@ -118,10 +122,6 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     };
     if matches!(method, "agentSetup" | "agentAuthenticate") && !(method == "agentSetup" && b["step"] == "login") {
         crate::fork::engine_setup::require_legacy_setup(caller, b["backend"].as_str().unwrap_or_default())?;
-    }
-    // Fail-closed: método sem classe em `fork::acesso_rpc` não existe para ninguém, nem para este computador.
-    if crate::fork::acesso_rpc::acesso(method).is_none() {
-        return Err(UnknownMethod.into());
     }
     devices::permit(caller, method)?;
     if method == "teamSettings" && !matches!(caller, Caller::Local) {

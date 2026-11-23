@@ -168,6 +168,10 @@ async fn command(
     // Classifica a identidade antes de ler o corpo e antes do dispatch.
     let caller =
         crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
+    // Nome sem classe é desconhecido antes de ler o corpo: 404 sem passar por 400 ou 403.
+    if crate::fork::acesso_rpc::desconhecido(&method) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "unknown method".into(), None));
+    }
     let body = if body.is_empty() {
         Value::Null
     } else {

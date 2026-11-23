@@ -46,8 +46,27 @@ pub(crate) const TABELA: &[(Acesso, &[&str])] = &[
 #[cfg(test)]
 pub(crate) const DO_CANAL: &[&str] = &["subscribe", "pair"];
 
+/// Fronteiras com laço e prova próprios que não consultam `permit` nem chegam ao `dispatch`: nome e onde vive a
+/// guarda. Nenhum tem classe que um chamador passe (no `dispatch`, ou são desconhecidos ou `Pairing`); o teste
+/// `fronteiras_fora_da_tabela_sao_nomeadas` confere cada nome no código da sua guarda.
+#[cfg(test)]
+pub(crate) const FORA_DA_TABELA: &[(&str, &str)] = &[
+    ("pair", "remote/channel.rs"),
+    ("bootstrap.challenge", "remote/channel.rs"),
+    ("bootstrap.prove", "remote/channel.rs"),
+    ("session.open", "fork/autoridade/personal_channel.rs"),
+    ("link.status", "fork/autoridade/personal_channel.rs"),
+    ("session.close", "fork/autoridade/personal_channel.rs"),
+];
+
 pub(crate) fn acesso(method: &str) -> Option<Acesso> {
     TABELA.iter().find(|(_, metodos)| metodos.contains(&method)).map(|(acesso, _)| *acesso)
+}
+
+/// Nome sem classe: o `dispatch` e a rota HTTP o respondem como desconhecido antes de ler os argumentos. O prefixo
+/// `donnaWorkplace` fica com a guarda própria (`onde_roda::autoridade`), que recusa nome desconhecido antes de tudo.
+pub(crate) fn desconhecido(method: &str) -> bool {
+    acesso(method).is_none() && !method.starts_with("donnaWorkplace")
 }
 
 pub(crate) fn permite(caller: &Caller, method: &str) -> bool {

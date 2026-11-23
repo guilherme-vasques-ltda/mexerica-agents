@@ -626,6 +626,11 @@ impl Channel {
         // Every request re-checks the device (revocation, lease) before it runs.
         self.recheck().await?;
         if let Some(method) = v["m"].as_str().filter(|m| browser_canal::METODOS.contains(m)) {
+            // A classe da tabela vem antes das guardas próprias do navegador (escopo, Hub/Space/bot e sessão).
+            if devices::permit(&self.caller, method).is_err() {
+                self.send(err(id, 403, &devices::Forbidden.to_string())).await;
+                return Ok(());
+            }
             self.handle_browser(id, method, &v["b"]).await;
             return Ok(());
         }
@@ -986,6 +991,7 @@ mod tests {
     mod provas_navegador;
     mod provas_requisicao_expirada;
     mod provas_requisicoes;
+    mod provas_tabela;
 
     use observador_concessao::geracao_persistida;
 

@@ -142,3 +142,35 @@ fn metodos_conhecidos_mantem_a_classe() {
         assert_eq!(acesso(metodo), Some(classe), "{metodo}");
     }
 }
+
+/// Cada fronteira fora da tabela é nomeada, vive no arquivo da sua guarda e não abre a porta do `dispatch`: lá ela é
+/// desconhecida ou `Pairing`, recusada a todos.
+#[test]
+fn fronteiras_fora_da_tabela_sao_nomeadas() {
+    for (nome, arquivo) in FORA_DA_TABELA {
+        let caminho = format!("{}/src/{arquivo}", env!("CARGO_MANIFEST_DIR"));
+        let fonte = std::fs::read_to_string(&caminho).unwrap();
+        assert!(fonte.contains(&format!("\"{nome}\"")), "{nome} não aparece em {arquivo}");
+        assert!(matches!(acesso(nome), None | Some(Acesso::Pairing)), "{nome}");
+        for (quem, caller) in chamadores() {
+            assert!(permit(&caller, nome).is_err(), "{quem} em {nome}");
+        }
+    }
+    let pessoais: BTreeSet<&str> =
+        crate::fork::donna_fixa::metodos::METODOS_VINCULO_PESSOAL.iter().map(|(nome, _)| *nome).collect();
+    let nomeados: BTreeSet<&str> = FORA_DA_TABELA
+        .iter()
+        .filter(|(_, arquivo)| arquivo.ends_with("personal_channel.rs"))
+        .map(|(nome, _)| *nome)
+        .collect();
+    assert_eq!(pessoais, nomeados);
+}
+
+#[test]
+fn desconhecido_e_classificado_antes_dos_argumentos() {
+    assert!(desconhecido("metodoInexistente"));
+    assert!(desconhecido("bootstrap.prove"));
+    assert!(!desconhecido("send"));
+    assert!(!desconhecido("pair"));
+    assert!(!desconhecido("donnaWorkplaceUnknown"));
+}
