@@ -482,7 +482,7 @@ A chave informada na folha do OpenCode usa o slot cifrado do cofre do Hub e é e
 O passo `login` de `agentSetup` reutiliza o PTY de `host/src/agent/term.rs`, com
 política distinta dos terminais de instalação. Só resolve binário conhecido e
 argumentos estáticos do Hub; não passa pela shell nem aceita comando, ambiente,
-pasta ou argumentos do cliente. A lista é fechada em Cursor, Grok e Antigravity;
+pasta ou argumentos do cliente. A lista é fechada em Cursor e Grok;
 todos os demais motores permanecem bloqueados sem prova própria contra escape. A origem original `engine.accounts`/ACS4 é
 capturada antes de filas e acompanha a sessão; somente o mesmo titular pode ler,
 digitar, redimensionar ou cancelar. As guardas são reconferidas na entrega de cada
@@ -495,9 +495,7 @@ validação passam pelo helper de perfis existente, com ID derivado e geração
 aleatória na raiz restrita. Cada tentativa tem pasta provisória própria: só a
 conferência positiva seguida de `commit_and_admit` sob o vínculo vigente publica
 o perfil para o runtime. Cancelar, revogar ou expirar encerra o grupo e apaga a
-provisória, preservando a pasta e a conta anteriores. O perfil do
-ACP Antigravity não é trocado: a credencial do `agy` continua separada e o resultado
-não é anunciado como login ACP.
+provisória, preservando a pasta e a conta anteriores.
 
 O login não mantém scrollback nem permite replay ou um segundo leitor. A leitura
 nativa só começa depois de o titular assinar o stream; queda do canal cancela a
@@ -522,7 +520,7 @@ O cofre cifra fora da transação e grava sob a autoridade original de contas,
 reconferida no commit. A resposta contém nomes, nunca valores. Os outros caminhos
 de escrita do cofre continuam locais. Guardar a chave não confirma assinatura.
 
-A ponte de colar URL do Antigravity foi removida integralmente. O login agora é
-pelo código do `agy`, com retorno hospedado, e a migração do motor ACP fica para
-outra etapa. Os testes de recusa cobrem escapes, eco, outro cliente, revogação no
-meio e os limites da confirmação, com dados fictícios.
+O Antigravity não é iniciado pelo Hub: a execução pelo catálogo ACP, o terminal
+e a sondagem de login estão indisponíveis. Um pedido local ao Hub não prova
+presença humana. O uso pessoal permanece no CLI oficial em um cliente ACP
+interativo, fora do app.

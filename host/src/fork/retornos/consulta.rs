@@ -2,6 +2,7 @@
 //! Só leitura de metadados do R1: nenhum texto, ID de conteúdo/aviso, digest, proveniência,
 //! binding, token ou alvo sai daqui, e `entries` não é lida. Não grava, não enfileira, não
 //! acorda ator, não abre turno nem reenvia. Identidade só de Sessões; o modelo dá só o ID.
+use super::privacidade::{self, MetadataProjection, ReadAuthority};
 use super::{Decisao, Desfecho, MotivoFim, VERSAO};
 use crate::LockExt;
 use crate::fork::sessoes::{ExecutionRef, bindings, store::SessionRef};
@@ -125,7 +126,7 @@ pub(crate) enum Estado {
 }
 
 impl Estado {
-    fn json(self, pedido: &str) -> Value {
+    pub(super) fn json(self, pedido: &str) -> Value {
         let (state, reason, outcome, nota) = match self {
             Self::Aceito => ("accepted", None, Value::Null, N_ACEITO),
             Self::EmExecucao => ("running", None, Value::Null, N_EM_EXECUCAO),
@@ -187,6 +188,16 @@ fn pedido(args: &Value) -> Result<&str> {
 /// Na Tx da leitura, só com a Connection recebida: identidade atual por Sessões e filtro
 /// exato do solicitante no SQL antes de projetar qualquer coluna.
 fn ler_na(c: &Connection, chamador: &str, execucao: &ExecutionRef, id: &str) -> Result<(SessionRef, Estado)> {
+    ler_autorizado_na(c, chamador, execucao, id, None)
+}
+
+pub(super) fn ler_autorizado_na(
+    c: &Connection,
+    chamador: &str,
+    execucao: &ExecutionRef,
+    id: &str,
+    caller: Option<&ReadAuthority<'_>>,
+) -> Result<(SessionRef, Estado)> {
     let origem = bindings::assert_execution_live(c, execucao)?;
     let binding = execucao.acp_binding().ok_or_else(|| anyhow!(FORA_DO_ALCANCE))?;
     ensure!(bindings::resolve(c, binding, chamador)?.session_ref == origem, FORA_DO_ALCANCE);
@@ -227,6 +238,7 @@ fn ler_na(c: &Connection, chamador: &str, execucao: &ExecutionRef, id: &str) -> 
         .optional()
         .map_err(|_| anyhow!(INVALIDO))?
         .ok_or_else(|| anyhow!(INDISPONIVEL))?;
+    ensure!(privacidade::metadata_visible_na(c, id, MetadataProjection::RequesterStatus, caller)?, INDISPONIVEL);
     Ok((origem, estado(&linha)?))
 }
 

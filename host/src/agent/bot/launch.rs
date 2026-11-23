@@ -105,6 +105,7 @@ pub(crate) async fn launch_commands(
     cfg: &BotConfig,
     progress: impl Fn(&str, Option<ActivityKind>),
 ) -> Result<Vec<String>> {
+    crate::agent::backends::require_supported_execution(&cfg.backend).map_err(|e| EngineNotReady::wrap(&e))?;
     if crate::fork::motores_retirados::retirado(&cfg.backend) {
         return Err(EngineNotReady(crate::fork::motores_retirados::msg_lancar(&cfg.backend)).into());
     }
@@ -136,7 +137,7 @@ pub(crate) async fn launch_commands(
 pub(crate) struct EngineNotReady(pub(crate) String);
 
 impl EngineNotReady {
-    fn wrap(error: &anyhow::Error) -> anyhow::Error {
+    pub(super) fn wrap(error: &anyhow::Error) -> anyhow::Error {
         Self(format!("{error:#}")).into()
     }
 }
@@ -409,6 +410,21 @@ mod tests {
         let store = crate::store::Store::open(std::path::Path::new(":memory:"));
         let erro = launch_commands(&store.unwrap(), &cfg, |_, _| {}).await.unwrap_err().to_string();
         assert!(erro.contains("oh-my-pi") && erro.contains("Escolha outro motor"));
+    }
+
+    #[tokio::test]
+    async fn antigravity_salvo_nao_tem_comando_de_execucao() {
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        for backend in ["antigravity", " Antigravity-ACP ", "agy"] {
+            for command in [None, Some("agy acp"), Some("agy -p pedido")] {
+                let cfg: BotConfig =
+                    serde_json::from_value(json!({"id":"old", "name":"Old", "backend":backend,"command":command}))
+                        .unwrap();
+                let error = launch_commands(&store, &cfg, |_, _| panic!("resolução inesperada")).await.unwrap_err();
+                assert!(error.is::<EngineNotReady>());
+                assert_eq!(error.to_string(), crate::agent::backends::ANTIGRAVITY_INTERACTIVE_ONLY);
+            }
+        }
     }
 
     #[tokio::test]

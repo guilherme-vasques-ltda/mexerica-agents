@@ -487,19 +487,6 @@ fn receipt_ok(spec: &Value, b: &Value, windows: bool) -> bool {
         && r["sheets"] == spec["summary"]
 }
 
-/// Additional fork permissions; None defers unchanged upstream method policy.
-pub fn permit(caller: &Caller, method: &str) -> Option<bool> {
-    match caller {
-        Caller::Local if super::EXECUTOR_METHODS.contains(&method) => Some(false),
-        Caller::Device { scopes, .. } if super::EXECUTOR_METHODS.contains(&method) => {
-            Some(scopes == &[Scope::Executor])
-        }
-        Caller::Device { scopes, .. } if scopes.contains(&Scope::Executor) => Some(false),
-        Caller::Device { .. } if super::LOCAL_METHODS.contains(&method) => Some(false),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod receipt_path_tests {
     use super::path_matches;

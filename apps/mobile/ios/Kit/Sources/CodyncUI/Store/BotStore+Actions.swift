@@ -44,7 +44,7 @@ extension BotStore {
         let deadline = ContinuousClock.now + Self.actionPatience
         while true {
             let client = try await ready()
-            guard linkId == link else { throw HostError.unreachable }
+            guard !retired, !Task.isCancelled, linkId == link else { throw HostError.unreachable }
             do {
                 return try await op(client)
             } catch let error as HostError where replay && error.isTransient && ContinuousClock.now < deadline {
@@ -379,7 +379,7 @@ extension BotStore {
         let first = chat(botId).first { $0.seq > 0 && $0.seq != Int64.max }?.seq ?? Int64.max
         guard let older = try? await withLink(link: link, replay: true, {
             try await $0.history(botId: botId, beforeSeq: first, limit: 100, sessionId: botId)
-        }) else { return }
+        }), !retired, linkId == link else { return }
         if older.rawCount < 100 { historyComplete.insert(botId) }
         for e in older.entries { upsert(e) }
     }

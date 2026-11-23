@@ -253,6 +253,8 @@ impl Actor {
     }
 
     async fn ensure_session_inner(&mut self, slot: Option<&str>) -> Result<()> {
+        crate::agent::backends::require_supported_execution(&self.cfg.backend)
+            .map_err(|e| super::launch::EngineNotReady::wrap(&e))?;
         if self.cfg.context.is_some() || self.cfg.space_id != crate::fork::spaces::PERSONAL {
             anyhow::ensure!(self.cfg.fork_editor.engine_account_id.is_some(), "space_account_selection_required");
         }

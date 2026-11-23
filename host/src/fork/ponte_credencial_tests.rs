@@ -67,7 +67,6 @@ async fn http_recusa_dono_rotas_externas_e_bearer_invalido_sem_promover_a_local(
         "setCloud",
         "bootstrapInstallGrant",
         "unclaim",
-        "donnaWorkplaceStatus",
     ] {
         let r = client
             .post(format!("http://{addr}/api/{method}"))
@@ -78,6 +77,15 @@ async fn http_recusa_dono_rotas_externas_e_bearer_invalido_sem_promover_a_local(
             .unwrap();
         assert_eq!(r.status(), 403, "{method}");
     }
+    // Nome sem classe, com qualquer prefixo, é desconhecido para todos (404), antes da guarda própria.
+    let r = client
+        .post(format!("http://{addr}/api/donnaWorkplaceStatus"))
+        .bearer_auth(&token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 404);
     for route in ["/events", "/term/test", "/channel?v=1", "/health"] {
         let r = client.get(format!("http://{addr}{route}")).bearer_auth(&token).send().await.unwrap();
         assert_eq!(r.status(), 403, "{route}");
