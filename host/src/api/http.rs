@@ -168,9 +168,10 @@ async fn command(
     // Classifica a identidade e o nome antes de ler o corpo (que só é lido aqui, com o limite da rota).
     let caller =
         crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
-    // Nome sem classe é desconhecido antes de ler o corpo: 404 sem passar por 400, 403 ou 413.
-    if crate::fork::acesso_rpc::desconhecido(&method) {
-        return Err(ApiError(StatusCode::NOT_FOUND, "unknown method".into(), None));
+    // Nome sem classe é recusado antes de ler o corpo: 404 (403 na Open) sem passar por 400 ou 413.
+    if let Some(recusa) = super::recusa_sem_classe(&method) {
+        let (status, message) = error_status(&recusa);
+        return Err(ApiError(status, message, None));
     }
     let body = Bytes::from_request(request, &()).await.map_err(|e| ApiError(e.status(), e.body_text(), None))?;
     let body = if body.is_empty() {

@@ -41,6 +41,15 @@ impl std::fmt::Display for UnknownMethod {
 
 impl std::error::Error for UnknownMethod {}
 
+/// Recusa de nome sem classe em `fork::acesso_rpc`, antes dos argumentos: desconhecido (404) para todos; na Open, a
+/// lista fechada responde a todo nome fora dela com `Forbidden` (403), e o desconhecido segue essa regra.
+pub(crate) fn recusa_sem_classe(method: &str) -> Option<anyhow::Error> {
+    if !crate::fork::acesso_rpc::desconhecido(method) {
+        return None;
+    }
+    Some(if crate::environment::Environment::is_open() { Forbidden.into() } else { UnknownMethod.into() })
+}
+
 /// Stable codes are additive; the displayed message remains independently useful.
 #[derive(Debug)]
 pub(crate) struct GroupError {
@@ -82,13 +91,13 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
+    // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368 e de olhar o nome.
+    crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
     // Fail-closed: método sem classe em `fork::acesso_rpc` não existe para ninguém, nem para este computador.
-    if crate::fork::acesso_rpc::desconhecido(method) {
-        return Err(UnknownMethod.into());
+    if let Some(recusa) = recusa_sem_classe(method) {
+        return Err(recusa);
     }
     crate::open_hub::check_request(method, &b)?;
-    // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368.
-    crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).
     crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b))).await
 }
