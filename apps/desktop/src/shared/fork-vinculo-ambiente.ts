@@ -71,12 +71,19 @@ const SECRET_PREFIXES = [
   'ghs_',
   'ghr_',
   'github_pat_',
+  'glpat-',
   'xox',
+  'xapp-',
+  'hf_',
+  'dop_v1_',
+  'npm_',
+  'shpat_',
+  'eyj',
   'aiza',
   'akia',
   'asia',
 ]
-const CONTROL_CHARS = /[\x00-\x1f\x7f]/
+const CONTROL_CHARS = /[\p{Cc}\p{Cf}\u2028\u2029]/u
 const LABEL_MAX_LEN = 120
 
 const UNCONFIGURED_KEYS = ['schema', 'hubId', 'spaceId', 'botId', 'revision', 'state', 'execution'] as const
@@ -136,33 +143,36 @@ function decodeRef(value: unknown, field: string): VinculoAmbienteRef {
 function decodeProject(value: unknown): VinculoAmbienteProject {
   const obj = asObject(value, 'project')
   assertAllowedKeys(obj, ['id', 'label', 'gitLinked'], 'project')
-  if (typeof obj.gitLinked !== 'boolean') {
+  const gitLinked = obj.gitLinked
+  if (typeof gitLinked !== 'boolean') {
     throw new VinculoAmbienteError('binding_invalid_answer', 'project.gitLinked')
   }
   return {
     id: decodeOpaqueId(obj.id, 'project.id'),
     label: decodeLabel(obj.label, 'project.label'),
-    gitLinked: obj.gitLinked,
+    gitLinked,
   }
 }
 
 function decodeMachine(value: unknown): VinculoAmbienteMachine {
   const obj = asObject(value, 'machine')
   assertAllowedKeys(obj, ['kind', 'id', 'label'], 'machine')
-  if (obj.kind !== 'local' && obj.kind !== 'dock') {
+  const kind = obj.kind
+  if (kind !== 'local' && kind !== 'dock') {
     throw new VinculoAmbienteError('binding_invalid_answer', 'machine.kind')
   }
   return {
-    kind: obj.kind,
+    kind,
     id: decodeOpaqueId(obj.id, 'machine.id'),
     label: decodeLabel(obj.label, 'machine.label'),
   }
 }
 
 export function decodeVinculoAmbiente(value: unknown, expected: VinculoAmbienteContext): VinculoAmbiente {
-  const expectedHubId = decodeOpaqueId(expected.hubId, 'expected.hubId')
-  const expectedSpaceId = decodeOpaqueId(expected.spaceId, 'expected.spaceId')
-  const expectedBotId = decodeOpaqueId(expected.botId, 'expected.botId')
+  const expectedObj = asObject(expected, 'expected')
+  const expectedHubId = decodeOpaqueId(expectedObj.hubId, 'expected.hubId')
+  const expectedSpaceId = decodeOpaqueId(expectedObj.spaceId, 'expected.spaceId')
+  const expectedBotId = decodeOpaqueId(expectedObj.botId, 'expected.botId')
 
   const root = asObject(value, 'root')
   if (root.schema !== 1) {
@@ -184,7 +194,8 @@ export function decodeVinculoAmbiente(value: unknown, expected: VinculoAmbienteC
     throw new VinculoAmbienteError('cross_bot_response', 'botId')
   }
 
-  if (typeof root.revision !== 'number' || !Number.isSafeInteger(root.revision) || root.revision < 0) {
+  const revision = root.revision
+  if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0) {
     throw new VinculoAmbienteError('binding_invalid_answer', 'revision')
   }
 
@@ -199,7 +210,7 @@ export function decodeVinculoAmbiente(value: unknown, expected: VinculoAmbienteC
       hubId,
       spaceId,
       botId,
-      revision: root.revision,
+      revision,
       state: 'unconfigured',
       execution: 'unavailable',
     }
@@ -212,7 +223,7 @@ export function decodeVinculoAmbiente(value: unknown, expected: VinculoAmbienteC
       hubId,
       spaceId,
       botId,
-      revision: root.revision,
+      revision,
       state: 'configured',
       execution: 'unavailable',
       project: decodeProject(root.project),

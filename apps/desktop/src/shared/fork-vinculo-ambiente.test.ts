@@ -136,6 +136,14 @@ test('rejeita dados de outro hub, space ou bot e contexto esperado inválido', (
     () => decodeVinculoAmbiente(validUnconfigured(), { ...CTX, hubId: '/etc/passwd' }),
     VinculoAmbienteError,
   )
+  assert.throws(
+    () => decodeVinculoAmbiente(validUnconfigured(), null as unknown as VinculoAmbienteContext),
+    VinculoAmbienteError,
+  )
+  assert.throws(
+    () => decodeVinculoAmbiente(validUnconfigured(), undefined as unknown as VinculoAmbienteContext),
+    VinculoAmbienteError,
+  )
 })
 
 test('rejeita chaves inesperadas na raiz e nos objetos internos sem vazar campos', () => {
@@ -193,6 +201,13 @@ test('rejeita IDs que pareçam path, URL, chave ou segredo', () => {
     'sk-' + 'ant-api03-123456',
     'ghp_' + '1234567890abcdef',
     'github_pat_' + '123456',
+    'glpat-' + '1234567890abcdef',
+    'xapp-' + '1-A0123-456',
+    'hf_' + '1234567890abcdef',
+    'dop_v1_' + '1234567890abcdef',
+    'npm_' + '1234567890abcdef',
+    'shpat_' + '1234567890abcdef',
+    'eyJ' + 'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig',
     'Bearer abcdef',
     'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5',
     'a'.repeat(129),
@@ -213,13 +228,28 @@ test('rejeita IDs que pareçam path, URL, chave ou segredo', () => {
 test('rótulos aceitam texto livre de exibição e rejeitam caracteres de controle ou excesso', () => {
   const ok = decodeVinculoAmbiente(
     validConfigured({
-      access: { id: 'acc_01', label: 'Chave da equipe — leitura (sem escrita)' },
+      access: { id: 'acc_01', label: 'São Paulo — Produção (leitura)' },
     }),
     CTX,
   )
-  assert.equal(ok.access.label, 'Chave da equipe — leitura (sem escrita)')
+  assert.equal(ok.access.label, 'São Paulo — Produção (leitura)')
 
-  for (const badLabel of ['', '   ', 'linha1\nlinha2', 'tab\taqui', 'nulo\x00fim', 'x'.repeat(121)]) {
+  for (const badLabel of [
+    '',
+    '   ',
+    'linha1\nlinha2',
+    'tab\taqui',
+    'nulo\x00fim',
+    'c1\u0080fim',
+    'c1\u0085fim',
+    'c1\u009ffim',
+    'sep\u2028fim',
+    'bidi\u202efim',
+    'lri\u2066fim',
+    'shy\u00adfim',
+    'zwsp\u200bfim',
+    'x'.repeat(121),
+  ]) {
     assert.throws(
       () =>
         decodeVinculoAmbiente(
@@ -248,4 +278,38 @@ test('rejeita machine.kind inválido e gitLinked não booleano', () => {
       ),
     VinculoAmbienteError,
   )
+})
+
+test('captura revision, gitLinked e kind em leitura única mesmo com getter mutável', () => {
+  let revCalls = 0
+  let gitCalls = 0
+  let kindCalls = 0
+  const payload = validConfigured()
+  Object.defineProperty(payload, 'revision', {
+    enumerable: true,
+    get() {
+      revCalls += 1
+      return revCalls === 1 ? 4 : -99
+    },
+  })
+  Object.defineProperty(payload.project, 'gitLinked', {
+    enumerable: true,
+    get() {
+      gitCalls += 1
+      return gitCalls === 1 ? true : ('mutado' as unknown as boolean)
+    },
+  })
+  Object.defineProperty(payload.machine, 'kind', {
+    enumerable: true,
+    get() {
+      kindCalls += 1
+      return kindCalls === 1 ? 'dock' : ('cloud' as unknown as 'dock')
+    },
+  })
+
+  const decoded = decodeVinculoAmbiente(payload, CTX)
+  assert.equal(decoded.revision, 4)
+  assert.equal(decoded.state, 'configured')
+  assert.equal(decoded.project.gitLinked, true)
+  assert.equal(decoded.machine.kind, 'dock')
 })
