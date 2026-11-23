@@ -8,8 +8,11 @@ import com.codync.android.core.fork.MailInboxOpenThreadResponse
 import com.codync.android.core.fork.MailInboxStatus
 import com.codync.android.core.fork.MailInboxTransport
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -139,35 +142,126 @@ class ForkMailInboxScreenTest {
     }
 
     @Test
-    fun loadingStateIsMappedWhileStatusRequestIsInFlight() = runBlocking {
-        val gate = CompletableDeferred<Unit>()
-        val blockingTransport = object : MailInboxTransport {
+    fun presentationPublishesLoadingWhileRequestsAreSuspended() = runBlocking {
+        val statusGate = CompletableDeferred<Unit>()
+        val firstPageGate = CompletableDeferred<Unit>()
+        val firstPageStarted = CompletableDeferred<Unit>()
+        val nextPageGate = CompletableDeferred<Unit>()
+        val detailGate = CompletableDeferred<Unit>()
+        val fixture = ForkMailInboxFixtureTransport()
+        val blockingTransport = object : MailInboxTransport by fixture {
             override suspend fun mailInboxStatus(spaceId: String): MailInboxStatus {
-                gate.await()
-                return MailInboxStatus.Ready(emptyList())
+                statusGate.await()
+                return fixture.mailInboxStatus(spaceId)
             }
 
             override suspend fun mailInboxListThreads(
                 spaceId: String,
                 mailboxId: String,
                 cursor: String?,
-            ): MailInboxListThreadsResponse = MailInboxListThreadsResponse(emptyList(), null)
+            ): MailInboxListThreadsResponse {
+                if (cursor == null) {
+                    firstPageStarted.complete(Unit)
+                    firstPageGate.await()
+                } else {
+                    nextPageGate.await()
+                }
+                return fixture.mailInboxListThreads(spaceId, mailboxId, cursor)
+            }
 
             override suspend fun mailInboxOpenThread(
                 spaceId: String,
                 mailboxId: String,
                 threadId: String,
-            ): MailInboxOpenThreadResponse = throw MailInboxException(MailInboxError.UNAVAILABLE)
+            ): MailInboxOpenThreadResponse {
+                detailGate.await()
+                return fixture.mailInboxOpenThread(spaceId, mailboxId, threadId)
+            }
         }
         val store = ForkMailInboxStore(transport = blockingTransport, featureEnabled = true)
-        val job = launch { store.loadStatus(ForkMailInboxFixtureTransport.SPACE_ALPHA) }
-        kotlinx.coroutines.yield()
+        val presentation = ForkMailInboxPresentation(store, ForkMailInboxFixtureTransport.SPACE_ALPHA)
+        presentation.setBackground(false)
+        assertEquals(ForkMailInboxScreenState.Loading, presentation.uiState.value.screenState)
+        withTimeout(5_000) {
+            val initial = launch(start = CoroutineStart.UNDISPATCHED) { presentation.start() }
+            assertTrue(store.isLoadingStatus)
+            assertEquals(ForkMailInboxScreenState.Loading, presentation.uiState.value.screenState)
+            statusGate.complete(Unit)
+            firstPageStarted.await()
+            assertTrue(store.isLoadingThreads)
+            assertEquals(ForkMailInboxScreenState.Loading, presentation.uiState.value.screenState)
+            firstPageGate.complete(Unit)
+            initial.join()
 
-        assertTrue(store.isLoadingStatus)
-        assertEquals(ForkMailInboxScreenState.Loading, toForkMailInboxUiState(store).screenState)
+            val pagination = launch { presentation.loadMore() }
+            presentation.uiState.first { (it.screenState as? ForkMailInboxScreenState.ThreadList)?.isLoadingMore == true }
+            assertFalse(pagination.isCompleted)
+            nextPageGate.complete(Unit)
+            pagination.join()
 
-        gate.complete(Unit)
-        job.join()
+            val detail = launch { presentation.openThread(ForkMailInboxFixtureTransport.THREAD_WELCOME) }
+            presentation.uiState.first { (it.screenState as? ForkMailInboxScreenState.ThreadList)?.isLoadingDetail == true }
+            assertFalse(detail.isCompleted)
+            detailGate.complete(Unit)
+            detail.join()
+            assertTrue(presentation.uiState.value.screenState is ForkMailInboxScreenState.ThreadDetail)
+        }
+    }
+
+    @Test
+    fun readyWithNoMailboxesIsNeitherDisconnectedNorAnEmptyInbox() = runBlocking {
+        val space = ForkMailInboxFixtureTransport.SPACE_ALPHA
+        val transport = CountingTransport(ForkMailInboxFixtureTransport(mapOf(space to MailInboxStatus.Ready(emptyList()))))
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        val presentation = ForkMailInboxPresentation(store, space)
+        presentation.start()
+        assertEquals(ForkMailInboxScreenState.NoMailboxes, presentation.uiState.value.screenState)
+        assertTrue(presentation.uiState.value.mailboxes.isEmpty())
+        assertFalse(store.isEmptyInbox)
+        assertEquals(1, transport.calls)
+    }
+
+    @Test
+    fun emptyInboxKeepsTheMailboxSelectorAndCanSwitchBackToThreads() = runBlocking {
+        val store = ForkMailInboxStore(ForkMailInboxFixtureTransport(), featureEnabled = true)
+        val presentation = ForkMailInboxPresentation(store, ForkMailInboxFixtureTransport.SPACE_ALPHA)
+        presentation.start()
+        presentation.selectMailbox(ForkMailInboxFixtureTransport.MAILBOX_EMPTY)
+        assertEquals(ForkMailInboxScreenState.EmptyInbox, presentation.uiState.value.screenState)
+        assertEquals(ForkMailInboxFixtureTransport.MAILBOX_EMPTY, presentation.uiState.value.selectedMailboxId)
+        val main = presentation.uiState.value.mailboxes.first { it.mailboxId == ForkMailInboxFixtureTransport.MAILBOX_MAIN }
+        presentation.selectMailbox(main.mailboxId)
+        assertEquals(main.mailboxId, presentation.uiState.value.selectedMailboxId)
+        assertTrue((presentation.uiState.value.screenState as ForkMailInboxScreenState.ThreadList).threads.isNotEmpty())
+    }
+
+    @Test
+    fun duplicateIdsAcrossPagesAndInDetailsKeepFirstOccurrenceInOrder() = runBlocking {
+        val fixture = ForkMailInboxFixtureTransport()
+        val transport = object : MailInboxTransport by fixture {
+            override suspend fun mailInboxListThreads(spaceId: String, mailboxId: String, cursor: String?): MailInboxListThreadsResponse {
+                val first = fixture.mailInboxListThreads(spaceId, mailboxId, null)
+                val page = fixture.mailInboxListThreads(spaceId, mailboxId, cursor)
+                if (cursor == null) return page
+                return page.copy(threads = listOf(first.threads.first().copy(subject = "Repetido")) + page.threads)
+            }
+
+            override suspend fun mailInboxOpenThread(spaceId: String, mailboxId: String, threadId: String): MailInboxOpenThreadResponse {
+                val detail = fixture.mailInboxOpenThread(spaceId, mailboxId, threadId)
+                return detail.copy(messages = detail.messages + detail.messages.first().copy(bodyText = "Repetido"))
+            }
+        }
+        val presentation = ForkMailInboxPresentation(ForkMailInboxStore(transport, featureEnabled = true), ForkMailInboxFixtureTransport.SPACE_ALPHA)
+        presentation.start()
+        val first = presentation.uiState.value.screenState as ForkMailInboxScreenState.ThreadList
+        presentation.loadMore()
+        val all = presentation.uiState.value.screenState as ForkMailInboxScreenState.ThreadList
+        assertEquals(first.threads, all.threads.take(first.threads.size))
+        assertEquals(first.threads.map { it.threadId } + ForkMailInboxFixtureTransport.THREAD_OLDER, all.threads.map { it.threadId })
+        presentation.openThread(ForkMailInboxFixtureTransport.THREAD_WELCOME)
+        val detail = presentation.uiState.value.screenState as ForkMailInboxScreenState.ThreadDetail
+        assertEquals(listOf("Equipe Norte", "Suporte Sul"), detail.messages.map { it.senderDisplayName })
+        assertFalse(detail.messages.any { it.bodyText == "Repetido" })
     }
 
     @Test
@@ -183,7 +277,7 @@ class ForkMailInboxScreenTest {
         )
 
         val page1 = toForkMailInboxUiState(store).screenState as ForkMailInboxScreenState.ThreadList
-        assertEquals(2, page1.mailboxes.size)
+        assertEquals(2, toForkMailInboxUiState(store).mailboxes.size)
         assertEquals(2, page1.threads.size)
         assertTrue(page1.hasNextPage)
         assertEquals("Resumo semanal de operação", page1.threads[0].subject)

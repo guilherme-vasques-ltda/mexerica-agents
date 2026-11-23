@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -31,12 +29,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +67,11 @@ import com.codync.android.design.medium
 import com.codync.android.design.monospacedDigit
 import com.codync.android.design.semibold
 import com.kyant.shapes.RoundedRectangle
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 private const val NEUTRAL_SUBJECT_FALLBACK = "Sem assunto"
@@ -103,11 +105,10 @@ sealed interface ForkMailInboxScreenState {
     data object ReconnectRequired : ForkMailInboxScreenState
     data object AccessDenied : ForkMailInboxScreenState
     data object Loading : ForkMailInboxScreenState
+    data object NoMailboxes : ForkMailInboxScreenState
     data object EmptyInbox : ForkMailInboxScreenState
 
     data class ThreadList(
-        val mailboxes: List<ForkMailInboxMailboxItem>,
-        val selectedMailboxId: String?,
         val threads: List<ForkMailInboxThreadItem>,
         val hasNextPage: Boolean,
         val isLoadingMore: Boolean,
@@ -119,7 +120,6 @@ sealed interface ForkMailInboxScreenState {
         val subject: String,
         val messages: List<ForkMailInboxMessageItem>,
         val truncated: Boolean,
-        val isLoading: Boolean,
     ) : ForkMailInboxScreenState
 }
 
@@ -127,6 +127,8 @@ data class ForkMailInboxUiState(
     val featureEnabled: Boolean,
     val showPrivacyMask: Boolean,
     val screenState: ForkMailInboxScreenState,
+    val mailboxes: List<ForkMailInboxMailboxItem> = emptyList(),
+    val selectedMailboxId: String? = null,
 )
 
 fun shouldShowPrivacyMask(
@@ -141,10 +143,19 @@ fun toForkMailInboxUiState(
 ): ForkMailInboxUiState {
     val showMask = shouldShowPrivacyMask(store.shouldMaskInAppSwitcher, isAppInBackground)
     val screenState = mapScreenState(store, preferListOverDetail)
+    val mailboxes = when (screenState) {
+        ForkMailInboxScreenState.EmptyInbox, is ForkMailInboxScreenState.ThreadList ->
+            (store.status as? MailInboxStatus.Ready)?.mailboxes.orEmpty().distinctBy { it.mailboxId }.map {
+                ForkMailInboxMailboxItem(it.mailboxId, it.label.ifBlank { NEUTRAL_MAILBOX_LABEL })
+            }
+        else -> emptyList()
+    }
     return ForkMailInboxUiState(
         featureEnabled = store.featureEnabled,
         showPrivacyMask = showMask,
         screenState = screenState,
+        mailboxes = mailboxes,
+        selectedMailboxId = store.selectedMailboxId.takeIf { id -> mailboxes.any { it.mailboxId == id } },
     )
 }
 
@@ -155,6 +166,7 @@ private fun mapScreenState(
     if (!store.featureEnabled) {
         return ForkMailInboxScreenState.Unavailable
     }
+    if (store.isLoadingStatus) return ForkMailInboxScreenState.Loading
     if (store.lastError == MailInboxError.ACCESS_DENIED) {
         return ForkMailInboxScreenState.AccessDenied
     }
@@ -164,18 +176,21 @@ private fun mapScreenState(
     if (store.status is MailInboxStatus.ReconnectRequired || store.lastError == MailInboxError.RECONNECT_REQUIRED) {
         return ForkMailInboxScreenState.ReconnectRequired
     }
-    if (store.status is MailInboxStatus.Unavailable ||
-        (store.lastError == MailInboxError.UNAVAILABLE && store.threads.isEmpty() && store.openThread == null)
-    ) {
+    if (store.status is MailInboxStatus.Unavailable || store.lastError != null) {
         return ForkMailInboxScreenState.Unavailable
+    }
+    val readyStatus = store.status as? MailInboxStatus.Ready ?: return ForkMailInboxScreenState.Loading
+    if (readyStatus.mailboxes.isEmpty()) return ForkMailInboxScreenState.NoMailboxes
+    if (readyStatus.mailboxes.none { it.mailboxId == store.selectedMailboxId }) {
+        return ForkMailInboxScreenState.Loading
     }
 
     val openThread = store.openThread
-    if (openThread != null && !preferListOverDetail) {
+    if (openThread != null && !preferListOverDetail && !store.isLoadingThreadDetail) {
         return ForkMailInboxScreenState.ThreadDetail(
             threadId = openThread.threadId,
             subject = normalizeSubject(openThread.subject),
-            messages = openThread.messages.map { message ->
+            messages = openThread.messages.distinctBy { it.messageId }.map { message ->
                 val presentation = message.senderPresentation
                 ForkMailInboxMessageItem(
                     messageId = message.messageId,
@@ -188,12 +203,10 @@ private fun mapScreenState(
                 )
             },
             truncated = openThread.truncated,
-            isLoading = store.isLoadingThreadDetail,
         )
     }
 
-    if (store.isLoadingStatus ||
-        (store.isLoadingThreads && store.threads.isEmpty()) ||
+    if (!store.hasLoadedFirstPage || (store.isLoadingThreads && store.threads.isEmpty()) ||
         (store.isLoadingThreadDetail && store.threads.isEmpty())
     ) {
         return ForkMailInboxScreenState.Loading
@@ -204,35 +217,87 @@ private fun mapScreenState(
     }
 
     val readyStatus = store.status as? MailInboxStatus.Ready
-    if (readyStatus != null) {
-        val mailboxes = readyStatus.mailboxes.map { mailbox ->
-            ForkMailInboxMailboxItem(
-                mailboxId = mailbox.mailboxId,
-                label = mailbox.label.ifBlank { NEUTRAL_MAILBOX_LABEL },
-            )
-        }
-        val threads = store.threads.map { summary ->
-            ForkMailInboxThreadItem(
-                threadId = summary.threadId,
-                subject = normalizeSubject(summary.subject),
-                lastMessageAt = summary.lastMessageAt,
-            )
-        }
-        return ForkMailInboxScreenState.ThreadList(
-            mailboxes = mailboxes,
-            selectedMailboxId = store.selectedMailboxId,
-            threads = threads,
-            hasNextPage = store.nextCursor != null,
-            isLoadingMore = store.isLoadingThreads && store.threads.isNotEmpty(),
-            isLoadingDetail = store.isLoadingThreadDetail,
-        )
-    }
-
-    return ForkMailInboxScreenState.Unavailable
+    return ForkMailInboxScreenState.ThreadList(
+        threads = store.threads.distinctBy { it.threadId }.map { summary ->
+            ForkMailInboxThreadItem(summary.threadId, normalizeSubject(summary.subject), summary.lastMessageAt)
+        },
+        hasNextPage = store.nextCursor != null,
+        isLoadingMore = store.isLoadingThreads,
+        isLoadingDetail = store.isLoadingThreadDetail,
+    )
 }
 
 private fun normalizeSubject(subject: String?): String =
     subject?.takeIf { it.isNotBlank() } ?: NEUTRAL_SUBJECT_FALLBACK
+
+internal class ForkMailInboxPresentation(private val store: ForkMailInboxStore, private val spaceId: String) {
+    private val state = MutableStateFlow(ForkMailInboxUiState(
+        store.featureEnabled,
+        showPrivacyMask = false,
+        screenState = if (store.featureEnabled) ForkMailInboxScreenState.Loading else ForkMailInboxScreenState.Unavailable,
+    ))
+    val uiState = state.asStateFlow()
+    private var requesting = false
+    private var preferListOverDetail = false
+    private var isAppInBackground = true
+    private var started = false
+
+    suspend fun start() {
+        if (started || !store.featureEnabled) return
+        started = true
+        request { store.loadStatus(spaceId) }
+        val mailboxes = (store.status as? MailInboxStatus.Ready)?.mailboxes.orEmpty()
+        val mailbox = mailboxes.firstOrNull { it.mailboxId == store.selectedMailboxId } ?: mailboxes.firstOrNull()
+        if (mailbox != null && store.lastError == null) request { store.loadFirstPage(spaceId, mailbox.mailboxId) }
+    }
+
+    suspend fun selectMailbox(mailboxId: String) {
+        if (state.value.mailboxes.none { it.mailboxId == mailboxId }) return
+        request { store.loadFirstPage(spaceId, mailboxId) }
+    }
+
+    suspend fun openThread(threadId: String) {
+        val list = state.value.screenState as? ForkMailInboxScreenState.ThreadList ?: return
+        if (list.threads.none { it.threadId == threadId }) return
+        val mailboxId = state.value.selectedMailboxId ?: return
+        request { store.openThread(spaceId, mailboxId, threadId) }
+    }
+
+    suspend fun loadMore() {
+        val list = state.value.screenState as? ForkMailInboxScreenState.ThreadList ?: return
+        if (list.hasNextPage) request(clearBack = false) { store.loadNextPage() }
+    }
+
+    fun backToList() {
+        preferListOverDetail = true
+        publish()
+    }
+
+    fun setBackground(background: Boolean) {
+        isAppInBackground = background
+        if (started) publish()
+    }
+
+    private fun publish() {
+        state.value = toForkMailInboxUiState(store, isAppInBackground, preferListOverDetail)
+    }
+
+    private suspend fun request(clearBack: Boolean = true, run: suspend () -> Unit) {
+        if (requesting || !store.featureEnabled) return
+        requesting = true
+        if (clearBack) preferListOverDetail = false
+        try {
+            coroutineScope {
+                val result = async(start = CoroutineStart.UNDISPATCHED) { run() }
+                publish()
+                result.await()
+            }
+        } finally {
+            requesting = false
+            publish()
+        }
+    }
+}
 
 @Composable
 fun ForkMailInboxScreen(
@@ -242,78 +307,47 @@ fun ForkMailInboxScreen(
     onClose: (() -> Unit)? = null,
     enableSecureWindowFlag: Boolean = true,
 ) {
-    val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
-    var isAppInBackground by remember { mutableStateOf(false) }
-    var stateVersion by remember { mutableIntStateOf(0) }
-    var preferListOverDetail by remember { mutableStateOf(false) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isAppInBackground = true
-                Lifecycle.Event.ON_RESUME -> isAppInBackground = false
-                else -> Unit
+    if (enableSecureWindowFlag && store.featureEnabled) SecureWindowFlagEffect()
+    key(store, spaceId) {
+        val presentation = remember { ForkMailInboxPresentation(store, spaceId) }
+        DisposableEffect(lifecycleOwner, presentation) {
+            presentation.setBackground(!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> presentation.setBackground(true)
+                    Lifecycle.Event.ON_RESUME -> presentation.setBackground(false)
+                    else -> Unit
+                }
             }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        LaunchedEffect(presentation) { presentation.start() }
+        MailInboxContent(presentation, modifier, onClose)
     }
+}
 
-    if (enableSecureWindowFlag) {
-        SecureWindowFlagEffect()
-    }
-
-    LaunchedEffect(spaceId, store.featureEnabled) {
-        if (!store.featureEnabled) {
-            stateVersion += 1
-            return@LaunchedEffect
-        }
-        preferListOverDetail = false
-        store.loadStatus(spaceId)
-        stateVersion += 1
-        val ready = store.status as? MailInboxStatus.Ready
-        val targetMailboxId = store.selectedMailboxId ?: ready?.mailboxes?.firstOrNull()?.mailboxId
-        if (ready != null && targetMailboxId != null) {
-            store.loadFirstPage(spaceId, targetMailboxId)
-            stateVersion += 1
-        }
-    }
-
-    val uiState = remember(
-        stateVersion,
-        isAppInBackground,
-        preferListOverDetail,
-        store.featureEnabled,
-        store.generation,
-        store.status,
-        store.isLoadingStatus,
-        store.isLoadingThreads,
-        store.isLoadingThreadDetail,
-        store.threads,
-        store.nextCursor,
-        store.openThread,
-        store.lastError,
-        store.selectedMailboxId,
-    ) {
-        toForkMailInboxUiState(
-            store = store,
-            isAppInBackground = isAppInBackground,
-            preferListOverDetail = preferListOverDetail,
-        )
-    }
+@Composable
+private fun MailInboxContent(presentation: ForkMailInboxPresentation, modifier: Modifier, onClose: (() -> Unit)?) {
+    val scope = rememberCoroutineScope()
+    val uiState by presentation.uiState.collectAsState()
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Palette.background),
     ) {
+        if (uiState.showPrivacyMask) {
+            PrivacyMaskOverlay()
+            return@Box
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             val detailState = uiState.screenState as? ForkMailInboxScreenState.ThreadDetail
             ScreenHeader(
                 leading = {
                     if (detailState != null) {
-                        BackButton { preferListOverDetail = true }
+                        BackButton { presentation.backToList() }
                     } else if (onClose != null) {
                         IconButton("Fechar", "xmark", action = onClose)
                     }
@@ -328,6 +362,10 @@ fun ForkMailInboxScreen(
                     )
                 },
             )
+
+            if (uiState.mailboxes.isNotEmpty()) {
+                MailboxSelector(uiState) { mailboxId -> scope.launch { presentation.selectMailbox(mailboxId) } }
+            }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (val screen = uiState.screenState) {
@@ -362,39 +400,21 @@ fun ForkMailInboxScreen(
                         title = "Caixa vazia",
                         message = "Nenhuma conversa encontrada nesta caixa.",
                     )
+                    ForkMailInboxScreenState.NoMailboxes -> StatusNotice(
+                        symbolName = "envelope.fill",
+                        title = "Nenhuma caixa disponível",
+                        message = "Não há caixas para selecionar neste espaço.",
+                    )
                     is ForkMailInboxScreenState.ThreadList -> ThreadListContent(
                         state = screen,
-                        onSelectMailbox = { mailboxId ->
-                            scope.launch {
-                                preferListOverDetail = false
-                                store.loadFirstPage(spaceId, mailboxId)
-                                stateVersion += 1
-                            }
-                        },
-                        onOpenThread = { threadId ->
-                            val mailboxId = screen.selectedMailboxId ?: return@ThreadListContent
-                            scope.launch {
-                                preferListOverDetail = false
-                                store.openThread(spaceId, mailboxId, threadId)
-                                stateVersion += 1
-                            }
-                        },
-                        onLoadMore = {
-                            scope.launch {
-                                store.loadNextPage()
-                                stateVersion += 1
-                            }
-                        },
+                        onOpenThread = { threadId -> scope.launch { presentation.openThread(threadId) } },
+                        onLoadMore = { scope.launch { presentation.loadMore() } },
                     )
                     is ForkMailInboxScreenState.ThreadDetail -> ThreadDetailContent(
                         state = screen,
                     )
                 }
             }
-        }
-
-        if (uiState.showPrivacyMask) {
-            PrivacyMaskOverlay()
         }
     }
 }
@@ -479,45 +499,38 @@ private fun StatusNotice(
 }
 
 @Composable
+private fun MailboxSelector(
+    state: ForkMailInboxUiState,
+    onSelectMailbox: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for (mailbox in state.mailboxes) {
+            FilterChip(
+                selected = mailbox.mailboxId == state.selectedMailboxId,
+                onClick = { onSelectMailbox(mailbox.mailboxId) },
+                label = { Text(mailbox.label, style = Type.footnote.medium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Palette.accentFill,
+                    selectedLabelColor = Palette.onAccent,
+                    containerColor = Palette.surface,
+                    labelColor = Palette.text,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
 private fun ThreadListContent(
     state: ForkMailInboxScreenState.ThreadList,
-    onSelectMailbox: (String) -> Unit,
     onOpenThread: (String) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        if (state.mailboxes.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                for (mailbox in state.mailboxes) {
-                    val selected = mailbox.mailboxId == state.selectedMailboxId
-                    FilterChip(
-                        selected = selected,
-                        onClick = { onSelectMailbox(mailbox.mailboxId) },
-                        label = {
-                            Text(
-                                text = mailbox.label,
-                                style = Type.footnote.medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Palette.accentFill,
-                            selectedLabelColor = Palette.onAccent,
-                            containerColor = Palette.surface,
-                            labelColor = Palette.text,
-                        ),
-                    )
-                }
-            }
-        }
-
         if (state.isLoadingDetail) {
             Box(
                 modifier = Modifier
@@ -534,7 +547,7 @@ private fun ThreadListContent(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(state.threads, key = { it.threadId }) { thread ->
+            items(state.threads, key = { "thread:${it.threadId}" }) { thread ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -626,18 +639,7 @@ private fun ThreadDetailContent(
             }
         }
 
-        if (state.isLoading) {
-            item(key = "detail-loading") {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = Palette.accent)
-                }
-            }
-        }
-
-        items(state.messages, key = { it.messageId }) { message ->
+        items(state.messages, key = { "message:${it.messageId}" }) { message ->
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
