@@ -137,7 +137,7 @@ pub(crate) async fn launch_commands(
 pub(crate) struct EngineNotReady(pub(crate) String);
 
 impl EngineNotReady {
-    fn wrap(error: &anyhow::Error) -> anyhow::Error {
+    pub(super) fn wrap(error: &anyhow::Error) -> anyhow::Error {
         Self(format!("{error:#}")).into()
     }
 }
