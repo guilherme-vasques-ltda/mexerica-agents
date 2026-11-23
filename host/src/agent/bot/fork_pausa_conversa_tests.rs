@@ -86,12 +86,11 @@ async fn pausa_de_uma_conversa_nao_segura_outra_e_permit_recusa_a_pausada() {
     assert!(!actor.conversation_held("bot"), "a principal segue");
     let ticket =
         admission::reserve(&f.hub.store, &actor.cfg, "outra-conversa", "hub-A", &admission::Origin::Group).unwrap();
-    assert!(
-        admission::permit(&f.hub.store, &actor.cfg, &ticket, None, &[], None).unwrap().is_none(),
-        "a última fronteira também recusa a conversa pausada"
-    );
-    assert_eq!(admission::current(&f.hub.store, "bot").unwrap().unwrap().phase, admission::Phase::Reserved);
-    admission::finish(&f.hub.store, "bot", &ticket).unwrap();
+    let refused = admission::permit(&f.hub.store, &actor.cfg, &ticket, None, &[], None).unwrap_err();
+    assert!(refused.is::<admission::ConversationPaused>(), "a última fronteira também recusa a conversa pausada");
+    assert!(admission::current(&f.hub.store, "bot").unwrap().is_none(), "a reserva sai sem despacho");
+    let other = admission::reserve(&f.hub.store, &actor.cfg, "bot", "hub-B", &admission::Origin::Group).unwrap();
+    admission::finish(&f.hub.store, "bot", &other).unwrap();
     actor.dispatch = None;
     let _ = std::fs::remove_dir_all(&f.dir);
 }

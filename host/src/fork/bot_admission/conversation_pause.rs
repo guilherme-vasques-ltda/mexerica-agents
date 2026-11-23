@@ -23,6 +23,22 @@ struct Mark {
     at: i64,
 }
 
+/// Recusa do permit para a conversa pausada. A reserva já saiu na mesma transação, sem despacho: a admissão é uma
+/// por bot e não pode segurar as outras conversas.
+#[derive(Debug)]
+pub(crate) struct ConversationPaused;
+
+impl std::fmt::Display for ConversationPaused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "esta conversa está pausada depois de um reinício com efeito incerto; nada foi enviado. Ela volta quando \
+             você liberar a conversa.",
+        )
+    }
+}
+
+impl std::error::Error for ConversationPaused {}
+
 fn key(chat: &str) -> String {
     format!("{PREFIX}{chat}")
 }

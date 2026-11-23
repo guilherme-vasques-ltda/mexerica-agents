@@ -560,6 +560,13 @@ impl Actor {
                 self.recompose_after_card_change(&session, &entries);
                 return Ok(());
             }
+            // Conversa pausada: a reserva saiu na Tx do permit; o turno termina sem envio e o ator fica livre para as
+            // outras conversas.
+            Err(error) if error.is::<admission::ConversationPaused>() => {
+                self.clear_profile_skills(&ticket);
+                self.dispatch = None;
+                return Err(error);
+            }
             // O pedido foi decidido (cancelado/interrompido) entre a leitura e a Tx: não envia.
             Err(_) if request_decided => {
                 self.stop_requested = true;
