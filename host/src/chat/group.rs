@@ -35,10 +35,8 @@ const PASS: &str = "(pass)";
 pub struct GroupTurn {
     pub lane: Lane,
     pub prompt: String,
-    /// The newest message `prompt` shows (its `seq`): a reaction goes on what the member saw.
-    pub shown: i64,
-    /// A resumed message is all `prompt` shows: a reaction goes on `shown` only.
-    pub resumed: bool,
+    /// The messages `prompt` shows (ids, oldest first): a reaction goes only on one the member saw.
+    pub shown: Vec<String>,
     /// The room turn that asked; a member skips it once a newer one started (see [`Rooms::current`]).
     pub epoch: u64,
     /// The reply the room sees, or `None` for a pass.
@@ -170,10 +168,9 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delive
             if first && delivery.skips(&member.id) {
                 continue;
             }
-            let shown = visible(hub, lane, 0, 1, upto)?.last().map_or(0, |e| e.seq);
-            let prompt = member_prompt(hub, &group, &members, member, lane, upto)?;
+            let (prompt, shown) = member_prompt(hub, &group, &members, member, lane, upto)?;
             let (reply, answer) = oneshot::channel();
-            let turn = GroupTurn { lane: lane.clone(), prompt, shown, resumed: upto.is_some(), epoch, reply };
+            let turn = GroupTurn { lane: lane.clone(), prompt, shown, epoch, reply };
             if first {
                 delivery.hand(hub, group_id, &member.id)?;
             }
@@ -307,7 +304,7 @@ fn member_prompt(
     me: &BotConfig,
     lane: &Lane,
     upto: Option<i64>,
-) -> Result<String> {
+) -> Result<(String, Vec<String>)> {
     let peers: Vec<&BotConfig> = members.iter().filter(|m| m.id != me.id).collect();
     let peer_names = if peers.is_empty() {
         "just the user".to_owned()
@@ -343,10 +340,8 @@ fn member_prompt(
     out.push(String::new());
 
     let seen = hub.store.last_spoke(lane, &me.id);
-    let mut lines: Vec<String> = vec![];
-    for e in visible(hub, lane, seen, HISTORY_LINES, upto)? {
-        lines.push(line(hub, group, &e, me));
-    }
+    let shown = visible(hub, lane, seen, HISTORY_LINES, upto)?;
+    let lines: Vec<String> = shown.iter().map(|e| line(hub, group, e, me)).collect();
     if lines.is_empty() {
         out.push("No new messages in the room since your last turn.".into());
     } else {
@@ -358,7 +353,7 @@ fn member_prompt(
         "It's your turn, {}. Reply to the room if you have something worth adding, or reply exactly \"{PASS}\" if you don't.",
         me.name
     ));
-    Ok(out.join("\n"))
+    Ok((out.join("\n"), shown.into_iter().map(|e| e.id).collect()))
 }
 
 fn line(hub: &Hub, group: &BotConfig, e: &Entry, me: &BotConfig) -> String {

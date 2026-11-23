@@ -795,7 +795,7 @@ impl Actor {
             anyhow::bail!("no turn is running");
         }
         let target = match (&self.active_group, self.turn_entries.last()) {
-            (Some(g), _) => crate::chat::reactions::in_room(&self.hub, &g.lane, &self.cfg.id, to, g.shown, g.resumed)?,
+            (Some(g), _) => crate::chat::reactions::in_room(&self.hub, &self.cfg.id, to, &g.shown)?,
             (None, Some(id)) => id.clone(),
             (None, None) => anyhow::bail!("react works only on a message you're answering in a chat or a channel"),
         };

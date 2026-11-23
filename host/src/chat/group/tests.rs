@@ -313,3 +313,40 @@ fn pass_is_recognized_loosely() {
     }
     assert!(!is_pass("I'll pass this to Bob"));
 }
+
+/// O alvo da reação sai do mesmo recorte do prompt: nem o que veio antes da última fala do membro, nem a mensagem em
+/// conferência e, na retomada, só a mensagem identificada.
+#[test]
+fn reactions_target_exactly_what_the_prompt_shows() {
+    let dir = std::env::temp_dir().join(format!("codync-group-shown-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let members = [bot("a", "Ann"), bot("b", "Ben"), bot("c", "Cid")];
+    let group: BotConfig =
+        serde_json::from_value(json!({"id": "g", "kind": "group", "name": "Crew", "members": ["a", "b", "c"]}))
+            .unwrap();
+    for cfg in members.iter().chain([&group]) {
+        store.save_bot(cfg).unwrap();
+    }
+    let identity = crate::remote::identity::Identity::load_or_create(&dir).unwrap();
+    let hub = Hub::new(store, "shown-test".into(), identity, "test".into(), 0);
+    let lane = Lane::main("g");
+    let said = |kind, data: serde_json::Value| hub.add_entry(&lane, kind, 1, &data).unwrap();
+    let old = said(EntryKind::User, json!({"text": "antes de Ben falar"}));
+    said(EntryKind::Agent, json!({"text": "Ben falou", "final": true, "author": "b"}));
+    let ask = said(EntryKind::User, json!({"text": "depois de Ben falar"}));
+    said(EntryKind::Agent, json!({"text": "em conferência", "final": true, "author": "a", "groupReview": true}));
+
+    let (prompt, shown) = member_prompt(&hub, &group, &members, &members[1], &lane, None).unwrap();
+    assert_eq!(shown, [ask.id.as_str()]);
+    assert!(prompt.contains("depois de Ben falar"));
+    assert!(!prompt.contains("antes de Ben falar") && !prompt.contains("em conferência"));
+    let react = |to, shown: &[String]| crate::chat::reactions::in_room(&hub, "b", to, shown);
+    assert_eq!(react(None, &shown).unwrap(), ask.id);
+    assert!(react(Some("Ann"), &shown).is_err(), "a mensagem em conferência não foi mostrada");
+
+    let (prompt, shown) = member_prompt(&hub, &group, &members, &members[2], &lane, Some(old.seq)).unwrap();
+    assert_eq!(shown, [old.id.as_str()], "a retomada mostra só a mensagem identificada");
+    assert!(prompt.contains("antes de Ben falar") && !prompt.contains("depois de Ben falar"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
