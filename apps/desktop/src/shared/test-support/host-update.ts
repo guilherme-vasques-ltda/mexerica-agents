@@ -4,16 +4,18 @@ import * as crypto from 'node:crypto'
 import * as path from 'node:path'
 import { environmentProfile, hostEnvironmentError, isCodyncDataDir, isCodyncPort } from '../environment.ts'
 import { forkFeatures } from '../fork-features.ts'
+import { rcIdentity } from '../fork-rc-profile.ts'
 import { THROTTLE_SECONDS, expectedProgramArguments, launchdServiceAbsent, localHostOff, macPlistValid, uninstallArgs } from '../fork-mac-local-hub.ts'
 import { loadMainModule, settle } from './main-module.ts'
 
-export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platform?: string; devPort?: string; devPortVar?: string; env?: Record<string, string>; existing?: string[]; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean; localHost?: boolean; macLocalHub?: boolean; hubLocation?: string; canUseHost?: boolean } = {}) {
+export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: boolean; platform?: string; devPort?: string; devPortVar?: string; env?: Record<string, string>; existing?: string[]; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean; localHost?: boolean; macLocalHub?: boolean; hubLocation?: string; canUseHost?: boolean } = {}) {
   const identity = environmentProfile(options.environment ?? 'main')
   const platform = options.platform ?? 'darwin'
   const binary = platform === 'win32' ? '/bundle/donnabot-host.exe' : platform === 'linux' ? '/home/usuario/.local/bin/donnabot-host' : '/bundle/donnabot-host'
   const binaryBytes = Buffer.from('new signed host fixture')
   const persisted: Record<string, unknown> = { hostRestartAfterAppUpdate: options.restartMarker ?? false, ...(options.hubLocation ? { hubLocation: options.hubLocation } : {}) }
   const calls: string[][] = []
+  const reads: string[] = []
   const probes: string[][] = []
   const warnings: string[] = []
   const removed: string[] = []
@@ -46,9 +48,9 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
     return binary.replace(/donnabot-host\.exe$/, identity.supervisor)
   }
   const fs = {
-    existsSync: (name: string) => (options.existing ?? []).includes(name) || (!options.missingBinary && name === binary),
+    existsSync: (name: string) => { reads.push(name); return (options.existing ?? []).includes(name) || (!options.missingBinary && name === binary) },
     realpathSync: (name: string) => name,
-    readFileSync: (name: string) => name.endsWith('host-prefs.json') ? JSON.stringify(persisted) : service(),
+    readFileSync: (name: string) => { reads.push(name); return name.endsWith('host-prefs.json') ? JSON.stringify(persisted) : service() },
     mkdirSync: () => {},
     writeFileSync: (_name: string, value: string) => { Object.assign(persisted, JSON.parse(value)) },
     promises: {
@@ -60,7 +62,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
     'node:events': { EventEmitter }, 'node:crypto': crypto, 'node:path': path, 'node:fs': fs,
     'node:os': { homedir: () => '/home/usuario', platform: () => platform },
     'node:child_process': {
-      execFileSync: () => service(),
+      execFileSync: () => { reads.push('registry'); return service() },
       execFile: (_bin: string, args: string[], _options: unknown, callback: (error: { code: number } | null, stdout: string, stderr: string) => void) => {
         if (args[0] === 'compat') {
           callback(null, JSON.stringify({ environment: behavior.binaryEnvironment }), '')
@@ -86,10 +88,11 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
       },
     },
     electron: { app: { isPackaged: true, getPath: () => '/prefs' } },
-    './environment': { identity, hostDataDir: path.join('/home/usuario', identity.dataFolder) },
+    './environment': { identity: options.rc ? rcIdentity : identity, isRc: options.rc ?? false, localIdentity: identity,
+      hostDataDir: path.join('/home/usuario', options.rc ? rcIdentity.dataFolder : identity.dataFolder) },
     '../shared/environment': { hostEnvironmentError, isCodyncDataDir, isCodyncPort },
     // O fluxo herdado do host local, por padrão; `localHost: false` é o corte do Donnabot (D76).
-    '../shared/fork-features': { forkFeatures: { ...forkFeatures, localHost: options.localHost ?? true, macLocalHub: options.macLocalHub ?? false } },
+    '../shared/fork-features': { officialDesktop: options.rc ?? false, forkFeatures: { ...forkFeatures, localHost: options.localHost ?? true, macLocalHub: options.macLocalHub ?? false } },
     '../shared/fork-mac-local-hub': { THROTTLE_SECONDS, launchdServiceAbsent, localHostOff, macPlistValid, uninstallArgs },
     './screen': { unregisterScreenAgent: () => { order.push('unregisterScreen') } },
   }, {
@@ -99,6 +102,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
     setTimeout: (callback: () => void, ms: number) => { const id = ++timerId; timers.set(id, { callback, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
     fetch: async () => {
+      reads.push('health')
       if (!behavior.reachable) throw new Error('Host offline')
       return { ok: true, json: async () => ({ environment: behavior.runningEnvironment, computerId: 'fixture-computer', busy: behavior.busy, binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }) }
     },
@@ -112,5 +116,5 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
     }
     await settle()
   }
-  return { host, probes, warnings, devPort: module.devPort, prefs: module.prefs, persisted, calls, order, behavior, tick, removed }
+  return { host, probes, warnings, devPort: module.devPort, prefs: module.prefs, persisted, calls, order, behavior, tick, removed, reads }
 }

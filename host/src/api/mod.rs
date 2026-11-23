@@ -149,8 +149,11 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if method == "teamSettings" && !matches!(caller, Caller::Local) {
         crate::fork::engine_setup::access::require(hub, caller)?;
     }
-    if method == crate::fork::control_tower::METHOD {
+    if matches!(method, crate::fork::control_tower::METHOD | crate::fork::control_tower::ATTENTION_METHOD) {
         crate::fork::control_tower::require(hub, caller)?;
+    }
+    if method == crate::fork::control_tower::ATTENTION_METHOD {
+        return crate::fork::control_tower::attention_call(hub, caller, b).await;
     }
     // Projetos conserva hubId no DTO e recusa outros contextos sem oráculo de Space.
     if crate::fork::projetos::METHODS.contains(&method) {
@@ -286,6 +289,9 @@ async fn route(
 ) -> Result<Value> {
     // Retired discovery must not unlock the vault or mutate runtime/configuration.
     market::reject_registry_request(method, &b)?;
+    if matches!(method, "agentAuthenticate" | "setAgentEnv") {
+        crate::agent::backends::require_supported_execution(str_arg(&b, "backend")?)?;
+    }
     #[cfg(test)]
     if matches!(method, "connectorCall" | "routineCall" | "teamCall") {
         crate::fork::sessoes::call_tests::before_effect(&hub.store, "api_origin");
@@ -316,7 +322,8 @@ async fn route(
         // Só chave/geração tocam o cofre: estado e transporte de quadros não
         // devem pedir desbloqueio do chaveiro ao exibir avatar.
         || matches!(method, "mexeriquinhaGeradorChave" | "mexeriquinhaGerar")
-        || matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
+        || (matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
+            && !b["backend"].as_str().is_some_and(crate::agent::backends::is_antigravity))
     {
         market::vault::unlock(hub.clone()).await?;
     }
