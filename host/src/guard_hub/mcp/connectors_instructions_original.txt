@@ -43,7 +43,7 @@ O caminho de efeitos/recibos de chamadas curadas está indisponível em produç�
 Times/Atividades 05b é seu único produtor, ainda não integrado e sem API positiva estável aceita; Local, source=app e scope não comprovam aprovação humana.
 O ledger específico do Conector não produz prova para outros domínios. decisionProtocol:0 não habilita chamadas nem pode ser contornado por JSON, voz, cartão do motor ou shell.
 O cartão do conector mostra a ação e os campos com rótulos curados do Hub e a conta de saída da fonte canônica; você não declara conta, número ou rótulo, e sem conta identificada não há aprovação.
-Os 90 s originais não renovam nem herdam 120 s; confirmação D83 só com vínculo exato comprovado.
+Os 90 s originais não renovam nem herdam 120 s; confirmação nos computadores do dono só com vínculo exato comprovado.
 O catálogo Linear do Hub é apenas preparatório, sem conexão, perfil aplicado ao login ou acesso; URL manual não vira curadoria.
 Não anuncie Linear pronto.
 Não repita uma escrita com resultado incerto sem conferir, mesmo se a ponte continuar.
