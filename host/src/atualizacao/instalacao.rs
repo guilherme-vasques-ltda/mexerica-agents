@@ -1075,10 +1075,17 @@ fn verificar_parada_hub(parada: Result<()>, prova: Result<()>) -> Result<()> {
 }
 
 fn conter_revogacao<T>(
+    bloqueio: Result<()>,
     desarme: Result<T>,
     parar_wrapper: impl FnOnce() -> Result<()>,
     parar_hub: impl FnOnce() -> Result<()>,
 ) -> Result<T> {
+    let desarme = match (bloqueio, desarme) {
+        (Err(bloqueio), Err(desarme)) => {
+            Err(anyhow::anyhow!("bloqueio da atualização: {bloqueio:#}; desarme: {desarme:#}"))
+        }
+        (bloqueio, desarme) => bloqueio.and(desarme),
+    };
     let wrapper = parar_wrapper();
     let hub = parar_hub();
     let falhas = [
@@ -1170,17 +1177,14 @@ pub fn revogar(login: &str) -> Result<()> {
         trava_mantida =
             Some(trava.context("operação do wrapper em andamento há mais de 10 minutos; revogação interrompida")?);
         let publicacao = presente(RELEASES)?.then(Diretorio::abrir_publicacao).transpose()?;
-        let ajudantes = if let Some(publicacao) = &publicacao {
+        let (bloqueio, ajudantes) = if let Some(publicacao) = &publicacao {
             let bloqueio = estado.bloquear_por_falha(trava_mantida.as_ref().context("trava ausente")?);
             let ajudantes = super::slots::em_todos([super::slots::Slot::A, super::slots::Slot::B], |slot| {
                 publicacao.desarmar_slot(slot)
             });
-            match (bloqueio, ajudantes) {
-                (Err(bloqueio), Err(desarme)) => bail!("bloqueio da atualização: {bloqueio:#}; desarme: {desarme:#}"),
-                (bloqueio, ajudantes) => bloqueio.and(ajudantes),
-            }
+            (bloqueio, ajudantes)
         } else {
-            Ok(Vec::new())
+            (Ok(()), Ok(Vec::new()))
         };
         // Chamada já iniciada e suspensa antes de obter a trava: encerrada e conferida (o
         // inode do wrapper não tem capabilities; a rotina mira quem o executa).
@@ -1209,7 +1213,7 @@ pub fn revogar(login: &str) -> Result<()> {
             };
             verificar_parada_hub(parada, prova)
         };
-        let ajudantes = conter_revogacao(ajudantes, parar_wrapper, parar_hub)?;
+        let ajudantes = conter_revogacao(bloqueio, ajudantes, parar_wrapper, parar_hub)?;
         let guarda = format!("donnabot-guarda-atualizacao@{}.service", hub.uid);
         desativar_unidade(&guarda, Some(UNIDADE_GUARDA))?;
         desativar_unidade("donnabot-motor-copia.socket", Some(SOCKET_COPIA))?;
@@ -1301,6 +1305,7 @@ mod tests {
                 Ok(())
             });
         let resultado = conter_revogacao(
+            Ok(()),
             desarme,
             || {
                 eventos.borrow_mut().push("wrapper");
@@ -1317,6 +1322,33 @@ mod tests {
         assert_eq!(
             resultado.unwrap_err().to_string(),
             "revogação incompleta: desarme: slot-b: falha de desarme simulada; parada do wrapper: falha de parada simulada"
+        );
+    }
+
+    #[test]
+    fn revogacao_contem_falha_dupla_de_bloqueio_e_desarme() {
+        use std::cell::{Cell, RefCell};
+
+        let paradas = RefCell::new(Vec::new());
+        let publicacao = Cell::new(true);
+        let resultado = conter_revogacao(
+            Err(anyhow::anyhow!("falha de bloqueio simulada")),
+            Err::<(), _>(anyhow::anyhow!("falha de desarme simulada")),
+            || {
+                paradas.borrow_mut().push("wrapper");
+                Ok(())
+            },
+            || {
+                paradas.borrow_mut().push("Hub");
+                Ok(())
+            },
+        )
+        .map(|()| publicacao.set(false));
+        assert_eq!(*paradas.borrow(), ["wrapper", "Hub"]);
+        assert!(publicacao.get());
+        assert_eq!(
+            resultado.unwrap_err().to_string(),
+            "revogação incompleta: desarme: bloqueio da atualização: falha de bloqueio simulada; desarme: falha de desarme simulada"
         );
     }
 
