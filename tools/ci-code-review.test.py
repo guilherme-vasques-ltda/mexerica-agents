@@ -18,6 +18,7 @@ FILES = [{'filename': 'src/synthetic.txt', 'patch': '@@ -1,2 +1,3 @@\n same\n+ne
 FINDING = {'path': 'src/synthetic.txt', 'start_line': 2, 'end_line': 3,
            'category': 'bug', 'severity': 'high', 'content': 'O valor vazio interrompe a leitura. Verifique a condição.'}
 LIMIT_WARNING = {'type': 'review_limit_reached', 'file': 'fixture-warning-file', 'message': 'fixture-warning-message'}
+ROUND_WARNING = {'type': 'review_round_failed', 'file': 'fixture-group-name', 'message': 'fixture-raw-error'}
 
 
 def result(finding=FINDING, **overrides):
@@ -37,6 +38,10 @@ def limit_complete(**overrides):
                      'manifest': dict(schema_version='ocr.run-manifest/v1', operation='review', terminal_state='complete',
                                       coverage=dict(selected=items, completed=items[::-1], failed=[], waived=[], reused=[])),
                      'warnings': [LIMIT_WARNING, {**LIMIT_WARNING, 'file': '', 'message': ''}], **overrides})
+
+
+def round_complete(**overrides):
+    return limit_complete(**{'warnings': [ROUND_WARNING], **overrides})
 
 
 class ReviewTest(unittest.TestCase):
@@ -153,6 +158,54 @@ class ReviewTest(unittest.TestCase):
             'body': 'Open Code Review: 0 sinalização(ões) para verificação manual. Não é uma aprovação.'
                     ' Revisão parcial: limite de revisão atingido.',
         })])
+
+    def test_complete_round_failure_adds_only_a_fixed_reason_and_keeps_finding_filters(self):
+        summary = {'comments': 2}
+        unsafe = {**FINDING, 'content': 'Texto filtrado.', 'thinking': 'fixture-private-finding'}
+        clean = review.project(result(), FILES)
+        for warnings in ([ROUND_WARNING], [ROUND_WARNING] * 20):
+            for budget in ({}, {'budget_exceeded': False}):
+                with self.subTest(count=len(warnings), budget=budget):
+                    raw = round_complete(comments=[FINDING, unsafe], summary={**summary, **budget}, warnings=warnings)
+                    self.assertEqual(review.project(raw, FILES, ('fixture-private-finding',)),
+                                     {**clean, 'partial': True, 'partial_reason': 'round_failed'})
+        self.assertEqual(review.project(round_complete(warnings=[]), FILES),
+                         {'diff': clean['diff'], 'items': [], 'partial': False})
+        with self.assertRaises(review.Refused):
+            review.project(round_complete(comments=[{**FINDING, 'end_line': 4}], summary={'comments': 1}), FILES)
+
+    def test_complete_round_failure_publishes_one_fixed_comment(self):
+        for comments in ([], [FINDING]):
+            with self.subTest(count=len(comments)), TemporaryDirectory() as tmp:
+                payload = review.project(round_complete(comments=comments, summary={'comments': len(comments)}), FILES)
+                clean = review.project(result(comments=comments), FILES)
+                self.assertEqual(payload, {**clean, 'partial': True, 'partial_reason': 'round_failed'})
+                artifact = Path(tmp) / 'review.json'
+                artifact.write_text(json.dumps(payload), encoding='utf-8')
+                published = []
+                with patch.object(review, 'snapshot', return_value=('/fixture', FILES)):
+                    self.assertEqual(review.publish_artifact(lambda path, body: published.append((path, body)),
+                                                             'fixture/repo', 7, BASE, HEAD, artifact), len(comments))
+                expected = review.render(clean, FILES, HEAD)
+                expected['body'] = (f'Open Code Review: {len(comments)} sinalização(ões) para verificação manual. '
+                                    'Não é uma aprovação. Revisão parcial: rodada adicional falhou.')
+                self.assertEqual(published, [('/fixture/reviews', expected)])
+                self.assertEqual(published[0][1]['event'], 'COMMENT')
+
+    def test_handoff_rejects_noncanonical_partial_reasons_before_github_requests(self):
+        clean = review.project(result(), FILES)
+        invalid = [{**clean, 'partial_reason': 'round_failed'},
+                   {**clean, 'partial': 1, 'partial_reason': 'round_failed'},
+                   {**clean, 'partial': True, 'partial_reason': 'round_failed', 'extra': ''}]
+        invalid.extend({**clean, 'partial': True, 'partial_reason': reason}
+                       for reason in (None, True, 1, [], {}, '', 'ROUND_FAILED', 'round_failed ', 'review_limit_reached'))
+        with TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / 'review.json'
+            for payload in invalid:
+                with self.subTest(payload=payload), self.assertRaises(review.Refused):
+                    artifact.write_text(json.dumps(payload), encoding='utf-8')
+                    review.publish_artifact(lambda *_: self.fail('unexpected GitHub request'),
+                                            'fixture/repo', 7, BASE, HEAD, artifact)
 
     def test_missing_or_malformed_artifact_never_reads_or_writes_pr(self):
         def request(*_):
@@ -408,7 +461,7 @@ class ProjectCliTest(unittest.TestCase):
                 self.source.write_bytes(data)
                 self.assert_refused('Esquema', schema=schema, warning_type=category)
 
-    def test_complete_upstream_result_with_warning_stays_refused(self):
+    def test_complete_upstream_result_with_warning_and_invalid_coverage_stays_refused(self):
         item = {'item_id': 'fixture-item', 'path': FILES[0]['filename']}
         self.source.write_bytes(result(
             summary={'files_reviewed': 1, 'comments': 1, 'input_tokens': 10, 'output_tokens': 2,
@@ -420,7 +473,7 @@ class ProjectCliTest(unittest.TestCase):
                                    'waived': [], 'excluded': []}, 'elapsed_ms': 1000},
             warnings=[{'type': 'review_round_failed', 'file': 'fixture-group', 'message': 'fixture-warning'}],
         ))
-        self.assert_refused('Esquema', schema='AvisosEmCompleto', warning_type='FalhaRodada')
+        self.assert_refused('Esquema', schema='Cobertura')
 
     def test_complete_limit_refuses_invalid_warning_even_when_surrounded_by_valid_items(self):
         malformed = [None, LIMIT_WARNING['type'], {**LIMIT_WARNING, 'extra': 'fixture-extra'}]
@@ -438,7 +491,37 @@ class ProjectCliTest(unittest.TestCase):
         self.source.write_bytes(limit_complete(warnings=LIMIT_WARNING))
         self.assert_refused('Esquema', schema='AvisosFormato')
 
-    def test_complete_limit_requires_consistent_manifest_and_summary(self):
+    def test_complete_round_failure_refuses_mixed_or_malformed_warnings(self):
+        malformed = [None, 'review_round_failed', {**ROUND_WARNING, 'extra': ''}]
+        for key in ROUND_WARNING:
+            malformed.extend(({k: v for k, v in ROUND_WARNING.items() if k != key}, {**ROUND_WARNING, key: 1}))
+        for kind in ('token_budget_reached', 'manifest_error', 'subtask_error', 'review_round_failed ', 'REVIEW_ROUND_FAILED'):
+            malformed.append({**ROUND_WARNING, 'type': kind})
+        for item in malformed:
+            with self.subTest(item=item), self.assertRaises(review.Refused):
+                review.project(round_complete(warnings=[ROUND_WARNING, item]), FILES)
+        for warnings in ([ROUND_WARNING, LIMIT_WARNING], [LIMIT_WARNING, ROUND_WARNING], [ROUND_WARNING] * 21,
+                         ROUND_WARNING, None):
+            with self.subTest(warnings=warnings), self.assertRaises(review.Refused):
+                review.project(round_complete(warnings=warnings), FILES)
+
+    def test_first_round_error_or_fatal_failure_stays_refused(self):
+        manifest = json.loads(round_complete())['manifest']
+        coverage = manifest['coverage']
+        self.source.write_bytes(round_complete(warnings=[{**ROUND_WARNING, 'type': 'subtask_error'}],
+                                               manifest={**manifest, 'coverage': {**coverage, 'completed': [],
+                                                         'failed': coverage['selected']}}))
+        self.assert_refused('Esquema', schema='AvisosEmCompleto', warning_type='ErroSubtarefa')
+        self.source.write_bytes(round_complete(status='error', manifest={**manifest, 'terminal_state': 'error'}))
+        self.assert_refused('Esquema', schema='Estado')
+        self.source.write_bytes(round_complete(manifest={**manifest, 'run_failure': {'classification': 'timeout'}}))
+        self.assert_refused('Esquema', schema='Manifesto')
+        self.source.write_bytes(round_complete(status='skipped', manifest={**manifest, 'terminal_state': 'skipped'}))
+        self.assert_refused('Esquema', schema='AvisosEmIgnorado', warning_type='FalhaRodada')
+        self.source.write_bytes(limit_partial(warnings=[ROUND_WARNING]))
+        self.assert_refused('Esquema', schema='AvisosItem', warning_type='FalhaRodada')
+
+    def test_complete_warning_requires_consistent_manifest_and_summary(self):
         data = json.loads(limit_complete())
         manifest = data['manifest']
         cases = [('Manifesto', {'manifest': None}), ('Manifesto', {'manifest': 'fixture-manifest'}),
@@ -451,16 +534,18 @@ class ProjectCliTest(unittest.TestCase):
             cases.append(('Manifesto', {'manifest': {**manifest, key: value}}))
         for budget in (True, 0, None, 'false'):
             cases.append(('Resumo', {'summary': {'comments': 0, 'budget_exceeded': budget}}))
-        for schema, overrides in cases:
-            with self.subTest(overrides=overrides):
-                self.source.write_bytes(limit_complete(**overrides))
-                self.assert_refused('Esquema', schema=schema)
-        for key, schema in (('manifest', 'Manifesto'), ('summary', 'Resumo')):
-            with self.subTest(missing=key):
-                self.source.write_text(json.dumps({k: v for k, v in data.items() if k != key}), encoding='utf-8')
-                self.assert_refused('Esquema', schema=schema)
+        for fixture in (limit_complete, round_complete):
+            for schema, overrides in cases:
+                with self.subTest(fixture=fixture.__name__, overrides=overrides):
+                    self.source.write_bytes(fixture(**overrides))
+                    self.assert_refused('Esquema', schema=schema)
+            data = json.loads(fixture())
+            for key, schema in (('manifest', 'Manifesto'), ('summary', 'Resumo')):
+                with self.subTest(fixture=fixture.__name__, missing=key):
+                    self.source.write_text(json.dumps({k: v for k, v in data.items() if k != key}), encoding='utf-8')
+                    self.assert_refused('Esquema', schema=schema)
 
-    def test_complete_limit_requires_matching_selected_and_completed_without_other_outcomes(self):
+    def test_complete_warning_requires_matching_selected_and_completed_without_other_outcomes(self):
         manifest = json.loads(limit_complete())['manifest']
         coverage = manifest['coverage']
         cases = [None, [], {**coverage, 'completed': [{'item_id': 'c' * 64}]}]
@@ -475,10 +560,11 @@ class ProjectCliTest(unittest.TestCase):
                     cases.append({**coverage, key: values})
             else:
                 cases.extend(({**coverage, key: {}}, {**coverage, key: coverage['selected'][:1]}))
-        for candidate in cases:
-            with self.subTest(coverage=candidate):
-                self.source.write_bytes(limit_complete(manifest={**manifest, 'coverage': candidate}))
-                self.assert_refused('Esquema', schema='Cobertura')
+        for fixture in (limit_complete, round_complete):
+            for candidate in cases:
+                with self.subTest(fixture=fixture.__name__, coverage=candidate):
+                    self.source.write_bytes(fixture(manifest={**manifest, 'coverage': candidate}))
+                    self.assert_refused('Esquema', schema='Cobertura')
 
     def test_write_limit_and_partial_write_report_only_write(self):
         with patch.object(review, 'MAX_ARTIFACT', 1):

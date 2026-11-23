@@ -14,7 +14,7 @@ MAX_JSON = 4 * 1024 * 1024
 MAX_PATCH = 512 * 1024
 MAX_FILES = 100
 MAX_FINDINGS = 20
-MAX_LIMIT_WARNINGS = 20
+MAX_COMPLETE_WARNINGS = 20
 MAX_BODY = 1500
 MAX_ARTIFACT = 128 * 1024
 TEXT = re.compile(r"[A-Za-z0-9À-ÖØ-öø-ÿ ,.!?;()'\-]+")
@@ -79,6 +79,11 @@ class WarningType(Enum):
     OTHER = 'Outro'
 
 
+class PartialReason(Enum):
+    LIMIT = 'limit'
+    ROUND_FAILED = 'round_failed'
+
+
 WARNING_TYPES = {
     'manifest_error': WarningType.MANIFEST_ERROR,
     'token_budget_reached': WarningType.TOKEN_BUDGET_REACHED,
@@ -133,8 +138,8 @@ def contains_provider_value(finding, values):
                for secret in values if secret for value in normalized)
 
 
-def is_review_limit_warning(item):
-    return (type(item) is dict and item.get('type') == 'review_limit_reached'
+def is_review_warning(item, kind):
+    return (type(item) is dict and item.get('type') == kind
             and set(item) == {'file', 'message', 'type'} and all(type(value) is str for value in item.values()))
 
 
@@ -163,7 +168,13 @@ def review_status(report, findings):
         require(type(manifest) is dict and manifest.get('schema_version') == 'ocr.run-manifest/v1'
                 and manifest.get('operation') == 'review' and manifest.get('terminal_state') == status
                 and 'run_failure' not in manifest, SchemaClass.MANIFEST)
-    if status == 'complete' and warnings and len(warnings) <= MAX_LIMIT_WARNINGS and all(map(is_review_limit_warning, warnings)):
+    reason = None
+    if status == 'complete' and 1 <= len(warnings) <= MAX_COMPLETE_WARNINGS:
+        if all(is_review_warning(item, 'review_limit_reached') for item in warnings):
+            reason = PartialReason.LIMIT
+        elif all(is_review_warning(item, 'review_round_failed') for item in warnings):
+            reason = PartialReason.ROUND_FAILED
+    if reason is not None:
         require(manifest is not None and 'parent_run_id' not in manifest and 'resume' not in report, SchemaClass.MANIFEST)
         require(summary is not None and summary.get('budget_exceeded', False) is False, SchemaClass.SUMMARY)
         coverage = manifest.get('coverage')
@@ -171,7 +182,7 @@ def review_status(report, findings):
                 SchemaClass.COVERAGE)
         require(completed_item_ids(coverage.get('selected')) == completed_item_ids(coverage.get('completed')),
                 SchemaClass.COVERAGE)
-        return True
+        return reason
     if status != 'partial':
         if warnings:
             schema = SchemaClass.WARNINGS_COMPLETE if status == 'complete' else SchemaClass.WARNINGS_SKIPPED
@@ -181,13 +192,13 @@ def review_status(report, findings):
         if manifest is not None:
             require(type(manifest.get('coverage')) is dict
                     and manifest['coverage'].get('failed') in (None, []), SchemaClass.COVERAGE)
-        return False
+        return None
     require(summary is not None and summary.get('budget_exceeded') is True, SchemaClass.SUMMARY)
     require(manifest is not None, SchemaClass.MANIFEST)
     for item in warnings:
         if type(item) is dict and item.get('type') == 'token_budget_reached':
             continue
-        if is_review_limit_warning(item):
+        if is_review_warning(item, 'review_limit_reached'):
             continue
         raise refused_warning(SchemaClass.WARNINGS_ITEM, item)
     coverage = manifest.get('coverage')
@@ -198,7 +209,7 @@ def review_status(report, findings):
     failed = coverage.get('failed')
     require(type(failed) is list and failed
             and all(type(item) is dict and item.get('classification') == 'budget' for item in failed), SchemaClass.COVERAGE)
-    return True
+    return PartialReason.LIMIT
 
 
 def added_lines(patch, additions, deletions):
@@ -261,7 +272,7 @@ def project(raw, files, secrets=(), *, set_phase=lambda _: None):
     if findings is None and 'comments' in report:
         findings = []
     require(type(findings) is list and len(findings) <= 500, SchemaClass.COMMENTS)
-    partial = review_status(report, findings)
+    partial_reason = review_status(report, findings)
     set_phase(ProjectPhase.FINDING)
     entries, digest = indexed(files)
     indices = {path: i for i, (path, _) in enumerate(entries)}
@@ -279,14 +290,20 @@ def project(raw, files, secrets=(), *, set_phase=lambda _: None):
             continue
         items.append([indices[path], finding.get('start_line'), finding.get('end_line'),
                       list(CATEGORIES).index(category), list(SEVERITIES).index(severity), text])
-    payload = {'diff': digest, 'items': items[:MAX_FINDINGS], 'partial': partial}
+    payload = {'diff': digest, 'items': items[:MAX_FINDINGS], 'partial': partial_reason is not None}
+    if partial_reason is PartialReason.ROUND_FAILED:
+        payload['partial_reason'] = PartialReason.ROUND_FAILED.value
     set_phase(ProjectPhase.RENDER)
     render(payload, files, '0' * 40)
     return payload
 
 
 def check_payload(payload):
-    require(type(payload) is dict and set(payload) == {'diff', 'items', 'partial'})
+    fields = {'diff', 'items', 'partial'}
+    require(type(payload) is dict and set(payload) in (fields, fields | {'partial_reason'}))
+    if 'partial_reason' in payload:
+        reason = payload['partial_reason']
+        require(payload['partial'] is True and type(reason) is str and reason == PartialReason.ROUND_FAILED.value)
     require(isinstance(payload['diff'], str) and re.fullmatch(r'[0-9a-f]{64}', payload['diff']))
     require(type(payload['partial']) is bool and type(payload['items']) is list and len(payload['items']) <= MAX_FINDINGS)
     for item in payload['items']:
@@ -319,7 +336,9 @@ def render(payload, files, head):
             comment.update(start_line=start, start_side='RIGHT')
         comments.append(comment)
     summary = f'Open Code Review: {len(comments)} sinalização(ões) para verificação manual. Não é uma aprovação.'
-    if payload['partial']:
+    if 'partial_reason' in payload:
+        summary += ' Revisão parcial: rodada adicional falhou.'
+    elif payload['partial']:
         summary += ' Revisão parcial: limite de revisão atingido.'
     return {'commit_id': head, 'event': 'COMMENT', 'comments': comments, 'body': summary}
 
