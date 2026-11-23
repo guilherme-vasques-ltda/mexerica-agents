@@ -13,6 +13,7 @@ const workspace: WorkspaceContext = {
   schema: 1, hubId: 'hub-fixture', kind: 'personal', workspaceId: personal.id,
   userId: 'u1', role: 'owner', workspaceEpoch: 2, capabilities: [],
 }
+type FixtureFetch = (request: Request) => Promise<Response>
 
 function sse(events: unknown[], keepOpen = false): Response {
   const encoder = new TextEncoder()
@@ -29,7 +30,7 @@ function hello(epoch = workspace.workspaceEpoch) {
   return { type: 'hello', hostId: workspace.hubId, computerId: 'computer-fixture', workspace: { ...workspace, workspaceEpoch: epoch } }
 }
 
-async function activeFixture(fetcher: typeof fetch, cleared: string[] = []) {
+async function activeFixture(fetcher: FixtureFetch, cleared: string[] = []) {
   const remote = createRemoteHub(() => ({ origin, authorize: async () => ({}), fetch: fetcher }))
   const states: { status: string; activeId: string | null }[] = []
   const controller = createRemoteController((state) => states.push(state), remote,
@@ -102,7 +103,7 @@ for (const type of ['workspace_revoked', 'role_changed'] as const) {
     const cleared: string[] = []
     const encoder = new TextEncoder()
     const frame = (event: unknown) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-    const fetcher: typeof fetch = async (request) => {
+    const fetcher: FixtureFetch = async (request) => {
       requests.push(request)
       if (request.method === 'POST') return new Promise(() => {})
       return new Response(new ReadableStream<Uint8Array>({
@@ -132,7 +133,7 @@ test('epoch mismatch clears workspace cache, confirms once again, and never repl
   const cleared: string[] = []
   const requests: Request[] = []
   let opens = 0
-  const fetcher: typeof fetch = async (request) => {
+  const fetcher: FixtureFetch = async (request) => {
     requests.push(request)
     if (request.method === 'POST' && opens === 1) return Response.json({ error: 'epoch', code: 'workspace_epoch_mismatch' }, { status: 409 })
     if (request.method === 'POST') return Response.json({ ok: true })
@@ -157,7 +158,7 @@ test('epoch mismatch clears workspace cache, confirms once again, and never repl
 
 for (const failure of ['network', 'timeout']) test(`${failure} marks hub offline without retrying the action`, async () => {
   let calls = 0
-  const fetcher: typeof fetch = async (request) => {
+  const fetcher: FixtureFetch = async (request) => {
     if (new URL(request.url).pathname === '/events') return sse([hello()], true)
     calls++
     if (failure === 'timeout') return new Promise(() => {})

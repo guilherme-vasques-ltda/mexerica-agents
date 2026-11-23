@@ -7,7 +7,7 @@ import type { Workspace } from './workspaces.ts'
 interface HubBinding {
   origin: string
   authorize(request: Request): Promise<HeadersInit>
-  fetch: typeof fetch
+  fetch(request: Request): Promise<Response>
 }
 
 type Callbacks = Parameters<RemoteHub['confirm']>[1]
