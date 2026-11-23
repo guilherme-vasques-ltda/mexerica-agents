@@ -268,6 +268,10 @@ impl Hub {
         if crate::environment::Environment::is_open() {
             return Ok(());
         }
+        // Mensagem de grupo que caiu antes de chegar a todos os membros: retomada uma vez ou marcada para conferência.
+        if let Err(error) = crate::fork::grupo_entrega::recover(self) {
+            tracing::error!(error = format!("{error:#}"), "entregas pendentes de grupo não retomadas");
+        }
         crate::routines::start(self);
         crate::fork::tarefas_runtime::start(self);
         crate::fork::resumo_diario::start(self);

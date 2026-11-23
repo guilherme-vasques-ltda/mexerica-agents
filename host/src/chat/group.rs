@@ -12,6 +12,7 @@
 
 use crate::LockExt;
 use crate::agent::bot::Cmd;
+use crate::fork::grupo_entrega::Delivery;
 use crate::fork::push_textos::{Corpo, Titulo};
 use crate::hub::Hub;
 use crate::remote::push::{self, AlertKind};
@@ -107,17 +108,19 @@ pub fn with_members(store: &Store, members: &[String]) -> Result<Option<String>>
 }
 
 /// The user wrote in a group lane: start a room turn there (ending one still running).
-pub fn start(hub: &Arc<Hub>, group: &BotConfig, lane: Lane) {
+/// `delivery` tracks the user's message through the first round (`fork::grupo_entrega`).
+pub(crate) fn start(hub: &Arc<Hub>, group: &BotConfig, lane: Lane, delivery: Delivery) {
     let epoch = hub.groups.next(&lane);
     let (hub, group_id) = (hub.clone(), group.id.clone());
     tokio::spawn(async move {
-        if let Err(error) = run(&hub, &group_id, &lane, epoch).await {
+        if let Err(error) = run(&hub, &group_id, &lane, epoch, delivery).await {
             tracing::warn!(group = group_id, error = format!("{error:#}"), "room turn failed");
         }
     });
 }
 
-async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<()> {
+async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delivery: Delivery) -> Result<()> {
+    let mut delivery_open = true;
     let mut replies = 0;
     let mut last_reply: Option<(String, String, String)> = None;
     'rounds: for round in 0..MAX_ROUNDS {
@@ -132,31 +135,57 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<
         }
         crate::fork::lider_canal::leader_first(&group, &mut speakers);
         let mut spoke = 0;
+        let first = round == 0 && delivery_open;
         for member in &speakers {
             if !hub.groups.current(lane, epoch) {
+                // A newer message (which shows this one) or Stop ended the room turn.
+                if delivery_open {
+                    delivery.confirm(hub);
+                }
                 return Ok(());
             }
             // A full room turn still reports its last reply.
             if replies >= MAX_REPLIES {
                 break 'rounds;
             }
+            // Resumed after a restart: whoever already received the message doesn't get it again.
+            if first && delivery.skips(&member.id) {
+                continue;
+            }
             let shown = hub.store.messages_after(lane, 0, 1)?.last().map_or(0, |e| e.seq);
             let prompt = member_prompt(hub, &group, &members, member, lane)?;
             let (reply, answer) = oneshot::channel();
             let turn = GroupTurn { lane: lane.clone(), prompt, shown, epoch, reply };
+            if first {
+                delivery.hand(hub, group_id, &member.id)?;
+            }
             if hub.send_cmd(&member.id, Cmd::Group(turn)).is_err() {
+                if first {
+                    delivery.finish_member(hub, group_id, &member.id);
+                }
                 continue;
             }
             // A failed, cancelled or overdue member turn counts as a pass; its error shows in the room.
-            if let Ok(Ok(Ok(Some(text)))) = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await {
+            let answered = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await;
+            if first {
+                delivery.finish_member(hub, group_id, &member.id);
+            }
+            if let Ok(Ok(Ok(Some(text)))) = answered {
                 spoke += 1;
                 replies += 1;
                 last_reply = Some((member.id.clone(), member.name.clone(), text));
             }
         }
+        if first {
+            delivery.confirm(hub);
+            delivery_open = false;
+        }
         if spoke == 0 {
             break;
         }
+    }
+    if delivery_open {
+        delivery.confirm(hub);
     }
     if let Some((from, name, text)) = last_reply
         && let Some(group) = hub.store.bot(group_id)?.map(|r| r.config)

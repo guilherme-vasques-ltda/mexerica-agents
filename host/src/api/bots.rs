@@ -334,8 +334,13 @@ pub(super) async fn call(
             };
             let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
             let turn = hub.store.alloc_turn(bot)?;
-            // A group has no agent of its own to queue behind: its message is simply sent.
-            let status = if row.config.is_group() { "sent" } else { "queued" };
+            // A group has no agent of its own to queue behind; its message stays pending until the room's first
+            // round has passed it to the members (`fork::grupo_entrega`), so a restart in between can resume it.
+            let status = match (row.config.is_group(), open_turn.is_some()) {
+                (true, false) => crate::fork::grupo_entrega::PENDING,
+                (true, true) => "sent",
+                (false, _) => "queued",
+            };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
             // A fila D72 precisa sobreviver até ao crash entre salvar a entrada e entregá-la ao ator.
@@ -377,7 +382,7 @@ pub(super) async fn call(
                 crate::fork::open_chat::run(hub, ticket, &row.config, lane, turn, e.id.clone(), text.to_owned());
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
-                crate::chat::group::start(hub, &row.config, lane);
+                crate::chat::group::start(hub, &row.config, lane, crate::fork::grupo_entrega::Delivery::new(&e.id));
             } else {
                 // `/skill …` reaches the agent as "read this skill first"; the chat keeps what was typed.
                 let prompt = crate::chat::prompt::of_entry(hub, &row.config, &e.data);
