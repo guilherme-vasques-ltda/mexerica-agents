@@ -10,42 +10,70 @@ import com.clerk.api.network.serialization.errorMessage
 import com.clerk.api.session.Session
 import com.clerk.api.sso.OAuthProvider
 import com.clerk.api.sso.SSOCancellationException
+import com.codync.android.core.fork.AccountDeployment
+import com.codync.android.core.fork.WorkspaceChoice
+import com.codync.android.core.fork.WorkspaceKind
+import com.codync.android.fork.clerkWorkspaces
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
 /** A sign-in that ended without an account, and why. */
 internal class SignInError(val reason: SignInFailure, message: String, cause: Throwable? = null) : IOException(message, cause)
 
-data class SavedAccount(val userId: String, val sessionId: String, val email: String, val avatar: String?)
+data class SavedAccount(val userId: String, val sessionId: String, val email: String, val avatar: String?, val organizationId: String? = null)
 data class AccountState(val ready: Boolean = false, val configured: Boolean = NativeAccounts.configured,
     val userId: String? = null, val accounts: List<SavedAccount> = emptyList(),
-    val multiple: Boolean = false, val error: String? = null)
+    val multiple: Boolean = false, val error: String? = null, val workspaces: List<WorkspaceChoice>? = null)
 
 /** Clerk owns browser authentication, encrypted credentials and session restoration. */
 object NativeAccounts {
-    val configured = BuildConfig.CLOUD_URL.isNotBlank() &&
-        (BuildConfig.CLERK_PUBLISHABLE_KEY.startsWith("pk_test_") || BuildConfig.CLERK_PUBLISHABLE_KEY.startsWith("pk_live_"))
+    internal val deployment = AccountDeployment.parse(BuildConfig.CLOUD_URL, BuildConfig.CLERK_PUBLISHABLE_KEY, BuildConfig.CLERK_TOKEN_ORIGIN)
+    val configured = deployment != null
 
     fun initialize(activity: Activity) {
-        if (configured) Clerk.initialize(activity, BuildConfig.CLERK_PUBLISHABLE_KEY,
-            ClerkConfigurationOptions(enableDebugMode = false, telemetryEnabled = false))
+        val config = deployment ?: return
+        Clerk.initialize(activity, config.publishableKey, ClerkConfigurationOptions(enableDebugMode = false, telemetryEnabled = false)
+            .withCustomHeaders(mapOf("Origin" to config.tokenOrigin)))
     }
 
     fun observe(scope: CoroutineScope, update: suspend (AccountState) -> Unit) = scope.launch {
         if (!configured) { update(AccountState(ready = true)); return@launch }
+        var previousUserId: String? = null
         combine(Clerk.isInitialized, Clerk.sessionFlow, Clerk.sessionsFlow,
             Clerk.multiSessionModeIsEnabledFlow, Clerk.initializationError) { ready, selected, sessions, multiple, error ->
             val accounts = sessions.filter { it.status == Session.SessionStatus.ACTIVE && it.expireAt > System.currentTimeMillis() }
                 .mapNotNull { session -> session.user?.let { user -> SavedAccount(user.id, session.id,
-                    user.primaryEmailAddress?.emailAddress ?: "Mexerica account", user.imageUrl.takeIf { it.startsWith("https://") }) } }
+                    user.primaryEmailAddress?.emailAddress ?: "Mexerica account", user.imageUrl.takeIf { it.startsWith("https://") },
+                    session.lastActiveOrganizationId) } }
                 .distinctBy(SavedAccount::userId)
-            AccountState(ready, true, selected?.usableUserId(), accounts, multiple,
+            selected to AccountState(ready, true, selected?.usableUserId(), accounts, multiple,
                 if (error != null && !ready) "Couldn't restore sign-in. Check your connection and retry." else null)
-        }.collect { update(it) }
+        }.collectLatest { (selected, account) ->
+            if (account.userId != previousUserId && account.userId != null) update(account)
+            previousUserId = account.userId
+            if (!account.ready || selected == null || account.userId == null) {
+                update(account)
+            } else {
+                while (isActive) {
+                    val workspaces = try { withTimeoutOrNull(20_000) { clerkWorkspaces(selected) } }
+                    catch (error: CancellationException) { throw error }
+                    catch (_: Exception) { null }
+                    update(account.copy(workspaces = workspaces,
+                        error = if (workspaces == null) "Couldn't verify workspaces. Check your connection." else null))
+                    delay(60_000)
+                    if (activeUserId() != account.userId) {
+                        update(account.copy(userId = null)); break
+                    }
+                }
+            }
+        }
     }
 
     /** The signed-in account right now; `observe` reports the same once its flows catch up. */
@@ -61,8 +89,12 @@ object NativeAccounts {
             is ClerkResult.Success -> {
                 val sessionId = result.value.signIn?.createdSessionId ?: result.value.signUp?.createdSessionId
                     ?: throw SignInError(SignInFailure.Verification, "Sign-in needs additional verification. Continue using the other sign-in options.")
-                val activated = Clerk.auth.setActive(sessionId)
+                val session = Clerk.auth.sessions.firstOrNull { it.id == sessionId }
+                if (Clerk.activeSession?.id == sessionId) return
+                val activated = Clerk.auth.setActive(sessionId, session?.lastActiveOrganizationId)
                 requireSuccess(activated)
+                if (Clerk.activeSession?.id != sessionId) throw SignInError(SignInFailure.Verification,
+                    "Choose your organization using the hosted sign-in option.")
             }
         }
     }
@@ -83,8 +115,17 @@ object NativeAccounts {
     }
 
     suspend fun switch(account: SavedAccount) {
-        val result = Clerk.auth.setActive(account.sessionId)
+        val result = Clerk.auth.setActive(account.sessionId, account.organizationId)
         requireSuccess(result)
+        require(Clerk.activeSession?.id == account.sessionId) { "This account needs an active organization. Sign in again." }
+    }
+
+    internal suspend fun selectPersonal(userId: String) {
+        val session = requireNotNull(Clerk.activeSession)
+        require(session.usableUserId() == userId && !Clerk.organizationSelectionIsForced)
+        if (session.lastActiveOrganizationId == null) return
+        requireSuccess(Clerk.auth.setActive(session.id, organizationId = null))
+        require(Clerk.activeSession?.let { it.id == session.id && it.lastActiveOrganizationId == null } == true)
     }
 
     suspend fun signOut(sessionId: String) {
@@ -106,9 +147,10 @@ object NativeAccounts {
     fun retry() { if (configured) Clerk.reinitialize() }
 
     suspend fun token(expectedUser: String): String {
-        require(Clerk.activeSession?.user?.id == expectedUser) { "Sign in again to reach your account." }
+        val session = requireNotNull(Clerk.activeSession) { "Sign in again to reach account computers." }
+        require(session.usableUserId() == expectedUser && session.lastActiveOrganizationId == null) { "Select the personal Clerk session to reach account computers." }
         val result = Clerk.auth.getToken()
-        require(Clerk.activeSession?.user?.id == expectedUser) { "The active account changed." }
+        require(Clerk.activeSession?.let { it.id == session.id && it.usableUserId() == expectedUser && it.lastActiveOrganizationId == null } == true) { "The active account changed." }
         return when (result) {
             is ClerkResult.Success -> result.value
             is ClerkResult.Failure -> throw IOException("Couldn't refresh sign-in. Check your connection and try again.")

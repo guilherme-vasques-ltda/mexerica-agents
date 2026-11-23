@@ -1,6 +1,6 @@
 # Mexerica Android
 
-> a autenticação Mexerica ainda não foi portada para Android. `CLOUD_URL` é sempre vazia em Debug, Release e releaseAcceptance, inclusive com overrides locais. Clerk e a API de conta ficam desativados. Pareamento, reconexão e widgets ignoram o relay vindo de QR/hello/dados salvos e usam apenas conexão direta (Wi-Fi/Tailscale). QR somente de nuvem não funciona neste app. Reativar nuvem exige portar e validar autenticação primeiro.
+> As builds públicas ficam sem configuração de conta por padrão. Pareamento, reconexão e widgets usam apenas conexão direta (Wi-Fi/Tailscale); QR somente de nuvem não funciona. A integração com o novo protocolo de identidade do Hub ainda não está ativa.
 
 
 A native Kotlin/Compose phone client using the existing host's encrypted channel
@@ -39,15 +39,15 @@ is unavailable. It does not request notification permission or schedule FCM
 registration in that configuration. Foreground task status remains available.
 
 For a private deployment, create ignored `apps/mobile/android/codync.local.properties`.
-Override cloud, Clerk and push relay **together**; partial tuples fail the build.
-Command-line Gradle properties take precedence over this file.
+Set cloud URL, Clerk publishable key and Clerk token origin **together**. Gradle properties take precedence over this file, which takes precedence over the variant's ignored `shared/Config/*.local.plist`. The three values must come from the same source. A partial tuple fails the build; a malformed tuple disables account login. Push is configured separately.
 
 ```properties
 codyncApplicationId=app.mexerica.android
 codyncAppName=Mexerica Local
-codyncCloudUrl=https://cloud.example.com
+codyncCloudUrl=https://cloud.example.invalid
 codyncClerkPublishableKey=YOUR_MATCHING_CLERK_PUBLISHABLE_KEY
-codyncPushRelayUrl=https://push.example.com
+codyncClerkTokenOrigin=https://app.example.invalid
+codyncPushRelayUrl=https://push.example.invalid
 codyncGoogleServicesFile=/absolute/path/to/google-services.json
 ```
 
@@ -57,6 +57,8 @@ for debug. Its matching service account belongs only in the push Worker's
 check its generated `BuildConfig`, package, Firebase project and certificate
 against the saved deployment configuration. Compilation alone does not verify
 which backend the app will use.
+
+Clerk Android 1.1.11 provides `User.getOrganizationMemberships`. Deployments with Organizations enabled must explicitly set the server-managed boolean `mexericaPersonalWorkspace` in Clerk user public metadata for users who have a Personal workspace. An organization-required session never exposes Personal. Membership discovery failure does not grant access. Teams appear in the selector, but their Hub connections are disabled until the Hub can prove its workspace identity. Account Cloud discovery still uses the existing Personal flow.
 
 ## Pair and use
 

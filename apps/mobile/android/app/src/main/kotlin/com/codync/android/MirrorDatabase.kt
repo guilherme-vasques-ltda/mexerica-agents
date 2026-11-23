@@ -12,6 +12,8 @@ import com.codync.android.core.MirrorSnapshot
 import com.codync.android.core.PendingSend
 import com.codync.android.core.SendStatus
 import com.codync.android.core.WireJson
+import com.codync.android.core.fork.ConversationReplay
+import com.codync.android.core.fork.lane
 import java.io.File
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
@@ -103,18 +105,20 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
     @Synchronized fun receive(bots: Collection<Bot>) = transaction { db -> bots.forEach { writeBot(db, it) } }
     @Synchronized fun receive(entries: List<Entry>) = transaction { db -> entries.forEach { writeEntry(db, it) } }
     @Synchronized fun rewind() = transaction { setMeta(it, "rev", "0") }
-    @Synchronized fun save(send: PendingSend) = transaction { db ->
+    @Synchronized fun save(send: PendingSend): Boolean = transaction { db ->
         writePending(db, send)
     }
-    private fun writePending(db: SQLiteDatabase, send: PendingSend) {
-        val confirmed = db.rawQuery("SELECT 1 FROM entries WHERE bot_id=? AND nonce=?", arrayOf(send.botId, send.nonce)).use { it.moveToFirst() }
-        if (confirmed) return
+    private fun writePending(db: SQLiteDatabase, send: PendingSend): Boolean {
+        val confirmed = db.rawQuery("SELECT 1 FROM entries WHERE bot_id=? AND nonce=? AND session_id=?",
+            arrayOf(send.botId, send.nonce, send.lane.sessionId)).use { it.moveToFirst() }
+        if (confirmed) return false
         val count = db.compileStatement("SELECT COUNT(*) FROM pending").use { it.simpleQueryForLong() }
         val exists = db.rawQuery("SELECT 1 FROM pending WHERE nonce=?", arrayOf(send.nonce)).use { it.moveToFirst() }
         require(exists || count < 200) { "Too many pending messages. Retry or discard older messages first." }
         check(db.insertWithOnConflict("pending", null, ContentValues().apply {
             put("nonce", send.nonce); put("created", send.createdAt); put("payload", WireJson.encodeToString(send))
         }, SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "Couldn't save the pending message." }
+        return true
     }
     @Synchronized fun discard(nonce: String) = transaction { it.delete("pending", "nonce=?", arrayOf(nonce)) }
     @Synchronized fun recoverInterrupted() = transaction { db ->
@@ -144,18 +148,26 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
     private fun writeEntry(db: SQLiteDatabase, entry: Entry) {
         val deleted = db.rawQuery("SELECT deleted FROM bots WHERE id=?", arrayOf(entry.botId)).use { it.moveToFirst() && it.getInt(0) == 1 }
         if (deleted) return
-        val revision = db.rawQuery("SELECT rev FROM entries WHERE id=?", arrayOf(entry.id)).use { if (it.moveToFirst()) it.getLong(0) else -1 }
-        if (revision > entry.rev) return
+        val current = db.rawQuery("SELECT payload FROM entries WHERE id=?", arrayOf(entry.id)).use {
+            if (it.moveToFirst()) WireJson.decodeFromString<Entry>(it.getString(0)) else null
+        }
+        if (current != null && !ConversationReplay.replaces(current, entry)) return
         check(db.insertWithOnConflict("entries", null, ContentValues().apply {
             put("id", entry.id); put("bot_id", entry.botId)
             put("seq", entry.seq); put("rev", entry.rev); put("payload", WireJson.encodeToString(entry))
-            put("session_id", entry.sessionId ?: entry.botId)
+            put("session_id", entry.lane.sessionId)
             put("nonce", entry.clientNonce?.takeIf { entry.kind == "user" })
         }, SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "Couldn't save the conversation update." }
-        entry.clientNonce?.takeIf { entry.kind == "user" && it.isNotEmpty() }?.let { db.delete("pending", "nonce=?", arrayOf(it)) }
+        entry.clientNonce?.takeIf { entry.kind == "user" && it.isNotEmpty() }?.let { nonce ->
+            val send = db.rawQuery("SELECT payload FROM pending WHERE nonce=?", arrayOf(nonce)).use {
+                if (it.moveToFirst()) WireJson.decodeFromString<PendingSend>(it.getString(0)) else null
+            }
+            if (send != null && ConversationReplay.confirms(send, entry)) db.delete("pending", "nonce=?", arrayOf(nonce))
+        }
     }
     private fun reset(db: SQLiteDatabase) {
         db.delete("bots", null, null)
+        db.delete("pending", null, null)
         dropConversation(db)
         db.delete("meta", "k IN ('usage','screen')", null)
     }

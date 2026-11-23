@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import androidx.compose.animation.AnimatedVisibility
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.codync.android.core.fork.WorkspaceKind
 import com.codync.android.design.*
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
@@ -54,7 +56,8 @@ import com.kyant.shapes.RoundedRectangle
     Column(Modifier.fillMaxSize().background(Palette.background)) {
         ModalHeader("Account") { if (busy) ThinkingOrb(ThinkingOrbState.Connecting, 20.dp, modifier = Modifier.semantics { contentDescription = "Signing in" }) }
         CardForm(Modifier.weight(1f)) {
-            Row(Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(Palette.bubbleAgent).plainButton(action = pair).padding(16.dp),
+            Row(Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(Palette.bubbleAgent)
+                .plainButton(enabled = state.workspace?.kind != WorkspaceKind.Team, action = pair).padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Symbol("qrcode.viewfinder", size = 24.dp, tint = Palette.text)
                 Text("Scan a computer's code", Modifier.weight(1f), style = Type.body.medium, color = Palette.text)
@@ -78,6 +81,14 @@ import com.kyant.shapes.RoundedRectangle
                 Switcher(state, store, busy) { addingAccount = !addingAccount }
                 AnimatedVisibility(addingAccount, enter = fadeIn(Motion.fade()) + expandVertically(Motion.layoutSize),
                     exit = fadeOut(Motion.fade()) + shrinkVertically(Motion.layoutSize)) { SignInButtons(state, store) }
+            }
+            if (!account.workspaces.isNullOrEmpty()) CardSection(title = "Workspaces") {
+                for (choice in account.workspaces) row {
+                    val active = choice == state.workspace
+                    RowLabel(choice.name, if (active) "checkmark.circle.fill" else "circle",
+                        modifier = Modifier.plainButton(enabled = !busy && !active) { store.switchWorkspace(choice) }
+                            .semantics { selected = active })
+                }
             }
             CardSection {
                 row { RowLabel("Computers", "desktopcomputer", chevron = true, modifier = Modifier.plainButton(action = showSettings)) }

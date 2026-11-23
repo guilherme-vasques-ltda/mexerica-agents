@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.content.Context
@@ -6,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import com.codync.android.core.Computer
 import com.codync.android.core.DeviceIdentity
+import com.codync.android.core.fork.ForkWorkspaceContext
 import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -18,8 +20,7 @@ import kotlinx.serialization.json.Json
 
 /** Account-scoped, atomic storage excluded from both backup and device transfer. */
 class LocalStore(context: Context, val contextId: String = "local") {
-    private val scopeId = MessageDigest.getInstance("SHA-256").digest(contextId.toByteArray())
-        .joinToString("") { "%02x".format(it) }
+    private val scopeId = if (isWorkspaceScope(contextId)) contextId else hash(contextId)
     val referenceId = referenceId(contextId)
     internal val directory = File(context.noBackupFilesDir, scopeId).apply { mkdirs() }
     private val alias = "codync.identity.$scopeId"
@@ -81,7 +82,6 @@ class LocalStore(context: Context, val contextId: String = "local") {
         check(directory.deleteRecursively()) { "Couldn't erase this phone's local data." }
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         keyStore.deleteEntry(alias)
-        check(directory.mkdirs()) { "Couldn't create new local storage." }
     }
 
     private fun write(file: AtomicFile, bytes: ByteArray) {
@@ -91,11 +91,33 @@ class LocalStore(context: Context, val contextId: String = "local") {
     }
 
     companion object {
-        fun referenceId(contextId: String): String = if (contextId == "local") "local" else MessageDigest.getInstance("SHA-256")
-            .digest(contextId.toByteArray()).joinToString("") { "%02x".format(it) }
+        private fun isWorkspaceScope(id: String) = id.matches(Regex("workspace-[a-f0-9]{64}-[a-f0-9]{64}"))
+        private fun hash(id: String): String = MessageDigest.getInstance("SHA-256")
+            .digest(id.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+        fun referenceId(contextId: String): String = if (contextId == "local") "local" else hash(contextId)
+
+        fun eraseAccount(context: Context, userId: String) {
+            retainAccountScopes(context, userId, emptySet())
+            eraseScope(context, userId)
+        }
+
+        fun retainAccountScopes(context: Context, userId: String, scopes: Set<String>) {
+            val prefix = ForkWorkspaceContext.accountScopePrefix(userId)
+            context.noBackupFilesDir.listFiles().orEmpty()
+                .filter { it.isDirectory && it.name.startsWith(prefix) && isWorkspaceScope(it.name) && it.name !in scopes }
+                .forEach { eraseScope(context, it.name) }
+        }
+
+        fun eraseScope(context: Context, contextId: String) {
+            val store = LocalStore(context, contextId)
+            store.erase()
+            for (path in listOf("codync-images-${store.referenceId}", "shared-attachments/${store.directory.name}"))
+                check(File(context.cacheDir, path).deleteRecursively()) { "Couldn't erase the workspace media cache." }
+        }
         /** Reset includes inactive accounts and their wrapping keys, never host data. */
         fun eraseAll(context: Context) {
-            context.noBackupFilesDir.listFiles()?.filter { it.isDirectory && it.name.matches(Regex("[a-f0-9]{64}")) }
+            context.noBackupFilesDir.listFiles()?.filter { it.isDirectory && (it.name.matches(Regex("[a-f0-9]{64}")) || isWorkspaceScope(it.name)) }
                 ?.forEach { check(it.deleteRecursively()) { "Couldn't erase local account data." } }
             val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
             keys.aliases().toList().filter { it.startsWith("codync.identity.") }.forEach(keys::deleteEntry)
