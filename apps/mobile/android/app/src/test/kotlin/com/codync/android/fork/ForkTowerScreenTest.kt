@@ -63,7 +63,7 @@ class ForkTowerScreenTest {
         assertEquals(DoctorActionKind.CONNECT_AI, ForkDoctorPresentation.from(DoctorTransportDiagnosis.AiDisconnected("ai_no_active_account"), report).action)
         val waiting = ForkDoctorPresentation.from(DoctorTransportDiagnosis.WaitingUserApproval(2), report)
         assertEquals(DoctorActionKind.REVIEW_WAITING, waiting.action)
-        assertTrue(waiting.message.contains("não está travado"))
+        assertEquals(com.codync.android.R.string.fork_doctor_waiting_message, waiting.message)
     }
 
     @Test fun executionDoesNotInventAMachineLabel() {
@@ -83,10 +83,21 @@ class ForkTowerScreenTest {
     @Test fun fixtureStoreRejectsInvalidationFromAnOldGeneration() {
         val store = ForkTowerFixtureStore()
         val old = store.capturedGeneration()
-        store.changeContext(ForkTowerFixtureCatalog.tower.copy(spaceId = "new-space.example.invalid"))
+        assertTrue(store.changeContext(ForkTowerFixtureCatalog.tower.copy(spaceId = "new-space.example.invalid"), old))
         val event = TowerInvalidationEvent(TowerInvalidationEventType.DONNA_CONTROL_TOWER_CHANGED, ForkTowerFixtureCatalog.hubId, ForkTowerFixtureCatalog.spaceId)
         assertFalse(store.acceptInvalidation(event, old))
         assertNull(store.current(old))
+    }
+
+    @Test fun fixtureStoreDoesNotApplyContextFromAnOldGeneration() {
+        val store = ForkTowerFixtureStore()
+        val old = store.capturedGeneration()
+        val currentSnapshot = ForkTowerFixtureCatalog.tower.copy(spaceId = "current-space.example.invalid")
+        assertTrue(store.changeContext(currentSnapshot, old))
+        val staleSnapshot = ForkTowerFixtureCatalog.tower.copy(spaceId = "stale-space.example.invalid")
+        assertFalse(store.changeContext(staleSnapshot, old))
+        assertNull(store.current(old))
+        assertEquals(currentSnapshot, store.current(store.capturedGeneration()))
     }
 
     private fun queue(gaps: List<CoverageGap> = emptyList(), resolved: List<ResolvedAttentionItem> = emptyList()) =
