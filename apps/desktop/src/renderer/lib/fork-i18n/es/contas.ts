@@ -308,6 +308,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.metaStandard": "El Hub no puede verificar que la clave sea de Meta Model API Standard, así que no la acepta. La suscripción a Muse activa el modo Contributor por defecto y este puede usar tu contenido para entrenar modelos.",
   "contas.assinaturaSoChat": "La suscripción a Claude solo funciona en el chat. Usa una clave de API de Anthropic u otro motor para automatizar. No se usó otra cuenta.",
   "contas.assinaturaSemTroca": "La suscripción a Claude no cambia de cuenta automáticamente. Elige una cuenta manualmente para continuar.",
+  "contas.assinaturaFundoIndisponivel": "Esta tarea en segundo plano no está disponible. No acepta suscripciones personales y no hay otra conexión compatible. No se usó otra cuenta.",
   "contas.apiDireta.erro.semPermissao": "La clave no tiene permiso para listar modelos. Revisa sus permisos en el panel del proveedor.",
   "contas.apiDireta.erro.limite": "El proveedor la rechazó por límite de uso o falta de crédito. Inténtalo más tarde.",
   "contas.apiDireta.erro.fornecedorFalhou": "El proveedor respondió con un error. Inténtalo en unos minutos.",

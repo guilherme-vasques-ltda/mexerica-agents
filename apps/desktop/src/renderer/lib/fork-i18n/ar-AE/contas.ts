@@ -317,6 +317,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.metaStandard": "لا يمكن للمركز التأكد من أن هذا المفتاح تابع لخطة Meta Model API Standard، لذا لن يقبله. يكون وضع Contributor مفعّلًا افتراضيًا في اشتراك Muse وقد يستخدم محتواك لتدريب النماذج.",
   "contas.assinaturaSoChat": "اشتراك Claude متاح في المحادثة فقط. استخدم مفتاح API من Anthropic أو محرّكًا آخر للأتمتة. لم يُستخدم أي حساب آخر.",
   "contas.assinaturaSemTroca": "لا يبدّل اشتراك Claude الحساب تلقائيًا. اختر حسابًا يدويًا للمتابعة.",
+  "contas.assinaturaFundoIndisponivel": "هذه المهمة في الخلفية غير متاحة. لا تقبل الاشتراكات الشخصية، ولا يتوفر اتصال آخر متوافق. لم يُستخدم أي حساب آخر.",
   "contas.apiDireta.erro.semPermissao": "المفتاح لا يملك صلاحية عرض النماذج. راجع صلاحياته في لوحة المزوّد.",
   "contas.apiDireta.erro.limite": "رفض المزوّد بسبب حدّ الاستخدام أو نقص الرصيد. حاول لاحقًا.",
   "contas.apiDireta.erro.fornecedorFalhou": "أعاد المزوّد خطأ. حاول بعد بضع دقائق.",

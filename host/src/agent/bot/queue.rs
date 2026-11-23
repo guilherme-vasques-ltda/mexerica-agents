@@ -825,8 +825,10 @@ impl Actor {
         }
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
         if !invited && !room_refusal {
-            // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
-            self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);
+            let text = e
+                .downcast_ref::<crate::fork::assinatura_pessoal::Refusal>()
+                .map_or_else(|| format!("Couldn't start the agent: {e:#}"), ToString::to_string);
+            self.notice(&text, NoticeStyle::Error);
         }
         self.turn = None;
         self.input = None;

@@ -308,6 +308,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.metaStandard": "Le Hub ne peut pas vérifier que cette clé relève de Meta Model API Standard et la refuse. Avec l’abonnement Muse, le mode Contributor est activé par défaut et peut utiliser votre contenu pour entraîner les modèles.",
   "contas.assinaturaSoChat": "L’abonnement Claude fonctionne uniquement dans la discussion. Pour les automatisations, utilisez une clé d’API Anthropic ou un autre moteur. Aucun autre compte n’a été utilisé.",
   "contas.assinaturaSemTroca": "L’abonnement Claude ne change pas automatiquement de compte. Choisissez un compte manuellement pour continuer.",
+  "contas.assinaturaFundoIndisponivel": "Cette tâche en arrière-plan est indisponible. Elle n’accepte pas les abonnements personnels et aucune autre connexion compatible n’est disponible. Aucun autre compte n’a été utilisé.",
   "contas.apiDireta.erro.semPermissao": "La clé n'a pas le droit de lister les modèles. Vérifiez ses autorisations dans la console du fournisseur.",
   "contas.apiDireta.erro.limite": "Le fournisseur a refusé pour une limite d'usage ou un manque de crédit. Réessayez plus tard.",
   "contas.apiDireta.erro.fornecedorFalhou": "Le fournisseur a renvoyé une erreur. Réessayez dans quelques minutes.",

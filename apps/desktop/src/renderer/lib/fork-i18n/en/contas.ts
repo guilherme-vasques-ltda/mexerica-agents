@@ -305,6 +305,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.erro.metaStandard": "The Hub can't verify that this is a Meta Model API Standard key, so it won't accept it. Contributor Mode is on by default with a Muse subscription and may use your content for training.",
   "contas.assinaturaSoChat": "A Claude subscription works only in chat. Use an Anthropic API key or another engine for automations. No other account was used.",
   "contas.assinaturaSemTroca": "A Claude subscription doesn't switch accounts automatically. Choose an account manually to continue.",
+  "contas.assinaturaFundoIndisponivel": "This background task is unavailable. It doesn't accept personal subscriptions, and no other compatible connection is available. No other account was used.",
   "contas.apiDireta.erro.semPermissao": "The key isn't allowed to list models. Check its permissions in the provider's dashboard.",
   "contas.apiDireta.erro.limite": "The provider refused because of a usage limit or missing credit. Try again later.",
   "contas.apiDireta.erro.fornecedorFalhou": "The provider returned an error. Try again in a few minutes.",

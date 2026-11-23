@@ -3,6 +3,8 @@ use crate::hub::Hub;
 use crate::store::{BotConfig, EntryKind, Lane};
 use serde_json::json;
 
+const SUBSCRIPTION_UNAVAILABLE: &str = "background_subscription_unavailable: Esta tarefa de fundo está indisponível. Ela não aceita assinatura pessoal nem tem outra conexão compatível disponível. Nenhuma outra conta foi usada.";
+
 #[derive(Debug)]
 pub(crate) enum Problem {
     PersonalSubscription,
@@ -26,8 +28,7 @@ pub(crate) enum Problem {
 impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::PersonalSubscription => crate::fork::assinatura_pessoal::CHAT_ONLY,
-            Self::NoClaude => "A assinatura Claude só funciona no chat. Use uma chave de API da Anthropic ou outro motor para automações. Este executor não troca de motor automaticamente.",
+            Self::PersonalSubscription | Self::NoClaude => SUBSCRIPTION_UNAVAILABLE,
             Self::Codex => "A assinatura Codex ainda não pode ser usada neste executor de fundo.",
             Self::Api => "Este executor de fundo não aceita esta conta com chave de API. Nenhuma outra conta foi usada.",
             Self::Model => "Não foi possível confirmar um modelo para a conta Claude. Confira a conta nas Configurações do sistema.",
@@ -86,7 +87,11 @@ pub(crate) fn unavailable_with_error(hub: &Hub, cfg: &BotConfig, task: &str, err
         "nome" => "Nome automático",
         _ => "Organização da memória",
     };
-    let text = if error.is_some_and(|e| e.downcast_ref::<crate::chat::oneshot::SubscriptionLimit>().is_some()) {
+    let text = if error
+        .is_some_and(|e| matches!(e.downcast_ref::<Problem>(), Some(Problem::PersonalSubscription | Problem::NoClaude)))
+    {
+        SUBSCRIPTION_UNAVAILABLE.to_owned()
+    } else if error.is_some_and(|e| e.downcast_ref::<crate::chat::oneshot::SubscriptionLimit>().is_some()) {
         format!("{name} indisponível: limite da assinatura atingido. Vamos tentar novamente mais tarde.")
     } else if let Some(problem) = error.and_then(|e| e.downcast_ref::<Problem>()) {
         match memory_selection_text(problem).filter(|_| task != "nome") {
@@ -155,7 +160,8 @@ mod tests {
     #[test]
     fn mensagens_explicam_causa_sem_jargao_de_configuracao() {
         for (problem, expected) in [
-            (Problem::NoClaude, "assinatura Claude só funciona no chat"),
+            (Problem::NoClaude, "Esta tarefa de fundo está indisponível"),
+            (Problem::PersonalSubscription, "Esta tarefa de fundo está indisponível"),
             (Problem::Codex, "assinatura Codex ainda não pode"),
             (Problem::Api, "não aceita esta conta com chave de API"),
             (Problem::Policy, "regras deste computador"),
@@ -166,6 +172,16 @@ mod tests {
             (Problem::AccountDisconnected { label: "Claude".into() }, "conta Claude está desconectada"),
         ] {
             assert!(problem.to_string().contains(expected));
+        }
+    }
+
+    #[test]
+    fn recusa_de_fundo_nao_recomenda_credencial_incompativel() {
+        for problem in [Problem::PersonalSubscription, Problem::NoClaude] {
+            let text = problem.to_string();
+            assert!(text.starts_with("background_subscription_unavailable: "));
+            assert!(!text.contains("chave de API"));
+            assert!(!text.contains("outro motor"));
         }
     }
 }

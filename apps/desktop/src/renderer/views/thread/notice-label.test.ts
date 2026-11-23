@@ -11,6 +11,9 @@ test('traduz a recusa de assinatura e não altera outros avisos', () => {
     assert.equal(subscriptionNoticeText(traduzir, 'personal_subscription_chat_only: detalhe'), traduzir('contas.assinaturaSoChat'))
     assert.equal(subscriptionNoticeText(traduzir, 'personal_subscription_no_fallback: detalhe'), traduzir('contas.assinaturaSemTroca'))
     assert.equal(subscriptionNoticeText(traduzir, 'meta_standard_unverified: detalhe'), traduzir('contas.apiDireta.erro.metaStandard'))
+    assert.equal(subscriptionNoticeText(traduzir, 'background_subscription_unavailable: detalhe'), traduzir('contas.assinaturaFundoIndisponivel'))
+    const outroErro = 'generic error: personal_subscription_chat_only: detalhe'
+    assert.equal(subscriptionNoticeText(traduzir, outroErro), outroErro)
     assert.equal(subscriptionNoticeText(traduzir, 'generic error'), 'generic error')
   }
 })
