@@ -26,10 +26,10 @@ fn room_with(f: &Fixture, members: &[&str]) {
 /// Simula a queda: a linha do dono, enviada deste computador, gravada como pendente e, opcionalmente, o que a sala
 /// já tinha registrado.
 fn pending(dir: &std::path::Path, delivery: Option<Value>) -> String {
-    pending_from(dir, "Oi, sala", json!({"caller":"local"}), delivery)
+    pending_from(dir, "Oi, sala", &json!({"caller":"local"}), delivery)
 }
 
-fn pending_from(dir: &std::path::Path, text: &str, ingress: Value, delivery: Option<Value>) -> String {
+fn pending_from(dir: &std::path::Path, text: &str, ingress: &Value, delivery: Option<Value>) -> String {
     let store = Store::open(&dir.join("test.db")).unwrap();
     let data = json!({"text":text,"status":"sending","contentOrigin":{"ingress":ingress}});
     let entry = store.insert_entry(&Lane::main(ROOM), EntryKind::User, 1, &data).unwrap();
@@ -151,7 +151,7 @@ async fn mensagem_de_aparelho_nao_e_retomada_sem_prova_atual_de_autoridade() {
     let f = Fixture::new();
     room(&f);
     f.hub.shutdown().await;
-    let id = pending_from(&f.dir, "Do celular", json!({"caller":"device","device":"celular-revogado"}), None);
+    let id = pending_from(&f.dir, "Do celular", &json!({"caller":"device","device":"celular-revogado"}), None);
     let hub = reopen(&f.dir);
     f.until(|| hub.store.entry(&id).unwrap().data["status"] == "cancelled").await;
     assert_eq!(reviews(&hub), 1);
@@ -188,8 +188,8 @@ async fn incerta_ao_lado_de_pendente_fica_fora_do_prompt() {
     room(&f);
     f.hub.shutdown().await;
     let local = json!({"caller":"local"});
-    let uncertain = pending_from(&f.dir, "Primeira incerta", local.clone(), Some(json!({"handed":["bot"],"done":[]})));
-    let next = pending_from(&f.dir, "Segunda pendente", local, None);
+    let uncertain = pending_from(&f.dir, "Primeira incerta", &local, Some(json!({"handed":["bot"],"done":[]})));
+    let next = pending_from(&f.dir, "Segunda pendente", &local, None);
     let hub = reopen(&f.dir);
     f.until(|| hub.store.entry(&next).unwrap().data["status"] == "sent").await;
     assert_eq!(hub.store.entry(&uncertain).unwrap().data["status"], "cancelled");
