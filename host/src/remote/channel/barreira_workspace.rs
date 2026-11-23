@@ -31,6 +31,8 @@ impl Barreira {
             return None;
         }
         let revogado = self.hub.store.device(&self.key).is_none_or(|d| workspace::bloqueado(&self.hub, &d));
+        let reason = if revogado { "device_revoked" } else { "workspace_epoch_advanced" };
+        tracing::warn!(reason, origin = "aparelho", epoch = atual.valor, opened = self.epoch, "device channel cut");
         Some(if revogado { reject(RejectCode::Revoked) } else { workspace::reject_canal(&atual) })
     }
 

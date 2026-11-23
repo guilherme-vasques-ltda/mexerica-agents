@@ -91,6 +91,8 @@ impl Epoca {
 pub(crate) struct Sinal {
     retrato: watch::Sender<Epoca>,
     marcas: AtomicU64,
+    /// Marca do dono que a nuvem informou e não foi gravado: segura a saída até uma observação gravar.
+    trava_dono: std::sync::Mutex<Option<u64>>,
 }
 
 /// Marca pendente de um commit. Ao sair do escopo (fim normal, erro ou panic), decide pela
@@ -167,6 +169,7 @@ impl Sinal {
         Self {
             retrato: watch::Sender::new(Epoca { valor, motivo: None, dono: None, pendentes: vec![] }),
             marcas: AtomicU64::new(0),
+            trava_dono: std::sync::Mutex::new(None),
         }
     }
 
@@ -193,6 +196,22 @@ impl Sinal {
     #[cfg(test)]
     pub(crate) fn marcar_para_prova(&self) -> Marca<'_> {
         self.marcar(self.atual(), Motivo::DeviceRevoked, None)
+    }
+
+    /// O dono que a nuvem informou não foi gravado: nada sai pelo epoch atual até gravar.
+    fn travar_dono(&self) {
+        let mut trava = self.trava_dono.locked();
+        if trava.is_none() {
+            let id = self.marcas.fetch_add(1, Ordering::Relaxed);
+            self.retrato.send_modify(|e| e.pendentes.push(id));
+            *trava = Some(id);
+        }
+    }
+
+    fn destravar_dono(&self) {
+        if let Some(id) = self.trava_dono.locked().take() {
+            self.retrato.send_if_modified(|e| soltar(e, id));
+        }
     }
 
     /// Dono sem aumento de epoch (o primeiro dono conhecido, ou o mesmo).
@@ -296,6 +315,13 @@ pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Re
     )
 }
 
+/// Revogação feita por outra cerca, na Tx dela, depois de apagar o aparelho: grava o bloqueio
+/// durável e sobe o epoch na mesma Tx, e faz o commit com a marca pendente, ainda sob o lock.
+pub(crate) fn revogar_na_tx(hub: &Hub, tx: rusqlite::Transaction<'_>, key: &str, grant: &str) -> Result<()> {
+    let epoch = bloquear_on(&tx, key, Some(grant))?;
+    confirmar(hub, tx, epoch, Motivo::DeviceRevoked, None)
+}
+
 /// Bloqueio durável da chave (com a concessão) e epoch novo, na Tx do chamador.
 pub(crate) fn bloquear_on(c: &Connection, key: &str, grant: Option<&str>) -> Result<u64> {
     let epoch = bump_on(c)?;
@@ -365,37 +391,46 @@ pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) ->
 /// Registra o dono que a nuvem informa agora e publica dono e epoch juntos. O dono é lido sob o
 /// lock do status Cloud, na ordem Cloud → banco: uma observação atrasada nunca sobrescreve o dono
 /// atual. Dono que só ficou conhecido não sobe o epoch; outro `userId` depois de um já visto sobe.
+/// Se a gravação falhar, a saída fica retida (marca pendente) até uma observação gravar: o dono
+/// novo nunca circula com o epoch velho.
 pub(crate) fn observar_dono(hub: &Hub) {
-    let visto = |c: &Connection| -> Result<Option<String>> {
-        Ok(c.query_row("SELECT v FROM kv WHERE k=?1", [OWNER_SEEN_KEY], |r| r.get(0)).optional()?)
-    };
     let resultado = hub.cloud.with_personal_status(|status| {
-        let mut db = hub.store.db.locked();
-        let Some(dono) = status.owner.as_ref().map(|o| o.user_id.as_str()) else {
-            hub.workspace.publicar_dono(None);
-            return Ok(());
-        };
-        let anterior = visto(&db)?;
-        if anterior.as_deref() == Some(dono) {
-            hub.workspace.publicar_dono(Some(dono));
-            return Ok(());
+        let gravado = registrar_dono(hub, status);
+        match &gravado {
+            Ok(()) => hub.workspace.destravar_dono(),
+            Err(_) => hub.workspace.travar_dono(),
         }
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-            params![OWNER_SEEN_KEY, dono],
-        )?;
-        if anterior.is_none() {
-            tx.commit()?;
-            hub.workspace.publicar_dono(Some(dono));
-            return Ok(());
-        }
-        let epoch = bump_on(&tx)?;
-        confirmar(hub, tx, epoch, Motivo::OwnerChanged, Some(dono))
+        gravado
     });
     if let Err(error) = resultado {
         tracing::error!(error = format!("{error:#}"), "não foi possível registrar o dono do workspace");
     }
+}
+
+fn registrar_dono(hub: &Hub, status: &crate::remote::cloud::CloudStatus) -> Result<()> {
+    let mut db = hub.store.db.locked();
+    let Some(dono) = status.owner.as_ref().map(|o| o.user_id.as_str()) else {
+        hub.workspace.publicar_dono(None);
+        return Ok(());
+    };
+    let anterior: Option<String> =
+        db.query_row("SELECT v FROM kv WHERE k=?1", [OWNER_SEEN_KEY], |r| r.get(0)).optional()?;
+    if anterior.as_deref() == Some(dono) {
+        hub.workspace.publicar_dono(Some(dono));
+        return Ok(());
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    tx.execute(
+        "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+        params![OWNER_SEEN_KEY, dono],
+    )?;
+    if anterior.is_none() {
+        tx.commit()?;
+        hub.workspace.publicar_dono(Some(dono));
+        return Ok(());
+    }
+    let epoch = bump_on(&tx)?;
+    confirmar(hub, tx, epoch, Motivo::OwnerChanged, Some(dono))
 }
 
 #[derive(Serialize, Debug)]
@@ -456,26 +491,39 @@ pub(crate) fn is_mismatch(e: &anyhow::Error) -> bool {
 }
 
 /// Sem epoch: aceito por compatibilidade com clientes antigos. Com epoch: só o atual; valor
-/// que não é u64 também diverge.
-fn conferir(atual: u64, pedido: Option<&Value>) -> Result<()> {
+/// que não é u64 também diverge. A recusa vai para o log com motivo fixo, a origem e o epoch
+/// atual; nunca com o valor que veio do cliente.
+fn conferir(atual: u64, origem: &'static str, pedido: Option<&Value>) -> Result<()> {
     match pedido.map(Value::as_u64) {
         None => Ok(()),
         Some(Some(pedido)) if pedido == atual => Ok(()),
-        Some(_) => Err(divergente()),
+        Some(_) => {
+            tracing::warn!(reason = EPOCH_MISMATCH, origin = origem, epoch = atual, "workspace epoch refused");
+            Err(divergente())
+        }
     }
 }
 
+/// `workspaceEpoch` de uma query string: ausente é aceito; presente e fora de u64 em dígitos
+/// diverge (409), como no corpo.
+pub(crate) fn epoch_da_query(hub: &Hub, origem: &'static str, bruto: Option<&str>) -> Result<Option<u64>> {
+    let Some(bruto) = bruto else { return Ok(None) };
+    let valor = bruto.parse::<u64>().ok().filter(|_| bruto.bytes().all(|b| b.is_ascii_digit()));
+    conferir(hub.workspace.atual(), origem, Some(&valor.map_or(Value::Null, Value::from)))?;
+    Ok(valor)
+}
+
 /// Retrato de quem abre um stream: dono e epoch de uma vez, conferidos com o que o cliente conhece.
-pub(crate) fn abrir(hub: &Hub, pedido: Option<u64>) -> Result<Epoca> {
+pub(crate) fn abrir(hub: &Hub, origem: &'static str, pedido: Option<u64>) -> Result<Epoca> {
     let retrato = hub.workspace.retrato();
-    conferir(retrato.valor, pedido.map(Value::from).as_ref())?;
+    conferir(retrato.valor, origem, pedido.map(Value::from).as_ref())?;
     Ok(retrato)
 }
 
 /// Confere e retira `workspaceEpoch` do corpo antes de qualquer método ver o pedido.
-pub(crate) fn conferir_pedido(hub: &Hub, mut body: Value) -> Result<Value> {
+pub(crate) fn conferir_pedido(hub: &Hub, origem: &'static str, mut body: Value) -> Result<Value> {
     let pedido = body.as_object_mut().and_then(|b| b.remove(EPOCH_FIELD));
-    conferir(hub.workspace.atual(), pedido.as_ref())?;
+    conferir(hub.workspace.atual(), origem, pedido.as_ref())?;
     Ok(body)
 }
 

@@ -699,7 +699,8 @@ impl Channel {
         }
         // Requests check the epoch in `dispatch`; subscriptions and the browser stream here.
         let b = if browser.is_some() || v["sub"].is_string() {
-            let Ok(b) = crate::fork::workspace::conferir_pedido(&self.hub, v["b"].clone()) else {
+            let Ok(b) = crate::fork::workspace::conferir_pedido(&self.hub, api::origem(&self.caller), v["b"].clone())
+            else {
                 self.send(epoch_mismatch(id)).await;
                 return Ok(());
             };

@@ -277,6 +277,17 @@ async fn sse_local_corta_com_evento_em_voo_e_responde_409() {
         .unwrap();
     assert_eq!(r.status(), 409);
     assert_eq!(r.json::<Value>().await.unwrap()["code"], EPOCH_MISMATCH);
+    // Valor fora de u64 na query também diverge (409), como no corpo; nunca o 400 do extrator.
+    for bruto in ["abc", "-1", "%2B0", "1.0", ""] {
+        let r = client
+            .get(format!("http://{addr}/events?since=0&workspaceEpoch={bruto}"))
+            .bearer_auth("token-prova")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 409, "{bruto:?}");
+        assert_eq!(r.json::<Value>().await.unwrap()["code"], EPOCH_MISMATCH, "{bruto:?}");
+    }
     let r = client
         .post(format!("http://{addr}/api/{METHOD}"))
         .bearer_auth("token-prova")
@@ -419,10 +430,12 @@ async fn sse_do_terminal_responde_409_e_corta_com_evento_em_voo() {
     let saida = hub.terms.fixture("term-prova", None);
     let (addr, servidor) = servir(&hub).await;
     let client = reqwest::Client::new();
-    let r = client.get(format!("http://{addr}/term/term-prova?workspaceEpoch=3")).bearer_auth("token-prova").send();
-    let r = r.await.unwrap();
-    assert_eq!(r.status(), 409);
-    assert_eq!(r.json::<Value>().await.unwrap()["code"], EPOCH_MISMATCH);
+    for bruto in ["3", "abc", "-1"] {
+        let r = client.get(format!("http://{addr}/term/term-prova?workspaceEpoch={bruto}")).bearer_auth("token-prova");
+        let r = r.send().await.unwrap();
+        assert_eq!(r.status(), 409, "{bruto:?}");
+        assert_eq!(r.json::<Value>().await.unwrap()["code"], EPOCH_MISMATCH, "{bruto:?}");
+    }
 
     let r = client.get(format!("http://{addr}/term/term-prova?workspaceEpoch=0")).bearer_auth("token-prova").send();
     let r = r.await.unwrap();
@@ -584,4 +597,32 @@ fn dois_escritores_do_dono_nao_sobrescrevem_o_atual() {
     assert_eq!(hub.workspace.atual(), epoch, "o epoch anunciado é o gravado");
     dono(&hub, Some(&atual));
     assert_eq!(hub.workspace.atual(), epoch, "o mesmo dono depois do reinício não sobe");
+}
+
+#[test]
+fn dono_novo_que_nao_grava_retem_a_saida_ate_gravar() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    dono(&hub, Some("user_a.example.invalid"));
+    let antes = hub.workspace.retrato();
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "CREATE TEMP TRIGGER dono_nao_grava BEFORE UPDATE ON main.kv WHEN NEW.k='fork.workspace.owner_seen'
+             BEGIN SELECT RAISE(ABORT, 'falha de gravação de prova'); END;",
+        )
+        .unwrap();
+    dono(&hub, Some("user_b.example.invalid"));
+    assert_eq!(hub.cloud.status().owner.unwrap().user_id, "user_b.example.invalid", "a nuvem já mostra o dono novo");
+    let retido = hub.workspace.retrato();
+    assert_eq!((retido.valor, retido.pendente()), (antes.valor, true), "o epoch velho não entrega nada");
+    assert_eq!(retido.dono.as_deref(), Some("user_a.example.invalid"));
+    // Outra falha não empilha marca: uma gravação depois solta a retenção.
+    observar_dono(&hub);
+    hub.store.db.locked().execute_batch("DROP TRIGGER dono_nao_grava").unwrap();
+    observar_dono(&hub);
+    let gravado = hub.workspace.retrato();
+    assert_eq!((gravado.valor, gravado.pendente()), (antes.valor + 1, false), "o dono novo sai com o epoch novo");
+    assert_eq!(gravado.dono.as_deref(), Some("user_b.example.invalid"));
 }

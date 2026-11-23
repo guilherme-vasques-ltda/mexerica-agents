@@ -104,7 +104,7 @@ pub fn scoped_events_stream_at(
     workspace_epoch: Option<u64>,
 ) -> Result<impl Stream<Item = Value> + Send + use<>> {
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
-    let retrato = crate::fork::workspace::abrir(hub, workspace_epoch)?;
+    let retrato = crate::fork::workspace::abrir(hub, super::origem(caller), workspace_epoch)?;
     let workspace = crate::fork::workspace::contexto(hub, caller, &retrato)?;
     let space = space.unwrap_or(crate::fork::spaces::PERSONAL).to_owned();
     hub.store.require_space(&space)?;

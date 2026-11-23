@@ -147,14 +147,18 @@ pub(super) async fn apply(hub: &Hub, id: &str, reply: &Value) -> Result<()> {
             ensure!(latest.is_none_or(|r|u64::try_from(r).is_ok_and(|r|r<revision)),"fence revision CAS");
             let original=ceremony::packet(&live::session(&tx,id,&cfg)?);
             for name in ["receipt","grant","intent","local-ticket"] {ensure!(original.get(name)==packet.get(name),"fence originals changed");}
-            if !w[0][4].is_null(){let app=packet["intent"][0][6].as_str().context("A")?;tx.execute("DELETE FROM devices WHERE key=? AND source='account' AND grant_id=?",params![app,w[0][4].as_str()])?;}
+            let mut revogado=None;
+            if !w[0][4].is_null(){let app=packet["intent"][0][6].as_str().context("A")?;tx.execute("DELETE FROM devices WHERE key=? AND source='account' AND grant_id=?",params![app,w[0][4].as_str()])?;revogado=w[0][4].as_str().map(|grant|(app,grant));}
             tx.execute("UPDATE personal_generation SET tombstone=1,revision=revision+1 WHERE singleton=1",[])?;
             tx.execute("UPDATE personal_acl SET version=version+1 WHERE singleton=1",[])?;
             ensure!(live::acl(&tx,None)?==next,"fence ACL after triggers");
             tx.execute("INSERT INTO personal_fence_history VALUES(?,?,?,?,?)",params![id,i64::try_from(revision)?,serde_json::to_vec(w)?,serde_json::to_vec(&y)?,x.as_ref().map(serde_json::to_vec).transpose()?])?;
             tx.execute("INSERT INTO personal_fence_latest VALUES(?,?) ON CONFLICT(capture) DO UPDATE SET revision=excluded.revision WHERE personal_fence_latest.revision<excluded.revision",params![id,i64::try_from(revision)?])?;
             f.socket_live=false;cloud.connected=false;hub.cloud_synced.store(false,Ordering::Release);
-            f.clock.validity()?;tx.commit()?;Ok(())
+            f.clock.validity()?;
+            // Revogação pela cerca: bloqueio durável e epoch novo na mesma Tx, com o corte publicado sob o mesmo lock.
+            match revogado{Some((app,grant))=>crate::fork::workspace::revogar_na_tx(hub,tx,app,grant)?,None=>tx.commit()?}
+            Ok(())
         }))?;
         hub.auth_changed();
     }

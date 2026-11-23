@@ -113,7 +113,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         return Err(recusa);
     }
     crate::open_hub::check_request(method, &b)?;
-    let b = crate::fork::workspace::conferir_pedido(hub, b)?;
+    let b = crate::fork::workspace::conferir_pedido(hub, origem(caller), b)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).
     crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b))).await
 }

@@ -253,7 +253,7 @@ async fn channel(
 #[derive(Deserialize)]
 struct TermQuery {
     #[serde(rename = "workspaceEpoch")]
-    workspace_epoch: Option<u64>,
+    workspace_epoch: Option<String>,
 }
 
 async fn term_stream(
@@ -264,10 +264,13 @@ async fn term_stream(
     Query(q): Query<TermQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
-    let retrato = crate::fork::workspace::abrir(&hub, q.workspace_epoch).map_err(|e| {
-        let (status, message) = error_status(&e);
-        ApiError(status, message, super::error_code(&e))
-    })?;
+    let origem = super::origem(&Caller::Local);
+    let retrato = crate::fork::workspace::epoch_da_query(&hub, origem, q.workspace_epoch.as_deref())
+        .and_then(|epoch| crate::fork::workspace::abrir(&hub, origem, epoch))
+        .map_err(|e| {
+            let (status, message) = error_status(&e);
+            ApiError(status, message, super::error_code(&e))
+        })?;
     let events = term_events(&hub, &id, &Caller::Local)
         .map_err(|e| {
             let (status, message) = error_status(&e);
@@ -287,7 +290,7 @@ struct EventsQuery {
     #[serde(rename = "spaceId")]
     space_id: Option<String>,
     #[serde(rename = "workspaceEpoch")]
-    workspace_epoch: Option<u64>,
+    workspace_epoch: Option<String>,
 }
 
 async fn events(
@@ -297,21 +300,25 @@ async fn events(
     Query(q): Query<EventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
-    let events = super::scoped_events_stream_at(
-        &hub,
-        q.since.unwrap_or(0),
-        q.client.as_deref(),
-        &Caller::Local,
-        q.space_id.as_deref(),
-        q.workspace_epoch,
-    )
-    .map_err(|e| {
-        if crate::fork::workspace::is_mismatch(&e) {
-            ApiError(StatusCode::CONFLICT, e.to_string(), Some(crate::fork::workspace::EPOCH_MISMATCH))
-        } else {
-            ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None)
-        }
-    })?;
+    let events =
+        crate::fork::workspace::epoch_da_query(&hub, super::origem(&Caller::Local), q.workspace_epoch.as_deref())
+            .and_then(|epoch| {
+                super::scoped_events_stream_at(
+                    &hub,
+                    q.since.unwrap_or(0),
+                    q.client.as_deref(),
+                    &Caller::Local,
+                    q.space_id.as_deref(),
+                    epoch,
+                )
+            })
+            .map_err(|e| {
+                if crate::fork::workspace::is_mismatch(&e) {
+                    ApiError(StatusCode::CONFLICT, e.to_string(), Some(crate::fork::workspace::EPOCH_MISMATCH))
+                } else {
+                    ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None)
+                }
+            })?;
     let events = events.map(|v| Ok(Event::default().data(v.to_string())));
     let events = stream_com_guarda(events, guard);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
