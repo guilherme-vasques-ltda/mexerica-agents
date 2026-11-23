@@ -160,7 +160,7 @@ public struct ThreadView: View {
     private var connectionDescription: String {
         switch model.shownConnection {
         case .connecting: return String(localized: "Conectando", bundle: .module)
-        case .computerOffline, .offline: return String(localized: "Sem conexão", bundle: .module)
+        case .computerOffline, .offline: return String(localized: "Hub indisponível", bundle: .module)
         case .unauthorized: return String(localized: "Sem acesso", bundle: .module)
         case .unpaired: return String(localized: "Não pareado", bundle: .module)
         case .online: break
@@ -332,7 +332,9 @@ extension ThreadView {
     }
 
     /// A short drop keeps it; only a computer let go hides it.
-    private var working: Bool { bot?.isWorking(in: botId) == true && !model.estadoConexao.estaDesconectado }
+    private var working: Bool {
+        bot?.isWorking(in: botId) == true && !model.estadoConexao.estaDesconectado && !model.hubUnavailable
+    }
 
     /// iPhone's messages: all this device has, earlier ones from the computer as the reader
     /// scrolls up; the chat follows the newest message until they scroll away, and a reply is
@@ -340,7 +342,7 @@ extension ThreadView {
     var transcript: some View {
         let items = ChatItem.build(model.chat(botId))
         var rows: [ConversationRow] = []
-        if moreOnComputer {
+        if moreOnComputer, !model.hubUnavailable {
             rows.append(ConversationRow("earlier") {
                 Spinner(size: 14)
                     .frame(maxWidth: .infinity)
@@ -350,7 +352,14 @@ extension ThreadView {
                     .onAppear { showEarlier() }
             })
         }
-        if items.isEmpty, let bot {
+        if items.isEmpty && model.hubUnavailable {
+            rows.append(ConversationRow("hub-offline") {
+                Label(String(localized: "Hub indisponível", bundle: .module), systemImage: "wifi.slash")
+                    .foregroundStyle(Palette.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+            })
+        } else if items.isEmpty, let bot {
             rows.append(ConversationRow("intro") {
                 if bot.isGroup { GroupIntroCard(group: bot).padding(.top, 40) } else { IntroCard(bot: bot).padding(.top, 40) }
             })

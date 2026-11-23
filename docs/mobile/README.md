@@ -35,6 +35,8 @@ Os plists versionados em `apps/mobile/shared/Config/main.plist` e `apps/mobile/s
 
 No iOS, a variante Main exige configuração de conta no Release e em builds para aparelho. Sem configuração, o pareamento por QR está disponível em Dev e em Main Debug no simulador. A nuvem continua desativada em todas as variantes Android mesmo com overrides locais. Push remoto depende de configuração explícita; no Android também exige configuração Firebase.
 
+Para conferir o seletor iOS sem alterar o transporte, defina `workspaceDirectoryEnabled` como booleano verdadeiro no plist local. Nesse modo, a lista usa as memberships do Clerk; Pessoal aparece apenas quando o metadado público `hasPersonal` é `true` para a conta. Essa chave é uma entrada de teste administrada no backend, não um vínculo com o Hub. Até a integração de descoberta, pareamento e autorização do Hub por workspace, o seletor não abre conversas e não usa a lista de computadores do modo legado. Deixe o campo ausente na configuração normal.
+
 ## Compatibilidade com o Hub
 
 `CodyncKit`, `CodyncUI`, os pacotes `com.codync.*` e os rótulos do protocolo foram preservados. iOS e Android usam o mesmo [fixture de vetores do relay](../reference/fixtures/remote-relay-vectors.json) que o Hub; alterar os vetores, os rótulos HKDF ou a assinatura `Codync-Sig` pode quebrar a compatibilidade.
