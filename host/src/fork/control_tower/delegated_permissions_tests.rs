@@ -35,6 +35,9 @@ impl Fixture {
              VALUES(?1,1,'inter_bot','wait',?2,?2,?2,'privado',?3,?3,?3,'cadeia','admissao','origem','destino',1,2,'running',1,1)", params![id,source,target]).unwrap();
     }
     pub(super) fn card(&self, request: &str, target: &str, status: &str) -> String {
+        self.card_in(PERSONAL, request, target, status)
+    }
+    pub(super) fn card_in(&self, space: &str, request: &str, target: &str, status: &str) -> String {
         let entry = self
             .hub
             .store
@@ -47,7 +50,7 @@ impl Fixture {
             .unwrap();
         self.hub.store.db.locked().execute(
             "INSERT INTO donna_delegated_permission_checkpoints(request_id,attempt,fence,space_id,execution_ref,card_id,card_revision,created_at) VALUES(?1,1,2,?2,'segredo',?3,?4,?5)",
-            params![request,PERSONAL,entry.id,entry.rev,now_ms()]).unwrap();
+            params![request,space,entry.id,entry.rev,now_ms()]).unwrap();
         entry.id
     }
     async fn snapshot(&self, caller: &Caller, space: &str) -> anyhow::Result<Value> {

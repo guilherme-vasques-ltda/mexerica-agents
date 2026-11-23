@@ -5,7 +5,7 @@ use crate::{
     LockExt,
     api::{devices::Caller, dispatch, scoped_events_stream},
     fork::spaces::PERSONAL,
-    store::{EntryKind, Lane, Scope, now_ms},
+    store::{BotConfig, Device, DeviceSource, EntryKind, Lane, Scope, now_ms},
 };
 use futures::StreamExt;
 use rusqlite::params;
@@ -142,8 +142,42 @@ async fn attention_rpc_validates_authority_and_stream_sends_only_scoped_hint() {
     ] {
         assert!(dispatch(&f.hub, &Caller::Local, ATTENTION_METHOD, body).await.is_err());
     }
-    let no_control = Caller::Device { key: "unknown".into(), scopes: vec![Scope::Screen], autoridade: None };
-    assert!(dispatch(&f.hub, &no_control, ATTENTION_METHOD, json!({"spaceId":PERSONAL})).await.is_err());
+    let body = json!({"spaceId":PERSONAL});
+    let mut device = Device {
+        key: "fixture-control".into(),
+        name: "Fixture".into(),
+        platform: "fixture".into(),
+        source: DeviceSource::Local,
+        grant_id: None,
+        scopes: vec![Scope::Control],
+        lease_until: None,
+        created_at: now_ms(),
+        last_seen_at: None,
+    };
+    f.hub.store.put_device(&device).unwrap();
+    let (_, owner) = crate::fork::autoridade::autenticar(&f.hub, &device.key).unwrap();
+    assert!(dispatch(&f.hub, &owner, ATTENTION_METHOD, body.clone()).await.is_ok());
+    device.scopes.clear();
+    f.hub.store.put_device(&device).unwrap();
+    assert!(dispatch(&f.hub, &owner, ATTENTION_METHOD, body.clone()).await.is_err());
+    device.key = "fixture-executor".into();
+    device.scopes = vec![Scope::Executor];
+    f.hub.store.put_device(&device).unwrap();
+    let (_, executor) = crate::fork::autoridade::autenticar(&f.hub, &device.key).unwrap();
+    assert!(dispatch(&f.hub, &executor, ATTENTION_METHOD, body.clone()).await.is_err());
+    let binding = crate::fork::sessoes::bindings::fixture_binding(&f.hub.store, "a");
+    let mut servers = [json!({"env":[]})];
+    crate::fork::ponte_credencial::provisionar(&f.hub, "a", None, &binding, &mut servers).unwrap();
+    let token = servers[0]["env"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == crate::fork::ponte_credencial::ENV)
+        .unwrap()["value"]
+        .as_str()
+        .unwrap();
+    let bridge = f.hub.pontes.autenticar(&f.hub, token).unwrap();
+    assert!(dispatch(&f.hub, &bridge, ATTENTION_METHOD, body).await.is_err());
     let stream = scoped_events_stream(&f.hub, f.hub.store.current_rev(), None, &Caller::Local, Some(PERSONAL)).unwrap();
     tokio::pin!(stream);
     assert_eq!(stream.next().await.unwrap()["type"], "hello");
@@ -155,6 +189,115 @@ async fn attention_rpc_validates_authority_and_stream_sends_only_scoped_hint() {
     assert_eq!(stream.next().await.unwrap(), json!({"type":super::EVENT,"hubId":f.hub.host_id,"spaceId":PERSONAL}));
     assert_eq!(stream.next().await.unwrap(), json!({"type":ATTENTION_EVENT,"hubId":f.hub.host_id,"spaceId":PERSONAL}));
     assert_eq!(stream.next().await.unwrap()["marker"], "end");
+}
+
+#[tokio::test]
+async fn attention_items_resolutions_and_stream_are_isolated_between_real_spaces() {
+    let f = Fixture::new();
+    f.hub.store.set_team_settings(&json!({"primaryBotId":"a"})).unwrap();
+    let created = dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaSpaceCreate",
+        json!({"hubId":f.hub.host_id,
+        "expectedRevision":f.hub.store.spaces().unwrap().revision,"name":"Example",
+        "tile":{"color":"oceano","style":"soft","symbol":{"kind":"letters","value":"EX"}}}),
+    )
+    .await
+    .unwrap();
+    let other = created["spaces"][1]["id"].as_str().unwrap();
+    for id in ["other-source", "other-target"] {
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id":id,"name":id,"spaceId":other,"backend":"fixture"})).unwrap();
+        f.hub.store.save_bot(&cfg).unwrap();
+    }
+    let mut ids = Vec::new();
+    for (space, source, target) in [(PERSONAL, "a", "b"), (other, "other-source", "other-target")] {
+        let lane = Lane::main(target);
+        let direct = f
+            .hub
+            .store
+            .insert_entry(&lane, EntryKind::Permission, 1, &json!({"author":target,"status":"pending"}))
+            .unwrap();
+        f.request(source, source, target);
+        let delegated = f.card_in(space, source, target, "pending");
+        let (_, _, question) =
+            crate::fork::owner_question::ask_on(&f.hub.store.db.locked(), target, &lane, 1, "Question? ").unwrap();
+        crate::fork::owner_question::refresh(&f.hub, [&target.to_owned()]);
+        let routine = format!("routine-{target}");
+        let entry = format!("routine-created:{routine}");
+        {
+            let db = f.hub.store.db.locked();
+            crate::store::insert_visible_on(&db, &entry, &lane, EntryKind::Notice, 1, &json!({"routineCreation":{
+                "version":1,"spaceId":space,"botId":target,"routineId":routine,"name":routine,"botName":target,"createdAt":now_ms(),"decision":"pending"
+            }})).unwrap();
+        }
+        ids.push((space, target, direct, delegated, question, entry, routine));
+    }
+    f.hub.store.kv_set("routines.v1", &json!({"routines":ids.iter().map(|(_,target,_,_,_,_,routine)| json!({
+        "id":routine,"botId":target,"name":routine,"instruction":"Example","enabled":true,"deleted":false,"createdAt":now_ms(),"updatedAt":now_ms(),"triggers":[],"nextRuns":[],"webhookKey":""
+    })).collect::<Vec<_>>()}).to_string()).unwrap();
+    for (space, _, direct, delegated, question, routine_entry, _) in &ids {
+        let queue = dispatch(&f.hub, &Caller::Local, ATTENTION_METHOD, json!({"spaceId":space})).await.unwrap();
+        let items = queue["items"].as_array().unwrap();
+        assert_eq!(items.len(), 4, "{queue}");
+        for (id, kind) in [
+            (&direct.id, "permission"),
+            (delegated, "delegated_permission"),
+            (&question.id, "owner_question"),
+            (routine_entry, "routine_review"),
+        ] {
+            assert!(items.iter().any(|row| row["target"]["entryId"] == *id && row["kind"] == kind));
+        }
+        assert_eq!(queue["resolvedToday"], json!([]));
+    }
+    let stream = scoped_events_stream(&f.hub, f.hub.store.current_rev(), None, &Caller::Local, Some(PERSONAL)).unwrap();
+    tokio::pin!(stream);
+    assert_eq!(stream.next().await.unwrap()["type"], "hello");
+    let other_stream =
+        scoped_events_stream(&f.hub, f.hub.store.current_rev(), None, &Caller::Local, Some(other)).unwrap();
+    tokio::pin!(other_stream);
+    assert_eq!(other_stream.next().await.unwrap()["type"], "hello");
+    for (space, target, direct, delegated, _, routine_entry, _) in &ids {
+        for id in [&direct.id, delegated] {
+            let mut data = f.hub.store.entry(id).unwrap().data;
+            data["status"] = "answered".into();
+            let entry = f.hub.store.update_entry(id, &data).unwrap().unwrap();
+            f.hub.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry})).unwrap();
+        }
+        crate::fork::owner_question::add_human_message(&f.hub, &Lane::main(target), 2, &json!({"text":"Confirmed"}))
+            .unwrap();
+        let entry = {
+            let db = f.hub.store.db.locked();
+            let (entry, card) = crate::fork::routine_creation::card_on(&db, space, routine_entry).unwrap();
+            crate::fork::routine_creation::settle_on(&db, &entry, card, "kept").unwrap()
+        };
+        crate::fork::routine_creation::publish(&f.hub, vec![entry]);
+    }
+    f.hub.events.send(json!({"type":"resync","marker":"end"})).unwrap();
+    for (space, mut stream) in [(PERSONAL, stream), (other, other_stream)] {
+        let mut hints = 0;
+        loop {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next()).await.unwrap().unwrap();
+            if event["marker"] == "end" {
+                break;
+            }
+            if event["type"] == ATTENTION_EVENT {
+                assert_eq!(event, json!({"type":ATTENTION_EVENT,"hubId":f.hub.host_id,"spaceId":space}));
+                hints += 1;
+            }
+        }
+        assert_eq!(hints, 4);
+    }
+    for (space, _, direct, delegated, question, routine_entry, _) in &ids {
+        let queue = dispatch(&f.hub, &Caller::Local, ATTENTION_METHOD, json!({"spaceId":space})).await.unwrap();
+        assert_eq!(queue["items"], json!([]));
+        let resolved = queue["resolvedToday"].as_array().unwrap();
+        assert_eq!(resolved.len(), 4, "{queue}");
+        for id in [&direct.id, delegated, &question.id, routine_entry] {
+            assert!(resolved.iter().any(|row| row["target"]["entryId"] == *id));
+        }
+    }
 }
 
 #[tokio::test]
