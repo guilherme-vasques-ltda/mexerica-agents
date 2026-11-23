@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.util.AtomicFile
@@ -39,8 +40,9 @@ class DraftBook(private val directory: File, computerId: String) {
 
     /** A crash between pending-send commit and draft removal cannot offer the same draft twice. */
     @Synchronized fun recover(snapshot: MirrorSnapshot): List<ComposerDraft> {
-        val queued = snapshot.pending.map { it.nonce }.toSet() + snapshot.entries.mapNotNull { it.clientNonce }
-        val drafts = read().filter { it.nonce !in queued }
+        val queued = snapshot.pending.filter { it.sessionId == null || it.sessionId == it.botId }.map { it.botId to it.nonce }.toSet() +
+            snapshot.entries.filter { it.kind == "user" && it.isMainSession }.mapNotNull { entry -> entry.clientNonce?.let { entry.botId to it } }
+        val drafts = read().filter { (it.botId to it.nonce) !in queued }
         save(drafts)
         return drafts
     }

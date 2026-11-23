@@ -121,6 +121,8 @@ data class PendingSend(
     val files: List<OutgoingFile> = emptyList(),
     /** The message it quotes (`send`'s `replyTo` is its id), shown on the bubble until the computer has it. */
     val replyTo: ReplyQuote? = null,
+    val sessionId: String? = null,
+    val uploadedIds: List<String>? = null,
 ) {
     /** The `send` request for it, with the ids of its uploaded files. */
     fun body(attachments: List<String> = emptyList()): JsonObject = buildJsonObject {

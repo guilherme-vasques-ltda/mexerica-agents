@@ -170,7 +170,7 @@ final class OpenAIRealtimeEngine: VoiceEngine {
         send(["type": "response.create", "response": ["tool_choice": ["type": "function", "name": "bot_updates"]]])
     }
 
-    fileprivate func received(_ data: Data) {
+    func received(_ data: Data) {
         guard !ended, let msg = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         switch msg["type"] as? String {
         case "input_audio_buffer.speech_started":
@@ -178,8 +178,12 @@ final class OpenAIRealtimeEngine: VoiceEngine {
             rearmRequested = false
             level = muted ? 0 : 0.7
         case "input_audio_buffer.speech_stopped": level = 0
-        case "conversation.item.created":
-            if let item = (msg["item"] as? [String: Any])?["id"] as? String { op.confirmado(item) }
+        // GA confirms a created item with `conversation.item.added` and finalizes it with
+        // `conversation.item.done`; the beta name is still accepted. Only a function-call output is a
+        // delivery of the computer's data, so no other item carrying the same id confirms one.
+        case "conversation.item.added", "conversation.item.done", "conversation.item.created":
+            if let item = msg["item"] as? [String: Any], item["type"] as? String == "function_call_output",
+               let id = item["id"] as? String { op.confirmado(id) }
         case "output_audio_buffer.started": phase = .speaking
         case "output_audio_buffer.stopped", "output_audio_buffer.cleared": if phase == .speaking { phase = .listening }
         case "response.created": responding = true
@@ -275,7 +279,7 @@ final class OpenAIRealtimeEngine: VoiceEngine {
 
     private static let noConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
 
-    /// A client-chosen item id (up to 32 characters), echoed back in `conversation.item.created`.
+    /// A client-chosen item id (up to 32 characters), echoed back in the item's confirmation event.
     private static func novoItem() -> String {
         "mx_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(29))
     }

@@ -119,6 +119,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             // Node.js belongs to the computer, not to one agent.
             let backend = if step == crate::agent::term::Step::Node { "" } else { str_arg(&b, "backend")? };
             crate::fork::motores_retirados::exigir_oferecido(backend)?;
+            backends::require_supported_execution(backend)?;
             let id = if step == crate::agent::term::Step::Login && !matches!(caller, Caller::Local) {
                 anyhow::ensure!(b.get("engineAccountId").is_none(), "Use o login da conta em Contas de IA.");
                 hub.terms
@@ -139,6 +140,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         "agentModels" => {
             let backend = str_arg(&b, "backend")?;
             crate::fork::motores_retirados::exigir_oferecido(backend)?;
+            backends::require_supported_execution(backend)?;
             // O motor próprio não tem programa para sondar: os modelos são os do último «Testar acesso» das chaves.
             if backend == crate::fork::motor_mexerica::ENGINE_ID {
                 crate::fork::motor_mexerica::catalogo(

@@ -13,7 +13,7 @@ use crate::{
 use anyhow::ensure;
 use serde_json::Value;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
 };
 
@@ -144,7 +144,7 @@ impl Authority for AutoridadeCanal {
 
 struct Registro {
     estado: Arc<Mutex<Stream>>,
-    entradas: Arc<Mutex<VecDeque<AcceptedInput>>>,
+    autoridade: Arc<AutoridadeCanal>,
 }
 
 static REGISTROS: OnceLock<Mutex<HashMap<String, Registro>>> = OnceLock::new();
@@ -170,16 +170,12 @@ impl Drop for GuardaSessao {
 }
 
 /// Só o primeiro canal que inscreve a sessão é o dono dela; outro é recusado.
-pub fn registrar(
-    sessao: &str,
-    estado: Arc<Mutex<Stream>>,
-    entradas: Arc<Mutex<VecDeque<AcceptedInput>>>,
-) -> Option<GuardaSessao> {
+pub fn registrar(sessao: &str, estado: Arc<Mutex<Stream>>, autoridade: Arc<AutoridadeCanal>) -> Option<GuardaSessao> {
     let mut mapa = registros().locked();
     if mapa.contains_key(sessao) {
         return None;
     }
-    mapa.insert(sessao.to_owned(), Registro { estado: estado.clone(), entradas });
+    mapa.insert(sessao.to_owned(), Registro { estado: estado.clone(), autoridade });
     Some(GuardaSessao { sessao: sessao.to_owned(), estado })
 }
 
@@ -193,13 +189,20 @@ pub fn oferecer(frame: Frame) -> bool {
     }
 }
 
-/// Entradas já executadas na ordem, para o consumidor (supervisor ou teste).
-pub fn drenar_entradas(sessao: &str) -> Vec<AcceptedInput> {
-    let registro = registros().locked().get(sessao).map(|r| r.entradas.clone());
-    match registro {
-        Some(fila) => fila.locked().drain(..).collect(),
-        None => Vec::new(),
-    }
+#[cfg(test)]
+pub(crate) fn simular_consumidor(sessao: &str) -> bool {
+    let estado = registros().locked().get(sessao).map(|r| r.estado.clone());
+    let Some(estado) = estado else { return false };
+    estado.locked().enable_test_input_consumer();
+    true
+}
+
+/// Retira uma intenção (não comprova execução). Mantém a mesma fila limitada que
+/// alvo, controlador e desconexão invalidam; a autoridade original vale na retirada.
+/// Um futuro consumidor precisa conferir a autoridade também no ponto do efeito.
+pub fn retirar_entrada(sessao: &str) -> Option<AcceptedInput> {
+    let (estado, autoridade) = registros().locked().get(sessao).map(|r| (r.estado.clone(), r.autoridade.clone()))?;
+    estado.locked().next_input(&*autoridade, autoridade.caller.device_key())
 }
 
 #[cfg(test)]

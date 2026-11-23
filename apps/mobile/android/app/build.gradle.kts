@@ -16,29 +16,41 @@ val deployment = Properties().apply {
     if (local.exists()) local.inputStream().use(::load)
 }
 fun deploymentValue(name: String): String? = providers.gradleProperty(name).orNull ?: deployment.getProperty(name)
-val accountOverrides = listOf("codyncCloudUrl", "codyncClerkPublishableKey", "codyncPushRelayUrl")
-check(accountOverrides.none { deploymentValue(it) != null } || accountOverrides.all { deploymentValue(it) != null }) {
-    "Override cloud, Clerk and push relay together in codync.local.properties or Gradle properties."
-}
-fun accountValue(variant: String, key: String): String {
-    fun read(file: java.io.File): Map<String, String> {
-        if (!file.exists()) return emptyMap()
-        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-        }
-        val nodes = factory.newDocumentBuilder().parse(file).getElementsByTagName("dict").item(0).childNodes
-        val elements = (0 until nodes.length).map { nodes.item(it) }.filterIsInstance<org.w3c.dom.Element>()
-        check(elements.size % 2 == 0) { "Invalid account plist." }
-        return elements.chunked(2).associate { (name, value) ->
-            check(name.tagName == "key") { "Invalid account plist key." }
-            name.textContent to value.textContent
-        }
+fun readAccountPlist(file: java.io.File): Map<String, String> {
+    if (!file.exists()) return emptyMap()
+    val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+        setFeature("http://xml.org/sax/features/external-general-entities", false)
+        setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
     }
-    val values = read(rootProject.file("../shared/Config/$variant.plist")) +
-        read(rootProject.file("../shared/Config/$variant.local.plist"))
-    return requireNotNull(values[key]) { "Missing $key in the shared $variant account configuration." }
+    val nodes = factory.newDocumentBuilder().parse(file).getElementsByTagName("dict").item(0).childNodes
+    val elements = (0 until nodes.length).map { nodes.item(it) }.filterIsInstance<org.w3c.dom.Element>()
+    check(elements.size % 2 == 0) { "Invalid account plist." }
+    return elements.chunked(2).associate { (name, value) ->
+        check(name.tagName == "key" && value.tagName == "string") { "Invalid account plist entry." }
+        name.textContent to value.textContent
+    }
+}
+fun sharedAccount(variant: String, local: Boolean = false) =
+    readAccountPlist(rootProject.file("../shared/Config/$variant${if (local) ".local" else ""}.plist"))
+
+fun com.android.build.api.dsl.BuildType.accountConfiguration(variant: String) {
+    val fields = listOf(
+        Triple("CLOUD_URL", "codyncCloudUrl", "cloudURL"),
+        Triple("CLERK_PUBLISHABLE_KEY", "codyncClerkPublishableKey", "clerkPublishableKey"),
+        Triple("CLERK_TOKEN_ORIGIN", "codyncClerkTokenOrigin", "clerkTokenOrigin"),
+    )
+    val local = sharedAccount(variant, local = true)
+    val tiers = listOf(
+        fields.map { providers.gradleProperty(it.second).orNull },
+        fields.map { deployment.getProperty(it.second) },
+        fields.map { local[it.third] },
+    )
+    val tuple = tiers.firstOrNull { values -> values.any { it != null } } ?: List(3) { null }
+    check(tuple.all { it.isNullOrBlank() } || tuple.all { !it.isNullOrBlank() }) {
+        "Set cloud URL, Clerk publishable key and Clerk token origin together in one configuration source."
+    }
+    fields.zip(tuple).forEach { (field, value) -> buildConfigField("String", field.first, javaString(value.orEmpty())) }
 }
 val firebaseConfig = deploymentValue("codyncGoogleServicesFile")?.takeIf(String::isNotBlank)?.let(::file)
 check(firebaseConfig == null || firebaseConfig.isFile) { "The configured Firebase file does not exist." }
@@ -108,7 +120,7 @@ android {
     }
     buildTypes {
         debug {
-            val pushRelay = deploymentValue("codyncPushRelayUrl") ?: accountValue("dev", "pushRelayURL")
+            val pushRelay = deploymentValue("codyncPushRelayUrl") ?: sharedAccount("dev", local = true)["pushRelayURL"] ?: sharedAccount("dev")["pushRelayURL"].orEmpty()
             buildConfigField("String", "PUSH_RELAY_URL", javaString(pushRelay))
             val pushConfigured = firebaseConfig != null && pushRelay.isNotBlank()
             buildConfigField("boolean", "PUSH_CONFIGURED", pushConfigured.toString())
@@ -118,13 +130,10 @@ android {
             resValue("string", "app_name", deploymentValue("codyncAppName") ?: "Mexerica Dev")
             manifestPlaceholders["urlScheme"] = "donnabot-dev"
             buildConfigField("String", "URL_SCHEME", "\"donnabot-dev\"")
-            buildConfigField("String", "CLERK_TOKEN_ORIGIN", javaString(accountValue("dev", "clerkTokenOrigin")))
-            // Entrega 1: Android authentication is not ported; ignore shared/local cloud overrides.
-            buildConfigField("String", "CLOUD_URL", javaString(""))
-            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", javaString(deploymentValue("codyncClerkPublishableKey") ?: accountValue("dev", "clerkPublishableKey")))
+            accountConfiguration("dev")
         }
         release {
-            val pushRelay = deploymentValue("codyncPushRelayUrl") ?: accountValue("main", "pushRelayURL")
+            val pushRelay = deploymentValue("codyncPushRelayUrl") ?: sharedAccount("main", local = true)["pushRelayURL"] ?: sharedAccount("main")["pushRelayURL"].orEmpty()
             buildConfigField("String", "PUSH_RELAY_URL", javaString(pushRelay))
             val pushConfigured = firebaseConfig != null && pushRelay.isNotBlank()
             buildConfigField("boolean", "PUSH_CONFIGURED", pushConfigured.toString())
@@ -132,10 +141,7 @@ android {
             resValue("string", "app_name", deploymentValue("codyncAppName") ?: "Mexerica")
             manifestPlaceholders["urlScheme"] = "donnabot"
             buildConfigField("String", "URL_SCHEME", "\"donnabot\"")
-            buildConfigField("String", "CLERK_TOKEN_ORIGIN", javaString(accountValue("main", "clerkTokenOrigin")))
-            // Entrega 1: Android authentication is not ported; ignore shared/local cloud overrides.
-            buildConfigField("String", "CLOUD_URL", javaString(""))
-            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", javaString(deploymentValue("codyncClerkPublishableKey") ?: accountValue("main", "clerkPublishableKey")))
+            accountConfiguration("main")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

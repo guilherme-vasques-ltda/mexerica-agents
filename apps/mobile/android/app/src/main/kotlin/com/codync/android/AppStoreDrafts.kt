@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.net.Uri
@@ -65,6 +66,7 @@ fun AppStore.sendDraft(botId: String, text: String, replyTo: ReplyQuote?, onQueu
     if (draft.text != text) return
     if (draft.text.isBlank() && draft.files.isEmpty()) return
     action("draft-send:" + botId) {
+        if (!legacyHubAllowed) return@action
         // Persist its nonce before the pending commit. Recovery removes a draft
         // already represented by a pending or confirmed send with this nonce.
         persistDrafts()

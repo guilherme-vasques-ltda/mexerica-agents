@@ -8,8 +8,12 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+mod conversation_pause;
 mod human_setup;
 mod memory_policy;
+pub(crate) use conversation_pause::{
+    ConversationPaused, pause as pause_conversation, paused as conversation_paused, release as release_conversation,
+};
 pub(crate) use human_setup::{begin_human_setup, mark_human_setup_ready, reuse_reserved};
 pub(crate) use memory_policy::MemoryPolicy;
 
@@ -317,6 +321,17 @@ pub(crate) fn permit_with(
     }
     if pause.paused {
         return Ok(None);
+    }
+    // Registro de pausa ilegível conta como pausa: a reserva sai e o bot não fica preso tentando de novo.
+    let paused = conversation_pause::paused_on(&tx, bot, &record.conversation_id).unwrap_or_else(|error| {
+        tracing::error!(%error, bot, conversation_id = %record.conversation_id, "pausa da conversa ilegível");
+        true
+    });
+    if paused {
+        tracing::warn!(bot, conversation_id = %record.conversation_id, "conversa pausada: reserva apagada sem despacho");
+        drop_inflight(&tx, bot)?;
+        tx.commit()?;
+        return Err(ConversationPaused.into());
     }
     // Teto de gasto na mesma Tx: bloqueado grava a espera durável e a Tx morre
     // sem `permitted` (e sem a reserva, já apagada pela decisão).

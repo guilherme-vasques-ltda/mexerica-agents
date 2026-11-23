@@ -4,6 +4,7 @@ package com.codync.android
 import android.os.Build
 import java.io.IOException
 import com.codync.android.core.*
+import com.codync.android.core.fork.RemoteHubState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
@@ -54,6 +55,10 @@ internal fun AppStore.pair(text: String, via: PairedVia) {
     if (pairingJob?.isActive == true) return
     pairingJob = contextScope.launch {
         state.first { !it.loading }
+        if (!legacyHubAllowed) {
+            showError(IOException("This workspace cannot pair with the current Hub protocol."))
+            return@launch
+        }
         mutableState.update { it.copy(pairing = true, error = null) }
         try {
             val pairing = Pairing.parse(text, BuildConfig.URL_SCHEME)
@@ -82,13 +87,14 @@ internal fun AppStore.pair(text: String, via: PairedVia) {
 }
 
 fun AppStore.connect() {
-    if (connectionJob?.isActive == true || !transportRequired) return
+    if (connectionJob?.isActive == true || !transportRequired || !legacyHubAllowed || state.value.loading) return
     val computer = state.value.computers.firstOrNull() ?: return
+    val generation = workspaceGeneration.capture()
     val previous = connectionJob
     connectionJob = contextScope.launch {
         previous?.cancelAndJoin()
         var backoff = 1_000L
-        while (transportRequired) {
+        while (transportRequired && workspaceGeneration.accepts(generation) && legacyHubAllowed) {
             var connected: EncryptedChannel? = null
             try {
                 showConnection(LinkState.Connecting)
@@ -96,10 +102,12 @@ fun AppStore.connect() {
                 val target = state.value.computers.firstOrNull { it.id == computer.id } ?: return@launch
                 val active = HostConnector.connect(target.copy(cloud = null, route = ConnectionRoute.DirectOnly), identity)
                 connected = active
+                if (!workspaceGeneration.accepts(generation) || !legacyHubAllowed) return@launch
                 channel = active
                 coroutineScope {
                     launch {
                         active.mailbox.collect { event ->
+                            if (!workspaceGeneration.accepts(generation) || !legacyHubAllowed) return@collect
                             val nonce = event["nonce"]?.jsonPrimitive?.content ?: return@collect
                             val send = state.value.pending.firstOrNull { it.nonce == nonce } ?: return@collect
                             val status = if (event["t"]?.jsonPrimitive?.content == "mbox.delivered") SendStatus.Delivering else SendStatus.Failed
@@ -108,6 +116,7 @@ fun AppStore.connect() {
                     }
                     launch {
                         active.state.collectLatest { link ->
+                            if (!workspaceGeneration.accepts(generation) || !legacyHubAllowed) return@collectLatest
                             showConnection(link)
                             if (link is LinkState.ComputerOffline) {
                                 reconcileMailbox(active)
@@ -116,6 +125,7 @@ fun AppStore.connect() {
                                 // The latest saved copy: its color may have changed since this link opened.
                                 val updated = HostClient.hello(active, state.value.computers.firstOrNull { it.id == target.id } ?: target)
                                 val hello = active.call("hello").jsonObject
+                                if (!workspaceGeneration.accepts(generation) || !legacyHubAllowed) return@collectLatest
                                 val dropped = withContext(Dispatchers.IO) {
                                     local.saveComputers(listOf(updated))
                                     requireNotNull(database).setStamp(requireNotNull(hello["hostId"]?.jsonPrimitive?.content),
@@ -143,7 +153,7 @@ fun AppStore.connect() {
                                     if (state.value.mismatch != null) { awaitUpdate(active); continue }
                                     val cursor = withContext(Dispatchers.IO) { requireNotNull(database).revision() }
                                     try {
-                                        consumeEvents(active, cursor)
+                                        consumeEvents(active, cursor, generation)
                                     } catch (_: Resync) { /* The cursor remains the last committed event. */ }
                                 }
                             }
@@ -156,6 +166,7 @@ fun AppStore.connect() {
                 }
             } catch (error: CancellationException) { throw error }
             catch (error: Exception) {
+                if (!workspaceGeneration.accepts(generation)) return@launch
                 if (BuildConfig.DEBUG) android.util.Log.d("CodyncSync", "Sync failed: ${error.javaClass.simpleName}")
                 showConnection(LinkState.Failed(error.message ?: "Can't reach the computer.", (error as? HostError)?.status))
                 if (error is SecurityException || error is HostError && error.status in listOf(403, 426)) return@launch
@@ -170,12 +181,13 @@ fun AppStore.connect() {
 }
 
 /** Drain available catch-up in bounded transactions, without delaying a lone live event. */
-private suspend fun AppStore.consumeEvents(active: EncryptedChannel, cursor: Long): Unit = coroutineScope {
+private suspend fun AppStore.consumeEvents(active: EncryptedChannel, cursor: Long, generation: Long): Unit = coroutineScope {
     val source = active.events(cursor).produceIn(this)
     try {
         while (isActive) {
             val batch = mutableListOf<MirrorEvent>()
             var next: JsonObject? = source.receiveCatching().getOrThrow()
+            if (!workspaceGeneration.accepts(generation) || !legacyHubAllowed) throw CancellationException()
             var resync = false
             while (next != null && batch.size < 64) {
                 when (val event = decode(next)) {
@@ -186,6 +198,7 @@ private suspend fun AppStore.consumeEvents(active: EncryptedChannel, cursor: Lon
                 next = if (batch.size < 64) source.tryReceive().getOrNull() else null
             }
             withContext(Dispatchers.IO) { requireNotNull(database).apply(batch) }
+            if (!workspaceGeneration.accepts(generation)) return@coroutineScope
             refresh()
             acknowledgeVisible(readAfter(batch, state.value.readingChats))
             if (resync) throw Resync()
@@ -234,7 +247,13 @@ private fun AppStore.noteHello(hello: JsonObject) = mutableState.update {
 }
 
 private fun AppStore.showConnection(link: LinkState) {
-    mutableState.update { it.copy(actualConnection = link) }
+    val remoteHub = when (link) {
+        LinkState.Connecting -> if (state.value.remoteHub == RemoteHubState.Offline) RemoteHubState.Offline else RemoteHubState.Connecting
+        is LinkState.Ready -> RemoteHubState.Available
+        is LinkState.ComputerOffline -> RemoteHubState.Offline
+        is LinkState.Failed -> if (link.status == 401 || link.status == 403) RemoteHubState.Denied else RemoteHubState.Offline
+    }
+    mutableState.update { it.copy(actualConnection = link, remoteHub = remoteHub) }
     val immediate = link is LinkState.Ready || link is LinkState.Failed && link.status in listOf(403, 426)
     if (immediate) {
         graceJob?.cancel()
