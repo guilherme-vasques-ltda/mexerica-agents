@@ -1,5 +1,5 @@
 import { FALLBACK_LANGUAGE, sugerirIdioma } from '../../shared/fork-idioma.ts'
-import { superficieIdioma, tradutor } from '../../renderer/lib/fork-i18n/index.ts'
+import { superficieIdioma, tradutor, type ChaveTexto } from '../../renderer/lib/fork-i18n/index.ts'
 
 export type RemoteViewStatus =
   | 'unconfigured'
@@ -40,12 +40,12 @@ const CHAVE_STATUS = {
   active: null,
   hub_offline: 'botCreate.erroCriacao.offline',
   revoked: 'conversa.arquivar.falha.notAllowed',
-} as const satisfies Record<RemoteViewStatus, 'fundo.espaco.indisponivel' | 'fundo.carregando' | 'web.login.local.erro.geral' | 'botCreate.erroCriacao.offline' | 'conversa.arquivar.falha.notAllowed' | null>
+} as const satisfies Record<RemoteViewStatus, ChaveTexto | null>
 
 const CHAVE_TIPO = {
   personal: 'ajustes.grupo.pessoal',
   team: 'botCreate.equipe',
-} as const satisfies Record<RemoteWorkspace['kind'], 'ajustes.grupo.pessoal' | 'botCreate.equipe'>
+} as const satisfies Record<RemoteWorkspace['kind'], ChaveTexto>
 
 export function mountRemoteView(root: HTMLElement, actions: RemoteViewActions): (state: RemoteViewState) => void {
   const idioma = sugerirIdioma(typeof navigator === 'undefined' ? [] : navigator.languages) ?? FALLBACK_LANGUAGE
