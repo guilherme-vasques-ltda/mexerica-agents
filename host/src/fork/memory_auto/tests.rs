@@ -43,6 +43,11 @@ fn fixture(external: bool) -> Fixture {
 fn fixture_for_bot(external: bool, bot: &str) -> Fixture {
     let dir = std::env::temp_dir().join(format!("memory-auto-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let store = Store::open(Path::new(":memory:")).unwrap();
     let cfg: BotConfig = serde_json::from_value(json!({"id":bot,"name":"Bot","backend":"claude","cwd":dir})).unwrap();
     store.save_bot(&cfg).unwrap();
