@@ -752,7 +752,7 @@ impl Actor {
         if self.active_routine.is_none()
             && e.chain().any(<dyn std::error::Error>::is::<crate::fork::bot_admission::ConversationPaused>)
         {
-            self.finish_turn(&Ok(json!({"stopReason": "conversation_paused"})));
+            self.finish_turn(&Err(crate::fork::bot_admission::ConversationPaused.into()));
             return;
         }
         // Conservar RpcError tipado: hint de uso não transforma uma falha comum em limite.
