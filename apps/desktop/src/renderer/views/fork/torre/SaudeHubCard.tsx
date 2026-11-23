@@ -124,7 +124,7 @@ export class DoctorSession extends Observable {
       (e) => {
         if (!this.current(origin)) return
         if (!DOCTOR_REREAD_EVENTS.has(e.type)) return
-        if ((e.type === 'donnaDoctorChanged' || e.type === 'donnaControlTowerChanged') && e.spaceId !== spaceId) return
+        if ((e.type === 'donnaDoctorChanged' || e.type === 'donnaControlTowerChanged') && (e.spaceId !== spaceId || e.hubId !== origin.hostId)) return
         this.scheduleRead(origin)
       },
       () => {
@@ -140,7 +140,6 @@ export class DoctorSession extends Observable {
     const origin = this.origin
     const hostId = source.hello?.hostId ?? null
     if (this.hostId && hostId && hostId !== this.hostId) {
-      this.hostId = hostId
       this.connect(source)
       return
     }

@@ -167,8 +167,8 @@ test('DoctorSession consulta donnaHubDoctor, reconsulta em donnaDoctorChanged e 
   assert.equal(calls, 1)
 
   // Evento de outro space não dispara leitura; evento do mesmo space dispara.
-  emit!({ type: 'donnaDoctorChanged', spaceId: 'outro' })
-  emit!({ type: 'donnaDoctorChanged', spaceId: 'personal' })
+  emit!({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'outro' })
+  emit!({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' })
   await tick(300)
   assert.equal(calls, 2)
 
@@ -178,6 +178,15 @@ test('DoctorSession consulta donnaHubDoctor, reconsulta em donnaDoctorChanged e 
   await tick()
   assert.equal(session.state.kind, 'unavailable')
   assert.equal(session.state.reason, 'unsupported')
+
+  mode = 'ok'
+  session.reread()
+  await tick()
+  assert.equal(session.state.kind, 'ready')
+  src.hello = { hostId: 'h2', rev: 1 }
+  src.connectedClient = { call: () => new Promise(() => {}), inSpace: () => ({ events: () => () => {} }) }
+  src.notify()
+  assert.equal(session.state.kind, 'loading')
 
   // Link cai -> hub_offline explícito.
   src.connectedClient = null
@@ -193,6 +202,8 @@ test('parseEvent aceita donnaDoctorChanged e donnaControlTowerChanged do JSON cr
     assert.equal(m.parseEvent(JSON.stringify({ type, hubId: '', spaceId: 'personal' })), null)
     assert.equal(m.parseEvent(JSON.stringify({ type, hubId: 'h1' })), null)
     assert.equal(m.parseEvent(JSON.stringify({ type, hubId: 'h1', spaceId: '' })), null)
+    assert.equal(m.parseEvent(JSON.stringify({ type, hubId: ' h1', spaceId: 'personal' })), null)
+    assert.equal(m.parseEvent(JSON.stringify({ type, hubId: 'h1', spaceId: 'personal ' })), null)
   }
   assert.deepEqual(
     JSON.parse(JSON.stringify(m.parseEvent(JSON.stringify({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' })))),
@@ -235,6 +246,10 @@ test('parseEvent aceita donnaDoctorChanged e donnaControlTowerChanged do JSON cr
   assert.equal(calls, 1)
 
   onLine(JSON.stringify({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'outro' }))
+  onLine('{"type":"donnaControlTowerChanged","hubId":"h2","spaceId":"personal"}')
+  onLine('{"type":"donnaDoctorChanged","hubId":"h1 ","spaceId":"personal"}')
+  await tick(300)
+  assert.equal(calls, 1)
   onLine(JSON.stringify({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' }))
   await tick(300)
   assert.equal(calls, 2)

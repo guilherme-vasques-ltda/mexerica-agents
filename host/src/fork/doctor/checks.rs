@@ -26,7 +26,7 @@ pub(super) fn collect(hub: &Hub, space: &str) -> Result<HubDoctorReport> {
         let tx = db.unchecked_transaction()?;
         crate::fork::spaces::require_space(&tx, space)?;
         let roster = roster_ids(&tx, space)?;
-        let ai_engine = check_ai_engine(&tx, space, &roster, now);
+        let ai_engine = check_ai_engine(&tx, space, now);
         let approvals = check_approvals(&tx, &hub.host_id, space, &roster);
         let channels = check_channels(&tx, &hub.host_id, space, &roster);
         let routines = check_routines(&tx, &roster);
@@ -66,17 +66,14 @@ pub(super) fn compute_overall(checks: &[DoctorCheck]) -> DoctorOverallStatus {
     if checks.iter().any(|c| c.status == DoctorCheckStatus::Error) {
         return DoctorOverallStatus::Error;
     }
-    if checks.iter().any(|c| c.area == DoctorArea::AiEngine && c.status != DoctorCheckStatus::Ok) {
+    let waiting = |c: &DoctorCheck| {
+        c.area == DoctorArea::Approvals && c.status == DoctorCheckStatus::Warning && c.code == "approvals_waiting"
+    };
+    if checks.iter().any(|c| c.status != DoctorCheckStatus::Ok && !waiting(c)) {
         return DoctorOverallStatus::Degraded;
     }
-    if checks.iter().any(|c| c.area == DoctorArea::Approvals && c.status == DoctorCheckStatus::Unavailable) {
-        return DoctorOverallStatus::Degraded;
-    }
-    if checks.iter().any(|c| c.area == DoctorArea::Approvals && c.code == "approvals_waiting") {
+    if checks.iter().any(waiting) {
         return DoctorOverallStatus::WaitingUser;
-    }
-    if checks.iter().any(|c| c.status != DoctorCheckStatus::Ok) {
-        return DoctorOverallStatus::Degraded;
     }
     DoctorOverallStatus::Healthy
 }
@@ -93,8 +90,8 @@ fn roster_ids(c: &Connection, space: &str) -> Result<Vec<String>> {
     Ok(st.query_map([space], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
 }
 
-fn check_ai_engine(c: &Connection, space: &str, roster: &[String], now: i64) -> DoctorCheck {
-    match eval_ai_engine(c, space, roster, now) {
+fn check_ai_engine(c: &Connection, space: &str, now: i64) -> DoctorCheck {
+    match eval_ai_engine(c, space, now) {
         Ok(check) => check,
         Err(_) => DoctorCheck {
             id: "ai_engine".into(),
@@ -107,7 +104,7 @@ fn check_ai_engine(c: &Connection, space: &str, roster: &[String], now: i64) -> 
     }
 }
 
-fn eval_ai_engine(c: &Connection, space: &str, roster: &[String], now: i64) -> Result<DoctorCheck> {
+fn eval_ai_engine(c: &Connection, space: &str, now: i64) -> Result<DoctorCheck> {
     let registry = Registry::load_db(c)?;
     let fallback = FallbackState::carregar(c)?;
 
@@ -120,17 +117,7 @@ fn eval_ai_engine(c: &Connection, space: &str, roster: &[String], now: i64) -> R
                 linked.push(account);
             }
         }
-        if linked.is_empty() && !roster.is_empty() {
-            return Ok(DoctorCheck {
-                id: "ai_engine".into(),
-                area: DoctorArea::AiEngine,
-                status: DoctorCheckStatus::Error,
-                code: "ai_no_active_account".into(),
-                count: Some(0),
-                action_kind: DoctorActionKind::ConnectAi,
-            });
-        }
-        if linked.is_empty() { registry.accounts.iter().collect() } else { linked }
+        linked
     };
 
     let mut ready_count: u64 = 0;
@@ -449,7 +436,9 @@ fn check_mcps(store: &Store, space: &str) -> DoctorCheck {
 }
 
 fn eval_mcps(store: &Store, space: &str) -> Result<DoctorCheck> {
-    let (connectors, _) = crate::market::load_connectors(store)?;
+    let (raw, _) = crate::market::vault::read_unmigrated(store, "connectors")?;
+    let connectors: Vec<crate::market::Connector> = raw.map_or_else(|| Ok(Vec::new()), |s| serde_json::from_str(&s))?;
+    ensure!(connectors.iter().all(|c| !c.space.is_empty()), "connector_space_unavailable");
     let space_connectors: Vec<_> = connectors.into_iter().filter(|c| c.space == space).collect();
     let total = space_connectors.len() as u64;
     let issues = space_connectors

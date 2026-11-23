@@ -330,6 +330,25 @@ async fn pendencias_geram_waiting_user_com_dedupe_e_isolamento_de_space() {
     assert_eq!(report_work["overall"], "healthy");
     assert_eq!(check_of(&report_work, "approvals")["code"], "approvals_ok");
     assert_eq!(check_of(&report_work, "approvals")["count"], 0);
+
+    f.hub.store.kv_set("connectors", r#"[{"id":"legacy","name":"Fixture"}]"#).unwrap();
+    let changes = f.hub.store.db.locked().total_changes();
+    let partial = f.read(&Caller::Local, PERSONAL).await.unwrap();
+    assert_eq!(check_of(&partial, "approvals")["code"], "approvals_waiting");
+    assert_eq!(check_of(&partial, "mcps")["status"], "unavailable");
+    assert_eq!(partial["overall"], "degraded");
+    assert_eq!(exit_code_for_report(&partial), 1);
+    assert_eq!(f.hub.store.db.locked().total_changes(), changes);
+}
+
+#[tokio::test]
+async fn space_vazio_nao_conta_credenciais_de_outros_spaces() {
+    let f = Fixture::new();
+    f.seed_connected_ai(false);
+    let empty = f.space("Vazio").await;
+    let report = f.read(&Caller::Local, &empty).await.unwrap();
+    assert_eq!(check_of(&report, "ai_engine")["code"], "ai_no_active_account");
+    assert_eq!(check_of(&report, "ai_engine")["count"], 0);
 }
 
 #[tokio::test]
