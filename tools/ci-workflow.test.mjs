@@ -33,11 +33,12 @@ test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de
   assert.match(config, /group: code-review-\$\{\{ github.event.pull_request.number \}\}\n  cancel-in-progress: true/);
   for (const job of [analizar, publicar]) {
     assert.match(job, /head\.repo\.fork == false && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && github\.event\.pull_request\.draft == false/);
-    assert.match(job, /runs-on: ubuntu-24\.04\n    timeout-minutes: [1-9]/);
+    assert.match(job, /runs-on: ubuntu-24\.04\n/);
     assert.match(job, /uses: actions\/checkout@[0-9a-f]{40} .*\n(?:[^\n]+\n)*?          ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}\n          persist-credentials: false/);
     assert.doesNotMatch(job, /contents: write|issues: write|alibaba\/open-code-review@|ci-ok/);
   }
   assert.doesNotMatch(analizar, /: write/);
+  assert.match(publicar, /^    timeout-minutes: 2$/m);
   assert.match(publicar, /pull-requests: write/);
   assert.doesNotMatch(publicar, /secrets\.|OCR_LLM_/);
   assert.doesNotMatch(analizar, /vars\.OCR_LLM_MODEL|sysctl\s+-w/);
@@ -60,7 +61,21 @@ test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de
   assert.equal(fixtures.status, 0, fixtures.stderr || String(fixtures.error));
 });
 
-test('Open Code Review: classificação de status do Review diff roda a fixture focal', () => {
+test('Open Code Review: prazos, limpeza e classificação do Review diff', () => {
+  const review = readFileSync(new URL('../.github/workflows/code-review.yml', import.meta.url), 'utf8')
+    .split(/^jobs:\n  review:\n|^  publish:\n/m)[1];
+  assert.match(review, /^    timeout-minutes: 15$/m);
+  const steps = Object.fromEntries(review.split(/^      - name: /m).slice(1).map(step => {
+    const end = step.indexOf('\n');
+    return [step.slice(0, end), step.slice(end + 1).split(/^      - /m)[0]];
+  }));
+  assert.match(steps['Prepare and verify filesystem isolation'], /^        timeout-minutes: 2$/m);
+  assert.match(steps['Fetch review inputs and verify binary'], /^        timeout-minutes: 2$/m);
+  assert.match(steps['Review diff'], /^        timeout-minutes: 9$/m);
+  assert.match(steps['Review diff'], /^            exec timeout --kill-after=5s 480s \/usr\/bin\/bwrap /m);
+  assert.match(steps['Remove review files'], /^        if: always\(\)\n        timeout-minutes: 1\n        run: rm -rf -- "\$RUNNER_TEMP\/mexerica-ocr"$/m);
+  assert.match(steps['Remove scoped isolation profile'], /^        if: always\(\)\n        timeout-minutes: 1\n        run: \|\n/);
+  assert.match(steps['Remove scoped isolation profile'], /profile="\$RUNNER_TEMP\/mexerica-ocr-bwrap\.profile"[\s\S]*?apparmor_parser -R "\$profile" > \/dev\/null 2>&1[\s\S]*?rm -f -- "\$profile"/);
   const focal = spawnSync('python3', ['-B', fileURLToPath(new URL('./ci-code-review-status.test.py', import.meta.url))], { encoding: 'utf8' });
   assert.equal(focal.status, 0, focal.stderr || String(focal.error));
 });

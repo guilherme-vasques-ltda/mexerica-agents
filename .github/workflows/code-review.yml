@@ -21,7 +21,7 @@ jobs:
   review:
     if: ${{ github.event.pull_request.head.repo.fork == false && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read
@@ -162,6 +162,7 @@ jobs:
           fi
       - name: Review diff
         if: steps.trusted.outputs.ready == 'true'
+        timeout-minutes: 9
         env:
           OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
           OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
@@ -179,7 +180,7 @@ jobs:
           printf '{"language":"%s","telemetry":{"enabled":false}}\n' "$OCR_LANGUAGE" > "$private_home/.opencodereview/config.json"
           { if (
             ulimit -f 4096 || exit 1
-            exec timeout --kill-after=5s 240s /usr/bin/bwrap --unshare-all --share-net --die-with-parent --cap-drop ALL \
+            exec timeout --kill-after=5s 480s /usr/bin/bwrap --unshare-all --share-net --die-with-parent --cap-drop ALL \
               --clearenv --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin \
               --ro-bind /etc/ssl/certs /etc/ssl/certs --ro-bind /etc/resolv.conf /etc/resolv.conf --ro-bind /etc/hosts /etc/hosts \
               --proc /proc --dev /dev --bind "$work/tmp" /tmp --bind "$private_home" /profile \
@@ -227,9 +228,11 @@ jobs:
           retention-days: 1
       - name: Remove review files
         if: always()
+        timeout-minutes: 1
         run: rm -rf -- "$RUNNER_TEMP/mexerica-ocr"
       - name: Remove scoped isolation profile
         if: always()
+        timeout-minutes: 1
         run: |
           profile="$RUNNER_TEMP/mexerica-ocr-bwrap.profile"
           if [ -f "$profile" ]; then
