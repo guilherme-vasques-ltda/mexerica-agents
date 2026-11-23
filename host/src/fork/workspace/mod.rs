@@ -63,10 +63,24 @@ pub(crate) struct Epoca {
     pub valor: u64,
     motivo: Option<Motivo>,
     dono: Option<String>,
+    /// Um aumento entrou no commit e ainda não tem número publicado: nada sai pelo epoch atual.
+    pendente: Option<Motivo>,
 }
 
-/// Epoch e dono atuais em RAM, espelho do SQLite. Um número só é anunciado depois de gravado:
-/// uma queda entre o commit e a RAM nunca faz um epoch anunciado voltar atrás.
+impl Epoca {
+    /// O que foi aberto em `epoch` não entrega mais nada.
+    pub(crate) fn corta(&self, epoch: u64) -> bool {
+        self.valor != epoch || self.pendente.is_some()
+    }
+
+    fn motivo(&self) -> Motivo {
+        self.pendente.or(self.motivo).unwrap_or(Motivo::DeviceRevoked)
+    }
+}
+
+/// Epoch e dono atuais em RAM, espelho do SQLite. Sob o lock do banco: o corte fica pendente
+/// antes do commit e o número só é publicado depois dele. Uma queda entre os dois nunca faz um
+/// epoch anunciado voltar atrás, e nada sai pelo epoch antigo entre o commit e a publicação.
 pub(crate) struct Sinal(watch::Sender<Epoca>);
 
 impl Sinal {
@@ -75,7 +89,7 @@ impl Sinal {
             tracing::error!(error = format!("{error:#}"), "workspaceEpoch ilegível; pedidos com epoch divergem");
             u64::MAX
         });
-        Self(watch::Sender::new(Epoca { valor, motivo: None, dono: None }))
+        Self(watch::Sender::new(Epoca { valor, motivo: None, dono: None, pendente: None }))
     }
 
     pub(crate) fn atual(&self) -> u64 {
@@ -90,15 +104,29 @@ impl Sinal {
         self.0.subscribe()
     }
 
+    fn preparar(&self, motivo: Motivo) {
+        self.0.send_modify(|e| e.pendente = Some(motivo));
+    }
+
+    fn cancelar(&self) {
+        self.0.send_if_modified(|e| e.pendente.take().is_some());
+    }
+
     /// Só avança: dois commits publicados fora de ordem nunca baixam o número.
     fn publicar(&self, valor: u64, motivo: Motivo) {
-        self.0.send_if_modified(|e| avancar(e, valor, motivo));
+        self.0.send_if_modified(|e| {
+            let pendia = e.pendente.take().is_some();
+            avancar(e, valor, motivo) || pendia
+        });
     }
 
     /// Dono e, quando a troca subiu o epoch, o número novo: um envio só.
     fn publicar_dono(&self, dono: Option<&str>, epoch: Option<u64>) {
         self.0.send_if_modified(|e| {
-            let subiu = epoch.is_some_and(|valor| avancar(e, valor, Motivo::OwnerChanged));
+            let subiu = epoch.is_some_and(|valor| {
+                let pendia = e.pendente.take().is_some();
+                avancar(e, valor, Motivo::OwnerChanged) || pendia
+            });
             if e.dono.as_deref() == dono {
                 return subiu;
             }
@@ -140,14 +168,25 @@ fn anunciar(hub: &Hub, epoch: u64, motivo: Motivo) {
     tracing::info!(epoch, ?motivo, "workspaceEpoch subiu");
 }
 
+/// Commit de um aumento, com o lock do banco ainda tomado pelo chamador: o corte fica pendente
+/// antes, e `publicar` roda logo depois do commit. Se o commit falhar, nada é anunciado.
+fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, motivo: Motivo, publicar: impl FnOnce()) -> Result<()> {
+    hub.workspace.preparar(motivo);
+    if let Err(error) = tx.commit() {
+        hub.workspace.cancelar();
+        return Err(error.into());
+    }
+    publicar();
+    Ok(())
+}
+
 /// Gancho para remoção de membro e troca de papel (Hub team).
 #[cfg_attr(not(test), expect(dead_code, reason = "membros e papéis chegam com o vínculo team"))]
 pub(crate) fn bump(hub: &Hub, motivo: Motivo) -> Result<u64> {
     let mut db = hub.store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let proximo = bump_on(&tx)?;
-    tx.commit()?;
-    anunciar(hub, proximo, motivo);
+    confirmar(hub, tx, motivo, || anunciar(hub, proximo, motivo))?;
     Ok(proximo)
 }
 
@@ -161,23 +200,34 @@ pub(crate) fn revogar(hub: &Hub, key: &str) -> Result<bool> {
         return Ok(false);
     }
     let epoch = bloquear_on(&tx, key, grant.flatten().as_deref())?;
-    tx.commit()?;
-    anunciar(hub, epoch, Motivo::DeviceRevoked);
+    confirmar(hub, tx, Motivo::DeviceRevoked, || anunciar(hub, epoch, Motivo::DeviceRevoked))?;
     Ok(true)
 }
 
 /// Revogação pela cerca do bootstrap: o bloqueio e o epoch entram na Tx da própria cerca, uma
-/// vez só (na passagem para tombstone), antes de qualquer aviso.
+/// vez só (na passagem para tombstone); a publicação roda logo depois do commit, ainda com o lock.
 pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Result<bool> {
-    let mut epoch = None;
-    let cercado = hub.store.bootstrap_revoke_fenced(&hub.identity.sign, grant, key, now, |tx| {
-        epoch = Some(bloquear_on(tx, key, Some(grant))?);
-        Ok(())
-    })?;
-    if let Some(epoch) = epoch {
-        anunciar(hub, epoch, Motivo::DeviceRevoked);
+    let epoch = std::cell::Cell::new(None);
+    let cercado = hub.store.bootstrap_revoke_fenced(
+        &hub.identity.sign,
+        grant,
+        key,
+        now,
+        |tx| {
+            epoch.set(Some(bloquear_on(tx, key, Some(grant))?));
+            hub.workspace.preparar(Motivo::DeviceRevoked);
+            Ok(())
+        },
+        || {
+            if let Some(epoch) = epoch.get() {
+                anunciar(hub, epoch, Motivo::DeviceRevoked);
+            }
+        },
+    );
+    if cercado.is_err() && epoch.get().is_some() {
+        hub.workspace.cancelar();
     }
-    Ok(cercado)
+    cercado
 }
 
 /// Bloqueio durável da chave (com a concessão) e epoch novo, na Tx do chamador.
@@ -246,41 +296,39 @@ pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) ->
     Ok(())
 }
 
-/// Registra o dono conhecido e publica dono e epoch juntos. Dono que só ficou conhecido não sobe
-/// o epoch; outro `userId` depois de um dono já visto sobe.
-pub(crate) fn observar_dono(hub: &Hub, dono: Option<&str>) {
+/// Registra o dono que a nuvem informa agora e publica dono e epoch juntos. O dono é lido sob o
+/// lock do status Cloud, na ordem Cloud → banco: uma observação atrasada nunca sobrescreve o dono
+/// atual. Dono que só ficou conhecido não sobe o epoch; outro `userId` depois de um já visto sobe.
+pub(crate) fn observar_dono(hub: &Hub) {
     let visto = |c: &Connection| -> Result<Option<String>> {
         Ok(c.query_row("SELECT v FROM kv WHERE k=?1", [OWNER_SEEN_KEY], |r| r.get(0)).optional()?)
     };
-    let resultado = (|| -> Result<()> {
+    let resultado = hub.cloud.with_personal_status(|status| {
         let mut db = hub.store.db.locked();
-        let Some(dono) = dono else {
+        let Some(dono) = status.owner.as_ref().map(|o| o.user_id.as_str()) else {
             hub.workspace.publicar_dono(None, None);
             return Ok(());
         };
-        if visto(&db)?.as_deref() == Some(dono) {
+        let anterior = visto(&db)?;
+        if anterior.as_deref() == Some(dono) {
             hub.workspace.publicar_dono(Some(dono), None);
             return Ok(());
         }
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let anterior = visto(&tx)?;
-        let mut epoch = None;
-        if anterior.as_deref() != Some(dono) {
-            tx.execute(
-                "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-                params![OWNER_SEEN_KEY, dono],
-            )?;
-            if anterior.is_some() {
-                epoch = Some(bump_on(&tx)?);
-            }
+        tx.execute(
+            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+            params![OWNER_SEEN_KEY, dono],
+        )?;
+        if anterior.is_none() {
+            tx.commit()?;
+            hub.workspace.publicar_dono(Some(dono), None);
+            return Ok(());
         }
-        tx.commit()?;
-        hub.workspace.publicar_dono(Some(dono), epoch);
-        if let Some(epoch) = epoch {
-            tracing::info!(epoch, "workspaceEpoch subiu: outro dono");
-        }
+        let epoch = bump_on(&tx)?;
+        confirmar(hub, tx, Motivo::OwnerChanged, || hub.workspace.publicar_dono(Some(dono), Some(epoch)))?;
+        tracing::info!(epoch, "workspaceEpoch subiu: outro dono");
         Ok(())
-    })();
+    });
     if let Err(error) = resultado {
         tracing::error!(error = format!("{error:#}"), "não foi possível registrar o dono do workspace");
     }
@@ -377,7 +425,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
     let (epoch, workspace_id) = (retrato.valor, workspace_id(retrato));
     let terminal = move |e: &Epoca| {
         json!({
-            "type": e.motivo.unwrap_or(Motivo::DeviceRevoked).evento(),
+            "type": e.motivo().evento(),
             "workspaceId": workspace_id,
             "workspaceEpoch": e.valor,
         })
@@ -387,7 +435,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
         async move {
             let (mut eventos, mut aviso) = estado?;
             loop {
-                let atual = aviso.borrow_and_update().clone();
+                let atual = resolvido(&mut aviso).await?;
                 if atual.valor != epoch {
                     return Some((terminal(&atual), None));
                 }
@@ -398,7 +446,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
                     }
                     evento = eventos.next() => {
                         let evento = evento?;
-                        let atual = aviso.borrow().clone();
+                        let atual = resolvido(&mut aviso).await?;
                         if atual.valor != epoch {
                             return Some((terminal(&atual), None));
                         }
@@ -408,6 +456,17 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
             }
         }
     })
+}
+
+/// O retrato sem aumento pendente: o evento terminal do SSE leva o número já gravado.
+async fn resolvido(aviso: &mut watch::Receiver<Epoca>) -> Option<Epoca> {
+    loop {
+        let atual = aviso.borrow_and_update().clone();
+        if atual.pendente.is_none() {
+            return Some(atual);
+        }
+        aviso.changed().await.ok()?;
+    }
 }
 
 /// Código estável do `reject` do `/channel`, ao lado do `code` legado.
@@ -428,7 +487,7 @@ pub(crate) fn reject_canal(e: &Epoca) -> Value {
         "t": "reject",
         "code": RejectCode::Revoked,
         "message": RejectCode::Revoked.message(),
-        "stableCode": e.motivo.unwrap_or(Motivo::DeviceRevoked).evento(),
+        "stableCode": e.motivo().evento(),
     })
 }
 

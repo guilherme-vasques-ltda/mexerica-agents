@@ -25,6 +25,7 @@ use crate::remote::crypto::{self, FrameError, Opener, Sealer};
 use crate::store::{Device, DeviceSource, Scope, now_ms};
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use barreira_workspace::Barreira;
+pub(crate) use barreira_workspace::Porta;
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -76,6 +77,8 @@ pub enum Out {
 pub struct Transport {
     pub incoming: mpsc::Receiver<Value>,
     pub outgoing: mpsc::Sender<Out>,
+    /// Armada depois do handshake do aparelho; o consumidor de `outgoing` filtra por ela.
+    pub(crate) porta: Porta,
 }
 
 pub enum ChannelKind {
@@ -111,9 +114,10 @@ impl ChannelKind {
 
 /// Serves `GET /channel` after the WebSocket upgrade.
 pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr) {
-    let (mut sink, mut stream) = socket.split();
+    let (sink, mut stream) = socket.split();
     let (in_tx, incoming) = mpsc::channel(64);
-    let (outgoing, mut out_rx) = mpsc::channel::<Out>(64);
+    let (outgoing, out_rx) = mpsc::channel::<Out>(64);
+    let porta = Porta::default();
     let reader = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
             let v = match msg {
@@ -127,33 +131,40 @@ pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr) {
             }
         }
     });
-    let writer = tokio::spawn(async move {
-        let mut ping = tokio::time::interval(DIRECT_PING);
-        ping.tick().await;
-        loop {
-            tokio::select! {
-                out = out_rx.recv() => {
-                    let msg = match out {
-                        Some(Out::Msg(v)) => Message::Text(v.to_string().into()),
-                        Some(Out::Close(code, reason)) => Message::Close(Some(CloseFrame { code, reason: reason.into() })),
-                        None => Message::Close(None),
-                    };
-                    let last = matches!(msg, Message::Close(_));
-                    if sink.send(msg).await.is_err() || last {
-                        break;
-                    }
+    let writer = tokio::spawn(write_socket(sink, porta.clone().filtrar(out_rx)));
+    run(hub, Transport { incoming, outgoing, porta }, ChannelKind::Direct { peer }).await;
+    let _ = writer.await;
+    reader.abort();
+}
+
+/// The direct socket's sender: the last point before the wire reads the gated queue.
+async fn write_socket<S>(mut sink: S, out: impl futures::Stream<Item = Out>)
+where
+    S: futures::Sink<Message> + Unpin,
+{
+    let mut out = std::pin::pin!(out);
+    let mut ping = tokio::time::interval(DIRECT_PING);
+    ping.tick().await;
+    loop {
+        tokio::select! {
+            out = out.next() => {
+                let msg = match out {
+                    Some(Out::Msg(v)) => Message::Text(v.to_string().into()),
+                    Some(Out::Close(code, reason)) => Message::Close(Some(CloseFrame { code, reason: reason.into() })),
+                    None => Message::Close(None),
+                };
+                let last = matches!(msg, Message::Close(_));
+                if sink.send(msg).await.is_err() || last {
+                    break;
                 }
-                _ = ping.tick() => {
-                    if sink.send(Message::Ping(axum::body::Bytes::new())).await.is_err() {
-                        break;
-                    }
+            }
+            _ = ping.tick() => {
+                if sink.send(Message::Ping(axum::body::Bytes::new())).await.is_err() {
+                    break;
                 }
             }
         }
-    });
-    run(hub, Transport { incoming, outgoing }, ChannelKind::Direct { peer }).await;
-    let _ = writer.await;
-    reader.abort();
+    }
 }
 
 /// What the encrypted part of the channel sends: inner messages get sealed, the rest passes.
@@ -267,10 +278,13 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         crate::fork::personal_bootstrap::probe::run(hub, t, *admission).await;
         return;
     }
-    let Transport { mut incoming, outgoing } = t;
+    let Transport { mut incoming, outgoing, porta } = t;
     let aviso = hub.workspace.assinar();
     let Some(hs) = handshake(&hub, &mut incoming, &outgoing, &kind).await else { return };
     let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso));
+    if let Some(barreira) = &barreira {
+        porta.armar(barreira.clone());
+    }
     let (tx, rx) = mpsc::channel(256);
     let mut writer = tokio::spawn(write_frames(Sealer::new(hs.keys.h2d), rx, outgoing, barreira));
     let caller = if let Some(ref b) = hs.bootstrap {
@@ -1076,7 +1090,7 @@ mod tests {
         fn connect(hub: &Arc<Hub>, key: SigningKey, kind: ChannelKind) -> Self {
             let (tx, incoming) = mpsc::channel(64);
             let (outgoing, rx) = mpsc::channel(64);
-            let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing }, kind));
+            let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing, porta: Porta::default() }, kind));
             Self { key, tx, rx, sealer: None, opener: None, run }
         }
 
@@ -1309,7 +1323,7 @@ mod tests {
         let (outgoing, mut rx) = mpsc::channel(4);
         tokio::spawn(run(
             hub.clone(),
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: Porta::default() },
             ChannelKind::Direct { peer: [10, 0, 0, 2].into() },
         ));
         let dk = crypto::b64(SigningKey::from_bytes(&[1; 32]).verifying_key().as_bytes());

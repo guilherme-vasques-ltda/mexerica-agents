@@ -365,10 +365,11 @@ fn queda_no_commit_nao_anuncia_epoch_que_voltaria_atras() {
              BEGIN INSERT INTO queda_filho VALUES(1); END;",
         )
         .unwrap();
+    let antes = hub.workspace.retrato();
     let aviso = hub.workspace.assinar();
     assert!(hub.revoke_device("chave-queda").is_err(), "o commit falha");
-    assert_eq!(hub.workspace.atual(), 0, "nada é anunciado antes do commit");
-    assert!(!aviso.has_changed().unwrap());
+    assert!(aviso.has_changed().unwrap(), "o corte ficou pendente antes do commit");
+    assert_eq!(hub.workspace.retrato(), antes, "nenhum número anunciado e nenhum corte pendente sobrando");
     assert!(hub.store.device("chave-queda").is_some(), "a Tx inteira volta");
     drop(hub);
 
@@ -477,4 +478,59 @@ async fn dispatch_nao_le_capabilities() {
         api::dispatch(&hub, &aparelhos, "devices", json!({"capabilities": []})).await.is_ok(),
         "nem tira: a permissão vem do escopo do aparelho"
     );
+}
+
+#[test]
+fn entre_o_commit_e_a_publicacao_o_corte_ja_vale() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    let mut db = hub.store.db.locked();
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+    let epoch = bump_on(&tx).unwrap();
+    assert!(!hub.workspace.retrato().corta(0), "antes do commit nada mudou para quem lê");
+    let mut na_janela = None;
+    confirmar(&hub, tx, Motivo::DeviceRevoked, || {
+        // Já gravado e ainda não publicado: quem confere o epoch antigo não entrega nada.
+        let retrato = hub.workspace.retrato();
+        na_janela = Some((retrato.valor, retrato.corta(0)));
+        anunciar(&hub, epoch, Motivo::DeviceRevoked);
+    })
+    .unwrap();
+    assert_eq!(na_janela, Some((0, true)), "o número ainda não saiu, mas o corte já vale");
+    assert_eq!((hub.workspace.atual(), hub.workspace.retrato().corta(1)), (1, false));
+}
+
+#[test]
+fn dois_escritores_do_dono_nao_sobrescrevem_o_atual() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    dono(&hub, Some("user_a.example.invalid"));
+    let escritores: Vec<_> = ["user_b.example.invalid", "user_c.example.invalid"]
+        .into_iter()
+        .map(|user| {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                for _ in 0..100 {
+                    dono(&hub, Some(user));
+                }
+            })
+        })
+        .collect();
+    for escritor in escritores {
+        escritor.join().unwrap();
+    }
+    // Uma observação atrasada lê o dono de agora, não o que viu antes.
+    observar_dono(&hub);
+    let atual = hub.cloud.status().owner.unwrap().user_id;
+    let retrato = hub.workspace.retrato();
+    assert_eq!(retrato.dono.as_deref(), Some(atual.as_str()), "RAM segue o dono atual da nuvem");
+    let visto: String =
+        hub.store.db.locked().query_row("SELECT v FROM kv WHERE k=?1", [OWNER_SEEN_KEY], |r| r.get(0)).unwrap();
+    assert_eq!(visto, atual, "o dono gravado também");
+    let epoch = retrato.valor;
+    drop(hub);
+    let hub = pasta.hub();
+    assert_eq!(hub.workspace.atual(), epoch, "o epoch anunciado é o gravado");
+    dono(&hub, Some(&atual));
+    assert_eq!(hub.workspace.atual(), epoch, "o mesmo dono depois do reinício não sobe");
 }

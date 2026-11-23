@@ -621,7 +621,7 @@ async fn personal_host_b2_actual_channel_probe_and_old_activation_cut() -> Resul
     let run = tokio::spawn(async move {
         channel::run(
             h,
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: channel::Porta::default() },
             ChannelKind::PersonalRelay { admission: Box::new(admission) },
         )
         .await;
@@ -1105,7 +1105,7 @@ async fn personal_completed_probe_for_lifetime() -> Result<PersonalCompletedProb
     let run = tokio::spawn(async move {
         channel::run(
             h,
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: channel::Porta::default() },
             ChannelKind::PersonalRelay { admission: Box::new(admission) },
         )
         .await;

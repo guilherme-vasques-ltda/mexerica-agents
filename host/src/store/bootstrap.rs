@@ -500,7 +500,8 @@ impl Store {
     }
 
     /// For an exact fence, persist tombstone and the original signed revocation atomically.
-    /// `on_tombstone` runs once, inside the same transaction, when the slot becomes a tombstone.
+    /// `on_tombstone` runs once, inside the same transaction, when the slot becomes a tombstone;
+    /// `on_commit` runs right after that commit, with the database lock still held.
     pub fn bootstrap_revoke_fenced(
         &self,
         key: &SigningKey,
@@ -508,6 +509,7 @@ impl Store {
         device_key: &str,
         now: i64,
         on_tombstone: impl FnOnce(&Connection) -> Result<()>,
+        on_commit: impl FnOnce(),
     ) -> Result<bool> {
         let mut db = self.db.locked();
         let tx = db.transaction()?;
@@ -551,6 +553,7 @@ impl Store {
         let wire = codec::encode(&payload, |b| crypto::sign(key, b))?;
         tx.execute("UPDATE bootstrap_slot SET status='tombstone',revocation_wire=?1 WHERE singleton=1", [wire])?;
         tx.commit()?;
+        on_commit();
         Ok(true)
     }
     pub fn bootstrap_revocation_envelope(&self) -> Result<Option<serde_json::Value>> {
@@ -941,20 +944,37 @@ mod tests {
         assert!(s.bootstrap_promote(&publication, &listed, 4_000).is_err());
         publication.receipt_hash = codec::hash(&receipt).unwrap();
         let (grant_id, device_key) = (publication.grant_id.clone(), publication.device_key.clone());
-        assert!(s.bootstrap_revoke_fenced(&host, &grant_id, &device_key, 4_000, |_| anyhow::bail!("fixture")).is_err());
+        assert!(
+            s.bootstrap_revoke_fenced(&host, &grant_id, &device_key, 4_000, |_| anyhow::bail!("fixture"), || ())
+                .is_err()
+        );
         assert!(s.bootstrap_revocation_envelope().unwrap().is_none(), "a failing hook rolls the fence back");
         let mut tombstones = 0;
         assert!(
-            s.bootstrap_revoke_fenced(&host, &grant_id, &device_key, 4_000, |tx| {
-                tombstones += 1;
-                crate::fork::workspace::bloquear_on(tx, &device_key, Some(&grant_id)).map(drop)
-            })
+            s.bootstrap_revoke_fenced(
+                &host,
+                &grant_id,
+                &device_key,
+                4_000,
+                |tx| {
+                    tombstones += 1;
+                    crate::fork::workspace::bloquear_on(tx, &device_key, Some(&grant_id)).map(drop)
+                },
+                || ()
+            )
             .unwrap()
         );
         let first = s.bootstrap_revocation_envelope().unwrap().unwrap();
         assert!(
-            s.bootstrap_revoke_fenced(&host, &grant_id, &device_key, 5_000, |_| panic!("tombstone already written"))
-                .unwrap()
+            s.bootstrap_revoke_fenced(
+                &host,
+                &grant_id,
+                &device_key,
+                5_000,
+                |_| panic!("tombstone already written"),
+                || ()
+            )
+            .unwrap()
         );
         assert_eq!(tombstones, 1);
         assert_eq!(workspace_state(&s, &device_key, &grant_id), (Some("1".into()), true));
@@ -1056,9 +1076,16 @@ mod tests {
         assert_eq!(s.bootstrap_activation_envelope(&host, 4_502).unwrap().unwrap(), renewed_wire);
         assert!(s.bootstrap_activation_envelope(&host, 4_500).is_err());
         assert!(s.device(&publication.device_key).is_some());
-        s.bootstrap_revoke_fenced(&host, &publication.grant_id, &publication.device_key, 5_000, |tx| {
-            crate::fork::workspace::bloquear_on(tx, &publication.device_key, Some(&publication.grant_id)).map(drop)
-        })
+        s.bootstrap_revoke_fenced(
+            &host,
+            &publication.grant_id,
+            &publication.device_key,
+            5_000,
+            |tx| {
+                crate::fork::workspace::bloquear_on(tx, &publication.device_key, Some(&publication.grant_id)).map(drop)
+            },
+            || (),
+        )
         .unwrap();
         assert!(s.device(&publication.device_key).is_none());
         assert_eq!(workspace_state(&s, &publication.device_key, &publication.grant_id), (Some("1".into()), true));

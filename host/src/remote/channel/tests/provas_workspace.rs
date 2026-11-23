@@ -215,3 +215,33 @@ async fn aparelho_revogado_volta_so_pelo_pareamento_por_codigo_no_fio() {
     assert!(matches!(p.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"), "o código readmite");
     assert_eq!(p.call(2, crate::fork::workspace::METHOD, json!({})).await["ok"]["workspaceEpoch"], 1);
 }
+
+/// Fila real do transporte (64) cheia de quadros já liberados pelo escritor, com um 4011 no fim.
+async fn fila_cheia() -> (mpsc::Sender<Out>, mpsc::Receiver<Out>) {
+    let (saida, fila) = mpsc::channel::<Out>(64);
+    for n in 0..63 {
+        saida.send(Out::Msg(json!({"t": "f", "marca": MARCA, "n": n}))).await.unwrap();
+    }
+    saida.send(Out::Close(close::REKEY, "subscription authorization ended")).await.unwrap();
+    assert_eq!(saida.capacity(), 0, "a fila do transporte está cheia");
+    (saida, fila)
+}
+
+#[tokio::test]
+async fn socket_direto_com_fila_cheia_so_entrega_o_terminal_depois_do_bump() {
+    let hub = temp_hub();
+    let fica = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let sai = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let (_saida, cheia) = fila_cheia().await;
+    let porta = Porta::armada(&hub, &fica);
+    assert!(hub.revoke_device(&sai).unwrap());
+    let (socket, enviados) = futures::channel::mpsc::unbounded::<Message>();
+    timeout(Duration::from_secs(5), write_socket(socket, porta.filtrar(cheia))).await.unwrap();
+    let enviados: Vec<Message> = enviados.collect().await;
+    let [Message::Text(reject), Message::Close(Some(fim))] = enviados.as_slice() else {
+        panic!("só o terminal pode sair: {enviados:?}")
+    };
+    let reject: Value = serde_json::from_str(reject.as_str()).unwrap();
+    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
+    assert_eq!(fim.code, 4003, "o 4011 enfileirado antes não sai depois do bump");
+}
