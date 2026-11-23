@@ -589,10 +589,13 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     await relay.push(["t": "presence", "online": true, "lastSeenAt": nil as Int? as Any])
     try await relay.accept()
     #expect(await waitFor(t.states()) { $0 == .ready(.relay) } == .ready(.relay))
-    await #expect(throws: MailboxError.self) {
-        async let online: Void = t.enqueue(botId: "b1", text: "x", clientNonce: "n5")
-        _ = try await relay.raw()
-        await relay.push(["t": "mbox.err", "nonce": "n5", "code": "hostOnline"])
+    #expect(try await relay.receive()["m"] as? String == "hello")
+    let onlineNonce = "n5"
+    await #expect(throws: MailboxError.hostOnline) {
+        async let online: Void = t.enqueue(botId: "b1", text: "x", clientNonce: onlineNonce)
+        let put = try await relay.raw()
+        try #require(put["t"] as? String == "mbox.put" && put["nonce"] as? String == onlineNonce)
+        await relay.push(["t": "mbox.err", "nonce": onlineNonce, "code": "hostOnline"])
         try await online
     }
     await t.shutdown()
