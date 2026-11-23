@@ -26,6 +26,8 @@ struct RootView: View {
                 EmptyState(title: "Erro de configuração", systemImage: "exclamationmark.triangle", message: message)
             } else if account.requiresLogin {
                 WelcomeView { } // Login obrigatório, inclusive após logout e com onboarding salvo.
+            } else if app.showsWorkspaceStatus {
+                ForkWorkspaceStatus(selection: app.workspaceSelection, unavailable: app.workspaceDirectoryUnavailable)
             } else if account.isConfigured && accounts.computers.isEmpty {
                 VStack(spacing: 0) {
                     HStack { Spacer(); AccountSwitcherButton() }.padding(.horizontal, 16)

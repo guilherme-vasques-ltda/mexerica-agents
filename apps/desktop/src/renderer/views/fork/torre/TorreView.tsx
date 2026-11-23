@@ -30,13 +30,14 @@ import { OQueAconteceu, type SummarySave } from './OQueAconteceu'
 import { PedidosEntreBots } from './PedidosEntreBots'
 import { TrocasDeConta } from './TrocasDeConta'
 import { PermissoesDelegadas } from './PermissoesDelegadas'
-import { RotinasCriadas } from './RotinasCriadas'
+import { RotinasCriadas, RoutineCard } from './RotinasCriadas'
 import { torreScreen } from './navigation'
 import { answerView, pendingView, questionView, responderOf, type PendingView, type QuestionView, type Responder } from './responder'
 import { TowerSession, type TowerError, type TowerSource } from './torre-session'
 import { ProjetosLive } from '../projetos/TarefasView'
 import { keepDraftsFor, QuestionDrafts, questionDrafts, submitDraft } from './rascunhos-pergunta'
 import { activityText } from '../../../lib/fork-atividade'
+import { EsperandoVoceList, type AttentionQueueItem } from './EsperandoVoceList'
 import './torre.css'
 
 export { torreScreen }
@@ -192,6 +193,9 @@ export function TorrePage(p: TorrePageProps) {
   const idioma = useIdioma()
   const snapshot = session.snapshot
   const stale = session.stale && !!snapshot
+  const queue = !stale && !session.notice && snapshot?.attention.availability === 'available' ? snapshot.attention.value : null
+  const canonicalIds = new Set(queue?.items.flatMap(({ target }) => target.entryId ? [target.entryId] : []))
+  const routinesLive = !stale && session.link === 'live' && session.events === 'live' && session.phase.kind === 'ready' && !session.notice
   const [selected, setSelected] = useState<string | null>(null)
   const bots = snapshot?.bots ?? []
   // MB-1: o que foi respondido daqui continua à vista (só nesta tela, em memória) depois que o Hub o tira da lista.
@@ -216,11 +220,6 @@ export function TorrePage(p: TorrePageProps) {
   const listed = useMemo(() => listedBots(bots), [bots])
   const groups = useMemo(() => (stale ? (listed.length ? [{ group: 'stale' as const, bots: listed }] : []) : groupBots(bots)), [bots, listed, stale])
   const uninformed = uninformedCount(bots)
-  // Com pedido entre bots listado (MB-2), o vazio calmo não diria a verdade: a seção de Times fala por si.
-  const interBotPending = snapshot?.interBotRequests.availability === 'available' && snapshot.interBotRequests.value.items.length > 0
-  // Sem a projeção de rotinas, não presumir que a seção está vazia.
-  const routinesKnownEmpty = snapshot?.routineCreations.availability === 'available'
-    && snapshot.routineCreations.value.items.length === 0 && snapshot.routineCreations.value.blocked.length === 0
   const current = listed.find((b) => b.botId === selected) ?? groups[0]?.bots[0] ?? null
   const at = snapshot ? hm(snapshot.collectedAt, idioma) : null
   const space = isolado(p.spaceName)
@@ -263,7 +262,21 @@ export function TorrePage(p: TorrePageProps) {
         <Counts bots={listed} at={stale ? at : null} />
         <div className="torre-main">
           <div className="torre-list">
-            {recent.length && responder ? (
+            <EsperandoVoceList queue={queue}
+              items={queue?.items.map((attention): AttentionQueueItem => {
+                const bot = bots.find((candidate) => candidate.botId === attention.target.botId)
+                const pending = bot && pendingOf(bot)?.find((candidate) => candidate.entryId === attention.target.entryId)
+                const question = bot && questionsOf(bot)?.find((candidate) => candidate.entryId === attention.target.entryId)
+                const routine = attention.kind === 'routine_review' && snapshot.routineCreations.availability === 'available'
+                  ? snapshot.routineCreations.value.items.find((candidate) => candidate.entryId === attention.target.entryId) : null
+                const targetOpen = attention.target.conversation && bot ? goTo(attention.target.conversation.conversationId, bot.botId) : null
+                const action = pending ? <PendingItem view={pendingView(responder?.entry(pending.conversation.conversationId, pending.entryId) ?? null, { live: !stale, personal: snapshot.spaceId === p.personalSpaceId && !!responder })} responder={responder} onOpen={targetOpen} />
+                  : question && bot ? <QuestionItem question={question} botId={bot.botId} name={bot.name} view={questionView({ live: !stale, personal: snapshot.spaceId === p.personalSpaceId && !!responder })} responder={responder} drafts={drafts} onOpen={targetOpen} />
+                  : routine ? <RoutineCard key={routine.entryRev} item={routine} hubId={snapshot.hubId} spaceId={snapshot.spaceId} live={routinesLive} onReview={p.onReviewRoutine} /> : undefined
+                return { id: attention.id, title: question || routine ? null : attention.summary, kind: attention.kind, action,
+                  project: !!attention.target.projectId, onOpen: !action ? targetOpen ?? (attention.target.projectId && p.onProjects ? p.onProjects : undefined) : undefined }
+              }) ?? []} />
+            {!queue && recent.length && responder ? (
               <section className="torre-group" aria-label={t('torre.respondido.titulo')}>
                 <h2 className="torre-group-title">{t('torre.respondido.titulo')} <span>{recent.length.toLocaleString(localeDe(idioma))} · {t('torre.respondido.nota')}</span></h2>
                 {recent.map((a) => {
@@ -273,18 +286,17 @@ export function TorrePage(p: TorrePageProps) {
                 })}
               </section>
             ) : null}
-            {groups.length === 0 && !interBotPending && routinesKnownEmpty ? <p className="torre-state" role="status">{t(stale ? 'torre.nadaUltima' : 'torre.nadaAgora')}</p> : null}
             {groups.map(({ group, bots: list }) => (
               <section key={group} className="torre-group" aria-label={group === 'stale' ? t('torre.grupo.stale', { space }) : t(`torre.grupo.${group}`)}>
                 <h2 className="torre-group-title">{group === 'stale' ? t('torre.grupo.stale', { space }) : t(`torre.grupo.${group}`)} <span>{list.length.toLocaleString(localeDe(idioma))} · {group === 'stale' ? t('torre.grupo.staleNota', { hora: at! }) : t(`torre.grupo.${group}Nota`)}</span></h2>
                 {list.map((bot) => {
-                  const items = (stale ? [] : pendingOf(bot) ?? []).map((ref) => ({
+                  const items = (stale ? [] : pendingOf(bot) ?? []).filter((ref) => !canonicalIds.has(ref.entryId)).map((ref) => ({
                     ref,
                     view: pendingView(responder?.entry(ref.conversation.conversationId, ref.entryId) ?? null, { live: !stale, personal: snapshot.spaceId === p.personalSpaceId && !!responder }),
                     open: goTo(ref.conversation.conversationId, bot.botId),
                   }))
                   // MB-1b: perguntas do bot ao dono, com o campo de resposta pelo mesmo send da conversa.
-                  const asks = (stale ? [] : questionsOf(bot) ?? []).map((q) => ({
+                  const asks = (stale ? [] : questionsOf(bot) ?? []).filter((q) => !canonicalIds.has(q.entryId)).map((q) => ({
                     q,
                     view: questionView({ live: !stale, personal: snapshot.spaceId === p.personalSpaceId && !!responder }),
                     open: goTo(q.conversation.conversationId, bot.botId),
@@ -304,9 +316,9 @@ export function TorrePage(p: TorrePageProps) {
               </section>
             ))}
             <RotinasCriadas key={JSON.stringify([snapshot.hubId, snapshot.spaceId])} snapshot={snapshot}
-              live={!stale && session.link === 'live' && session.events === 'live' && session.phase.kind === 'ready' && !session.notice}
+              live={routinesLive} canonicalIds={canonicalIds}
               onReview={p.onReviewRoutine} />
-            <PermissoesDelegadas snapshot={snapshot} live={!stale} goTo={goTo} />
+            {!queue ? <PermissoesDelegadas snapshot={snapshot} live={!stale} goTo={goTo} /> : null}
             <TrocasDeConta snapshot={snapshot} />
             <PedidosEntreBots snapshot={snapshot} personal={snapshot.spaceId === p.personalSpaceId} goTo={goTo} />
             <p className="torre-foot"><Icon name="info.circle" size={13} /> {t('torre.rodape')}</p>

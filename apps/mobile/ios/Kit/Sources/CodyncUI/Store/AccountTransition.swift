@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import Foundation
 
 /// The one way the active account changes. Signing in (password, OAuth, Apple, a finished
@@ -24,6 +25,7 @@ public final class AccountTransition {
         /// A URL back from the browser: part of the browser sign-in whose window is open, if one is;
         /// otherwise a change of its own.
         case callback
+        case workspace
     }
 
     /// Whether an account is active right now.
@@ -66,7 +68,7 @@ public final class AccountTransition {
         defer { end.finish() }
         await previous?.value
         // Read now, after the queue: the account active at this point is the one to clean up.
-        if isAccountActive(), let beforeLeaving { await beforeLeaving() }
+        if kind != .workspace, isAccountActive(), let beforeLeaving { await beforeLeaving() }
         try Task.checkCancellation()
         guard kind == .signInWithCallback else { return try await change() }
 

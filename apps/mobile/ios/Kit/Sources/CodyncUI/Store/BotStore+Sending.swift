@@ -33,6 +33,7 @@ extension BotStore {
     }
 
     func persistComposerDrafts() {
+        guard !retired else { return }
         storage.composerDrafts[computer.id] = composerDrafts.isEmpty ? nil : composerDrafts
     }
 
@@ -107,22 +108,25 @@ extension BotStore {
                          sessionId: String? = nil, link: Int) {
         Task {
             do {
-                // Safe to repeat: the computer skips a nonce it already has.
-                let e = try await withLink(link: link, replay: true) { client in
+                let e = try await withLink(link: link) { client in
                     var ids: [String]?
                     if let files = self.outgoingFiles[nonce] {
                         // A fresh upload per attempt: a retry never appends to a half-sent file.
                         ids = []
                         for file in files {
+                            guard !self.retired else { throw CancellationError() }
                             let id = UUID().uuidString
                             try await client.upload(botId: botId, id: id, name: file.name, data: file.data)
-                            Self.cacheAttachment(id, file.data)
+                            guard !self.retired else { throw CancellationError() }
+                            self.cacheAttachment(id, file.data)
                             ids?.append(id)
                         }
                     }
+                    guard !self.retired, self.linkId == link else { throw CancellationError() }
                     return try await client.send(botId: botId, text: text, clientNonce: nonce, replyTo: replyTo, attachments: ids,
                                                  pasted: pasted, sessionId: sessionId)
                 }
+                guard !retired else { return }
                 if let sessionId, e.sessionId != sessionId {
                     markLocal(nonce: nonce, botId: botId, status: "failed")
                     lastError = "O Hub gravou a mensagem em outra sessão."
@@ -132,6 +136,7 @@ extension BotStore {
                 upsert(e)
                 if let bot = bots[botId] { onSent?(bot, .delivered) }
             } catch {
+                guard !retired else { return }
                 if outgoingFiles[nonce] != nil { lastError = String(localized: "Não foi possível enviar os arquivos: \(error.localizedDescription)", bundle: .module) }
                 markLocal(nonce: nonce, botId: botId, status: "failed")
             }
@@ -143,8 +148,10 @@ extension BotStore {
         markLocal(nonce: nonce, botId: botId, status: "waiting")
         saveCache()
         Task {
+            guard !retired else { return }
             do {
                 try await remote.enqueue(botId: botId, text: text, clientNonce: nonce, replyTo: replyTo, sessionId: sessionId)
+                guard !retired else { return }
                 if let bot = bots[botId] { onSent?(bot, .queued) }
             } catch MailboxError.hostOnline {
                 // The computer is back but this link isn't yet: the message stays "Not sent" with Resend
@@ -152,7 +159,7 @@ extension BotStore {
                 markLocal(nonce: nonce, botId: botId, status: "failed")
             } catch {
                 // A dropped relay link: the message's own "Failed to send" and Resend say enough.
-                if (error as? HostError)?.isTransient != true { lastError = error.localizedDescription }
+                if !retired, (error as? HostError)?.isTransient != true { lastError = error.localizedDescription }
                 markLocal(nonce: nonce, botId: botId, status: "failed")
             }
             saveCache()
@@ -213,6 +220,7 @@ extension BotStore {
     }
 
     public func retry(_ entry: Entry) {
+        guard !retired, entries[entry.botId]?.contains(where: { $0.id == entry.id && $0.data.status == "failed" }) == true else { return }
         let files = entry.data.clientNonce.flatMap { outgoingFiles[$0] } ?? []
         guard let text = entry.data.text, !text.isEmpty || !files.isEmpty else { return }
         if let sessionId = entry.sessionId, sessionId != entry.botId, !sessionSendSupported.contains(entry.botId) {
@@ -228,19 +236,19 @@ extension BotStore {
 
     /// A sent file's bytes: on disk after the first fetch (sent files never change).
     public func attachmentData(_ file: Attachment, bot botId: String) async -> Data? {
-        guard let url = Self.attachmentCache(file.id) else { return nil }
+        guard !retired, let url = attachmentCache(file.id) else { return nil }
         if let data = try? Data(contentsOf: url) { return data }
-        guard let client = live, let data = try? await client.readUpload(botId: botId, id: file.id) else { return nil }
-        Self.cacheAttachment(file.id, data)
+        guard let client = live, let data = try? await client.readUpload(botId: botId, id: file.id), !retired else { return nil }
+        cacheAttachment(file.id, data)
         return data
     }
 
-    private static func attachmentCache(_ id: String) -> URL? {
+    private func attachmentCache(_ id: String) -> URL? {
         guard let uuid = UUID(uuidString: id) else { return nil }
-        return URL.cachesDirectory.appending(path: "codync-attachments").appending(path: uuid.uuidString)
+        return URL.cachesDirectory.appending(path: "codync-attachments-\(storage.id)").appending(path: computer.id).appending(path: uuid.uuidString)
     }
 
-    private static func cacheAttachment(_ id: String, _ data: Data) {
+    private func cacheAttachment(_ id: String, _ data: Data) {
         guard let url = attachmentCache(id) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url)

@@ -6,7 +6,7 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { formatarData, formatarNumero } from '../../../lib/fork-i18n'
 import './rotinas-criadas.css'
 
-function RoutineCard({ item, hubId, spaceId, live, onReview }: {
+export function RoutineCard({ item, hubId, spaceId, live, onReview }: {
   item: RoutineCreationReview; hubId: string; spaceId: string; live: boolean; onReview?: ReviewRoutine | null
 }) {
   const t = useT()
@@ -62,7 +62,7 @@ function RoutineCard({ item, hubId, spaceId, live, onReview }: {
 }
 
 /** Sem I/O ou regra de cota: exibe a projeção autorizada pelo Hub, inclusive quando o bot está livre. */
-export function RotinasCriadas({ snapshot, live, onReview }: { snapshot: TowerSnapshot; live: boolean; onReview?: ReviewRoutine | null }) {
+export function RotinasCriadas({ snapshot, live, onReview, canonicalIds }: { snapshot: TowerSnapshot; live: boolean; onReview?: ReviewRoutine | null; canonicalIds?: ReadonlySet<string> }) {
   const t = useT()
   const idioma = useIdioma()
   const date = (ms: number) => formatarData(idioma, ms, { dateStyle: 'short', timeStyle: 'short' })
@@ -74,7 +74,8 @@ export function RotinasCriadas({ snapshot, live, onReview }: { snapshot: TowerSn
       <p className="rotinas-unavailable"><span className="torre-pill is-plain">{t('rotinas.criadas.naoInformado')}</span> {t('rotinas.criadas.indisponivel')}</p>
     </section>
   )
-  const { items, blocked } = observed.value
+  const { blocked } = observed.value
+  const items = observed.value.items.filter((item) => !canonicalIds?.has(item.entryId))
   if (!items.length && !blocked.length) return null
   return (
     <section className="torre-group idioma-superficie" {...superficieIdioma(idioma)} aria-label={title}>
