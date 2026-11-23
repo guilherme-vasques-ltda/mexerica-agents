@@ -8,6 +8,8 @@ const MARCA: &str = "evento-em-voo-canal";
 async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
     let hub = temp_hub();
     let fica = paired_phone(&hub).await;
+    let fica_dk = crypto::b64(fica.verifying_key().as_bytes());
+    let generation = crate::fork::autoridade::Autoridade::geracao_atual(&hub.store.db.locked(), &fica_dk).unwrap();
     let sai = paired_phone(&hub).await;
     let sai_dk = crypto::b64(sai.verifying_key().as_bytes());
     let mut p = Phone::direct(&hub, fica);
@@ -21,11 +23,13 @@ async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
     assert_eq!((&recusa["err"]["status"], &recusa["err"]["code"]), (&json!(409), &json!("workspace_epoch_mismatch")));
     let contexto = p.call(3, crate::fork::workspace::METHOD, json!({"workspaceEpoch": 0})).await;
     assert_eq!(contexto["ok"]["role"], "owner");
+    assert_eq!(contexto["ok"]["grantGeneration"], generation);
 
     p.send(json!({"id": 4, "sub": "events", "b": {"since": hub.store.current_rev(), "workspaceEpoch": 0}})).await;
     let hello = p.recv().await.unwrap();
     assert_eq!((hello["id"].as_u64(), hello["ev"]["type"].as_str()), (Some(4), Some("hello")));
     assert_eq!(hello["ev"]["workspace"]["workspaceEpoch"], 0);
+    assert_eq!(hello["ev"]["workspace"]["grantGeneration"], contexto["ok"]["grantGeneration"]);
 
     // Evento produzido e ainda não entregue, revogação de outro aparelho, evento depois.
     let _ = hub.events.send(json!({"type": "usage", "usage": {"marca": MARCA}}));

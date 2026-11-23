@@ -510,14 +510,16 @@ pub(crate) struct Contexto {
     user_id: Option<String>,
     role: &'static str,
     pub(crate) workspace_epoch: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grant_generation: Option<i64>,
     capabilities: Vec<&'static str>,
 }
 
 /// O Hub decide; `capabilities` só orienta a interface. Papel único nesta fase: `owner`.
 pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Contexto> {
-    let capabilities = match caller {
-        Caller::Local => vec!["chat", "bots.manage", "devices.manage"],
-        Caller::Device { scopes, .. } => {
+    let (capabilities, grant_generation) = match caller {
+        Caller::Local => (vec!["chat", "bots.manage", "devices.manage"], None),
+        Caller::Device { scopes, autoridade, .. } => {
             let mut lista = vec![];
             if scopes.contains(&Scope::Control) {
                 lista.extend(["chat", "bots.manage"]);
@@ -525,7 +527,7 @@ pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Co
             if scopes.contains(&Scope::OwnerDevices) {
                 lista.push("devices.manage");
             }
-            lista
+            (lista, autoridade.as_ref().and_then(|a| a.geracao_capturada()))
         }
         _ => return Err(crate::api::devices::Forbidden.into()),
     };
@@ -537,6 +539,7 @@ pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Co
         user_id: retrato.dono.clone(),
         role: "owner",
         workspace_epoch: retrato.valor,
+        grant_generation,
         capabilities,
     })
 }
