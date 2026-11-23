@@ -214,6 +214,9 @@ pub(crate) async fn respond(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     if entry.data["toolKind"] == "screen_access" && entry.data["screenAccess"].is_object() {
         return crate::screen::fork_permission::respond(hub, &entry, option_id.as_deref(), origem.as_ref());
     }
+    if entry.data["restoredFrom"].is_string() {
+        return answer_restored(hub, &entry, option_id.as_deref(), refusal, origem.as_ref());
+    }
     let (reply, result) = tokio::sync::oneshot::channel();
     // CF-14: a autoridade original do pedido segue na fila até a Tx do cartão no ator.
     let cmd =
@@ -278,6 +281,52 @@ pub(crate) fn commit_original<T>(
         let entry = crate::store::Store::update_entry_on(c, id, &data, execution.as_ref())?;
         Ok((entry, extra))
     })
+}
+
+/// Pergunta restaurada depois de um reinício: nenhum motor espera por ela. A resposta nova só é registrada; aprovar
+/// não executa a ação (ela nunca rodou, o motor que pediu morreu no reinício) nem vira permissão para outro turno.
+fn answer_restored(
+    hub: &Hub,
+    entry: &Entry,
+    option_id: Option<&str>,
+    refusal: bool,
+    origem: Option<&crate::fork::donna_fixa::pedido::Origem>,
+) -> Result<Value> {
+    if refusal {
+        return cancel_unavailable(hub, entry, option_id, origem);
+    }
+    let option =
+        option_id.ok_or_else(|| anyhow!("Opção inválida: escolha uma das opções disponíveis neste cartão."))?;
+    let offered = entry.data["options"]
+        .as_array()
+        .is_some_and(|options| options.iter().any(|o| o["optionId"] == option && o["kind"] == "allow_once"));
+    if !offered {
+        bail!("Opção inválida: escolha uma das opções disponíveis neste cartão.");
+    }
+    let mut data = entry.data.clone();
+    data["status"] = json!("answered");
+    data["selected"] = json!(option);
+    let check = |c: &rusqlite::Connection| {
+        let current = crate::store::Store::entry_on(c, &entry.id)?;
+        if !current.is_some_and(|card| card.data["status"] == "pending" && card.rev == entry.rev) {
+            bail!("A revisão deste cartão mudou. Atualize a conversa antes de responder.");
+        }
+        Ok(())
+    };
+    commit_checked(hub, &entry.id, &data, None, origem, check)?
+        .ok_or_else(|| anyhow!("Não foi possível registrar a resposta. Tente novamente."))?;
+    let lane = Lane {
+        chat: entry.bot_id.clone(),
+        session: (entry.session_id != entry.bot_id).then(|| entry.session_id.clone()),
+    };
+    hub.add_entry_once(
+        &format!("{}-registrada", entry.id),
+        &lane,
+        crate::store::EntryKind::Notice,
+        entry.turn,
+        &json!({"text":"Aprovação registrada. Como o Hub reiniciou enquanto esta pergunta esperava, a ação não foi executada. Peça de novo ao bot se ainda quiser que ele a faça.","style":"info","author":entry.data["author"]}),
+    )?;
+    Ok(json!({}))
 }
 
 /// Sem ator para receber a recusa, encerra só o cartão salvo e publica a nova revisão ao app.

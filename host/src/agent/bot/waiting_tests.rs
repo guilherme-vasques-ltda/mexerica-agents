@@ -4516,3 +4516,6 @@ mod mandar_agora {
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 }
+
+#[path = "fork_pergunta_restaurada_tests.rs"]
+mod pergunta_restaurada;
