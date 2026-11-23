@@ -40,11 +40,12 @@ struct ForkAttentionPresentation: Equatable {
 
     static func coverageLabel(for source: String) -> String {
         switch source {
-        case DoctorArea.approvals.rawValue: return ForkTowerText.value("Aprovações")
-        case DoctorArea.channels.rawValue: return ForkTowerText.value("Canais")
-        case DoctorArea.mcps.rawValue: return ForkTowerText.value("Integrações")
-        case DoctorArea.routines.rawValue: return ForkTowerText.value("Rotinas")
-        case DoctorArea.delegation.rawValue: return ForkTowerText.value("Delegação")
+        case "permissions": return ForkTowerText.value("Permissões")
+        case "delegated_permissions": return ForkTowerText.value("Permissões delegadas")
+        case "proposals": return ForkTowerText.value("Propostas")
+        case "task_reviews": return ForkTowerText.value("Revisões de tarefa")
+        case "routine_reviews": return ForkTowerText.value("Revisões de rotina")
+        case "owner_questions": return ForkTowerText.value("Perguntas")
         default: return ForkTowerText.value("uma fonte")
         }
     }

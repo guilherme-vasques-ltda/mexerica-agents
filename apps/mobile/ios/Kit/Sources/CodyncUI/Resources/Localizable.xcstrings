@@ -15824,6 +15824,108 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Permissões": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissões"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Permissões delegadas": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissões delegadas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delegated permissions"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Propostas": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propostas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposals"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisões de tarefa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisões de tarefa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task reviews"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisões de rotina": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisões de rotina"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routine reviews"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Perguntas": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questions"
+          }
+        }
+      },
+      "extractionState": "manual"
     }
   },
   "version": "1.0"

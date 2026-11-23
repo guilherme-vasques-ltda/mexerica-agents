@@ -63,12 +63,12 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
 }
 
 @MainActor @Test func coverageGapsBlockNothingWaitingEvenWhenItemsAreEmpty() {
-    let gap = CoverageGap(source: DoctorArea.approvals.rawValue, code: .sourceUnavailable)
+    let gap = CoverageGap(source: "task_reviews", code: .sourceUnavailable)
     let presentation = ForkAttentionPresentation(observation: .available(value: queue(gaps: [gap])))
     #expect(presentation.phase == .waiting)
     #expect(presentation.items.isEmpty)
     #expect(presentation.coverageLabels.count == 1)
-    #expect(["Aprovações", "Approvals"].contains(presentation.coverageLabels[0]))
+    #expect(["Revisões de tarefa", "Task reviews"].contains(presentation.coverageLabels[0]))
 }
 
 @MainActor @Test func unknownCoverageSourceUsesNeutralLabelNotExternalText() {
@@ -76,6 +76,11 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     let label = ForkAttentionPresentation.coverageLabel(for: external)
     #expect(label != external)
     #expect(["uma fonte", "a source"].contains(label))
+}
+
+@MainActor @Test func knownHubCoverageSourceMapsToNativeLabel() {
+    #expect(["Permissões delegadas", "Delegated permissions"].contains(ForkAttentionPresentation.coverageLabel(for: "delegated_permissions")))
+    #expect(ForkTowerText.value("Permissões delegadas", locale: Locale(identifier: "en")) == "Delegated permissions")
 }
 
 @MainActor @Test func catalogResolvesCuratedLabelsForEnglishFromModuleBundle() {
