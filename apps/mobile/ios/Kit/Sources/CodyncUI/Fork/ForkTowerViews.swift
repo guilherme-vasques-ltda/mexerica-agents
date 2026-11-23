@@ -241,10 +241,12 @@ struct ForkWorkCardPresentation: Equatable {
 
     static func stateLabel(for state: String) -> String {
         switch state {
+        case "backlog": return ForkTowerText.value("A fazer")
         case "in_progress": return ForkTowerText.value("Em andamento")
-        case "waiting": return ForkTowerText.value("Esperando")
-        case "done": return ForkTowerText.value("Concluído")
-        case "backlog": return ForkTowerText.value("Backlog")
+        case "review": return ForkTowerText.value("Em conferência")
+        case "done": return ForkTowerText.value("Concluída")
+        case "blocked": return ForkTowerText.value("Bloqueada")
+        case "cancelled": return ForkTowerText.value("Cancelada")
         default: return ForkTowerText.value("Estado não reconhecido")
         }
     }

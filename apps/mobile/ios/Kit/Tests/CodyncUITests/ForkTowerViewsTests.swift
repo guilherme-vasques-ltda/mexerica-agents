@@ -195,6 +195,16 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     let label = ForkWorkCardPresentation.stateLabel(for: external)
     #expect(label != external)
     #expect(["Estado não reconhecido", "Unrecognized state"].contains(label))
+    #expect(["Estado não reconhecido", "Unrecognized state"].contains(ForkWorkCardPresentation.stateLabel(for: "waiting")))
+}
+
+@MainActor @Test func hubTaskStatesMapToNativeLabels() {
+    #expect(["A fazer", "To do"].contains(ForkWorkCardPresentation.stateLabel(for: "backlog")))
+    #expect(["Em conferência", "In review"].contains(ForkWorkCardPresentation.stateLabel(for: "review")))
+    #expect(["Bloqueada", "Blocked"].contains(ForkWorkCardPresentation.stateLabel(for: "blocked")))
+    #expect(["Cancelada", "Cancelled"].contains(ForkWorkCardPresentation.stateLabel(for: "cancelled")))
+    #expect(ForkTowerText.value("Em conferência", locale: Locale(identifier: "en")) == "In review")
+    #expect(ForkTowerText.value("Cancelada", locale: Locale(identifier: "en")) == "Cancelled")
 }
 
 @MainActor @Test func permissionPauseIsLinkedToAttentionItem() {
