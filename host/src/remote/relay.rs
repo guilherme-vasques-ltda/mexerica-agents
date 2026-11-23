@@ -10,9 +10,9 @@
 //! deliveries arrive one at a time for an ack (§7.8). A reconnect drops all link state.
 
 use crate::LockExt;
-use crate::api;
 use crate::api::devices;
 use crate::fork::bootstrap::sync::{Pulls, pull_state};
+use crate::fork::mailbox::{self, Failure as MailboxFailure};
 use crate::hub::Hub;
 use crate::remote::channel::{self, ChannelKind, Out, Transport};
 use crate::remote::cloud;
@@ -20,7 +20,6 @@ use crate::remote::crypto::{self, b64};
 use crate::store::DeviceSource;
 use anyhow::{Context, Result, anyhow, bail};
 use futures::{SinkExt as _, StreamExt as _};
-use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -513,15 +512,6 @@ fn signed_acl(hub: &Hub) -> Result<Value> {
 
 // MARK: mailbox (§6.4, §7.7)
 
-/// Why a queued send was refused (`mbox.ack.code`).
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum MailboxFailure {
-    Unauthorized,
-    UnknownBot,
-    Invalid,
-}
-
 /// Delivers one queued send and says how it went: `{"t":"mbox.ack","seq","ok","code"?}`.
 async fn mailbox_item(hub: &Arc<Hub>, item: &Value) -> Value {
     let seq = item["seq"].clone();
@@ -535,7 +525,7 @@ async fn mailbox_item(hub: &Arc<Hub>, item: &Value) -> Value {
 }
 
 async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
-    use MailboxFailure::{Invalid, Unauthorized, UnknownBot};
+    use MailboxFailure::{Invalid, Unauthorized};
     let from = item["from"].as_str().unwrap_or_default();
     let (_, caller) = crate::fork::autoridade::autenticar(hub, from).map_err(|_| Unauthorized)?;
     let dk = crypto::unb64_n::<32>(from).map_err(|_| Invalid)?;
@@ -545,19 +535,19 @@ async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
         .map_err(|_| Invalid)?;
     let inner: Value = serde_json::from_slice(&plain).map_err(|_| Invalid)?;
     let b = &inner["b"];
-    let fresh = inner["ts"].as_i64().is_some_and(|ts| crate::store::now_ms() - ts <= MAILBOX_MAX_AGE_MS);
-    if inner["m"] != "send" || b["clientNonce"].as_str() != Some(nonce) || !fresh {
+    let fresh = inner["ts"].as_i64().is_some_and(|ts| crate::store::now_ms().saturating_sub(ts) <= MAILBOX_MAX_AGE_MS);
+    if inner["m"] != "send" || b["clientNonce"].as_str() != Some(nonce) {
         return Err(Invalid);
     }
-    let bot = b["botId"].as_str().ok_or(Invalid)?;
-    if hub.store.bot(bot).ok().flatten().is_none_or(|r| r.deleted) {
-        return Err(UnknownBot);
-    }
-    // `send` skips a clientNonce it already has: a redelivery never runs twice.
-    api::dispatch(hub, &caller, "send", b.clone())
-        .await
-        .map(drop)
-        .map_err(|e| if e.is::<devices::Forbidden>() { Unauthorized } else { Invalid })
+    mailbox::deliver(hub, &caller, b.clone(), &plain, fresh).await.map_err(|e| {
+        if let Some(code) = e.downcast_ref::<MailboxFailure>() {
+            *code
+        } else if e.is::<devices::Forbidden>() || e.is::<crate::fork::autoridade::AutorizacaoEncerrada>() {
+            Unauthorized
+        } else {
+            Invalid
+        }
+    })
 }
 
 #[cfg(test)]
@@ -753,6 +743,103 @@ mod tests {
             .unwrap();
         let sig = crypto::sign(device, &[b"codync/mbox/v1".as_slice(), &cid, &epk, &ct].concat());
         b64(&[epk.as_slice(), &sig, &ct].concat())
+    }
+
+    fn generation(hub: &Hub, key: &str) -> i64 {
+        crate::fork::autoridade::Autoridade::geracao_atual(&hub.store.db.locked(), key).unwrap()
+    }
+
+    #[tokio::test]
+    async fn mailbox_checks_epoch_generation_and_replays_only_with_original_proof() {
+        use crate::fork::{
+            sessoes::call_tests::interleave,
+            workspace::{self, Motivo},
+        };
+        let (hub, _dir) = temp_hub();
+        let cwd = temp_cwd();
+        let cfg = serde_json::from_value(
+            json!({"id":"", "name":"Mailbox", "cwd":cwd.path(), "backend":"custom", "command":"true"}),
+        )
+        .unwrap();
+        let bot = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
+        let phone = SigningKey::from_bytes(&crypto::random());
+        let other = SigningKey::from_bytes(&crypto::random());
+        let key = b64(phone.verifying_key().as_bytes());
+        let mut device = Device {
+            key: key.clone(),
+            name: "Phone".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        };
+        hub.store.put_device(&device).unwrap();
+        let initial = generation(&hub, &key);
+        device.key = b64(other.verifying_key().as_bytes());
+        hub.store.put_device(&device).unwrap();
+        let ts = now_ms();
+        let item = |signer: &SigningKey, nonce: &str, epoch: Option<u64>, generation: Option<i64>| {
+            let mut b = json!({"botId":bot, "text":"hello", "clientNonce":nonce});
+            if let Some(epoch) = epoch {
+                b["workspaceEpoch"] = json!(epoch);
+            }
+            if let Some(generation) = generation {
+                b["grantGeneration"] = json!(generation);
+            }
+            let plain = json!({"m":"send", "b":b, "ts":ts}).to_string();
+            json!({"seq":1, "from":b64(signer.verifying_key().as_bytes()), "nonce":nonce,
+                "d":seal_mailbox(&hub, signer, nonce, plain.as_bytes())})
+        };
+        for (nonce, epoch, grant) in [("no-epoch", None, Some(initial)), ("no-grant", Some(0), None)] {
+            let ack = mailbox_item(&hub, &item(&phone, nonce, epoch, grant)).await;
+            assert_eq!(ack, json!({"t":"mbox.ack", "seq":1, "ok":false, "code":"epochRequired"}));
+            assert!(hub.store.find_by_nonce(&bot, nonce).is_none());
+        }
+        let original = item(&phone, "committed", Some(0), Some(initial));
+        assert_eq!(mailbox_item(&hub, &original).await["ok"], true);
+        workspace::bump(&hub, Motivo::RoleChanged).unwrap();
+        let ack = mailbox_item(&hub, &original).await;
+        assert_eq!(ack["ok"], true, "lost ack after a same-scope bump");
+        let stale = item(&phone, "stale-epoch", Some(0), Some(initial));
+        assert_eq!(mailbox_item(&hub, &stale).await["code"], "epochChanged");
+        let mismatched = item(&other, "committed", Some(0), Some(initial));
+        assert_eq!(
+            mailbox_item(&hub, &mismatched).await,
+            json!({"t":"mbox.ack", "seq":1, "ok":false, "code":"unknown"})
+        );
+
+        device.key = key.clone();
+        hub.store.put_device(&device).unwrap();
+        let current = generation(&hub, &key);
+        assert_ne!(current, initial);
+        let stale = item(&phone, "stale-grant", Some(1), Some(initial));
+        assert_eq!(mailbox_item(&hub, &stale).await["code"], "grantChanged");
+        assert_eq!(mailbox_item(&hub, &original).await, json!({"t":"mbox.ack", "seq":1, "ok":false, "code":"unknown"}));
+        let translated = item(&phone, "committed", Some(1), Some(current));
+        assert_eq!(mailbox_item(&hub, &translated).await["code"], "unknown");
+
+        let bump_hub = hub.clone();
+        let reached = interleave(&hub.store, "mailbox_commit", move || {
+            std::thread::spawn(move || workspace::bump(&bump_hub, Motivo::RoleChanged).unwrap()).join().unwrap();
+        });
+        let racing = item(&phone, "racing", Some(1), Some(current));
+        assert_eq!(mailbox_item(&hub, &racing).await["code"], "epochChanged");
+        assert!(reached.load(Ordering::Acquire), "bump committed after preparation and before the send transaction");
+
+        let scoped = item(&phone, "previous-scope", Some(2), Some(current));
+        assert_eq!(mailbox_item(&hub, &scoped).await["ok"], true);
+        cloud::update_status(&hub, |s| {
+            s.owner = Some(cloud::Owner { user_id: "owner.example.invalid".into(), email: None });
+        });
+        assert_eq!(mailbox_item(&hub, &scoped).await["code"], "unknown");
+
+        let history = hub.store.history(&bot, i64::MAX, 50).unwrap();
+        let nonces: Vec<_> = history.iter().filter_map(|e| e.data["clientNonce"].as_str()).collect();
+        assert_eq!(nonces.len(), 2);
+        assert!(nonces.contains(&"committed") && nonces.contains(&"previous-scope"));
     }
 
     async fn wait_for(f: &Fake, pred: impl Fn(&[Value]) -> bool) {
@@ -1105,7 +1192,8 @@ mod tests {
         let bot = hub.create_bot(cfg).unwrap();
         let bot_id = bot["id"].as_str().unwrap().to_owned();
         let nonce = "3F2504E0-4F89-11D3-9A0C-0305E82C3301";
-        let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce}, "ts": now_ms()});
+        let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce,
+            "workspaceEpoch": 0, "grantGeneration": generation(&hub, &dk)}, "ts": now_ms()});
         let blob = seal_mailbox(&hub, &phone, nonce, inner.to_string().as_bytes());
         let stranger = SigningKey::from_bytes(&crypto::random());
         *fake.script.lock().unwrap() = vec![
@@ -1254,7 +1342,8 @@ mod tests {
         .unwrap();
         let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
         let nonce = "9A1B2C3D-4F89-11D3-9A0C-0305E82C3301";
-        let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce}, "ts": now_ms()});
+        let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce,
+            "workspaceEpoch": 0, "grantGeneration": generation(&hub, &dk)}, "ts": now_ms()});
         let blob = seal_mailbox(&hub, &phone, nonce, inner.to_string().as_bytes());
         *fake.script.lock().unwrap() =
             vec![json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000})];

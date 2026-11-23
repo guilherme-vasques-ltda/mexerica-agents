@@ -297,6 +297,7 @@ pub(super) async fn call(
             json!({"data": base64::engine::general_purpose::STANDARD.encode(data), "size": size})
         }
         "send" => {
+            let mailbox = crate::fork::mailbox::current();
             let bot = str_arg(&b, "botId")?;
             let text = b["text"].as_str().unwrap_or_default().trim();
             let uploads: Vec<&str> =
@@ -318,7 +319,9 @@ pub(super) async fn call(
             let intent = crate::store::send_intent(text, &attachments, quoted, session);
             // Reenvio com a mesma chave sai antes de conferir sessão e citação, que podem ter mudado desde o original.
             let repeated = json!({"clientNonce": nonce, "intent": intent});
-            if let Some(e) = crate::store::Store::replay_on(&hub.store.db.locked(), bot, &repeated)? {
+            if mailbox.is_none()
+                && let Some(e) = crate::store::Store::replay_on(&hub.store.db.locked(), bot, &repeated)?
+            {
                 return Ok(ControlFlow::Break(json!({"entry": e})));
             }
             // Open: a conversa só de texto reserva o turno antes de gravar a mensagem.
@@ -332,8 +335,6 @@ pub(super) async fn call(
                 Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
                 None => None,
             };
-            let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
-            let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
@@ -364,9 +365,21 @@ pub(super) async fn call(
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let e = match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
-                crate::fork::owner_question::Human::New(e) => e,
-                crate::fork::owner_question::Human::Replayed(e) => return Ok(ControlFlow::Break(json!({"entry": e}))),
+            let (lane, turn, e) = if let Some(delivery) = mailbox {
+                let Some(new) = crate::fork::owner_question::add_mailbox_message(hub, &delivery, bot, &b, &data)?
+                else {
+                    return Ok(ControlFlow::Break(json!({})));
+                };
+                new
+            } else {
+                let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
+                let turn = hub.store.alloc_turn(bot)?;
+                match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
+                    crate::fork::owner_question::Human::New(e) => (lane, turn, e),
+                    crate::fork::owner_question::Human::Replayed(e) => {
+                        return Ok(ControlFlow::Break(json!({"entry": e})));
+                    }
+                }
             };
             crate::fork::sessoes::api::title_first_message(hub, &lane, text);
             // Before the turn starts, so its reply lands unread.

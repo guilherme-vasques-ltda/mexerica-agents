@@ -274,7 +274,7 @@ fn avancar(e: &mut Epoca, valor: u64, motivo: Motivo) -> bool {
     true
 }
 
-fn epoch_on(c: &Connection) -> Result<u64> {
+pub(crate) fn epoch_on(c: &Connection) -> Result<u64> {
     let raw: Option<String> = c.query_row("SELECT v FROM kv WHERE k=?1", [EPOCH_KEY], |r| r.get(0)).optional()?;
     Ok(raw.map(|v| v.parse()).transpose()?.unwrap_or(0))
 }
@@ -535,7 +535,7 @@ pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Co
         schema: 1,
         hub_id: hub.host_id.clone(),
         kind: "personal",
-        workspace_id: workspace_id(retrato),
+        workspace_id: workspace_id(retrato.dono.as_deref()),
         user_id: retrato.dono.clone(),
         role: "owner",
         workspace_epoch: retrato.valor,
@@ -544,8 +544,8 @@ pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Co
     })
 }
 
-fn workspace_id(retrato: &Epoca) -> String {
-    retrato.dono.as_deref().map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}"))
+pub(super) fn workspace_id(dono: Option<&str>) -> String {
+    dono.map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}"))
 }
 
 pub(crate) fn call(hub: &Hub, caller: &Caller) -> Result<Value> {
@@ -604,7 +604,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
     retrato: &Epoca,
     eventos: S,
 ) -> impl Stream<Item = Value> + Send + 'static + use<S> {
-    let (epoch, workspace_id) = (retrato.valor, workspace_id(retrato));
+    let (epoch, workspace_id) = (retrato.valor, workspace_id(retrato.dono.as_deref()));
     let terminal = move |e: &Epoca| {
         json!({
             "type": e.motivo().evento(),

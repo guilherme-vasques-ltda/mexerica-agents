@@ -77,6 +77,7 @@ pub(crate) mod instrucao_geral;
 pub(crate) mod lider_canal;
 #[allow(dead_code, reason = "Base de permissões publicada antes do painel e do transporte; sem runtime novo.")]
 pub(crate) mod mail_manager;
+pub(crate) mod mailbox;
 pub(crate) mod memory;
 pub(crate) mod memory_auto;
 pub(crate) mod memory_learning;
@@ -146,6 +147,7 @@ pub(crate) mod runtime_audiencia;
 pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
     workspace::migrate(&store.db.locked())?;
+    mailbox::migrate(&store.db.locked())?;
     instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;
