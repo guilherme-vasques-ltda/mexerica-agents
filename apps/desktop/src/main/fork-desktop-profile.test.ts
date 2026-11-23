@@ -93,7 +93,7 @@ test('profile storage refuses a linked root and unverified file owner', { skip: 
     fs.mkdirSync(root, { mode: 0o755 })
     fs.writeFileSync(file, '[]', { mode: 0o600 })
     const stat = fs.lstatSync
-    t.mock.method(fs, 'lstatSync', (path) => {
+    t.mock.method(fs, 'lstatSync', (path: fs.PathLike) => {
       const meta = stat(path)
       if (path === file) meta.uid++
       return meta
@@ -115,8 +115,8 @@ test('sync errors before and after publication have different results', { skip: 
     let failDirectory = false
     let publications = 0
     const rename = fs.renameSync
-    t.mock.method(fs, 'renameSync', (src, dst) => { publications++; rename(src, dst) })
-    t.mock.method(fs, 'fsyncSync', (fd) => {
+    t.mock.method(fs, 'renameSync', (src: fs.PathLike, dst: fs.PathLike) => { publications++; rename(src, dst) })
+    t.mock.method(fs, 'fsyncSync', (fd: number) => {
       if (fs.fstatSync(fd).isDirectory() === failDirectory) throw new Error('synthetic sync failure')
       realSync(fd)
     })
@@ -137,7 +137,7 @@ test('first publication reconciles a directory sync error without replacing the 
     const store = new DesktopSSHProfiles(file)
     assert.equal(store.load(), null)
     const sync = fs.fsyncSync
-    t.mock.method(fs, 'fsyncSync', (fd) => {
+    t.mock.method(fs, 'fsyncSync', (fd: number) => {
       if (fs.fstatSync(fd).isDirectory()) throw new Error('synthetic sync failure')
       sync(fd)
     })
@@ -159,12 +159,12 @@ test('synthetic macOS ancestors allow sticky root and refuse writable or linked 
     const lstat = fs.lstatSync
     const fstat = fs.fstatSync
     const sharedInode = lstat(shared).ino
-    t.mock.method(fs, 'lstatSync', (path) => {
+    t.mock.method(fs, 'lstatSync', (path: fs.PathLike) => {
       const meta = lstat(path)
       if (path === shared) meta.uid = 0
       return meta
     })
-    t.mock.method(fs, 'fstatSync', (fd) => {
+    t.mock.method(fs, 'fstatSync', (fd: number) => {
       const meta = fstat(fd)
       if (meta.ino === sharedInode) meta.uid = 0
       return meta

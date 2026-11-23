@@ -41,7 +41,7 @@ test('a link, regular object or non-absence error does not permit root preparati
     assert.equal(fs.readFileSync(root, 'utf8'), 'fixture')
     fs.unlinkSync(root)
     const lstat = fs.lstatSync
-    t.mock.method(fs, 'lstatSync', (path) => {
+    t.mock.method(fs, 'lstatSync', (path: fs.PathLike) => {
       if (path === root) throw Object.assign(new Error('fixture'), { code: 'EACCES' })
       return lstat(path)
     })
