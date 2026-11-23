@@ -215,8 +215,8 @@ enum Sub {
     Serve {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
-        /// Address to bind. Defaults to all interfaces so the phone can reach it over Tailscale/LAN
-        /// (`127.0.0.1` with `--only-this-mac`).
+        /// Address to bind (no port). Defaults to `127.0.0.1` (this computer only); an explicit
+        /// address listens beyond it and is logged as a warning. Prefer the SSH tunnel or relay.
         #[arg(long)]
         bind: Option<String>,
         /// Hub local do Mac: só aceita `--bind 127.0.0.1` e não inicia o relay de saída.
@@ -906,11 +906,16 @@ async fn serve(
         personal.as_ref().map(fork::personal_bootstrap::provisioning::Prepared::listener).transpose()?;
     let _instance_lock = instance_lock;
     tokio::task::spawn_blocking(service::capture_binary_identity).await??;
-    let listener =
-        tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
+    let listener = tokio::net::TcpListener::bind((bind, port))
+        .await
+        .with_context(|| format!("binding the host to port {port}"))?;
     let bound_port = listener.local_addr()?.port();
+    let external = service::mac_local::listens_beyond_loopback([listener.local_addr()?]);
     cap_log();
     configure_logging();
+    if external {
+        tracing::warn!("{}", service::mac_local::EXTERNAL_LISTEN_WARNING);
+    }
     agent::harness::install_docs().await;
     chat::context::load_harness_context().await;
     let (opened, fixed_identity, personal) = match personal {
@@ -948,7 +953,7 @@ async fn serve(
     hub.start()?;
     analytics::host_started(&hub, service::started_by_service());
     background::start(&hub, scope);
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "donnabot-host listening");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), port, loopback = !external, "donnabot-host listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
     // SSE/WebSocket clients can stay connected forever. Stop agents immediately
@@ -1455,9 +1460,18 @@ mod mac_local_cli_tests {
         assert!(resolve_serve(bind.as_deref(), only, true).is_err());
         let (bind, only) = parse_serve(&["--port", "19422", "--bind", "0.0.0.0"]);
         assert!(resolve_serve(bind.as_deref(), only, true).is_err());
-        // Remoto/terminal mantém o padrão herdado.
+        // Remoto/terminal: loopback por padrão; a rede só com --bind explícito.
         let (bind, scope) = resolve_serve(None, false, false).unwrap();
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::Network));
+        let (bind, only) = parse_serve(&["--port", "19422", "--bind", "0.0.0.0"]);
+        let (bind, scope) = resolve_serve(bind.as_deref(), only, false).unwrap();
         assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+        // `--bind ""` chega como valor informado, não como omitido, e é recusado.
+        for empty in ["", "  "] {
+            let (bind, only) = parse_serve(&["--port", "19422", "--bind", empty]);
+            assert_eq!(bind.as_deref(), Some(empty));
+            assert!(resolve_serve(bind.as_deref(), only, false).is_err());
+        }
     }
 
     #[test]

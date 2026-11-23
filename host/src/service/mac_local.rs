@@ -18,7 +18,7 @@ pub const LOOPBACK: &str = "127.0.0.1";
 /// Quem pode falar com este Hub.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
-    /// Hub remoto ou instalado à mão: comportamento herdado (rede e relay de saída).
+    /// Hub remoto ou instalado à mão: relay de saída ligado; escuta na rede só com `--bind` explícito.
     Network,
     /// "Só neste Mac": nada escuta fora de `127.0.0.1` e nada conecta ao relay.
     ThisMacOnly,
@@ -29,10 +29,19 @@ impl Scope {
         if only_this_mac { Self::ThisMacOnly } else { Self::Network }
     }
 
-    /// Falha fechada: o modo "só neste Mac" recusa qualquer endereço que não seja loopback.
+    /// Falha fechada: `--bind` vazio, com espaço ou com porta (`nome:porta`, `ip:porta`,
+    /// `[ipv6]:porta`) é recusado antes de resolver o nome (no Windows um nome vazio resolve
+    /// para os endereços das placas de rede); o modo "só neste Mac" recusa qualquer endereço
+    /// que não seja loopback. As mensagens não repetem o valor recebido.
     pub fn check_bind(self, bind: &str) -> Result<()> {
+        if bind.is_empty() || bind.chars().any(char::is_whitespace) {
+            bail!("--bind vazio ou com espaço; omita a opção para escutar só em {LOOPBACK}");
+        }
+        if bind.contains(':') && !is_ip_literal(bind) {
+            bail!("--bind recebe só o endereço, sem porta; a porta vai em --port");
+        }
         if self == Self::ThisMacOnly && bind != LOOPBACK {
-            bail!("o modo \"só neste Mac\" só aceita --bind {LOOPBACK}, recebeu {bind}");
+            bail!("o modo \"só neste Mac\" só aceita --bind {LOOPBACK}");
         }
         Ok(())
     }
@@ -43,23 +52,41 @@ impl Scope {
     }
 }
 
+/// IP literal, inclusive IPv6 com zona de escopo (link-local `…%eth0`); a zona não pode conter
+/// `:`, então `…%eth0:80` continua sendo endereço com porta.
+fn is_ip_literal(bind: &str) -> bool {
+    match bind.split_once('%') {
+        Some((addr, zone)) => addr.parse::<std::net::Ipv6Addr>().is_ok() && !zone.is_empty() && !zone.contains(':'),
+        None => bind.parse::<std::net::IpAddr>().is_ok(),
+    }
+}
+
+/// Aviso fixo (sem o endereço) quando o Hub escuta fora deste computador.
+pub const EXTERNAL_LISTEN_WARNING: &str =
+    "listening beyond this computer because of an explicit --bind; omit it to stay on 127.0.0.1";
+
+/// Se algum endereço efetivo (já resolvido) sai do loopback; IPv4 mapeado em IPv6 conta pelo IPv4.
+pub fn listens_beyond_loopback(addrs: impl IntoIterator<Item = std::net::SocketAddr>) -> bool {
+    addrs.into_iter().any(|addr| !addr.ip().to_canonical().is_loopback())
+}
+
 /// Resolve `serve`: endereço e escopo finais. Falha fechada: rodando como serviço do Mac
 /// (launchd com o label do Mexerica) sem `--only-this-mac`, ou seja, com um plist herdado,
-/// o Hub recusa subir em vez de cair em `0.0.0.0` + relay. Sem `--bind`, `--only-this-mac`
-/// escuta só em loopback; sem a flag vale o padrão herdado (`0.0.0.0`).
+/// o Hub recusa subir em vez de cair na rede + relay. Sem `--bind`, o Hub escuta só em
+/// loopback em qualquer modo; escutar fora deste computador exige `--bind` explícito.
 pub fn resolve_serve(bind: Option<&str>, only_this_mac: bool, mac_service: bool) -> Result<(String, Scope)> {
     if mac_service && !only_this_mac {
         bail!("o serviço do Mac só sobe com --only-this-mac (plist herdado?); reinstale o Hub pelo app");
     }
     let scope = Scope::from_flag(only_this_mac);
-    let bind = bind.unwrap_or(if only_this_mac { LOOPBACK } else { "0.0.0.0" });
+    let bind = bind.unwrap_or(LOOPBACK);
     scope.check_bind(bind)?;
     Ok((bind.to_owned(), scope))
 }
 
 /// Resolve `serve` com a interface Web local (`--web-dir`): falha fechada em qualquer
 /// endereço que não seja o loopback, nunca sobe o relay de saída e ignora o plist herdado
-/// só quando o modo é explícito — sem `has_web`, o comportamento é o herdado.
+/// só quando o modo é explícito — sem `has_web`, vale `resolve_serve`.
 pub fn resolve_serve_with_web(
     bind: Option<&str>,
     only_this_mac: bool,
@@ -73,7 +100,7 @@ pub fn resolve_serve_with_web(
         bail!("o serviço do Mac só sobe com --only-this-mac (plist herdado?); reinstale o Hub pelo app");
     }
     if let Some(bind) = bind {
-        anyhow::ensure!(bind == LOOPBACK, "a interface Web local só aceita --bind {LOOPBACK}, recebeu {bind}");
+        anyhow::ensure!(bind == LOOPBACK, "a interface Web local só aceita --bind {LOOPBACK}");
     }
     Ok((LOOPBACK.to_owned(), Scope::ThisMacOnly))
 }
@@ -254,7 +281,69 @@ mod tests {
         assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
         assert!(resolve_serve(Some("0.0.0.0"), true, true).is_err());
         let (bind, scope) = resolve_serve(None, false, false).unwrap();
-        assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::Network));
+    }
+
+    #[test]
+    fn default_bind_is_loopback_and_explicit_bind_is_kept() {
+        for (only_this_mac, mac_service) in [(false, false), (true, false), (true, true)] {
+            let (bind, _) = resolve_serve(None, only_this_mac, mac_service).unwrap();
+            assert_eq!(bind, LOOPBACK, "{only_this_mac} {mac_service}");
+        }
+        for explicit in
+            ["0.0.0.0", "::", "192.0.2.10", "127.0.0.1", "2001:db8::1%eth0", "2001:db8::1%2", "hub.example.invalid"]
+        {
+            let (bind, scope) = resolve_serve(Some(explicit), false, false).unwrap();
+            assert_eq!((bind.as_str(), scope), (explicit, Scope::Network));
+        }
+    }
+
+    #[test]
+    fn empty_or_port_bind_is_refused_while_omitted_bind_is_loopback() {
+        assert_eq!(resolve_serve(None, false, false).unwrap().0, LOOPBACK);
+        let bads = [
+            "",
+            " ",
+            "\t",
+            " \n ",
+            " 0.0.0.0",
+            "127.0.0.1:8080",
+            "0.0.0.0:19422",
+            "[::1]:19422",
+            "[::1]",
+            "localhost:19422",
+            "hub.example.invalid:80",
+            "2001:db8::1%eth0:80",
+            "2001:db8::1%",
+        ];
+        for bad in bads {
+            let message = Scope::Network.check_bind(bad).unwrap_err().to_string();
+            assert!(bad.trim().is_empty() || !message.contains(bad.trim()), "{message}");
+            for (only_this_mac, mac_service) in [(false, false), (true, false), (true, true)] {
+                assert!(resolve_serve(Some(bad), only_this_mac, mac_service).is_err(), "{bad:?}");
+            }
+            assert!(resolve_serve_with_web(Some(bad), false, false, true).is_err(), "{bad:?}");
+            assert!(resolve_serve_with_web(Some(bad), false, false, false).is_err(), "{bad:?}");
+            assert!(Scope::Network.check_bind(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn warning_decision_uses_the_effective_address() {
+        let addr = |s: &str| s.parse::<std::net::SocketAddr>().unwrap();
+        for local in ["127.0.0.1:19422", "127.0.0.2:1", "[::1]:19422", "[::ffff:127.0.0.1]:19422"] {
+            assert!(!listens_beyond_loopback([addr(local)]), "{local}");
+        }
+        for external in
+            ["0.0.0.0:19422", "[::]:19422", "192.0.2.10:19422", "[2001:db8::1]:19422", "[::ffff:192.0.2.10]:1"]
+        {
+            assert!(listens_beyond_loopback([addr(external)]), "{external}");
+        }
+        // Nome que resolve para vários endereços: basta um externo para avisar.
+        assert!(listens_beyond_loopback([addr("127.0.0.1:1"), addr("192.0.2.10:1")]));
+        assert!(!listens_beyond_loopback([addr("127.0.0.1:1"), addr("[::1]:1")]));
+        assert!(!listens_beyond_loopback([]));
+        assert!(!EXTERNAL_LISTEN_WARNING.contains("0.0.0.0") && !EXTERNAL_LISTEN_WARNING.contains("192."));
     }
 
     #[test]
@@ -268,9 +357,9 @@ mod tests {
         // Com --bind 127.0.0.1 explícito segue válido.
         let (bind, scope) = resolve_serve_with_web(Some("127.0.0.1"), true, true, true).unwrap();
         assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
-        // Sem a interface Web, o comportamento é 100% herdado.
+        // Sem a interface Web, vale `resolve_serve`: loopback por padrão, relay segue ligado.
         let (bind, scope) = resolve_serve_with_web(None, false, false, false).unwrap();
-        assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::Network));
         let (bind, scope) = resolve_serve_with_web(None, true, false, false).unwrap();
         assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
         assert!(resolve_serve_with_web(None, false, true, false).is_err());
