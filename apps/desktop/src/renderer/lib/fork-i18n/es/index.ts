@@ -84,6 +84,7 @@ import { textos as mailInbox } from './mailInbox.ts'
 import { textos as sistemaBarra } from './sistema/barra.ts'
 import { textos as sistemaConversa } from './sistema/conversa.ts'
 import { textos as webLogin } from './web/login.ts'
+import { textos as computadoresMapa } from './computadores/mapa.ts'
 
 // Composição estática, um módulo por área (registro.ts). O gate confere cada parte antes do agregado:
 // chave duplicada entre partes, chave fora do prefixo do módulo, módulo esquecido ou não registrado.
@@ -173,4 +174,5 @@ export const es: Catalogo = {
   ...sistemaBarra,
   ...sistemaConversa,
   ...webLogin,
+  ...computadoresMapa,
 }
