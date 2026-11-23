@@ -2,7 +2,7 @@
 import { useCallback, useState } from 'react'
 import { forkFeatures } from '@shared/fork-features'
 import type { AccountApproval, PairingInfo } from '@shared/models'
-import { DONNABOT_HUB_HOST, newSSHProfile, type SSHProfile } from '@shared/ssh'
+import { DONNABOT_HUB_HOST, newSSHProfile, SSH_STORAGE_STATUS, type SSHProfile } from '@shared/ssh'
 import { Button, CardSection, IconButton, Switch } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader, Sheet, useDismiss } from '../../components/Overlay'
@@ -23,7 +23,7 @@ import { capacidades } from '@shared/fork-capacidades'
 import { SSHRow } from './SSHRow'
 import { ChavesNoHubFolha } from '../fork/voz/VozPage'
 import { superficieIdioma, useIdioma, useT, type Tradutor } from '../../lib/fork-i18n/estado'
-import { textoSSH } from '@shared/ssh-startup'
+import { textoDoStatus, textoSSH } from '@shared/ssh-startup'
 import { isolado, ltr } from '@shared/bidi'
 
 /**
@@ -42,6 +42,7 @@ export function ComputersView() {
   const idioma = useIdioma()
   const account = useAccount()
   const sshState = useSSH()
+  const sshStorage = sshState.state.status[SSH_STORAGE_STATUS]
   const cap = capacidades(window.codync)
   const cloud = useModel(app.cloud)
   const [editing, setEditing] = useState<{ profile: SSHProfile; isNew: boolean } | null>(null)
@@ -65,7 +66,8 @@ export function ComputersView() {
               if (typeof port === 'number') setEditing({ profile: newSSHProfile(port), isNew: true })
             }} />
           </SectionHeader>
-          <Reveal show={sshState.state.profiles.length === 0}>
+          {sshStorage?.kind === 'failed' ? <Text as="div" size="callout" tone="attention">{textoDoStatus(sshStorage, idioma)}</Text> : null}
+          <Reveal show={!sshStorage && sshState.state.profiles.length === 0}>
             <Text as="div" size="callout" tone="secondary">
               {isMac ? t('ajustes.comp.sshVazioMac') : t('ajustes.comp.sshVazio')}
             </Text>

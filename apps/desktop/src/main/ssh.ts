@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { writePrivateFile } from '../shared/fork-private-files'
 import { identity, isRc } from './environment'
+import { DesktopSSHProfiles } from './fork-desktop-profile'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { CapturedSSHLocal, LocalCloudIntent } from '../shared/fork-cloud-local'
@@ -9,7 +10,7 @@ import { createServer } from 'node:net'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow } from 'electron'
-import { type SSHAttachment, type SSHMotivo, type SSHProfile, type SSHState, type SSHStatus } from '../shared/ssh'
+import { SSH_STORAGE_STATUS, type SSHAttachment, type SSHMotivo, type SSHProfile, type SSHState, type SSHStatus } from '../shared/ssh'
 import { dataDir } from './host-controller'
 import { hubSSHAlias } from './fork-ssh-semente/hub-alias'
 import { seedProfiles, sshAliasExists } from './fork-ssh-semente/semente'
@@ -327,21 +328,37 @@ class SSHComputers {
   private connectedAt = new Map<string, number>()
   /** Host key lines waiting for the user's "Trust and connect". */
   private pendingKeys = new Map<string, string[]>()
+  private readonly profileStore: DesktopSSHProfiles | undefined
+  private storageBlocked: 'ajustes.ssh.erro.perfisLeitura' | 'ajustes.ssh.erro.perfisDurabilidadeBloqueada' | undefined
 
   constructor(private file: string, private emit: (s: SSHState) => void, private canConnect: () => boolean) {
+    this.profileStore = process.platform === 'win32' ? undefined : new DesktopSSHProfiles(file)
     try {
-      this.profiles = JSON.parse(readFileSync(file, 'utf8')) as SSHProfile[]
-    } catch {
-      if (isRc) return
-      // D76/D293: na primeira abertura, o Hub como computador SSH (editável ou removível em Computadores),
-      // só se o alias existir no ~/.ssh/config desta máquina. Só no Donnabot: um build Dev nunca aponta para o Hub.
-      const alias = hubSSHAlias(process.env)
-      const seed = seedProfiles({ main: identity.environment === 'main', profilesFileExists: existsSync(file),
-        aliasExists: () => sshAliasExists(alias, home), alias, port: identity.port })
-      if (seed) {
-        this.profiles = seed
-        this.persist()
+      if (!this.profileStore) {
+        this.profiles = JSON.parse(readFileSync(file, 'utf8')) as SSHProfile[]
+        return
       }
+      const profiles = this.profileStore.load(!isRc)
+      if (profiles !== null) {
+        this.profiles = profiles
+        return
+      }
+    } catch {
+      if (this.profileStore) {
+        this.storageBlocked = 'ajustes.ssh.erro.perfisLeitura'
+        this.status.set(SSH_STORAGE_STATUS, { kind: 'failed', ...falha(this.storageBlocked) })
+        return
+      }
+    }
+    if (isRc) return
+    // D76/D293: na primeira abertura, o Hub como computador SSH (editável ou removível em Computadores),
+    // só se o alias existir no ~/.ssh/config desta máquina. Só no Donnabot: um build Dev nunca aponta para o Hub.
+    const alias = hubSSHAlias(process.env)
+    const seed = seedProfiles({ main: identity.environment === 'main', profilesFileExists: this.profileStore ? false : existsSync(file),
+      aliasExists: () => sshAliasExists(alias, home), alias, port: identity.port })
+    if (seed && !this.persist(seed, seed[0]?.id)) {
+      this.profiles = seed
+      if (!this.profileStore) this.persistWindows()
     }
   }
 
@@ -415,7 +432,7 @@ class SSHComputers {
   }
 
   async connectAll() {
-    if (!this.canConnect()) return
+    if (this.storageBlocked || !this.canConnect()) return
     // Before this copy has tunnels of its own, so only leftovers from an earlier copy match.
     if (this.tunnels.size === 0 && this.tasks.size === 0) await killOrphanTunnels()
     for (const p of this.profiles) if (!this.tasks.has(p.id) && !this.tunnels.has(p.id)) this.connect(p.id)
@@ -427,28 +444,30 @@ class SSHComputers {
     const p = old && (old.host !== profile.host || old.port !== profile.port) ? { ...profile, computerId: null } : profile
     const problem = validate(p)
     if (problem) return problem
-    if (old) {
-      this.disconnect(p.id)
-      this.profiles = this.profiles.map((x) => (x.id === p.id ? p : x))
-    } else {
-      this.profiles = [...this.profiles, p]
-    }
-    this.persist()
+    const next = old ? this.profiles.map((x) => (x.id === p.id ? p : x)) : [...this.profiles, p]
+    const storage = this.persist(next, p.id)
+    if (storage) return motivoSSH(storage).motivo
+    if (old) this.disconnect(p.id)
+    this.profiles = next
+    if (!this.profileStore) this.persistWindows()
     this.connect(p.id)
     return null
   }
 
   remove(id: string) {
+    if (this.profileStore && id === SSH_STORAGE_STATUS) return
+    const next = this.profiles.filter((p) => p.id !== id)
+    if (this.persist(next, id)) return
     this.disconnect(id)
-    this.profiles = this.profiles.filter((p) => p.id !== id)
+    this.profiles = next
     this.status.delete(id)
     this.backoff.delete(id)
-    this.persist()
+    if (!this.profileStore) this.persistWindows()
     this.changed()
   }
 
   connect(id: string) {
-    if (!this.canConnect()) return
+    if (this.storageBlocked || (this.profileStore && id === SSH_STORAGE_STATUS) || !this.canConnect()) return
     const old = this.tasks.get(id)
     if (old) old.cancelled = true
     const token: Token = { cancelled: false }
@@ -457,12 +476,14 @@ class SSHComputers {
   }
 
   /** Ends the tunnel for this session (bots on it go away until the next connect). */
-  disconnect(id: string) {
+  disconnect(id: string, notify = true) {
+    if (this.profileStore && id === SSH_STORAGE_STATUS) return
     const task = this.tasks.get(id)
     if (task) task.cancelled = true
     this.tasks.delete(id)
-    this.stopTunnel(id)
-    this.setStatus(id, { kind: 'idle' })
+    this.stopTunnel(id, notify)
+    this.status.set(id, { kind: 'idle' })
+    if (notify) this.changed()
   }
 
   disconnectAll() {
@@ -477,6 +498,7 @@ class SSHComputers {
 
   /** The user compared the fingerprints: remember the key in Codync's known_hosts and go on. */
   async trustHostKey(id: string) {
+    if (this.storageBlocked) return
     const lines = this.pendingKeys.get(id)
     if (this.status.get(id)?.kind !== 'confirmHostKey' || !lines) return
     try {
@@ -578,7 +600,10 @@ class SSHComputers {
     if (profile.computerId && profile.computerId !== info.computerId) {
       return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.outroComputador', { host: profile.host }) })
     }
-    if (!profile.computerId) this.remember(id, info.computerId, info.name)
+    if (!profile.computerId) {
+      const storage = this.remember(id, info.computerId, info.name)
+      if (storage) return stop({ kind: 'failed', ...falha(storage) })
+    }
     if (!info.running) return { kind: 'retry', ...falha('ajustes.ssh.erro.parado', { nome: info.name, comando: COMANDO_INSTALAR_HOST }) }
 
     // Tunnel: a free loopback port each attempt; a port taken in between just makes ssh exit (ExitOnForwardFailure).
@@ -691,22 +716,65 @@ class SSHComputers {
     })
   }
 
-  private stopTunnel(id: string) {
+  private stopTunnel(id: string, notify = true) {
     const child = this.tunnels.get(id)
     this.tunnels.delete(id)
     child?.kill()
     this.connectedAt.delete(id)
-    if (this.attachments.delete(id)) this.changed()
+    if (this.attachments.delete(id) && notify) this.changed()
   }
 
   private remember(id: string, computerId: string, name: string) {
-    this.profiles = this.profiles.map((p) => (p.id === id ? { ...p, computerId, name: p.name || name } : p))
-    this.persist()
+    const next = this.profiles.map((p) => (p.id === id ? { ...p, computerId, name: p.name || name } : p))
+    const storage = this.persist(next, id)
+    if (storage) return storage
+    this.profiles = next
+    if (!this.profileStore) this.persistWindows()
     this.changed()
+    return null
   }
 
-  private persist() {
+  private persistWindows() {
     void fs.mkdir(app.getPath('userData'), { recursive: true }).then(() => fs.writeFile(this.file, JSON.stringify(this.profiles)))
+  }
+
+  private persist(next: SSHProfile[], affectedId: string | undefined) {
+    if (!this.profileStore) return null
+    if (this.storageBlocked) return this.storageBlocked
+    const outcome = this.profileStore.save(next)
+    if (outcome.kind === 'saved') {
+      this.status.delete(SSH_STORAGE_STATUS)
+      return null
+    }
+    if (outcome.kind === 'uncertain') {
+      if (outcome.profiles) {
+        const visible = new Map(outcome.profiles.map((profile) => [profile.id, profile]))
+        for (const prior of this.profiles) {
+          const current = visible.get(prior.id)
+          if (!current || current.computerId !== prior.computerId || current.host !== prior.host ||
+              current.port !== prior.port || current.remotePort !== prior.remotePort || current.user !== prior.user ||
+              current.identityFile !== prior.identityFile) {
+            this.disconnect(prior.id, false)
+            this.pendingKeys.delete(prior.id)
+          }
+        }
+        const prior = new Map(this.profiles.map((profile) => [profile.id, profile]))
+        this.profiles = outcome.profiles.map((profile) => {
+          const old = prior.get(profile.id)
+          return old && JSON.stringify(old) === JSON.stringify(profile) ? old : profile
+        })
+      } else {
+        this.storageBlocked = 'ajustes.ssh.erro.perfisDurabilidadeBloqueada'
+        if (affectedId !== undefined) {
+          this.disconnect(affectedId, false)
+          this.pendingKeys.delete(affectedId)
+        }
+      }
+    }
+    const problem = outcome.kind === 'refused' ? 'ajustes.ssh.erro.perfisGravacao' : outcome.profiles ?
+      'ajustes.ssh.erro.perfisDurabilidade' : 'ajustes.ssh.erro.perfisDurabilidadeBloqueada'
+    this.setStatus(SSH_STORAGE_STATUS, { kind: 'failed', ...falha(problem) })
+    return problem
   }
 }
 
