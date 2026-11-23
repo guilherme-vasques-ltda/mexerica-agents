@@ -73,7 +73,11 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             }
             json!({})
         }
-        "accessRequests" => json!({"requests": hub.cloud.requests_json()}),
+        // O código do pedido é o gesto humano: só o app deste computador ainda o recebe (compara o que a pessoa digita).
+        "accessRequests" => json!({"requests": match caller {
+            Caller::Local => hub.cloud.requests_json(),
+            _ => hub.cloud.requests_json_sem_codigo(),
+        }}),
         "decideAccessRequest" => {
             if b.get("deciderDeviceKey").is_some() || b.get("approvedScopes").is_some() {
                 bail!("decision authority is derived from the caller");
@@ -81,8 +85,9 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             let approve = b["approve"].as_bool().ok_or_else(|| anyhow!("`approve` is required"))?;
             let id = str_arg(&b, "requestId")?;
             let expected = if approve {
+                // Mensagem fixa: o erro do serde ecoaria parte do que foi enviado (inclusive o código).
                 let value: crate::fork::enrollment::approval::Expected =
-                    serde_json::from_value(b["expect"].clone()).context("valid `expect` is required")?;
+                    serde_json::from_value(b["expect"].clone()).map_err(|_| anyhow!("valid `expect` is required"))?;
                 if !value.valid() {
                     anyhow::bail!("valid `expect` is required");
                 }

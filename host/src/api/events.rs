@@ -151,27 +151,43 @@ pub fn scoped_events_stream_at(
     let guard = Arc::new(matches!(client, Some("ios" | "android")).then(|| PhoneClientGuard::new(hub.clone())));
     let event_hub = hub.clone();
     let tower_caller = Arc::new(crate::fork::control_tower::caller_copy(caller));
-    let tail = live.filter_map(move |msg| {
-        let event_hub = event_hub.clone();
-        let space = space.clone();
-        let tower_caller = tower_caller.clone();
-        let _keep = guard.clone();
-        async move {
-            match msg {
-                Ok(v) if v["type"] == crate::fork::projetos::EVENT => {
-                    crate::fork::projetos::event(&event_hub, &tower_caller, &space, &v)
-                }
-                Ok(v) if v["type"] == crate::fork::control_tower::EVENT => {
-                    crate::fork::control_tower::event(&event_hub, &tower_caller, &space, &v)
-                }
-                Ok(v) if v["type"] == "times" && !times_owner => None,
-                Ok(v) if v["type"] == "whatsappChanged" && !times_owner => None,
-                Ok(v) if !local && v["type"].as_str().is_some_and(|t| LOCAL_EVENTS.contains(&t)) => None,
-                Ok(v) => crate::fork::spaces::filter_event(&event_hub, &space, v),
-                // Lagged: tell the client to resync from its last rev.
-                Err(_) => Some(json!({"type": "resync"})),
+    let tail = live.flat_map(move |msg| {
+        let _keep = &guard;
+        let canonical_project_signal = msg.as_ref().is_ok_and(|v| {
+            v["type"] == crate::fork::projetos::EVENT && v.as_object().is_some_and(|obj| obj.len() == 3)
+        });
+        let projected = match msg {
+            Ok(v) if v["type"] == crate::fork::projetos::EVENT => {
+                crate::fork::projetos::event(&event_hub, &tower_caller, &space, &v)
             }
-        }
+            Ok(v) if v["type"] == crate::fork::control_tower::EVENT => {
+                crate::fork::control_tower::event(&event_hub, &tower_caller, &space, &v)
+            }
+            Ok(v) if v["type"] == "times" && !times_owner => None,
+            Ok(v) if v["type"] == "whatsappChanged" && !times_owner => None,
+            Ok(v) if !local && v["type"].as_str().is_some_and(|t| LOCAL_EVENTS.contains(&t)) => None,
+            Ok(v) => crate::fork::spaces::filter_event(&event_hub, &space, v),
+            // Lagged: tell the client to resync from its last rev.
+            Err(_) => Some(json!({"type": "resync"})),
+        };
+        let attention = projected.as_ref().and_then(|v| {
+            if v["type"] == crate::fork::projetos::EVENT && !canonical_project_signal {
+                return None;
+            }
+            crate::fork::control_tower::attention_signal(v)
+        });
+        let hub = event_hub.clone();
+        let caller = tower_caller.clone();
+        let space = space.clone();
+        stream::iter(projected.into_iter().map(Ok).chain(attention.into_iter().flatten().map(Err))).filter_map(
+            move |event| {
+                let next = match event {
+                    Ok(value) => Some(value),
+                    Err(kind) => crate::fork::control_tower::attention_hint(&hub, &caller, &space, kind),
+                };
+                std::future::ready(next)
+            },
+        )
     });
     Ok(crate::fork::workspace::cortar(hub, &retrato, head.chain(tail)))
 }

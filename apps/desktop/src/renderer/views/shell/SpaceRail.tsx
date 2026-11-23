@@ -118,7 +118,7 @@ export function SpaceRail(props: RailActions) {
       <span className="space-rail-sep" aria-hidden />
       {/* VG-02 (98A): Mission Board, acima de Rotinas, no Hub e space da faixa. `torre-open` recebe o foco ao fechar. */}
       {spaceAllows(active, 'projects')
-        ? <TorreRailButton store={props.torreStore ?? null} inPessoal active={torreOpen} onOpen={() => torreScreen.show(null, spaces?.computerId ?? null)} /> : null}
+        ? <TorreRailButton store={props.torreStore ?? null} spaceId={active} active={torreOpen} onOpen={() => torreScreen.show(active, spaces?.computerId ?? null)} /> : null}
       {/* `rc-open`: closing Rotinas brings focus back here (rotinas-central/navigation.ts). */}
       {spaceAllows(active, 'routines') ? <button className="space-rail-button rc-open" title={t('navegacao.barra.faixa.rotinas')} aria-label={t('navegacao.barra.faixa.rotinas')} aria-current={routinesOpen && !timesOpen && !torreOpen ? 'page' : undefined} onClick={() => { timesScreen.close(false); settingsScreen.close(false); routinesScreen.show() }}>
         <Icon name="calendar" size={RAIL_ICON} weight="light" />

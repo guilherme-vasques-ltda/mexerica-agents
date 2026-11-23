@@ -64,7 +64,9 @@ test('fotografia antiga, offline ou callback ausente não oferecem ações utili
   }
   assert.doesNotMatch(render({ items: [item], blocked: [] }, { phase: 'moved' }), /Cuidar das plantas|>Manter</)
   assert.match(render({ items: [{ ...item, status: 'paused' }], blocked: [] }), /Manter não reativa/)
-  assert.match(render({ items: [], blocked: [] }), /Nada precisa de você agora/)
+  const olderHub = render({ items: [], blocked: [] })
+  assert.match(olderHub, /Não foi possível consultar a fila/)
+  assert.doesNotMatch(olderHub, /Nada esperando você agora/)
   const malformed = render({ items: [{ ...item, status: 'desconhecido' }], blocked: [] })
   assert.match(malformed, /O computador não informou as rotinas/)
   assert.doesNotMatch(malformed, /Nada precisa de você agora/)

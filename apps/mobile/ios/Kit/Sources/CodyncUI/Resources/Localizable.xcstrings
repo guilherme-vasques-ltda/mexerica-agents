@@ -14210,6 +14210,22 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Hub indisponível": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub indisponível"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub unavailable"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

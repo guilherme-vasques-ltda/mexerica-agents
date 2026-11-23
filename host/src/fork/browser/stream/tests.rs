@@ -35,6 +35,7 @@ fn input(sequence: u64) -> Input {
 #[test]
 fn cliente_lento_prioridade_e_desconexao() {
     let mut s = Stream::new("s".into(), "a".into(), true);
+    s.enable_test_input_consumer();
     assert!(s.offer(frame(1, "a", 0)));
     assert!(s.offer(frame(2, "a", 0)));
     assert_eq!(s.rates(), (65, 14));
@@ -55,6 +56,7 @@ fn capacidade_dono_e_revogacao() {
     let mut old = Stream::new("s".into(), "a".into(), false);
     assert!(!old.offer(frame(1, "a", 0)));
     let mut s = Stream::new("s".into(), "a".into(), true);
+    s.enable_test_input_consumer();
     assert!(s.offer(frame(1, "a", 0)));
     assert!(s.next_frame(&Owner, "outro").is_none());
     assert!(s.next_frame(&Owner, "dono").is_some());
@@ -63,6 +65,7 @@ fn capacidade_dono_e_revogacao() {
 #[test]
 fn troca_target_e_epoca() {
     let mut s = Stream::new("s".into(), "a".into(), true);
+    s.enable_test_input_consumer();
     assert!(s.offer(frame(1, "a", 0)));
     assert!(s.next_frame(&Owner, "dono").is_some());
     assert_eq!(s.set_controller(Controller::Person), Some(1));
