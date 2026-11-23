@@ -16,9 +16,7 @@ use crate::LockExt;
 use crate::api;
 use crate::api::devices::{self, Caller, RejectCode};
 use crate::fork::autoridade;
-use crate::fork::browser::stream::{
-    AcceptedInput as BrowserInputAccepted, Stream as BrowserStream, canal as browser_canal,
-};
+use crate::fork::browser::stream::{Stream as BrowserStream, canal as browser_canal};
 use crate::hub::Hub;
 use crate::remote::crypto::{self, FrameError, Opener, Sealer};
 use crate::store::{Device, DeviceSource, Scope, now_ms};
@@ -486,8 +484,7 @@ impl Drop for Online {
 /// Posse do stream de quadros deste canal; ao cair, a sessão é desregistrada.
 struct BrowserConn {
     estado: Arc<Mutex<BrowserStream>>,
-    entradas: Arc<Mutex<std::collections::VecDeque<BrowserInputAccepted>>>,
-    autoridade: browser_canal::AutoridadeCanal,
+    autoridade: Arc<browser_canal::AutoridadeCanal>,
     _guarda: browser_canal::GuardaSessao,
 }
 
@@ -639,16 +636,10 @@ impl Channel {
         Ok(())
     }
 
-    /// Entradas executadas saem antes da imagem; quadro só com autoridade atual.
+    /// Não antecipa a imagem enquanto houver intenção pendente de entrada.
     async fn flush_browser(&self) {
         let Some(conn) = &self.browser else { return };
-        let frame = {
-            let mut estado = conn.estado.locked();
-            while let Some(entrada) = estado.next_input(&conn.autoridade, &self.key) {
-                conn.entradas.locked().push_back(entrada);
-            }
-            estado.next_frame(&conn.autoridade, &self.key)
-        };
+        let frame = conn.estado.locked().next_frame(&*conn.autoridade, &self.key);
         if let Some(frame) = frame
             && let Ok(bytes) = browser_canal::codificar(&frame)
         {
@@ -663,23 +654,22 @@ impl Channel {
                     self.send(err(id, 400, "browser_scope_unavailable")).await;
                     return;
                 };
-                let autoridade = browser_canal::AutoridadeCanal::nova(
+                let autoridade = Arc::new(browser_canal::AutoridadeCanal::nova(
                     self.hub.clone(),
                     (*self.caller).clone(),
                     escopo,
                     sessao.clone(),
-                );
+                ));
                 if !autoridade.autorizada() {
                     self.send(err(id, 403, "browser_scope_unavailable")).await;
                     return;
                 }
                 let estado = Arc::new(Mutex::new(BrowserStream::new(sessao.clone(), target, self.quadros)));
-                let entradas = Arc::new(Mutex::new(std::collections::VecDeque::new()));
-                let Some(guarda) = browser_canal::registrar(&sessao, estado.clone(), entradas.clone()) else {
+                let Some(guarda) = browser_canal::registrar(&sessao, estado.clone(), autoridade.clone()) else {
                     self.send(err(id, 403, "browser_scope_unavailable")).await;
                     return;
                 };
-                self.browser = Some(BrowserConn { estado, entradas, autoridade, _guarda: guarda });
+                self.browser = Some(BrowserConn { estado, autoridade, _guarda: guarda });
                 self.send(json!({"id": id, "ok": {"subscribed": true, "frames": self.quadros, "session": sessao}}))
                     .await;
             }
@@ -689,7 +679,7 @@ impl Channel {
                     return;
                 };
                 let aceita = browser_canal::analisar_entrada(b)
-                    .is_some_and(|entrada| conn.estado.locked().accept_input(&conn.autoridade, &self.key, &entrada));
+                    .is_some_and(|entrada| conn.estado.locked().accept_input(&*conn.autoridade, &self.key, &entrada));
                 self.send(json!({"id": id, "ok": {"accepted": aceita, "sequence": b["sequence"]}})).await;
             }
             "browserStreamAck" => {
