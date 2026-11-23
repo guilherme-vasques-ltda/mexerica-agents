@@ -1,8 +1,11 @@
 //! Persistência e regras das propostas de subtarefas: a proposta pendente não
 //! cria tarefa nem agenda; a decisão do dono cria as tarefas raiz, o histórico
 //! do Projeto e as intenções de início — tudo numa transação só.
-use crate::fork::sessoes::{ExecutionRef, bindings};
 use crate::fork::tarefas::db::Outcome;
+use crate::fork::{
+    projetos::delegacao_meta,
+    sessoes::{ExecutionRef, bindings},
+};
 use crate::{LockExt, hub::Hub, store::now_ms};
 use anyhow::{Result, anyhow, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -442,6 +445,8 @@ fn decide(c: &Connection, hub: &str, body: Value) -> Result<(Value, bool)> {
     ensure!(project["state"].as_str() == Some("active"), "proposal_invalid: Projeto arquivado.");
     let mut tasks: Vec<Value> = serde_json::from_str(&tasks_raw)?;
     ensure!(tasks.len() + included <= TASKS_LIMIT, "projects_limit: máximo de 100 tarefas.");
+    let scope = (hub, space, p.project_id.as_str());
+    delegacao_meta::require_capacity(c, scope, &tasks, None, included)?;
     let roster = crate::fork::projetos::store::bots(c, space)?;
     for item in items.iter().filter(|i| i.included) {
         if let Some(bot) = &item.assignee_bot_id {
@@ -462,6 +467,7 @@ fn decide(c: &Connection, hub: &str, body: Value) -> Result<(Value, bool)> {
             "title": item.title, "description": item.description, "acceptance": item.acceptance,
             "evidence": "", "state": "backlog",
         }));
+        delegacao_meta::admit(c, scope, &task_id, now, Some(&p.bot_id))?;
         crate::fork::projetos::store::history_as(
             c,
             (hub, space, p.project_id.as_str()),

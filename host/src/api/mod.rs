@@ -155,6 +155,12 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if method == crate::fork::control_tower::ATTENTION_METHOD {
         return crate::fork::control_tower::attention_call(hub, caller, b).await;
     }
+    if method == crate::fork::torre_visoes::METHOD {
+        return crate::fork::torre_visoes::call(hub, caller, b).await;
+    }
+    if crate::fork::governanca::METHODS.contains(&method) {
+        return crate::fork::governanca::call(hub, caller, method, b).await;
+    }
     // Projetos conserva hubId no DTO e recusa outros contextos sem oráculo de Space.
     if crate::fork::projetos::METHODS.contains(&method) {
         return crate::fork::projetos::call(hub, caller, method, b).await;

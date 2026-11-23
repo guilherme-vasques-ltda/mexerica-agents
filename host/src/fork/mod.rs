@@ -62,6 +62,7 @@ pub(crate) mod extensoes_em_todos;
 pub(crate) mod fallback_contas;
 pub(crate) mod funcao;
 pub(crate) mod genui;
+pub(crate) mod governanca;
 #[cfg(target_os = "linux")]
 pub(crate) mod guarda_atualizacao;
 pub(crate) mod harness_guidance;
@@ -126,6 +127,7 @@ pub(crate) mod terminal_login;
 pub(crate) mod test_support;
 pub(crate) mod teto;
 pub(crate) mod times;
+pub(crate) mod torre_visoes;
 pub(crate) mod usage_limits;
 pub(crate) mod uso_historico;
 pub(crate) mod whatsapp;
@@ -151,6 +153,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     onde_roda::store::migrate(&store.db.locked())?;
     times::migrate(&store.db.locked())?;
     projetos::migrate(&store.db.locked())?;
+    governanca::migrate(&store.db.locked())?;
     tarefas::migrate(&store.db.locked())?;
     tarefas_runtime::migrate(&store.db.locked())?;
     propostas::migrate(&store.db.locked())?;

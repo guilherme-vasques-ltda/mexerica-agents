@@ -4,9 +4,10 @@
 //! ou outras frentes adicionarem são preservados. Metadados de tarefa
 //! (`donna_task_meta`) nunca são tocados aqui.
 use crate::LockExt;
+use crate::fork::projetos::delegacao_meta::{self, OriginKind};
 use crate::fork::sessoes::{ExecutionRef, bindings};
 use crate::hub::Hub;
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -89,7 +90,7 @@ fn roster(c: &Connection, space: &str) -> Result<Vec<(String, String)>> {
     Ok(result)
 }
 
-fn reports_to(c: &Connection, space: &str, bot: &str) -> Result<Option<String>> {
+pub(crate) fn reports_to(c: &Connection, space: &str, bot: &str) -> Result<Option<String>> {
     let v: Option<Option<String>> = c
         .query_row(
             "SELECT reports_to_bot_id FROM donna_bot_org WHERE space_id=?1 AND bot_id=?2",
@@ -347,6 +348,18 @@ pub(crate) fn update(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Valu
         &loaded.tasks,
         &loaded.tasks[pos],
     )?;
+    let current_state = field(&loaded.tasks[pos], "state");
+    let new_state = args["state"].as_str();
+    let changes_assignment = args.get("assigneeBotId").is_some_and(|id| id != &loaded.tasks[pos]["assigneeBotId"]);
+    if changes_assignment
+        || new_state == Some("cancelled")
+        || (matches!(current_state, "in_progress" | "review") && matches!(new_state, Some("backlog" | "blocked")))
+    {
+        let origin = delegacao_meta::origin(&tx, (&hub.host_id, &actor.space, project_id), task_id)
+            .context("direct_owner_order_protected: origem da tarefa indisponível.")?;
+        ensure!(origin != OriginKind::OwnerDirect, "direct_owner_order_protected: só o dono pode alterar esta ordem.");
+    }
+    ensure!(!changes_assignment, "task_forbidden: apenas o usuário pode reatribuir uma tarefa.");
     ensure!(field(&loaded.tasks[pos], "state") != "cancelled", "task_forbidden: subtarefa cancelada.");
     // Trava de aceite humano: tarefa concluída só o usuário altera ou reabre —
     // nenhum bot (responsável, supervisor, coordenador) escreve nela.
@@ -644,6 +657,8 @@ pub(crate) fn create_child(hub: &Hub, bot: &str, execution: &ExecutionRef, args:
         }
     }
     ensure!(field(&loaded.tasks[pos], "state") != "cancelled", "task_forbidden: subtarefa cancelada.");
+    let scope = (hub.host_id.as_str(), actor.space.as_str(), project_id);
+    delegacao_meta::require_capacity(&tx, scope, &loaded.tasks, Some(parent_id), 1)?;
     // Mesma régua do validate() do Projeto: self + ancestrais ≤ MAX_DEPTH.
     let child_depth = depth_of(&loaded.tasks, parent_id) + 1;
     ensure!(child_depth < MAX_DEPTH, "task_limit: máximo de três níveis.");
@@ -670,6 +685,7 @@ pub(crate) fn create_child(hub: &Hub, bot: &str, execution: &ExecutionRef, args:
     };
     history(&tx, &hub.host_id, &actor.space, project_id, now, &author, "task_created", &id, &summary)?;
     write_project(&tx, &hub.host_id, &actor.space, &mut loaded, now)?;
+    delegacao_meta::admit(&tx, scope, &id, now, Some(&actor.id))?;
     if !request_id.is_empty() {
         tx.execute(
             "INSERT INTO donna_task_requests(hub_id,space_id,request_id,payload,project_id,task_id) VALUES(?1,?2,?3,?4,?5,?6)",
