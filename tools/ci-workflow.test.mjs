@@ -60,6 +60,11 @@ test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de
   assert.equal(fixtures.status, 0, fixtures.stderr || String(fixtures.error));
 });
 
+test('Open Code Review: classificação de status do Review diff roda a fixture focal', () => {
+  const focal = spawnSync('python3', ['-B', fileURLToPath(new URL('./ci-code-review-status.test.py', import.meta.url))], { encoding: 'utf8' });
+  assert.equal(focal.status, 0, focal.stderr || String(focal.error));
+});
+
 test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fora', () => {
   assert.ok(!/[^\x00-\x7F]/.test(ci), 'ci.yml deve ser ASCII');
   assert.match(ci, /^on:\n  pull_request:\n    types: \[[a-z_, ]+\]\n\n/m);
