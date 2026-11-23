@@ -155,7 +155,7 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delive
             if first && delivery.skips(&member.id) {
                 continue;
             }
-            let shown = room(hub, lane, 0, 1, upto)?.last().map_or(0, |e| e.seq);
+            let shown = visible(hub, lane, 0, 1, upto)?.last().map_or(0, |e| e.seq);
             let prompt = member_prompt(hub, &group, &members, member, lane, upto)?;
             let (reply, answer) = oneshot::channel();
             let turn = GroupTurn { lane: lane.clone(), prompt, shown, epoch, reply };
@@ -216,7 +216,7 @@ fn members(hub: &Hub, group: &BotConfig) -> Vec<BotConfig> {
 }
 
 /// The room as members see it: messages held for the owner's review stay out, and a resumed message is the newest.
-fn room(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) -> Result<Vec<Entry>> {
+fn visible(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) -> Result<Vec<Entry>> {
     let mut rows = hub.store.messages_after(lane, after, limit)?;
     rows.retain(|e| upto.is_none_or(|upto| e.seq <= upto) && e.data[crate::fork::grupo_entrega::REVIEW] != true);
     Ok(rows)
@@ -224,7 +224,7 @@ fn room(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) -> Re
 
 /// The lane's messages since the user last wrote there, that message included.
 fn since_last_user_message(hub: &Hub, lane: &Lane, upto: Option<i64>) -> Result<Vec<Entry>> {
-    let recent = room(hub, lane, 0, HISTORY_LINES, upto)?;
+    let recent = visible(hub, lane, 0, HISTORY_LINES, upto)?;
     let start = recent.iter().rposition(|e| e.kind == EntryKind::User.as_str()).unwrap_or(0);
     Ok(recent[start..].to_vec())
 }
@@ -308,7 +308,7 @@ fn member_prompt(
 
     let seen = hub.store.last_spoke(lane, &me.id);
     let mut lines: Vec<String> = vec![];
-    for e in room(hub, lane, seen, HISTORY_LINES, upto)? {
+    for e in visible(hub, lane, seen, HISTORY_LINES, upto)? {
         lines.push(line(hub, group, &e, me));
     }
     if lines.is_empty() {
