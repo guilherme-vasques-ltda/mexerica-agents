@@ -302,7 +302,7 @@ export interface CodyncBridge {
   }
   /** Nível 1 de atualizações: só avisa e abre a página da release; nunca baixa nem instala. */
   releaseNotice: {
-    state(): Promise<ReleaseNoticeState>
+    state(): Promise<ReleaseNoticeState | null>
     /** Procurar atualização (manual): respeita o cooldown curto e mostra erro quando falha. */
     check(): Promise<ReleaseNoticeState>
     dismiss(): Promise<ReleaseNoticeState>
