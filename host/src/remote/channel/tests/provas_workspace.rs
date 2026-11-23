@@ -285,3 +285,56 @@ async fn socket_direto_com_fila_cheia_so_entrega_o_terminal_depois_do_bump() {
     assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
     assert_eq!(fim.code, 4003, "o 4011 enfileirado antes não sai depois do bump");
 }
+
+#[tokio::test]
+async fn porta_entrega_o_terminal_da_revogacao_confirmada_com_o_dono_retido() {
+    let hub = temp_hub();
+    let fica = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let sai = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    crate::remote::cloud::update_status(&hub, |s| {
+        s.owner = Some(crate::remote::cloud::Owner { user_id: "user_a.example.invalid".into(), email: None });
+    });
+    let (entrada, rx) = mpsc::channel(8);
+    let mut saida = Box::pin(Porta::armada(&hub, &fica).filtrar(rx));
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "CREATE TEMP TRIGGER dono_nao_grava BEFORE UPDATE ON main.kv WHEN NEW.k='fork.workspace.owner_seen'
+             BEGIN SELECT RAISE(ABORT, 'falha de gravação de prova'); END;",
+        )
+        .unwrap();
+    crate::remote::cloud::update_status(&hub, |s| {
+        s.owner = Some(crate::remote::cloud::Owner { user_id: "user_b.example.invalid".into(), email: None });
+    });
+    entrada.send(Out::Msg(json!({"t": "f", "marca": MARCA}))).await.unwrap();
+    assert!(timeout(Duration::from_millis(100), saida.next()).await.is_err(), "dono retido: nada sai");
+
+    assert!(hub.revoke_device(&sai).unwrap());
+    assert!(hub.workspace.retrato().pendente(), "a retenção do dono continua");
+    let Some(Out::Msg(reject)) = timeout(Duration::from_secs(5), saida.next()).await.unwrap() else {
+        panic!("sem terminal com o epoch já avançado")
+    };
+    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
+    assert!(matches!(saida.next().await, Some(Out::Close(4003, _))));
+    assert!(saida.next().await.is_none());
+    hub.store.db.locked().execute_batch("DROP TRIGGER dono_nao_grava").unwrap();
+}
+
+#[tokio::test]
+async fn assinatura_sem_a_classe_recebe_403_antes_do_epoch() {
+    let hub = temp_hub();
+    let chave = paired_phone(&hub).await;
+    let dk = crypto::b64(chave.verifying_key().as_bytes());
+    let mut aparelho = hub.store.device(&dk).unwrap();
+    aparelho.scopes = vec![Scope::OwnerDevices];
+    hub.store.put_device(&aparelho).unwrap();
+    let mut p = Phone::direct(&hub, chave);
+    assert!(matches!(p.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    for (id, epoch) in [(1, 9), (2, 0)] {
+        p.send(json!({"id": id, "sub": "events", "b": {"since": 0, "workspaceEpoch": epoch}})).await;
+        let recusa = p.recv().await.unwrap();
+        assert_eq!((recusa["id"].as_u64(), &recusa["err"]["status"]), (Some(id), &json!(403)), "{recusa}");
+        assert!(recusa["err"]["code"].is_null(), "sem a classe, o epoch não é conferido: {recusa}");
+    }
+}

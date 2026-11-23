@@ -8,6 +8,7 @@ use crate::{
     LockExt,
     api::{GroupError, devices::Caller},
     hub::Hub,
+    remote::cloud::CloudStatus,
     store::{Scope, Store, now_ms},
 };
 use anyhow::Result;
@@ -91,8 +92,15 @@ impl Epoca {
 pub(crate) struct Sinal {
     retrato: watch::Sender<Epoca>,
     marcas: AtomicU64,
-    /// Marca do dono que a nuvem informou e não foi gravado: segura a saída até uma observação gravar.
-    trava_dono: std::sync::Mutex<Option<u64>>,
+    /// Retenção do dono recebido e ainda não gravado: armada sob o lock do status Cloud antes de a
+    /// troca ficar visível, e solta só depois de gravar.
+    trava_dono: std::sync::Mutex<Option<TravaDono>>,
+}
+
+struct TravaDono {
+    id: u64,
+    /// Uma gravação já falhou com a troca visível no status recebido: só um epoch novo gravado solta.
+    sem_gravar: bool,
 }
 
 /// Marca pendente de um commit. Ao sair do escopo (fim normal, erro ou panic), decide pela
@@ -103,8 +111,14 @@ pub(crate) struct Marca<'a> {
     id: u64,
     epoch: u64,
     motivo: Motivo,
-    dono: Option<String>,
+    dono: Dono,
     fase: Fase,
+}
+
+/// O que o commit faz com o dono publicado, no mesmo envio do número.
+enum Dono {
+    Mantem,
+    Passa(Option<String>),
 }
 
 #[derive(Clone, Copy)]
@@ -144,14 +158,17 @@ impl Drop for Marca<'_> {
                 tracing::error!(epoch, "commit do workspaceEpoch sem desfecho conhecido; a saída segue retida");
             }
             Fase::Commitado => {
-                let dono = self.dono.take();
+                let dono = std::mem::replace(&mut self.dono, Dono::Mantem);
                 self.sinal.retrato.send_if_modified(|e| {
                     let propria = soltar(e, id);
                     let subiu = avancar(e, epoch, motivo);
-                    let trocou = dono.is_some() && e.dono != dono;
-                    if trocou {
-                        e.dono = dono;
-                    }
+                    let trocou = match dono {
+                        Dono::Passa(novo) if e.dono != novo => {
+                            e.dono = novo;
+                            true
+                        }
+                        _ => false,
+                    };
                     propria || subiu || trocou
                 });
                 tracing::info!(epoch, ?motivo, "workspaceEpoch subiu");
@@ -186,35 +203,47 @@ impl Sinal {
     }
 
     /// Marca pendente do commit que vai gravar `epoch` (e, se houver, o dono novo).
-    fn marcar(&self, epoch: u64, motivo: Motivo, dono: Option<&str>) -> Marca<'_> {
+    fn marcar(&self, epoch: u64, motivo: Motivo, dono: Dono) -> Marca<'_> {
         let id = self.marcas.fetch_add(1, Ordering::Relaxed);
         self.retrato.send_modify(|e| e.pendentes.push(id));
-        Marca { sinal: self, id, epoch, motivo, dono: dono.map(str::to_owned), fase: Fase::SemCommit }
+        Marca { sinal: self, id, epoch, motivo, dono, fase: Fase::SemCommit }
     }
 
     /// Marca pendente fora de um commit, para provas do transporte.
     #[cfg(test)]
     pub(crate) fn marcar_para_prova(&self) -> Marca<'_> {
-        self.marcar(self.atual(), Motivo::DeviceRevoked, None)
+        self.marcar(self.atual(), Motivo::DeviceRevoked, Dono::Mantem)
     }
 
-    /// O dono que a nuvem informou não foi gravado: nada sai pelo epoch atual até gravar.
+    /// Nada sai pelo epoch atual até o dono recebido ser gravado. Uma retenção já armada é mantida.
     fn travar_dono(&self) {
         let mut trava = self.trava_dono.locked();
         if trava.is_none() {
             let id = self.marcas.fetch_add(1, Ordering::Relaxed);
             self.retrato.send_modify(|e| e.pendentes.push(id));
-            *trava = Some(id);
+            *trava = Some(TravaDono { id, sem_gravar: false });
         }
     }
 
-    fn dono_retido(&self) -> bool {
+    fn falha_ao_gravar_dono(&self) {
+        self.travar_dono();
+        if let Some(trava) = self.trava_dono.locked().as_mut() {
+            trava.sem_gravar = true;
+        }
+    }
+
+    /// Há um dono recebido ainda não gravado: o status Cloud não sai para os apps.
+    pub(crate) fn dono_retido(&self) -> bool {
         self.trava_dono.locked().is_some()
     }
 
+    fn troca_sem_gravar(&self) -> bool {
+        self.trava_dono.locked().as_ref().is_some_and(|t| t.sem_gravar)
+    }
+
     fn destravar_dono(&self) {
-        if let Some(id) = self.trava_dono.locked().take() {
-            self.retrato.send_if_modified(|e| soltar(e, id));
+        if let Some(trava) = self.trava_dono.locked().take() {
+            self.retrato.send_if_modified(|e| soltar(e, trava.id));
         }
     }
 
@@ -266,7 +295,7 @@ fn bump_on(c: &Connection) -> Result<u64> {
 /// Commit de um aumento, com o lock do banco ainda tomado pelo chamador: a marca entra antes, e
 /// sai do escopo ainda sob o mesmo lock, publicando o número se o commit foi feito ou desfazendo
 /// a marca se não foi.
-fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, epoch: u64, motivo: Motivo, dono: Option<&str>) -> Result<()> {
+fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, epoch: u64, motivo: Motivo, dono: Dono) -> Result<()> {
     hub.workspace.marcar(epoch, motivo, dono).commit(tx)
 }
 
@@ -276,7 +305,7 @@ pub(crate) fn bump(hub: &Hub, motivo: Motivo) -> Result<u64> {
     let mut db = hub.store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let proximo = bump_on(&tx)?;
-    confirmar(hub, tx, proximo, motivo, None)?;
+    confirmar(hub, tx, proximo, motivo, Dono::Mantem)?;
     Ok(proximo)
 }
 
@@ -290,7 +319,7 @@ pub(crate) fn revogar(hub: &Hub, key: &str) -> Result<bool> {
         return Ok(false);
     }
     let epoch = bloquear_on(&tx, key, grant.flatten().as_deref())?;
-    confirmar(hub, tx, epoch, Motivo::DeviceRevoked, None)?;
+    confirmar(hub, tx, epoch, Motivo::DeviceRevoked, Dono::Mantem)?;
     Ok(true)
 }
 
@@ -306,7 +335,7 @@ pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Re
         now,
         |tx| {
             let epoch = bloquear_on(tx, key, Some(grant))?;
-            let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, None);
+            let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, Dono::Mantem);
             marca.em_duvida();
             *marcado.borrow_mut() = Some(marca);
             Ok(())
@@ -323,7 +352,7 @@ pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Re
 /// durável e sobe o epoch na mesma Tx, e faz o commit com a marca pendente, ainda sob o lock.
 pub(crate) fn revogar_na_tx(hub: &Hub, tx: rusqlite::Transaction<'_>, key: &str, grant: &str) -> Result<()> {
     let epoch = bloquear_on(&tx, key, Some(grant))?;
-    confirmar(hub, tx, epoch, Motivo::DeviceRevoked, None)
+    confirmar(hub, tx, epoch, Motivo::DeviceRevoked, Dono::Mantem)
 }
 
 /// Bloqueio durável da chave (com a concessão) e epoch novo, na Tx do chamador.
@@ -392,30 +421,44 @@ pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) ->
     Ok(())
 }
 
-/// Registra o dono que a nuvem informa agora e publica dono e epoch juntos. O dono é lido sob o
-/// lock do status Cloud, na ordem Cloud → banco: uma observação atrasada nunca sobrescreve o dono
-/// atual. Dono que só ficou conhecido não sobe o epoch; outro `userId` depois de um já visto sobe.
-/// Se a gravação falhar, a saída fica retida (marca pendente) até uma observação gravar: o dono
-/// novo nunca circula com o epoch velho. Enquanto retida, `start` repete a observação.
-pub(crate) fn observar_dono(hub: &Hub) {
-    let resultado = hub.cloud.with_personal_status(|status| {
-        let gravado = registrar_dono(hub, status);
-        match &gravado {
-            Ok(()) => hub.workspace.destravar_dono(),
-            Err(_) => hub.workspace.travar_dono(),
-        }
-        gravado
-    });
-    if let Err(error) = resultado {
-        tracing::error!(error = format!("{error:#}"), "não foi possível registrar o dono do workspace");
+/// Sob o lock do status Cloud, antes de aplicar o dono recebido: se ele muda, a saída fica retida
+/// antes de a troca ficar visível. Quem aplica chama `registrar_sob_status` sob o mesmo lock.
+pub(crate) fn reter_troca(hub: &Hub, status: &CloudStatus, novo: Option<&str>) {
+    if status.owner.as_ref().map(|o| o.user_id.as_str()) != novo {
+        hub.workspace.travar_dono();
     }
+}
+
+/// Grava o dono recebido e publica dono e epoch juntos, sob o lock do status Cloud (ordem Cloud →
+/// banco): uma observação atrasada nunca sobrescreve o dono atual. Dono que só ficou conhecido não
+/// sobe o epoch; outro `userId` depois de um já visto sobe. Se a gravação falhar, a retenção fica
+/// e `start` repete. Depois de uma falha, a retenção só cai com um epoch novo gravado: nem a
+/// ausência de dono nem a volta do dono anterior provam que a troca não circulou.
+/// Devolve se a saída ficou livre.
+pub(crate) fn registrar_sob_status(hub: &Hub, status: &CloudStatus) -> bool {
+    match registrar_dono(hub, status, hub.workspace.troca_sem_gravar()) {
+        Ok(()) => {
+            hub.workspace.destravar_dono();
+            true
+        }
+        Err(error) => {
+            hub.workspace.falha_ao_gravar_dono();
+            tracing::error!(error = format!("{error:#}"), "não foi possível registrar o dono do workspace");
+            false
+        }
+    }
+}
+
+/// `registrar_sob_status` com o status atual. Devolve se a saída ficou livre.
+pub(crate) fn observar_dono(hub: &Hub) -> bool {
+    hub.cloud.with_personal_status(|status| Ok(registrar_sob_status(hub, status))).unwrap_or(false)
 }
 
 /// Intervalo em que uma retenção do dono não gravado é tentada de novo, sem esperar outra
 /// mudança de status da nuvem.
 const REPETIR_DONO: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Repete a gravação do dono enquanto a saída estiver retida por uma falha anterior.
+/// Repete a gravação do dono enquanto a saída estiver retida; ao soltar, os apps recebem o status.
 pub(crate) fn start(hub: &std::sync::Arc<Hub>) {
     let hub = std::sync::Arc::downgrade(hub);
     tokio::spawn(async move {
@@ -423,37 +466,38 @@ pub(crate) fn start(hub: &std::sync::Arc<Hub>) {
         loop {
             tick.tick().await;
             let Some(hub) = hub.upgrade() else { return };
-            if hub.workspace.dono_retido() {
-                observar_dono(&hub);
+            if hub.workspace.dono_retido() && observar_dono(&hub) {
+                crate::remote::cloud::avisar_status(&hub);
             }
         }
     });
 }
 
-fn registrar_dono(hub: &Hub, status: &crate::remote::cloud::CloudStatus) -> Result<()> {
+fn registrar_dono(hub: &Hub, status: &CloudStatus, cortar: bool) -> Result<()> {
     let mut db = hub.store.db.locked();
-    let Some(dono) = status.owner.as_ref().map(|o| o.user_id.as_str()) else {
-        hub.workspace.publicar_dono(None);
-        return Ok(());
-    };
+    let dono = status.owner.as_ref().map(|o| o.user_id.as_str());
     let anterior: Option<String> =
         db.query_row("SELECT v FROM kv WHERE k=?1", [OWNER_SEEN_KEY], |r| r.get(0)).optional()?;
-    if anterior.as_deref() == Some(dono) {
-        hub.workspace.publicar_dono(Some(dono));
+    let novo = dono.filter(|d| anterior.as_deref() != Some(*d));
+    let sobe = cortar || (anterior.is_some() && novo.is_some());
+    if novo.is_none() && !sobe {
+        hub.workspace.publicar_dono(dono);
         return Ok(());
     }
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    tx.execute(
-        "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-        params![OWNER_SEEN_KEY, dono],
-    )?;
-    if anterior.is_none() {
+    if let Some(novo) = novo {
+        tx.execute(
+            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+            params![OWNER_SEEN_KEY, novo],
+        )?;
+    }
+    if !sobe {
         tx.commit()?;
-        hub.workspace.publicar_dono(Some(dono));
+        hub.workspace.publicar_dono(dono);
         return Ok(());
     }
     let epoch = bump_on(&tx)?;
-    confirmar(hub, tx, epoch, Motivo::OwnerChanged, Some(dono))
+    confirmar(hub, tx, epoch, Motivo::OwnerChanged, Dono::Passa(dono.map(str::to_owned)))
 }
 
 #[derive(Serialize, Debug)]
@@ -570,7 +614,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
         async move {
             let (mut eventos, mut aviso) = estado?;
             loop {
-                let atual = resolvido(&mut aviso).await?;
+                let atual = resolvido(&mut aviso, epoch).await?;
                 if atual.valor != epoch {
                     return Some((terminal(&atual), None));
                 }
@@ -581,7 +625,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
                     }
                     evento = eventos.next() => {
                         let evento = evento?;
-                        let atual = resolvido(&mut aviso).await?;
+                        let atual = resolvido(&mut aviso, epoch).await?;
                         if atual.valor != epoch {
                             return Some((terminal(&atual), None));
                         }
@@ -593,11 +637,12 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
     })
 }
 
-/// O retrato sem aumento pendente: o evento terminal do SSE leva o número já gravado.
-async fn resolvido(aviso: &mut watch::Receiver<Epoca>) -> Option<Epoca> {
+/// O retrato sem aumento pendente, ou já avançado desde `epoch`: o evento terminal leva um número
+/// já gravado e não espera outra marca (a retenção do dono, por exemplo).
+async fn resolvido(aviso: &mut watch::Receiver<Epoca>, epoch: u64) -> Option<Epoca> {
     loop {
         let atual = aviso.borrow_and_update().clone();
-        if !atual.pendente() {
+        if !atual.pendente() || atual.avancou(epoch) {
             return Some(atual);
         }
         aviso.changed().await.ok()?;

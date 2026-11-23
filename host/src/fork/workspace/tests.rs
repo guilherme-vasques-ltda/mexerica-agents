@@ -501,7 +501,7 @@ fn entre_o_commit_e_a_publicacao_o_corte_ja_vale() {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
     let epoch = bump_on(&tx).unwrap();
     assert!(!hub.workspace.retrato().pendente(), "antes do commit nada mudou para quem lê");
-    let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, None);
+    let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, Dono::Mantem);
     marca.commit(tx).unwrap();
     // Já gravado e ainda não publicado: quem confere o epoch antigo espera, não entrega.
     let retrato = hub.workspace.retrato();
@@ -515,11 +515,11 @@ fn entre_o_commit_e_a_publicacao_o_corte_ja_vale() {
 fn a_marca_de_um_commit_nunca_solta_a_de_outro_e_panic_nao_deixa_pendente() {
     let pasta = Pasta::nova();
     let hub = pasta.hub();
-    let primeira = hub.workspace.marcar(1, Motivo::DeviceRevoked, None);
-    let segunda = hub.workspace.marcar(1, Motivo::DeviceRevoked, None);
+    let primeira = hub.workspace.marcar(1, Motivo::DeviceRevoked, Dono::Mantem);
+    let segunda = hub.workspace.marcar(1, Motivo::DeviceRevoked, Dono::Mantem);
     drop(primeira);
     assert!(hub.workspace.retrato().pendente(), "o rollback de um commit não solta a saída do outro");
-    let terceira = hub.workspace.marcar(2, Motivo::DeviceRevoked, None);
+    let terceira = hub.workspace.marcar(2, Motivo::DeviceRevoked, Dono::Mantem);
     segunda.resolver(true);
     let retrato = hub.workspace.retrato();
     assert_eq!((retrato.valor, retrato.pendente()), (1, true), "publicar um não solta outro em curso");
@@ -527,7 +527,7 @@ fn a_marca_de_um_commit_nunca_solta_a_de_outro_e_panic_nao_deixa_pendente() {
     assert!(!hub.workspace.retrato().pendente());
 
     let queda = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _marca = hub.workspace.marcar(2, Motivo::DeviceRevoked, None);
+        let _marca = hub.workspace.marcar(2, Motivo::DeviceRevoked, Dono::Mantem);
         panic!("queda entre a marca e o commit");
     }));
     assert!(queda.is_err());
@@ -543,7 +543,7 @@ fn panic_logo_depois_do_commit_publica_o_numero_gravado() {
         let mut db = hub.store.db.locked();
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
         let epoch = bump_on(&tx).unwrap();
-        let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, None);
+        let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, Dono::Mantem);
         marca.commit(tx).unwrap();
         panic!("queda logo depois do commit");
     }));
@@ -553,7 +553,7 @@ fn panic_logo_depois_do_commit_publica_o_numero_gravado() {
 
     // Desfecho do commit desconhecido: a saída segue retida.
     let queda = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut marca = hub.workspace.marcar(2, Motivo::DeviceRevoked, None);
+        let mut marca = hub.workspace.marcar(2, Motivo::DeviceRevoked, Dono::Mantem);
         marca.em_duvida();
         panic!("queda durante o commit");
     }));
@@ -651,4 +651,161 @@ async fn retencao_do_dono_se_solta_sozinha_quando_a_gravacao_volta() {
     let retrato = hub.workspace.retrato();
     assert_eq!((retrato.valor, retrato.pendente()), (antes + 1, false));
     assert_eq!(retrato.dono.as_deref(), Some("user_b.example.invalid"));
+}
+
+/// Gravação do dono (e, com `epoch`, do número) falhando até `DROP TRIGGER`.
+fn gravacao_falha(hub: &Hub, epoch: bool) {
+    let mut sql = String::from(
+        "CREATE TEMP TRIGGER dono_nao_grava BEFORE UPDATE ON main.kv WHEN NEW.k='fork.workspace.owner_seen'
+         BEGIN SELECT RAISE(ABORT, 'falha de gravação de prova'); END;",
+    );
+    if epoch {
+        sql.push_str(
+            "CREATE TEMP TRIGGER epoch_nao_sobe BEFORE INSERT ON main.kv WHEN NEW.k='fork.workspace.epoch'
+             BEGIN SELECT RAISE(ABORT, 'falha de gravação de prova'); END;
+             CREATE TEMP TRIGGER epoch_nao_muda BEFORE UPDATE ON main.kv WHEN NEW.k='fork.workspace.epoch'
+             BEGIN SELECT RAISE(ABORT, 'falha de gravação de prova'); END;",
+        );
+    }
+    hub.store.db.locked().execute_batch(&sql).unwrap();
+}
+
+fn gravacao_volta(hub: &Hub) {
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "DROP TRIGGER IF EXISTS dono_nao_grava; DROP TRIGGER IF EXISTS epoch_nao_sobe;
+             DROP TRIGGER IF EXISTS epoch_nao_muda;",
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn dono_recebido_so_chega_aos_apps_depois_de_gravado_com_o_epoch() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    dono(&hub, Some("user_0.example.invalid"));
+    let fim = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let leitor = {
+        let (hub, fim) = (hub.clone(), fim.clone());
+        std::thread::spawn(move || {
+            while !fim.load(Ordering::Acquire) {
+                let Ok(status) = cloud::status_publicado(&hub) else { continue };
+                let n: u64 = status
+                    .owner
+                    .and_then(|o| o.user_id.strip_prefix("user_")?.strip_suffix(".example.invalid")?.parse().ok())
+                    .unwrap();
+                assert!(hub.workspace.atual() >= n, "o dono {n} apareceu antes do epoch {n}");
+            }
+        })
+    };
+    for n in 1..=60 {
+        dono(&hub, Some(&format!("user_{n}.example.invalid")));
+    }
+    fim.store(true, Ordering::Release);
+    leitor.join().unwrap();
+
+    let antes = hub.workspace.retrato();
+    let mut eventos = hub.events.subscribe();
+    gravacao_falha(&hub, false);
+    dono(&hub, Some("user_b.example.invalid"));
+    assert_eq!(hub.cloud.status().owner.unwrap().user_id, "user_b.example.invalid", "o status recebido já mudou");
+    let recusa = cloud::status_publicado(&hub).unwrap_err();
+    assert_eq!(api::error_status(&recusa).0, axum::http::StatusCode::CONFLICT);
+    let recusa = api::dispatch(&hub, &Caller::Local, "cloudStatus", json!({})).await.unwrap_err();
+    assert_eq!(api::error_status(&recusa).0, axum::http::StatusCode::CONFLICT, "o RPC não mostra o dono não gravado");
+    assert!(eventos.try_recv().is_err(), "nenhum evento `cloud` com o dono não gravado");
+    let retido = hub.workspace.retrato();
+    assert_eq!((retido.valor, retido.pendente(), retido.dono), (antes.valor, true, antes.dono));
+
+    gravacao_volta(&hub);
+    dono(&hub, Some("user_b.example.invalid"));
+    let evento = eventos.try_recv().unwrap();
+    assert_eq!(
+        (evento["type"].as_str(), evento["cloud"]["owner"]["userId"].as_str()),
+        (Some("cloud"), Some("user_b.example.invalid"))
+    );
+    let gravado = hub.workspace.retrato();
+    assert_eq!((gravado.valor, gravado.pendente()), (antes.valor + 1, false), "o evento sai com o epoch já publicado");
+    assert_eq!(gravado.dono.as_deref(), Some("user_b.example.invalid"));
+    assert_eq!(cloud::status_publicado(&hub).unwrap().owner.unwrap().user_id, "user_b.example.invalid");
+}
+
+#[tokio::test]
+async fn falha_ausencia_e_recuperacao_so_soltam_com_epoch_novo_gravado() {
+    use futures::StreamExt;
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    dono(&hub, Some("user_a.example.invalid"));
+    let e0 = hub.workspace.atual();
+    let mut stream = Box::pin(
+        api::scoped_events_stream_at(&hub, hub.store.current_rev(), None, &Caller::Local, None, Some(e0)).unwrap(),
+    );
+    assert_eq!(stream.next().await.unwrap()["type"], "hello");
+
+    gravacao_falha(&hub, true);
+    dono(&hub, Some("user_b.example.invalid"));
+    assert!(hub.workspace.retrato().pendente(), "falha: a saída fica retida");
+    dono(&hub, None);
+    observar_dono(&hub);
+    let retido = hub.workspace.retrato();
+    assert_eq!((retido.valor, retido.pendente()), (e0, true), "a ausência do dono não solta sem gravar o corte");
+    assert!(cloud::status_publicado(&hub).is_err());
+    evento_em_voo(&hub);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), stream.next()).await.is_err(),
+        "nada sai pelo epoch velho enquanto retido"
+    );
+
+    gravacao_volta(&hub);
+    assert!(observar_dono(&hub), "recuperação: o corte gravado solta");
+    let solto = hub.workspace.retrato();
+    assert_eq!((solto.valor, solto.pendente(), solto.dono), (e0 + 1, false, None));
+    let terminal = tokio::time::timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    assert_eq!(
+        terminal,
+        json!({"type": "workspace_revoked", "workspaceId": "personal:user_a.example.invalid", "workspaceEpoch": e0 + 1})
+    );
+    assert!(stream.next().await.is_none());
+
+    // A volta do dono anterior depois de uma falha também só solta com epoch novo.
+    dono(&hub, Some("user_a.example.invalid"));
+    assert_eq!(hub.workspace.atual(), e0 + 1, "o dono já gravado volta sem subir");
+    gravacao_falha(&hub, false);
+    dono(&hub, Some("user_b.example.invalid"));
+    assert!(hub.workspace.retrato().pendente());
+    dono(&hub, Some("user_a.example.invalid"));
+    let solto = hub.workspace.retrato();
+    assert_eq!((solto.valor, solto.pendente()), (e0 + 2, false));
+    assert_eq!(solto.dono.as_deref(), Some("user_a.example.invalid"));
+    gravacao_volta(&hub);
+    drop((stream, hub));
+    assert_eq!(pasta.hub().workspace.atual(), e0 + 2, "o corte ficou gravado");
+}
+
+#[tokio::test]
+async fn revogacao_confirmada_corta_o_stream_mesmo_com_o_dono_retido() {
+    use futures::StreamExt;
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    dono(&hub, Some("user_a.example.invalid"));
+    hub.store.put_device(&aparelho_conta("chave-sai", "grt_sai")).unwrap();
+    let e0 = hub.workspace.atual();
+    let mut stream = Box::pin(
+        api::scoped_events_stream_at(&hub, hub.store.current_rev(), None, &Caller::Local, None, Some(e0)).unwrap(),
+    );
+    assert_eq!(stream.next().await.unwrap()["type"], "hello");
+
+    gravacao_falha(&hub, false);
+    dono(&hub, Some("user_b.example.invalid"));
+    evento_em_voo(&hub);
+    assert!(revogar(&hub, "chave-sai").unwrap());
+    let retrato = hub.workspace.retrato();
+    assert_eq!((retrato.valor, retrato.pendente()), (e0 + 1, true), "revogação gravada, dono ainda retido");
+    let terminal = tokio::time::timeout(Duration::from_secs(5), stream.next()).await.unwrap().unwrap();
+    assert_eq!(terminal["type"], "workspace_revoked", "o terminal não espera a retenção do dono: {terminal}");
+    assert_eq!(terminal["workspaceEpoch"], e0 + 1);
+    assert!(stream.next().await.is_none());
+    gravacao_volta(&hub);
 }

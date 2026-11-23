@@ -697,6 +697,11 @@ impl Channel {
             self.send(err(id, 403, &devices::Forbidden.to_string())).await;
             return Ok(());
         }
+        // A assinatura também confere a classe antes do epoch, na ordem do `dispatch`.
+        if v["sub"].is_string() && devices::permit(&self.caller, "subscribe").is_err() {
+            self.send(err(id, 403, "Control scope required")).await;
+            return Ok(());
+        }
         // Requests check the epoch in `dispatch`; subscriptions and the browser stream here.
         let b = if browser.is_some() || v["sub"].is_string() {
             let Ok(b) = crate::fork::workspace::conferir_pedido(&self.hub, api::origem(&self.caller), v["b"].clone())
@@ -825,10 +830,6 @@ impl Channel {
     }
 
     async fn subscribe(&self, id: u64, kind: &str, b: &Value, epoch: Option<u64>) {
-        if devices::permit(&self.caller, "subscribe").is_err() {
-            self.send(err(id, 403, "Control scope required")).await;
-            return;
-        }
         if self.count(true) >= MAX_SUBS {
             self.send(err(id, 429, "too many subscriptions")).await;
             return;

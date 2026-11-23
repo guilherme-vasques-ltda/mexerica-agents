@@ -37,9 +37,14 @@ impl Barreira {
     }
 
     /// Com um commit de aumento em curso, espera o desfecho: publicado, sai o terminal; desfeito
-    /// (rollback, erro), o canal segue aberto.
+    /// (rollback, erro), o canal segue aberto. Com o número já avançado, o terminal sai sem
+    /// esperar as outras marcas (a retenção do dono, por exemplo).
     pub(super) async fn resolver(&mut self) -> Option<Value> {
-        while self.aviso.borrow_and_update().pendente() {
+        loop {
+            let atual = self.aviso.borrow_and_update().clone();
+            if !atual.pendente() || atual.avancou(self.epoch) {
+                break;
+            }
             if self.aviso.changed().await.is_err() {
                 break;
             }
