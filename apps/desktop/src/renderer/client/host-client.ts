@@ -88,9 +88,9 @@ export type HostEvent =
   /** Times (fork/times): só o space e a revisão; o app relê o snapshot pelo RPC do dono. */
   | { type: 'times'; spaceId: string; revision: number }
   /** Torre de controle: sinal mínimo de invalidação por space (sem dados privados). */
-  | { type: 'donnaControlTowerChanged'; spaceId: string; hubId?: string }
+  | { type: 'donnaControlTowerChanged'; hubId: string; spaceId: string }
   /** Saúde do Hub (doctor): sinal mínimo de invalidação por space (sem dados privados). */
-  | { type: 'donnaDoctorChanged'; spaceId: string; hubId?: string }
+  | { type: 'donnaDoctorChanged'; hubId: string; spaceId: string }
   /** Sessões (fork/sessoes): uma sessão nova ou mudada (renomear); o app guarda só as conversas abertas. */
   | { type: 'session'; session: import('../views/fork/sessoes/estado').HubSession }
   /** An event this app version couldn't read (host newer/older than the app). */
@@ -153,8 +153,8 @@ export function parseEvent(line: string): HostEvent | null {
       return typeof raw.spaceId === 'string' && raw.spaceId.length > 0 ? { type, spaceId: raw.spaceId } : null
     case 'donnaControlTowerChanged':
     case 'donnaDoctorChanged':
-      return typeof raw.spaceId === 'string' && raw.spaceId.length > 0
-        ? { type, spaceId: raw.spaceId, ...(typeof raw.hubId === 'string' ? { hubId: raw.hubId } : {}) }
+      return typeof raw.hubId === 'string' && raw.hubId.length > 0 && typeof raw.spaceId === 'string' && raw.spaceId.length > 0
+        ? { type, hubId: raw.hubId, spaceId: raw.spaceId }
         : null
     case 'backgroundHistoryChanged':
       return { type }

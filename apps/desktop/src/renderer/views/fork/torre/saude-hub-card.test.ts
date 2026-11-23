@@ -187,8 +187,13 @@ test('DoctorSession consulta donnaHubDoctor, reconsulta em donnaDoctorChanged e 
 })
 
 test('parseEvent aceita donnaDoctorChanged e donnaControlTowerChanged do JSON cru e reconsulta via HostClient', async () => {
-  assert.equal(m.parseEvent(JSON.stringify({ type: 'donnaDoctorChanged' })), null)
-  assert.equal(m.parseEvent(JSON.stringify({ type: 'donnaDoctorChanged', spaceId: '' })), null)
+  for (const type of ['donnaDoctorChanged', 'donnaControlTowerChanged'] as const) {
+    assert.equal(m.parseEvent(JSON.stringify({ type })), null)
+    assert.equal(m.parseEvent(JSON.stringify({ type, spaceId: 'personal' })), null)
+    assert.equal(m.parseEvent(JSON.stringify({ type, hubId: '', spaceId: 'personal' })), null)
+    assert.equal(m.parseEvent(JSON.stringify({ type, hubId: 'h1' })), null)
+    assert.equal(m.parseEvent(JSON.stringify({ type, hubId: 'h1', spaceId: '' })), null)
+  }
   assert.deepEqual(
     JSON.parse(JSON.stringify(m.parseEvent(JSON.stringify({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' })))),
     { type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' },
