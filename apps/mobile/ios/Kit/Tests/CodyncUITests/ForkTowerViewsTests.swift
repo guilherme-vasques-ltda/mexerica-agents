@@ -107,7 +107,7 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
 }
 
 @MainActor @Test func doctorHubOfflineIsNotConfusedWithAIError() {
-    let report = Observation<HubDoctorReport>.unavailable
+    let report = TowerObservation<HubDoctorReport>.unavailable
     let diagnosis = DoctorTransportDiagnosis.diagnose(report, hubReachable: false)
     let presentation = ForkDoctorPresentation(diagnosis: diagnosis, report: report)
     #expect(presentation.headline == .hubOffline)
@@ -118,7 +118,7 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     let checks = [
         DoctorCheck(id: "ai", area: .aiEngine, status: .error, code: "ai_no_active_account", count: nil, actionKind: .connectAI),
     ]
-    let report = Observation<HubDoctorReport>.available(value: doctorReport(overall: .error, checks: checks))
+    let report = TowerObservation<HubDoctorReport>.available(value: doctorReport(overall: .error, checks: checks))
     let diagnosis = DoctorTransportDiagnosis.diagnose(report, hubReachable: true)
     let presentation = ForkDoctorPresentation(diagnosis: diagnosis, report: report)
     #expect(presentation.headline == .aiDisconnected(code: "ai_no_active_account"))
@@ -130,7 +130,7 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     let checks = [
         DoctorCheck(id: "approvals", area: .approvals, status: .warning, code: "approvals_waiting", count: 2, actionKind: .reviewWaiting),
     ]
-    let report = Observation<HubDoctorReport>.available(value: doctorReport(overall: .waitingUser, checks: checks))
+    let report = TowerObservation<HubDoctorReport>.available(value: doctorReport(overall: .waitingUser, checks: checks))
     let diagnosis = DoctorTransportDiagnosis.diagnose(report, hubReachable: true)
     let presentation = ForkDoctorPresentation(diagnosis: diagnosis, report: report)
     #expect(presentation.headline == .waitingUser(pendingCount: 2))

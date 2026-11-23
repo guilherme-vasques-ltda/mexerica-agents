@@ -14,7 +14,7 @@ struct ForkAttentionPresentation: Equatable {
     let resolvedToday: [ResolvedAttentionItem]
     let resolvedStartsCollapsed: Bool
 
-    init(observation: Observation<AttentionQueue>) {
+    init(observation: TowerObservation<AttentionQueue>) {
         guard case .available(let queue, _, _) = observation else {
             phase = .unavailable
             items = []
@@ -34,11 +34,11 @@ struct ForkAttentionPresentation: Equatable {
 }
 
 struct ForkAttentionQueueView: View {
-    let observation: Observation<AttentionQueue>
+    let observation: TowerObservation<AttentionQueue>
     let onAction: (AttentionItem) -> Void
     @State private var resolvedExpanded: Bool
 
-    init(observation: Observation<AttentionQueue>, onAction: @escaping (AttentionItem) -> Void) {
+    init(observation: TowerObservation<AttentionQueue>, onAction: @escaping (AttentionItem) -> Void) {
         self.observation = observation
         self.onAction = onAction
         _resolvedExpanded = State(initialValue: !ForkAttentionPresentation(observation: observation).resolvedStartsCollapsed)
@@ -124,7 +124,7 @@ struct ForkDoctorPresentation: Equatable {
     let actionKind: DoctorActionKind
     let checks: [DoctorCheck]
 
-    init(diagnosis: DoctorTransportDiagnosis, report: Observation<HubDoctorReport>) {
+    init(diagnosis: DoctorTransportDiagnosis, report: TowerObservation<HubDoctorReport>) {
         switch diagnosis {
         case .hubOffline: headline = .hubOffline
         case .aiDisconnected(let code): headline = .aiDisconnected(code: code)
@@ -140,7 +140,7 @@ struct ForkDoctorPresentation: Equatable {
 
 struct ForkHubDoctorView: View {
     let diagnosis: DoctorTransportDiagnosis
-    let report: Observation<HubDoctorReport>
+    let report: TowerObservation<HubDoctorReport>
     let onAction: (DoctorActionKind) -> Void
 
     var body: some View {
@@ -359,7 +359,7 @@ enum ForkTowerFixtureCatalog {
     static let directorBotId = "tanga-exemplo"
     static let botId = "bot-exemplo"
 
-    static let attention: Observation<AttentionQueue> = .available(value: AttentionQueue(
+    static let attention: TowerObservation<AttentionQueue> = .available(value: AttentionQueue(
         version: 1,
         hubId: hubId,
         spaceId: spaceId,
@@ -416,7 +416,7 @@ enum ForkTowerFixtureCatalog {
         coverageGaps: []
     ))
 
-    static let doctor: Observation<HubDoctorReport> = .available(value: HubDoctorReport(
+    static let doctor: TowerObservation<HubDoctorReport> = .available(value: HubDoctorReport(
         version: 1,
         hubId: hubId,
         spaceId: spaceId,
@@ -512,8 +512,8 @@ enum ForkTowerFixtureCatalog {
 
 @MainActor
 final class ForkTowerFixtureStore: ObservableObject {
-    @Published private(set) var attention: Observation<AttentionQueue>
-    @Published private(set) var doctor: Observation<HubDoctorReport>
+    @Published private(set) var attention: TowerObservation<AttentionQueue>
+    @Published private(set) var doctor: TowerObservation<HubDoctorReport>
     @Published private(set) var tower: TowerViewSnapshot?
     @Published private(set) var hubReachable = true
     @Published var selectedPerspective: TowerPerspective = .overview {
