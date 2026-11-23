@@ -169,6 +169,7 @@ function erroLocal(status: number, codigo: string): CallError {
 
 const SEM_SESSAO = erroLocal(401, 'no web session')
 const INDISPONIVEL = erroLocal(0, 'local hub unreachable')
+const EPOCH_DIVERGENTE = 'workspace_epoch_mismatch'
 const CODIGOS_RPC = new Set([
   'invalid_request', 'access_denied', 'not_connected', 'reconnect_required', 'unavailable', 'cursor_invalid',
   'name_invalid', 'name_taken', 'group_missing', 'bot_missing', 'migrating',
@@ -241,7 +242,8 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
         const code = envelope?.code
         const codigo = typeof code === 'string' && CODIGOS_RPC.has(code) ? code : codigoLegado
         const erro = erroLocal(res.status, codigoLegado ?? `Host error ${res.status}`)
-        if (codigo) erro.code = codigo
+        if (res.status === 409 && code === EPOCH_DIVERGENTE) erro.code = EPOCH_DIVERGENTE
+        else if (codigo) erro.code = codigo
         throw erro
       } finally {
         clearTimeout(timeout)
@@ -294,6 +296,11 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
           }
           if (!res.ok || !res.body) {
             fim = erroLocal(res.status, `Host error ${res.status}`)
+            if (res.status === 409 && res.body) {
+              const envelope = await res.json().catch(() => null) as { code?: unknown } | null
+              if (signal.aborted) throw INDISPONIVEL
+              if (envelope?.code === EPOCH_DIVERGENTE) fim.code = EPOCH_DIVERGENTE
+            }
             return
           }
           reader = res.body.getReader()

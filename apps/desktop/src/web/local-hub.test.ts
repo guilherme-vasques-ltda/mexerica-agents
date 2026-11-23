@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { Entry } from '../shared/models.ts'
 import { createLocalWebHost, LocalWebSession } from './local-hub.ts'
+import { createWebBridge } from './platform.ts'
 
 const ORIGIN = 'http://127.0.0.1:19423'
 
@@ -28,10 +30,10 @@ function fetchFalso() {
   return { chamadas, fila, impl }
 }
 
-async function sessaoAutenticada(): Promise<{ session: LocalWebSession; fetch: ReturnType<typeof fetchFalso> }> {
+async function sessaoAutenticada(origin = ORIGIN): Promise<{ session: LocalWebSession; fetch: ReturnType<typeof fetchFalso> }> {
   const falso = fetchFalso()
   falso.fila.push(resposta(200, SESSAO))
-  const session = new LocalWebSession(ORIGIN, { fetchImpl: falso.impl })
+  const session = new LocalWebSession(origin, { fetchImpl: falso.impl })
   await session.checkSession()
   return { session, fetch: falso }
 }
@@ -365,6 +367,127 @@ function pendente<T>() {
   return { promise, resolve }
 }
 
+test('a ponte retoma do cursor do chamador após a queda no meio de uma resposta', { timeout: 2000 }, async () => {
+  const origin = 'https://hub.example.invalid'
+  const { session, fetch: falso } = await sessaoAutenticada(origin)
+  const { host } = createWebBridge({ host: createLocalWebHost(session) })
+  const historico = ['Olá', 'Olá, mundo', 'Olá, mundo!'].map((text, i) => ({
+    type: 'entry', rev: 41 + i,
+    entry: {
+      id: 'resposta-fixture', botId: 'bot-fixture', seq: 1, rev: 41 + i, kind: 'agent', turn: 1,
+      data: { text }, createdAt: 1000, updatedAt: 1000 + i,
+    } satisfies Entry,
+  }))
+  const quadro = (evento: typeof historico[number]) => `data: ${JSON.stringify(evento)}\n\n`
+  const trechos = [quadro(historico[0]!), quadro(historico[1]!).slice(0, -4)]
+  const encoder = new TextEncoder()
+  falso.fila.push(new Response(new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const trecho = trechos.shift()
+      if (trecho === undefined) controller.error(new TypeError('connection lost'))
+      else controller.enqueue(encoder.encode(trecho))
+    },
+  }, { highWaterMark: 0 }), { headers: { 'Content-Type': 'text/event-stream' } }))
+  falso.fila.push(() => {
+    const url = new URL(falso.chamadas.at(-1)!.url)
+    const since = Number(url.searchParams.get('since'))
+    return respostaSSE(historico.filter((evento) => evento.rev > since).map(quadro))
+  })
+
+  let cursor = 40
+  const recebidos: typeof historico = []
+  const abrir = () => new Promise<unknown>((resolve, reject) => {
+    const query = new URLSearchParams({ since: String(cursor), client: 'desktop', spaceId: 'space:fixture', workspaceEpoch: '7' })
+    host.stream(`${origin}/events?${query}`, '', (linha) => {
+      try {
+        const evento: typeof historico[number] = JSON.parse(linha)
+        recebidos.push(evento)
+        cursor = evento.entry.rev
+      } catch (erro) { reject(erro) }
+    }, resolve)
+  })
+  assert.deepEqual(await abrir(), { status: 0, message: 'local hub unreachable' })
+  assert.deepEqual(recebidos, historico.slice(0, 1))
+  assert.equal(falso.chamadas.length, 2)
+  assert.equal(await abrir(), null)
+  assert.deepEqual(recebidos, historico)
+  assert.deepEqual(falso.chamadas.slice(1).map(({ url }) => url), [
+    `${origin}/events?since=40&client=desktop&spaceId=space%3Afixture&workspaceEpoch=7`,
+    `${origin}/events?since=41&client=desktop&spaceId=space%3Afixture&workspaceEpoch=7`,
+  ])
+})
+
+test('a ponte não repete um POST de resultado incerto ao abrir o SSE', { timeout: 2000 }, async () => {
+  const origin = 'https://hub.example.invalid'
+  const { session, fetch } = await sessaoAutenticada(origin)
+  const { host } = createWebBridge({ host: createLocalWebHost(session) })
+  fetch.fila.push(
+    new Response(new ReadableStream({
+      pull(controller) { controller.error(new TypeError('connection lost')) },
+    })),
+    respostaSSE(['data: {"type":"hello","rev":43}\n\n']),
+  )
+
+  const body = {
+    botId: 'bot-fixture', clientNonce: 'pedido-fixture', text: 'Confira https://action.example.invalid/',
+    attachments: null, spaceId: 'space:fixture', workspaceEpoch: 7,
+  }
+  await assert.rejects(host.call(origin, '', 'send', body, 1000), { status: 0 })
+  assert.equal(session.isAuthenticated, true)
+  const linhas: string[] = []
+  const fim = await new Promise<unknown>((resolve) => host.stream('/events?since=42', '', (l) => linhas.push(l), resolve))
+  assert.equal(fim, null)
+  assert.deepEqual(linhas, ['{"type":"hello","rev":43}'])
+  assert.deepEqual(fetch.chamadas.filter(({ init }) => init?.method === 'POST').map(({ url, init }) => [url, init?.body]), [
+    [`${origin}/api/send`, JSON.stringify(body)],
+  ])
+})
+
+test('bootstrap sem epoch funciona no POST e no SSE; terminais chegam sem reconexão da ponte', { timeout: 2000 }, async () => {
+  const origin = 'https://hub.example.invalid'
+  const { session, fetch } = await sessaoAutenticada(origin)
+  const { host } = createWebBridge({ host: createLocalWebHost(session) })
+  const workspace = { workspaceId: 'personal:unbound', workspaceEpoch: 7 }
+  fetch.fila.push(resposta(200, workspace))
+  assert.deepEqual(await host.call(origin, '', 'workspaceContext', {}, 1000), workspace)
+  assert.equal(fetch.chamadas[1]?.init?.body, '{}')
+
+  for (const type of ['workspace_revoked', 'role_changed']) {
+    const hello = { type: 'hello', rev: 43, workspace }
+    const terminal = { type, workspaceId: workspace.workspaceId, workspaceEpoch: 8 }
+    const esperados = [hello, terminal].map((evento) => JSON.stringify(evento))
+    fetch.fila.push(respostaSSE(esperados.map((linha) => `data: ${linha}\n\n`)))
+    const linhas: string[] = []
+    const fim = await new Promise<unknown>((resolve) => host.stream('/events?since=43', '', (l) => linhas.push(l), resolve))
+    assert.equal(fim, null)
+    assert.deepEqual(linhas, esperados)
+  }
+  assert.deepEqual(fetch.chamadas.slice(1).map(({ url }) => url), [
+    `${origin}/api/workspaceContext`, `${origin}/events?since=43`, `${origin}/events?since=43`,
+  ])
+  for (const { init } of fetch.chamadas) assert.equal(new Headers(init?.headers).has('workspaceEpoch'), false)
+  assert.equal(session.isAuthenticated, true)
+})
+
+test('409 de workspace chega com código estável no POST e no SSE, sem vazar texto nem repetir', { timeout: 2000 }, async () => {
+  const origin = 'https://hub.example.invalid'
+  const { session, fetch } = await sessaoAutenticada(origin)
+  const { host } = createWebBridge({ host: createLocalWebHost(session) })
+  const esperado = { status: 409, message: 'Host error 409', code: 'workspace_epoch_mismatch' }
+  const erro = { code: esperado.code, error: 'mensagem bruta de erro' }
+  fetch.fila.push(resposta(409, erro), resposta(409, erro), resposta(409, { ...erro, code: 'codigo_desconhecido' }))
+
+  await assert.rejects(host.call(origin, '', 'send', { workspaceEpoch: 6 }, 1000), esperado)
+  const abrir = () => new Promise<unknown>((resolve, reject) => host.stream('/events?since=43&workspaceEpoch=6', '', reject, resolve))
+  assert.deepEqual(await abrir(), esperado)
+  assert.deepEqual(await abrir(), { status: 409, message: 'Host error 409' })
+  assert.deepEqual(fetch.chamadas.slice(1).map(({ url }) => url), [
+    `${origin}/api/send`, `${origin}/events?since=43&workspaceEpoch=6`, `${origin}/events?since=43&workspaceEpoch=6`,
+  ])
+  for (const { init } of fetch.chamadas) assert.equal(new Headers(init?.headers).has('workspaceEpoch'), false)
+  assert.equal(session.isAuthenticated, true)
+})
+
 for (const origem401 of ['RPC', 'SSE', 'checkSession']) {
   test(`401 em ${origem401} aborta RPC e SSE em voo e descarta respostas atrasadas`, { timeout: 2000 }, async () => {
     const { session, fetch } = await sessaoAutenticada()
@@ -421,23 +544,27 @@ for (const origem401 of ['RPC', 'SSE', 'checkSession']) {
   })
 }
 
-test('401 e SSE atrasados da geração antiga não afetam a sessão restabelecida', async () => {
+test('401 e SSE atrasados da geração antiga não afetam a sessão restabelecida', { timeout: 2000 }, async () => {
   const { session, fetch } = await sessaoAutenticada()
   const host = createLocalWebHost(session)
   const rpc = pendente<Response>()
   const sse = pendente<Response>()
   const fim = pendente<unknown>()
+  const linhas: string[] = []
   fetch.fila.push(() => rpc.promise, () => sse.promise, resposta(401))
   const erro = assert.rejects(host.call(ORIGIN, '', 'mailInboxOpenThread', COM_FIO, 1000), SEM_SESSAO)
-  host.stream(`${ORIGIN}/events`, '', assert.fail, fim.resolve)
+  host.stream(`${ORIGIN}/events`, '', (l) => linhas.push(l), fim.resolve)
   assert.equal(await session.checkSession(), false)
-  fetch.fila.push(resposta(200, SESSAO))
+  fetch.fila.push(resposta(200, { ...SESSAO, csrfToken: 'csrf-2' }), new Response('data: evento-novo\n\n'))
   assert.equal(await session.checkSession(), true)
+  const fimNovo = await new Promise<unknown>((resolve) => host.stream(`${ORIGIN}/events`, '', (l) => linhas.push(l), resolve))
+  assert.equal(fimNovo, null)
   rpc.resolve(resposta(401, FIO))
   sse.resolve(new Response('data: evento-atrasado\n\n'))
   await erro
   assert.deepEqual(await fim.promise, SEM_SESSAO)
   assert.equal(session.isAuthenticated, true)
+  assert.deepEqual(linhas, ['evento-novo'])
 })
 
 test('ponte local não grava respostas nem registra conteúdo e devolve apenas erros sanitizados', async (t) => {
