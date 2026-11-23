@@ -10,7 +10,7 @@ use crate::hub::Hub;
 use crate::{market, usage};
 use axum::body::Bytes;
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequest as _, Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -153,9 +153,9 @@ async fn guard_runtime(
     State(hub): State<Arc<Hub>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Result<Json<Value>, ApiError> {
-    command(State(hub), Path("donnaGuardRuntime".into()), ConnectInfo(peer), headers, body).await
+    command(State(hub), Path("donnaGuardRuntime".into()), ConnectInfo(peer), headers, request).await
 }
 
 async fn command(
@@ -163,11 +163,18 @@ async fn command(
     Path(method): Path<String>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Result<Json<Value>, ApiError> {
-    // Classifica a identidade antes de ler o corpo e antes do dispatch.
+    // Classifica a identidade e o nome antes de ler o corpo (que só é lido aqui, com o limite da rota).
     let caller =
         crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
+    // Nome sem classe é recusado antes de ler o corpo: 404 (403 na Open) sem passar por 400 ou 413.
+    let origem = if headers.contains_key("authorization") { super::origem(&caller) } else { "web" };
+    if let Some(recusa) = super::recusa_sem_classe(origem, &method) {
+        let (status, message) = error_status(&recusa);
+        return Err(ApiError(status, message, None));
+    }
+    let body = Bytes::from_request(request, &()).await.map_err(|e| ApiError(e.status(), e.body_text(), None))?;
     let body = if body.is_empty() {
         Value::Null
     } else {
@@ -340,6 +347,92 @@ mod tests {
         drop(ios);
         assert!(!hub.phone_connected(), "desktop streams do not hold phone alerts");
         drop(desktop);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// O nome é classificado antes de o corpo ser lido: nome sem classe dá 404 sem tocar no corpo (antes, um corpo
+    /// grande dava 413 e um JSON inválido, 400), com qualquer prefixo; a autenticação vem antes; método com classe lê
+    /// o corpo.
+    /// Tudo o que foi registrado em log enquanto `run` rodou nesta thread.
+    async fn registrado<T>(run: impl Future<Output = T>) -> (String, T) {
+        #[derive(Clone, Default)]
+        struct Buf(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log").extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Buf::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        let out = run.await;
+        drop(guard);
+        let bytes = buf.0.lock().expect("log").clone();
+        (String::from_utf8_lossy(&bytes).into_owned(), out)
+    }
+
+    #[tokio::test]
+    async fn unknown_method_is_refused_before_the_body_is_read() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = std::env::temp_dir().join(format!("codync-http-unknown-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let hub = Hub::new(
+            crate::store::Store::open(std::path::Path::new(":memory:")).expect("store"),
+            "test".into(),
+            crate::remote::identity::Identity::load_or_create(&dir).expect("identity"),
+            "local-test".into(),
+            0,
+        );
+        let peer: SocketAddr = "127.0.0.1:9".parse().expect("endereço");
+        let cabecalhos = |token: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("authorization", format!("Bearer {token}").parse().expect("cabeçalho"));
+            headers
+        };
+        let chamar = |method: &str, token: &str| {
+            let lido = Arc::new(AtomicBool::new(false));
+            let marca = lido.clone();
+            let corpo = stream::once(async move {
+                marca.store(true, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Bytes::from_static(b"{"))
+            });
+            let request = Request::new(axum::body::Body::from_stream(corpo));
+            let resposta =
+                command(State(hub.clone()), Path(method.to_owned()), ConnectInfo(peer), cabecalhos(token), request);
+            async move { (resposta.await.err().map(|e| e.0), lido.load(Ordering::SeqCst)) }
+        };
+        for method in ["metodoInexistente", "donnaWorkplaceInexistente"] {
+            assert_eq!(chamar(method, "local-test").await, (Some(StatusCode::NOT_FOUND), false), "{method}");
+            assert_eq!(chamar(method, "invalido").await, (Some(StatusCode::UNAUTHORIZED), false), "{method}");
+        }
+        assert_eq!(chamar("hello", "local-test").await, (Some(StatusCode::BAD_REQUEST), true));
+
+        // A recusa deixa log com motivo fixo e origem, sem o nome do cliente, o token ou o corpo.
+        let cru = "metodoMarcador7f3\nINJETADO reason=forjado";
+        let aparelho = Caller::Device { key: "chave-marcadora-9c1".into(), scopes: vec![], autoridade: None };
+        let (log, respostas) = registrado(async {
+            let http = chamar(cru, "local-test").await;
+            let canal = dispatch(&hub, &aparelho, cru, json!({"segredo": "corpo-marcador-5e2"})).await;
+            (http, canal.map_err(|e| error_status(&e).0))
+        })
+        .await;
+        assert_eq!(respostas, ((Some(StatusCode::NOT_FOUND), false), Err(StatusCode::NOT_FOUND)), "resposta igual");
+        assert_eq!(log.matches("unknown_rpc_method").count(), 2, "{log}");
+        assert!(log.contains("origin=\"local\"") && log.contains("origin=\"aparelho\""), "{log}");
+        assert!(log.contains(&format!("method_len={}", cru.len())), "{log}");
+        for vazado in ["Marcador7f3", "INJETADO", "forjado", "local-test", "chave-marcadora-9c1", "corpo-marcador-5e2"]
+        {
+            assert!(!log.contains(vazado), "{vazado} no log: {log}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

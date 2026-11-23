@@ -28,17 +28,8 @@ pub const ONLINE: i64 = 40_000;
 pub const MAX_RESULT: usize = 40_960;
 pub const MAX_STDIO: usize = 24_576;
 pub const TOOL_WAIT: u64 = 240_000;
-pub const EXECUTOR_METHODS: &[&str] =
-    &["executorHello", "executorPoll", "executorUpdate", "executorResult", "executorAudit", "executorBye"];
-pub const LOCAL_METHODS: &[&str] = &[
-    "computersCall",
-    "computersList",
-    "computerJob",
-    "computerEnrollCode",
-    "computerRename",
-    "computerRemove",
-    "computerBots",
-];
+#[cfg(test)]
+pub(crate) use crate::fork::acesso_rpc::EXECUTOR as EXECUTOR_METHODS;
 
 /// Serializes transitions, including cancellation guards, without holding a lock across await.
 pub struct State {
