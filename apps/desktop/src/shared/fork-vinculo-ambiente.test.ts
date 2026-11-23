@@ -232,6 +232,7 @@ test('rótulos aceitam texto livre de exibição e rejeitam caracteres de contro
     }),
     CTX,
   )
+  assert.equal(ok.state, 'configured')
   assert.equal(ok.access.label, 'São Paulo — Produção (leitura)')
 
   for (const badLabel of [
