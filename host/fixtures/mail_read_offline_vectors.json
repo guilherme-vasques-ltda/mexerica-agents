@@ -1,0 +1,71 @@
+{
+  "purpose": "Offline illustrative vectors only; provider JSON shapes are unverified and are not a Google Gmail MCP contract.",
+  "fixture_identity": "synthetic-fixture.example.invalid",
+  "catalog_ceiling": ["search_threads", "get_thread", "get_message", "list_labels"],
+  "operations_used_by_list_and_open": ["search_threads", "get_thread"],
+  "vectors": [
+    {
+      "name": "list_page_one",
+      "illustrative_provider_response": {
+        "threads": [
+          {"threadId": "fixture-thread-a", "subject": "Assunto sintético A", "lastMessageAt": "2026-11-23T12:00:00Z"},
+          {"threadId": "fixture-thread-b", "subject": null, "lastMessageAt": "2026-11-23T12:01:00Z"}
+        ],
+        "pageToken": "illustrative-provider-page-token"
+      },
+      "expected_projection": [
+        {"threadId": "fixture-thread-a", "subject": "Assunto sintético A", "lastMessageAt": "2026-11-23T12:00:00Z"},
+        {"threadId": "fixture-thread-b", "subject": null, "lastMessageAt": "2026-11-23T12:01:00Z"}
+      ],
+      "expected_next_page_request_uses_provider_page_token": true,
+      "client_cursor": "not-defined-by-this-vector"
+    },
+    {
+      "name": "list_page_two",
+      "illustrative_provider_response": {
+        "threads": [
+          {"threadId": "fixture-thread-c", "subject": "Assunto sintético C", "lastMessageAt": "2026-11-23T12:02:00Z"}
+        ]
+      },
+      "expected_projection": [
+        {"threadId": "fixture-thread-c", "subject": "Assunto sintético C", "lastMessageAt": "2026-11-23T12:02:00Z"}
+      ]
+    },
+    {
+      "name": "open_thread",
+      "illustrative_provider_response": {
+        "threadId": "fixture-thread-a",
+        "bodyText": "Corpo sintético fictício; não deve ser escrito em log."
+      },
+      "expected_body_available_only_in_open_response": true,
+      "expected_log_projection": {"operation": "get_thread", "outcome": "success"}
+    },
+    {
+      "name": "provider_error",
+      "illustrative_provider_response": {"error": "synthetic failure"},
+      "expected_outcome": "sanitized provider error, not empty mailbox"
+    },
+    {
+      "name": "late_response_after_generation_change",
+      "illustrative_provider_response": {
+        "threadId": "fixture-thread-a",
+        "bodyText": "Corpo sintético atrasado; nunca registrar em log."
+      },
+      "request_generation": 7,
+      "current_generation": 8,
+      "expected_outcome": "discard response without publishing body"
+    },
+    {
+      "name": "effective_scope_missing",
+      "effective_scope_evidence": null,
+      "expected_outcome": "deny before tools/call; zero transport calls"
+    }
+  ],
+  "known_gaps": [
+    "Provider request and response JSON schemas have not been verified; every shape above is illustrative.",
+    "No production or test transport interface presently maps a thread summary to threadId, optional subject, and lastMessageAt UTC.",
+    "The legacy MailBackend uses message-oriented summaries with sender, preview, and attachment fields, has no pagination or lastMessageAt, and also exposes write-capable operations.",
+    "The Hub client cursor format and binding are intentionally unspecified here; provider page tokens are not client cursors.",
+    "No existing proof establishes provider account binding, version/definition pinning, or that opening a thread leaves it unread."
+  ]
+}
