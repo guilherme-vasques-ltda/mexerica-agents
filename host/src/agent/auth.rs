@@ -98,6 +98,9 @@ fn exigir_oferecido(backend: &str) -> Result<()> {
 
 /// Keys saved for `backend`, as environment for its process.
 pub fn env(store: &Store, backend: &str) -> Result<Vec<(String, String)>> {
+    if backends::is_antigravity(backend) {
+        return Ok(Vec::new());
+    }
     let Some(raw) = crate::market::vault::read(store, &env_slot(backend))? else {
         return Ok(Vec::new());
     };
@@ -113,6 +116,9 @@ fn saved_env(store: &Store, backend: &str) -> Result<Vec<String>> {
 /// Runs a check and returns `{signedIn, detail, methods, savedEnv}`.
 pub async fn check(store: &Store, backend: &str) -> Result<Value> {
     exigir_oferecido(backend)?;
+    if backends::is_antigravity(backend) {
+        return Ok(json!({"signedIn":null,"methods":[],"savedEnv":[],"login":false}));
+    }
     let status = probe(store, backend).await?;
     backends::set_signed_in(backend, status.signed_in);
     CHECKED.locked().insert(backend.to_owned(), status.clone());
@@ -300,6 +306,7 @@ async fn start(store: &Store, backend: &str) -> Result<Started> {
     start_with_env(store, backend, &[]).await
 }
 async fn start_with_env(store: &Store, backend: &str, profile: &[(String, String)]) -> Result<Started> {
+    backends::require_supported_execution(backend)?;
     // The installed CLI alone when there is one: resolving the registry build can mean a long download.
     let candidates = match backends::local_candidate(backend) {
         Some(local) => vec![local],
@@ -463,6 +470,7 @@ pub async fn authenticate(store: &Store, backend: &str, method: &str) -> Result<
 /// Saves the keys for an env-var method (empty values remove them), then re-checks.
 pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) -> Result<Value> {
     exigir_oferecido(backend)?;
+    backends::require_supported_execution(backend)?;
     let mutation = crate::fork::engine_accounts::MUTATION.lock().await;
     let mut saved: BTreeMap<String, String> = env(store, backend)?.into_iter().collect();
     for (k, v) in vars {

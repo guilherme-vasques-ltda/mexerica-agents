@@ -110,6 +110,7 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
   const backend = store.hello?.backends.find((b) => b.id === initial.id) ?? initial
   const installed = backend.installed === true
   const curated = backend.curated === true
+  const antigravity = backend.id === 'antigravity'
   const signedIn = auth?.signedIn ?? backend.signedIn ?? null
   const nodeMissing = backend.node === 'missing'
   // O nome do computador e do motor são dados: entram isolados nas frases.
@@ -155,7 +156,7 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
   // A known "signed in" needs no agent start; everything else asks the agent (which can't
   // start without its Node.js).
   useEffect(() => {
-    if ((recheck || backend.signedIn !== true) && !nodeMissing) void check()
+    if (!antigravity && (recheck || backend.signedIn !== true) && !nodeMissing) void check()
   }, [])
 
   // Back from a terminal or key form: see what changed.
@@ -219,10 +220,10 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
       <ModalHeader
         icon={<AgentTile registry={backend.registry ?? backend.id} icon={18} tile={32} radius={9} />}
         title={<bdi dir="auto">{backend.name}</bdi>}
-        subtitle={backend.description ? <bdi dir="auto">{backend.description}</bdi> : undefined}
+        subtitle={antigravity ? t('extensoes.motor.antigravityInterativo') : backend.description ? <bdi dir="auto">{backend.description}</bdi> : undefined}
         closeTitle={t('extensoes.fechar')}
       />
-      <CardForm>
+      {antigravity ? null : <CardForm>
         {/* D164: contas do Codex e do Claude Code ficam em Configurações → Contas de IA. */}
         {backend.id === 'codex' || backend.id === 'claude' ? <CardSection><Text size="subheadline" tone="secondary">{t('contas.avisoCatalogo')}</Text></CardSection> : null}
         {curated ? (
@@ -268,7 +269,7 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
           {options}
         </CardSection>
         {error ? <CardSection><ErrorText text={error} /></CardSection> : null}
-      </CardForm>
+      </CardForm>}
       </div>
     </SheetPage>
   )
