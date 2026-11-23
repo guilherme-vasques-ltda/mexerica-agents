@@ -1915,7 +1915,7 @@ async fn assinatura_pessoal_rotina_para_antes_do_motor() {
     let run = f.enqueue(id, "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
     f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
-    assert!(f.prompts().is_empty());
+    assert_eq!(f.prompts(), [] as [Value; 0]);
     assert!(!f.dir.join("session-count").exists());
     assert!(!f.waiting_checkpoint_published());
     f.hub.shutdown().await;
