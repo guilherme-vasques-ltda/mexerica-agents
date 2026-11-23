@@ -522,14 +522,16 @@ export const prefs = (() => {
   return {
     get: (key: string) => load()[key],
     set: (key: string, value: unknown) => {
-      const data = load()
-      data[key] = value
+      const data = { ...load(), [key]: value }
       // Synchronous: a marker set right before the app quits (an update install) must be on disk.
       try {
         mkdirSync(app.getPath('userData'), { recursive: true })
         writeFileSync(file(), JSON.stringify(data))
+        cache = data
+        return true
       } catch (error) {
         console.error(`prefs: couldn't save ${key}:`, error)
+        return false
       }
     },
   }

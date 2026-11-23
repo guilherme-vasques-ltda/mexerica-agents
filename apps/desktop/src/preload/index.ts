@@ -50,6 +50,7 @@ const bridge: CodyncBridge = {
     onChange: (cb) => listen('host:change', cb),
     install: () => ipcRenderer.send('host:install'),
     restart: () => ipcRenderer.send('host:restart'),
+    onboardingDismissal: (userId, action) => ipcRenderer.invoke('host:onboardingDismissal', userId, action),
     async call(baseURL, token, method, body, timeoutMs) {
       const result = (await ipcRenderer.invoke('host:call', baseURL, token, method, body, timeoutMs)) as
         | { ok: true; value: unknown }

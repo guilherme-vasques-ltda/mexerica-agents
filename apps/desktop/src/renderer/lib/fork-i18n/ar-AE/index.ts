@@ -49,6 +49,7 @@ import { textos as extensoesGeral } from './extensoes/geral.ts'
 import { textos as entrada } from './entrada.ts'
 import { textos as idioma } from './idioma.ts'
 import { textos as marca } from './marca.ts'
+import { textos as onboarding } from './onboarding.ts'
 import { textos as navegacaoJanela } from './navegacao/janela.ts'
 import { textos as navegacaoBarra } from './navegacao/barra.ts'
 import { textos as navegacaoIlha } from './navegacao/ilha.ts'
@@ -136,6 +137,7 @@ export const arAE: Catalogo = {
   ...entrada,
   ...idioma,
   ...marca,
+  ...onboarding,
   ...navegacaoJanela,
   ...navegacaoBarra,
   ...navegacaoIlha,

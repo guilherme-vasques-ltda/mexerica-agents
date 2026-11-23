@@ -86,6 +86,7 @@ pub(crate) mod motor_copia;
 pub(crate) mod native_catalog;
 pub mod native_scheduling;
 pub(crate) mod nunca_fazer;
+pub(crate) mod onboarding;
 pub(crate) mod onde_roda;
 pub(crate) mod owner_question;
 pub(crate) mod pairing_addresses;

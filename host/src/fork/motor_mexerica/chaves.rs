@@ -293,6 +293,15 @@ fn modelos_guardados(store: &Store, fornecedor: &str) -> Result<Option<Value>> {
     Ok(store.kv_read(&cache_slot(fornecedor))?.and_then(|raw| serde_json::from_str(&raw).ok()))
 }
 
+pub(crate) fn modelo_no_catalogo(store: &Store, fornecedor: &str, modelo: &str) -> Result<bool> {
+    let id = format!("{fornecedor}/{modelo}");
+    let guardado = modelos_guardados(store, fornecedor)?;
+    Ok(guardado
+        .as_ref()
+        .and_then(|g| g["modelos"].as_array())
+        .is_some_and(|modelos| modelos.iter().any(|modelo| modelo["id"] == id.as_str())))
+}
+
 /// Os limites de `fornecedor/modelo` no último «Testar acesso» (`{}` se não há): sem eles o motor usaria os
 /// padrões do fornecedor, e um teto de saída maior que o do modelo faz o fornecedor recusar o pedido.
 pub(crate) fn limites(store: &Store, fornecedor: &str, modelo: &str) -> Result<Value> {

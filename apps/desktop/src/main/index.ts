@@ -1,5 +1,5 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-import { identity, isRc } from './environment'
+import { buildConfig, identity, isRc, officialLoginConfig } from './environment'
 import { keychainFailure, prepareKeychain } from './fork-keychain/generation'
 import { registerVozIPC } from './fork-voz/registrar'
 import { execFileSync } from 'node:child_process'
@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import type { HostSnapshot, WindowCommand } from '../shared/ipc'
 import { createAppIconController, registerAppIconIPC } from './fork-app-icon-controller'
-import { devPort, HostController, prefs } from './host-controller'
+import { dataDir, devPort, HostController, port, prefs } from './host-controller'
 import { registerFileSaves } from './file-saves'
 import { cancelHostStreams, registerHostProxy } from './host-proxy'
 import { registerProtocol as registerMexeriquinhaProtocol, registerScheme as registerMexeriquinhaScheme } from './fork-mexeriquinha-protocol'
@@ -44,6 +44,7 @@ import { traduzir } from '../renderer/lib/fork-i18n/index.ts'
 import { launchAtLogin, openedAtLogin, setLaunchAtLogin, updateLoginItem } from './login-item'
 import { openExternalURL, openSystemSettingsURL, registerWindowNavigation } from './navigation'
 import { origemDoChat, permiteNoChat } from './seguranca-renderer'
+import { onboardingDismissal } from './fork-onboarding-dismissal'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -269,6 +270,13 @@ function registerIPC(tray: Tray) {
     ipcMain.on('host:install', () => void host.install())
     ipcMain.on('host:restart', () => host.restart())
   }
+  ipcMain.handle('host:onboardingDismissal', (event, userId: unknown, action: unknown) => {
+    if (!pedidoDoChat(event)) return null
+    const confirmed = accountConfirmed() ? account.captureCloudSession() : null
+    const accountRealm = officialLoginConfig?.clerkFrontendOrigin ?? buildConfig.deploymentId ?? null
+    if (accountRealm === null) return null
+    return onboardingDismissal(prefs, [identity.environment, app.getPath('userData'), dataDir, port, accountRealm], confirmed?.userId, userId, action)
+  })
   ipcMain.on('app:openExternal', (_e, url: string) => {
     void openExternalURL(url)
   })

@@ -162,6 +162,34 @@ pub(crate) fn credential_slot(provider_id: &str) -> String {
     format!("motor-mexerica/{provider_id}")
 }
 
+/// Resumo das credenciais de IA do Motor Mexerica para o onboarding,
+/// sem desbloquear o cofre nem retornar valores secretos.
+pub(crate) fn onboarding_ai_summary(store: &Store) -> Result<Vec<String>> {
+    #[cfg(not(unix))]
+    {
+        let _ = store;
+        Ok(Vec::new())
+    }
+    #[cfg(unix)]
+    {
+        if !enabled() {
+            return Ok(Vec::new());
+        }
+        let mut providers = Vec::new();
+        for (id, _) in chaves::FORNECEDORES {
+            if store.kv_read(&credential_slot(id))?.is_some() {
+                providers.push((*id).to_owned());
+            }
+        }
+        for id in proprio::ids(store)? {
+            if store.kv_read(&credential_slot(&id))?.is_some() {
+                providers.push(id);
+            }
+        }
+        Ok(providers)
+    }
+}
+
 /// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
 #[cfg(unix)]
 const PROVIDERS: [&str; 8] = ["anthropic", "openai", "google", "xai", "openrouter", "meta", "faux", "faux2"];

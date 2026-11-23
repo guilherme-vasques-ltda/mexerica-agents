@@ -8,6 +8,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import type { WindowCommand } from '@shared/ipc'
 import { showsComputerAccess } from '@shared/fork-features'
+import { forkFeatures } from '../../shared/fork-features'
+import { OnboardingContext, useOnboarding } from './fork/onboarding/OnboardingContext'
+import { ReadinessCard } from './fork/onboarding/ReadinessCard'
+import { Step3Wizard } from './fork/onboarding/Step3Wizard'
+import { useOnboardingSession } from './fork/onboarding/useOnboardingSession'
 import { escopoDoSpace, type ConversaDisponivel, type LadoALadoEscopo, type LadoALadoRef } from '@shared/fork-lado-a-lado'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { isGroup, type Bot } from '@shared/models'
@@ -70,7 +75,8 @@ import { superficieIdioma, useIdioma, useT } from '../lib/fork-i18n/estado'
 import { comNos, no } from './settings/rotulo'
 import { useIslandSummary } from './island-summary'
 import { useSSH, useSSHAttachments } from './settings/ssh-model'
-import { useForkCloudAttachments } from './fork/cloud/use-fork-cloud'
+import { useForkCloud, useForkCloudAttachments } from './fork/cloud/use-fork-cloud'
+import { noConfiguredRemote } from './fork/onboarding/remote-entry'
 import { WithRoutinesScreen } from './rotinas-central/camada'
 import { routinesScreen } from './rotinas-central/navigation'
 import { settingsScreen, type SettingsPage } from './fork/ajustes/tela'
@@ -107,21 +113,28 @@ export function ChatWindow() {
 function ChatShell() {
   const app = useAppShell()
   const t = useT()
+  useModel(settingsScreen)
   const idioma = useIdioma()
-  const [accessSetup, setAccessSetup] = usePref(prefs.computerAccessSetup)
   const [showAccess, setShowAccess] = useState(false)
   useSSHAttachments(app)
   useSincronizarAtalhoVoz()
   // D171: o Hub pela nuvem, só com `cloudAccess` e anexo qualificado pelo Main; o SSH vem primeiro.
   useForkCloudAttachments(app)
+  const cloud = useForkCloud()
   const ssh = useSSH()
   const showsChat = shouldShowChat(app.host.state.kind, app.computers.length, ssh.state)
   // Sem host neste computador (D76), não há acesso a este computador para configurar.
   const accessShown = showsComputerAccess(app.host.state)
-  const needsAccess = accessSetup === null && accessShown
-  const finishAccess = (ready: boolean, onboarding: boolean) => {
-    setAccessSetup(ready ? 'ready' : 'later')
-    analytics.track({ event: 'computer_access_finished', ready, onboarding })
+  const onboarding = useOnboardingSession(
+    app,
+    app.host.state,
+    forkFeatures.localHost || (forkFeatures.macLocalHub && window.codync.platform === 'darwin'),
+    accessShown ? () => setShowAccess(true) : null,
+    noConfiguredRemote(ssh.hasSnapshot ? ssh.state : null, cloud),
+  )
+  const finishAccess = (ready: boolean) => {
+    prefs.computerAccessSetup.set(ready ? 'ready' : 'later')
+    analytics.track({ event: 'computer_access_finished', ready, onboarding: false })
   }
 
   useEffect(
@@ -153,7 +166,7 @@ function ChatShell() {
           case 'openSettings':
             // ⌘, (menu do app) chega mesmo com a janela inerte: só abre com a conversa na tela e sem camada na frente
             // (folha, diálogo, menu, menu da conta), senão Ajustes montaria por baixo dela e tomaria o Esc seguinte.
-            if (!needsAccess && showsChat && !document.querySelector(LAYERS_IN_FRONT)) settingsScreen.show()
+            if (showsChat && !document.querySelector(LAYERS_IN_FRONT)) settingsScreen.show()
             return
           case 'stopBot': {
             const ref = parseRef(c.ref)
@@ -182,24 +195,43 @@ function ChatShell() {
           }
         }
       }),
-    [app, needsAccess, showsChat],
+    [app, showsChat],
   )
 
   const approval = app.currentApproval
+  const step3Active = onboarding.showStep3 && (showsChat || onboarding.explicitStep3 || app.computers.length === 0) && !settingsScreen.open
   return (
+    <OnboardingContext.Provider value={onboarding.controller}>
     <div className="chat-window">
       <Summaries />
-      {needsAccess ? (
-        <ComputerAccessView onContinue={(ready) => finishAccess(ready, true)} />
-      ) : showsChat ? (
+      {step3Active ? (
+        <Step3Wizard
+          key={`${onboarding.controller.navigationKey}.${app.local?.computer.id ?? 'unavailable'}`}
+          client={onboarding.client}
+          spaceId={onboarding.spaceId}
+          hostState={app.host.state}
+          devHost={app.host.dev}
+          localHubSupported={forkFeatures.localHost || (forkFeatures.macLocalHub && window.codync.platform === 'darwin' && app.host.state.kind !== 'disabled')}
+          platform={window.codync.platform}
+          status={onboarding.status}
+          where={onboarding.whereChoice}
+          onSelectWhere={onboarding.selectWhere}
+          onOpenComputers={() => {
+            onboarding.dismissForComputers()
+            settingsScreen.show('computers')
+          }}
+          onSkip={onboarding.closeStep3}
+          onContinue={onboarding.closeStep3}
+        />
+      ) : settingsScreen.open || showsChat ? (
         <WithRoutinesScreen><WithTimesScreen><WithTorreScreen><ChatSplitView /></WithTorreScreen></WithTimesScreen></WithRoutinesScreen>
       ) : (
         <HostStateView />
       )}
-      {!needsAccess && showsChat ? null : <div className="window-drag drag" />}
+      {!step3Active && (showsChat || settingsScreen.open) ? null : <div className="window-drag drag" />}
       <Sheet language={superficieIdioma(idioma)} open={showAccess && accessShown} onClose={() => setShowAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>
         <ModalHeader icon="hand.raised" title={t('navegacao.janela.acessoComputador')} closeTitle={t('navegacao.janela.fechar')} />
-        <ComputerAccessView onContinue={(ready) => { finishAccess(ready, false); setShowAccess(false) }} />
+        <ComputerAccessView onContinue={(ready) => { finishAccess(ready); setShowAccess(false) }} />
       </Sheet>
       {/* Approving a device: the person types the code the device shows; Approve opens only when it matches (spec §4.2 B). Closing puts it off. */}
       <Sheet language={superficieIdioma(idioma)} open={approval !== null || app.confirmation !== null} onClose={() => (app.confirmation ? app.dismissConfirmation() : approval && app.deferApproval(approval))}>
@@ -207,6 +239,20 @@ function ChatShell() {
           : approval ? <ApprovalSheet key={approval.id} approval={approval} /> : null}
       </Sheet>
     </div>
+    </OnboardingContext.Provider>
+  )
+}
+
+function SidebarReadinessCard() {
+  const onboarding = useOnboarding()
+  if (!onboarding.status) return null
+  if (onboarding.status.readiness.readyCount >= onboarding.status.readiness.totalCount) return null
+  return (
+    <ReadinessCard
+      status={onboarding.status}
+      onConnectAi={onboarding.connectAi}
+      onConfigurePermissions={onboarding.openPermissions ?? undefined}
+    />
   )
 }
 
@@ -939,6 +985,7 @@ function ChatSplitView() {
             </div>
           ) : null}
         </div>
+        <SidebarReadinessCard />
       </aside>
       ) : null}
       {collapsed ? null : <ResizeHandle label={t('navegacao.janela.redimensionar')} width={width} min={SIDEBAR_MIN - 40} max={SIDEBAR_WIDTH.max} edge="trailing" onResize={resizeSidebar} onReset={() => setSidebarWidth(SIDEBAR_WIDTH.default)} onDragging={dragSidebar} />}
