@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRemoteHub } from './transport.ts'
+import { createRemoteHub } from './fork-transport.ts'
 import { createWebBridge } from '../platform.ts'
 import type { CodyncBridge } from '../../shared/ipc.ts'
 import { createRemoteController } from './controller.ts'
@@ -116,6 +116,10 @@ for (const type of ['workspace_revoked', 'role_changed'] as const) {
     remote.host.stream(`${origin}/events`, token, (line) => delivered.push(JSON.parse(line)), () => {})
     const pending = assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { code: 'workspace_inactive' })
     await until(() => delivered.length === 1 && requests.some((r) => r.method === 'POST'))
+    streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 2 }))
+    streams[1].enqueue(frame({ type: 'fixtureMarker' }))
+    await until(() => delivered.length === 2)
+    assert.equal(states.at(-1)?.status, 'active')
     streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 3 }))
     streams[1].enqueue(frame({ type: 'entry' }))
     await pending
@@ -124,7 +128,7 @@ for (const type of ['workspace_revoked', 'role_changed'] as const) {
     assert.equal(states.at(-1)?.activeId, null)
     assert.equal((await remote.host.snapshot()).local, null)
     assert.ok(requests.every((r) => r.signal.aborted))
-    assert.deepEqual(delivered, [hello()])
+    assert.deepEqual(delivered, [hello(), { type: 'fixtureMarker' }])
     assert.deepEqual(cleared, [personal.id])
   })
 }
@@ -169,4 +173,15 @@ for (const failure of ['network', 'timeout']) test(`${failure} marks hub offline
   await assert.rejects(remote.host.call(origin, token, 'donnaAttention', {}, failure === 'timeout' ? 30 : 1000), { code: 'hub_offline' })
   await until(() => states.at(-1)?.status === 'hub_offline')
   assert.equal(calls, 1)
+})
+
+test('a renderer stream that ends unexpectedly reports the offline error once', async () => {
+  const { remote, states } = await activeFixture(async (request) =>
+    sse([hello()], !new URL(request.url).searchParams.has('workspaceEpoch')))
+  const ended: unknown[] = []
+  const token = (await remote.host.snapshot()).local!.token
+  remote.host.stream(`${origin}/events`, token, () => {}, (error) => ended.push(error))
+  await until(() => ended.length === 1)
+  assert.deepEqual(ended, [{ status: 0, code: 'hub_offline', message: 'hub_offline' }])
+  assert.equal(states.at(-1)?.status, 'hub_offline')
 })

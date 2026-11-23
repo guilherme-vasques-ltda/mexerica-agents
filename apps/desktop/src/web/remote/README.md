@@ -10,7 +10,7 @@ O ponto de entrada do perfil remoto não cria o transporte nem monta o renderer 
 
 Nada disso deve ser ligado antes de estar pronto:
 
-- B-2: sessão Clerk verificada pelo Hub e prova de posse do dispositivo por requisição;
+- sessão Clerk verificada pelo Hub e prova de posse do dispositivo por requisição;
 - descoberta de servidor confiável;
 - rota HTTP/SSE com autorização remota e validação em laboratório;
 - isolamento do cache compartilhado persistente (trabalho separado).

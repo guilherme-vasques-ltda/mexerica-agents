@@ -20,10 +20,11 @@ interface Connection {
   computerId?: string
 }
 
-const offline: CallError = { status: 0, code: 'hub_offline', message: 'hub_offline' }
-const inactive: CallError = { status: 409, code: 'workspace_inactive', message: 'workspace_inactive' }
-const invalid: CallError = { status: 502, code: 'invalid_hub_response', message: 'invalid_hub_response' }
-const unauthorized: CallError = { status: 401, code: 'auth_invalid', message: 'auth_invalid' }
+const transportError = (status: number, code: string): CallError => ({ status, code, message: code })
+const offline = transportError(0, 'hub_offline')
+const inactive = transportError(409, 'workspace_inactive')
+const invalid = transportError(502, 'invalid_hub_response')
+const unauthorized = transportError(401, 'auth_invalid')
 const streamIdleMs = 45_000
 const maxFrameLength = 8 * 1024 * 1024
 const terminalTypes = new Set(['workspace_revoked', 'role_changed', 'device_revoked'])
@@ -75,6 +76,7 @@ async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: 
     timeout = setTimeout(() => timer.abort(), streamIdleMs)
   }
   reset()
+  let awaitingHello = url.pathname === '/events'
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
     const response = await request(c, url, { headers: { Accept: 'text/event-stream' } }, scoped)
@@ -88,7 +90,7 @@ async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: 
     for (;;) {
       const { value, done } = await abortable(scoped, () => input.read()).catch(() => { throw offline })
       if (done) return
-      reset()
+      if (!awaitingHello) reset()
       buffer += decoder.decode(value, { stream: true })
       let end: number
       while ((end = buffer.indexOf('\n')) >= 0) {
@@ -99,6 +101,7 @@ async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: 
         if (!line && data) {
           scoped.throwIfAborted()
           onData(data.slice(0, -1))
+          if (awaitingHello) { awaitingHello = false; reset() }
           data = ''
         }
       }
@@ -143,7 +146,7 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
     const { type, workspaceId, workspaceEpoch } = event
     if (typeof type === 'string' && terminalTypes.has(type)) {
       if (workspaceId !== context.workspaceId || typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch)
-        || (type === 'device_revoked' ? workspaceEpoch < context.workspaceEpoch : workspaceEpoch <= context.workspaceEpoch)) throw invalid
+        || workspaceEpoch < 0) throw invalid
       c.callbacks.acceptEvent({ type, workspaceId, workspaceEpoch })
       return false
     }
@@ -151,12 +154,11 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
     if (type === 'hello') {
       const hello = readContext(event)
       if (hello.hubId !== context.hubId || hello.workspaceId !== context.workspaceId || hello.userId !== context.userId
-        || hello.kind !== context.kind || event.hostId !== context.hubId) throw invalid
+        || hello.kind !== context.kind || hello.role !== context.role || event.hostId !== context.hubId) throw invalid
       if (hello.workspaceEpoch !== context.workspaceEpoch) {
         c.callbacks.accessLost(409, 'workspace_epoch_mismatch')
         return false
       }
-      if (hello.role !== context.role) throw invalid
     }
     if (workspaceEpoch !== undefined) {
       if (typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch) || workspaceEpoch < 0) throw invalid
@@ -232,6 +234,12 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
       },
       stream(raw, token, onData, onEnd) {
         const stop = new AbortController()
+        let ended = false
+        const finish = (error: CallError | null) => {
+          if (ended || stop.signal.aborted) return
+          ended = true
+          onEnd(error)
+        }
         void (async () => {
           const url = new URL(raw)
           const c = connection(url.origin, token)
@@ -251,14 +259,14 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
             })
             if (!signal.aborted) {
               if (url.pathname === '/events') throw offline
-              onEnd(null)
+              finish(null)
             }
           } catch (error) {
             if (signal.aborted) return
             fail(c, error)
-            if (!signal.aborted) onEnd(typeof (error as CallError | undefined)?.status === 'number' ? error as CallError : invalid)
+            finish(typeof (error as CallError | undefined)?.status === 'number' ? error as CallError : invalid)
           }
-        })().catch(() => { if (!stop.signal.aborted) onEnd(inactive) })
+        })().catch(() => finish(inactive))
         return () => stop.abort()
       },
     },
