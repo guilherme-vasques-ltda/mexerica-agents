@@ -163,7 +163,7 @@ const bridge: CodyncBridge = {
   },
   // Nível 1 de atualizações: canais escritos inline de propósito para funcionar no preload com sandbox.
   releaseNotice: {
-    state: () => ipcRenderer.invoke('releaseNotice:state') as Promise<ReleaseNoticeState>,
+    state: () => ipcRenderer.invoke('releaseNotice:state') as Promise<ReleaseNoticeState | null>,
     check: () => ipcRenderer.invoke('releaseNotice:check') as Promise<ReleaseNoticeState>,
     dismiss: () => ipcRenderer.invoke('releaseNotice:dismiss') as Promise<ReleaseNoticeState>,
     openDownload: () => ipcRenderer.invoke('releaseNotice:openDownload') as Promise<boolean>,

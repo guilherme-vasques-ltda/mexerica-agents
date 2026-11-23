@@ -108,6 +108,7 @@ pub(crate) fn fixed_args(backend: &str) -> Result<Vec<String>> {
     let args: &[&str] = match h.id {
         "grok" => &["login", "--device-auth"],
         "cursor" => &["login"],
+        #[cfg(test)]
         "antigravity" => &[],
         _ => anyhow::bail!(
             "Terminal de login não oferecido: motor sem prova contra escape. Use chave no cofre ou código de aparelho."
@@ -117,6 +118,7 @@ pub(crate) fn fixed_args(backend: &str) -> Result<Vec<String>> {
 }
 impl Login {
     pub(crate) fn prepare(hub: &Arc<Hub>, caller: &Caller, backend: &str, space: &str) -> Result<Arc<Self>> {
+        backends::require_supported_execution(backend)?;
         ensure!(cfg!(unix), "Terminal seguro de login ainda indisponível neste Hub.");
         let authority = access::resolve(hub, caller)?;
         hub.store.require_space(space)?;
@@ -883,6 +885,9 @@ fn validate_profile(store: &Store, path: &Path) -> Result<PathBuf> {
     Ok(path.to_path_buf())
 }
 pub(crate) async fn status(hub: &Hub, backend: &str, space: &str) -> Result<Option<Value>> {
+    if backends::is_antigravity(backend) {
+        return Ok(None);
+    }
     let Some(h) = canonical(backend) else { return Ok(None) };
     if fixed_args(h.id).is_err() {
         return Ok(None);
@@ -906,12 +911,15 @@ pub(crate) async fn status(hub: &Hub, backend: &str, space: &str) -> Result<Opti
     super::conexao_motores::add_methods(h.id, &mut methods);
     let saved = crate::agent::auth::env(&hub.store, h.id)?.into_iter().map(|(k, _)| k).collect::<Vec<_>>();
     Ok(Some(
-        json!({"signedIn":if h.id=="antigravity"{None}else{signed},"cliSignedIn":if h.id=="antigravity"{signed}else{None},"detail":if h.id=="antigravity"&&signed==Some(true){Some("Login do agy confirmado. O motor ACP usa outra credencial; integração pendente.")}else{None},"methods":methods,"savedEnv":saved,"login":fixed_args(h.id).is_ok()&&backends::login_available(h.id)}),
+        json!({"signedIn":signed,"cliSignedIn":null,"methods":methods,"savedEnv":saved,"login":fixed_args(h.id).is_ok()&&backends::login_available(h.id)}),
     ))
 }
 pub(crate) fn stamp(store: &Store, backend: &str, space: &str) -> Result<String> {
+    if backends::is_antigravity(backend) {
+        return Ok(String::new());
+    }
     let backend = canonical(backend).map_or(backend, |h| h.id);
-    if matches!(backend, "claude" | "codex" | "antigravity") {
+    if matches!(backend, "claude" | "codex") {
         return Ok(String::new());
     }
     let Some(path) = store.kv_read(&slot(backend, space))? else {
@@ -921,8 +929,11 @@ pub(crate) fn stamp(store: &Store, backend: &str, space: &str) -> Result<String>
 }
 
 pub(crate) fn runtime_env(store: &Store, backend: &str, space: &str) -> Result<Vec<(String, String)>> {
+    if backends::is_antigravity(backend) {
+        return Ok(Vec::new());
+    }
     let backend = canonical(backend).map_or(backend, |h| h.id);
-    if matches!(backend, "claude" | "codex" | "antigravity") {
+    if matches!(backend, "claude" | "codex") {
         return Ok(Vec::new());
     }
     let Some(path) = store.kv_read(&slot(backend, space))? else {
@@ -932,11 +943,15 @@ pub(crate) fn runtime_env(store: &Store, backend: &str, space: &str) -> Result<V
 }
 pub(crate) async fn check(backend: &str, bin: &Path, home: &Path, env: &[(String, String)]) -> Option<bool> {
     let h = canonical(backend)?;
-    let spec =
-        if backend == "antigravity" { backends::SignInCheck { args: "models", ok: agy_models } } else { h.signed_in? };
+    let spec = match h.id {
+        #[cfg(test)]
+        "antigravity" => backends::SignInCheck { args: "models", ok: agy_models },
+        _ => h.signed_in?,
+    };
     let env: Vec<_> = env.iter().map(|(k, v)| (k.into(), v.into())).collect();
     backends::run_sign_in_check(spec, bin, Duration::from_secs(5), None, &env, Some(home)).await
 }
+#[cfg(test)]
 fn agy_models(success: bool, out: &str) -> bool {
     success
         && out.lines().any(|line| {

@@ -13,24 +13,10 @@ use std::sync::{Arc, Mutex};
 pub(crate) const ENV: &str = "DONNABOT_PONTE_TOKEN";
 pub(crate) const MODO_ENV: &str = "DONNABOT_PONTE_MODE";
 pub(crate) const SETUP_ENV: &str = "DONNABOT_MCP_SETUP_LOCAL";
-// Inventário dos leitores: mcp, guard stdio/remoto e proxy dos conectores curados.
-pub(crate) const PERMITIDOS: &[&str] = &[
-    "connectorCall",
-    "routineCall",
-    "computerCall",
-    "computersCall",
-    "chatCall",
-    "teamCall",
-    "taskCall",
-    "manageCall",
-    "memoryCall",
-    "computerTools",
-    "donnaGuardRuntime",
-    "donnaGuardObserve",
-    "donnaGuardRelease",
-    "donnaConectorFrame",
-    "donnaConectorRelease",
-];
+// Inventário dos leitores: mcp, guard stdio/remoto e proxy dos conectores curados. A lista mora na tabela
+// única de acesso (`acesso_rpc`, classe `Ponte`); o nome antigo fica para os testes.
+#[cfg(test)]
+pub(crate) use crate::fork::acesso_rpc::PONTE as PERMITIDOS;
 
 // Sem Debug/Serialize: somente o hash e identificadores ficam no Hub.
 struct Credencial {
@@ -47,6 +33,17 @@ pub(crate) struct Credenciais(Mutex<Vec<Arc<Credencial>>>);
 #[derive(Clone)]
 pub struct Origem(Arc<Credencial>);
 impl Origem {
+    /// Origem solta, fora da coleção do Hub: só para testes da tabela de acesso.
+    #[cfg(test)]
+    pub(crate) fn ficticia() -> Self {
+        Self(Arc::new(Credencial {
+            hash: [0; 32],
+            bot: "bot".into(),
+            slot: String::new(),
+            binding: "binding".into(),
+            contexts: Vec::new(),
+        }))
+    }
     pub(crate) fn corresponde(&self, bot: &str, binding: &str) -> bool {
         self.0.bot == bot && self.0.binding == binding
     }

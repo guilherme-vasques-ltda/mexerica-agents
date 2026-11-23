@@ -11,6 +11,7 @@ pub(crate) mod webhook_chain;
 
 use crate::LockExt;
 
+pub(crate) mod acesso_rpc;
 pub(crate) mod activity_code;
 pub(crate) mod agent_skills;
 pub mod api;

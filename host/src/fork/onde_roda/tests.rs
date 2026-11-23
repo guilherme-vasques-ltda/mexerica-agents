@@ -292,11 +292,17 @@ async fn toda_origem_nao_local_recusada_antes_de_permit_cofre_e_io() {
         });
     }
     for caller in origins {
-        for method in METHODS.iter().copied().chain(["donnaWorkplaceUnknown"]) {
+        for method in METHODS {
             let err = dispatch(&f.hub, &caller, method, json!({"secret":"not-real"})).await.unwrap_err();
             assert_eq!(err.to_string(), "origin_not_admitted");
         }
+        // Nome sem classe com o prefixo é desconhecido para todos, antes da guarda própria e dos argumentos.
+        let err = dispatch(&f.hub, &caller, "donnaWorkplaceUnknown", json!({"secret":"not-real"})).await.unwrap_err();
+        assert_eq!(crate::api::error_status(&err).0, axum::http::StatusCode::NOT_FOUND);
     }
+    let err =
+        dispatch(&f.hub, &Caller::Local, "donnaWorkplaceUnknown", json!({"secret":"not-real"})).await.unwrap_err();
+    assert_eq!(crate::api::error_status(&err).0, axum::http::StatusCode::NOT_FOUND);
     assert!(f.hub.store.secret_key.locked().is_none());
     assert!(f.hub.store.kv_read("vault.id").unwrap().is_none());
     assert_eq!(f.call("donnaWorkplaceList", json!({})).await["places"], json!([]));

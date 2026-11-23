@@ -1,5 +1,5 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-import { buildConfig, identity, officialLoginConfig } from './environment'
+import { buildConfig, identity, isRc, officialLoginConfig } from './environment'
 import { keychainFailure, prepareKeychain } from './fork-keychain/generation'
 import { registerVozIPC } from './fork-voz/registrar'
 import { execFileSync } from 'node:child_process'
@@ -266,14 +266,17 @@ function registerIPC(tray: Tray) {
   })
   ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.CODYNC_DEBUG_OPEN ?? null)))
   ipcMain.handle('host:snapshot', () => snapshot())
-  ipcMain.on('host:install', () => void host.install())
+  if (!isRc) {
+    ipcMain.on('host:install', () => void host.install())
+    ipcMain.on('host:restart', () => host.restart())
+  }
   ipcMain.handle('host:onboardingDismissal', (event, userId: unknown, action: unknown) => {
     if (!pedidoDoChat(event)) return null
     const confirmed = accountConfirmed() ? account.captureCloudSession() : null
     const accountRealm = officialLoginConfig?.clerkFrontendOrigin ?? buildConfig.deploymentId ?? null
+    if (accountRealm === null) return null
     return onboardingDismissal(prefs, [identity.environment, app.getPath('userData'), dataDir, port, accountRealm], confirmed?.userId, userId, action)
   })
-  ipcMain.on('host:restart', () => host.restart())
   ipcMain.on('app:openExternal', (_e, url: string) => {
     void openExternalURL(url)
   })
@@ -334,7 +337,7 @@ function registerIPC(tray: Tray) {
     const devices = await host.call<{ devices: { key: string }[] }>('devices').catch(() => ({ devices: [] }))
     for (const device of devices.devices) await host.call('revokeDevice', { key: device.key }).catch(() => {})
     await account.signOutAll()
-    if (!(await host.uninstall())) throw new Error('The host could not be safely uninstalled. Data was preserved.')
+    if (!isRc && !(await host.uninstall())) throw new Error('The host could not be safely uninstalled. Data was preserved.')
     const { rm } = await import('node:fs/promises')
     const { dataDir } = await import('./host-controller')
     await rm(dataDir, { recursive: true, force: true })
@@ -356,7 +359,7 @@ if (yieldsToInstall()) {
   app.on('second-instance', (_e, argv) => {
     const url = urlFromArgv(argv)
     if (url) handleURL(url)
-    else openChat()
+    else if (!isRc || !argv.some((arg) => /^[a-z][a-z0-9+.-]*:\/\//i.test(arg))) openChat()
   })
   // D169 N3: reabrir pelo LaunchServices põe o app no Dock antes deste evento; com Mostrar no Dock desligado, ocultar
   // de novo antes de trazer a janela (ocultar depois desativaria o app). O pacote do Mac é agente (LSUIElement, N4) e
@@ -382,7 +385,7 @@ if (yieldsToInstall()) {
     if (!officialDesktop) updateLoginItem()
     registrarPermissoes()
     if (officialDesktop) {
-      requireOfficialSession(ipcMain, () => account.officialSessionCurrent(), (event) => pedidoDoChat(event) !== null)
+      requireOfficialSession(ipcMain, () => account.officialSessionCurrent(), (event) => pedidoDoChat(event) !== null, isRc)
       session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (request, reply) => {
         reply({ cancel: request.webContentsId !== undefined && !account.officialSessionCurrent() })
       })
@@ -398,8 +401,10 @@ if (yieldsToInstall()) {
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)
     island.register()
-    registerAuthIPC()
-    registerOAuthLoopbackIPC()
+    if (!isRc) {
+      registerAuthIPC()
+      registerOAuthLoopbackIPC()
+    }
     registerSpeech()
     if (!officialDesktop) registerScreenIPC()
     registerCloud(account)
@@ -416,12 +421,12 @@ if (yieldsToInstall()) {
       if (officialDesktop && hostAttached !== accountConfirmed()) {
         hostAttached = accountConfirmed()
         if (hostAttached) {
-          host.start()
+          if (!isRc) host.start()
           void localSSH.connectAll()
         }
         else {
           cancelHostStreams()
-          host.suspend()
+          if (!isRc) host.suspend()
           localSSH.disconnectAll()
           pairing?.destroy()
           chat?.webContents.reload()
@@ -434,7 +439,8 @@ if (yieldsToInstall()) {
     account.register(generalWindows)
     updates.register(generalWindows)
     // Nível 1 de atualizações: aviso discreto de nova versão (sem download automático, forkFeatures.updates segue false).
-    registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
+    if (isRc) ipcMain.handle('releaseNotice:state', () => null)
+    else registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
     menu()
     aoMudarIdiomaDoApp(() => { menu(); tray.hostChanged() })
     host.on('change', () => {

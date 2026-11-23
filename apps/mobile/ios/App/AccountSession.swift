@@ -38,6 +38,20 @@ final class AccountSession {
               session.status == .active, session.expireAt > .now else { return nil }
         return clerk.user?.id
     }
+    var workspaceSessionID: String? { userID == nil ? nil : clerk?.session?.id }
+    private let enablesWorkspaceDirectory: Bool
+    var usesWorkspaceDirectory: Bool { isConfigured && enablesWorkspaceDirectory }
+
+    func loadWorkspaceMemberships() async throws -> ForkWorkspaceMemberships {
+        guard usesWorkspaceDirectory, let sessionID = workspaceSessionID, let user = clerk?.user,
+              let settings = clerk?.environment?.organizationSettings else {
+            throw SessionError.signedOut
+        }
+        let memberships = try await ForkClerkWorkspaceDirectory().load(user: user, organizationsEnabled: settings.enabled)
+        try Task.checkCancellation()
+        guard workspaceSessionID == sessionID, userID == user.id else { throw SessionError.signedOut }
+        return memberships
+    }
     var accounts: [Account] {
         var seen = Set<String>()
         return (clerk?.auth.sessions ?? []).compactMap { session in
@@ -70,9 +84,13 @@ final class AccountSession {
         let isDebug = false
         let env: [String: String] = [:]
         #endif
-        let config = Bundle.main.url(forResource: "AccountConfig", withExtension: "plist")
+        let configData = Bundle.main.url(forResource: "AccountConfig", withExtension: "plist")
             .flatMap { try? Data(contentsOf: $0) }
+        let config = configData
             .flatMap { try? PropertyListDecoder().decode(AccountConfiguration.self, from: $0) }
+        enablesWorkspaceDirectory = configData.flatMap {
+            try? PropertyListDecoder().decode(ForkClerkWorkspaceDirectory.Configuration.self, from: $0)
+        }?.workspaceDirectoryEnabled == true
         let cloudValue = AccountConfiguration.value(config?.cloudURL, debugOverride: env["CODYNC_CLOUD_URL"], isDebug: isDebug)
         cloudURL = URL(string: cloudValue)
             .flatMap { Pairing.isCloudURL($0) ? $0 : nil }
@@ -118,11 +136,12 @@ final class AccountSession {
     /// The Codync cloud for `userID`'s context; nil when signed out or the build has no cloud.
     /// Requests stop working once another account becomes active, so one account's calls never carry another's token.
     func cloudClient(for userID: String?, identity: DeviceIdentity?) -> CloudClient? {
-        guard let userID, let cloudURL, isConfigured else { return nil }
+        guard let userID, let cloudURL, isConfigured, !usesWorkspaceDirectory,
+              let sessionID = workspaceSessionID else { return nil }
         return CloudClient(baseURL: cloudURL, identity: identity) { [weak self] in
-            guard let self, await self.userID == userID else { throw SessionError.signedOut }
+            guard let self, await self.userID == userID, await self.workspaceSessionID == sessionID else { throw SessionError.signedOut }
             let token = try await self.sessionToken()
-            guard await self.userID == userID else { throw SessionError.signedOut }
+            guard await self.userID == userID, await self.workspaceSessionID == sessionID else { throw SessionError.signedOut }
             return token
         }
     }

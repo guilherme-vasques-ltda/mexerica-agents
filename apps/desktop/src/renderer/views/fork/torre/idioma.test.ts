@@ -44,6 +44,7 @@ test('tooltip da faixa: o nome fica igual, o texto em volta segue o idioma, com 
   }
   // O botão usa o mesmo rótulo, no idioma da tela, no title e no aria-label.
   const botao = readFileSync(new URL('./RailButton.tsx', import.meta.url), 'utf8')
-  assert.match(botao, /const label = railLabel\(n, useIdioma\(\)\)/)
+  assert.match(botao, /const baseLabel = railLabel\(n, useIdioma\(\)\)/)
+  assert.match(botao, /const label = gap \? t\('torre\.esperandoVoce\.trilhoParcial', \{ label: baseLabel \}\) : baseLabel/)
   assert.match(botao, /title=\{label\} aria-label=\{label\}/)
 })
