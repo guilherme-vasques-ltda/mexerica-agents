@@ -135,6 +135,7 @@ impl Request {
             "platform": self.platform,
             "email": self.email,
             "code": self.code,
+            "codeReady": self.code.is_some(),
             "transcript": self.transcript,
             "createdAt": self.created_at,
             "expiresAt": self.expires_at,
@@ -196,6 +197,18 @@ impl Cloud {
 
     pub fn requests_json(&self) -> Vec<Value> {
         self.requests.locked().iter().filter(|r| !r.consuming && now_ms() <= r.expires_at).map(Request::json).collect()
+    }
+
+    /// A lista para quem não é este computador: sem o código que o aparelho mostra. Quem aprova digita o
+    /// código lido no aparelho e o Hub compara em `decide_as`.
+    pub fn requests_json_sem_codigo(&self) -> Vec<Value> {
+        let mut list = self.requests_json();
+        for r in &mut list {
+            if let Some(o) = r.as_object_mut() {
+                o.remove("code");
+            }
+        }
+        list
     }
 }
 
@@ -836,7 +849,7 @@ pub async fn decide_as(
         } else if approve
             && expected.as_ref().is_none_or(|e| {
                 e.device_key != b64(&r.device_key)
-                    || r.code.as_ref() != Some(&e.code)
+                    || !r.code.as_ref().is_some_and(|code| crypto::ct_eq(code.as_bytes(), e.code.as_bytes()))
                     || r.transcript.as_ref() != Some(&e.transcript)
             })
         {
@@ -877,7 +890,7 @@ pub async fn decide_as(
                 && (!approve
                     || expected.as_ref().is_some_and(|e| {
                         e.device_key == b64(&mine[i].device_key)
-                            && mine[i].code.as_ref() == Some(&e.code)
+                            && mine[i].code.as_ref().is_some_and(|code| crypto::ct_eq(code.as_bytes(), e.code.as_bytes()))
                             && mine[i].transcript.as_ref() == Some(&e.transcript)
                     }))
         });
@@ -1192,6 +1205,54 @@ mod tests {
         let d = hub.store.device(&b64(&dk)).unwrap();
         assert_eq!((d.source, d.grant_id.as_deref()), (DeviceSource::Account, Some("grt_new")));
         assert_eq!(hub.cloud.requests_json().len(), 0);
+    }
+
+    /// Aprovar exige o código que a pessoa leu no aparelho: sem código ou com código errado não aprova, o
+    /// erro queima o pedido (uma tentativa) e o código certo depois disso não reaproveita o pedido.
+    #[tokio::test]
+    async fn approval_needs_the_typed_code_once() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
+        let (dk, nd): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
+        let request = |host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
+            json!({"owner": null, "grants": [], "requests": [{"requestId": "req_typed", "deviceKey": b64(&dk),
+                "deviceName": "Fixture phone", "platform": "ios", "email": "fixture@example.invalid",
+                "commit": b64(&crypto::sas_commit(&dk, &nd)), "hostNonce": host_nonce,
+                "deviceNonce": device_nonce.map(|n| b64(&n)), "createdAt": now_ms(), "expiresAt": now_ms() + 60_000}]})
+        };
+        *fake.state.lock().unwrap() = request(None, None);
+        pull(&hub, &base).await.unwrap();
+        assert_eq!(hub.cloud.requests_json()[0]["codeReady"], false);
+        let nh = fake.posts.lock().unwrap()[0].1["nonce"].as_str().unwrap().to_owned();
+        *fake.state.lock().unwrap() = request(Some(nh.clone()), Some(nd));
+        pull(&hub, &base).await.unwrap();
+        let nh: [u8; 32] = crypto::unb64_n(&nh).unwrap();
+        let code = crypto::sas_code(&hub.identity.sign_pub(), &dk, &nd, &nh);
+
+        let remote = hub.cloud.requests_json_sem_codigo();
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0]["codeReady"], true);
+        assert!(remote[0].get("code").is_none() && !serde_json::to_string(&remote).unwrap().contains(&code));
+
+        let transcript = remote[0]["transcript"].as_str().unwrap().to_owned();
+        assert!(decide(&hub, "req_typed", true, None).await.is_err(), "without a typed code nothing is decided");
+        assert_eq!(hub.cloud.requests_json().len(), 1, "and the request is still there");
+
+        let typed = |code: &str| Expected { device_key: b64(&dk), code: code.into(), transcript: transcript.clone() };
+        let wrong = if code == "000000" { "000001" } else { "000000" };
+        assert_eq!(
+            decide(&hub, "req_typed", true, Some(typed(wrong))).await.unwrap(),
+            DecideResult::Refused { reason: "transcriptMismatch" }
+        );
+        assert!(hub.cloud.requests_json().is_empty(), "a wrong code uses the only attempt");
+        assert!(
+            !matches!(decide(&hub, "req_typed", true, Some(typed(&code))).await.unwrap(), DecideResult::Approved { .. }),
+            "the right code can't reuse a burned request"
+        );
+        assert!(hub.store.device(&b64(&dk)).is_none());
+        assert!(!fake.posts.lock().unwrap().iter().any(|(p, b)| p.ends_with("/decision") && b["decision"] == "approve"));
     }
 
     #[tokio::test]

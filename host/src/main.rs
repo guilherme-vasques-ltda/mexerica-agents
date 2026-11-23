@@ -1072,7 +1072,7 @@ fn approved_message(result: &serde_json::Value) -> Option<String> {
 }
 
 fn access_line(r: &serde_json::Value) -> String {
-    let state = if r["code"].is_string() { "digite o código que o aparelho mostra" } else { "(esperando o aparelho)" };
+    let state = if r["codeReady"] == true { "digite o código que o aparelho mostra" } else { "(esperando o aparelho)" };
     format!(
         "{}  {} ({}, {})  prazo {}  {}",
         r["requestId"].as_str().unwrap_or_default(),
@@ -1082,6 +1082,29 @@ fn access_line(r: &serde_json::Value) -> String {
         r["deadline"].as_i64().unwrap_or_default(),
         state
     )
+}
+
+/// O pedido a decidir: pelo ID, ou o único pronto quando a aprovação veio só com o código. Nunca compara com o
+/// código do aparelho aqui: quem confere o que a pessoa digitou é o Hub, uma vez só.
+fn pick_request<'a>(
+    requests: &'a [serde_json::Value],
+    id: Option<&str>,
+    approve: bool,
+) -> Result<&'a serde_json::Value> {
+    let matches: Vec<_> = requests
+        .iter()
+        .filter(|r| match id {
+            Some(id) => r["requestId"].as_str() == Some(id),
+            None => approve && r["codeReady"] == true,
+        })
+        .collect();
+    let [r] = matches.as_slice() else {
+        anyhow::bail!("No unique request matches; give the request ID from `access list`.");
+    };
+    if approve && r["codeReady"] != true {
+        anyhow::bail!("The device hasn't shown its code yet; wait for it and try again.");
+    }
+    Ok(r)
 }
 
 async fn access(port: u16, action: AccessAction) -> Result<()> {
@@ -1110,22 +1133,7 @@ async fn access(port: u16, action: AccessAction) -> Result<()> {
         }
         return Ok(());
     }
-    let matches: Vec<_> = requests
-        .iter()
-        .filter(|r| {
-            if approve {
-                typed_code.as_deref() == r["code"].as_str()
-                    && request.as_ref().is_none_or(|id| r["requestId"].as_str() == Some(id.as_str()))
-            } else {
-                request.as_ref().is_some_and(|q| {
-                    r["requestId"].as_str() == Some(q.as_str()) || r["code"].as_str() == Some(q.as_str())
-                })
-            }
-        })
-        .collect();
-    let [r] = matches.as_slice() else {
-        anyhow::bail!("No unique request matches; check the device and request list.");
-    };
+    let r = pick_request(requests, request.as_deref(), approve)?;
     let id = r["requestId"].as_str().filter(|id| !id.is_empty()).context("invalid request id")?;
     let mut body = json!({"requestId": id, "approve": approve});
     let mut expected_key = None;
@@ -1156,6 +1164,9 @@ async fn access(port: u16, action: AccessAction) -> Result<()> {
             println!("{}", approved_message(&result).unwrap_or_default());
         }
         Some("denied") if !approve => println!("Denied."),
+        Some("refused") if result["reason"] == "transcriptMismatch" => {
+            anyhow::bail!("The code doesn't match the device. The request was cancelled; ask again from the device.")
+        }
         Some("refused") => {
             anyhow::bail!("Request refused: {}", result["reason"].as_str().unwrap_or("invalid response"))
         }
@@ -1256,12 +1267,29 @@ mod tests {
             "email": "user@example.com",
             "deadline": 123,
             "code": "123456",
+            "codeReady": true,
         });
         let line = super::access_line(&request);
         assert!(line.contains("req_1"));
         assert!(line.contains("digite o código que o aparelho mostra"));
         assert!(!line.contains("123456"));
         assert!(!line.contains("123 456"));
+    }
+
+    #[test]
+    fn approval_picks_the_request_without_reading_the_device_code() {
+        use serde_json::json;
+        let ready = json!({"requestId": "req_1", "codeReady": true, "code": "111111"});
+        let waiting = json!({"requestId": "req_2", "codeReady": false});
+        let list = [ready.clone(), waiting.clone()];
+        assert_eq!(super::pick_request(&list, None, true).unwrap(), &ready, "the only ready one, whatever was typed");
+        assert_eq!(super::pick_request(&list, Some("req_1"), true).unwrap(), &ready);
+        assert!(super::pick_request(&list, Some("req_2"), true).is_err(), "no code on the device yet");
+        assert_eq!(super::pick_request(&list, Some("req_2"), false).unwrap(), &waiting, "deny by ID");
+        assert!(super::pick_request(&list, None, false).is_err());
+        assert!(super::pick_request(&list, Some("111111"), false).is_err(), "the code never selects a request");
+        let two = [ready.clone(), json!({"requestId": "req_3", "codeReady": true})];
+        assert!(super::pick_request(&two, None, true).is_err(), "two ready requests need the ID");
     }
 
     #[test]

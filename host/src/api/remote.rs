@@ -73,7 +73,11 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             }
             json!({})
         }
-        "accessRequests" => json!({"requests": hub.cloud.requests_json()}),
+        // O código do pedido é o gesto humano: só o app deste computador ainda o recebe (compara o que a pessoa digita).
+        "accessRequests" => json!({"requests": match caller {
+            Caller::Local => hub.cloud.requests_json(),
+            _ => hub.cloud.requests_json_sem_codigo(),
+        }}),
         "decideAccessRequest" => {
             if b.get("deciderDeviceKey").is_some() || b.get("approvedScopes").is_some() {
                 bail!("decision authority is derived from the caller");
