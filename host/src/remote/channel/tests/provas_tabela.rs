@@ -57,6 +57,7 @@ async fn team_settings_recusa_aparelho_pareado_sem_vinculo() {
     assert!(p.call(1, "hello", json!({})).await["ok"].is_object(), "o aparelho está autorizado");
     let resposta = p.call(2, "teamSettings", json!({})).await;
     assert!(resposta.get("ok").is_none(), "{resposta}");
-    assert!(resposta["err"]["status"].as_u64().is_some_and(|s| s >= 400), "{resposta}");
-    assert_ne!(resposta["err"]["message"], devices::Forbidden.to_string(), "a classe passou; recusou a posse");
+    assert_eq!(resposta["err"]["status"], 400, "{resposta}");
+    let mensagem = resposta["err"]["message"].as_str().unwrap_or_default();
+    assert!(mensagem.contains("remote_setup_unavailable:"), "a classe passou; recusou a posse: {resposta}");
 }

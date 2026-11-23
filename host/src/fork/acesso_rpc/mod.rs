@@ -84,29 +84,43 @@ pub(crate) const LEITURAS_DO_NOME: &[(&str, usize)] = &[
     ("fork/personal_bootstrap/relay.rs", 1),
 ];
 
-/// Rotas HTTP de produção e o que as guarda. Só `/api/*` chega ao `dispatch` e, por ele, a esta tabela.
+/// O que guarda uma rota HTTP, conferido no código do handler pelo teste `toda_rota_http_e_declarada`.
 #[cfg(test)]
-pub(crate) const ROTAS_HTTP: &[(&str, &str, &str)] = &[
-    ("api/http.rs", "/health", "bearer deste computador"),
-    ("api/http.rs", "/events", "bearer; eventos filtrados por chamador"),
-    ("api/http.rs", "/api/donnaGuardRuntime", "dispatch (classe na tabela)"),
-    ("api/http.rs", "/api/{method}", "dispatch (classe na tabela)"),
-    ("api/http.rs", "/term/{id}", "bearer; terminal por chamador"),
-    ("api/http.rs", "/hooks/routines/{id}", "segredo do webhook da rotina"),
-    ("api/http.rs", "/oauth/callback", "state de uso único e PKCE"),
-    ("api/http.rs", "/computers/enroll-hello", "pareamento de executor"),
-    ("api/http.rs", "/ingest/statusline", "bearer deste computador"),
-    ("api/http.rs", "/channel", "canal E2E: handshake e esta tabela"),
-    ("api/http.rs", "/personal-possession", "posse pessoal: ingresso e prova"),
-    ("api/http.rs", "/personal-prepare", "posse pessoal: ingresso e prova"),
-    ("fork/web_local.rs", "/web/auth/session", "sessão da interface Web local"),
-    ("fork/web_local.rs", "/web/auth/login", "senha da interface Web local"),
-    ("fork/web_local.rs", "/web/auth/logout", "sessão da interface Web local"),
-    ("fork/web_local.rs", "fallback", "arquivos estáticos da interface Web local"),
-    ("fork/web_local.rs", "method_not_allowed_fallback", "arquivos estáticos da interface Web local"),
-    ("fork/whatsapp/inbox.rs", "/whatsapp/{bot}", "avisos do WhatsApp: assinatura, só 127.0.0.1"),
-    ("fork/claude_ponte/permissao.rs", "/mcp", "MCP da ponte: segredo por sessão, só 127.0.0.1"),
-    ("fork/planos_codigo/repasse.rs", "fallback", "repasse dos planos: código de sessão, só 127.0.0.1"),
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Guarda {
+    /// Sem credencial: responde a quem alcança a porta; o handler não confere token.
+    Publica,
+    /// Token deste computador (ou sessão Web), conferido no handler.
+    Bearer,
+    /// Autentica e passa pelo `dispatch`, e por ele por esta tabela.
+    Dispatch,
+    /// Guarda própria: a chamada que o handler faz para conferir.
+    Propria(&'static str),
+}
+
+/// Rotas HTTP de produção e o que as guarda. Só `/api/*` chega ao `dispatch`.
+#[cfg(test)]
+pub(crate) const ROTAS_HTTP: &[(&str, &str, Guarda)] = &[
+    ("api/http.rs", "/health", Guarda::Publica),
+    ("api/http.rs", "/events", Guarda::Bearer),
+    ("api/http.rs", "/api/donnaGuardRuntime", Guarda::Dispatch),
+    ("api/http.rs", "/api/{method}", Guarda::Dispatch),
+    ("api/http.rs", "/term/{id}", Guarda::Bearer),
+    ("api/http.rs", "/hooks/routines/{id}", Guarda::Propria("routines.receive(")),
+    ("api/http.rs", "/oauth/callback", Guarda::Propria("oauth::finish(")),
+    ("api/http.rs", "/computers/enroll-hello", Guarda::Propria("hello(&hub")),
+    ("api/http.rs", "/ingest/statusline", Guarda::Bearer),
+    ("api/http.rs", "/channel", Guarda::Propria("serve_direct(")),
+    ("api/http.rs", "/personal-possession", Guarda::Propria("run(&hub, &mut socket)")),
+    ("api/http.rs", "/personal-prepare", Guarda::Propria("run(&hub, &mut socket)")),
+    ("fork/web_local.rs", "/web/auth/session", Guarda::Propria("web.base_guard(")),
+    ("fork/web_local.rs", "/web/auth/login", Guarda::Propria("web.base_guard(")),
+    ("fork/web_local.rs", "/web/auth/logout", Guarda::Propria("web.base_guard(")),
+    ("fork/web_local.rs", "fallback", Guarda::Publica),
+    ("fork/web_local.rs", "method_not_allowed_fallback", Guarda::Publica),
+    ("fork/whatsapp/inbox.rs", "/whatsapp/{bot}", Guarda::Propria("shared.accept(")),
+    ("fork/claude_ponte/permissao.rs", "/mcp", Guarda::Propria("estado.segredo")),
+    ("fork/planos_codigo/repasse.rs", "fallback", Guarda::Propria("repasse.encaminhar(")),
 ];
 
 pub(crate) fn acesso(method: &str) -> Option<Acesso> {

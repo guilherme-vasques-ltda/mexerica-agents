@@ -326,28 +326,104 @@ fn porta_nova_sem_declaracao_reprova() {
     assert!(erro.contains("outraPorta (api/novo.rs)") && erro.contains("leituras do nome"), "{erro}");
 }
 
-/// Toda rota HTTP de produção está em `ROTAS_HTTP`, com o que a guarda; rota nova reprova até ser declarada.
+/// O texto entre o `(` em `inicio` e o `)` que o fecha.
+fn ate_fechar(codigo: &str, inicio: usize) -> &str {
+    let mut nivel = 0;
+    for (i, c) in codigo[inicio..].char_indices() {
+        match c {
+            '(' => nivel += 1,
+            ')' => {
+                nivel -= 1;
+                if nivel == 0 {
+                    return &codigo[inicio..inicio + i];
+                }
+            }
+            _ => {}
+        }
+    }
+    &codigo[inicio..]
+}
+
+/// O corpo da função `caminho` (`nome`, `modulo::nome` ou `crate::…::nome`): no arquivo da rota ou no do módulo.
+fn corpo_do_handler(fontes: &[(String, String)], arquivo: &str, caminho: &str) -> Option<String> {
+    let partes: Vec<&str> = caminho.trim_start_matches("crate::").split("::").collect();
+    let (nome, modulo) = partes.split_last()?;
+    let candidatos: Vec<String> = if modulo.is_empty() {
+        vec![arquivo.to_owned()]
+    } else {
+        let base = modulo.join("/");
+        vec![format!("{base}.rs"), format!("{base}/mod.rs")]
+    };
+    let definicao = regex::Regex::new(&format!(r"\bfn\s+{nome}\s*[(<]")).expect("regex");
+    let (_, codigo) = fontes.iter().find(|(f, _)| candidatos.contains(f))?;
+    let codigo = sem_testes(codigo);
+    let inicio = definicao.find(&codigo)?.end();
+    let abre = inicio + codigo[inicio..].find('{')?;
+    let mut nivel = 0;
+    for (i, c) in codigo[abre..].char_indices() {
+        match c {
+            '{' => nivel += 1,
+            '}' => {
+                nivel -= 1;
+                if nivel == 0 {
+                    return Some(codigo[abre + 1..abre + i].to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Toda rota HTTP de produção está em `ROTAS_HTTP`, e o handler de cada uma tem a guarda declarada: a rota pública não
+/// confere token, a com token confere, a do `dispatch` autentica e chama o `dispatch`, e a de guarda própria faz a
+/// chamada declarada (um handler extra só pode devolver um status). Rota nova reprova até ser declarada.
 #[test]
 fn toda_rota_http_e_declarada() {
     use regex::Regex;
     let rota = Regex::new(r#"\.route\(\s*"([^"]+)""#).unwrap();
+    let metodo = Regex::new(r"\b(?:get|post|put|patch|delete|any)\(\s*([\w:]+)\s*\)").unwrap();
     let sobra =
         Regex::new(r"\.(fallback|method_not_allowed_fallback|nest|nest_service|route_service|merge)\(").unwrap();
-    let mut no_codigo = BTreeSet::new();
-    for (arquivo, codigo) in coletor::fontes_do_host() {
-        let codigo = sem_testes(&codigo);
+    let fontes = coletor::fontes_do_host();
+    let mut no_codigo: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for (arquivo, codigo) in &fontes {
+        let codigo = sem_testes(codigo);
         if !codigo.contains("Router::new()") && !codigo.contains("Router<") {
             continue;
         }
-        no_codigo.extend(rota.captures_iter(&codigo).map(|c| (arquivo.clone(), c[1].to_owned())));
-        no_codigo.extend(sobra.captures_iter(&codigo).map(|c| (arquivo.clone(), c[1].to_owned())));
+        for c in rota.captures_iter(&codigo) {
+            let inicio = c.get(0).unwrap().start() + ".route".len();
+            let handlers = metodo.captures_iter(ate_fechar(&codigo, inicio)).map(|h| h[1].to_owned()).collect();
+            no_codigo.insert((arquivo.clone(), c[1].to_owned()), handlers);
+        }
+        for c in sobra.captures_iter(&codigo) {
+            let inicio = c.get(0).unwrap().end() - 1;
+            let handler = ate_fechar(&codigo, inicio).trim_start_matches('(').trim().to_owned();
+            no_codigo.insert((arquivo.clone(), c[1].to_owned()), vec![handler]);
+        }
     }
     let declaradas: BTreeSet<(String, String)> =
         ROTAS_HTTP.iter().map(|(arquivo, caminho, _)| ((*arquivo).to_owned(), (*caminho).to_owned())).collect();
-    assert_eq!(no_codigo, declaradas);
-    assert!(
-        ROTAS_HTTP.iter().all(|(_, caminho, guarda)| caminho.starts_with("/api/") == guarda.starts_with("dispatch"))
-    );
+    assert_eq!(no_codigo.keys().cloned().collect::<BTreeSet<_>>(), declaradas);
+    let com_token = |corpo: &str| corpo.contains("autenticar") || corpo.contains("authorized(");
+    for (arquivo, caminho, guarda) in ROTAS_HTTP {
+        let handlers = &no_codigo[&((*arquivo).to_owned(), (*caminho).to_owned())];
+        assert!(!handlers.is_empty(), "{caminho}: handler não encontrado");
+        assert_eq!(caminho.starts_with("/api/"), matches!(guarda, Guarda::Dispatch), "{caminho}");
+        for handler in handlers {
+            let corpo = corpo_do_handler(&fontes, arquivo, handler).unwrap_or_else(|| panic!("{caminho}: {handler}"));
+            let ok = match guarda {
+                Guarda::Publica => !com_token(&corpo),
+                Guarda::Bearer => com_token(&corpo),
+                Guarda::Dispatch => (com_token(&corpo) && corpo.contains("dispatch(")) || corpo.contains("command("),
+                Guarda::Propria(chamada) => {
+                    corpo.contains(chamada) || (corpo.trim().starts_with("StatusCode::") && !corpo.contains(';'))
+                }
+            };
+            assert!(ok, "{caminho} ({handler}) não tem a guarda {guarda:?}");
+        }
+    }
     assert!(acesso("donnaGuardRuntime").is_some());
 }
 
