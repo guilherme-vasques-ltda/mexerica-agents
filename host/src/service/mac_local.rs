@@ -29,8 +29,16 @@ impl Scope {
         if only_this_mac { Self::ThisMacOnly } else { Self::Network }
     }
 
-    /// Falha fechada: o modo "só neste Mac" recusa qualquer endereço que não seja loopback.
+    /// Falha fechada: `--bind` vazio, só com espaços ou com porta é recusado antes de resolver o
+    /// nome (no Windows um nome vazio resolve para os endereços das placas de rede); o modo
+    /// "só neste Mac" recusa qualquer endereço que não seja loopback.
     pub fn check_bind(self, bind: &str) -> Result<()> {
+        if bind.trim().is_empty() {
+            bail!("--bind vazio; omita a opção para escutar só em {LOOPBACK}");
+        }
+        if bind.parse::<std::net::SocketAddr>().is_ok() {
+            bail!("--bind recebe só o endereço, sem porta; a porta vai em --port");
+        }
         if self == Self::ThisMacOnly && bind != LOOPBACK {
             bail!("o modo \"só neste Mac\" só aceita --bind {LOOPBACK}, recebeu {bind}");
         }
@@ -41,6 +49,15 @@ impl Scope {
     pub fn runs_outbound_relay(self) -> bool {
         self == Self::Network
     }
+}
+
+/// Aviso fixo (sem o endereço) quando o Hub escuta fora deste computador.
+pub const EXTERNAL_LISTEN_WARNING: &str =
+    "listening beyond this computer because of an explicit --bind; omit it to stay on 127.0.0.1";
+
+/// Se algum endereço efetivo (já resolvido) sai do loopback; IPv4 mapeado em IPv6 conta pelo IPv4.
+pub fn listens_beyond_loopback(addrs: impl IntoIterator<Item = std::net::SocketAddr>) -> bool {
+    addrs.into_iter().any(|addr| !addr.ip().to_canonical().is_loopback())
 }
 
 /// Resolve `serve`: endereço e escopo finais. Falha fechada: rodando como serviço do Mac
@@ -267,6 +284,37 @@ mod tests {
             let (bind, scope) = resolve_serve(Some(explicit), false, false).unwrap();
             assert_eq!((bind.as_str(), scope), (explicit, Scope::Network));
         }
+    }
+
+    #[test]
+    fn empty_or_port_bind_is_refused_while_omitted_bind_is_loopback() {
+        assert_eq!(resolve_serve(None, false, false).unwrap().0, LOOPBACK);
+        for bad in ["", " ", "\t", " \n ", "127.0.0.1:8080", "0.0.0.0:19422", "[::1]:19422"] {
+            for (only_this_mac, mac_service) in [(false, false), (true, false), (true, true)] {
+                assert!(resolve_serve(Some(bad), only_this_mac, mac_service).is_err(), "{bad:?}");
+            }
+            assert!(resolve_serve_with_web(Some(bad), false, false, true).is_err(), "{bad:?}");
+            assert!(resolve_serve_with_web(Some(bad), false, false, false).is_err(), "{bad:?}");
+            assert!(Scope::Network.check_bind(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn warning_decision_uses_the_effective_address() {
+        let addr = |s: &str| s.parse::<std::net::SocketAddr>().unwrap();
+        for local in ["127.0.0.1:19422", "127.0.0.2:1", "[::1]:19422", "[::ffff:127.0.0.1]:19422"] {
+            assert!(!listens_beyond_loopback([addr(local)]), "{local}");
+        }
+        for external in
+            ["0.0.0.0:19422", "[::]:19422", "192.0.2.10:19422", "[2001:db8::1]:19422", "[::ffff:192.0.2.10]:1"]
+        {
+            assert!(listens_beyond_loopback([addr(external)]), "{external}");
+        }
+        // Nome que resolve para vários endereços: basta um externo para avisar.
+        assert!(listens_beyond_loopback([addr("127.0.0.1:1"), addr("192.0.2.10:1")]));
+        assert!(!listens_beyond_loopback([addr("127.0.0.1:1"), addr("[::1]:1")]));
+        assert!(!listens_beyond_loopback([]));
+        assert!(!EXTERNAL_LISTEN_WARNING.contains("0.0.0.0") && !EXTERNAL_LISTEN_WARNING.contains("192."));
     }
 
     #[test]
