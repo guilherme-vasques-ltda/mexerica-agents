@@ -8,26 +8,47 @@ fn name(word: &str) -> String {
     name.strip_suffix(".exe").or_else(|| name.strip_suffix(".cmd")).unwrap_or(&name).to_owned()
 }
 
-pub fn check(cfg: &BotConfig) -> Result<()> {
-    // Comando próprio que abre o binário conhecido de um motor retirado: recusado para qualquer
-    // motor, antes das demais regras. Só os binários desses motores; um executável arbitrário não
-    // é bloqueado aqui.
-    if let Some(command) = cfg.command.as_deref().map(str::trim).filter(|c| !c.is_empty())
-        && let Some(palavras) = shlex::split(command)
-        && let Some(executavel) = palavras.first()
-    {
+fn literal_launch(words: &[String]) -> Option<&str> {
+    let (executable, args) = words.split_first()?;
+    let bin = name(executable);
+    let args = match bin.as_str() {
+        "npx" | "bunx" => args,
+        "pnpm" if args.first().is_some_and(|arg| arg == "dlx") => &args[1..],
+        _ => return Some(executable),
+    };
+    let mut args = args.iter().skip_while(|arg| matches!(arg.as_str(), "-y" | "--yes"));
+    match args.next().map(String::as_str) {
+        Some("--") => args.next().map(String::as_str),
+        Some(package) if !package.starts_with('-') => Some(package),
+        _ => None,
+    }
+}
+
+fn check_known_launch(cfg: &BotConfig, palavras: &[String]) -> Result<()> {
+    if let Some(executavel) = palavras.first() {
         let nome = name(executavel);
-        let package = (nome == "npx")
-            .then(|| {
-                let mut args = palavras[1..].iter().skip_while(|arg| matches!(arg.as_str(), "-y" | "--yes"));
-                match args.next() {
-                    Some(arg) if arg == "--" => args.next(),
-                    Some(arg) if !arg.starts_with('-') => Some(arg),
-                    _ => None,
-                }
-            })
-            .flatten();
-        for word in std::iter::once(executavel).chain(package) {
+        let mut literal = palavras;
+        if nome == "env" {
+            literal = &literal[1..];
+            while let Some((assignment, rest)) = literal.split_first()
+                && assignment.split_once('=').is_some_and(|(key, _)| {
+                    !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                })
+            {
+                literal = rest;
+            }
+            if literal.first().is_some_and(|word| word == "--") {
+                literal = &literal[1..];
+            }
+        }
+        let shell = literal.first().is_some_and(|word| matches!(name(word).as_str(), "sh" | "bash" | "zsh"))
+            && literal.get(1).is_some_and(|flag| flag == "-c");
+        let script = shell.then(|| literal.get(2)).flatten().filter(|script| {
+            !script.contains([';', '|', '&', '$', '`', '<', '>', '\n', '\r', '(', ')', '#', '*', '?'])
+        });
+        let inner = script.and_then(|script| shlex::split(script));
+        let target = literal_launch(inner.as_deref().unwrap_or(literal));
+        for word in std::iter::once(executavel.as_str()).chain(target) {
             let bin = name(word.rsplit_once('@').filter(|(base, _)| !base.is_empty()).map_or(word, |(base, _)| base));
             ensure!(!crate::fork::assinatura_pessoal::muse(&bin), crate::fork::assinatura_pessoal::Refusal::Meta);
             ensure!(
@@ -40,6 +61,15 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
             .iter()
             .any(|h| crate::fork::motores_retirados::retirado(h.id) && h.bins.contains(&nome.as_str()));
         ensure!(!abre_retirado, "Este comando abre um motor que não está disponível nesta versão da Mexerica.");
+    }
+    Ok(())
+}
+
+pub fn check(cfg: &BotConfig) -> Result<()> {
+    if let Some(command) = cfg.command.as_deref().filter(|c| !c.trim().is_empty())
+        && let Some(words) = shlex::split(command)
+    {
+        check_known_launch(cfg, &words)?;
     }
     if !matches!(cfg.backend.as_str(), "codex" | "custom") {
         return Ok(());
@@ -151,6 +181,24 @@ mod tests {
 
     fn cfg(command: &str) -> BotConfig {
         serde_json::from_value(json!({"id":"a", "name":"Teste", "backend":"custom", "command":command})).unwrap()
+    }
+
+    #[test]
+    fn classifica_pacotes_e_comandos_literais_sem_inspecionar_wrappers_arbitrarios() {
+        for (command, blocked) in [
+            ("env LANG=C claude-code", true),
+            ("sh -c 'npx -y @anthropic-ai/claude-code@1'", true),
+            ("bunx @anthropic-ai/claude-code@1", true),
+            ("pnpm dlx @anthropic-ai/claude-code@1", true),
+            ("env LANG=C pnpm dlx @anthropic-ai/claude-code@1", true),
+            ("sh -c 'meu-adaptador @anthropic-ai/claude-code'", false),
+            ("bunx meu-adaptador @anthropic-ai/claude-code", false),
+            ("pnpm run claude-code", false),
+        ] {
+            let mut bot = cfg(command);
+            bot.backend = "grok".into();
+            assert_eq!(check(&bot).is_err(), blocked, "{command}");
+        }
     }
 
     #[test]
