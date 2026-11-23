@@ -144,7 +144,7 @@ async fn round_trip_com_fonte_falsa_e_intencao_de_entrada() {
     let resposta = phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await;
     assert_eq!(resposta["ok"]["accepted"], true);
     let intencao = navegador::retirar_entrada(&sessao).expect("intenção disponível antes do quadro seguinte");
-    assert_eq!((intencao.sequence, intencao.x, intencao.y), (1, 640.0, 360.0), "escala 1920×1080");
+    assert_eq!(intencao.com_efeito(|i| (i.sequence, i.x, i.y)), Ok((1, 640.0, 360.0)), "escala 1920×1080");
     assert!(navegador::retirar_entrada(&sessao).is_none());
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 2)));
     assert_eq!(phone.esperar_quadro().await.sequence, 2);
@@ -164,6 +164,46 @@ async fn troca_de_controlador_descarta_entrada_que_ainda_nao_foi_consumida() {
     assert!(timeout(Duration::from_millis(200), phone.esperar_quadro()).await.is_err());
     assert_eq!(phone.chamar(3, "browserStreamControl", json!({"controller": "person"})).await["ok"]["epoch"], 1);
     assert!(navegador::retirar_entrada(&sessao).is_none(), "descartar entrada do controlador anterior");
+}
+
+#[tokio::test]
+async fn entrada_retirada_nao_tem_efeito_apos_troca_ou_revogacao() {
+    for metodo in ["browserStreamControl", "browserStreamTarget", "revogar", "workspace", "desconexao"] {
+        let hub = hub_com_bot();
+        let (mut phone, sessao) = inscrito(&hub, true).await;
+        assert!(navegador::simular_consumidor(&sessao));
+        assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
+        assert_eq!(phone.esperar_quadro().await.sequence, 1);
+        assert_eq!(phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await["ok"]["accepted"], true);
+        let retirada = navegador::retirar_entrada(&sessao).expect("intenção retirada");
+        if metodo == "revogar" {
+            assert!(hub.revoke_device(&phone.dk()).unwrap());
+        } else if metodo == "workspace" {
+            use crate::fork::workspace::{self, Motivo};
+            assert_eq!(workspace::bump(&hub, Motivo::RoleChanged).unwrap(), 1);
+        } else if metodo == "desconexao" {
+            drop(phone);
+            timeout(Duration::from_secs(2), async {
+                while navegador::simular_consumidor(&sessao) {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        } else {
+            let corpo = if metodo == "browserStreamControl" {
+                json!({"controller": "person"})
+            } else {
+                json!({"target": "aba-2"})
+            };
+            assert!(phone.chamar(3, metodo, corpo).await.get("ok").is_some());
+        }
+        let resultado = retirada.com_efeito(|_| panic!("efeito antigo não pode rodar: {metodo}"));
+        assert!(resultado.is_err(), "entrada antiga: {metodo}");
+        if metodo == "workspace" {
+            assert_eq!(resultado, Err::<(), _>(navegador::EntradaEncerrada::Contexto));
+        }
+    }
 }
 
 #[tokio::test]
