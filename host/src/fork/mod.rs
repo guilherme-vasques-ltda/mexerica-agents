@@ -133,6 +133,7 @@ pub(crate) mod torre_visoes;
 pub(crate) mod usage_limits;
 pub(crate) mod uso_historico;
 pub(crate) mod whatsapp;
+pub(crate) mod workspace;
 
 pub mod modelos_funcao;
 pub(crate) mod roteamento;
@@ -144,6 +145,7 @@ pub(crate) mod runtime_audiencia;
 /// Migra os dados preparatórios do fork; nunca configura motores nem aprova ações.
 pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
+    workspace::migrate(&store.db.locked())?;
     instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;

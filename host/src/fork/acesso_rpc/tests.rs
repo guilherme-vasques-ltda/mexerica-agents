@@ -116,6 +116,7 @@ fn metodos_conhecidos_mantem_a_classe() {
     for (metodo, classe) in [
         ("send", Acesso::Control),
         ("hello", Acesso::Control),
+        ("workspaceContext", Acesso::Control),
         ("subscribe", Acesso::Control),
         ("screenStatus", Acesso::Control),
         ("teamSettings", Acesso::Control),

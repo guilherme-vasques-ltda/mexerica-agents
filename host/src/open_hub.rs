@@ -48,6 +48,7 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
 pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
     match method {
         "hello"
+        | crate::fork::workspace::METHOD
         | "refreshBackends"
         | "teamSettings"
         | "usage"

@@ -530,6 +530,7 @@ pub(crate) const CONTROLE: &[&str] = &[
     "voiceSpeak",
     "voiceStatus",
     "voiceTranscribe",
+    "workspaceContext",
 ];
 #[cfg(test)]
 mod tests;

@@ -2143,7 +2143,8 @@ fn device(f: &Fixture) -> crate::api::devices::Caller {
         created_at: now,
         last_seen_at: None,
     };
-    f.hub.store.put_device(&aparelho).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &aparelho).unwrap();
     crate::fork::autoridade::autenticar(&f.hub, DEVICE).unwrap().1
 }
 

@@ -134,7 +134,7 @@ async fn session(hub: &Arc<Hub>, id: &str) -> Result<()> {
                             ensure!(v.as_object().is_some_and(|v|v.len()==4) && v["pair"]==false && links.len()<8,"personal open fields");let link=v["link"].as_str().context("link")?.to_owned();let dk=v["dk"].as_str().context("device")?;
                             ensure!(!links.contains_key(&link),"personal link duplicate");let admission=PersonalRelayAdmission::from_open(hub,epoch,&link,dk)?;
                             let(tx,rx)=mpsc::channel(8);let(outgoing,mut rx_out)=mpsc::channel(2);links.insert(link.clone(),(tx,admission.clone()));
-                            let h=hub.clone();tasks.spawn(async move{channel::run(h,Transport{incoming:rx,outgoing},ChannelKind::PersonalRelay{admission:Box::new(admission)}).await;});
+                            let h=hub.clone();tasks.spawn(async move{channel::run(h,Transport{incoming:rx,outgoing,porta:channel::Porta::default()},ChannelKind::PersonalRelay{admission:Box::new(admission)}).await;});
                             let out=out.clone();tasks.spawn(async move{while let Some(item)=rx_out.recv().await{if out.send((link.clone(),item)).await.is_err(){break;}}});
                         }
                         Some("data")=>{ensure!(v.as_object().is_some_and(|v|v.len()==3),"data fields");let key=v["link"].as_str().context("link")?;if let Some((tx,admission))=links.get(key){admission.recheck(hub)?;tx.try_send(v["m"].clone()).context("personal link busy")?;}}

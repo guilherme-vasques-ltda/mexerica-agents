@@ -327,7 +327,8 @@ async fn authority_original_revogada_nao_adota_nova_concessao_no_writer() {
     let execution = bindings::fixture_execution(&f.hub, "bot");
     let attempt = Attempt::capture(&f.hub, &caller, "bot", &execution, true).unwrap();
     assert!(f.hub.revoke_device(&device.key).unwrap());
-    f.hub.store.put_device(&device).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &device).unwrap();
     let (mut host, peer) = tokio::net::UnixStream::pair().unwrap();
     assert!(!write(&mut host, b"{\"method\":\"screenshot\"}\n", &attempt, None).await.unwrap_err().sent);
     host.shutdown().await.unwrap();

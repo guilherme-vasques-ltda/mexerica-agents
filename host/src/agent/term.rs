@@ -147,6 +147,24 @@ impl Terms {
         self.0.locked().get(id).cloned()
     }
 
+    /// Terminal de prova sem processo; devolve o emissor dos eventos.
+    #[cfg(test)]
+    pub(crate) fn fixture(&self, id: &str, owner: Option<&str>) -> broadcast::Sender<Value> {
+        let events = broadcast::channel(16).0;
+        self.0.locked().insert(
+            id.into(),
+            Arc::new(Term {
+                key: ("fixture-backend".into(), Step::Login),
+                owner: owner.map(str::to_owned),
+                login: None,
+                input: mpsc::unbounded_channel().0,
+                output: Mutex::new(Output { scrollback: Vec::new(), exit: None }),
+                events: events.clone(),
+            }),
+        );
+        events
+    }
+
     pub(crate) fn authorized(&self, id: &str, caller: &Caller) -> Result<Option<Arc<Term>>> {
         let term = self.get(id);
         if let Some(term) = &term {

@@ -585,7 +585,8 @@ async fn device_control_positivo_e_binding_antigo_nao_renova_apos_revogacao() {
     tokio::pin!(pending);
     tokio::select! { biased; result = &mut pending => panic!("não esperou: {result:?}"), () = std::future::ready(()) => {} }
     f.hub.revoke_device(&device.key).unwrap();
-    f.hub.store.put_device(&device).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &device).unwrap();
     drop(guard);
     let error = pending.await.unwrap_err();
     assert_authority_ended(&error);

@@ -206,6 +206,9 @@ pub fn authorize(hub: &Hub, key: &str) -> Result<Device, RejectCode> {
         return Err(RejectCode::LeaseExpired);
     }
     let d = hub.store.device(key).ok_or(RejectCode::Unauthorized)?;
+    if crate::fork::workspace::bloqueado(hub, &d) {
+        return Err(RejectCode::Revoked);
+    }
     if d.source == DeviceSource::Account
         && (!hub.cloud_synced.load(Ordering::Acquire) || d.lease_until.is_none_or(|t| t <= now_ms()))
     {

@@ -59,10 +59,18 @@ async fn revogar_e_conceder_de_novo_ao_mesmo_aparelho_nao_renova_login_em_andame
     let original = f.hub.store.device(owner.device_key()).unwrap();
     assert_eq!(login.check().await, Some(true));
     f.hub.revoke_device(owner.device_key()).unwrap();
+    // A mesma concessão regravada (releitura atrasada) fica bloqueada; concessão nova ao mesmo
+    // aparelho é outro `grant_id`, e a ligação do motor era da concessão revogada.
     f.hub.store.put_device(&original).unwrap();
+    assert_eq!(
+        crate::fork::autoridade::autenticar(&f.hub, owner.device_key()).err(),
+        Some(crate::api::devices::RejectCode::Revoked)
+    );
+    let nova = crate::store::Device { grant_id: Some("grt_concessao_nova".into()), ..original };
+    f.hub.store.put_device(&nova).unwrap();
     f.hub.store.bootstrap_activation_envelope(&f.hub.identity.sign, crate::store::now_ms()).unwrap();
     let renewed = crate::fork::autoridade::autenticar(&f.hub, owner.device_key()).unwrap().1;
-    assert!(access::resolve(&f.hub, &renewed).is_ok(), "nova concessão é válida");
+    assert!(access::resolve(&f.hub, &renewed).is_err(), "a ligação do motor não passa para a concessão nova");
     assert!(login.require(&renewed).is_err(), "tentativa continua vinculada à origem anterior");
     assert!(login.deliver(|| panic!("não pode entregar saída")).is_err());
     assert!(login.complete().is_err());
