@@ -1,4 +1,5 @@
 use super::*;
+use crate::LockExt;
 use crate::store::{Device, DeviceSource, EntryKind, Scope, Store, now_ms};
 
 #[tokio::test]

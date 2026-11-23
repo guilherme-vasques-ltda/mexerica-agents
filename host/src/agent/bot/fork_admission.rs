@@ -713,7 +713,13 @@ impl Actor {
         self.context_compaction_guard()?;
         self.cost_dispatch(&session)?;
         let answer = if let Some(grant) = grant {
-            let answer = acp.send_scoped("session/prompt", params, |effect| grant.write(&hub, effect)).await?;
+            let answer = match acp.send_antigravity_prompt(params, |effect| grant.write(&hub, effect)).await {
+                Ok(answer) => answer,
+                Err(error) => {
+                    self.stop_antigravity().await;
+                    return Err(error);
+                }
+            };
             self.antigravity_active = Some(grant);
             answer
         } else {
