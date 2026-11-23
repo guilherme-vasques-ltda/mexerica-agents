@@ -317,6 +317,7 @@ pub(crate) const CONTROLE: &[&str] = &[
     "donnaContextSettings",
     "donnaContextSettingsSave",
     "donnaControlTower",
+    "donnaHubDoctor",
     "donnaConversationChoiceAnswer",
     "donnaConversationCreate",
     "donnaConversationHistory",

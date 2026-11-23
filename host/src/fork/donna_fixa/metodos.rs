@@ -295,6 +295,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaTowerView", Leitura),
     ("donnaGovernance", Leitura),
     ("donnaGovernanceSave", Dono),
+    ("donnaHubDoctor", Leitura),
     ("donnaConversationHistory", Leitura),
     ("donnaConversationRead", Leitura),
     ("donnaConversationReadFile", Leitura),

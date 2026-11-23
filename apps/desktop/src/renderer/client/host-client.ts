@@ -87,6 +87,8 @@ export type HostEvent =
   | { type: 'resync' }
   /** Times (fork/times): só o space e a revisão; o app relê o snapshot pelo RPC do dono. */
   | { type: 'times'; spaceId: string; revision: number }
+  /** Saúde do Hub (doctor): sinal mínimo de invalidação por space (sem dados privados). */
+  | { type: 'donnaDoctorChanged'; hubId: string; spaceId: string }
   /** Sessões (fork/sessoes): uma sessão nova ou mudada (renomear); o app guarda só as conversas abertas. */
   | { type: 'session'; session: import('../views/fork/sessoes/estado').HubSession }
   /** An event this app version couldn't read (host newer/older than the app). */
@@ -150,6 +152,7 @@ export function parseEvent(line: string): HostEvent | null {
     case 'backgroundHistoryChanged':
       return { type }
     case 'donnaAttentionChanged':
+    case 'donnaDoctorChanged':
     case 'donnaControlTowerChanged': {
       const { hubId, spaceId } = raw
       return typeof hubId === 'string' && hubId.trim() === hubId && hubId.length > 0

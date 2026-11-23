@@ -328,6 +328,15 @@ enum Sub {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
     },
+    /// Read-only Hub and Space health diagnosis.
+    Doctor {
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+        #[arg(long, default_value = fork::spaces::PERSONAL)]
+        space: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Claude Code statusLine command: forwards usage limits to the host, then prints
     /// the wrapped command's status line (`statusline -- <command>`) or a short default.
     Statusline {
@@ -826,6 +835,13 @@ async fn main() -> Result<()> {
                 service::installed(),
                 service::data_dir().display()
             );
+            Ok(())
+        }
+        Sub::Doctor { port, space, json } => {
+            let code = run_doctor(port, space, json).await;
+            if code != 0 {
+                std::process::exit(code);
+            }
             Ok(())
         }
         Sub::MotorInstall => fork::motor_install::run().await,
@@ -1488,5 +1504,140 @@ mod mac_local_cli_tests {
         assert!(!touches_claude_settings(nivel(&["--nivel", "1"])));
         assert!(!touches_claude_settings(nivel(&["--nivel", "2"])));
         assert!(Cli::try_parse_from(["donnabot-host", "uninstall", "--nivel", "3"]).is_err());
+    }
+}
+
+async fn run_doctor(port: u16, space: String, as_json: bool) -> i32 {
+    let token = fork::data_home::read_text(&service::data_dir().join("token"));
+    let result = match token.as_deref().map(str::trim) {
+        Ok(token) if !token.is_empty() => {
+            request_doctor(
+                http().post(format!("http://127.0.0.1:{port}/api/{}", fork::doctor::METHOD)),
+                token,
+                &space,
+                Duration::from_secs(5),
+            )
+            .await
+        }
+        _ => Err("hub_doctor_credential_unavailable"),
+    };
+    let (report, exit) = match result {
+        Ok(report) => {
+            let exit = fork::doctor::exit_code_for_report(&report);
+            (report, exit)
+        }
+        Err(error) => (
+            json!({"version":1,"hubId":null,"spaceId":space,"collectedAt":store::now_ms(),
+                   "overall":"error","error":error,"checks":[]}),
+            1,
+        ),
+    };
+    if as_json {
+        println!("{report}");
+    } else if let Some(error) = report["error"].as_str() {
+        eprintln!("Hub Doctor ({space}): {error}");
+    } else {
+        println!("{}", fork::doctor::format_human(&report));
+    }
+    exit
+}
+
+async fn request_doctor(
+    request: reqwest::RequestBuilder,
+    token: &str,
+    space: &str,
+    timeout: Duration,
+) -> std::result::Result<serde_json::Value, &'static str> {
+    let res =
+        request.bearer_auth(token).json(&json!({"spaceId":space})).timeout(timeout).send().await.map_err(|error| {
+            if error.is_timeout() {
+                return "hub_doctor_timeout";
+            }
+            "hub_doctor_connection_unconfirmed"
+        })?;
+    match res.status() {
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => return Err("hub_doctor_access_denied"),
+        status if !status.is_success() => return Err("hub_doctor_unavailable"),
+        _ => {}
+    }
+    let body = res
+        .json()
+        .await
+        .map_err(|error| if error.is_timeout() { "hub_doctor_timeout" } else { "hub_doctor_invalid_report" })?;
+    fork::doctor::model::validate_report(&body, space).ok_or("hub_doctor_invalid_report")
+}
+
+#[cfg(test)]
+mod doctor_cli_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn doctor_cli_classifica_respostas_sem_expor_erros() -> Result<()> {
+        use axum::{Router, body::Body, http::StatusCode, response::Response, routing::post};
+
+        let app = Router::new()
+            .route("/headers", post(|| async { std::future::pending::<()>().await }))
+            .route(
+                "/body",
+                post(|| async {
+                    Response::new(Body::from_stream(futures::stream::once(std::future::pending::<
+                        std::result::Result<&'static str, std::io::Error>,
+                    >())))
+                }),
+            )
+            .route("/denied", post(|| async { (StatusCode::UNAUTHORIZED, "detalhe fictício") }))
+            .route("/invalid", post(|| async { axum::Json(json!({"overall":"healthy","checks":[]})) }))
+            .route(
+                "/valid",
+                post(|| async {
+                    axum::Json(json!({"version":1,"hubId":"fixture","spaceId":"personal","collectedAt":1,
+                    "overall":"healthy","checks":[{"id":"hub","area":"hub","status":"ok","code":"hub_ok",
+                    "count":null,"actionKind":"none"}]}))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        let client = reqwest::Client::builder().no_proxy().build()?;
+        for (route, space, expected) in [
+            ("headers", "personal", "hub_doctor_timeout"),
+            ("body", "personal", "hub_doctor_timeout"),
+            ("denied", "personal", "hub_doctor_access_denied"),
+            ("invalid", "personal", "hub_doctor_invalid_report"),
+            ("valid", "outro", "hub_doctor_invalid_report"),
+        ] {
+            let request = client.post(format!("http://{address}/{route}"));
+            assert_eq!(request_doctor(request, "fixture", space, Duration::from_millis(500)).await, Err(expected));
+        }
+        let request = client.post(format!("http://{address}/valid"));
+        let valid = request_doctor(request, "fixture", "personal", Duration::from_secs(2))
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        assert_eq!(fork::doctor::exit_code_for_report(&valid), 0);
+        server.abort();
+        Ok(())
+    }
+
+    #[test]
+    fn doctor_cli_flags_parse_defaults_and_overrides() {
+        match Cli::try_parse_from(["donnabot-host", "doctor"]).unwrap().cmd {
+            Some(Sub::Doctor { port, space, json }) => {
+                assert_eq!(port, service::DEFAULT_PORT);
+                assert_eq!(space, fork::spaces::PERSONAL);
+                assert!(!json);
+            }
+            _ => panic!("expected doctor"),
+        }
+        match Cli::try_parse_from(["donnabot-host", "doctor", "--port", "19422", "--space", "sp_1", "--json"])
+            .unwrap()
+            .cmd
+        {
+            Some(Sub::Doctor { port, space, json }) => {
+                assert_eq!(port, 19422);
+                assert_eq!(space, "sp_1");
+                assert!(json);
+            }
+            _ => panic!("expected doctor"),
+        }
     }
 }
