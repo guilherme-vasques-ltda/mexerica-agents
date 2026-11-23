@@ -169,7 +169,8 @@ async fn command(
     let caller =
         crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
     // Nome sem classe é recusado antes de ler o corpo: 404 (403 na Open) sem passar por 400 ou 413.
-    if let Some(recusa) = super::recusa_sem_classe(&method) {
+    let origem = if headers.contains_key("authorization") { super::origem(&caller) } else { "web" };
+    if let Some(recusa) = super::recusa_sem_classe(origem, &method) {
         let (status, message) = error_status(&recusa);
         return Err(ApiError(status, message, None));
     }
@@ -352,6 +353,33 @@ mod tests {
     /// O nome é classificado antes de o corpo ser lido: nome sem classe dá 404 sem tocar no corpo (antes, um corpo
     /// grande dava 413 e um JSON inválido, 400), com qualquer prefixo; a autenticação vem antes; método com classe lê
     /// o corpo.
+    /// Tudo o que foi registrado em log enquanto `run` rodou nesta thread.
+    async fn registrado<T>(run: impl std::future::Future<Output = T>) -> (String, T) {
+        #[derive(Clone, Default)]
+        struct Buf(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log").extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Buf::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        let out = run.await;
+        drop(guard);
+        let bytes = buf.0.lock().expect("log").clone();
+        (String::from_utf8_lossy(&bytes).into_owned(), out)
+    }
+
     #[tokio::test]
     async fn unknown_method_is_refused_before_the_body_is_read() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -387,6 +415,24 @@ mod tests {
             assert_eq!(chamar(method, "invalido").await, (Some(StatusCode::UNAUTHORIZED), false), "{method}");
         }
         assert_eq!(chamar("hello", "local-test").await, (Some(StatusCode::BAD_REQUEST), true));
+
+        // A recusa deixa log com motivo fixo e origem, sem o nome do cliente, o token ou o corpo.
+        let cru = "metodoMarcador7f3\nINJETADO reason=forjado";
+        let aparelho = Caller::Device { key: "chave-marcadora-9c1".into(), scopes: vec![], autoridade: None };
+        let (log, respostas) = registrado(async {
+            let http = chamar(cru, "local-test").await;
+            let canal = dispatch(&hub, &aparelho, cru, json!({"segredo": "corpo-marcador-5e2"})).await;
+            (http, canal.map_err(|e| error_status(&e).0))
+        })
+        .await;
+        assert_eq!(respostas, ((Some(StatusCode::NOT_FOUND), false), Err(StatusCode::NOT_FOUND)), "resposta igual");
+        assert_eq!(log.matches("unknown_rpc_method").count(), 2, "{log}");
+        assert!(log.contains("origin=\"local\"") && log.contains("origin=\"aparelho\""), "{log}");
+        assert!(log.contains(&format!("method_len={}", cru.len())), "{log}");
+        for vazado in ["Marcador7f3", "INJETADO", "forjado", "local-test", "chave-marcadora-9c1", "corpo-marcador-5e2"]
+        {
+            assert!(!log.contains(vazado), "{vazado} no log: {log}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

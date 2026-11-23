@@ -41,12 +41,25 @@ impl std::fmt::Display for UnknownMethod {
 
 impl std::error::Error for UnknownMethod {}
 
+/// Origem do chamador para log: só o tipo, sem chave, sessão ou identificador.
+pub(crate) fn origem(caller: &Caller) -> &'static str {
+    match caller {
+        Caller::Local => "local",
+        Caller::Ponte { .. } => "ponte",
+        Caller::Device { .. } => "aparelho",
+        Caller::Pairing { .. } => "pareamento",
+        Caller::Bootstrap { .. } => "bootstrap",
+    }
+}
+
 /// Recusa de nome sem classe em `fork::acesso_rpc`, antes dos argumentos: desconhecido (404) para todos; na Open, a
-/// lista fechada responde a todo nome fora dela com `Forbidden` (403), e o desconhecido segue essa regra.
-pub(crate) fn recusa_sem_classe(method: &str) -> Option<anyhow::Error> {
+/// lista fechada responde a todo nome fora dela com `Forbidden` (403), e o desconhecido segue essa regra. O log leva
+/// motivo fixo, a origem e o tamanho do nome; nunca o nome que veio do cliente.
+pub(crate) fn recusa_sem_classe(origem: &str, method: &str) -> Option<anyhow::Error> {
     if !crate::fork::acesso_rpc::desconhecido(method) {
         return None;
     }
+    tracing::warn!(reason = "unknown_rpc_method", origin = origem, method_len = method.len(), "rpc refused");
     Some(if crate::environment::Environment::is_open() { Forbidden.into() } else { UnknownMethod.into() })
 }
 
@@ -94,7 +107,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
     // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368 e de olhar o nome.
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
     // Fail-closed: método sem classe em `fork::acesso_rpc` não existe para ninguém, nem para este computador.
-    if let Some(recusa) = recusa_sem_classe(method) {
+    if let Some(recusa) = recusa_sem_classe(origem(caller), method) {
         return Err(recusa);
     }
     crate::open_hub::check_request(method, &b)?;

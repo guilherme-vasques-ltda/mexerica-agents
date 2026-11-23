@@ -628,6 +628,7 @@ impl Channel {
         if let Some(method) = v["m"].as_str().filter(|m| browser_canal::METODOS.contains(m)) {
             // A classe da tabela vem antes das guardas próprias do navegador (escopo, Hub/Space/bot e sessão).
             if devices::permit(&self.caller, method).is_err() {
+                tracing::warn!(reason = "rpc_class_refused", origin = api::origem(&self.caller), "rpc refused");
                 self.send(err(id, 403, &devices::Forbidden.to_string())).await;
                 return Ok(());
             }
