@@ -62,7 +62,15 @@ export function createRemoteController(
         accessLost: (status, code) => {
           if (lease.signal.aborted || run !== attempt) return
           if (status === 409 && code === 'workspace_epoch_mismatch') {
-            if (lease.acceptsResponse()) void select(id, true)
+            if (!lease.acceptsResponse()) return
+            if (!recovering) {
+              void select(id, true)
+              return
+            }
+            ++attempt
+            void session.close().catch(() => {})
+            selected = null
+            show('unavailable')
           } else if (isWorkspaceAccessLost(status, code)) void lease.revoke().catch(() => {})
         },
         acceptContext: lease.acceptContext,

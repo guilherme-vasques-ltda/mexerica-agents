@@ -21,10 +21,11 @@ Não use o token local do host nem acesso por loopback como alternativa. Se a au
 
 - A abertura inicial de `/events` não envia uma época desconhecida: ela vem em `hello.workspace.workspaceEpoch`.
 - Nos RPCs seguintes, `workspaceEpoch` vai no corpo. Nas assinaturas SSE do renderer, vai na query.
+- Os eventos de dados também precisam trazer o `workspaceEpoch` atual. Antes de ativar, a rota remota deve emitir esse campo nos eventos que serão repassados ao renderer.
 
 ### Divergência de época em HTTP
 
-- O cliente limpa o workspace e inicia apenas um novo handshake.
+- O cliente limpa o workspace e inicia um novo handshake uma única vez. Se a divergência se repetir, volta ao seletor e espera uma nova escolha.
 - A ação que causou a divergência **nunca é reenviada**.
 
 ### Revogação terminal ou mudança de papel

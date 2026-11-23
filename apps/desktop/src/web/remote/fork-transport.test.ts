@@ -13,6 +13,7 @@ const workspace: WorkspaceContext = {
   schema: 1, hubId: 'hub-fixture', kind: 'personal', workspaceId: personal.id,
   userId: 'u1', role: 'owner', workspaceEpoch: 2, capabilities: [],
 }
+const attentionChanged = { type: 'donnaAttentionChanged', workspaceEpoch: 2, fixture: true }
 type FixtureFetch = (request: Request) => Promise<Response>
 
 function sse(events: unknown[], keepOpen = false): Response {
@@ -48,10 +49,15 @@ test('host transport passes RPC results through the generic web bridge unchanged
   const requests: Request[] = []
   const hub = createRemoteHub(() => ({
     origin,
-    authorize: async () => ({}),
+    authorize: async (request): Promise<HeadersInit> => request.method === 'POST'
+      ? { 'Content-Type': 'application/vnd.fixture+json', 'X-Fixture-Proof': 'validated' }
+      : {},
     fetch: async (request) => {
       requests.push(request)
-      if (new URL(request.url).pathname === '/events') return sse([hello(), { type: 'donnaAttentionChanged', fixture: true }], true)
+      if (new URL(request.url).pathname === '/events') return sse([
+        hello(), { type: 'missingEpoch' }, { type: 'invalidEpoch', workspaceEpoch: '2' },
+        { type: 'lateData', workspaceEpoch: 1 }, attentionChanged,
+      ], true)
       return Response.json({ ok: true, result: { value: 7 } })
     },
   }))
@@ -67,12 +73,14 @@ test('host transport passes RPC results through the generic web bridge unchanged
   const rpc = requests.find((request) => request.method === 'POST')!
   assert.equal(new URL(rpc.url).origin, origin)
   assert.equal(new URL(rpc.url).pathname, '/api/donnaAttention')
+  assert.equal(rpc.headers.get('Content-Type'), 'application/vnd.fixture+json')
+  assert.equal(rpc.headers.get('X-Fixture-Proof'), 'validated')
   assert.deepEqual(await rpc.json(), { prompt: 'fixture', workspaceEpoch: 2 })
   const events: unknown[] = []
   bridge.host.stream(`${origin}/events?since=12&spaceId=personal&workspaceEpoch=999`, snapshot.local!.token,
     (line) => events.push(JSON.parse(line)), () => {})
   await until(() => events.length === 2)
-  assert.deepEqual(events, [hello(), { type: 'donnaAttentionChanged', fixture: true }])
+  assert.deepEqual(events, [hello(), attentionChanged])
   assert.equal(new URL(requests[0].url).searchParams.has('workspaceEpoch'), false)
   assert.deepEqual(Object.fromEntries(new URL(requests[2].url).searchParams), { since: '12', spaceId: 'personal', workspaceEpoch: '2' })
   assert.ok(requests.every((request) => request.credentials === 'omit' && request.redirect === 'error' && request.cache === 'no-store'))
@@ -117,7 +125,7 @@ for (const type of ['workspace_revoked', 'role_changed'] as const) {
     const pending = assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { code: 'workspace_inactive' })
     await until(() => delivered.length === 1 && requests.some((r) => r.method === 'POST'))
     streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 2 }))
-    streams[1].enqueue(frame({ type: 'fixtureMarker' }))
+    streams[1].enqueue(frame({ type: 'fixtureMarker', workspaceEpoch: 2 }))
     await until(() => delivered.length === 2)
     assert.equal(states.at(-1)?.status, 'active')
     streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 3 }))
@@ -128,7 +136,7 @@ for (const type of ['workspace_revoked', 'role_changed'] as const) {
     assert.equal(states.at(-1)?.activeId, null)
     assert.equal((await remote.host.snapshot()).local, null)
     assert.ok(requests.every((r) => r.signal.aborted))
-    assert.deepEqual(delivered, [hello(), { type: 'fixtureMarker' }])
+    assert.deepEqual(delivered, [hello(), { type: 'fixtureMarker', workspaceEpoch: 2 }])
     assert.deepEqual(cleared, [personal.id])
   })
 }
@@ -157,6 +165,34 @@ test('epoch mismatch clears workspace cache, confirms once again, and never repl
   const current = (await remote.host.snapshot()).local!.token
   await remote.host.call(origin, current, 'donnaAttention', {}, 1000)
   assert.deepEqual(await requests.at(-1)!.json(), { workspaceEpoch: 3 })
+  await controller.setIdentity(null, [], [])
+})
+
+test('a repeated 409 clears the recovered session and waits for a manual choice', async () => {
+  const cleared: string[] = []
+  const requests: Request[] = []
+  let opens = 0
+  const { remote, states, controller } = await activeFixture(async (request) => {
+    requests.push(request)
+    if (request.method === 'POST') return Response.json({ code: 'workspace_epoch_mismatch' }, { status: 409 })
+    return sse([hello(++opens)], true)
+  }, cleared)
+  const action = async () => {
+    const token = (await remote.host.snapshot()).local!.token
+    await assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { status: 409, code: 'workspace_epoch_mismatch' })
+  }
+  await action()
+  await until(() => opens === 2 && states.at(-1)?.status === 'active')
+  await action()
+  await until(() => cleared.length === 2)
+  assert.equal(opens, 2)
+  assert.equal(states.at(-1)?.status, 'unavailable')
+  assert.equal(states.at(-1)?.activeId, null)
+  assert.equal((await remote.host.snapshot()).local, null)
+  assert.equal(requests.filter((request) => request.method === 'POST').length, 2)
+  await controller.select(personal.id)
+  assert.equal(opens, 3)
+  assert.equal(states.at(-1)?.status, 'active')
   await controller.setIdentity(null, [], [])
 })
 

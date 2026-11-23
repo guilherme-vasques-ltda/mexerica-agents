@@ -43,9 +43,10 @@ function abortable<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
 
 async function request(c: Connection, url: URL, init: RequestInit, signal: AbortSignal) {
   const unsigned = new Request(url, { ...init, signal, credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer' })
-  const headers = await abortable(signal, async () => new Headers(await c.binding.authorize(unsigned.clone())))
+  const proof = await abortable(signal, async () => new Headers(await c.binding.authorize(unsigned.clone())))
     .catch(() => { throw signal.aborted ? offline : unauthorized })
-  for (const [key, value] of unsigned.headers) headers.set(key, value)
+  const headers = new Headers(unsigned.headers)
+  for (const [key, value] of proof) headers.set(key, value)
   try {
     return await abortable(signal, () => c.binding.fetch(new Request(unsigned, { headers })))
   } catch {
@@ -159,13 +160,11 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
         c.callbacks.accessLost(409, 'workspace_epoch_mismatch')
         return false
       }
+      return true
     }
-    if (workspaceEpoch !== undefined) {
-      if (typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch) || workspaceEpoch < 0) throw invalid
-      if (workspaceEpoch > context.workspaceEpoch) c.callbacks.accessLost(409, 'workspace_epoch_mismatch')
-      if (workspaceEpoch !== context.workspaceEpoch) return false
-    }
-    return true
+    if (typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch) || workspaceEpoch < 0) return false
+    if (workspaceEpoch > context.workspaceEpoch) c.callbacks.accessLost(409, 'workspace_epoch_mismatch')
+    return workspaceEpoch === context.workspaceEpoch
   }
   const parseEvent = (data: string): Record<string, unknown> => {
     let event: unknown
