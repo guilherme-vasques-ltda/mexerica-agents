@@ -890,7 +890,10 @@ pub async fn decide_as(
                 && (!approve
                     || expected.as_ref().is_some_and(|e| {
                         e.device_key == b64(&mine[i].device_key)
-                            && mine[i].code.as_ref().is_some_and(|code| crypto::ct_eq(code.as_bytes(), e.code.as_bytes()))
+                            && mine[i]
+                                .code
+                                .as_ref()
+                                .is_some_and(|code| crypto::ct_eq(code.as_bytes(), e.code.as_bytes()))
                             && mine[i].transcript.as_ref() == Some(&e.transcript)
                     }))
         });
@@ -1248,11 +1251,16 @@ mod tests {
         );
         assert!(hub.cloud.requests_json().is_empty(), "a wrong code uses the only attempt");
         assert!(
-            !matches!(decide(&hub, "req_typed", true, Some(typed(&code))).await.unwrap(), DecideResult::Approved { .. }),
+            !matches!(
+                decide(&hub, "req_typed", true, Some(typed(&code))).await.unwrap(),
+                DecideResult::Approved { .. }
+            ),
             "the right code can't reuse a burned request"
         );
         assert!(hub.store.device(&b64(&dk)).is_none());
-        assert!(!fake.posts.lock().unwrap().iter().any(|(p, b)| p.ends_with("/decision") && b["decision"] == "approve"));
+        assert!(
+            !fake.posts.lock().unwrap().iter().any(|(p, b)| p.ends_with("/decision") && b["decision"] == "approve")
+        );
     }
 
     #[tokio::test]

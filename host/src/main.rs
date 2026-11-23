@@ -1072,7 +1072,8 @@ fn approved_message(result: &serde_json::Value) -> Option<String> {
 }
 
 fn access_line(r: &serde_json::Value) -> String {
-    let state = if r["codeReady"] == true { "digite o código que o aparelho mostra" } else { "(esperando o aparelho)" };
+    let state =
+        if r["codeReady"] == true { "digite o código que o aparelho mostra" } else { "(esperando o aparelho)" };
     format!(
         "{}  {} ({}, {})  prazo {}  {}",
         r["requestId"].as_str().unwrap_or_default(),
