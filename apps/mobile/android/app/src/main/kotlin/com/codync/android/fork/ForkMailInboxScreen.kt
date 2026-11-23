@@ -216,7 +216,6 @@ private fun mapScreenState(
         return ForkMailInboxScreenState.EmptyInbox
     }
 
-    val readyStatus = store.status as? MailInboxStatus.Ready
     return ForkMailInboxScreenState.ThreadList(
         threads = store.threads.distinctBy { it.threadId }.map { summary ->
             ForkMailInboxThreadItem(summary.threadId, normalizeSubject(summary.subject), summary.lastMessageAt)
