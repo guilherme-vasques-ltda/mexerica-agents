@@ -257,12 +257,13 @@ internal class ForkMailInboxPresentation(private val store: ForkMailInboxStore, 
         if (!store.featureEnabled || spaceId.isEmpty()) return
         val switchingSpace = store.activeSpaceId != spaceId
         if (started && !switchingSpace && publishedGeneration == store.generation) return
+        val previousMailboxId = if (!started && !switchingSpace) store.selectedMailboxId else null
         started = true
         val generation = store.generation + if (switchingSpace) 1 else 0
         request(replace = switchingSpace) { store.loadStatus(spaceId) }
         if (store.activeSpaceId != spaceId || store.generation != generation || store.isLoadingStatus) return
         val mailboxes = (store.status as? MailInboxStatus.Ready)?.mailboxes.orEmpty()
-        val mailbox = mailboxes.firstOrNull()
+        val mailbox = mailboxes.firstOrNull { it.mailboxId == previousMailboxId } ?: mailboxes.firstOrNull()
         if (mailbox != null && store.lastError == null) request { store.loadFirstPage(spaceId, mailbox.mailboxId) }
     }
 

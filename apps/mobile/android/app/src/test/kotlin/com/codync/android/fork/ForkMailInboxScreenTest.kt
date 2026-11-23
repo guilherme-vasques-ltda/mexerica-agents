@@ -218,6 +218,35 @@ class ForkMailInboxScreenTest {
     }
 
     @Test
+    fun reenteringTheSameSpaceKeepsItsSelectionOnlyWhileStillListed() = runBlocking {
+        val space = ForkMailInboxFixtureTransport.SPACE_ALPHA
+        val selected = ForkMailInboxFixtureTransport.MAILBOX_EMPTY
+        val fixture = ForkMailInboxFixtureTransport()
+        var hideSelected = false
+        val transport = object : MailInboxTransport by fixture {
+            override suspend fun mailInboxStatus(spaceId: String): MailInboxStatus {
+                val status = fixture.mailInboxStatus(spaceId) as MailInboxStatus.Ready
+                return if (hideSelected) status.copy(mailboxes = status.mailboxes.filterNot { it.mailboxId == selected }) else status
+            }
+        }
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        val original = ForkMailInboxPresentation(store, space)
+        original.setBackground(false)
+        original.start()
+        original.selectMailbox(selected)
+
+        val reopened = ForkMailInboxPresentation(store, space)
+        reopened.start()
+        assertEquals(selected, reopened.uiState.value.selectedMailboxId)
+        assertEquals(ForkMailInboxScreenState.EmptyInbox, reopened.uiState.value.screenState)
+
+        hideSelected = true
+        val withFreshStatus = ForkMailInboxPresentation(store, space)
+        withFreshStatus.start()
+        assertEquals(ForkMailInboxFixtureTransport.MAILBOX_MAIN, withFreshStatus.uiState.value.selectedMailboxId)
+    }
+
+    @Test
     fun resumingASharedStoreNeverPublishesAnotherSpacesData() = runBlocking {
         val aSpace = ForkMailInboxFixtureTransport.SPACE_ALPHA
         val bSpace = ForkMailInboxFixtureTransport.SPACE_BETA
@@ -231,7 +260,10 @@ class ForkMailInboxScreenTest {
         val transport = CountingTransport(object : MailInboxTransport by fixture {
             override suspend fun mailInboxStatus(spaceId: String): MailInboxStatus {
                 if (spaceId == aSpace && delayResume) resumeGate.await()
-                return fixture.mailInboxStatus(spaceId)
+                val status = fixture.mailInboxStatus(spaceId) as MailInboxStatus.Ready
+                if (spaceId != bSpace) return status
+                val sharedId = (fixture.mailInboxStatus(aSpace) as MailInboxStatus.Ready).mailboxes.last()
+                return status.copy(mailboxes = status.mailboxes + sharedId)
             }
 
             override suspend fun mailInboxListThreads(spaceId: String, mailboxId: String, cursor: String?): MailInboxListThreadsResponse {
@@ -257,6 +289,7 @@ class ForkMailInboxScreenTest {
 
         b.setBackground(false)
         b.start()
+        assertEquals(bMailbox, b.uiState.value.selectedMailboxId)
         b.openThread(bThread)
         assertEquals(bThread, (b.uiState.value.screenState as ForkMailInboxScreenState.ThreadDetail).threadId)
 
