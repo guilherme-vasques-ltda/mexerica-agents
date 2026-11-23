@@ -170,6 +170,15 @@ async fn concluir_e_prova_sao_gestos_so_do_usuario() {
     owned["state"] = json!("in_progress");
     owned["evidence"] = json!("prova registrada pelo usuário");
     let project = f.project(PERSONAL, Some("boss"), &[owned]);
+    crate::fork::projetos::delegacao_meta::admit(
+        &f.hub.store.db.locked(),
+        (&f.hub.host_id, PERSONAL, &project),
+        "t1",
+        1,
+        Some("boss"),
+        None,
+    )
+    .unwrap();
     for bot in ["a", "b", "boss"] {
         let exec = f.exec(bot);
         for extra in [
@@ -316,6 +325,15 @@ async fn matriz_coordenador_supervisor_e_sem_autoridade() {
     f.org("a", None);
     f.org("b", Some("a"));
     let project = f.project(PERSONAL, Some("boss"), &[task("t1", None, Some("b"), "Sub de b")]);
+    crate::fork::projetos::delegacao_meta::admit(
+        &f.hub.store.db.locked(),
+        (&f.hub.host_id, PERSONAL, &project),
+        "t1",
+        1,
+        Some("boss"),
+        None,
+    )
+    .unwrap();
     // Coordenador do Projeto atualiza a subtarefa de outro bot.
     let exec_boss = f.exec("boss");
     f.call("boss", "task_update", json!({"projectId": project, "taskId": "t1", "state": "review"}), Some(&exec_boss))
@@ -392,6 +410,152 @@ async fn limites_100_tarefas_e_3_niveis() {
         .unwrap();
     assert_eq!(out["task"]["parentTaskId"], "f1");
     assert_eq!(out["task"]["assigneeBotId"], "b");
+}
+
+#[tokio::test]
+async fn ordem_direta_protege_estado_e_responsavel_sem_impedir_conferencia() {
+    use crate::fork::projetos::delegacao_meta;
+    let f = Fixture::new();
+    f.org("a", Some("b"));
+    let mut owned = task("ordem", None, Some("a"), "Ordem direta");
+    owned["state"] = json!("in_progress");
+    let project = f.project(PERSONAL, Some("boss"), &[owned]);
+    delegacao_meta::admit(&f.hub.store.db.locked(), (&f.hub.host_id, PERSONAL, &project), "ordem", 1, None, None)
+        .unwrap();
+
+    for bot in ["a", "b", "boss"] {
+        let exec = f.exec(bot);
+        for extra in [
+            json!({"state": "backlog"}),
+            json!({"state": "blocked"}),
+            json!({"state": "cancelled"}),
+            json!({"assigneeBotId": "c"}),
+            json!({"assigneeBotId": null}),
+        ] {
+            let mut args = json!({"projectId": project, "taskId": "ordem"});
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let err = f.call(bot, "task_update", args, Some(&exec)).await.unwrap_err();
+            assert!(err.to_string().starts_with("direct_owner_order_protected:"), "{err}");
+        }
+    }
+    assert_eq!(f.stored(&project).1[0]["state"], "in_progress");
+    let exec = f.exec("a");
+    f.call(
+        "a",
+        "task_update",
+        json!({"projectId": project, "taskId": "ordem", "state": "review", "description": "Nota de progresso"}),
+        Some(&exec),
+    )
+    .await
+    .unwrap();
+    f.call("a", "task_comment", json!({"projectId": project, "taskId": "ordem", "text": "Nota"}), Some(&exec))
+        .await
+        .unwrap();
+    assert_eq!(f.stored(&project).1[0]["state"], "review");
+
+    f.hub.store.db.locked().execute_batch("DROP TABLE donna_task_delegation_meta").unwrap();
+    let err = f
+        .call("a", "task_update", json!({"projectId": project, "taskId": "ordem", "state": "blocked"}), Some(&exec))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().starts_with("direct_owner_order_protected:"), "{err}");
+    assert_eq!(f.stored(&project).1[0]["state"], "review");
+}
+
+#[tokio::test]
+async fn tarefa_sem_metadados_nao_pode_ser_interrompida_por_bot() {
+    let f = Fixture::new();
+    let mut legacy = task("legada", None, Some("a"), "Tarefa legada");
+    legacy["state"] = json!("in_progress");
+    let project = f.project(PERSONAL, Some("boss"), &[legacy]);
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_delegation_meta WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project),
+        ),
+        0
+    );
+    for bot in ["a", "boss"] {
+        let exec = f.exec(bot);
+        for state in ["backlog", "blocked", "cancelled"] {
+            let err = f
+                .call(bot, "task_update", json!({"projectId":project,"taskId":"legada","state":state}), Some(&exec))
+                .await
+                .unwrap_err();
+            assert!(err.to_string().starts_with("direct_owner_order_protected:"), "{err}");
+        }
+    }
+    assert_eq!(f.stored(&project).1[0]["state"], "in_progress");
+    assert_eq!(f.history(&project), [] as [Value; 0]);
+}
+
+#[tokio::test]
+async fn governanca_limita_admissao_de_filhos_no_space_e_na_cadeia() {
+    use crate::api::{devices::Caller, dispatch};
+    use crate::fork::projetos::delegacao_meta::{OriginKind, load_space};
+    let f = Fixture::new();
+    let one = f.project(PERSONAL, None, &[task("raiz", None, Some("a"), "Raiz")]);
+    let two = f.project(PERSONAL, None, &[task("raiz", None, Some("a"), "Outra raiz")]);
+    let mut policy = json!({"titleInstruction":"", "autoArchiveIdleDays":3, "preservePinnedAndOpenWork":true,
+        "maxConcurrentSubagents":2, "maxSubagentDepth":1});
+    dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaGovernanceSave",
+        json!({"hubId":f.hub.host_id, "spaceId":PERSONAL,
+        "clientRequestId":uuid::Uuid::new_v4().to_string(), "expectedRevision":0, "policy":policy}),
+    )
+    .await
+    .unwrap();
+    let exec = f.exec("a");
+    let args = json!({"projectId":one,"parentTaskId":"raiz","title":"Filha","assigneeBotId":"a",
+        "requestId":uuid::Uuid::new_v4().to_string()});
+    let child = f.call("a", "task_create_child", args.clone(), Some(&exec)).await.unwrap();
+    let child_id = child["task"]["id"].as_str().unwrap();
+    let err = f
+        .call("a", "task_create_child", json!({"projectId":one,"parentTaskId":child_id,"title":"Neta"}), Some(&exec))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().starts_with("governance_depth_limit:"), "{err}");
+    f.call("a", "task_create_child", json!({"projectId":two,"parentTaskId":"raiz","title":"Outra filha"}), Some(&exec))
+        .await
+        .unwrap();
+    let err = f
+        .call("a", "task_create_child", json!({"projectId":one,"parentTaskId":"raiz","title":"Excedente"}), Some(&exec))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().starts_with("governance_concurrency_limit:"), "{err}");
+    let repeated = f.call("a", "task_create_child", args, Some(&exec)).await.unwrap();
+    assert_eq!(repeated["task"]["id"], child_id);
+    assert_eq!(f.stored(&one).1.len(), 2);
+    assert_eq!(f.stored(&two).1.len(), 2);
+    let meta = load_space(&f.hub.store.db.locked(), &f.hub.host_id, PERSONAL).unwrap();
+    let admitted = &meta[&(one.clone(), child_id.to_owned())];
+    assert_eq!(admitted.origin_kind, OriginKind::Delegated);
+    assert_eq!(admitted.root_bot_id.as_deref(), Some("a"));
+    assert_eq!(admitted.delegated_by_bot_id.as_deref(), Some("a"));
+
+    policy["maxSubagentDepth"] = json!(2);
+    dispatch(
+        &f.hub,
+        &Caller::Local,
+        "donnaGovernanceSave",
+        json!({"hubId":f.hub.host_id, "spaceId":PERSONAL,
+        "clientRequestId":uuid::Uuid::new_v4().to_string(), "expectedRevision":1, "policy":policy}),
+    )
+    .await
+    .unwrap();
+    let (p, mut tasks) = f.stored(&one);
+    tasks[1]["state"] = json!("done");
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute("UPDATE donna_projects SET tasks=?1 WHERE id=?2", params![json!(tasks).to_string(), p["id"].as_str()])
+        .unwrap();
+    f.call("a", "task_create_child", json!({"projectId":one,"parentTaskId":child_id,"title":"Neta"}), Some(&exec))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

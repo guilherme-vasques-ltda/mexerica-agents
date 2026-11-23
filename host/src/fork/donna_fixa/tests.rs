@@ -937,6 +937,8 @@ fn estado_do_dono(hub: &Hub) -> Value {
         "donna_whatsapp_numbers",
         "donna_plugin_installations",
         "donna_plugin_grants",
+        "donna_governance_policies",
+        "donna_governance_receipts",
     ] {
         out.insert(table.into(), json!(dump(&format!("SELECT * FROM {table} ORDER BY 1"))));
     }
@@ -964,6 +966,14 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             true,
         ),
         ("donnaProjectSave", json!({}), true),
+        (
+            "donnaGovernanceSave",
+            json!({"hubId": HUB_PORTA, "spaceId": crate::fork::spaces::PERSONAL,
+                "clientRequestId": uuid::Uuid::new_v4().to_string(), "expectedRevision": 0,
+                "policy": {"titleInstruction":"", "autoArchiveIdleDays":3, "preservePinnedAndOpenWork":true,
+                    "maxConcurrentSubagents":8, "maxSubagentDepth":3}}),
+            true,
+        ),
         ("donnaTaskMetaSave", json!({}), true),
         ("donnaTaskComment", json!({}), true),
         ("donnaProjectEnsureDefault", json!({}), true),

@@ -160,6 +160,50 @@ fn propose_args(request: &str, items: &Value) -> Value {
 }
 
 #[tokio::test]
+async fn governanca_recusa_lote_inteiro_e_grava_a_origem_dos_itens_aprovados() {
+    use crate::fork::projetos::delegacao_meta::{OriginKind, RequesterKind, load_space};
+    let f = Fixture::new();
+    let project = f.default_project(PERSONAL).await;
+    let out =
+        f.propose("a", Some(&f.exec("a")), propose_args(&uuid::Uuid::new_v4().to_string(), &items_2())).await.unwrap();
+    let proposal = out["proposal"]["id"].as_str().unwrap();
+    let mut policy = json!({"titleInstruction":"", "autoArchiveIdleDays":3, "preservePinnedAndOpenWork":true,
+        "maxConcurrentSubagents":1, "maxSubagentDepth":1});
+    f.call(
+        "donnaGovernanceSave",
+        json!({"hubId":f.hub.host_id, "spaceId":PERSONAL,
+        "clientRequestId":uuid::Uuid::new_v4().to_string(), "expectedRevision":0, "policy":policy}),
+    )
+    .await
+    .unwrap();
+    let key = uuid::Uuid::new_v4().to_string();
+    let err = f.decide(proposal, 1, &key, "approve", None).await.unwrap_err();
+    assert!(err.to_string().starts_with("governance_concurrency_limit:"), "{err}");
+    assert_eq!(f.tasks_of(&project).len(), 0);
+    assert_eq!(f.agenda_of(&project).len(), 0);
+    assert_eq!(f.proposals(PERSONAL).await["proposals"][0]["state"], "pending");
+
+    policy["maxConcurrentSubagents"] = json!(2);
+    f.call(
+        "donnaGovernanceSave",
+        json!({"hubId":f.hub.host_id, "spaceId":PERSONAL,
+        "clientRequestId":uuid::Uuid::new_v4().to_string(), "expectedRevision":1, "policy":policy}),
+    )
+    .await
+    .unwrap();
+    f.decide(proposal, 1, &key, "approve", None).await.unwrap();
+    let metadata = load_space(&f.hub.store.db.locked(), &f.hub.host_id, PERSONAL).unwrap();
+    assert_eq!(metadata.len(), 2);
+    for meta in metadata.values() {
+        assert_eq!(meta.origin_kind, OriginKind::Delegated);
+        assert_eq!(meta.requester_kind, RequesterKind::Bot);
+        assert_eq!(meta.root_bot_id.as_deref(), Some("a"));
+        assert_eq!(meta.delegated_by_bot_id.as_deref(), Some("a"));
+        assert_eq!(meta.requester_bot_id.as_deref(), Some("a"));
+    }
+}
+
+#[tokio::test]
 async fn propor_registra_pendente_e_nao_cria_nada() {
     let f = Fixture::new();
     let project = f.default_project(PERSONAL).await;
