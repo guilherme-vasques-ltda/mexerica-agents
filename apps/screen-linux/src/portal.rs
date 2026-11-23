@@ -68,8 +68,10 @@ impl Portal {
         let token = if restore {
             match read_token(&token_file) {
                 Ok(token) => Some(token),
-                Err(error) => {
-                    tracing::warn!(error = %error, "couldn't read the portal restore token");
+                Err(_) => {
+                    tracing::warn!(
+                        "Automatic restoration unavailable; the portal will request permission again. Restoration requires a private, regular state directory."
+                    );
                     None
                 }
             }
@@ -319,12 +321,8 @@ where
         file.flush()?;
         file.sync_all()?;
         validate_existing_token(&parent_file, filename, owner)?;
-        let actual_parent = fstat(&parent_file)?;
-        if actual_parent.st_dev != parent_metadata.st_dev
-            || actual_parent.st_ino != parent_metadata.st_ino
-        {
-            return Err(anyhow!("token directory changed before publication"));
-        }
+        // Publish in the validated directory, not whatever the path names now.
+        // This does not detect a change to the path's directory entry.
         renameat(&parent_file, temp_name.as_str(), &parent_file, filename)?;
         rustix::fs::fsync(&parent_file)?;
         Ok(())
@@ -374,9 +372,78 @@ fn validate_existing_token<Fd: std::os::fd::AsFd>(
 
 #[cfg(test)]
 mod token_tests {
-    use super::{save_token, save_token_atomically};
+    use super::{read_token, save_token, save_token_atomically};
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+
+    #[test]
+    fn publication_preserves_private_file_and_cleans_temporary_file() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("fixture timestamp")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "screen-publication-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&dir)
+            .expect("create private fixture directory");
+        let destination = dir.join("fixture");
+        let assert_published_file = |expected: &str| {
+            assert_eq!(read_token(&destination).expect("read fixture"), expected);
+            let metadata = std::fs::metadata(&destination).expect("read fixture metadata");
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+            let entries: Vec<_> = std::fs::read_dir(&dir)
+                .expect("read fixture directory")
+                .map(|entry| entry.expect("read fixture entry").path())
+                .collect();
+            assert_eq!(entries.as_slice(), std::slice::from_ref(&destination));
+        };
+
+        save_token_atomically(&destination, |file| file.write_all(b"published"))
+            .expect("publish fixture");
+        assert_published_file("published");
+        save_token_atomically(&destination, |file| file.write_all(b"renewed"))
+            .expect("renew fixture");
+        assert_published_file("renewed");
+
+        let failure = save_token_atomically(&destination, |file| {
+            file.write_all(b"partial")?;
+            Err(std::io::Error::other("fixture writer failed"))
+        })
+        .expect_err("reject failed writer");
+        assert_eq!(failure.to_string(), "fixture writer failed");
+        assert_published_file("renewed");
+
+        let non_private = dir.join("writable");
+        std::fs::create_dir(&non_private).expect("create separate fixture directory");
+        std::fs::set_permissions(&non_private, std::fs::Permissions::from_mode(0o770))
+            .expect("make fixture directory group-writable");
+        let refused_destination = non_private.join("fixture");
+        let failure = save_token_atomically(&refused_destination, |_| {
+            panic!("writer must not run for a non-private directory");
+        })
+        .expect_err("reject non-private directory");
+        assert_eq!(
+            failure.to_string(),
+            "token directory is not privately controlled"
+        );
+        let failure = read_token(&refused_destination).expect_err("reject non-private directory");
+        assert_eq!(
+            failure.to_string(),
+            "token directory is not privately controlled"
+        );
+        assert!(
+            std::fs::read_dir(&non_private)
+                .expect("read non-private fixture directory")
+                .next()
+                .is_none()
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove private fixture directory");
+    }
 
     #[test]
     fn restore_token_is_private_and_never_follows_links() {
