@@ -122,19 +122,33 @@ async fn inscrito(hub: &Arc<Hub>, com_capacidade: bool) -> (Phone, String) {
 }
 
 #[tokio::test]
-async fn round_trip_com_fonte_falsa_e_entrada_confirmada() {
+async fn round_trip_com_fonte_falsa_e_intencao_de_entrada() {
     let hub = hub_com_bot();
     let (mut phone, sessao) = inscrito(&hub, true).await;
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
     assert_eq!(phone.esperar_quadro().await.sequence, 1);
     let resposta = phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await;
     assert_eq!(resposta["ok"]["accepted"], true);
+    let intencao = navegador::retirar_entrada(&sessao).expect("intenção disponível antes do quadro seguinte");
+    assert_eq!((intencao.sequence, intencao.x, intencao.y), (1, 640.0, 360.0), "escala 1920×1080");
+    assert!(navegador::retirar_entrada(&sessao).is_none());
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 2)));
     assert_eq!(phone.esperar_quadro().await.sequence, 2);
-    let executadas = navegador::drenar_entradas(&sessao);
-    assert_eq!(executadas.len(), 1, "entrada sai antes do quadro seguinte");
-    assert_eq!((executadas[0].sequence, executadas[0].x, executadas[0].y), (1, 640.0, 360.0), "escala 1920×1080");
     assert_eq!(phone.chamar(3, "browserStreamAck", json!({})).await["ok"]["acknowledged"], true);
+}
+
+#[tokio::test]
+async fn troca_de_controlador_descarta_entrada_que_ainda_nao_foi_consumida() {
+    let hub = hub_com_bot();
+    let (mut phone, sessao) = inscrito(&hub, true).await;
+    assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
+    assert_eq!(phone.esperar_quadro().await.sequence, 1);
+    assert_eq!(phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await["ok"]["accepted"], true);
+    // No tick seguinte, o código antigo movia a entrada para uma segunda fila, fora da troca de controle.
+    assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 2)));
+    assert!(timeout(Duration::from_millis(200), phone.esperar_quadro()).await.is_err());
+    assert_eq!(phone.chamar(3, "browserStreamControl", json!({"controller": "person"})).await["ok"]["epoch"], 1);
+    assert!(navegador::retirar_entrada(&sessao).is_none(), "descartar entrada do controlador anterior");
 }
 
 #[tokio::test]
