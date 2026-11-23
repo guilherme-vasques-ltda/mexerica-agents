@@ -15,6 +15,29 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 impl Actor {
+    pub(super) async fn check_antigravity_turn(&mut self) {
+        if self.antigravity_active.as_ref().is_some_and(|grant| !grant.current(&self.hub, &self.cfg)) {
+            tracing::warn!(reason = "antigravity_authorization_changed", "turno interativo encerrado");
+            self.stop_antigravity().await;
+        }
+    }
+
+    pub(super) async fn stop_antigravity(&mut self) {
+        self.antigravity_active = None;
+        self.stop_requested = true;
+        if let Some(conn) = self.conn.take() {
+            if let Some(sid) = &self.turn_session {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(250),
+                    conn.acp.notify("session/cancel", json!({"sessionId":sid})),
+                )
+                .await;
+            }
+            conn.kill().await;
+        }
+        self.finish_turn(&Ok(json!({"stopReason":"cancelled"})));
+    }
+
     pub(super) async fn on_cmd(&mut self, cmd: Cmd, done_tx: &mpsc::UnboundedSender<super::PromptDone>) -> bool {
         match cmd {
             Cmd::ForkContext { request, reply } => self.context_call(request, reply, done_tx).await,
@@ -259,6 +282,7 @@ impl Actor {
             }
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id, reply, origem } => {
+                self.check_antigravity_turn().await;
                 let _ = reply.send(self.answer_permission_from(&entry_id, option_id, origem.as_ref()).await);
             }
             Cmd::Approve { title, detail, execution, reply } => {
@@ -269,6 +293,7 @@ impl Actor {
                 }
             }
             Cmd::Reconfigure(cfg) => {
+                self.check_antigravity_turn().await;
                 let mut cfg = *cfg;
                 if self.cfg.context.is_some() {
                     match crate::fork::spaces::execution_config(&self.hub.store, &cfg, &self.lane.chat) {
@@ -666,11 +691,14 @@ impl Actor {
                 return;
             }
             let mut batch = Vec::new();
-            let solo = self.take_send_now(next);
+            let solo = self.take_send_now(next)
+                || self.queue.get(next).is_some_and(
+                    |q| matches!(q, Queued::User { entry_id, .. } if self.hub.antigravity_grants.contains(entry_id)),
+                );
             let mut first = true;
             while let Some(Queued::User { lane: l, entry_id, .. }) = self.queue.get(next)
                 && *l == lane
-                && (first || !self.send_now_marked(entry_id))
+                && (first || (!self.send_now_marked(entry_id) && !self.hub.antigravity_grants.contains(entry_id)))
             {
                 first = false;
                 if let Some(Queued::User { entry_id, text, .. }) = self.queue.remove(next)
@@ -693,9 +721,30 @@ impl Actor {
                 self.handoff_chat = Some(lane.clone());
             }
             if let Err(e) = self.start_turn(lane, &ids, &text, false, done_tx).await {
-                self.stop_subscription_retry(&ids, &e);
+                let no_replay = crate::agent::backends::is_antigravity(&self.cfg.backend)
+                    || ids.iter().any(|id| {
+                        self.hub
+                            .store
+                            .entry(id)
+                            .is_some_and(|entry| entry.data[crate::fork::antigravity::ENTRY_MARKER] == true)
+                    });
+                if no_replay {
+                    for id in &ids {
+                        if let Some(mut entry) = self.hub.store.entry(id)
+                            && entry.data["status"] == "queued"
+                        {
+                            entry.data["status"] = json!("failed");
+                            entry.data["error"] = json!(e.to_string());
+                            self.hub.set_entry(id, &entry.data);
+                        }
+                    }
+                } else {
+                    self.stop_subscription_retry(&ids, &e);
+                }
                 self.start_failed(&e);
-                self.requeue_unreserved_humans(&ids);
+                if !no_replay {
+                    self.requeue_unreserved_humans(&ids);
+                }
             }
         }
     }
@@ -874,6 +923,9 @@ impl Actor {
     /// chat, which sends this turn's messages again once the user has signed in. Whether it did.
     pub(super) fn invite_sign_in(&self, e: &anyhow::Error) -> bool {
         let backend = &self.cfg.backend;
+        if crate::agent::backends::is_antigravity(backend) {
+            return false;
+        }
         let Some(h) = crate::agent::backends::harness(backend).filter(|_| crate::agent::acp::needs_sign_in(e)) else {
             return false;
         };

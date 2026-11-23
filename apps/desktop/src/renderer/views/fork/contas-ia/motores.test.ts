@@ -12,7 +12,7 @@ const b = (id: string, extra: Partial<Backend> = {}): Backend => ({ id, name: id
 test('Antigravity não aparece pronto, mesmo se o CLI estiver instalado', () => {
   for (const installed of [false, true]) {
     assert.deepEqual(motorEstado(b('antigravity', { installed, signedIn: true }), 'pt-BR'), {
-      selo: 'Indisponível', tom: 'neutro', detalhe: 'Indisponível no app. Use o CLI oficial com sua conta em um cliente ACP interativo.', instalado: installed,
+      selo: 'Indisponível', tom: 'neutro', detalhe: 'Uso pessoal: instale o CLI oficial e entre com agy acp --login. Escreva no chat por um aparelho autenticado do dono. Para automações, use uma chave Gemini/Vertex em um motor compatível ou escolha outro motor.', instalado: installed,
     })
   }
 })

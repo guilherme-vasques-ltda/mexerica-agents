@@ -280,7 +280,44 @@ impl Acp {
             .env_clear()
             .envs(super::environment::inherited(std::env::vars_os()))
             .envs(shell.env)
-            .envs(env.iter().map(|(k, v)| (k, v)))
+            .envs(env.iter().map(|(k, v)| (k, v)));
+        Self::spawn_process(process, command, cwd, protected, background)
+    }
+
+    pub(crate) fn spawn_antigravity(
+        cli: &crate::fork::antigravity::Official,
+        cwd: &str,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        let mut process = Command::new(cli.path());
+        process.arg("acp").env_clear().envs(std::env::vars_os().filter(|(name, _)| {
+            name.to_str().is_some_and(|name| {
+                [
+                    "HOME",
+                    "USERPROFILE",
+                    "PATH",
+                    "SYSTEMROOT",
+                    "LANG",
+                    "LC_ALL",
+                    "DBUS_SESSION_BUS_ADDRESS",
+                    "DISPLAY",
+                    "WAYLAND_DISPLAY",
+                    "XDG_RUNTIME_DIR",
+                ]
+                .iter()
+                .any(|key| name.eq_ignore_ascii_case(key))
+            })
+        }));
+        Self::spawn_process(process, "agy acp", cwd, true, false)
+    }
+
+    fn spawn_process(
+        mut process: Command,
+        command: &str,
+        cwd: &str,
+        protected: bool,
+        background: bool,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        process
             .current_dir(crate::fork::motor_exec::hub_cwd(std::path::Path::new(cwd)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -442,6 +479,30 @@ impl Acp {
         Ok(Answer { rx })
     }
 
+    pub(crate) async fn send_scoped(
+        &self,
+        method: &str,
+        params: Value,
+        scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
+    ) -> Result<Answer> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.pending.locked().insert(id, tx);
+        let mut line = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))?;
+        line.push(b'\n');
+        let mut input = self.stdin.lock().await;
+        let result = if let Some(writer) = input.as_mut() {
+            crate::fork::spaces::tool_effects::write_scoped(writer, &line, scope).await
+        } else {
+            Err(Failure::error(FailureKind::Exited, "agent stopped"))
+        };
+        if result.is_err() {
+            input.take();
+            self.pending.locked().remove(&id);
+        }
+        result.map(|()| Answer { rx })
+    }
+
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         self.write(json!({"jsonrpc": "2.0", "method": method, "params": params})).await
     }
@@ -458,7 +519,16 @@ impl Acp {
         boundary: &std::sync::Mutex<()>,
         check: impl Fn() -> Result<()>,
     ) -> Result<()> {
-        let mut line = serde_json::to_vec(&json!({"jsonrpc":"2.0", "id":id, "result":result}))?;
+        self.write_checked(json!({"jsonrpc":"2.0", "id":id, "result":result}), boundary, check).await
+    }
+
+    async fn write_checked(
+        &self,
+        frame: Value,
+        boundary: &std::sync::Mutex<()>,
+        check: impl Fn() -> Result<()>,
+    ) -> Result<()> {
+        let mut line = serde_json::to_vec(&frame)?;
         line.push(b'\n');
         let mut input = self.stdin.lock().await;
         let writer = input.as_mut().ok_or_else(|| Failure::error(FailureKind::Exited, "agent stopped"))?;
