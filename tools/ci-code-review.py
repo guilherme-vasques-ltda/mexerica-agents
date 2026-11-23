@@ -14,6 +14,7 @@ MAX_JSON = 4 * 1024 * 1024
 MAX_PATCH = 512 * 1024
 MAX_FILES = 100
 MAX_FINDINGS = 20
+MAX_LIMIT_WARNINGS = 20
 MAX_BODY = 1500
 MAX_ARTIFACT = 128 * 1024
 TEXT = re.compile(r"[A-Za-z0-9À-ÖØ-öø-ÿ ,.!?;()'\-]+")
@@ -27,6 +28,7 @@ CATEGORIES = dict(bug='Bug', security='Segurança', performance='Desempenho',
                   documentation='Documentação', other='Outro')
 SEVERITIES = dict(critical='Crítica', high='Alta', medium='Média', low='Baixa')
 SHA = re.compile(r'[0-9a-f]{40}')
+MANIFEST_ITEM_ID = re.compile(r'[0-9a-f]{64}')
 PATH = re.compile(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')
 HUNK = re.compile(r'@@ -(\d{1,8})(?:,(\d{1,8}))? \+(\d{1,8})(?:,(\d{1,8}))? @@(?: .*)?')
 REVIEW_FIELDS = set('status llm trace_id message summary tool_calls comments groups warnings project_summary '
@@ -131,6 +133,23 @@ def contains_provider_value(finding, values):
                for secret in values if secret for value in normalized)
 
 
+def is_review_limit_warning(item):
+    return (type(item) is dict and item.get('type') == 'review_limit_reached'
+            and set(item) == {'file', 'message', 'type'} and all(type(value) is str for value in item.values()))
+
+
+def completed_item_ids(items):
+    require(type(items) is list and items, SchemaClass.COVERAGE)
+    ids = set()
+    for item in items:
+        require(type(item) is dict and not {'classification', 'reason'}.intersection(item), SchemaClass.COVERAGE)
+        item_id = item.get('item_id')
+        require(type(item_id) is str and MANIFEST_ITEM_ID.fullmatch(item_id) and item_id not in ids,
+                SchemaClass.COVERAGE)
+        ids.add(item_id)
+    return ids
+
+
 def review_status(report, findings):
     status, summary = report.get('status'), report.get('summary')
     require(status in ('complete', 'skipped', 'partial'), SchemaClass.STATUS)
@@ -144,6 +163,15 @@ def review_status(report, findings):
         require(type(manifest) is dict and manifest.get('schema_version') == 'ocr.run-manifest/v1'
                 and manifest.get('operation') == 'review' and manifest.get('terminal_state') == status
                 and 'run_failure' not in manifest, SchemaClass.MANIFEST)
+    if status == 'complete' and warnings and len(warnings) <= MAX_LIMIT_WARNINGS and all(map(is_review_limit_warning, warnings)):
+        require(manifest is not None and 'parent_run_id' not in manifest and 'resume' not in report, SchemaClass.MANIFEST)
+        require(summary is not None and summary.get('budget_exceeded', False) is False, SchemaClass.SUMMARY)
+        coverage = manifest.get('coverage')
+        require(type(coverage) is dict and all(coverage.get(key) == [] for key in ('failed', 'waived', 'reused')),
+                SchemaClass.COVERAGE)
+        require(completed_item_ids(coverage.get('selected')) == completed_item_ids(coverage.get('completed')),
+                SchemaClass.COVERAGE)
+        return True
     if status != 'partial':
         if warnings:
             schema = SchemaClass.WARNINGS_COMPLETE if status == 'complete' else SchemaClass.WARNINGS_SKIPPED
@@ -159,8 +187,7 @@ def review_status(report, findings):
     for item in warnings:
         if type(item) is dict and item.get('type') == 'token_budget_reached':
             continue
-        if (type(item) is dict and item.get('type') == 'review_limit_reached'
-                and set(item) == {'file', 'message', 'type'} and all(type(value) is str for value in item.values())):
+        if is_review_limit_warning(item):
             continue
         raise refused_warning(SchemaClass.WARNINGS_ITEM, item)
     coverage = manifest.get('coverage')
@@ -293,7 +320,7 @@ def render(payload, files, head):
         comments.append(comment)
     summary = f'Open Code Review: {len(comments)} sinalização(ões) para verificação manual. Não é uma aprovação.'
     if payload['partial']:
-        summary += ' Revisão parcial: limite de orçamento atingido.'
+        summary += ' Revisão parcial: limite de revisão atingido.'
     return {'commit_id': head, 'event': 'COMMENT', 'comments': comments, 'body': summary}
 
 
