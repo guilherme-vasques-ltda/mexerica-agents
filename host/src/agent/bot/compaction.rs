@@ -302,6 +302,10 @@ impl Actor {
         if !manual && !self.automatic_compaction_allowed(&lane) {
             return;
         }
+        if self.conversation_held(&lane.chat) {
+            tracing::info!(bot = %self.cfg.id, "compactação adiada: conversa pausada por efeito incerto");
+            return;
+        }
         let slot = lane
             .session
             .as_ref()

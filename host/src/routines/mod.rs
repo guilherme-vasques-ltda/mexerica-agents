@@ -501,9 +501,10 @@ impl Routines {
             .any(|run| run.id == id && run.bot_id == bot && run.status == Status::Recovering && run.chain.is_none())
     }
 
-    /// Resultado durável já concluído não precisa de nova IA no boot.
+    /// Resultado durável já concluído não precisa de nova IA no boot. `Interrupted` não conta: o boot marca assim a
+    /// execução com despacho permitido e efeito incerto, que ainda precisa pausar a conversa.
     pub(crate) fn admission_finished(&self, id: &str) -> bool {
-        self.state.locked().runs.iter().any(|r| r.id == id && !r.status.active())
+        self.state.locked().runs.iter().any(|r| r.id == id && !r.status.active() && r.status != Status::Interrupted)
     }
 
     /// The webhook routines the relay registers with the cloud.

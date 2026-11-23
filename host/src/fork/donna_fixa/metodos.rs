@@ -73,7 +73,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("queuedRemove", Comum),
     ("queuedSendNow", Comum),
     ("react", Comum),
-    ("releaseConversation", Comum),
+    ("releaseConversation", LocalOnly),
     ("releaseMemoryRefusal", Comum),
     ("readUpload", Leitura),
     ("reorderBots", Comum),
