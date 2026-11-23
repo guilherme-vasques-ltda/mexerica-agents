@@ -86,6 +86,7 @@ export const MODULOS: readonly { readonly modulo: string; readonly prefixo: stri
   { modulo: 'whatsapp/caixa', prefixo: 'whatsapp.caixa.' },
   { modulo: 'whatsapp/fila', prefixo: 'whatsapp.fila.' },
   { modulo: 'mailManager', prefixo: 'mailManager.' },
+  { modulo: 'mailInbox', prefixo: 'mailInbox.' },
   { modulo: 'sistema/barra', prefixo: 'sistema.barra.' },
   { modulo: 'sistema/conversa', prefixo: 'sistema.conversa.' },
   { modulo: 'web/login', prefixo: 'web.login.' },
