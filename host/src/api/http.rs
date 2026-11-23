@@ -354,7 +354,7 @@ mod tests {
     /// grande dava 413 e um JSON inválido, 400), com qualquer prefixo; a autenticação vem antes; método com classe lê
     /// o corpo.
     /// Tudo o que foi registrado em log enquanto `run` rodou nesta thread.
-    async fn registrado<T>(run: impl std::future::Future<Output = T>) -> (String, T) {
+    async fn registrado<T>(run: impl Future<Output = T>) -> (String, T) {
         #[derive(Clone, Default)]
         struct Buf(Arc<std::sync::Mutex<Vec<u8>>>);
         impl std::io::Write for Buf {
