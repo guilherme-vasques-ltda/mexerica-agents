@@ -157,8 +157,12 @@ def review_status(report, findings):
     require(summary is not None and summary.get('budget_exceeded') is True, SchemaClass.SUMMARY)
     require(manifest is not None, SchemaClass.MANIFEST)
     for item in warnings:
-        if not (type(item) is dict and item.get('type') == 'token_budget_reached'):
-            raise refused_warning(SchemaClass.WARNINGS_ITEM, item)
+        if type(item) is dict and item.get('type') == 'token_budget_reached':
+            continue
+        if (type(item) is dict and item.get('type') == 'review_limit_reached'
+                and set(item) == {'file', 'message', 'type'} and all(type(value) is str for value in item.values())):
+            continue
+        raise refused_warning(SchemaClass.WARNINGS_ITEM, item)
     coverage = manifest.get('coverage')
     require(type(coverage) is dict and type(coverage.get('completed')) is list and coverage['completed'],
             SchemaClass.COVERAGE)
