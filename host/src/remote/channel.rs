@@ -207,7 +207,11 @@ async fn write_frames(
         };
         for frame in frames {
             let Ok(slot) = out.reserve().await else { return };
-            if let Some(reject) = barreira.as_ref().and_then(Barreira::terminal) {
+            let terminal = match barreira.as_mut() {
+                Some(b) => b.resolver().await,
+                None => None,
+            };
+            if let Some(reject) = terminal {
                 drop(slot);
                 send_terminal(&out, reject).await;
                 return;
@@ -280,8 +284,9 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
     }
     let Transport { mut incoming, outgoing, porta } = t;
     let aviso = hub.workspace.assinar();
+    let epoch = aviso.borrow().valor;
     let Some(hs) = handshake(&hub, &mut incoming, &outgoing, &kind).await else { return };
-    let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso));
+    let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch));
     if let Some(barreira) = &barreira {
         porta.armar(barreira.clone());
     }

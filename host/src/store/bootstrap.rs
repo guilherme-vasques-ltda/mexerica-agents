@@ -509,52 +509,55 @@ impl Store {
         device_key: &str,
         now: i64,
         on_tombstone: impl FnOnce(&Connection) -> Result<()>,
-        on_commit: impl FnOnce(),
+        on_end: impl FnOnce(bool),
     ) -> Result<bool> {
         let mut db = self.db.locked();
-        let tx = db.transaction()?;
-        let Some(cfg) = config(&tx)? else { return Ok(false) };
-        sign_key_matches(key, &cfg)?;
-        let row: Option<RevocationRow> = tx
-            .query_row(
-                "SELECT pending,receipt_hash,status,revocation_wire FROM bootstrap_slot WHERE singleton=1",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .optional()?;
-        let Some((Some(pending), Some(receipt_hash), status, existing)) = row else { return Ok(false) };
-        let p: serde_json::Value = serde_json::from_str(&pending)?;
-        if p[1].as_str() != Some(grant_id) {
-            return Ok(false);
-        }
-        ensure!(p[6].as_str() == Some(device_key), "fence key mismatch");
-        if status == "tombstone" {
-            ensure!(existing.is_some(), "missing signed revocation");
-            return Ok(true);
-        }
-        ensure!(status == "pendingPublication" || status == "activeDevice", "slot cannot be revoked");
-        tx.execute("DELETE FROM devices WHERE key=?1 AND grant_id=?2", params![device_key, grant_id])?;
-        tx.execute("DELETE FROM push_tickets WHERE device_key=?1", [device_key])?;
-        tx.execute("DELETE FROM activity_tickets WHERE device_key=?1", [device_key])?;
-        on_tombstone(&tx)?;
-        let rev = revision(&tx)?;
-        let (acl_version, acl_hash) = acl(&tx)?;
-        let payload = Revocation(
-            "donna/bootstrap-revocation/v1".into(),
-            p[2].as_str().ok_or_else(|| anyhow::anyhow!("bad pending"))?.into(),
-            cfg.generation,
-            grant_id.into(),
-            receipt_hash,
-            rev,
-            now,
-            acl_version,
-            acl_hash,
-        );
-        let wire = codec::encode(&payload, |b| crypto::sign(key, b))?;
-        tx.execute("UPDATE bootstrap_slot SET status='tombstone',revocation_wire=?1 WHERE singleton=1", [wire])?;
-        tx.commit()?;
-        on_commit();
-        Ok(true)
+        let resultado = (|| -> Result<bool> {
+            let tx = db.transaction()?;
+            let Some(cfg) = config(&tx)? else { return Ok(false) };
+            sign_key_matches(key, &cfg)?;
+            let row: Option<RevocationRow> = tx
+                .query_row(
+                    "SELECT pending,receipt_hash,status,revocation_wire FROM bootstrap_slot WHERE singleton=1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()?;
+            let Some((Some(pending), Some(receipt_hash), status, existing)) = row else { return Ok(false) };
+            let p: serde_json::Value = serde_json::from_str(&pending)?;
+            if p[1].as_str() != Some(grant_id) {
+                return Ok(false);
+            }
+            ensure!(p[6].as_str() == Some(device_key), "fence key mismatch");
+            if status == "tombstone" {
+                ensure!(existing.is_some(), "missing signed revocation");
+                return Ok(true);
+            }
+            ensure!(status == "pendingPublication" || status == "activeDevice", "slot cannot be revoked");
+            tx.execute("DELETE FROM devices WHERE key=?1 AND grant_id=?2", params![device_key, grant_id])?;
+            tx.execute("DELETE FROM push_tickets WHERE device_key=?1", [device_key])?;
+            tx.execute("DELETE FROM activity_tickets WHERE device_key=?1", [device_key])?;
+            on_tombstone(&tx)?;
+            let rev = revision(&tx)?;
+            let (acl_version, acl_hash) = acl(&tx)?;
+            let payload = Revocation(
+                "donna/bootstrap-revocation/v1".into(),
+                p[2].as_str().ok_or_else(|| anyhow::anyhow!("bad pending"))?.into(),
+                cfg.generation,
+                grant_id.into(),
+                receipt_hash,
+                rev,
+                now,
+                acl_version,
+                acl_hash,
+            );
+            let wire = codec::encode(&payload, |b| crypto::sign(key, b))?;
+            tx.execute("UPDATE bootstrap_slot SET status='tombstone',revocation_wire=?1 WHERE singleton=1", [wire])?;
+            tx.commit()?;
+            Ok(true)
+        })();
+        on_end(resultado.is_ok());
+        resultado
     }
     pub fn bootstrap_revocation_envelope(&self) -> Result<Option<serde_json::Value>> {
         let db = self.db.locked();
@@ -945,7 +948,7 @@ mod tests {
         publication.receipt_hash = codec::hash(&receipt).unwrap();
         let (grant_id, device_key) = (publication.grant_id.clone(), publication.device_key.clone());
         assert!(
-            s.bootstrap_revoke_fenced(&host, &grant_id, &device_key, 4_000, |_| anyhow::bail!("fixture"), || ())
+            s.bootstrap_revoke_fenced(&host, &grant_id, &device_key, 4_000, |_| anyhow::bail!("fixture"), |_| ())
                 .is_err()
         );
         assert!(s.bootstrap_revocation_envelope().unwrap().is_none(), "a failing hook rolls the fence back");
@@ -960,7 +963,7 @@ mod tests {
                     tombstones += 1;
                     crate::fork::workspace::bloquear_on(tx, &device_key, Some(&grant_id)).map(drop)
                 },
-                || ()
+                |_| ()
             )
             .unwrap()
         );
@@ -972,7 +975,7 @@ mod tests {
                 &device_key,
                 5_000,
                 |_| panic!("tombstone already written"),
-                || ()
+                |_| ()
             )
             .unwrap()
         );
@@ -1084,7 +1087,7 @@ mod tests {
             |tx| {
                 crate::fork::workspace::bloquear_on(tx, &publication.device_key, Some(&publication.grant_id)).map(drop)
             },
-            || (),
+            |_| (),
         )
         .unwrap();
         assert!(s.device(&publication.device_key).is_none());

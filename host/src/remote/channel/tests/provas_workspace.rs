@@ -87,7 +87,7 @@ async fn escritor_com_fila_ocupada_descarta_o_ja_filtrado_e_nao_fecha_com_4011()
     let sai = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
     let (tx, rx) = mpsc::channel(256);
     let (out, mut transporte) = mpsc::channel(1);
-    let barreira = Barreira::nova(hub.clone(), fica, hub.workspace.assinar());
+    let barreira = Barreira::nova(hub.clone(), fica, hub.workspace.assinar(), hub.workspace.atual());
     let escritor = tokio::spawn(write_frames(Sealer::new([7; 32]), rx, out, Some(barreira)));
     // Eventos que já passaram pelo filtro de autoridade, e o transporte parado.
     for n in 0..64 {
@@ -107,6 +107,46 @@ async fn escritor_com_fila_ocupada_descarta_o_ja_filtrado_e_nao_fecha_com_4011()
     assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
     assert_eq!(*code, 4003, "o 4011 enfileirado antes não sai depois do bump");
     assert!(!saida.iter().any(|o| matches!(o, Out::Close(c, _) if *c == close::REKEY)));
+}
+
+#[tokio::test]
+async fn porta_espera_o_commit_em_curso_e_so_corta_quando_o_numero_avanca() {
+    let hub = temp_hub();
+    let fica = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let sai = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let (entrada, rx) = mpsc::channel(8);
+    let mut saida = Box::pin(Porta::armada(&hub, &fica).filtrar(rx));
+    let marca = hub.workspace.marcar_para_prova();
+    entrada.send(Out::Msg(json!({"t": "f", "marca": MARCA}))).await.unwrap();
+    assert!(timeout(Duration::from_millis(100), saida.next()).await.is_err(), "com um commit em curso nada sai");
+    drop(marca);
+    let Some(Out::Msg(quadro)) = timeout(Duration::from_secs(5), saida.next()).await.unwrap() else {
+        panic!("o quadro sai depois do rollback")
+    };
+    assert_eq!(quadro["marca"], MARCA, "rollback não emite terminal: o canal segue aberto");
+
+    assert!(hub.revoke_device(&sai).unwrap());
+    entrada.send(Out::Msg(json!({"t": "f", "marca": MARCA}))).await.unwrap();
+    let Some(Out::Msg(reject)) = timeout(Duration::from_secs(5), saida.next()).await.unwrap() else {
+        panic!("sem terminal depois do bump")
+    };
+    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
+    assert!(matches!(saida.next().await, Some(Out::Close(4003, _))));
+    assert!(saida.next().await.is_none());
+}
+
+#[tokio::test]
+async fn bump_durante_a_autenticacao_fecha_o_canal_logo_depois_do_welcome() {
+    let hub = temp_hub();
+    let fica = paired_phone(&hub).await;
+    let sai = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let mut p = Phone::direct(&hub, fica);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(hub.revoke_device(&sai).unwrap());
+    assert!(matches!(p.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    let (code, reject) = p.recv().await.unwrap_err();
+    assert_eq!(code, 4003);
+    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
 }
 
 /// Lê quadros crus até o fechamento; nenhum quadro cifrado pode sair depois do bump.

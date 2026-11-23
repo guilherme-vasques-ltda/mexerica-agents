@@ -1,6 +1,6 @@
 //! Barreira terminal do canal autenticado: tudo o que sai para o aparelho passa pelo epoch de
-//! quando o canal abriu. Depois de um bump (ou com um aumento pendente de commit), nada mais sai
-//! além do `reject` terminal e do 4003. Vale no escritor do canal e, pela `Porta`, no último
+//! quando o canal abriu. Com um aumento pendente de commit, a saída espera o desfecho; depois
+//! que o número avança, nada mais sai além do `reject` terminal e do 4003. Vale no escritor do canal e, pela `Porta`, no último
 //! ponto antes do socket direto ou do relay.
 use super::{Hub, Out, RejectCode, reject};
 use crate::fork::workspace::{self, Epoca};
@@ -18,27 +18,37 @@ pub(crate) struct Barreira {
 }
 
 impl Barreira {
-    /// `aviso` é assinado antes do handshake: um bump durante a autenticação também fecha.
-    pub(crate) fn nova(hub: Arc<Hub>, key: String, aviso: watch::Receiver<Epoca>) -> Self {
-        let epoch = aviso.borrow().valor;
+    /// `epoch` é lido antes do handshake: um bump durante a autenticação também fecha.
+    pub(crate) fn nova(hub: Arc<Hub>, key: String, aviso: watch::Receiver<Epoca>, epoch: u64) -> Self {
         Self { hub, key, epoch, aviso }
     }
 
-    /// `Some(reject)` quando o epoch mudou ou um aumento está pendente de commit. O próprio
-    /// aparelho revogado recebe `device_revoked` (a leitura espera o commit da revogação).
+    /// `Some(reject)` só quando o número publicado avançou desde a abertura. O próprio aparelho
+    /// revogado recebe `device_revoked` (a leitura espera o commit da revogação).
     pub(super) fn terminal(&self) -> Option<Value> {
         let atual = self.aviso.borrow().clone();
-        if !atual.corta(self.epoch) {
+        if !atual.avancou(self.epoch) {
             return None;
         }
         let revogado = self.hub.store.device(&self.key).is_none_or(|d| workspace::bloqueado(&self.hub, &d));
         Some(if revogado { reject(RejectCode::Revoked) } else { workspace::reject_canal(&atual) })
     }
 
-    /// Termina quando o epoch muda; sem barreira (pareamento, bootstrap), nunca.
+    /// Com um commit de aumento em curso, espera o desfecho: publicado, sai o terminal; desfeito
+    /// (rollback, erro), o canal segue aberto.
+    pub(super) async fn resolver(&mut self) -> Option<Value> {
+        while self.aviso.borrow_and_update().pendente() {
+            if self.aviso.changed().await.is_err() {
+                break;
+            }
+        }
+        self.terminal()
+    }
+
+    /// Termina quando o número avança; sem barreira (pareamento, bootstrap), nunca.
     pub(super) async fn mudou(barreira: Option<&mut Self>) {
         let Some(b) = barreira else { return std::future::pending().await };
-        while !b.aviso.borrow_and_update().corta(b.epoch) {
+        while !b.aviso.borrow_and_update().avancou(b.epoch) {
             if b.aviso.changed().await.is_err() {
                 return std::future::pending().await;
             }
@@ -66,8 +76,13 @@ impl Porta {
     #[cfg(test)]
     pub(crate) fn armada(hub: &Arc<Hub>, key: &str) -> Self {
         let porta = Self::default();
-        porta.armar(Barreira::nova(hub.clone(), key.to_owned(), hub.workspace.assinar()));
+        porta.armar(Barreira::nova(hub.clone(), key.to_owned(), hub.workspace.assinar(), hub.workspace.atual()));
         porta
+    }
+
+    /// O terminal devido agora, para quem fecha o transporte fora da fila (o relay).
+    pub(crate) fn terminal(&self) -> Option<Value> {
+        self.0.get().and_then(Barreira::terminal)
     }
 
     /// A fila de saída vista pelo transporte. Depois do bump, o que ainda estiver na fila
@@ -94,7 +109,11 @@ impl Porta {
                 if barreira.is_none() {
                     barreira = porta.0.get().cloned();
                 }
-                if let Some(reject) = barreira.as_ref().and_then(Barreira::terminal) {
+                let terminal = match barreira.as_mut() {
+                    Some(b) => b.resolver().await,
+                    None => None,
+                };
+                if let Some(reject) = terminal {
                     return Some((Out::Msg(reject), (porta, rx, barreira, Fase::Fechar)));
                 }
                 if let Some(out) = out {

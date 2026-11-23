@@ -15,6 +15,7 @@ use futures::{Stream, StreamExt, stream};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::watch;
 
 pub(crate) const METHOD: &str = "workspaceContext";
@@ -63,25 +64,64 @@ pub(crate) struct Epoca {
     pub valor: u64,
     motivo: Option<Motivo>,
     dono: Option<String>,
-    /// Um aumento entrou no commit e ainda não tem número publicado: nada sai pelo epoch atual.
-    pendente: Option<Motivo>,
+    /// Commits de aumento em curso, cada um pela sua marca: enquanto houver um, quem confere o
+    /// epoch espera o número sair.
+    pendentes: Vec<u64>,
 }
 
 impl Epoca {
-    /// O que foi aberto em `epoch` não entrega mais nada.
-    pub(crate) fn corta(&self, epoch: u64) -> bool {
-        self.valor != epoch || self.pendente.is_some()
+    /// O número publicado avançou desde `epoch`: o que foi aberto nele termina.
+    pub(crate) fn avancou(&self, epoch: u64) -> bool {
+        self.valor != epoch
+    }
+
+    /// Há um commit em curso: nada sai pelo epoch atual até ele publicar ou desfazer.
+    pub(crate) fn pendente(&self) -> bool {
+        !self.pendentes.is_empty()
     }
 
     fn motivo(&self) -> Motivo {
-        self.pendente.or(self.motivo).unwrap_or(Motivo::DeviceRevoked)
+        self.motivo.unwrap_or(Motivo::DeviceRevoked)
     }
 }
 
-/// Epoch e dono atuais em RAM, espelho do SQLite. Sob o lock do banco: o corte fica pendente
+/// Epoch e dono atuais em RAM, espelho do SQLite. Sob o lock do banco: a marca pendente entra
 /// antes do commit e o número só é publicado depois dele. Uma queda entre os dois nunca faz um
 /// epoch anunciado voltar atrás, e nada sai pelo epoch antigo entre o commit e a publicação.
-pub(crate) struct Sinal(watch::Sender<Epoca>);
+pub(crate) struct Sinal {
+    retrato: watch::Sender<Epoca>,
+    marcas: AtomicU64,
+}
+
+/// Marca pendente de um commit. Publicar a resolve; erro, rollback ou panic a desfazem ao sair
+/// do escopo, e só ela: a marca de outro commit nunca é apagada.
+pub(crate) struct Marca<'a> {
+    sinal: &'a Sinal,
+    id: u64,
+}
+
+impl Marca<'_> {
+    fn publicar(self, valor: u64, motivo: Motivo, dono: Option<&str>) {
+        let id = self.id;
+        self.sinal.retrato.send_if_modified(|e| {
+            let propria = soltar(e, id);
+            let subiu = avancar(e, valor, motivo);
+            let trocou = dono.is_some_and(|dono| e.dono.as_deref() != Some(dono));
+            if trocou {
+                e.dono = dono.map(str::to_owned);
+            }
+            propria || subiu || trocou
+        });
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for Marca<'_> {
+    fn drop(&mut self) {
+        let id = self.id;
+        self.sinal.retrato.send_if_modified(|e| soltar(e, id));
+    }
+}
 
 impl Sinal {
     pub(crate) fn carregar(store: &Store) -> Self {
@@ -89,51 +129,52 @@ impl Sinal {
             tracing::error!(error = format!("{error:#}"), "workspaceEpoch ilegível; pedidos com epoch divergem");
             u64::MAX
         });
-        Self(watch::Sender::new(Epoca { valor, motivo: None, dono: None, pendente: None }))
+        Self {
+            retrato: watch::Sender::new(Epoca { valor, motivo: None, dono: None, pendentes: vec![] }),
+            marcas: AtomicU64::new(0),
+        }
     }
 
     pub(crate) fn atual(&self) -> u64 {
-        self.0.borrow().valor
+        self.retrato.borrow().valor
     }
 
     pub(crate) fn retrato(&self) -> Epoca {
-        self.0.borrow().clone()
+        self.retrato.borrow().clone()
     }
 
     pub(crate) fn assinar(&self) -> watch::Receiver<Epoca> {
-        self.0.subscribe()
+        self.retrato.subscribe()
     }
 
-    fn preparar(&self, motivo: Motivo) {
-        self.0.send_modify(|e| e.pendente = Some(motivo));
+    fn marcar(&self) -> Marca<'_> {
+        let id = self.marcas.fetch_add(1, Ordering::Relaxed);
+        self.retrato.send_modify(|e| e.pendentes.push(id));
+        Marca { sinal: self, id }
     }
 
-    fn cancelar(&self) {
-        self.0.send_if_modified(|e| e.pendente.take().is_some());
+    /// Marca pendente fora de um commit, para provas do transporte.
+    #[cfg(test)]
+    pub(crate) fn marcar_para_prova(&self) -> Marca<'_> {
+        self.marcar()
     }
 
-    /// Só avança: dois commits publicados fora de ordem nunca baixam o número.
-    fn publicar(&self, valor: u64, motivo: Motivo) {
-        self.0.send_if_modified(|e| {
-            let pendia = e.pendente.take().is_some();
-            avancar(e, valor, motivo) || pendia
-        });
-    }
-
-    /// Dono e, quando a troca subiu o epoch, o número novo: um envio só.
-    fn publicar_dono(&self, dono: Option<&str>, epoch: Option<u64>) {
-        self.0.send_if_modified(|e| {
-            let subiu = epoch.is_some_and(|valor| {
-                let pendia = e.pendente.take().is_some();
-                avancar(e, valor, Motivo::OwnerChanged) || pendia
-            });
+    /// Dono sem aumento de epoch (o primeiro dono conhecido, ou o mesmo).
+    fn publicar_dono(&self, dono: Option<&str>) {
+        self.retrato.send_if_modified(|e| {
             if e.dono.as_deref() == dono {
-                return subiu;
+                return false;
             }
             e.dono = dono.map(str::to_owned);
             true
         });
     }
+}
+
+fn soltar(e: &mut Epoca, id: u64) -> bool {
+    let antes = e.pendentes.len();
+    e.pendentes.retain(|p| *p != id);
+    e.pendentes.len() != antes
 }
 
 fn avancar(e: &mut Epoca, valor: u64, motivo: Motivo) -> bool {
@@ -163,20 +204,18 @@ fn bump_on(c: &Connection) -> Result<u64> {
     Ok(proximo)
 }
 
-fn anunciar(hub: &Hub, epoch: u64, motivo: Motivo) {
-    hub.workspace.publicar(epoch, motivo);
+fn anunciar(marca: Marca<'_>, epoch: u64, motivo: Motivo, dono: Option<&str>) {
+    marca.publicar(epoch, motivo, dono);
     tracing::info!(epoch, ?motivo, "workspaceEpoch subiu");
 }
 
-/// Commit de um aumento, com o lock do banco ainda tomado pelo chamador: o corte fica pendente
-/// antes, e `publicar` roda logo depois do commit. Se o commit falhar, nada é anunciado.
-fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, motivo: Motivo, publicar: impl FnOnce()) -> Result<()> {
-    hub.workspace.preparar(motivo);
-    if let Err(error) = tx.commit() {
-        hub.workspace.cancelar();
-        return Err(error.into());
-    }
-    publicar();
+/// Commit de um aumento, com o lock do banco ainda tomado pelo chamador: a marca entra antes, e
+/// o número sai logo depois do commit. Se o commit falhar, a marca sai do escopo e é desfeita
+/// ainda sob o mesmo lock; nada é anunciado.
+fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, epoch: u64, motivo: Motivo, dono: Option<&str>) -> Result<()> {
+    let marca = hub.workspace.marcar();
+    tx.commit()?;
+    anunciar(marca, epoch, motivo, dono);
     Ok(())
 }
 
@@ -186,7 +225,7 @@ pub(crate) fn bump(hub: &Hub, motivo: Motivo) -> Result<u64> {
     let mut db = hub.store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let proximo = bump_on(&tx)?;
-    confirmar(hub, tx, motivo, || anunciar(hub, proximo, motivo))?;
+    confirmar(hub, tx, proximo, motivo, None)?;
     Ok(proximo)
 }
 
@@ -200,34 +239,33 @@ pub(crate) fn revogar(hub: &Hub, key: &str) -> Result<bool> {
         return Ok(false);
     }
     let epoch = bloquear_on(&tx, key, grant.flatten().as_deref())?;
-    confirmar(hub, tx, Motivo::DeviceRevoked, || anunciar(hub, epoch, Motivo::DeviceRevoked))?;
+    confirmar(hub, tx, epoch, Motivo::DeviceRevoked, None)?;
     Ok(true)
 }
 
 /// Revogação pela cerca do bootstrap: o bloqueio e o epoch entram na Tx da própria cerca, uma
-/// vez só (na passagem para tombstone); a publicação roda logo depois do commit, ainda com o lock.
+/// vez só (na passagem para tombstone). A marca é resolvida sob o mesmo lock: publicada depois
+/// do commit, ou desfeita se a cerca falhar.
 pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Result<bool> {
-    let epoch = std::cell::Cell::new(None);
-    let cercado = hub.store.bootstrap_revoke_fenced(
+    let marcado = std::cell::RefCell::new(None);
+    hub.store.bootstrap_revoke_fenced(
         &hub.identity.sign,
         grant,
         key,
         now,
         |tx| {
-            epoch.set(Some(bloquear_on(tx, key, Some(grant))?));
-            hub.workspace.preparar(Motivo::DeviceRevoked);
+            let epoch = bloquear_on(tx, key, Some(grant))?;
+            *marcado.borrow_mut() = Some((hub.workspace.marcar(), epoch));
             Ok(())
         },
-        || {
-            if let Some(epoch) = epoch.get() {
-                anunciar(hub, epoch, Motivo::DeviceRevoked);
+        |confirmado| {
+            if let Some((marca, epoch)) = marcado.borrow_mut().take()
+                && confirmado
+            {
+                anunciar(marca, epoch, Motivo::DeviceRevoked, None);
             }
         },
-    );
-    if cercado.is_err() && epoch.get().is_some() {
-        hub.workspace.cancelar();
-    }
-    cercado
+    )
 }
 
 /// Bloqueio durável da chave (com a concessão) e epoch novo, na Tx do chamador.
@@ -306,12 +344,12 @@ pub(crate) fn observar_dono(hub: &Hub) {
     let resultado = hub.cloud.with_personal_status(|status| {
         let mut db = hub.store.db.locked();
         let Some(dono) = status.owner.as_ref().map(|o| o.user_id.as_str()) else {
-            hub.workspace.publicar_dono(None, None);
+            hub.workspace.publicar_dono(None);
             return Ok(());
         };
         let anterior = visto(&db)?;
         if anterior.as_deref() == Some(dono) {
-            hub.workspace.publicar_dono(Some(dono), None);
+            hub.workspace.publicar_dono(Some(dono));
             return Ok(());
         }
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -321,13 +359,11 @@ pub(crate) fn observar_dono(hub: &Hub) {
         )?;
         if anterior.is_none() {
             tx.commit()?;
-            hub.workspace.publicar_dono(Some(dono), None);
+            hub.workspace.publicar_dono(Some(dono));
             return Ok(());
         }
         let epoch = bump_on(&tx)?;
-        confirmar(hub, tx, Motivo::OwnerChanged, || hub.workspace.publicar_dono(Some(dono), Some(epoch)))?;
-        tracing::info!(epoch, "workspaceEpoch subiu: outro dono");
-        Ok(())
+        confirmar(hub, tx, epoch, Motivo::OwnerChanged, Some(dono))
     });
     if let Err(error) = resultado {
         tracing::error!(error = format!("{error:#}"), "não foi possível registrar o dono do workspace");
@@ -462,7 +498,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
 async fn resolvido(aviso: &mut watch::Receiver<Epoca>) -> Option<Epoca> {
     loop {
         let atual = aviso.borrow_and_update().clone();
-        if atual.pendente.is_none() {
+        if !atual.pendente() {
             return Some(atual);
         }
         aviso.changed().await.ok()?;
