@@ -1266,6 +1266,134 @@ mod tests {
         );
     }
 
+    /// Um pedido revelado com código e transcrição conhecidos, sem depender do SAS real.
+    async fn pedido_pronto(hub: &Arc<Hub>, fake: &Arc<FakeCloud>, base: &str, id: &str) -> Expected {
+        let dk = crypto::random::<32>();
+        let expires = now_ms() + 60_000;
+        let row = |host_nonce: Option<String>| {
+            json!({"requestId": id, "deviceKey": b64(&dk), "commit": b64(&[4u8; 32]), "hostNonce": host_nonce,
+                "createdAt": now_ms(), "expiresAt": expires})
+        };
+        *fake.state.lock().unwrap() = json!({"owner": null, "grants": [], "requests": [row(None)]});
+        pull(hub, base).await.unwrap();
+        let nonce = fake.posts.lock().unwrap().last().unwrap().1["nonce"].as_str().unwrap().to_owned();
+        *fake.state.lock().unwrap() = json!({"owner": null, "grants": [], "requests": [row(Some(nonce))]});
+        pull(hub, base).await.unwrap();
+        let mut mine = hub.cloud.requests.locked();
+        let r = mine.iter_mut().find(|r| r.id == id).unwrap();
+        r.code = Some("123456".into());
+        r.transcript = Some(b64(&[9; 32]));
+        Expected { device_key: b64(&dk), code: "123456".into(), transcript: b64(&[9; 32]) }
+    }
+
+    fn decisoes(fake: &FakeCloud) -> Vec<Value> {
+        fake.posts.lock().unwrap().iter().filter(|(p, _)| p.ends_with("/decision")).map(|(_, b)| b.clone()).collect()
+    }
+
+    /// Código vazio ou fora do formato não decide nada, não queima o pedido e recebe a mesma mensagem fixa, que não
+    /// ecoa o que foi enviado.
+    #[tokio::test]
+    async fn empty_or_malformed_code_decides_nothing_and_keeps_the_request() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
+        let certo = pedido_pronto(&hub, &fake, &base, "req_formato").await;
+        let fixa = "valid `expect` is required";
+        for code in ["", "12345", "1234567", "12345a", " 23456", "１２３４５６"] {
+            let typed = Expected { code: code.into(), ..certo.clone() };
+            let e = decide(&hub, "req_formato", true, Some(typed)).await.unwrap_err();
+            assert_eq!(format!("{e:#}"), fixa, "{code:?}");
+            let expect = json!({"deviceKey": certo.device_key, "code": code, "transcript": certo.transcript});
+            let body = json!({"requestId": "req_formato", "approve": true, "expect": expect});
+            let e = crate::api::dispatch(&hub, &Caller::Local, "decideAccessRequest", body).await.unwrap_err();
+            assert_eq!(format!("{e:#}"), fixa, "{code:?}");
+        }
+        for expect in [
+            Value::Null,
+            json!("654321"),
+            json!({"deviceKey": certo.device_key, "code": 654_321, "transcript": certo.transcript}),
+            json!({"deviceKey": certo.device_key, "code": "654321", "transcript": certo.transcript, "extra": "654321"}),
+        ] {
+            let body = json!({"requestId": "req_formato", "approve": true, "expect": expect});
+            let e = crate::api::dispatch(&hub, &Caller::Local, "decideAccessRequest", body).await.unwrap_err();
+            assert_eq!(format!("{e:#}"), fixa, "nada do corpo volta na mensagem");
+        }
+        assert_eq!(hub.cloud.requests_json().len(), 1, "nenhuma dessas tentativas queima o pedido");
+        assert!(decisoes(&fake).is_empty(), "nada vai à nuvem");
+        assert!(matches!(decide(&hub, "req_formato", true, Some(certo)).await.unwrap(), DecideResult::Approved { .. }));
+    }
+
+    /// A lista só leva o código a este computador; o aparelho com `owner.devices` recebe `codeReady` e `codeCheck`
+    /// sem o código, e os demais chamadores não recebem a lista.
+    #[tokio::test]
+    async fn the_request_list_carries_the_code_only_to_this_computer() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
+        pedido_pronto(&hub, &fake, &base, "req_escopo").await;
+        let device = |scopes: Vec<Scope>| Caller::Device { key: "aparelho".into(), scopes, autoridade: None };
+        let lista = |caller: Caller| {
+            let hub = hub.clone();
+            async move { crate::api::dispatch(&hub, &caller, "accessRequests", json!({})).await }
+        };
+
+        let local = lista(Caller::Local).await.unwrap();
+        assert_eq!(local["requests"][0]["code"], "123456");
+        assert_eq!(local["requests"][0]["codeCheck"], "server");
+
+        let dono = lista(device(vec![Scope::OwnerDevices])).await.unwrap();
+        let pedido = &dono["requests"][0];
+        assert_eq!((pedido["codeReady"].as_bool(), pedido["codeCheck"].as_str()), (Some(true), Some("server")));
+        assert!(pedido.get("code").is_none() && !dono.to_string().contains("123456"));
+
+        for scopes in [vec![], vec![Scope::Control], vec![Scope::Screen], vec![Scope::Control, Scope::Screen]] {
+            assert!(lista(device(scopes.clone())).await.is_err(), "{scopes:?}");
+        }
+        assert!(lista(device(vec![Scope::Executor])).await.is_err());
+    }
+
+    /// Aprovar e recusar o mesmo pedido ao mesmo tempo: só uma decisão vai à nuvem e vale; a outra encontra o pedido em
+    /// consumo, nas duas ordens.
+    #[tokio::test]
+    async fn approve_and_deny_race_for_a_single_decision() {
+        for aprova_primeiro in [true, false] {
+            let hub = temp_hub();
+            let fake = Arc::new(FakeCloud::default());
+            let base = fake_cloud(fake.clone()).await;
+            hub.store.kv_set("test_cloud_url", &base).unwrap();
+            let certo = pedido_pronto(&hub, &fake, &base, "req_corrida").await;
+            let started = Arc::new(tokio::sync::Notify::new());
+            let release = Arc::new(tokio::sync::Notify::new());
+            *fake.decision_gate.lock().unwrap() = Some((started.clone(), release.clone()));
+            let primeira = {
+                let hub = hub.clone();
+                let expected = aprova_primeiro.then(|| certo.clone());
+                tokio::spawn(async move { decide(&hub, "req_corrida", aprova_primeiro, expected).await })
+            };
+            started.notified().await;
+            let segunda = decide(&hub, "req_corrida", !aprova_primeiro, (!aprova_primeiro).then(|| certo.clone()));
+            assert_eq!(segunda.await.unwrap(), DecideResult::Refused { reason: "consuming" });
+            release.notify_one();
+            let vencedora = primeira.await.unwrap().unwrap();
+            let gravado = hub.store.device(&certo.device_key).is_some();
+            if aprova_primeiro {
+                assert!(matches!(vencedora, DecideResult::Approved { .. }));
+                assert!(gravado);
+            } else {
+                assert_eq!(vencedora, DecideResult::Denied);
+                assert!(!gravado);
+            }
+            let enviadas = decisoes(&fake);
+            assert_eq!(enviadas.len(), 1, "uma decisão só chega à nuvem");
+            assert_eq!(enviadas[0]["decision"], if aprova_primeiro { "approve" } else { "deny" });
+            let depois = decide(&hub, "req_corrida", !aprova_primeiro, (!aprova_primeiro).then(|| certo.clone()));
+            assert!(!matches!(depois.await.unwrap(), DecideResult::Approved { .. } | DecideResult::Denied));
+            assert_eq!(decisoes(&fake).len(), 1);
+        }
+    }
+
     #[tokio::test]
     async fn a_request_id_outside_the_alphabet_is_denied_and_never_gets_a_code() {
         let hub = temp_hub();

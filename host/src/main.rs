@@ -405,11 +405,10 @@ enum DevicesAction {
 enum AccessAction {
     /// Show pending requests; approve by typing the code shown on the device (the default).
     List,
-    /// Approve with the 6-digit code typed from the device; optionally supply request ID and --code.
+    /// Approve: asks for the 6-digit code shown on the device (typed without echo, or one line on stdin).
     Approve {
-        request: String,
-        #[arg(long)]
-        code: Option<String>,
+        /// Request ID from `access list`; without it, the only request whose device shows a code.
+        request: Option<String>,
     },
     /// Deny a request.
     Deny { request: String },
@@ -714,7 +713,7 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        Sub::Access { port, action } => access(port, action.unwrap_or(AccessAction::List)).await,
+        Sub::Access { port, action } => access(port, action.unwrap_or(AccessAction::List), read_typed_code).await,
         Sub::Cloud { port, enable, disable, approval } => {
             if let Some(approval) = approval {
                 local_call(port, "setApproval", json!({ "approval": approval })).await?;
@@ -1108,19 +1107,69 @@ fn pick_request<'a>(
     Ok(r)
 }
 
-async fn access(port: u16, action: AccessAction) -> Result<()> {
+/// O código como a pessoa o digitou: seis dígitos, sem nada além da quebra de linha.
+fn typed_code(line: &str) -> Result<String> {
+    let code = line.trim();
+    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+        anyhow::bail!("Approval requires the six-digit code typed from the device.");
+    }
+    Ok(code.to_owned())
+}
+
+/// O código vem do terminal, sem eco, ou de uma linha da entrada padrão; nunca de argumento, que fica no histórico do
+/// shell e na lista de processos.
+fn read_typed_code() -> Result<String> {
+    use std::io::{BufRead as _, IsTerminal as _, Write as _};
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    if stdin.is_terminal() {
+        eprint!("Type the 6-digit code shown on the device: ");
+        let _ = std::io::stderr().flush();
+        #[cfg(unix)]
+        let _eco = SemEco::ligar()?;
+        stdin.lock().read_line(&mut line)?;
+        eprintln!();
+    } else {
+        stdin.lock().read_line(&mut line)?;
+    }
+    typed_code(&line)
+}
+
+/// Eco do terminal da entrada padrão desligado enquanto vive; o estado anterior volta no `Drop`, inclusive com erro.
+#[cfg(unix)]
+struct SemEco(libc::termios);
+
+#[cfg(unix)]
+impl SemEco {
+    fn ligar() -> Result<Self> {
+        // SAFETY: termios zerado e preenchido por tcgetattr no descritor 0, conferido pelo retorno.
+        let antes = unsafe {
+            let mut t: libc::termios = std::mem::zeroed();
+            (libc::tcgetattr(libc::STDIN_FILENO, &raw mut t) == 0).then_some(t)
+        };
+        let antes = antes.context("couldn't hide the typed code on this terminal")?;
+        let mut sem_eco = antes;
+        sem_eco.c_lflag &= !libc::ECHO;
+        // SAFETY: termios válido, copiado do lido acima, aplicado ao mesmo descritor.
+        if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw const sem_eco) } != 0 {
+            anyhow::bail!("couldn't hide the typed code on this terminal");
+        }
+        Ok(Self(antes))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for SemEco {
+    fn drop(&mut self) {
+        // SAFETY: devolve ao descritor 0 o termios lido dele em `ligar`.
+        unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw const self.0) };
+    }
+}
+
+async fn access(port: u16, action: AccessAction, typed: impl FnOnce() -> Result<String>) -> Result<()> {
     let (request, typed_code, approve) = match action {
         AccessAction::List => (None, None, false),
-        AccessAction::Approve { request, code } => {
-            let (id, typed) = match code {
-                Some(code) => (Some(request), code),
-                None => (None, request),
-            };
-            if typed.len() != 6 || !typed.bytes().all(|b| b.is_ascii_digit()) {
-                anyhow::bail!("Approval requires the six-digit code typed from the device.");
-            }
-            (id, Some(typed), true)
-        }
+        AccessAction::Approve { request } => (request, Some(typed()?), true),
         AccessAction::Deny { request } => (Some(request), None, false),
     };
     let list = local_call(port, "accessRequests", json!({})).await?;
@@ -1255,8 +1304,31 @@ async fn statusline(port: u16, wrapped: String) {
 mod tests {
     #[tokio::test]
     async fn approval_rejects_id_without_typed_code_before_any_call() {
-        let result = super::access(0, super::AccessAction::Approve { request: "req_fixture".into(), code: None }).await;
+        let mut chamado = false;
+        let typed = || {
+            chamado = true;
+            super::typed_code("")
+        };
+        let result =
+            super::access(0, super::AccessAction::Approve { request: Some("req_fixture".into()) }, typed).await;
         assert!(result.is_err());
+        assert!(chamado, "the code is read from the person, not from an argument");
+    }
+
+    #[test]
+    fn typed_code_is_six_digits_from_one_line() {
+        assert_eq!(super::typed_code("123456\n").unwrap(), "123456");
+        assert_eq!(super::typed_code("123456\r\n").unwrap(), "123456");
+        for bad in ["", "\n", "12345", "1234567", "12345a", "123 456", "１２３４５６"] {
+            assert!(super::typed_code(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn approve_takes_no_code_argument() {
+        use clap::Parser as _;
+        assert!(super::Cli::try_parse_from(["donnabot-host", "access", "approve", "req_fixture"]).is_ok());
+        assert!(super::Cli::try_parse_from(["donnabot-host", "access", "approve", "--code", "123456"]).is_err());
     }
 
     #[test]
