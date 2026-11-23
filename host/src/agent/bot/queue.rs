@@ -863,7 +863,9 @@ impl Actor {
                 crate::fork::retornos::Registro::ErroDeGravacao => {
                     Err(anyhow!("{}", crate::fork::retornos::ERRO_DE_GRAVACAO))
                 }
-                _ => result,
+                crate::fork::retornos::Registro::Decidido => Err(anyhow!("retorno_pedido_ja_decidido")),
+                crate::fork::retornos::Registro::CorpoRetido => Err(anyhow!("retorno_corpo_retido")),
+                crate::fork::retornos::Registro::Gravado | crate::fork::retornos::Registro::Legado => result,
             };
             ask.complete(result, cancelled);
         }

@@ -39,6 +39,7 @@ pub(super) fn project(c: &Connection, space: &str, roster: &[&str]) -> Result<Ob
          JOIN bots source ON source.id=r.requester_bot_id AND source.deleted=0
          JOIN bots target ON target.id=r.target_bot_id AND target.deleted=0
          WHERE p.space_id=?1 AND c.space_id=?1 AND c.closed=0 AND s.state='open' AND s.principal=1 AND s.id=c.id
+           AND NOT EXISTS(SELECT 1 FROM donna_session_privacy privacy WHERE privacy.request_id=r.id)
            AND r.schema_version=1 AND r.kind='inter_bot' AND r.state='running' AND r.end_reason IS NULL
            AND NOT EXISTS(SELECT 1 FROM donna_session_results result WHERE result.request_id=r.id)
            AND r.requester_bot_id<>r.target_bot_id AND r.mode IN ('wait','async') AND r.attempt=1 AND p.attempt=r.attempt AND p.fence=r.fence

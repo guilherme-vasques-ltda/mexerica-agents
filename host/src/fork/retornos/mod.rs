@@ -17,6 +17,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub(crate) mod consulta;
 /// Leitura canônica dos pedidos R1 (Mission Board, VG-03b).
 pub(crate) mod pendentes;
+pub(crate) mod privacidade;
 
 /// Versão do contrato comum gravada em cada linha. Leitores recusam outra versão.
 pub(crate) const VERSAO: i64 = 1;
@@ -53,6 +54,7 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
            CHECK((content='final_entry') = (final_entry_id IS NOT NULL)),
            CHECK(content<>'final_entry' OR (outcome='completed' AND producer_execution_ref IS NOT NULL)));",
     )?;
+    privacidade::migrate_na(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -304,6 +306,7 @@ struct Aberto {
     attempt: i64,
     bot: String,
     alvo: SessionRef,
+    delivery_state: Option<String>,
 }
 
 /// Resultado da gravação de uma conclusão.
@@ -311,6 +314,8 @@ struct Aberto {
 pub(crate) enum Conclusao {
     /// Linha gravada agora ou repetição idêntica: o mesmo recibo.
     Gravada(String),
+    /// Conclusão gravada, sem corpo no canal nem em avisos finais.
+    CorpoRetido,
     /// Tentativa/cerca vencida ou pedido já decidido: nada foi alterado.
     Vencida,
 }
@@ -320,8 +325,9 @@ pub(crate) enum Conclusao {
 pub(crate) fn concluir_na(c: &Connection, t: &Termino) -> Result<Conclusao> {
     let aberto = c
         .query_row(
-            "SELECT state,fence,attempt,target_bot_id,target_chat_id,target_session_id
-             FROM donna_session_requests WHERE id=?1 AND schema_version=1",
+            "SELECT r.state,r.fence,r.attempt,r.target_bot_id,r.target_chat_id,r.target_session_id,p.delivery_state
+             FROM donna_session_requests r LEFT JOIN donna_session_privacy p ON p.request_id=r.id
+             WHERE r.id=?1 AND r.schema_version=1",
             [&t.pedido],
             |r| {
                 Ok(Aberto {
@@ -330,12 +336,19 @@ pub(crate) fn concluir_na(c: &Connection, t: &Termino) -> Result<Conclusao> {
                     attempt: r.get(2)?,
                     bot: r.get(3)?,
                     alvo: SessionRef { chat_id: r.get(4)?, id: r.get(5)? },
+                    delivery_state: r.get(6)?,
                 })
             },
         )
         .optional()?
         .ok_or_else(|| anyhow!("retorno_desconhecido"))?;
     ensure!(t.bot == aberto.bot, "retorno_produtor_invalido");
+    if aberto.delivery_state.as_deref().is_some_and(|state| state != "retained")
+        || aberto.attempt != t.attempt
+        || (aberto.state != "finished" && (aberto.state != "running" || aberto.fence != t.fence))
+    {
+        return Ok(Conclusao::Vencida);
+    }
     let alvo = aberto.alvo;
     let produtor = match &t.fim.produtor {
         Some(p) => bindings::for_acp_on(c, &t.bot, &p.acp_session)
@@ -373,17 +386,17 @@ pub(crate) fn concluir_na(c: &Connection, t: &Termino) -> Result<Conclusao> {
         &produtor,
     ))?;
     let id = format!("{}#{}", t.pedido, t.attempt);
+    let registrada = |id| {
+        if aberto.delivery_state.is_some() { Conclusao::CorpoRetido } else { Conclusao::Gravada(id) }
+    };
     if aberto.state == "finished" {
         let anterior: Option<String> =
             c.query_row("SELECT digest FROM donna_session_results WHERE id=?1", [&id], |r| r.get(0)).optional()?;
         return match anterior {
-            Some(anterior) if anterior == resumo => Ok(Conclusao::Gravada(id)),
+            Some(anterior) if anterior == resumo => Ok(registrada(id)),
             Some(_) => bail!("retorno_conflito"),
             None => Ok(Conclusao::Vencida),
         };
-    }
-    if aberto.state != "running" || aberto.fence != t.fence || aberto.attempt != t.attempt {
-        return Ok(Conclusao::Vencida);
     }
     c.execute(
         "INSERT INTO donna_session_results(id,request_id,schema_version,attempt,fence,producer_execution_ref,
@@ -410,7 +423,7 @@ pub(crate) fn concluir_na(c: &Connection, t: &Termino) -> Result<Conclusao> {
         params![t.pedido, t.fence, now_ms()],
     )?;
     ensure!(changed == 1, "retorno_vencido");
-    Ok(Conclusao::Gravada(id))
+    Ok(registrada(id))
 }
 
 /// Startup, antes dos atores: nada aberto sobrevive como em andamento. Sem prova de envio,
@@ -452,6 +465,8 @@ pub(crate) enum Fim {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Registro {
     Gravado,
+    /// Conclusão gravada com qualificação de privacidade; o canal não recebe corpo.
+    CorpoRetido,
     /// Canal vivo legado, sem pedido durável.
     Legado,
     /// Decisão anterior ou tentativa vencida prevalece; nada foi alterado.
@@ -495,34 +510,33 @@ pub(crate) fn fim_do_turno(
 
 /// Grava o término antes do oneshot/avisos finais. Erro é registrado sem texto do usuário.
 pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: Andamento, fim: Fim) -> Registro {
+    let encerrar = |decisao| {
+        encerrar(store, pedido, decisao).map(|gravado| if gravado { Registro::Gravado } else { Registro::Decidido })
+    };
     let gravado = match (andamento, fim) {
         (Andamento::SemRegistro, _) => return Registro::Legado,
-        (_, Fim::Desligado) => encerrar(store, pedido, Decisao::HostParou),
-        (Andamento::Aceito, Fim::FalhaInicio) => encerrar(store, pedido, Decisao::FalhaInicio),
-        (Andamento::Aceito, Fim::Turno(_)) => encerrar(store, pedido, Decisao::NaoIniciado),
+        (_, Fim::Desligado) => encerrar(Decisao::HostParou),
+        (Andamento::Aceito, Fim::FalhaInicio) => encerrar(Decisao::FalhaInicio),
+        (Andamento::Aceito, Fim::Turno(_)) => encerrar(Decisao::NaoIniciado).map(|_| Registro::Decidido),
         (Andamento::EmExecucao(fence), Fim::FalhaInicio) => {
             gravar(store, pedido, bot, fence, Encerramento::falha_inicio())
         }
         (Andamento::EmExecucao(fence), Fim::Turno(fim)) => gravar(store, pedido, bot, fence, fim),
     };
-    match gravado {
-        Ok(true) => Registro::Gravado,
-        Ok(false) => Registro::Decidido,
-        Err(error) => {
-            tracing::error!(request = pedido, error = format!("{error:#}"), "conclusão do pedido não registrada");
-            Registro::ErroDeGravacao
-        }
-    }
+    gravado.unwrap_or_else(|_| {
+        tracing::error!(request = pedido, error_code = "retorno_gravacao_falhou", "conclusão do pedido não registrada");
+        Registro::ErroDeGravacao
+    })
 }
 
-fn gravar(store: &Store, pedido: &str, bot: &str, fence: i64, fim: Encerramento) -> Result<bool> {
+fn gravar(store: &Store, pedido: &str, bot: &str, fence: i64, fim: Encerramento) -> Result<Registro> {
     let termino = Termino { pedido: pedido.into(), bot: bot.into(), attempt: 1, fence, fim };
-    Ok(match concluir(store, &termino)? {
-        Conclusao::Gravada(recibo) => {
-            tracing::debug!(request = pedido, recibo, "conclusão do pedido registrada");
-            true
-        }
-        Conclusao::Vencida => false,
+    com_tx(store, |c| {
+        Ok(match concluir_na(c, &termino)? {
+            Conclusao::CorpoRetido => Registro::CorpoRetido,
+            Conclusao::Gravada(_) => Registro::Gravado,
+            Conclusao::Vencida => Registro::Decidido,
+        })
     })
 }
 
@@ -551,6 +565,7 @@ pub(crate) fn aceito(store: &Store, id: &str) -> Result<bool> {
 pub(crate) fn encerrar(store: &Store, id: &str, decisao: Decisao) -> Result<bool> {
     com_tx(store, |c| encerrar_na(c, id, decisao))
 }
+#[cfg(test)]
 pub(crate) fn concluir(store: &Store, termino: &Termino) -> Result<Conclusao> {
     com_tx(store, |c| concluir_na(c, termino))
 }
@@ -562,5 +577,7 @@ pub(crate) fn recuperar(store: &Store) -> Result<usize> {
 mod consulta_testes;
 #[cfg(test)]
 mod pendentes_testes;
+#[cfg(test)]
+pub(crate) mod provas_privacidade_testes;
 #[cfg(test)]
 pub(crate) mod testes;
