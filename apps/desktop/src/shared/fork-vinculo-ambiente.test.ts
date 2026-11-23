@@ -181,6 +181,19 @@ test('rejeita chaves inesperadas na raiz e nos objetos internos sem vazar campos
       ),
     VinculoAmbienteError,
   )
+  assert.throws(
+    () =>
+      decodeVinculoAmbiente(
+        validUnconfigured({ ['chave\n\x1b[31m' + 'x'.repeat(50)]: true }),
+        CTX,
+      ),
+    (err: unknown) =>
+      err instanceof VinculoAmbienteError &&
+      err.code === 'binding_unexpected_field' &&
+      !err.message.includes('\n') &&
+      !err.message.includes('\x1b') &&
+      err.message.length < 80,
+  )
 })
 
 test('rejeita IDs que pareçam path, URL, chave ou segredo', () => {
@@ -226,14 +239,20 @@ test('rejeita IDs que pareçam path, URL, chave ou segredo', () => {
 })
 
 test('rótulos aceitam texto livre de exibição e rejeitam caracteres de controle ou excesso', () => {
-  const ok = decodeVinculoAmbiente(
-    validConfigured({
-      access: { id: 'acc_01', label: 'São Paulo — Produção (leitura)' },
-    }),
-    CTX,
-  )
-  assert.equal(ok.state, 'configured')
-  assert.equal(ok.access.label, 'São Paulo — Produção (leitura)')
+  for (const validLabel of [
+    'São Paulo — Produção (leitura)',
+    'Equipe \u{1F468}\u200D\u{1F4BB}',
+    'برنامه\u200Cنویسی',
+  ]) {
+    const ok = decodeVinculoAmbiente(
+      validConfigured({
+        access: { id: 'acc_01', label: validLabel },
+      }),
+      CTX,
+    )
+    assert.equal(ok.state, 'configured')
+    assert.equal(ok.access.label, validLabel)
+  }
 
   for (const badLabel of [
     '',

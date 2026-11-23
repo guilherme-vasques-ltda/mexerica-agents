@@ -83,7 +83,7 @@ const SECRET_PREFIXES = [
   'akia',
   'asia',
 ]
-const CONTROL_CHARS = /[\p{Cc}\p{Cf}\u2028\u2029]/u
+const CONTROL_CHARS = /(?:[\p{Cc}\u2028\u2029]|(?![\u200C\u200D])\p{Cf})/u
 const LABEL_MAX_LEN = 120
 
 const UNCONFIGURED_KEYS = ['schema', 'hubId', 'spaceId', 'botId', 'revision', 'state', 'execution'] as const
@@ -104,10 +104,14 @@ function asObject(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+function sanitizeKeyForDetail(key: string): string {
+  return key.replace(/[^\x20-\x7e]/g, '?').slice(0, 40)
+}
+
 function assertAllowedKeys(obj: Record<string, unknown>, allowed: readonly string[], field: string) {
   for (const key of Object.keys(obj)) {
     if (!allowed.includes(key)) {
-      throw new VinculoAmbienteError('binding_unexpected_field', `${field}.${key}`)
+      throw new VinculoAmbienteError('binding_unexpected_field', `${field}.${sanitizeKeyForDetail(key)}`)
     }
   }
 }
