@@ -29,18 +29,19 @@ impl Scope {
         if only_this_mac { Self::ThisMacOnly } else { Self::Network }
     }
 
-    /// Falha fechada: `--bind` vazio, só com espaços ou com porta é recusado antes de resolver o
-    /// nome (no Windows um nome vazio resolve para os endereços das placas de rede); o modo
-    /// "só neste Mac" recusa qualquer endereço que não seja loopback.
+    /// Falha fechada: `--bind` vazio, com espaço ou com porta (`nome:porta`, `ip:porta`,
+    /// `[ipv6]:porta`) é recusado antes de resolver o nome (no Windows um nome vazio resolve
+    /// para os endereços das placas de rede); o modo "só neste Mac" recusa qualquer endereço
+    /// que não seja loopback. As mensagens não repetem o valor recebido.
     pub fn check_bind(self, bind: &str) -> Result<()> {
-        if bind.trim().is_empty() {
-            bail!("--bind vazio; omita a opção para escutar só em {LOOPBACK}");
+        if bind.is_empty() || bind.chars().any(char::is_whitespace) {
+            bail!("--bind vazio ou com espaço; omita a opção para escutar só em {LOOPBACK}");
         }
-        if bind.parse::<std::net::SocketAddr>().is_ok() {
+        if bind.contains(':') && bind.parse::<std::net::IpAddr>().is_err() {
             bail!("--bind recebe só o endereço, sem porta; a porta vai em --port");
         }
         if self == Self::ThisMacOnly && bind != LOOPBACK {
-            bail!("o modo \"só neste Mac\" só aceita --bind {LOOPBACK}, recebeu {bind}");
+            bail!("o modo \"só neste Mac\" só aceita --bind {LOOPBACK}");
         }
         Ok(())
     }
@@ -90,7 +91,7 @@ pub fn resolve_serve_with_web(
         bail!("o serviço do Mac só sobe com --only-this-mac (plist herdado?); reinstale o Hub pelo app");
     }
     if let Some(bind) = bind {
-        anyhow::ensure!(bind == LOOPBACK, "a interface Web local só aceita --bind {LOOPBACK}, recebeu {bind}");
+        anyhow::ensure!(bind == LOOPBACK, "a interface Web local só aceita --bind {LOOPBACK}");
     }
     Ok((LOOPBACK.to_owned(), Scope::ThisMacOnly))
 }
@@ -289,7 +290,22 @@ mod tests {
     #[test]
     fn empty_or_port_bind_is_refused_while_omitted_bind_is_loopback() {
         assert_eq!(resolve_serve(None, false, false).unwrap().0, LOOPBACK);
-        for bad in ["", " ", "\t", " \n ", "127.0.0.1:8080", "0.0.0.0:19422", "[::1]:19422"] {
+        let bads = [
+            "",
+            " ",
+            "\t",
+            " \n ",
+            " 0.0.0.0",
+            "127.0.0.1:8080",
+            "0.0.0.0:19422",
+            "[::1]:19422",
+            "[::1]",
+            "localhost:19422",
+            "hub.example.invalid:80",
+        ];
+        for bad in bads {
+            let message = Scope::Network.check_bind(bad).unwrap_err().to_string();
+            assert!(bad.trim().is_empty() || !message.contains(bad.trim()), "{message}");
             for (only_this_mac, mac_service) in [(false, false), (true, false), (true, true)] {
                 assert!(resolve_serve(Some(bad), only_this_mac, mac_service).is_err(), "{bad:?}");
             }

@@ -62,6 +62,26 @@ fechada: refaça o procedimento no app (novo desafio, chave nova). Se faltar mar
 identidade, master ou base, a
 pasta fica preservada e fechada; não apague para "consertar".
 
+## Endereço de escuta
+
+Sem `--bind`, o `serve` escuta só em `127.0.0.1` (porta padrão 19422). As unidades
+gravadas por `donnabot-host install` e pela atualização gerida fixam `--bind 127.0.0.1`.
+`--bind` vazio, com espaços ou com porta é recusado; a porta vai em `--port`.
+
+Para acesso remoto, use o túnel SSH do app ou o relay: os dois funcionam com o Hub em
+loopback. Escuta direta na rede (celular pela rede local ou VPN) só com `--bind`
+explícito, e o Hub registra um aviso no log. O `--bind` aceita um único endereço, e as
+ferramentas locais (`pair`, `status`, `info`, `update` e o app neste computador) falam
+com `127.0.0.1`: um `--bind` só no endereço da VPN deixa essas ferramentas sem acesso.
+Se a escuta direta for mesmo necessária, use `--bind 0.0.0.0` e limite a porta à
+interface da VPN no firewall. A API local continua aceitando só chamadas do loopback.
+
+**Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
+Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde
+esse acesso até passar para o túnel ou o relay (ou, em último caso, para um `--bind`
+explícito como acima). Uma unidade com `--bind 0.0.0.0` escrito à mão continua como
+está e passa a gerar o aviso.
+
 ## Referência herdada do Codync
 
 O app conecta por SSH ao Hub usando o link estável. Mantenha a porta do Hub
@@ -106,13 +126,11 @@ Other commands work the same as on a desktop: `codync-host pair`, `codync-host t
 
 The phone connects over the encrypted device channel. The pairing link lists only **Tailscale** and **private (LAN/VPC)** addresses; the host never advertises a public IP.
 
-- **Tailscale (recommended for VMs):** install Tailscale on the VM and on the phone, start the host with an explicit `--bind` on its Tailscale address (see below), then `codync-host pair`. The Tailscale name comes first in the link. You don't need to open port 19222 in the cloud firewall.
+- **Tailscale (recommended for VMs):** install Tailscale on the VM and on the phone, then `codync-host pair`. The Tailscale name comes first in the link. You don't need to open port 19222 in the cloud firewall.
 - **Cloudflare cloud:** start the host with `CODYNC_CLOUD_URL=https://…` if you run your own Codync cloud. The production cloud isn't live yet.
 - **Desktop app over SSH:** the desktop app (macOS or Linux) can attach an SSH computer and tunnel to its loopback API ([Accounts and SSH](accounts-and-ssh.md)). From any terminal: `ssh -L 19222:localhost:19222 vm`, then `codync-host tui` locally.
 
-By default the host listens on `127.0.0.1` only, port 19222, so nothing outside the machine reaches it; the SSH tunnel above works as is. Prefer the SSH tunnel or the cloud relay for remote access. Pairing the phone directly over Tailscale or a private network needs an explicit address in the service's `serve` command; use the machine's Tailscale or VPN address rather than the wildcard `0.0.0.0`. The host logs a warning whenever it listens beyond loopback.
-
-**Upgrading:** a unit written without `--bind` listens only on loopback once the new host restarts. A phone that reached the host directly over the LAN or a VPN loses that access until you move it to the tunnel or relay, or add an explicit `--bind` as above. Even then, the local API (`/api/*`, `/events`, terminals; bearer token) answers **loopback callers only**, so a public address never exposes it. From outside, only `/health` (host id, computer id, version) and the end-to-end encrypted device channel answer, and the channel only serves devices holding this host's pairing keys. Keep 19222 closed in the cloud firewall anyway unless you deliberately pair over a VPN or private network.
+The host listens on all interfaces, port 19222. The local API (`/api/*`, `/events`, terminals; bearer token) answers **loopback callers only**, so a public address never exposes it. From outside, only `/health` (host id, computer id, version) and the end-to-end encrypted device channel answer, and the channel only serves devices holding this host's pairing keys. Keep 19222 closed in the cloud firewall anyway unless you deliberately pair over a VPN or private network.
 
 ## Limitations on a headless server
 

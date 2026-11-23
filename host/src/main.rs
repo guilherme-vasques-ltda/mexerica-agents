@@ -216,7 +216,7 @@ enum Sub {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
         /// Address to bind (no port). Defaults to `127.0.0.1` (this computer only); an explicit
-        /// address such as the Tailscale one lets a phone reach it directly. Prefer the SSH tunnel or relay.
+        /// address listens beyond it and is logged as a warning. Prefer the SSH tunnel or relay.
         #[arg(long)]
         bind: Option<String>,
         /// Hub local do Mac: só aceita `--bind 127.0.0.1` e não inicia o relay de saída.
@@ -900,11 +900,6 @@ async fn serve(
             web_root.is_none(),
             "a interface Web local não se aplica à instalação isolada; inicie o Hub sem --web-dir"
         );
-        // Sem log configurado neste caminho: o aviso fixo vai para o stderr do serviço.
-        let resolved = tokio::net::lookup_host((bind, port)).await.context("resolving --bind")?;
-        if service::mac_local::listens_beyond_loopback(resolved) {
-            eprintln!("warning: {}", service::mac_local::EXTERNAL_LISTEN_WARNING);
-        }
         return fork::personal_link::installation::servir(instance_lock, bind, port, shutdown_signal()).await;
     }
     let personal = fork::personal_bootstrap::provisioning::prepare(&service::data_dir())?;
@@ -912,8 +907,9 @@ async fn serve(
         personal.as_ref().map(fork::personal_bootstrap::provisioning::Prepared::listener).transpose()?;
     let _instance_lock = instance_lock;
     tokio::task::spawn_blocking(service::capture_binary_identity).await??;
-    let listener =
-        tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
+    let listener = tokio::net::TcpListener::bind((bind, port))
+        .await
+        .with_context(|| format!("binding the host to port {port}"))?;
     let bound_port = listener.local_addr()?.port();
     let external = service::mac_local::listens_beyond_loopback([listener.local_addr()?]);
     cap_log();
