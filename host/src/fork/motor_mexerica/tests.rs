@@ -126,6 +126,17 @@ async fn sem_identidade_separada_recusa_spawn() {
     }
 }
 
+#[cfg(all(unix, not(target_os = "linux")))]
+#[tokio::test]
+async fn sem_protecao_de_descritores_recusa_spawn() {
+    let (child_end, _hub_end) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut command = tokio::process::Command::new("/usr/bin/true");
+    let Err(error) = spawn_with_vault_fd(&mut command, &child_end) else {
+        panic!("abertura sem proteção de descritores foi aceita");
+    };
+    assert!(error.to_string().contains("proteção de descritores"), "{error:#}");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn conversa_responde_pelo_provedor_falso() {

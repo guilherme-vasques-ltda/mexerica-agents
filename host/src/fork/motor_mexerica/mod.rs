@@ -342,6 +342,37 @@ pub(crate) struct Turn {
     pub events: Vec<Value>,
 }
 
+#[cfg(target_os = "linux")]
+fn spawn_with_vault_fd(
+    command: &mut tokio::process::Command,
+    child_end: &std::os::unix::net::UnixStream,
+) -> Result<crate::fork::motor_exec::Child> {
+    use std::os::fd::AsRawFd;
+    let child_fd = child_end.as_raw_fd();
+    // SAFETY: pre_exec roda no filho antes do exec; só mexe em descritores.
+    unsafe {
+        command.pre_exec(move || {
+            // Marca todos os demais descritores para fechar no exec, inclusive os sem CLOEXEC.
+            if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, 4_u32) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::dup2(child_fd, 3) == -1 || libc::fcntl(3, libc::F_SETFD, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    crate::fork::motor_exec::spawn(command).context("abrindo o processo do Motor Mexerica")
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn spawn_with_vault_fd(
+    _command: &mut tokio::process::Command,
+    _child_end: &std::os::unix::net::UnixStream,
+) -> Result<crate::fork::motor_exec::Child> {
+    bail!("Motor Mexerica exige a proteção de descritores herdados do Linux")
+}
+
 #[cfg(unix)]
 impl Engine {
     /// Abre `node <entry>` preso a UM provedor: o cofre responde só o slot
@@ -398,25 +429,7 @@ impl Engine {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        {
-            use std::os::fd::AsRawFd;
-            let child_fd = child_end.as_raw_fd();
-            // SAFETY: pre_exec roda no filho antes do exec; só mexe em descritores.
-            unsafe {
-                command.pre_exec(move || {
-                    // Marca todos os demais descritores para fechar no exec, inclusive os sem CLOEXEC.
-                    #[cfg(target_os = "linux")]
-                    if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, 4_u32) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    if libc::dup2(child_fd, 3) == -1 || libc::fcntl(3, libc::F_SETFD, 0) == -1 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
-        }
-        let mut child = crate::fork::motor_exec::spawn(&mut command).context("abrindo o processo do Motor Mexerica")?;
+        let mut child = spawn_with_vault_fd(&mut command, &child_end)?;
         // Fecha a cópia do Hub: o filho ficou com o canal no fd 3.
         drop(child_end);
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("stdin do motor ausente"))?;
