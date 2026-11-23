@@ -71,7 +71,7 @@ const semCachePwa: Plugin = {
       }
       if (!/\.(?:[cm]?js|html)$/i.test(file.name)) continue
       const fonte = readFileSync(join(file.parentPath, file.name), 'utf8')
-      if (/\b(?:serviceWorker|ServiceWorkerGlobalScope|CacheStorage|skipWaiting|precacheAndRoute)\b|\bcaches\s*(?:\.|\[|\?\.)/.test(fonte)) {
+      if (/\b(?:serviceWorker|ServiceWorkerGlobalScope|CacheStorage|caches|skipWaiting|precacheAndRoute)\b/.test(fonte)) {
         throw new Error('O build Web local não permite service worker nem Cache Storage')
       }
     }
