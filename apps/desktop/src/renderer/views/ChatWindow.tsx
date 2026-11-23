@@ -774,7 +774,6 @@ function ChatSplitView() {
   // D249 R5: every computer the bar shows is offline (a hidden one connecting or online doesn't hold it back).
   const offline = shownHubsOffline(shownStores.map((s) => s.shownConnection))
   const offlineHub = shownStores[0]?.hostName ?? t('navegacao.janela.seuComputador')
-  const offlineReason = shownStores.map((s) => s.shownConnection).find((c) => c.kind === 'offline')?.message ?? null
   // Auditoria D249, F7: with the whole list empty the conversation side says it once; the sidebar keeps only titles.
   const quietEmpty = startup.kind === 'empty' && !roster.filtering
   const listEmpty = quietEmpty || openSpaceRecord ? null : principalListEmpty(t, roster.filtering, roster.principalSections.length > 0, offline)
@@ -838,7 +837,6 @@ function ChatSplitView() {
         <Icon name="wifi.slash" size={28} color="var(--context-ink-2, var(--ink-2))" />
         <Text as="div" size="title2" weight="semibold">{t('navegacao.barra.principal.semHub')}</Text>
         <Text as="div" tone="secondary" className="empty-detail-message">{comNos(t('navegacao.janela.offlineDetalhe', { hub: no('hub') }), { hub: <bdi dir="auto">{offlineHub}</bdi> })}</Text>
-        {offlineReason ? <Text as="div" size="caption" tone="secondary" className="empty-detail-message">{offlineReason}</Text> : null}
         <HStack gap={8}>
           <Button onClick={() => app.refresh()}>{t('navegacao.janela.tentarDeNovo')}</Button>
           <Button kind="secondary" onClick={openComputersSettings}>{t('navegacao.janela.verComputadores')}</Button>
