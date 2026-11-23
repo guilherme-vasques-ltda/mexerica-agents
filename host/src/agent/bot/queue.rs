@@ -747,6 +747,14 @@ impl Actor {
         if self.defer_chain_preparation(e) {
             return;
         }
+        // Retenção deliberada da conversa pausada: o aviso da pausa já está nela. O turno termina sem aviso de erro e o
+        // bot volta a ficar ocioso. Rotina segue o caminho de falha, para não ser registrada como concluída.
+        if self.active_routine.is_none()
+            && e.chain().any(<dyn std::error::Error>::is::<crate::fork::bot_admission::ConversationPaused>)
+        {
+            self.finish_turn(&Ok(json!({"stopReason": "conversation_paused"})));
+            return;
+        }
         // Conservar RpcError tipado: hint de uso não transforma uma falha comum em limite.
         let rpc = e.chain().find_map(|cause| cause.downcast_ref::<crate::agent::acp::RpcError>());
         let done = Err(rpc.map_or_else(

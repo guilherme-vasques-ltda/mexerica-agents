@@ -322,7 +322,13 @@ pub(crate) fn permit_with(
     if pause.paused {
         return Ok(None);
     }
-    if conversation_pause::paused_on(&tx, bot, &record.conversation_id)? {
+    // Registro de pausa ilegível conta como pausa: a reserva sai e o bot não fica preso tentando de novo.
+    let paused = conversation_pause::paused_on(&tx, bot, &record.conversation_id).unwrap_or_else(|error| {
+        tracing::error!(%error, bot, conversation_id = %record.conversation_id, "pausa da conversa ilegível");
+        true
+    });
+    if paused {
+        tracing::warn!(bot, conversation_id = %record.conversation_id, "conversa pausada: reserva apagada sem despacho");
         drop_inflight(&tx, bot)?;
         tx.commit()?;
         return Err(ConversationPaused.into());

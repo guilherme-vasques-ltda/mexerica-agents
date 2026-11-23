@@ -95,6 +95,25 @@ async fn pausa_de_uma_conversa_nao_segura_outra_e_permit_recusa_a_pausada() {
     let _ = std::fs::remove_dir_all(&f.dir);
 }
 
+/// Registro de pausa ilegível conta como pausa no permit: a reserva sai sem despacho e outra conversa do bot é
+/// admitida.
+#[tokio::test]
+async fn registro_de_pausa_ilegivel_no_permit_conta_como_pausa_e_libera_a_reserva() {
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    f.hub.store.kv_set("donna.conversation.paused.outra-conversa", "{quebrado").unwrap();
+    let ticket =
+        admission::reserve(&f.hub.store, &actor.cfg, "outra-conversa", "hub-A", &admission::Origin::Group).unwrap();
+    let refused = admission::permit(&f.hub.store, &actor.cfg, &ticket, None, &[], None).unwrap_err();
+    assert!(refused.is::<admission::ConversationPaused>(), "ilegível recusa como pausada");
+    assert!(admission::current(&f.hub.store, "bot").unwrap().is_none(), "a reserva sai sem despacho");
+    let other = admission::reserve(&f.hub.store, &actor.cfg, "bot", "hub-B", &admission::Origin::Group).unwrap();
+    admission::finish(&f.hub.store, "bot", &other).unwrap();
+    actor.dispatch = None;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
 /// Liberar a pausa é só deste computador: aparelho com Control (delegado ou já revogado), ponte de ferramentas e
 /// canal de pareamento são recusados e a pausa continua.
 #[tokio::test]

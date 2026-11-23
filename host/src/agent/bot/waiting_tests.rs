@@ -4554,6 +4554,21 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
     f.make_retry_due();
     admission::pause_conversation(&Store::open(&f.dir.join("test.db")).unwrap(), "bot", "bot", "t-velho").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+    let waiting_phase = || {
+        f.hub
+            .store
+            .kv_get("turn.waiting.bot")
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .map(|w| w["phase"].clone())
+    };
+    f.until(|| waiting_phase().is_none_or(|phase| phase == "finished")).await;
+    assert_eq!(f.hub.runtime("bot").status, BotStatus::Idle, "a retenção não deixa o bot em erro");
+    let history = f.hub.store.history("bot", i64::MAX, 200).unwrap();
+    assert!(
+        !history.iter().any(|e| e.kind == "notice" && e.data["style"] == "error"),
+        "a retenção não publica aviso de erro"
+    );
+    assert_eq!(f.prompts().len(), 1, "a continuação da conversa pausada não sai");
     crate::api::dispatch(
         &f.hub,
         &crate::api::devices::Caller::Local,
