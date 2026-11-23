@@ -68,7 +68,10 @@ class ReviewTest(unittest.TestCase):
         summary = {'comments': 1, 'budget_exceeded': True}
         warnings = [{'type': 'token_budget_reached'}]
         payload = review.project(result(status='partial', summary=summary, manifest=manifest, warnings=warnings), FILES)
-        self.assertTrue(payload['partial'])
+        self.assertEqual(payload, {'diff': review.indexed(FILES)[1], 'items': [[0, 2, 3, 0, 1, FINDING['content']]],
+                                   'partial': True})
+        self.assertEqual(review.project(result(status='partial', summary=summary, manifest=manifest, warnings=[]),
+                                        FILES), payload)
         self.assertIn('orçamento', review.render(payload, FILES, HEAD)['body'])
         for tampered in ({**manifest, 'run_failure': {'classification': 'timeout'}},
                          {**manifest, 'coverage': {**manifest['coverage'], 'failed': [{'classification': 'provider'}]}},
@@ -178,7 +181,7 @@ class ProjectCliTest(unittest.TestCase):
         self.enterContext(patch.object(review, 'build_opener'))
         self.snapshot = self.enterContext(patch.object(review, 'snapshot', return_value=('/fixture', FILES)))
 
-    def assert_refused(self, phase=None, args=('project',), *, schema=None):
+    def assert_refused(self, phase=None, args=('project',), *, schema=None, warning_type=None):
         stdout, stderr = StringIO(), StringIO()
         with (patch.object(review.sys, 'argv', ['ci-code-review.py', *args]),
               redirect_stdout(stdout), redirect_stderr(stderr), self.assertRaises(SystemExit) as raised):
@@ -188,6 +191,8 @@ class ProjectCliTest(unittest.TestCase):
         suffix = '' if phase is None else f' Fase: {phase}.'
         if schema is not None:
             suffix += f' Classe: {schema}.'
+        if warning_type is not None:
+            suffix += f' Tipo: {warning_type}.'
         self.assertEqual(stderr.getvalue(), f'Open Code Review: operação recusada ou indisponível.{suffix}\n')
         self.assertFalse(self.artifact.exists())
 
@@ -239,17 +244,13 @@ class ProjectCliTest(unittest.TestCase):
             ('Comentarios', result(comments='fixture-comments', status='fixture-status')),
             ('Estado', result(status='fixture-status', summary='fixture-summary')),
             ('Resumo', result(summary={'comments': False}, warnings='fixture-warnings')),
-            ('Avisos', result(warnings='fixture-warnings', manifest='fixture-manifest')),
+            ('AvisosFormato', result(warnings='fixture-warnings', manifest='fixture-manifest')),
             ('Manifesto', result(manifest={**manifest, 'terminal_state': 'fixture-state'}, warnings=[{}])),
-            ('Avisos', result(manifest=manifest, summary=budget, warnings=[{'type': 'token_budget_reached'}])),
             ('Resumo', result(manifest=manifest, summary=budget)),
             ('Estado', result(status='skipped')),
             ('Cobertura', result(manifest={**manifest, 'coverage': {'failed': [{}]}})),
             ('Resumo', result(status='partial')),
             ('Manifesto', result(status='partial', summary=budget)),
-            ('Avisos', result(status='partial', summary=budget, manifest={**manifest, 'terminal_state': 'partial'},
-                              warnings=[{'type': 'review_limit_reached', 'file': 'fixture-group',
-                                         'message': 'fixture-warning'}])),
             ('Cobertura', result(status='partial', summary=budget, manifest={**manifest, 'terminal_state': 'partial',
                                                                             'coverage': 'fixture-coverage'})),
         )
@@ -257,6 +258,49 @@ class ProjectCliTest(unittest.TestCase):
             with self.subTest(case=index, schema=schema):
                 self.source.write_bytes(data)
                 self.assert_refused('Esquema', schema=schema)
+
+    def test_warning_types_are_fixed_and_complete_reports_only_the_first_warning(self):
+        for input_type, category in (
+            ('manifest_error', 'ErroManifesto'),
+            ('token_budget_reached', 'OrcamentoTokens'),
+            ('subtask_error', 'ErroSubtarefa'),
+            ('token_threshold_exceeded', 'LimiarTokens'),
+            ('review_round_failed', 'FalhaRodada'),
+            ('review_limit_reached', 'LimiteRevisao'),
+            ('comment_args_repaired', 'ArgumentosComentarioReparados'),
+            ('comment_refiled', 'ComentarioRealocado'),
+            ('fixture-unknown-type', 'Outro'),
+        ):
+            with self.subTest(category=category):
+                self.source.write_bytes(result(summary={'comments': 1, 'budget_exceeded': True}, warnings=[
+                    {'type': input_type, 'file': 'fixture-warning-file', 'message': 'fixture-warning-message'},
+                    {'type': 'review_round_failed'},
+                ]))
+                self.assert_refused('Esquema', schema='AvisosEmCompleto', warning_type=category)
+
+    def test_skipped_reports_the_first_warning_before_refusing_findings(self):
+        self.source.write_bytes(result(status='skipped', warnings=[
+            'fixture-non-object-warning', {'type': 'review_round_failed'},
+        ]))
+        self.assert_refused('Esquema', schema='AvisosEmIgnorado', warning_type='Outro')
+
+    def test_partial_reports_the_first_refused_warning_before_coverage(self):
+        for first_refused, category in (
+            ({'type': 'review_limit_reached', 'file': 'fixture-warning-file', 'message': 'fixture-warning-message'},
+             'LimiteRevisao'),
+            ({'type': 'fixture-unknown-type'}, 'Outro'),
+            ({'type': ['fixture-non-string-type']}, 'Outro'),
+            ({}, 'Outro'),
+            ('fixture-non-object-warning', 'Outro'),
+        ):
+            with self.subTest(category=category):
+                self.source.write_bytes(result(
+                    status='partial', summary={'comments': 1, 'budget_exceeded': True},
+                    manifest=dict(schema_version='ocr.run-manifest/v1', operation='review', terminal_state='partial',
+                                  coverage='fixture-coverage'),
+                    warnings=[{'type': 'token_budget_reached'}, first_refused, {'type': 'review_round_failed'}],
+                ))
+                self.assert_refused('Esquema', schema='AvisosItem', warning_type=category)
 
     def test_complete_upstream_result_with_warning_stays_refused(self):
         item = {'item_id': 'fixture-item', 'path': FILES[0]['filename']}
@@ -270,7 +314,7 @@ class ProjectCliTest(unittest.TestCase):
                                    'waived': [], 'excluded': []}, 'elapsed_ms': 1000},
             warnings=[{'type': 'review_round_failed', 'file': 'fixture-group', 'message': 'fixture-warning'}],
         ))
-        self.assert_refused('Esquema', schema='Avisos')
+        self.assert_refused('Esquema', schema='AvisosEmCompleto', warning_type='FalhaRodada')
 
     def test_write_limit_and_partial_write_report_only_write(self):
         with patch.object(review, 'MAX_ARTIFACT', 1):
