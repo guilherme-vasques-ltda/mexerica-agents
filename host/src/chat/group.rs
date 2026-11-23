@@ -237,7 +237,7 @@ fn visible(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) ->
            AND COALESCE(json_extract(data, '$.{}'), 0) != 1
          ORDER BY seq DESC LIMIT ?3",
         crate::store::ENTRY_COLS,
-        crate::fork::grupo_entrega::REVIEW
+        crate::fork::grupo_entrega::GROUP_REVIEW
     ))?;
     let mut rows: Vec<Entry> = st
         .query_map(rusqlite::params![lane.chat, after, limit, upto], crate::store::row_entry)?

@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 pub(crate) const PENDING: &str = "sending";
 /// Marca da mensagem sem prova de entrega (ou parada): a sala não a mostra aos membros, nem citada.
-pub(crate) const REVIEW: &str = "groupReview";
+pub(crate) const GROUP_REVIEW: &str = "groupReview";
 const PREFIX: &str = "donna.group.delivery.";
 /// Mensagens de usuário pendentes da sala; uma linha ilegível nunca derruba a consulta.
 const PENDING_SQL: &str = "bot_id = ?1 AND kind = 'user'
@@ -106,7 +106,7 @@ impl Delivery {
 /// Mensagem que a sala não mostra aos membros, nem citada: ilegível, sem prova de entrega (ou parada), ou ainda
 /// pendente.
 pub(crate) fn unproven(entry: &Entry) -> bool {
-    !entry.data.is_object() || entry.data[REVIEW] == true || entry.data["status"] == PENDING
+    !entry.data.is_object() || entry.data[GROUP_REVIEW] == true || entry.data["status"] == PENDING
 }
 
 /// Muda o estado das mensagens ainda pendentes e apaga os recibos numa só transação. Erro de leitura é erro: nada
@@ -123,7 +123,7 @@ fn settle(hub: &Hub, ids: &[String], status: &str, review: bool) -> Result<()> {
             {
                 entry.data["status"] = json!(status);
                 if review {
-                    entry.data[REVIEW] = json!(true);
+                    entry.data[GROUP_REVIEW] = json!(true);
                 }
                 saved.extend(Store::update_entry_on(&tx, id, &entry.data, None)?);
             }
