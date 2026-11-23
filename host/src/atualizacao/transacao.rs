@@ -38,6 +38,12 @@ pub struct Contexto {
     pub chamador: Identidade,
 }
 
+impl Contexto {
+    fn exigir_hub_parado(&self) -> Result<()> {
+        super::servico_hub::exigir_parado(&self.publicacao, self.politica.uid_hub, self.chamador)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Peca {
     Hub,
@@ -138,7 +144,7 @@ fn remover_fixo(dir: &Diretorio, nome: &CStr) -> Result<()> {
 /// Fecha o slot (0700), zera as capabilities do ajudante e encerra quem ainda
 /// o executa ou mantém privilégio sob o UID do Hub. Idempotente.
 fn desativar(ctx: &Contexto, slot: Slot) -> Result<Diretorio> {
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
+    ctx.exigir_hub_parado()?;
     let dir = ctx.publicacao.fechar_slot(slot)?;
     if let Some(ajudante) = abrir_fixo(&dir, AJUDANTE)? {
         slots::limpar_capacidades(&ajudante)?;
@@ -183,24 +189,42 @@ fn conferir_par_ativo(dir: &Diretorio, hub: &Arquivo, ajudante: &Arquivo, gid_hu
     snapshot::conferir_hash(&mut exec, ajudante)
 }
 
+fn reativar_com(
+    estado: &Diretorio,
+    trava: &File,
+    journal: &Journal,
+    efetivar: impl FnOnce(Slot, &Par) -> Result<()>,
+) -> Result<()> {
+    estado.validar_trava(trava)?;
+    ensure!(!matches!(journal.estado.fase, Fase::Expirada), "janela expirada; reativação recusada");
+    estado.exigir_sem_bloqueio()?;
+    let snapshot = estado.snapshot_transacao(trava, journal)?;
+    let (Some(slot), Some(par)) = (journal.slot_anterior, snapshot.anterior.as_ref()) else {
+        bail!("par anterior ausente");
+    };
+    efetivar(slot, par)
+}
+
 /// Rearma o par anterior somente após conferir conteúdo e atributos contra o snapshot.
-fn reativar(ctx: &Contexto, slot: Slot, par: &Par) -> Result<()> {
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
-    let gid = ctx.politica.gid_hub;
-    let dir = ctx.publicacao.fechar_slot(slot)?;
-    let mut binario = abrir_fixo(&dir, HUB)?.context("binário anterior ausente")?;
-    snapshot::verificar_arquivo(&mut binario, &par.hub, 0, 0o755)?;
-    let mut exec = abrir_fixo(&dir, AJUDANTE)?.context("ajudante anterior ausente")?;
-    slots::limpar_capacidades(&exec)?;
-    slots::armar_ajudante(&mut exec, &par.ajudante, gid, gid, 0o750)?;
-    chmod(dir.descritor(), 0o755)?;
-    dir.descritor().sync_all()?;
-    ctx.publicacao.descritor().sync_all()?;
-    Ok(())
+fn reativar(ctx: &Contexto, trava: &File, journal: &Journal) -> Result<()> {
+    ctx.exigir_hub_parado()?;
+    reativar_com(&ctx.estado, trava, journal, |slot, par| {
+        let gid = ctx.politica.gid_hub;
+        let dir = ctx.publicacao.fechar_slot(slot)?;
+        let mut binario = abrir_fixo(&dir, HUB)?.context("binário anterior ausente")?;
+        snapshot::verificar_arquivo(&mut binario, &par.hub, 0, 0o755)?;
+        let mut exec = abrir_fixo(&dir, AJUDANTE)?.context("ajudante anterior ausente")?;
+        slots::limpar_capacidades(&exec)?;
+        slots::armar_ajudante(&mut exec, &par.ajudante, gid, gid, 0o750)?;
+        chmod(dir.descritor(), 0o755)?;
+        dir.descritor().sync_all()?;
+        ctx.publicacao.descritor().sync_all()?;
+        Ok(())
+    })
 }
 
 fn apontar(ctx: &Contexto, alvo: Option<Slot>) -> Result<()> {
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
+    ctx.exigir_hub_parado()?;
     let atual = ctx.publicacao.seletor()?;
     if atual == alvo {
         return Ok(());
@@ -239,7 +263,7 @@ pub fn atualizar_com_release(
     fonte: &mut Fonte<'_>,
 ) -> Result<()> {
     // Antes de qualquer efeito: serviço rodando recusa sem alterar nada.
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
+    ctx.exigir_hub_parado()?;
     ctx.estado.validar_trava(trava)?;
     ctx.estado.exigir_sem_bloqueio()?;
     ctx.publicacao.exigir_sem_emergencia()?;
@@ -328,11 +352,11 @@ fn publicar(ctx: &Contexto, trava: &File, mut journal: Journal) -> Result<()> {
     chmod(novo.descritor(), 0o755)?;
     ctx.publicacao.descritor().sync_all()?;
     ponto("novo_exposto")?;
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
+    ctx.exigir_hub_parado()?;
     ctx.publicacao.trocar_seletor(journal.slot_anterior, journal.slot_novo)?;
     // Pós-condição: um Hub iniciado entre a checagem e a troca falha a transação;
     // a volta exige o serviço parado e, até lá, o guard o mantém parado.
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
+    ctx.exigir_hub_parado()?;
     ponto("seletor_gravado")?;
     journal.etapa = Etapa::SeletorTrocado;
     gravar(ctx, trava, &journal)?;
@@ -378,6 +402,7 @@ fn cancelar_preparacao(ctx: &Contexto, trava: &File, mut journal: Journal) -> Re
 /// Volta anterior à publicação: desativa o par novo, rearma o anterior, aponta
 /// o seletor de volta e descarta o novo. A marca monotônica não avança.
 fn restabelecer_anterior(ctx: &Contexto, trava: &File, mut journal: Journal) -> Result<()> {
+    recuperacao::exigir_pre_publicacao(&journal)?;
     if !matches!(journal.etapa, Etapa::CancelamentoIniciado) {
         ensure!(
             matches!(journal.etapa, Etapa::DesativacaoIniciada | Etapa::AnteriorDesativado | Etapa::SeletorTrocado),
@@ -393,10 +418,8 @@ fn restabelecer_anterior(ctx: &Contexto, trava: &File, mut journal: Journal) -> 
         desativar(ctx, journal.slot_novo)?;
     }
     ponto("novo_desativado")?;
-    match (journal.slot_anterior, &snapshot.anterior) {
-        (Some(slot), Some(par)) => reativar(ctx, slot, par)?,
-        (None, None) => (),
-        _ => bail!("par anterior inconsistente"),
+    if journal.slot_anterior.is_some() || snapshot.anterior.is_some() {
+        reativar(ctx, trava, &journal)?;
     }
     apontar(ctx, journal.slot_anterior)?;
     ponto("anterior_restabelecido")?;
@@ -408,7 +431,7 @@ fn restabelecer_anterior(ctx: &Contexto, trava: &File, mut journal: Journal) -> 
 
 /// Reversão dentro da janela; idempotente a partir de qualquer fase de reversão.
 fn executar_reversao(ctx: &Contexto, trava: &File, mut journal: Journal, agora: i64) -> Result<()> {
-    super::servico_hub::exigir_parado(ctx.politica.uid_hub)?;
+    ctx.exigir_hub_parado()?;
     ensure!(
         matches!(journal.etapa, Etapa::Pendente | Etapa::ReversaoIniciada | Etapa::SeletorRestaurado),
         "fase inválida para reverter"
@@ -444,7 +467,7 @@ fn executar_reversao(ctx: &Contexto, trava: &File, mut journal: Journal, agora: 
                 let dir = ctx.publicacao.abrir_slot(slot)?;
                 conferir_par_ativo(&dir, &par.hub, &par.ajudante, gid)?;
             } else {
-                reativar(ctx, slot, par)?;
+                reativar(ctx, trava, &journal)?;
             }
         }
         ponto("anterior_armado")?;

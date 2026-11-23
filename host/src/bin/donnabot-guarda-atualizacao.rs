@@ -38,6 +38,38 @@ fn avaliar(
         publicacao.publicar_status(estado, &trava)?;
         return Ok(Situacao::Bloqueado);
     };
+    if matches!(journal.estado.fase, Fase::Expirada) {
+        estado.expirar_journal(publicacao, &trava, &mut journal, 0)?;
+        publicacao.publicar_status(estado, &trava)?;
+        return Ok(Situacao::Bloqueado);
+    }
+    if let Ok(agora) = agora.as_ref()
+        && matches!(journal.estado.fase, Fase::Pendente { prazo, .. } if *agora >= prazo)
+    {
+        let evento = |resultado| Evento {
+            horario_unix: *agora,
+            uid: 0,
+            origem: Origem::GuardaRoot,
+            operacao: Operacao::Recuperar,
+            sequencia_atual: Some(journal.estado.marca),
+            sequencia_anterior: journal.sequencia_anterior,
+            resultado,
+            motivo: Motivo::Expiracao,
+        };
+        let (inicio, mut fim) = (evento(Resultado::Inicio), evento(Resultado::Sucesso));
+        let inicio = estado.inicio(&inicio);
+        let desarme = estado.expirar_journal(publicacao, &trava, &mut journal, *agora);
+        let status = publicacao.publicar_status(estado, &trava);
+        if desarme.is_err() || status.is_err() {
+            fim.resultado = Resultado::Falha;
+        }
+        let fim = estado.auditar(&fim);
+        desarme?;
+        status?;
+        inicio?;
+        fim?;
+        return Ok(Situacao::Bloqueado);
+    }
     if estado.exigir_sem_bloqueio().is_err() || publicacao.exigir_sem_emergencia().is_err() {
         publicacao.publicar_status(estado, &trava)?;
         return Ok(Situacao::Bloqueado);
@@ -62,35 +94,6 @@ fn avaliar(
                 estado.bloquear_por_falha(&trava)?;
                 Situacao::Bloqueado
             }
-        }
-        (
-            Etapa::Pendente | Etapa::ReversaoIniciada | Etapa::SeletorRestaurado,
-            Fase::Pendente { prazo, .. },
-            Some(inicio),
-        ) if inicio <= agora && agora >= *prazo => {
-            let evento = |resultado| Evento {
-                horario_unix: agora,
-                uid: 0,
-                origem: Origem::GuardaRoot,
-                operacao: Operacao::Recuperar,
-                sequencia_atual: Some(journal.estado.marca),
-                sequencia_anterior: journal.sequencia_anterior,
-                resultado,
-                motivo: Motivo::Expiracao,
-            };
-            estado.inicio(&evento(Resultado::Inicio))?;
-            estado.expirar_journal(&trava, &mut journal, agora)?;
-            estado.auditar(&Evento {
-                horario_unix: agora,
-                uid: 0,
-                origem: Origem::GuardaRoot,
-                operacao: Operacao::Recuperar,
-                sequencia_atual: Some(journal.estado.marca),
-                sequencia_anterior: journal.sequencia_anterior,
-                resultado: Resultado::Sucesso,
-                motivo: Motivo::Expiracao,
-            })?;
-            Situacao::Bloqueado
         }
         (Etapa::Concluida, Fase::Aceita | Fase::Revertida, _)
         | (Etapa::Cancelada, Fase::Livre | Fase::Aceita | Fase::Revertida, _) => Situacao::Liberado,
@@ -496,7 +499,7 @@ mod tests_recuperacao {
         Ok(())
     }
 
-    /// Reprodução da prova (MEX-1044): o guard cai no meio da reversão coordenada
+    /// Reprodução da prova: o guard cai no meio da reversão coordenada
     /// (`--forcar-reversao`). A contenção do `ExecStopPost` não pode gravar
     /// `emergencia` nem `bloqueio` enquanto o wrapper detém a trava ou a reversão
     /// está na janela; senão o wrapper recusa a própria reversão (motivo=estado).
