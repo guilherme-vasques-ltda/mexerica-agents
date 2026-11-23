@@ -148,12 +148,13 @@ final class ForkMailInboxScreenModel {
     }
 
     func refresh() async {
+        guard !isBusy else { return }
         guard await track({ await store.loadStatus(spaceId: spaceId) }) else { return }
-        guard store.activeSpaceId == spaceId else { return }
-        guard case .ready(let mailboxes)? = store.status,
-              store.selectedMailboxId == nil,
-              let first = mailboxes.first else { return }
-        await selectMailbox(first.mailboxId)
+        guard store.activeSpaceId == spaceId, !store.hasLoadedFirstPage,
+              case .ready(let mailboxes)? = store.status,
+              let target = mailboxes.first(where: { $0.mailboxId == store.selectedMailboxId }) ?? mailboxes.first
+        else { return }
+        await selectMailbox(target.mailboxId)
     }
 
     func selectMailbox(_ mailboxId: String) async {

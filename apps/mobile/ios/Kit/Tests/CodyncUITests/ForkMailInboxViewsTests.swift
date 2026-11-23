@@ -4,6 +4,28 @@ import Testing
 @testable import CodyncKit
 @testable import CodyncUI
 
+private actor FirstPageFailureTransport: MailInboxTransport {
+    let base = ForkMailInboxFixtureTransport()
+    private var failsFirstPage = true
+
+    func recover() {
+        failsFirstPage = false
+    }
+
+    func mailInboxStatus(spaceId: String) async throws -> MailInboxStatus {
+        try await base.mailInboxStatus(spaceId: spaceId)
+    }
+
+    func mailInboxListThreads(spaceId: String, mailboxId: String, cursor: String?) async throws -> MailInboxListThreadsResponse {
+        if failsFirstPage && cursor == nil { throw MailInboxError.unavailable }
+        return try await base.mailInboxListThreads(spaceId: spaceId, mailboxId: mailboxId, cursor: cursor)
+    }
+
+    func mailInboxOpenThread(spaceId: String, mailboxId: String, threadId: String) async throws -> MailInboxOpenThreadResponse {
+        try await base.mailInboxOpenThread(spaceId: spaceId, mailboxId: mailboxId, threadId: threadId)
+    }
+}
+
 private actor GatedMailInboxTransport: MailInboxTransport {
     enum Operation: Sendable {
         case status
@@ -182,6 +204,28 @@ struct ForkMailInboxViewsTests {
         await model.open(threadId: "fixture-thread-1")
         #expect(model.thread == nil)
         #expect(!model.isThreadPresented)
+    }
+
+    @Test func refreshRetriesFirstPageAfterItFailedAndKeepsSpaceGuard() async throws {
+        let transport = FirstPageFailureTransport()
+        let store = enabledStore(transport)
+        let model = ForkMailInboxScreenModel(store: store, spaceId: spaceB)
+
+        await model.refresh()
+        #expect(store.selectedMailboxId == threadMailboxId)
+        #expect(!store.hasLoadedFirstPage)
+        #expect(model.presentation == .unavailable)
+
+        await transport.recover()
+        await model.refresh()
+        #expect(store.selectedMailboxId == threadMailboxId)
+        #expect(store.hasLoadedFirstPage)
+        #expect(threads(model.presentation)?.rows.count == 1)
+
+        let otherSpace = ForkMailInboxScreenModel(store: store, spaceId: spaceA)
+        await otherSpace.refresh()
+        #expect(store.activeSpaceId == spaceA)
+        #expect(store.selectedMailboxId == emptyMailboxId)
     }
 
     @Test func leavingClearsOpenThreadAndListForTheNextSession() async throws {
