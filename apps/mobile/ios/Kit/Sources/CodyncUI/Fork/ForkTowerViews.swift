@@ -1,6 +1,12 @@
 import CodyncKit
 import SwiftUI
 
+enum ForkTowerText {
+    static func value(_ key: String.LocalizationValue, locale: Locale = .current) -> String {
+        String(localized: key, bundle: .module, locale: locale)
+    }
+}
+
 struct ForkAttentionPresentation: Equatable {
     enum Phase: Equatable {
         case unavailable
@@ -10,7 +16,7 @@ struct ForkAttentionPresentation: Equatable {
 
     let phase: Phase
     let items: [AttentionItem]
-    let coverageSources: [String]
+    let coverageLabels: [String]
     let resolvedToday: [ResolvedAttentionItem]
     let resolvedStartsCollapsed: Bool
 
@@ -18,18 +24,29 @@ struct ForkAttentionPresentation: Equatable {
         guard case .available(let queue, _, _) = observation else {
             phase = .unavailable
             items = []
-            coverageSources = []
+            coverageLabels = []
             resolvedToday = []
             resolvedStartsCollapsed = true
             return
         }
         let visibleItems = queue.normalizedItems
-        let gaps = queue.coverageGaps.map(\.source)
+        let gaps = queue.coverageGaps.map { Self.coverageLabel(for: $0.source) }
         items = visibleItems
-        coverageSources = gaps
+        coverageLabels = gaps
         resolvedToday = queue.resolvedToday
         resolvedStartsCollapsed = queue.isResolvedTodayCollapsedByDefault
         phase = visibleItems.isEmpty && gaps.isEmpty ? .nothingWaiting : .waiting
+    }
+
+    static func coverageLabel(for source: String) -> String {
+        switch source {
+        case DoctorArea.approvals.rawValue: return ForkTowerText.value("Aprovações")
+        case DoctorArea.channels.rawValue: return ForkTowerText.value("Canais")
+        case DoctorArea.mcps.rawValue: return ForkTowerText.value("Integrações")
+        case DoctorArea.routines.rawValue: return ForkTowerText.value("Rotinas")
+        case DoctorArea.delegation.rawValue: return ForkTowerText.value("Delegação")
+        default: return ForkTowerText.value("uma fonte")
+        }
     }
 }
 
@@ -52,9 +69,9 @@ struct ForkAttentionQueueView: View {
                     Label(String(localized: "Não foi possível carregar agora", bundle: .module), systemImage: "exclamationmark.triangle")
                 }
             }
-            ForEach(presentation.coverageSources, id: \.self) { source in
+            ForEach(Array(presentation.coverageLabels.enumerated()), id: \.offset) { _, label in
                 Section {
-                    Label(String(localized: "Não consegui ver \(source)", bundle: .module), systemImage: "eye.slash")
+                    Label(String(localized: "Não consegui ver \(label)", bundle: .module), systemImage: "eye.slash")
                         .foregroundStyle(.orange)
                 }
             }
@@ -515,7 +532,7 @@ final class ForkTowerFixtureStore: ObservableObject {
     @Published private(set) var attention: TowerObservation<AttentionQueue> = .unavailable
     @Published private(set) var doctor: TowerObservation<HubDoctorReport> = .unavailable
     @Published private(set) var tower: TowerViewSnapshot?
-    @Published private(set) var hubReachable = true
+    @Published private(set) var hubReachable: Bool? = nil
     @Published var selectedPerspective: TowerPerspective = .overview {
         didSet { publish() }
     }
@@ -526,6 +543,7 @@ final class ForkTowerFixtureStore: ObservableObject {
         var guardState = TowerInvalidationGuard()
         guardState.bindContext(hubId: ForkTowerFixtureCatalog.hubId, spaceId: ForkTowerFixtureCatalog.spaceId)
         invalidation = guardState
+        hubReachable = true
         publish()
     }
 
@@ -534,16 +552,30 @@ final class ForkTowerFixtureStore: ObservableObject {
     }
 
     var doctorDiagnosis: DoctorTransportDiagnosis {
-        DoctorTransportDiagnosis.diagnose(doctor, hubReachable: hubReachable)
+        guard let hubReachable else {
+            return .unavailable
+        }
+        return DoctorTransportDiagnosis.diagnose(doctor, hubReachable: hubReachable)
     }
 
     func bind(hubId: String, spaceId: String) {
+        let changesContext = invalidation.activeHubId != hubId || invalidation.activeSpaceId != spaceId
         invalidation.bindContext(hubId: hubId, spaceId: spaceId)
+        if changesContext {
+            hubReachable = nil
+        }
         publish()
     }
 
-    func setHubReachable(_ reachable: Bool) {
+    @discardableResult
+    func setHubReachable(_ reachable: Bool, capturedGeneration: UInt64) -> Bool {
+        guard invalidation.activeHubId == ForkTowerFixtureCatalog.hubId,
+              invalidation.activeSpaceId == ForkTowerFixtureCatalog.spaceId,
+              capturedGeneration == invalidation.generation else {
+            return false
+        }
         hubReachable = reachable
+        return true
     }
 
     @discardableResult
