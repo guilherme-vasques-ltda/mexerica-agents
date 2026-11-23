@@ -74,8 +74,7 @@ fun AppStore.signOut() = sessionAction {
     transitions.withLock {
         val previous = state.value
         val old = previous.account.accounts.firstOrNull { it.userId == previous.account.userId } ?: return@withLock
-        Analytics.capture(AnalyticsEvent.SignedOut)
-        retireContext()
+        retireContext(clearWorkspaceState = false)
         withContext(NonCancellable) {
             try {
                 NativeAccounts.signOut(old.sessionId)
@@ -83,6 +82,7 @@ fun AppStore.signOut() = sessionAction {
                 if (NativeAccounts.activeUserId() == old.userId) loadContext(previous.account, previous.workspace)
                 throw error
             }
+            Analytics.capture(AnalyticsEvent.SignedOut)
             withContext(Dispatchers.IO) { LocalStore.eraseAccount(getApplication(), old.userId) }
             preferredWorkspace = null
             loadContext(AccountState(ready = true), null)

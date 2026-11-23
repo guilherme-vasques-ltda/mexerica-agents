@@ -12,6 +12,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.test.platform.app.InstrumentationRegistry
 import com.codync.android.core.*
 import com.codync.android.core.fork.ForkWorkspaceContext
+import com.codync.android.core.fork.TeamMembership
 import com.codync.android.design.LocalDismissModal
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -33,6 +34,20 @@ class AccountScreenTest {
         setupComplete = true, account = accountState, workspace = accountState.workspaces?.firstOrNull(), contextId = "profile-fixture")
 
     @Before fun isolatedEmulatorOnly() { assumeTrue(Build.PRODUCT.startsWith("sdk")) }
+
+    @Test fun teamSelectionDisablesDirectPairing() {
+        val choices = ForkWorkspaceContext.choices(first.userId, true, listOf(TeamMembership("org_test", "Equipe teste", "org:member")))
+        val state = mutableStateOf(fixture(account.copy(workspaces = choices)))
+        compose.setContent { Hosted { AccountSwitcherView(state.value, viewModel(), {}, {}) } }
+        val scan = compose.onNodeWithText("Scan a computer's code")
+        scan.assertIsEnabled()
+        compose.onNodeWithText("Pessoal").assertIsSelected()
+        compose.onNodeWithText("Equipe teste").assertIsNotSelected()
+        compose.runOnUiThread { state.value = state.value.copy(workspace = choices.last()) }
+        scan.assertIsNotEnabled()
+        compose.onNodeWithText("Pessoal").assertIsNotSelected()
+        compose.onNodeWithText("Equipe teste").assertIsSelected()
+    }
 
     @Test fun signedInOverviewKeepsTheProfileAboveItsNavigation() {
         var scanned = false; var settings = false; var closed = false

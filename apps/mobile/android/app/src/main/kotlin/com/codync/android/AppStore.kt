@@ -117,7 +117,7 @@ class AppStore(application: Application) : AndroidViewModel(application) {
     }
 
     /** Join every writer before closing a context's database or replacing its identity. */
-    internal suspend fun retireContext() = withContext(NonCancellable) {
+    internal suspend fun retireContext(clearWorkspaceState: Boolean = true) = withContext(NonCancellable) {
         workspaceGeneration.retire()
         mutableState.update { it.copy(loading = true) }
         PushPreferences.retire(getApplication())
@@ -156,8 +156,13 @@ class AppStore(application: Application) : AndroidViewModel(application) {
         pluginsRefreshAgain = false
         rewoundFor = null
         draftWriter = null; draftBook = null; savedDrafts = emptyMap()
-        withContext(Dispatchers.IO) { feed.clear(); database?.close(); database = null }
-        withContext(Dispatchers.IO) { ConnectorOAuthBook(local.directory).clear() }
+        withContext(Dispatchers.IO) {
+            database?.close(); database = null
+            if (clearWorkspaceState) {
+                feed.clear()
+                ConnectorOAuthBook(local.directory).clear()
+            }
+        }
         contextJob = SupervisorJob(viewModelScope.coroutineContext[Job])
         contextScope = CoroutineScope(contextJob + Dispatchers.Main.immediate)
     }
