@@ -301,7 +301,7 @@ fn answer_restored(
             .is_some_and(|options| options.iter().any(|o| o["optionId"] == option && o["kind"] == "allow_once"))
     });
     let Some(option) = option_id.filter(|_| offered) else {
-        tracing::warn!(entry = entry.id, option = ?option_id, "opção recusada no cartão restaurado");
+        tracing::warn!(entry = entry.id, "cartão restaurado: opção ausente ou fora das oferecidas");
         bail!("Opção inválida: escolha uma das opções disponíveis neste cartão.");
     };
     let mut data = entry.data.clone();

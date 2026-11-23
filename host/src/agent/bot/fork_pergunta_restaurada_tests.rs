@@ -152,7 +152,7 @@ fn recusar_sempre_volta_como_recusa_unica() {
     let options = restored.data["options"].as_array().unwrap();
     let kinds: Vec<&str> = options.iter().filter_map(|o| o["kind"].as_str()).collect();
     assert_eq!(kinds, ["allow_once", "reject_once"]);
-    assert!(options.iter().all(|o| o.get("name").is_none()), "o rótulo «sempre» não acompanha a recusa única");
+    assert_eq!(options[1]["name"], "Recusar", "rótulo neutro: o «sempre» não acompanha, e o cliente exige um nome");
     let _ = std::fs::remove_dir_all(dir);
 }
 

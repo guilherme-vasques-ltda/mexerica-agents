@@ -74,9 +74,8 @@ fn restorable_on(c: &Connection, card: &Entry) -> Result<Option<Value>> {
         && let Some(mut reject) = offered.iter().find(|option| option["kind"] == "reject_always").cloned()
     {
         reject["kind"] = json!("reject_once");
-        if let Some(fields) = reject.as_object_mut() {
-            fields.remove("name");
-        }
+        // O rótulo «sempre» não acompanha; os clientes exigem um `name`, então fica um neutro.
+        reject["name"] = json!("Recusar");
         options.push(reject);
     }
     if !options.iter().any(|option| option["kind"] == "allow_once") {
