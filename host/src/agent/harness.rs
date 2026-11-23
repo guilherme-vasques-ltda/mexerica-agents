@@ -291,7 +291,8 @@ mod tests {
 
     /// Tamanho do texto fixo montado (sem o caminho do manual, que muda de máquina para máquina). Quem inflar o prompt
     /// vê este teste falhar: confira se o aumento é intencional e atualize o número no mesmo PR, com o motivo.
-    const TEXTO_FIXO_BYTES: usize = 27_863;
+    /// A reescrita das instruções de criação e revisão de skills reduziu o texto fixo em 12 bytes.
+    const TEXTO_FIXO_BYTES: usize = 27_851;
 
     #[test]
     fn tamanho_do_texto_fixo_esta_fixado() {
