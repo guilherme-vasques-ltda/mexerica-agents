@@ -14,6 +14,7 @@ const stubs = new Map([
     new URL('../../../components/Controls.tsx', import.meta.url).href,
     `import { createElement } from 'react'
 export function Spinner() { return createElement('span', { 'data-spinner': '' }) }
+export function DropdownMenu({ children }) { return children }
 export function Button({ children, disabled, type }) { return createElement('button', { type: type ?? 'button', disabled }, children) }`,
   ],
   [
@@ -26,12 +27,16 @@ export function Icon({ name }) { return createElement('span', { 'data-icon': nam
     `import { createElement } from 'react'
 export function BotAvatar({ bot }) { return createElement('span', { 'data-avatar': bot?.name ?? '' }) }`,
   ],
+  [new URL('../../../components/Text.tsx', import.meta.url).href, `export function Text({ children }) { return children }`],
+  [new URL('../../../store/context.ts', import.meta.url).href, `export function useApp() { return globalThis.fixtureApp }`],
+  [new URL('../../settings/ssh-model.ts', import.meta.url).href, `export function useSSH() { return { state: { profiles: [], attachments: [] } } }`],
+  [new URL('../../settings/parts.tsx', import.meta.url).href, `export function rotuloConexao() { return '' }`],
 ])
 
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === '@shared/fork-features') {
-      return next(new URL('../../../../shared/fork-features.ts', import.meta.url).href, context)
+    if (specifier.startsWith('@shared/')) {
+      return next(new URL(`${specifier.slice('@shared/'.length)}.ts`, sharedRoot).href, context)
     }
     if (specifier.startsWith('.') && context.parentURL && !/\.[a-z]+$/.test(specifier)) {
       for (const ext of ['.ts', '.tsx']) {
@@ -71,6 +76,63 @@ Object.assign(globalThis, {
   },
   document: { documentElement: { lang: 'pt-BR' }, body: { setAttribute() {} }, hidden: false, hasFocus: () => true },
   window: { codync: { platform: 'linux' }, addEventListener() {} },
+})
+
+test('Instalação direta informa a recusa no Desktop Linux e preserva as outras ações', async () => {
+  const { forkFeatures } = await import('../../../../shared/fork-features.ts')
+  const { HostStateView } = await import('../../HostStateView.tsx')
+  const { useComputerMenu } = await import('../../ComputerFilterHeader.tsx')
+  const { Step3Wizard } = await import('./Step3Wizard.tsx')
+  const aviso = 'A instalação assistida do Hub não está disponível no aplicativo para Linux.'
+  const hostState = { kind: 'notInstalled' } as const
+  const host = { state: hostState, install: () => { installs += 1 } }
+  let installs = 0
+  const noop = () => {}
+  const desktop = { codync: { platform: 'linux', host } }
+  const originalWindow = globalThis.window
+  const localHost = forkFeatures.localHost
+  forkFeatures.localHost = true
+  Object.assign(globalThis, { fixtureApp: { host, computers: [] } })
+  const menu = () => {
+    let items: ReturnType<ReturnType<typeof useComputerMenu>['items']> = []
+    function Fixture() {
+      items = useComputerMenu('', noop, noop).items()
+      return null
+    }
+    renderToStaticMarkup(createElement(Fixture))
+    return items
+  }
+  const wizard = (platform: 'linux' | 'darwin' | 'win32', hostState: Parameters<typeof Step3Wizard>[0]['hostState']) => renderToStaticMarkup(createElement(Step3Wizard, {
+    client: null, spaceId: 'pessoal', hostState, localHubSupported: true, platform, status: null, where: 'local',
+    onSelectWhere: noop, onOpenComputers: noop, onSkip: noop, onContinue: noop,
+  }))
+  try {
+    Object.assign(globalThis, { window: { ...originalWindow, ...desktop } })
+    const row = menu().find((item) => item.title === aviso)
+    assert.ok(row?.disabled)
+    row.action()
+    assert.equal(installs, 0)
+    const hostHtml = renderToStaticMarkup(createElement(HostStateView))
+    assert.ok(hostHtml.includes(aviso))
+    assert.doesNotMatch(hostHtml, /<button/)
+    const linux = wizard('linux', hostState)
+    assert.ok(linux.includes(aviso))
+    assert.doesNotMatch(linux, /onboarding-consent-box/)
+
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      Object.assign(globalThis, { window: { ...originalWindow, codync: { platform, host, web: platform === 'linux' } } })
+      const install = menu().find((item) => !item.disabled && /instalar/i.test(item.title))
+      assert.ok(install)
+      install.action()
+      assert.match(renderToStaticMarkup(createElement(HostStateView)), /<button/)
+      assert.match(wizard(platform, hostState), /onboarding-consent-box/)
+      assert.doesNotMatch(wizard(platform, { kind: 'disabled' }), /onboarding-consent-box/)
+    }
+    assert.equal(installs, 3)
+  } finally {
+    forkFeatures.localHost = localHost
+    Object.assign(globalThis, { window: originalWindow, fixtureApp: undefined })
+  }
 })
 
 test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita capacidade do SO', async () => {

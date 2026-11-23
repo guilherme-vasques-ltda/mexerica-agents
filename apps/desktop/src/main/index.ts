@@ -267,7 +267,13 @@ function registerIPC(tray: Tray) {
   ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.CODYNC_DEBUG_OPEN ?? null)))
   ipcMain.handle('host:snapshot', () => snapshot())
   if (!isRc) {
-    ipcMain.on('host:install', () => void host.install())
+    ipcMain.on('host:install', () => {
+      if (process.platform === 'linux') {
+        console.warn('host_install_linux_unsupported')
+        return
+      }
+      void host.install()
+    })
     ipcMain.on('host:restart', () => host.restart())
   }
   ipcMain.handle('host:onboardingDismissal', (event, userId: unknown, action: unknown) => {

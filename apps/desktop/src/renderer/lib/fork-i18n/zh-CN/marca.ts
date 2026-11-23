@@ -45,6 +45,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.memoriaMotor.ondeVer': 'Mexerica 无法显示这些笔记；请在 {motor} 中查看。',
   'marca.memoriaMotor.separadas': '{motor} 会保留与 Mexerica 记忆分开的笔记。此项默认关闭，让机器人只有一份记忆，你也可以在这里查看和编辑全部内容。',
   'marca.hub.configurar': 'Mexerica 会连接到 Hub，也就是在后台运行你的机器人的服务。',
+  'marca.hub.instalacaoAssistidaLinuxIndisponivel': 'Linux 应用不提供 Hub 的辅助安装。',
   'marca.hub.semHub': '此 Mexerica 副本不包含运行机器人的程序。请重新安装 Mexerica。',
   'marca.hub.devSemHub': '请用开发版 Hub 重新编译 Mexerica Dev，然后再次打开。',
   'marca.hub.ambiente': '此 {app} 应用找到了来自 {ambiente} 的 Hub。请在它自己的端口上启动对应的 Hub。',

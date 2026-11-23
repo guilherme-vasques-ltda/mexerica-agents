@@ -44,7 +44,7 @@ function loadAuthModule(app: unknown, ipcMain: unknown, browserOpens: string[]) 
  * abertura (R10/R11). O primeiro plano é modelado (o app ativo, oculto, quem está à frente) só com os fatos medidos nas
  * fixtures e lidos no Electron fixado (`browser_mac.mm`/`native_window_mac.mm` 44.5.1), indicados em cada ponto.
  */
-async function appRig({ saved = musgo as unknown, raw = null as string | null, showInDock = false, agent = false, showIsland = false, appIcon = undefined as string | undefined, env = {} as Record<string, string>, dialogo = {} as { showMessageBox?: (janela: unknown, opcoes: Electron.MessageBoxOptions) => Promise<{ response: number }> } } = {}) {
+async function appRig({ saved = musgo as unknown, raw = null as string | null, showInDock = false, agent = false, showIsland = false, appIcon = undefined as string | undefined, env = {} as Record<string, string>, dialogo = {} as { showMessageBox?: (janela: unknown, opcoes: Electron.MessageBoxOptions) => Promise<{ response: number }> }, hostInstall = undefined as { platform: NodeJS.Platform; rc?: boolean; tray?: boolean } | undefined } = {}) {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'd169-r10-'))
   const file = path.join(dir, 'app-icon-v1.json')
   // D457: a preferência antiga do seletor (uma variante do "d", um arquivo inválido ou nenhum) fica no disco, intocada.
@@ -179,7 +179,7 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     hide() { this.visible = false }
     setBackgroundColor() {}
   }
-  const platform = { process: { platform: 'darwin', resourcesPath: dir, env: { ...env } } }
+  const platform = { process: { platform: hostInstall?.platform ?? 'darwin', resourcesPath: dir, env: { ...env } } }
   // R12/R13: os timers e o relógio do dock.ts são do rig (`advance` anda o tempo e roda o que venceu).
   const dockTimers = new Map<number, { due: number, run: () => void }>()
   let timerSeq = 0
@@ -199,10 +199,26 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
   const browserOpens: string[] = []
   const authModule = loadAuthModule(app, ipcMain, browserOpens)
   // Só fronteiras: tudo o que o main/index.ts importa além do Dock, do ícone e do login é inerte aqui.
-  class Inert { state = 'ready'; local = null; logPath = ''; on() { return this } start() {} register() { startup.push('account') } hostChanged() {} update() {} closeToBackground() {} beginQuit() {} }
+  class InertBase { local = null; logPath = ''; on() { return this } start() {} register() { startup.push('account') } hostChanged() {} update() {} closeToBackground() {} beginQuit() {} }
+  class Inert extends InertBase { state = 'ready' }
+  let confirmed = true
+  const installEffects: string[] = []
+  const installWarnings: unknown[][] = []
+  class HostStub extends InertBase {
+    state = hostInstall?.tray ? { kind: hostInstall.rc ? 'disabled' : 'notInstalled' } : 'ready'
+    async install() { installEffects.push('install') }
+  }
+  class AccountStub extends Inert { officialSessionCurrent() { return confirmed } }
   // R13: o menu da barra é inerte, mas guarda o `openChat` real que o index.ts lhe passa (o item que abre a janela).
   let menuOpen: (() => unknown) | null = null
   class MenuBar extends Inert { constructor(options: { openChat(): unknown }) { super(); menuOpen = options.openChat } }
+  let trayMenu: Electron.MenuItemConstructorOptions[] = []
+  class TrayStub {
+    setToolTip() {}
+    on() {}
+    setContextMenu(items: Electron.MenuItemConstructorOptions[]) { trayMenu = items }
+  }
+  class UpdatesStub extends InertBase { state = { downloadPercent: null, supported: false } }
   const none = () => {}
   // R14: a island.ts real (registra os IPC síncronos e, ligada, abre o painel). Tela e ponteiro fixos; o laço do ponteiro
   // não corre sozinho (timers guardados, não executados).
@@ -217,21 +233,22 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
   loadMainModule('index', {
     'node:crypto': crypto,
     './fork-keychain/generation': { prepareKeychain: () => { startup.push('keychain') } },
-    './environment': { identity: { port: 0, scheme: 'donnabot' } },
+    './environment': { identity: { port: 0, scheme: 'donnabot' }, isRc: hostInstall?.rc ?? false },
     './fork-voz/registrar': { registerVozIPC: () => { startup.push('voice') } },
-    '../shared/fork-features': { forkFeatures: { cloud: false, cloudAccess: false } }, '../shared/fork-surfaces': surfaces,
+    '../shared/fork-features': { officialDesktop: !!hostInstall, forkFeatures: { cloud: false, cloudAccess: false, localHost: !!hostInstall } }, '../shared/fork-surfaces': surfaces,
     './fork-cloud/register': { registerForkCloud: () => assert.fail('cloud fixture is disabled') },
     './fork-cloud/service': { registerForkCloudService: () => assert.fail('cloud fixture is disabled') },
     'node:child_process': { execFileSync: () => '' }, 'node:os': { hostname: () => 'teste' }, 'node:path': path, 'node:url': nodeURL,
     electron: {
       app, autoUpdater: {}, BrowserWindow: ChatWindow, clipboard: { writeText() {} }, dialog: dialogo, ipcMain, shell: {},
       Menu: { buildFromTemplate: (template: unknown) => template, setApplicationMenu() {} },
-      nativeImage: { createEmpty: () => ({ png: 'reset', isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }) }), createFromPath: () => ({ png: 'icone-escolhido', isEmpty: () => false, getSize: () => ({ width: 256, height: 256 }) }) },
-      nativeTheme: { shouldUseDarkColors: false, on() {} }, session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDisplayMediaRequestHandler() {} } },
+      nativeImage: { createEmpty: () => ({ png: 'reset', isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }) }), createFromPath: () => ({ png: 'icone-escolhido', isEmpty: () => false, getSize: () => ({ width: 256, height: 256 }), setTemplateImage() {} }) },
+      Tray: TrayStub,
+      nativeTheme: { shouldUseDarkColors: false, on() {} }, session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDisplayMediaRequestHandler() {}, webRequest: { onBeforeRequest() {} } } },
     },
-    './host-controller': { devPort: null, HostController: Inert, prefs: { get: (key: string) => prefs.get(key), set: (key: string, value: unknown) => { prefWrites.push([key, value]); prefs.set(key, value) } } }, './file-saves': { registerFileSaves: none }, './host-proxy': { registerHostProxy: none },
-    './files': { readClipboardFiles: none, readFiles: none }, './tray': { Tray: MenuBar }, './dock': dockModule, './account': { AccountService: Inert },
-    './updates': { Updates: Inert, yieldsToInstall: () => false },
+    './host-controller': { devPort: null, HostController: HostStub, prefs: { get: (key: string) => prefs.get(key), set: (key: string, value: unknown) => { prefWrites.push([key, value]); prefs.set(key, value) } } }, './file-saves': { registerFileSaves: none }, './host-proxy': { registerHostProxy: none },
+    './files': { readClipboardFiles: none, readFiles: none }, ...(!hostInstall?.tray && { './tray': { Tray: MenuBar } }), './dock': dockModule, './account': { AccountService: AccountStub },
+    './updates': { Updates: UpdatesStub, yieldsToInstall: () => false },
     './fork-release-notice': { registerReleaseNotice: none },
     './auth': authModule,
     './fork-oauth-loopback-ipc': { registerOAuthLoopbackIPC: none },
@@ -240,7 +257,7 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     './analytics': { reportHostSetupFailure: none },
     './login-item': { launchAtLogin: none, openedAtLogin: none, setLaunchAtLogin: none, updateLoginItem: none },
     './navigation': { openExternalURL: none, openSystemSettingsURL: none, registerWindowNavigation: none },
-  }, { ...platform, __dirname: '/app/out/main', URL })
+  }, { ...platform, __dirname: '/app/out/main', URL, console: hostInstall ? { ...console, warn: (...args: unknown[]) => installWarnings.push(args) } : console })
   const idle = async () => { for (let i = 0; i < 12; i++) await settle() }
   /** O início do index.ts: visibilidade, IPC e, por último, a janela de chat (que aparece no ready-to-show). */
   const boot = async () => {
@@ -291,6 +308,9 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     setShowInDock: async (on: boolean) => handles.get('app:setShowInDock')!({}, on) as boolean,
     /** MX-9: o handler IPC cru, para o caso de remetente não confiável (evento sem o frame da janela de chat). */
     handle: (channel: string) => handles.get(channel),
+    installEffects, installWarnings,
+    trayMenu: () => trayMenu,
+    setConfirmed: (value: boolean) => { confirmed = value },
     /** MX-9: os IPC do seletor, chamados como o preload faz (evento do frame principal da janela de chat). */
     appIcon: {
       selected: () => handles.get('appIcon:selected')!({ sender: chatWindow().webContents, senderFrame: chatWindow().webContents.mainFrame }),
@@ -300,6 +320,76 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     done: () => fs.rm(dir, { recursive: true, force: true }),
   }
 }
+
+test('Main recusa instalação assistida no Linux mesmo com Hub local ligado e sessão válida', async (t) => {
+  const rig = await appRig({ hostInstall: { platform: 'linux' } })
+  t.after(rig.done)
+  await rig.boot()
+  const install = rig.handle('host:install')
+  assert.ok(install)
+  const sender = rig.chat().webContents
+  const event: { sender: typeof sender; senderFrame: typeof sender.mainFrame; returnValue?: unknown } = { sender, senderFrame: sender.mainFrame }
+  const prefsBefore = rig.prefWrites.length
+  rig.setConfirmed(false)
+  install(event)
+  assert.equal(event.returnValue, null)
+  assert.deepEqual(rig.installWarnings, [])
+  rig.setConfirmed(true)
+  install(event)
+  assert.deepEqual(rig.installEffects, [])
+  assert.deepEqual(rig.installWarnings, [['host_install_linux_unsupported']])
+  assert.equal(rig.prefWrites.length, prefsBefore)
+})
+
+test('Main mantém instalação assistida no Mac/Windows e não registra instalação local na RC', async (t) => {
+  for (const platform of ['darwin', 'win32'] as const) {
+    const rig = await appRig({ hostInstall: { platform } })
+    t.after(rig.done)
+    await rig.boot()
+    const sender = rig.chat().webContents
+    const install = rig.handle('host:install')
+    assert.ok(install)
+    install({ sender, senderFrame: sender.mainFrame })
+    assert.deepEqual(rig.installEffects, ['install'])
+    assert.deepEqual(rig.installWarnings, [])
+  }
+  for (const platform of ['linux', 'win32'] as const) {
+    const rig = await appRig({ hostInstall: { platform, rc: true } })
+    t.after(rig.done)
+    await rig.boot()
+    assert.equal(rig.handle('host:install'), undefined)
+    assert.equal(rig.handle('host:restart'), undefined)
+    assert.deepEqual(rig.installEffects, [])
+    assert.deepEqual(rig.installWarnings, [])
+  }
+})
+
+test('Bandeja remove só a instalação direta no Linux com Hub local ligado e preserva Mac, Windows e RC', async (t) => {
+  for (const [platform, rc] of [['linux', false], ['darwin', false], ['win32', false], ['linux', true], ['win32', true]] as const) {
+    const rig = await appRig({ hostInstall: { platform, rc, tray: true } })
+    t.after(rig.done)
+    await rig.boot()
+    const items = rig.trayMenu()
+    const install = items.find(item => item.label === 'Install the Hub')
+    assert.deepEqual(rig.installEffects, [])
+    if (!rc && platform !== 'linux') {
+      assert.ok(install?.click, platform)
+      Reflect.apply(install.click, undefined, [])
+      assert.deepEqual(rig.installEffects, ['install'])
+    } else {
+      assert.equal(install, undefined, `${platform} / RC=${rc}`)
+      assert.deepEqual(rig.installEffects, [])
+    }
+    assert.ok(items.some(item => item.label === 'Open Mexerica'))
+    assert.ok(items.some(item => item.label === 'Quit Mexerica'))
+    const settings = items.find(item => item.label === 'Settings')?.submenu
+    assert.ok(Array.isArray(settings))
+    assert.ok(settings.some(item => item.label === 'Reset all data…'))
+    assert.equal(settings.some(item => item.label === 'Restart the Hub'), !rc)
+    assert.equal(settings.some(item => item.label === 'Uninstall Hub service'), !rc)
+    assert.equal(items.some(item => item.label === 'No bots yet'), rc)
+  }
+})
 
 
 test('R10 N3 controles: Dock ligado reaplica, segunda instância e activate sem a mudança do LaunchServices não alternam', async () => {
