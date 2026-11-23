@@ -163,11 +163,11 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
 @MainActor @Test func machineLabelShowsOnlyWhenExecutionIsActive() {
     let cards = ForkTowerFixtureCatalog.cards
     let active = ForkWorkCardPresentation(card: cards[0])
-    #expect(active.observedLabel == "Precisa de você")
+    #expect(active.observedLabel == String(localized: "Precisa de você", bundle: .module))
     #expect(active.machineLabel == "Máquina de exemplo A")
 
     let inactive = ForkWorkCardPresentation(card: cards[1])
-    #expect(inactive.observedLabel == "Sem execução observada")
+    #expect(inactive.observedLabel == String(localized: "Sem execução observada", bundle: .module))
     #expect(inactive.machineLabel == nil)
     #expect(inactive.declaredState == "in_progress")
 }
@@ -216,6 +216,49 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     let generation = store.generation
     let foreign = TowerInvalidationEvent(type: .donnaGovernanceChanged, hubId: "hub-estranho", spaceId: ForkTowerFixtureCatalog.spaceId)
     #expect(!store.receive(foreign, capturedGeneration: generation))
+}
+
+@MainActor @Test func bindToOtherContextPublishesUnavailableImmediately() {
+    let store = ForkTowerFixtureStore()
+    store.bind(hubId: "hub-outro", spaceId: "espaco-outro")
+    #expect(store.attention == .unavailable)
+    #expect(store.doctor == .unavailable)
+    #expect(store.tower == nil)
+    #expect(store.doctorDiagnosis == .unavailable)
+}
+
+@MainActor @Test func perspectiveChangeInOtherContextDoesNotRestoreOldProjection() {
+    let store = ForkTowerFixtureStore()
+    store.bind(hubId: "hub-outro", spaceId: "espaco-outro")
+    store.selectedPerspective = .director
+    #expect(store.tower == nil)
+    #expect(store.attention == .unavailable)
+    #expect(store.doctor == .unavailable)
+}
+
+@MainActor @Test func returningToOriginalContextRestoresProjectionForCurrentPerspective() {
+    let store = ForkTowerFixtureStore()
+    store.bind(hubId: "hub-outro", spaceId: "espaco-outro")
+    store.selectedPerspective = .bot
+    store.bind(hubId: ForkTowerFixtureCatalog.hubId, spaceId: ForkTowerFixtureCatalog.spaceId)
+    #expect(store.attention.isAvailable)
+    #expect(store.doctor.isAvailable)
+    #expect(store.tower?.perspective == .bot)
+    #expect(store.tower?.cards.count == 1)
+}
+
+@MainActor @Test func lateEventFromPreviousContextIsDroppedAfterRoundTrip() {
+    let store = ForkTowerFixtureStore()
+    let oldGeneration = store.generation
+    store.bind(hubId: "hub-outro", spaceId: "espaco-outro")
+    store.bind(hubId: ForkTowerFixtureCatalog.hubId, spaceId: ForkTowerFixtureCatalog.spaceId)
+    let late = TowerInvalidationEvent(
+        type: .donnaAttentionChanged,
+        hubId: ForkTowerFixtureCatalog.hubId,
+        spaceId: ForkTowerFixtureCatalog.spaceId
+    )
+    #expect(!store.receive(late, capturedGeneration: oldGeneration))
+    #expect(store.attention.isAvailable)
 }
 
 @MainActor @Test func storeSwitchesTowerProjectionPerPerspective() {

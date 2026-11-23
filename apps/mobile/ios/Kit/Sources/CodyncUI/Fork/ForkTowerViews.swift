@@ -49,22 +49,22 @@ struct ForkAttentionQueueView: View {
         List {
             if presentation.phase == .unavailable {
                 Section {
-                    Label("Não foi possível carregar agora", systemImage: "exclamationmark.triangle")
+                    Label(String(localized: "Não foi possível carregar agora", bundle: .module), systemImage: "exclamationmark.triangle")
                 }
             }
             ForEach(presentation.coverageSources, id: \.self) { source in
                 Section {
-                    Label("Não consegui ver \(source)", systemImage: "eye.slash")
+                    Label(String(localized: "Não consegui ver \(source)", bundle: .module), systemImage: "eye.slash")
                         .foregroundStyle(.orange)
                 }
             }
             if presentation.phase == .nothingWaiting {
                 Section {
-                    Label("Nada esperando você", systemImage: "checkmark.circle")
+                    Label(String(localized: "Nada esperando você", bundle: .module), systemImage: "checkmark.circle")
                 }
             }
             if !presentation.items.isEmpty {
-                Section("Esperando você") {
+                Section(String(localized: "Esperando você", bundle: .module)) {
                     ForEach(presentation.items) { item in
                         ForkAttentionCard(item: item, onAction: onAction)
                     }
@@ -72,7 +72,7 @@ struct ForkAttentionQueueView: View {
             }
             if !presentation.resolvedToday.isEmpty {
                 Section {
-                    DisclosureGroup("Resolvidos hoje (\(presentation.resolvedToday.count))", isExpanded: $resolvedExpanded) {
+                    DisclosureGroup(String(localized: "Resolvidos hoje (\(presentation.resolvedToday.count))", bundle: .module), isExpanded: $resolvedExpanded) {
                         ForEach(presentation.resolvedToday) { item in
                             Text(item.summary ?? item.kind.rotulo)
                                 .font(.caption)
@@ -163,7 +163,7 @@ struct ForkHubDoctorView: View {
                 .padding(.vertical, 4)
             }
             if !presentation.checks.isEmpty {
-                Section("Verificações") {
+                Section(String(localized: "Verificações", bundle: .module)) {
                     ForEach(presentation.checks) { check in
                         HStack {
                             Text(check.area.rotulo)
@@ -211,11 +211,11 @@ struct ForkWorkCardPresentation: Equatable {
         isPermissionPause = card.blocker.kind == .permissionPause
         linkedAttentionItemId = card.blocker.kind == .permissionPause ? card.blocker.attentionItemId : nil
         deliveryLabel = [
-            card.delivery.hasEvidence ? "com entrega" : "sem entrega",
-            card.delivery.acceptedByOwner ? "aceita por você" : "ainda não aceita",
+            card.delivery.hasEvidence ? String(localized: "com entrega", bundle: .module) : String(localized: "sem entrega", bundle: .module),
+            card.delivery.acceptedByOwner ? String(localized: "aceita por você", bundle: .module) : String(localized: "ainda não aceita", bundle: .module),
         ].joined(separator: ", ")
         declaredState = card.state
-        observedLabel = card.observedExecution.active ? card.observedExecution.status.rotulo : "Sem execução observada"
+        observedLabel = card.observedExecution.active ? card.observedExecution.status.rotulo : String(localized: "Sem execução observada", bundle: .module)
         machineLabel = card.observedExecution.active ? card.observedExecution.machineLabel : nil
         canOwnerAccept = card.capabilities.canOwnerAccept
         canDirectorInterrupt = card.capabilities.canDirectorInterrupt
@@ -252,7 +252,7 @@ struct ForkTowerScreen: View {
         let presentation = ForkTowerPresentation(snapshot: store.tower, selected: store.selectedPerspective)
         List {
             Section {
-                Picker("Visão", selection: $store.selectedPerspective) {
+                Picker(String(localized: "Visão", bundle: .module), selection: $store.selectedPerspective) {
                     ForEach(perspectives, id: \.self) { perspective in
                         Text(perspective.rotulo).tag(perspective)
                     }
@@ -262,10 +262,10 @@ struct ForkTowerScreen: View {
             if let counts = presentation.counts {
                 Section {
                     HStack {
-                        ForkTowerCount(value: counts.needsYou, label: "Precisa de você")
-                        ForkTowerCount(value: counts.observedWorking, label: "Trabalhando")
-                        ForkTowerCount(value: counts.waitingOrBlocked, label: "Esperando")
-                        ForkTowerCount(value: counts.totalVisible, label: "Total")
+                        ForkTowerCount(value: counts.needsYou, label: String(localized: "Precisa de você", bundle: .module))
+                        ForkTowerCount(value: counts.observedWorking, label: String(localized: "Trabalhando", bundle: .module))
+                        ForkTowerCount(value: counts.waitingOrBlocked, label: String(localized: "Esperando", bundle: .module))
+                        ForkTowerCount(value: counts.totalVisible, label: String(localized: "Total", bundle: .module))
                     }
                 }
                 Section {
@@ -277,7 +277,7 @@ struct ForkTowerScreen: View {
                 }
             } else {
                 Section {
-                    Label("Não foi possível carregar agora", systemImage: "exclamationmark.triangle")
+                    Label(String(localized: "Não foi possível carregar agora", bundle: .module), systemImage: "exclamationmark.triangle")
                 }
             }
         }
@@ -320,7 +320,7 @@ private struct ForkWorkCardView: View {
                     .foregroundStyle(presentation.isPermissionPause ? Color.orange : Color.gray)
             }
             if presentation.linkedAttentionItemId != nil {
-                Text("Ligado a uma pendência em Esperando você")
+                Text(String(localized: "Ligado a uma pendência em Esperando você", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -328,10 +328,10 @@ private struct ForkWorkCardView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Declarado: \(presentation.declaredState)")
-                Text("Execução observada: \(presentation.observedLabel)")
+                Text(String(localized: "Declarado: \(presentation.declaredState)", bundle: .module))
+                Text(String(localized: "Execução observada: \(presentation.observedLabel)", bundle: .module))
                 if let machine = presentation.machineLabel {
-                    Text("Máquina: \(machine)")
+                    Text(String(localized: "Máquina: \(machine)", bundle: .module))
                 }
             }
             .font(.caption)
@@ -339,11 +339,11 @@ private struct ForkWorkCardView: View {
             if presentation.canOwnerAccept || presentation.canDirectorInterrupt {
                 HStack {
                     if presentation.canOwnerAccept {
-                        Button("Aceitar entrega") { onAction(.accept) }
+                        Button(String(localized: "Aceitar entrega", bundle: .module)) { onAction(.accept) }
                             .buttonStyle(.bordered)
                     }
                     if presentation.canDirectorInterrupt {
-                        Button("Interromper") { onAction(.interrupt) }
+                        Button(String(localized: "Interromper", bundle: .module)) { onAction(.interrupt) }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -512,14 +512,12 @@ enum ForkTowerFixtureCatalog {
 
 @MainActor
 final class ForkTowerFixtureStore: ObservableObject {
-    @Published private(set) var attention: TowerObservation<AttentionQueue>
-    @Published private(set) var doctor: TowerObservation<HubDoctorReport>
+    @Published private(set) var attention: TowerObservation<AttentionQueue> = .unavailable
+    @Published private(set) var doctor: TowerObservation<HubDoctorReport> = .unavailable
     @Published private(set) var tower: TowerViewSnapshot?
     @Published private(set) var hubReachable = true
     @Published var selectedPerspective: TowerPerspective = .overview {
-        didSet {
-            tower = ForkTowerFixtureCatalog.tower(for: selectedPerspective)
-        }
+        didSet { publish() }
     }
 
     private var invalidation: TowerInvalidationGuard
@@ -528,9 +526,7 @@ final class ForkTowerFixtureStore: ObservableObject {
         var guardState = TowerInvalidationGuard()
         guardState.bindContext(hubId: ForkTowerFixtureCatalog.hubId, spaceId: ForkTowerFixtureCatalog.spaceId)
         invalidation = guardState
-        attention = ForkTowerFixtureCatalog.attention
-        doctor = ForkTowerFixtureCatalog.doctor
-        tower = ForkTowerFixtureCatalog.tower(for: .overview)
+        publish()
     }
 
     var generation: UInt64 {
@@ -543,6 +539,7 @@ final class ForkTowerFixtureStore: ObservableObject {
 
     func bind(hubId: String, spaceId: String) {
         invalidation.bindContext(hubId: hubId, spaceId: spaceId)
+        publish()
     }
 
     func setHubReachable(_ reachable: Bool) {
@@ -554,19 +551,30 @@ final class ForkTowerFixtureStore: ObservableObject {
         guard invalidation.shouldAccept(event, capturedGeneration: capturedGeneration) else {
             return false
         }
+        publish()
+        return true
+    }
+
+    private func publish() {
+        guard invalidation.activeHubId == ForkTowerFixtureCatalog.hubId,
+              invalidation.activeSpaceId == ForkTowerFixtureCatalog.spaceId else {
+            attention = .unavailable
+            doctor = .unavailable
+            tower = nil
+            return
+        }
         attention = ForkTowerFixtureCatalog.attention
         doctor = ForkTowerFixtureCatalog.doctor
         tower = ForkTowerFixtureCatalog.tower(for: selectedPerspective)
-        return true
     }
 }
 
 private extension AttentionSeverity {
     var rotulo: String {
         switch self {
-        case .blocking: return "Bloqueando"
-        case .actionRequired: return "Precisa de ação"
-        case .warning: return "Atenção"
+        case .blocking: return String(localized: "Bloqueando", bundle: .module)
+        case .actionRequired: return String(localized: "Precisa de ação", bundle: .module)
+        case .warning: return String(localized: "Atenção", bundle: .module)
         }
     }
 }
@@ -574,12 +582,12 @@ private extension AttentionSeverity {
 private extension AttentionKind {
     var rotulo: String {
         switch self {
-        case .permission, .delegatedPermission: return "Permissão"
-        case .ownerQuestion: return "Pergunta"
-        case .taskProposal: return "Proposta de tarefa"
-        case .taskReview: return "Revisão de tarefa"
-        case .routineReview: return "Revisão de rotina"
-        case .doctorAlert: return "Alerta do Doctor"
+        case .permission, .delegatedPermission: return String(localized: "Permissão", bundle: .module)
+        case .ownerQuestion: return String(localized: "Pergunta", bundle: .module)
+        case .taskProposal: return String(localized: "Proposta de tarefa", bundle: .module)
+        case .taskReview: return String(localized: "Revisão de tarefa", bundle: .module)
+        case .routineReview: return String(localized: "Revisão de rotina", bundle: .module)
+        case .doctorAlert: return String(localized: "Alerta do Doctor", bundle: .module)
         }
     }
 }
@@ -587,13 +595,13 @@ private extension AttentionKind {
 private extension AttentionActionKind {
     var ctaRotulo: String {
         switch self {
-        case .respondPermission: return "Responder permissão"
-        case .answerQuestion: return "Responder"
-        case .decideProposal: return "Decidir proposta"
-        case .reviewTask: return "Revisar tarefa"
-        case .reviewRoutine: return "Revisar rotina"
-        case .openConversation: return "Abrir conversa"
-        case .openDoctor: return "Abrir Doctor"
+        case .respondPermission: return String(localized: "Responder permissão", bundle: .module)
+        case .answerQuestion: return String(localized: "Responder", bundle: .module)
+        case .decideProposal: return String(localized: "Decidir proposta", bundle: .module)
+        case .reviewTask: return String(localized: "Revisar tarefa", bundle: .module)
+        case .reviewRoutine: return String(localized: "Revisar rotina", bundle: .module)
+        case .openConversation: return String(localized: "Abrir conversa", bundle: .module)
+        case .openDoctor: return String(localized: "Abrir Doctor", bundle: .module)
         }
     }
 }
@@ -601,14 +609,14 @@ private extension AttentionActionKind {
 private extension DoctorActionKind {
     var ctaRotulo: String {
         switch self {
-        case .none: return "Nenhuma ação necessária"
-        case .startHub: return "Iniciar Hub"
-        case .connectAI: return "Conectar IA"
-        case .reviewWaiting: return "Revisar pendências"
-        case .checkChannels: return "Verificar canais"
-        case .checkMCPs: return "Verificar integrações"
-        case .checkRoutines: return "Verificar rotinas"
-        case .openTorre: return "Abrir Torre"
+        case .none: return String(localized: "Nenhuma ação necessária", bundle: .module)
+        case .startHub: return String(localized: "Iniciar Hub", bundle: .module)
+        case .connectAI: return String(localized: "Conectar IA", bundle: .module)
+        case .reviewWaiting: return String(localized: "Revisar pendências", bundle: .module)
+        case .checkChannels: return String(localized: "Verificar canais", bundle: .module)
+        case .checkMCPs: return String(localized: "Verificar integrações", bundle: .module)
+        case .checkRoutines: return String(localized: "Verificar rotinas", bundle: .module)
+        case .openTorre: return String(localized: "Abrir Torre", bundle: .module)
         }
     }
 }
@@ -616,13 +624,13 @@ private extension DoctorActionKind {
 private extension DoctorArea {
     var rotulo: String {
         switch self {
-        case .hub: return "Hub"
-        case .aiEngine: return "IA"
-        case .approvals: return "Aprovações"
-        case .channels: return "Canais"
-        case .mcps: return "Integrações"
-        case .routines: return "Rotinas"
-        case .delegation: return "Delegação"
+        case .hub: return String(localized: "Hub", bundle: .module)
+        case .aiEngine: return String(localized: "IA", bundle: .module)
+        case .approvals: return String(localized: "Aprovações", bundle: .module)
+        case .channels: return String(localized: "Canais", bundle: .module)
+        case .mcps: return String(localized: "Integrações", bundle: .module)
+        case .routines: return String(localized: "Rotinas", bundle: .module)
+        case .delegation: return String(localized: "Delegação", bundle: .module)
         }
     }
 }
@@ -630,10 +638,10 @@ private extension DoctorArea {
 private extension DoctorCheckStatus {
     var rotulo: String {
         switch self {
-        case .ok: return "OK"
-        case .warning: return "Atenção"
-        case .error: return "Erro"
-        case .unavailable: return "Indisponível"
+        case .ok: return String(localized: "OK", bundle: .module)
+        case .warning: return String(localized: "Atenção", bundle: .module)
+        case .error: return String(localized: "Erro", bundle: .module)
+        case .unavailable: return String(localized: "Indisponível", bundle: .module)
         }
     }
 }
@@ -641,35 +649,37 @@ private extension DoctorCheckStatus {
 private extension ForkDoctorPresentation.Headline {
     var titulo: String {
         switch self {
-        case .hubOffline: return "Hub offline"
-        case .aiDisconnected: return "IA desconectada"
-        case .waitingUser: return "Aguardando sua aprovação"
-        case .degraded: return "Algumas áreas precisam de atenção"
-        case .healthy: return "Tudo funcionando"
-        case .unavailable: return "Não foi possível carregar agora"
+        case .hubOffline: return String(localized: "Hub offline", bundle: .module)
+        case .aiDisconnected: return String(localized: "IA desconectada", bundle: .module)
+        case .waitingUser: return String(localized: "Aguardando sua aprovação", bundle: .module)
+        case .degraded: return String(localized: "Algumas áreas precisam de atenção", bundle: .module)
+        case .healthy: return String(localized: "Tudo funcionando", bundle: .module)
+        case .unavailable: return String(localized: "Não foi possível carregar agora", bundle: .module)
         }
     }
 
     var mensagem: String {
         switch self {
         case .hubOffline:
-            return "O Hub está inacessível. Isso não é erro de IA: inicie o Hub para ver o estado."
+            return String(localized: "O Hub está inacessível. Isso não é erro de IA: inicie o Hub para ver o estado.", bundle: .module)
         case .aiDisconnected(let code):
             switch code {
-            case "ai_no_active_account": return "Nenhuma conta de IA está ativa."
-            case "ai_all_paused": return "Todas as contas de IA estão pausadas."
-            case "ai_rate_limited": return "As contas de IA atingiram o limite de uso."
-            default: return "A IA não está disponível agora."
+            case "ai_no_active_account": return String(localized: "Nenhuma conta de IA está ativa.", bundle: .module)
+            case "ai_all_paused": return String(localized: "Todas as contas de IA estão pausadas.", bundle: .module)
+            case "ai_rate_limited": return String(localized: "As contas de IA atingiram o limite de uso.", bundle: .module)
+            default: return String(localized: "A IA não está disponível agora.", bundle: .module)
             }
         case .waitingUser(let count):
-            let pending = count.map { " (\($0) pendências)" } ?? ""
-            return "O sistema não está travado: falta só a sua decisão\(pending)."
+            guard let count else {
+                return String(localized: "O sistema não está travado: falta só a sua decisão.", bundle: .module)
+            }
+            return String(localized: "O sistema não está travado: falta só a sua decisão (\(count) pendências).", bundle: .module)
         case .degraded:
-            return "Abra a Torre para ver quais áreas precisam de atenção."
+            return String(localized: "Abra a Torre para ver quais áreas precisam de atenção.", bundle: .module)
         case .healthy:
-            return "Nenhuma ação necessária agora."
+            return String(localized: "Nenhuma ação necessária agora.", bundle: .module)
         case .unavailable:
-            return "Não foi possível carregar o diagnóstico do Hub."
+            return String(localized: "Não foi possível carregar o diagnóstico do Hub.", bundle: .module)
         }
     }
 
@@ -688,11 +698,11 @@ private extension ForkDoctorPresentation.Headline {
 private extension WorkBucket {
     var rotulo: String {
         switch self {
-        case .needsYou: return "Precisa de você"
-        case .observedWorking: return "Trabalhando"
-        case .waitingOrBlocked: return "Esperando ou bloqueado"
-        case .backlog: return "Backlog"
-        case .done: return "Concluído"
+        case .needsYou: return String(localized: "Precisa de você", bundle: .module)
+        case .observedWorking: return String(localized: "Trabalhando", bundle: .module)
+        case .waitingOrBlocked: return String(localized: "Esperando ou bloqueado", bundle: .module)
+        case .backlog: return String(localized: "Backlog", bundle: .module)
+        case .done: return String(localized: "Concluído", bundle: .module)
         }
     }
 }
@@ -700,10 +710,10 @@ private extension WorkBucket {
 private extension WorkOriginKind {
     var rotulo: String {
         switch self {
-        case .ownerDirect: return "Pedido direto seu"
-        case .delegated: return "Delegado"
-        case .routine: return "Rotina"
-        case .unknown: return "Origem não informada"
+        case .ownerDirect: return String(localized: "Pedido direto seu", bundle: .module)
+        case .delegated: return String(localized: "Delegado", bundle: .module)
+        case .routine: return String(localized: "Rotina", bundle: .module)
+        case .unknown: return String(localized: "Origem não informada", bundle: .module)
         }
     }
 }
@@ -711,11 +721,11 @@ private extension WorkOriginKind {
 private extension WorkBlockerKind {
     var rotulo: String {
         switch self {
-        case .permissionPause: return "Pausado por permissão"
-        case .ownerDecision: return "Aguardando decisão sua"
-        case .dependency: return "Depende de outra tarefa"
-        case .manual: return "Bloqueio manual"
-        case .none: return "Sem bloqueio"
+        case .permissionPause: return String(localized: "Pausado por permissão", bundle: .module)
+        case .ownerDecision: return String(localized: "Aguardando decisão sua", bundle: .module)
+        case .dependency: return String(localized: "Depende de outra tarefa", bundle: .module)
+        case .manual: return String(localized: "Bloqueio manual", bundle: .module)
+        case .none: return String(localized: "Sem bloqueio", bundle: .module)
         }
     }
 }
@@ -723,12 +733,12 @@ private extension WorkBlockerKind {
 private extension ObservedExecutionStatus {
     var rotulo: String {
         switch self {
-        case .idle: return "Parada"
-        case .working: return "Trabalhando"
-        case .needsInput: return "Precisa de você"
-        case .waiting: return "Esperando"
-        case .error: return "Com erro"
-        case .unavailable: return "Indisponível"
+        case .idle: return String(localized: "Parada", bundle: .module)
+        case .working: return String(localized: "Trabalhando", bundle: .module)
+        case .needsInput: return String(localized: "Precisa de você", bundle: .module)
+        case .waiting: return String(localized: "Esperando", bundle: .module)
+        case .error: return String(localized: "Com erro", bundle: .module)
+        case .unavailable: return String(localized: "Indisponível", bundle: .module)
         }
     }
 }
@@ -736,9 +746,9 @@ private extension ObservedExecutionStatus {
 private extension TowerPerspective {
     var rotulo: String {
         switch self {
-        case .overview: return "Dono & Berga"
-        case .director: return "Tanga"
-        case .bot: return "Executor"
+        case .overview: return String(localized: "Dono & Berga", bundle: .module)
+        case .director: return String(localized: "Tanga", bundle: .module)
+        case .bot: return String(localized: "Executor", bundle: .module)
         }
     }
 }

@@ -14515,6 +14515,1281 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Não foi possível carregar agora": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar agora"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load right now"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Não consegui ver %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não consegui ver %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I couldn't check %@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Nada esperando você": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada esperando você"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing waiting for you"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Resolvidos hoje (%lld)": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolvidos hoje (%lld)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolved today (%lld)"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Bloqueando": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueando"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocking"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Precisa de ação": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa de ação"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action needed"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Atenção": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atenção"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attention"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Permissão": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissão"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Pergunta": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pergunta"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Proposta de tarefa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposta de tarefa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task proposal"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisão de tarefa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisão de tarefa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task review"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisão de rotina": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisão de rotina"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routine review"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Alerta do Doctor": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerta do Doctor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doctor alert"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Responder permissão": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responder permissão"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer permission"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Decidir proposta": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decidir proposta"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decide proposal"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisar tarefa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar tarefa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review task"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisar rotina": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar rotina"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review routine"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Abrir conversa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir conversa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open conversation"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Abrir Doctor": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Doctor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Doctor"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Hub offline": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub offline"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub offline"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "IA desconectada": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IA desconectada"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI disconnected"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Aguardando sua aprovação": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando sua aprovação"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your approval"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Algumas áreas precisam de atenção": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algumas áreas precisam de atenção"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some areas need attention"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Tudo funcionando": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo funcionando"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything is working"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Não foi possível carregar o diagnóstico do Hub.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar o diagnóstico do Hub."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the Hub diagnosis."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "O Hub está inacessível. Isso não é erro de IA: inicie o Hub para ver o estado.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Hub está inacessível. Isso não é erro de IA: inicie o Hub para ver o estado."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Hub is unreachable. This is not an AI error: start the Hub to see its status."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Nenhuma conta de IA está ativa.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma conta de IA está ativa."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No AI account is active."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Todas as contas de IA estão pausadas.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as contas de IA estão pausadas."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All AI accounts are paused."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "As contas de IA atingiram o limite de uso.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As contas de IA atingiram o limite de uso."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The AI accounts reached their usage limit."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "A IA não está disponível agora.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A IA não está disponível agora."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI is not available right now."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "O sistema não está travado: falta só a sua decisão.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O sistema não está travado: falta só a sua decisão."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The system is not stuck: it only needs your decision."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "O sistema não está travado: falta só a sua decisão (%lld pendências).": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O sistema não está travado: falta só a sua decisão (%lld pendências)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The system is not stuck: it only needs your decision (%lld pending items)."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Abra a Torre para ver quais áreas precisam de atenção.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abra a Torre para ver quais áreas precisam de atenção."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the Tower to see which areas need attention."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Nenhuma ação necessária agora.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma ação necessária agora."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No action needed right now."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Nenhuma ação necessária": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma ação necessária"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No action needed"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Iniciar Hub": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar Hub"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Hub"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Conectar IA": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar IA"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect AI"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Revisar pendências": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar pendências"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review pending items"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Verificar canais": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificar canais"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check channels"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Verificar integrações": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificar integrações"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check integrations"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Verificar rotinas": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificar rotinas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check routines"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Abrir Torre": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Torre"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Tower"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Hub": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "IA": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IA"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Aprovações": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprovações"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approvals"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Integrações": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrações"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrations"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Delegação": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delegação"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delegation"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Verificações": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificações"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Aceitar entrega": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceitar entrega"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept delivery"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Visão": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visão"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Dono & Berga": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dono & Berga"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owner & Berga"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Tanga": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanga"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanga"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Executor": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Executor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Executor"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Esperando": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Esperando ou bloqueado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando ou bloqueado"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting or blocked"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Backlog": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Pedido direto seu": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pedido direto seu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your direct request"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Delegado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delegado"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delegated"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Origem não informada": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem não informada"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origin not provided"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Pausado por permissão": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausado por permissão"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused for permission"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Aguardando decisão sua": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando decisão sua"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your decision"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Depende de outra tarefa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depende de outra tarefa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depends on another task"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Bloqueio manual": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueio manual"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual block"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Sem bloqueio": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem bloqueio"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No block"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "com entrega": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "com entrega"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "with delivery"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "sem entrega": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sem entrega"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "without delivery"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "aceita por você": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aceita por você"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accepted by you"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "ainda não aceita": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ainda não aceita"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not accepted yet"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Ligado a uma pendência em Esperando você": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligado a uma pendência em Esperando você"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linked to an item in Waiting for you"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Declarado: %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Declarado: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Declared: %@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Execução observada: %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execução observada: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed execution: %@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Máquina: %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine: %@"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Parada": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parada"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Com erro": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com erro"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With error"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Sem execução observada": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem execução observada"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observed execution"
+          }
+        }
+      },
+      "extractionState": "manual"
     }
   },
   "version": "1.0"
