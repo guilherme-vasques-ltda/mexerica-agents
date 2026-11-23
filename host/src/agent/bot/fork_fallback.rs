@@ -59,7 +59,8 @@ fn parada_key(session: &str) -> String {
 /// O fallback só vale na conversa do dono no Pessoal (principal e extras): conversa de outro Space, de canal, rotina e bot
 /// com comando próprio seguem como antes (espera por limite D72). O mesmo portão vale antes do envio e no limite.
 pub(super) fn aplica_a(cfg: &crate::store::BotConfig, lane: &Lane) -> bool {
-    cfg.context.is_none()
+    !crate::agent::backends::is_antigravity(&cfg.backend)
+        && cfg.context.is_none()
         && cfg.space_id == crate::fork::spaces::PERSONAL
         && cfg.command.is_none()
         && lane.chat == cfg.id
@@ -125,6 +126,11 @@ impl Actor {
             (session, own, efetiva)
         };
         let (Some(own), Some(efetiva)) = (own, efetiva) else { return Ok(()) };
+        if crate::agent::backends::is_antigravity(&own.backend)
+            || crate::agent::backends::is_antigravity(&efetiva.backend)
+        {
+            return Ok(());
+        }
         let (Some(origem), Some(atual)) = (own.account_id.clone(), efetiva.account_id.clone()) else { return Ok(()) };
         let mut cfg = original.clone();
         own.apply(&mut cfg);

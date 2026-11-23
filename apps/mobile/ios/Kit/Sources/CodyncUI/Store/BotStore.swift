@@ -134,7 +134,7 @@ public final class BotStore {
     /// What was pasted into each draft, sent along so memory never takes it as the user's own words.
     @ObservationIgnored var composerPasted: [String: [String]] = [:]
     public var routineDrafts: [String: String] = [:]
-    public let fileDownloads = FileDownloads()
+    public let fileDownloads: FileDownloads
     public var lastError: String?
     /// The open conversation (navigation path).
     public var selection: String?
@@ -212,6 +212,7 @@ public final class BotStore {
         self.appVersion = appVersion
         self.computer = computer
         self.storage = storage
+        fileDownloads = FileDownloads(scopeID: storage.id)
         makeTransport = transport
         self.agora = agora
         self.monotonico = monotonico
@@ -219,7 +220,7 @@ public final class BotStore {
         inicioDaQueda = monotonico()
         // Nothing is identified yet: no action goes out until the first `hello` (the strip waits its grace).
         estadoConexao = .reconectando(desde: agora())
-        donoDoEspelho = DonoDoEspelho(conta: storage.accountID, computador: computer.id, chave: computer.signKey)
+        donoDoEspelho = DonoDoEspelho(conta: storage.mirrorOwnerID, computador: computer.id, chave: computer.signKey)
         usage = storage.usage[computer.id] ?? Usage()
         composerDrafts = Self.chatDrafts(storage.composerDrafts[computer.id] ?? [:])
         loadCache()
@@ -244,6 +245,14 @@ public final class BotStore {
     /// What headers show: a short drop past its grace reads "Connecting…", not offline.
     public var shownConnection: Connection {
         estadoConexao.estaReconectando && connection != .online && connection != .unpaired ? .connecting : connection
+    }
+
+    public var hubUnavailable: Bool {
+        if estadoConexao.estaReconectando && !faixaDeQueda { return false }
+        switch heldDrop ?? connection {
+        case .computerOffline, .offline: return true
+        default: return false
+        }
     }
 
     /// Sending, approving and every other call to the Hub are allowed: the link is up and the Hub

@@ -4,15 +4,14 @@ import CodyncUI
 import SwiftUI
 
 extension BotStore {
-    /// One short line for a computer's connection, used next to its name. A short drop reads
-    /// "Connecting…", not offline.
+    /// One short line for a computer's connection, used next to its name.
     var statusText: String {
         switch shownConnection {
         case .online where mismatch != nil: String(localized: "Precisa atualizar")
         case .online: String(localized: "Online")
         case .connecting: String(localized: "Conectando…")
-        case let .computerOffline(lastSeen): lastSeen.map { String(localized: "Sem conexão · visto \(RelativeTime.day($0))") } ?? String(localized: "Sem conexão")
-        case .offline: String(localized: "Não foi possível conectar")
+        case let .computerOffline(lastSeen): lastSeen.map { String(localized: "Hub indisponível · visto \(RelativeTime.day($0))") } ?? String(localized: "Hub indisponível")
+        case .offline: String(localized: "Hub indisponível")
         case let .unauthorized(message): message
         case .unpaired: String(localized: "Não pareado")
         }

@@ -139,6 +139,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "Añadir Node.js",
   "extensoes.motor.conferindoPrimeira": "Consultando con {motor}… La primera comprobación puede descargarlo.",
   "extensoes.terminal.dicaAntigravity": "Elige Google OAuth, abre el enlace, entra y pega el código aquí. Entrar en agy no confirma ACP.",
+  "extensoes.motor.antigravityInterativo": "No disponible en esta app. Usa la CLI oficial con tu cuenta en un cliente ACP interactivo.",
   "extensoes.terminal.dicaOpenCode": "Elige el proveedor con las flechas y pulsa Enter. Para OpenCode Go, usa la clave en la bóveda.",
   "extensoes.terminal.dicaGrok": "Abre el enlace en el navegador y confirma el código del dispositivo.",
   "extensoes.terminal.dicaCursor": "Abre el enlace en el navegador. El acceso se comprueba automáticamente.",
