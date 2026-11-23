@@ -68,6 +68,7 @@ impl Autoridade {
                 intencao,
             })),
             captura: Arc::new(()),
+            sessao: None,
         };
         original.with_db(hub, None, |_| Ok(()))?;
         Ok(original)

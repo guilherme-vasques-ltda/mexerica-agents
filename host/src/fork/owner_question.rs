@@ -297,6 +297,7 @@ fn commit<T>(hub: &Hub, change: impl FnOnce(&Connection) -> Result<(T, Vec<Entry
         let (value, mut entries) = {
             let mut db = hub.store.db.locked();
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
             let out = change(&tx)?;
             tx.commit()?;
             out
@@ -336,7 +337,18 @@ pub(crate) fn ask(
 /// Substitui `Hub::add_entry` nos envios do dono (`send` da conversa/canal e da conversa de Space).
 /// A chave antiduplicata (`clientNonce`) e o limite da fila são conferidos na mesma transação da gravação: dois
 /// envios simultâneos com a mesma chave dão uma linha só, e a fila cheia recusa sem criar nada.
+#[cfg(test)]
 pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value) -> Result<Human> {
+    add_human(hub, lane, Some(turn), data)
+}
+
+/// O envio do dono com o turno reservado na própria transação da mensagem: recusada a gravação,
+/// nenhum turno é consumido.
+pub(crate) fn add_human_message_no_turno(hub: &Hub, lane: &Lane, data: &Value) -> Result<Human> {
+    add_human(hub, lane, None, data)
+}
+
+fn add_human(hub: &Hub, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<Human> {
     commit(hub, |c| {
         if let Some(original) = crate::store::Store::replay_on(c, &lane.chat, data)? {
             return Ok((Human::Replayed(original), Vec::new()));
@@ -352,6 +364,10 @@ pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value)
             )?;
             ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
         }
+        let turn = match turn {
+            Some(turn) => turn,
+            None => crate::store::alloc_turn_on(c, &lane.chat)?,
+        };
         let (marker, entry) =
             insert_visible_on(c, &uuid::Uuid::new_v4().to_string(), lane, EntryKind::User, turn, data)?;
         let answered = answer_on(c, lane, &entry.id)?;

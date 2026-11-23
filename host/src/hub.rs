@@ -160,6 +160,8 @@ pub struct Hub {
     pub(crate) web_local: std::sync::OnceLock<Arc<crate::fork::web_local::WebState>>,
     /// `workspaceEpoch` atual; streams abertos terminam quando ele sobe.
     pub(crate) workspace: crate::fork::workspace::Sinal,
+    /// JWKS e nonces da sessão Clerk do acesso remoto (Hub com vínculo).
+    pub(crate) sessao_clerk: crate::fork::sessao_clerk::Estado,
 }
 
 impl Hub {
@@ -215,6 +217,7 @@ impl Hub {
             login_codes: crate::market::login_codes::Codes::default(),
             web_local: std::sync::OnceLock::new(),
             workspace,
+            sessao_clerk: crate::fork::sessao_clerk::Estado::default(),
         })
     }
 
