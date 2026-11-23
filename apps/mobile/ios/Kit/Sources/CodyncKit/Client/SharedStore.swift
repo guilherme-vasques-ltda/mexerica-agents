@@ -22,28 +22,63 @@ public enum SharedStore {
 
     /// Widgets read only the account selected by the app. Stores capture a fixed
     /// context so late responses from a previous account cannot write into it.
-    public static var activeAccountID: String? {
-        get { defaults.string(forKey: "activeAccountID") }
-        set { defaults.set(newValue, forKey: "activeAccountID") }
+    private struct ActiveScope: Codable {
+        let accountID: String?
+        let scope: String?
     }
 
-    public static var activeContext: Context { Context(accountID: activeAccountID) }
+    public static var activeContext: Context {
+        if let data = defaults.data(forKey: "activeScope") {
+            if let active = try? JSONDecoder().decode(ActiveScope.self, from: data) {
+                return Context(accountID: active.accountID, scope: active.scope)
+            }
+            return Context(accountID: nil, scope: "inactive")
+        }
+        return Context(accountID: defaults.string(forKey: "activeAccountID"))
+    }
+
+    public static func activate(_ context: Context) {
+        defaults.set(try? JSONEncoder().encode(ActiveScope(accountID: context.accountID, scope: context.scope)), forKey: "activeScope")
+        defaults.removeObject(forKey: "activeAccountID")
+    }
+
+    public static func clearLegacyAttachments() {
+        try? FileManager.default.removeItem(at: URL.cachesDirectory.appending(path: "codync-attachments"))
+    }
+
+    public static func replaceWorkspaceScopes(_ scopes: Set<String>, userID: String) -> Set<String> {
+        let key = "workspaceScopes.\(Context.digest(userID))"
+        let existing = Set(defaults.stringArray(forKey: key) ?? [])
+        defaults.set(scopes.sorted(), forKey: key)
+        return existing.subtracting(scopes)
+    }
+
+    public static func eraseWorkspaceScopes(userID: String) {
+        let key = "workspaceScopes.\(Context.digest(userID))"
+        for scope in defaults.stringArray(forKey: key) ?? [] {
+            Context(accountID: userID, scope: scope).erase()
+        }
+        defaults.removeObject(forKey: key)
+    }
 
     public struct Context: Sendable {
-        /// The raw Clerk user ID; nil = the local (signed-out) context.
+        /// The raw Clerk user ID, when the scope belongs to an account.
         public let accountID: String?
+        fileprivate let scope: String?
+        public var mirrorOwnerID: String? { scope == nil ? accountID : id }
         /// The UserDefaults suite (the App Group; tests use their own).
         private let suite: String
         private var defaults: UserDefaults { UserDefaults(suiteName: suite) ?? .standard }
-        public var id: String { accountID.map { Self.digest($0) } ?? "local" }
+        public var id: String { (scope ?? accountID).map { Self.digest($0) } ?? "local" }
 
-        public init(accountID: String?, suite: String = SharedStore.appGroup) {
+        public init(accountID: String?, scope: String? = nil, suite: String = SharedStore.appGroup) {
             self.accountID = accountID
+            self.scope = scope
             self.suite = suite
         }
 
         private static let names = ["computers", "bots", "usage", "lastComputerId", "composerDrafts", "computerOrder"]
-        private func key(_ name: String) -> String { accountID == nil ? name : "account.\(id).\(name)" }
+        private func key(_ name: String) -> String { id == "local" ? name : "account.\(id).\(name)" }
         public static func digest(_ value: String) -> String {
             SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
         }
@@ -146,6 +181,9 @@ public enum SharedStore {
             for name in Self.names { defaults.removeObject(forKey: key(name)) }
             DeviceIdentity.delete(context: self)
             let caches = URL.cachesDirectory
+            try? FileManager.default.removeItem(at: caches.appending(path: "codync-attachments-\(id)"))
+            let downloads = FileManager.default.temporaryDirectory.appending(path: "CodyncDownloads").appending(path: id)
+            try? FileManager.default.removeItem(at: downloads)
             let marker = "-\(id)-"
             for file in (try? FileManager.default.contentsOfDirectory(atPath: caches.path())) ?? []
             where file.hasPrefix("codync-mirror-") && file.contains(marker) {

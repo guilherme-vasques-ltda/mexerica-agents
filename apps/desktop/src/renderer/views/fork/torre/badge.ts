@@ -5,6 +5,7 @@
 import type { AppLanguage } from '../../../../shared/fork-idioma.ts'
 import { traduzir } from '../../../lib/fork-i18n/index.ts'
 import { isolado } from '../../../../shared/bidi.ts'
+import type { AttentionQueue } from '../../../../shared/fork-torre-esperando.ts'
 
 export interface BadgeBot { status: string; kind?: string; hidden?: boolean; spaceId?: string }
 
@@ -27,6 +28,10 @@ export function waitingYouCount(s: BadgeSource): number | null {
     if (b.status === 'needsInput') n++
   }
   return n
+}
+
+export function attentionCount(queue: Pick<AttentionQueue, 'items'> | null): number | null {
+  return queue?.items.length ?? null
 }
 
 /** O rótulo do botão: o nome sempre; a contagem só quando há quem espere. */

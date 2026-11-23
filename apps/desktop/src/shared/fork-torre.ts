@@ -8,6 +8,7 @@ import { parseWhatHappened, type WhatHappened } from './fork-torre-resumo.ts'
 import { parseRoutineCreations, type RoutineCreations } from './fork-torre-rotinas.ts'
 import { parseTrocasDeConta, type TrocasDeConta } from './fork-torre-trocas.ts'
 import { parseDelegatedPermissions, type DelegatedPermissions } from './fork-torre-permissoes.ts'
+import { parseAttentionObservation, type AttentionQueue } from './fork-torre-esperando.ts'
 export type { InterBotRequests, WhatHappened, RoutineCreations, DelegatedPermissions }
 
 export type TowerStatus = 'idle' | 'working' | 'needsInput' | 'waiting' | 'error'
@@ -55,7 +56,7 @@ export interface TowerBot {
   usage: { dailyBotTokens: Observation<number>; subscriptionLimit: Observation<number>; contextTokens: Observation<number> }
 }
 
-export interface TowerSnapshot { version: 1; hubId: string; snapshotId: string; collectedAt: number; spaceId: string; bots: TowerBot[]; interBotRequests: Observation<InterBotRequests>; whatHappened: Observation<WhatHappened>; routineCreations: Observation<RoutineCreations>
+export interface TowerSnapshot { version: 1; hubId: string; snapshotId: string; collectedAt: number; spaceId: string; bots: TowerBot[]; interBotRequests: Observation<InterBotRequests>; whatHappened: Observation<WhatHappened>; routineCreations: Observation<RoutineCreations>; attention: Observation<AttentionQueue>
   /** MEX-1391 (o).2: um cartão por troca de conta do fallback; Hub anterior sem o campo: indisponível. */
   accountSwitches: Observation<TrocasDeConta>
   /** MX-478: permissões pedidas por turno delegado, só Abrir; Hub anterior sem o campo: indisponível. */
@@ -181,7 +182,7 @@ export function parseTowerSnapshot(answer: unknown, expected: { hubId: string; s
       },
     }
   })
-  return { version: 1, hubId: answer.hubId as string, snapshotId, collectedAt, spaceId: answer.spaceId as string, bots, interBotRequests: observation(answer.interBotRequests, parseInterBotRequests), whatHappened: observation(answer.whatHappened, parseWhatHappened), routineCreations: observation(answer.routineCreations, parseRoutineCreations), accountSwitches: observation(answer.accountSwitches, parseTrocasDeConta), delegatedPermissions: observation(answer.delegatedPermissions, parseDelegatedPermissions) }
+  return { version: 1, hubId: answer.hubId as string, snapshotId, collectedAt, spaceId: answer.spaceId as string, bots, interBotRequests: observation(answer.interBotRequests, parseInterBotRequests), whatHappened: observation(answer.whatHappened, parseWhatHappened), routineCreations: observation(answer.routineCreations, parseRoutineCreations), accountSwitches: observation(answer.accountSwitches, parseTrocasDeConta), delegatedPermissions: observation(answer.delegatedPermissions, parseDelegatedPermissions), attention: parseAttentionObservation(answer.attention, expected) }
 }
 
 // MARK: apresentação

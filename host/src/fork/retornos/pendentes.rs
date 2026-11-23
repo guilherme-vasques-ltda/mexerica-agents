@@ -3,6 +3,7 @@
 //! Funções `*_na` usam somente a `Connection` recebida; sem Store, Cloud, await nem lock.
 //! Linha de outra versão ou com estado/motivo desconhecido é descartada (falha fechada).
 use super::consulta::{Estado, Linha, estado};
+use super::privacidade::{self, MetadataProjection, ReadAuthority};
 use super::{Desfecho, Modo};
 use crate::fork::control_tower::Observation;
 use crate::fork::spaces::PERSONAL;
@@ -60,11 +61,20 @@ fn modo(sql: &str) -> Option<Modo> {
 }
 
 pub(crate) fn ler_na(c: &Connection, filtro: &Filtro<'_>) -> Result<Leitura> {
+    ler_autorizado_na(c, filtro, None)
+}
+
+pub(super) fn ler_autorizado_na(
+    c: &Connection,
+    filtro: &Filtro<'_>,
+    caller: Option<&ReadAuthority<'_>>,
+) -> Result<Leitura> {
     let mut st = c.prepare(
         "SELECT r.id,r.mode,r.requester_bot_id,r.target_bot_id,r.updated_at,
            r.schema_version,r.kind,r.state,r.end_reason,r.attempt,
            (SELECT COUNT(*) FROM donna_session_results x WHERE x.request_id=r.id),
-           s.schema_version,s.outcome,s.end_reason
+           s.schema_version,s.outcome,s.end_reason,
+           EXISTS(SELECT 1 FROM donna_session_privacy p WHERE p.request_id=r.id)
          FROM donna_session_requests r
          LEFT JOIN donna_session_results s ON s.request_id=r.id AND s.attempt=r.attempt
          WHERE r.updated_at>=?1 ORDER BY r.updated_at DESC,r.id DESC",
@@ -85,12 +95,24 @@ pub(crate) fn ler_na(c: &Connection, filtro: &Filtro<'_>) -> Result<Leitura> {
                 outcome: r.get(12)?,
                 res_motivo: r.get(13)?,
             };
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get(2)?, r.get(3)?, r.get(4)?, linha))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                linha,
+                r.get::<_, bool>(14)?,
+            ))
         })();
-        let Ok((id, modo_sql, de, para, atualizado_em, linha)) = lida else { continue };
+        let Ok((id, modo_sql, de, para, atualizado_em, linha, qualified)) = lida else { continue };
         let (Some(modo), Ok(estado)) = (modo(&modo_sql), estado(&linha)) else { continue };
         let pedido = Pedido { id, modo, de, para, estado, atualizado_em };
-        if !(filtro.manter)(&pedido) {
+        if !(filtro.manter)(&pedido)
+            || (qualified
+                && (caller.is_none()
+                    || !privacidade::metadata_visible_na(c, &pedido.id, MetadataProjection::MissionBoard, caller)?))
+        {
             continue;
         }
         total += 1;
