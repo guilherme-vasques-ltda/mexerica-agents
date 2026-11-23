@@ -18,7 +18,6 @@ use crate::{
     fork::{
         background_executor::{JobResponse, MemoryBoundary},
         background_memory_auto::{selection_matches, with_memory_current},
-        background_notice::Problem,
         background_selection::Resolved,
         background_space_selection::{self, Prepared},
         memory_learning,

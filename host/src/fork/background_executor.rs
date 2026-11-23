@@ -167,7 +167,7 @@ async fn run_observed(
         input,
         exposed,
         function,
-        || crate::fork::engine_accounts::discover_background(hub),
+        || async { Err(crate::fork::background_notice::Problem::PersonalSubscription.into()) },
         boundary,
     )
     .await
@@ -653,6 +653,22 @@ mod history_tests {
         drop((second, third));
         let full_queue = tokio::sync::Semaphore::new(0);
         assert!(wait_for_slot(&full_queue, &slots).await.err().unwrap().is::<Busy>());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn assinatura_pessoal_nao_abre_executor_de_fundo() {
+        use crate::fork::background_notice::Problem;
+        use crate::{remote::identity::Identity, store::Store};
+        let dir = crate::store::private_fixture_dir("assinatura-fundo");
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+        let cfg: BotConfig = serde_json::from_value(json!({"id":"b", "name":"Bot", "backend":"claude"})).unwrap();
+        hub.store.save_bot(&cfg).unwrap();
+        let error = one_shot(&hub, &cfg, "instrução", "conteúdo").await.err().unwrap();
+        assert!(matches!(error.downcast_ref::<Problem>(), Some(Problem::PersonalSubscription)));
+        assert!(hub.store.kv_read(crate::fork::engine_accounts::SLOT).unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[cfg(unix)]

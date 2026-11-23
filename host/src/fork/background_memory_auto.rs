@@ -171,13 +171,7 @@ fn renew_reservation(section: &MemorySection<'_>, r: &Reservation, authorize: Au
 }
 
 pub(crate) async fn run(hub: &Arc<Hub>, bot: &str) -> Result<Ran> {
-    run_with(hub, bot, || {
-        crate::fork::engine_accounts::probe_background_choice(
-            hub,
-            crate::fork::modelos_funcao::catalogo::FunctionId::MemoryConsolidation,
-        )
-    })
-    .await
+    run_with(hub, bot, || async { Err(Problem::PersonalSubscription.into()) }).await
 }
 
 async fn run_with<F, Fut>(hub: &Arc<Hub>, bot: &str, discover: F) -> Result<Ran>

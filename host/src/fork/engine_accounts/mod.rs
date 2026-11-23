@@ -496,10 +496,6 @@ pub(crate) fn read_for_functions(store: &Store) -> Result<Value> {
     }).collect::<Result<Vec<Value>>>()?}))
 }
 
-pub(crate) async fn discover_background(_hub: &Arc<Hub>) -> Result<()> {
-    Err(super::background_notice::Problem::PersonalSubscription.into())
-}
-
 /// Conta que a sondagem de reserva de uma função parada confere.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg(test)]
@@ -530,13 +526,6 @@ fn probe_target(
         Some(account) if account.managed.is_some() => ProbeTarget::Managed(account.id.clone()),
         _ => ProbeTarget::Local,
     }
-}
-
-pub(crate) async fn probe_background_choice(
-    _hub: &Arc<Hub>,
-    _function: crate::fork::modelos_funcao::catalogo::FunctionId,
-) -> Result<()> {
-    Err(super::background_notice::Problem::PersonalSubscription.into())
 }
 
 /// `force`: a função está parada e a reserva precisa do catálogo atual mesmo
