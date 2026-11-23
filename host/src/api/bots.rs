@@ -409,7 +409,12 @@ pub(super) async fn call(
             let bot = str_arg(&b, "botId")?;
             match hub.store.bot(bot)? {
                 _ if crate::environment::Environment::is_open() => crate::fork::open_chat::stop(bot),
-                Some(row) if row.config.is_group() => hub.groups.stop(hub, bot),
+                Some(row) if row.config.is_group() => {
+                    // Gravada antes da confirmação: a mensagem parada nunca é retomada no boot.
+                    let saved = crate::fork::grupo_entrega::stop(hub, bot);
+                    hub.groups.stop(hub, bot);
+                    saved?;
+                }
                 _ => {
                     crate::fork::spaces::legacy_control(
                         hub,
