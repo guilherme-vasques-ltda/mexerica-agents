@@ -57,13 +57,16 @@ impl Motivo {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Retrato publicado em RAM: dono e epoch mudam juntos, num envio só, e só depois do commit.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Epoca {
     pub valor: u64,
     motivo: Option<Motivo>,
+    dono: Option<String>,
 }
 
-/// Epoch atual em RAM, espelho do SQLite; publicado antes do commit de cada aumento.
+/// Epoch e dono atuais em RAM, espelho do SQLite. Um número só é anunciado depois de gravado:
+/// uma queda entre o commit e a RAM nunca faz um epoch anunciado voltar atrás.
 pub(crate) struct Sinal(watch::Sender<Epoca>);
 
 impl Sinal {
@@ -72,20 +75,46 @@ impl Sinal {
             tracing::error!(error = format!("{error:#}"), "workspaceEpoch ilegível; pedidos com epoch divergem");
             u64::MAX
         });
-        Self(watch::Sender::new(Epoca { valor, motivo: None }))
+        Self(watch::Sender::new(Epoca { valor, motivo: None, dono: None }))
     }
 
     pub(crate) fn atual(&self) -> u64 {
         self.0.borrow().valor
     }
 
+    pub(crate) fn retrato(&self) -> Epoca {
+        self.0.borrow().clone()
+    }
+
     pub(crate) fn assinar(&self) -> watch::Receiver<Epoca> {
         self.0.subscribe()
     }
 
+    /// Só avança: dois commits publicados fora de ordem nunca baixam o número.
     fn publicar(&self, valor: u64, motivo: Motivo) {
-        self.0.send_replace(Epoca { valor, motivo: Some(motivo) });
+        self.0.send_if_modified(|e| avancar(e, valor, motivo));
     }
+
+    /// Dono e, quando a troca subiu o epoch, o número novo: um envio só.
+    fn publicar_dono(&self, dono: Option<&str>, epoch: Option<u64>) {
+        self.0.send_if_modified(|e| {
+            let subiu = epoch.is_some_and(|valor| avancar(e, valor, Motivo::OwnerChanged));
+            if e.dono.as_deref() == dono {
+                return subiu;
+            }
+            e.dono = dono.map(str::to_owned);
+            true
+        });
+    }
+}
+
+fn avancar(e: &mut Epoca, valor: u64, motivo: Motivo) -> bool {
+    if valor <= e.valor {
+        return false;
+    }
+    e.valor = valor;
+    e.motivo = Some(motivo);
+    true
 }
 
 fn epoch_on(c: &Connection) -> Result<u64> {
@@ -93,11 +122,9 @@ fn epoch_on(c: &Connection) -> Result<u64> {
     Ok(raw.map(|v| v.parse()).transpose()?.unwrap_or(0))
 }
 
-/// Sobe o epoch na Tx do chamador e publica em RAM antes do commit: nenhum evento sai
-/// entre o commit e o aviso. Se o commit falhar, a RAM fica à frente (fecha, não abre).
-fn bump_on(hub: &Hub, c: &Connection, motivo: Motivo) -> Result<u64> {
-    let atual = epoch_on(c)?.max(hub.workspace.atual());
-    let proximo = atual
+/// Sobe o epoch na Tx do chamador. Quem chama publica em RAM só depois do commit.
+fn bump_on(c: &Connection) -> Result<u64> {
+    let proximo = epoch_on(c)?
         .checked_add(1)
         .filter(|n| i64::try_from(*n).is_ok())
         .ok_or_else(|| anyhow::anyhow!("workspaceEpoch esgotado"))?;
@@ -105,9 +132,12 @@ fn bump_on(hub: &Hub, c: &Connection, motivo: Motivo) -> Result<u64> {
         "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
         params![EPOCH_KEY, proximo.to_string()],
     )?;
-    hub.workspace.publicar(proximo, motivo);
-    tracing::info!(epoch = proximo, ?motivo, "workspaceEpoch subiu");
     Ok(proximo)
+}
+
+fn anunciar(hub: &Hub, epoch: u64, motivo: Motivo) {
+    hub.workspace.publicar(epoch, motivo);
+    tracing::info!(epoch, ?motivo, "workspaceEpoch subiu");
 }
 
 /// Gancho para remoção de membro e troca de papel (Hub team).
@@ -115,8 +145,9 @@ fn bump_on(hub: &Hub, c: &Connection, motivo: Motivo) -> Result<u64> {
 pub(crate) fn bump(hub: &Hub, motivo: Motivo) -> Result<u64> {
     let mut db = hub.store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let proximo = bump_on(hub, &tx, motivo)?;
+    let proximo = bump_on(&tx)?;
     tx.commit()?;
+    anunciar(hub, proximo, motivo);
     Ok(proximo)
 }
 
@@ -129,13 +160,34 @@ pub(crate) fn revogar(hub: &Hub, key: &str) -> Result<bool> {
     if !crate::store::remove_device_on(&tx, key)? {
         return Ok(false);
     }
-    let epoch = bump_on(hub, &tx, Motivo::DeviceRevoked)?;
-    tx.execute(
-        "INSERT OR REPLACE INTO fork_workspace_revoked_devices(key,grant_id,epoch,revoked_at) VALUES(?1,?2,?3,?4)",
-        params![key, grant.flatten().unwrap_or_default(), i64::try_from(epoch)?, now_ms()],
-    )?;
+    let epoch = bloquear_on(&tx, key, grant.flatten().as_deref())?;
     tx.commit()?;
+    anunciar(hub, epoch, Motivo::DeviceRevoked);
     Ok(true)
+}
+
+/// Revogação pela cerca do bootstrap: o bloqueio e o epoch entram na Tx da própria cerca, uma
+/// vez só (na passagem para tombstone), antes de qualquer aviso.
+pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Result<bool> {
+    let mut epoch = None;
+    let cercado = hub.store.bootstrap_revoke_fenced(&hub.identity.sign, grant, key, now, |tx| {
+        epoch = Some(bloquear_on(tx, key, Some(grant))?);
+        Ok(())
+    })?;
+    if let Some(epoch) = epoch {
+        anunciar(hub, epoch, Motivo::DeviceRevoked);
+    }
+    Ok(cercado)
+}
+
+/// Bloqueio durável da chave (com a concessão) e epoch novo, na Tx do chamador.
+pub(crate) fn bloquear_on(c: &Connection, key: &str, grant: Option<&str>) -> Result<u64> {
+    let epoch = bump_on(c)?;
+    c.execute(
+        "INSERT OR REPLACE INTO fork_workspace_revoked_devices(key,grant_id,epoch,revoked_at) VALUES(?1,?2,?3,?4)",
+        params![key, grant.unwrap_or_default(), i64::try_from(epoch)?, now_ms()],
+    )?;
+    Ok(epoch)
 }
 
 /// A mesma chave com a mesma concessão (ou sem concessão) nunca volta sozinha. Só um
@@ -163,37 +215,70 @@ impl std::fmt::Display for Revogado {
 }
 impl std::error::Error for Revogado {}
 
-/// Pareamento por código emitido no próprio computador: a pessoa repareou o aparelho.
-pub(crate) fn liberar_pareamento_local(store: &Store, key: &str) -> Result<()> {
-    store.db.locked().execute("DELETE FROM fork_workspace_revoked_devices WHERE key=?1 AND grant_id=''", [key])?;
+/// Revogado e sem linha: só depois de o transporte provar a posse da chave.
+pub(crate) fn revogado_sem_linha(hub: &Hub, key: &str) -> bool {
+    hub.store
+        .db
+        .locked()
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM fork_workspace_revoked_devices WHERE key=?1)
+               AND NOT EXISTS(SELECT 1 FROM devices WHERE key=?1)",
+            [key],
+            |r| r.get(0),
+        )
+        .unwrap_or(false)
+}
+
+/// Pareamento por código mostrado no próprio computador: a pessoa repareou esta chave. Na Tx
+/// que grava o aparelho novo.
+pub(crate) fn liberar_pareamento_on(c: &Connection, key: &str) -> Result<()> {
+    c.execute("DELETE FROM fork_workspace_revoked_devices WHERE key=?1 AND grant_id=''", [key])?;
     Ok(())
 }
 
-/// Registra o dono conhecido. Dono que só ficou conhecido não sobe o epoch; outro `userId`
-/// depois de um dono já visto sobe.
+/// Readmissão pelo código: libera o bloqueio e grava o aparelho na mesma Tx.
+pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) -> Result<()> {
+    let mut db = store.db.locked();
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    liberar_pareamento_on(&tx, &device.key)?;
+    crate::store::put_device_on(&tx, device)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Registra o dono conhecido e publica dono e epoch juntos. Dono que só ficou conhecido não sobe
+/// o epoch; outro `userId` depois de um dono já visto sobe.
 pub(crate) fn observar_dono(hub: &Hub, dono: Option<&str>) {
-    let Some(dono) = dono else { return };
     let visto = |c: &Connection| -> Result<Option<String>> {
         Ok(c.query_row("SELECT v FROM kv WHERE k=?1", [OWNER_SEEN_KEY], |r| r.get(0)).optional()?)
     };
     let resultado = (|| -> Result<()> {
         let mut db = hub.store.db.locked();
+        let Some(dono) = dono else {
+            hub.workspace.publicar_dono(None, None);
+            return Ok(());
+        };
         if visto(&db)?.as_deref() == Some(dono) {
+            hub.workspace.publicar_dono(Some(dono), None);
             return Ok(());
         }
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let visto = visto(&tx)?;
-        if visto.as_deref() == Some(dono) {
-            return Ok(());
-        }
-        tx.execute(
-            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-            params![OWNER_SEEN_KEY, dono],
-        )?;
-        if visto.is_some() {
-            bump_on(hub, &tx, Motivo::OwnerChanged)?;
+        let anterior = visto(&tx)?;
+        let mut epoch = None;
+        if anterior.as_deref() != Some(dono) {
+            tx.execute(
+                "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                params![OWNER_SEEN_KEY, dono],
+            )?;
+            if anterior.is_some() {
+                epoch = Some(bump_on(&tx)?);
+            }
         }
         tx.commit()?;
+        hub.workspace.publicar_dono(Some(dono), epoch);
+        if let Some(epoch) = epoch {
+            tracing::info!(epoch, "workspaceEpoch subiu: outro dono");
+        }
         Ok(())
     })();
     if let Err(error) = resultado {
@@ -215,7 +300,7 @@ pub(crate) struct Contexto {
 }
 
 /// O Hub decide; `capabilities` só orienta a interface. Papel único nesta fase: `owner`.
-pub(crate) fn contexto(hub: &Hub, caller: &Caller, epoch: u64) -> Result<Contexto> {
+pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Contexto> {
     let capabilities = match caller {
         Caller::Local => vec!["chat", "bots.manage", "devices.manage"],
         Caller::Device { scopes, .. } => {
@@ -230,21 +315,24 @@ pub(crate) fn contexto(hub: &Hub, caller: &Caller, epoch: u64) -> Result<Context
         }
         _ => return Err(crate::api::devices::Forbidden.into()),
     };
-    let dono = hub.cloud.status().owner.map(|o| o.user_id);
     Ok(Contexto {
         schema: 1,
         hub_id: hub.host_id.clone(),
         kind: "personal",
-        workspace_id: dono.as_deref().map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}")),
-        user_id: dono,
+        workspace_id: workspace_id(retrato),
+        user_id: retrato.dono.clone(),
         role: "owner",
-        workspace_epoch: epoch,
+        workspace_epoch: retrato.valor,
         capabilities,
     })
 }
 
+fn workspace_id(retrato: &Epoca) -> String {
+    retrato.dono.as_deref().map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}"))
+}
+
 pub(crate) fn call(hub: &Hub, caller: &Caller) -> Result<Value> {
-    Ok(serde_json::to_value(contexto(hub, caller, hub.workspace.atual())?)?)
+    Ok(serde_json::to_value(contexto(hub, caller, &hub.workspace.retrato())?)?)
 }
 
 fn divergente() -> anyhow::Error {
@@ -255,21 +343,27 @@ pub(crate) fn is_mismatch(e: &anyhow::Error) -> bool {
     e.downcast_ref::<GroupError>().is_some_and(|g| g.code == EPOCH_MISMATCH)
 }
 
-/// Sem epoch: aceito por compatibilidade com clientes antigos. Com epoch: só o atual.
-pub(crate) fn conferir(atual: u64, pedido: Option<u64>) -> Result<()> {
-    match pedido {
-        Some(pedido) if pedido != atual => Err(divergente()),
-        _ => Ok(()),
+/// Sem epoch: aceito por compatibilidade com clientes antigos. Com epoch: só o atual; valor
+/// que não é u64 também diverge.
+fn conferir(atual: u64, pedido: Option<&Value>) -> Result<()> {
+    match pedido.map(Value::as_u64) {
+        None => Ok(()),
+        Some(Some(pedido)) if pedido == atual => Ok(()),
+        Some(_) => Err(divergente()),
     }
+}
+
+/// Retrato de quem abre um stream: dono e epoch de uma vez, conferidos com o que o cliente conhece.
+pub(crate) fn abrir(hub: &Hub, pedido: Option<u64>) -> Result<Epoca> {
+    let retrato = hub.workspace.retrato();
+    conferir(retrato.valor, pedido.map(Value::from).as_ref())?;
+    Ok(retrato)
 }
 
 /// Confere e retira `workspaceEpoch` do corpo antes de qualquer método ver o pedido.
 pub(crate) fn conferir_pedido(hub: &Hub, mut body: Value) -> Result<Value> {
-    let Some(valor) = body.as_object_mut().and_then(|b| b.remove(EPOCH_FIELD)) else {
-        return Ok(body);
-    };
-    let pedido = valor.as_u64().ok_or_else(divergente)?;
-    conferir(hub.workspace.atual(), Some(pedido))?;
+    let pedido = body.as_object_mut().and_then(|b| b.remove(EPOCH_FIELD));
+    conferir(hub.workspace.atual(), pedido.as_ref())?;
     Ok(body)
 }
 
@@ -277,11 +371,11 @@ pub(crate) fn conferir_pedido(hub: &Hub, mut body: Value) -> Result<Value> {
 /// evento já produzido mas ainda não entregue (em voo) é descartado se o epoch mudou.
 pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
     hub: &Hub,
-    epoch: u64,
-    workspace_id: String,
+    retrato: &Epoca,
     eventos: S,
 ) -> impl Stream<Item = Value> + Send + 'static + use<S> {
-    let terminal = move |e: Epoca| {
+    let (epoch, workspace_id) = (retrato.valor, workspace_id(retrato));
+    let terminal = move |e: &Epoca| {
         json!({
             "type": e.motivo.unwrap_or(Motivo::DeviceRevoked).evento(),
             "workspaceId": workspace_id,
@@ -293,9 +387,9 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
         async move {
             let (mut eventos, mut aviso) = estado?;
             loop {
-                let atual = *aviso.borrow_and_update();
+                let atual = aviso.borrow_and_update().clone();
                 if atual.valor != epoch {
-                    return Some((terminal(atual), None));
+                    return Some((terminal(&atual), None));
                 }
                 tokio::select! {
                     biased;
@@ -304,32 +398,15 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
                     }
                     evento = eventos.next() => {
                         let evento = evento?;
-                        let atual = *aviso.borrow();
+                        let atual = aviso.borrow().clone();
                         if atual.valor != epoch {
-                            return Some((terminal(atual), None));
+                            return Some((terminal(&atual), None));
                         }
                         return Some((evento, Some((eventos, aviso))));
                     }
                 }
             }
         }
-    })
-}
-
-fn terminal(evento: &Value) -> bool {
-    matches!(evento["type"].as_str(), Some("workspace_revoked" | "role_changed")) && evento.get(EPOCH_FIELD).is_some()
-}
-
-/// No `/channel` quem encerra é o canal (`reject` e close 4003); a assinatura só deixa de entregar.
-pub(crate) fn sem_terminal(
-    eventos: impl Stream<Item = Value> + Send + 'static,
-) -> impl Stream<Item = Value> + Send + 'static {
-    stream::unfold(eventos.boxed(), |mut eventos| async move {
-        let evento = eventos.next().await?;
-        if terminal(&evento) {
-            std::future::pending::<()>().await;
-        }
-        Some((evento, eventos))
     })
 }
 

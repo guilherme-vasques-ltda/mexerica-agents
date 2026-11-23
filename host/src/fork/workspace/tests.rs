@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Provas focais: epoch persistente, 409, corte de stream com evento em voo (stream, SSE e
-//! Web local), bloqueio durável da revogação e Hub antigo sem vínculo gravado.
+//! Web local e terminal), bloqueio durável da revogação, retrato dono+epoch, queda no commit e
+//! Hub antigo sem vínculo gravado.
 use super::*;
 use crate::api::{self, devices::RejectCode};
 use crate::remote::cloud::{self, Owner};
@@ -205,7 +206,7 @@ fn aparelho_local_revogado_so_volta_por_novo_pareamento() {
     hub.store.put_device(&local).unwrap();
     assert_eq!(crate::fork::autoridade::autenticar(&hub, "chave-local").err(), Some(RejectCode::Revoked));
 
-    liberar_pareamento_local(&hub.store, "chave-local").unwrap();
+    readmitir_pareado(&hub.store, &local).unwrap();
     assert!(crate::fork::autoridade::autenticar(&hub, "chave-local").is_ok());
 }
 
@@ -343,4 +344,137 @@ fn migracao_idempotente_em_hub_antigo() {
     assert_eq!(epoch_on(&store.db.locked()).unwrap(), 0);
     let spaces = store.spaces().unwrap();
     assert_eq!(spaces.spaces[0].id, crate::fork::spaces::PERSONAL, "Hub personal continua com a raiz de hoje");
+}
+
+#[test]
+fn queda_no_commit_nao_anuncia_epoch_que_voltaria_atras() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    let local =
+        Device { source: DeviceSource::Local, grant_id: None, lease_until: None, ..aparelho_conta("chave-queda", "x") };
+    hub.store.put_device(&local).unwrap();
+    // Violação adiada: a Tx da revogação só falha no COMMIT, depois do bump e do bloqueio.
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TEMP TABLE queda_pai(id INTEGER PRIMARY KEY);
+             CREATE TEMP TABLE queda_filho(pai INTEGER REFERENCES queda_pai(id) DEFERRABLE INITIALLY DEFERRED);
+             CREATE TEMP TRIGGER queda AFTER INSERT ON main.fork_workspace_revoked_devices
+             BEGIN INSERT INTO queda_filho VALUES(1); END;",
+        )
+        .unwrap();
+    let aviso = hub.workspace.assinar();
+    assert!(hub.revoke_device("chave-queda").is_err(), "o commit falha");
+    assert_eq!(hub.workspace.atual(), 0, "nada é anunciado antes do commit");
+    assert!(!aviso.has_changed().unwrap());
+    assert!(hub.store.device("chave-queda").is_some(), "a Tx inteira volta");
+    drop(hub);
+
+    let hub = pasta.hub();
+    assert_eq!(hub.workspace.atual(), 0, "o reinício vê o último número anunciado");
+    assert!(hub.revoke_device("chave-queda").unwrap());
+    assert_eq!(hub.workspace.atual(), 1);
+    drop(hub);
+    assert_eq!(pasta.hub().workspace.atual(), 1);
+}
+
+#[test]
+fn dono_e_epoch_saem_num_retrato_so() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    dono(&hub, Some("user_0.example.invalid"));
+    let fim = Arc::new(AtomicBool::new(false));
+    let leitor = {
+        let (hub, fim) = (hub.clone(), fim.clone());
+        std::thread::spawn(move || {
+            let mut lidos = 0;
+            while !fim.load(Ordering::Acquire) || lidos == 0 {
+                let ctx = call(&hub, &Caller::Local).unwrap();
+                let n: u64 = ctx["userId"]
+                    .as_str()
+                    .and_then(|u| u.strip_prefix("user_")?.strip_suffix(".example.invalid")?.parse().ok())
+                    .unwrap();
+                assert_eq!(ctx["workspaceEpoch"].as_u64(), Some(n), "dono novo com epoch velho: {ctx}");
+                lidos += 1;
+            }
+        })
+    };
+    for n in 1..=60 {
+        dono(&hub, Some(&format!("user_{n}.example.invalid")));
+    }
+    fim.store(true, Ordering::Release);
+    leitor.join().unwrap();
+    assert_eq!(hub.workspace.atual(), 60);
+}
+
+#[tokio::test]
+async fn sse_do_terminal_responde_409_e_corta_com_evento_em_voo() {
+    use futures::StreamExt;
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    let saida = hub.terms.fixture("term-prova", None);
+    let (addr, servidor) = servir(&hub).await;
+    let client = reqwest::Client::new();
+    let r = client.get(format!("http://{addr}/term/term-prova?workspaceEpoch=3")).bearer_auth("token-prova").send();
+    let r = r.await.unwrap();
+    assert_eq!(r.status(), 409);
+    assert_eq!(r.json::<Value>().await.unwrap()["code"], EPOCH_MISMATCH);
+
+    let r = client.get(format!("http://{addr}/term/term-prova?workspaceEpoch=0")).bearer_auth("token-prova").send();
+    let r = r.await.unwrap();
+    assert_eq!(r.status(), 200);
+    let _ = saida.send(json!({"type": "output", "data": MARCA}));
+    bump(&hub, Motivo::DeviceRevoked).unwrap();
+    let _ = saida.send(json!({"type": "output", "data": MARCA}));
+    let mut body = r.bytes_stream();
+    let mut resto = String::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(chunk) = body.next().await {
+            resto.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+        }
+    })
+    .await
+    .expect("o stream do terminal fecha depois do evento terminal");
+    assert!(!resto.contains(MARCA), "nenhuma saída do terminal depois do bump: {resto}");
+    let terminal = json!({"type": "workspace_revoked", "workspaceId": "personal:unbound", "workspaceEpoch": 1});
+    assert!(resto.replace("data: ", "data:").contains(&format!("data:{terminal}")), "{resto}");
+    servidor.abort();
+}
+
+#[tokio::test]
+async fn dispatch_nao_le_capabilities() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    let so_controle = Device {
+        source: DeviceSource::Local,
+        grant_id: None,
+        lease_until: None,
+        scopes: vec![Scope::Control],
+        ..aparelho_conta("chave-controle", "x")
+    };
+    let com_aparelhos = Device {
+        key: "chave-aparelhos".into(),
+        scopes: vec![Scope::Control, Scope::OwnerDevices],
+        ..so_controle.clone()
+    };
+    hub.store.put_device(&so_controle).unwrap();
+    hub.store.put_device(&com_aparelhos).unwrap();
+
+    let (_, controle) = crate::fork::autoridade::autenticar(&hub, "chave-controle").unwrap();
+    let ctx = api::dispatch(&hub, &controle, METHOD, json!({})).await.unwrap();
+    assert_eq!(ctx["capabilities"], json!(["chat", "bots.manage"]));
+    let erro =
+        api::dispatch(&hub, &controle, "devices", json!({"capabilities": ["devices.manage"]})).await.unwrap_err();
+    assert!(erro.is::<api::devices::Forbidden>(), "capabilities no pedido não concede nada: {erro:#}");
+
+    let (_, aparelhos) = crate::fork::autoridade::autenticar(&hub, "chave-aparelhos").unwrap();
+    let ctx = api::dispatch(&hub, &aparelhos, METHOD, json!({})).await.unwrap();
+    assert_eq!(ctx["capabilities"], json!(["chat", "bots.manage", "devices.manage"]));
+    assert!(
+        api::dispatch(&hub, &aparelhos, "devices", json!({"capabilities": []})).await.is_ok(),
+        "nem tira: a permissão vem do escopo do aparelho"
+    );
 }

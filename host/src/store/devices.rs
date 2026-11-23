@@ -91,22 +91,7 @@ impl Store {
     pub fn put_device(&self, d: &Device) -> Result<()> {
         let mut c = self.db.locked();
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO devices(key, name, platform, source, grant_id, scopes, lease_until, created_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(key) DO UPDATE SET name = ?2, platform = ?3, source = ?4, grant_id = ?5,
-               scopes = ?6, lease_until = ?7",
-            params![
-                d.key,
-                d.name,
-                d.platform,
-                serde_json::to_value(d.source)?.as_str(),
-                d.grant_id,
-                serde_json::to_string(&d.scopes)?,
-                d.lease_until,
-                d.created_at
-            ],
-        )?;
+        put_device_on(&tx, d)?;
         tx.commit()?;
         Ok(())
     }
@@ -224,6 +209,27 @@ impl Store {
         }
         tickets
     }
+}
+
+/// Grava (ou, para uma chave pareada de novo, atualiza) o aparelho na Tx do chamador.
+pub(crate) fn put_device_on(c: &rusqlite::Connection, d: &Device) -> Result<()> {
+    c.execute(
+        "INSERT INTO devices(key, name, platform, source, grant_id, scopes, lease_until, created_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(key) DO UPDATE SET name = ?2, platform = ?3, source = ?4, grant_id = ?5,
+           scopes = ?6, lease_until = ?7",
+        params![
+            d.key,
+            d.name,
+            d.platform,
+            serde_json::to_value(d.source)?.as_str(),
+            d.grant_id,
+            serde_json::to_string(&d.scopes)?,
+            d.lease_until,
+            d.created_at
+        ],
+    )?;
+    Ok(())
 }
 
 /// `remove_device` inside the caller's transaction.

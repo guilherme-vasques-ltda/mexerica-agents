@@ -414,7 +414,7 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
             for f in &list {
                 if hub.store.bootstrap_is_grant(&f.grant_id)? {
                     let now = now_ms();
-                    hub.store.bootstrap_revoke_fenced(&hub.identity.sign, &f.grant_id, &f.device_key, now)?;
+                    crate::fork::workspace::revogar_cercado(hub, &f.grant_id, &f.device_key, now)?;
                     hub.auth_changed();
                 }
             }

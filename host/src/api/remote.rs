@@ -64,7 +64,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 && hub.store.bootstrap_is_grant(grant)?
             {
                 let now = now_ms();
-                hub.store.bootstrap_revoke_fenced(&hub.identity.sign, grant, key, now)?;
+                crate::fork::workspace::revogar_cercado(hub, grant, key, now)?;
                 hub.auth_changed();
             }
             hub.revoke_device(key)?;
