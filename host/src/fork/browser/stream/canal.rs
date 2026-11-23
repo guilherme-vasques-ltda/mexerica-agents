@@ -174,16 +174,18 @@ impl Drop for GuardaSessao {
 }
 
 /// Só o primeiro canal que inscreve a sessão é o dono dela; outro é recusado.
-pub fn registrar(sessao: &str, estado: Arc<Mutex<Stream>>, _autoridade: Arc<AutoridadeCanal>) -> Option<GuardaSessao> {
+pub fn registrar(sessao: &str, estado: Arc<Mutex<Stream>>, autoridade: Arc<AutoridadeCanal>) -> Option<GuardaSessao> {
     // Captura do stream de prova, sem renovar a autorização já emitida.
     #[cfg(test)]
-    let epoca_workspace = Autoridade::capturar(&_autoridade.hub, &_autoridade.caller)
+    let epoca_workspace = Autoridade::capturar(&autoridade.hub, &autoridade.caller)
         .ok()?
-        .with_db(&_autoridade.hub, None, |db| {
-            _autoridade.conferir_bot_no(db)?;
+        .with_db(&autoridade.hub, None, |db| {
+            autoridade.conferir_bot_no(db)?;
             crate::fork::workspace::epoch_on(db)
         })
         .ok()?;
+    #[cfg(not(test))]
+    let _ = &autoridade;
     let mut mapa = registros().locked();
     if mapa.contains_key(sessao) {
         return None;
@@ -193,7 +195,7 @@ pub fn registrar(sessao: &str, estado: Arc<Mutex<Stream>>, _autoridade: Arc<Auto
         Registro {
             estado: estado.clone(),
             #[cfg(test)]
-            autoridade: _autoridade,
+            autoridade,
             #[cfg(test)]
             epoca_workspace,
         },
