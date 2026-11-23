@@ -25,7 +25,15 @@ fn check_target(cfg: &BotConfig, bin: &str) -> Result<()> {
 fn check_known_launch(cfg: &BotConfig, words: &[String], depth: u8) -> Result<()> {
     let unknown =
         || anyhow!("Use um comando literal do adaptador; não foi possível identificar o destino do inicializador.");
-    let Some((executable, args)) = words.split_first() else { return Ok(()) };
+    let mut words = words.iter();
+    let Some(executable) = words.find(|word| {
+        !word
+            .split_once('=')
+            .is_some_and(|(key, _)| !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    }) else {
+        return Ok(());
+    };
+    let args = words.as_slice();
     ensure!(depth < 8, "{}", unknown());
     let bin = name(executable);
     check_target(cfg, &bin)?;
@@ -50,6 +58,7 @@ fn check_known_launch(cfg: &BotConfig, words: &[String], depth: u8) -> Result<()
         }
         "sh" | "bash" | "zsh" if args.first().is_some_and(|flag| flag == "-c") => {
             let script = args.get(1).ok_or_else(unknown)?;
+            ensure!(!script.starts_with('-'), "{}", unknown());
             ensure!(
                 !script.contains([
                     ';', '|', '&', '$', '`', '<', '>', '\n', '\r', '(', ')', '#', '*', '?', '[', ']', '{', '}', '~'
@@ -65,10 +74,14 @@ fn check_known_launch(cfg: &BotConfig, words: &[String], depth: u8) -> Result<()
         }
         "npx" | "bunx" | "pnpm" => {
             let tail = if bin == "pnpm" {
-                if args.first().is_none_or(|arg| arg != "dlx") {
+                let Some(dlx) = args.iter().position(|arg| arg == "dlx") else {
+                    return Ok(());
+                };
+                ensure!(dlx == 0 || !args[0].starts_with('-'), "{}", unknown());
+                if dlx != 0 {
                     return Ok(());
                 }
-                &args[1..]
+                &args[dlx + 1..]
             } else {
                 args
             };
@@ -86,9 +99,30 @@ fn check_known_launch(cfg: &BotConfig, words: &[String], depth: u8) -> Result<()
 }
 
 pub fn check(cfg: &BotConfig) -> Result<()> {
-    if let Some(command) = cfg.command.as_deref().filter(|c| !c.trim().is_empty())
-        && let Some(words) = shlex::split(command)
-    {
+    if let Some(command) = cfg.command.as_deref().filter(|c| !c.trim().is_empty()) {
+        let mut quote = None;
+        let mut escaped = false;
+        for ch in command.chars() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match (quote, ch) {
+                (Some('\''), '\'') | (Some('"'), '"') => quote = None,
+                (None, '\'' | '"') => quote = Some(ch),
+                (None | Some('"'), '\\') => escaped = true,
+                (
+                    None,
+                    ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n' | '\r' | '(' | ')' | '#' | '*' | '?' | '[' | ']'
+                    | '{' | '}',
+                )
+                | (Some('"'), '$' | '`') => {
+                    return Err(anyhow!("Use um comando literal do adaptador, sem expansão ou operadores de shell."));
+                }
+                _ => {}
+            }
+        }
+        let words = shlex::split(command).ok_or_else(|| anyhow!("Comando do adaptador inválido."))?;
         check_known_launch(cfg, &words, 0)?;
     }
     if !matches!(cfg.backend.as_str(), "codex" | "custom") {
@@ -207,6 +241,12 @@ mod tests {
     fn classifica_pacotes_e_comandos_literais_sem_inspecionar_wrappers_arbitrarios() {
         for (command, blocked) in [
             ("env LANG=C claude-code", true),
+            ("LANG=C claude-code", true),
+            ("meu-adaptador; claude-code", true),
+            ("sh -c 'LANG=C claude-code'", true),
+            ("bash -lc 'claude-code'", true),
+            ("bash -c -e claude-code", true),
+            ("pnpm --silent dlx @anthropic-ai/claude-code@1", true),
             ("env -- LANG=C claude-code", true),
             ("env -i -u PATH claude-code", true),
             ("env env claude-code", true),
