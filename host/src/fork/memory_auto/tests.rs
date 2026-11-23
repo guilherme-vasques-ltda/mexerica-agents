@@ -18,6 +18,7 @@ mod injecao;
 mod injecao_liberacao;
 mod injecao_retencao;
 mod lineage_tests;
+mod opening_undo;
 mod owner_tests;
 mod sleep_literal_tests;
 mod sleep_model_tests;
@@ -42,6 +43,11 @@ fn fixture(external: bool) -> Fixture {
 fn fixture_for_bot(external: bool, bot: &str) -> Fixture {
     let dir = std::env::temp_dir().join(format!("memory-auto-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let store = Store::open(Path::new(":memory:")).unwrap();
     let cfg: BotConfig = serde_json::from_value(json!({"id":bot,"name":"Bot","backend":"claude","cwd":dir})).unwrap();
     store.save_bot(&cfg).unwrap();
@@ -2137,7 +2143,8 @@ fn device(f: &Fixture) -> crate::api::devices::Caller {
         created_at: now,
         last_seen_at: None,
     };
-    f.hub.store.put_device(&aparelho).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &aparelho).unwrap();
     crate::fork::autoridade::autenticar(&f.hub, DEVICE).unwrap().1
 }
 

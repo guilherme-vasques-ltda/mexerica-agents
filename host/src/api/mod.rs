@@ -14,7 +14,9 @@ mod remote;
 
 #[cfg(test)]
 pub use events::events_stream;
-pub use events::{scoped_events_stream, term_events};
+#[cfg(test)]
+pub use events::scoped_events_stream;
+pub use events::{scoped_events_stream_at, term_events};
 #[cfg(unix)]
 pub(crate) use http::open_socket_router;
 pub use http::router;
@@ -40,6 +42,28 @@ impl std::fmt::Display for UnknownMethod {
 }
 
 impl std::error::Error for UnknownMethod {}
+
+/// Origem do chamador para log: só o tipo, sem chave, sessão ou identificador.
+pub(crate) fn origem(caller: &Caller) -> &'static str {
+    match caller {
+        Caller::Local => "local",
+        Caller::Ponte { .. } => "ponte",
+        Caller::Device { .. } => "aparelho",
+        Caller::Pairing { .. } => "pareamento",
+        Caller::Bootstrap { .. } => "bootstrap",
+    }
+}
+
+/// Recusa de nome sem classe em `fork::acesso_rpc`, antes dos argumentos: desconhecido (404) para todos; na Open, a
+/// lista fechada responde a todo nome fora dela com `Forbidden` (403), e o desconhecido segue essa regra. O log leva
+/// motivo fixo, a origem e o tamanho do nome; nunca o nome que veio do cliente.
+pub(crate) fn recusa_sem_classe(origem: &str, method: &str) -> Option<anyhow::Error> {
+    if !crate::fork::acesso_rpc::desconhecido(method) {
+        return None;
+    }
+    tracing::warn!(reason = "unknown_rpc_method", origin = origem, method_len = method.len(), "rpc refused");
+    Some(if crate::environment::Environment::is_open() { Forbidden.into() } else { UnknownMethod.into() })
+}
 
 /// Stable codes are additive; the displayed message remains independently useful.
 #[derive(Debug)]
@@ -68,7 +92,7 @@ pub fn error_status(e: &anyhow::Error) -> (StatusCode, String) {
         (StatusCode::NOT_FOUND, e.to_string())
     } else if e.is::<Forbidden>() {
         (StatusCode::FORBIDDEN, e.to_string())
-    } else if e.is::<crate::remote::cloud::Conflict>() {
+    } else if e.is::<crate::remote::cloud::Conflict>() || crate::fork::workspace::is_mismatch(e) {
         (StatusCode::CONFLICT, e.to_string())
     } else {
         // `{:#}` keeps the context chain ("starting `npx …`: No such file or directory").
@@ -82,9 +106,14 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
-    crate::open_hub::check_request(method, &b)?;
-    // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368.
+    // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368 e de olhar o nome.
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
+    // Fail-closed: método sem classe em `fork::acesso_rpc` não existe para ninguém, nem para este computador.
+    if let Some(recusa) = recusa_sem_classe(origem(caller), method) {
+        return Err(recusa);
+    }
+    crate::open_hub::check_request(method, &b)?;
+    let b = crate::fork::workspace::conferir_pedido(hub, origem(caller), b)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).
     crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b))).await
 }
@@ -94,11 +123,13 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     crate::fork::autoridade::conferir_caller(hub, caller)?;
     if method.starts_with("donnaWorkplace") {
         crate::fork::onde_roda::autoridade::require(caller, method)?;
+        devices::permit(caller, method)?;
         let mut answer = crate::fork::onde_roda::api::call(hub, caller, method, b).await?;
         answer["hubId"] = hub.host_id.clone().into();
         return Ok(answer);
     }
     if method == "engineGoKeySave" {
+        devices::permit(caller, method)?;
         return crate::fork::conexao_motores::save_go(hub, caller, &b).await;
     }
     if method == "setAgentEnv" || method == "agentAuthenticate" {
@@ -117,13 +148,21 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if matches!(method, "agentSetup" | "agentAuthenticate") && !(method == "agentSetup" && b["step"] == "login") {
         crate::fork::engine_setup::require_legacy_setup(caller, b["backend"].as_str().unwrap_or_default())?;
     }
+    devices::permit(caller, method)?;
     if method == "teamSettings" && !matches!(caller, Caller::Local) {
         crate::fork::engine_setup::access::require(hub, caller)?;
-    } else {
-        devices::permit(caller, method)?;
     }
-    if method == crate::fork::control_tower::METHOD {
+    if matches!(method, crate::fork::control_tower::METHOD | crate::fork::control_tower::ATTENTION_METHOD) {
         crate::fork::control_tower::require(hub, caller)?;
+    }
+    if method == crate::fork::control_tower::ATTENTION_METHOD {
+        return crate::fork::control_tower::attention_call(hub, caller, b).await;
+    }
+    if method == crate::fork::torre_visoes::METHOD {
+        return crate::fork::torre_visoes::call(hub, caller, b).await;
+    }
+    if crate::fork::governanca::METHODS.contains(&method) {
+        return crate::fork::governanca::call(hub, caller, method, b).await;
     }
     // Projetos conserva hubId no DTO e recusa outros contextos sem oráculo de Space.
     if crate::fork::projetos::METHODS.contains(&method) {
@@ -259,6 +298,9 @@ async fn route(
 ) -> Result<Value> {
     // Retired discovery must not unlock the vault or mutate runtime/configuration.
     market::reject_registry_request(method, &b)?;
+    if matches!(method, "agentAuthenticate" | "setAgentEnv") {
+        crate::agent::backends::require_supported_execution(str_arg(&b, "backend")?)?;
+    }
     #[cfg(test)]
     if matches!(method, "connectorCall" | "routineCall" | "teamCall") {
         crate::fork::sessoes::call_tests::before_effect(&hub.store, "api_origin");
@@ -289,7 +331,8 @@ async fn route(
         // Só chave/geração tocam o cofre: estado e transporte de quadros não
         // devem pedir desbloqueio do chaveiro ao exibir avatar.
         || matches!(method, "mexeriquinhaGeradorChave" | "mexeriquinhaGerar")
-        || matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
+        || (matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
+            && !b["backend"].as_str().is_some_and(crate::agent::backends::is_antigravity))
     {
         market::vault::unlock(hub.clone()).await?;
     }

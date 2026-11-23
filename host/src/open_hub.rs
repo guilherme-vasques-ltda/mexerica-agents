@@ -48,6 +48,7 @@ pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
 pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
     match method {
         "hello"
+        | crate::fork::workspace::METHOD
         | "refreshBackends"
         | "teamSettings"
         | "usage"
@@ -60,6 +61,8 @@ pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
         | "donnaOwnerPresentation"
         | "donnaEngineAccounts"
         | "donnaEngineAccess"
+        | "donnaOnboardingStatus"
+        | "donnaOnboardingDetect"
         | "donnaBotEditor"
         | "donnaBotEditorSave"
         | "donnaConversations"
@@ -91,6 +94,9 @@ mod tests {
             assert!(!open_allows(method, &json!({})), "{method} não pode existir na Open");
         }
         assert!(open_allows("hello", &json!({})));
+        assert!(open_allows("donnaOnboardingStatus", &json!({})));
+        assert!(open_allows("donnaOnboardingDetect", &json!({})));
+        assert!(!open_allows("donnaOnboardingSave", &json!({})));
         assert!(open_allows("createBot", &json!({})));
         assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
         assert!(open_allows("send", &json!({"text": "oi"})));

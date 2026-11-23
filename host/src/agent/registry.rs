@@ -74,7 +74,9 @@ fn id_normalizado(agente: &Value) -> Option<String> {
 fn oferecido(agente: &Value) -> bool {
     let id = id_normalizado(agente);
     !matches!(id.as_deref(), Some("junie" | "cortex-code" | "corust-agent" | "stakpak" | "vtcode"))
-        && id.as_deref().is_none_or(|id| !crate::fork::motores_retirados::retirado(id))
+        && id.as_deref().is_none_or(|id| {
+            !crate::agent::backends::is_antigravity(id) && !crate::fork::motores_retirados::retirado(id)
+        })
 }
 
 pub fn agent(id: &str) -> Option<Value> {
@@ -616,6 +618,16 @@ fn chmod_x(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn antigravity_registry_nao_oferece_nem_instala_adaptador() {
+        for id in ["antigravity", "Antigravity-ACP", " agy "] {
+            let agent = json!({"id":id, "distribution":{"npx":{"package":"fixture@1.0.0"}}});
+            assert_eq!(agentes_oferecidos(&json!({"agents":[agent.clone()]})), [] as [Value; 0]);
+            assert!(launch_kind(&agent).is_none());
+            assert!(command(&agent, |_, _| panic!("download inesperado")).await.is_err());
+        }
+    }
 
     #[test]
     fn lista_do_catalogo_omite_os_cinco_bloqueados_e_preserva_os_motores_nativos() {

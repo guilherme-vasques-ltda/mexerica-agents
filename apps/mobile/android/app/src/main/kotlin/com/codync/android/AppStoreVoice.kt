@@ -142,7 +142,7 @@ private fun AppStore.countCloudMinutes(call: VoiceBinding) {
 private fun AppStore.sendFromCall(call: VoiceBinding, text: String) {
     if (state.value.generation != call.generation || state.value.voice?.id != call.id || state.value.loading) return
     val send = PendingSend(UUID.randomUUID().toString(), call.botId, text, System.currentTimeMillis())
-    action("save:" + send.nonce) { savePending(send); deliver(send) }
+    action("save:" + send.nonce) { if (legacyHubAllowed) { savePending(send); deliver(send) } }
 }
 
 /** New final replies and approval notices for the call to say. */

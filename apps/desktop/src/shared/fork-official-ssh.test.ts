@@ -10,9 +10,11 @@ test('SSH does not start a remote command after authorization is revoked while r
   const readingKey = deferred<EventEmitter & { stdout: EventEmitter }>()
   const handlers = new Map<string, (...args: string[]) => unknown>()
   const commands: string[] = []
+  const profiles = [{ id: 'fixture', host: 'ssh.example.invalid', user: null, port: null, remotePort: 19422, identityFile: null, name: '', computerId: null }]
   let authorized = false
   const { registerSSH } = loadMainModule<typeof import('../main/ssh.ts')>('ssh', {
     './environment': { identity: {} }, './host-controller': { dataDir: '/fixture' },
+    './fork-desktop-profile': { DesktopSSHProfiles: class { load() { return profiles } } },
     './ssh-command': { resolveArguments: () => ['config'], knownHostsFiles: () => ['/fixture/known_hosts'], infoArguments: () => ['remote'] },
     'node:child_process': { spawn: (_bin: string, args: string[]) => {
       commands.push(args[0]!)
@@ -22,7 +24,7 @@ test('SSH does not start a remote command after authorization is revoked while r
       return child
     } },
     'node:crypto': crypto, 'node:net': {}, 'node:path': path,
-    'node:fs': { existsSync: (file: string) => file === '/fixture/known_hosts', promises: {}, readFileSync: () => JSON.stringify([{ id: 'fixture', host: 'ssh.example.invalid', user: null, port: null, remotePort: 19422, identityFile: null }]) },
+    'node:fs': { existsSync: (file: string) => file === '/fixture/known_hosts', promises: {}, readFileSync: () => JSON.stringify(profiles) },
     'node:os': { homedir: () => '/fixture', platform: () => 'linux' },
     electron: { app: { getPath: () => '/fixture', on() {} }, ipcMain: { on: (name: string, fn: () => unknown) => handlers.set(name, fn), handle: (name: string, fn: () => unknown) => handlers.set(name, fn) } },
   }, { Buffer, process })

@@ -36,7 +36,7 @@ impl Executor {
         let (outgoing, rx) = mpsc::channel(64);
         let run = tokio::spawn(channel::run(
             hub.clone(),
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: channel::Porta::default() },
             ChannelKind::Direct { peer: IpAddr::from([10, 0, 0, 2]) },
         ));
         let mut d = Self { key, tx, rx, sealer: None, opener: None, run, seq: 0 };

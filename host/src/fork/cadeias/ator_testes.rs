@@ -80,6 +80,7 @@ impl Fixture {
             queue: VecDeque::new(),
             queue_retry_at: None,
             queue_restore_retry_at: None,
+            subscription_refusals: BTreeMap::new(),
             active_request: None,
             before_permit: None,
             dispatch: None,

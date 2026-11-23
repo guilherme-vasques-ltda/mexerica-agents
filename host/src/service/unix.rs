@@ -92,9 +92,9 @@ pub fn install(port: u16) -> Result<()> {
 
 /// Same unit, with an explicit executable: the managed install (#812) points the unit at
 /// the root-owned selector `/opt/donnabot/releases/ativo/donnabot-host`, never at the
-/// slot the selector resolves to today. `bind` pins `serve --bind` (the managed layout
-/// always passes loopback; `None` keeps the legacy default of all interfaces, Linux only —
-/// on macOS the plist always binds `127.0.0.1` with `--only-this-mac`).
+/// slot the selector resolves to today. `bind` pins `serve --bind` on Linux; `None` writes
+/// `127.0.0.1`, so the unit never listens beyond this computer without an explicit address
+/// (on macOS the plist always binds `127.0.0.1` with `--only-this-mac`).
 pub fn install_executable(port: u16, exe: &str, bind: Option<&str>) -> Result<()> {
     install_executable_inner(port, exe, bind, ModoInstalacao::Iniciar)
 }
@@ -182,12 +182,12 @@ fn sync_ancestors(file: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Text of the per-user systemd unit (pure, so the managed `--bind` is testable).
+/// Text of the per-user systemd unit (pure, so the `--bind` it pins is testable).
 fn systemd_unit_text(motor: &str, exe: &str, port: u16, bind: Option<&str>, path: &str, data: &str) -> String {
-    let bind = bind.map(|b| format!(" --bind {}", systemd_quote(b, true))).unwrap_or_default();
     format!(
-        "[Unit]\nDescription=Mexerica host\nAfter=network-online.target\n\n[Service]\n{motor}ExecStart={exe} serve --port {port}{bind}\nEnvironment={path}\nEnvironment={data}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+        "[Unit]\nDescription=Mexerica host\nAfter=network-online.target\n\n[Service]\n{motor}ExecStart={exe} serve --port {port} --bind {bind}\nEnvironment={path}\nEnvironment={data}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
         exe = systemd_quote(exe, true),
+        bind = systemd_quote(bind.unwrap_or(super::mac_local::LOOPBACK), true),
         path = systemd_quote(&format!("PATH={path}"), false),
         data = systemd_quote(&format!("MEXERICA_HOME={data}"), false),
     )
@@ -258,7 +258,7 @@ mod tests {
     }
 
     /// #812 / SEG Other: a unidade do layout gerido (instalação limpa) escuta só em
-    /// loopback; nunca `0.0.0.0` nem sem `--bind` (o padrão do `serve` é todas as interfaces).
+    /// loopback; nunca `0.0.0.0` nem sem `--bind`.
     #[test]
     fn managed_unit_pins_loopback_bind() {
         let exe = "/opt/donnabot/releases/ativo/donnabot-host";
@@ -267,9 +267,19 @@ mod tests {
         let argv: Vec<String> = shlex::split(exec).unwrap_or_default();
         assert_eq!(argv, [exe, "serve", "--port", "19422", "--bind", "127.0.0.1"], "{exec}");
         assert!(!unit.contains("0.0.0.0"), "{unit}");
-        // Legado (sem layout gerido): inalterado, sem --bind.
-        let legado = systemd_unit_text("", "/x/donnabot-host", 19422, None, "/usr/bin", "/srv/dados");
-        assert!(!legado.contains("--bind"), "{legado}");
+    }
+
+    /// Sem endereço informado, a unidade grava `--bind 127.0.0.1`; um endereço explícito
+    /// é gravado como veio (escuta na rede só por escolha de quem instala).
+    #[test]
+    fn unit_without_bind_pins_loopback_and_keeps_explicit_bind() {
+        let argv = |bind| {
+            let unit = systemd_unit_text("", "/x/donnabot-host", 19422, bind, "/usr/bin", "/srv/dados");
+            let exec = unit.lines().find_map(|l| l.strip_prefix("ExecStart=")).unwrap_or_default().to_owned();
+            shlex::split(&exec).unwrap_or_default()
+        };
+        assert_eq!(argv(None), ["/x/donnabot-host", "serve", "--port", "19422", "--bind", "127.0.0.1"]);
+        assert_eq!(argv(Some("0.0.0.0")), ["/x/donnabot-host", "serve", "--port", "19422", "--bind", "0.0.0.0"]);
     }
 
     #[test]

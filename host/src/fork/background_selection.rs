@@ -14,8 +14,6 @@ use anyhow::{Result, bail, ensure};
 
 pub(crate) mod backoff;
 
-static QUOTA_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-
 pub(crate) struct Resolved {
     pub config: BotConfig,
     /// Revisão do documento de funções; `None` na conta do próprio bot (MB-3).
@@ -197,72 +195,7 @@ pub(crate) async fn verify_identity(store: &Store, resolved: &Resolved) -> Resul
     revalidate(store, resolved)
 }
 
-/// Consulta a cota no próprio cliente oficial e no perfil da conta escolhida.
-pub(crate) async fn verify_quota(store: &Store, resolved: &Resolved) -> Result<()> {
-    use tokio::io::AsyncReadExt;
-    let registry = Registry::load(store)?;
-    let id =
-        resolved.config.fork_editor.engine_account_id.as_deref().ok_or_else(|| anyhow::anyhow!("Conta ausente."))?;
-    let account = registry.account(id)?;
-    let LaunchReference::CliProfile { executable, directory } = &account.launch else {
-        bail!("Cota da conta de fundo indisponível.");
-    };
-    let isolation = crate::fork::background_isolation::Isolation::prepare(&mut Vec::new(), false, false)?;
-    let mut observation = probe::Observation::cli(Backend::Claude, executable);
-    observation.launch = LaunchReference::CliProfile { executable: executable.clone(), directory: directory.clone() };
-    let mut command = probe::command_at(&observation, isolation.cwd());
-    command.current_dir(crate::fork::motor_exec::hub_cwd(isolation.cwd())).args([
-        "-p",
-        "/usage",
-        "--output-format",
-        "json",
-        "--no-session-persistence",
-        "--setting-sources",
-        "",
-        "--strict-mcp-config",
-        "--tools",
-        "",
-        "--settings",
-        r#"{"disableAllHooks":true}"#,
-    ]);
-    #[cfg(unix)]
-    command.process_group(0);
-    let permit = tokio::time::timeout(std::time::Duration::from_secs(5), QUOTA_SLOTS.acquire())
-        .await
-        .map_err(|_| Problem::Quota)?
-        .map_err(|_| Problem::Quota)?;
-    let mut child = crate::fork::motor_exec::spawn(&mut command)?;
-    let operation = async move {
-        let _permit = permit;
-        let _isolation = isolation;
-        let _group = crate::fork::engine_setup::ProcessGroup(child.id());
-        let mut output = Vec::new();
-        let mut stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Cota indisponível."))?;
-        let read = (&mut stdout).take(262_145).read_to_end(&mut output).await;
-        // Drenar o restante evita bloquear o cliente por saída excessiva. Mesmo
-        // nesse caso, espere o encerramento natural antes de rejeitar a resposta.
-        let drain = tokio::io::copy(&mut stdout, &mut tokio::io::sink()).await;
-        let status = child.wait().await?;
-        read?;
-        drain?;
-        ensure!(output.len() <= 262_144 && status.success(), "Cota indisponível.");
-        Ok::<_, anyhow::Error>(output)
-    };
-    // No modo separado, o prazo também encerra o grupo via guarda da operação.
-    let output = if crate::fork::motor_exec::configured() {
-        tokio::time::timeout(std::time::Duration::from_secs(60), operation).await.map_err(|_| Problem::Quota)??
-    } else {
-        // Legado: a renovação OAuth conserva sua vaga até terminar.
-        tokio::time::timeout(std::time::Duration::from_secs(60), tokio::spawn(operation))
-            .await
-            .map_err(|_| Problem::Quota)???
-    };
-    let value: serde_json::Value = serde_json::from_slice(&output)?;
-    let windows = crate::usage::parse_claude_usage(value["result"].as_str().unwrap_or_default());
-    check_windows(&windows, resolved.config.model.as_deref().unwrap_or_default())?;
-    revalidate(store, resolved)
-}
-
+#[cfg(test)]
 fn check_windows(windows: &[crate::usage::Window], model: &str) -> Result<()> {
     if !windows.iter().any(|w| w.id == "seven_day") {
         return Err(Problem::Quota.into());

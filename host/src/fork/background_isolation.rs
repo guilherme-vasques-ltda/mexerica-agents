@@ -52,6 +52,7 @@ pub(crate) async fn prepare_job(
     cfg: &crate::store::BotConfig,
     system: &str,
 ) -> Result<PreparedJob> {
+    crate::fork::assinatura_pessoal::automation(cfg)?;
     anyhow::ensure!(
         matches!(cfg.backend.as_str(), "claude" | "codex"),
         "Motor sem isolamento comprovado para tarefa de fundo."
@@ -250,6 +251,7 @@ mod tests {
         assert!(config.get("model_providers").is_none());
     }
 
+    #[cfg(unix)]
     #[test]
     fn nao_copia_auth_e_apaga_isolamento_ao_sair() {
         let policy = std::env::temp_dir().join(format!("donnabot-politica-{}", uuid::Uuid::new_v4()));
@@ -272,5 +274,23 @@ mod tests {
         std::fs::remove_file(auth).unwrap();
         std::fs::remove_dir(original).unwrap();
         std::fs::remove_dir(policy).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_recusa_isolamento_sem_alterar_o_perfil() {
+        let original = tempfile::tempdir().unwrap();
+        let auth = original.path().join("auth.json");
+        std::fs::write(&auth, "credencial-ficticia").unwrap();
+        let original_env = vec![("CODEX_HOME".into(), original.path().to_string_lossy().into_owned())];
+        for selected_api_key in [false, true] {
+            let mut env = original_env.clone();
+            let Err(error) = Isolation::prepare(&mut env, selected_api_key, true) else {
+                panic!("isolamento não qualificado não pode preparar o perfil");
+            };
+            assert!(error.to_string().contains("ainda não está disponível"));
+            assert_eq!(env, original_env);
+            assert_eq!(std::fs::read_to_string(&auth).unwrap(), "credencial-ficticia");
+        }
     }
 }

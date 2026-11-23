@@ -2,6 +2,8 @@
 //! executável dele. Confere o pacote e a raiz TUF contra fingerprints obtidos
 //! por canal independente, registra a baseline antes de alterar o sistema e
 //! falha fechada diante de estado misto, ambíguo ou de outra instalação.
+//! Instalações com arquivos administrativos de formato anterior são recusadas.
+//! Revogue e reinstale pelo fluxo administrativo; não há migração automática.
 use super::{
     Hex as _,
     armazenamento::Diretorio,
@@ -21,10 +23,10 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+use sudoers::{FORMAS_WRAPPER, WRAPPER};
 
 pub const ESTADO: &str = "/var/lib/donnabot/atualizacao";
 const SBIN: &str = "/opt/donnabot/sbin";
-const WRAPPER: &str = "/opt/donnabot/sbin/atualizar-privilegiado";
 const RELEASES: &str = "/opt/donnabot/releases";
 const SUDOERS: &str = "/etc/sudoers.d/donnabot";
 const MOTOR_CONF: &str = "/etc/donnabot/motor.conf";
@@ -44,13 +46,13 @@ const HUB_ATIVO: &str = "/opt/donnabot/releases/ativo/donnabot-host";
 const STATUS_PUBLICO: &str = "/opt/donnabot/releases/status.json";
 const CERTIDAO_PUBLICA: &str = "/opt/donnabot/releases/transacao.json";
 /// Canal do motor: executa como `donnabot-motor`, só escreve na home do motor.
-const TEXTO_SERVICO_COPIA: &str = "[Unit]\nDescription=Canal de cópia executado como o usuário motor (MX-365)\nRequires=donnabot-motor-copia.socket\n\n[Service]\nType=simple\nUser=donnabot-motor\nGroup=donnabot-motor\nUMask=0077\nExecStart=/opt/donnabot/sbin/donnabot-motor-copia\nNoNewPrivileges=yes\nProtectSystem=strict\nReadWritePaths=/var/lib/donnabot/motor\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nCapabilityBoundingSet=\nRestrictAddressFamilies=AF_UNIX\nSystemCallArchitectures=native\n";
+const TEXTO_SERVICO_COPIA: &str = "[Unit]\nDescription=Canal de cópia executado como o usuário motor\nRequires=donnabot-motor-copia.socket\n\n[Service]\nType=simple\nUser=donnabot-motor\nGroup=donnabot-motor\nUMask=0077\nExecStart=/opt/donnabot/sbin/donnabot-motor-copia\nNoNewPrivileges=yes\nProtectSystem=strict\nReadWritePaths=/var/lib/donnabot/motor\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nCapabilityBoundingSet=\nRestrictAddressFamilies=AF_UNIX\nSystemCallArchitectures=native\n";
 
 /// Socket acessível só ao motor (dono) e ao grupo primário do Hub; o serviço ainda
 /// confere o UID do par pelo kernel.
 fn texto_socket_copia(grupo_hub: &str) -> String {
     format!(
-        "[Unit]\nDescription=Socket do canal de cópia do motor (MX-365)\n\n[Socket]\nListenStream=/run/donnabot-motor-copia.sock\nSocketUser=donnabot-motor\nSocketGroup={grupo_hub}\nSocketMode=0660\nRemoveOnStop=yes\nAccept=no\n\n[Install]\nWantedBy=sockets.target\n"
+        "[Unit]\nDescription=Socket do canal de cópia do motor\n\n[Socket]\nListenStream=/run/donnabot-motor-copia.sock\nSocketUser=donnabot-motor\nSocketGroup={grupo_hub}\nSocketMode=0660\nRemoveOnStop=yes\nAccept=no\n\n[Install]\nWantedBy=sockets.target\n"
     )
 }
 /// Binários do pacote, instalados root:root 0755 em /opt/donnabot/sbin.
@@ -75,7 +77,7 @@ const LIMITE_ARQUIVO: u64 = 512 * 1024 * 1024;
 const TEXTO_UNIDADE_GUARDA: &str = "[Unit]\nDescription=Guarda de expiração da atualização privilegiada do Hub UID %i\nAfter=local-fs.target\nBefore=user@%i.service\n\n[Service]\nType=simple\nUser=root\nGroup=root\nUMask=0077\nExecStart=/opt/donnabot/sbin/donnabot-guarda-atualizacao\nExecStopPost=/opt/donnabot/sbin/donnabot-guarda-atualizacao --bloquear\nRestart=on-failure\nRestartSec=1s\nTimeoutStopSec=30s\n\n[Install]\nWantedBy=multi-user.target\n";
 /// Drop-in global do `systemd --user`: a parada alcança o Hub e todos os filhos.
 const TEXTO_DROPIN_HUB: &str =
-    "# Instalado pela etapa administrativa da atualização privilegiada (MX-365).\n[Service]\nKillMode=control-group\n";
+    "# Instalado pela etapa administrativa da atualização privilegiada.\n[Service]\nKillMode=control-group\n";
 const TEXTO_UNIDADE_CGROUP: &str = "[Unit]\nDescription=Prepara o cgroup root-owned da atualização privilegiada\nDefaultDependencies=no\nAfter=local-fs.target\nBefore=donnabot-guarda-atualizacao@.service\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nUMask=0077\nExecStart=/opt/donnabot/sbin/donnabot-instalar-atualizacao preparar-cgroup\n\n[Install]\nWantedBy=multi-user.target\n";
 
 /// Identidade local inequívoca do Hub (somente base `files`, sem NSS remoto).
@@ -611,26 +613,21 @@ fn sudoers_instalar(hub: &Hub) -> Result<()> {
     }
     fs::rename(&temporario, SUDOERS)?;
     File::open("/etc/sudoers.d")?.sync_all()?;
-    if let Err(erro) = executar("visudo", &[os("-cq")]) {
-        let _ = fs::remove_file(SUDOERS);
-        return Err(erro.context("configuração sudoers completa inválida; regra removida"));
+    if let Err(erro) = executar("visudo", &[os("-cq")]).and_then(|_| conferir_sudo(hub)) {
+        fs::remove_file(SUDOERS).with_context(|| format!("não foi possível remover a regra recusada: {erro:#}"))?;
+        File::open("/etc/sudoers.d")?.sync_all()?;
+        return Err(erro.context("configuração sudoers recusada; regra removida"));
     }
     Ok(())
 }
 
 /// `sudo -l` do login: exatamente as três formas e nenhuma regra ampla adicional.
 fn conferir_sudo(hub: &Hub) -> Result<()> {
-    conferir_arquivo(SUDOERS, sudoers::fragmento(&hub.login, hub.uid)?.as_bytes(), 0o440)?;
+    conferir_arquivo(SUDOERS, sudoers::fragmento(&hub.login, hub.uid)?.as_bytes(), 0o440).context(
+        "fragmento sudoers divergente; para instalações antigas, revogue e reinstale pelo fluxo administrativo",
+    )?;
     let lista = executar("sudo", &[os("-n"), os("-l"), os("-U"), os(&hub.login)])?;
-    let alvo = "/opt/donnabot/sbin/atualizar-privilegiado";
-    for forma in [format!("{alvo} \"\""), format!("{alvo} --reverter"), format!("{alvo} --aceitar")] {
-        ensure!(lista.contains(&forma), "sudo -l não lista {forma}");
-    }
-    ensure!(
-        !lista.contains("(ALL) ALL") && !lista.contains("(ALL : ALL) ALL"),
-        "o Hub tem regra sudo ampla; esta regra não isola o UID"
-    );
-    Ok(())
+    sudoers::conferir_lista(&lista, &hub.login)
 }
 
 pub fn verificar(login: &str) -> Result<()> {
@@ -655,7 +652,9 @@ pub fn verificar(login: &str) -> Result<()> {
     }
     conferir_arquivo(UNIDADE_GUARDA, TEXTO_UNIDADE_GUARDA.as_bytes(), 0o644)?;
     conferir_arquivo(UNIDADE_CGROUP, TEXTO_UNIDADE_CGROUP.as_bytes(), 0o644)?;
-    conferir_arquivo(DROPIN_HUB, TEXTO_DROPIN_HUB.as_bytes(), 0o644)?;
+    conferir_arquivo(DROPIN_HUB, TEXTO_DROPIN_HUB.as_bytes(), 0o644).context(
+        "configuração administrativa divergente; para instalações antigas, revogue e reinstale pelo fluxo administrativo",
+    )?;
     conferir_sudo(&hub)?;
     guard_alcanca_gerenciador(&hub)?;
     conferir_canal_motor(&hub)?;
@@ -826,7 +825,7 @@ fn desfazer_primeira_publicacao(hub: &Hub, tentativa: &str) -> Result<bool> {
     if let Err(erro) = executar("systemctl", &[os("--user"), os(&maquina), os("stop"), os("donnabot-host.service")]) {
         eprintln!("instalação: systemctl --user stop falhou ({erro:#}); conferindo parada pelo kernel");
     }
-    super::servico_hub::exigir_parado(hub.uid)
+    super::servico_hub::exigir_parado(&Diretorio::abrir_publicacao()?, hub.uid, super::chamador::Identidade::AdminRoot)
         .context("o Hub continua em execução; pare-o e rode o wrapper com --reverter")?;
     let estado = Command::new(WRAPPER)
         .arg("--reverter")
@@ -1042,8 +1041,6 @@ fn sudo_autoriza(login: &str, args: &[&str]) -> Result<bool> {
     }
 }
 
-const FORMAS_WRAPPER: [&[&str]; 3] = [&[], &["--reverter"], &["--aceitar"]];
-
 /// Para e desabilita uma unidade de sistema e prova que não está ativa. Falha ao
 /// parar só é tolerada se a unidade comprovadamente não existe.
 fn desativar_unidade(unidade: &str, arquivo: Option<&str>) -> Result<()> {
@@ -1064,6 +1061,43 @@ fn desativar_unidade(unidade: &str, arquivo: Option<&str>) -> Result<()> {
     let texto = String::from_utf8_lossy(&estado.stdout).trim().to_owned();
     ensure!(matches!(texto.as_str(), "inactive" | "failed"), "{unidade} não está comprovadamente parada ({texto})");
     Ok(())
+}
+
+fn verificar_parada_hub(parada: Result<()>, prova: Result<()>) -> Result<()> {
+    match (parada, prova) {
+        (Ok(()), prova) => prova,
+        (Err(_), Ok(())) => {
+            eprintln!("revogar: solicitação de parada falhou; parada do Hub confirmada pelo kernel");
+            Ok(())
+        }
+        (Err(_), Err(prova)) => Err(prova.context("solicitação de parada do Hub também falhou")),
+    }
+}
+
+fn conter_revogacao<T>(
+    bloqueio: Result<()>,
+    desarme: Result<T>,
+    parar_wrapper: impl FnOnce() -> Result<()>,
+    parar_hub: impl FnOnce() -> Result<()>,
+) -> Result<T> {
+    let desarme = match (bloqueio, desarme) {
+        (Err(bloqueio), Err(desarme)) => {
+            Err(anyhow::anyhow!("bloqueio da atualização: {bloqueio:#}; desarme: {desarme:#}"))
+        }
+        (bloqueio, desarme) => bloqueio.and(desarme),
+    };
+    let wrapper = parar_wrapper();
+    let hub = parar_hub();
+    let falhas = [
+        ("desarme", desarme.as_ref().err()),
+        ("parada do wrapper", wrapper.as_ref().err()),
+        ("parada do Hub", hub.as_ref().err()),
+    ]
+    .into_iter()
+    .filter_map(|(etapa, erro)| erro.map(|erro| format!("{etapa}: {erro:#}")))
+    .collect::<Vec<_>>();
+    ensure!(falhas.is_empty(), "revogação incompleta: {}", falhas.join("; "));
+    desarme
 }
 
 /// Revogação administrativa (root direto). Ordem do desenho, com cada etapa provada:
@@ -1142,59 +1176,54 @@ pub fn revogar(login: &str) -> Result<()> {
         }
         trava_mantida =
             Some(trava.context("operação do wrapper em andamento há mais de 10 minutos; revogação interrompida")?);
+        let publicacao = presente(RELEASES)?.then(Diretorio::abrir_publicacao).transpose()?;
+        let (bloqueio, ajudantes) = if let Some(publicacao) = &publicacao {
+            let bloqueio = estado.bloquear_por_falha(trava_mantida.as_ref().context("trava ausente")?);
+            let ajudantes = super::slots::em_todos([super::slots::Slot::A, super::slots::Slot::B], |slot| {
+                publicacao.desarmar_slot(slot)
+            });
+            (bloqueio, ajudantes)
+        } else {
+            (Ok(()), Ok(Vec::new()))
+        };
         // Chamada já iniciada e suspensa antes de obter a trava: encerrada e conferida (o
         // inode do wrapper não tem capabilities; a rotina mira quem o executa).
-        if presente(WRAPPER)? {
+        let parar_wrapper = || -> Result<()> {
+            if !presente(WRAPPER)? {
+                return Ok(());
+            }
             let wrapper = OpenOptions::new()
                 .read(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
                 .open(WRAPPER)?;
-            super::processos::verificar_sem_referencias(&wrapper, hub.uid)
+            super::processos::encerrar_wrapper(&wrapper)
                 .context("chamada do wrapper em curso não pôde ser encerrada")?;
             println!("revogar: nenhuma chamada do wrapper em curso (suspensas encerradas)");
-        }
+            Ok(())
+        };
         // 3. Hub e filhos parados (provado por cgroup e /proc), depois guard, canal e cgroup.
-        let maquina = format!("--machine={}@.host", hub.login);
-        if let Err(erro) = executar("systemctl", &[os("--user"), os(&maquina), os("stop"), os("donnabot-host.service")])
-        {
-            eprintln!("revogar: systemctl --user stop falhou ({erro:#}); conferindo parada pelo kernel");
-        }
-        super::servico_hub::exigir_parado(hub.uid).context("o Hub continua em execução; pare-o e repita")?;
+        let parar_hub = || -> Result<()> {
+            let maquina = format!("--machine={}@.host", hub.login);
+            let parada =
+                executar("systemctl", &[os("--user"), os(&maquina), os("stop"), os("donnabot-host.service")]).map(drop);
+            let prova = if let Some(publicacao) = &publicacao {
+                super::servico_hub::exigir_parado(publicacao, hub.uid, super::chamador::Identidade::AdminRoot)
+            } else {
+                super::servico_hub::exigir_parado_sem_slots(hub.uid)
+            };
+            verificar_parada_hub(parada, prova)
+        };
+        let ajudantes = conter_revogacao(bloqueio, ajudantes, parar_wrapper, parar_hub)?;
         let guarda = format!("donnabot-guarda-atualizacao@{}.service", hub.uid);
         desativar_unidade(&guarda, Some(UNIDADE_GUARDA))?;
         desativar_unidade("donnabot-motor-copia.socket", Some(SOCKET_COPIA))?;
         desativar_unidade("donnabot-motor-copia.service", Some(SERVICO_COPIA))?;
         desativar_unidade("donnabot-cgroup-atualizacao.service", Some(UNIDADE_CGROUP))?;
         println!("revogar: Hub, guard, canal do motor e cgroup comprovadamente parados");
-        // 4. Ajudante desativado em cada slot antes de qualquer remoção; só ENOENT é ausência.
-        if presente(RELEASES)? {
-            let publicacao = Diretorio::abrir_publicacao()?;
-            for slot in [super::slots::Slot::A, super::slots::Slot::B] {
-                if !publicacao.existe(slot.nome())? {
-                    continue;
-                }
-                let dir = publicacao.fechar_slot(slot)?;
-                // SAFETY: nome fixo relativo ao slot root 0700, sem seguir links.
-                let fd = unsafe {
-                    libc::openat(
-                        std::os::fd::AsRawFd::as_raw_fd(dir.descritor()),
-                        c"donnabot-motor-exec".as_ptr(),
-                        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-                    )
-                };
-                if fd < 0 {
-                    let erro = std::io::Error::last_os_error();
-                    ensure!(
-                        erro.raw_os_error() == Some(libc::ENOENT),
-                        "ajudante do {} inacessível: {erro}",
-                        slot.nome()
-                    );
-                    continue;
-                }
-                // SAFETY: descritor novo; posse transferida ao File.
-                let ajudante = unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(fd) };
-                super::slots::limpar_capacidades(&ajudante)?;
-                super::processos::verificar_sem_referencias(&ajudante, hub.uid)?;
+        // 4. Só depois de desarmar todos os slots, conferir referências antes da remoção.
+        if publicacao.is_some() {
+            for ajudante in ajudantes.into_iter().flatten() {
+                super::processos::verificar_ajudante_revogado(&ajudante, hub.uid)?;
             }
             drop(publicacao);
             fs::remove_dir_all(RELEASES)?;
@@ -1256,6 +1285,72 @@ pub fn revogar(login: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn revogacao_aceita_parada_comprovada_apesar_de_falha_na_solicitacao() {
+        let parada = Err(anyhow::anyhow!("falha simulada"));
+        assert!(verificar_parada_hub(parada, Ok(())).is_ok());
+    }
+
+    #[test]
+    fn revogacao_tenta_as_duas_paradas_e_preserva_publicacao_se_desarme_falhar() {
+        use std::cell::{Cell, RefCell};
+
+        let eventos = RefCell::new(Vec::new());
+        let publicacao = Cell::new(true);
+        let desarme =
+            super::super::slots::em_todos([super::super::slots::Slot::A, super::super::slots::Slot::B], |slot| {
+                eventos.borrow_mut().push(slot.nome());
+                ensure!(slot != super::super::slots::Slot::B, "falha de desarme simulada");
+                Ok(())
+            });
+        let resultado = conter_revogacao(
+            Ok(()),
+            desarme,
+            || {
+                eventos.borrow_mut().push("wrapper");
+                bail!("falha de parada simulada");
+            },
+            || {
+                eventos.borrow_mut().push("Hub");
+                Ok(())
+            },
+        )
+        .map(|_| publicacao.set(false));
+        assert_eq!(*eventos.borrow(), ["slot-a", "slot-b", "wrapper", "Hub"]);
+        assert!(publicacao.get());
+        assert_eq!(
+            resultado.unwrap_err().to_string(),
+            "revogação incompleta: desarme: slot-b: falha de desarme simulada; parada do wrapper: falha de parada simulada"
+        );
+    }
+
+    #[test]
+    fn revogacao_contem_falha_dupla_de_bloqueio_e_desarme() {
+        use std::cell::{Cell, RefCell};
+
+        let paradas = RefCell::new(Vec::new());
+        let publicacao = Cell::new(true);
+        let resultado = conter_revogacao(
+            Err(anyhow::anyhow!("falha de bloqueio simulada")),
+            Err::<(), _>(anyhow::anyhow!("falha de desarme simulada")),
+            || {
+                paradas.borrow_mut().push("wrapper");
+                Ok(())
+            },
+            || {
+                paradas.borrow_mut().push("Hub");
+                Ok(())
+            },
+        )
+        .map(|()| publicacao.set(false));
+        assert_eq!(*paradas.borrow(), ["wrapper", "Hub"]);
+        assert!(publicacao.get());
+        assert_eq!(
+            resultado.unwrap_err().to_string(),
+            "revogação incompleta: desarme: bloqueio da atualização: falha de bloqueio simulada; desarme: falha de desarme simulada"
+        );
+    }
 
     fn pacote_em(dir: &Path, arquivos: &[(&str, &[u8])]) -> Result<(String, String)> {
         use std::fmt::Write as _;

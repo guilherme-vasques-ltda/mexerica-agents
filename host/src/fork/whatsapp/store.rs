@@ -552,17 +552,17 @@ pub(super) struct Policy {
 
 pub(super) fn policy(store: &Store, host_id: &str) -> Result<Policy> {
     let hub = hub_id(host_id)?;
-    let donna = store.team_settings()?.primary_bot_id;
     let c = store.db.locked();
     let enabled = enabled(&c, &hub)?;
-    let (mode, _) = hub_row(&c)?;
     let agents = agents(&c)?;
-    let allowed = agents
-        .iter()
-        .filter(|id| enabled && (mode == Mode::PerBot || donna.as_deref() == Some(id.as_str())))
-        .cloned()
-        .collect();
+    let allowed = eligible_in_mode(&c, &agents)?.into_iter().filter(|_| enabled).cloned().collect();
     Ok(Policy { enabled, agents, allowed })
+}
+
+pub(crate) fn eligible_in_mode<'a>(c: &Connection, agents: &'a [String]) -> Result<Vec<&'a String>> {
+    let (mode, _) = hub_row(c)?;
+    let donna = crate::store::team_settings_on(c)?.primary_bot_id;
+    Ok(agents.iter().filter(|id| mode == Mode::PerBot || donna.as_deref() == Some(id.as_str())).collect())
 }
 
 /// Padrão: o primeiro provedor com chave no Hub e o modelo de transcrição dele.

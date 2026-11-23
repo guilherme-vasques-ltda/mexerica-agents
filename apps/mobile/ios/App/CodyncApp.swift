@@ -43,8 +43,12 @@ struct CodyncApp: App {
                         .environment(app.account)
                         .tint(Palette.accent)
                 }
-                .onChange(of: app.account.userID, initial: true) { _, userID in
-                    app.switchAccount(to: userID)
+                .onChange(of: app.workspaceSession, initial: true) { _, _ in
+                    app.syncAccountContext()
+                }
+                .task(id: app.workspaceRefreshKey(foreground: scenePhase == .active)) {
+                    guard scenePhase == .active else { return }
+                    await app.refreshWorkspacesWhileActive()
                 }
                 .overlay {
                     if launching || !app.account.isReady {
@@ -73,7 +77,8 @@ struct CodyncApp: App {
                     app.accounts.setActive(phase != .background && !app.account.requiresLogin)
                     // Back in the app: a computer may have joined the account meanwhile.
                     if phase == .active {
-                        Task { await app.accounts.refreshCloud() }
+                        let accounts = app.accounts
+                        Task { await accounts.refreshCloud() }
                         Task { await updates.refresh() }
                     }
                 }
@@ -114,8 +119,12 @@ final class AppStore {
     /// The signed-in account's cloud; nil when signed out or the build has no cloud.
     private(set) var cloud: CloudClient?
     private(set) var contextID: String
-    /// Bumped by Start over so the whole UI is rebuilt, even though the local context keeps its id.
+    /// Rebuilds the UI when the scope is replaced, even when its storage ID is unchanged.
     private(set) var generation = 0
+    var workspaceSelection: ForkWorkspaceSelection?
+    var workspaceDirectoryUnavailable = false
+    var appliedWorkspaceSession: ForkWorkspaceSession?
+    private var accountStartup: Task<Void, Never>?
     var tab = AppTab.bots
     var showComputers = false
     /// The usage limits sheet over the State tab.
@@ -127,8 +136,9 @@ final class AppStore {
 
     private init() {
         let session = AccountSession()
-        let storage = SharedStore.Context(accountID: session.userID)
-        SharedStore.activeAccountID = session.userID
+        let storage = Self.initialStorage(for: session)
+        SharedStore.clearLegacyAttachments()
+        SharedStore.activate(storage)
         account = session
         Analytics.shared.userID = { [session] in session.userID }
         Analytics.shared.foregroundState = {
@@ -139,7 +149,12 @@ final class AppStore {
         }
         CrashReports.shared.start()
         contextID = storage.id
-        (accounts, cloud) = Self.makeAccounts(storage, session: session)
+        (accounts, cloud) = Self.makeAccounts(storage, session: session, loadContext: !session.usesWorkspaceDirectory && !session.requiresLogin)
+        appliedWorkspaceSession = workspaceSession
+        if session.usesWorkspaceDirectory, let userID = session.userID {
+            workspaceSelection = ForkWorkspaceSelection(userId: userID)
+        }
+        startAccountCloud()
         // The current account's open access requests end while its session still works.
         session.transition.attach { [weak self] in self?.accounts }
     }
@@ -151,19 +166,24 @@ final class AppStore {
         accounts.storage.lastComputerId.flatMap(accounts.store(for:)) ?? accounts.computers.first.flatMap { accounts.store(for: $0.id) }
     }
 
-    func switchAccount(to userID: String?) {
-        let storage = SharedStore.Context(accountID: userID)
-        guard storage.id != contextID else { return }
+    func replaceContext(_ storage: SharedStore.Context, loadContext: Bool, erase: [SharedStore.Context] = []) {
+        accountStartup?.cancel()
         accounts.retire()
         PushRegistrar.shared.deactivate()
         LiveActivities.shared.endAll()
-        SharedStore.activeAccountID = userID
+        accounts.storage.bots = []
+        SharedStore.activate(SharedStore.Context(accountID: nil, scope: "inactive"))
+        for context in erase { context.erase() }
         storage.bots = []
+        SharedStore.activate(storage)
         contextID = storage.id
+        generation += 1
         tab = .bots
         showComputers = false
+        showUsage = false
         marketplace = nil
-        (accounts, cloud) = Self.makeAccounts(storage, session: account)
+        (accounts, cloud) = Self.makeAccounts(storage, session: account, loadContext: loadContext)
+        startAccountCloud()
         BotsWidgetFeed.reset()
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -176,7 +196,8 @@ final class AppStore {
         await account.signOut()
         guard account.userID != userID, !account.accounts.contains(where: { $0.id == userID }) else { return }
         // Retire its stores first: a retiring store saves its cache one last time.
-        switchAccount(to: account.userID)
+        syncAccountContext()
+        SharedStore.eraseWorkspaceScopes(userID: userID)
         SharedStore.Context(accountID: userID).erase()
     }
 
@@ -189,25 +210,17 @@ final class AppStore {
             accounts.lastError = account.errorMessage
             return
         }
-        accounts.retire()
-        PushRegistrar.shared.deactivate()
-        LiveActivities.shared.endAll()
-        for id in resetAccountIDs { SharedStore.Context(accountID: id).erase() }
-        resetAccountIDs.removeAll()
+        workspaceSelection = nil
         let storage = SharedStore.Context(accountID: nil)
-        storage.erase()
-        storage.bots = []
-        SharedStore.activeAccountID = nil
         UserDefaults.standard.set(false, forKey: "onboardingCompleted")
-        showComputers = false
         account.showSwitcher = false
-        marketplace = nil
-        tab = .bots
-        contextID = storage.id
-        (accounts, cloud) = Self.makeAccounts(storage, session: account)
-        generation += 1
-        BotsWidgetFeed.reset()
-        WidgetCenter.shared.reloadAllTimelines()
+        appliedWorkspaceSession = workspaceSession
+        replaceContext(Self.initialStorage(for: account), loadContext: false, erase: [storage])
+        for id in resetAccountIDs {
+            SharedStore.Context(accountID: id).erase()
+            SharedStore.eraseWorkspaceScopes(userID: id)
+        }
+        resetAccountIDs.removeAll()
     }
 
     /// A scanned, pasted or opened pairing link; one that can't be read is recorded before it's shown.
@@ -240,6 +253,7 @@ final class AppStore {
             return
         }
         guard !account.requiresLogin, url.scheme == AppEnvironment.current.urlScheme else { return }
+        guard !showsWorkspaceStatus else { return }
         switch url.host() {
         case "pair":
             // Scanned with the Camera app: pair right away.
@@ -270,16 +284,16 @@ final class AppStore {
         }
     }
 
-    private static func makeAccounts(_ storage: SharedStore.Context, session: AccountSession) -> (AccountStore, CloudClient?) {
-        let identity = storage.accountID == nil ? nil : try? DeviceIdentity.load(context: storage)
-        let cloud = session.cloudClient(for: storage.accountID, identity: identity)
-        let accounts = AccountStore(storage: storage, cloud: cloud, loadSavedComputers: !session.requiresLogin,
+    private static func makeAccounts(_ storage: SharedStore.Context, session: AccountSession, loadContext: Bool) -> (AccountStore, CloudClient?) {
+        let identity = !loadContext || storage.accountID == nil ? nil : try? DeviceIdentity.load(context: storage)
+        let cloud = loadContext ? session.cloudClient(for: storage.accountID, identity: identity) : nil
+        let accounts = AccountStore(storage: storage, cloud: cloud, loadSavedComputers: loadContext,
                                     accountConfigured: session.isConfigured)
         accounts.onConnected = { store in
             PushRegistrar.shared.syncDevice(with: store)
             store.onUsageChanged = { _, _ in WidgetCenter.shared.reloadTimelines(ofKind: "CodyncUsage") }
         }
-        accounts.onBotUpdated = { ref, bot in LiveActivities.shared.update(ref, bot: bot) }
+        accounts.onBotUpdated = { ref, bot in LiveActivities.shared.update(ref, bot: bot, storage: storage) }
         accounts.onRosterChanged = { roster in
             BotsWidgetFeed.update(roster, storage: storage)
             if roster.isEmpty {
@@ -291,19 +305,23 @@ final class AppStore {
             guard let store = accounts?.store(for: ref.computerId) else { return }
             LiveActivities.shared.sent(ref, bot: bot, progress: progress, store: store)
         }
-        if let cloud {
-            // Signed in: make this iPhone known to the account, then list its computers.
-            Task { [weak accounts] in
-                do {
-                    try await cloud.registerDevice(name: UIDevice.current.name, platform: "ios")
-                } catch {
-                    accounts?.lastError = "Não foi possível registrar este iPhone na nuvem. Confira a conexão e a configuração Clerk e abra o app novamente."
-                    return
-                }
-                await accounts?.refreshCloud()
-            }
-        }
         return (accounts, cloud)
+    }
+
+    private func startAccountCloud() {
+        guard let cloud else { return }
+        accountStartup = Task { [weak accounts] in
+            do {
+                try Task.checkCancellation()
+                try await cloud.registerDevice(name: UIDevice.current.name, platform: "ios")
+            } catch {
+                guard !Task.isCancelled else { return }
+                accounts?.lastError = "Não foi possível registrar este iPhone na nuvem. Confira a conexão e a configuração Clerk e abra o app novamente."
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await accounts?.refreshCloud()
+        }
     }
 
     /// Takes back this iPhone's account access to a computer (its grant), and forgets the computer here.

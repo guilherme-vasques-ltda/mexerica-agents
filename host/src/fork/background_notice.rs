@@ -3,13 +3,17 @@ use crate::hub::Hub;
 use crate::store::{BotConfig, EntryKind, Lane};
 use serde_json::json;
 
+const SUBSCRIPTION_UNAVAILABLE: &str = "background_subscription_unavailable: Esta tarefa de fundo está indisponível. Ela não aceita assinatura pessoal nem tem outra conexão compatível disponível. Nenhuma outra conta foi usada.";
+
 #[derive(Debug)]
 pub(crate) enum Problem {
+    PersonalSubscription,
     NoClaude,
     Codex,
     Api,
     Model,
     Policy,
+    #[cfg(test)]
     Quota,
     Version,
     Timeout,
@@ -24,11 +28,13 @@ pub(crate) enum Problem {
 impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::NoClaude => "Conecte uma conta Claude com assinatura nas Configurações do sistema.",
-            Self::Codex => "A assinatura Codex ainda não pode ser usada em tarefas de fundo. Conecte uma conta Claude com assinatura.",
-            Self::Api => "Contas com chave de API estarão disponíveis em breve. Por enquanto, conecte uma conta Claude com assinatura.",
+            Self::PersonalSubscription => SUBSCRIPTION_UNAVAILABLE,
+            Self::NoClaude => "Não há conta compatível configurada para esta tarefa de fundo.",
+            Self::Codex => "A assinatura Codex ainda não pode ser usada neste executor de fundo.",
+            Self::Api => "Este executor de fundo não aceita esta conta com chave de API. Nenhuma outra conta foi usada.",
             Self::Model => "Não foi possível confirmar um modelo para a conta Claude. Confira a conta nas Configurações do sistema.",
             Self::Policy => "As regras deste computador impedem a tarefa de fundo ou não puderam ser conferidas.",
+            #[cfg(test)]
             Self::Quota => "Não foi possível conferir o limite de uso da conta Claude. Vamos tentar novamente mais tarde.",
             Self::Version => {
                 return write!(
@@ -56,6 +62,7 @@ impl std::error::Error for Problem {}
 /// problema não é de seleção. Mesmo texto na resolução de `functionModels`.
 pub(crate) fn memory_selection_text(problem: &Problem) -> Option<String> {
     match problem {
+        Problem::PersonalSubscription => Some(problem.to_string()),
         Problem::AccountDisconnected { label } => Some(format!(
             "Organizar memória: a conta {label} está desconectada; reconecte em Contas de IA ou escolha outra em Bot de fundo > Modelos por função"
         )),
@@ -81,7 +88,9 @@ pub(crate) fn unavailable_with_error(hub: &Hub, cfg: &BotConfig, task: &str, err
         "nome" => "Nome automático",
         _ => "Organização da memória",
     };
-    let text = if error.is_some_and(|e| e.downcast_ref::<crate::chat::oneshot::SubscriptionLimit>().is_some()) {
+    let text = if error.is_some_and(|e| matches!(e.downcast_ref::<Problem>(), Some(Problem::PersonalSubscription))) {
+        SUBSCRIPTION_UNAVAILABLE.to_owned()
+    } else if error.is_some_and(|e| e.downcast_ref::<crate::chat::oneshot::SubscriptionLimit>().is_some()) {
         format!("{name} indisponível: limite da assinatura atingido. Vamos tentar novamente mais tarde.")
     } else if let Some(problem) = error.and_then(|e| e.downcast_ref::<Problem>()) {
         match memory_selection_text(problem).filter(|_| task != "nome") {
@@ -150,9 +159,10 @@ mod tests {
     #[test]
     fn mensagens_explicam_causa_sem_jargao_de_configuracao() {
         for (problem, expected) in [
-            (Problem::NoClaude, "Conecte uma conta Claude"),
+            (Problem::NoClaude, "Não há conta compatível configurada"),
+            (Problem::PersonalSubscription, "Esta tarefa de fundo está indisponível"),
             (Problem::Codex, "assinatura Codex ainda não pode"),
-            (Problem::Api, "chave de API estarão disponíveis em breve"),
+            (Problem::Api, "não aceita esta conta com chave de API"),
             (Problem::Policy, "regras deste computador"),
             (Problem::Quota, "limite de uso"),
             (Problem::Version, "não foi validada para tarefas de fundo"),
@@ -162,5 +172,13 @@ mod tests {
         ] {
             assert!(problem.to_string().contains(expected));
         }
+    }
+
+    #[test]
+    fn recusa_de_fundo_nao_recomenda_credencial_incompativel() {
+        let text = Problem::PersonalSubscription.to_string();
+        assert!(text.starts_with("background_subscription_unavailable: "));
+        assert!(!text.contains("chave de API"));
+        assert!(!text.contains("outro motor"));
     }
 }

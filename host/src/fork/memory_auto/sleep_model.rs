@@ -18,7 +18,6 @@ use crate::{
     fork::{
         background_executor::{JobResponse, MemoryBoundary},
         background_memory_auto::{selection_matches, with_memory_current},
-        background_notice::Problem,
         background_selection::Resolved,
         background_space_selection::{self, Prepared},
         memory_learning,
@@ -438,10 +437,7 @@ pub(crate) fn failure(error: &anyhow::Error, sent: bool) -> Option<Outcome> {
         Some("sleep_nothing_to_ask") => return None,
         Some("sleep_learning_off") => Outcome::Status(Status::LearningOff),
         Some(_) => Outcome::Deferred,
-        // O teto de 75% (`SubscriptionLimit` antes do envio) e a cota ilegível: recibo `limit`, sem reenvio no dia.
-        None if (limit && !sent) || matches!(error.downcast_ref::<Problem>(), Some(Problem::Quota)) => {
-            Outcome::Status(Status::Limit)
-        }
+        None if limit && !sent => Outcome::Status(Status::Limit),
         // Sem vaga, ou a assinatura recusou durante a chamada: devolve a reserva.
         None if limit || error.downcast_ref::<crate::fork::background_executor::Busy>().is_some() => Outcome::Deferred,
         None => Outcome::Status(Status::Failed),

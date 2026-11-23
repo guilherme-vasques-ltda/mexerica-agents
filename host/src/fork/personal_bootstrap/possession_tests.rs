@@ -621,7 +621,7 @@ async fn personal_host_b2_actual_channel_probe_and_old_activation_cut() -> Resul
     let run = tokio::spawn(async move {
         channel::run(
             h,
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: channel::Porta::default() },
             ChannelKind::PersonalRelay { admission: Box::new(admission) },
         )
         .await;
@@ -991,6 +991,8 @@ async fn personal_r32_fence_commit_after_socket_reopens_during_causal_wait_publi
         ]),
     )?;
     let reply = json!({"originals":{"fence":fence},"state":null});
+    let workspace_antes = hub.workspace.atual();
+    let mut corte = hub.workspace.assinar();
     // Somente ACK externo é controlado; W/X/Y, assinaturas, CAS e efeitos SQLite não são simulados.
     let ack_attempts = Arc::new(AtomicUsize::new(0));
     let sent_acks = ack_attempts.clone();
@@ -1057,6 +1059,14 @@ async fn personal_r32_fence_commit_after_socket_reopens_during_causal_wait_publi
                 .get::<_, i64>(0))?,
             0
         );
+        // A revogação pela cerca grava o bloqueio durável da mesma concessão e sobe o epoch na mesma Tx.
+        assert!(crate::fork::workspace::bloqueado_on(&db, &record.binding.app, Some(record.binding.grant.as_str()))?);
+        let retrato = hub.workspace.retrato();
+        assert_eq!((retrato.valor, retrato.pendente()), (workspace_antes + 1, false));
+        assert!(
+            corte.has_changed()? && corte.borrow_and_update().avancou(workspace_antes),
+            "streams abertos são cortados"
+        );
         assert!(db.query_row("SELECT tombstone=1 AND ever_claimed=1 FROM personal_generation", [], |row| {
             row.get::<_, bool>(0)
         })?);
@@ -1105,7 +1115,7 @@ async fn personal_completed_probe_for_lifetime() -> Result<PersonalCompletedProb
     let run = tokio::spawn(async move {
         channel::run(
             h,
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: channel::Porta::default() },
             ChannelKind::PersonalRelay { admission: Box::new(admission) },
         )
         .await;

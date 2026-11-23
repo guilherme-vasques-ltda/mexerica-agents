@@ -212,6 +212,7 @@ export interface CodyncBridge {
     onChange(cb: (s: HostSnapshot) => void): () => void
     install(): void
     restart(): void
+    onboardingDismissal?(userId: string, action: 'read' | 'defer' | 'clear'): Promise<boolean | null>
     /** POST /api/<method> on a loopback host. Rejects with a `CallError`. */
     call(baseURL: string, token: string, method: string, body: unknown, timeoutMs: number): Promise<unknown>
     /** SSE on a loopback host: each `data:` line, then `onEnd` (with an error when it failed). */
@@ -302,7 +303,7 @@ export interface CodyncBridge {
   }
   /** Nível 1 de atualizações: só avisa e abre a página da release; nunca baixa nem instala. */
   releaseNotice: {
-    state(): Promise<ReleaseNoticeState>
+    state(): Promise<ReleaseNoticeState | null>
     /** Procurar atualização (manual): respeita o cooldown curto e mostra erro quando falha. */
     check(): Promise<ReleaseNoticeState>
     dismiss(): Promise<ReleaseNoticeState>

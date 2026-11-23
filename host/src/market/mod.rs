@@ -100,6 +100,13 @@ pub struct Connector {
 }
 
 impl Connector {
+    pub(crate) fn missing_catalog_header(&self) -> bool {
+        self.command.is_none()
+            && self.servico.is_some()
+            && self.oauth.is_none()
+            && self.headers.values().any(String::is_empty)
+    }
+
     /// Only materialization of a saved target, never a health/authentication claim.
     pub fn configured(&self) -> bool {
         match self.command.as_deref() {
@@ -122,7 +129,7 @@ impl Connector {
         }
         self.url.as_ref()?;
         // Conta de ficha por chave ainda sem o valor guardado: nada de chamar o fornecedor sem credencial.
-        if self.servico.is_some() && self.oauth.is_none() && self.headers.values().any(String::is_empty) {
+        if self.missing_catalog_header() {
             return None;
         }
         if self.oauth_binding.as_ref().is_some_and(oauth_binding::Binding::scopes_retained)

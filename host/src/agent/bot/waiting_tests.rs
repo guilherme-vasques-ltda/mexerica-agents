@@ -8,6 +8,25 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::test]
+async fn complete_request_p05_suprime_resposta_tardia_no_canal() {
+    use crate::fork::retornos::{fim_do_turno, provas_privacidade_testes::pedido_para_callback_tardio};
+    let f = Fixture::new();
+    let fence = pedido_para_callback_tardio(&f.hub.store);
+    let mut actor = f.actor();
+    let (mut request, reply) = crate::chat::team::BotRequest::for_test_recorded("late");
+    request.dispatch_recorded(fence);
+    actor.active_request = Some(request);
+    let text = "não publicar";
+    let fim = fim_do_turno(false, false, false, "end_turn", Some(text), None, None);
+    actor.complete_request(Ok(text.into()), false, fim);
+    assert_eq!(reply.await.unwrap().unwrap_err().to_string(), "retorno_pedido_ja_decidido");
+    assert!(actor.active_request.is_none());
+    drop(actor);
+    f.hub.shutdown().await;
+    std::fs::remove_dir_all(&f.dir).unwrap();
+}
+
+#[tokio::test]
 async fn rodada4_handoff_de_rollover_e_consumido_antes_da_primeira_espera() {
     let mut f = Fixture::new();
     let cfg = f.hub.store.bot("bot").unwrap().unwrap().config;
@@ -363,6 +382,7 @@ impl Fixture {
             queue: VecDeque::new(),
             queue_retry_at: None,
             queue_restore_retry_at: None,
+            subscription_refusals: BTreeMap::new(),
             active_request: None,
             dispatch: None,
             profile_skills: None,
@@ -1860,7 +1880,8 @@ async fn mx263_teto_bloqueando_na_retomada_segura_a_rotina() {
 
 #[tokio::test]
 async fn mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72() {
-    let f = Fixture::with_backend("claude");
+    let f = Fixture::new();
+    std::fs::write(f.dir.join("no-reset"), "").unwrap();
     let routine = f
         .hub
         .routines
@@ -1879,6 +1900,45 @@ async fn mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72() {
     assert!(saved["resumeAt"].is_null(), "sem retorno informado: vale o backoff D72");
     let now = crate::store::now_ms();
     assert!(saved["retryAt"].as_i64().unwrap() >= now + 290_000);
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn assinatura_pessoal_recusa_nao_reenfileira_quando_sqlite_falha() {
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    let lane = crate::store::Lane::main("bot");
+    let entry = f.hub.store.insert_entry(&lane, EntryKind::User, 1, &json!({"text":"oi","status":"queued"})).unwrap();
+    f.hub.store.db.locked().execute_batch("CREATE TRIGGER reject_subscription_failure BEFORE UPDATE ON entries WHEN json_extract(NEW.data,'$.status')='failed' BEGIN SELECT RAISE(ABORT,'indisponível'); END;").unwrap();
+    let ids = [entry.id.clone()];
+    actor.stop_subscription_retry(&ids, &crate::fork::assinatura_pessoal::Refusal::Automation.into());
+    actor.requeue_unreserved_humans(&ids);
+    assert!(!actor.queue_has_user(&entry.id));
+    assert!(actor.restore_waiting_queue().is_err());
+    f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_subscription_failure").unwrap();
+    actor.restore_waiting_queue().unwrap();
+    assert!(!actor.queue_has_user(&entry.id));
+    assert_eq!(f.hub.store.entry(&entry.id).unwrap().data["status"], "failed");
+    std::fs::remove_dir_all(&f.dir).unwrap();
+}
+
+#[tokio::test]
+async fn assinatura_pessoal_rotina_para_antes_do_motor() {
+    let f = Fixture::with_backend("claude");
+    let routine = f
+        .hub
+        .routines
+        .save(&f.hub, "bot", &json!({"name":"Rotina", "instruction":"Não enviar", "triggers":[{"type":"webhook"}]}))
+        .unwrap();
+    let id = routine["routine"]["id"].as_str().unwrap();
+    let run = f.enqueue(id, "test", true).await;
+    f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
+    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    assert!(!f.dir.join("session-count").exists());
+    assert!(!f.waiting_checkpoint_published());
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
@@ -4516,3 +4576,65 @@ mod mandar_agora {
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 }
+
+#[path = "fork_pausa_conversa_tests.rs"]
+mod pausa_conversa;
+
+/// Espera D72 numa conversa pausada por efeito incerto: a retomada passa por `start_turn` sem conferir a pausa e o
+/// permit recusa. A reserva sai sem despacho, a continuação não é enviada e a outra conversa do mesmo bot (uma sala)
+/// é admitida; a pausa continua.
+#[tokio::test]
+async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
+    use crate::fork::bot_admission as admission;
+    let mut f = Fixture::new();
+    f.send().await;
+    let room: BotConfig =
+        serde_json::from_value(json!({"id":"sala","name":"Sala","kind":"group","members":["bot"]})).unwrap();
+    f.hub.store.save_bot(&room).unwrap();
+    f.hub.shutdown().await;
+    f.make_retry_due();
+    admission::pause_conversation(&Store::open(&f.dir.join("test.db")).unwrap(), "bot", "bot", "t-velho").unwrap();
+    f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+    let waiting_phase = || {
+        f.hub
+            .store
+            .kv_get("turn.waiting.bot")
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .map(|w| w["phase"].clone())
+    };
+    f.until(|| waiting_phase().is_none_or(|phase| phase == "finished")).await;
+    assert_eq!(f.hub.runtime("bot").status, BotStatus::Idle, "a retenção não deixa o bot em erro");
+    let history = f.hub.store.history("bot", i64::MAX, 200).unwrap();
+    assert!(
+        !history.iter().any(|e| e.kind == "notice" && e.data["style"] == "error"),
+        "a retenção não publica aviso de erro"
+    );
+    assert_eq!(f.prompts().len(), 1, "a continuação da conversa pausada não sai");
+    crate::api::dispatch(
+        &f.hub,
+        &crate::api::devices::Caller::Local,
+        "send",
+        json!({"botId":"sala", "text":"Oi, sala"}),
+    )
+    .await
+    .unwrap();
+    f.until(|| f.prompts().len() == 2).await;
+    let prompt = f.prompts()[1].to_string();
+    assert!(prompt.contains("Oi, sala"), "a sala é admitida");
+    assert!(!prompt.contains("Continue a tarefa pendente"), "a continuação da conversa pausada não sai");
+    assert!(admission::conversation_paused(&f.hub.store, "bot", "bot").unwrap(), "a pausa continua");
+    f.until(|| f.hub.runtime("bot").status != BotStatus::Waiting).await;
+    assert!(
+        f.hub
+            .store
+            .kv_get("turn.waiting.bot")
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .is_none_or(|w| w["phase"] != "waiting"),
+        "a espera da conversa pausada não fica armada"
+    );
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[path = "fork_pergunta_restaurada_tests.rs"]
+mod pergunta_restaurada;

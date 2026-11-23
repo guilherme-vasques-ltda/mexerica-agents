@@ -39,6 +39,8 @@ pub(crate) mod mcp_host;
 #[cfg(unix)]
 pub(crate) mod proprio;
 pub(crate) mod tools;
+#[cfg(all(windows, test))]
+mod windows_laboratorio;
 pub(crate) use tools::{ToolRunner, ToolSpec};
 
 pub(crate) const ENGINE_ID: &str = "mexerica";
@@ -158,6 +160,34 @@ pub(crate) fn catalogo(store: &Store, space: &str) -> Result<Value> {
 /// Slot do cofre por provedor: `motor-mexerica/<provider>`.
 pub(crate) fn credential_slot(provider_id: &str) -> String {
     format!("motor-mexerica/{provider_id}")
+}
+
+/// Resumo das credenciais de IA do Motor Mexerica para o onboarding,
+/// sem desbloquear o cofre nem retornar valores secretos.
+pub(crate) fn onboarding_ai_summary(store: &Store) -> Result<Vec<String>> {
+    #[cfg(not(unix))]
+    {
+        let _ = store;
+        Ok(Vec::new())
+    }
+    #[cfg(unix)]
+    {
+        if !enabled() {
+            return Ok(Vec::new());
+        }
+        let mut providers = Vec::new();
+        for (id, _) in chaves::FORNECEDORES {
+            if store.kv_read(&credential_slot(id))?.is_some() {
+                providers.push((*id).to_owned());
+            }
+        }
+        for id in proprio::ids(store)? {
+            if store.kv_read(&credential_slot(&id))?.is_some() {
+                providers.push(id);
+            }
+        }
+        Ok(providers)
+    }
 }
 
 /// Provedores do motor: cada um com o seu slot no cofre (as chaves de todos saem do texto da conversa guardada).
@@ -357,6 +387,7 @@ impl Engine {
 
     /// Igual a [`Engine::spawn`], com o cofre injetado (o bot lê pelo `Hub`).
     pub(crate) fn spawn_with(vault_source: VaultSource, provider: &str, extra_env: &[(&str, &str)]) -> Result<Self> {
+        ensure!(provider != "meta", "{}", crate::fork::assinatura_pessoal::META);
         // A flag vale na fronteira efetiva também: desligada, nenhum processo.
         ensure_runnable()?;
         ensure!(
@@ -764,6 +795,9 @@ async fn serve_vault(vault_source: VaultSource, socket: tokio::net::UnixStream, 
                         Ok(credencial) => json!({"id": id, "result": credencial}),
                         Err(_) => json!({"id": id, "error": {"message": "registro do endereço próprio ilegível"}}),
                     },
+                    Ok(Some(key)) if crate::fork::assinatura_pessoal::known_meta_credential("", &key) => {
+                        json!({"id": id, "error": {"message": crate::fork::assinatura_pessoal::META}})
+                    }
                     Ok(Some(key)) => json!({"id": id, "result": {"type": "api_key", "key": key}}),
                     Ok(None) => json!({"id": id, "result": null}),
                     Err(e) => json!({"id": id, "error": {"message": format!("{e:#}")}}),
@@ -787,7 +821,7 @@ async fn serve_vault(vault_source: VaultSource, socket: tokio::net::UnixStream, 
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests_tools;
 
 #[cfg(test)]

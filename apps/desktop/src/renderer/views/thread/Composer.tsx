@@ -1,5 +1,5 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-import { originDevice, originReport, type OriginKind } from '@shared/guard-hub'
+import { originDevice, originReport, type OriginDraft, type OriginKind } from '@shared/guard-hub'
 import type { EditRange } from '@shared/composer-segments'
 import { draftKey } from '@shared/composer-drafts'
 import { bloqueiaEnvio, editorDe, guardarEscrita, itensLivres, pendenciaVale, resolverNaoESenha, tratarColagem, type Pendencia } from '@shared/fork-senha-colada-campo'
@@ -39,6 +39,8 @@ import { usePresaAoChip } from '../fork/seletor-modelo/presa'
 import { BarraContexto } from '../fork/contexto/BarraContexto'
 import { MotivoCompactando, useCompactacao } from '../fork/contexto/Compactando'
 import { bloqueiaEnvioCompactando } from '../fork/contexto/estado'
+import { applyStarterDraft } from '../fork/onboarding/starter-draft'
+import type { StarterDraft } from '../fork/onboarding/useStarterTour'
 import { builtInCommand, slashCommands, slashQuery, type SlashCommand } from './slash-commands'
 // DON-907 (D431): a fila como bandeja no mesmo bloco do campo (módulo próprio, D71).
 import { BandejaFila, BarraEdicao, StatusDaFila, useFila } from '../fork/conversa/BandejaFila'
@@ -52,7 +54,12 @@ type Trailing = 'interrupt' | 'stop' | 'send'
  * the commands (a group's are its bots'); in a group, typing `@` suggests its bots. While `reply` is set, the
  * message it quotes sits at the top of the box and goes out with the next send.
  */
-export function Composer({ botId, sessionId = null, reply = null, cancelReply, onCall, onInterrupt }: {
+interface StarterDraftProps {
+  starterDraft?: StarterDraft | null
+  onStarterDraftHandled?: (origin?: OriginDraft) => void
+}
+
+export function Composer({ botId, sessionId = null, reply = null, cancelReply, onCall, onInterrupt, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
   botId: string
   /** Fork (UI-01): a extra aberta; null = a principal, que envia como antes. */
   sessionId?: string | null
@@ -66,10 +73,10 @@ export function Composer({ botId, sessionId = null, reply = null, cancelReply, o
   const store = useStoreRef()
   // Remount transient editor state (selection, IME) when its destination changes (Fork UI-01: also the session).
   return <DestinationComposer key={JSON.stringify([store.contextId, store.computer.id, store.spaceId, botId, sessionId])}
-    botId={botId} sessionId={sessionId} reply={reply} cancelReply={cancelReply} onCall={onCall} onInterrupt={onInterrupt} />
+    botId={botId} sessionId={sessionId} reply={reply} cancelReply={cancelReply} onCall={onCall} onInterrupt={onInterrupt} starterDraft={starterDraft} onStarterDraftHandled={onStarterDraftHandled} />
 }
 
-function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onInterrupt }: {
+function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onInterrupt, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
   botId: string; sessionId: string | null; reply: Entry | null; cancelReply?: () => void; onCall?: (() => void) | null; onInterrupt?: (() => void) | null
 }) {
   const store = useStoreRef()
@@ -161,6 +168,17 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
     drafts.edit(botId, previous ? `${previous}\n${incoming}` : incoming, 'generated')
     field.current?.focus({ preventScroll: true })
   }, [routineDraft, botId, store, drafts, bloqueado, compactando])
+
+  useEffect(() => {
+    if (!starterDraft) return
+    if (sessionId !== null || congelado.current || editando || input.composing) {
+      onStarterDraftHandled?.()
+      return
+    }
+    const origin = applyStarterDraft(drafts, botId, starterDraft.prompt, starterDraft.previous())
+    onStarterDraftHandled?.(origin)
+    if (origin) field.current?.focus({ preventScroll: true })
+  }, [starterDraft, onStarterDraftHandled, sessionId, botId, drafts, editando, field, input])
 
   // Picking a message to reply to brings the caret here.
   useEffect(() => {

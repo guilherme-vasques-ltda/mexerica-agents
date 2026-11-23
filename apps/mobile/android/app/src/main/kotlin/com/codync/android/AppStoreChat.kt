@@ -5,6 +5,7 @@ import android.app.Application
 import java.io.IOException
 import java.util.UUID
 import com.codync.android.core.*
+import com.codync.android.core.fork.ConversationReplay
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
@@ -27,7 +28,7 @@ internal val AppState.readingChats: List<String> get() = listOfNotNull(selectedB
 internal fun readAfter(events: List<MirrorEvent>, chats: List<String>): List<String> = chats.filter { chat ->
     events.any { event ->
         when (event) {
-            is MirrorEvent.EntryChanged -> event.entry.isChat && event.entry.botId == chat
+            is MirrorEvent.EntryChanged -> event.entry.isMainSession && event.entry.isChat && event.entry.botId == chat
             is MirrorEvent.BotChanged -> event.bot.id == chat && event.bot.unread > 0
             else -> false
         }
@@ -52,6 +53,7 @@ fun AppStore.loadHistory() {
         val active = ready()
         val response = active.call("history", buildJsonObject { put("botId", id); put("beforeSeq", before); put("sessionId", id); put("limit", 100) })
         val entries = response.jsonObject.getValue("entries").jsonArray.map { Entry.decode(it.jsonObject) }
+        require(entries.all { it.botId == id && it.isMainSession }) { "The computer returned history for another conversation." }
         withContext(Dispatchers.IO) {
             mirror.receive(entries)
             if (entries.size < 100) mirror.finishHistory(id)
@@ -61,7 +63,10 @@ fun AppStore.loadHistory() {
     }
 }
 
-fun AppStore.retry(send: PendingSend) = action("send:" + send.nonce) { deliver(send.copy(status = SendStatus.Sending, error = null)) }
+fun AppStore.retry(send: PendingSend) = action("send:" + send.nonce) {
+    val current = state.value.pending.firstOrNull { it.nonce == send.nonce && it.status == SendStatus.Failed } ?: return@action
+    deliver(current.copy(status = SendStatus.Sending, error = null))
+}
 fun AppStore.discard(send: PendingSend) = action("discard:" + send.nonce) {
     require(send.status == SendStatus.Failed) { "Cancel a queued message before discarding it." }
     withContext(Dispatchers.IO) { requireNotNull(database).discard(send.nonce) }
@@ -77,10 +82,12 @@ fun AppStore.cancelQueued(send: PendingSend) = action("cancel:" + send.nonce) {
 }
 
 internal suspend fun AppStore.deliver(send: PendingSend) {
+    if (!legacyHubAllowed || state.value.loading) return
     if (!sends.add(send.nonce)) return
+    val generation = workspaceGeneration.capture()
+    var attempt = send
     try {
-        if (state.value.entries.any { it.botId == send.botId && it.clientNonce == send.nonce }) return
-        savePending(send)
+        if (!savePending(send)) return
         val active = channel
         if (active?.state?.value is LinkState.ComputerOffline && send.files.isEmpty()) {
             savePending(send.copy(status = SendStatus.Waiting))
@@ -91,21 +98,28 @@ internal suspend fun AppStore.deliver(send: PendingSend) {
             }
         }
         val connection = ready()
-        val ids = mutableListOf<String>()
-        var completed = 0L
-        val total = send.files.sumOf { it.size }
-        for (file in send.files) {
-            val id = UUID.randomUUID().toString()
-            HostFiles(connection).upload(send.botId, id, file) { offset ->
-                val percent = if (total == 0L) 100 else ((completed + offset) * 100 / total).toInt()
-                mutableState.update { it.copy(uploadProgress = it.uploadProgress + (send.nonce to percent)) }
+        if (attempt.uploadedIds == null) {
+            val ids = mutableListOf<String>()
+            var completed = 0L
+            val total = send.files.sumOf { it.size }
+            for (file in send.files) {
+                val id = UUID.randomUUID().toString()
+                HostFiles(connection).upload(send.botId, id, file) { offset ->
+                    val percent = if (total == 0L) 100 else ((completed + offset) * 100 / total).toInt()
+                    mutableState.update { it.copy(uploadProgress = it.uploadProgress + (send.nonce to percent)) }
+                }
+                completed += file.size
+                ids.add(id)
+                withContext(Dispatchers.IO) { attachments.cache(id, file) }
             }
-            completed += file.size
-            ids.add(id)
-            withContext(Dispatchers.IO) { attachments.cache(id, file) }
+            attempt = send.copy(uploadedIds = ids)
+            if (!savePending(attempt)) return
         }
-        val result = connection.call("send", send.body(ids))
+        if (state.value.entries.any { ConversationReplay.confirms(attempt, it) }) return
+        val result = connection.call("send", attempt.body(requireNotNull(attempt.uploadedIds)))
+        if (!workspaceGeneration.accepts(generation) || !legacyHubAllowed) return
         val entry = Entry.decode(result.jsonObject.getValue("entry").jsonObject)
+        require(ConversationReplay.confirms(attempt, entry)) { "The computer didn't confirm this message." }
         withContext(Dispatchers.IO) { requireNotNull(database).receive(listOf(entry)) }
         refresh()
         val bot = state.value.bots.firstOrNull { it.id == send.botId }
@@ -115,21 +129,25 @@ internal suspend fun AppStore.deliver(send: PendingSend) {
             syncPush(); PushDelivery.schedule(getApplication())
         }
     } catch (error: CancellationException) {
-        withContext(NonCancellable) { savePending(send.copy(status = SendStatus.Failed, error = "Sending was interrupted. Retry uses the same message ID.")) }
+        withContext(NonCancellable) {
+            if (workspaceGeneration.accepts(generation)) savePending(attempt.copy(status = SendStatus.Failed, error = "Sending was interrupted. Retry uses the same message ID."))
+        }
         throw error
     } catch (error: Exception) {
-        savePending(send.copy(status = SendStatus.Failed, error = error.message ?: "Couldn't send."))
+        if (workspaceGeneration.accepts(generation)) savePending(attempt.copy(status = SendStatus.Failed, error = error.message ?: "Couldn't send."))
     } finally {
         sends.remove(send.nonce)
         mutableState.update { it.copy(uploadProgress = it.uploadProgress - send.nonce) }
     }
 }
 
-internal suspend fun AppStore.savePending(send: PendingSend) {
-    withContext(Dispatchers.IO) { requireNotNull(database).save(send) }
+internal suspend fun AppStore.savePending(send: PendingSend): Boolean {
+    val saved = withContext(Dispatchers.IO) { requireNotNull(database).save(send) }
     refresh()
+    return saved
 }
 fun AppStore.respond(entry: Entry, option: String?, source: String? = null) = action("permission:" + entry.id) {
+    if (state.value.entries.none { it.id == entry.id && it.rev == entry.rev && it.isMainSession }) return@action
     val active = ready()
     active.call("respondPermission", buildJsonObject {
         put("botId", entry.botId)

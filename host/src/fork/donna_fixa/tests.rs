@@ -474,7 +474,8 @@ async fn revogacao_durante_a_espera_nao_grava() {
     };
     let before = profile(&hub.store);
     for revoke in [true, false] {
-        hub.store.put_device(&device).unwrap();
+        // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+        crate::fork::workspace::readmitir_pareado(&hub.store, &device).unwrap();
         let (_, caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
         let guard = hub.store.team_lock.clone().lock_owned().await;
         let worker = hub.clone();
@@ -718,7 +719,8 @@ async fn remocao_de_conector_revogada_na_espera_do_cofre_nao_grava() {
         last_seen_at: None,
     };
     for revoke in [true, false] {
-        hub.store.put_device(&device).unwrap();
+        // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+        crate::fork::workspace::readmitir_pareado(&hub.store, &device).unwrap();
         let (_, mac) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
         // Cofre trancado e desbloqueio em andamento por outra tarefa: o pedido espera.
         *hub.store.secret_key.lock().unwrap() = None;
@@ -790,37 +792,11 @@ async fn set_agent_env_so_no_computador_do_hub() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// Todo o código de produção do Host (sem arquivos de teste), para o coletor de métodos.
-fn fontes_do_host() -> Vec<(String, String)> {
-    fn andar(dir: &Path, raiz: &Path, out: &mut Vec<(String, String)>) {
-        for entrada in std::fs::read_dir(dir).unwrap() {
-            let caminho = entrada.unwrap().path();
-            if caminho.is_dir() {
-                andar(&caminho, raiz, out);
-            } else if caminho.extension().is_some_and(|e| e == "rs") {
-                let relativo = caminho.strip_prefix(raiz).unwrap().to_string_lossy().replace('\\', "/");
-                let nome = caminho.file_name().unwrap().to_string_lossy();
-                if nome.contains("test") || nome.contains("provas") {
-                    continue;
-                }
-                if super::metodos::FORA_DA_API.iter().any(|(prefixo, _)| relativo.starts_with(prefixo)) {
-                    continue;
-                }
-                out.push((relativo, std::fs::read_to_string(&caminho).unwrap()));
-            }
-        }
-    }
-    let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut out = Vec::new();
-    andar(&raiz, &raiz, &mut out);
-    out
-}
-
 /// Teste-porta 1 (rodadas 5 e 6): todo método que o Hub atende, nos roteadores centrais e nos módulos
 /// encaminhados (`handles`, `METHODS`, `if method == …`), está na tabela única, e a tabela não tem sobras.
 #[test]
 fn todo_metodo_do_dispatch_esta_classificado() {
-    let metodos = super::metodos::coletor::coletar(&fontes_do_host());
+    let metodos = super::metodos::coletor::coletar(&super::metodos::coletor::fontes_do_host());
     assert!(metodos.len() > 200, "o coletor deixou de ver os métodos: {}", metodos.len());
     if let Err(erro) = super::metodos::coletor::verificar(super::metodos::METODOS, &metodos) {
         panic!("{erro}");
@@ -963,6 +939,8 @@ fn estado_do_dono(hub: &Hub) -> Value {
         "donna_whatsapp_numbers",
         "donna_plugin_installations",
         "donna_plugin_grants",
+        "donna_governance_policies",
+        "donna_governance_receipts",
     ] {
         out.insert(table.into(), json!(dump(&format!("SELECT * FROM {table} ORDER BY 1"))));
     }
@@ -990,6 +968,14 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             true,
         ),
         ("donnaProjectSave", json!({}), true),
+        (
+            "donnaGovernanceSave",
+            json!({"hubId": HUB_PORTA, "spaceId": crate::fork::spaces::PERSONAL,
+                "clientRequestId": uuid::Uuid::new_v4().to_string(), "expectedRevision": 0,
+                "policy": {"titleInstruction":"", "autoArchiveIdleDays":3, "preservePinnedAndOpenWork":true,
+                    "maxConcurrentSubagents":8, "maxSubagentDepth":3}}),
+            true,
+        ),
         ("donnaTaskMetaSave", json!({}), true),
         ("donnaTaskComment", json!({}), true),
         ("donnaProjectEnsureDefault", json!({}), true),

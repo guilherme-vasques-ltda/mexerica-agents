@@ -1,5 +1,4 @@
-//! Provas da transação com diretórios root reais sob /var/lib (sem nosuid). Exigem root e
-//! `fs.protected_hardlinks=1`; fora de VM descartável como root, são ignoradas.
+//! Provas da transação. Os testes que usam `ambiente` exigem root em VM descartável.
 use super::*;
 use crate::atualizacao::{
     manifesto::{self, Manifesto},
@@ -21,6 +20,112 @@ use std::{
 const GID_HUB: u32 = 65534;
 /// UID do Hub distinto por ambiente: testes paralelos não enxergam os processos uns dos outros.
 static PROXIMO_UID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(61_000);
+
+#[test]
+fn expiracao_nega_reativar_e_so_snapshot_validado_rearma_no_duble() -> Result<()> {
+    let raiz = tempfile::tempdir()?;
+    let caminho = raiz.path().join("estado");
+    fs::DirBuilder::new().mode(0o700).create(&caminho)?;
+    fs::DirBuilder::new().mode(0o700).create(caminho.join("transacoes"))?;
+    OpenOptions::new().create_new(true).write(true).mode(0o600).open(caminho.join("lock"))?;
+    let estado = Diretorio::abrir_teste(&caminho)?;
+    let trava = estado.travar()?;
+    let arquivo = || Arquivo { tamanho: 8, sha256: hash(b"inerte!!") };
+    let snapshot = serde_json::to_vec(&Snapshot {
+        anterior: Some(Par { sequencia: 7, slot: NomeSlot::A, hub: arquivo(), ajudante: arquivo() }),
+        motor_conf: snapshot::Configuracao::Ausente,
+    })?;
+    let mut journal = Journal {
+        estado: Estado { marca: 8, piso: 6, fase: Fase::Pendente { anterior: Some(7), prazo: 200 } },
+        etapa: Etapa::ReversaoIniciada,
+        transacao: "a".repeat(64),
+        sequencia_nova: 8,
+        publicado_em: Some(100),
+        sequencia_anterior: Some(7),
+        slot_anterior: Some(Slot::A),
+        slot_novo: Slot::B,
+        manifesto_sha256: "b".repeat(64),
+        snapshot_sha256: hash(&snapshot),
+    };
+    let tx = estado.criar_transacao(&journal.transacao)?;
+    let armados = std::cell::Cell::new([false, true]);
+    let rearmar = |slot, par: &Par| {
+        assert_eq!(slot, Slot::A);
+        assert_eq!(par.sequencia, 7);
+        assert_eq!(par.ajudante.sha256, hash(b"inerte!!"));
+        armados.set([true, armados.get()[1]]);
+        Ok(())
+    };
+    tx.gravar_bytes("snapshot", b"{}")?;
+    assert!(reativar_com(&estado, &trava, &journal, rearmar).is_err());
+    assert_eq!(armados.get(), [false, true]);
+    tx.gravar_bytes("snapshot", &snapshot)?;
+    reativar_com(&estado, &trava, &journal, rearmar)?;
+    assert_eq!(armados.get(), [true; 2]);
+    assert!(estado.expirar_com(&trava, &mut journal, 200, |_| {
+        armados.set([false; 2]);
+        Ok(())
+    })?);
+    let journal = estado.ler::<Journal>("journal")?;
+    assert_eq!(journal.estado.fase, Fase::Expirada);
+    let erro = recuperacao::validar(&estado, &estado, &trava, 201).err().context("recuperação expirada aceita")?;
+    assert!(erro.to_string().contains("atualização bloqueada"));
+    let erro = reativar_com(&estado, &trava, &journal, rearmar).unwrap_err();
+    assert!(erro.to_string().contains("janela expirada"));
+    assert_eq!(armados.get(), [false; 2]);
+    Ok(())
+}
+
+#[test]
+fn cancelamento_recusa_anterior_ausente_do_snapshot_sem_rearmar_nem_trocar_seletor() -> Result<()> {
+    let raiz = tempfile::tempdir()?;
+    let estado = raiz.path().join("estado");
+    let publicacao = raiz.path().join("publicacao");
+    for caminho in [&estado, &estado.join("transacoes"), &publicacao] {
+        fs::DirBuilder::new().mode(0o700).create(caminho)?;
+    }
+    OpenOptions::new().create_new(true).write(true).mode(0o600).open(estado.join("lock"))?;
+    let ctx = Contexto {
+        estado: Diretorio::abrir_teste(&estado)?,
+        publicacao: Diretorio::abrir_teste(&publicacao)?,
+        configuracao: Diretorio::abrir_teste(&estado)?,
+        politica: serde_json::from_value(serde_json::json!({
+            "endpoint": "https://exemplo.invalid/", "canal": "estavel", "arquitetura": std::env::consts::ARCH,
+            "uid_hub": 1234, "gid_hub": 1234, "chave_manifesto": "", "tamanho_maximo": 1024,
+            "tempo_rede_segundos": 10, "janela_minima": 1, "janela_maxima": 10, "cgroup_memoria": 1,
+            "cgroup_processos": 1, "cgroup_cpu_quota": 1, "cgroup_cpu_periodo": 1
+        }))?,
+        chamador: Identidade::AdminRoot,
+    };
+    let trava = ctx.estado.travar()?;
+    let snapshot = serde_json::to_vec(&Snapshot { anterior: None, motor_conf: snapshot::Configuracao::Ausente })?;
+    let journal = Journal {
+        estado: Estado { marca: 7, piso: 6, fase: Fase::Aceita },
+        etapa: Etapa::CancelamentoIniciado,
+        transacao: "a".repeat(64),
+        sequencia_nova: 8,
+        publicado_em: None,
+        sequencia_anterior: Some(7),
+        slot_anterior: Some(Slot::A),
+        slot_novo: Slot::B,
+        manifesto_sha256: "b".repeat(64),
+        snapshot_sha256: hash(&snapshot),
+    };
+    ctx.estado.criar_transacao(&journal.transacao)?.gravar_bytes("snapshot", &snapshot)?;
+    let anterior = publicacao.join(Slot::A.nome());
+    fs::DirBuilder::new().mode(0o700).create(&anterior)?;
+    let ajudante = anterior.join("donnabot-motor-exec");
+    OpenOptions::new().create_new(true).write(true).mode(0o600).open(&ajudante)?.write_all(b"inerte")?;
+    let seletor = publicacao.join("ativo");
+    std::os::unix::fs::symlink(Slot::B.nome(), &seletor)?;
+    let erro = restabelecer_anterior(&ctx, &trava, journal).unwrap_err();
+    assert_eq!(erro.to_string(), "sequência do snapshot divergente");
+    assert_eq!(fs::read_link(seletor)?, Path::new(Slot::B.nome()));
+    assert_eq!(fs::metadata(anterior)?.permissions().mode() & 0o7777, 0o700);
+    assert_eq!(fs::metadata(&ajudante)?.permissions().mode() & 0o7777, 0o600);
+    assert_eq!(fs::read(ajudante)?, b"inerte");
+    Ok(())
+}
 
 struct Ambiente {
     raiz: PathBuf,

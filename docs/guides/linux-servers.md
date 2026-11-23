@@ -62,6 +62,29 @@ fechada: refaça o procedimento no app (novo desafio, chave nova). Se faltar mar
 identidade, master ou base, a
 pasta fica preservada e fechada; não apague para "consertar".
 
+## Endereço de escuta
+
+Sem `--bind`, o `serve` escuta só em `127.0.0.1` (porta padrão 19422). As unidades
+gravadas por `donnabot-host install` e pela atualização gerida fixam `--bind 127.0.0.1`.
+`--bind` vazio, com espaços ou com porta é recusado; a porta vai em `--port`.
+
+Para acesso remoto, use o túnel SSH do app ou o relay: os dois funcionam com o Hub em
+loopback. Escuta direta na rede (celular pela rede local ou VPN) só com `--bind`
+explícito, e o Hub registra um aviso no log. O `--bind` aceita um único endereço, e as
+ferramentas locais (`pair`, `status`, `info`, `update` e o app neste computador) falam
+com `127.0.0.1`: um `--bind` só no endereço da VPN deixa essas ferramentas sem acesso.
+Se a escuta direta for mesmo necessária, use `--bind 0.0.0.0` e limite a porta à
+interface da VPN no firewall, mantendo o loopback liberado para as ferramentas locais.
+A API local continua aceitando só chamadas do loopback.
+
+**Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
+Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde
+esse acesso até passar para o túnel ou o relay (ou, em último caso, para um `--bind`
+explícito como acima). Num reinício simples, uma unidade com `--bind 0.0.0.0` escrito à
+mão continua como está e passa a gerar o aviso. A atualização gerida e a reinstalação
+regravam esse `--bind` para `127.0.0.1`; depois delas, a escuta na rede precisa ser
+configurada de novo com um `--bind` explícito.
+
 ## Referência herdada do Codync
 
 O app conecta por SSH ao Hub usando o link estável. Mantenha a porta do Hub

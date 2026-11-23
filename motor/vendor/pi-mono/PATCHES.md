@@ -50,6 +50,10 @@ o que mudou e por quê.
     `retryWithoutStatus` decide o erro sem status e `retryBudget` é o orçamento
     de espera compartilhado. Sem nenhuma das três o comportamento é o de antes.
     Prova em `mexerica/test/retentativa.test.ts`.
+11. `packages/ai/src/providers/faux.ts` — mantém o teto sorteado dos fragmentos
+    do provedor fictício e recua a fronteira quando ela separaria um par
+    substituto UTF-16. Cada fragmento pode ser enviado em JSON sem partir um
+    caractere. Prova em `mexerica/test/faux.test.ts`.
 
 Nota de instalação (não é patch, é registro): `npm ci` em `motor/` ainda executa
 os scripts de instalação de duas dependências transitivas — `@google/genai`

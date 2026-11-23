@@ -45,7 +45,7 @@ struct Registro {
 type ToolReplyFixed = Result<&'static str, &'static str>;
 impl ToolRunner for Registro {
     fn call<'a>(&'a self, _call_id: &'a str, name: &'a str, input: Value) -> ToolFuture<'a> {
-        self.chamadas.lock().unwrap().push((name.to_owned(), input));
+        self.chamadas.lock().expect("registro de chamadas da fixture").push((name.to_owned(), input));
         let reply = self.reply.map(str::to_owned).map_err(str::to_owned);
         Box::pin(async move { reply })
     }
@@ -74,7 +74,7 @@ async fn some(pid: u32) {
 
 fn filhos(pid: u32) -> Vec<String> {
     let mut all = Vec::new();
-    for task in std::fs::read_dir(format!("/proc/{pid}/task")).unwrap().flatten() {
+    for task in std::fs::read_dir(format!("/proc/{pid}/task")).expect("tarefas do processo da fixture").flatten() {
         let text = std::fs::read_to_string(task.path().join("children")).unwrap_or_default();
         all.extend(text.split_whitespace().map(str::to_owned));
     }
@@ -82,7 +82,7 @@ fn filhos(pid: u32) -> Vec<String> {
 }
 
 fn novo_store() -> Arc<Store> {
-    Arc::new(Store::open(Path::new(":memory:")).unwrap())
+    Arc::new(Store::open(Path::new(":memory:")).expect("banco em memória da fixture"))
 }
 
 macro_rules! caso {

@@ -1,7 +1,7 @@
 //! D368 (rodada 5), tabela única: cada método do `dispatch` (braços `"…" =>` de `api/*.rs` e
 //! `fork/api.rs`) tem uma classe. O teste `todo_metodo_do_dispatch_esta_classificado` falha se um
-//! método novo não estiver aqui. As permissões continuam onde estão (`permit`, `require_local`,
-//! `require_owner`); passar a lê-las daqui é o refactor DON-915.
+//! método novo não estiver aqui. Quem pode chamar cada método fica em `fork::acesso_rpc`, verificado pelo
+//! mesmo coletor; `require_local` e `require_owner` continuam somando nos handlers.
 #![cfg_attr(not(test), allow(dead_code))]
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +73,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("queuedRemove", Comum),
     ("queuedSendNow", Comum),
     ("react", Comum),
+    ("releaseConversation", LocalOnly),
     ("releaseMemoryRefusal", Comum),
     ("readUpload", Leitura),
     ("reorderBots", Comum),
@@ -112,6 +113,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("checkHostUpdate", LocalOnly),
     ("computerTools", LocalOnly),
     ("hello", Leitura),
+    ("workspaceContext", Leitura),
     ("hostUpdateStatus", LocalOnly),
     ("installHostUpdate", LocalOnly),
     ("listDirs", Leitura),
@@ -290,6 +292,11 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("computersList", Leitura),
     ("donnaContext", Leitura),
     ("donnaControlTower", Leitura),
+    ("donnaAttention", Leitura),
+    ("donnaTowerView", Leitura),
+    ("donnaGovernance", Leitura),
+    ("donnaGovernanceSave", Dono),
+    ("donnaHubDoctor", Leitura),
     ("donnaConversationHistory", Leitura),
     ("donnaConversationRead", Leitura),
     ("donnaConversationReadFile", Leitura),
@@ -341,6 +348,9 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaConectorRascunho", LocalOnly),
     // PR3 PL1: status do vínculo pessoal (`personal_bootstrap::status`, LOCAL_ONLY em devices.rs).
     ("donnaPersonalBootstrapStatus", LocalOnly),
+    ("donnaOnboardingDetect", LocalOnly),
+    ("donnaOnboardingSave", LocalOnly),
+    ("donnaOnboardingStatus", LocalOnly),
     ("donnaRuleDelete", LocalOnly),
     ("donnaRuleSave", LocalOnly),
     ("donnaRuleSetEnabled", LocalOnly),
@@ -474,7 +484,7 @@ pub(crate) mod coletor {
 
     /// Só o código de produção: um bloco `#[cfg(test)] mod tests { … }` no fim do arquivo sai, e as
     /// linhas de comentário também (exemplos em documentação não são métodos).
-    fn producao(codigo: &str) -> String {
+    pub(crate) fn producao(codigo: &str) -> String {
         let codigo = codigo.find("#[cfg(test)]\nmod tests {").map_or(codigo, |i| &codigo[..i]);
         codigo.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
     }
@@ -599,6 +609,33 @@ pub(crate) mod coletor {
             }
         }
         metodos
+    }
+
+    /// Todo o código de produção do Host (sem arquivos de teste), para o coletor de métodos.
+    pub(crate) fn fontes_do_host() -> Vec<(String, String)> {
+        fn andar(dir: &std::path::Path, raiz: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entrada in std::fs::read_dir(dir).expect("fonte do host") {
+                let caminho = entrada.expect("fonte do host").path();
+                if caminho.is_dir() {
+                    andar(&caminho, raiz, out);
+                } else if caminho.extension().is_some_and(|e| e == "rs") {
+                    let relativo =
+                        caminho.strip_prefix(raiz).expect("fonte do host").to_string_lossy().replace('\\', "/");
+                    let nome = caminho.file_name().expect("fonte do host").to_string_lossy();
+                    if nome.contains("test") || nome.contains("provas") {
+                        continue;
+                    }
+                    if super::FORA_DA_API.iter().any(|(prefixo, _)| relativo.starts_with(prefixo)) {
+                        continue;
+                    }
+                    out.push((relativo, std::fs::read_to_string(&caminho).expect("fonte do host")));
+                }
+            }
+        }
+        let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut out = Vec::new();
+        andar(&raiz, &raiz, &mut out);
+        out
     }
 
     /// Erro com os métodos sem classe e as classes sem método (sobras).

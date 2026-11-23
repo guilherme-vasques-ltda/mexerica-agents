@@ -4,12 +4,15 @@ import { Spinner } from '../components/Controls'
 import type { AccountEntry } from './AccountEntryGate'
 import { WelcomeActions } from './welcome/WelcomeActions'
 import { PassoIdioma, usePassoIdioma } from './fork/idioma/PassoIdioma'
+import { OnboardingBrandPanel } from './fork/onboarding/OnboardingBrandPanel'
+import { StepProgress } from './fork/onboarding/StepProgress'
 import { superficieIdioma, tradutor, useIdioma, useT } from '../lib/fork-i18n/estado'
 // D471: a logo com o mascote do pacote oficial (brand/assets/logo/01-logo-mascote, cópias byte a byte).
 import logoClaro from '../../../resources/brand/mexerica/mexerica-logo-mascote-claro-pequeno.png'
 import logoEscuro from '../../../resources/brand/mexerica/mexerica-logo-mascote-escuro-pequeno.png'
 import './fork/idioma/escritas.css'
 import './fork/idioma/entrada-marca.css'
+import './fork/onboarding/onboarding.css'
 import './account-welcome.css'
 import './welcome/welcome-calm.css'
 
@@ -58,15 +61,23 @@ function WelcomeScreen({ entry }: { entry: Exclude<AccountEntry, 'confirmed' | '
   return (
     <div className="welcome welcome-calm idioma-superficie" {...superficieIdioma(lingua)}>
       <div className="welcome-stage" aria-hidden><div className="welcome-backdrop" /></div>
-      <main ref={column} className="welcome-column" tabIndex={-1}>
-        <h1 className="welcome-sr-only">{pt('entrada.boasVindas')}</h1>
-        <header className="welcome-brand">
-          {/* O tema escolhe a versão pelo CSS (data-theme), sem ler a aparência aqui. */}
-          <img className="welcome-logo is-claro" src={logoClaro} alt={pt('entrada.marca')} />
-          <img className="welcome-logo is-escuro" src={logoEscuro} alt={pt('entrada.marca')} />
-        </header>
-        <WelcomeActions entry={entry} />
-      </main>
+      <div className="onboarding-welcome-grid">
+        <OnboardingBrandPanel />
+        <div className="onboarding-welcome-right">
+          <div className="onboarding-welcome-progress">
+            <StepProgress step={2} />
+          </div>
+          <main ref={column} className="welcome-column" tabIndex={-1}>
+            <h1 className="welcome-sr-only">{pt('entrada.boasVindas')}</h1>
+            <header className="welcome-brand">
+              {/* O tema escolhe a versão pelo CSS (data-theme), sem ler a aparência aqui. */}
+              <img className="welcome-logo is-claro" src={logoClaro} alt={pt('entrada.marca')} />
+              <img className="welcome-logo is-escuro" src={logoEscuro} alt={pt('entrada.marca')} />
+            </header>
+            <WelcomeActions entry={entry} />
+          </main>
+        </div>
+      </div>
     </div>
   )
 }

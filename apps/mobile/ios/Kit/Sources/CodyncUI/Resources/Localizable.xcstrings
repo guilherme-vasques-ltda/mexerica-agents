@@ -14210,6 +14210,311 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Hub indisponível": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub indisponível"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub unavailable"
+          }
+        }
+      }
+    },
+    "Caixa de e-mail": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caixa de e-mail"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mail inbox"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Caixa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caixa"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mailbox"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Sem assunto": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem assunto"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No subject"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Carregar mais": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregar mais"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load more"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Caixa vazia": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caixa vazia"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty inbox"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Remetente não informado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remetente não informado"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender not provided"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Domínio declarado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domínio declarado"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Declared domain"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Conteúdo truncado: o limite de leitura foi atingido.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conteúdo truncado: o limite de leitura foi atingido."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content truncated: the read limit was reached."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Conteúdo protegido": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conteúdo protegido"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protected content"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Recurso indisponível": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recurso indisponível"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feature unavailable"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Esta área não está disponível agora.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta área não está disponível agora."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This area is not available right now."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Caixa não conectada": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caixa não conectada"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mailbox not connected"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Não há caixa conectada para mostrar.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há caixa conectada para mostrar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no connected mailbox to show."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Reconexão necessária": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconexão necessária"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnection required"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Reconecte a caixa para continuar.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconecte a caixa para continuar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect the mailbox to continue."
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Acesso negado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso negado"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access denied"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Você não tem acesso a esta caixa.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você não tem acesso a esta caixa."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You don't have access to this mailbox."
+          }
+        }
+      },
+      "extractionState": "manual"
     }
   },
   "version": "1.0"

@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import androidx.compose.foundation.background
@@ -79,7 +80,9 @@ import kotlinx.serialization.json.putJsonArray
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = top + 56.dp, bottom = bottomInset)) {
             // A computer waiting for an update has its card instead; its bots may not be readable yet.
             state.mismatch?.let { mismatch -> item("update") { UpdateNeededCard(state, mismatch, Modifier.padding(vertical = 8.dp)) } }
-            if (roster.isEmpty() && state.mismatch == null) item {
+            if (state.mismatch == null && state.remoteHub == com.codync.android.core.fork.RemoteHubState.Offline) item("hub-offline") {
+                IconLabel("Hub indisponível", "wifi.slash", Palette.warning)
+            } else if (roster.isEmpty() && state.mismatch == null && (state.computers.isEmpty() || state.rosterLoaded && state.remoteHub.canConfirmEmpty)) item {
                 EmptyRoster(canCreate = usable, hasComputer = usable, create = newBot, showComputers = manage)
             }
             items(reorder.shown(roster), key = Bot::id) { bot ->

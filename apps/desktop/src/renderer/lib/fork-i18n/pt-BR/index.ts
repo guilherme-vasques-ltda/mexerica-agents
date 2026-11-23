@@ -48,6 +48,7 @@ import { textos as extensoesGeral } from './extensoes/geral.ts'
 import { textos as entrada } from './entrada.ts'
 import { textos as idioma } from './idioma.ts'
 import { textos as marca } from './marca.ts'
+import { textos as onboarding } from './onboarding.ts'
 import { textos as navegacaoJanela } from './navegacao/janela.ts'
 import { textos as navegacaoBarra } from './navegacao/barra.ts'
 import { textos as navegacaoIlha } from './navegacao/ilha.ts'
@@ -78,6 +79,7 @@ import { textos as whatsappAjustes } from './whatsapp/ajustes.ts'
 import { textos as whatsappCaixa } from './whatsapp/caixa.ts'
 import { textos as whatsappFila } from './whatsapp/fila.ts'
 import { textos as mailManager } from './mailManager.ts'
+import { textos as mailInbox } from './mailInbox.ts'
 import { textos as sistemaBarra } from './sistema/barra.ts'
 import { textos as sistemaConversa } from './sistema/conversa.ts'
 import { textos as webLogin } from './web/login.ts'
@@ -137,6 +139,7 @@ export const ptBR = {
   ...entrada,
   ...idioma,
   ...marca,
+  ...onboarding,
   ...navegacaoJanela,
   ...navegacaoBarra,
   ...navegacaoIlha,
@@ -167,6 +170,7 @@ export const ptBR = {
   ...whatsappCaixa,
   ...whatsappFila,
   ...mailManager,
+  ...mailInbox,
   ...sistemaBarra,
   ...sistemaConversa,
   ...webLogin,

@@ -1,0 +1,214 @@
+/* Vista de acesso remoto: tokens escopados aqui, no tom do portão local (chão creme, tinta marrom,
+   laranja da marca). Tema escuro por [data-theme] e por prefers-color-scheme. Só propriedades lógicas,
+   para o árabe espelhar pelo `dir`. Alvos de toque de 44 px e foco visível em todos os controles. */
+
+.remote-view {
+  --rv-chao: #fcfaf6;
+  --rv-tinta: #452819;
+  --rv-tinta-2: #6f5a4b;
+  --rv-linha: #968676;
+  --rv-campo: #fffefc;
+  --rv-acao: #f68b2c;
+  --rv-acao-tinta: #2a1c14;
+  --rv-acao-hover: #e57f25;
+  --rv-foco: #b65016;
+  --rv-erro: #a51f18;
+  --rv-girando: #b65016;
+
+  box-sizing: border-box;
+  display: grid;
+  gap: 16px;
+  inline-size: 100%;
+  max-inline-size: 420px;
+  padding: 24px;
+  background: var(--rv-chao);
+  color: var(--rv-tinta);
+  font: 400 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.remote-view[data-theme='dark'],
+:root[data-theme='dark'] .remote-view {
+  --rv-chao: #1f1812;
+  --rv-tinta: #f6efe6;
+  --rv-tinta-2: #cdbca9;
+  --rv-linha: #9c8a79;
+  --rv-campo: #2a2019;
+  --rv-acao: #f68b2c;
+  --rv-acao-tinta: #2a1c14;
+  --rv-acao-hover: #ffa04a;
+  --rv-foco: #ffb36b;
+  --rv-erro: #ffb4a9;
+  --rv-girando: #ffb36b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .remote-view {
+    --rv-chao: #1f1812;
+    --rv-tinta: #f6efe6;
+    --rv-tinta-2: #cdbca9;
+    --rv-linha: #9c8a79;
+    --rv-campo: #2a2019;
+    --rv-acao: #f68b2c;
+    --rv-acao-tinta: #2a1c14;
+    --rv-acao-hover: #ffa04a;
+    --rv-foco: #ffb36b;
+    --rv-erro: #ffb4a9;
+    --rv-girando: #ffb36b;
+  }
+}
+
+.remote-view [hidden] {
+  display: none !important;
+}
+
+.remote-view .rv-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.remote-view .rv-title:focus {
+  outline: none;
+}
+
+.remote-view .rv-title:focus-visible {
+  outline: 3px solid var(--rv-foco);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.remote-view .rv-status-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.remote-view .rv-status {
+  margin: 0;
+  color: var(--rv-tinta-2);
+  text-wrap: pretty;
+}
+
+.remote-view[data-status='unavailable'] .rv-status,
+.remote-view[data-status='hub_offline'] .rv-status,
+.remote-view[data-status='revoked'] .rv-status {
+  color: var(--rv-erro);
+}
+
+.remote-view .rv-spinner {
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  margin-block-start: 3px;
+  box-sizing: border-box;
+  border: 2px solid var(--rv-linha);
+  border-block-start-color: var(--rv-girando);
+  border-radius: 50%;
+  animation: rv-girar 900ms linear infinite;
+}
+
+.remote-view .rv-spinner[hidden] {
+  display: none;
+}
+
+@keyframes rv-girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-view .rv-spinner {
+    animation: none;
+  }
+}
+
+.remote-view .rv-workspace {
+  display: grid;
+  gap: 8px;
+}
+
+.remote-view .rv-field {
+  display: grid;
+  gap: 6px;
+}
+
+.remote-view .rv-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rv-tinta-2);
+}
+
+.remote-view .rv-select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 44px;
+  padding-block: 8px;
+  padding-inline: 12px;
+  border: 1px solid var(--rv-linha);
+  border-radius: 10px;
+  background-color: var(--rv-campo);
+  color: var(--rv-tinta);
+  font: inherit;
+  font-size: 16px;
+}
+
+.remote-view .rv-select:focus-visible,
+.remote-view .rv-button:focus-visible {
+  outline: 3px solid var(--rv-foco);
+  outline-offset: 2px;
+}
+
+.remote-view .rv-select[aria-busy='true'] {
+  cursor: progress;
+}
+
+.remote-view .rv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.remote-view .rv-actions[hidden] {
+  display: none;
+}
+
+.remote-view .rv-button {
+  box-sizing: border-box;
+  min-block-size: 44px;
+  padding-block: 8px;
+  padding-inline: 16px;
+  border: 1px solid var(--rv-linha);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--rv-tinta);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.remote-view .rv-button:hover {
+  border-color: var(--rv-tinta-2);
+}
+
+.remote-view .rv-button[hidden] {
+  display: none;
+}
+
+.remote-view .rv-primary {
+  border-color: var(--rv-acao);
+  background: var(--rv-acao);
+  color: var(--rv-acao-tinta);
+}
+
+.remote-view .rv-primary:hover {
+  border-color: var(--rv-acao-hover);
+  background: var(--rv-acao-hover);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .remote-view .rv-button {
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+}

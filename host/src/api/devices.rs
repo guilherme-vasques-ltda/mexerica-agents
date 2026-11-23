@@ -48,9 +48,14 @@ impl Caller {
     }
 }
 
-/// Methods only this computer may call.
+/// Methods only this computer may call. Oráculo de regressão dos testes: a permissão vem da tabela única
+/// `fork::acesso_rpc`, e todo nome aqui precisa estar lá numa classe sem aparelho com `control`.
+#[cfg(test)]
 const LOCAL_ONLY: &[&str] = &[
     crate::fork::personal_bootstrap::STATUS_METHOD,
+    crate::fork::onboarding::DETECT_METHOD,
+    crate::fork::onboarding::STATUS_METHOD,
+    crate::fork::onboarding::SAVE_METHOD,
     "hostUpdateStatus",
     "checkHostUpdate",
     "installHostUpdate",
@@ -89,7 +94,6 @@ const LOCAL_ONLY: &[&str] = &[
     "teamCall",
     "taskCall",
     "manageCall",
-    "teamSettings",
     "setTeamSettings",
     "memoryCall",
     "routineCall",
@@ -118,6 +122,8 @@ const LOCAL_ONLY: &[&str] = &[
     "cloudStatus",
     "setCloud",
     "setApproval",
+    // Só o dono, neste computador, confere o efeito incerto e libera a conversa pausada.
+    "releaseConversation",
     "nuncaFazer",
     "nuncaFazerAdicionar",
     "nuncaFazerEditar",
@@ -136,7 +142,6 @@ const LOCAL_ONLY: &[&str] = &[
     "donnaMailManagerDisconnect",
     "donnaMailManagerGrant",
 ];
-const SCREEN: &[&str] = &["screenPrepare", "screenOffer", "screenClose", "screenTakeover"];
 
 /// A method the caller isn't allowed to call (403).
 #[derive(Debug)]
@@ -150,38 +155,9 @@ impl std::fmt::Display for Forbidden {
 
 impl std::error::Error for Forbidden {}
 
+/// A primeira porta de toda RPC: a classe declarada em `fork::acesso_rpc`; método sem classe é recusado.
 pub fn permit(caller: &Caller, method: &str) -> Result<(), Forbidden> {
-    if matches!(caller, Caller::Ponte { .. }) {
-        return if crate::fork::ponte_credencial::PERMITIDOS.contains(&method) { Ok(()) } else { Err(Forbidden) };
-    }
-    if let Some(ok) = crate::computers::executor_api::permit(caller, method) {
-        return if ok { Ok(()) } else { Err(Forbidden) };
-    }
-    if crate::fork::projetos::METHODS.contains(&method) || crate::fork::propostas::METHODS.contains(&method) {
-        return match caller {
-            Caller::Local => Ok(()),
-            Caller::Device { scopes, .. } if scopes.contains(&Scope::Control) => Ok(()),
-            _ => Err(Forbidden),
-        };
-    }
-    let ok = match caller {
-        Caller::Local => method != "pair",
-        Caller::Ponte { .. } | Caller::Pairing { .. } | Caller::Bootstrap { .. } => false,
-        Caller::Device { scopes, .. } => {
-            if scopes.contains(&Scope::OwnerDevices)
-                && matches!(method, "devices" | "revokeDevice" | "accessRequests" | "decideAccessRequest")
-            {
-                return Ok(());
-            }
-            // D395: o idioma do próprio app é preferência do aparelho, não poder sobre a Donna.
-            if method == crate::fork::idioma_app::METHOD {
-                return Ok(());
-            }
-            let needs = if SCREEN.contains(&method) { Scope::Screen } else { Scope::Control };
-            !LOCAL_ONLY.contains(&method) && method != "pair" && scopes.contains(&needs)
-        }
-    };
-    if ok { Ok(()) } else { Err(Forbidden) }
+    if crate::fork::acesso_rpc::permite(caller, method) { Ok(()) } else { Err(Forbidden) }
 }
 
 /// Why a channel refuses a device (`reject.code`).
@@ -230,6 +206,9 @@ pub fn authorize(hub: &Hub, key: &str) -> Result<Device, RejectCode> {
         return Err(RejectCode::LeaseExpired);
     }
     let d = hub.store.device(key).ok_or(RejectCode::Unauthorized)?;
+    if crate::fork::workspace::bloqueado(hub, &d) {
+        return Err(RejectCode::Revoked);
+    }
     if d.source == DeviceSource::Account
         && (!hub.cloud_synced.load(Ordering::Acquire) || d.lease_until.is_none_or(|t| t <= now_ms()))
     {
@@ -345,6 +324,14 @@ mod tests {
         assert!(permit(&Caller::Pairing { key: "k".into() }, "hello").is_err());
         assert_eq!(both.device_key(), "k");
         assert_eq!(Caller::Local.device_key(), "local");
+    }
+
+    #[test]
+    fn local_only_stays_off_every_device_with_control() {
+        use crate::fork::acesso_rpc::{Acesso, acesso};
+        for m in LOCAL_ONLY {
+            assert!(matches!(acesso(m), Some(Acesso::LocalOnly | Acesso::Ponte | Acesso::OwnerDevices)), "{m}");
+        }
     }
 
     #[test]

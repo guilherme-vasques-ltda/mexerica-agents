@@ -132,6 +132,7 @@ pub fn inherited(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<(O
         .filter(|(name, value)| {
             let upper = name.to_string_lossy().to_ascii_uppercase();
             !(credential(name)
+                || crate::fork::assinatura_pessoal::known_meta_credential(&upper, &value.to_string_lossy())
                 || launcher_override(&upper)
                 || authenticated_proxy(&upper, value)
                 || url_credential(value)
@@ -174,6 +175,7 @@ pub fn retain_for_backend(env: &mut Vec<(String, String)>, backend: &str) {
             return true; // mesclado e endurecido por harness::apply, nunca repassado cru
         }
         if launcher_override(&upper)
+            || crate::fork::assinatura_pessoal::known_meta_credential(&upper, value)
             || authenticated_proxy(&upper, OsStr::new(value))
             || url_credential(OsStr::new(value))
             || matches!(

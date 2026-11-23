@@ -3,7 +3,9 @@ pub(crate) mod access;
 mod grok;
 pub(crate) mod install;
 pub(crate) mod process;
-pub(crate) use process::{ProcessGroup, Rpc, background_claude_catalog};
+#[cfg(test)]
+pub(crate) use process::background_claude_catalog;
+pub(crate) use process::{ProcessGroup, Rpc};
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -1002,9 +1004,9 @@ pub(crate) async fn usage(hub: &Arc<Hub>, id: String, space_id: Option<&Value>) 
     let account = registry.account(&id)?;
     let mut value =
         json!({"engineAccountId":id,"spaceId":space,"state":"unavailable","source":null,"updatedAt":null,"windows":[]});
-    // Cota global nunca é reutilizada. Cada CLI confirma a identidade no processo/perfil da consulta:
-    // Codex no mesmo app-server (account/read), Claude pelo auth status do perfil isolado.
-    if account.state == State::Connected
+    // Cota global nunca é reutilizada; o Codex confirma a identidade no mesmo app-server.
+    if account.backend == Backend::Codex
+        && account.state == State::Connected
         && !in_setup(&hub.store, &id)
         && let LaunchReference::CliProfile { executable, directory } = &account.launch
     {
@@ -1036,19 +1038,7 @@ pub(crate) async fn usage(hub: &Arc<Hub>, id: String, space_id: Option<&Value>) 
                         // A mesma leitura do painel global do Codex: bucket `codex` e janela vencida descartada.
                         crate::fork::codex_usage::parse(&rates, crate::store::now_ms())
                     }
-                    Backend::Grok => bail!("usage_unavailable"),
-                    Backend::Claude => {
-                        let proof = accounts::probe::inspect(Backend::Claude, executable, directory).await;
-                        let quota =
-                            proof.identity.as_deref().map(|identity| registry.fingerprint(backend, "quota", identity));
-                        ensure!(
-                            quota.is_some() && quota == account.quota_identity && proof.state == State::Connected,
-                            "usage_unavailable"
-                        );
-                        crate::usage::claude_cli_usage_profile(executable, directory, Duration::from_secs(15))
-                            .await
-                            .ok_or_else(|| anyhow!("usage_unavailable"))?
-                    }
+                    Backend::Grok | Backend::Claude => bail!("usage_unavailable"),
                 };
                 Ok::<_, anyhow::Error>(windows)
             })

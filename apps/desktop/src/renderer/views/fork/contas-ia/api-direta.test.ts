@@ -11,7 +11,7 @@ test('API direta só aparece com o motor ligado e no Hub deste computador', () =
 })
 
 test('todo erro do teste tem frase nos seis idiomas, e erro desconhecido cai na falha do fornecedor', () => {
-  for (const erro of ['chave_invalida', 'sem_permissao', 'limite', 'fornecedor_falhou', 'sem_resposta', 'resposta_invalida', 'sem_chave', 'sem_lista', 'destino_recusado']) {
+  for (const erro of ['chave_invalida', 'sem_permissao', 'limite', 'fornecedor_falhou', 'sem_resposta', 'resposta_invalida', 'sem_chave', 'sem_lista', 'destino_recusado', 'meta_standard_unverified']) {
     const chave = chaveDoErro(erro)
     for (const catalogo of Object.values(CATALOGOS)) assert.ok(catalogo[chave], `${erro} sem texto`)
   }
