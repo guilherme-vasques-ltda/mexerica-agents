@@ -623,7 +623,7 @@ mod tests {
     async fn antigravity_registry_nao_oferece_nem_instala_adaptador() {
         for id in ["antigravity", "Antigravity-ACP", " agy "] {
             let agent = json!({"id":id, "distribution":{"npx":{"package":"fixture@1.0.0"}}});
-            assert!(agentes_oferecidos(&json!({"agents":[agent.clone()]})).is_empty());
+            assert_eq!(agentes_oferecidos(&json!({"agents":[agent.clone()]})), [] as [Value; 0]);
             assert!(launch_kind(&agent).is_none());
             assert!(command(&agent, |_, _| panic!("download inesperado")).await.is_err());
         }
