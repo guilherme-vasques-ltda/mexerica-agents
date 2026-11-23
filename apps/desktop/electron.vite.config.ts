@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import { admitsCloudBuild } from './src/shared/fork-cloud-build.ts'
 import { officialAccount, officialConfigHash } from './src/shared/fork-official-account.ts'
+import { rcDistribution, rcManifestHash, readRcManifest } from './src/shared/fork-rc-profile.ts'
 
 // Fresh macOS checkouts must include SF Symbols without a separate manual icons step.
 if (process.platform === 'darwin') {
@@ -14,7 +15,13 @@ if (process.platform === 'darwin') {
 
 export default defineConfig(({ mode }) => {
   const open = mode === 'open'
-  const official = mode === 'official'
+  const rc = mode === 'official-rc'
+  const official = mode === 'official' || rc
+  const rcManifest = rc ? readFileSync(resolve('build/official/rc-manifest.json')) : null
+  const rcHash = rcManifest ? rcManifestHash(rcManifest) : null
+  if (rcManifest && readRcManifest(rcManifest).version !== JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version) {
+    throw new Error('Release candidate manifest does not match the package version.')
+  }
   let accountConfig: unknown = null
   if (!open) {
     try { accountConfig = JSON.parse(readFileSync(resolve(official ? 'build/official/account-config.json' : 'resources/account-config.json'), 'utf8')) }
@@ -31,9 +38,17 @@ export default defineConfig(({ mode }) => {
   }
   return {
     main: {
-      define: { ...releaseDefines, __MEXERICA_OFFICIAL_CONFIG_HASH__: JSON.stringify(officialConfig ? officialConfigHash(officialConfig) : '') },
+      define: {
+        ...releaseDefines,
+        __MEXERICA_OFFICIAL_CONFIG_HASH__: JSON.stringify(officialConfig ? officialConfigHash(officialConfig) : ''),
+        ...(rcHash ? {
+          __MEXERICA_COMPILED_PROFILE__: JSON.stringify(rcDistribution.profile),
+          __MEXERICA_RC_MANIFEST_HASH__: JSON.stringify(rcHash),
+        } : {}),
+      },
       ...(officialConfig ? { plugins: [{ name: 'mexerica-official-config', generateBundle() {
         this.emitFile({ type: 'asset', fileName: 'official-config.sha256', source: officialConfigHash(officialConfig) })
+        if (rcHash) this.emitFile({ type: 'asset', fileName: 'rc-manifest.sha256', source: rcHash })
       } }] } : {}),
       ...(open ? { build: { rollupOptions: { input: { open: resolve('src/main/fork-open/main.ts') } } } } : {}),
     },

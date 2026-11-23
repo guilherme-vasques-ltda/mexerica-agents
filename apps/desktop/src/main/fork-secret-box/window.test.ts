@@ -241,7 +241,7 @@ function realObservers(mac: { running: Set<string>; loaded: Set<string>; files: 
     'node:path': path,
     electron: { app: { isPackaged: true, getLoginItemSettings: () => ({ status: 'not-registered' }) }, ipcMain: {} },
     '../host-controller': { prefs: { get: () => null, set: () => {} } },
-    '../environment': { identity: environmentProfile('main') },
+    '../environment': { identity: environmentProfile('main'), localIdentity: environmentProfile('main'), isRc: false },
   }, { process: { platform: 'darwin', resourcesPath: '/Applications/Donnabot.app/Contents/Resources', getuid: () => 501 } })
 }
 

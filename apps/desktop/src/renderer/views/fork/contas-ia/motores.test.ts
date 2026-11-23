@@ -9,6 +9,14 @@ import { MotoresStore, type MotoresSource } from './motores-store.ts'
 
 const b = (id: string, extra: Partial<Backend> = {}): Backend => ({ id, name: id, available: false, command: id, installHint: '', ...extra })
 
+test('Antigravity não aparece pronto, mesmo se o CLI estiver instalado', () => {
+  for (const installed of [false, true]) {
+    assert.deepEqual(motorEstado(b('antigravity', { installed, signedIn: true }), 'pt-BR'), {
+      selo: 'Indisponível', tom: 'neutro', detalhe: 'Indisponível no app. Use o CLI oficial com sua conta em um cliente ACP interativo.', instalado: installed,
+    })
+  }
+})
+
 test('cada motor mostra só o estado que o Hub informou; Codex e Claude entram pelas contas', () => {
   const lista = [
     b('codex', { installed: true, curated: true, signedIn: false }),

@@ -6,14 +6,14 @@ const base = parse(readFileSync(join(__dirname, '../electron-builder.yml'), 'utf
 const stage = 'build/official'
 const out = `${stage}/out`
 const { background: _background, ...dmg } = base.dmg
-const resources = {
+const officialResources = {
   darwin: ['donnabot-host', 'codync-speech'],
   win32: ['donnabot-host.exe', 'donnabot-hostw.exe'],
   linux: ['donnabot-host'],
 }
-const native = (platform) => resources[platform].map(name => ({ from: `build/native/${name}`, to: name }))
+const native = (platform) => officialResources[platform].map(name => ({ from: `build/native/${name}`, to: name }))
 
-async function verifyOfficial(context) {
+async function verifyOfficial(context, resources = officialResources) {
   const project = context.packager.projectDir
   const { officialAccount, officialConfigHash } = await import('../src/shared/fork-official-account.ts')
   try {
