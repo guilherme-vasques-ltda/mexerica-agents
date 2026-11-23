@@ -73,6 +73,8 @@ impl Fixture {
             announce: None,
             turn: None,
             input: None,
+            antigravity_grant: None,
+            antigravity_active: None,
             waiting: None,
             turn_limit: None,
             fallback: fork_fallback::Turno::default(),

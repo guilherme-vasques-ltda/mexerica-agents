@@ -137,6 +137,7 @@ pub struct Hub {
     #[cfg(test)]
     before_bot_deletion: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub phone_clients: AtomicUsize,
+    pub(crate) antigravity_grants: crate::fork::antigravity::Grants,
     pub usage: Mutex<Usage>,
     keep_awake: Mutex<service::KeepAwake>,
     /// Generation of the authorized-device table and pairing offers: bumped on every
@@ -200,6 +201,7 @@ impl Hub {
             #[cfg(test)]
             before_bot_deletion: Mutex::default(),
             phone_clients: AtomicUsize::new(0),
+            antigravity_grants: crate::fork::antigravity::Grants::default(),
             usage: Mutex::default(),
             keep_awake: Mutex::default(),
             auth: watch::Sender::new(0),
@@ -1183,7 +1185,6 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
     crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
-    crate::agent::backends::require_supported_execution(&cfg.backend)?;
     validate_fields(cfg)
 }
 
@@ -1197,7 +1198,6 @@ pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result
     crate::fork::funcao::normalizar(cfg)?;
     if cfg.backend != before.backend {
         crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
-        crate::agent::backends::require_supported_execution(&cfg.backend)?;
     }
     validate_fields(cfg)
 }
@@ -1205,6 +1205,9 @@ pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result
 fn validate_fields(cfg: &BotConfig) -> Result<()> {
     if cfg.name.trim().is_empty() {
         bail!("name is required");
+    }
+    if crate::agent::backends::is_antigravity(&cfg.backend) {
+        crate::fork::antigravity::config(cfg)?;
     }
     if cfg.is_group() {
         return Ok(());

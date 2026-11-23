@@ -10,7 +10,7 @@ use crate::LockExt;
 use crate::fork::motor_exec::Child;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -212,6 +212,7 @@ impl tokio::io::AsyncWrite for Writer {
 }
 
 pub struct Acp {
+    antigravity_mode: Option<Arc<std::sync::Mutex<HashSet<String>>>>,
     protected: bool,
     background: bool,
     /// `None` once stopped: the closed pipe tells the agent to exit.
@@ -280,7 +281,45 @@ impl Acp {
             .env_clear()
             .envs(super::environment::inherited(std::env::vars_os()))
             .envs(shell.env)
-            .envs(env.iter().map(|(k, v)| (k, v)))
+            .envs(env.iter().map(|(k, v)| (k, v)));
+        Self::spawn_process(process, command, cwd, protected, background, false)
+    }
+
+    pub(crate) fn spawn_antigravity(
+        cli: &crate::fork::antigravity::Official,
+        cwd: &str,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        let mut process = Command::new(cli.path());
+        process.arg("acp").env_clear().envs(std::env::vars_os().filter(|(name, _)| {
+            name.to_str().is_some_and(|name| {
+                [
+                    "HOME",
+                    "USERPROFILE",
+                    "PATH",
+                    "SYSTEMROOT",
+                    "LANG",
+                    "LC_ALL",
+                    "DBUS_SESSION_BUS_ADDRESS",
+                    "DISPLAY",
+                    "WAYLAND_DISPLAY",
+                    "XDG_RUNTIME_DIR",
+                ]
+                .iter()
+                .any(|key| name.eq_ignore_ascii_case(key))
+            })
+        }));
+        Self::spawn_process(process, "agy acp", cwd, true, false, true)
+    }
+
+    fn spawn_process(
+        mut process: Command,
+        command: &str,
+        cwd: &str,
+        protected: bool,
+        background: bool,
+        antigravity: bool,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        process
             .current_dir(crate::fork::motor_exec::hub_cwd(std::path::Path::new(cwd)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -299,6 +338,7 @@ impl Acp {
         // queue would stall this reader, and with it the response — a deadlock.
         let (tx, rx) = mpsc::unbounded_channel();
         let pending = Pending::default();
+        let antigravity_mode = antigravity.then(|| Arc::new(std::sync::Mutex::new(HashSet::new())));
 
         let tail = Arc::new(std::sync::Mutex::new(VecDeque::<String>::with_capacity(STDERR_TAIL_LINES)));
         {
@@ -321,6 +361,7 @@ impl Acp {
         }
         {
             let pending = pending.clone();
+            let antigravity_mode = antigravity_mode.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -341,6 +382,13 @@ impl Acp {
                             let _ = tx.send(Incoming::Request { id, method, params: msg["params"].clone() });
                         }
                         (Some(method), _) => {
+                            if let Some(modes) = &antigravity_mode
+                                && method == "session/update"
+                                && let Some(sid) = msg["params"]["sessionId"].as_str()
+                                && crate::fork::antigravity::mode_diverged(&msg["params"]["update"])
+                            {
+                                modes.locked().insert(sid.to_owned());
+                            }
                             let _ = tx.send(Incoming::Notification { method, params: msg["params"].clone() });
                         }
                         (None, Some(id)) => {
@@ -366,6 +414,7 @@ impl Acp {
 
         let pid = child.id();
         let acp = Arc::new(Self {
+            antigravity_mode,
             protected,
             background,
             stdin: tokio::sync::Mutex::new(Some(stdin)),
@@ -395,6 +444,7 @@ impl Acp {
         let pending = Pending::default();
         link.attach(adapter_side, tx, pending.clone());
         let acp = Arc::new(Self {
+            antigravity_mode: None,
             protected: false,
             background: false,
             stdin: tokio::sync::Mutex::new(Some(Writer::Link(bot_side))),
@@ -442,6 +492,40 @@ impl Acp {
         Ok(Answer { rx })
     }
 
+    pub(crate) async fn send_antigravity_prompt(
+        &self,
+        params: Value,
+        scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
+    ) -> Result<Answer> {
+        let sid = params["sessionId"].as_str().context("Sessão ACP ausente.")?.to_owned();
+        let modes = self.antigravity_mode.as_ref().context("Transporte oficial ACP ausente.")?;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.pending.locked().insert(id, tx);
+        let mut line = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"method":"session/prompt","params":params}))?;
+        line.push(b'\n');
+        let mut input = self.stdin.lock().await;
+        let result = if let Some(writer) = input.as_mut() {
+            crate::fork::spaces::tool_effects::write_scoped(writer, &line, |effect| {
+                let modes = modes.locked();
+                if modes.contains(&sid) {
+                    return std::task::Poll::Ready(Err(anyhow::anyhow!(
+                        "O Antigravity mudou de modo antes do envio. Reenvie a mensagem."
+                    )));
+                }
+                scope(effect)
+            })
+            .await
+        } else {
+            Err(Failure::error(FailureKind::Exited, "agent stopped"))
+        };
+        if result.is_err() {
+            input.take();
+            self.pending.locked().remove(&id);
+        }
+        result.map(|()| Answer { rx })
+    }
+
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         self.write(json!({"jsonrpc": "2.0", "method": method, "params": params})).await
     }
@@ -458,7 +542,16 @@ impl Acp {
         boundary: &std::sync::Mutex<()>,
         check: impl Fn() -> Result<()>,
     ) -> Result<()> {
-        let mut line = serde_json::to_vec(&json!({"jsonrpc":"2.0", "id":id, "result":result}))?;
+        self.write_checked(json!({"jsonrpc":"2.0", "id":id, "result":result}), boundary, check).await
+    }
+
+    async fn write_checked(
+        &self,
+        frame: Value,
+        boundary: &std::sync::Mutex<()>,
+        check: impl Fn() -> Result<()>,
+    ) -> Result<()> {
+        let mut line = serde_json::to_vec(&frame)?;
         line.push(b'\n');
         let mut input = self.stdin.lock().await;
         let writer = input.as_mut().ok_or_else(|| Failure::error(FailureKind::Exited, "agent stopped"))?;
@@ -632,6 +725,24 @@ pub fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn antigravity_modo_observado_bloqueia_escrita_mesmo_sem_drenar_notificacao() {
+        let script = r#"printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture","update":{"sessionUpdate":"current_mode_update","currentModeId":"auto"}}}'; cat"#;
+        let mut process = Command::new("/bin/sh");
+        process.args(["-c", script]);
+        let (acp, mut updates) = Acp::spawn_process(process, "fixture", "/tmp", true, false, true).unwrap();
+        let notification = tokio::time::timeout(Duration::from_secs(5), updates.recv()).await.unwrap();
+        assert!(matches!(notification, Some(Incoming::Notification { .. })));
+        let result = acp
+            .send_antigravity_prompt(json!({"sessionId":"fixture","prompt":[]}), |_| {
+                panic!("escrita após divergência observada")
+            })
+            .await;
+        assert!(result.is_err());
+        acp.kill().await;
+    }
 
     #[test]
     fn content_text_flattens_blocks() {

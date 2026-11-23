@@ -22,6 +22,8 @@ mod compaction;
 mod fast_mode;
 mod files;
 mod fork_admission;
+#[cfg(all(test, unix))]
+mod fork_antigravity_tests;
 #[path = "../../fork/compressao/actor.rs"]
 mod fork_compressao;
 #[path = "../../fork/contexto/actor.rs"]
@@ -326,6 +328,8 @@ fn new_actor(hub: Arc<Hub>, cfg: BotConfig) -> Actor {
         announce: None,
         turn: None,
         input: None,
+        antigravity_grant: None,
+        antigravity_active: None,
         waiting: None,
         turn_limit: None,
         fallback: fork_fallback::Turno::default(),
@@ -602,6 +606,8 @@ struct Actor {
     announce: Option<(Snapshot, String)>,
     turn: Option<i64>,
     input: Option<waiting::TurnInput>,
+    antigravity_grant: Option<crate::fork::antigravity::Grant>,
+    antigravity_active: Option<crate::fork::antigravity::Grant>,
     waiting: Option<waiting::WaitingTurn>,
     turn_limit: Option<(crate::agent::subscription::Limit, i64)>,
     /// F6-B: o que o fallback entre contas decidiu para este turno.
@@ -691,6 +697,7 @@ impl Actor {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<PromptDone>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
+        let mut auth = self.hub.auth.subscribe();
         self.mudo_restaurar();
         if let Err(error) = self.restore_dispatch() {
             tracing::error!(%error, "recuperação de despacho bloqueada; evidência preservada");
@@ -718,6 +725,9 @@ impl Actor {
         }
         loop {
             tokio::select! {
+                Ok(()) = auth.changed(), if self.antigravity_active.is_some() => {
+                    self.check_antigravity_turn().await;
+                }
                 cmd = rx.recv() => {
                     let Some(cmd) = cmd else { break };
                     if !self.on_cmd(cmd, &done_tx).await { break }
@@ -743,6 +753,7 @@ impl Actor {
                     self.next_in_queue(&done_tx).await;
                 }
                 _ = flush_tick.tick() => {
+                    self.check_antigravity_turn().await;
                     self.flush(false);
                     self.retry_waiting_queue_restore();
                     if let Some(done) = self.finishing.take() { self.finish_turn(&done); }

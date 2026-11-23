@@ -223,7 +223,7 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
         subtitle={antigravity ? t('extensoes.motor.antigravityInterativo') : backend.description ? <bdi dir="auto">{backend.description}</bdi> : undefined}
         closeTitle={t('extensoes.fechar')}
       />
-      {antigravity ? null : <CardForm>
+      {antigravity ? <CardForm><CardSection><Text size="subheadline" tone="secondary">{t('extensoes.motor.antigravityPermissoes')}</Text></CardSection></CardForm> : <CardForm>
         {/* D164: contas do Codex e do Claude Code ficam em Configurações → Contas de IA. */}
         {backend.id === 'codex' || backend.id === 'claude' ? <CardSection><Text size="subheadline" tone="secondary">{t('contas.avisoCatalogo')}</Text></CardSection> : null}
         {curated ? (

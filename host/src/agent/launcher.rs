@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow, ensure};
 
 fn name(word: &str) -> String {
     let name = word.rsplit(['/', '\\']).next().unwrap_or(word).to_ascii_lowercase();
-    name.strip_suffix(".exe").or_else(|| name.strip_suffix(".cmd")).unwrap_or(&name).to_owned()
+    [".exe", ".cmd", ".bat"].into_iter().find_map(|suffix| name.strip_suffix(suffix)).unwrap_or(&name).to_owned()
 }
 
 pub fn check(cfg: &BotConfig) -> Result<()> {

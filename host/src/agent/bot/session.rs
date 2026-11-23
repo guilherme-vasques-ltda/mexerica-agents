@@ -253,8 +253,15 @@ impl Actor {
     }
 
     async fn ensure_session_inner(&mut self, slot: Option<&str>) -> Result<()> {
-        crate::agent::backends::require_supported_execution(&self.cfg.backend)
-            .map_err(|e| super::launch::EngineNotReady::wrap(&e))?;
+        let antigravity = crate::agent::backends::is_antigravity(&self.cfg.backend);
+        if antigravity {
+            crate::fork::antigravity::config(&self.cfg)?;
+            let entries = self.input.as_ref().map_or(&[][..], |input| input.entries.as_slice());
+            self.antigravity_grant
+                .as_ref()
+                .context(crate::fork::antigravity::INTERACTIVE)?
+                .check(&self.hub, &self.lane, entries)?;
+        }
         if self.cfg.context.is_some() || self.cfg.space_id != crate::fork::spaces::PERSONAL {
             anyhow::ensure!(self.cfg.fork_editor.engine_account_id.is_some(), "space_account_selection_required");
         }
@@ -266,7 +273,7 @@ impl Actor {
         let selected = crate::fork::engine_accounts::managed::resolve_for_bot(&self.hub.store, &self.cfg)?;
         let revision = selected.as_ref().map(|launch| launch.revision);
         // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono.
-        let plano = if selected.is_none() {
+        let plano = if selected.is_none() && !antigravity {
             match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await {
                 Ok(plano) => plano,
                 Err(erro) => {
@@ -365,8 +372,10 @@ impl Actor {
             }
             self.account_revision = revision;
         }
-        if !self.cfg.connectors.is_empty()
-            || (selected.is_none() && self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some())
+        if !antigravity
+            && (!self.cfg.connectors.is_empty()
+                || (selected.is_none()
+                    && self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some()))
         {
             crate::market::vault::unlock(self.hub.clone()).await?;
         }
@@ -388,7 +397,7 @@ impl Actor {
             let (hub, id) = (self.hub.clone(), self.cfg.id.clone());
             // O motor interno não tem candidatos de comando: o adaptador é em processo.
             let interno = self.cfg.backend == crate::fork::motor_mexerica::ENGINE_ID;
-            let mut candidates = if interno {
+            let mut candidates = if interno || antigravity {
                 Vec::new()
             } else {
                 launch_commands(&self.hub.store, &self.cfg, move |msg: &str, kind| {
@@ -400,7 +409,7 @@ impl Actor {
             self.hub.set_runtime(&self.id(), |r| r.set_activity("Starting agent…", Some(ActivityKind::StartingAgent)));
             // Keys saved from an "environment variable" sign-in. O motor
             // interno lê a chave do cofre pelo canal fd 3, nunca do ambiente.
-            let mut env = if selected.is_some() || interno || plano.is_some() {
+            let mut env = if selected.is_some() || interno || antigravity || plano.is_some() {
                 Vec::new()
             } else {
                 crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?
@@ -428,7 +437,15 @@ impl Actor {
             }
             let mut last_err = None;
             let mut spawned = None;
-            if interno {
+            if antigravity {
+                let cli = tokio::task::spawn_blocking(crate::fork::antigravity::Official::resolve).await??;
+                let entries = self.input.as_ref().map_or(&[][..], |input| input.entries.as_slice());
+                self.antigravity_grant
+                    .as_ref()
+                    .context(crate::fork::antigravity::INTERACTIVE)?
+                    .check(&self.hub, &self.lane, entries)?;
+                spawned = Some(super::launch::start_antigravity(&cli, &self.cfg.cwd).await?);
+            } else if interno {
                 match start_mexerica(&self.hub, &self.cfg, crate::fork::motor_mexerica::actor_extra_env()).await {
                     Ok(conn) => spawned = Some(conn),
                     Err(e) => last_err = Some(e),
@@ -469,7 +486,8 @@ impl Actor {
             }
         }
         let acp = self.session_for(slot);
-        if !self.hub.pontes.tem_slot(&self.cfg.id, slot)
+        if !antigravity
+            && !self.hub.pontes.tem_slot(&self.cfg.id, slot)
             && let (Some(conn), Some(sid)) = (self.conn.as_mut(), acp.as_deref())
         {
             conn.loaded.remove(sid);
@@ -507,7 +525,8 @@ impl Actor {
         let current = self.session_for(slot);
         let current = if let Some(sid) = current {
             let loaded = self.conn.as_ref().is_some_and(|c| c.loaded.contains_key(&sid));
-            if !loaded && crate::fork::spaces::needs_history_rebuild(&self.hub.store, &self.cfg, &sid)? {
+            if !loaded && (antigravity || crate::fork::spaces::needs_history_rebuild(&self.hub.store, &self.cfg, &sid)?)
+            {
                 rebuild_history = true;
                 self.set_session(slot, None);
                 None
@@ -639,7 +658,11 @@ impl Actor {
         self.bind_profile_skills(&binding)?;
         let (revision, rendered) = self.render_profile().await?;
         self.hub.prepare_session_binding(&binding)?;
-        let (servers, curated) = self.mcp_servers(slot, &binding)?;
+        let (servers, curated) = if antigravity {
+            (json!([]), crate::fork::conectores::Definitions::default())
+        } else {
+            self.mcp_servers(slot, &binding)?
+        };
         #[cfg(test)]
         crate::fork::sessoes::gateway_actor_tests::prepared(&self.hub, &servers).await?;
         let mut params = self.session_params(&servers, None)?;

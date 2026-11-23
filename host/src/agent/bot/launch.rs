@@ -41,8 +41,27 @@ impl Actor {
     /// Compatibilidade com adaptadores que ainda ignoram permissionMode nas opções de criação.
     /// Só ao abrir/recarregar, e só se o catálogo anunciar outro modo; nunca um RPC por turno.
     pub(super) async fn manual_mode(&mut self, sid: &str, res: Value) -> Result<Value> {
+        if self.cfg.backend == crate::fork::antigravity::ID && mode_option(&res).is_none() {
+            let result = if legacy_default_mode(&res).is_ok() {
+                Ok(res)
+            } else {
+                self.session_request("session/set_mode", json!({"sessionId":sid,"modeId":"default"})).await.and_then(
+                    |answer| {
+                        legacy_default_mode(&answer)?;
+                        Ok(answer)
+                    },
+                )
+            };
+            if result.is_err()
+                && let Some(conn) = self.conn.take()
+            {
+                conn.kill().await;
+            }
+            return result;
+        }
         let adapter = self.conn.as_ref().map(|c| c.adapter);
         let expected = match adapter {
+            _ if self.cfg.backend == crate::fork::antigravity::ID => "default",
             Some(Adapter::Claude) => "default",
             Some(Adapter::Codex) => "workspace-write",
             _ => return Ok(res),
@@ -79,6 +98,16 @@ impl Actor {
 
 fn mode_option(res: &Value) -> Option<&Value> {
     res["configOptions"].as_array()?.iter().find(|o| o["category"] == "mode")
+}
+
+fn legacy_default_mode(res: &Value) -> Result<()> {
+    let nested = res["modes"].get("currentModeId");
+    let flat = res.get("currentModeId");
+    ensure!(
+        (nested.is_some() || flat.is_some()) && nested.into_iter().chain(flat).all(|mode| mode == "default"),
+        "O Antigravity não confirmou o modo que pede revisão."
+    );
+    Ok(())
 }
 
 fn verify_mode(res: &Value, expected: &str) -> Result<()> {
@@ -301,6 +330,23 @@ async fn start_agent_mode(
     } else {
         Acp::spawn(command, cwd, env)?
     };
+    finish_launch(acp, rx, env, budget, wait_on_failure).await
+}
+
+pub(super) async fn start_antigravity(cli: &crate::fork::antigravity::Official, cwd: &str) -> Result<Conn> {
+    let (acp, rx) = Acp::spawn_antigravity(cli, cwd)?;
+    let mut conn = finish_launch(acp, rx, &[], Duration::from_secs(30), false).await?;
+    conn.sessions.load = false;
+    Ok(conn)
+}
+
+async fn finish_launch(
+    acp: Arc<Acp>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<acp::Incoming>,
+    env: &[(String, String)],
+    budget: Duration,
+    wait_on_failure: bool,
+) -> Result<Conn> {
     let init = tokio::time::timeout(
         budget,
         acp.request(
@@ -402,6 +448,20 @@ fn adapter(init: &Value) -> Adapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn antigravity_exige_confirmacao_de_modo_sem_conflito() {
+        assert!(legacy_default_mode(&json!({"modes":{"currentModeId":"default"}})).is_ok());
+        assert!(legacy_default_mode(&json!({"currentModeId":"default"})).is_ok());
+        for response in [
+            json!({}),
+            json!(null),
+            json!({"currentModeId":"auto"}),
+            json!({"modes":{"currentModeId":"auto"},"currentModeId":"default"}),
+        ] {
+            assert!(legacy_default_mode(&response).is_err(), "{response}");
+        }
+    }
 
     #[tokio::test]
     async fn omp_salvo_e_recusado_antes_de_executar() {
