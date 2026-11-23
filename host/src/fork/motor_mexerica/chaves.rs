@@ -156,6 +156,9 @@ pub(crate) async fn salvar(
     candidata: Zeroizing<String>,
     extra_env: &[(&str, &str)],
 ) -> Result<Value> {
+    if fornecedor == "meta" || crate::fork::assinatura_pessoal::known_meta_credential("", &candidata) {
+        return Ok(meta_sem_prova());
+    }
     let _operacao = OPERACAO.lock().await;
     let valor = candidata.clone();
     let acesso = testar(Arc::new(move |_slot: &str| Ok(Some(valor.to_string()))), fornecedor, extra_env).await?;
@@ -207,6 +210,9 @@ pub(super) async fn salvar_endereco(hub: &Arc<Hub>, pedido: Pedido, extra_env: &
         }
         None => (proprio::novo_id(), chave(pedido.chave.as_deref())?),
     };
+    if crate::fork::assinatura_pessoal::known_meta_credential("", &key) {
+        return Ok(meta_sem_prova());
+    }
     let raw = proprio::serializar(&Registro { key: key.to_string(), base_url, formato, local, nome })?;
     let fonte = raw.clone();
     let mut acesso = testar(Arc::new(move |_slot: &str| Ok(Some(fonte.to_string()))), &id, extra_env).await?;
@@ -235,6 +241,9 @@ pub(super) async fn salvar_endereco(hub: &Arc<Hub>, pedido: Pedido, extra_env: &
 /// Abre o motor preso a `fornecedor` com a fonte dada e pede só a lista de modelos. O resultado é refeito campo a
 /// campo: nada do que o motor mandou passa adiante sem ser conferido.
 pub(crate) async fn testar(fonte: VaultSource, fornecedor: &str, extra_env: &[(&str, &str)]) -> Result<Value> {
+    if fornecedor == "meta" {
+        return Ok(meta_sem_prova());
+    }
     let mut engine = Engine::spawn_with(fonte, fornecedor, extra_env)?;
     let resposta = tokio::time::timeout(PRAZO_DO_TESTE, engine.list_models()).await;
     let _ = engine.kill().await;
@@ -277,6 +286,10 @@ pub(crate) async fn testar(fonte: VaultSource, fornecedor: &str, extra_env: &[(&
     Ok(json!({"ok": true, "estado": "modelos_no_catalogo", "modelos": modelos}))
 }
 
+fn meta_sem_prova() -> Value {
+    json!({"ok": false, "erro": "meta_standard_unverified", "estado": "nao_verificado"})
+}
+
 fn guardar_modelos(store: &Store, fornecedor: &str, acesso: &Value) -> Result<()> {
     if acesso["ok"] != true {
         return Ok(());
@@ -291,6 +304,15 @@ fn gravar_modelos(store: &Store, fornecedor: &str, modelos: &Value) -> Result<()
 
 fn modelos_guardados(store: &Store, fornecedor: &str) -> Result<Option<Value>> {
     Ok(store.kv_read(&cache_slot(fornecedor))?.and_then(|raw| serde_json::from_str(&raw).ok()))
+}
+
+pub(crate) fn modelo_no_catalogo(store: &Store, fornecedor: &str, modelo: &str) -> Result<bool> {
+    let id = format!("{fornecedor}/{modelo}");
+    let guardado = modelos_guardados(store, fornecedor)?;
+    Ok(guardado
+        .as_ref()
+        .and_then(|g| g["modelos"].as_array())
+        .is_some_and(|modelos| modelos.iter().any(|modelo| modelo["id"] == id.as_str())))
 }
 
 /// Os limites de `fornecedor/modelo` no último «Testar acesso» (`{}` se não há): sem eles o motor usaria os
@@ -333,7 +355,7 @@ pub(crate) fn listar(store: &Store) -> Result<Value> {
     }
     for (id, nome) in FORNECEDORES {
         let configurada = store.kv_read(&credential_slot(id))?.is_some();
-        let guardado = if configurada { modelos_guardados(store, id)? } else { None };
+        let guardado = if configurada && id != "meta" { modelos_guardados(store, id)? } else { None };
         lista.push(json!({
             "id": id,
             "nome": nome,
@@ -352,7 +374,7 @@ pub(crate) fn catalogo(store: &Store, space: &str) -> Result<Value> {
     // A chave é do dono e só serve ao Space pessoal.
     let pessoal = space == crate::fork::spaces::PERSONAL;
     let ids = FORNECEDORES.iter().map(|(id, _)| (*id).to_owned()).chain(proprio::ids(store)?);
-    for id in ids.filter(|_| pessoal) {
+    for id in ids.filter(|id| pessoal && id != "meta") {
         if store.kv_read(&credential_slot(&id))?.is_none() {
             continue;
         }

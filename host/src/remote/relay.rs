@@ -29,7 +29,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_stream::StreamMap;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_tungstenite::tungstenite::{self, Message, client::IntoClientRequest as _};
 
 const PATH: &str = "/v1/relay/host?v=1";
@@ -202,6 +201,7 @@ async fn session(hub: &Arc<Hub>, base: &str) -> Result<Option<u16>> {
         sink,
         links: HashMap::new(),
         outs: StreamMap::new(),
+        portas: HashMap::new(),
         pulls: Pulls::default(),
         held: None,
         ready: false,
@@ -300,7 +300,9 @@ struct Session {
     /// Device messages into each link's channel.
     links: HashMap<String, mpsc::Sender<Value>>,
     /// What each link's channel sends back.
-    outs: StreamMap<String, ReceiverStream<Out>>,
+    outs: StreamMap<String, std::pin::Pin<Box<dyn futures::Stream<Item = Out> + Send>>>,
+    /// Each link's workspace gate, also checked when the relay closes a link itself.
+    portas: HashMap<String, channel::Porta>,
     /// State pulls in flight; dropped (aborted) with the connection.
     pulls: Pulls,
     /// An account device's queued send that arrived before this connection's state pull
@@ -349,6 +351,7 @@ impl Session {
             Out::Close(code, reason) => {
                 self.links.remove(&link);
                 self.outs.remove(&link);
+                self.portas.remove(&link);
                 json!({"t": "close", "link": link, "code": code, "reason": reason})
             }
         };
@@ -362,6 +365,11 @@ impl Session {
     async fn close_link(&mut self, link: &str, code: u16, reason: &str) -> Result<()> {
         self.links.remove(link);
         self.outs.remove(link);
+        if let Some(reject) = self.portas.remove(link).and_then(|porta| porta.terminal()) {
+            self.send(&json!({"t": "data", "link": link, "m": reject})).await?;
+            let code = devices::RejectCode::Revoked.close_code();
+            return self.send(&json!({"t": "close", "link": link, "code": code, "reason": "rejected"})).await;
+        }
         self.send(&json!({"t": "close", "link": link, "code": code, "reason": reason})).await
     }
 
@@ -388,9 +396,11 @@ impl Session {
                 };
                 let (in_tx, incoming) = mpsc::channel(LINK_BUFFER);
                 let (outgoing, out_rx) = mpsc::channel(64);
+                let porta = channel::Porta::default();
                 self.links.insert(link.to_owned(), in_tx);
-                self.outs.insert(link.to_owned(), ReceiverStream::new(out_rx));
-                tokio::spawn(channel::run(self.hub.clone(), Transport { incoming, outgoing }, kind));
+                self.outs.insert(link.to_owned(), Box::pin(porta.clone().filtrar(out_rx)));
+                self.portas.insert(link.to_owned(), porta.clone());
+                tokio::spawn(channel::run(self.hub.clone(), Transport { incoming, outgoing, porta }, kind));
             }
             "data" => {
                 let link = v["link"].as_str().unwrap_or_default();
@@ -412,6 +422,7 @@ impl Session {
                 if let Some(link) = v["link"].as_str() {
                     self.links.remove(link);
                     self.outs.remove(link);
+                    self.portas.remove(link);
                 }
             }
             "mbox.item" => {
@@ -766,6 +777,7 @@ mod tests {
             sink,
             links: HashMap::new(),
             outs: StreamMap::new(),
+            portas: HashMap::new(),
             pulls: Pulls::default(),
             held: None,
             ready: true,
@@ -784,6 +796,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn link_with_a_full_queue_sends_only_the_terminal_after_a_workspace_bump() {
+        let (hub, _dir) = temp_hub();
+        let device = |key: &str| Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        };
+        hub.store.put_device(&device("stays")).unwrap();
+        hub.store.put_device(&device("leaves")).unwrap();
+        let fake = Arc::new(Fake::default());
+        let base = fake_cloud(fake.clone(), hub.clone()).await;
+        let (ws, _) = tokio_tungstenite::connect_async(relay_url(&base).unwrap()).await.unwrap();
+        let (sink, _incoming) = ws.split();
+        let mut s = Session {
+            hub: hub.clone(),
+            base,
+            sink,
+            links: HashMap::new(),
+            outs: StreamMap::new(),
+            portas: HashMap::new(),
+            pulls: Pulls::default(),
+            held: None,
+            ready: true,
+            retried: false,
+        };
+        // The link's real transport queue (64), full of frames the writer already released.
+        let (outgoing, out_rx) = mpsc::channel::<Out>(64);
+        for n in 0..63 {
+            outgoing.send(Out::Msg(json!({"t": "f", "n": n}))).await.unwrap();
+        }
+        outgoing.send(Out::Close(4011, "subscription authorization ended")).await.unwrap();
+        assert_eq!(outgoing.capacity(), 0);
+        let porta = channel::Porta::armada(&hub, "stays");
+        s.outs.insert("full".into(), Box::pin(porta.filtrar(out_rx)));
+        assert!(hub.revoke_device("leaves").unwrap());
+        while let Some((link, out)) = timeout(Duration::from_secs(5), s.outs.next()).await.unwrap() {
+            s.link_out(link, out).await.unwrap();
+        }
+        wait_for(&fake, |messages| messages.iter().any(|v| v["t"] == "close" && v["link"] == "full")).await;
+        let sent: Vec<Value> = fake.from_host.lock().unwrap().iter().filter(|v| v["link"] == "full").cloned().collect();
+        assert_eq!(sent.len(), 2, "only the terminal leaves: {sent:?}");
+        assert_eq!(
+            (sent[0]["t"].as_str(), sent[0]["m"]["stableCode"].as_str()),
+            (Some("data"), Some("workspace_revoked"))
+        );
+        assert_eq!((sent[1]["t"].as_str(), sent[1]["code"].as_u64()), (Some("close"), Some(4003)));
+    }
+
+    #[tokio::test]
+    async fn relay_closing_a_link_itself_sends_the_terminal_only_after_a_workspace_bump() {
+        let (hub, _dir) = temp_hub();
+        let device = |key: &str| Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        };
+        hub.store.put_device(&device("stays")).unwrap();
+        hub.store.put_device(&device("leaves")).unwrap();
+        let fake = Arc::new(Fake::default());
+        let base = fake_cloud(fake.clone(), hub.clone()).await;
+        let (ws, _) = tokio_tungstenite::connect_async(relay_url(&base).unwrap()).await.unwrap();
+        let (sink, _incoming) = ws.split();
+        let mut s = Session {
+            hub: hub.clone(),
+            base,
+            sink,
+            links: HashMap::new(),
+            outs: StreamMap::new(),
+            portas: HashMap::new(),
+            pulls: Pulls::default(),
+            held: None,
+            ready: true,
+            retried: false,
+        };
+        for link in ["calm", "bumped"] {
+            s.portas.insert(link.into(), channel::Porta::armada(&hub, "stays"));
+        }
+        s.close_link("calm", RATE_LIMITED, "rateLimited").await.unwrap();
+        assert!(hub.revoke_device("leaves").unwrap());
+        s.close_link("bumped", RATE_LIMITED, "rateLimited").await.unwrap();
+        wait_for(&fake, |messages| messages.iter().any(|v| v["t"] == "close" && v["link"] == "bumped")).await;
+        let sent = |link: &str| -> Vec<Value> {
+            fake.from_host.lock().unwrap().iter().filter(|v| v["link"] == link).cloned().collect()
+        };
+        let calm = sent("calm");
+        assert_eq!(calm.len(), 1, "{calm:?}");
+        assert_eq!((calm[0]["t"].as_str(), calm[0]["code"].as_u64()), (Some("close"), Some(u64::from(RATE_LIMITED))));
+        let bumped = sent("bumped");
+        assert_eq!(bumped.len(), 2, "{bumped:?}");
+        assert_eq!(
+            (bumped[0]["t"].as_str(), bumped[0]["m"]["stableCode"].as_str()),
+            (Some("data"), Some("workspace_revoked"))
+        );
+        assert_eq!((bumped[1]["t"].as_str(), bumped[1]["code"].as_u64()), (Some("close"), Some(4003)));
+        assert!(s.portas.is_empty());
+    }
+
+    #[tokio::test]
     async fn r1_coalesces_burst_and_periodic_pull() {
         let (hub, _dir) = temp_hub();
         let fake = Arc::new(Fake::default());
@@ -797,6 +919,7 @@ mod tests {
             sink,
             links: HashMap::new(),
             outs: StreamMap::new(),
+            portas: HashMap::new(),
             pulls: Pulls::default(),
             held: None,
             ready: true,

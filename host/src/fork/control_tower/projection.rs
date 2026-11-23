@@ -75,7 +75,7 @@ pub(super) fn snapshot(hub: &Hub, space: &str) -> Result<TowerSnapshot> {
                 })
             })
             .transpose()?;
-        let pending = pending(&tx, space, &cfg.id)?;
+        let pending = pending(&tx, space, &cfg.id).unwrap_or(Observation::Unavailable);
         rows.push((cfg, open, pending));
     }
     let roster_ids: Vec<&str> = rows.iter().map(|(cfg, ..)| cfg.id.as_str()).collect();
@@ -138,6 +138,9 @@ pub(super) fn snapshot(hub: &Hub, space: &str) -> Result<TowerSnapshot> {
         what_happened,
         routine_creations,
         account_switches,
+        attention: super::attention::project(hub, space, true).map_or(Observation::Unavailable, |value| {
+            Observation::Available { source: "donnaAttention", coverage: "authorizedSpace", value }
+        }),
     })
 }
 
@@ -152,6 +155,15 @@ fn work(
     runtime_audiencia::project_in_space(hub, cfg, space, runtime.as_ref(), &mut observed);
     let questions = questions(runtime.is_some(), &observed, conversations);
     (runtime_work(cfg, &observed, conversations), questions)
+}
+
+pub(super) fn attention_questions(
+    hub: &Hub,
+    cfg: &BotConfig,
+    space: &str,
+    conversations: &[Conversation],
+) -> Observation<Vec<Question>> {
+    work(hub, cfg, space, conversations).1
 }
 
 /// MB-1b: somente o que a projeção canônica já autorizou, em conversa aberta capturada nesta coleta.

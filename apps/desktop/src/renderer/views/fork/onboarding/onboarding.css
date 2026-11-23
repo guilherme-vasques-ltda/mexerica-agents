@@ -1,0 +1,628 @@
+/* Onboarding de 1a instalacao: tokens da Mexerica e layout responsivo + RTL logico. */
+
+.onboarding-welcome-grid {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1fr);
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+.onboarding-brand-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding-block: 36px;
+  padding-inline: 36px;
+  border-inline-end: 1px solid var(--line);
+  background: color-mix(in srgb, var(--entrada-cartao) 60%, transparent);
+}
+
+.onboarding-brand-card {
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  text-align: center;
+  padding: 24px;
+  border-radius: var(--radius-l, 18px);
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.onboarding-brand-mascot {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.onboarding-brand-chips {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  max-inline-size: 320px;
+}
+
+.onboarding-preview-chip {
+  padding-block: 10px;
+  padding-inline: 14px;
+  border-radius: var(--radius-m, 12px);
+  background: var(--entrada-chao);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: start;
+}
+
+.onboarding-preview-chip.is-approval {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.onboarding-preview-approve {
+  flex: none;
+  padding-block: 4px;
+  padding-inline: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--entrada-acao);
+  color: var(--entrada-acao-tinta);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.onboarding-brand-privacy {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  text-align: center;
+  max-inline-size: 340px;
+  margin-inline: auto;
+}
+
+.onboarding-welcome-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.onboarding-welcome-progress {
+  display: flex;
+  justify-content: center;
+  padding-block-start: 18px;
+}
+
+@media (max-width: 820px) {
+  .onboarding-welcome-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-brand-panel {
+    display: none;
+  }
+}
+
+/* Etapa 3: Onde rodar + Conexao de IA */
+.onboarding-step3 {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--entrada-chao);
+  color: var(--ink);
+  padding-block: 28px;
+  padding-inline: 24px;
+}
+
+.onboarding-step3-shell {
+  max-inline-size: 980px;
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.onboarding-step3-aside {
+  display: grid;
+  gap: 14px;
+  position: sticky;
+  top: 12px;
+}
+
+.onboarding-step3-berga {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 18px;
+  border-radius: var(--radius-l, 16px);
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.onboarding-step3-mascot {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.onboarding-speech-bubble p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.onboarding-step3-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m, 12px);
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.onboarding-step3-main {
+  display: grid;
+  gap: 16px;
+}
+
+.onboarding-step3-header {
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-step3-header h1 {
+  margin: 4px 0 0;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.onboarding-where-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.onboarding-choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 0;
+  border-radius: var(--radius-m, 14px);
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+}
+
+.onboarding-choice-card.is-selected {
+  box-shadow: inset 0 0 0 2px var(--entrada-acao);
+}
+
+.onboarding-choice-card strong {
+  display: block;
+  font-size: 14.5px;
+  margin-block-end: 4px;
+}
+
+.onboarding-choice-card span {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.onboarding-panel-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-m, 14px);
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.onboarding-panel-card h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.onboarding-muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.onboarding-consent-box {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.onboarding-consent-box p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.onboarding-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.onboarding-status-row.is-ok {
+  color: var(--ok, #1b7f48);
+}
+
+.onboarding-status-stack {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.onboarding-error-text {
+  margin: 0;
+  color: var(--danger, #c6362b);
+  font-size: 13px;
+}
+
+.onboarding-fingerprint {
+  display: block;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--entrada-chao);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.onboarding-ssh-profiles {
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-ssh-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.onboarding-notice-box {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--entrada-chao);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.onboarding-detect-row,
+.onboarding-oauth-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.onboarding-detect-result {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--entrada-chao);
+  font-size: 12.5px;
+  display: grid;
+  gap: 4px;
+}
+
+.onboarding-detect-result p {
+  margin: 0;
+}
+
+.onboarding-key-form {
+  display: grid;
+  gap: 8px;
+  padding-block-start: 6px;
+  border-block-start: 1px solid var(--line);
+}
+
+.onboarding-key-heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.onboarding-key-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.onboarding-key-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.onboarding-key-input-wrap {
+  flex: 1 1 220px;
+}
+
+.onboarding-key-fields select,
+.onboarding-key-fields input {
+  height: 36px;
+  padding-inline: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--entrada-chao);
+  color: var(--ink);
+  font: inherit;
+}
+
+.onboarding-ai-outcome {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.onboarding-ai-outcome.is-recusada {
+  color: var(--danger, #c6362b);
+}
+
+.onboarding-ai-outcome.is-modelos_no_catalogo {
+  color: var(--ok, #1b7f48);
+}
+
+.onboarding-step3-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-block-start: 6px;
+}
+
+@media (max-width: 780px) {
+  .onboarding-step3-shell {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-step3-aside {
+    position: static;
+  }
+  .onboarding-where-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Etapa 4: Primeiro chat com 6 tarefas + spotlight + cartao de prontidao */
+.onboarding-first-chat {
+  display: grid;
+  gap: 18px;
+  max-inline-size: 680px;
+  margin-inline: auto;
+  padding-block: 20px;
+  padding-inline: 16px;
+}
+
+.onboarding-first-chat-head {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 8px;
+}
+
+.onboarding-first-chat-head h2 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.onboarding-first-chat-head p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  max-inline-size: 480px;
+}
+
+.onboarding-no-ai-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--glass-raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px;
+}
+
+.onboarding-starter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 620px) {
+  .onboarding-starter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.onboarding-starter-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--glass-raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+}
+
+.onboarding-starter-card:hover {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.onboarding-starter-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.onboarding-starter-copy strong {
+  display: block;
+  font-size: 13.5px;
+  margin-block-end: 2px;
+}
+
+.onboarding-starter-copy span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
+/* Spotlight Tooltip (ULTIMO PASSO) */
+.onboarding-spotlight {
+  position: relative;
+  margin-block-end: 10px;
+  margin-inline: auto;
+  max-inline-size: 440px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #1a1816;
+  color: #f8f5ef;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-spotlight-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #ff9c42;
+}
+
+.onboarding-spotlight-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onboarding-spotlight-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: rgba(248, 245, 239, 0.8);
+}
+
+.onboarding-spotlight-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-block-start: 4px;
+}
+
+.onboarding-spotlight-skip {
+  border: 0;
+  background: none;
+  color: rgba(248, 245, 239, 0.72);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.onboarding-spotlight-arrow {
+  position: absolute;
+  inset-block-end: -6px;
+  inset-inline-start: 28px;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: #1a1816;
+}
+
+/* Cartao de prontidao (Pronta para trabalhar · N de M) */
+.onboarding-readiness-card {
+  margin: 8px 10px 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--glass-raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-readiness-head {
+  display: grid;
+  gap: 2px;
+}
+
+.onboarding-readiness-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.onboarding-readiness-sub {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.onboarding-readiness-bar {
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--field, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+}
+
+.onboarding-readiness-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+}
+
+.onboarding-readiness-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.onboarding-readiness-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-readiness-list li.is-ready {
+  color: var(--ink);
+}
+
+.onboarding-readiness-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

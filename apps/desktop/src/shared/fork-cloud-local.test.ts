@@ -6,6 +6,7 @@ import * as path from 'node:path'
 import type { LocalCloudIntent } from './fork-cloud-local.ts'
 
 const { createLocalCloudCapture, LocalCloudCallError } = loadMainModule<typeof import('../main/ssh.ts')>('ssh', {
+  './fork-desktop-profile': {},
   './environment': { identity: {} }, 'node:child_process': {}, 'node:crypto': crypto,
   'node:fs': { existsSync: () => false, promises: {}, readFileSync: () => '', statSync: () => ({ isFile: () => false }) },
   'node:net': {}, 'node:os': { homedir: () => '/fixture', platform: () => 'darwin' }, 'node:path': path,

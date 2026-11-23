@@ -59,6 +59,12 @@ fn parada_key(session: &str) -> String {
 /// O fallback só vale na conversa do dono no Pessoal (principal e extras): conversa de outro Space, de canal, rotina e bot
 /// com comando próprio seguem como antes (espera por limite D72). O mesmo portão vale antes do envio e no limite.
 pub(super) fn aplica_a(cfg: &crate::store::BotConfig, lane: &Lane) -> bool {
+    !crate::agent::backends::is_antigravity(&cfg.backend)
+        && !crate::fork::assinatura_pessoal::claude(&cfg.backend)
+        && conversa_propria(cfg, lane)
+}
+
+fn conversa_propria(cfg: &crate::store::BotConfig, lane: &Lane) -> bool {
     cfg.context.is_none()
         && cfg.space_id == crate::fork::spaces::PERSONAL
         && cfg.command.is_none()
@@ -114,7 +120,7 @@ impl Actor {
     async fn fallback_decidir(&mut self, lane: &Lane) -> Result<()> {
         let original =
             self.hub.store.bot(&self.cfg.id)?.filter(|b| !b.deleted).ok_or_else(|| anyhow!("bot_not_found"))?.config;
-        if !aplica_a(&original, lane) {
+        if !conversa_propria(&original, lane) {
             return Ok(());
         }
         let (session, own, efetiva) = {
@@ -125,9 +131,17 @@ impl Actor {
             (session, own, efetiva)
         };
         let (Some(own), Some(efetiva)) = (own, efetiva) else { return Ok(()) };
+        if crate::agent::backends::is_antigravity(&own.backend)
+            || crate::agent::backends::is_antigravity(&efetiva.backend)
+        {
+            return Ok(());
+        }
         let (Some(origem), Some(atual)) = (own.account_id.clone(), efetiva.account_id.clone()) else { return Ok(()) };
         let mut cfg = original.clone();
         own.apply(&mut cfg);
+        if !aplica_a(&cfg, lane) {
+            return Ok(());
+        }
         // Cada tentativa de prova que falha bloqueia o destino por 1 h e a decisão roda de novo sem ele.
         for _ in 0..=estado::MAX_RESERVAS {
             let pedido = Pedido { space: &cfg.space_id, bot: &cfg.id, origem: &origem, atual: &atual, cfg: &cfg };
@@ -417,7 +431,7 @@ mod tests {
     use serde_json::json;
 
     fn cfg(extra: &serde_json::Value) -> BotConfig {
-        let mut base = json!({"id":"bot","name":"Bot","backend":"claude"});
+        let mut base = json!({"id":"bot","name":"Bot","backend":"codex"});
         base.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         serde_json::from_value(base).unwrap()
     }
@@ -426,6 +440,7 @@ mod tests {
     fn so_a_conversa_do_dono_no_pessoal_entra_no_fallback() {
         let main = Lane::main("bot");
         assert!(aplica_a(&cfg(&json!({})), &main));
+        assert!(!aplica_a(&cfg(&json!({"backend":"claude"})), &main), "assinatura não roda fallback");
         assert!(
             aplica_a(&cfg(&json!({})), &Lane { chat: "bot".into(), session: Some("s".into()) }),
             "extra do Pessoal"

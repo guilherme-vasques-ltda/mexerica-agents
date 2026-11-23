@@ -821,6 +821,7 @@ async fn mx6_consulta_de_contas_devolve_hidden_model_ids() {
     std::fs::remove_dir_all(directory).unwrap();
 }
 
+#[cfg(unix)]
 pub(crate) async fn migrated_discovery_root(work: &std::path::Path, data: &std::path::Path) {
     let data = data.join("discovery-data");
     std::fs::create_dir(&data).unwrap();

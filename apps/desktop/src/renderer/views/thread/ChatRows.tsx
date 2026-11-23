@@ -22,6 +22,7 @@ import { QUICK_REACTIONS, type BotStore } from '../../store/bot-store'
 import { AttachmentList } from './Attachments'
 import { dataCompleta } from '../../lib/data-completa'
 import { relativeTime } from './chat-items'
+import { subscriptionNoticeText } from './notice-label'
 import { MarkdownText } from './Markdown'
 import { PermissionCard } from './PermissionCard'
 import { ConectorCard } from '../fork/conector-card/ConectorCard'
@@ -276,7 +277,7 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   const idioma = useIdioma()
   // MX-245: a espera do limite (Hub antigo, sem `waitId`) também diz "Parou pelo limite do plano; volta às HH:MM".
   const aviso = avisoOpen(entry.data.code)
-  const text = paradaDaEspera(t, idioma, entry) ?? (aviso ? t(aviso) : entry.data.text ?? '')
+  const text = paradaDaEspera(t, idioma, entry) ?? (aviso ? t(aviso) : subscriptionNoticeText(t, entry.data.text ?? ''))
   if (entry.data.callSeconds !== undefined) {
     const s = entry.data.callSeconds
     return (

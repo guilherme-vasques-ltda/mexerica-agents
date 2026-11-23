@@ -2704,3 +2704,81 @@ async fn pausa_reativa_sem_apagar_credencial() {
         .contains("legacy_preserved")
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cerca_que_falha_desfaz_so_a_propria_marca_com_revogacao_concorrente() {
+    use crate::store::{Device, DeviceSource, Scope};
+    let f = Fixture::new();
+    let owner = f.owner();
+    let key = owner.device_key().to_owned();
+    let grant = f.hub.store.device(&key).unwrap().grant_id.unwrap();
+    let chaves: Vec<String> = (0..20).map(|n| format!("paralelo-{n}")).collect();
+    for chave in &chaves {
+        f.hub
+            .store
+            .put_device(&Device {
+                key: chave.clone(),
+                name: "Paralelo".into(),
+                platform: "ios".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control],
+                lease_until: None,
+                created_at: crate::store::now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+    }
+    // Violação adiada só na Tx da cerca: ela falha no COMMIT, depois do bump e da marca.
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute_batch(&format!(
+            "PRAGMA foreign_keys=ON;
+             CREATE TEMP TABLE queda_pai(id INTEGER PRIMARY KEY);
+             CREATE TEMP TABLE queda_filho(pai INTEGER REFERENCES queda_pai(id) DEFERRABLE INITIALLY DEFERRED);
+             CREATE TEMP TRIGGER queda AFTER INSERT ON main.fork_workspace_revoked_devices
+             WHEN NEW.key='{key}' BEGIN INSERT INTO queda_filho VALUES(1); END;"
+        ))
+        .unwrap();
+
+    let outra = f.hub.workspace.marcar_para_prova();
+    assert!(crate::fork::workspace::revogar_cercado(&f.hub, &grant, &key, crate::store::now_ms()).is_err());
+    assert!(f.hub.workspace.retrato().pendente(), "a falha da cerca não solta o corte de outro commit");
+    drop(outra);
+    assert!(!f.hub.workspace.retrato().pendente());
+
+    let hub = f.hub.clone();
+    let revogacoes = std::thread::spawn(move || {
+        for chave in chaves {
+            assert!(hub.revoke_device(&chave).unwrap());
+        }
+    });
+    let mut falhas = 0;
+    while !revogacoes.is_finished() || falhas == 0 {
+        assert!(crate::fork::workspace::revogar_cercado(&f.hub, &grant, &key, crate::store::now_ms()).is_err());
+        falhas += 1;
+    }
+    revogacoes.join().unwrap();
+    let retrato = f.hub.workspace.retrato();
+    assert_eq!(
+        (retrato.valor, retrato.pendente()),
+        (20, false),
+        "só as revogações confirmadas sobem, sem marca sobrando"
+    );
+    assert!(f.hub.store.device(&key).is_some(), "a Tx da cerca volta inteira");
+}
+
+/// `teamSettings` passa pela classe `Control` e depois pela posse da conta: dono e este computador leem; aparelho
+/// com `control` sem vínculo ACS4 é recusado.
+#[tokio::test]
+async fn team_settings_exige_classe_e_posse() {
+    let f = Fixture::new();
+    let owner = f.owner();
+    assert!(crate::api::dispatch(&f.hub, &owner, "teamSettings", json!({})).await.is_ok());
+    let sem_vinculo =
+        Caller::Device { key: "sem-vinculo".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
+    assert!(crate::api::dispatch(&f.hub, &sem_vinculo, "teamSettings", json!({})).await.is_err());
+    assert!(crate::api::dispatch(&f.hub, &Caller::Local, "teamSettings", json!({})).await.is_ok());
+}

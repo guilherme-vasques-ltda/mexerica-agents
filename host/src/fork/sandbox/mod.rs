@@ -1,6 +1,7 @@
 //! MX-175: contrato único de provedor de sandbox, com o provedor local de referência.
 //! MX-177: executor bwrap (Linux). Sem consumidor no Hub: nenhum bot, rotina ou
 //! ferramenta chama este módulo ainda.
+pub(crate) mod ambiente;
 #[cfg(target_os = "linux")]
 pub(crate) mod bwrap;
 pub(crate) mod contrato;

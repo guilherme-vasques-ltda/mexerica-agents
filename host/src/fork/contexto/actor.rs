@@ -1,7 +1,7 @@
 //! Gancho do C2 no ator: a intenção não vira mensagem e conserva sessão/motor até ao envio.
 use super::{Actor, Adapter, Queued};
 use crate::LockExt;
-use crate::fork::contexto::{self, Manual, Request, Target};
+use crate::fork::contexto::{self, ActiveCompaction, Manual, Request, Target};
 use crate::store::now_ms;
 use anyhow::{Result, anyhow, ensure};
 use serde_json::{Value, json};
@@ -80,6 +80,16 @@ impl Actor {
         }
         let target = contexto::resolve(&self.hub, &manual.read)?;
         ensure!(target == manual.target && target.bot == self.cfg.id, "context_engine_changed");
+        if target.engine["backend"].as_str().is_some_and(crate::fork::assinatura_pessoal::claude) {
+            manual
+                .owner
+                .as_ref()
+                .ok_or_else(|| {
+                    tracing::warn!("compactação manual recusada sem autorização do dono");
+                    crate::fork::assinatura_pessoal::Refusal::Automation
+                })?
+                .with_db(&self.hub, |_| Ok(()))?;
+        }
         ensure!(manual.read.context_id.as_deref() == Some(target.context_id()?.as_str()), "context_engine_changed");
         // O motor medido já está preso por context_id, observation.engine/lane, conn.loaded e send_lane. Não
         // comparar com self.cfg: ela é a da ÚLTIMA lane/domínio do ator (ou a original após reinício), não a da
@@ -124,7 +134,7 @@ impl Actor {
             let _ = reply.send(self.context_snapshot(&target));
             return;
         }
-        let manual = Manual { target, read: request.read, reply };
+        let manual = Manual { target, read: request.read, owner: request.owner, reply };
         if let Err(error) = self.context_validate(&manual, true) {
             let _ = manual.reply.send(Err(error));
             return;
@@ -147,7 +157,7 @@ impl Actor {
             let _ = manual.reply.send(Err(error));
             return;
         }
-        self.context_compaction = Some(manual.target.clone());
+        self.context_compaction = Some(ActiveCompaction { target: manual.target.clone(), owner: manual.owner });
         self.start_compaction(false, Some(manual.target.lane.clone()), done_tx).await;
         let result = if self.compacting.is_some() && self.turn_session == manual.target.acp {
             Ok(json!({"accepted":true}))
@@ -160,7 +170,15 @@ impl Actor {
 
     /// Também no retry de admissão e depois dos awaits de setup: não compacta uma ACP substituta.
     pub(super) fn context_compaction_guard(&self) -> Result<()> {
-        let Some(target) = &self.context_compaction else { return Ok(()) };
+        let Some(compaction) = &self.context_compaction else { return Ok(()) };
+        let target = &compaction.target;
+        if crate::fork::assinatura_pessoal::claude(&self.cfg.backend) {
+            let owner = compaction.owner.as_ref().ok_or_else(|| {
+                tracing::warn!("envio de compactação recusado sem autorização do dono");
+                crate::fork::assinatura_pessoal::Refusal::Automation
+            })?;
+            owner.with_db(&self.hub, |_| Ok(()))?;
+        }
         ensure!(
             self.compacting.is_some() && self.lane == target.lane && self.turn_session == target.acp,
             "context_engine_changed"
@@ -177,6 +195,14 @@ impl Actor {
         };
         ensure!(contexto::resolve(&self.hub, &read)? == *target, "context_engine_changed");
         Ok(())
+    }
+
+    pub(super) fn owner_compaction(&self, lane: &crate::store::Lane) -> bool {
+        self.compacting.is_some()
+            && self
+                .context_compaction
+                .as_ref()
+                .is_some_and(|active| active.target.lane == *lane && active.owner.is_some())
     }
 }
 
@@ -224,8 +250,12 @@ mod tests {
         let read: contexto::Read = serde_json::from_value(json!({"botId":"bot"})).unwrap();
         let target = contexto::resolve(&hub, &read).unwrap();
         let (reply, _answer) = oneshot::channel();
-        let mut manual =
-            Manual { read: contexto::Read { context_id: Some(target.context_id().unwrap()), ..read }, target, reply };
+        let mut manual = Manual {
+            read: contexto::Read { context_id: Some(target.context_id().unwrap()), ..read },
+            target,
+            owner: Some(crate::fork::engine_setup::access::Authority::Local),
+            reply,
+        };
         assert!(actor.context_validate(&manual, true).is_ok());
         // Stop já concluído conserva esse sinal até o próximo turno; não é ocupação.
         actor.stop_requested = true;
@@ -313,8 +343,14 @@ mod tests {
         let target = contexto::resolve(&hub, &read).unwrap();
         assert_eq!(target.lane, lane);
         let (reply, _answer) = oneshot::channel();
-        let manual =
-            Manual { read: contexto::Read { context_id: Some(target.context_id().unwrap()), ..read }, target, reply };
+        let mut manual = Manual {
+            read: contexto::Read { context_id: Some(target.context_id().unwrap()), ..read },
+            target,
+            owner: None,
+            reply,
+        };
+        assert!(actor.context_validate(&manual, true).unwrap_err().is::<crate::fork::assinatura_pessoal::Refusal>());
+        manual.owner = Some(crate::fork::engine_setup::access::Authority::Local);
         assert!(actor.context_validate(&manual, true).is_ok());
         // Mudança real de motor continua recusada: a observação medida já não é a do alvo resolvido.
         let mut cfg_d = cfg.clone();
@@ -324,6 +360,7 @@ mod tests {
         let manual = Manual {
             read: contexto::Read { context_id: Some(manual.target.context_id().unwrap()), ..manual.read },
             target: manual.target,
+            owner: manual.owner,
             reply,
         };
         assert!(actor.context_validate(&manual, true).unwrap_err().to_string().contains("engine_changed"));

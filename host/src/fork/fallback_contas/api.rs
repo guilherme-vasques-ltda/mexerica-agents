@@ -79,7 +79,8 @@ pub(crate) fn call(hub: &Arc<Hub>, authority: &Authority, method: &str, body: Va
 }
 
 fn motor(backend: &str) -> Result<&str> {
-    ensure!(matches!(backend, "claude" | "codex"), "invalid_field: o fallback só vale para Claude e Codex.");
+    ensure!(!crate::fork::assinatura_pessoal::claude(backend), crate::fork::assinatura_pessoal::Refusal::Fallback);
+    ensure!(backend == "codex", "invalid_field: motor sem troca automática.");
     Ok(backend)
 }
 
@@ -144,6 +145,8 @@ fn acao(hub: &Arc<Hub>, authority: &Authority, space: &str, request: &Acao) -> R
                 || crate::fork::engine_accounts::managed::linked_to_space(db, conta, space)?,
             "account_wrong_space"
         );
+        let registry = Registry::load_db(db)?;
+        motor(registry.account(conta)?.backend.id())?;
         estado::alterar_em(db, |e| {
             let agora = crate::store::now_ms();
             match request.action.as_str() {

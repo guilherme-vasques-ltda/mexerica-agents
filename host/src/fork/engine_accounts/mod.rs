@@ -496,20 +496,9 @@ pub(crate) fn read_for_functions(store: &Store) -> Result<Value> {
     }).collect::<Result<Vec<Value>>>()?}))
 }
 
-/// Descobre apenas o login Claude local para o trabalhador; não inicia Codex
-/// nem toca nas contas gerenciadas ou nos slots dos outros provedores.
-pub(crate) async fn discover_background(hub: &Arc<Hub>) -> Result<()> {
-    discover_background_with(
-        hub,
-        super::background_policy::enforce(false),
-        || crate::agent::backends::which("claude"),
-        false,
-    )
-    .await
-}
-
 /// Conta que a sondagem de reserva de uma função parada confere.
 #[derive(Debug, PartialEq, Eq)]
+#[cfg(test)]
 enum ProbeTarget {
     /// Login Claude deste computador (ou nenhuma conta escolhida ainda).
     Local,
@@ -518,6 +507,7 @@ enum ProbeTarget {
 }
 
 /// A conta escolhida para a função: personalizada, vínculo automático ou conta pedida.
+#[cfg(test)]
 fn probe_target(
     store: &Store,
     registry: &Registry,
@@ -538,79 +528,9 @@ fn probe_target(
     }
 }
 
-/// MEX-1355: reserva da função parada. Sonda só a conta escolhida para ela, com
-/// o catálogo do mesmo caminho que a cadastrou: conta gerenciada pelo adaptador
-/// das contas gerenciadas (e o cofre, sem processo), login local pelo adaptador
-/// de fundo, mesmo quando outra conta já anuncia Haiku. A gravação do cadastro
-/// dispara o evento que tira a função da parada.
-pub(crate) async fn probe_background_choice(
-    hub: &Arc<Hub>,
-    function: crate::fork::modelos_funcao::catalogo::FunctionId,
-) -> Result<()> {
-    super::background_policy::enforce(false).await.map_err(|_| super::background_notice::Problem::Policy)?;
-    let target = probe_target(&hub.store, &Registry::load(&hub.store)?, function);
-    match target {
-        ProbeTarget::Local => {
-            discover_background_with(hub, std::future::ready(Ok(())), || crate::agent::backends::which("claude"), true)
-                .await
-        }
-        ProbeTarget::Managed(id) => probe_managed(hub, &id).await,
-    }
-}
-
-async fn probe_managed(hub: &Arc<Hub>, id: &str) -> Result<()> {
-    let _guard = MUTATION.lock().await;
-    let mut registry = Registry::load(&hub.store)?;
-    let Some(index) = registry.accounts.iter().position(|account| account.id == id) else { return Ok(()) };
-    let account = &registry.accounts[index];
-    if account.backend == Backend::Claude
-        && account.managed.as_ref().is_some_and(|meta| meta.enabled)
-        && !crate::fork::engine_setup::in_setup(&hub.store, id)
-        && let LaunchReference::CliProfile { executable, directory } = account.launch.clone()
-    {
-        let expected = account.managed.as_ref().and_then(|meta| meta.principal.clone());
-        let mut observation = if managed::validate_profile(&hub.store, id, &directory).is_err() {
-            let mut observation = probe::Observation::cli(Backend::Claude, &executable);
-            observation.launch =
-                LaunchReference::CliProfile { executable: executable.clone(), directory: directory.clone() };
-            observation.state = State::Unavailable;
-            observation
-        } else {
-            probe::inspect(Backend::Claude, &executable, &directory).await
-        };
-        if observation.state == State::Connected
-            && observation.identity.as_deref().is_some_and(|identity| {
-                expected.as_ref()
-                    == Some(&registry.fingerprint(Backend::Claude, "principal", managed::principal(identity)))
-            })
-        {
-            match super::engine_setup::claude_catalog(&executable, &directory).await {
-                Ok(models) => {
-                    observation.models = models;
-                    observation.catalog_observed = true;
-                }
-                Err(error)
-                    if error
-                        .downcast_ref::<super::background_notice::Problem>()
-                        .is_some_and(|problem| matches!(problem, super::background_notice::Problem::Policy)) =>
-                {
-                    return Err(error);
-                }
-                Err(_) => {}
-            }
-        }
-        registry.apply_managed(index, observation);
-    }
-    managed::vault_states(&hub.store, &mut registry)?;
-    if hub.store.kv_read(SLOT)?.as_deref() != Some(&serde_json::to_string(&registry)?) {
-        crate::fork::engine_setup::access::Authority::Local.persist(hub, &registry)?;
-        invalidate();
-    }
-    Ok(())
-}
-
 /// `force`: a função está parada e a reserva precisa do catálogo atual mesmo
 /// com um login local que já anuncia Haiku (escolha de outro modelo ou opção).
+#[cfg(test)]
 async fn discover_background_with(
     hub: &Arc<Hub>,
     policy: impl std::future::Future<Output = Result<()>>,

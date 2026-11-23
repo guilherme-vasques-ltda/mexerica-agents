@@ -10,19 +10,20 @@
 //! table changes and when its lease runs out; a revoked device is closed at once.
 
 mod assinatura_autorizada;
+mod barreira_workspace;
 mod requisicao_autorizada;
 
 use crate::LockExt;
 use crate::api;
 use crate::api::devices::{self, Caller, RejectCode};
 use crate::fork::autoridade;
-use crate::fork::browser::stream::{
-    AcceptedInput as BrowserInputAccepted, Stream as BrowserStream, canal as browser_canal,
-};
+use crate::fork::browser::stream::{Stream as BrowserStream, canal as browser_canal};
 use crate::hub::Hub;
 use crate::remote::crypto::{self, FrameError, Opener, Sealer};
 use crate::store::{Device, DeviceSource, Scope, now_ms};
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
+use barreira_workspace::Barreira;
+pub(crate) use barreira_workspace::Porta;
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -74,6 +75,8 @@ pub enum Out {
 pub struct Transport {
     pub incoming: mpsc::Receiver<Value>,
     pub outgoing: mpsc::Sender<Out>,
+    /// Armada depois do handshake do aparelho; o consumidor de `outgoing` filtra por ela.
+    pub(crate) porta: Porta,
 }
 
 pub enum ChannelKind {
@@ -109,9 +112,10 @@ impl ChannelKind {
 
 /// Serves `GET /channel` after the WebSocket upgrade.
 pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr) {
-    let (mut sink, mut stream) = socket.split();
+    let (sink, mut stream) = socket.split();
     let (in_tx, incoming) = mpsc::channel(64);
-    let (outgoing, mut out_rx) = mpsc::channel::<Out>(64);
+    let (outgoing, out_rx) = mpsc::channel::<Out>(64);
+    let porta = Porta::default();
     let reader = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
             let v = match msg {
@@ -125,33 +129,40 @@ pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr) {
             }
         }
     });
-    let writer = tokio::spawn(async move {
-        let mut ping = tokio::time::interval(DIRECT_PING);
-        ping.tick().await;
-        loop {
-            tokio::select! {
-                out = out_rx.recv() => {
-                    let msg = match out {
-                        Some(Out::Msg(v)) => Message::Text(v.to_string().into()),
-                        Some(Out::Close(code, reason)) => Message::Close(Some(CloseFrame { code, reason: reason.into() })),
-                        None => Message::Close(None),
-                    };
-                    let last = matches!(msg, Message::Close(_));
-                    if sink.send(msg).await.is_err() || last {
-                        break;
-                    }
+    let writer = tokio::spawn(write_socket(sink, porta.clone().filtrar(out_rx)));
+    run(hub, Transport { incoming, outgoing, porta }, ChannelKind::Direct { peer }).await;
+    let _ = writer.await;
+    reader.abort();
+}
+
+/// The direct socket's sender: the last point before the wire reads the gated queue.
+async fn write_socket<S>(mut sink: S, out: impl futures::Stream<Item = Out>)
+where
+    S: futures::Sink<Message> + Unpin,
+{
+    let mut out = std::pin::pin!(out);
+    let mut ping = tokio::time::interval(DIRECT_PING);
+    ping.tick().await;
+    loop {
+        tokio::select! {
+            out = out.next() => {
+                let msg = match out {
+                    Some(Out::Msg(v)) => Message::Text(v.to_string().into()),
+                    Some(Out::Close(code, reason)) => Message::Close(Some(CloseFrame { code, reason: reason.into() })),
+                    None => Message::Close(None),
+                };
+                let last = matches!(msg, Message::Close(_));
+                if sink.send(msg).await.is_err() || last {
+                    break;
                 }
-                _ = ping.tick() => {
-                    if sink.send(Message::Ping(axum::body::Bytes::new())).await.is_err() {
-                        break;
-                    }
+            }
+            _ = ping.tick() => {
+                if sink.send(Message::Ping(axum::body::Bytes::new())).await.is_err() {
+                    break;
                 }
             }
         }
-    });
-    run(hub, Transport { incoming, outgoing }, ChannelKind::Direct { peer }).await;
-    let _ = writer.await;
-    reader.abort();
+    }
 }
 
 /// What the encrypted part of the channel sends: inner messages get sealed, the rest passes.
@@ -164,40 +175,63 @@ enum ToDevice {
 }
 
 /// Owns the host → device counter: seals inner messages in order, stops at the first close.
-async fn write_frames(mut sealer: Sealer, mut rx: mpsc::Receiver<ToDevice>, out: mpsc::Sender<Out>) {
-    while let Some(msg) = rx.recv().await {
-        let sent = match msg {
-            ToDevice::Plain(v) => out.send(Out::Msg(v)).await.is_ok(),
-            ToDevice::Close(code, reason) => {
-                let _ = out.send(Out::Close(code, reason)).await;
+/// With a workspace barrier, each frame is checked against the epoch only after its transport
+/// slot is reserved: once the epoch moves, only the terminal `reject` and 4003 go out.
+async fn write_frames(
+    mut sealer: Sealer,
+    mut rx: mpsc::Receiver<ToDevice>,
+    out: mpsc::Sender<Out>,
+    mut barreira: Option<Barreira>,
+) {
+    loop {
+        let msg = tokio::select! {
+            biased;
+            () = Barreira::mudou(barreira.as_mut()) => {
+                if let Some(reject) = barreira.as_ref().and_then(Barreira::terminal) {
+                    send_terminal(&out, reject).await;
+                }
                 return;
             }
-            ToDevice::InnerBytes(bytes) => {
-                let Some(frames) = sealer.seal(&bytes) else {
-                    let _ = out.send(Out::Close(close::REKEY, "rekey")).await;
-                    return;
-                };
-                let mut ok = true;
-                for f in frames {
-                    ok = ok && out.send(Out::Msg(f)).await.is_ok();
-                }
-                ok
-            }
-            ToDevice::Inner(v) => {
-                let Some(frames) = sealer.seal(v.to_string().as_bytes()) else {
-                    let _ = out.send(Out::Close(close::REKEY, "rekey")).await;
-                    return;
-                };
-                let mut ok = true;
-                for f in frames {
-                    ok = ok && out.send(Out::Msg(f)).await.is_ok();
-                }
-                ok
-            }
+            msg = rx.recv() => match msg {
+                Some(msg) => msg,
+                None => return,
+            },
         };
-        if !sent {
+        let (frames, last) = match msg {
+            ToDevice::Plain(v) => (vec![Out::Msg(v)], false),
+            ToDevice::Close(code, reason) => (vec![Out::Close(code, reason)], true),
+            ToDevice::InnerBytes(bytes) => sealed(&mut sealer, &bytes),
+            ToDevice::Inner(v) => sealed(&mut sealer, v.to_string().as_bytes()),
+        };
+        for frame in frames {
+            let Ok(slot) = out.reserve().await else { return };
+            let terminal = match barreira.as_mut() {
+                Some(b) => b.resolver().await,
+                None => None,
+            };
+            if let Some(reject) = terminal {
+                drop(slot);
+                send_terminal(&out, reject).await;
+                return;
+            }
+            slot.send(frame);
+        }
+        if last {
             return;
         }
+    }
+}
+
+fn sealed(sealer: &mut Sealer, bytes: &[u8]) -> (Vec<Out>, bool) {
+    match sealer.seal(bytes) {
+        Some(frames) => (frames.into_iter().map(Out::Msg).collect(), false),
+        None => (vec![Out::Close(close::REKEY, "rekey")], true),
+    }
+}
+
+async fn send_terminal(out: &mpsc::Sender<Out>, reject: Value) {
+    if out.send(Out::Msg(reject)).await.is_ok() {
+        let _ = out.send(Out::Close(RejectCode::Revoked.close_code(), "rejected")).await;
     }
 }
 
@@ -246,10 +280,16 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         crate::fork::personal_bootstrap::probe::run(hub, t, *admission).await;
         return;
     }
-    let Transport { mut incoming, outgoing } = t;
+    let Transport { mut incoming, outgoing, porta } = t;
+    let aviso = hub.workspace.assinar();
+    let epoch = aviso.borrow().valor;
     let Some(hs) = handshake(&hub, &mut incoming, &outgoing, &kind).await else { return };
+    let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch));
+    if let Some(barreira) = &barreira {
+        porta.armar(barreira.clone());
+    }
     let (tx, rx) = mpsc::channel(256);
-    let mut writer = tokio::spawn(write_frames(Sealer::new(hs.keys.h2d), rx, outgoing));
+    let mut writer = tokio::spawn(write_frames(Sealer::new(hs.keys.h2d), rx, outgoing, barreira));
     let caller = if let Some(ref b) = hs.bootstrap {
         Caller::Bootstrap { key: hs.key.clone(), bootstrap_id: b.id.clone() }
     } else if let Some((_, caller)) = hs.device.as_ref() {
@@ -311,7 +351,7 @@ struct Handshake {
 }
 
 async fn send_reject(out: &mpsc::Sender<Out>, code: RejectCode) {
-    let _ = out.send(Out::Msg(json!({"t": "reject", "code": code, "message": code.message()}))).await;
+    let _ = out.send(Out::Msg(reject(code))).await;
     let _ = out.send(Out::Close(code.close_code(), "rejected")).await;
 }
 
@@ -392,7 +432,9 @@ async fn handshake(
         }
         None
     };
-    // Authorization before any cryptography.
+    // Authorization before any cryptography; a revoked key without a row is named only after
+    // the signature proves possession.
+    let mut revoked_without_row = false;
     let device = if bootstrap.is_some() {
         None
     } else if pair {
@@ -404,6 +446,10 @@ async fn handshake(
     } else {
         match autoridade::autenticar(hub, &dk) {
             Ok(d) => Some(d),
+            Err(RejectCode::Unauthorized) if crate::fork::workspace::revogado_sem_linha(hub, &dk) => {
+                revoked_without_row = true;
+                None
+            }
             Err(code) => {
                 send_reject(out, code).await;
                 return None;
@@ -420,6 +466,10 @@ async fn handshake(
     let cid = hub.identity.cid_raw();
     if crypto::verify(&dk_raw, &crypto::hs1_input(&cid, &dk_raw, &ek_d, &n), &sig).is_err() {
         send_reject(out, RejectCode::BadSignature).await;
+        return None;
+    }
+    if revoked_without_row {
+        send_reject(out, RejectCode::Revoked).await;
         return None;
     }
     let ek_h = StaticSecret::from(crypto::random::<32>());
@@ -486,8 +536,7 @@ impl Drop for Online {
 /// Posse do stream de quadros deste canal; ao cair, a sessão é desregistrada.
 struct BrowserConn {
     estado: Arc<Mutex<BrowserStream>>,
-    entradas: Arc<Mutex<std::collections::VecDeque<BrowserInputAccepted>>>,
-    autoridade: browser_canal::AutoridadeCanal,
+    autoridade: Arc<browser_canal::AutoridadeCanal>,
     _guarda: browser_canal::GuardaSessao,
 }
 
@@ -517,6 +566,21 @@ fn err(id: u64, status: u16, message: &str) -> Value {
     json!({"id": id, "err": {"status": status, "message": message}})
 }
 
+fn epoch_mismatch(id: u64) -> Value {
+    let mut response = err(id, 409, "workspace epoch changed; reload the workspace context");
+    response["err"]["code"] = crate::fork::workspace::EPOCH_MISMATCH.into();
+    response
+}
+
+/// `reject` with the legacy `code` and, when there is one, the stable code.
+fn reject(code: RejectCode) -> Value {
+    let mut reject = json!({"t": "reject", "code": code, "message": code.message()});
+    if let Some(stable) = crate::fork::workspace::codigo_estavel(code) {
+        reject["stableCode"] = stable.into();
+    }
+    reject
+}
+
 impl Channel {
     fn set_device(&mut self, d: &Device) {
         self.lease = match (d.source, d.lease_until) {
@@ -544,8 +608,7 @@ impl Channel {
                 // Gone from the table while connected: it was revoked.
                 let code = if code == RejectCode::Unauthorized { RejectCode::Revoked } else { code };
                 tracing::info!(device = self.key, ?code, "closing channel: device no longer authorized");
-                let reject = json!({"t": "reject", "code": code, "message": code.message()});
-                let _ = self.tx.send(ToDevice::Plain(reject)).await;
+                let _ = self.tx.send(ToDevice::Plain(reject(code))).await;
                 Err((code.close_code(), "rejected"))
             }
         }
@@ -625,12 +688,37 @@ impl Channel {
         }
         // Every request re-checks the device (revocation, lease) before it runs.
         self.recheck().await?;
-        if let Some(method) = v["m"].as_str().filter(|m| browser_canal::METODOS.contains(m)) {
-            self.handle_browser(id, method, &v["b"]).await;
+        let browser = v["m"].as_str().filter(|m| browser_canal::METODOS.contains(m));
+        // A classe da tabela vem antes das guardas próprias do navegador (escopo, Hub/Space/bot e sessão).
+        if let Some(method) = browser
+            && devices::permit(&self.caller, method).is_err()
+        {
+            tracing::warn!(reason = "rpc_class_refused", origin = api::origem(&self.caller), "rpc refused");
+            self.send(err(id, 403, &devices::Forbidden.to_string())).await;
+            return Ok(());
+        }
+        // A assinatura também confere a classe antes do epoch, na ordem do `dispatch`.
+        if v["sub"].is_string() && devices::permit(&self.caller, "subscribe").is_err() {
+            self.send(err(id, 403, "Control scope required")).await;
+            return Ok(());
+        }
+        // Requests check the epoch in `dispatch`; subscriptions and the browser stream here.
+        let b = if browser.is_some() || v["sub"].is_string() {
+            let Ok(b) = crate::fork::workspace::conferir_pedido(&self.hub, api::origem(&self.caller), v["b"].clone())
+            else {
+                self.send(epoch_mismatch(id)).await;
+                return Ok(());
+            };
+            b
+        } else {
+            v["b"].clone()
+        };
+        if let Some(method) = browser {
+            self.handle_browser(id, method, &b).await;
             return Ok(());
         }
         if let Some(kind) = v["sub"].as_str() {
-            self.subscribe(id, kind, &v["b"]).await;
+            self.subscribe(id, kind, &b, v["b"][crate::fork::workspace::EPOCH_FIELD].as_u64()).await;
         } else if let Some(method) = v["m"].as_str() {
             self.request(id, method.to_owned(), v["b"].clone()).await;
         } else {
@@ -639,16 +727,10 @@ impl Channel {
         Ok(())
     }
 
-    /// Entradas executadas saem antes da imagem; quadro só com autoridade atual.
+    /// Não antecipa a imagem enquanto houver intenção pendente de entrada.
     async fn flush_browser(&self) {
         let Some(conn) = &self.browser else { return };
-        let frame = {
-            let mut estado = conn.estado.locked();
-            while let Some(entrada) = estado.next_input(&conn.autoridade, &self.key) {
-                conn.entradas.locked().push_back(entrada);
-            }
-            estado.next_frame(&conn.autoridade, &self.key)
-        };
+        let frame = conn.estado.locked().next_frame(&*conn.autoridade, &self.key);
         if let Some(frame) = frame
             && let Ok(bytes) = browser_canal::codificar(&frame)
         {
@@ -663,23 +745,22 @@ impl Channel {
                     self.send(err(id, 400, "browser_scope_unavailable")).await;
                     return;
                 };
-                let autoridade = browser_canal::AutoridadeCanal::nova(
+                let autoridade = Arc::new(browser_canal::AutoridadeCanal::nova(
                     self.hub.clone(),
                     (*self.caller).clone(),
                     escopo,
                     sessao.clone(),
-                );
+                ));
                 if !autoridade.autorizada() {
                     self.send(err(id, 403, "browser_scope_unavailable")).await;
                     return;
                 }
                 let estado = Arc::new(Mutex::new(BrowserStream::new(sessao.clone(), target, self.quadros)));
-                let entradas = Arc::new(Mutex::new(std::collections::VecDeque::new()));
-                let Some(guarda) = browser_canal::registrar(&sessao, estado.clone(), entradas.clone()) else {
+                let Some(guarda) = browser_canal::registrar(&sessao, estado.clone(), autoridade.clone()) else {
                     self.send(err(id, 403, "browser_scope_unavailable")).await;
                     return;
                 };
-                self.browser = Some(BrowserConn { estado, entradas, autoridade, _guarda: guarda });
+                self.browser = Some(BrowserConn { estado, autoridade, _guarda: guarda });
                 self.send(json!({"id": id, "ok": {"subscribed": true, "frames": self.quadros, "session": sessao}}))
                     .await;
             }
@@ -689,7 +770,7 @@ impl Channel {
                     return;
                 };
                 let aceita = browser_canal::analisar_entrada(b)
-                    .is_some_and(|entrada| conn.estado.locked().accept_input(&conn.autoridade, &self.key, &entrada));
+                    .is_some_and(|entrada| conn.estado.locked().accept_input(&*conn.autoridade, &self.key, &entrada));
                 self.send(json!({"id": id, "ok": {"accepted": aceita, "sequence": b["sequence"]}})).await;
             }
             "browserStreamAck" => {
@@ -748,11 +829,7 @@ impl Channel {
         list.insert(id, Job::Request(task.abort_handle()));
     }
 
-    async fn subscribe(&self, id: u64, kind: &str, b: &Value) {
-        if devices::permit(&self.caller, "subscribe").is_err() {
-            self.send(err(id, 403, "Control scope required")).await;
-            return;
-        }
+    async fn subscribe(&self, id: u64, kind: &str, b: &Value, epoch: Option<u64>) {
         if self.count(true) >= MAX_SUBS {
             self.send(err(id, 429, "too many subscriptions")).await;
             return;
@@ -763,14 +840,19 @@ impl Channel {
             None
         };
         let stream = match kind {
-            "events" => match api::scoped_events_stream(
+            "events" => match api::scoped_events_stream_at(
                 &self.hub,
                 b["since"].as_i64().unwrap_or(0),
                 b["client"].as_str(),
                 &self.caller,
                 b["spaceId"].as_str(),
+                epoch,
             ) {
                 Ok(s) => s.boxed(),
+                Err(e) if crate::fork::workspace::is_mismatch(&e) => {
+                    self.send(epoch_mismatch(id)).await;
+                    return;
+                }
                 Err(e) => {
                     self.send(err(id, 500, &format!("{e:#}"))).await;
                     return;
@@ -940,8 +1022,7 @@ impl Channel {
         };
         if !self.hub.pairing.locked().attempt(source) {
             let code = RejectCode::RateLimited;
-            let _ =
-                self.tx.send(ToDevice::Plain(json!({"t": "reject", "code": code, "message": code.message()}))).await;
+            let _ = self.tx.send(ToDevice::Plain(reject(code))).await;
             return (code.close_code(), "rateLimited");
         }
         if !self.hub.pairing.locked().redeem(b["code"].as_str().unwrap_or_default()) {
@@ -959,7 +1040,8 @@ impl Channel {
             created_at: now_ms(),
             last_seen_at: None,
         };
-        if let Err(e) = self.hub.store.put_device(&device) {
+        // Código mostrado no próprio computador: a pessoa repareou esta chave.
+        if let Err(e) = crate::fork::workspace::readmitir_pareado(&self.hub.store, &device) {
             tracing::error!(error = format!("{e:#}"), "couldn't save a paired device");
             self.send(err(id, 500, "couldn't save this device")).await;
             return (close::NORMAL, "");
@@ -986,6 +1068,8 @@ mod tests {
     mod provas_navegador;
     mod provas_requisicao_expirada;
     mod provas_requisicoes;
+    mod provas_tabela;
+    mod provas_workspace;
 
     use observador_concessao::geracao_persistida;
 
@@ -1012,7 +1096,7 @@ mod tests {
         fn connect(hub: &Arc<Hub>, key: SigningKey, kind: ChannelKind) -> Self {
             let (tx, incoming) = mpsc::channel(64);
             let (outgoing, rx) = mpsc::channel(64);
-            let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing }, kind));
+            let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing, porta: Porta::default() }, kind));
             Self { key, tx, rx, sealer: None, opener: None, run }
         }
 
@@ -1245,7 +1329,7 @@ mod tests {
         let (outgoing, mut rx) = mpsc::channel(4);
         tokio::spawn(run(
             hub.clone(),
-            Transport { incoming, outgoing },
+            Transport { incoming, outgoing, porta: Porta::default() },
             ChannelKind::Direct { peer: [10, 0, 0, 2].into() },
         ));
         let dk = crypto::b64(SigningKey::from_bytes(&[1; 32]).verifying_key().as_bytes());

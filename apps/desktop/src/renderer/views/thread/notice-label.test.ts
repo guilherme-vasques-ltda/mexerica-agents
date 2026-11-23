@@ -1,9 +1,22 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { tradutor } from '../../lib/fork-i18n/index.ts'
-import { routineNoticeText } from './notice-label.ts'
+import { routineNoticeText, subscriptionNoticeText } from './notice-label.ts'
 
 const t = tradutor('pt-BR')
+
+test('traduz a recusa de assinatura e não altera outros avisos', () => {
+  for (const idioma of ['pt-BR', 'en', 'es', 'fr', 'zh-CN', 'ar-AE'] as const) {
+    const traduzir = tradutor(idioma)
+    assert.equal(subscriptionNoticeText(traduzir, 'personal_subscription_chat_only: detalhe'), traduzir('contas.assinaturaSoChat'))
+    assert.equal(subscriptionNoticeText(traduzir, 'personal_subscription_no_fallback: detalhe'), traduzir('contas.assinaturaSemTroca'))
+    assert.equal(subscriptionNoticeText(traduzir, 'meta_standard_unverified: detalhe'), traduzir('contas.apiDireta.erro.metaStandard'))
+    assert.equal(subscriptionNoticeText(traduzir, 'background_subscription_unavailable: detalhe'), traduzir('contas.assinaturaFundoIndisponivel'))
+    const outroErro = 'generic error: personal_subscription_chat_only: detalhe'
+    assert.equal(subscriptionNoticeText(traduzir, outroErro), outroErro)
+    assert.equal(subscriptionNoticeText(traduzir, 'generic error'), 'generic error')
+  }
+})
 
 // D169 R5: só o prefixo do app muda; o nome da rotina (conteúdo do usuário) fica igual.
 test('aviso de rotina: troca só o prefixo do Hub e preserva o nome', () => {

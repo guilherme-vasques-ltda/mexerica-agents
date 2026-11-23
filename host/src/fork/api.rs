@@ -17,11 +17,18 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if method == super::browser::METHOD {
         return super::browser::status(hub, caller, body).map(ControlFlow::Break);
     }
+    if method == super::workspace::METHOD {
+        return super::workspace::call(hub, caller).map(ControlFlow::Break);
+    }
     if method == super::tela_por_computador::METHOD {
         return super::tela_por_computador::call(hub, caller, &body).map(ControlFlow::Break);
     }
     if method == super::personal_bootstrap::STATUS_METHOD {
         return super::personal_bootstrap::status(caller, &body).map(ControlFlow::Break);
+    }
+    if super::onboarding::METHODS.contains(&method) {
+        let body = super::onboarding::call(hub, caller, method, body).await?;
+        return Ok(ControlFlow::Break(body));
     }
     if crate::chat::memory::WRITES.contains(&method)
         || matches!(method, "approveMemorySuggestion" | "discardMemorySuggestion")
@@ -78,6 +85,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
             super::contexto::call(hub, caller, method, body).await.map(ControlFlow::Break)
         }
         super::control_tower::METHOD => super::control_tower::call(hub, caller, body).await.map(ControlFlow::Break),
+        "donnaHubDoctor" => super::doctor::call(hub, caller, body).await.map(ControlFlow::Break),
         super::resumo_diario::api::METHOD => {
             super::resumo_diario::api::call(hub, caller, body).await.map(ControlFlow::Break)
         }

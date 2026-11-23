@@ -68,16 +68,18 @@ private fun AppState.authorName(id: String): String = bots.firstOrNull { it.id =
 
 /** Read-only history between a bot and one peer, newest at the bottom (iOS `BotConversationView`). */
 @Composable internal fun BotConversationView(bot: Bot, peerId: String, state: AppState, store: AppStore) {
-    var fetched by remember(peerId) { mutableStateOf<List<Entry>?>(null) }
-    var error by remember(peerId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(bot.id, peerId) {
+    var fetched by remember(state.generation, bot.id, peerId) { mutableStateOf<List<Entry>?>(null) }
+    var error by remember(state.generation, bot.id, peerId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.generation, bot.id, peerId) {
+        val generation = store.workspaceGeneration.capture()
         try {
             val result = store.hostCall("botConversation", buildJsonObject { put("botId", bot.id); put("peerId", peerId) }, 20_000)
+            if (!store.workspaceGeneration.accepts(generation)) return@LaunchedEffect
             fetched = result.jsonObject["entries"]?.jsonArray?.map { Entry.decode(it.jsonObject) }.orEmpty()
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { fetched = emptyList(); error = failure.message ?: "Couldn't load the conversation." }
     }
-    val rows = BotConversationRow.build(BotExchange.conversation(fetched.orEmpty().filter { it.isMainSession }, state.entries.mainChat(bot.id), peerId))
+    val rows = BotConversationRow.build(BotExchange.conversation(fetched.orEmpty().mainChat(bot.id), state.entries.mainChat(bot.id), peerId))
     val list = rememberLazyListState()
     LaunchedEffect(rows.size) { if (rows.isNotEmpty()) list.scrollToItem(rows.lastIndex) }
     Column(Modifier.fillMaxSize().background(Palette.background)) {

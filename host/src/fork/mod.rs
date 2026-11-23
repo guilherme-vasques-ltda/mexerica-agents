@@ -11,6 +11,7 @@ pub(crate) mod webhook_chain;
 
 use crate::LockExt;
 
+pub(crate) mod acesso_rpc;
 pub(crate) mod activity_code;
 pub(crate) mod agent_skills;
 pub mod api;
@@ -51,6 +52,7 @@ pub(crate) mod data_home;
 #[allow(dead_code, reason = "MX-387 fatia A: núcleo publicado antes do consumidor (modo Auto); sem runtime novo.")]
 pub(crate) mod decisor;
 pub(crate) mod delegacao;
+pub(crate) mod doctor;
 pub(crate) mod donna_fixa;
 pub mod engine_accounts;
 pub mod engine_setup;
@@ -61,6 +63,7 @@ pub(crate) mod extensoes_em_todos;
 pub(crate) mod fallback_contas;
 pub(crate) mod funcao;
 pub(crate) mod genui;
+pub(crate) mod governanca;
 pub(crate) mod grupo_entrega;
 #[cfg(target_os = "linux")]
 pub(crate) mod guarda_atualizacao;
@@ -85,6 +88,7 @@ pub(crate) mod motor_copia;
 pub(crate) mod native_catalog;
 pub mod native_scheduling;
 pub(crate) mod nunca_fazer;
+pub(crate) mod onboarding;
 pub(crate) mod onde_roda;
 pub(crate) mod owner_question;
 pub(crate) mod pairing_addresses;
@@ -126,9 +130,11 @@ pub(crate) mod terminal_login;
 pub(crate) mod test_support;
 pub(crate) mod teto;
 pub(crate) mod times;
+pub(crate) mod torre_visoes;
 pub(crate) mod usage_limits;
 pub(crate) mod uso_historico;
 pub(crate) mod whatsapp;
+pub(crate) mod workspace;
 
 pub mod modelos_funcao;
 pub(crate) mod roteamento;
@@ -140,6 +146,7 @@ pub(crate) mod runtime_audiencia;
 /// Migra os dados preparatórios do fork; nunca configura motores nem aprova ações.
 pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
+    workspace::migrate(&store.db.locked())?;
     instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;
@@ -151,6 +158,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     onde_roda::store::migrate(&store.db.locked())?;
     times::migrate(&store.db.locked())?;
     projetos::migrate(&store.db.locked())?;
+    governanca::migrate(&store.db.locked())?;
     tarefas::migrate(&store.db.locked())?;
     tarefas_runtime::migrate(&store.db.locked())?;
     propostas::migrate(&store.db.locked())?;
@@ -193,6 +201,7 @@ pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> 
 #[cfg(all(test, unix))]
 mod usage_probe;
 
+pub(crate) mod assinatura_pessoal;
 pub(crate) mod ponte_credencial;
 
 pub(crate) mod compressao;

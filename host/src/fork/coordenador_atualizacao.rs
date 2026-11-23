@@ -1647,7 +1647,7 @@ mod tests {
             // Já gerida em loopback: nada a reescrever.
             assert_eq!(argv_gerido(&gerido)?, gerido);
         }
-        // Sem subcomando, o Hub executa `serve` (padrão 0.0.0.0): a gerida fixa loopback.
+        // Sem subcomando, o Hub executa `serve`: a gerida fixa loopback explícito.
         assert_eq!(argv_gerido(&argv("/x/donnabot-host"))?, argv(&format!("{ATIVO} serve --bind 127.0.0.1")));
         assert!(argv_gerido(&argv("/x/donnabot-host mcp")).is_err());
         assert!(argv_gerido(&argv("/x/donnabot-host serve --bind")).is_err());

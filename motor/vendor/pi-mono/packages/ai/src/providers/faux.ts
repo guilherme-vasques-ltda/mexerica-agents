@@ -292,8 +292,12 @@ function splitStringByTokenSize(text: string, minTokenSize: number, maxTokenSize
 	while (index < text.length) {
 		const tokenSize = minTokenSize + Math.floor(Math.random() * (maxTokenSize - minTokenSize + 1));
 		const charSize = Math.max(1, tokenSize * 4);
-		chunks.push(text.slice(index, index + charSize));
-		index += charSize;
+		let end = Math.min(index + charSize, text.length);
+		const previous = text.charCodeAt(end - 1);
+		const next = text.charCodeAt(end);
+		if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--;
+		chunks.push(text.slice(index, end));
+		index = end;
 	}
 	return chunks.length > 0 ? chunks : [""];
 }

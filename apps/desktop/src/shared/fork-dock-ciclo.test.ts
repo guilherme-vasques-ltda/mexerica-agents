@@ -6,6 +6,7 @@
 // seguem aqui, com o main/index.ts real.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import * as crypto from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -214,6 +215,7 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     '../shared/island': islandShared, './host-controller': { prefs: { get: (key: string) => prefs.get(key), set: (key: string, value: unknown) => { prefWrites.push([key, value]); prefs.set(key, value) } } },
   }, { ...platform, console, setTimeout: () => 0, clearTimeout: () => {} })
   loadMainModule('index', {
+    'node:crypto': crypto,
     './fork-keychain/generation': { prepareKeychain: () => { startup.push('keychain') } },
     './environment': { identity: { port: 0, scheme: 'donnabot' } },
     './fork-voz/registrar': { registerVozIPC: () => { startup.push('voice') } },

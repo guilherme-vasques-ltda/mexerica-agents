@@ -122,6 +122,7 @@ pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
                         | "react"
                         | "respondPermission"
                         | "stop"
+                        | "releaseConversation"
                         | "newSession"
                         | "markRead"
                         | "answerMemory"

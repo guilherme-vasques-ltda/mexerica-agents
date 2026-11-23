@@ -52,7 +52,7 @@ impl TurnInput {
         Lane { chat: self.chat.clone(), session: self.visible_session.clone() }
     }
 
-    fn direct_chat(&self, cfg: &BotConfig) -> bool {
+    pub(super) fn direct_chat(&self, cfg: &BotConfig) -> bool {
         self.chat == cfg.session_owner()
             && (cfg.context.is_none() || self.context_binding.is_some())
             && !self.hidden
@@ -980,6 +980,13 @@ impl Actor {
         if self.waiting.as_ref().is_some_and(|waiting| waiting.phase == Phase::Paused) {
             return;
         }
+        if self.waiting.as_ref().is_some_and(|waiting| {
+            crate::fork::assinatura_pessoal::claude(&waiting.backend)
+                && (waiting.input.transient || waiting.input.routine.is_some() || waiting.input.hidden)
+        }) {
+            self.pause_waiting_switch(&crate::fork::assinatura_pessoal::Refusal::Automation.into());
+            return;
+        }
         let current_policy = crate::fork::spaces::current_memory_policy_on(&self.hub.store.db.locked(), &self.cfg);
         let identity_valid = self.waiting.as_ref().is_some_and(|w| {
             w.execution_token.as_deref().is_some_and(|token| !token.is_empty())
@@ -1070,6 +1077,12 @@ impl Actor {
         // A escolha de uma extra é fixada na admissão; a espera nunca a troca (PR4).
         anyhow::ensure!(self.lane.session.is_none(), "session_choice_is_immutable_during_wait");
         let Some(waiting) = self.waiting.as_ref() else { return Ok(()) };
+        anyhow::ensure!(
+            waiting.backend == self.cfg.backend
+                || (!crate::fork::assinatura_pessoal::claude(&waiting.backend)
+                    && !crate::fork::assinatura_pessoal::claude(&self.cfg.backend)),
+            crate::fork::assinatura_pessoal::Refusal::Fallback
+        );
         let (context, person) = crate::chat::handoff::build_in_with_person(
             &self.hub.store,
             &self.cfg.id,

@@ -587,10 +587,7 @@ pub(super) fn install(
         let _ = restore_config(previous_config.as_deref());
         return Err(error.context("instalação recusada antes de parar o Hub; nada foi trocado"));
     }
-    let text = format!(
-        "[Unit]\nDescription=Mexerica Hub\nAfter=network-online.target\n\n[Service]\nType=exec\nUMask=0077\nExecStartPre={BIN}/donnabot-motor-exec cleanup\nExecStart={BIN}/donnabot-host serve --port {port}\nExecStopPost={BIN}/donnabot-motor-exec cleanup\nEnvironment={}\nEnvironment=\"PATH=/opt/donnabot/bin:/usr/local/bin:/usr/bin:/bin\"\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
-        quote(&format!("MEXERICA_HOME={}", data.display()))
-    );
+    let text = hub_unit_text(port, data);
     let mut published = Published::Nothing;
     let (mut unit_written, mut link_created) = (false, false);
     let finished: Result<()> = (|| {
@@ -698,6 +695,16 @@ pub(super) fn install(
     }
     println!("Instalação pronta; link do app em ~/.local/bin/donnabot-host; dados preservados.");
     Ok(())
+}
+
+/// Unidade do Hub gravada a cada instalação: sempre `--bind 127.0.0.1`. Reinstalar sobre uma
+/// unidade antiga sem `--bind` a regrava assim.
+fn hub_unit_text(port: u16, data: &Path) -> String {
+    format!(
+        "[Unit]\nDescription=Mexerica Hub\nAfter=network-online.target\n\n[Service]\nType=exec\nUMask=0077\nExecStartPre={BIN}/donnabot-motor-exec cleanup\nExecStart={BIN}/donnabot-host serve --port {port} --bind {LOOPBACK}\nExecStopPost={BIN}/donnabot-motor-exec cleanup\nEnvironment={}\nEnvironment=\"PATH=/opt/donnabot/bin:/usr/local/bin:/usr/bin:/bin\"\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+        quote(&format!("MEXERICA_HOME={}", data.display())),
+        LOOPBACK = crate::service::mac_local::LOOPBACK,
+    )
 }
 
 fn quote(s: &str) -> String {
@@ -877,5 +884,14 @@ mod tests {
         std::os::unix::fs::symlink("/usr/bin", &link).unwrap();
         assert!(root_only(&link).is_err());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unidade_do_hub_escuta_so_em_loopback() {
+        let unit = hub_unit_text(19422, Path::new("/srv/dados.example.invalid"));
+        let exec = unit.lines().find_map(|l| l.strip_prefix("ExecStart=")).unwrap_or_default();
+        let argv = shlex::split(exec).unwrap_or_default();
+        assert_eq!(argv, [format!("{BIN}/donnabot-host").as_str(), "serve", "--port", "19422", "--bind", "127.0.0.1"]);
+        assert!(!unit.contains("0.0.0.0"), "{unit}");
     }
 }

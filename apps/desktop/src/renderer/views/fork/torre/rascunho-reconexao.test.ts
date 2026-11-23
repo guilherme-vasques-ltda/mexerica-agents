@@ -107,6 +107,7 @@ test('Board sem bots parados: fora da lista e dos números; vazio calmo', () => 
   const card = (botId: string, name: string, runtime: unknown) => ({ botId, name, runtime, pending: U, queue: U, usage: {}, open: null })
   const snap = (bots: unknown[]) => m.parseTowerSnapshot({ version: 1, hubId: 'h', snapshotId: 's', collectedAt: 1, spaceId: 'p', bots,
     routineCreations: { availability: 'available', source: 'hub', coverage: 'space', value: { items: [], blocked: [] } },
+    attention: { availability: 'available', source: 'hub', coverage: 'space', value: { version: 1, hubId: 'h', spaceId: 'p', collectedAt: 1, items: [], resolvedToday: [], coverageGaps: [] } },
   }, { hubId: 'h', spaceId: 'p' })
   const parados = [card('livre', 'Parado', rt('idle')), card('mudo', 'Mudo', U)]
   const comErro = snap([...parados, card('erro', 'Planejador', rt('error'))])
@@ -120,7 +121,7 @@ test('Board sem bots parados: fora da lista e dos números; vazio calmo', () => 
   assert.match(render(comErro, false), /didn’t report the state of 1 bot/)
   for (const stale of [false, true]) {
     const html = render(snap(parados), stale)
-    assert.match(html, stale ? /Nothing needed you in the last update\./ : /Nothing needs you right now\./)
+    assert.match(html, stale ? /Its state is unconfirmed\./ : /Nothing is waiting for you right now\./)
     assert.doesNotMatch(html, /torre-counts|torre-detail|Stopped|Muted|Free/)
   }
 })

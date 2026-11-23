@@ -45,6 +45,7 @@ async fn turn_usage_is_saved_with_motor_delta_and_unpriced_turn_tokens() {
 /// (tokens NULL = não conferido): cancelamento nunca apaga o que foi enviado.
 #[cfg(unix)]
 #[tokio::test]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn background_prompt_cut_mid_await_stays_in_ledger() {
     use std::time::{Duration, Instant};
     let mut host = Host::start_with_background("marker").await;
