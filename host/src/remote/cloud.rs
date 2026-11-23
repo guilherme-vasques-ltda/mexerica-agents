@@ -136,6 +136,7 @@ impl Request {
             "email": self.email,
             "code": self.code,
             "codeReady": self.code.is_some(),
+            "codeCheck": "server",
             "transcript": self.transcript,
             "createdAt": self.created_at,
             "expiresAt": self.expires_at,
@@ -1237,6 +1238,8 @@ mod tests {
         let remote = hub.cloud.requests_json_sem_codigo();
         assert_eq!(remote.len(), 1);
         assert_eq!(remote[0]["codeReady"], true);
+        assert_eq!(remote[0]["codeCheck"], "server", "o Hub declara que confere o código digitado");
+        assert_eq!(hub.cloud.requests_json()[0]["codeCheck"], "server", "também para este computador");
         assert!(remote[0].get("code").is_none() && !serde_json::to_string(&remote).unwrap().contains(&code));
 
         let transcript = remote[0]["transcript"].as_str().unwrap().to_owned();
