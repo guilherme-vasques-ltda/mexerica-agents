@@ -18,7 +18,7 @@ import { ScreenHeader } from './pieces'
 import { superficieIdioma, useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { isolado } from '@shared/bidi'
 
-// Só os motores com terminal de login remoto (Cursor, Grok, Antigravity); o Hub aplica a mesma lista.
+// Só os motores com terminal de login remoto; o Hub aplica a mesma lista.
 const loginHosts = new Set(['accounts.google.com', 'cursor.com', 'auth.x.ai', 'accounts.x.ai'])
 const openLink = (uri: string, login: boolean) => {
   try {

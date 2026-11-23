@@ -16,14 +16,14 @@ use std::sync::Arc;
 
 const SENTINELA: &str = "SENTINELA-R1-PRIVADA";
 
-struct Fixture {
-    hub: Arc<Hub>,
+pub(super) struct Fixture {
+    pub(super) hub: Arc<Hub>,
     dir: PathBuf,
-    execucao: ExecutionRef,
+    pub(super) execucao: ExecutionRef,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("donna-retornos-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("r1.db")).unwrap();
@@ -37,13 +37,13 @@ impl Fixture {
         Self { hub, dir, execucao }
     }
 
-    fn entrada(&self, lane: &Lane, kind: EntryKind) -> String {
+    pub(super) fn entrada(&self, lane: &Lane, kind: EntryKind) -> String {
         let data = json!({"text": format!("{SENTINELA} texto"), "botMessage": {"text": SENTINELA}});
         self.hub.store.insert_entry(lane, kind, 1, &data).unwrap().id
     }
 
     /// Pedido aceito como na admissão Team; devolve o ID.
-    fn aceitar(&self) -> Result<String> {
+    pub(super) fn aceitar(&self) -> Result<String> {
         let id = uuid::Uuid::new_v4().to_string();
         let origem = self.entrada(&Lane::main("a"), EntryKind::Notice);
         let destino = self.entrada(&Lane::main("b"), EntryKind::Notice);
@@ -72,14 +72,14 @@ impl Fixture {
         com_tx(&self.hub.store, |c| aceitar_na(c, &pedido))
     }
 
-    fn termino(&self, pedido: &str, fence: i64, motivo: MotivoFim, conteudo: Conteudo) -> Termino {
+    pub(super) fn termino(&self, pedido: &str, fence: i64, motivo: MotivoFim, conteudo: Conteudo) -> Termino {
         let binding = bindings::fixture_binding(&self.hub.store, "b");
         let produtor = Produtor::de(binding.acp_session, Some("turno-b".into()));
         let fim = Encerramento { desfecho: Desfecho::Concluiu, motivo, conteudo, produtor };
         Termino { pedido: pedido.into(), bot: "b".into(), attempt: 1, fence, fim }
     }
 
-    fn estado(&self, id: &str) -> (String, Option<String>, i64) {
+    pub(super) fn estado(&self, id: &str) -> (String, Option<String>, i64) {
         self.hub
             .store
             .db
@@ -90,7 +90,7 @@ impl Fixture {
             .unwrap()
     }
 
-    fn resultados(&self) -> i64 {
+    pub(super) fn resultados(&self) -> i64 {
         self.hub.store.db.locked().query_row("SELECT COUNT(*) FROM donna_session_results", [], |r| r.get(0)).unwrap()
     }
 }

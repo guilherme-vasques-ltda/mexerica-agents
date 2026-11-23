@@ -1,5 +1,6 @@
 //! VG-01: leitura dos produtores atuais; sem fila, ledger ou estado próprio.
 mod access;
+mod attention;
 mod delegated_permissions;
 mod events;
 mod model;
@@ -7,7 +8,7 @@ mod projection;
 mod roster_events;
 
 pub(crate) use access::{caller_copy, require};
-pub(crate) use events::{event, runtime_changed};
+pub(crate) use events::{attention_hint, attention_signal, event, runtime_changed};
 pub(crate) use model::Observation;
 pub(crate) use roster_events::{deletion, primary_change};
 
@@ -17,6 +18,8 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub(crate) const METHOD: &str = "donnaControlTower";
+pub(crate) const ATTENTION_METHOD: &str = "donnaAttention";
+pub(crate) const ATTENTION_EVENT: &str = "donnaAttentionChanged";
 pub(crate) const EVENT: &str = "donnaControlTowerChanged";
 pub(crate) const PENDING_PERMISSION: &str = "e.kind='permission' AND json_extract(e.data,'$.status')='pending'";
 pub(crate) const INSTRUCTIONS: &str = "O Mission Board é uma tela do app na faixa lateral, que lê uma \
@@ -44,8 +47,24 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Result
     Ok(serde_json::to_value(answer)?)
 }
 
+pub(crate) async fn attention_call(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Result<Value> {
+    let request: attention::Read = serde_json::from_value(body)
+        .map_err(|_| anyhow::anyhow!("invalid_field: solicitação inválida ou campo desconhecido."))?;
+    let _guard = hub.store.team_lock.lock().await;
+    require(hub, caller)?;
+    hub.store.require_space(&request.space_id)?;
+    let value = attention::project(hub, &request.space_id, request.include_resolved_today)?;
+    let answer = serde_json::to_value(value)?;
+    hub.store.require_space(&request.space_id)?;
+    require(hub, caller)?;
+    Ok(answer)
+}
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod delegated_permissions_tests;
+
+#[cfg(test)]
+mod attention_tests;

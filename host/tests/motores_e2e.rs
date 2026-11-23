@@ -467,7 +467,7 @@ async fn turno_simples_responde_ok_pelo_lancamento_real_de_cada_motor() {
     let falsos = Falsos::nova();
     falsos.instalar_todos();
     let host = falsos.hub().await;
-    for m in &MOTORES {
+    for m in MOTORES.iter().filter(|m| m.id != "antigravity") {
         let bot = criar_bot(&host, m).await;
         host.reply(&bot, "Responda ok").await;
         let historico = host.call("history", json!({"botId": bot})).await;
@@ -477,6 +477,43 @@ async fn turno_simples_responde_ok_pelo_lancamento_real_de_cada_motor() {
         let manual = instrucoes(&host, &bot);
         assert!(manual.contains(MANUAL_DO_HARNESS), "{}: manual do harness ausente: {manual}", m.id);
     }
+}
+
+#[tokio::test]
+async fn antigravity_recusa_bot_setup_e_modelos_com_cli_e_adaptador_presentes() {
+    let falsos = Falsos::nova();
+    falsos.instalar_todos();
+    let marca = falsos.pasta.join("abriu-agy");
+    Falsos::escrever(&falsos.pasta.join("agy"), format!("#!/bin/sh\n: > '{}'\nexit 1\n", aspas(&marca)));
+    let host = falsos.hub().await;
+    let lista = atualizar(&host).await;
+    let backend = motor(&lista, "antigravity");
+    assert_eq!(backend["installed"], true);
+    assert_eq!(backend["available"], false);
+    assert_eq!(backend["canInstall"], false);
+
+    for id in ["antigravity", "antigravity-acp", " AGY "] {
+        for (method, args) in [
+            ("createBot", json!({"name":"Interactive", "backend":id})),
+            ("agentSetup", json!({"step":"login", "backend":id})),
+            ("agentSetup", json!({"step":"install", "backend":id})),
+            ("agentModels", json!({"backend":id})),
+            ("agentAuthenticate", json!({"backend":id,"method":"oauth-personal"})),
+            ("setAgentEnv", json!({"backend":id,"vars":{"GEMINI_API_KEY":"fixture"}})),
+        ] {
+            let erro = host.refused(method, args).await;
+            assert!(erro.contains("cliente ACP interativo"), "{id} {method}: {erro}");
+        }
+        let status = host.call("agentAuth", json!({"backend":id})).await;
+        assert_eq!(status, json!({"signedIn":null,"methods":[],"savedEnv":[],"login":false}));
+    }
+
+    for command in ["agy -p pedido", "agy acp", "'/somewhere/AGY.EXE' acp", "antigravity-acp"] {
+        let erro = host.refused("createBot", json!({"name":"Custom", "backend":"custom","command":command})).await;
+        assert!(erro.contains("cliente ACP interativo"), "{command}: {erro}");
+    }
+    assert!(!marca.exists());
+    assert!(!falsos.pasta.join("launches.jsonl").exists());
 }
 
 /// F4 — NÃO é prova. O isolamento real de skills por motor ainda não existe; este teste fica ignorado e sem

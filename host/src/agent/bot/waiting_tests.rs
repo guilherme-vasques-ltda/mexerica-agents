@@ -8,6 +8,25 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::test]
+async fn complete_request_p05_suprime_resposta_tardia_no_canal() {
+    use crate::fork::retornos::{fim_do_turno, provas_privacidade_testes::pedido_para_callback_tardio};
+    let f = Fixture::new();
+    let fence = pedido_para_callback_tardio(&f.hub.store);
+    let mut actor = f.actor();
+    let (mut request, reply) = crate::chat::team::BotRequest::for_test_recorded("late");
+    request.dispatch_recorded(fence);
+    actor.active_request = Some(request);
+    let text = "não publicar";
+    let fim = fim_do_turno(false, false, false, "end_turn", Some(text), None, None);
+    actor.complete_request(Ok(text.into()), false, fim);
+    assert_eq!(reply.await.unwrap().unwrap_err().to_string(), "retorno_pedido_ja_decidido");
+    assert!(actor.active_request.is_none());
+    drop(actor);
+    f.hub.shutdown().await;
+    std::fs::remove_dir_all(&f.dir).unwrap();
+}
+
+#[tokio::test]
 async fn rodada4_handoff_de_rollover_e_consumido_antes_da_primeira_espera() {
     let mut f = Fixture::new();
     let cfg = f.hub.store.bot("bot").unwrap().unwrap().config;
@@ -4516,3 +4535,6 @@ mod mandar_agora {
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 }
+
+#[path = "fork_pergunta_restaurada_tests.rs"]
+mod pergunta_restaurada;

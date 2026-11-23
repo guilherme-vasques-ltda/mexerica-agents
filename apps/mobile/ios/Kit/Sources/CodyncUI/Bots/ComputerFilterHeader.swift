@@ -85,7 +85,7 @@ public extension BotStore {
         case .online where mismatch != nil: String(localized: "Precisa atualizar", bundle: .module)
         case .online: String(localized: "Conectado", bundle: .module)
         case .connecting: String(localized: "Conectando…", bundle: .module)
-        case .computerOffline, .offline: String(localized: "Sem conexão", bundle: .module)
+        case .computerOffline, .offline: String(localized: "Hub indisponível", bundle: .module)
         case .unauthorized: String(localized: "Sem acesso", bundle: .module)
         case .unpaired: String(localized: "Não pareado", bundle: .module)
         }
