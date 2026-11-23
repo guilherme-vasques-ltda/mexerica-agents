@@ -168,7 +168,7 @@ final class AppStore {
 
     func replaceContext(_ storage: SharedStore.Context, loadContext: Bool, erase: [SharedStore.Context] = []) {
         accountStartup?.cancel()
-        accounts.retire(discardLocalState: !erase.isEmpty)
+        accounts.retire()
         PushRegistrar.shared.deactivate()
         LiveActivities.shared.endAll()
         accounts.storage.bots = []

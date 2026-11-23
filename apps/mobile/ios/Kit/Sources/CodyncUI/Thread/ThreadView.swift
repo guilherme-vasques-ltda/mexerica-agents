@@ -332,7 +332,9 @@ extension ThreadView {
     }
 
     /// A short drop keeps it; only a computer let go hides it.
-    private var working: Bool { bot?.isWorking(in: botId) == true && model.temAutoridade }
+    private var working: Bool {
+        bot?.isWorking(in: botId) == true && !model.estadoConexao.estaDesconectado && !model.hubUnavailable
+    }
 
     /// iPhone's messages: all this device has, earlier ones from the computer as the reader
     /// scrolls up; the chat follows the newest message until they scroll away, and a reply is

@@ -23,6 +23,24 @@ private let team = ForkWorkspaceID.team(orgId: "org_fixture")
     #expect(selection.active == .personal)
 }
 
+@Test func temporaryDirectoryFailureRestoresOnlyAnAuthorizedSelection() throws {
+    let member = try #require(ForkWorkspaceMemberships.Team(orgId: "org_fixture", name: "Fixture", clerkRole: "org:member"))
+    let memberships = ForkWorkspaceMemberships(hasPersonal: true, teams: [member])
+    var selection = ForkWorkspaceSelection(userId: user)
+    selection.update(memberships)
+    selection.select(team)
+    let first = try #require(selection.token)
+    selection.suspend()
+    selection.suspend()
+    #expect(selection.token == nil)
+    selection.update(memberships)
+    #expect(selection.active == team)
+    #expect(!selection.accepts(first))
+    selection.suspend()
+    selection.update(.init(hasPersonal: true, teams: []))
+    #expect(selection.active == .personal)
+}
+
 @Test func scopesSeparateUsersWorkspacesAndPersistedComputerSelection() {
     let suite = "Fork.\(UUID())"
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }

@@ -33,6 +33,7 @@ extension BotStore {
     }
 
     func persistComposerDrafts() {
+        guard !retired else { return }
         storage.composerDrafts[computer.id] = composerDrafts.isEmpty ? nil : composerDrafts
     }
 

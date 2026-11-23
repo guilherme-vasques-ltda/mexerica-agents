@@ -43,18 +43,18 @@ struct ForkWorkspaceStatus: View {
         VStack(spacing: 0) {
             HStack { Spacer(); AccountSwitcherButton() }.padding(.horizontal, 16)
             if unavailable {
-                EmptyState(title: "Workspaces indisponíveis", systemImage: "wifi.slash",
-                           message: "Não foi possível conferir seu acesso. A conexão será verificada novamente.")
+                EmptyState(title: String(localized: "Workspaces indisponíveis"), systemImage: "wifi.slash",
+                           message: String(localized: "Não foi possível conferir seu acesso. A conexão será verificada novamente."))
             } else if selection?.memberships == nil {
                 Spacer()
                 ProgressView("Verificando workspaces")
                 Spacer()
             } else if selection?.active == nil {
-                EmptyState(title: "Sem acesso a workspaces", systemImage: "lock",
-                           message: "Nenhum workspace está disponível para esta conta.")
+                EmptyState(title: String(localized: "Sem acesso a workspaces"), systemImage: "lock",
+                           message: String(localized: "Nenhum workspace está disponível para esta conta."))
             } else {
-                EmptyState(title: "Hub indisponível", systemImage: "wifi.slash",
-                           message: "Este workspace ainda não tem uma conexão autorizada com um Hub.")
+                EmptyState(title: String(localized: "Hub indisponível"), systemImage: "wifi.slash",
+                           message: String(localized: "Este workspace ainda não tem uma conexão autorizada com um Hub."))
             }
         }
     }

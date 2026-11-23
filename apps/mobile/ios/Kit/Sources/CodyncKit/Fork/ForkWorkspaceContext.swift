@@ -121,6 +121,7 @@ public struct ForkWorkspaceSelection: Sendable {
     public private(set) var generation: UInt64 = 0
     private let incarnation = UUID()
     private var forbidden = Set<ForkWorkspaceID>()
+    private var suspendedWorkspace: ForkWorkspaceID?
 
     public init(userId: String) { self.userId = userId }
 
@@ -139,8 +140,10 @@ public struct ForkWorkspaceSelection: Sendable {
         if let active, choices.contains(active) {
             if purge.contains(active) { generation += 1 }
         } else {
-            activate(choices.first)
+            let preferred = suspendedWorkspace.flatMap { choices.contains($0) ? $0 : nil }
+            activate(preferred ?? choices.first)
         }
+        suspendedWorkspace = nil
         return purge
     }
 
@@ -149,7 +152,10 @@ public struct ForkWorkspaceSelection: Sendable {
         activate(workspace)
     }
 
-    public mutating func suspend() { activate(nil) }
+    public mutating func suspend() {
+        if let active { suspendedWorkspace = active }
+        activate(nil)
+    }
 
     public func accepts(_ token: Token) -> Bool { self.token == token }
 

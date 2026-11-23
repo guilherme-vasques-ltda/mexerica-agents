@@ -705,8 +705,10 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/android/app/src/main/res/values/launcher.xml`
 - `apps/mobile/android/app/src/main/res/values/widget.xml`
 - `apps/mobile/ios/NotificationService/Info.plist`
+- `apps/mobile/ios/Kit/Sources/CodyncUI/Resources/Localizable.xcstrings`
 - `apps/mobile/ios/Resources/Assets.xcassets/AppIcon.appiconset/image.png`
 - `apps/mobile/ios/Resources/Info.plist`
+- `apps/mobile/ios/Resources/Localizable.xcstrings`
 - `apps/mobile/ios/WhatsNew.md`
 - `apps/mobile/ios/Widgets/Resources/Info.plist`
 - `apps/mobile/shared/Config/dev.plist`

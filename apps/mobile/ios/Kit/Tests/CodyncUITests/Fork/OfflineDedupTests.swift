@@ -64,7 +64,10 @@ import Testing
                          data: EntryData(status: "pending"), createdAt: 1, updatedAt: 0)
     store.upsert(approval)
     store.answering[approval.id] = "fixture-choice"
+    store.setComposerDraft("Keep this draft", for: approval.botId)
     store.retire()
+    store.removeComposerDrafts(for: approval.botId)
+    #expect(storage.composerDrafts[store.computer.id]?[approval.botId] == "Keep this draft")
     storage.erase()
     store.upsert(approval)
     #expect(store.chat(approval.botId).isEmpty)

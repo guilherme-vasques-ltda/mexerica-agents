@@ -647,7 +647,7 @@ public final class AccountStore {
     }
 
     /// Account switched or signed out: nothing from here writes into storage or calls back anymore.
-    public func retire(discardLocalState: Bool = false) {
+    public func retire() {
         guard !retired else { return }
         retired = true
         computerOrder.retire()
@@ -659,16 +659,11 @@ public final class AccountStore {
         // Only this store's own requests: a replacement store keeps its own `pendingAccess`.
         pendingAccess = [:]
         // Attempts still open end with the account: grants seen here are revoked, others checked once.
-        if discardLocalState {
-            for task in grantRevocations.values { task.cancel() }
-            grantRevocations = [:]
-        } else {
-            for (id, pending) in confirmations {
-                if let grant = pending.grantId {
-                    revokeApprovedGrant(id, grantId: grant)
-                } else {
-                    reconcileGrant(id, pending.confirmation.approvalCheck)
-                }
+        for (id, pending) in confirmations {
+            if let grant = pending.grantId {
+                revokeApprovedGrant(id, grantId: grant)
+            } else {
+                reconcileGrant(id, pending.confirmation.approvalCheck)
             }
         }
         confirmations = [:]

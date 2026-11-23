@@ -15,7 +15,7 @@ struct AccountSwitcherButton: View {
                     .foregroundStyle(Palette.secondary)
             }
         }
-        .accessibilityLabel(account.usesWorkspaceDirectory ? "Trocar de conta ou workspace" : "Trocar de conta")
+        .accessibilityLabel(account.usesWorkspaceDirectory ? String(localized: "Trocar de conta ou workspace") : String(localized: "Trocar de conta"))
         .accessibilityValue(account.email ?? String(localized: "Pareamento local"))
     }
 }
