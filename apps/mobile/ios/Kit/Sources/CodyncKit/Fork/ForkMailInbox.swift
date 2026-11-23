@@ -173,6 +173,14 @@ public enum MailInboxSanitizer {
         }
     }
 
+    private static func isTagCharacter(_ value: UInt32) -> Bool {
+        (0xE0000...0xE007F).contains(value)
+    }
+
+    private static func isLineOrParagraphSeparator(_ value: UInt32) -> Bool {
+        value == 0x2028 || value == 0x2029
+    }
+
     private static func isNonTextualControl(_ value: UInt32, allowLineBreaksAndTabs: Bool) -> Bool {
         if allowLineBreaksAndTabs && (value == 0x000A || value == 0x0009) {
             return false
@@ -191,7 +199,10 @@ public enum MailInboxSanitizer {
         scalars.reserveCapacity(raw.unicodeScalars.count)
         for scalar in raw.unicodeScalars {
             let v = scalar.value
-            if isBidiControl(v) || isNonTextualControl(v, allowLineBreaksAndTabs: false) {
+            if scalar.properties.generalCategory == .format
+                || isTagCharacter(v)
+                || isLineOrParagraphSeparator(v)
+                || isNonTextualControl(v, allowLineBreaksAndTabs: false) {
                 continue
             }
             scalars.append(scalar)
@@ -200,21 +211,136 @@ public enum MailInboxSanitizer {
     }
 
     public static func sanitizeDomain(_ raw: String?) -> String? {
-        guard let cleaned = sanitizeSingleLine(raw)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cleaned.isEmpty else {
+        guard let cleaned = sanitizeSingleLine(raw)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !cleaned.isEmpty else {
             return nil
         }
-        return cleaned
+        guard let ascii = idnaToASCII(cleaned), !ascii.isEmpty else {
+            return nil
+        }
+        let isValidChars = ascii.unicodeScalars.allSatisfy { s in
+            (s.value >= 0x61 && s.value <= 0x7A)
+                || (s.value >= 0x30 && s.value <= 0x39)
+                || s.value == 0x2E
+                || s.value == 0x2D
+        }
+        guard isValidChars,
+              !ascii.hasPrefix("."),
+              !ascii.hasSuffix("."),
+              !ascii.hasPrefix("-"),
+              !ascii.hasSuffix("-"),
+              !ascii.contains("..") else {
+            return nil
+        }
+        return ascii
+    }
+
+    private static func idnaToASCII(_ domain: String) -> String? {
+        let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+        var encodedLabels: [String] = []
+        encodedLabels.reserveCapacity(labels.count)
+        for labelSub in labels {
+            let label = String(labelSub)
+            if label.isEmpty { return nil }
+            if label.unicodeScalars.allSatisfy({ $0.value < 0x80 }) {
+                encodedLabels.append(label)
+            } else {
+                guard let puny = punycodeEncode(label) else { return nil }
+                encodedLabels.append("xn--" + puny)
+            }
+        }
+        return encodedLabels.joined(separator: ".")
+    }
+
+    private static func punycodeEncode(_ input: String) -> String? {
+        let base = 36
+        let tMin = 1
+        let tMax = 26
+        let skew = 38
+        let damp = 700
+        let initialBias = 72
+        let initialN = 128
+
+        let scalars = input.unicodeScalars.map { Int($0.value) }
+        var output = ""
+        for cp in scalars where cp < 0x80 {
+            guard let scalar = UnicodeScalar(cp) else { return nil }
+            output.append(Character(scalar))
+        }
+        let basicCount = output.unicodeScalars.count
+        var handled = basicCount
+        if basicCount > 0 {
+            output.append("-")
+        }
+
+        var n = initialN
+        var delta = 0
+        var bias = initialBias
+
+        func encodeDigit(_ d: Int) -> Character {
+            if d < 26 {
+                return Character(UnicodeScalar(0x61 + d)!)
+            }
+            return Character(UnicodeScalar(0x30 + (d - 26))!)
+        }
+
+        while handled < scalars.count {
+            guard let m = scalars.filter({ $0 >= n }).min() else { break }
+            let diff = m - n
+            if diff > (Int.max - delta) / (handled + 1) { return nil }
+            delta += diff * (handled + 1)
+            n = m
+
+            for cp in scalars {
+                if cp < n {
+                    delta += 1
+                    if delta == 0 { return nil }
+                } else if cp == n {
+                    var q = delta
+                    var k = base
+                    while true {
+                        let t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias)
+                        if q < t { break }
+                        output.append(encodeDigit(t + ((q - t) % (base - t))))
+                        q = (q - t) / (base - t)
+                        k += base
+                    }
+                    output.append(encodeDigit(q))
+                    var d = delta / (handled == basicCount ? damp : 2)
+                    d += d / (handled + 1)
+                    var kBias = 0
+                    while d > ((base - tMin) * tMax) / 2 {
+                        d /= (base - tMin)
+                        kBias += base
+                    }
+                    bias = kBias + (((base - tMin + 1) * d) / (d + skew))
+                    delta = 0
+                    handled += 1
+                }
+            }
+            delta += 1
+            n += 1
+        }
+        return output
     }
 
     public static func sanitizeBodyText(_ raw: String) -> String {
-        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        let normalized = raw
+            .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
+            .replacingOccurrences(of: "\u{2029}", with: "\n")
         var scalars = String.UnicodeScalarView()
         scalars.reserveCapacity(normalized.unicodeScalars.count)
         for scalar in normalized.unicodeScalars {
             let v = scalar.value
-            if isBidiControl(v) || isNonTextualControl(v, allowLineBreaksAndTabs: true) {
+            if isBidiControl(v)
+                || isTagCharacter(v)
+                || v == 0x200B
+                || v == 0xFEFF
+                || isNonTextualControl(v, allowLineBreaksAndTabs: true) {
                 continue
             }
             scalars.append(scalar)
@@ -367,6 +493,7 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 lastError = .unavailable
             }
         } catch {
+            if error is CancellationError { return }
             guard generation == requestGeneration, activeSpaceId == cleanSpaceId else { return }
             isLoadingStatus = false
             let mapped = Self.mapError(error)
@@ -392,6 +519,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
         if activeSpaceId != cleanSpaceId {
             resetForContextChange()
             activeSpaceId = cleanSpaceId
+        } else {
+            generation &+= 1
         }
 
         selectedMailboxId = cleanMailboxId
@@ -410,7 +539,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             lastError = .unavailable
             return
         }
-        guard let spaceId = activeSpaceId,
+        guard !isLoadingThreads,
+              let spaceId = activeSpaceId,
               let mailboxId = selectedMailboxId,
               let cursor = nextCursor else {
             return
@@ -435,6 +565,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             resetForContextChange()
             activeSpaceId = cleanSpaceId
             selectedMailboxId = cleanMailboxId
+        } else if selectedMailboxId == nil {
+            selectedMailboxId = cleanMailboxId
         }
 
         let requestGeneration = generation
@@ -447,12 +579,17 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 mailboxId: cleanMailboxId,
                 threadId: cleanThreadId
             )
-            guard generation == requestGeneration, activeSpaceId == cleanSpaceId else { return }
+            guard generation == requestGeneration,
+                  activeSpaceId == cleanSpaceId,
+                  selectedMailboxId == cleanMailboxId else { return }
             isLoadingThreadDetail = false
             openThread = MailInboxSanitizer.sanitizeOpenThread(response)
             lastError = nil
         } catch {
-            guard generation == requestGeneration, activeSpaceId == cleanSpaceId else { return }
+            if error is CancellationError { return }
+            guard generation == requestGeneration,
+                  activeSpaceId == cleanSpaceId,
+                  selectedMailboxId == cleanMailboxId else { return }
             isLoadingThreadDetail = false
             lastError = Self.mapError(error)
         }
@@ -488,6 +625,7 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             nextCursor = page.nextCursor
             lastError = nil
         } catch {
+            if error is CancellationError { return }
             guard generation == requestGeneration,
                   activeSpaceId == spaceId,
                   selectedMailboxId == mailboxId else { return }

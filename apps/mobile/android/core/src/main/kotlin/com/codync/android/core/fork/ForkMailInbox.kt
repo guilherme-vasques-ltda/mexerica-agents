@@ -1,6 +1,10 @@
 package com.codync.android.core.fork
 
-enum MailInboxError(val code: String) {
+import java.net.IDN
+import java.util.Locale
+import kotlinx.coroutines.CancellationException
+
+enum class MailInboxError(val code: String) {
     INVALID_REQUEST("invalid_request"),
     ACCESS_DENIED("access_denied"),
     NOT_CONNECTED("not_connected"),
@@ -55,8 +59,8 @@ data class MailInboxListThreadsResponse(
 data class MailInboxSenderPresentation(
     val displayName: String?,
     val declaredDomain: String?,
-    val isVerifiedIdentity: Boolean = false,
 ) {
+    val isVerifiedIdentity: Boolean = false
     val hasDeclaredDomain: Boolean get() = declaredDomain != null
 
     override fun toString(): String =
@@ -74,7 +78,6 @@ data class MailInboxMessage(
         get() = MailInboxSenderPresentation(
             displayName = fromDisplay,
             declaredDomain = fromDomain,
-            isVerifiedIdentity = false,
         )
 
     override fun toString(): String = "MailInboxMessage(redacted)"
@@ -98,6 +101,12 @@ object MailInboxSanitizer {
             codePoint == 0x200F ||
             codePoint == 0x061C
 
+    private fun isTagCharacter(codePoint: Int): Boolean =
+        codePoint in 0xE0000..0xE007F
+
+    private fun isLineOrParagraphSeparator(codePoint: Int): Boolean =
+        codePoint == 0x2028 || codePoint == 0x2029
+
     private fun isNonTextualControl(codePoint: Int, allowLineBreaksAndTabs: Boolean): Boolean {
         if (allowLineBreaksAndTabs && (codePoint == 0x000A || codePoint == 0x0009)) {
             return false
@@ -112,7 +121,12 @@ object MailInboxSanitizer {
         while (i < raw.length) {
             val cp = raw.codePointAt(i)
             val step = Character.charCount(cp)
-            if (!isBidiControl(cp) && !isNonTextualControl(cp, allowLineBreaksAndTabs = false)) {
+            val isFormat = Character.getType(cp) == Character.FORMAT.toInt()
+            if (!isFormat &&
+                !isTagCharacter(cp) &&
+                !isLineOrParagraphSeparator(cp) &&
+                !isNonTextualControl(cp, allowLineBreaksAndTabs = false)
+            ) {
                 sb.appendCodePoint(cp)
             }
             i += step
@@ -121,18 +135,46 @@ object MailInboxSanitizer {
     }
 
     fun sanitizeDomain(raw: String?): String? {
-        val cleaned = sanitizeSingleLine(raw)?.trim() ?: return null
-        return cleaned.ifEmpty { null }
+        val cleaned = sanitizeSingleLine(raw)?.trim()?.lowercase(Locale.ROOT) ?: return null
+        if (cleaned.isEmpty()) return null
+        val ascii = try {
+            IDN.toASCII(cleaned, IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        if (ascii.isEmpty()) return null
+        val validChars = ascii.all { ch ->
+            ch in 'a'..'z' || ch in '0'..'9' || ch == '.' || ch == '-'
+        }
+        if (!validChars ||
+            ascii.startsWith('.') ||
+            ascii.endsWith('.') ||
+            ascii.startsWith('-') ||
+            ascii.endsWith('-') ||
+            ascii.contains("..")
+        ) {
+            return null
+        }
+        return ascii
     }
 
     fun sanitizeBodyText(raw: String): String {
-        val normalized = raw.replace("\r\n", "\n").replace('\r', '\n')
+        val normalized = raw
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .replace('\u2028', '\n')
+            .replace('\u2029', '\n')
         val sb = StringBuilder(normalized.length)
         var i = 0
         while (i < normalized.length) {
             val cp = normalized.codePointAt(i)
             val step = Character.charCount(cp)
-            if (!isBidiControl(cp) && !isNonTextualControl(cp, allowLineBreaksAndTabs = true)) {
+            if (!isBidiControl(cp) &&
+                !isTagCharacter(cp) &&
+                cp != 0x200B &&
+                cp != 0xFEFF &&
+                !isNonTextualControl(cp, allowLineBreaksAndTabs = true)
+            ) {
                 sb.appendCodePoint(cp)
             }
             i += step
@@ -283,6 +325,7 @@ class ForkMailInboxStore(
                 }
             }
         } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             if (generation != requestGeneration || activeSpaceId != cleanSpaceId) return
             isLoadingStatus = false
             val mapped = mapError(t)
@@ -312,6 +355,8 @@ class ForkMailInboxStore(
         if (activeSpaceId != cleanSpaceId) {
             resetForContextChange()
             activeSpaceId = cleanSpaceId
+        } else {
+            generation += 1L
         }
 
         selectedMailboxId = cleanMailboxId
@@ -335,6 +380,7 @@ class ForkMailInboxStore(
             lastError = MailInboxError.UNAVAILABLE
             return
         }
+        if (isLoadingThreads) return
         val spaceId = activeSpaceId ?: return
         val mailboxId = selectedMailboxId ?: return
         val cursor = nextCursor ?: return
@@ -364,6 +410,8 @@ class ForkMailInboxStore(
             resetForContextChange()
             activeSpaceId = cleanSpaceId
             selectedMailboxId = cleanMailboxId
+        } else if (selectedMailboxId == null) {
+            selectedMailboxId = cleanMailboxId
         }
 
         val requestGeneration = generation
@@ -372,12 +420,23 @@ class ForkMailInboxStore(
 
         try {
             val response = transport.mailInboxOpenThread(cleanSpaceId, cleanMailboxId, cleanThreadId)
-            if (generation != requestGeneration || activeSpaceId != cleanSpaceId) return
+            if (generation != requestGeneration ||
+                activeSpaceId != cleanSpaceId ||
+                selectedMailboxId != cleanMailboxId
+            ) {
+                return
+            }
             isLoadingThreadDetail = false
             openThread = MailInboxSanitizer.sanitizeOpenThread(response)
             lastError = null
         } catch (t: Throwable) {
-            if (generation != requestGeneration || activeSpaceId != cleanSpaceId) return
+            if (t is CancellationException) throw t
+            if (generation != requestGeneration ||
+                activeSpaceId != cleanSpaceId ||
+                selectedMailboxId != cleanMailboxId
+            ) {
+                return
+            }
             isLoadingThreadDetail = false
             lastError = mapError(t)
         }
@@ -412,6 +471,7 @@ class ForkMailInboxStore(
             nextCursor = page.nextCursor
             lastError = null
         } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             if (generation != requestGeneration ||
                 activeSpaceId != spaceId ||
                 selectedMailboxId != mailboxId

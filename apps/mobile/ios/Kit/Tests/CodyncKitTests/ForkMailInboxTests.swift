@@ -227,11 +227,11 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     #expect(store.nextCursor == nil)
 }
 
-@Test @MainActor func sanitizesBidiAndControlCharactersWhilePreservingRtlAndNewlines() async throws {
+@Test @MainActor func sanitizesBidiCfTagSeparatorsAndIdnaDomains() async throws {
     let transport = makeFixtureTransport()
-    let bidiSubject = "Aviso \u{202E}gpj.exe\u{202C} importante\u{0007}"
-    let bidiSender = "Remetente\u{2066}Falso\u{2069}\u{200E}\u{200F}\u{061C}"
-    let body = "Linha 1\r\nLinha 2 \u{202E}inversa\u{202C}\nשלום"
+    let bidiSubject = "Aviso \u{202E}gpj.exe\u{202C}\u{200B}\u{E0061}\u{2028}importante\u{0007}"
+    let bidiSender = "Remetente\u{2066}Falso\u{2069}\u{200E}\u{200F}\u{061C}\u{200C}\u{FEFF}"
+    let body = "Linha 1\r\nLinha 2 \u{202E}inversa\u{202C}\u{2028}Linha 3\u{2029}Tag\u{E007F}\u{200B}\nשלום"
 
     transport.openResponses["space-alpha:mbox-inbox:thr-bidi"] = .success(
         MailInboxOpenThreadResponse(
@@ -241,9 +241,16 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
                 MailInboxMessage(
                     messageId: "msg-bidi",
                     fromDisplay: bidiSender,
-                    fromDomain: "mail\u{202E}.example.invalid",
+                    fromDomain: "café\u{200B}.example.invalid",
                     sentAt: "2026-11-23T08:00:00Z",
                     bodyText: body
+                ),
+                MailInboxMessage(
+                    messageId: "msg-bad-domain",
+                    fromDisplay: "Invalido",
+                    fromDomain: "evil/path.example.invalid",
+                    sentAt: "2026-11-23T08:05:00Z",
+                    bodyText: "ok"
                 )
             ],
             truncated: false
@@ -254,10 +261,46 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-bidi")
 
     let opened = try #require(store.openThread)
-    #expect(opened.subject == "Aviso gpj.exe importante")
+    #expect(opened.subject == "Aviso gpj.exeimportante")
     #expect(opened.messages[0].fromDisplay == "RemetenteFalso")
-    #expect(opened.messages[0].fromDomain == "mail.example.invalid")
-    #expect(opened.messages[0].bodyText == "Linha 1\nLinha 2 inversa\nשלום")
+    #expect(opened.messages[0].fromDomain == "xn--caf-dma.example.invalid")
+    #expect(opened.messages[0].bodyText == "Linha 1\nLinha 2 inversa\nLinha 3\nTag\nשלום")
+    #expect(opened.messages[1].fromDomain == nil)
+}
+
+@Test @MainActor func loadFirstPageDiscardsInFlightLoadNextPageOnSameMailbox() async {
+    let transport = makeFixtureTransport()
+    let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
+
+    await store.loadStatus(spaceId: "space-alpha")
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    #expect(store.threads.map(\.threadId) == ["thr-100"])
+
+    transport.delayNanoseconds = 60_000_000
+    let nextPageTask = Task {
+        await store.loadNextPage()
+    }
+
+    try? await Task.sleep(nanoseconds: 10_000_000)
+    transport.delayNanoseconds = 0
+    transport.listResponses["space-alpha:mbox-inbox:page1"] = .success(
+        MailInboxListThreadsResponse(
+            threads: [
+                MailInboxThreadSummary(
+                    threadId: "thr-fresh",
+                    subject: "Recarregada",
+                    lastMessageAt: "2026-11-23T11:00:00Z"
+                )
+            ],
+            nextCursor: nil
+        )
+    )
+
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    await nextPageTask.value
+
+    #expect(store.threads.map(\.threadId) == ["thr-fresh"])
+    #expect(store.nextCursor == nil)
 }
 
 @Test @MainActor func contextChangeDiscardsInFlightResponseAndClearsSensitiveState() async {
@@ -265,15 +308,18 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     transport.delayNanoseconds = 60_000_000 // 60ms
 
     let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
+    let initialGeneration = store.generation
     let task = Task {
         await store.loadStatus(spaceId: "space-alpha")
     }
 
     try? await Task.sleep(nanoseconds: 10_000_000)
+    let beforeReset = store.generation
     store.resetForContextChange()
 
     await task.value
-    #expect(store.generation == 1)
+    #expect(store.generation > initialGeneration)
+    #expect(store.generation == beforeReset + 1)
     #expect(store.activeSpaceId == nil)
     #expect(store.status == nil)
     #expect(store.threads.isEmpty)

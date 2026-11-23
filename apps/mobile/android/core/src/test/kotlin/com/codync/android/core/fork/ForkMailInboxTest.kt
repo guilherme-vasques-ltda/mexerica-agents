@@ -204,11 +204,11 @@ class ForkMailInboxTest {
         assertNull(store.nextCursor)
     }
 
-    @Test fun `sanitizes bidi and control chars while preserving rtl and newlines`() = runBlocking {
+    @Test fun `sanitizes bidi Cf tag separators and IDNA domains`() = runBlocking {
         val transport = makeFixtureTransport()
-        val bidiSubject = "Aviso \u202Egpj.exe\u202C importante\u0007"
-        val bidiSender = "Remetente\u2066Falso\u2069\u200E\u200F\u061C"
-        val body = "Linha 1\r\nLinha 2 \u202Einversa\u202C\nשלום"
+        val bidiSubject = "Aviso \u202Egpj.exe\u202C\u200B\uD840\uDC61\u2028importante\u0007"
+        val bidiSender = "Remetente\u2066Falso\u2069\u200E\u200F\u061C\u200C\uFEFF"
+        val body = "Linha 1\r\nLinha 2 \u202Einversa\u202C\u2028Linha 3\u2029Tag\uDB40\uDC7F\u200B\nשלום"
 
         transport.openResponses["space-alpha:mbox-inbox:thr-bidi"] = {
             MailInboxOpenThreadResponse(
@@ -218,9 +218,16 @@ class ForkMailInboxTest {
                     MailInboxMessage(
                         messageId = "msg-bidi",
                         fromDisplay = bidiSender,
-                        fromDomain = "mail\u202E.example.invalid",
+                        fromDomain = "café\u200B.example.invalid",
                         sentAt = "2026-11-23T08:00:00Z",
                         bodyText = body,
+                    ),
+                    MailInboxMessage(
+                        messageId = "msg-bad-domain",
+                        fromDisplay = "Invalido",
+                        fromDomain = "evil/path.example.invalid",
+                        sentAt = "2026-11-23T08:05:00Z",
+                        bodyText = "ok",
                     ),
                 ),
                 truncated = false,
@@ -231,22 +238,55 @@ class ForkMailInboxTest {
         store.openThread("space-alpha", "mbox-inbox", "thr-bidi")
 
         val opened = store.openThread!!
-        assertEquals("Aviso gpj.exe importante", opened.subject)
+        assertEquals("Aviso gpj.exeimportante", opened.subject)
         assertEquals("RemetenteFalso", opened.messages[0].fromDisplay)
-        assertEquals("mail.example.invalid", opened.messages[0].fromDomain)
-        assertEquals("Linha 1\nLinha 2 inversa\nשלום", opened.messages[0].bodyText)
+        assertEquals("xn--caf-dma.example.invalid", opened.messages[0].fromDomain)
+        assertEquals("Linha 1\nLinha 2 inversa\nLinha 3\nTag\nשלום", opened.messages[0].bodyText)
+        assertNull(opened.messages[1].fromDomain)
+    }
+
+    @Test fun `loadFirstPage discards in-flight loadNextPage on same mailbox`() = runBlocking {
+        val transport = makeFixtureTransport()
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+
+        store.loadStatus("space-alpha")
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+        assertEquals(listOf("thr-100"), store.threads.map { it.threadId })
+
+        transport.delayMs = 60L
+        val nextPageJob = launch { store.loadNextPage() }
+
+        delay(10L)
+        transport.delayMs = 0L
+        transport.listResponses["space-alpha:mbox-inbox:page1"] = {
+            MailInboxListThreadsResponse(
+                threads = listOf(
+                    MailInboxThreadSummary("thr-fresh", "Recarregada", "2026-11-23T11:00:00Z"),
+                ),
+                nextCursor = null,
+            )
+        }
+
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+        nextPageJob.join()
+
+        assertEquals(listOf("thr-fresh"), store.threads.map { it.threadId })
+        assertNull(store.nextCursor)
     }
 
     @Test fun `context change discards in-flight response and clears sensitive state`() = runBlocking {
         val transport = makeFixtureTransport().apply { delayMs = 60L }
         val store = ForkMailInboxStore(transport, featureEnabled = true)
+        val initialGeneration = store.generation
 
         val job = launch { store.loadStatus("space-alpha") }
         delay(10L)
+        val beforeReset = store.generation
         store.resetForContextChange()
         job.join()
 
-        assertEquals(1L, store.generation)
+        assertTrue(store.generation > initialGeneration)
+        assertEquals(beforeReset + 1L, store.generation)
         assertNull(store.activeSpaceId)
         assertNull(store.status)
         assertTrue(store.threads.isEmpty())
