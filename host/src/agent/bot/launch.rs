@@ -6,7 +6,7 @@ use super::{Actor, Adapter, CompactionUsage, Conn, SessionCaps};
 use crate::agent::acp::{self, Acp};
 use crate::fork::activity_code::ActivityKind;
 use crate::store::BotConfig;
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -41,27 +41,19 @@ impl Actor {
     /// Compatibilidade com adaptadores que ainda ignoram permissionMode nas opções de criação.
     /// Só ao abrir/recarregar, e só se o catálogo anunciar outro modo; nunca um RPC por turno.
     pub(super) async fn manual_mode(&mut self, sid: &str, res: Value) -> Result<Value> {
-        if self.cfg.backend == crate::fork::antigravity::ID && mode_option(&res).is_none() {
-            let result = if legacy_default_mode(&res).is_ok() {
-                Ok(res)
-            } else {
-                self.session_request("session/set_mode", json!({"sessionId":sid,"modeId":"default"})).await.and_then(
-                    |answer| {
-                        legacy_default_mode(&answer)?;
-                        Ok(answer)
-                    },
-                )
-            };
-            if result.is_err()
-                && let Some(conn) = self.conn.take()
-            {
-                conn.kill().await;
+        if self.cfg.backend == crate::fork::antigravity::ID {
+            let result = self.antigravity_manual_mode(sid, res).await;
+            if result.is_err() {
+                tracing::warn!(reason = crate::fork::antigravity::MODE_UNCONFIRMED, "sessão interativa não aberta");
+                if let Some(conn) = self.conn.take() {
+                    conn.kill().await;
+                }
+                anyhow::bail!(crate::fork::antigravity::MODE_UNCONFIRMED);
             }
             return result;
         }
         let adapter = self.conn.as_ref().map(|c| c.adapter);
         let expected = match adapter {
-            _ if self.cfg.backend == crate::fork::antigravity::ID => "default",
             Some(Adapter::Claude) => "default",
             Some(Adapter::Codex) => "workspace-write",
             _ => return Ok(res),
@@ -93,6 +85,26 @@ impl Actor {
             conn.kill().await;
         }
         result
+    }
+
+    async fn antigravity_manual_mode(&mut self, sid: &str, res: Value) -> Result<Value> {
+        if let Some(mode) = mode_option(&res) {
+            if mode["currentValue"] == "default" {
+                return Ok(res);
+            }
+            let id = mode["id"].as_str().context("identificador de modo ausente")?;
+            let answer = self
+                .session_request("session/set_config_option", json!({"sessionId":sid,"configId":id,"value":"default"}))
+                .await?;
+            verify_mode(&answer, "default")?;
+            return Ok(answer);
+        }
+        if legacy_default_mode(&res).is_ok() {
+            return Ok(res);
+        }
+        let answer = self.session_request("session/set_mode", json!({"sessionId":sid,"modeId":"default"})).await?;
+        legacy_default_mode(&answer)?;
+        Ok(answer)
     }
 }
 

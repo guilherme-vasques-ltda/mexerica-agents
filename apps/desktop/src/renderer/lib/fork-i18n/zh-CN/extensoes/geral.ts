@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "{computador} 上的 Antigravity",
+  "extensoes.motor.antigravityInstalacao": "在上方所示电脑上安装或更新官方 CLI。请使用下方列出的兼容版本。",
+  "extensoes.motor.antigravityVersao": "下载 1.5.15 版",
+  "extensoes.motor.antigravityGuia": "Google 的说明",
+  "extensoes.motor.antigravityLoginLocal": "在上方电脑的终端中运行 agy acp --login，然后按 Google 的说明操作。会话保留在 CLI 中，应用不会接收您的凭据。",
+  "extensoes.motor.antigravityGemini": "备选方案：Gemini API 密钥",
+  "extensoes.motor.antigravityGeminiDetalhe": "如需自动运行，请在执行例程的电脑上打开 AI 账号 → API 密钥，添加 Google 密钥，再在 Mexerica 引擎中选择 Gemini。此方式不使用 Antigravity 登录。",
   "extensoes.titulo": "扩展",
   "extensoes.paginas": "扩展页面",
   "extensoes.voltar": "返回",

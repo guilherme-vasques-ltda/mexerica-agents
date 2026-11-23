@@ -4,7 +4,7 @@ use crate::store::{Device, DeviceSource, EntryKind, Scope, Store, now_ms};
 
 #[tokio::test]
 async fn antigravity_encerra_processo_ao_revogar_dono_motor_ou_modo() {
-    for cause in ["device", "owner", "engine", "mode"] {
+    for cause in ["device", "owner", "engine", "inherited_engine", "mode"] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path();
         let cfg: BotConfig =
@@ -39,6 +39,15 @@ async fn antigravity_encerra_processo_ao_revogar_dono_motor_ou_modo() {
         let lane = Lane::main("bot");
         let entry = hub.add_entry(&lane, EntryKind::User, 1, &json!({"text":"fixture","status":"queued"})).unwrap();
         hub.antigravity_grants.insert(owner, lane, &entry);
+        if cause == "inherited_engine" {
+            let changed = hub
+                .store
+                .db
+                .locked()
+                .execute("UPDATE donna_bot_sessions SET engine_choice=NULL WHERE id='bot'", [])
+                .unwrap();
+            assert_eq!(changed, 1);
+        }
         let mut actor = new_actor(hub.clone(), cfg.clone());
         let script = path.join("fixture.py");
         std::fs::write(&script, "import json,sys\nfor line in sys.stdin:\n m=json.loads(line)\n if 'id' in m: print(json.dumps(dict(jsonrpc='2.0', id=m['id'], result={})), flush=True)\n").unwrap();
@@ -54,18 +63,20 @@ async fn antigravity_encerra_processo_ao_revogar_dono_motor_ou_modo() {
         match cause {
             "device" => { hub.revoke_device(&device.key).unwrap(); }
             "owner" => crate::remote::cloud::update_status(&hub, |status| { status.owner = None; }),
-            "engine" => {
+            "engine" | "inherited_engine" => {
                 let mut updated = cfg.clone();
                 updated.backend = "codex".into();
                 hub.store.save_bot(&updated).unwrap();
-                assert!(actor.antigravity_active.as_ref().unwrap().current(&hub, &cfg));
-                let mut selection = crate::fork::sessoes::engine_choice::SessionEngine::snapshot(&updated);
-                selection.source = crate::fork::sessoes::engine_choice::EngineSource::Own;
-                let changed = hub.store.db.locked().execute(
-                    "UPDATE donna_bot_sessions SET engine_next=?1 WHERE id='bot'",
-                    [serde_json::to_string(&selection).unwrap()],
-                ).unwrap();
-                assert_eq!(changed, 1);
+                if cause == "engine" {
+                    assert!(actor.antigravity_active.as_ref().unwrap().current(&hub, &cfg));
+                    let mut selection = crate::fork::sessoes::engine_choice::SessionEngine::snapshot(&updated);
+                    selection.source = crate::fork::sessoes::engine_choice::EngineSource::Own;
+                    let changed = hub.store.db.locked().execute(
+                        "UPDATE donna_bot_sessions SET engine_next=?1 WHERE id='bot'",
+                        [serde_json::to_string(&selection).unwrap()],
+                    ).unwrap();
+                    assert_eq!(changed, 1);
+                }
             }
             _ => actor.on_incoming(Some(Incoming::Notification { method: "session/update".into(),
                 params: json!({"sessionId":"fixture","update":{"sessionUpdate":"current_mode_update","currentModeId":"auto"}}) })).await,

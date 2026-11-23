@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "Antigravity sur {computador}",
+  "extensoes.motor.antigravityInstalacao": "Installez ou mettez à jour le CLI officiel sur l’ordinateur indiqué. Utilisez la version compatible ci-dessous.",
+  "extensoes.motor.antigravityVersao": "Télécharger la version 1.5.15",
+  "extensoes.motor.antigravityGuia": "Instructions de Google",
+  "extensoes.motor.antigravityLoginLocal": "Dans le terminal de l’ordinateur indiqué, exécutez agy acp --login et suivez les instructions de Google. La session reste dans le CLI ; l’application ne reçoit pas vos identifiants.",
+  "extensoes.motor.antigravityGemini": "Alternative : clé API Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "Pour les automatisations, ajoutez une clé Google dans Comptes IA → Clés API sur l’ordinateur qui exécutera la routine. Choisissez Gemini dans le moteur Mexerica. Cette méthode n’utilise pas la connexion Antigravity.",
   "extensoes.titulo": "Extensions",
   "extensoes.paginas": "Pages des extensions",
   "extensoes.voltar": "Retour",

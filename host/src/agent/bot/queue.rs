@@ -899,7 +899,14 @@ impl Actor {
             let text = e
                 .downcast_ref::<crate::fork::assinatura_pessoal::Refusal>()
                 .map_or_else(|| format!("Couldn't start the agent: {e:#}"), ToString::to_string);
-            self.notice(&text, NoticeStyle::Error);
+            self.notice(
+                if e.to_string() == crate::fork::antigravity::MODE_UNCONFIRMED {
+                    crate::fork::antigravity::MODE_UNCONFIRMED
+                } else {
+                    &text
+                },
+                NoticeStyle::Error,
+            );
         }
         self.turn = None;
         self.input = None;

@@ -827,7 +827,11 @@ impl Actor {
     fn try_notice(&self, text: &str, style: NoticeStyle) -> Result<()> {
         let lane = if self.turn.is_some() { self.lane.clone() } else { Lane::main(&self.cfg.id) };
         let turn = self.turn.unwrap_or_else(|| self.hub.store.max_turn(&self.cfg.id));
-        let data = json!({"text": text, "style": style, "author": self.cfg.id});
+        let mut data = json!({"text": text, "style": style, "author": self.cfg.id});
+        if text == crate::fork::antigravity::MODE_UNCONFIRMED {
+            data["code"] = json!(text);
+            data["text"] = json!(crate::fork::antigravity::MODE_UNCONFIRMED_MESSAGE);
+        }
         if let Some(id) = self.completion_notice_id() {
             self.hub.add_entry_once(&id, &lane, EntryKind::Notice, turn, &data)?;
         } else {
