@@ -216,6 +216,7 @@ class ForkMailInboxStore(
 ) {
     var generation: Long = 0L
         private set
+    private var statusRequestId: Long = 0L
     private var pageRequestId: Long = 0L
     private var detailRequestId: Long = 0L
     private val threadBuffer = mutableListOf<MailInboxThreadSummary>()
@@ -261,6 +262,7 @@ class ForkMailInboxStore(
 
     fun resetForContextChange() {
         generation += 1L
+        statusRequestId += 1L
         pageRequestId += 1L
         detailRequestId += 1L
         threadBuffer.clear()
@@ -294,13 +296,20 @@ class ForkMailInboxStore(
             activeSpaceId = cleanSpaceId
         }
 
+        statusRequestId += 1L
+        val capturedStatusRequestId = statusRequestId
         val requestGeneration = generation
         isLoadingStatus = true
         lastError = null
 
         try {
             val result = transport.mailInboxStatus(cleanSpaceId)
-            if (generation != requestGeneration || activeSpaceId != cleanSpaceId) return
+            if (capturedStatusRequestId != statusRequestId ||
+                generation != requestGeneration ||
+                activeSpaceId != cleanSpaceId
+            ) {
+                return
+            }
             isLoadingStatus = false
             when (result) {
                 is MailInboxStatus.Ready -> {
@@ -328,12 +337,20 @@ class ForkMailInboxStore(
             }
         } catch (t: Throwable) {
             if (t is CancellationException) {
-                if (generation == requestGeneration && activeSpaceId == cleanSpaceId) {
+                if (capturedStatusRequestId == statusRequestId &&
+                    generation == requestGeneration &&
+                    activeSpaceId == cleanSpaceId
+                ) {
                     isLoadingStatus = false
                 }
                 throw t
             }
-            if (generation != requestGeneration || activeSpaceId != cleanSpaceId) return
+            if (capturedStatusRequestId != statusRequestId ||
+                generation != requestGeneration ||
+                activeSpaceId != cleanSpaceId
+            ) {
+                return
+            }
             isLoadingStatus = false
             val mapped = mapError(t)
             if (mapped == MailInboxError.UNAVAILABLE ||

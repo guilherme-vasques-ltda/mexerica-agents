@@ -397,6 +397,7 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
     public let featureEnabled: Bool
 
     public private(set) var generation: UInt64 = 0
+    private var statusRequestId: UInt64 = 0
     private var pageRequestId: UInt64 = 0
     private var detailRequestId: UInt64 = 0
     public private(set) var activeSpaceId: String?
@@ -438,6 +439,7 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
 
     public func resetForContextChange() {
         generation &+= 1
+        statusRequestId &+= 1
         pageRequestId &+= 1
         detailRequestId &+= 1
         activeSpaceId = nil
@@ -469,13 +471,17 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             activeSpaceId = cleanSpaceId
         }
 
+        statusRequestId &+= 1
+        let capturedStatusRequestId = statusRequestId
         let requestGeneration = generation
         isLoadingStatus = true
         lastError = nil
 
         do {
             let result = try await transport.mailInboxStatus(spaceId: cleanSpaceId)
-            guard generation == requestGeneration, activeSpaceId == cleanSpaceId else { return }
+            guard capturedStatusRequestId == statusRequestId,
+                  generation == requestGeneration,
+                  activeSpaceId == cleanSpaceId else { return }
             isLoadingStatus = false
             switch result {
             case .ready(let mailboxes):
@@ -499,12 +505,16 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             }
         } catch {
             if error is CancellationError {
-                if generation == requestGeneration && activeSpaceId == cleanSpaceId {
+                if capturedStatusRequestId == statusRequestId &&
+                    generation == requestGeneration &&
+                    activeSpaceId == cleanSpaceId {
                     isLoadingStatus = false
                 }
                 return
             }
-            guard generation == requestGeneration, activeSpaceId == cleanSpaceId else { return }
+            guard capturedStatusRequestId == statusRequestId,
+                  generation == requestGeneration,
+                  activeSpaceId == cleanSpaceId else { return }
             isLoadingStatus = false
             let mapped = Self.mapError(error)
             if mapped == .unavailable || mapped == .notConnected || mapped == .reconnectRequired {

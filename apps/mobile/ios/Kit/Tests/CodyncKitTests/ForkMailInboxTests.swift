@@ -2,13 +2,14 @@ import Foundation
 import Testing
 @testable import CodyncKit
 
-private final class FixtureMailInboxTransport: MailInboxTransport, @unchecked Sendable {
+@MainActor
+private final class FixtureMailInboxTransport: MailInboxTransport {
     var statusResponses: [String: Result<MailInboxStatus, Error>] = [:]
     var listResponses: [String: Result<MailInboxListThreadsResponse, Error>] = [:]
     var openResponses: [String: Result<MailInboxOpenThreadResponse, Error>] = [:]
     var recordedCalls: [String] = []
     var delayNanoseconds: UInt64 = 0
-    var onCallEntered: (@Sendable () -> Void)?
+    var onCallEntered: (@MainActor @Sendable () -> Void)?
 
     func mailInboxStatus(spaceId: String) async throws -> MailInboxStatus {
         recordedCalls.append("status:\(spaceId)")
@@ -60,6 +61,7 @@ private final class FixtureMailInboxTransport: MailInboxTransport, @unchecked Se
     }
 }
 
+@MainActor
 private func makeFixtureTransport() -> FixtureMailInboxTransport {
     let transport = FixtureMailInboxTransport()
 
@@ -382,13 +384,18 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
 
     transport.delayNanoseconds = 60_000_000
-    let firstOpen = Task {
-        await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-100")
+    var firstOpen: Task<Void, Never>?
+    await withCheckedContinuation { (enteredCont: CheckedContinuation<Void, Never>) in
+        transport.onCallEntered = {
+            enteredCont.resume()
+        }
+        firstOpen = Task {
+            await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-100")
+        }
     }
-    await Task.yield()
     transport.delayNanoseconds = 0
     await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-other")
-    await firstOpen.value
+    await firstOpen?.value
 
     #expect(store.openThread?.threadId == "thr-other")
 }
