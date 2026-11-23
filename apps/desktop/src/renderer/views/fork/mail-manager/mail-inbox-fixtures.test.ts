@@ -146,3 +146,71 @@ test('refresh na mesma caixa descarta paginação pendente e substitui a lista',
   assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo'])
   assert.equal(state.nextCursor, null)
 })
+
+test('refresh sem contexto não consulta gateway e limpa os dados; id vazio também nega', async () => {
+  let calls = 0
+  const gateway: MailInboxGateway = {
+    status: async () => { calls++; return fixtures.ready },
+    listThreads: async () => { calls++; return fixtures.threads },
+    openThread: async () => { calls++; return fixtures.detail },
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  await state.openThread('thread-demo')
+  calls = 0
+  await state.setContext(null)
+  assert.equal(state.status, 'unavailable')
+  assert.equal(state.error, 'context_unavailable')
+  assert.equal(state.mailboxId, null)
+  assert.deepEqual(state.mailboxes, [])
+  assert.deepEqual(state.threads, [])
+  assert.equal(state.thread, null)
+  await state.refresh('')
+  assert.equal(calls, 0)
+})
+
+test('cursor inválido só reinicia uma página posterior; primeira página inválida encerra sem loop', async () => {
+  let pageCalls = 0
+  const gateway: MailInboxGateway = {
+    status: async () => fixtures.ready,
+    listThreads: async (_spaceId, _mailboxId, cursor) => {
+      pageCalls++
+      if (cursor) throw { code: 'cursor_invalid' }
+      return { ...fixtures.threads, nextCursor: 'next' }
+    },
+    openThread: async () => fixtures.detail,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  await state.loadNextPage()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(pageCalls, 3)
+  assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo'])
+
+  let firstPageCalls = 0
+  const brokenGateway: MailInboxGateway = {
+    status: async () => fixtures.ready,
+    listThreads: async () => { firstPageCalls++; throw { code: 'cursor_invalid' } },
+    openThread: async () => fixtures.detail,
+  }
+  const broken = new MailInboxReadState(brokenGateway, 'space-a')
+  await broken.refresh()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(firstPageCalls, 1)
+  assert.equal(broken.status, 'unavailable')
+  assert.deepEqual(broken.threads, [])
+})
+
+test('paginação elimina fios duplicados pelo id estável', async () => {
+  const gateway: MailInboxGateway = {
+    status: async () => fixtures.ready,
+    listThreads: async (_spaceId, _mailboxId, cursor) => cursor
+      ? { threads: [...fixtures.threads.threads, { ...fixtures.threads.threads[0]!, threadId: 'thread-second' }], nextCursor: null }
+      : { ...fixtures.threads, nextCursor: 'next' },
+    openThread: async () => fixtures.detail,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  await state.loadNextPage()
+  assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo', 'thread-second'])
+})

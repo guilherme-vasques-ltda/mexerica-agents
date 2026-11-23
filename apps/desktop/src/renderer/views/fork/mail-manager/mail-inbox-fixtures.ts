@@ -123,9 +123,20 @@ export class MailInboxReadState extends Observable {
   }
 
   async refresh(spaceId = this.#spaceId): Promise<void> {
+    if (!spaceId) {
+      ++this.#generation
+      ++this.#listGeneration
+      this.#spaceId = ''
+      this.status = 'unavailable'
+      this.error = 'context_unavailable'
+      this.#clearContent()
+      this.#changed()
+      return
+    }
     this.#spaceId = spaceId
     const generation = ++this.#generation
     ++this.#listGeneration
+    this.#retryingInvalidCursor = false
     this.#clearContent()
     this.status = 'loading'
     this.error = null
@@ -150,23 +161,14 @@ export class MailInboxReadState extends Observable {
   }
 
   setContext(spaceId: string | null): Promise<void> {
-    if (spaceId === null) {
-      ++this.#generation
-      ++this.#listGeneration
-      this.#spaceId = ''
-      this.status = 'unavailable'
-      this.error = 'context_unavailable'
-      this.#clearContent()
-      this.#changed()
-      return Promise.resolve()
-    }
-    if (spaceId === this.#spaceId) return this.refresh(spaceId)
+    if (spaceId === null || !spaceId) return this.refresh('')
     return this.refresh(spaceId)
   }
 
   async selectMailbox(mailboxId: string): Promise<void> {
     if (this.status !== 'ready' || !this.mailboxes.some((mailbox) => mailbox.mailboxId === mailboxId)) return
     this.mailboxId = mailboxId
+    this.#retryingInvalidCursor = false
     const generation = this.#generation
     ++this.#listGeneration
     this.#clearContent()
@@ -186,11 +188,12 @@ export class MailInboxReadState extends Observable {
     try {
       const result = await this.#gateway.listThreads(this.#spaceId, mailboxId, cursor)
       if (generation !== this.#generation || listGeneration !== this.#listGeneration || mailboxId !== this.mailboxId) return
-      this.threads = [...this.threads, ...result.threads]
+      const known = new Set(this.threads.map((thread) => thread.threadId))
+      this.threads = [...this.threads, ...result.threads.filter((thread) => !known.has(thread.threadId))]
       this.nextCursor = result.nextCursor
       this.#changed()
     } catch (error) {
-      if (generation === this.#generation && listGeneration === this.#listGeneration) { this.#handleError(error); this.#changed() }
+      if (generation === this.#generation && listGeneration === this.#listGeneration) { this.#handleError(error, true); this.#changed() }
     } finally {
       if (generation === this.#generation && listGeneration === this.#listGeneration) { this.loadingPage = false; this.#changed() }
     }
@@ -237,20 +240,28 @@ export class MailInboxReadState extends Observable {
       if (generation !== this.#generation || listGeneration !== this.#listGeneration || mailboxId !== this.mailboxId) return
       this.threads = result.threads
       this.nextCursor = result.nextCursor
+      this.#retryingInvalidCursor = false
     } catch (error) {
-      if (generation === this.#generation && listGeneration === this.#listGeneration) this.#handleError(error)
+      if (generation === this.#generation && listGeneration === this.#listGeneration) this.#handleError(error, false)
     } finally {
       if (generation === this.#generation && listGeneration === this.#listGeneration) this.loadingPage = false
     }
   }
 
-  #handleError(error: unknown) {
+  #handleError(error: unknown, fromPage: boolean) {
     this.error = errorCode(error)
     if (this.error === 'cursor_invalid') {
+      if (!fromPage || this.#retryingInvalidCursor) {
+        this.status = 'unavailable'
+        ++this.#generation
+        this.#clearContent()
+        return
+      }
       this.#listGeneration++
       this.threads = []
       this.nextCursor = null
       this.thread = null
+      this.#retryingInvalidCursor = true
       void this.#loadFirstPage(this.#generation)
       return
     }
@@ -265,6 +276,8 @@ export class MailInboxReadState extends Observable {
   #changed() {
     this.changed()
   }
+
+  #retryingInvalidCursor = false
 }
 
 function errorCode(error: unknown): string {
