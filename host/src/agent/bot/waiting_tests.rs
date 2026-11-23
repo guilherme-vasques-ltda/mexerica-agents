@@ -1879,7 +1879,8 @@ async fn mx263_teto_bloqueando_na_retomada_segura_a_rotina() {
 
 #[tokio::test]
 async fn mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72() {
-    let f = Fixture::with_backend("claude");
+    let f = Fixture::new();
+    std::fs::write(f.dir.join("no-reset"), "").unwrap();
     let routine = f
         .hub
         .routines
@@ -1898,6 +1899,25 @@ async fn mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72() {
     assert!(saved["resumeAt"].is_null(), "sem retorno informado: vale o backoff D72");
     let now = crate::store::now_ms();
     assert!(saved["retryAt"].as_i64().unwrap() >= now + 290_000);
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn assinatura_pessoal_rotina_para_antes_do_motor() {
+    let f = Fixture::with_backend("claude");
+    let routine = f
+        .hub
+        .routines
+        .save(&f.hub, "bot", &json!({"name":"Rotina", "instruction":"Não enviar", "triggers":[{"type":"webhook"}]}))
+        .unwrap();
+    let id = routine["routine"]["id"].as_str().unwrap();
+    let run = f.enqueue(id, "test", true).await;
+    f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
+    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    assert!(f.prompts().is_empty());
+    assert!(!f.dir.join("session-count").exists());
+    assert!(!f.waiting_checkpoint_published());
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }

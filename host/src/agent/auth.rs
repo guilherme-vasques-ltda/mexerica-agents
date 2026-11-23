@@ -88,6 +88,7 @@ fn env_slot(backend: &str) -> String {
 
 /// Motor retirado da oferta: recusado na entrada, antes de resolver ou abrir qualquer executável.
 fn exigir_oferecido(backend: &str) -> Result<()> {
+    anyhow::ensure!(!crate::fork::assinatura_pessoal::muse(backend), "{}", crate::fork::assinatura_pessoal::META);
     anyhow::ensure!(
         !crate::fork::motores_retirados::retirado(backend),
         "{}",
@@ -101,6 +102,16 @@ pub fn env(store: &Store, backend: &str) -> Result<Vec<(String, String)>> {
     if backends::is_antigravity(backend) {
         return Ok(Vec::new());
     }
+    Ok(stored_env(store, backend)?
+        .into_iter()
+        .filter(|(key, value)| {
+            !crate::fork::assinatura_pessoal::known_meta_credential(key, value)
+                && !key.eq_ignore_ascii_case("CLAUDE_CODE_OAUTH_TOKEN")
+        })
+        .collect())
+}
+
+fn stored_env(store: &Store, backend: &str) -> Result<Vec<(String, String)>> {
     let Some(raw) = crate::market::vault::read(store, &env_slot(backend))? else {
         return Ok(Vec::new());
     };
@@ -473,16 +484,38 @@ pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) ->
     exigir_oferecido(backend)?;
     backends::require_supported_execution(backend)?;
     let mutation = crate::fork::engine_accounts::MUTATION.lock().await;
-    let mut saved: BTreeMap<String, String> = env(store, backend)?.into_iter().collect();
+    let mut saved: BTreeMap<String, String> = stored_env(store, backend)?.into_iter().collect();
     for (k, v) in vars {
         if !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || k.is_empty() {
             bail!("`{k}` isn't an environment variable name");
         }
         match v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(v) => saved.insert(k.clone(), v.to_owned()),
+            Some(v) => {
+                anyhow::ensure!(
+                    !crate::fork::assinatura_pessoal::known_meta_credential(k, v),
+                    "{}",
+                    crate::fork::assinatura_pessoal::META
+                );
+                anyhow::ensure!(
+                    !k.eq_ignore_ascii_case("CLAUDE_CODE_OAUTH_TOKEN"),
+                    "{}",
+                    crate::fork::assinatura_pessoal::CHAT_ONLY
+                );
+                saved.insert(k.clone(), v.to_owned())
+            }
             None => saved.remove(k),
         };
     }
+    anyhow::ensure!(
+        !saved.iter().any(|(key, value)| crate::fork::assinatura_pessoal::known_meta_credential(key, value)),
+        "{}",
+        crate::fork::assinatura_pessoal::META
+    );
+    anyhow::ensure!(
+        !saved.keys().any(|key| key.eq_ignore_ascii_case("CLAUDE_CODE_OAUTH_TOKEN")),
+        "{}",
+        crate::fork::assinatura_pessoal::CHAT_ONLY
+    );
     crate::market::vault::write(store, &env_slot(backend), &serde_json::to_string(&saved)?)?;
     drop(mutation);
     check(store, backend).await

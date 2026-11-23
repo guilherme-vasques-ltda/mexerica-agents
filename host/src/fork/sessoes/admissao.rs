@@ -180,6 +180,15 @@ pub(crate) fn apply_resume(
     let original = receipt::read_checkpoint(c, &key_for(c, &cfg.id, lane, token)?)?
         .ok_or_else(|| anyhow!("routing_resume_checkpoint_missing"))?;
     let admitted = &original.captured().routing.admitted;
+    if crate::fork::assinatura_pessoal::claude(&admitted.selection.backend)
+        || crate::fork::assinatura_pessoal::claude(&cfg.backend)
+    {
+        ensure!(
+            cfg.backend == admitted.selection.backend
+                && cfg.fork_editor.engine_account_id.as_deref() == Some(admitted.account_id.as_str()),
+            crate::fork::assinatura_pessoal::Refusal::Fallback
+        );
+    }
     ensure!(cfg.command.is_none(), "engine_choice_custom_command");
     cfg.backend.clone_from(&admitted.selection.backend);
     cfg.model.clone_from(&admitted.selection.model);

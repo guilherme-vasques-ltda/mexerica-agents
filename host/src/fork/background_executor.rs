@@ -245,6 +245,9 @@ where
                     resolved
                 }
             };
+            if crate::fork::assinatura_pessoal::claude(&resolved.config.backend) {
+                return Err(crate::fork::background_notice::Problem::PersonalSubscription.into());
+            }
             // Não ler/materializar o pedido antes de resolver a conta real. A
             // guarda também captura sua revisão original para os awaits seguintes.
             failure_stage = FailureStage::Revalidation;
@@ -258,16 +261,6 @@ where
                     error
                 } else {
                     crate::fork::background_notice::Problem::AccountChanged.into()
-                }
-            })?;
-            failure_stage = FailureStage::Usage;
-            crate::fork::background_selection::verify_quota(&hub.store, &resolved).await.map_err(|error| {
-                if error.downcast_ref::<crate::fork::background_notice::Problem>().is_some()
-                    || error.downcast_ref::<SubscriptionLimit>().is_some()
-                {
-                    error
-                } else {
-                    crate::fork::background_notice::Problem::Quota.into()
                 }
             })?;
             failure_stage = FailureStage::Revalidation;

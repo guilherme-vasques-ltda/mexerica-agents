@@ -51,6 +51,7 @@ export const mostrarApiDireta = (backends: readonly { id: string }[], isLoopback
   isLoopback && backends.some((b) => b.id === 'mexerica')
 
 const ERROS: Readonly<Record<string, ChaveTexto>> = {
+  meta_standard_unverified: 'contas.apiDireta.erro.metaStandard',
   chave_invalida: 'contas.apiDireta.erro.chaveInvalida',
   sem_permissao: 'contas.apiDireta.erro.semPermissao',
   limite: 'contas.apiDireta.erro.limite',

@@ -13,9 +13,18 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
     // motor, antes das demais regras. Só os binários desses motores; um executável arbitrário não
     // é bloqueado aqui.
     if let Some(command) = cfg.command.as_deref().map(str::trim).filter(|c| !c.is_empty())
-        && let Some(executavel) = shlex::split(command).and_then(|palavras| palavras.into_iter().next())
+        && let Some(palavras) = shlex::split(command)
+        && let Some(executavel) = palavras.first()
     {
-        let nome = name(&executavel);
+        for word in &palavras {
+            let bin = name(word.rsplit_once('@').filter(|(base, _)| !base.is_empty()).map_or(word, |(base, _)| base));
+            ensure!(!crate::fork::assinatura_pessoal::muse(&bin), crate::fork::assinatura_pessoal::Refusal::Meta);
+            ensure!(
+                cfg.backend == "claude" || !crate::fork::assinatura_pessoal::claude(&bin),
+                crate::fork::assinatura_pessoal::Refusal::Automation
+            );
+        }
+        let nome = name(executavel);
         crate::agent::backends::require_supported_execution(&nome)?;
         let abre_retirado = crate::agent::backends::HARNESSES
             .iter()

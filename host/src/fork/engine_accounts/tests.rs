@@ -3,6 +3,25 @@ use crate::LockExt;
 use crate::{remote::identity::Identity, store::Scope};
 use serde_json::json;
 
+#[tokio::test]
+async fn assinatura_pessoal_sem_sondagem_de_fundo() {
+    let dir = crate::store::private_fixture_dir("assinatura-fundo");
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+    for error in [
+        discover_background(&hub).await.unwrap_err(),
+        probe_background_choice(&hub, crate::fork::modelos_funcao::catalogo::FunctionId::MemoryConsolidation)
+            .await
+            .unwrap_err(),
+    ] {
+        assert!(matches!(
+            error.downcast_ref::<super::super::background_notice::Problem>(),
+            Some(super::super::background_notice::Problem::PersonalSubscription)
+        ));
+    }
+    assert!(hub.store.kv_read(SLOT).unwrap().is_none());
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn politica_linux_impede_processo_da_descoberta() {

@@ -193,6 +193,7 @@ pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> 
 #[cfg(all(test, unix))]
 mod usage_probe;
 
+pub(crate) mod assinatura_pessoal;
 pub(crate) mod ponte_credencial;
 
 pub(crate) mod compressao;

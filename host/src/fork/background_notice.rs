@@ -5,11 +5,13 @@ use serde_json::json;
 
 #[derive(Debug)]
 pub(crate) enum Problem {
+    PersonalSubscription,
     NoClaude,
     Codex,
     Api,
     Model,
     Policy,
+    #[cfg(test)]
     Quota,
     Version,
     Timeout,
@@ -24,11 +26,13 @@ pub(crate) enum Problem {
 impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::NoClaude => "Conecte uma conta Claude com assinatura nas Configurações do sistema.",
-            Self::Codex => "A assinatura Codex ainda não pode ser usada em tarefas de fundo. Conecte uma conta Claude com assinatura.",
-            Self::Api => "Contas com chave de API estarão disponíveis em breve. Por enquanto, conecte uma conta Claude com assinatura.",
+            Self::PersonalSubscription => crate::fork::assinatura_pessoal::CHAT_ONLY,
+            Self::NoClaude => "A assinatura Claude só funciona no chat. Use uma chave de API da Anthropic ou outro motor para automações. Este executor não troca de motor automaticamente.",
+            Self::Codex => "A assinatura Codex ainda não pode ser usada neste executor de fundo.",
+            Self::Api => "Este executor de fundo não aceita esta conta com chave de API. Nenhuma outra conta foi usada.",
             Self::Model => "Não foi possível confirmar um modelo para a conta Claude. Confira a conta nas Configurações do sistema.",
             Self::Policy => "As regras deste computador impedem a tarefa de fundo ou não puderam ser conferidas.",
+            #[cfg(test)]
             Self::Quota => "Não foi possível conferir o limite de uso da conta Claude. Vamos tentar novamente mais tarde.",
             Self::Version => {
                 return write!(
@@ -56,6 +60,7 @@ impl std::error::Error for Problem {}
 /// problema não é de seleção. Mesmo texto na resolução de `functionModels`.
 pub(crate) fn memory_selection_text(problem: &Problem) -> Option<String> {
     match problem {
+        Problem::PersonalSubscription => Some(problem.to_string()),
         Problem::AccountDisconnected { label } => Some(format!(
             "Organizar memória: a conta {label} está desconectada; reconecte em Contas de IA ou escolha outra em Bot de fundo > Modelos por função"
         )),
@@ -150,9 +155,9 @@ mod tests {
     #[test]
     fn mensagens_explicam_causa_sem_jargao_de_configuracao() {
         for (problem, expected) in [
-            (Problem::NoClaude, "Conecte uma conta Claude"),
+            (Problem::NoClaude, "assinatura Claude só funciona no chat"),
             (Problem::Codex, "assinatura Codex ainda não pode"),
-            (Problem::Api, "chave de API estarão disponíveis em breve"),
+            (Problem::Api, "não aceita esta conta com chave de API"),
             (Problem::Policy, "regras deste computador"),
             (Problem::Quota, "limite de uso"),
             (Problem::Version, "não foi validada para tarefas de fundo"),

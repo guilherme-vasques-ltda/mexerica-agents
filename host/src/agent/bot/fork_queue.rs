@@ -5,6 +5,24 @@ use anyhow::{Result, anyhow};
 use std::time::{Duration, Instant};
 
 impl Actor {
+    pub(super) fn stop_subscription_retry(&self, ids: &[String], error: &anyhow::Error) {
+        if error.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_none() {
+            return;
+        }
+        for id in ids {
+            if let Some(mut entry) = self.hub.store.entry(id)
+                && entry.bot_id == self.lane.chat
+                && entry.kind == EntryKind::User.as_str()
+                && entry.data["status"] == "queued"
+            {
+                entry.data["status"] = serde_json::json!("failed");
+                entry.data["error"] = serde_json::json!(error.to_string());
+                if self.hub.set_entry(id, &entry.data).is_none() {
+                    tracing::warn!("não foi possível salvar a recusa da assinatura");
+                }
+            }
+        }
+    }
     pub(super) fn retry_waiting_queue_restore(&mut self) {
         if self.queue_restore_retry_at.is_some_and(|at| Instant::now() >= at)
             && let Err(error) = self.restore_waiting_queue()

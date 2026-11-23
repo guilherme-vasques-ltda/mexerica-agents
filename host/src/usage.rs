@@ -1,15 +1,14 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 //! Subscription usage limits, read locally on the host — no extra login.
 //!
-//! Claude: asks the installed `claude` binary (`claude -p /usage`, a local
-//! command that costs nothing), plus the `rate_limits` Claude Code hands its
-//! status line and the Claude ACP adapter's rate-limit events. Codex: current
+//! Claude: passive status-line and rate-limit events. Codex: current
 //! global CLI account limits, without a model turn or reading old rollouts.
 
 use crate::LockExt;
 use crate::hub::Hub;
 use serde::Serialize;
 use serde_json::Value;
+#[cfg(all(test, unix))]
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -90,18 +89,10 @@ pub async fn refresh(hub: &Hub) {
         return;
     }
     crate::fork::codex_usage::refresh(hub).await;
-    if let Some(windows) = claude_cli_usage(&hub.store).await {
-        merge(hub, "claude", "Claude", "claude", windows);
-    }
-}
-
-/// `claude -p /usage`: Claude Code's own local usage report, no model call.
-async fn claude_cli_usage(store: &crate::store::Store) -> Option<Vec<Window>> {
-    let bin = crate::agent::backends::which("claude")?;
-    claude_cli_usage_at(store, &bin, &dirs::home_dir()?, Duration::from_secs(60)).await
 }
 
 /// Ponto de teste da chamada real, sem trocar PATH/ambiente global nem o parser.
+#[cfg(all(test, unix))]
 pub(crate) async fn claude_cli_usage_at(
     store: &crate::store::Store,
     bin: &Path,
@@ -112,26 +103,10 @@ pub(crate) async fn claude_cli_usage_at(
     claude_usage_output(bin, env, home, timeout).await
 }
 
-/// MEX-1294/F6-A: `claude -p /usage` no perfil isolado de uma conta gerenciada —
-/// ambiente fechado do setup (`HOME` própria, `CLAUDE_CONFIG_DIR` do perfil), nunca o login global.
-pub(crate) async fn claude_cli_usage_profile(bin: &Path, directory: &Path, timeout: Duration) -> Option<Vec<Window>> {
-    let env = crate::fork::engine_setup::profile_environment(directory, crate::fork::engine_accounts::Backend::Claude)
-        .into_iter()
-        .map(|(k, v)| (k.into(), v.into()))
-        .collect();
-    let mut windows = claude_usage_output(bin, env, directory, timeout).await?;
-    // O `/usage` só dá o texto ("Sep 26 at 12pm (Asia/Taipei)"): o Hub o transforma no instante, e a tela escreve a hora
-    // no idioma de quem olha, sem repassar o inglês cru do provedor.
-    let now = crate::store::now_ms();
-    for w in &mut windows {
-        w.resets_at = w.resets_at.or_else(|| w.resets_text.as_deref().and_then(|t| claude_reset_instant(t, now)));
-    }
-    Some(windows)
-}
-
 /// `Sep 26 at 12pm (Asia/Taipei)`, `5:30am (America/Sao_Paulo)` → instante em ms. Sem fuso ou fora desse formato,
 /// `None` (desconhecido; nunca um palpite). Só hora do dia: hoje, ou amanhã se já passou. Com dia: neste ano, ou no
 /// próximo se a data ficou mais de um dia para trás.
+#[cfg(test)]
 pub(crate) fn claude_reset_instant(text: &str, now_ms: i64) -> Option<i64> {
     use chrono::{Datelike, Days, NaiveDate, NaiveTime, TimeZone};
     let (when, zone) = text.trim().rsplit_once('(')?;
@@ -176,6 +151,7 @@ pub(crate) fn claude_reset_instant(text: &str, now_ms: i64) -> Option<i64> {
     }
 }
 
+#[cfg(all(test, unix))]
 async fn claude_usage_output(
     bin: &Path,
     env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
@@ -216,6 +192,7 @@ async fn claude_usage_output(
 }
 
 /// Lines like `Current week (all models): 53% used · resets Sep 26 at 12pm (Asia/Taipei)`.
+#[cfg(test)]
 pub fn parse_claude_usage(text: &str) -> Vec<Window> {
     text.lines()
         .filter_map(|line| {

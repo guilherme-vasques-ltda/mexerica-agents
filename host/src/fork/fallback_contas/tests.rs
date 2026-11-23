@@ -140,10 +140,13 @@ mod prova_dos_vinculos {
     #[test]
     fn uso_extra_nao_busca_origem_de_outro_space() {
         let hub = hub();
+        let mut account = conta("subscription", true);
+        account["backend"] = json!("codex");
+        registrar(&hub.store, &account);
         let pessoal = crate::fork::spaces::PERSONAL;
         let ate = crate::store::now_ms() + 60_000;
         estado::alterar(&hub.store, |e| {
-            e.ordens.insert(estado::chave_ordem(pessoal, "claude"), vec![CONTA.into()]);
+            e.ordens.insert(estado::chave_ordem(pessoal, "codex"), vec![CONTA.into()]);
             for origem in ["origem-pessoal", "origem-outro"] {
                 e.descanso.insert(origem.into(), super::Descanso { ate, motivo: super::Motivo::Esgotada });
             }

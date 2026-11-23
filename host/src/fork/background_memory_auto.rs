@@ -85,7 +85,8 @@ fn unavailable(error: &anyhow::Error) -> worker::Unavailable {
         || matches!(
             error.downcast_ref::<Problem>(),
             Some(
-                Problem::NoClaude
+                Problem::PersonalSubscription
+                    | Problem::NoClaude
                     | Problem::Codex
                     | Problem::Api
                     | Problem::Model

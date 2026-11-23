@@ -662,7 +662,12 @@ pub fn list() -> Vec<Value> {
     let known: HashSet<&str> = HARNESSES.iter().filter_map(|h| h.registry).collect();
     for a in &registry {
         let id = a["id"].as_str().unwrap_or_default();
-        if id.is_empty() || known.contains(id) || id == "github-copilot" || crate::fork::motores_retirados::retirado(id)
+        if id.is_empty()
+            || known.contains(id)
+            || id == "github-copilot"
+            || crate::fork::motores_retirados::retirado(id)
+            || crate::fork::assinatura_pessoal::muse(id)
+            || crate::fork::assinatura_pessoal::claude(id)
         {
             continue;
         }
@@ -796,6 +801,12 @@ pub async fn launch_candidates(
     progress: impl Fn(&str, Option<crate::fork::activity_code::ActivityKind>),
 ) -> anyhow::Result<Vec<registry::Cmd>> {
     require_supported_execution(id)?;
+    anyhow::ensure!(!crate::fork::assinatura_pessoal::muse(id), "{}", crate::fork::assinatura_pessoal::META);
+    anyhow::ensure!(
+        id == "claude" || !crate::fork::assinatura_pessoal::claude(id),
+        "{}",
+        crate::fork::assinatura_pessoal::CHAT_ONLY
+    );
     if crate::fork::motores_retirados::retirado(id) {
         return Err(acp::Failure::error(acp::FailureKind::NotSetUp, crate::fork::motores_retirados::msg_lancar(id)));
     }

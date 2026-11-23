@@ -8,7 +8,7 @@ use crate::chat::memory;
 use crate::fork::activity_code::ActivityKind;
 use crate::hub::BotStatus;
 use crate::market::requests;
-use crate::store::Lane;
+use crate::store::{EntryKind, Lane};
 use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::time::Instant;
@@ -681,6 +681,7 @@ impl Actor {
                 self.handoff_chat = Some(lane.clone());
             }
             if let Err(e) = self.start_turn(lane, &ids, &text, false, done_tx).await {
+                self.stop_subscription_retry(&ids, &e);
                 self.start_failed(&e);
                 self.requeue_unreserved_humans(&ids);
             }
@@ -801,18 +802,31 @@ impl Actor {
         } else {
             crate::fork::rotina_resultado::Reason::StartFailed
         };
-        self.finish_routine(
-            crate::fork::rotina_resultado::Observed::failed(reason),
-            Some(format!("Could not start routine: {e:#}")),
-            None,
-        );
+        let subscription_refused = e.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_some();
+        let mut observed = crate::fork::rotina_resultado::Observed::failed(reason);
+        observed.terminal = subscription_refused;
+        self.finish_routine(observed, Some(format!("Could not start routine: {e:#}")), None);
         self.complete_request(
             Err(anyhow!("couldn't start recipient: {e:#}")),
             false,
             crate::fork::retornos::Fim::FalhaInicio,
         );
+        let room_refusal = self.active_group.is_some() && subscription_refused;
+        if room_refusal
+            && self
+                .hub
+                .add_entry(
+                    &self.lane,
+                    EntryKind::Notice,
+                    self.hub.store.max_turn(&self.lane.chat),
+                    &json!({"text":e.to_string(),"style":"error","author":self.cfg.id}),
+                )
+                .is_none()
+        {
+            tracing::warn!("não foi possível publicar a recusa no canal");
+        }
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
-        if !invited {
+        if !invited && !room_refusal {
             // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
             self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);
         }
