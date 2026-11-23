@@ -37,7 +37,7 @@ impl Scope {
         if bind.is_empty() || bind.chars().any(char::is_whitespace) {
             bail!("--bind vazio ou com espaço; omita a opção para escutar só em {LOOPBACK}");
         }
-        if bind.contains(':') && bind.parse::<std::net::IpAddr>().is_err() {
+        if bind.contains(':') && !is_ip_literal(bind) {
             bail!("--bind recebe só o endereço, sem porta; a porta vai em --port");
         }
         if self == Self::ThisMacOnly && bind != LOOPBACK {
@@ -49,6 +49,15 @@ impl Scope {
     /// O Hub local não inicia o relay de saída; login, motores e Hubs remotos seguem iguais.
     pub fn runs_outbound_relay(self) -> bool {
         self == Self::Network
+    }
+}
+
+/// IP literal, inclusive IPv6 com zona de escopo (link-local `…%eth0`); a zona não pode conter
+/// `:`, então `…%eth0:80` continua sendo endereço com porta.
+fn is_ip_literal(bind: &str) -> bool {
+    match bind.split_once('%') {
+        Some((addr, zone)) => addr.parse::<std::net::Ipv6Addr>().is_ok() && !zone.is_empty() && !zone.contains(':'),
+        None => bind.parse::<std::net::IpAddr>().is_ok(),
     }
 }
 
@@ -281,7 +290,9 @@ mod tests {
             let (bind, _) = resolve_serve(None, only_this_mac, mac_service).unwrap();
             assert_eq!(bind, LOOPBACK, "{only_this_mac} {mac_service}");
         }
-        for explicit in ["0.0.0.0", "::", "192.0.2.10", "127.0.0.1"] {
+        for explicit in
+            ["0.0.0.0", "::", "192.0.2.10", "127.0.0.1", "2001:db8::1%eth0", "2001:db8::1%2", "hub.example.invalid"]
+        {
             let (bind, scope) = resolve_serve(Some(explicit), false, false).unwrap();
             assert_eq!((bind.as_str(), scope), (explicit, Scope::Network));
         }
@@ -302,6 +313,8 @@ mod tests {
             "[::1]",
             "localhost:19422",
             "hub.example.invalid:80",
+            "2001:db8::1%eth0:80",
+            "2001:db8::1%",
         ];
         for bad in bads {
             let message = Scope::Network.check_bind(bad).unwrap_err().to_string();

@@ -79,8 +79,10 @@ interface da VPN no firewall. A API local continua aceitando só chamadas do loo
 **Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
 Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde
 esse acesso até passar para o túnel ou o relay (ou, em último caso, para um `--bind`
-explícito como acima). Uma unidade com `--bind 0.0.0.0` escrito à mão continua como
-está e passa a gerar o aviso.
+explícito como acima). Num reinício simples, uma unidade com `--bind 0.0.0.0` escrito à
+mão continua como está e passa a gerar o aviso. A atualização gerida e a reinstalação
+regravam esse `--bind` para `127.0.0.1`; depois delas, a escuta na rede precisa ser
+configurada de novo com um `--bind` explícito.
 
 ## Referência herdada do Codync
 
