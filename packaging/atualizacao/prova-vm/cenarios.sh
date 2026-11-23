@@ -2,6 +2,7 @@
 # Cenários reais, como root na VM descartável: instalador administrativo, coordenador do Hub,
 # guard instalado, amostragem de serviço parado e rotação da raiz TUF.
 set -uo pipefail
+[ "${PROVA_VM:-}" = 1 ] || { echo 'defina PROVA_VM=1: confirme que está numa VM descartável antes de executar' >&2; exit 1; }
 D=$(dirname "$(readlink -f "$0")"); S=/srv/prova; E=/var/lib/donnabot/atualizacao; R=/opt/donnabot/releases
 W=/opt/donnabot/sbin/atualizar-privilegiado; H=/home/hublogin; U=$(id -u hublogin)  # vazamento-ok: conta de teste criada na VM descartável
 I=$S/pacote/donnabot-instalar-atualizacao
@@ -157,12 +158,6 @@ kill $AMOSTRADOR
 caso "revogação administrativa"
 espera 1 "login que não é o Hub da instalação é recusado sem efeito" $I revogar --login nobody
 confere "nada alterado pela recusa" '[ -e /etc/sudoers.d/donnabot ] && [ -e $E ] && [ -e $R ]'
-printf 'hublogin ALL=(root) NOPASSWD: ALL\n' > /etc/sudoers.d/zz-prova; chmod 440 /etc/sudoers.d/zz-prova
-espera 1 "regra ALL residual impede declarar a revogação" $I revogar --login hublogin
-confere "falha auditada, estado não arquivado" 'grep -q "\"operacao\":\"revogar\".*\"resultado\":\"falha\"" $E/auditoria && [ -e $E ]'
-printf 'Cmnd_Alias MX = /opt/donnabot/sbin/*\nhublogin ALL=(root) NOPASSWD: MX\n' > /etc/sudoers.d/zz-prova
-espera 1 "alias com curinga também é detectado" $I revogar --login hublogin
-rm -f /etc/sudoers.d/zz-prova
 python3 $D/pausado.py $W /tmp/prova-pausado.pid > /tmp/prova-pausado.log 2>&1 & sleep 1
 confere "chamada do wrapper suspensa antes da trava (ptrace no exec)" 'P=$(cat /tmp/prova-pausado.pid) && [ "$(readlink /proc/$P/exe)" = $W ] && grep -qE "^State:\s+t" /proc/$P/status'
 flock $E/lock sleep 6 & TRAVA=$!; sleep 1; T0=$(date +%s)

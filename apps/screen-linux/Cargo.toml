@@ -12,6 +12,7 @@ atspi = { version = "0.30", default-features = false, features = ["proxies", "co
 base64 = "0.22"
 dirs = "7"
 futures-util = "0.3"
+rustix = { version = "1", features = ["fs", "process"] }
 gst = { package = "gstreamer", version = "0.25" }
 gst-app = { package = "gstreamer-app", version = "0.25" }
 gst-sdp = { package = "gstreamer-sdp", version = "0.25" }
