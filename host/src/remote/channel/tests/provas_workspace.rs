@@ -9,7 +9,7 @@ async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
     let hub = temp_hub();
     let fica = paired_phone(&hub).await;
     let fica_dk = crypto::b64(fica.verifying_key().as_bytes());
-    let generation = crate::fork::autoridade::Autoridade::geracao_atual(&hub.store.db.locked(), &fica_dk).unwrap();
+    let generation = autoridade::Autoridade::geracao_atual(&hub.store.db.locked(), &fica_dk).unwrap();
     let sai = paired_phone(&hub).await;
     let sai_dk = crypto::b64(sai.verifying_key().as_bytes());
     let mut p = Phone::direct(&hub, fica);
