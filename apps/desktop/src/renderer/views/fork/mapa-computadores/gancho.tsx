@@ -1,4 +1,4 @@
-// GUI-467: gancho estreito em Ajustes → Computadores. Com a constante em `false`, o `import()` nem existe no
+// Gancho estreito em Ajustes → Computadores. Com a constante em `false`, o `import()` nem existe no
 // bundle: o ternário é dobrado na compilação, e o módulo da demonstração e as fixtures não são emitidos.
 import { lazy, Suspense } from 'react'
 

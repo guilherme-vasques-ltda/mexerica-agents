@@ -1,4 +1,4 @@
-// GUI-467：计算机地图演示（虚构数据，位于关闭的开关之后）。完整键名；docs/guides/idiomas.md。
+// 计算机地图演示（虚构数据，位于关闭的开关之后）。完整键名；docs/guides/idiomas.md。
 import type { Traducao } from '../../index.ts'
 import type { textos as fonte } from '../../pt-BR/computadores/mapa.ts'
 

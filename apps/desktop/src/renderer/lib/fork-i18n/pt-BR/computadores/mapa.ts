@@ -1,4 +1,4 @@
-// GUI-467: demonstração do mapa de computadores (dados fictícios, atrás de flag desligada). Chaves completas; docs/guides/idiomas.md.
+// demonstração do mapa de computadores (dados fictícios, atrás de flag desligada). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
   'mapaComputadores.titulo': 'Mapa de computadores',
   'mapaComputadores.aviso': 'Demonstração com dados fictícios. Nenhum computador real foi consultado nem alterado.',

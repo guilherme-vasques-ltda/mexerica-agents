@@ -1,4 +1,4 @@
-// GUI-467: demostración del mapa de computadores (datos ficticios, detrás de una bandera apagada). Claves completas; docs/guides/idiomas.md.
+// demostración del mapa de computadores (datos ficticios, detrás de una bandera apagada). Claves completas; docs/guides/idiomas.md.
 import type { Traducao } from '../../index.ts'
 import type { textos as fonte } from '../../pt-BR/computadores/mapa.ts'
 

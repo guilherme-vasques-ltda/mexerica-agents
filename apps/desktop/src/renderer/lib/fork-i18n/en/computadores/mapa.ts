@@ -1,4 +1,4 @@
-// GUI-467: computer map demo (fictional data, behind a flag that is off). Full keys; docs/guides/idiomas.md.
+// computer map demo (fictional data, behind a flag that is off). Full keys; docs/guides/idiomas.md.
 import type { Traducao } from '../../index.ts'
 import type { textos as fonte } from '../../pt-BR/computadores/mapa.ts'
 

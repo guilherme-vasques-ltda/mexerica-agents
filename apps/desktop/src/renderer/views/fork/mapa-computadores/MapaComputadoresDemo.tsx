@@ -1,11 +1,12 @@
-// GUI-467: demonstração do mapa de computadores com dados fictícios. Só aparece com a flag do gancho ligada;
+// Demonstração do mapa de computadores com dados fictícios. Só aparece com a constante do gancho ligada;
 // não oferece adicionar, conectar nem revogar, e não consulta nenhum computador real.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { fixturas } from './fixtures.ts'
 import { filtrar, projetarAmostra, projetarFatos, type Computador, type Filtro } from './modelo.ts'
 import './mapa-computadores.css'
 
+const RELOGIO_VALIDACAO_MS = 15_000
 const FILTROS: readonly Filtro[] = ['todos', 'tunel_em_uso', 'sem_autorizacao']
 const CHAVE_FILTRO = { todos: 'mapaComputadores.filtro.todos', tunel_em_uso: 'mapaComputadores.filtro.tunel', sem_autorizacao: 'mapaComputadores.filtro.semAutorizacao' } as const
 const CHAVE_FATO = { rota: 'mapaComputadores.fato.rota', tunel: 'mapaComputadores.fato.tunel', identidade: 'mapaComputadores.fato.identidade', autorizacao: 'mapaComputadores.fato.autorizacao' } as const
@@ -13,8 +14,13 @@ const CHAVE_FATO = { rota: 'mapaComputadores.fato.rota', tunel: 'mapaComputadore
 export function MapaComputadoresDemo() {
   const t = useT()
   const idioma = useIdioma()
-  const [agora] = useState(() => Date.now())
-  const computadores = useMemo(() => fixturas(agora), [agora])
+  const [base] = useState(() => Date.now())
+  const [agora, setAgora] = useState(() => Date.now())
+  const computadores = useMemo(() => fixturas(base), [base])
+  useEffect(() => {
+    const id = setInterval(() => setAgora(Date.now()), RELOGIO_VALIDACAO_MS)
+    return () => clearInterval(id)
+  }, [])
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [selecionadoId, setSelecionadoId] = useState('esta')
   const visiveis = filtrar(computadores, filtro)

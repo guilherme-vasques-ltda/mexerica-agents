@@ -1,4 +1,4 @@
-// GUI-467: عرض خريطة أجهزة الكمبيوتر (بيانات وهمية، خلف مفتاح مُعطّل). المفاتيح كاملة؛ docs/guides/idiomas.md.
+// عرض خريطة أجهزة الكمبيوتر (بيانات وهمية، خلف مفتاح مُعطّل). المفاتيح كاملة؛ docs/guides/idiomas.md.
 import type { Traducao } from '../../index.ts'
 import type { textos as fonte } from '../../pt-BR/computadores/mapa.ts'
 

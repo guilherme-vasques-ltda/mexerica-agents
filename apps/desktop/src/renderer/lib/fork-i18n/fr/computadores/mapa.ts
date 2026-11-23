@@ -1,4 +1,4 @@
-// GUI-467 : démonstration de la carte des ordinateurs (données fictives, derrière un drapeau désactivé). Clés complètes ; docs/guides/idiomas.md.
+// démonstration de la carte des ordinateurs (données fictives, derrière un drapeau désactivé). Clés complètes ; docs/guides/idiomas.md.
 import type { Traducao } from '../../index.ts'
 import type { textos as fonte } from '../../pt-BR/computadores/mapa.ts'
 

@@ -27,9 +27,23 @@ test('amostra faltante, nula ou em formato errado vira ausente ou inválida, sem
   assert.deepEqual(projetarAmostra({ cpu: 1, memoria: 1, coletadaEm: ha(1000) }, AGORA), { estado: 'invalida' })
 })
 
-test('amostra com horário no futuro é recusada, com a folga de um minuto', () => {
-  assert.deepEqual(projetarAmostra({ ...boa, coletadaEm: ha(-30_000) }, AGORA), { estado: 'fresca', cpu: 10, memoria: 20, disco: 30, alertaDisco: false })
-  assert.deepEqual(projetarAmostra({ ...boa, coletadaEm: ha(-120_000) }, AGORA), { estado: 'futura' })
+test('amostra no horário exato do agora é fresca; 1 ms no futuro já oculta números e alertas', () => {
+  assert.deepEqual(projetarAmostra({ ...boa, coletadaEm: ha(0) }, AGORA), { estado: 'fresca', cpu: 10, memoria: 20, disco: 30, alertaDisco: false })
+  assert.deepEqual(projetarAmostra({ ...boa, coletadaEm: new Date(AGORA + 1).toISOString() }, AGORA), { estado: 'futura' })
+  assert.deepEqual(projetarAmostra({ ...boa, disco: 99, coletadaEm: ha(-30_000) }, AGORA), { estado: 'futura' })
+})
+
+test('a virada da fronteira de 5 min é exata: no limite fica fresca, 1 ms depois fica obsoleta', () => {
+  const instante = { ...boa, coletadaEm: ha(PRAZO_AMOSTRA_MS) }
+  assert.equal(projetarAmostra(instante, AGORA).estado, 'fresca')
+  assert.equal(projetarAmostra(instante, AGORA + 1).estado, 'obsoleta')
+  assert.equal(projetarAmostra({ ...boa, coletadaEm: ha(PRAZO_AMOSTRA_MS - 1) }, AGORA + 1).estado, 'fresca')
+})
+
+test('relógio de validação inválido rejeita até amostra válida', () => {
+  const fresca = { ...boa, coletadaEm: ha(1000) }
+  assert.deepEqual(projetarAmostra(fresca, Number.NaN), { estado: 'invalida' })
+  assert.deepEqual(projetarAmostra(fresca, Number.POSITIVE_INFINITY), { estado: 'invalida' })
 })
 
 test('os quatro fatos são projetados um a um, sem deduzir um do outro', () => {

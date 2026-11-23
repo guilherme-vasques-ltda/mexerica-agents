@@ -1,9 +1,9 @@
-// GUI-467: dados fictícios da demonstração (domínios reservados, sem endereço ou nome real). Nunca lidos
-// de rede, Hub ou disco: a tela só os monta quando a demonstração está ligada.
+// Dados fictícios da demonstração (domínios reservados, sem endereço ou nome real). Nunca lidos de rede, Hub ou disco:
+// a tela só os monta quando a demonstração está ligada. `base` é o relógio fixo da montagem, separado do relógio de validação.
 import type { Computador } from './modelo.ts'
 
-export function fixturas(agora: number): Computador[] {
-  const ha = (minutos: number) => new Date(agora - minutos * 60_000).toISOString()
+export function fixturas(base: number): Computador[] {
+  const ha = (minutos: number) => new Date(base - minutos * 60_000).toISOString()
   return [
     {
       id: 'esta',
