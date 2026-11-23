@@ -242,14 +242,12 @@ impl Actor {
         // F6-B: perto do limite ou esgotada, a conversa do dono passa para a próxima conta antes de capturar o turno.
         self.fallback_prepare(&lane, entry_ids, hidden, prepared_token.as_deref()).await;
         let (cfg, promoted) = self.turn_config(&lane, entry_ids, hidden, prepared_token.as_deref())?;
+        let personal_lane =
+            self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
         crate::fork::assinatura_pessoal::turn(
             &cfg,
-            !hidden
-                && !entry_ids.is_empty()
-                && lane.chat == cfg.id
-                && self.active_request.is_none()
-                && self.active_group.is_none()
-                && self.active_routine.is_none(),
+            personal_lane && !hidden && !entry_ids.is_empty() && lane.chat == cfg.id,
+            personal_lane && self.owner_compaction(&lane),
         )?;
         if cfg.context != self.cfg.context
             || crate::agent::own_memory::kept(&cfg) != crate::agent::own_memory::kept(&self.cfg)

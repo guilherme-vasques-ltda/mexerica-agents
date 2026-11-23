@@ -28,6 +28,7 @@ pub struct Read {
 pub struct Request {
     pub read: Read,
     pub compact: bool,
+    pub(super) owner: Option<crate::fork::engine_setup::access::Authority>,
 }
 
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
@@ -36,13 +37,16 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     let read: Read = serde_json::from_value(body).map_err(|_| anyhow!("invalid_context_request"))?;
     ensure!(read.hub_id.as_deref().is_none_or(|id| id == hub.host_id), "context_engine_changed");
     let target = resolve(hub, &read)?;
+    let compact = method == "donnaContextCompact";
+    let owner = if compact && target.engine["backend"].as_str().is_some_and(crate::fork::assinatura_pessoal::claude) {
+        Some(crate::fork::engine_setup::access::resolve(hub, caller)?)
+    } else {
+        None
+    };
     let (reply, answer) = tokio::sync::oneshot::channel();
     hub.send_cmd(
         &target.bot,
-        crate::agent::bot::Cmd::ForkContext {
-            request: Request { read, compact: method == "donnaContextCompact" },
-            reply,
-        },
+        crate::agent::bot::Cmd::ForkContext { request: Request { read, compact, owner }, reply },
     )?;
     tokio::time::timeout(std::time::Duration::from_secs(30), answer).await??
 }
@@ -246,7 +250,13 @@ pub(crate) fn breakdown(used: u64, parts: Option<crate::chat::context::Parts>) -
 pub(crate) struct Manual {
     pub target: Target,
     pub read: Read,
+    pub owner: Option<crate::fork::engine_setup::access::Authority>,
     pub reply: tokio::sync::oneshot::Sender<Result<Value>>,
+}
+
+pub(crate) struct ActiveCompaction {
+    pub target: Target,
+    pub owner: Option<crate::fork::engine_setup::access::Authority>,
 }
 
 #[cfg(test)]

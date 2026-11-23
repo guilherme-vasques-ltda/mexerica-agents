@@ -402,13 +402,14 @@ impl Actor {
     ) -> Result<()> {
         crate::agent::backends::require_supported_execution(&self.cfg.backend)?;
         let hub = self.hub.clone();
+        let personal_lane =
+            self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none();
         crate::fork::assinatura_pessoal::turn(
             &self.cfg,
-            !entries.is_empty()
-                && self.input.as_ref().is_some_and(|input| input.direct_chat(&self.cfg))
-                && self.active_group.is_none()
-                && self.active_request.is_none()
-                && self.active_routine.is_none(),
+            personal_lane
+                && !entries.is_empty()
+                && self.input.as_ref().is_some_and(|input| input.direct_chat(&self.cfg)),
+            personal_lane && self.owner_compaction(&self.lane),
         )?;
         let account_guard =
             if self.cfg.context.is_some() { Some(crate::fork::engine_accounts::MUTATION.lock().await) } else { None };

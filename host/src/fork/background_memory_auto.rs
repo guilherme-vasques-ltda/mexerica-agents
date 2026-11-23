@@ -171,7 +171,7 @@ fn renew_reservation(section: &MemorySection<'_>, r: &Reservation, authorize: Au
 }
 
 pub(crate) async fn run(hub: &Arc<Hub>, bot: &str) -> Result<Ran> {
-    run_with(hub, bot, || async { Err(Problem::PersonalSubscription.into()) }).await
+    run_with(hub, bot, || async { Ok(()) }).await
 }
 
 async fn run_with<F, Fut>(hub: &Arc<Hub>, bot: &str, discover: F) -> Result<Ran>

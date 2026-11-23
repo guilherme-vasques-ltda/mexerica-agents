@@ -43,8 +43,10 @@ pub(crate) fn automation(cfg: &BotConfig) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn turn(cfg: &BotConfig, direct_chat: bool) -> Result<()> {
-    if !direct_chat || cfg.is_group() || cfg.context.is_some() || cfg.space_id != crate::fork::spaces::PERSONAL {
+pub(crate) fn turn(cfg: &BotConfig, direct_chat: bool, owner_compaction: bool) -> Result<()> {
+    let personal_action = (direct_chat && cfg.context.is_none())
+        || (owner_compaction && cfg.context.as_ref().is_none_or(|context| !context.foreign_identity));
+    if !personal_action || cfg.is_group() || cfg.space_id != crate::fork::spaces::PERSONAL {
         return automation(cfg);
     }
     anyhow::ensure!(!muse(&cfg.backend), Refusal::Meta);
@@ -61,10 +63,11 @@ mod tests {
         for backend in ["claude", "claude-acp", "muse", "muse-code", "mexerica", "codex"] {
             let mut cfg: BotConfig =
                 serde_json::from_value(json!({"id":"b", "name":"Bot", "backend":backend})).unwrap();
-            assert_eq!(turn(&cfg, true).is_ok(), !muse(backend), "{backend}");
-            assert_eq!(turn(&cfg, false).is_ok(), matches!(backend, "mexerica" | "codex"), "{backend}");
+            assert_eq!(turn(&cfg, true, false).is_ok(), !muse(backend), "{backend}");
+            assert_eq!(turn(&cfg, false, true).is_ok(), !muse(backend), "{backend}: compactação manual");
+            assert_eq!(turn(&cfg, false, false).is_ok(), matches!(backend, "mexerica" | "codex"), "{backend}");
             cfg.space_id = "outside".into();
-            assert_eq!(turn(&cfg, true).is_ok(), matches!(backend, "mexerica" | "codex"), "{backend}");
+            assert_eq!(turn(&cfg, true, true).is_ok(), matches!(backend, "mexerica" | "codex"), "{backend}");
         }
     }
 

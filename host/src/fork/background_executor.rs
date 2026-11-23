@@ -161,16 +161,7 @@ async fn run_observed(
     function: crate::fork::background_history::Function,
     boundary: Option<MemoryBoundary<'_>>,
 ) -> Result<JobResponse> {
-    run_observed_with(
-        hub,
-        cfg,
-        input,
-        exposed,
-        function,
-        || async { Err(crate::fork::background_notice::Problem::PersonalSubscription.into()) },
-        boundary,
-    )
-    .await
+    run_observed_with(hub, cfg, input, exposed, function, || async { Ok(()) }, boundary).await
 }
 
 async fn run_observed_with<F, Fut>(
@@ -666,7 +657,7 @@ mod history_tests {
         let cfg: BotConfig = serde_json::from_value(json!({"id":"b", "name":"Bot", "backend":"claude"})).unwrap();
         hub.store.save_bot(&cfg).unwrap();
         let error = one_shot(&hub, &cfg, "instrução", "conteúdo").await.err().unwrap();
-        assert!(matches!(error.downcast_ref::<Problem>(), Some(Problem::PersonalSubscription)));
+        assert!(matches!(error.downcast_ref::<Problem>(), Some(Problem::NoClaude)));
         assert!(hub.store.kv_read(crate::fork::engine_accounts::SLOT).unwrap().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }

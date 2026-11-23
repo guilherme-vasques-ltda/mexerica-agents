@@ -575,7 +575,7 @@ struct Actor {
     profile_resend: HashSet<String>,
     /// The running turn is a compaction the host started (`Some(true)` while the user is away).
     compacting: Option<bool>,
-    context_compaction: Option<crate::fork::contexto::Target>,
+    context_compaction: Option<crate::fork::contexto::ActiveCompaction>,
     /// The next prompt goes as it is: a command such as `/compact`, with nothing put before or after it.
     raw_prompt: bool,
     /// What the next prompt carries from the conversation it starts over from.
