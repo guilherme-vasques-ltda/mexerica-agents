@@ -1,6 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { writePrivateFile } from '../shared/fork-private-files'
-import { identity } from './environment'
+import { identity, isRc } from './environment'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { CapturedSSHLocal, LocalCloudIntent } from '../shared/fork-cloud-local'
@@ -43,6 +43,7 @@ export function validate(p: SSHProfile): SSHMotivo | null {
   const inRange = (n: number) => Number.isInteger(n) && n >= 1 && n <= 65535
   if (p.port !== null && !inRange(p.port)) return motivoSSH('ajustes.ssh.erro.porta').motivo
   if (!inRange(p.remotePort)) return motivoSSH('marca.ssh.portaFaixa').motivo
+  if (isRc && p.remotePort !== identity.port) return motivoSSH('marca.ssh.portaRc', { porta: identity.port }).motivo
   if (p.identityFile !== null) {
     let ok = false
     try {
@@ -331,6 +332,7 @@ class SSHComputers {
     try {
       this.profiles = JSON.parse(readFileSync(file, 'utf8')) as SSHProfile[]
     } catch {
+      if (isRc) return
       // D76/D293: na primeira abertura, o Hub como computador SSH (editável ou removível em Computadores),
       // só se o alias existir no ~/.ssh/config desta máquina. Só no Donnabot: um build Dev nunca aponta para o Hub.
       const alias = hubSSHAlias(process.env)
@@ -481,7 +483,7 @@ class SSHComputers {
       writePrivateFile(join(dataDir, 'ssh_known_hosts'), lines.join('\n') + '\n', true)
       const profile=this.profiles.find(p=>p.id===id)
       // Falha parcial é unknownLegacy no PL1; não rompe a política SSH existente.
-      if (profile) { try { await (await import('./fork-cloud/personal-ssh')).recordPersonalTofu(dataDir,profile,lines) } catch {} }
+      if (!isRc && profile) { try { await (await import('./fork-cloud/personal-ssh')).recordPersonalTofu(dataDir,profile,lines) } catch {} }
     } catch (e) {
       return this.setStatus(id, { kind: 'failed', ...falha('ajustes.ssh.erro.salvarChave', { detalhe: e instanceof Error ? e.message : String(e) }) })
     }
@@ -565,8 +567,9 @@ class SSHComputers {
       }
       return { kind: 'retry', ...falha('ajustes.ssh.erro.conectar', { host: profile.host, detalhe: lastLine(result.stderr) }) }
     }
-    if (result.status === 127) return stop({ kind: 'notInstalled' })
     const info = parseInfo(result.stdout)
+    if (isRc && (result.status !== 0 || !info?.running)) return stop({ kind: 'failed', ...falha('marca.ssh.hubRcIndisponivel') })
+    if (result.status === 127) return stop({ kind: 'notInstalled' })
     if (!info) {
       if (result.status === 0) return stop({ kind: 'notInstalled' })
       return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.identidade', { host: profile.host, comando: COMANDO_INSTALAR_HOST, detalhe: lastLine(result.stderr) }) })
@@ -641,7 +644,7 @@ class SSHComputers {
 
   private async recordedKeys(name: string, certAuthorities = true) {
     const keys = new Set<string>()
-    for (const file of knownHostsFiles(home, dataDir)) {
+    for (const file of knownHostsFiles(home, dataDir, isRc)) {
       if (!existsSync(file)) continue
       const found = await run(KEYGEN, ['-F', name, '-f', file])
       if (found.status === 0) for (const k of hostKeys(found.stdout, certAuthorities)) keys.add(k)
@@ -655,7 +658,7 @@ class SSHComputers {
     let done = false
     let child: ChildProcess
     try {
-      child = spawn(SSH, tunnelArguments(profile, localPort, home, dataDir, inet6), { stdio: ['ignore', 'ignore', 'pipe'] })
+      child = spawn(SSH, tunnelArguments(profile, localPort, home, dataDir, inet6, isRc), { stdio: ['ignore', 'ignore', 'pipe'] })
     } catch {
       return null
     }
