@@ -13,6 +13,7 @@ public enum HostStreamRequest: Sendable {
 
 public enum LinkState: Sendable, Equatable {
     case connecting
+    case workspaceInvalidated
     case ready(HostRoute)
     /// The relay says the computer isn't connected (asleep, off): the mailbox still works.
     case hostOffline(lastSeen: Date?)

@@ -12,6 +12,7 @@ extension ChannelTransport {
         var ek: String?
         var sig: String?
         var code: String?
+        var stableCode: String?
         var c: UInt64?
         var d: String?
         var online: Bool?
@@ -42,10 +43,15 @@ extension ChannelTransport {
             if wire.online == true {
                 // The host (re)joined: any previous channel is gone; start a fresh handshake.
                 dropChannel(HostError.unreachable)
+                dropMailbox()
                 return startHandshake(generation)
+            }
+            if workspaceVerificationEnded {
+                return .stop(.failed(HostError.unreachable.localizedDescription))
             }
             lastSeen = wire.lastSeenAt.map(Date.init(milliseconds:))
             dropChannel(HostError.computerOffline(lastSeen: lastSeen))
+            dropMailbox()
             link?.handshake = nil
             link?.sealer = nil
             link?.opener = nil
@@ -62,6 +68,9 @@ extension ChannelTransport {
                 return .stop(.unauthorized(Self.identityChanged))
             }
         case "reject":
+            if pairingCode == nil, Self.isPlaintextWorkspaceReject(wire) {
+                return recheckPlaintextRejection()
+            }
             if wire.code == "unsupportedVersion" { return upgrade() }
             return Self.rejection(wire) ?? .retry("Este computador recusou a conexão.")
         case "f":
@@ -139,9 +148,11 @@ extension ChannelTransport {
         link?.sealer = RelayCrypto.FrameSealer(key: keys.d2h)
         link?.opener = RelayCrypto.FrameOpener(key: keys.h2d)
         refusals = 0
-        setState(.ready(route))
         if pairingCode == nil {
-            Task { await self.refreshComputer() }
+            let channel = channelGeneration
+            Task { await self.prepareWorkspace(channel: channel, route: route) }
+        } else {
+            setState(.ready(route))
         }
     }
 
@@ -155,16 +166,36 @@ extension ChannelTransport {
               let rawId = obj["id"] as? NSNumber else { return }
         let id = rawId.uint32Value
         if let ev = obj["ev"] {
+            guard streams[id] != nil else { return }
+            if let event = ev as? [String: Any], event["type"] as? String == "hello", let workspace {
+                guard let value = event["workspace"],
+                      let data = try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed),
+                      (try? JSONDecoder().decode(ForkPairedWorkspace.self, from: data)) == workspace else {
+                    retireWorkspace(.workspaceEpochMismatch)
+                    return
+                }
+            }
             if let data = try? JSONSerialization.data(withJSONObject: ev, options: .fragmentsAllowed) { streams[id]?.yield(data) }
         } else if obj["end"] as? Bool == true {
             streams.removeValue(forKey: id)?.finish()
             streamIds = streamIds.filter { $0.value != id }
         } else if let err = obj["err"] as? [String: Any] {
             let status = (err["status"] as? NSNumber)?.intValue ?? 500
+            guard calls[id] != nil || streams[id] != nil else { return }
+            let issue = ForkWorkspaceFailure.http(status: status, code: err["code"] as? String)?.issue
+            if let issue, issue == .workspaceEpochMismatch || issue == .workspaceForbidden {
+                retireWorkspace(issue)
+                return
+            }
             // A 400 keeps the Hub's text unseen, for routine calls to recognise; everything else is fixed by status.
-            let error = status == 400
-                ? HostError.refused(HubRefusal(err["message"] as? String))
-                : HostError.http(status, Self.httpMessage(status))
+            let error: Error
+            if issue == .leaseExpired {
+                error = ForkWorkspaceIssue.leaseExpired
+            } else if status == 400 {
+                error = HostError.refused(HubRefusal(err["message"] as? String))
+            } else {
+                error = HostError.http(status, Self.httpMessage(status))
+            }
             if let call = calls.removeValue(forKey: id) {
                 call.resume(throwing: error)
             } else if let stream = streams.removeValue(forKey: id) {
@@ -196,7 +227,7 @@ extension ChannelTransport {
         streamIds = [:]
         for call in c.values { call.resume(throwing: error) }
         // Route change or re-handshake: the store resubscribes from its own rev.
-        for stream in s.values { stream.finish(throwing: HostError.unreachable) }
+        for stream in s.values { stream.finish(throwing: error) }
     }
 
     func dropMailbox() {
@@ -211,9 +242,9 @@ extension ChannelTransport {
 
     // MARK: inner hello (§7.5 step 5)
 
-    private func refreshComputer() async {
-        guard let data = try? await perform("hello", body: Data(), timeout: 20),
-              let hello = try? JSONDecoder().decode(Hello.self, from: data) else { return }
+    func refreshComputer(channel: Int) async {
+        guard let data = try? await perform("hello", body: Data(), timeout: 20, onLink: channel),
+              readyLink() == channel, let hello = try? JSONDecoder().decode(Hello.self, from: data) else { return }
         merge(hello)
     }
 

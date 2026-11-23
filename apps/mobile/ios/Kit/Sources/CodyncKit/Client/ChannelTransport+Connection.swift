@@ -14,8 +14,16 @@ extension ChannelTransport {
         while !closed, !Task.isCancelled {
             if case .ready = state { setState(.connecting) }
             let started = ContinuousClock.now
-            let outcome = await attempt()
+            let verifyingWorkspace = reopeningWorkspace || checkingPlaintextRejection
+            let lastVerifiedChannel = verifiedChannel
+            var outcome = await attempt()
             guard !closed, !Task.isCancelled else { return }
+            if verifyingWorkspace, verifiedChannel == lastVerifiedChannel {
+                outcome = .stop(.failed(HostError.unreachable.localizedDescription))
+            }
+            if restartRequested, case .stop = outcome {
+                restartRequested = false
+            }
             if restartRequested {
                 restartRequested = false
                 backoff = Backoff()
@@ -73,6 +81,7 @@ extension ChannelTransport {
                 // A plaintext `reject` isn't signed: whatever answers at a saved LAN address can
                 // send one. With a relay, ask the pinned computer through it; without one, only a
                 // pairing (short-lived, user-driven) ends on it, a saved computer keeps retrying.
+                if case .wait(.connecting) = end { return recheckPlaintextRejection() }
                 if computer.cloud != nil { break }
                 if pairingCode != nil {
                     if isUpgrade { return upgrade() }
@@ -230,6 +239,9 @@ extension ChannelTransport {
                         }
                     case "reject":
                         socket.close(code: 1000)
+                        if !pair, Self.isPlaintextWorkspaceReject(wire) {
+                            return .rejected(.wait(.connecting), isUpgrade: false)
+                        }
                         return Self.rejection(wire).map { .rejected($0, isUpgrade: wire.code == "unsupportedVersion") } ?? .none
                     default:
                         continue
@@ -282,6 +294,7 @@ extension ChannelTransport {
         do {
             while true {
                 let text = try await socket.receive()
+                if let pendingOutcome { end = pendingOutcome; break }
                 if let outcome = handle(text, generation: generation) {
                     end = outcome
                     socket.close(code: 1000)
@@ -295,6 +308,8 @@ extension ChannelTransport {
         } catch {
             end = .retry(HostError.unreachable.localizedDescription)
         }
+        if let pendingOutcome { end = pendingOutcome }
+        pendingOutcome = nil
         writer.cancel()
         heartbeat.cancel()
         sink.finish()
@@ -306,28 +321,32 @@ extension ChannelTransport {
 
     private func outcome(closeCode code: Int) -> Outcome {
         switch code {
+        case 4003 where pairingCode == nil:
+            return recheckPlaintextRejection()
         case 4001, 4003:
-            .stop(.unauthorized(String(localized: "Este aparelho não tem mais acesso a \(computer.name).", bundle: .module)))
+            return .stop(.unauthorized(String(localized: "Este aparelho não tem mais acesso a \(computer.name).", bundle: .module)))
         case 4410:
-            .stop(.failed("Este código de pareamento expirou. Gere outro no computador."))
+            return .stop(.failed("Este código de pareamento expirou. Gere outro no computador."))
         case 4400:
-            upgrade()
+            return upgrade()
         case 4100:
             // Paired: pairing mode is done; otherwise reconnect normally.
-            pairingCode == nil ? .again : .stop(.failed("Paired."))
+            return pairingCode == nil ? .again : .stop(.failed("Paired."))
         case 4011:
-            .again
+            return .again
         default:
-            .retry(HostError.unreachable.localizedDescription)
+            return .retry(HostError.unreachable.localizedDescription)
         }
     }
 
     private func outcome(httpStatus status: Int) -> Outcome {
         switch status {
         case 401:
+            if workspaceVerificationEnded { return .stop(.failed(HostError.unreachable.localizedDescription)) }
             // The device's signature wasn't accepted: retrying with the same key can't help.
             return .stop(.unauthorized(String(localized: "Este aparelho não tem mais acesso a \(computer.name).", bundle: .module)))
         case 403:
+            if workspaceVerificationEnded { return .stop(.failed(HostError.unreachable.localizedDescription)) }
             // Only right after pairing or approval, and only until the first channel, may the relay not
             // know the device yet: a few are retried. Anywhere else a 403 is access taken away.
             refusals += 1

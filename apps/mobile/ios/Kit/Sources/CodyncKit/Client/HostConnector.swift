@@ -11,7 +11,9 @@ public enum HostConnector {
         let transport = ChannelTransport(computer: computer, identity: identity, recemVinculado: recemVinculado)
         await transport.start()
         let state = await transport.settled(within: .seconds(15))
-        guard await transport.isStopped else { return transport }
+        let stopped = await transport.isStopped
+        let verificationEnded = await transport.workspaceVerificationEnded
+        guard stopped, !verificationEnded else { return transport }
         await transport.shutdown()
         if await transport.needsUpgrade { throw HostError.upgradeRequired }
         if case let .unauthorized(message) = state { throw HostError.unauthorized(message) }

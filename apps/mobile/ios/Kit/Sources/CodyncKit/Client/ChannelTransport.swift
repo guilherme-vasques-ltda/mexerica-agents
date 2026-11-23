@@ -39,6 +39,13 @@ public actor ChannelTransport: RemoteTransport {
     /// Bumped by every completed handshake, on a new socket or on the same relay socket:
     /// calls bound to a channel never ride the next one.
     var channelGeneration = 0
+    var verifiedChannel = 0
+    var workspace: ForkPairedWorkspace?
+    var legacyWorkspace = false
+    var reopeningWorkspace = false
+    var checkingPlaintextRejection = false
+    var refusedWorkspaceContext = false
+    var pendingOutcome: Outcome?
     var closed = false
     var restartRequested = false
     private var supervisor: Task<Void, Never>?
@@ -154,7 +161,7 @@ public actor ChannelTransport: RemoteTransport {
     /// Waits until the first attempt is decided (ready, offline, failed, unauthorized).
     func settled(within limit: Duration) async -> LinkState {
         let deadline = ContinuousClock.now + limit
-        while state == .connecting, !closed, ContinuousClock.now < deadline {
+        while (state == .connecting || state == .workspaceInvalidated), !closed, ContinuousClock.now < deadline {
             await stateChange(until: deadline)
         }
         return state

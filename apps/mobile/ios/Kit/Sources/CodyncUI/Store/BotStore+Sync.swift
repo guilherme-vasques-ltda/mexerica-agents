@@ -15,17 +15,37 @@ extension BotStore {
                 // this goes out on that channel or fails.
                 guard let link = await client.transport.currentLink() else { throw HostError.unreachable }
                 guard !Task.isCancelled, !retired else { return }
+                if let channel = client.transport as? ChannelTransport {
+                    let context = try await channel.pairedWorkspace(onLink: link)
+                    guard !Task.isCancelled, !retired else { return }
+                    if let previous = pairedWorkspace, context?.continues(previous) != true {
+                        throw HostError.unreachable
+                    }
+                    if context != pairedWorkspace {
+                        if !workspaceCacheCleared { clearPairedWorkspace() }
+                        pairedWorkspace = context
+                    }
+                    workspaceCacheCleared = false
+                }
+                let generation = linkId
                 let vinculado = HostClient(transport: TransporteDoLink(
                     base: client.transport, link: link,
                     aoRecusar: { [weak self] motivo in
-                        Task { @MainActor in self?.soltarPorRecusa(motivo) }
+                        Task { @MainActor in
+                            guard self?.linkId == generation else { return }
+                            self?.soltarPorRecusa(motivo)
+                        }
                     },
                     aoDuvidar: { [weak self] in
-                        Task { @MainActor in self?.reverificarAcesso() }
+                        Task { @MainActor in
+                            guard self?.linkId == generation else { return }
+                            self?.reverificarAcesso()
+                        }
                     }))
                 try await refreshHello(vinculado)
-                guard !Task.isCancelled, !retired else { return }
+                guard await vinculado.transport.currentLink() == link, !Task.isCancelled, !retired else { return }
                 try validarIdentidade()
+                if let context = pairedWorkspace, context.hubId != hello?.hostId { throw HostError.unreachable }
                 reaproveitarOuRecomecar()
                 let identificouAgora = clienteAutorizado == nil
                 clienteAutorizado = vinculado
@@ -40,8 +60,8 @@ extension BotStore {
                 }
                 requestedSince = rev
                 windowFloors = [:]
-                for try await event in client.events(since: requestedSince, client: "ios") {
-                    guard !Task.isCancelled, !retired else { return }
+                for try await event in vinculado.events(since: requestedSince, client: "ios") {
+                    guard await client.transport.currentLink() == link, !Task.isCancelled, !retired else { return }
                     #if DEBUG
                     // Mission Board v1: um sinal do ciclo não muda o espelho, então não mexe na conexão, no backoff nem
                     // no salvamento pendente (o app antigo fica igual ao da main); só avisa o observador.
@@ -102,6 +122,35 @@ extension BotStore {
         saveCache()
     }
 
+    func clearPairedWorkspace() {
+        workspaceCacheCleared = true
+        let calls = Array(voiceCalls.values)
+        voiceCalls.removeAll()
+        for call in calls { call.end() }
+        fileDownloads.retire()
+        fileDownloads = FileDownloads(scopeID: storage.id)
+        entries = [:]
+        outgoingFiles = [:]
+        composerPasted = [:]
+        routineDrafts = [:]
+        answering = [:]
+        setUsage(Usage())
+        screenRequest = nil
+        installedConnectors = []
+        installedSkills = []
+        lastError = nil
+        caughtUp = false
+        catchUpRev = .max
+        requestedSince = 0
+        rewound = false
+        unreadable = false
+        cacheStamp = nil
+        leiturasDeSessoesIniciadas = [:]
+        leiturasDeSessoesAplicadas = [:]
+        resetMirror()
+        removeWorkspaceCache()
+    }
+
     /// Asked on every (re)connect: the host may have been updated while this app was away.
     private func refreshHello(_ client: HostClient) async throws {
         let h: Hello
@@ -117,7 +166,7 @@ extension BotStore {
             if mismatch == nil { throw error }
             return
         }
-        guard !Task.isCancelled, !retired else { return }
+        guard await client.transport.currentLink() != nil, !Task.isCancelled, !retired else { throw HostError.unreachable }
         // hello first: whatever the version change shows (notices, reminders) reads it.
         hello = h
         noteHostVersion(HostVersion(version: h.version, minApp: h.minApp))

@@ -284,6 +284,10 @@ extension BotStore {
         for await state in transport.states() {
             guard !Task.isCancelled, !retired else { return }
             switch state {
+            case .workspaceInvalidated:
+                stopEvents()
+                clearPairedWorkspace()
+                setConnection(.connecting)
             case let .ready(route):
                 setHostRoute(route)
                 if eventsTask == nil {
