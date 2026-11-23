@@ -170,11 +170,37 @@ test('RC SSH uses only its own known-hosts cache and explicit lab home/port with
   for (const args of [info, tunnel]) {
     assert.ok(args.includes(`UserKnownHostsFile="${data}/ssh_known_hosts"`))
     assert.ok(args.includes('StrictHostKeyChecking=yes'))
-    assert.ok(args.includes('GlobalKnownHostsFile=none'))
+    for (const option of ['GlobalKnownHostsFile=none', 'KnownHostsCommand=none', 'VerifyHostKeyDNS=no', 'UpdateHostKeys=no', 'ControlMaster=no']) {
+      assert.equal(args[args.indexOf(option) - 1], '-o', option)
+    }
+    assert.equal(args[args.indexOf('-S') + 1], 'none')
     assert.ok(!args.join(' ').includes('/.ssh/known_hosts'))
   }
   assert.match(info.at(-1)!, /MEXERICA_HOME="\$HOME\/\.mexerica-rc".* info --json --port 19525/)
   assert.ok(tunnel.includes('127.0.0.1:32000:127.0.0.1:19525'))
+})
+
+test('SSH argument arrays for stable and dev retain their installed behavior', () => {
+  const home = '/home/usuario'
+  for (const environment of ['main', 'dev'] as const) {
+    const { dataFolder, port } = environmentProfile(environment)
+    const profile = { id: 'profile', name: '', host: 'lab.example.invalid', user: 'usuario', port: 2222,
+      remotePort: port, identityFile: null, computerId: null }
+    const hostKeys = ['-o', `UserKnownHostsFile="${home}/.ssh/known_hosts" "${home}/${dataFolder}/ssh_known_hosts"`, '-o', 'StrictHostKeyChecking=yes']
+    const target = ['-p', '2222', '-l', 'usuario', '--', profile.host]
+    const probe = environment === 'dev'
+      ? 'sh -lc \'export MEXERICA_HOME="$HOME/.mexerica-dev"; for h in "/Applications/Mexerica Dev.app/Contents/Resources/donnabot-host" "/Applications/Donnabot Dev.app/Contents/Resources/donnabot-host" "$HOME/.local/bin/donnabot-dev-host"; do if [ -x "$h" ]; then exec "$h" info --json --port 19423; fi; done; exit 127\''
+      : 'sh -lc \'for h in "$HOME/.local/bin/donnabot-host" "/Applications/Mexerica.app/Contents/Resources/donnabot-host" "/Applications/Donnabot.app/Contents/Resources/donnabot-host"; do if [ -x "$h" ]; then exec "$h" info --json --port 19422; fi; done; exit 127\''
+    assert.deepEqual(infoArguments(profile, home, dataFolder), [
+      '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no',
+      ...hostKeys, ...target, probe,
+    ])
+    assert.deepEqual(tunnelArguments(profile, 32000, home, `${home}/${dataFolder}`, true), [
+      '-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',
+      '-o', 'AddressFamily=any', '-S', 'none', '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'BatchMode=yes',
+      ...hostKeys, '-L', `127.0.0.1:32000:127.0.0.1:${port}`, ...target,
+    ])
+  }
 })
 
 test('the macOS configuration gives the bundle and executable the RC product name', (t) => {

@@ -32,7 +32,7 @@ export const orphanTunnelPattern = (dir: string) => `^/usr/bin/ssh -N .*${dir.re
 /** ssh's config tokenizer splits `UserKnownHostsFile` on spaces, so each path carries literal quotes. */
 export const hostKeyOptions = (h: string, dir?: string, rc = false) => [
   '-o', 'UserKnownHostsFile=' + knownHostsFiles(h, dir, rc).map((f) => `"${f}"`).join(' '),
-  ...(rc ? ['-o', 'GlobalKnownHostsFile=none'] : []),
+  ...(rc ? ['-o', 'GlobalKnownHostsFile=none', '-o', 'KnownHostsCommand=none', '-o', 'VerifyHostKeyDNS=no', '-o', 'UpdateHostKeys=no', '-o', 'ControlMaster=no'] : []),
   '-o', 'StrictHostKeyChecking=yes',
 ]
 
@@ -54,6 +54,7 @@ export function resolveArguments(p: SSHProfile) {
 /** The remote command is fixed; only the validated port number goes into it. */
 export const infoArguments = (p: SSHProfile, h: string, folder = '.mexerica', dir = `${h}/${folder}`) => [
   '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no',
+  ...(folder === rcIdentity.dataFolder ? ['-S', 'none'] : []),
   ...hostKeyOptions(h, dir, folder === rcIdentity.dataFolder), ...targetOptions(p),
   '--', p.host, remoteInfoCommand(p.remotePort, folder),
 ]
