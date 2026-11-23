@@ -46,27 +46,77 @@ pub(crate) const TABELA: &[(Acesso, &[&str])] = &[
 #[cfg(test)]
 pub(crate) const DO_CANAL: &[&str] = &["subscribe", "pair"];
 
-/// Fronteiras com laço e prova próprios que não consultam `permit` nem chegam ao `dispatch`: nome e onde vive a
-/// guarda. Nenhum tem classe que um chamador passe (no `dispatch`, ou são desconhecidos ou `Pairing`); o teste
-/// `fronteiras_fora_da_tabela_sao_nomeadas` confere cada nome no código da sua guarda.
+/// Nomes que uma porta de produção atende sem consultar esta tabela, com o arquivo da guarda própria. No `dispatch`
+/// eles são desconhecidos ou `Pairing` (recusados a todos), salvo quando o `dispatch` também roteia o mesmo nome com a
+/// sua classe (`hello`). O teste `toda_porta_de_producao_e_declarada` reprova nome atendido fora daqui.
 #[cfg(test)]
 pub(crate) const FORA_DA_TABELA: &[(&str, &str)] = &[
     ("pair", "remote/channel.rs"),
     ("bootstrap.challenge", "remote/channel.rs"),
     ("bootstrap.prove", "remote/channel.rs"),
+    ("hello", "fork/personal_bootstrap/probe.rs"),
+    ("donnaPersonalSessionProof", "fork/personal_bootstrap/probe.rs"),
     ("session.open", "fork/autoridade/personal_channel.rs"),
     ("link.status", "fork/autoridade/personal_channel.rs"),
     ("session.close", "fork/autoridade/personal_channel.rs"),
+];
+
+/// Nomes que uma porta fora do `dispatch` lê do pedido e passa por esta tabela (`permit` antes da guarda própria, ou
+/// repasse ao `dispatch`).
+#[cfg(test)]
+pub(crate) const PELA_TABELA: &[(&str, &str)] = &[
+    ("browserStreamSubscribe", "remote/channel.rs"),
+    ("browserStreamInput", "remote/channel.rs"),
+    ("browserStreamAck", "remote/channel.rs"),
+    ("browserStreamControl", "remote/channel.rs"),
+    ("browserStreamTarget", "remote/channel.rs"),
+    ("send", "remote/relay.rs"),
+];
+
+/// Arquivos de produção que leem o nome do pedido (`["m"]`) e quantas vezes. Toda leitura é de uma forma que o teste
+/// reconhece (comparação com nome, `match`, lista, repasse ao `dispatch` ou quadro opaco do relay); arquivo ou
+/// leitura nova reprova até ser declarada.
+#[cfg(test)]
+pub(crate) const LEITURAS_DO_NOME: &[(&str, usize)] = &[
+    ("remote/channel.rs", 4),
+    ("remote/relay.rs", 3),
+    ("fork/personal_bootstrap/probe.rs", 1),
+    ("fork/personal_bootstrap/relay.rs", 1),
+];
+
+/// Rotas HTTP de produção e o que as guarda. Só `/api/*` chega ao `dispatch` e, por ele, a esta tabela.
+#[cfg(test)]
+pub(crate) const ROTAS_HTTP: &[(&str, &str, &str)] = &[
+    ("api/http.rs", "/health", "bearer deste computador"),
+    ("api/http.rs", "/events", "bearer; eventos filtrados por chamador"),
+    ("api/http.rs", "/api/donnaGuardRuntime", "dispatch (classe na tabela)"),
+    ("api/http.rs", "/api/{method}", "dispatch (classe na tabela)"),
+    ("api/http.rs", "/term/{id}", "bearer; terminal por chamador"),
+    ("api/http.rs", "/hooks/routines/{id}", "segredo do webhook da rotina"),
+    ("api/http.rs", "/oauth/callback", "state de uso único e PKCE"),
+    ("api/http.rs", "/computers/enroll-hello", "pareamento de executor"),
+    ("api/http.rs", "/ingest/statusline", "bearer deste computador"),
+    ("api/http.rs", "/channel", "canal E2E: handshake e esta tabela"),
+    ("api/http.rs", "/personal-possession", "posse pessoal: ingresso e prova"),
+    ("api/http.rs", "/personal-prepare", "posse pessoal: ingresso e prova"),
+    ("fork/web_local.rs", "/web/auth/session", "sessão da interface Web local"),
+    ("fork/web_local.rs", "/web/auth/login", "senha da interface Web local"),
+    ("fork/web_local.rs", "/web/auth/logout", "sessão da interface Web local"),
+    ("fork/web_local.rs", "fallback", "arquivos estáticos da interface Web local"),
+    ("fork/web_local.rs", "method_not_allowed_fallback", "arquivos estáticos da interface Web local"),
+    ("fork/whatsapp/inbox.rs", "/whatsapp/{bot}", "avisos do WhatsApp: assinatura, só 127.0.0.1"),
+    ("fork/claude_ponte/permissao.rs", "/mcp", "MCP da ponte: segredo por sessão, só 127.0.0.1"),
+    ("fork/planos_codigo/repasse.rs", "fallback", "repasse dos planos: código de sessão, só 127.0.0.1"),
 ];
 
 pub(crate) fn acesso(method: &str) -> Option<Acesso> {
     TABELA.iter().find(|(_, metodos)| metodos.contains(&method)).map(|(acesso, _)| *acesso)
 }
 
-/// Nome sem classe: o `dispatch` e a rota HTTP o respondem como desconhecido antes de ler os argumentos. O prefixo
-/// `donnaWorkplace` fica com a guarda própria (`onde_roda::autoridade`), que recusa nome desconhecido antes de tudo.
+/// Nome sem classe: o `dispatch` e a rota HTTP o respondem como desconhecido antes de ler os argumentos, com
+/// qualquer prefixo.
 pub(crate) fn desconhecido(method: &str) -> bool {
-    acesso(method).is_none() && !method.starts_with("donnaWorkplace")
+    acesso(method).is_none()
 }
 
 pub(crate) fn permite(caller: &Caller, method: &str) -> bool {

@@ -474,7 +474,7 @@ pub(crate) mod coletor {
 
     /// Só o código de produção: um bloco `#[cfg(test)] mod tests { … }` no fim do arquivo sai, e as
     /// linhas de comentário também (exemplos em documentação não são métodos).
-    fn producao(codigo: &str) -> String {
+    pub(crate) fn producao(codigo: &str) -> String {
         let codigo = codigo.find("#[cfg(test)]\nmod tests {").map_or(codigo, |i| &codigo[..i]);
         codigo.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
     }

@@ -45,3 +45,18 @@ async fn navegador_segue_para_as_guardas_proprias_com_a_classe() {
     assert_eq!(p.call(1, "browserStreamAck", json!({})).await["ok"]["acknowledged"], true);
     assert_eq!(p.call(2, "browserStreamInput", json!({})).await["err"]["status"], 400, "guarda própria do navegador");
 }
+
+/// `teamSettings` pelo transporte real: um aparelho pareado de verdade, com `control` e sem vínculo de setup, passa a
+/// classe da tabela e é recusado pela posse da conta (`engine_setup::access`).
+#[tokio::test]
+async fn team_settings_recusa_aparelho_pareado_sem_vinculo() {
+    let hub = temp_hub();
+    let key = paired_phone(&hub).await;
+    let mut p = Phone::direct(&hub, key);
+    assert!(matches!(p.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    assert!(p.call(1, "hello", json!({})).await["ok"].is_object(), "o aparelho está autorizado");
+    let resposta = p.call(2, "teamSettings", json!({})).await;
+    assert!(resposta.get("ok").is_none(), "{resposta}");
+    assert!(resposta["err"]["status"].as_u64().is_some_and(|s| s >= 400), "{resposta}");
+    assert_ne!(resposta["err"]["message"], devices::Forbidden.to_string(), "a classe passou; recusou a posse");
+}

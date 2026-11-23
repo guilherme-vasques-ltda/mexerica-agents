@@ -10,7 +10,7 @@ use crate::hub::Hub;
 use crate::{market, usage};
 use axum::body::Bytes;
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequest as _, Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -153,9 +153,9 @@ async fn guard_runtime(
     State(hub): State<Arc<Hub>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Result<Json<Value>, ApiError> {
-    command(State(hub), Path("donnaGuardRuntime".into()), ConnectInfo(peer), headers, body).await
+    command(State(hub), Path("donnaGuardRuntime".into()), ConnectInfo(peer), headers, request).await
 }
 
 async fn command(
@@ -163,15 +163,16 @@ async fn command(
     Path(method): Path<String>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    body: Bytes,
+    request: Request,
 ) -> Result<Json<Value>, ApiError> {
-    // Classifica a identidade antes de ler o corpo e antes do dispatch.
+    // Classifica a identidade e o nome antes de ler o corpo (que só é lido aqui, com o limite da rota).
     let caller =
         crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
-    // Nome sem classe é desconhecido antes de ler o corpo: 404 sem passar por 400 ou 403.
+    // Nome sem classe é desconhecido antes de ler o corpo: 404 sem passar por 400, 403 ou 413.
     if crate::fork::acesso_rpc::desconhecido(&method) {
         return Err(ApiError(StatusCode::NOT_FOUND, "unknown method".into(), None));
     }
+    let body = Bytes::from_request(request, &()).await.map_err(|e| ApiError(e.status(), e.body_text(), None))?;
     let body = if body.is_empty() {
         Value::Null
     } else {
@@ -344,6 +345,53 @@ mod tests {
         drop(ios);
         assert!(!hub.phone_connected(), "desktop streams do not hold phone alerts");
         drop(desktop);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Pedido cru: o `Content-Length` declarado pode ser maior que o corpo enviado, para provar que o handler não o lê.
+    async fn status_cru(addr: SocketAddr, method: &str, token: &str, corpo: &[u8], tamanho: usize) -> String {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let mut conexao = tokio::net::TcpStream::connect(addr).await.expect("conexão");
+        let cabecalho = format!(
+            "POST /api/{method} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {tamanho}\r\nConnection: close\r\n\r\n"
+        );
+        conexao.write_all(cabecalho.as_bytes()).await.expect("envio");
+        conexao.write_all(corpo).await.expect("envio");
+        let mut resposta = vec![0; 64];
+        let lidos = tokio::time::timeout(Duration::from_secs(10), conexao.read(&mut resposta))
+            .await
+            .expect("resposta sem esperar o corpo")
+            .expect("leitura");
+        String::from_utf8_lossy(&resposta[..lidos]).split(' ').nth(1).unwrap_or_default().to_owned()
+    }
+
+    /// O nome é classificado antes de o corpo ser lido: nome sem classe dá 404 sem esperar o corpo declarado, mesmo
+    /// acima do limite (antes, 413), com JSON inválido (antes do 400) e com qualquer prefixo; a autenticação vem antes.
+    #[tokio::test]
+    async fn unknown_method_is_refused_before_the_body_is_read() {
+        let dir = std::env::temp_dir().join(format!("codync-http-unknown-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let hub = Hub::new(
+            crate::store::Store::open(std::path::Path::new(":memory:")).expect("store"),
+            "test".into(),
+            crate::remote::identity::Identity::load_or_create(&dir).expect("identity"),
+            "local-test".into(),
+            0,
+        );
+        hub.start().expect("hub");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let addr = listener.local_addr().expect("addr");
+        let app = router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+        let acima = 3 * 1024 * 1024;
+        for method in ["metodoInexistente", "donnaWorkplaceInexistente"] {
+            assert_eq!(status_cru(addr, method, "local-test", b"", acima).await, "404", "{method}");
+            assert_eq!(status_cru(addr, method, "local-test", b"{", 1).await, "404", "{method}");
+            assert_eq!(status_cru(addr, method, "invalido", b"{}", 2).await, "401", "{method}");
+        }
+        assert_eq!(status_cru(addr, "hello", "local-test", b"{", 1).await, "400");
+        assert_eq!(status_cru(addr, "hello", "local-test", b"", acima).await, "413");
+        server.abort();
         let _ = std::fs::remove_dir_all(dir);
     }
 
