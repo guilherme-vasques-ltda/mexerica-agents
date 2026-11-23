@@ -240,7 +240,9 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
         const codigoLegado = typeof legado === 'string' && /^skill_/.test(legado) && CODIGOS_RPC.has(legado) ? legado : undefined
         const code = envelope?.code
         const codigo = typeof code === 'string' && CODIGOS_RPC.has(code) ? code : codigoLegado
-        throw { status: res.status, message: codigoLegado ?? `Host error ${res.status}`, ...(codigo ? { code: codigo } : {}) } satisfies CallError
+        const erro = erroLocal(res.status, codigoLegado ?? `Host error ${res.status}`)
+        if (codigo) erro.code = codigo
+        throw erro
       } finally {
         clearTimeout(timeout)
         liberar()
