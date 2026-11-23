@@ -26,87 +26,6 @@ const body = (name) => jobs[name].join('\n');
 const GITHUB_LINUX = 'ubuntu-24.04';
 const FORNECEDORES = /self-hosted|blacksmith|buildjet|depot-|boat|instabox|nscloud/i;
 
-test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de merge', () => {
-  const review = readFileSync(new URL('../.github/workflows/code-review.yml', import.meta.url), 'utf8');
-  const [config, analizar, publicar] = review.split(/^jobs:\n  review:\n|^  publish:\n/m);
-  assert.match(config, /^on:\n  pull_request:\n    branches: \[main\]\n    types: \[opened, synchronize, reopened, ready_for_review\]\n\npermissions: \{\}$/m);
-  assert.match(config, /group: code-review-\$\{\{ github.event.pull_request.number \}\}\n  cancel-in-progress: true/);
-  for (const job of [analizar, publicar]) {
-    assert.match(job, /head\.repo\.fork == false && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && github\.event\.pull_request\.draft == false/);
-    assert.match(job, /runs-on: ubuntu-24\.04\n/);
-    assert.match(job, /uses: actions\/checkout@[0-9a-f]{40} .*\n(?:[^\n]+\n)*?          ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}\n          persist-credentials: false/);
-    assert.doesNotMatch(job, /contents: write|issues: write|alibaba\/open-code-review@|ci-ok/);
-  }
-  assert.doesNotMatch(analizar, /: write/);
-  assert.match(publicar, /^    timeout-minutes: 2$/m);
-  assert.match(publicar, /pull-requests: write/);
-  assert.doesNotMatch(publicar, /secrets\.|OCR_LLM_/);
-  assert.doesNotMatch(analizar, /vars\.OCR_LLM_MODEL|sysctl\s+-w/);
-  assert.equal([...analizar.matchAll(/OCR_LLM_MODEL: \$\{\{ secrets\.OCR_LLM_MODEL \}\}/g)].length, 3);
-  assert.match(analizar, /OCR_LLM_PROTOCOL: \$\{\{ steps\.config\.outputs\.protocol \}\}/);
-  assert.match(analizar, /profile ocr-bwrap \/usr\/bin\/bwrap flags=\(unconfined\) \{\n            userns,/);
-  assert.match(analizar, /apparmor_parser -R "\$profile"/);
-  assert.match(analizar, /tools\/ci-code-review\.py validate-provider/);
-  assert.match(analizar, /uses: actions\/upload-artifact@[a-f0-9]{40}[\s\S]*?path: \$\{\{ runner.temp \}\}\/mexerica-ocr\/review\.json\n          if-no-files-found: error\n          retention-days: 1/);
-  assert.doesNotMatch(analizar, /actions: read/);
-  assert.match(publicar, /permissions:\n      actions: read\n      contents: read\n      pull-requests: write\n/);
-  assert.match(publicar, /gh run download "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY" \\\n\s+--name "ocr-projection-\$GITHUB_RUN_ATTEMPT" --dir "\$destination"/);
-  assert.doesNotMatch(publicar, /uses: actions\/download-artifact@/);
-  assert.doesNotMatch(publicar, /github-token:|run-id:|repository:|REVIEW:/);
-  assert.match(analizar, /--ro-bind "\$work\/repo" \/review --ro-bind "\$work\/ocr" \/ocr --chdir \/review/);
-  assert.match(analizar, /OCR_MAX_TOKENS_BUDGET > 2000000/);
-  assert.match(analizar, /sha256sum --check --status/);
-  assert.match(analizar, /> "\$work\/result\.json" 2> "\$work\/stderr\.log"/);
-  const fixtures = spawnSync('python3', ['-B', fileURLToPath(new URL('./ci-code-review.test.py', import.meta.url))], { encoding: 'utf8' });
-  assert.equal(fixtures.status, 0, fixtures.stderr || String(fixtures.error));
-});
-
-test('Open Code Review: sair de rascunho mantém os filtros de origem, base e publicação', () => {
-  const review = readFileSync(new URL('../.github/workflows/code-review.yml', import.meta.url), 'utf8');
-  const [, branches, types] = /^on:\n  pull_request:\n    branches: \[([^\]]+)\]\n    types: \[([^\]]+)\]\n\n/m.exec(review);
-  const gates = [...review.matchAll(/^    if: \$\{\{ (.+) \}\}$/gm)].map(([, gate]) => gate.split(' && '));
-  const eligible = { action: 'ready_for_review', branch: 'main', fork: false, sameRepo: true, draft: false, ready: true };
-  for (const [label, changes, expected] of [
-    ['promoção', {}, [true, true]],
-    ['abertura', { action: 'opened' }, [true, true]],
-    ['fork', { fork: true, sameRepo: false }, [false, false]],
-    ['marcado como fork', { fork: true }, [false, false]],
-    ['outro repositório', { sameRepo: false }, [false, false]],
-    ['rascunho', { draft: true }, [false, false]],
-    ['outra base', { branch: 'fixture' }, [false, false]],
-    ['sem resultado', { ready: false }, [true, false]],
-  ]) {
-    const { action, branch, fork, sameRepo, draft, ready } = { ...eligible, ...changes };
-    const conditions = new Map([
-      ['github.event.pull_request.head.repo.fork == false', !fork],
-      ['github.event.pull_request.head.repo.full_name == github.repository', sameRepo],
-      ['github.event.pull_request.draft == false', !draft],
-      ["needs.review.outputs.ready == 'true'", ready],
-    ]);
-    const triggers = branches.split(', ').includes(branch) && types.split(', ').includes(action);
-    assert.deepEqual(gates.map((gate) => triggers && gate.every((condition) => conditions.get(condition) === true)), expected, label);
-  }
-});
-
-test('Open Code Review: prazos, limpeza e classificação do Review diff', () => {
-  const review = readFileSync(new URL('../.github/workflows/code-review.yml', import.meta.url), 'utf8')
-    .split(/^jobs:\n  review:\n|^  publish:\n/m)[1];
-  assert.match(review, /^    timeout-minutes: 15$/m);
-  const steps = Object.fromEntries(review.split(/^      - name: /m).slice(1).map(step => {
-    const end = step.indexOf('\n');
-    return [step.slice(0, end), step.slice(end + 1).split(/^      - /m)[0]];
-  }));
-  assert.match(steps['Prepare and verify filesystem isolation'], /^        timeout-minutes: 2$/m);
-  assert.match(steps['Fetch review inputs and verify binary'], /^        timeout-minutes: 2$/m);
-  assert.match(steps['Review diff'], /^        timeout-minutes: 9$/m);
-  assert.match(steps['Review diff'], /^            exec timeout --kill-after=5s 480s \/usr\/bin\/bwrap /m);
-  assert.match(steps['Remove review files'], /^        if: always\(\)\n        timeout-minutes: 1\n        run: rm -rf -- "\$RUNNER_TEMP\/mexerica-ocr"$/m);
-  assert.match(steps['Remove scoped isolation profile'], /^        if: always\(\)\n        timeout-minutes: 1\n        run: \|\n/);
-  assert.match(steps['Remove scoped isolation profile'], /profile="\$RUNNER_TEMP\/mexerica-ocr-bwrap\.profile"[\s\S]*?apparmor_parser -R "\$profile" > \/dev\/null 2>&1[\s\S]*?rm -f -- "\$profile"/);
-  const focal = spawnSync('python3', ['-B', fileURLToPath(new URL('./ci-code-review-status.test.py', import.meta.url))], { encoding: 'utf8' });
-  assert.equal(focal.status, 0, focal.stderr || String(focal.error));
-});
-
 test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fora', () => {
   assert.ok(!/[^\x00-\x7F]/.test(ci), 'ci.yml deve ser ASCII');
   assert.match(ci, /^on:\n  pull_request:\n    types: \[[a-z_, ]+\]\n\n/m);
@@ -272,7 +191,7 @@ const ACTIONS = new Set([
 ]);
 
 test('somente os workflows da lista fechada existem', () => {
-  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'code-review.yml', 'cua-driver-pin.yml', 'macos.yml', 'release.yml', 'vazamento-semanal.yml']);
+  assert.deepEqual(readdirSync(new URL('../.github/workflows/', import.meta.url)).sort(), ['bastidor.yml', 'ci.yml', 'cua-driver-pin.yml', 'macos.yml', 'release.yml', 'vazamento-semanal.yml']);
 });
 
 test('macOS: ASCII, só pull_request com filtro de caminhos e disparo manual sem entradas', () => {
