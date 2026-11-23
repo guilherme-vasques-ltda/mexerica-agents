@@ -214,7 +214,7 @@ export class MailInboxReadState extends Observable {
       this.thread = thread
       this.#changed()
     } catch (error) {
-      if (generation === this.#generation && listGeneration === this.#listGeneration) { this.#handleError(error); this.#changed() }
+      if (generation === this.#generation && listGeneration === this.#listGeneration) { this.#handleError(error, false); this.#changed() }
     } finally {
       if (generation === this.#generation && listGeneration === this.#listGeneration) { this.loadingThread = false; this.#changed() }
     }
