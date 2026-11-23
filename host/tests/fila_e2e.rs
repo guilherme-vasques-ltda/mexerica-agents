@@ -172,6 +172,13 @@ async fn vinte_na_fila_saem_em_ordem_e_sem_duplicar_depois_de_matar_o_hub() {
     let (ok, reply) = host.send(&bot, "msg-07", "fila-07").await;
     assert!(ok, "{reply}");
     assert_eq!(reply["entry"]["id"], ids[6]);
+    // Contrato da pausa: o pedido cortado pode ter tido efeito, então a fila espera a liberação do dono.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!std::fs::read_to_string(&log).unwrap_or_default().contains("msg-01"), "a fila andou sem liberação");
+    let first = host.users(&bot).await.into_iter().find(|e| e["id"] == ids[0]).unwrap();
+    assert_eq!(first["data"]["status"], "queued");
+    let released = host.call("releaseConversation", json!({"botId":bot})).await;
+    assert_eq!(released["released"], json!([bot]));
 
     let deadline = Instant::now() + Duration::from_secs(120);
     while !std::fs::read_to_string(&log).unwrap_or_default().contains("msg-20") {

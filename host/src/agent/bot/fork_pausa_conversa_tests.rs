@@ -4,12 +4,23 @@ use super::*;
 use crate::fork::bot_admission as admission;
 
 fn notices(store: &Store) -> usize {
+    containing(store, "pode haver efeito já realizado")
+}
+
+/// Avisos da conversa com o trecho, sem diferenciar maiúscula no começo.
+fn containing(store: &Store, part: &str) -> usize {
     store
         .history("bot", i64::MAX, 200)
         .unwrap()
         .iter()
-        .filter(|e| e.data["text"].as_str().is_some_and(|s| s.contains("Pode haver efeito já realizado")))
+        .filter(|e| e.kind == "notice" && e.data["text"].as_str().is_some_and(|s| s.to_lowercase().contains(part)))
         .count()
+}
+
+/// Rotina interrompida: um único aviso de efeito incerto (o da rotina) e um único aviso de pausa.
+fn assert_routine_notices(store: &Store, effect: usize) {
+    assert_eq!(containing(store, "efeito já realizado"), effect, "o aviso de efeito não se duplica");
+    assert_eq!(containing(store, "ficou pausada"), 1, "um aviso de pausa");
 }
 
 async fn send(hub: &Arc<Hub>, text: &str) -> String {
@@ -173,7 +184,7 @@ async fn rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots() {
     tokio::time::sleep(Duration::from_millis(900)).await;
     assert_eq!(f.prompts().len(), 1, "nada sai da conversa pausada");
     assert_eq!(first.store.entry(&later).unwrap().data["status"], "queued");
-    assert_eq!(notices(&first.store), 1);
+    assert_routine_notices(&first.store, 1);
     first.shutdown().await;
 
     let second = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
@@ -181,7 +192,7 @@ async fn rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots() {
     assert!(admission::conversation_paused(&second.store, "bot", &record.conversation_id).unwrap());
     assert_eq!(f.prompts().len(), 1, "o segundo boot não envia nem repete a rotina");
     assert_eq!(second.store.entry(&later).unwrap().data["status"], "queued");
-    assert_eq!(notices(&second.store), 1, "o aviso não se repete");
+    assert_routine_notices(&second.store, 1);
     assert_eq!(second.routines.list("bot")["runs"][0]["status"], "interrupted");
 
     crate::api::dispatch(&second, &crate::api::devices::Caller::Local, "releaseConversation", json!({"botId":"bot"}))
@@ -253,7 +264,7 @@ async fn rotina_terminal_sem_prova_da_cerca_tambem_pausa() {
         let hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
         f.until(|| admission::current(&hub.store, "bot").unwrap().is_none()).await;
         assert!(admission::conversation_paused(&hub.store, "bot", &record.conversation_id).unwrap(), "{status}");
-        assert_eq!(notices(&hub.store), 1, "{status}");
+        assert_routine_notices(&hub.store, 0);
         assert_eq!(hub.routines.list("bot")["runs"][0]["status"], status);
         assert_eq!(f.prompts().len(), 1, "{status}: nada é repetido");
         hub.shutdown().await;

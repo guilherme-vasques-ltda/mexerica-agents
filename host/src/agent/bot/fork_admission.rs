@@ -950,10 +950,19 @@ impl Actor {
             // A pausa é gravada antes do aviso e antes de soltar a cerca: uma nova queda aqui repete só a pausa
             // (idempotente) e o aviso único, nunca o turno.
             admission::pause_conversation(&self.hub.store, &self.cfg.id, &record.conversation_id, &record.attempt)?;
+            // A rotina publica o próprio aviso de efeito incerto; este diz só que a conversa ficou pausada, para o aviso de
+            // efeito continuar único.
+            let text = if matches!(record.origin, Origin::Routine { .. }) {
+                "O Hub reiniciou durante uma rotina com efeito incerto e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la. Nenhuma ação foi repetida automaticamente."
+            } else {
+                "O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico. Nenhuma ação foi repetida automaticamente e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la."
+            };
             self.hub.add_entry_once(
-                &format!("dispatch-interrupted-{}", record.attempt), &lane,
-                crate::store::EntryKind::Notice, 0,
-                &json!({"text":"O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico. Nenhuma ação foi repetida automaticamente e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la.","style":"info","author":self.cfg.id}),
+                &format!("dispatch-interrupted-{}", record.attempt),
+                &lane,
+                crate::store::EntryKind::Notice,
+                0,
+                &json!({"text":text,"style":"info","author":self.cfg.id}),
             )?;
         }
         admission::finish(&self.hub.store, &self.cfg.id, &record.ticket())?;
