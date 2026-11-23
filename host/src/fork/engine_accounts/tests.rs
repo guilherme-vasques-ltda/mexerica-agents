@@ -200,6 +200,7 @@ fn dto_is_an_allowlist_and_unverified_never_becomes_a_subscription() {
             "label",
             "models",
             "origin",
+            "paused",
             "revision",
             "state"
         ]

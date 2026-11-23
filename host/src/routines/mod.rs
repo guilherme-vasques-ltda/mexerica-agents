@@ -501,11 +501,6 @@ impl Routines {
             .any(|run| run.id == id && run.bot_id == bot && run.status == Status::Recovering && run.chain.is_none())
     }
 
-    /// Resultado durável já concluído não precisa de nova IA no boot.
-    pub(crate) fn admission_finished(&self, id: &str) -> bool {
-        self.state.locked().runs.iter().any(|r| r.id == id && !r.status.active())
-    }
-
     /// The webhook routines the relay registers with the cloud.
     pub fn hooks(&self) -> Vec<Hook> {
         hook_set(&self.state.locked())

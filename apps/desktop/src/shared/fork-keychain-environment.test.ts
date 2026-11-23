@@ -10,7 +10,7 @@ function boot(environment: 'main' | 'dev', packaged: boolean, sandbox: string | 
   let name = '', userData = '', reads = 0, exited = false
   const appData = '/synthetic/user/Library/Application Support'
   loadMainModule('environment', {
-    electron: { app: { isPackaged: packaged, setName: (n: string) => { name = n }, setPath: (_: string, p: string) => { userData = p }, getPath: (key: string) => key === 'appData' ? appData : userData, exit: () => { exited = true } }, dialog: { showErrorBox: () => {} } },
+    electron: { app: { isPackaged: packaged, getName: () => environment === 'dev' ? 'Mexerica Dev' : 'Mexerica', getVersion: () => '0.0.1', getAppPath: () => '/fixture/app.asar', setName: (n: string) => { name = n }, setPath: (_: string, p: string) => { userData = p }, getPath: (key: string) => key === 'appData' ? appData : userData, exit: () => { exited = true } }, dialog: { showErrorBox: () => {} } },
     'node:fs': { ...fs, readFileSync: () => JSON.stringify({ environment }) }, 'node:path': path, 'node:crypto': crypto, 'node:os': { homedir: () => '/synthetic/user' },
     '../shared/fork-private-files': { privateDirectory: () => {} },
     '../shared/fork-data-home': { mexericaHome: () => sandbox ?? `/synthetic/user/.mexerica${environment === 'dev' ? '-dev' : ''}` },

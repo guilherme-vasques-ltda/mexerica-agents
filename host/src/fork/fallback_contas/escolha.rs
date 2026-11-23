@@ -5,7 +5,7 @@
 //! sem leitura >= 90% da sessão ou da semana. Sem leitura de uso só valem esgotada e erro (regra (m)). A decisão
 //! só escolhe; a prova da conta ((k)) e o teto ((f)) são feitos por quem envia, a cada tentativa.
 use super::estado::{self, Descanso, Estado, Motivo};
-use crate::fork::engine_accounts::{Billing, Registry};
+use crate::fork::engine_accounts::{Billing, Registry, State};
 use crate::hub::Hub;
 use crate::store::BotConfig;
 use anyhow::Result;
@@ -154,10 +154,17 @@ pub(crate) async fn decidir(hub: &Arc<Hub>, p: &Pedido<'_>) -> Result<Decisao> {
     let registry = Registry::load(&hub.store)?;
     let reservas = fila(&estado, p);
     // Sem lista (ou com a origem fora de "assinatura → assinatura"): nada muda, e uma sobreposição velha se desfaz.
-    let origem_ok = registry.account(p.origem).is_ok_and(|a| a.billing == Billing::Subscription)
+    // A origem precisa estar comprovada AGORA: conta pausada ou desconectada não é "acabou" — é Voltar, sem aviso de cota.
+    let origem_ok = registry.account(p.origem).is_ok_and(crate::fork::engine_accounts::Account::subscription_verified)
         && matches!(p.cfg.backend.as_str(), "claude" | "codex");
     if reservas.len() < 2 || !origem_ok {
-        return Ok(if p.atual == p.origem { Decisao::SemFallback } else { Decisao::Voltar });
+        // Origem pausada ou fora de serviço: nada muda nem volta para ela — a conversa segue
+        // onde está (sem troca silenciosa nem aviso falso de cota) e volta quando a origem
+        // voltar a ser a primeira comprovada. Sobreposição velha de origem inválida se desfaz.
+        let conta_origem = registry.account(p.origem).ok();
+        let parada =
+            conta_origem.is_some_and(|a| a.state != State::Connected || !a.managed.as_ref().is_none_or(|m| m.enabled));
+        return Ok(if p.atual == p.origem || parada { Decisao::SemFallback } else { Decisao::Voltar });
     }
     let agora = crate::store::now_ms();
     let mut primeiro: Option<(Motivo, Option<i64>)> = None;
@@ -183,4 +190,107 @@ pub(crate) async fn decidir(hub: &Arc<Hub>, p: &Pedido<'_>) -> Result<Decisao> {
     }
     let (motivo, _) = primeiro.unwrap_or((Motivo::Esgotada, None));
     Ok(Decisao::Parar { conta: p.origem.to_owned(), motivo, volta_em: voltas.into_iter().min() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remote::identity::Identity;
+    use crate::store::Store;
+    use serde_json::json;
+
+    const CONTAA: &str = "ac_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const CONTAB: &str = "ac_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    /// Conta gerenciada de assinatura com prova completa (`subscription_verified`); id hex de 64.
+    fn conta(hex: &str, pausada: bool) -> crate::fork::engine_accounts::Account {
+        use crate::fork::engine_accounts::{
+            AuthorizedScope, Backend, Billing, LaunchReference, State, SubscriptionProof,
+        };
+        assert_eq!(hex.len(), 64, "id de conta é hex de 64");
+        let id = hex;
+        crate::fork::engine_accounts::Account {
+            managed: Some(crate::fork::engine_accounts::managed::Metadata {
+                label: id.to_string(),
+                revision: 1,
+                generation: 0,
+                enabled: !pausada,
+                paused: pausada,
+                request_id: "teste".into(),
+                principal: None,
+                profile: None,
+                setup_request: None,
+                catalog: None,
+            }),
+            id: format!("ac_{id}"),
+            backend: Backend::Claude,
+            billing: Billing::Subscription,
+            state: if pausada { State::Disconnected } else { State::Connected },
+            launch: LaunchReference::CliProfile {
+                executable: "/fixture/claude".into(),
+                directory: std::path::PathBuf::from("/fixture"),
+            },
+            scope: AuthorizedScope::Owner,
+            quota_identity: Some(format!("ac_{id}")),
+            verified_at: Some(crate::store::now_ms()),
+            subscription_proof: Some(SubscriptionProof::ClaudeAuthStatus { plan: "pro".into() }),
+            models: Vec::new(),
+            hidden_model_ids: Vec::new(),
+        }
+    }
+
+    fn hub() -> Arc<Hub> {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let dir = store.engine_setup_root.clone();
+        std::os::unix::fs::DirBuilderExt::mode(std::fs::DirBuilder::new().recursive(true), 0o700).create(&dir).unwrap();
+        Hub::new(store, "fallback-teste".into(), Identity::load_or_create(&dir).unwrap(), "teste".into(), 0)
+    }
+
+    /// Regra (a) na pausa: a origem pausada não é assinatura comprovada AGORA — nada troca com
+    /// aviso de cota; a conversa fica na origem e o turno seguinte falha alto (`account_unavailable`).
+    #[tokio::test]
+    async fn origem_pausada_nao_gera_troca_com_aviso_de_cota() {
+        let hub = hub();
+        {
+            let mut registry = Registry::load(&hub.store).unwrap();
+            registry.accounts.push(conta(&"a".repeat(64), true));
+            registry.accounts.push(conta(&"b".repeat(64), false));
+            registry.persist(&hub.store).unwrap();
+        }
+        // Fila com duas contas: a decisão de parar tem de vir da origem pausada, não da fila curta.
+        estado::alterar(&hub.store, |e| {
+            e.ordens.insert(estado::chave_ordem("pessoal", "claude"), vec![CONTAA.into()]);
+            Ok(())
+        })
+        .unwrap();
+        let cfg: BotConfig = serde_json::from_value(
+            json!({"id":"bot","name":"Fallback","backend":"claude","forkEditor":{"engineAccountId":CONTAA}}),
+        )
+        .unwrap();
+        let pedido = Pedido { space: "pessoal", bot: "bot", origem: CONTAA, atual: CONTAA, cfg: &cfg };
+        assert_eq!(decidir(&hub, &pedido).await.unwrap(), Decisao::SemFallback);
+    }
+
+    /// Conversa já na reserva, origem pausada: nada volta para a conta parada em silêncio.
+    #[tokio::test]
+    async fn origem_pausada_nao_traz_a_conversa_de_volta() {
+        let hub = hub();
+        {
+            let mut registry = Registry::load(&hub.store).unwrap();
+            registry.accounts.push(conta(&"a".repeat(64), true));
+            registry.accounts.push(conta(&"b".repeat(64), false));
+            registry.persist(&hub.store).unwrap();
+        }
+        estado::alterar(&hub.store, |e| {
+            e.ordens.insert(estado::chave_ordem("pessoal", "claude"), vec![CONTAB.into()]);
+            Ok(())
+        })
+        .unwrap();
+        let cfg: BotConfig = serde_json::from_value(
+            json!({"id":"bot","name":"Fallback","backend":"claude","forkEditor":{"engineAccountId":CONTAA}}),
+        )
+        .unwrap();
+        let pedido = Pedido { space: "pessoal", bot: "bot", origem: CONTAA, atual: CONTAB, cfg: &cfg };
+        assert_eq!(decidir(&hub, &pedido).await.unwrap(), Decisao::SemFallback);
+    }
 }

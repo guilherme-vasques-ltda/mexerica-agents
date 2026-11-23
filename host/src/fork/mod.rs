@@ -11,6 +11,7 @@ pub(crate) mod webhook_chain;
 
 use crate::LockExt;
 
+pub(crate) mod acesso_rpc;
 pub(crate) mod activity_code;
 pub(crate) mod agent_skills;
 pub mod api;
@@ -33,6 +34,8 @@ pub(crate) mod bot_admission;
 pub mod bot_editor;
 pub(crate) mod bot_skills;
 pub(crate) mod browser;
+#[cfg(test)]
+mod chatgpt_responses;
 pub(crate) mod claude_ponte;
 pub(crate) mod claude_tools;
 pub(crate) mod codex_usage;

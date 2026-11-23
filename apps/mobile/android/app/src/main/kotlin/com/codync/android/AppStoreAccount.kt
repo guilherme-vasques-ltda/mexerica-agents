@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.app.Application
@@ -6,6 +7,7 @@ import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.sync.withLock
 import com.codync.android.core.*
+import com.codync.android.core.fork.WorkspaceChoice
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
@@ -26,20 +28,64 @@ internal fun AppStore.signIn(provider: SignInProvider) = sessionAction {
 }
 fun AppStore.switchAccount(account: SavedAccount) = sessionAction { NativeAccounts.switch(account) }
 fun AppStore.retryAccounts() { NativeAccounts.retry() }
-fun AppStore.signOut() = sessionAction {
-    val old = state.value.account.accounts.firstOrNull { it.userId == state.value.account.userId } ?: return@sessionAction
-    // Sent first so it still counts toward the account.
-    Analytics.capture(AnalyticsEvent.SignedOut)
-    NativeAccounts.signOut(old.sessionId)
+
+internal suspend fun AppStore.applyAccount(account: AccountState) {
+    val previous = state.value
+    if (!account.ready && account.error == null) return
+    if (account.userId != NativeAccounts.activeUserId()) return
+    if (!account.configured && previous.loading && previous.generation == 0) {
+        loadContext(account, null)
+        return
+    }
+    val choices = account.workspaces
+    val selected = if (previous.account.userId == account.userId) {
+        choices?.firstOrNull { it.workspaceId == preferredWorkspace } ?: choices?.firstOrNull()
+    } else choices?.firstOrNull()
+    val switched = previous.contextId == "retired" || previous.account.userId != account.userId || previous.workspace?.workspaceId != selected?.workspaceId ||
+        previous.workspace?.role != selected?.role || previous.loading
+    if (switched) retireContext()
+    val userId = account.userId
+    if (userId != null && choices != null) withContext(Dispatchers.IO) {
+        LocalStore.retainAccountScopes(getApplication(), userId, choices.map { it.contextScopeId(userId) }.toSet())
+    }
+    if (userId == null && previous.account.userId != null && account.ready) withContext(Dispatchers.IO) {
+        LocalStore.eraseAccount(getApplication(), previous.account.userId)
+    }
+    if (previous.account.userId != userId || selected != null) preferredWorkspace = selected?.workspaceId
+    if (switched) loadContext(account, selected)
+    else mutableState.update { it.copy(account = account, workspace = selected) }
+}
+
+fun AppStore.switchWorkspace(choice: WorkspaceChoice) = sessionAction {
     transitions.withLock {
-        // The SDK updates its session synchronously; its observer may be queued behind us.
-        val userId = com.clerk.api.Clerk.activeSession?.user?.id
-        retireContext()
-        loadContext(userId)
-        val remaining = com.clerk.api.Clerk.auth.sessions.any { it.user?.id == old.userId && it.status == com.clerk.api.session.Session.SessionStatus.ACTIVE }
-        if (!remaining) withContext(Dispatchers.IO) {
-            LocalStore(getApplication(), old.userId).erase()
-            File(getApplication<Application>().cacheDir, "codync-images-${LocalStore.referenceId(old.userId)}").deleteRecursively()
+        val current = state.value
+        val userId = current.account.userId ?: return@withLock
+        require(NativeAccounts.activeUserId() == userId && current.account.workspaces?.contains(choice) == true) { "This workspace is no longer available." }
+        if (current.workspace == choice) return@withLock
+        withContext(NonCancellable) {
+            retireContext()
+            preferredWorkspace = choice.workspaceId
+            loadContext(current.account, choice)
+        }
+    }
+}
+
+fun AppStore.signOut() = sessionAction {
+    transitions.withLock {
+        val previous = state.value
+        val old = previous.account.accounts.firstOrNull { it.userId == previous.account.userId } ?: return@withLock
+        retireContext(clearWorkspaceState = false)
+        withContext(NonCancellable) {
+            try {
+                NativeAccounts.signOut(old.sessionId)
+            } catch (error: Exception) {
+                if (NativeAccounts.activeUserId() == old.userId) loadContext(previous.account, previous.workspace)
+                throw error
+            }
+            Analytics.capture(AnalyticsEvent.SignedOut)
+            withContext(Dispatchers.IO) { LocalStore.eraseAccount(getApplication(), old.userId) }
+            preferredWorkspace = null
+            loadContext(AccountState(ready = true), null)
         }
     }
 }
@@ -47,6 +93,8 @@ fun AppStore.signOut() = sessionAction {
 fun AppStore.refreshCloud() = action("cloud") {
     val client = cloud ?: return@action
     try {
+        val userId = state.value.account.userId ?: return@action
+        NativeAccounts.selectPersonal(userId)
         client.registerDevice(Build.MODEL.take(100))
         // The list changed here while one was on its way (a removal): it's out of date, so it's asked
         // for again. A removal's own refresh, asked for while this one ran, is this one.
@@ -62,7 +110,7 @@ fun AppStore.refreshCloud() = action("cloud") {
         if (error is CloudError && !error.isTransient) throw error
         // Runs on every launch and foreground: a dropped connection, a busy cloud or a token not ready
         // yet fixes itself on the next refresh, so only answers that stay reach the dialog (as on iOS).
-        android.util.Log.i("Codync", "Cloud refresh failed: ${error.message}")
+        android.util.Log.i("Codync", "Cloud refresh failed: ${error.javaClass.simpleName}")
     }
 }
 
@@ -191,13 +239,10 @@ fun AppStore.forgetComputer() = sessionAction { forget() }
 
 private suspend fun AppStore.forget() {
     transitions.withLock {
-        val userId = state.value.account.userId
+        val current = state.value
         retireContext()
-        withContext(Dispatchers.IO) {
-            local.saveComputers(emptyList())
-            local.directory.listFiles()?.filter { it.name.startsWith("mirror-") || it.name.startsWith("drafts-") }?.forEach { it.delete() }
-        }
-        loadContext(userId)
+        withContext(Dispatchers.IO) { LocalStore.eraseScope(getApplication(), local.contextId) }
+        loadContext(current.account, current.workspace)
     }
 }
 
@@ -223,8 +268,8 @@ fun AppStore.startOver() = sessionAction {
                 cache.listFiles()?.filter { it.name.startsWith("codync-images") }?.forEach { it.deleteRecursively() }
             }
             Analytics.forgetOnboarding()
-            mutableState.update { it.copy(account = AccountState(ready = true), error = null) }
-            loadContext(null)
+            preferredWorkspace = null
+            loadContext(AccountState(ready = true), null)
         }
     }
 }

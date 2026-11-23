@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
+import com.codync.android.core.fork.CallEvidence
 import com.codync.android.core.fork.SpeechOnset
 import java.io.IOException
 import java.time.YearMonth
@@ -78,7 +79,7 @@ class VoiceEnginesTest {
     private fun entry(id: String, seq: Long, kind: String, data: JsonObjectBuilder.() -> Unit, bot: String = "ada") =
         Entry(id, seq, bot, seq, kind, data = buildJsonObject(data))
     private val card = entry("card", 4, "permission", {
-        put("status", "pending"); put("title", "Run npm test")
+        put("status", "pending"); put("title", "Run npm test"); put("voiceApproval", "allow_once")
         putJsonArray("options") {
             addJsonObject { put("optionId", "allow_once"); put("name", "Allow once"); put("kind", "allow_once") }
             addJsonObject { put("optionId", "reject"); put("name", "Deny"); put("kind", "reject_once") }
@@ -101,10 +102,10 @@ class VoiceEnginesTest {
         assertEquals(listOf("ada" to "Started npm test", "approval request" to "Run npm test"),
             messages.map { it.jsonObject["from"]!!.jsonPrimitive.content.lowercase() to it.jsonObject["text"]!!.jsonPrimitive.content })
         operator.speechDetected() // A tool result can't answer the card; the user says which option.
-        assertEquals("Allow once", operator.call("answer_approval", buildJsonObject { put("option", "allow") })["answered"]?.jsonPrimitive?.content)
+        assertEquals("Allow once", approveCall(operator, "  ALLOW ONCE  ")["answered"]?.jsonPrimitive?.content)
         assertEquals(listOf("card" to "allow_once"), desk.answered)
         operator.speechDetected()
-        assertEquals(2, operator.call("answer_approval", buildJsonObject { put("option", "maybe") })["options"]!!.jsonArray.size)
+        assertEquals(listOf("allow_once"), approveCall(operator, "maybe")["options"]!!.jsonArray.map { it.jsonObject["optionId"]!!.jsonPrimitive.content })
         assertEquals("Unknown tool shell.", operator.call("shell", JsonObject(emptyMap()))["error"]?.jsonPrimitive?.content)
         assertEquals("[Ada replied] Done", operator.reply("**Done**")); assertEquals("[Notice] Hi", operator.notice("Hi"))
         val group = CallOperator("team", Desk(listOf(Bot("team", "Team", kind = "group", members = listOf("ada", "bo")), Bot("ada", "Ada"), Bot("bo", "Bo")), emptyList()))
@@ -117,7 +118,7 @@ class VoiceEnginesTest {
     }
 
     private fun sendCall(operator: CallOperator, text: String = "oi") = operator.call("send_to_bot", buildJsonObject { put("text", text) })
-    private fun approveCall(operator: CallOperator) = operator.call("answer_approval", buildJsonObject { put("option", "allow") })
+    private fun approveCall(operator: CallOperator, option: String = "allow_once") = operator.call("answer_approval", buildJsonObject { put("option", option) })
     private fun wasRefused(result: JsonObject) = "Nothing was heard from the user yet." == result["error"]?.jsonPrimitive?.content
     private fun wasSent(operator: CallOperator) = sendCall(operator)["sent"]?.jsonPrimitive?.boolean == true
 
@@ -166,7 +167,7 @@ class VoiceEnginesTest {
 
         // The link dropped: what was said before it, and a late event from it, authorize nothing.
         operator.speechDetected()
-        operator.stopListening()
+        operator.resetLink()
         assertTrue(wasRefused(sendCall(operator)))
         operator.speechDetected()
         assertTrue(wasRefused(sendCall(operator)))
@@ -192,7 +193,7 @@ class VoiceEnginesTest {
         val operator = CallOperator("ada", desk)
         operator.audioStarted()
 
-        val captured = operator.delivery // A frame heard before the data reached the model.
+        val captured = operator.captureEpoch // A frame heard before the data reached the model.
         operator.dataDelivered()
         operator.speechDetected(captured) // Processed later, it keeps its older mark.
         assertTrue(wasRefused(sendCall(operator)))
@@ -207,12 +208,51 @@ class VoiceEnginesTest {
 
         // A delivery the old link never confirmed doesn't block the link that comes after it.
         operator.dataDelivered("mx_9")
-        operator.stopListening()
+        operator.resetLink()
         operator.audioStarted()
         operator.speechDetected()
         assertTrue(wasSent(operator))
         assertTrue(desk.answered.isEmpty())
         assertEquals(listOf("oi", "oi"), desk.sent)
+    }
+
+    @Test fun pausingAndMutingKeepConfirmationsButInvalidateCapturedSpeech() {
+        val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
+        val operator = CallOperator("ada", desk)
+        operator.audioStarted()
+        operator.dataDelivered("focus")
+        val beforePause = operator.captureEpoch
+        operator.stopListening()
+        val duringPause = operator.captureEpoch
+        operator.audioStarted()
+        operator.speechDetected()
+        assertTrue(wasRefused(sendCall(operator)))
+        operator.confirmed("focus")
+        assertTrue(wasRefused(sendCall(operator)))
+        for (epoch in listOf(beforePause, duringPause)) {
+            operator.speechDetected(epoch)
+            assertTrue(wasRefused(sendCall(operator)))
+        }
+        operator.speechDetected(operator.captureEpoch)
+        assertTrue(wasSent(operator))
+
+        operator.dataDelivered("mute")
+        operator.muteChanged(true)
+        val duringMute = operator.captureEpoch
+        operator.muteChanged(false)
+        operator.speechDetected()
+        assertTrue(wasRefused(approveCall(operator)))
+        operator.confirmed("mute")
+        operator.speechDetected(duringMute)
+        assertTrue(wasRefused(approveCall(operator)))
+        operator.speechDetected(operator.captureEpoch)
+        assertEquals("Allow once", approveCall(operator)["answered"]?.jsonPrimitive?.content)
+
+        operator.speechDetected()
+        operator.stopListening()
+        operator.audioStarted()
+        assertTrue(wasRefused(sendCall(operator)))
+        assertEquals(listOf("oi"), desk.sent)
     }
 
     @Test fun speechOnsetNeedsAFullStretchAfterAFullPause() {
@@ -298,7 +338,7 @@ class VoiceEnginesTest {
         assertEquals(listOf("session.update", "conversation.item.create", "response.create"), peer.types())
         // The beta name of the same confirmation is still accepted.
         val early = peer.sent[1]["item"]!!.jsonObject["id"]!!.jsonPrimitive.content
-        peer.events!!.received("""{"type":"conversation.item.created","item":{"id":"$early"}}""")
+        peer.events!!.received("""{"type":"conversation.item.created","item":{"id":"$early","type":"message"}}""")
         assertEquals("[Ada replied] Early reply", peer.sent[1]["item"]!!.jsonObject["content"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content)
         assertEquals(VoicePhase.Listening, engine.state.value.phase)
         peer.events!!.received("""{"type":"response.created"}"""); engine.announce("Approval waiting"); runCurrent()
@@ -326,6 +366,134 @@ class VoiceEnginesTest {
         val engine = OpenAIRealtimeEngine(backgroundScope, VoiceSettings(), { "ek" }, CallOperator("ada", Desk(emptyList(), emptyList())), peer) { _, _ -> "sdp" }
         advanceTimeBy(15_001); runCurrent(); engine.awaitEnd()
         assertEquals(VoicePhase.Failed, engine.state.value.phase); assertEquals("Couldn't reach OpenAI.", engine.state.value.error)
+    }
+
+    private fun Peer.tool(name: String, arguments: JsonObject = buildJsonObject {}) {
+        events!!.received(buildJsonObject {
+            put("type", "response.function_call_arguments.done")
+            put("call_id", "call_${sent.size}"); put("name", name); put("arguments", arguments.toString())
+        }.toString())
+    }
+
+    private fun Peer.trySend() = tool("send_to_bot", buildJsonObject { put("text", "oi") })
+
+    @Test fun openAIKeepsPendingDeliveriesAcrossFocusMuteAndTransientIceLoss() = runTest {
+        val peer = Peer(); val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
+        val engine = OpenAIRealtimeEngine(backgroundScope, VoiceSettings(), { "ek" }, CallOperator("ada", desk), peer) { _, _ -> "sdp" }
+        runCurrent(); peer.isOpen = true; peer.events!!.opened(); runCurrent()
+        engine.announce("Computer data"); runCurrent()
+        val message = peer.sent.last { it.text("type") == "conversation.item.create" }["item"]!!.jsonObject
+        engine.focus(false); runCurrent()
+        peer.events!!.ice(RealtimePeer.Ice.Disconnected); runCurrent()
+        peer.events!!.ice(RealtimePeer.Ice.Connected); runCurrent()
+        assertEquals(VoicePhase.Interrupted, engine.state.value.phase)
+        assertEquals(false, peer.micOn)
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        engine.focus(true); runCurrent()
+        assertEquals(true, peer.micOn)
+        engine.mute(true); engine.mute(false); runCurrent()
+
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        peer.trySend(); runCurrent()
+        assertTrue(desk.sent.isEmpty())
+
+        peer.events!!.ice(RealtimePeer.Ice.Disconnected); runCurrent()
+        peer.events!!.received("""{"type":"conversation.item.added","item":$message}""")
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        peer.events!!.ice(RealtimePeer.Ice.Connected); runCurrent()
+        peer.trySend(); runCurrent()
+        assertTrue(desk.sent.isEmpty())
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        peer.trySend(); runCurrent()
+        assertEquals(listOf("oi"), desk.sent)
+        engine.end(); runCurrent(); engine.awaitEnd()
+    }
+
+    @Test fun openAIRequiresTypedAcksAndIgnoresErrorsWithoutAPendingClientEventId() = runTest {
+        val peer = Peer(); val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
+        val evidence = CallEvidence()
+        val engine = OpenAIRealtimeEngine(backgroundScope, VoiceSettings(), { "ek" }, CallOperator("ada", desk, evidence), peer) { _, _ -> "sdp" }
+        runCurrent(); peer.isOpen = true; peer.events!!.opened(); runCurrent()
+        engine.announce("Computer data"); runCurrent()
+        peer.tool("bot_status"); runCurrent()
+        val (message, result) = peer.sent.filter { it.text("type") == "conversation.item.create" }
+        val messageId = message["item"]!!.jsonObject.text("id")!!
+        val resultId = result["item"]!!.jsonObject.text("id")!!
+        val messageEvent = message.text("event_id")!!
+        val resultEvent = result.text("event_id")!!
+        assertTrue(messageEvent.isNotBlank()); assertTrue(resultEvent.isNotBlank()); assertNotEquals(messageEvent, resultEvent)
+
+        for (error in listOf(
+            """{"type":"error","event_id":"$resultEvent","error":{}}""",
+            """{"type":"error","error":{"event_id":"unrelated"}}""",
+            """{"type":"error","error":{"event_id":"$resultId"}}""",
+            """{"type":"error","error":{"event_id":["$resultEvent"]}}""",
+            """{"type":"error","error":{"event_id":123}}""",
+            """{"type":"error","error":false}""",
+        )) peer.events!!.received(error)
+        peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"$messageId","type":"function_call_output"}}""")
+        peer.events!!.received("""{"type":"conversation.item.done","item":{"id":"$resultId","type":"message"}}""")
+        peer.events!!.received("""{"type":"conversation.item.created","item":{"id":"$resultId"}}""")
+        peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"$resultId","type":{}}}""")
+        peer.events!!.received("""{"type":"conversation.item.added","item":{"id":[],"type":"function_call_output"}}""")
+        runCurrent()
+        assertEquals(VoicePhase.Listening, engine.state.value.phase)
+        assertEquals(setOf(messageId, resultId), evidence.unconfirmed)
+
+        peer.events!!.received("""{"type":"conversation.item.done","item":{"id":"$resultId","type":"function_call_output"}}""")
+        peer.events!!.received("""{"type":"error","error":{"event_id":"$resultEvent"}}""")
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        peer.trySend(); runCurrent()
+        assertEquals(VoicePhase.Listening, engine.state.value.phase)
+        assertEquals(setOf(messageId), evidence.unconfirmed)
+        assertTrue(desk.sent.isEmpty())
+
+        peer.events!!.received("""{"type":"conversation.item.created","item":{"id":"$messageId","type":"message"}}""")
+        peer.trySend(); runCurrent()
+        assertTrue(desk.sent.isEmpty())
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        peer.trySend(); runCurrent()
+        assertEquals(listOf("oi"), desk.sent)
+        engine.end(); runCurrent(); engine.awaitEnd()
+    }
+
+    @Test fun openAIFailsOnlyTheLinkWhosePendingCreateWasRejected() = runTest {
+        val peer = Peer(); val otherPeer = Peer()
+        val desk = Desk(listOf(Bot("ada", "Ada")), listOf(card))
+        val evidence = CallEvidence()
+        val engine = OpenAIRealtimeEngine(backgroundScope, VoiceSettings(), { "ek" }, CallOperator("ada", desk, evidence), peer) { _, _ -> "sdp" }
+        val other = OpenAIRealtimeEngine(backgroundScope, VoiceSettings(), { "ek" }, CallOperator("ada", desk), otherPeer) { _, _ -> "sdp" }
+        runCurrent()
+        for (p in listOf(peer, otherPeer)) { p.isOpen = true; p.events!!.opened() }
+        runCurrent()
+        engine.announce("Computer data"); other.announce("Other data"); runCurrent()
+        peer.tool("bot_status"); runCurrent()
+        val result = peer.sent.last { it.text("type") == "conversation.item.create" }
+        val resultId = result["item"]!!.jsonObject.text("id")!!
+        val eventId = result.text("event_id")!!
+        val error = """{"type":"error","error":{"event_id":"$eventId","message":"Provider details"}}"""
+        assertTrue(resultId in evidence.unconfirmed)
+
+        otherPeer.events!!.received(error); runCurrent()
+        assertEquals(VoicePhase.Listening, other.state.value.phase)
+        engine.focus(false); runCurrent()
+        peer.events!!.received(error)
+        peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"$resultId","type":"function_call_output"}}""")
+        peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
+        peer.trySend()
+        runCurrent()
+        assertEquals(VoicePhase.Failed, engine.state.value.phase)
+        engine.awaitEnd()
+        assertEquals("OpenAI rejected an item sent during the call.", engine.state.value.error)
+        assertEquals(1, peer.closed); assertTrue(evidence.unconfirmed.isEmpty()); assertTrue(desk.sent.isEmpty())
+        assertEquals(0, otherPeer.closed)
+
+        val otherEvent = otherPeer.sent.single { it.text("type") == "conversation.item.create" }.text("event_id")!!
+        otherPeer.events!!.received("""{"type":"error","error":{"event_id":"$otherEvent"}}""")
+        runCurrent()
+        assertEquals(VoicePhase.Failed, other.state.value.phase)
+        other.awaitEnd()
+        assertEquals(1, otherPeer.closed)
     }
 
     @Test fun openAICallsEndpointPostsTheOfferAndExplainsRefusals() = runBlocking {
@@ -362,7 +530,7 @@ class VoiceEnginesTest {
 
         // The API confirms every item it was handed (GA: `conversation.item.added`), then hears the
         // user: now the turn may act.
-        for (item in created) peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"${item["id"]!!.jsonPrimitive.content}"}}""")
+        for (item in created) peer.events!!.received("""{"type":"conversation.item.added","item":$item}""")
         peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
         peer.events!!.received("""{"type":"response.function_call_arguments.done","call_id":"c3","name":"send_to_bot","arguments":"{\"text\":\"Ship it\"}"}""")
         runCurrent()
@@ -371,7 +539,7 @@ class VoiceEnginesTest {
         // While the model talks, a speech report may be its own voice coming back: it authorizes nothing.
         engine.speak("Read it aloud"); runCurrent()
         val aloud = peer.sent.last { it["type"]!!.jsonPrimitive.content == "conversation.item.create" }["item"]!!.jsonObject["id"]!!.jsonPrimitive.content
-        peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"$aloud"}}""")
+        peer.events!!.received("""{"type":"conversation.item.added","item":{"id":"$aloud","type":"message"}}""")
         peer.events!!.received("""{"type":"output_audio_buffer.started"}"""); runCurrent()
         assertEquals(VoicePhase.Speaking, engine.state.value.phase)
         peer.events!!.received("""{"type":"input_audio_buffer.speech_started"}""")
@@ -487,6 +655,16 @@ class VoiceEnginesTest {
             repeat(4) { outbound("the audio") { "realtimeInput" in it } }
             server!!.send("""{"toolCall":{"functionCalls":[{"id":"f2","name":"send_to_bot","args":{"text":"Ship it"}}]}}""")
             assertEquals(true, answered("the tool response")["sent"]!!.jsonPrimitive.boolean)
+            assertEquals(listOf("Ship it"), desk.sent)
+
+            engine.focus(false)
+            until { it.phase == VoicePhase.Interrupted }
+            outbound("the paused microphone") { it["realtimeInput"]?.jsonObject?.get("audioStreamEnd")?.jsonPrimitive?.booleanOrNull == true }
+            repeat(4) { mic.frames!!(ByteArray(3_200), .8f) }
+            engine.focus(true)
+            until { it.phase == VoicePhase.Listening }
+            server!!.send("""{"toolCall":{"functionCalls":[{"id":"paused","name":"send_to_bot","args":{"text":"stale"}}]}}""")
+            assertEquals("Nothing was heard from the user yet.", answered("the refusal after focus resumes")["error"]!!.jsonPrimitive.content)
             assertEquals(listOf("Ship it"), desk.sent)
 
             // A bot's reply reaching the model ends that authority, whatever it asks for.

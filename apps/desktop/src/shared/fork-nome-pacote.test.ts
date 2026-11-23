@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import * as path from 'node:path'
@@ -19,6 +20,7 @@ function ambiente(environment: 'main' | 'dev') {
   const pastas: { path: string; create: boolean }[] = []
   let userData = ''
   const modulo = loadMainModule<typeof import('../main/environment.ts')>('environment', {
+    'node:crypto': { createHash },
     'node:fs': { readFileSync: () => JSON.stringify({ environment }) },
     'node:path': path,
     'node:os': { homedir: () => '/home/usuario' },
@@ -29,6 +31,9 @@ function ambiente(environment: 'main' | 'dev') {
     } },
     electron: { app: {
       isPackaged: true,
+      getName: () => environment === 'dev' ? 'Mexerica Dev' : 'Mexerica',
+      getVersion: () => '0.0.1',
+      getAppPath: () => '/Applications/Mexerica.app/Contents/Resources/app.asar',
       getPath: (nome: string) => {
         if (nome === 'userData') { assert.notEqual(userData, ''); return userData }
         assert.equal(nome, 'appData')

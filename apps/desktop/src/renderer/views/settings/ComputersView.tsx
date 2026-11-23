@@ -59,7 +59,11 @@ export function ComputersView() {
 
         {cap.ssh ? <div>
           <SectionHeader title={t('ajustes.comp.porSsh')}>
-            <IconButton title={t('ajustes.comp.adicionarSsh')} icon="plus" onClick={() => setEditing({ profile: newSSHProfile(window.codync.hostPort), isNew: true })} />
+            <IconButton title={t('ajustes.comp.adicionarSsh')} icon="plus" onClick={() => {
+              const bridge = window.codync
+              const port = bridge.readHostPort ? bridge.readHostPort() : bridge.hostPort
+              if (typeof port === 'number') setEditing({ profile: newSSHProfile(port), isNew: true })
+            }} />
           </SectionHeader>
           <Reveal show={sshState.state.profiles.length === 0}>
             <Text as="div" size="callout" tone="secondary">

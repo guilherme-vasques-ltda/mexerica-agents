@@ -1,5 +1,5 @@
 import type { HostClient } from '../../../client/host-client'
-import type { AccountMutation, AccountUsage, CreateAccount, EngineAccounts, EngineAccountsQuery, ManagedAccount, ModelVisibility } from '../../../../shared/fork-engine-accounts.ts'
+import type { AccountMutation, AccountUsage, CreateAccount, EngineAccounts, EngineAccountsQuery, ManagedAccount, ModelVisibility, SetAccountEnabled } from '../../../../shared/fork-engine-accounts.ts'
 import { Observable } from '../../../lib/observable.ts'
 import { errorCode, type AccountKind } from './regras.ts'
 import type { OperationRef } from './setup-session.ts'
@@ -15,6 +15,8 @@ export interface ContasApi {
   usage(client: HostClient, engineAccountId: string, spaceId?: string): Promise<AccountUsage>
   /** MX-6: oculta ou mostra um modelo da conta no Hub (`donnaEngineAccountModelVisibility`). */
   modelVisibility(client: HostClient, request: ModelVisibility): Promise<ManagedAccount>
+  /** Pausar/reativar sem apagar credencial (`donnaEngineAccountSetEnabled`). */
+  setEnabled(client: HostClient, request: SetAccountEnabled): Promise<ManagedAccount>
   disconnect(client: HostClient, request: AccountMutation): Promise<ManagedAccount>
   remove(client: HostClient, request: AccountMutation): Promise<Record<string, never>>
   setApiEnv(client: HostClient, request: AccountMutation & { backend: string; vars: Record<string, string> }): Promise<unknown>
@@ -144,6 +146,29 @@ export class ContasStore extends Observable {
     return this.mutate(account.id, async (client) => {
       this.put(await this.api.disconnect(client, { engineAccountId: account.id, expectedRevision: account.revision }))
       this.operations.delete(account.id)
+    }, true)
+  }
+
+  /**
+   * Pausar ou reativar sem tocar credencial. Pausar tira a conta de todo uso novo (o Hub a
+   * deixa `disconnected` e mantém chave/login). Reativar volta sem prova — a resposta chega
+   * `unverified`, então a leitura seguinte é disparada aqui: é ela que confirma pelo cofre ou
+   * sonda o CLI e devolve a conta no estado de verdade. Em qualquer falha o cadastro é relido:
+   * o estado no Hub é o que vale, mesmo se o pedido não concluiu.
+   */
+  async setEnabled(account: ManagedAccount, enabled: boolean) {
+    return this.mutate(account.id, async (client) => {
+      // Leituras começadas antes da mutação não podem gravar o estado de cima depois dela.
+      this.reads += 1
+      this.loading = false
+      const saved = await this.api.setEnabled(client, { engineAccountId: account.id, expectedRevision: account.revision, enabled })
+      this.put(saved)
+      if (!enabled) {
+        this.operations.delete(account.id)
+        return saved
+      }
+      const contas = await this.reload(client)
+      return contas.find((a) => a.id === account.id) ?? saved
     }, true)
   }
 

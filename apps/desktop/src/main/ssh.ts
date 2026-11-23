@@ -1,6 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { writePrivateFile } from '../shared/fork-private-files'
-import { identity } from './environment'
+import { identity, isRc } from './environment'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { CapturedSSHLocal, LocalCloudIntent } from '../shared/fork-cloud-local'
@@ -43,6 +43,7 @@ export function validate(p: SSHProfile): SSHMotivo | null {
   const inRange = (n: number) => Number.isInteger(n) && n >= 1 && n <= 65535
   if (p.port !== null && !inRange(p.port)) return motivoSSH('ajustes.ssh.erro.porta').motivo
   if (!inRange(p.remotePort)) return motivoSSH('marca.ssh.portaFaixa').motivo
+  if (isRc && p.remotePort !== identity.port) return motivoSSH('marca.ssh.portaRc', { porta: identity.port }).motivo
   if (p.identityFile !== null) {
     let ok = false
     try {
@@ -327,10 +328,11 @@ class SSHComputers {
   /** Host key lines waiting for the user's "Trust and connect". */
   private pendingKeys = new Map<string, string[]>()
 
-  constructor(private file: string, private emit: (s: SSHState) => void) {
+  constructor(private file: string, private emit: (s: SSHState) => void, private canConnect: () => boolean) {
     try {
       this.profiles = JSON.parse(readFileSync(file, 'utf8')) as SSHProfile[]
     } catch {
+      if (isRc) return
       // D76/D293: na primeira abertura, o Hub como computador SSH (editável ou removível em Computadores),
       // só se o alias existir no ~/.ssh/config desta máquina. Só no Donnabot: um build Dev nunca aponta para o Hub.
       const alias = hubSSHAlias(process.env)
@@ -413,6 +415,7 @@ class SSHComputers {
   }
 
   async connectAll() {
+    if (!this.canConnect()) return
     // Before this copy has tunnels of its own, so only leftovers from an earlier copy match.
     if (this.tunnels.size === 0 && this.tasks.size === 0) await killOrphanTunnels()
     for (const p of this.profiles) if (!this.tasks.has(p.id) && !this.tunnels.has(p.id)) this.connect(p.id)
@@ -445,6 +448,7 @@ class SSHComputers {
   }
 
   connect(id: string) {
+    if (!this.canConnect()) return
     const old = this.tasks.get(id)
     if (old) old.cancelled = true
     const token: Token = { cancelled: false }
@@ -479,7 +483,7 @@ class SSHComputers {
       writePrivateFile(join(dataDir, 'ssh_known_hosts'), lines.join('\n') + '\n', true)
       const profile=this.profiles.find(p=>p.id===id)
       // Falha parcial é unknownLegacy no PL1; não rompe a política SSH existente.
-      if (profile) { try { await (await import('./fork-cloud/personal-ssh')).recordPersonalTofu(dataDir,profile,lines) } catch {} }
+      if (!isRc && profile) { try { await (await import('./fork-cloud/personal-ssh')).recordPersonalTofu(dataDir,profile,lines) } catch {} }
     } catch (e) {
       return this.setStatus(id, { kind: 'failed', ...falha('ajustes.ssh.erro.salvarChave', { detalhe: e instanceof Error ? e.message : String(e) }) })
     }
@@ -529,15 +533,19 @@ class SSHComputers {
     const name = knownHostsName(resolved)
 
     // Host key (never by reading ssh's error text).
-    if ((await this.recordedKeys(name)).size === 0) {
+    const recorded = await this.recordedKeys(name)
+    if (token.cancelled || !this.canConnect()) return idle
+    if (recorded.size === 0) {
       if (usesProxy(resolved)) {
         return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.jump', { host: profile.host }) })
       }
       this.setStatus(id, { kind: 'connecting', ...etapa('ajustes.ssh.passo.chave') })
       const scan = await run(KEYSCAN, keyscanArguments(resolved))
+      if (token.cancelled || !this.canConnect()) return idle
       const lines = knownHostsLines(scan.stdout, name)
       if (lines.length === 0) return { kind: 'retry', ...falha('ajustes.ssh.erro.alcance', { host: resolved.hostname, porta: resolved.port }) }
       const prints = await run(KEYGEN, ['-l', '-f', '-'], lines.join('\n') + '\n')
+      if (token.cancelled || !this.canConnect()) return idle
       const fingerprints = prints.stdout.split(/\r?\n/).filter(Boolean)
       if (prints.status !== 0 || fingerprints.length === 0) return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.lerChave', { host: profile.host }) })
       this.pendingKeys.set(id, lines)
@@ -559,8 +567,9 @@ class SSHComputers {
       }
       return { kind: 'retry', ...falha('ajustes.ssh.erro.conectar', { host: profile.host, detalhe: lastLine(result.stderr) }) }
     }
-    if (result.status === 127) return stop({ kind: 'notInstalled' })
     const info = parseInfo(result.stdout)
+    if (isRc && (result.status !== 0 || !info?.running)) return stop({ kind: 'failed', ...falha('marca.ssh.hubRcIndisponivel') })
+    if (result.status === 127) return stop({ kind: 'notInstalled' })
     if (!info) {
       if (result.status === 0) return stop({ kind: 'notInstalled' })
       return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.identidade', { host: profile.host, comando: COMANDO_INSTALAR_HOST, detalhe: lastLine(result.stderr) }) })
@@ -635,7 +644,7 @@ class SSHComputers {
 
   private async recordedKeys(name: string, certAuthorities = true) {
     const keys = new Set<string>()
-    for (const file of knownHostsFiles(home, dataDir)) {
+    for (const file of knownHostsFiles(home, dataDir, isRc)) {
       if (!existsSync(file)) continue
       const found = await run(KEYGEN, ['-F', name, '-f', file])
       if (found.status === 0) for (const k of hostKeys(found.stdout, certAuthorities)) keys.add(k)
@@ -649,7 +658,7 @@ class SSHComputers {
     let done = false
     let child: ChildProcess
     try {
-      child = spawn(SSH, tunnelArguments(profile, localPort, home, dataDir, inet6), { stdio: ['ignore', 'ignore', 'pipe'] })
+      child = spawn(SSH, tunnelArguments(profile, localPort, home, dataDir, inet6, isRc), { stdio: ['ignore', 'ignore', 'pipe'] })
     } catch {
       return null
     }
@@ -702,10 +711,10 @@ class SSHComputers {
 }
 
 /** SSH computers for every window: `ssh:*` handlers, `ssh:change` events, tunnels stopped on quit. */
-export function registerSSH(getWindows: () => BrowserWindow[]) {
+export function registerSSH(getWindows: () => BrowserWindow[], canConnect: () => boolean) {
   const ssh = new SSHComputers(join(app.getPath('userData'), 'ssh-profiles.json'), (state) => {
     for (const w of getWindows()) if (!w.isDestroyed()) w.webContents.send('ssh:change', state)
-  })
+  }, canConnect)
   ipcMain.handle('ssh:state', () => ssh.state)
   ipcMain.handle('ssh:save', (_e, profile: SSHProfile) => ssh.save(profile))
   ipcMain.on('ssh:remove', (_e, id: string) => ssh.remove(id))
@@ -719,7 +728,8 @@ export function registerSSH(getWindows: () => BrowserWindow[]) {
   // ssh children outlive the app unless stopped.
   app.on('will-quit', () => ssh.disconnectAll())
   void ssh.connectAll()
-  return { captureLocal: (profileId: string, current: () => boolean) => ssh.captureLocal(profileId, current),
+  return { connectAll: () => ssh.connectAll(), disconnectAll: () => ssh.disconnectAll(),
+    captureLocal: (profileId: string, current: () => boolean) => ssh.captureLocal(profileId, current),
     /** MX-209: captura com guardas para o cofre seguro, por computerId. */
     captureRequest: (computerId: string, current: () => boolean) => ssh.captureRequest(computerId, current),
     attachments: () => ssh.state.attachments }

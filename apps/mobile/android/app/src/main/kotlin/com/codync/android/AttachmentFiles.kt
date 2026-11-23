@@ -1,3 +1,4 @@
+// Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android
 
 import android.content.Context
@@ -93,7 +94,7 @@ class AttachmentFiles(private val context: Context, private val directory: File)
      * closes, so folders are cleared only once they're a day old.
      */
     fun shareFolder(): File {
-        val root = File(context.cacheDir, "shared-attachments").apply { mkdirs() }
+        val root = File(context.cacheDir, "shared-attachments/${directory.name}").apply { mkdirs() }
         root.listFiles().orEmpty().filter { System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000 }.forEach { it.deleteRecursively() }
         return File(root, UUID.randomUUID().toString())
     }

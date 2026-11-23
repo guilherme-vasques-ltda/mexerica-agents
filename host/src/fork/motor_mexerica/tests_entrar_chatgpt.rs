@@ -834,7 +834,7 @@ async fn escopo_sem_uso_do_plano_registra_conectado_sem_inferencia() {
     assert_eq!(acesso["conta"]["planoHabilitado"], false, "{acesso}");
     let conta = conta_guardada(&hub);
     assert!(!conta["escopos"].as_str().unwrap().contains("chatgpt.tokens.use.direct"), "{conta}");
-    let estado = login::estado(&hub).await.unwrap();
+    let estado = login::estado(&hub).unwrap();
     assert_eq!(estado["conectado"], true, "{estado}");
     assert_eq!(estado["planoHabilitado"], false, "{estado}");
     assert_eq!(estado["precisaEntrar"], false, "{estado}");
@@ -985,7 +985,7 @@ async fn renovacao_grava_o_refresh_novo_antes_de_devolver_e_uma_so_vez() {
     assert_eq!(conta["access_token"], ACCESS_NOVO, "{conta}");
     // A resposta da renovação não declara `scope`: o plano fica desabilitado até uma nova entrada
     // reconfirmar os escopos com o emissor.
-    let estado = login::estado(&hub).await.unwrap();
+    let estado = login::estado(&hub).unwrap();
     assert_eq!(estado["conectado"], true, "{estado}");
     assert_eq!(estado["planoHabilitado"], false, "{estado}");
     // Longe do prazo, renovação nenhuma.
@@ -1023,7 +1023,7 @@ async fn renovacao_com_erro_que_invalida_apaga_os_tokens_e_marca_precisa_entrar(
         assert_eq!(conta["client_id"], CLIENTE, "o erro {codigo} derrubou o client_id: {conta}");
         assert_eq!(conta["sub"], SUB, "o erro {codigo} derrubou a identidade: {conta}");
         assert_eq!(conta["rotulo"], ROTULO, "o erro {codigo} derrubou o rótulo: {conta}");
-        let estado = login::estado(&hub).await.unwrap();
+        let estado = login::estado(&hub).unwrap();
         assert_eq!(estado["conectado"], false, "o erro {codigo}: {estado}");
         assert_eq!(estado["precisaEntrar"], true, "o erro {codigo}: {estado}");
         assert_eq!(estado["rotulo"], ROTULO, "o erro {codigo}: {estado}");
@@ -1048,7 +1048,7 @@ async fn renovacao_com_invalid_client_ou_rede_nao_apaga_nada() {
     let conta = conta_guardada(&hub);
     assert_eq!(conta["access_token"], ACCESS_VELHO, "{conta}");
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "{conta}");
-    let estado = login::estado(&hub).await.unwrap();
+    let estado = login::estado(&hub).unwrap();
     assert_eq!(estado["conectado"], true, "o 5xx apagou a sessão: {estado}");
     // `invalid_client`: erro explícito, sem apagar.
     semear_conta(&hub, &conta_conectada(agora() + 60));
@@ -1060,15 +1060,51 @@ async fn renovacao_com_invalid_client_ou_rede_nao_apaga_nada() {
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "{conta}");
     // Sem injeção, a renovação falha fechada (rede): erro sem apagar nada.
     *login::BASE_EM_TESTE.locked() = None;
-    semear_conta(&hub, &conta_conectada(agora() + 60));
+    semear_conta(&hub, &conta_conectada(agora() - 60));
+    let ciphertext_antes = hub.store.kv_read(login::SLOT_CONTA).unwrap();
+    let tentativas_antes = login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst);
     let erro = login::token_fresco(&hub).await.unwrap_err().to_string();
+    assert_eq!(login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst), tentativas_antes + 1);
     assert!(erro.starts_with("renovacao_falhou"), "{erro}");
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), ciphertext_antes);
     let conta = conta_guardada(&hub);
     assert_eq!(conta["access_token"], ACCESS_VELHO, "{conta}");
     assert_eq!(conta["refresh_token"], REFRESH_VELHO, "{conta}");
-    // O estado devolve sem apagar quando a renovação falha por rede.
-    let estado = login::estado(&hub).await.unwrap();
+    // A consulta de estado é passiva, mesmo com access vencido: não tenta renovar nem altera o registro.
+    let ciphertext_antes = hub.store.kv_read(login::SLOT_CONTA).unwrap();
+    let tentativas_antes = login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst);
+    let unlocks_antes = hub.store.vault_unlock_attempts.load(Ordering::SeqCst);
+    let estado = login::estado(&hub).unwrap();
     assert_eq!(estado["conectado"], true, "{estado}");
+    assert_eq!(estado["rotulo"], ROTULO, "{estado}");
+    assert_eq!(login::TENTATIVAS_RENOVACAO.load(Ordering::SeqCst), tentativas_antes, "estado tentou renovar");
+    assert_eq!(hub.store.vault_unlock_attempts.load(Ordering::SeqCst), unlocks_antes, "estado tentou destravar cofre");
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), ciphertext_antes, "estado alterou o registro");
+    let conta = conta_guardada(&hub);
+    assert_eq!(conta["access_token"], ACCESS_VELHO, "estado alterou o access: {conta}");
+    assert_eq!(conta["refresh_token"], REFRESH_VELHO, "estado alterou o refresh: {conta}");
+}
+
+#[tokio::test]
+async fn estado_com_cofre_fechado_nao_desbloqueia_nem_expoe_segredo() {
+    let _serie = SERIE.lock().await;
+    let hub = hub_de_prova();
+    semear_conta(&hub, &conta_conectada(agora() - 60));
+    let registro_original = hub.store.kv_read(login::SLOT_CONTA).unwrap();
+
+    let resposta_aberta = login::estado(&hub).unwrap();
+    assert_eq!(resposta_aberta["conectado"], true, "{resposta_aberta}");
+    assert_eq!(resposta_aberta["rotulo"], ROTULO, "{resposta_aberta}");
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), registro_original);
+
+    *hub.store.secret_key.locked() = None;
+
+    let resposta = login::estado(&hub).unwrap();
+
+    assert_eq!(resposta, json!({"conectado": false, "rotulo": null, "planoHabilitado": false, "precisaEntrar": false}));
+    assert_eq!(hub.store.vault_unlock_attempts.load(Ordering::SeqCst), 0);
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), registro_original);
+    assert!(hub.store.secret_key.locked().is_none());
 }
 
 /// Sair: revoga o refresh e apaga os tokens de qualquer jeito, conservando `client_id`,
@@ -1324,7 +1360,7 @@ async fn estado_sem_registro_pede_entrada() {
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
     let hub = hub_de_prova();
-    let estado = login::estado(&hub).await.unwrap();
+    let estado = login::estado(&hub).unwrap();
     assert_eq!(estado, json!({"conectado": false, "rotulo": null, "planoHabilitado": false, "precisaEntrar": false}));
 }
 

@@ -39,7 +39,7 @@ const bridge: CodyncBridge = {
   platform: process.platform as CodyncBridge['platform'],
   appName: ipcRenderer.sendSync('app:name') as string,
   appScheme: ipcRenderer.sendSync('app:scheme') as string,
-  hostPort: ipcRenderer.sendSync('app:hostPort') as number,
+  readHostPort: () => ipcRenderer.sendSync('app:hostPort') as number | null,
   appVersion: ipcRenderer.sendSync('app:version') as string,
   computerName: ipcRenderer.sendSync('app:computerName') as string,
   suggestedLanguage: ipcRenderer.sendSync('app:suggestedLanguage') as CodyncBridge['suggestedLanguage'],
@@ -162,7 +162,7 @@ const bridge: CodyncBridge = {
   },
   // Nível 1 de atualizações: canais escritos inline de propósito para funcionar no preload com sandbox.
   releaseNotice: {
-    state: () => ipcRenderer.invoke('releaseNotice:state') as Promise<ReleaseNoticeState>,
+    state: () => ipcRenderer.invoke('releaseNotice:state') as Promise<ReleaseNoticeState | null>,
     check: () => ipcRenderer.invoke('releaseNotice:check') as Promise<ReleaseNoticeState>,
     dismiss: () => ipcRenderer.invoke('releaseNotice:dismiss') as Promise<ReleaseNoticeState>,
     openDownload: () => ipcRenderer.invoke('releaseNotice:openDownload') as Promise<boolean>,

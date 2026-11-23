@@ -34,7 +34,7 @@ fun AppStore.taskNotifications(enabled: Boolean) = action("taskSettings") {
 /** The state once the signed-in (or local) account has loaded: where a link can be opened. */
 internal suspend fun AppStore.activated(): AppState = state.first { current -> !current.loading &&
     (current.account.ready || !current.account.configured || current.account.error != null) &&
-    current.contextId == LocalStore.referenceId(current.account.userId ?: "local") }
+    current.contextId == local.referenceId }
 
 fun AppStore.openLink(uri: Uri) {
     linkJob?.cancel()

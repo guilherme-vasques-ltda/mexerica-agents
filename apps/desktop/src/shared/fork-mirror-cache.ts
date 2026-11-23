@@ -89,7 +89,12 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // lista de gatilhos pode vir vazia. As rotinas são lidas sob demanda e não entram no mirror; o bump só segue a regra de campo
 // novo do Hub. App antigo ignora o campo e lê a lista vazia como lista.
 // Schema 69: gráfico de leitura do bot (`Entry.data.genuiChart`, mostrar_componente com gráfico); cache anterior não tem a projeção.
-export const MIRROR_SCHEMA = 69
+// Schema 70: contas de motor ganham `paused` (pausa com credencial preservada, `donnaEngineAccountSetEnabled`); as contas
+// são lidas direto do Hub e não entram no mirror, mas o stamp vira o contrato do campo novo: cache anterior é descartado
+// pelo próprio stamp e o app antigo ignora o campo sem oferecer pausar/reativar.
+// Schema 71: a projeção efêmera da Torre inclui a observação `attention`.
+// Schema 72: pedidos de acesso trazem `codeReady` e `codeCheck: "server"` (o Hub confere o código digitado no aparelho).
+export const MIRROR_SCHEMA = 72
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

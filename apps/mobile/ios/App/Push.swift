@@ -209,13 +209,19 @@ final class LiveActivities {
         }
     }
 
-    private nonisolated static func find(_ ref: BotReference) -> Activity<BotActivityAttributes>? {
-        Activity<BotActivityAttributes>.activities.first { $0.attributes.botId == ref.botId && $0.attributes.computerId == ref.computerId }
+    private nonisolated static func find(link: URL) -> Activity<BotActivityAttributes>? {
+        Activity<BotActivityAttributes>.activities.first { $0.attributes.link == link }
+    }
+
+    private nonisolated static func find(id: String) -> Activity<BotActivityAttributes>? {
+        Activity<BotActivityAttributes>.activities.first { $0.id == id }
     }
 
     /// Follows a message from this phone: the activity starts as it leaves (Sending), waits with
     /// it in the relay mailbox while the computer is offline, then follows the bot's own status.
     func sent(_ ref: BotReference, bot: Bot, progress: SendProgress, store: BotStore) {
+        let link = store.storage.botURL(ref)
+        let activityID = Self.find(link: link)?.id
         let status: String
         switch progress {
         case .sending: status = "sending"
@@ -223,22 +229,22 @@ final class LiveActivities {
         case .delivered: status = bot.needsInput ? "needsInput" : "working"
         case .failed:
             let state = BotActivityAttributes.ContentState(status: "error", activity: "Couldn't send", startedAt: nil)
-            Task.detached { await Self.apply(ref, state: state, end: true) }
+            if let activityID { Task.detached { await Self.apply(activityID, state: state, end: true) } }
             return
         case .cancelled:
-            Task.detached { await Self.find(ref)?.end(nil, dismissalPolicy: .immediate) }
+            if let activityID { Task.detached { await Self.find(id: activityID)?.end(nil, dismissalPolicy: .immediate) } }
             return
         }
         let state = BotActivityAttributes.ContentState(status: status, activity: "", startedAt: progress == .delivered ? .now : nil)
         // A mailbox message may wait hours for its computer: that isn't a delayed update.
         let staleDate: Date? = progress == .queued ? nil : .now + 15 * 60
-        if Self.find(ref) != nil {
-            Task.detached { await Self.find(ref)?.update(.init(state: state, staleDate: staleDate)) }
+        if let activityID {
+            Task.detached { await Self.find(id: activityID)?.update(.init(state: state, staleDate: staleDate)) }
             return
         }
         guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true,
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        let attributes = BotActivityAttributes(bot: bot, computerId: ref.computerId, link: store.storage.botURL(ref))
+        let attributes = BotActivityAttributes(bot: bot, computerId: ref.computerId, link: link)
         do {
             let activity = try Activity.request(attributes: attributes, content: .init(state: state, staleDate: staleDate), pushType: SharedStore.remotePushEnabled ? .token : nil)
             // Offline (mailbox): `resume(with:)` registers the push token once the computer connects.
@@ -253,7 +259,8 @@ final class LiveActivities {
         guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true else { return }
         guard let client = store.client else { return }
         for activity in Activity<BotActivityAttributes>.activities
-            where activity.attributes.computerId == store.computer.id {
+            where activity.attributes.computerId == store.computer.id
+                && activity.attributes.link.flatMap(store.storage.reference(from:)) != nil {
             observe(activity, client: client)
         }
     }
@@ -291,8 +298,9 @@ final class LiveActivities {
     }
 
     /// Local updates while the app is open; the computer pushes them otherwise.
-    func update(_ ref: BotReference, bot: Bot) {
-        guard let current = Self.find(ref) else { return }
+    func update(_ ref: BotReference, bot: Bot, storage: SharedStore.Context) {
+        guard let current = Self.find(link: storage.botURL(ref)) else { return }
+        let activityID = current.id
         // Until the computer starts on the message, an idle bot just hasn't begun yet.
         let local = ["sending", "queued"].contains(current.content.state.status)
         guard !local || bot.isWorking else { return }
@@ -304,11 +312,11 @@ final class LiveActivities {
             startedAt: bot.startedAt.map(Date.init(milliseconds:))
         )
         let working = bot.isWorking
-        Task.detached { await Self.apply(ref, state: state, end: !working) }
+        Task.detached { await Self.apply(activityID, state: state, end: !working) }
     }
 
-    private nonisolated static func apply(_ ref: BotReference, state: BotActivityAttributes.ContentState, end: Bool) async {
-        guard let activity = find(ref) else { return }
+    private nonisolated static func apply(_ activityID: String, state: BotActivityAttributes.ContentState, end: Bool) async {
+        guard let activity = find(id: activityID) else { return }
         if end {
             await activity.end(.init(state: state, staleDate: nil), dismissalPolicy: .after(.now + 60))
         } else {

@@ -2,13 +2,26 @@
 // Writes resources/account-config.json from apps/desktop/config/<env>.plist: the Clerk publishable
 // key and the cloud URL the build talks to. Usage: node tools/account-config.mjs dev|main
 // (the `npm run dev` / `dist:*:<env>` scripts run it).
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const env = process.argv[2]
 if (!['dev', 'main'].includes(env)) throw new Error(`unknown environment ${env}`)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+if (process.argv[3] === '--official') {
+  if (env !== 'main' || process.argv.length !== 4) throw new Error('Official account configuration requires main.')
+  const { officialAccountPlist } = await import('../src/shared/fork-official-account.ts')
+  const output = join(root, 'build/official/account-config.json')
+  rmSync(output, { force: true })
+  let config
+  try { config = officialAccountPlist(readFileSync(join(root, 'config/main.plist'), 'utf8')) } catch {}
+  if (!config) throw new Error('Official account configuration is missing or invalid (config/main.plist).')
+  mkdirSync(dirname(output), { recursive: true })
+  writeFileSync(output, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx' })
+  process.exit(0)
+}
+if (process.argv.length !== 3) throw new Error('Unexpected account configuration arguments.')
 const plist = readFileSync(join(root, 'config', `${env}.plist`), 'utf8')
 // An empty value (Donnabot: no cloud or sign-in yet) stays null, so the app fails closed.
 const value = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist)?.[1]?.trim() || null

@@ -141,6 +141,15 @@ struct Mutation {
     engine_account_id: String,
     expected_revision: u64,
 }
+/// Pausar/reativar uma conexão sem tocar credencial. `false` pausa; `true` volta
+/// a valer só depois de a sondagem ou o cofre confirmarem a conta, nunca por fé do pedido.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetEnabled {
+    engine_account_id: String,
+    expected_revision: u64,
+    enabled: bool,
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Rename {
@@ -206,6 +215,7 @@ pub(crate) fn methods(method: &str) -> bool {
         "donnaEngineAccountCreate"
             | "donnaEngineAccountRename"
             | "donnaEngineAccountModelVisibility"
+            | "donnaEngineAccountSetEnabled"
             | "donnaEngineAccountDisconnect"
             | "donnaEngineAccountRemove"
             | "donnaEngineAccountUsage"
@@ -312,6 +322,41 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                     authority.persist(hub, &registry)?;
                     registry.dto_for(&hub.store, &request.engine_account_id)?
                 }
+                // Pausar/reativar sem apagar credencial. Pausar deixa a conexão fora de
+                // qualquer uso novo (state Disconnected) e mantém a chave do cofre ou o login do perfil
+                // exatamente como estão — sem wipe, sem logout. Reativar não confia no pedido: volta
+                // `Unverified` e só o cofre (conteúdo do slot) ou a sondagem com a MESMA identidade
+                // devolvem `Connected`. Bots ligados à conta pausada falham alto, sem troca silenciosa.
+                "donnaEngineAccountSetEnabled" => {
+                    let request: SetEnabled = parse(body)?;
+                    ensure!(
+                        !in_setup(&hub.store, &request.engine_account_id),
+                        "setup_in_progress: cancele o setup primeiro."
+                    );
+                    managed::idle(hub, &request.engine_account_id)?;
+                    let id = request.engine_account_id.as_str();
+                    // Leitura dentro da cerca, como no desconectar: um setup aceito no meio não perde
+                    // o pedido/geração gravado no registro.
+                    hub.with_idle_engine_account(id, || {
+                        let mut registry = Registry::load(&hub.store)?;
+                        ensure!(!open || is_open_account(registry.account(id)?), "open_codex_unavailable");
+                        {
+                            let account = registry.account_mut(id, request.expected_revision)?;
+                            account.state = if request.enabled { State::Unverified } else { State::Disconnected };
+                            account.models.clear();
+                            let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
+                            meta.catalog = None;
+                            meta.enabled = request.enabled;
+                            // A marca de pausa só vale na pausa que preserva a credencial: reativar
+                            // apaga, e a saída destrutiva (desconectar) também a apaga.
+                            meta.paused = !request.enabled;
+                            meta.revision += 1;
+                        }
+                        authority.persist(hub, &registry)?;
+                        accounts::invalidate();
+                        registry.dto_for(&hub.store, id)
+                    })?
+                }
                 "donnaEngineAccountDisconnect" | "donnaEngineAccountRemove" => {
                     let request: Mutation = parse(body)?;
                     ensure!(
@@ -383,6 +428,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
                             account.models.clear();
                             let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
                             meta.enabled = false;
+                            meta.paused = false;
                             meta.catalog = None;
                             meta.revision += 1;
                             authority.persist(hub, &registry)?;

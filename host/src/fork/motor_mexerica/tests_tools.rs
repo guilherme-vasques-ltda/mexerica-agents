@@ -120,6 +120,7 @@ async fn ferramenta_do_hub_vai_e_volta_pelo_cliente_mcp_do_hub() {
             "faux",
             "faux-1",
             &serde_json::json!({}),
+            SEM_CACHE,
             r#"/ferramenta mcp__fake__eco {"texto":"oi"}"#,
             &mcp,
             &mut |_| {},
@@ -146,7 +147,15 @@ async fn permissao_negada_volta_ao_modelo_e_nada_executa() {
     engine.set_tools(&[ferramenta("list_bots")]).await.unwrap();
     let negada = Registro { chamadas: std::sync::Mutex::default(), reply: Err("permissão negada pelo dono") };
     let turn = engine
-        .prompt_with("faux", "faux-1", &serde_json::json!({}), "/ferramenta list_bots {}", &negada, &mut |_| {})
+        .prompt_with(
+            "faux",
+            "faux-1",
+            &serde_json::json!({}),
+            SEM_CACHE,
+            "/ferramenta list_bots {}",
+            &negada,
+            &mut |_| {},
+        )
         .await
         .unwrap();
     assert!(turn.text.contains("ferramenta falhou: permissão negada pelo dono"), "{}", turn.text);
@@ -164,7 +173,8 @@ async fn cancelar_o_turno_mata_o_processo() {
     // O executor nunca responde; o turno é cancelado largando o futuro.
     let mut ignora = |_: &Value| {};
     let limites = serde_json::json!({});
-    let turno = engine.prompt_with("faux", "faux-1", &limites, "/ferramenta list_bots {}", &Pendura, &mut ignora);
+    let turno =
+        engine.prompt_with("faux", "faux-1", &limites, SEM_CACHE, "/ferramenta list_bots {}", &Pendura, &mut ignora);
     assert!(tokio::time::timeout(Duration::from_millis(800), turno).await.is_err());
     assert!(existe(pid), "o motor tinha de estar vivo antes do cancelamento");
     engine.kill().await.unwrap();
@@ -254,7 +264,7 @@ async fn config_mcp_do_pi_na_pasta_do_motor_nao_abre_servidor_e_a_chamada_so_sai
 
     let hub = Registro { chamadas: std::sync::Mutex::default(), reply: Ok("pelo hub") };
     let turn = engine
-        .prompt_with("faux", "faux-1", &serde_json::json!({}), "/ferramenta list_bots {}", &hub, &mut |_| {})
+        .prompt_with("faux", "faux-1", &serde_json::json!({}), SEM_CACHE, "/ferramenta list_bots {}", &hub, &mut |_| {})
         .await
         .unwrap();
     assert!(turn.text.contains("ferramenta respondeu: pelo hub"), "{}", turn.text);
@@ -295,8 +305,10 @@ async fn ferramenta_nao_declarada_nao_chega_ao_executor() {
     let mut engine = Engine::spawn(novo_store(), "faux", &[]).unwrap();
     engine.set_tools(&[ferramenta("list_bots")]).await.unwrap();
     let registro = Registro { chamadas: std::sync::Mutex::default(), reply: Ok("ok") };
-    let turn =
-        engine.prompt_with("faux", "faux-1", &serde_json::json!({}), "oi", &registro, &mut |_| {}).await.unwrap();
+    let turn = engine
+        .prompt_with("faux", "faux-1", &serde_json::json!({}), SEM_CACHE, "oi", &registro, &mut |_| {})
+        .await
+        .unwrap();
     assert!(registro.chamadas.lock().unwrap().is_empty(), "nome fora da lista declarada chegou ao executor");
     assert!(turn.text.contains("ferramenta falhou: ferramenta não declarada"), "{}", turn.text);
     engine.finish().await.unwrap();
@@ -396,7 +408,8 @@ rl.on('line', (line) => {{
     // notifications/cancelled ao servidor (P2-4).
     let mut ignora = |_: &Value| {};
     let limites = serde_json::json!({});
-    let turno = engine.prompt_with("faux", "faux-1", &limites, "/ferramenta mcp__fake__eco {}", &mcp, &mut ignora);
+    let turno =
+        engine.prompt_with("faux", "faux-1", &limites, SEM_CACHE, "/ferramenta mcp__fake__eco {}", &mcp, &mut ignora);
     // O timeout larga o futuro do turno: é o cancelamento.
     assert!(tokio::time::timeout(Duration::from_millis(1500), turno).await.is_err());
     tokio::time::timeout(Duration::from_secs(5), async {
