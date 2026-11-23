@@ -1,0 +1,17 @@
+[package]
+name = "mexerica-mail-read"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+chrono = "0.4.45"
+tokio = { version = "1.53.1", features = ["macros", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1.26.1", features = ["v4"] }
+
+[dev-dependencies]
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt", "sync", "test-util"] }
