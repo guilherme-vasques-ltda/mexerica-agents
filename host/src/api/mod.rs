@@ -149,8 +149,11 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if method == "teamSettings" && !matches!(caller, Caller::Local) {
         crate::fork::engine_setup::access::require(hub, caller)?;
     }
-    if method == crate::fork::control_tower::METHOD {
+    if matches!(method, crate::fork::control_tower::METHOD | crate::fork::control_tower::ATTENTION_METHOD) {
         crate::fork::control_tower::require(hub, caller)?;
+    }
+    if method == crate::fork::control_tower::ATTENTION_METHOD {
+        return crate::fork::control_tower::attention_call(hub, caller, b).await;
     }
     // Projetos conserva hubId no DTO e recusa outros contextos sem oráculo de Space.
     if crate::fork::projetos::METHODS.contains(&method) {

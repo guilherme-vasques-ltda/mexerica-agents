@@ -1,11 +1,35 @@
 //! Invalidação no canal existente; nunca transportar snapshot privado pelo broadcast.
-use super::{EVENT, access};
+use super::{ATTENTION_EVENT, EVENT, access};
 use crate::{
     api::devices::Caller,
     hub::{Hub, Runtime},
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
+
+pub(crate) fn attention_signal(input: &Value) -> Option<[&'static str; 2]> {
+    match input["type"].as_str()? {
+        crate::fork::projetos::EVENT => Some([EVENT, ATTENTION_EVENT]),
+        "entry" => match input["entry"]["kind"].as_str()? {
+            "permission" => Some([EVENT, ATTENTION_EVENT]),
+            "notice"
+                if input["entry"]["data"]["card"] == "ownerQuestion"
+                    || input["entry"]["data"]["routineCreation"].is_object() =>
+            {
+                Some([EVENT, ATTENTION_EVENT])
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+pub(crate) fn attention_hint(hub: &Hub, caller: &Caller, space: &str, kind: &'static str) -> Option<Value> {
+    access::require(hub, caller).ok()?;
+    hub.store.require_space(space).ok()?;
+    access::require(hub, caller).ok()?;
+    Some(json!({"type":kind,"hubId":hub.host_id,"spaceId":space}))
+}
 
 pub(crate) fn runtime_changed(hub: &Hub, id: &str, before: Option<&Runtime>, after: &Runtime) {
     let Some(row) = hub.store.bot(id).ok().flatten().filter(|r| !r.deleted && !r.config.is_group()) else {
