@@ -243,6 +243,53 @@ class ForkMailInboxTest {
         assertEquals("xn--caf-dma.example.invalid", opened.messages[0].fromDomain)
         assertEquals("Linha 1\nLinha 2 inversa\nLinha 3\nTag\nשלום", opened.messages[0].bodyText)
         assertNull(opened.messages[1].fromDomain)
+
+        assertNull(MailInboxSanitizer.sanitizeDomain("good.-bad.example.invalid"))
+        assertNull(MailInboxSanitizer.sanitizeDomain("good.bad-.example.invalid"))
+        assertNull(MailInboxSanitizer.sanitizeDomain("${"a".repeat(64)}.example.invalid"))
+        val longDomain = List(5) { "a".repeat(50) }.joinToString(".") + ".example.invalid"
+        assertTrue(longDomain.length > 253)
+        assertNull(MailInboxSanitizer.sanitizeDomain(longDomain))
+    }
+
+    @Test fun `loadStatus in parallel with loadFirstPage on same space does not stall`() = runBlocking {
+        val transport = makeFixtureTransport()
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        store.loadStatus("space-alpha")
+
+        transport.delayMs = 40L
+        val statusJob = launch { store.loadStatus("space-alpha") }
+        val pageJob = launch { store.loadFirstPage("space-alpha", "mbox-inbox") }
+        statusJob.join()
+        pageJob.join()
+
+        assertFalse(store.isLoadingStatus)
+        assertTrue(store.status is MailInboxStatus.Ready)
+        assertEquals(listOf("thr-100"), store.threads.map { it.threadId })
+    }
+
+    @Test fun `openThread switches mailbox on same space and clears previous list`() = runBlocking {
+        val transport = makeFixtureTransport()
+        transport.openResponses["space-alpha:mbox-empty:thr-other-box"] = {
+            MailInboxOpenThreadResponse(
+                threadId = "thr-other-box",
+                subject = "Outra caixa",
+                messages = emptyList(),
+                truncated = false,
+            )
+        }
+
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        store.loadStatus("space-alpha")
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+        assertEquals(listOf("thr-100"), store.threads.map { it.threadId })
+
+        store.openThread("space-alpha", "mbox-empty", "thr-other-box")
+        assertFalse(store.isLoadingThreadDetail)
+        assertEquals("mbox-empty", store.selectedMailboxId)
+        assertTrue(store.threads.isEmpty())
+        assertNull(store.nextCursor)
+        assertEquals("thr-other-box", store.openThread?.threadId)
     }
 
     @Test fun `loadFirstPage discards in-flight loadNextPage on same mailbox`() = runBlocking {

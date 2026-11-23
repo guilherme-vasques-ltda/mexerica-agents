@@ -279,6 +279,52 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     #expect(opened.messages[0].fromDomain == "xn--caf-dma.example.invalid")
     #expect(opened.messages[0].bodyText == "Linha 1\nLinha 2 inversa\nLinha 3\nTag\nשלום")
     #expect(opened.messages[1].fromDomain == nil)
+
+    #expect(MailInboxSanitizer.sanitizeDomain("good.-bad.example.invalid") == nil)
+    #expect(MailInboxSanitizer.sanitizeDomain("good.bad-.example.invalid") == nil)
+    #expect(MailInboxSanitizer.sanitizeDomain("\(String(repeating: "a", count: 64)).example.invalid") == nil)
+    let longDomain = Array(repeating: String(repeating: "a", count: 50), count: 5).joined(separator: ".") + ".example.invalid"
+    #expect(longDomain.count > 253)
+    #expect(MailInboxSanitizer.sanitizeDomain(longDomain) == nil)
+}
+
+@Test @MainActor func loadStatusInParallelWithLoadFirstPageDoesNotStall() async {
+    let transport = makeFixtureTransport()
+    let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
+    await store.loadStatus(spaceId: "space-alpha")
+
+    transport.delayNanoseconds = 40_000_000
+    async let statusTask: Void = store.loadStatus(spaceId: "space-alpha")
+    async let pageTask: Void = store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    _ = await (statusTask, pageTask)
+
+    #expect(!store.isLoadingStatus)
+    #expect(store.status?.isReady == true)
+    #expect(store.threads.map(\.threadId) == ["thr-100"])
+}
+
+@Test @MainActor func openThreadSwitchesMailboxOnSameSpaceAndClearsPreviousList() async {
+    let transport = makeFixtureTransport()
+    transport.openResponses["space-alpha:mbox-empty:thr-other-box"] = .success(
+        MailInboxOpenThreadResponse(
+            threadId: "thr-other-box",
+            subject: "Outra caixa",
+            messages: [],
+            truncated: false
+        )
+    )
+
+    let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
+    await store.loadStatus(spaceId: "space-alpha")
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+    #expect(store.threads.map(\.threadId) == ["thr-100"])
+
+    await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-empty", threadId: "thr-other-box")
+    #expect(!store.isLoadingThreadDetail)
+    #expect(store.selectedMailboxId == "mbox-empty")
+    #expect(store.threads.isEmpty)
+    #expect(store.nextCursor == nil)
+    #expect(store.openThread?.threadId == "thr-other-box")
 }
 
 @Test @MainActor func loadFirstPageDiscardsInFlightLoadNextPageOnSameMailbox() async {

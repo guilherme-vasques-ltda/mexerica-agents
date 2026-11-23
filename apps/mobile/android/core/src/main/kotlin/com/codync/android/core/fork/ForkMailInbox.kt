@@ -136,26 +136,22 @@ object MailInboxSanitizer {
 
     fun sanitizeDomain(raw: String?): String? {
         val cleaned = sanitizeSingleLine(raw)?.trim()?.lowercase(Locale.ROOT) ?: return null
-        if (cleaned.isEmpty()) return null
+        if (cleaned.isEmpty() || cleaned.codePointCount(0, cleaned.length) > 253) return null
         val ascii = try {
             IDN.toASCII(cleaned, IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
         } catch (_: IllegalArgumentException) {
             return null
         }
-        if (ascii.isEmpty()) return null
-        val validChars = ascii.all { ch ->
-            ch in 'a'..'z' || ch in '0'..'9' || ch == '.' || ch == '-'
+        if (ascii.isEmpty() || ascii.length > 253) return null
+        val labels = ascii.split('.')
+        val allValid = labels.all { label ->
+            label.isNotEmpty() &&
+                label.length <= 63 &&
+                !label.startsWith('-') &&
+                !label.endsWith('-') &&
+                label.all { ch -> ch in 'a'..'z' || ch in '0'..'9' || ch == '-' }
         }
-        if (!validChars ||
-            ascii.startsWith('.') ||
-            ascii.endsWith('.') ||
-            ascii.startsWith('-') ||
-            ascii.endsWith('-') ||
-            ascii.contains("..")
-        ) {
-            return null
-        }
-        return ascii
+        return if (allValid) ascii else null
     }
 
     fun sanitizeBodyText(raw: String): String {
@@ -367,9 +363,9 @@ class ForkMailInboxStore(
             resetForContextChange()
             activeSpaceId = cleanSpaceId
         } else {
-            generation += 1L
             pageRequestId += 1L
             detailRequestId += 1L
+            isLoadingThreadDetail = false
         }
 
         selectedMailboxId = cleanMailboxId
@@ -424,8 +420,15 @@ class ForkMailInboxStore(
             resetForContextChange()
             activeSpaceId = cleanSpaceId
             selectedMailboxId = cleanMailboxId
-        } else if (selectedMailboxId == null) {
+        } else if (selectedMailboxId != cleanMailboxId) {
             selectedMailboxId = cleanMailboxId
+            threadBuffer.clear()
+            threads = emptyList()
+            nextCursor = null
+            hasLoadedFirstPage = false
+            openThread = null
+            pageRequestId += 1L
+            isLoadingThreads = false
         }
 
         detailRequestId += 1L

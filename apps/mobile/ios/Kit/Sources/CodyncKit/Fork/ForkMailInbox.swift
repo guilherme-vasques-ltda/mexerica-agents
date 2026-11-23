@@ -214,24 +214,13 @@ public enum MailInboxSanitizer {
         guard let cleaned = sanitizeSingleLine(raw)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased(),
-            !cleaned.isEmpty else {
+            !cleaned.isEmpty,
+            cleaned.unicodeScalars.count <= 253 else {
             return nil
         }
-        guard let ascii = idnaToASCII(cleaned), !ascii.isEmpty else {
-            return nil
-        }
-        let isValidChars = ascii.unicodeScalars.allSatisfy { s in
-            (s.value >= 0x61 && s.value <= 0x7A)
-                || (s.value >= 0x30 && s.value <= 0x39)
-                || s.value == 0x2E
-                || s.value == 0x2D
-        }
-        guard isValidChars,
-              !ascii.hasPrefix("."),
-              !ascii.hasSuffix("."),
-              !ascii.hasPrefix("-"),
-              !ascii.hasSuffix("-"),
-              !ascii.contains("..") else {
+        guard let ascii = idnaToASCII(cleaned),
+              !ascii.isEmpty,
+              ascii.count <= 253 else {
             return nil
         }
         return ascii
@@ -243,13 +232,25 @@ public enum MailInboxSanitizer {
         encodedLabels.reserveCapacity(labels.count)
         for labelSub in labels {
             let label = String(labelSub)
-            if label.isEmpty { return nil }
+            if label.isEmpty || label.unicodeScalars.count > 63 { return nil }
+            let encoded: String
             if label.unicodeScalars.allSatisfy({ $0.value < 0x80 }) {
-                encodedLabels.append(label)
+                encoded = label
             } else {
                 guard let puny = punycodeEncode(label) else { return nil }
-                encodedLabels.append("xn--" + puny)
+                encoded = "xn--" + puny
             }
+            guard encoded.count >= 1 && encoded.count <= 63,
+                  !encoded.hasPrefix("-"),
+                  !encoded.hasSuffix("-"),
+                  encoded.unicodeScalars.allSatisfy({ s in
+                      (s.value >= 0x61 && s.value <= 0x7A)
+                          || (s.value >= 0x30 && s.value <= 0x39)
+                          || s.value == 0x2D
+                  }) else {
+                return nil
+            }
+            encodedLabels.append(encoded)
         }
         return encodedLabels.joined(separator: ".")
     }
@@ -529,9 +530,9 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             resetForContextChange()
             activeSpaceId = cleanSpaceId
         } else {
-            generation &+= 1
             pageRequestId &+= 1
             detailRequestId &+= 1
+            isLoadingThreadDetail = false
         }
 
         selectedMailboxId = cleanMailboxId
@@ -576,8 +577,14 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             resetForContextChange()
             activeSpaceId = cleanSpaceId
             selectedMailboxId = cleanMailboxId
-        } else if selectedMailboxId == nil {
+        } else if selectedMailboxId != cleanMailboxId {
             selectedMailboxId = cleanMailboxId
+            threads = []
+            nextCursor = nil
+            hasLoadedFirstPage = false
+            openThread = nil
+            pageRequestId &+= 1
+            isLoadingThreads = false
         }
 
         detailRequestId &+= 1
