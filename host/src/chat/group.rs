@@ -37,6 +37,8 @@ pub struct GroupTurn {
     pub prompt: String,
     /// The newest message `prompt` shows (its `seq`): a reaction goes on what the member saw.
     pub shown: i64,
+    /// A resumed message is all `prompt` shows: a reaction goes on `shown` only.
+    pub resumed: bool,
     /// The room turn that asked; a member skips it once a newer one started (see [`Rooms::current`]).
     pub epoch: u64,
     /// The reply the room sees, or `None` for a pass.
@@ -171,7 +173,7 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delive
             let shown = visible(hub, lane, 0, 1, upto)?.last().map_or(0, |e| e.seq);
             let prompt = member_prompt(hub, &group, &members, member, lane, upto)?;
             let (reply, answer) = oneshot::channel();
-            let turn = GroupTurn { lane: lane.clone(), prompt, shown, epoch, reply };
+            let turn = GroupTurn { lane: lane.clone(), prompt, shown, resumed: upto.is_some(), epoch, reply };
             if first {
                 delivery.hand(hub, group_id, &member.id)?;
             }

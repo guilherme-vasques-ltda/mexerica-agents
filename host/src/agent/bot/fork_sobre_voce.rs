@@ -411,6 +411,7 @@ mod tests {
             lane: channel.clone(),
             prompt: "[Channel: Sala]\nMensagem".into(),
             shown: 0,
+            resumed: false,
             epoch: hub.groups.reserve_epoch_for_test(&channel),
             reply,
         });

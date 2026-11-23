@@ -103,9 +103,10 @@ impl Delivery {
     }
 }
 
-/// Mensagem que a sala não mostra aos membros, nem citada: sem prova de entrega (ou parada), ou ainda pendente.
+/// Mensagem que a sala não mostra aos membros, nem citada: ilegível, sem prova de entrega (ou parada), ou ainda
+/// pendente.
 pub(crate) fn unproven(entry: &Entry) -> bool {
-    entry.data[REVIEW] == true || entry.data["status"] == PENDING
+    !entry.data.is_object() || entry.data[REVIEW] == true || entry.data["status"] == PENDING
 }
 
 /// Muda o estado das mensagens ainda pendentes e apaga os recibos numa só transação. Erro de leitura é erro: nada
@@ -177,7 +178,7 @@ pub(crate) fn recover(hub: &Arc<Hub>) -> Result<()> {
                 &Lane::main(&row.config.id),
                 EntryKind::Notice,
                 0,
-                &json!({"text":"O Hub não conseguiu conferir as mensagens pendentes deste grupo ao reiniciar. O grupo fica bloqueado até o próximo reinício; nada foi entregue de novo.","style":"info"}),
+                &json!({"text":"O Hub não conseguiu conferir as mensagens pendentes deste grupo ao reiniciar. O grupo fica bloqueado e nada foi entregue de novo. Reinicie o Hub depois de corrigir o problema.","style":"info","code":"group_blocked"}),
             );
         }
     }

@@ -407,8 +407,20 @@ async fn entrada_corrompida_bloqueia_so_a_sala_e_o_hub_abre() {
         "send",
         json!({"botId":ROOM,"text":"Mais uma"}),
     )
-    .await;
-    assert!(refused.is_err(), "envio novo à sala bloqueada é recusado");
+    .await
+    .expect_err("envio novo à sala bloqueada é recusado");
+    assert_eq!(crate::api::error_code(&refused), Some("group_blocked"));
+    let notices: i64 = hub
+        .store
+        .db
+        .locked()
+        .query_row(
+            "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'notice' AND data LIKE '%\"code\":\"group_blocked\"%'",
+            [ROOM],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(notices, 1, "o aviso da sala bloqueada leva o código para o app traduzir");
     tokio::time::sleep(Duration::from_millis(700)).await;
     assert_eq!(f.prompts().len(), 0);
     hub.shutdown().await;
@@ -446,4 +458,16 @@ async fn falha_ao_marcar_uma_sala_nao_segura_as_outras() {
     assert!(f.prompts().iter().all(|p| !p.to_string().contains("Oi, sala")));
     hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Uma citação cuja linha ficou ilegível não conta como comprovada: nem na retomada do boot nem no prompt da sala.
+#[test]
+fn citacao_ilegivel_nao_conta_como_comprovada() {
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let quoted = store
+        .insert_entry(&Lane::main(ROOM), EntryKind::Agent, 1, &json!({"text":"x","final":true,"author":"bot"}))
+        .unwrap();
+    assert!(!crate::fork::grupo_entrega::unproven(&store.entry(&quoted.id).unwrap()));
+    store.db.locked().execute("UPDATE entries SET data = '{quebrado' WHERE id = ?1", [&quoted.id]).unwrap();
+    assert!(crate::fork::grupo_entrega::unproven(&store.entry(&quoted.id).unwrap()));
 }

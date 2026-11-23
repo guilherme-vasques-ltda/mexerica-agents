@@ -333,10 +333,13 @@ pub(super) async fn call(
                 None => None,
             };
             let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
-            anyhow::ensure!(
-                !hub.groups.blocked(bot),
-                "group_blocked: o Hub não conseguiu conferir as mensagens pendentes deste grupo; tente depois de reiniciar."
-            );
+            if hub.groups.blocked(bot) {
+                return Err(super::GroupError {
+                    code: "group_blocked",
+                    message: "O Hub não conseguiu conferir as mensagens pendentes deste grupo. Reinicie o Hub depois de corrigir o problema.",
+                }
+                .into());
+            }
             let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind; its message stays pending until the room's first
             // round has passed it to the members (`fork::grupo_entrega`), so a restart in between can resume it.

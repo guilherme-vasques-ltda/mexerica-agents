@@ -82,6 +82,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.politica": "إعدادات Codex على هذا الـ Mac لا تسمح بمحادثة نصية فقط بدون موافقات. تم إلغاء الرد.",
   "conversa.avisos.open.indisponivel": "تعذّر فتح Codex في ملف Open. تحقّق من الحساب في حسابات الذكاء الاصطناعي.",
   "conversa.avisos.open.falhou": "تعذّر على Codex الرد الآن. حاول مرة أخرى.",
+  "conversa.avisos.grupo.bloqueado": "لم يتمكن الـ Hub من مراجعة الرسائل المعلّقة لهذه المجموعة عند إعادة التشغيل. تبقى المجموعة محظورة ولم يُرسَل أي شيء من جديد. أعد تشغيل الـ Hub بعد إصلاح المشكلة.",
   "conversa.avisos.falha.cabecalho.naoSei": "الحساب: لم أستطع التأكد",
   "conversa.avisos.falha.cabecalho.dica": "فتح حسابات الذكاء الاصطناعي",
   "conversa.avisos.motorMudo.minutos.zero": "{n} دقيقة",

@@ -82,6 +82,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.politica": "La configuración de Codex en este Mac no permite una conversación solo de texto y sin aprobaciones. Respuesta cancelada.",
   "conversa.avisos.open.indisponivel": "No se pudo abrir Codex en el perfil de Open. Revisa la cuenta en Cuentas de IA.",
   "conversa.avisos.open.falhou": "Codex no pudo responder ahora. Inténtalo de nuevo.",
+  "conversa.avisos.grupo.bloqueado": "El Hub no pudo revisar los mensajes pendientes de este grupo al reiniciarse. El grupo queda bloqueado y no se volvió a entregar nada. Reinicia el Hub después de corregir el problema.",
   "conversa.avisos.falha.cabecalho.naoSei": "Cuenta: no pude confirmarla",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Cuentas de IA",
   "conversa.avisos.motorMudo.minutos.one": "{n} minuto",

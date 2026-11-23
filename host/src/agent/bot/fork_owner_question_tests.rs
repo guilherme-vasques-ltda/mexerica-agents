@@ -180,6 +180,7 @@ async fn owner_profile_is_absent_in_channel_and_present_in_owner_turns() {
         lane: channel_lane.clone(),
         prompt: "[Channel: Sala]\nMensagem".into(),
         shown: 0,
+        resumed: false,
         epoch: f.hub.groups.reserve_epoch_for_test(&channel_lane),
         reply,
     });

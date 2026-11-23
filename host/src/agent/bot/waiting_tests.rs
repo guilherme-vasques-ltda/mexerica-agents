@@ -2165,6 +2165,7 @@ async fn resumo_privado_nao_vai_para_o_turno_de_grupo_depois_de_falha_na_abertur
         lane: group_lane.clone(),
         prompt: prompt.into(),
         shown: 0,
+        resumed: false,
         epoch: f.hub.groups.reserve_epoch_for_test(&group_lane),
         reply,
     });

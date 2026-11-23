@@ -30,9 +30,9 @@ pub fn tool() -> Value {
     })
 }
 
-/// In a room, the newest message up to `shown` (the newest the bot's prompt showed) from `to`, or from anyone
-/// but `bot` when `None`.
-pub fn in_room(hub: &Hub, lane: &Lane, bot: &str, to: Option<&str>, shown: i64) -> Result<String> {
+/// In a room, the newest message up to `shown` (the newest the bot's prompt showed), or `shown` alone when it is the
+/// only one shown (a resumed message), from `to`, or from anyone but `bot` when `None`.
+pub fn in_room(hub: &Hub, lane: &Lane, bot: &str, to: Option<&str>, shown: i64, only: bool) -> Result<String> {
     let to = to.map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty());
     let from = |e: &Entry| match (&to, e.data["author"].as_str()) {
         (_, Some(author)) if author == bot => false,
@@ -45,7 +45,7 @@ pub fn in_room(hub: &Hub, lane: &Lane, bot: &str, to: Option<&str>, shown: i64) 
         .messages_after(lane, 0, RECENT)?
         .into_iter()
         .rev()
-        .find(|e| e.seq <= shown && from(e))
+        .find(|e| if only { e.seq == shown } else { e.seq <= shown } && from(e))
         .map(|e| e.id)
         .ok_or_else(|| anyhow!("no recent message from {} in this chat", to.as_deref().unwrap_or("anyone else")))
 }
@@ -99,11 +99,15 @@ mod tests {
         let unread = || hub.bot_value_for_test("g")["unread"].as_i64().unwrap();
 
         // Ben's turn was shown up to his own reply: the newest message from someone else before it is Ann's.
-        let target = |to| in_room(&hub, &room, "b", to, mine.seq);
+        let target = |to| in_room(&hub, &room, "b", to, mine.seq, false);
         assert_eq!(target(None).unwrap(), reply.id);
         assert_eq!(target(Some("User")).unwrap(), asked.id, "not the message his prompt didn't show");
         assert!(target(Some("Ben")).is_err(), "not his own message");
-        assert_eq!(in_room(&hub, &room, "b", None, later.seq).unwrap(), later.id);
+        assert_eq!(in_room(&hub, &room, "b", None, later.seq, false).unwrap(), later.id);
+        // A resumed turn showed only Ann's reply: nothing before it, nor his own message.
+        assert_eq!(in_room(&hub, &room, "b", None, reply.seq, true).unwrap(), reply.id);
+        assert!(in_room(&hub, &room, "b", Some("User"), reply.seq, true).is_err(), "not the message before it");
+        assert!(in_room(&hub, &room, "b", None, mine.seq, true).is_err(), "not an earlier one either");
 
         // One reaction per bot; a read message stays read.
         hub.bot_react(&reply.id, "b", "👍").unwrap();

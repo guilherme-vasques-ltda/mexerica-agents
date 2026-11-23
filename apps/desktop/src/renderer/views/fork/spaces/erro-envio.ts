@@ -19,6 +19,7 @@ const AVISOS_OPEN = {
   open_codex_unavailable: 'conversa.avisos.open.indisponivel',
   open_codex_platform: 'conversa.avisos.open.indisponivel',
   open_chat_failed: 'conversa.avisos.open.falhou',
+  group_blocked: 'conversa.avisos.grupo.bloqueado',
 } as const
 
 /** O aviso do Hub da Open no idioma da janela, pelo código; código desconhecido fica com o texto gravado. */
