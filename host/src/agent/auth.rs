@@ -452,6 +452,7 @@ pub fn terminal_command(backend: &str, method: &str) -> Option<String> {
 
 /// Lets the agent sign itself in (it usually opens a browser on this computer).
 pub async fn authenticate(store: &Store, backend: &str, method: &str) -> Result<Value> {
+    backends::require_supported_execution(backend)?;
     exigir_oferecido(backend)?;
     let (acp, _inbox, _, _) = start(store, backend).await?;
     let res =
