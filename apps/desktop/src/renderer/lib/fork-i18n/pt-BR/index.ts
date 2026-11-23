@@ -79,6 +79,7 @@ import { textos as whatsappAjustes } from './whatsapp/ajustes.ts'
 import { textos as whatsappCaixa } from './whatsapp/caixa.ts'
 import { textos as whatsappFila } from './whatsapp/fila.ts'
 import { textos as mailManager } from './mailManager.ts'
+import { textos as mailInbox } from './mailInbox.ts'
 import { textos as sistemaBarra } from './sistema/barra.ts'
 import { textos as sistemaConversa } from './sistema/conversa.ts'
 import { textos as webLogin } from './web/login.ts'
@@ -169,6 +170,7 @@ export const ptBR = {
   ...whatsappCaixa,
   ...whatsappFila,
   ...mailManager,
+  ...mailInbox,
   ...sistemaBarra,
   ...sistemaConversa,
   ...webLogin,
