@@ -29,7 +29,7 @@ const FORNECEDORES = /self-hosted|blacksmith|buildjet|depot-|boat|instabox|nsclo
 test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de merge', () => {
   const review = readFileSync(new URL('../.github/workflows/code-review.yml', import.meta.url), 'utf8');
   const [config, analizar, publicar] = review.split(/^jobs:\n  review:\n|^  publish:\n/m);
-  assert.match(config, /^on:\n  pull_request:\n    branches: \[main\]\n    types: \[opened, synchronize, reopened\]\n\npermissions: \{\}$/m);
+  assert.match(config, /^on:\n  pull_request:\n    branches: \[main\]\n    types: \[opened, synchronize, reopened, ready_for_review\]\n\npermissions: \{\}$/m);
   assert.match(config, /group: code-review-\$\{\{ github.event.pull_request.number \}\}\n  cancel-in-progress: true/);
   for (const job of [analizar, publicar]) {
     assert.match(job, /head\.repo\.fork == false && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && github\.event\.pull_request\.draft == false/);
@@ -59,6 +59,33 @@ test('Open Code Review separa secrets e escrita, sem checkout do head ou gate de
   assert.match(analizar, /> "\$work\/result\.json" 2> "\$work\/stderr\.log"/);
   const fixtures = spawnSync('python3', ['-B', fileURLToPath(new URL('./ci-code-review.test.py', import.meta.url))], { encoding: 'utf8' });
   assert.equal(fixtures.status, 0, fixtures.stderr || String(fixtures.error));
+});
+
+test('Open Code Review: sair de rascunho mantém os filtros de origem, base e publicação', () => {
+  const review = readFileSync(new URL('../.github/workflows/code-review.yml', import.meta.url), 'utf8');
+  const [, branches, types] = /^on:\n  pull_request:\n    branches: \[([^\]]+)\]\n    types: \[([^\]]+)\]\n\n/m.exec(review);
+  const gates = [...review.matchAll(/^    if: \$\{\{ (.+) \}\}$/gm)].map(([, gate]) => gate.split(' && '));
+  const eligible = { action: 'ready_for_review', branch: 'main', fork: false, sameRepo: true, draft: false, ready: true };
+  for (const [label, changes, expected] of [
+    ['promoção', {}, [true, true]],
+    ['abertura', { action: 'opened' }, [true, true]],
+    ['fork', { fork: true, sameRepo: false }, [false, false]],
+    ['marcado como fork', { fork: true }, [false, false]],
+    ['outro repositório', { sameRepo: false }, [false, false]],
+    ['rascunho', { draft: true }, [false, false]],
+    ['outra base', { branch: 'fixture' }, [false, false]],
+    ['sem resultado', { ready: false }, [true, false]],
+  ]) {
+    const { action, branch, fork, sameRepo, draft, ready } = { ...eligible, ...changes };
+    const conditions = new Map([
+      ['github.event.pull_request.head.repo.fork == false', !fork],
+      ['github.event.pull_request.head.repo.full_name == github.repository', sameRepo],
+      ['github.event.pull_request.draft == false', !draft],
+      ["needs.review.outputs.ready == 'true'", ready],
+    ]);
+    const triggers = branches.split(', ').includes(branch) && types.split(', ').includes(action);
+    assert.deepEqual(gates.map((gate) => triggers && gate.every((condition) => conditions.get(condition) === true)), expected, label);
+  }
 });
 
 test('Open Code Review: prazos, limpeza e classificação do Review diff', () => {
