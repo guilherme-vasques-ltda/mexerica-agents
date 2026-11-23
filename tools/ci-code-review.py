@@ -35,9 +35,10 @@ COMMENT_FIELDS = set('path content suggestion_code existing_code start_line end_
 
 
 class Refused(ValueError):
-    def __init__(self, schema=None):
+    def __init__(self, schema=None, warning_type=None):
         super().__init__()
         self.schema = schema
+        self.warning_type = warning_type
 
 
 class ProjectPhase(Enum):
@@ -56,9 +57,41 @@ class SchemaClass(Enum):
     COMMENTS = 'Comentarios'
     STATUS = 'Estado'
     SUMMARY = 'Resumo'
-    WARNINGS = 'Avisos'
+    WARNINGS_FORMAT = 'AvisosFormato'
+    WARNINGS_COMPLETE = 'AvisosEmCompleto'
+    WARNINGS_SKIPPED = 'AvisosEmIgnorado'
+    WARNINGS_ITEM = 'AvisosItem'
     MANIFEST = 'Manifesto'
     COVERAGE = 'Cobertura'
+
+
+class WarningType(Enum):
+    MANIFEST_ERROR = 'ErroManifesto'
+    TOKEN_BUDGET_REACHED = 'OrcamentoTokens'
+    SUBTASK_ERROR = 'ErroSubtarefa'
+    TOKEN_THRESHOLD_EXCEEDED = 'LimiarTokens'
+    REVIEW_ROUND_FAILED = 'FalhaRodada'
+    REVIEW_LIMIT_REACHED = 'LimiteRevisao'
+    COMMENT_ARGS_REPAIRED = 'ArgumentosComentarioReparados'
+    COMMENT_REFILED = 'ComentarioRealocado'
+    OTHER = 'Outro'
+
+
+WARNING_TYPES = {
+    'manifest_error': WarningType.MANIFEST_ERROR,
+    'token_budget_reached': WarningType.TOKEN_BUDGET_REACHED,
+    'subtask_error': WarningType.SUBTASK_ERROR,
+    'token_threshold_exceeded': WarningType.TOKEN_THRESHOLD_EXCEEDED,
+    'review_round_failed': WarningType.REVIEW_ROUND_FAILED,
+    'review_limit_reached': WarningType.REVIEW_LIMIT_REACHED,
+    'comment_args_repaired': WarningType.COMMENT_ARGS_REPAIRED,
+    'comment_refiled': WarningType.COMMENT_REFILED,
+}
+
+
+def refused_warning(schema, item):
+    kind = item.get('type') if type(item) is dict else None
+    return Refused(schema, WARNING_TYPES.get(kind, WarningType.OTHER) if type(kind) is str else WarningType.OTHER)
 
 
 def require(condition, schema=None):
@@ -105,14 +138,16 @@ def review_status(report, findings):
         require(type(summary) is dict and type(summary.get('comments')) is int
                 and summary['comments'] == len(findings), SchemaClass.SUMMARY)
     warnings = report.get('warnings', [])
-    require(type(warnings) is list, SchemaClass.WARNINGS)
+    require(type(warnings) is list, SchemaClass.WARNINGS_FORMAT)
     manifest = report.get('manifest')
     if manifest is not None:
         require(type(manifest) is dict and manifest.get('schema_version') == 'ocr.run-manifest/v1'
                 and manifest.get('operation') == 'review' and manifest.get('terminal_state') == status
                 and 'run_failure' not in manifest, SchemaClass.MANIFEST)
     if status != 'partial':
-        require(not warnings, SchemaClass.WARNINGS)
+        if warnings:
+            schema = SchemaClass.WARNINGS_COMPLETE if status == 'complete' else SchemaClass.WARNINGS_SKIPPED
+            raise refused_warning(schema, warnings[0])
         require(summary is None or summary.get('budget_exceeded', False) is False, SchemaClass.SUMMARY)
         require(status != 'skipped' or not findings, SchemaClass.STATUS)
         if manifest is not None:
@@ -121,7 +156,9 @@ def review_status(report, findings):
         return False
     require(summary is not None and summary.get('budget_exceeded') is True, SchemaClass.SUMMARY)
     require(manifest is not None, SchemaClass.MANIFEST)
-    require(all(type(w) is dict and w.get('type') == 'token_budget_reached' for w in warnings), SchemaClass.WARNINGS)
+    for item in warnings:
+        if not (type(item) is dict and item.get('type') == 'token_budget_reached'):
+            raise refused_warning(SchemaClass.WARNINGS_ITEM, item)
     coverage = manifest.get('coverage')
     require(type(coverage) is dict and type(coverage.get('completed')) is list and coverage['completed'],
             SchemaClass.COVERAGE)
@@ -374,6 +411,8 @@ def cli():
             message += f' Fase: {phase.value}.'
         if phase is ProjectPhase.SCHEMA and isinstance(exc, Refused) and isinstance(exc.schema, SchemaClass):
             message += f' Classe: {exc.schema.value}.'
+            if isinstance(exc.warning_type, WarningType):
+                message += f' Tipo: {exc.warning_type.value}.'
         print(message, file=sys.stderr)
         sys.exit(1)
 

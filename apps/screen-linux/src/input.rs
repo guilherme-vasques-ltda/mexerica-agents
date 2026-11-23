@@ -262,31 +262,42 @@ pub fn char_keysym(c: char) -> i32 {
     i32::try_from(sym).unwrap_or(0)
 }
 
-/// Opens an app by desktop-file id or name, else runs it as a command.
+/// Opens only a desktop-file ID that resolves in the desktop launcher's trusted search path.
 pub async fn open_app(name: &str) -> Result<()> {
-    let id = name.trim().trim_end_matches(".desktop");
-    let candidates = [
-        id.to_owned(),
-        id.to_lowercase(),
-        id.to_lowercase().replace(' ', "-"),
-    ];
-    for c in &candidates {
-        let ok = tokio::process::Command::new("gtk-launch")
-            .arg(c)
-            .status()
-            .await
-            .is_ok_and(|s| s.success());
-        if ok {
-            return Ok(());
-        }
+    let id = name.strip_suffix(".desktop").unwrap_or(name);
+    resolve_desktop_id(id, |_| true)?;
+    let status = tokio::process::Command::new("gtk-launch")
+        .arg("--")
+        .arg(id)
+        .status()
+        .await?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("desktop application ID was not resolved"))
     }
-    tokio::process::Command::new(id.to_lowercase())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|_| anyhow!("Couldn't find an app named {name}."))?;
-    Ok(())
+}
+
+fn resolve_desktop_id(id: &str, resolved: impl FnOnce(&str) -> bool) -> Result<()> {
+    if !valid_desktop_id(id) {
+        return Err(anyhow!("invalid desktop application ID"));
+    }
+    if resolved(id) {
+        Ok(())
+    } else {
+        Err(anyhow!("desktop application ID was not resolved"))
+    }
+}
+
+fn valid_desktop_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+                && !part.starts_with('-')
+        })
 }
 
 #[cfg(test)]
@@ -301,5 +312,36 @@ mod tests {
         assert_eq!(keysym("banana"), None);
         assert_eq!(char_keysym('é'), 0xe9);
         assert_eq!(char_keysym('中'), 0x0100_4e2d);
+    }
+
+    #[tokio::test]
+    async fn open_app_requires_a_resolved_desktop_id() {
+        let resolver_called = std::cell::Cell::new(None);
+        let resolver = |id: &str| {
+            resolver_called.set(Some(id.to_owned()));
+            id == "org.example.Editor"
+        };
+        assert!(resolve_desktop_id("org.example.Editor", resolver).is_ok());
+        assert_eq!(
+            resolver_called.take().as_deref(),
+            Some("org.example.Editor")
+        );
+        assert!(resolve_desktop_id("org.example.Unknown", |_: &str| false).is_err());
+        for invalid in [
+            "",
+            "../editor",
+            "/usr/bin/editor",
+            "editor;touch x",
+            "org..Editor",
+            "two words",
+        ] {
+            let resolver_called = std::cell::Cell::new(false);
+            let resolver = |_: &str| {
+                resolver_called.set(true);
+                true
+            };
+            assert!(resolve_desktop_id(invalid, resolver).is_err());
+            assert!(!resolver_called.get());
+        }
     }
 }

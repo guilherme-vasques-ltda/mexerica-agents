@@ -2,10 +2,23 @@
 # Cenários reais, como root na VM descartável: instalador administrativo, coordenador do Hub,
 # guard instalado, amostragem de serviço parado e rotação da raiz TUF.
 set -uo pipefail
+[ "${PROVA_VM:-}" = 1 ] || { echo 'defina PROVA_VM=1: confirme que está numa VM descartável antes de executar' >&2; exit 1; }
 D=$(dirname "$(readlink -f "$0")"); S=/srv/prova; E=/var/lib/donnabot/atualizacao; R=/opt/donnabot/releases
 W=/opt/donnabot/sbin/atualizar-privilegiado; H=/home/hublogin; U=$(id -u hublogin)  # vazamento-ok: conta de teste criada na VM descartável
 I=$S/pacote/donnabot-instalar-atualizacao
 FALHAS=0
+SUDOERS_PROVA=/etc/sudoers.d/zz-prova
+SUDOERS_PROVA_CRIADO=0
+limpar_sudoers_prova() {
+  if [ "$SUDOERS_PROVA_CRIADO" = 1 ] && [ ! -L "$SUDOERS_PROVA" ] && [ -f "$SUDOERS_PROVA" ]; then
+    rm -f -- "$SUDOERS_PROVA"
+  fi
+  SUDOERS_PROVA_CRIADO=0
+}
+trap limpar_sudoers_prova EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 como_hub() { runuser -u hublogin -- env XDG_RUNTIME_DIR=/run/user/$U DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$U/bus MEXERICA_HOME=$H/dados "$@"; }
 coord() { como_hub $H/.local/bin/donnabot-host coordenar-atualizacao "$@"; }
 servico() { como_hub systemctl --user is-active donnabot-host.service 2>/dev/null; }
@@ -157,12 +170,22 @@ kill $AMOSTRADOR
 caso "revogação administrativa"
 espera 1 "login que não é o Hub da instalação é recusado sem efeito" $I revogar --login nobody
 confere "nada alterado pela recusa" '[ -e /etc/sudoers.d/donnabot ] && [ -e $E ] && [ -e $R ]'
-printf 'hublogin ALL=(root) NOPASSWD: ALL\n' > /etc/sudoers.d/zz-prova; chmod 440 /etc/sudoers.d/zz-prova
+if [ -e "$SUDOERS_PROVA" ] || [ -L "$SUDOERS_PROVA" ]; then echo 'FALHA arquivo sudoers de prova já existe'; exit 1; else
+  (set -o noclobber; printf 'hublogin ALL=(root) NOPASSWD: ALL\n' > "$SUDOERS_PROVA") && SUDOERS_PROVA_CRIADO=1 || { echo 'FALHA criando sudoers de prova'; FALHAS=$((FALHAS+1)); }
+fi
+[ "$SUDOERS_PROVA_CRIADO" = 1 ] && chmod 440 -- "$SUDOERS_PROVA"
 espera 1 "regra ALL residual impede declarar a revogação" $I revogar --login hublogin
 confere "falha auditada, estado não arquivado" 'grep -q "\"operacao\":\"revogar\".*\"resultado\":\"falha\"" $E/auditoria && [ -e $E ]'
-printf 'Cmnd_Alias MX = /opt/donnabot/sbin/*\nhublogin ALL=(root) NOPASSWD: MX\n' > /etc/sudoers.d/zz-prova
+if [ "$SUDOERS_PROVA_CRIADO" = 1 ]; then
+  if [ ! -L "$SUDOERS_PROVA" ] && [ -f "$SUDOERS_PROVA" ]; then
+    printf 'Cmnd_Alias MX = /opt/donnabot/sbin/*\nhublogin ALL=(root) NOPASSWD: MX\n' > "$SUDOERS_PROVA"
+  else
+    echo 'FALHA arquivo sudoers de prova foi substituído'; exit 1
+  fi
+fi
 espera 1 "alias com curinga também é detectado" $I revogar --login hublogin
-rm -f /etc/sudoers.d/zz-prova
+limpar_sudoers_prova
+SUDOERS_PROVA_CRIADO=0
 python3 $D/pausado.py $W /tmp/prova-pausado.pid > /tmp/prova-pausado.log 2>&1 & sleep 1
 confere "chamada do wrapper suspensa antes da trava (ptrace no exec)" 'P=$(cat /tmp/prova-pausado.pid) && [ "$(readlink /proc/$P/exe)" = $W ] && grep -qE "^State:\s+t" /proc/$P/status'
 flock $E/lock sleep 6 & TRAVA=$!; sleep 1; T0=$(date +%s)
