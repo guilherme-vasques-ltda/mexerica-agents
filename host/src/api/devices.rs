@@ -119,6 +119,8 @@ const LOCAL_ONLY: &[&str] = &[
     "cloudStatus",
     "setCloud",
     "setApproval",
+    // Só o dono, neste computador, confere o efeito incerto e libera a conversa pausada.
+    "releaseConversation",
     "nuncaFazer",
     "nuncaFazerAdicionar",
     "nuncaFazerEditar",

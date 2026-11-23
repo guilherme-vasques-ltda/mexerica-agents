@@ -220,6 +220,7 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "planoCodigoSalvar",
     "planoCodigoTestar",
     "planosCodigo",
+    "releaseConversation",
     "reportError",
     "requestScreenPermission",
     "setAnalytics",
