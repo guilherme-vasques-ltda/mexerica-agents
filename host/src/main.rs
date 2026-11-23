@@ -215,8 +215,8 @@ enum Sub {
     Serve {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
-        /// Address to bind. Defaults to all interfaces so the phone can reach it over Tailscale/LAN
-        /// (`127.0.0.1` with `--only-this-mac`).
+        /// Address to bind. Defaults to `127.0.0.1` (this computer only); pass an explicit address
+        /// such as `0.0.0.0` to let a phone reach it directly over Tailscale/LAN.
         #[arg(long)]
         bind: Option<String>,
         /// Hub local do Mac: só aceita `--bind 127.0.0.1` e não inicia o relay de saída.
@@ -912,6 +912,13 @@ async fn serve(
     let bound_port = listener.local_addr()?.port();
     cap_log();
     configure_logging();
+    if !listener.local_addr()?.ip().to_canonical().is_loopback() {
+        tracing::warn!(
+            bind,
+            port = bound_port,
+            "listening beyond this computer because of an explicit --bind; omit it to stay on 127.0.0.1"
+        );
+    }
     agent::harness::install_docs().await;
     chat::context::load_harness_context().await;
     let (opened, fixed_identity, personal) = match personal {
@@ -1354,8 +1361,11 @@ mod mac_local_cli_tests {
         assert!(resolve_serve(bind.as_deref(), only, true).is_err());
         let (bind, only) = parse_serve(&["--port", "19422", "--bind", "0.0.0.0"]);
         assert!(resolve_serve(bind.as_deref(), only, true).is_err());
-        // Remoto/terminal mantém o padrão herdado.
+        // Remoto/terminal: loopback por padrão; a rede só com --bind explícito.
         let (bind, scope) = resolve_serve(None, false, false).unwrap();
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::Network));
+        let (bind, only) = parse_serve(&["--port", "19422", "--bind", "0.0.0.0"]);
+        let (bind, scope) = resolve_serve(bind.as_deref(), only, false).unwrap();
         assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
     }
 

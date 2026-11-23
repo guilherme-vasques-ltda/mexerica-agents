@@ -123,8 +123,8 @@ publicar, reinicia o serviço anterior. Se publicar, grava o comprovante vincula
 certidão root, aponta a unidade para `/opt/donnabot/releases/ativo` por drop-in
 próprio, libera a trava, inicia e confere a saúde (ativo pelo período e executando
 o binário gerido). O drop-in fixa `serve --bind 127.0.0.1` (qualquer `--bind`
-anterior, inclusive `0.0.0.0`, é substituído; sem `--bind`, o padrão do `serve` seria
-todas as interfaces): o Hub gerido escuta só em loopback, e o acesso remoto é pelo
+anterior, inclusive `0.0.0.0`, é substituído; sem `--bind`, o `serve` também escuta
+só em `127.0.0.1`): o Hub gerido escuta só em loopback, e o acesso remoto é pelo
 túnel SSH do app. Saudável: `--aceitar`. Senão (ou com `--forcar-reversao`): para,
 reobtém a trava, confere o backup contra certidão e comprovante, guarda o estado
 posterior em cópia separada, restaura o DB e os drop-ins, chama `--reverter` e
@@ -578,9 +578,9 @@ Hub (o `systemd --user` dele tem `CAP_WAKE_ALARM` e não é tocado).
   contra um motor que não seja do Hub; a opção de inventário exato fica registrada
   para o caso de surgir esse motor.
 - **Bind:** as unidades do layout gerido (instalação limpa e migração) escutam só em
-  `127.0.0.1`. O instalador Linux anterior e o `donnabot-host install` fora desse
-  layout continuam com o padrão de todas as interfaces; o acesso remoto ao Hub gerido
-  é pelo túnel SSH do app.
+  `127.0.0.1`. O instalador Linux (`donnabot-host install`) também grava
+  `--bind 127.0.0.1`, e o `serve` sem `--bind` escuta só em loopback; escuta na rede
+  só com `--bind` explícito. O acesso remoto ao Hub gerido é pelo túnel SSH do app.
 - O gate de partida só protege Hubs que o contêm. Por isso a coordenação exige a
   atualização preparatória do Hub legado (mesmo binário do coordenador na unidade); um
   Hub legado anterior não é migrado diretamente.

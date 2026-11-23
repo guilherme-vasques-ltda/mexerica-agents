@@ -18,7 +18,7 @@ pub const LOOPBACK: &str = "127.0.0.1";
 /// Quem pode falar com este Hub.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
-    /// Hub remoto ou instalado à mão: comportamento herdado (rede e relay de saída).
+    /// Hub remoto ou instalado à mão: relay de saída ligado; escuta na rede só com `--bind` explícito.
     Network,
     /// "Só neste Mac": nada escuta fora de `127.0.0.1` e nada conecta ao relay.
     ThisMacOnly,
@@ -45,21 +45,21 @@ impl Scope {
 
 /// Resolve `serve`: endereço e escopo finais. Falha fechada: rodando como serviço do Mac
 /// (launchd com o label do Mexerica) sem `--only-this-mac`, ou seja, com um plist herdado,
-/// o Hub recusa subir em vez de cair em `0.0.0.0` + relay. Sem `--bind`, `--only-this-mac`
-/// escuta só em loopback; sem a flag vale o padrão herdado (`0.0.0.0`).
+/// o Hub recusa subir em vez de cair na rede + relay. Sem `--bind`, o Hub escuta só em
+/// loopback em qualquer modo; escutar fora deste computador exige `--bind` explícito.
 pub fn resolve_serve(bind: Option<&str>, only_this_mac: bool, mac_service: bool) -> Result<(String, Scope)> {
     if mac_service && !only_this_mac {
         bail!("o serviço do Mac só sobe com --only-this-mac (plist herdado?); reinstale o Hub pelo app");
     }
     let scope = Scope::from_flag(only_this_mac);
-    let bind = bind.unwrap_or(if only_this_mac { LOOPBACK } else { "0.0.0.0" });
+    let bind = bind.unwrap_or(LOOPBACK);
     scope.check_bind(bind)?;
     Ok((bind.to_owned(), scope))
 }
 
 /// Resolve `serve` com a interface Web local (`--web-dir`): falha fechada em qualquer
 /// endereço que não seja o loopback, nunca sobe o relay de saída e ignora o plist herdado
-/// só quando o modo é explícito — sem `has_web`, o comportamento é o herdado.
+/// só quando o modo é explícito — sem `has_web`, vale `resolve_serve`.
 pub fn resolve_serve_with_web(
     bind: Option<&str>,
     only_this_mac: bool,
@@ -254,7 +254,19 @@ mod tests {
         assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
         assert!(resolve_serve(Some("0.0.0.0"), true, true).is_err());
         let (bind, scope) = resolve_serve(None, false, false).unwrap();
-        assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::Network));
+    }
+
+    #[test]
+    fn default_bind_is_loopback_and_explicit_bind_is_kept() {
+        for (only_this_mac, mac_service) in [(false, false), (true, false), (true, true)] {
+            let (bind, _) = resolve_serve(None, only_this_mac, mac_service).unwrap();
+            assert_eq!(bind, LOOPBACK, "{only_this_mac} {mac_service}");
+        }
+        for explicit in ["0.0.0.0", "::", "192.0.2.10", "127.0.0.1"] {
+            let (bind, scope) = resolve_serve(Some(explicit), false, false).unwrap();
+            assert_eq!((bind.as_str(), scope), (explicit, Scope::Network));
+        }
     }
 
     #[test]
@@ -268,9 +280,9 @@ mod tests {
         // Com --bind 127.0.0.1 explícito segue válido.
         let (bind, scope) = resolve_serve_with_web(Some("127.0.0.1"), true, true, true).unwrap();
         assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
-        // Sem a interface Web, o comportamento é 100% herdado.
+        // Sem a interface Web, vale `resolve_serve`: loopback por padrão, relay segue ligado.
         let (bind, scope) = resolve_serve_with_web(None, false, false, false).unwrap();
-        assert_eq!((bind.as_str(), scope), ("0.0.0.0", Scope::Network));
+        assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::Network));
         let (bind, scope) = resolve_serve_with_web(None, true, false, false).unwrap();
         assert_eq!((bind.as_str(), scope), ("127.0.0.1", Scope::ThisMacOnly));
         assert!(resolve_serve_with_web(None, false, true, false).is_err());
