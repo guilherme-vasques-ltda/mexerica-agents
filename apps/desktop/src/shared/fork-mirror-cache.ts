@@ -93,7 +93,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // são lidas direto do Hub e não entram no mirror, mas o stamp vira o contrato do campo novo: cache anterior é descartado
 // pelo próprio stamp e o app antigo ignora o campo sem oferecer pausar/reativar.
 // Schema 71: a projeção efêmera da Torre inclui a observação `attention`.
-export const MIRROR_SCHEMA = 71
+// Schema 72: pedidos de acesso trazem `codeReady` e `codeCheck: "server"` (o Hub confere o código digitado no aparelho).
+export const MIRROR_SCHEMA = 72
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

@@ -405,11 +405,10 @@ enum DevicesAction {
 enum AccessAction {
     /// Show pending requests; approve by typing the code shown on the device (the default).
     List,
-    /// Approve with the 6-digit code typed from the device; optionally supply request ID and --code.
+    /// Approve: asks for the 6-digit code shown on the device (typed without echo, or one line on stdin).
     Approve {
-        request: String,
-        #[arg(long)]
-        code: Option<String>,
+        /// Request ID from `access list`; without it, the only request whose device shows a code.
+        request: Option<String>,
     },
     /// Deny a request.
     Deny { request: String },
@@ -714,7 +713,7 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        Sub::Access { port, action } => access(port, action.unwrap_or(AccessAction::List)).await,
+        Sub::Access { port, action } => access(port, action.unwrap_or(AccessAction::List), read_typed_code).await,
         Sub::Cloud { port, enable, disable, approval } => {
             if let Some(approval) = approval {
                 local_call(port, "setApproval", json!({ "approval": approval })).await?;
@@ -1072,7 +1071,8 @@ fn approved_message(result: &serde_json::Value) -> Option<String> {
 }
 
 fn access_line(r: &serde_json::Value) -> String {
-    let state = if r["code"].is_string() { "digite o código que o aparelho mostra" } else { "(esperando o aparelho)" };
+    let state =
+        if r["codeReady"] == true { "digite o código que o aparelho mostra" } else { "(esperando o aparelho)" };
     format!(
         "{}  {} ({}, {})  prazo {}  {}",
         r["requestId"].as_str().unwrap_or_default(),
@@ -1084,19 +1084,92 @@ fn access_line(r: &serde_json::Value) -> String {
     )
 }
 
-async fn access(port: u16, action: AccessAction) -> Result<()> {
+/// O pedido a decidir: pelo ID, ou o único pronto quando a aprovação veio só com o código. Nunca compara com o
+/// código do aparelho aqui: quem confere o que a pessoa digitou é o Hub, uma vez só.
+fn pick_request<'a>(
+    requests: &'a [serde_json::Value],
+    id: Option<&str>,
+    approve: bool,
+) -> Result<&'a serde_json::Value> {
+    let matches: Vec<_> = requests
+        .iter()
+        .filter(|r| match id {
+            Some(id) => r["requestId"].as_str() == Some(id),
+            None => approve && r["codeReady"] == true,
+        })
+        .collect();
+    let [r] = matches.as_slice() else {
+        anyhow::bail!("No unique request matches; give the request ID from `access list`.");
+    };
+    if approve && r["codeReady"] != true {
+        anyhow::bail!("The device hasn't shown its code yet; wait for it and try again.");
+    }
+    Ok(r)
+}
+
+/// O código como a pessoa o digitou: seis dígitos, sem nada além da quebra de linha.
+fn typed_code(line: &str) -> Result<String> {
+    let code = line.trim();
+    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+        anyhow::bail!("Approval requires the six-digit code typed from the device.");
+    }
+    Ok(code.to_owned())
+}
+
+/// O código vem do terminal, sem eco, ou de uma linha da entrada padrão; nunca de argumento, que fica no histórico do
+/// shell e na lista de processos.
+fn read_typed_code() -> Result<String> {
+    use std::io::{BufRead as _, IsTerminal as _, Write as _};
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    if stdin.is_terminal() {
+        eprint!("Type the 6-digit code shown on the device: ");
+        let _ = std::io::stderr().flush();
+        #[cfg(unix)]
+        let _eco = SemEco::ligar()?;
+        stdin.lock().read_line(&mut line)?;
+        eprintln!();
+    } else {
+        stdin.lock().read_line(&mut line)?;
+    }
+    typed_code(&line)
+}
+
+/// Eco do terminal da entrada padrão desligado enquanto vive; o estado anterior volta no `Drop`, inclusive com erro.
+#[cfg(unix)]
+struct SemEco(libc::termios);
+
+#[cfg(unix)]
+impl SemEco {
+    fn ligar() -> Result<Self> {
+        // SAFETY: termios zerado e preenchido por tcgetattr no descritor 0, conferido pelo retorno.
+        let antes = unsafe {
+            let mut t: libc::termios = std::mem::zeroed();
+            (libc::tcgetattr(libc::STDIN_FILENO, &raw mut t) == 0).then_some(t)
+        };
+        let antes = antes.context("couldn't hide the typed code on this terminal")?;
+        let mut sem_eco = antes;
+        sem_eco.c_lflag &= !libc::ECHO;
+        // SAFETY: termios válido, copiado do lido acima, aplicado ao mesmo descritor.
+        if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw const sem_eco) } != 0 {
+            anyhow::bail!("couldn't hide the typed code on this terminal");
+        }
+        Ok(Self(antes))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for SemEco {
+    fn drop(&mut self) {
+        // SAFETY: devolve ao descritor 0 o termios lido dele em `ligar`.
+        unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw const self.0) };
+    }
+}
+
+async fn access(port: u16, action: AccessAction, typed: impl FnOnce() -> Result<String>) -> Result<()> {
     let (request, typed_code, approve) = match action {
         AccessAction::List => (None, None, false),
-        AccessAction::Approve { request, code } => {
-            let (id, typed) = match code {
-                Some(code) => (Some(request), code),
-                None => (None, request),
-            };
-            if typed.len() != 6 || !typed.bytes().all(|b| b.is_ascii_digit()) {
-                anyhow::bail!("Approval requires the six-digit code typed from the device.");
-            }
-            (id, Some(typed), true)
-        }
+        AccessAction::Approve { request } => (request, Some(typed()?), true),
         AccessAction::Deny { request } => (Some(request), None, false),
     };
     let list = local_call(port, "accessRequests", json!({})).await?;
@@ -1110,22 +1183,7 @@ async fn access(port: u16, action: AccessAction) -> Result<()> {
         }
         return Ok(());
     }
-    let matches: Vec<_> = requests
-        .iter()
-        .filter(|r| {
-            if approve {
-                typed_code.as_deref() == r["code"].as_str()
-                    && request.as_ref().is_none_or(|id| r["requestId"].as_str() == Some(id.as_str()))
-            } else {
-                request.as_ref().is_some_and(|q| {
-                    r["requestId"].as_str() == Some(q.as_str()) || r["code"].as_str() == Some(q.as_str())
-                })
-            }
-        })
-        .collect();
-    let [r] = matches.as_slice() else {
-        anyhow::bail!("No unique request matches; check the device and request list.");
-    };
+    let r = pick_request(requests, request.as_deref(), approve)?;
     let id = r["requestId"].as_str().filter(|id| !id.is_empty()).context("invalid request id")?;
     let mut body = json!({"requestId": id, "approve": approve});
     let mut expected_key = None;
@@ -1156,6 +1214,9 @@ async fn access(port: u16, action: AccessAction) -> Result<()> {
             println!("{}", approved_message(&result).unwrap_or_default());
         }
         Some("denied") if !approve => println!("Denied."),
+        Some("refused") if result["reason"] == "transcriptMismatch" => {
+            anyhow::bail!("The code doesn't match the device. The request was cancelled; ask again from the device.")
+        }
         Some("refused") => {
             anyhow::bail!("Request refused: {}", result["reason"].as_str().unwrap_or("invalid response"))
         }
@@ -1243,8 +1304,31 @@ async fn statusline(port: u16, wrapped: String) {
 mod tests {
     #[tokio::test]
     async fn approval_rejects_id_without_typed_code_before_any_call() {
-        let result = super::access(0, super::AccessAction::Approve { request: "req_fixture".into(), code: None }).await;
+        let mut chamado = false;
+        let typed = || {
+            chamado = true;
+            super::typed_code("")
+        };
+        let result =
+            super::access(0, super::AccessAction::Approve { request: Some("req_fixture".into()) }, typed).await;
         assert!(result.is_err());
+        assert!(chamado, "the code is read from the person, not from an argument");
+    }
+
+    #[test]
+    fn typed_code_is_six_digits_from_one_line() {
+        assert_eq!(super::typed_code("123456\n").unwrap(), "123456");
+        assert_eq!(super::typed_code("123456\r\n").unwrap(), "123456");
+        for bad in ["", "\n", "12345", "1234567", "12345a", "123 456", "１２３４５６"] {
+            assert!(super::typed_code(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn approve_takes_no_code_argument() {
+        use clap::Parser as _;
+        assert!(super::Cli::try_parse_from(["donnabot-host", "access", "approve", "req_fixture"]).is_ok());
+        assert!(super::Cli::try_parse_from(["donnabot-host", "access", "approve", "--code", "123456"]).is_err());
     }
 
     #[test]
@@ -1256,12 +1340,29 @@ mod tests {
             "email": "user@example.com",
             "deadline": 123,
             "code": "123456",
+            "codeReady": true,
         });
         let line = super::access_line(&request);
         assert!(line.contains("req_1"));
         assert!(line.contains("digite o código que o aparelho mostra"));
         assert!(!line.contains("123456"));
         assert!(!line.contains("123 456"));
+    }
+
+    #[test]
+    fn approval_picks_the_request_without_reading_the_device_code() {
+        use serde_json::json;
+        let ready = json!({"requestId": "req_1", "codeReady": true, "code": "111111"});
+        let waiting = json!({"requestId": "req_2", "codeReady": false});
+        let list = [ready.clone(), waiting.clone()];
+        assert_eq!(super::pick_request(&list, None, true).unwrap(), &ready, "the only ready one, whatever was typed");
+        assert_eq!(super::pick_request(&list, Some("req_1"), true).unwrap(), &ready);
+        assert!(super::pick_request(&list, Some("req_2"), true).is_err(), "no code on the device yet");
+        assert_eq!(super::pick_request(&list, Some("req_2"), false).unwrap(), &waiting, "deny by ID");
+        assert!(super::pick_request(&list, None, false).is_err());
+        assert!(super::pick_request(&list, Some("111111"), false).is_err(), "the code never selects a request");
+        let two = [ready.clone(), json!({"requestId": "req_3", "codeReady": true})];
+        assert!(super::pick_request(&two, None, true).is_err(), "two ready requests need the ID");
     }
 
     #[test]
