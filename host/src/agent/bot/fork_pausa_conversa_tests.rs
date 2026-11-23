@@ -113,6 +113,7 @@ async fn so_este_computador_libera_a_conversa_pausada() {
     let delegado = device("pausa-control");
     let revogado = device("pausa-revogado");
     assert!(f.hub.revoke_device("pausa-revogado").unwrap());
+    crate::fork::sessoes::bindings::fixture_execution(&f.hub, "bot");
     let binding = crate::fork::sessoes::bindings::for_acp(&f.hub.store, "bot", "fixture-acp").unwrap();
     let mut servers = vec![json!({"env": []})];
     crate::fork::ponte_credencial::provisionar(&f.hub, "bot", None, &binding, &mut servers).unwrap();
