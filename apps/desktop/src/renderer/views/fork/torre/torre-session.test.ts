@@ -27,6 +27,31 @@ class Source {
 }
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
 
+test('badge fetches the scoped queue, rejects foreign hints, and clears a previous principal', async () => {
+  const src = new Source()
+  src.connectedClient = { ...src.link(), call: async (method, body) => {
+    assert.equal(method, 'donnaAttention')
+    assert.deepEqual(body, { spaceId: 'p', includeResolvedToday: false })
+    return { version: 1, hubId: 'h1', spaceId: 'p', collectedAt: ++src.reads, items: [], resolvedToday: [], coverageGaps: [] }
+  } }
+  const session = new TowerSession(Date.now, 'badge')
+  session.open(src, 'p')
+  try {
+    await tick()
+    assert.equal(session.currentAttention(src, 'p')?.collectedAt, 1)
+    src.emit!({ type: 'donnaAttentionChanged', spaceId: 'p', hubId: 'other' })
+    await tick(275)
+    assert.equal(src.reads, 1)
+    src.emit!({ type: 'donnaAttentionChanged', spaceId: 'p', hubId: 'h1' })
+    await tick(275)
+    assert.equal(session.currentAttention(src, 'p')?.collectedAt, 2)
+    src.principalEpoch++
+    assert.equal(session.currentAttention(src, 'p'), null)
+  } finally {
+    session.close()
+  }
+})
+
 test('assina antes de ler, relê no aviso, fica antiga sem link e esquece outro Hub', async () => {
   const src = new Source()
   const s = new TowerSession(() => 42)
