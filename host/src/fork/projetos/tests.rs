@@ -107,6 +107,34 @@ fn task() -> Value {
 }
 
 #[tokio::test]
+async fn tarefa_nova_do_dono_grava_origem_uma_vez() {
+    use super::delegacao_meta::{OriginKind, RequesterKind, admit, load_space};
+    let f = Fixture::new();
+    let created = f.call("donnaProjectCreate", f.create()).await.unwrap();
+    let mut save = f.save(&created["snapshot"]);
+    let project_id = save["projectId"].as_str().unwrap().to_owned();
+    let first = task();
+    let task_id = first["id"].as_str().unwrap().to_owned();
+    save["tasks"] = json!([first]);
+    let saved = f.call("donnaProjectSave", save).await.unwrap();
+    let mut owner_change = f.save(&saved["snapshot"]);
+    owner_change["tasks"][0]["state"] = json!("cancelled");
+    owner_change["tasks"][0]["assigneeBotId"] = Value::Null;
+    f.call("donnaProjectSave", owner_change).await.unwrap();
+
+    let c = f.hub.store.db.locked();
+    let scope = (f.hub.host_id.as_str(), PERSONAL, project_id.as_str());
+    admit(&c, scope, &task_id, 0, Some("bot-a"), None).unwrap();
+    let metadata = load_space(&c, &f.hub.host_id, PERSONAL).unwrap();
+    let meta = &metadata[&(project_id, task_id)];
+    assert_eq!(meta.origin_kind, OriginKind::OwnerDirect);
+    assert_eq!(meta.requester_kind, RequesterKind::Owner);
+    assert_eq!(meta.root_bot_id, None);
+    assert!(meta.admitted_at.unwrap() > 0);
+    assert!(c.execute("UPDATE donna_task_delegation_meta SET origin_kind='delegated'", []).is_err());
+}
+
+#[tokio::test]
 async fn task_attention_requires_an_open_owner_request_in_an_exclusive_scoped_session() {
     use crate::fork::sessoes::{
         origin::SessionOrigin,
@@ -557,7 +585,8 @@ async fn device_control_positivo_e_binding_antigo_nao_renova_apos_revogacao() {
     tokio::pin!(pending);
     tokio::select! { biased; result = &mut pending => panic!("não esperou: {result:?}"), () = std::future::ready(()) => {} }
     f.hub.revoke_device(&device.key).unwrap();
-    f.hub.store.put_device(&device).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &device).unwrap();
     drop(guard);
     let error = pending.await.unwrap_err();
     assert_authority_ended(&error);

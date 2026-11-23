@@ -31,7 +31,7 @@ impl Diretorio {
         estado.exigir_sem_bloqueio()?;
         publicacao.exigir_sem_emergencia()?;
         let mut journal: Journal = estado.ler("journal")?;
-        if estado.expirar_journal(trava, &mut journal, agora)? {
+        if estado.expirar_journal(publicacao, trava, &mut journal, agora)? {
             publicacao.publicar_status(estado, trava)?;
             anyhow::bail!("janela expirada; recuperação administrativa necessária");
         }

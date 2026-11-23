@@ -57,6 +57,7 @@ pub(crate) fn selection_reason(problem: &Problem) -> Option<&'static str> {
         Problem::Model => "model",
         Problem::AccountDisconnected { .. } => "account_disconnected",
         Problem::NoClaude => "no_claude",
+        Problem::PersonalSubscription => "personal_subscription_chat_only",
         Problem::Codex => "codex",
         Problem::Api => "api",
         _ => return None,

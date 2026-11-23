@@ -448,6 +448,7 @@ pub(super) async fn catalog_from_commands(
     catalog_from_commands_mode(executable, directory, commands, false).await
 }
 
+#[cfg(test)]
 pub(crate) async fn background_claude_catalog(
     executable: &Path,
     directory: &Path,

@@ -401,12 +401,9 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["agy"],
         local: None,
         registry: Some("antigravity-acp"),
-        setup: "Install the Antigravity CLI (curl -fsSL https://antigravity.google/cli/install.sh | bash) and sign in with `agy`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://antigravity.google/cli/install.ps1 | iex\"",
-        }),
-        login: "{bin}",
+        setup: ANTIGRAVITY_INTERACTIVE_ONLY,
+        install: None,
+        login: "",
         signed_in: None,
     },
     Harness {
@@ -460,6 +457,19 @@ pub fn id_canonico(id: &str) -> String {
         .iter()
         .find(|h| h.id == normalizado || h.registry.is_some_and(|r| r.eq_ignore_ascii_case(&normalizado)))
         .map_or(normalizado, |h| h.id.to_owned())
+}
+
+pub(crate) const ANTIGRAVITY_INTERACTIVE_ONLY: &str =
+    "O Antigravity está indisponível no app. Use o CLI oficial com a sua conta em um cliente ACP interativo.";
+
+pub(crate) fn is_antigravity(id: &str) -> bool {
+    let id = id.trim();
+    ["antigravity", "antigravity-acp", "agy"].iter().any(|alias| id.eq_ignore_ascii_case(alias))
+}
+
+pub(crate) fn require_supported_execution(id: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!is_antigravity(id), "{ANTIGRAVITY_INTERACTIVE_ONLY}");
+    Ok(())
 }
 
 pub fn harness(id: &str) -> Option<&'static Harness> {
@@ -652,7 +662,12 @@ pub fn list() -> Vec<Value> {
     let known: HashSet<&str> = HARNESSES.iter().filter_map(|h| h.registry).collect();
     for a in &registry {
         let id = a["id"].as_str().unwrap_or_default();
-        if id.is_empty() || known.contains(id) || id == "github-copilot" || crate::fork::motores_retirados::retirado(id)
+        if id.is_empty()
+            || known.contains(id)
+            || id == "github-copilot"
+            || crate::fork::motores_retirados::retirado(id)
+            || crate::fork::assinatura_pessoal::muse(id)
+            || crate::fork::assinatura_pessoal::claude(id)
         {
             continue;
         }
@@ -785,6 +800,13 @@ pub async fn launch_candidates(
     id: &str,
     progress: impl Fn(&str, Option<crate::fork::activity_code::ActivityKind>),
 ) -> anyhow::Result<Vec<registry::Cmd>> {
+    require_supported_execution(id)?;
+    anyhow::ensure!(!crate::fork::assinatura_pessoal::muse(id), "{}", crate::fork::assinatura_pessoal::META);
+    anyhow::ensure!(
+        id == "claude" || !crate::fork::assinatura_pessoal::claude(id),
+        "{}",
+        crate::fork::assinatura_pessoal::CHAT_ONLY
+    );
     if crate::fork::motores_retirados::retirado(id) {
         return Err(acp::Failure::error(acp::FailureKind::NotSetUp, crate::fork::motores_retirados::msg_lancar(id)));
     }
@@ -848,7 +870,7 @@ fn registry_cli(h: &Harness) -> Option<Value> {
 
 /// Codync's own sign-in command for `id` can run now.
 pub fn login_available(id: &str) -> bool {
-    if crate::fork::motores_retirados::retirado(id) {
+    if is_antigravity(id) || crate::fork::motores_retirados::retirado(id) {
         return false;
     }
     harness(id)
@@ -857,6 +879,7 @@ pub fn login_available(id: &str) -> bool {
 
 /// Codync's own sign-in command for `id`, with `{bin}` resolved.
 pub async fn login_command(id: &str) -> anyhow::Result<String> {
+    require_supported_execution(id)?;
     anyhow::ensure!(
         !crate::fork::motores_retirados::retirado(id),
         "{}",
@@ -877,7 +900,7 @@ pub async fn login_command(id: &str) -> anyhow::Result<String> {
 /// The installed CLI's own ACP mode, if it has one and it's installed.
 pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
     // Motor retirado: o executável local não é resolvido, nem com o CLI instalado.
-    if crate::fork::motores_retirados::retirado(id) {
+    if is_antigravity(id) || crate::fork::motores_retirados::retirado(id) {
         return None;
     }
     let h = harness(id)?;

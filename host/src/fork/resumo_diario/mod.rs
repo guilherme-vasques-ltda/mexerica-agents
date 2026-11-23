@@ -76,7 +76,7 @@ fn motivo(error: &anyhow::Error) -> &'static str {
         return "quota";
     }
     match error.downcast_ref::<Problem>() {
-        Some(Problem::Quota) => "quota",
+        Some(Problem::PersonalSubscription) => "personal_subscription_chat_only",
         Some(Problem::Timeout) => "timeout",
         Some(Problem::AccountChanged | Problem::NoClaude | Problem::Model) => "account",
         _ => "error",

@@ -18,8 +18,9 @@ const pular = exe ? false : 'sem Chromium (defina CHROME=/caminho): o teste do C
 const bundle = pular ? null : await build({
   stdin: {
     contents: `export { createRoot } from 'react-dom/client';
-      export { createElement } from 'react';
+      export { createElement, useState } from 'react';
       export { Composer } from './views/thread/Composer';
+      export { useStarterTour } from './views/fork/onboarding/useStarterTour';
       export { StoreContext } from './store/context';
       export { BotStore } from './store/bot-store';
       export { modeloDe } from './views/fork/contexto/BarraContexto';
@@ -55,7 +56,27 @@ const ABRIR = `
   store.send = (texto) => { window.__enviados.push(texto); store.composerDrafts.edit('b', '', 'typed'); return {}; };
   store.setFastMode = () => { window.__fast++; };
   window.__store = store; window.__modelo = App.modeloDe(store);
-  window.__montar = () => { window.__raiz = App.createRoot(document.getElementById('root')); window.__raiz.render(App.createElement(App.StoreContext.Provider, { value: store }, App.createElement(App.Composer, { botId: 'b' }))); };
+  function Editor() {
+    const [starterDraft, setStarterDraft] = App.useState(null);
+    const [sessionId, setSessionId] = App.useState(null);
+    const previous = window.__aplicada;
+    window.__sugerir = prompt => setStarterDraft({ prompt, previous: () => previous?.files === store.composerDrafts.files('b') ? previous.origin : undefined });
+    window.__sessao = setSessionId;
+    return App.createElement(App.Composer, { botId: 'b', sessionId, starterDraft, onStarterDraftHandled: origin => {
+      window.__sugestaoAplicada = !!origin;
+      if (origin) window.__aplicada = { origin, files: store.composerDrafts.files('b') };
+      setStarterDraft(null);
+    } });
+  }
+  function TourEditor() {
+    const [view, setView] = App.useState({ scope: 'A', deliver: true, paused: false });
+    const tour = App.useStarterTour(view.scope, view.paused, store.composerDrafts, 'b');
+    window.__mudarTour = (scope, deliver, paused) => setView({ scope, deliver, paused });
+    window.__sugerir = tour.pick;
+    return App.createElement('div', { 'data-spotlight': tour.spotlightOpen, 'data-pending': tour.starterDraft !== null },
+      App.createElement(App.Composer, { botId: 'b', sessionId: view.paused ? 'extra' : null, starterDraft: view.deliver ? tour.starterDraft : null, onStarterDraftHandled: tour.handled }));
+  }
+  window.__montar = (tour = false) => { window.__raiz = App.createRoot(document.getElementById('root')); window.__raiz.render(App.createElement(App.StoreContext.Provider, { value: store }, App.createElement(tour ? TourEditor : Editor))); };
   window.__montar();
 `
 const CHAVE = ['sk', '_live_', 'Qw3Er5Ty7Ui9Op1As3Df5Gh7'].join('')
@@ -105,6 +126,109 @@ async function cena(): Promise<Cena> {
   return c
 }
 const fecha = async (c: Cena) => { await c.page.close() }
+
+test('o tour descarta a sugestão ao perder o compositor ou trocar de escopo, sem replay', { skip: pular }, async () => {
+  const c = await cena()
+  try {
+    await c.page.evaluate(() => {
+      const w = window as any
+      w.__raiz.unmount()
+      w.__montar(true)
+    })
+    await c.assentar()
+    const field = c.page.locator('textarea')
+    await field.fill('')
+    const change = async (scope: string | null, deliver = true, paused = false) => {
+      await c.page.evaluate(([id, enabled, pause]) => (window as any).__mudarTour(id, enabled, pause), [scope, deliver, paused] as const)
+      await c.assentar()
+    }
+    const pick = async (prompt: string) => {
+      await c.page.evaluate(text => (window as any).__sugerir(text), prompt)
+      await c.assentar()
+    }
+    const tour = c.page.locator('[data-spotlight]')
+    for (const next of [null, 'B']) {
+      await change('A', false)
+      await pick('Sugestão pendente')
+      assert.equal(await tour.getAttribute('data-pending'), 'true')
+      await change(next)
+      assert.equal(await tour.getAttribute('data-pending'), 'false')
+      if (next === null) await pick('Sem compositor elegível')
+      await change('A')
+      assert.equal(await field.inputValue(), '')
+      assert.equal(await tour.getAttribute('data-spotlight'), 'false')
+    }
+    await pick('Sugestão aceita')
+    assert.equal(await field.inputValue(), 'Sugestão aceita')
+    assert.equal(await tour.getAttribute('data-spotlight'), 'true')
+    const revision = () => c.page.evaluate(() => (window as any).__store.composerDrafts.origin('b').revision)
+    const initialRevision = await revision()
+    await change('A', true, true)
+    await pick('Não entra na extra')
+    assert.equal(await field.inputValue(), '')
+    assert.equal(await tour.getAttribute('data-spotlight'), 'false')
+    await change('A')
+    assert.equal(await field.inputValue(), 'Sugestão aceita')
+    assert.equal(await revision(), initialRevision)
+    assert.equal(await tour.getAttribute('data-spotlight'), 'true')
+    await change('A', false)
+    await pick('Pendente antes da pausa')
+    assert.equal(await tour.getAttribute('data-pending'), 'true')
+    await change('A', true, true)
+    await change('A')
+    assert.equal(await tour.getAttribute('data-pending'), 'false')
+    assert.equal(await revision(), initialRevision)
+    await pick('Troca explícita')
+    assert.equal(await field.inputValue(), 'Troca explícita')
+    assert.equal(await revision(), initialRevision + 1)
+    await c.page.evaluate(() => {
+      const drafts = (window as any).__store.composerDrafts
+      drafts.setFiles('b', [{ id: 'a', name: 'notas.txt', data: new Uint8Array() }])
+      drafts.setFiles('b', [])
+    })
+    await c.assentar()
+    assert.equal(await tour.getAttribute('data-spotlight'), 'false')
+    await change('A', true, true)
+    await change('A')
+    await pick('Não substitui após anexo')
+    assert.equal(await field.inputValue(), 'Troca explícita')
+    assert.equal(await revision(), initialRevision + 1)
+    await field.fill('Minha edição')
+    await change(null)
+    await change('A')
+    assert.equal(await field.inputValue(), 'Minha edição')
+    assert.equal(await tour.getAttribute('data-spotlight'), 'false')
+    assert.deepEqual((await c.estado()).enviados, [])
+  } finally { await fecha(c) }
+})
+
+test('sugestão intacta é substituída no Composer real; edição, rotina e bloqueio são preservados', { skip: pular }, async () => {
+  const c = await cena()
+  const sugerir = async (texto: string) => {
+    await c.page.evaluate((t) => (window as any).__sugerir(t), texto)
+    const estado = await c.estado()
+    return [estado.rascunho, await c.page.evaluate(() => (window as any).__sugestaoAplicada)]
+  }
+  try {
+    await c.page.locator('textarea').fill('')
+    assert.deepEqual(await sugerir('Primeira tarefa'), ['Primeira tarefa', true])
+    assert.deepEqual(await sugerir('Segunda tarefa'), ['Segunda tarefa', true])
+    await c.compactando()
+    assert.deepEqual(await sugerir('Terceira tarefa'), ['Segunda tarefa', false])
+    await c.terminou()
+    assert.equal((await c.estado()).rascunho, 'Segunda tarefa')
+    await c.page.locator('textarea').fill('Minha edição')
+    assert.deepEqual(await sugerir('Outra tarefa'), ['Minha edição', false])
+    await c.page.evaluate(() => (window as any).__store.setRoutineDraft('b', 'Texto da rotina'))
+    const final = await c.estado()
+    assert.equal(final.rascunho, 'Minha edição\nTexto da rotina')
+    assert.deepEqual(final.enviados, [])
+    await c.page.evaluate(() => (window as any).__sessao('extra'))
+    await c.assentar()
+    assert.deepEqual(await sugerir('Tarefa fora da conversa principal'), [final.rascunho, false])
+    assert.equal(await c.page.locator('textarea').inputValue(), '')
+  } finally { await fecha(c) }
+})
 
 test('sequência da revisão no Composer real: t=0 pedido, t=85 atividade, troca de conexão, t=90 libera; não volta a bloquear', { skip: pular }, async () => {
   const c = await cena()

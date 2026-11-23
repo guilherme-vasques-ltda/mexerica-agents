@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { authenticate, AuthenticationEnded } from '../auth'
-import { identity } from '../environment'
+import { identity, isRc } from '../environment'
 import { accountCallback } from './callback'
 import { AccountProfileController, recoveryFile, rulesFromEnvironment } from './profile'
 import type { AccountService } from './service'
@@ -11,6 +11,7 @@ import type { AccountService } from './service'
  * para uma sessão: outra conta começa sem TOTP pela metade.
  */
 export function registerAccountProfile(account: AccountService, windows: () => BrowserWindow[]) {
+  const accountCallbackScheme = isRc ? identity.scheme : identity.appId
   let current: { session: string; controller: AccountProfileController } | null = null
   let running = false
   const controller = () => {
@@ -24,9 +25,9 @@ export function registerAccountProfile(account: AccountService, windows: () => B
           sessionId: () => account.profileSessionId,
           socialProviders: () => account.state.socialProviders,
           passwordRules: () => rulesFromEnvironment(account.environment),
-          callbackURL: () => `${identity.appId}://callback?attempt=${randomBytes(24).toString('base64url')}`,
+          callbackURL: () => `${accountCallbackScheme}://callback?attempt=${randomBytes(24).toString('base64url')}`,
           oauth: async (redirect, callback) => {
-            try { return accountCallback(await authenticate(account.browserURL(redirect), identity.appId, callback), callback) }
+            try { return accountCallback(await authenticate(account.browserURL(redirect), accountCallbackScheme, callback), callback) }
             catch (error) { if (error instanceof AuthenticationEnded) throw { cancelled: true }; throw error }
           },
         }),
@@ -60,7 +61,7 @@ export function registerAccountProfile(account: AccountService, windows: () => B
     const content = account.isAccountWindow(event, windows()) && account.profileSessionId ? recoveryFile(codes) : null
     if (!content) return 'error'
     const window = BrowserWindow.fromWebContents(event.sender)
-    const options = { defaultPath: 'donnabot-codigos-de-recuperacao.txt', buttonLabel: 'Salvar', filters: [{ name: 'Texto', extensions: ['txt'] }] }
+    const options = { defaultPath: isRc ? 'mexerica-rc-codigos-de-recuperacao.txt' : 'donnabot-codigos-de-recuperacao.txt', buttonLabel: 'Salvar', filters: [{ name: 'Texto', extensions: ['txt'] }] }
     const picked = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
     if (picked.canceled || !picked.filePath) return 'cancelled'
     try { const { writeFile } = await import('node:fs/promises'); await writeFile(picked.filePath, content, { encoding: 'utf8', mode: 0o600 }); return 'saved' } catch { return 'error' }

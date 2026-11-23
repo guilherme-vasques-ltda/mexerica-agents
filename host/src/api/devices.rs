@@ -53,6 +53,9 @@ impl Caller {
 #[cfg(test)]
 const LOCAL_ONLY: &[&str] = &[
     crate::fork::personal_bootstrap::STATUS_METHOD,
+    crate::fork::onboarding::DETECT_METHOD,
+    crate::fork::onboarding::STATUS_METHOD,
+    crate::fork::onboarding::SAVE_METHOD,
     "hostUpdateStatus",
     "checkHostUpdate",
     "installHostUpdate",
@@ -119,6 +122,8 @@ const LOCAL_ONLY: &[&str] = &[
     "cloudStatus",
     "setCloud",
     "setApproval",
+    // Só o dono, neste computador, confere o efeito incerto e libera a conversa pausada.
+    "releaseConversation",
     "nuncaFazer",
     "nuncaFazerAdicionar",
     "nuncaFazerEditar",
@@ -201,6 +206,9 @@ pub fn authorize(hub: &Hub, key: &str) -> Result<Device, RejectCode> {
         return Err(RejectCode::LeaseExpired);
     }
     let d = hub.store.device(key).ok_or(RejectCode::Unauthorized)?;
+    if crate::fork::workspace::bloqueado(hub, &d) {
+        return Err(RejectCode::Revoked);
+    }
     if d.source == DeviceSource::Account
         && (!hub.cloud_synced.load(Ordering::Acquire) || d.lease_until.is_none_or(|t| t <= now_ms()))
     {

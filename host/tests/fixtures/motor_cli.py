@@ -54,7 +54,7 @@ ACP_NPX = {
     "fake-antigravity-acp@1.0.0": ("instructions_agent.py", "standard"),
 }
 # F6: contas gerenciadas lançam o adaptador pelo nome; cada conta responde conforme a pasta que recebeu.
-ACP_ADAPTADOR = {"claude-agent-acp": ("cota_acp.py", "claude")}
+ACP_ADAPTADOR = {"claude-agent-acp": ("cota_acp.py", "claude"), "codex-acp": ("cota_acp.py", "codex")}
 
 
 def serve_acp(agent, mode):
@@ -116,6 +116,33 @@ if name == "claude" and args[:2] == ["-p", "/usage"]:
             percentual = (pasta / arquivo).read_text().strip()
             linhas.append(f"{rotulo}: {percentual}% used · resets 11pm (America/Sao_Paulo)")
     say(json.dumps({"result": "\n".join(linhas) or "sem dados"}))
+
+if name == "codex" and args == ["app-server"]:
+    profile = Path(os.environ.get("CODEX_HOME", "."))
+    for line in sys.stdin:
+        request = json.loads(line)
+        if "id" not in request:
+            continue
+        method = request["method"]
+        if method == "initialize":
+            result = {"userAgent": "fixture"}
+        elif method == "account/read":
+            account = {"type": "chatgpt", "email": f"{profile.name}@example.invalid", "planType": "pro"}
+            result = {"account": None if (profile / "identidade-negada").exists() else account}
+        elif method == "model/list":
+            result = {"data": [{"id": "haiku"}]}
+        elif method == "account/rateLimits/read":
+            rates = {}
+            for file, key, minutes in [("uso-sessao", "primary", 300), ("uso-semana", "secondary", 10080)]:
+                path = profile / file
+                if path.is_file():
+                    rates[key] = {"usedPercent": int(path.read_text()), "windowDurationMins": minutes,
+                                  "resetsAt": int(time.time()) + 3600}
+            result = {"rateLimits": rates}
+        else:
+            raise AssertionError(f"unexpected method: {method}")
+        print(json.dumps({"id": request["id"], "result": result}), flush=True)
+    sys.exit(0)
 
 if name in ACP_LOCAL and args == ACP_LOCAL[name][0]:
     serve_acp("instructions_agent.py", ACP_LOCAL[name][1])

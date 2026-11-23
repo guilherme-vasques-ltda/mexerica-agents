@@ -74,10 +74,12 @@ impl Store {
     pub fn save_computer(&self, c: &Computer) -> Result<()> {
         write_computer(&self.db.locked(), c)
     }
-    /// Authorize the executor and register its identity in the same SQLite commit.
+    /// Authorize the executor and register its identity in the same SQLite commit. The code shown
+    /// on this computer is a new pairing: it lifts a revocation block on the same key.
     pub fn enroll_computer(&self, c: &Computer) -> Result<()> {
         let mut db = self.db.locked();
         let tx = db.transaction()?;
+        crate::fork::workspace::liberar_pareamento_on(&tx, &c.device_key)?;
         tx.execute("INSERT INTO devices(key,name,platform,source,grant_id,scopes,lease_until,created_at) VALUES(?1,?2,?3,'local',NULL,'[\"executor\"]',NULL,?4)",params![c.device_key,c.label,c.platform,c.enrolled_at])?;
         crate::fork::tela_por_computador::clear_target_on(&tx, &c.id)?;
         write_computer(&tx, c)?;

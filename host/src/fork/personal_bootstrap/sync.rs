@@ -37,7 +37,7 @@ pub(super) fn guard<T>(
     })
 }
 fn notify(hub: &Hub) {
-    let _ = hub.events.send(json!({"type":"cloud","cloud":hub.cloud.status()}));
+    crate::remote::cloud::avisar_status(hub);
 }
 pub(super) fn cut(hub: &Hub) {
     hub.cloud_synced.store(false, Ordering::Release);
@@ -110,18 +110,20 @@ pub(super) fn restore(hub: &Hub) -> Result<()> {
                 "personal restore changed"
             );
             f.journal.as_ref().context("root journal absent")?.matches_applied(&record)?;
-            let db = hub.store.db.locked();
-            live::guard(&db, &f.config, &record, &mut lease, &mut f.clock, false)?;
+            live::guard(&hub.store.db.locked(), &f.config, &record, &mut lease, &mut f.clock, false)?;
             ensure!(cloud.owner.as_ref().is_none_or(|o| o.user_id == record.binding.owner), "personal owner conflict");
             // Owner provém do E assinado e atual, nunca de IDs isolados/ausência de estado.
+            crate::fork::workspace::reter_troca(hub, cloud, Some(&record.binding.owner));
             cloud.owner = Some(Owner { user_id: record.binding.owner.clone(), email: None });
             cloud.connected = false;
             f.socket_live = false;
             hub.cloud_synced.store(false, Ordering::Release);
             f.applied = Some(Applied { record, lease, accepted });
+            crate::fork::workspace::registrar_sob_status(hub, cloud);
             Ok(())
         })
-    })
+    })?;
+    Ok(())
 }
 async fn receipt(hub: &Hub, id: &str, reconcile_same: bool) -> Result<()> {
     let body = ceremony::step(hub, id, |cfg, clock, s| {
@@ -334,11 +336,13 @@ pub(super) fn promote(
                 let db = hub.store.db.locked();
                 live::commit(&db, &f.config, certified, &mut lease, &mut f.clock)?
             };
+            crate::fork::workspace::reter_troca(hub, cloud, Some(&record.binding.owner));
             cloud.owner = Some(Owner { user_id: record.binding.owner.clone(), email: None });
             cloud.connected = false;
             f.applied = Some(Applied { record, lease, accepted: false });
             f.socket_live = false;
             hub.cloud_synced.store(false, Ordering::Release);
+            crate::fork::workspace::registrar_sob_status(hub, cloud);
             Ok(())
         })
     })?;

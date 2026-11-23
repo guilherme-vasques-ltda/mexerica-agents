@@ -157,6 +157,8 @@ pub struct Hub {
     pub(crate) login_codes: crate::market::login_codes::Codes,
     /// Interface Web local (`--web-dir`): presente só quando o `serve` a ativa.
     pub(crate) web_local: std::sync::OnceLock<Arc<crate::fork::web_local::WebState>>,
+    /// `workspaceEpoch` atual; streams abertos terminam quando ele sobe.
+    pub(crate) workspace: crate::fork::workspace::Sinal,
 }
 
 impl Hub {
@@ -168,6 +170,7 @@ impl Hub {
     pub fn new(store: Store, host_id: String, identity: Identity, token: String, port: u16) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
+        let workspace = crate::fork::workspace::Sinal::carregar(&store);
         Arc::new(Self {
             analytics: crate::analytics::Analytics::load(&store),
             routines: crate::routines::Routines::default(),
@@ -209,6 +212,7 @@ impl Hub {
             terms: Arc::default(),
             login_codes: crate::market::login_codes::Codes::default(),
             web_local: std::sync::OnceLock::new(),
+            workspace,
         })
     }
 
@@ -265,6 +269,7 @@ impl Hub {
                 self.spawn_bot(row.config);
             }
         }
+        crate::fork::workspace::start(self);
         if crate::environment::Environment::is_open() {
             return Ok(());
         }
@@ -1157,9 +1162,10 @@ impl Hub {
         self.auth.send_modify(|g| *g += 1);
     }
 
-    /// Removes an authorized device: its tickets go with it and its open channels close.
+    /// Removes an authorized device: its tickets go with it, it stays blocked here, the
+    /// workspace epoch goes up and open streams and channels close.
     pub fn revoke_device(&self, key: &str) -> Result<bool> {
-        let removed = self.store.remove_device(key)?;
+        let removed = crate::fork::workspace::revogar(self, key)?;
         if removed {
             tracing::info!(device = key, "device revoked");
             self.auth_changed();
@@ -1177,6 +1183,7 @@ pub(crate) fn validate(cfg: &mut BotConfig) -> Result<()> {
     crate::fork::pasta::normalizar_bot(cfg)?;
     crate::fork::funcao::normalizar(cfg)?;
     crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+    crate::agent::backends::require_supported_execution(&cfg.backend)?;
     validate_fields(cfg)
 }
 
@@ -1190,6 +1197,7 @@ pub(crate) fn validate_update(cfg: &mut BotConfig, before: &BotConfig) -> Result
     crate::fork::funcao::normalizar(cfg)?;
     if cfg.backend != before.backend {
         crate::fork::motores_retirados::exigir_oferecido(&cfg.backend)?;
+        crate::agent::backends::require_supported_execution(&cfg.backend)?;
     }
     validate_fields(cfg)
 }

@@ -29,8 +29,8 @@ export function usePassoIdioma() {
   return { pendente, concluido, concluir: () => { marcarPassoIdioma(armazenamento()); setPendente(false); setConcluido(true) } }
 }
 
-/** Passos da entrada que existem hoje: idioma e conta. O 3º (nome e cartão) entra no lote dele. */
-const TOTAL_PASSOS = 2
+/** Passos da entrada e configuracao inicial: idioma, conta, lugar/IA e primeira conversa. */
+const TOTAL_PASSOS = 4
 
 /**
  * DON-903, passo 1 da entrada (proposta aprovada da #426): roda de idiomas com o sugerido pelo sistema já

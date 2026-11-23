@@ -1,5 +1,5 @@
 //! Primitivas de slot; a troca permanece desabilitada até a recuperação estar integrada.
-use super::Hex as _;
+use super::{Hex as _, armazenamento::Diretorio};
 use anyhow::{Result, ensure};
 use std::{
     fs,
@@ -63,7 +63,54 @@ pub fn limpar_capacidades(file: &File) -> Result<()> {
     Ok(())
 }
 
-impl super::armazenamento::Diretorio {
+impl Diretorio {
+    pub fn desarmar_slot(&self, slot: Slot) -> Result<Option<File>> {
+        if !self.existe(slot.nome())? {
+            return Ok(None);
+        }
+        let dir = self.abrir_slot(slot)?;
+        let fechado = self.fechar_slot(slot);
+        let ajudante = super::transacao::abrir_fixo(&dir, c"donnabot-motor-exec").and_then(|ajudante| {
+            if let Some(file) = &ajudante {
+                limpar_capacidades(file)?;
+            }
+            Ok(ajudante)
+        });
+        fechado?;
+        ajudante
+    }
+}
+
+pub(super) fn em_todos<T>(
+    slots: impl IntoIterator<Item = Slot>,
+    mut executar: impl FnMut(Slot) -> Result<T>,
+) -> Result<Vec<T>> {
+    let mut resultados = Vec::new();
+    let mut falhas = Vec::new();
+    for slot in slots {
+        match executar(slot) {
+            Ok(resultado) => resultados.push(resultado),
+            Err(erro) => falhas.push(format!("{}: {erro:#}", slot.nome())),
+        }
+    }
+    ensure!(falhas.is_empty(), "{}", falhas.join("; "));
+    Ok(resultados)
+}
+
+#[cfg(test)]
+#[test]
+fn desarme_tenta_ambos_os_slots_antes_de_reportar_falha() {
+    let mut visitados = Vec::new();
+    let resultado = em_todos([Slot::A, Slot::B], |slot| {
+        visitados.push(slot);
+        ensure!(slot != Slot::A, "falha de E/S simulada");
+        Ok(slot)
+    });
+    assert_eq!(visitados, [Slot::A, Slot::B]);
+    assert!(resultado.is_err());
+}
+
+impl Diretorio {
     /// Só o seletor fixo é aceito. Sua ausência representa a primeira migração.
     pub fn seletor(&self) -> Result<Option<Slot>> {
         let dir = self.descritor().as_raw_fd();

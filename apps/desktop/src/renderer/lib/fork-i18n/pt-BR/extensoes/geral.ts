@@ -136,6 +136,7 @@ export const textos = {
   "extensoes.motor.adicionarNode": "Adicionar Node.js",
   "extensoes.motor.conferindoPrimeira": "Conferindo com {motor}… A primeira conferência pode baixá-lo.",
   "extensoes.terminal.dicaAntigravity": "Escolha Google OAuth, abra o link, entre e cole aqui o código. O login do agy não confirma o ACP.",
+  "extensoes.motor.antigravityInterativo": "Indisponível no app. Use o CLI oficial com sua conta em um cliente ACP interativo.",
   "extensoes.terminal.dicaOpenCode": "Escolha o provedor com as setas e toque em Enter. Para OpenCode Go, prefira a chave no cofre.",
   "extensoes.terminal.dicaGrok": "Abra o link em seu navegador e confirme o código de aparelho.",
   "extensoes.terminal.dicaCursor": "Abra o link em seu navegador. A conferência do login é automática.",

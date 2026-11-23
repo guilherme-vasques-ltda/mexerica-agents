@@ -43,6 +43,7 @@ pub(crate) use team::{read as read_team_settings, restore_team_profile, same_tea
 pub(crate) use turn_alloc::alloc_on as alloc_turn_on;
 
 pub use devices::{Device, DeviceSource, Scope};
+pub(crate) use devices::{put_device_on, remove_device_on};
 pub use model::{
     AVATAR_COLORS, AVATAR_SHAPES, BotConfig, BotKind, BotRow, Entry, EntryKind, Lane, Permission, message_text,
     run_session_key,

@@ -474,7 +474,8 @@ async fn revogacao_durante_a_espera_nao_grava() {
     };
     let before = profile(&hub.store);
     for revoke in [true, false] {
-        hub.store.put_device(&device).unwrap();
+        // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+        crate::fork::workspace::readmitir_pareado(&hub.store, &device).unwrap();
         let (_, caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
         let guard = hub.store.team_lock.clone().lock_owned().await;
         let worker = hub.clone();
@@ -718,7 +719,8 @@ async fn remocao_de_conector_revogada_na_espera_do_cofre_nao_grava() {
         last_seen_at: None,
     };
     for revoke in [true, false] {
-        hub.store.put_device(&device).unwrap();
+        // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+        crate::fork::workspace::readmitir_pareado(&hub.store, &device).unwrap();
         let (_, mac) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
         // Cofre trancado e desbloqueio em andamento por outra tarefa: o pedido espera.
         *hub.store.secret_key.lock().unwrap() = None;
@@ -937,6 +939,8 @@ fn estado_do_dono(hub: &Hub) -> Value {
         "donna_whatsapp_numbers",
         "donna_plugin_installations",
         "donna_plugin_grants",
+        "donna_governance_policies",
+        "donna_governance_receipts",
     ] {
         out.insert(table.into(), json!(dump(&format!("SELECT * FROM {table} ORDER BY 1"))));
     }
@@ -964,6 +968,14 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             true,
         ),
         ("donnaProjectSave", json!({}), true),
+        (
+            "donnaGovernanceSave",
+            json!({"hubId": HUB_PORTA, "spaceId": crate::fork::spaces::PERSONAL,
+                "clientRequestId": uuid::Uuid::new_v4().to_string(), "expectedRevision": 0,
+                "policy": {"titleInstruction":"", "autoArchiveIdleDays":3, "preservePinnedAndOpenWork":true,
+                    "maxConcurrentSubagents":8, "maxSubagentDepth":3}}),
+            true,
+        ),
         ("donnaTaskMetaSave", json!({}), true),
         ("donnaTaskComment", json!({}), true),
         ("donnaProjectEnsureDefault", json!({}), true),

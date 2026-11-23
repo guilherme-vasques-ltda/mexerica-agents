@@ -515,6 +515,7 @@ async fn config_codex_hostil_e_recusada_antes_do_spawn() {
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn claude_bloqueia_mcp_persistente_no_caminho_alternativo() {
     let host = Host::start_with_background("mcp-test").await;
     let root = host.home.join("profile");
@@ -569,6 +570,55 @@ async fn claude_bloqueia_mcp_persistente_no_caminho_alternativo() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(!marker.exists());
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn assinatura_recusa_mcp_persistente_sem_abrir_sessao_de_fundo() {
+    let host = Host::start_with_background("managed").await;
+    let root = host.home.join("profile");
+    let marker = root.join("efeito");
+    let command = format!("touch '{}'", marker.display());
+    std::fs::write(root.join(".claude.json"), json!({"mcpServers":{"prova":{"command":command}}}).to_string()).unwrap();
+    std::fs::create_dir_all(host.home.join("background")).unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/instructions_agent.py");
+    let mut control = std::process::Command::new(common::python())
+        .args(["-u", fixture.to_str().unwrap(), "claude"])
+        .env("CLAUDE_CONFIG_DIR", &root)
+        .env("MEXERICA_HOME", &host.home)
+        .current_dir(&root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = control.stdin.take().unwrap();
+    writeln!(input, "{{\"id\":1,\"method\":\"initialize\"}}").unwrap();
+    writeln!(input, "{}", json!({"id":2,"method":"session/new","params":{"_meta":{"systemPrompt":"You name a personal assistant bot", "claudeCode":{"options":{"permissionMode":"default"}}}}})).unwrap();
+    drop(input);
+    assert!(control.wait().unwrap().success());
+    assert!(marker.exists(), "controle positivo não iniciou MCP");
+    std::fs::remove_file(&marker).unwrap();
+    std::fs::remove_file(host.home.join("background/requests.jsonl")).unwrap();
+    let bot = host.fixture_bot_as("Nome original", "instructions_agent.py", "claude", "claude").await;
+    host.call("updateBot", json!({"id":bot, "autoName":true})).await;
+    for text in ["Planeje meu dia", "Organize minha agenda", "Revise minhas tarefas"] {
+        host.reply(&bot, text).await;
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let history = host.call("history", json!({"botId":bot})).await;
+        if history.to_string().contains("background_subscription_unavailable") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "recusa ausente: {history}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(!marker.exists());
+    assert!(!host.home.join("background/requests.jsonl").exists());
+    let db = rusqlite::Connection::open(host.home.join("codync.db")).unwrap();
+    let sends: i64 =
+        db.query_row("SELECT COUNT(*) FROM donna_turn_usage WHERE source='fundo'", [], |r| r.get(0)).unwrap();
+    assert_eq!(sends, 0);
 }
 
 /// MCP anunciado na sessão real da fixture; chamadas passam pelo bridge stdio e memoryCall HTTP.
@@ -1049,6 +1099,7 @@ async fn codex_filtra_mutantes_no_anuncio_e_recusa_chamada_reproduzida() {
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn nomeacao_recusa_conclusao_acp_ausente() {
     let host = Host::start_with_background("--naming-missing").await;
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_agent.py");
@@ -1377,6 +1428,7 @@ async fn edicao_humana_de_memoria_recusa_segredo_sem_alterar_versao_e_preserva_l
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn descoberta_local_funciona_mesmo_com_outra_conta_gerenciada() {
     let host = Host::start_with_background("managed").await;
     let bot = host.fixture_bot_as("Teste", "memory_agent.py", "", "claude").await;
@@ -1403,6 +1455,7 @@ async fn descoberta_local_funciona_mesmo_com_outra_conta_gerenciada() {
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn historico_incompativel_nao_impede_a_memoria() {
     let host = Host::start_with_background("").await;
     let db = rusqlite::Connection::open(host.home.join("codync.db")).unwrap();
@@ -1454,6 +1507,7 @@ async fn nomeacao_descarta_resposta_que_solicitou_ferramenta() {
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn nomeacao_nao_aplica_se_a_selecao_muda_durante_o_trabalho() {
     let host = Host::start_with_background("name-marker").await;
     let marker = host.home.join("naming-boundary");
@@ -1489,6 +1543,7 @@ async fn nomeacao_nao_aplica_se_a_selecao_muda_durante_o_trabalho() {
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn nomeacao_nao_aplica_se_o_login_local_muda_durante_o_trabalho() {
     let host = Host::start_with_background("name-marker").await;
     let marker = host.home.join("naming-boundary");
@@ -1523,6 +1578,7 @@ async fn nomeacao_nao_aplica_se_o_login_local_muda_durante_o_trabalho() {
 // Porta a prova positiva do #154 para o checkpoint/fila/recibo da A; não usa cursor/dreamlog legado.
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn dreaming_keeps_what_the_user_typed_and_can_be_undone() {
     use sha2::{Digest, Sha256};
     let host = Host::start_with_background("").await;
@@ -1689,6 +1745,7 @@ async fn dreaming_keeps_what_the_user_typed_and_can_be_undone() {
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn falhas_e_plano_vazio_tem_resultados_distintos() {
     for mode in [
         "--error",
@@ -1818,6 +1875,7 @@ async fn confirma_recibos_do_extrator_e_desfaz(host: &Host, bot: &str) {
 // D70: a mesma fronteira de transporte passa no controle e fecha se a configuração muda durante session/new.
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn configuracao_revogada_durante_new_nao_envia_input_ao_prompt_do_extrator() {
     for revoke in [false, true] {
         let host = Host::start_with_background("--pause-new").await;

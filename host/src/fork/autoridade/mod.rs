@@ -64,7 +64,13 @@ pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device,
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let sincronizacao = hub.cloud_synced.congelar();
             let resultado = (|| {
-                let dispositivo = dispositivo(&tx, chave).map_err(|_| RejectCode::Unauthorized)?;
+                let dispositivo = dispositivo(&tx, chave).map_err(|erro| {
+                    if erro.is::<crate::fork::workspace::Revogado>() {
+                        RejectCode::Revoked
+                    } else {
+                        RejectCode::Unauthorized
+                    }
+                })?;
                 if dispositivo.source == DeviceSource::Account
                     && (!hub.cloud_synced.load(Ordering::Acquire)
                         || sincronizacao.epoca() == u64::MAX
@@ -113,6 +119,9 @@ fn dispositivo(db: &Connection, chave: &str) -> Result<Device> {
         [chave],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
     )?;
+    if crate::fork::workspace::bloqueado_on(db, chave, concessao.as_deref())? {
+        return Err(crate::fork::workspace::Revogado.into());
+    }
     Ok(Device {
         key: chave.to_owned(),
         name: nome,

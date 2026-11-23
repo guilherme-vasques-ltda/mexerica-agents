@@ -1,4 +1,5 @@
 //! D541/D543: registros manuais do dono, sem runtime, ferramentas ou autoridade para bots.
+pub(crate) mod delegacao_meta;
 pub(crate) mod model;
 pub(crate) mod store;
 #[cfg(test)]
@@ -62,6 +63,7 @@ pub(crate) fn migrate(c: &rusqlite::Connection) -> Result<()> {
         PRIMARY KEY(hub_id,space_id,request_id),
         FOREIGN KEY(hub_id,space_id,project_id) REFERENCES donna_projects(hub_id,space_id,id));",
     )?;
+    delegacao_meta::migrate(&tx)?;
     tx.commit()?;
     Ok(())
 }

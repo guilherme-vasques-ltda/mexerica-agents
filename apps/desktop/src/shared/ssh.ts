@@ -22,6 +22,8 @@ export interface SSHProfile {
  */
 export interface SSHMotivo { chave: string; params?: Record<string, string | number> }
 
+export const SSH_STORAGE_STATUS = '\0storage'
+
 export type SSHStatus =
   | { kind: 'idle' }
   | { kind: 'connecting'; step: string; motivo?: SSHMotivo }

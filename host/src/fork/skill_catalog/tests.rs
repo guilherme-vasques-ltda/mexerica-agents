@@ -2335,7 +2335,8 @@ async fn d368_remocao_da_skill_da_donna_exige_a_autoridade_original() {
     })
     .await;
     assert!(f.hub.revoke_device(&device.key).unwrap());
-    f.hub.store.put_device(&device).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &device).unwrap();
     f.hub.auth_changed();
     let before = f.snapshot();
     drop(held);
@@ -2360,7 +2361,8 @@ async fn d368_remocao_da_skill_da_donna_exige_a_autoridade_original() {
     assert!(late.is_err());
     assert_eq!(skills(), std::slice::from_ref(&id));
     // 3. Com a autoridade vigente, a remoção pelo dono tira a skill do Berga; sem ela, o Berga recusa.
-    f.hub.store.put_device(&device).unwrap();
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(&f.hub.store, &device).unwrap();
     let (_, caller) = crate::fork::autoridade::autenticar(&f.hub, &device.key).unwrap();
     assert!(super::remove(&f.hub.store, &captured, || Ok(())).is_err(), "sem autoridade não mexe na Donna");
     assert_eq!(skills(), std::slice::from_ref(&id));

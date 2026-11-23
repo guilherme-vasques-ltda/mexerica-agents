@@ -191,7 +191,7 @@ export function LinhaDoFornecedor({ fornecedor: f }: { fornecedor: FornecedorDaC
             {ocupado ? <Spinner /> : <Button onClick={salvar} disabled={!chave.trim()}>{t('contas.apiDireta.salvar')}</Button>}
           </HStack>
           <Text as="div" size="footnote" className="settings-row">
-            <Text size="caption" tone="tertiary">{t('contas.apiDireta.dicaSalvar')}</Text>
+            <Text size="caption" tone="tertiary">{t(f.id === 'meta' ? 'contas.apiDireta.erro.metaStandard' : 'contas.apiDireta.dicaSalvar')}</Text>
             <Spacer />
             <button className="settings-quiet-button" onClick={cancelar}>{t('contas.apiDireta.cancelar')}</button>
           </Text>

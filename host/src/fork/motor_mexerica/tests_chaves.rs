@@ -9,6 +9,16 @@ use std::path::Path;
 
 const CHAVE: &str = "chave-ficticia-do-cadastro-123";
 
+#[tokio::test]
+async fn assinatura_pessoal_meta_nao_le_o_cofre_nem_abre_o_motor() {
+    let fonte: VaultSource = Arc::new(|_| panic!("credencial sem prova não deve ser lida"));
+    let acesso = chaves::testar(fonte.clone(), "meta", &[]).await.unwrap();
+    assert_eq!(acesso["erro"], "meta_standard_unverified");
+    assert!(Engine::spawn_with(fonte, "meta", &[]).err().unwrap().to_string().starts_with("meta_standard_unverified"));
+    assert!(proprio::conferir_url("https://api.meta.ai./v1", false).is_err());
+    assert!(proprio::conferir_url("https://sub.api.meta.ai./v1", false).is_err());
+}
+
 /// O Hub da prova, num processo à parte com o motor ligado (`test_support::case` reexecuta o teste pelo nome).
 fn hub_de_prova(teste: &str) -> Option<Arc<crate::hub::Hub>> {
     crate::fork::motor_exec::test_support::case(&format!("fork::motor_mexerica::tests_chaves::{teste}"))?;
