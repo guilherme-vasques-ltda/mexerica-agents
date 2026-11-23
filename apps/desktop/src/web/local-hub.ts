@@ -174,7 +174,16 @@ const CODIGOS_RPC = new Set([
   'name_invalid', 'name_taken', 'group_missing', 'bot_missing', 'migrating',
   'skill_installation_unsupported', 'skill_installation_stale', 'skill_installation_changed',
   'skill_installation_unavailable', 'skill_mutation_outcome_unknown',
+  'skill_selection_unsupported', 'skill_selection_conflict',
 ])
+
+function pedidoDaSessao(geracao: AbortSignal) {
+  const controller = new AbortController()
+  const abortar = () => controller.abort()
+  if (geracao.aborted) abortar()
+  else geracao.addEventListener('abort', abortar, { once: true })
+  return { signal: controller.signal, abortar, liberar: () => geracao.removeEventListener('abort', abortar) }
+}
 
 /** O `CodyncBridge['host']` da web local: só a origem da página, só com sessão viva. */
 export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLocal = {}): CodyncBridge['host'] {
@@ -200,39 +209,42 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
       const csrf = session.csrfToken
       if (!csrf) throw SEM_SESSAO
       const geracao = session.signal
-      const signal = AbortSignal.any([geracao, AbortSignal.timeout(timeoutMs)])
-      let res: Response
+      const { signal, abortar, liberar } = pedidoDaSessao(geracao)
+      const timeout = setTimeout(abortar, timeoutMs)
       try {
-        res = await fetchImpl(`${session.origin}/api/${method}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Mexerica-Csrf': csrf },
-          credentials: 'same-origin',
-          cache: 'no-store',
-          body: JSON.stringify(body ?? {}),
-          signal,
-        })
-      } catch { throw geracao.aborted ? SEM_SESSAO : INDISPONIVEL }
-      if (geracao.aborted || res.status === 401) {
-        if (!geracao.aborted) session.handleUnauthorized()
-        if (res.body) void res.body.cancel().catch(() => {})
-        throw SEM_SESSAO
+        let res: Response
+        try {
+          res = await fetchImpl(`${session.origin}/api/${method}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Mexerica-Csrf': csrf },
+            credentials: 'same-origin',
+            cache: 'no-store',
+            body: JSON.stringify(body ?? {}),
+            signal,
+          })
+        } catch { throw geracao.aborted ? SEM_SESSAO : INDISPONIVEL }
+        if (geracao.aborted || res.status === 401) {
+          if (!geracao.aborted) session.handleUnauthorized()
+          if (res.body) void res.body.cancel().catch(() => {})
+          throw SEM_SESSAO
+        }
+        const texto = await res.text().catch(() => { throw geracao.aborted ? SEM_SESSAO : INDISPONIVEL })
+        if (geracao.aborted) throw SEM_SESSAO
+        if (signal.aborted) throw INDISPONIVEL
+        let valor: unknown
+        try { valor = texto ? JSON.parse(texto) : {} }
+        catch { if (res.ok) throw INDISPONIVEL }
+        if (res.ok) return valor
+        const envelope = valor as { code?: unknown; error?: unknown } | null
+        const legado = envelope?.error
+        const codigoLegado = typeof legado === 'string' && /^skill_/.test(legado) && CODIGOS_RPC.has(legado) ? legado : undefined
+        const code = envelope?.code
+        const codigo = typeof code === 'string' && CODIGOS_RPC.has(code) ? code : codigoLegado
+        throw { status: res.status, message: codigoLegado ?? `Host error ${res.status}`, ...(codigo ? { code: codigo } : {}) } satisfies CallError
+      } finally {
+        clearTimeout(timeout)
+        liberar()
       }
-      let texto: string
-      try {
-        texto = await res.text()
-      } catch { throw geracao.aborted ? SEM_SESSAO : INDISPONIVEL }
-      if (geracao.aborted) throw SEM_SESSAO
-      if (signal.aborted) throw INDISPONIVEL
-      let valor: unknown
-      try { valor = texto ? JSON.parse(texto) : {} }
-      catch { if (res.ok) throw INDISPONIVEL }
-      if (!res.ok) {
-        const erro = erroLocal(res.status, `Host error ${res.status}`)
-        const code = (valor as { code?: unknown } | null)?.code
-        if (typeof code === 'string' && CODIGOS_RPC.has(code)) erro.code = code
-        throw erro
-      }
-      return valor
     },
 
     stream(url, _token, onData, onEnd) {
@@ -247,14 +259,13 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
         queueMicrotask(() => onEnd(SEM_SESSAO))
         return () => {}
       }
-      const controller = new AbortController()
       const geracao = session.signal
-      const signal = AbortSignal.any([geracao, controller.signal])
+      const { signal, abortar, liberar } = pedidoDaSessao(geracao)
       // Timeout ocioso, não total: o Hub pinge a cada 15 s, então silêncio desse tamanho é Hub caído.
       let ocioso: ReturnType<typeof setTimeout> | null = null
       const armar = () => {
         if (ocioso) clearTimeout(ocioso)
-        ocioso = setTimeout(() => controller.abort(), timeoutOcioso)
+        ocioso = setTimeout(abortar, timeoutOcioso)
       }
       const encerrar = (erro: CallError | null) => {
         if (ocioso) { clearTimeout(ocioso); ocioso = null }
@@ -273,7 +284,7 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
             cache: 'no-store',
             signal,
           })
-          signal.throwIfAborted()
+          if (signal.aborted) throw INDISPONIVEL
           if (res.status === 401) {
             session.handleUnauthorized()
             fim = SEM_SESSAO
@@ -289,7 +300,7 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
           let buffer = ''
           for (;;) {
             const { value, done } = await reader.read()
-            signal.throwIfAborted()
+            if (signal.aborted) throw INDISPONIVEL
             if (done) break
             armar()
             buffer += decoder.decode(value, { stream: true })
@@ -298,7 +309,7 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
               const line = buffer.slice(0, nl).replace(/\r$/, '')
               buffer = buffer.slice(nl + 1)
               if (line.startsWith('data:')) {
-                signal.throwIfAborted()
+                if (signal.aborted) throw INDISPONIVEL
                 onData(line.slice(5).trimStart())
               }
             }
@@ -306,6 +317,7 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
         } catch {
           fim = geracao.aborted ? SEM_SESSAO : INDISPONIVEL
         } finally {
+          liberar()
           signal.removeEventListener('abort', cancelarLeitura)
           if (fim && reader) cancelarLeitura()
           else if (fim && res?.body) void res.body.cancel().catch(() => {})
@@ -315,7 +327,7 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
       })()
       return () => {
         if (ocioso) { clearTimeout(ocioso); ocioso = null }
-        controller.abort()
+        abortar()
       }
     },
   }

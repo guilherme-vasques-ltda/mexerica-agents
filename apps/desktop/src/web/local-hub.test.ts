@@ -464,3 +464,28 @@ test('ponte local não grava respostas nem registra conteúdo e devolve apenas e
   assert.deepEqual(persistencia, [])
   for (const log of logs) assert.equal(log.mock.callCount(), 0)
 })
+
+test('preserva apenas recusas de skills conhecidas no envelope legado', async () => {
+  const { session, fetch } = await sessaoAutenticada()
+  const host = createLocalWebHost(session)
+  fetch.fila.push(resposta(409, { error: 'skill_installation_stale' }), resposta(409, { error: `skill_installation_stale: ${FIO.subject}` }))
+  const call = () => host.call(ORIGIN, '', 'updateBot', {}, 1000)
+  await assert.rejects(call(), { status: 409, message: 'skill_installation_stale', code: 'skill_installation_stale' })
+  await assert.rejects(call(), (erro: unknown) => {
+    assert.deepEqual(erro, { status: 409, message: 'Host error 409' })
+    return true
+  })
+})
+
+test('RPC e SSE funcionam sem os combinadores modernos de AbortSignal', async (t) => {
+  const { session, fetch } = await sessaoAutenticada()
+  const host = createLocalWebHost(session)
+  t.mock.method(AbortSignal, 'any', () => assert.fail('AbortSignal.any não está disponível'))
+  t.mock.method(AbortSignal, 'timeout', () => assert.fail('AbortSignal.timeout não está disponível'))
+  fetch.fila.push(resposta(200, { ok: true }), respostaSSE(['data: hello\n\n']))
+  assert.deepEqual(await host.call(ORIGIN, '', 'hello', {}, 1000), { ok: true })
+  const linhas: string[] = []
+  const fim = await new Promise<unknown>((resolve) => host.stream(`${ORIGIN}/events`, '', (linha) => linhas.push(linha), resolve))
+  assert.equal(fim, null)
+  assert.deepEqual(linhas, ['hello'])
+})
