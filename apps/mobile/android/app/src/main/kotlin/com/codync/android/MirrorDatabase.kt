@@ -75,7 +75,7 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
     @Synchronized fun setStamp(hostId: String, stamp: String): Boolean = transaction { db ->
         val otherHost = meta(db, "hostId")?.let { it != hostId } == true
         val otherStamp = meta(db, "stamp")?.let { it != stamp } == true
-        if (otherHost) reset(db) else if (otherStamp) dropConversation(db)
+        if (otherHost) replaceHost(db) else if (otherStamp) dropConversation(db)
         setMeta(db, "hostId", hostId)
         setMeta(db, "stamp", stamp)
         otherHost || otherStamp
@@ -85,7 +85,7 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
     @Synchronized fun apply(events: List<MirrorEvent>) = transaction { db ->
         for (event in events) when (event) {
             is MirrorEvent.Hello -> {
-                if (meta(db, "hostId")?.let { it != event.hostId } == true) reset(db)
+                if (meta(db, "hostId")?.let { it != event.hostId } == true) replaceHost(db)
                 setMeta(db, "hostId", event.hostId)
                 if (event.rev < (meta(db, "rev")?.toLong() ?: 0)) reset(db)
                 setMeta(db, "usage", event.usage.toString())
@@ -165,9 +165,12 @@ class MirrorDatabase(context: Context, directory: File, computerId: String) :
             if (send != null && ConversationReplay.confirms(send, entry)) db.delete("pending", "nonce=?", arrayOf(nonce))
         }
     }
+    private fun replaceHost(db: SQLiteDatabase) {
+        db.delete("pending", null, null)
+        reset(db)
+    }
     private fun reset(db: SQLiteDatabase) {
         db.delete("bots", null, null)
-        db.delete("pending", null, null)
         dropConversation(db)
         db.delete("meta", "k IN ('usage','screen')", null)
     }

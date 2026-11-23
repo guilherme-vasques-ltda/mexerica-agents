@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.test.platform.app.InstrumentationRegistry
 import com.codync.android.core.*
+import com.codync.android.core.fork.ForkWorkspaceContext
 import com.codync.android.design.LocalDismissModal
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -25,10 +26,11 @@ class AccountScreenTest {
     private val first = SavedAccount("first", "first-session", "alex@example.test", null)
     private val second = SavedAccount("second", "second-session", "sam@example.test", null)
     private val account = AccountState(ready = true, configured = true, userId = first.userId,
-        accounts = listOf(first, second), multiple = true)
+        accounts = listOf(first, second), multiple = true,
+        workspaces = ForkWorkspaceContext.choices(first.userId, true, emptyList()))
     private val computer = Computer("paired", "Fixture computer", "fixture-key")
     private fun fixture(accountState: AccountState = account) = AppState(loading = false,
-        setupComplete = true, account = accountState, contextId = "profile-fixture")
+        setupComplete = true, account = accountState, workspace = accountState.workspaces?.firstOrNull(), contextId = "profile-fixture")
 
     @Before fun isolatedEmulatorOnly() { assumeTrue(Build.PRODUCT.startsWith("sdk")) }
 

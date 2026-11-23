@@ -72,14 +72,20 @@ fun AppStore.switchWorkspace(choice: WorkspaceChoice) = sessionAction {
 
 fun AppStore.signOut() = sessionAction {
     transitions.withLock {
-        val old = state.value.account.accounts.firstOrNull { it.userId == state.value.account.userId } ?: return@withLock
+        val previous = state.value
+        val old = previous.account.accounts.firstOrNull { it.userId == previous.account.userId } ?: return@withLock
         Analytics.capture(AnalyticsEvent.SignedOut)
         retireContext()
         withContext(NonCancellable) {
+            try {
+                NativeAccounts.signOut(old.sessionId)
+            } catch (error: Exception) {
+                if (NativeAccounts.activeUserId() == old.userId) loadContext(previous.account, previous.workspace)
+                throw error
+            }
             withContext(Dispatchers.IO) { LocalStore.eraseAccount(getApplication(), old.userId) }
             preferredWorkspace = null
             loadContext(AccountState(ready = true), null)
-            NativeAccounts.signOut(old.sessionId)
         }
     }
 }

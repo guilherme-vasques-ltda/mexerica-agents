@@ -57,7 +57,7 @@ import com.kyant.shapes.RoundedRectangle
         ModalHeader("Account") { if (busy) ThinkingOrb(ThinkingOrbState.Connecting, 20.dp, modifier = Modifier.semantics { contentDescription = "Signing in" }) }
         CardForm(Modifier.weight(1f)) {
             Row(Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(Palette.bubbleAgent)
-                .plainButton(enabled = state.workspace?.kind != WorkspaceKind.Team, action = pair).padding(16.dp),
+                .plainButton(enabled = !account.configured || state.workspace?.kind == WorkspaceKind.Personal, action = pair).padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Symbol("qrcode.viewfinder", size = 24.dp, tint = Palette.text)
                 Text("Scan a computer's code", Modifier.weight(1f), style = Type.body.medium, color = Palette.text)

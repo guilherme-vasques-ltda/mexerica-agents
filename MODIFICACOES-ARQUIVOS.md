@@ -251,6 +251,7 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreAccount.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreChat.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreConnection.kt`
+- `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreDrafts.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreNotifications.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreScreen.kt`
 - `apps/mobile/android/app/src/main/kotlin/com/codync/android/AppStoreVoice.kt`

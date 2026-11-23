@@ -124,11 +124,19 @@ class AppStore(application: Application) : AndroidViewModel(application) {
         linkJob?.cancel()
         val retiringChannel = channel
         channel = null
-        retiringChannel?.close()
-        connectionJob?.cancel()
         pairingJob?.cancel()
         // Editing is disabled during retirement; let its last coalesced write finish.
         actions.values.toList().forEach { it.cancel() }
+        val feed = TaskFeed(local.directory)
+        if (retiringChannel?.state?.value is LinkState.Ready) withTimeoutOrNull(2_000) {
+            try {
+                retiringChannel.call("unregisterDevice")
+                for (watch in withContext(Dispatchers.IO) { feed.all() }) retiringChannel.call("unregisterActivity", body("botId" to watch.botId))
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { }
+        }
+        retiringChannel?.close()
+        connectionJob?.cancel()
         draftWriter?.join()
         retireVoice()
         mutableState.update { AppState(contextId = "retired", generation = it.generation + 1, account = it.account) }
@@ -148,7 +156,7 @@ class AppStore(application: Application) : AndroidViewModel(application) {
         pluginsRefreshAgain = false
         rewoundFor = null
         draftWriter = null; draftBook = null; savedDrafts = emptyMap()
-        withContext(Dispatchers.IO) { TaskFeed(local.directory).clear(); database?.close(); database = null }
+        withContext(Dispatchers.IO) { feed.clear(); database?.close(); database = null }
         withContext(Dispatchers.IO) { ConnectorOAuthBook(local.directory).clear() }
         contextJob = SupervisorJob(viewModelScope.coroutineContext[Job])
         contextScope = CoroutineScope(contextJob + Dispatchers.Main.immediate)

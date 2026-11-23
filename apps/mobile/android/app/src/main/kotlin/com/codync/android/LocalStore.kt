@@ -79,9 +79,9 @@ class LocalStore(context: Context, val contextId: String = "local") {
     fun completeSetup() = write(AtomicFile(File(directory, "setup-complete")), byteArrayOf(1))
 
     fun erase() {
-        check(directory.deleteRecursively()) { "Couldn't erase this phone's local data." }
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         keyStore.deleteEntry(alias)
+        check(directory.deleteRecursively()) { "Couldn't erase this phone's local data." }
     }
 
     private fun write(file: AtomicFile, bytes: ByteArray) {
@@ -111,9 +111,9 @@ class LocalStore(context: Context, val contextId: String = "local") {
 
         fun eraseScope(context: Context, contextId: String) {
             val store = LocalStore(context, contextId)
-            store.erase()
             for (path in listOf("codync-images-${store.referenceId}", "shared-attachments/${store.directory.name}"))
                 check(File(context.cacheDir, path).deleteRecursively()) { "Couldn't erase the workspace media cache." }
+            store.erase()
         }
         /** Reset includes inactive accounts and their wrapping keys, never host data. */
         fun eraseAll(context: Context) {
