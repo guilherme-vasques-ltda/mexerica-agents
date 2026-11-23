@@ -3,8 +3,8 @@
 // pasta de saída (dist/web) na mesma origem (127.0.0.1), então não há Clerk, nuvem nem
 // relays: __DONNA_DEV_CLOUD_ACCESS__ nasce desligado (fail-closed) e o guardião reprova
 // qualquer URL externa de autenticação ou script externo que aparecer no bundle.
-import { copyFileSync, mkdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { copyFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { version } from './package.json'
@@ -59,13 +59,32 @@ const semExternosOuClerk: Plugin = {
   },
 }
 
+const semCachePwa: Plugin = {
+  name: 'mexerica-web-sem-cache-pwa',
+  apply: 'build',
+  writeBundle({ dir }) {
+    if (!dir) throw new Error('Build Web sem diretório de saída')
+    for (const file of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+      if (!file.isFile()) continue
+      if (/^(?:sw|service[-_.]?worker|workbox)(?:[._-]|$)/i.test(file.name)) {
+        throw new Error('O build Web local não permite arquivos de service worker')
+      }
+      if (!/\.(?:[cm]?js|html)$/i.test(file.name)) continue
+      const fonte = readFileSync(join(file.parentPath, file.name), 'utf8')
+      if (/\b(?:serviceWorker|ServiceWorkerGlobalScope|CacheStorage|skipWaiting|precacheAndRoute)\b|\bcaches\s*(?:\.|\[|\?\.)/.test(fonte)) {
+        throw new Error('O build Web local não permite service worker nem Cache Storage')
+      }
+    }
+  },
+}
+
 export default defineConfig({
   root: resolve('src/web'),
   // src/web/public leva o manifest.webmanifest para a raiz da saída.
   publicDir: resolve('src/web/public'),
   base: '/',
   resolve: { alias: { '@shared': resolve('src/shared') } },
-  plugins: [react(), brandAssets, pwaIcones, semExternosOuClerk],
+  plugins: [react(), brandAssets, pwaIcones, semExternosOuClerk, semCachePwa],
   define: {
     __DONNA_DEV_CLOUD_ACCESS__: 'false',
     __APP_VERSION__: JSON.stringify(version),

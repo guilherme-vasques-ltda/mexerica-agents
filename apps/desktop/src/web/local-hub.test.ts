@@ -16,7 +16,7 @@ const SESSAO = { authenticated: true, csrfToken: 'csrf-1', computerId: 'c1', hos
 /** fetch falso com fila de respostas (Response, Erro ou fábrica que recebe o init) e registro das chamadas. */
 function fetchFalso() {
   const chamadas: { url: string; init?: RequestInit }[] = []
-  const fila: Array<Response | Error | ((init: RequestInit) => Response)> = []
+  const fila: Array<Response | Error | ((init: RequestInit) => Response | Promise<Response>)> = []
   const impl = (async (url: string | URL, init?: RequestInit) => {
     chamadas.push({ url: String(url), init })
     const proxima = fila.shift()
@@ -205,12 +205,13 @@ test('host.call manda CSRF, credencial de mesma origem e devolve o JSON', async 
   assert.equal(url, `${ORIGIN}/api/bots_list`)
   assert.equal(init.method, 'POST')
   assert.equal(init.credentials, 'same-origin')
+  assert.equal(init.cache, 'no-store')
   const headers = new Headers(init.headers as HeadersInit)
   assert.equal(headers.get('Content-Type'), 'application/json')
   assert.equal(headers.get('X-Mexerica-Csrf'), 'csrf-1')
 })
 
-test('host.call com 401 derruba a sessão e dispara expiração; erro comum vira CallError do Hub', async () => {
+test('host.call com 401 derruba a sessão e dispara expiração; erro comum preserva só status e código conhecido', async () => {
   const { session, fetch } = await sessaoAutenticada()
   const host = createLocalWebHost(session)
   let expirou = 0
@@ -221,12 +222,10 @@ test('host.call com 401 derruba a sessão e dispara expiração; erro comum vira
   assert.equal(session.isAuthenticated, false)
   assert.equal(expirou, 1)
 
-  // Volta a sessão e o erro comum vira CallError com o envelope do Hub.
   fetch.fila.push(resposta(200, SESSAO))
   await session.checkSession()
-  fetch.fila.push(resposta(400, { error: 'regra recusada', code: 'regra' }))
-  await assert.rejects(host.call(ORIGIN, '', 'bots_list', {}, 1000), (e: { status: number; message: string; code?: string }) =>
-    e.status === 400 && e.message === 'regra recusada' && e.code === 'regra')
+  fetch.fila.push(resposta(400, { error: 'regra recusada', code: 'name_taken' }))
+  await assert.rejects(host.call(ORIGIN, '', 'bots_list', {}, 1000), { status: 400, message: 'Host error 400', code: 'name_taken' })
 })
 
 test('host.call com rede caída recusa com status 0', async () => {
@@ -247,7 +246,7 @@ test('host.call com 401 derruba a sessão mesmo quando o corpo não pode ser lid
   let expirou = 0
   session.onExpired(() => { expirou += 1 })
   fetch.fila.push(respostaCorpoPreso(401))
-  await assert.rejects(host.call(ORIGIN, '', 'bots_list', {}, 1000), (e: { status: number }) => e.status === 0)
+  await assert.rejects(host.call(ORIGIN, '', 'bots_list', {}, 1000), { status: 401, message: 'no web session' })
   assert.equal(session.isAuthenticated, false)
   assert.equal(expirou, 1)
 })
@@ -310,6 +309,7 @@ test('host.stream lê linhas data: e termina limpo, com CSRF e Accept', async ()
   assert.deepEqual(linhas, ['{"tipo":"hello"}', 'ping', 'ultimo'])
   const init = fetch.chamadas[1]!.init!
   assert.equal(init.credentials, 'same-origin')
+  assert.equal(init.cache, 'no-store')
   const headers = new Headers(init.headers as HeadersInit)
   assert.equal(headers.get('Accept'), 'text/event-stream')
   assert.equal(headers.get('X-Mexerica-Csrf'), 'csrf-1')
@@ -346,4 +346,115 @@ test('host.stream cancelado encerra com erro, sem tocar a sessão', async () => 
   await promessa
   assert.equal(fim!.status, 0)
   assert.equal(session.isAuthenticated, true)
+})
+
+const FIO = {
+  threadId: 'fio-fixture', subject: 'Assunto fictício', truncated: false,
+  messages: [
+    { messageId: 'mensagem-a', fromDisplay: 'Remetente A', fromDomain: 'a.example.invalid', sentAt: '2026-01-01T00:00:00Z', bodyText: 'Primeiro corpo fictício' },
+    { messageId: 'mensagem-b', fromDisplay: 'Remetente B', fromDomain: 'b.example.invalid', sentAt: '2026-01-02T00:00:00Z', bodyText: 'Segundo corpo fictício' },
+  ],
+}
+const VAZIA = { spaceId: 'workspace-vazio', mailboxId: 'caixa-vazia' }
+const COM_FIO = { spaceId: 'workspace-com-fio', mailboxId: 'caixa-com-fio', threadId: FIO.threadId }
+const SEM_SESSAO = { status: 401, message: 'no web session' }
+
+for (const origem401 of ['RPC', 'SSE', 'checkSession']) {
+  test(`401 em ${origem401} aborta RPC e SSE em voo e descarta respostas atrasadas`, { timeout: 2000 }, async () => {
+    const { session, fetch } = await sessaoAutenticada()
+    const host = createLocalWebHost(session)
+    const headersPendentes = Promise.withResolvers<Response>()
+    const corpoPendente = Promise.withResolvers<string>()
+    const lendoCorpo = Promise.withResolvers<void>()
+    const sseAberto = Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>()
+    const lendoSse = Promise.withResolvers<void>()
+    const fimSse = Promise.withResolvers<unknown>()
+    const linhas: string[] = []
+    const encoder = new TextEncoder()
+    const cancelarCorpo = Promise.withResolvers<void>()
+    fetch.fila.push(
+      () => headersPendentes.promise,
+      Object.assign(resposta(200), { text: () => { lendoCorpo.resolve(); return corpoPendente.promise } }),
+      new Response(new ReadableStream<Uint8Array>({ start: sseAberto.resolve, cancel: () => cancelarCorpo.resolve() })),
+      resposta(401, FIO),
+    )
+    const aberto = host.call(ORIGIN, '', 'mailInboxOpenThread', COM_FIO, 5000)
+    const lista = host.call(ORIGIN, '', 'mailInboxListThreads', VAZIA, 5000)
+    const cancelados = Promise.all([assert.rejects(aberto, SEM_SESSAO), assert.rejects(lista, SEM_SESSAO)])
+    host.stream(`${ORIGIN}/events`, '', (linha) => { linhas.push(linha); lendoSse.resolve() }, fimSse.resolve)
+    const stream = await sseAberto.promise
+    stream.enqueue(encoder.encode('data: hello\n\n'))
+    await Promise.all([lendoCorpo.promise, lendoSse.promise])
+    const negado = origem401 === 'RPC'
+      ? assert.rejects(host.call(ORIGIN, '', 'mailInboxStatus', COM_FIO, 5000), SEM_SESSAO)
+      : origem401 === 'SSE'
+        ? new Promise<void>((resolve, reject) => host.stream(`${ORIGIN}/events`, '', reject, (erro) => {
+          try { assert.deepEqual(erro, SEM_SESSAO); resolve() } catch (e) { reject(e) }
+        }))
+        : session.checkSession().then((ativa) => assert.equal(ativa, false))
+    await negado
+
+    for (const { init } of fetch.chamadas.slice(1, 4)) {
+      assert.equal(init?.signal?.aborted, true)
+      assert.equal(init?.cache, 'no-store')
+    }
+    assert.equal(session.isAuthenticated, false)
+    assert.deepEqual(await fimSse.promise, SEM_SESSAO)
+    await cancelarCorpo.promise
+    const total = fetch.chamadas.length
+    await assert.rejects(host.call(ORIGIN, '', 'mailInboxStatus', VAZIA, 5000), SEM_SESSAO)
+    assert.equal(fetch.chamadas.length, total)
+
+    fetch.fila.push(resposta(200, SESSAO), resposta(200, { threads: [], nextCursor: null }))
+    assert.equal(await session.checkSession(), true)
+    headersPendentes.resolve(resposta(200, FIO))
+    corpoPendente.resolve(JSON.stringify({ threads: [], nextCursor: null }))
+    await cancelados
+    assert.deepEqual(linhas, ['hello'])
+    assert.deepEqual(await host.call(ORIGIN, '', 'mailInboxListThreads', VAZIA, 5000), { threads: [], nextCursor: null })
+  })
+}
+
+test('401 e SSE atrasados da geração antiga não afetam a sessão restabelecida', async () => {
+  const { session, fetch } = await sessaoAutenticada()
+  const host = createLocalWebHost(session)
+  const rpc = Promise.withResolvers<Response>()
+  const sse = Promise.withResolvers<Response>()
+  const fim = Promise.withResolvers<unknown>()
+  fetch.fila.push(() => rpc.promise, () => sse.promise, resposta(401))
+  const erro = assert.rejects(host.call(ORIGIN, '', 'mailInboxOpenThread', COM_FIO, 1000), SEM_SESSAO)
+  host.stream(`${ORIGIN}/events`, '', assert.fail, fim.resolve)
+  assert.equal(await session.checkSession(), false)
+  fetch.fila.push(resposta(200, SESSAO))
+  assert.equal(await session.checkSession(), true)
+  rpc.resolve(resposta(401, FIO))
+  sse.resolve(new Response('data: evento-atrasado\n\n'))
+  await erro
+  assert.deepEqual(await fim.promise, SEM_SESSAO)
+  assert.equal(session.isAuthenticated, true)
+})
+
+test('ponte local não grava respostas nem registra conteúdo e devolve apenas erros sanitizados', async (t) => {
+  const persistencia: string[] = []
+  for (const nome of ['caches', 'indexedDB', 'localStorage', 'sessionStorage', 'navigator'] as const) {
+    const anterior = Object.getOwnPropertyDescriptor(globalThis, nome)
+    Object.defineProperty(globalThis, nome, { configurable: true, get: () => { persistencia.push(nome); return undefined } })
+    t.after(() => { if (anterior) Object.defineProperty(globalThis, nome, anterior); else Reflect.deleteProperty(globalThis, nome) })
+  }
+  const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((nivel) => t.mock.method(console, nivel, () => {}))
+  const { session, fetch } = await sessaoAutenticada()
+  const host = createLocalWebHost(session)
+  const call = () => host.call(ORIGIN, '', 'mailInboxOpenThread', COM_FIO, 1000)
+  const bruto = JSON.stringify(FIO)
+  fetch.fila.push(resposta(200, FIO), resposta(403, { error: bruto, code: FIO.threadId }), new Response(`invalido ${bruto}`), new Error(bruto))
+  assert.deepEqual(await call(), FIO)
+  await assert.rejects(call(), { status: 403, message: 'Host error 403' })
+  await assert.rejects(call(), { status: 0, message: 'local hub unreachable' })
+  await assert.rejects(call(), { status: 0, message: 'local hub unreachable' })
+  fetch.fila.push(resposta(500, FIO), new Error(bruto))
+  const fim = () => new Promise<unknown>((resolve) => host.stream(`${ORIGIN}/events`, '', assert.fail, resolve))
+  assert.deepEqual(await fim(), { status: 500, message: 'Host error 500' })
+  assert.deepEqual(await fim(), { status: 0, message: 'local hub unreachable' })
+  assert.deepEqual(persistencia, [])
+  for (const log of logs) assert.equal(log.mock.callCount(), 0)
 })
