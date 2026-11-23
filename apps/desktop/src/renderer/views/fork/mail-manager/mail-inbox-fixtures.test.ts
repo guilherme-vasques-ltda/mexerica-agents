@@ -244,6 +244,7 @@ test('cursor inválido só reinicia uma página posterior; primeira página inv�
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(pageCalls, 3)
   assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo'])
+  assert.equal(state.error, null, 'recuperação bem-sucedida limpa o erro do cursor')
 
   let firstPageCalls = 0
   const brokenGateway: MailInboxGateway = {
@@ -256,6 +257,7 @@ test('cursor inválido só reinicia uma página posterior; primeira página inv�
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(firstPageCalls, 1)
   assert.equal(broken.status, 'unavailable')
+  assert.equal(broken.error, 'cursor_invalid', 'erro terminal permanece visível')
   assert.deepEqual(broken.threads, [])
 })
 

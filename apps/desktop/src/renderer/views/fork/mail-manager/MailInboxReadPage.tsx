@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react'
 import { Button, CardSection } from '../../../components/Controls'
-import { useT } from '../../../lib/fork-i18n/estado'
+import { useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { useModel } from '../../../lib/observable'
 import { FixtureMailInboxGateway, MailInboxReadState } from './mail-inbox-fixtures'
 import './mail-inbox-read.css'
 
 export function MailInboxReadPage({ spaceId }: { spaceId: string | null }) {
+  const idioma = useIdioma()
   const t = useT()
-  const [state] = useState(() => new MailInboxReadState(new FixtureMailInboxGateway(t), spaceId ?? ''))
+  return <MailInboxReadContent key={idioma} spaceId={spaceId} translate={t} />
+}
+
+function MailInboxReadContent({ spaceId, translate }: { spaceId: string | null; translate: ReturnType<typeof useT> }) {
+  const t = translate
+  const [state] = useState(() => new MailInboxReadState(new FixtureMailInboxGateway(translate), spaceId ?? ''))
   useModel(state)
-  useEffect(() => { void state.setContext(spaceId) }, [state, spaceId])
+  useEffect(() => {
+    void state.setContext(spaceId)
+    return () => { void state.setContext(null) }
+  }, [state, spaceId])
 
   return (
     <section className="mm-inbox" aria-label={t('mailInbox.title')}>

@@ -261,6 +261,7 @@ export class MailInboxReadState extends Observable {
       if (generation !== this.#generation || listGeneration !== this.#listGeneration || mailboxId !== this.mailboxId) return
       this.threads = deduplicateThreads(result.threads)
       this.nextCursor = result.nextCursor
+      this.error = null
       this.#retryingInvalidCursor = false
       this.#changed()
     } catch (error) {
