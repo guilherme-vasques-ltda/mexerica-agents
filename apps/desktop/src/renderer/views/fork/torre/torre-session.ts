@@ -1,4 +1,5 @@
 import { parseTowerSnapshot, type TowerSnapshot } from '../../../../shared/fork-torre.ts'
+import { parseAttentionQueue, type AttentionQueue } from '../../../../shared/fork-torre-esperando.ts'
 import { Observable } from '../../../lib/observable.ts'
 
 // VG-02 (docs/features/mission-board.md, "Atualização no canal atual"): a fotografia do Mission Board de um Hub e space.
@@ -7,7 +8,7 @@ import { Observable } from '../../../lib/observable.ts'
 // link, geração): resposta de outra origem é descartada antes de pintar. Sem link, a última fotografia fica só em
 // memória, marcada como antiga. Outro Hub no mesmo computador apaga tudo. Nada é gravado em disco ou no mirror.
 
-export interface TowerEvent { type: string; spaceId?: string }
+export interface TowerEvent { type: string; spaceId?: string; hubId?: string }
 
 export interface TowerLink {
   call(method: string, body?: unknown, timeoutMs?: number): Promise<unknown>
@@ -22,7 +23,7 @@ export interface TowerSource {
 }
 
 /** Sinais para reler (nunca fonte do cartão). */
-export const REREAD_EVENTS = new Set(['donnaControlTowerChanged', 'bot', 'botDeleted', 'conversation', 'entry', 'session', 'spaces', 'hello', 'resync'])
+export const REREAD_EVENTS = new Set(['donnaControlTowerChanged', 'donnaAttentionChanged', 'donnaProjectsChanged', 'bot', 'botDeleted', 'conversation', 'entry', 'session', 'spaces', 'hello', 'resync'])
 const REREAD_DELAY = 250
 const RELISTEN_MIN = 2_000
 const RELISTEN_MAX = 30_000
@@ -58,6 +59,7 @@ export class TowerSession extends Observable {
   /** Os avisos deste space pararam (só o stream); a sessão tenta de novo sozinha. */
   events: 'live' | 'paused' = 'live'
   snapshot: TowerSnapshot | null = null
+  attention: AttentionQueue | null = null
   /** Quando a fotografia atual deixou de ser atualizável (sem conexão). */
   offlineSince: number | null = null
   notice: TowerNotice | null = null
@@ -76,15 +78,22 @@ export class TowerSession extends Observable {
   private relistenDelay = RELISTEN_MIN
 
   private now: () => number
+  private readonly mode: 'tower' | 'badge'
 
-  constructor(now: () => number = Date.now) {
+  constructor(now: () => number = Date.now, mode: 'tower' | 'badge' = 'tower') {
     super()
     this.now = now
+    this.mode = mode
   }
 
   get space() { return this.spaceId }
   /** A fotografia só vale como “agora” com link e eventos vivos. */
   get stale() { return this.link === 'offline' || this.events === 'paused' }
+
+  currentAttention(source: TowerSource, spaceId: string) {
+    const origin = this.origin
+    return !this.stale && origin?.source === source && this.spaceId === spaceId && this.current(origin) ? this.attention : null
+  }
 
   open(source: TowerSource, spaceId: string) {
     this.release()
@@ -112,6 +121,7 @@ export class TowerSession extends Observable {
     const gen = ++this.gen
     const hostId = source.hello?.hostId
     const client = source.connectedClient
+    this.attention = null
     if (hostId && this.hostId && this.hostId !== hostId) this.forget()
     if (hostId) this.hostId = hostId
     if (!hostId || !client || !this.spaceId) {
@@ -140,11 +150,15 @@ export class TowerSession extends Observable {
       if (!this.current(origin)) return
       this.relistenDelay = RELISTEN_MIN
       if (!REREAD_EVENTS.has(e.type)) return
-      if (e.type === 'donnaControlTowerChanged' && e.spaceId !== spaceId) return
+      const scoped = e.type === 'donnaAttentionChanged'
+      if (scoped && (e.spaceId !== spaceId || e.hubId !== origin.hostId)) return
+      if (!scoped && e.spaceId !== undefined && e.spaceId !== spaceId) return
+      if (!scoped && e.hubId !== undefined && e.hubId !== origin.hostId) return
       this.scheduleRead(origin)
     }, () => {
       if (!this.current(origin)) return
       this.events = 'paused'
+      this.attention = null
       if (this.offlineSince === null) this.offlineSince = this.now()
       this.changed()
       if (this.relistenTimer) clearTimeout(this.relistenTimer)
@@ -198,6 +212,7 @@ export class TowerSession extends Observable {
 
   private forget() {
     this.snapshot = null
+    this.attention = null
     this.notice = null
     this.offlineSince = null
     this.phase = { kind: 'loading' }
@@ -225,6 +240,12 @@ export class TowerSession extends Observable {
     const read = ++this.reads
     const spaceId = this.spaceId!
     try {
+      if (this.mode === 'badge') {
+        const answer = await origin.client.call('donnaAttention', { spaceId, includeResolvedToday: false })
+        if (!this.current(origin) || read !== this.reads) return
+        this.attention = parseAttentionQueue(answer, { hubId: origin.hostId, spaceId })
+        return
+      }
       const answer = await origin.client.call('donnaControlTower', { hubId: origin.hostId, spaceId })
       if (!this.current(origin) || read !== this.reads) return
       this.snapshot = parseTowerSnapshot(answer, { hubId: origin.hostId, spaceId })
@@ -232,6 +253,7 @@ export class TowerSession extends Observable {
       this.notice = null
     } catch (e) {
       if (!this.current(origin) || read !== this.reads) return
+      this.attention = null
       const message = towerErrorText(e)
       // Perder o acesso remove a projeção, não só desabilita os botões.
       if (!this.snapshot || message === LOST_ACCESS) {

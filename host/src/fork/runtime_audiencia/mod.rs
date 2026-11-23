@@ -82,7 +82,11 @@ pub(crate) fn project_in_space(hub: &Hub, cfg: &BotConfig, space: &str, rt: Opti
 /// Revalida o vínculo atual de uma conversa capturada, inclusive ao invalidar o
 /// contexto anterior. A lane atual pode ter mudado; a audiência continua canônica.
 pub(crate) fn permits_conversation_in_space(hub: &Hub, cfg: &BotConfig, space: &str, chat: &str) -> bool {
-    audience_in_space(hub, cfg, space, Some(chat), false).unwrap_or(false)
+    conversation_in_space(hub, cfg, space, chat).unwrap_or(false)
+}
+
+pub(crate) fn conversation_in_space(hub: &Hub, cfg: &BotConfig, space: &str, chat: &str) -> Result<bool> {
+    audience_in_space(hub, cfg, space, Some(chat), false)
 }
 
 /// A fila e o catch-up podem sobreviver à mudança de Runtime ou audiência.

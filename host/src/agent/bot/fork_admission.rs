@@ -400,6 +400,7 @@ impl Actor {
         session: String,
         done_tx: &mpsc::UnboundedSender<super::PromptDone>,
     ) -> Result<()> {
+        crate::agent::backends::require_supported_execution(&self.cfg.backend)?;
         let hub = self.hub.clone();
         let account_guard =
             if self.cfg.context.is_some() { Some(crate::fork::engine_accounts::MUTATION.lock().await) } else { None };

@@ -6,6 +6,7 @@ extension BotStore {
     /// Permanently detach a store (account switch, computer removed). Late async
     /// callbacks still hold it, but it writes nothing and calls no hooks anymore.
     public func retire() {
+        guard !retired else { return }
         let calls = Array(voiceCalls.values)
         voiceCalls.removeAll()
         setActive(false)
@@ -29,6 +30,18 @@ extension BotStore {
         clienteAutorizado = nil
         selection = nil
         screenRequest = nil
+        bots = [:]
+        entries = [:]
+        usage = Usage()
+        screen = nil
+        hello = nil
+        installedConnectors = []
+        installedSkills = []
+        answering = [:]
+        composerDrafts = [:]
+        composerPasted = [:]
+        outgoingFiles = [:]
+        routineDrafts = [:]
     }
 
     public func setActive(_ active: Bool) {

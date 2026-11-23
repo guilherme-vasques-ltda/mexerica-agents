@@ -80,6 +80,7 @@ export type HostEvent =
   | { type: 'functionModelsChanged'; revision: number }
   | { type: 'backgroundSpaceSelectionsChanged'; spaceId: string }
   | { type: 'backgroundHistoryChanged' }
+  | { type: 'donnaAttentionChanged' | 'donnaControlTowerChanged'; hubId: string; spaceId: string }
   /** whatsapp R2: só o aviso; o app relê `donnaWhatsapp` (código e QR nunca vêm no evento). R3/R5c: com o ID do bot,
    a caixa do WhatsApp dele relê a lista e a conversa aberta. */
   | { type: 'whatsappChanged'; botId?: string }
@@ -98,6 +99,7 @@ export function parseEvent(line: string): HostEvent | null {
   } catch {
     return null
   }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const type = raw.type
   switch (type) {
     case 'hello':
@@ -147,6 +149,13 @@ export function parseEvent(line: string): HostEvent | null {
       return typeof raw.spaceId === 'string' && raw.spaceId.length > 0 ? { type, spaceId: raw.spaceId } : null
     case 'backgroundHistoryChanged':
       return { type }
+    case 'donnaAttentionChanged':
+    case 'donnaControlTowerChanged': {
+      const { hubId, spaceId } = raw
+      return typeof hubId === 'string' && hubId.trim() === hubId && hubId.length > 0
+        && typeof spaceId === 'string' && spaceId.trim() === spaceId && spaceId.length > 0
+        ? { type, hubId, spaceId } : null
+    }
     case 'whatsappChanged':
       return typeof raw.botId === 'string' ? { type, botId: raw.botId } : { type }
     case 'resync':

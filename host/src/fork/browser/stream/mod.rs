@@ -63,6 +63,7 @@ pub struct Stream {
     target: String,
     connected: bool,
     capable: bool,
+    input_consumer_ready: bool,
     epoch: u64,
     controller: Controller,
     target_generation: u64,
@@ -82,6 +83,7 @@ impl Stream {
             target,
             connected: true,
             capable,
+            input_consumer_ready: false,
             epoch: 0,
             controller: Controller::Agent,
             target_generation: 0,
@@ -93,6 +95,13 @@ impl Stream {
             quality: 70,
             fps: 15,
         }
+    }
+
+    // Só a fixture simula um consumidor nesta etapa. O canal real não tem
+    // executor de entrada, mesmo quando negocia quadros.
+    #[cfg(test)]
+    pub fn enable_test_input_consumer(&mut self) {
+        self.input_consumer_ready = true;
     }
 
     pub fn disconnect(&mut self) {
@@ -156,6 +165,8 @@ impl Stream {
     pub fn accept_input(&mut self, authority: &impl Authority, recipient: &str, input: &Input) -> bool {
         let Some(frame) = self.displayed.as_ref() else { return false };
         if !self.connected
+            || !self.capable
+            || !self.input_consumer_ready
             || !authority.is_owner(&self.session, recipient)
             || input.session != self.session
             || input.target != self.target
