@@ -182,7 +182,11 @@ export class MailInboxReadState extends Observable {
     const generation = this.#generation
     ++this.#listGeneration
     ++this.#openGeneration
+    this.threads = []
+    this.nextCursor = null
+    this.error = null
     this.#clearThreadContent()
+    this.loadingPage = true
     this.#changed()
     await this.#loadFirstPage(generation)
   }

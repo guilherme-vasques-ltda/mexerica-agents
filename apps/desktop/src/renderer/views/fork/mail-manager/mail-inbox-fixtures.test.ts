@@ -309,6 +309,58 @@ test('selecionar outra caixa preserva a lista de caixas e a mailbox selecionada'
   assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-mailbox-b'])
 })
 
+test('troca de caixa limpa lista e cursor antes da leitura pendente, bloqueia fio/cursor antigos e depois mostra B', async () => {
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((r) => { resolve = r })
+    return { promise, resolve }
+  }
+  const pageB = deferred<{ threads: typeof fixtures.threads.threads; nextCursor: string | null }>()
+  const calls: string[] = []
+  const gateway: MailInboxGateway = {
+    status: async () => ({ state: 'ready', mailboxes: [
+      { mailboxId: 'mailbox-a', label: 'Caixa A' }, { mailboxId: 'mailbox-b', label: 'Caixa B' },
+    ] }),
+    listThreads: async (_space, mailbox, cursor) => {
+      calls.push(`list:${mailbox}:${cursor ?? 'first'}`)
+      if (mailbox === 'mailbox-a') return {
+        threads: [{ ...fixtures.threads.threads[0]!, threadId: 'thread-a' }],
+        nextCursor: 'cursor-a',
+      }
+      return pageB.promise
+    },
+    openThread: async (_space, mailbox, threadId) => {
+      calls.push(`open:${mailbox}:${threadId}`)
+      return { ...fixtures.detail, threadId }
+    },
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  assert.equal(state.nextCursor, 'cursor-a')
+  const selectB = state.selectMailbox('mailbox-b')
+  assert.equal(state.mailboxId, 'mailbox-b')
+  assert.deepEqual(state.mailboxes.map((mailbox) => mailbox.mailboxId), ['mailbox-a', 'mailbox-b'])
+  assert.deepEqual(state.threads, [])
+  assert.equal(state.nextCursor, null)
+  assert.equal(state.thread, null)
+  assert.equal(state.loadingPage, true)
+  assert.equal(state.status, 'ready')
+
+  const callCountBeforeInvalidActions = calls.length
+  await state.openThread('thread-a')
+  await state.loadNextPage()
+  assert.equal(calls.length, callCountBeforeInvalidActions)
+  assert.ok(!calls.includes('open:mailbox-b:thread-a'))
+  assert.ok(!calls.includes('list:mailbox-b:cursor-a'))
+
+  pageB.resolve({ threads: [{ ...fixtures.threads.threads[0]!, threadId: 'thread-b' }], nextCursor: 'cursor-b' })
+  await selectB
+  const threadsAfterSwitch: { threadId: string }[] = state.threads
+  assert.deepEqual(threadsAfterSwitch.map((thread) => thread.threadId), ['thread-b'])
+  assert.equal(state.nextCursor, 'cursor-b')
+  assert.equal(state.loadingPage, false)
+})
+
 test('status mapeia not_connected e reconnect_required com controle positivo de pronto', async () => {
   for (const code of ['not_connected', 'reconnect_required']) {
     const state = new MailInboxReadState({
