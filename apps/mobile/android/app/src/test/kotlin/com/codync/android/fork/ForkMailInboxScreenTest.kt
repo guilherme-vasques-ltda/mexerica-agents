@@ -9,6 +9,8 @@ import com.codync.android.core.fork.MailInboxStatus
 import com.codync.android.core.fork.MailInboxTransport
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -56,7 +58,7 @@ class ForkMailInboxScreenTest {
         val transport = CountingTransport()
         val store = ForkMailInboxStore(transport = transport, featureEnabled = false)
 
-        val initialUi = toForkMailInboxUiState(store)
+        val initialUi = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA)
         assertFalse(initialUi.featureEnabled)
         assertEquals(ForkMailInboxScreenState.Unavailable, initialUi.screenState)
         assertFalse(initialUi.showPrivacyMask)
@@ -73,7 +75,7 @@ class ForkMailInboxScreenTest {
         )
 
         assertEquals(0, transport.calls)
-        val afterCallsUi = toForkMailInboxUiState(store)
+        val afterCallsUi = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA)
         assertEquals(ForkMailInboxScreenState.Unavailable, afterCallsUi.screenState)
     }
 
@@ -88,7 +90,7 @@ class ForkMailInboxScreenTest {
         notConnectedStore.loadStatus(ForkMailInboxFixtureTransport.SPACE_ALPHA)
         assertEquals(
             ForkMailInboxScreenState.NotConnected,
-            toForkMailInboxUiState(notConnectedStore).screenState,
+            toForkMailInboxUiState(notConnectedStore, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState,
         )
 
         val reconnectStore = ForkMailInboxStore(
@@ -100,7 +102,7 @@ class ForkMailInboxScreenTest {
         reconnectStore.loadStatus(ForkMailInboxFixtureTransport.SPACE_ALPHA)
         assertEquals(
             ForkMailInboxScreenState.ReconnectRequired,
-            toForkMailInboxUiState(reconnectStore).screenState,
+            toForkMailInboxUiState(reconnectStore, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState,
         )
 
         val unavailableStore = ForkMailInboxStore(
@@ -112,7 +114,7 @@ class ForkMailInboxScreenTest {
         unavailableStore.loadStatus(ForkMailInboxFixtureTransport.SPACE_ALPHA)
         assertEquals(
             ForkMailInboxScreenState.Unavailable,
-            toForkMailInboxUiState(unavailableStore).screenState,
+            toForkMailInboxUiState(unavailableStore, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState,
         )
 
         val deniedStore = ForkMailInboxStore(
@@ -122,7 +124,7 @@ class ForkMailInboxScreenTest {
         deniedStore.loadStatus("unknown-space-fixture")
         assertEquals(
             ForkMailInboxScreenState.AccessDenied,
-            toForkMailInboxUiState(deniedStore).screenState,
+            toForkMailInboxUiState(deniedStore, "unknown-space-fixture").screenState,
         )
 
         val emptyInboxStore = ForkMailInboxStore(
@@ -137,7 +139,7 @@ class ForkMailInboxScreenTest {
         assertTrue(emptyInboxStore.isEmptyInbox)
         assertEquals(
             ForkMailInboxScreenState.EmptyInbox,
-            toForkMailInboxUiState(emptyInboxStore).screenState,
+            toForkMailInboxUiState(emptyInboxStore, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState,
         )
     }
 
@@ -213,6 +215,88 @@ class ForkMailInboxScreenTest {
             detail.join()
             assertTrue(presentation.uiState.value.screenState is ForkMailInboxScreenState.ThreadDetail)
         }
+    }
+
+    @Test
+    fun resumingASharedStoreNeverPublishesAnotherSpacesData() = runBlocking {
+        val aSpace = ForkMailInboxFixtureTransport.SPACE_ALPHA
+        val bSpace = ForkMailInboxFixtureTransport.SPACE_BETA
+        val bMailbox = ForkMailInboxFixtureTransport.MAILBOX_BETA
+        val bThread = "thread-b-fixture"
+        val fixture = ForkMailInboxFixtureTransport()
+        val resumeGate = CompletableDeferred<Unit>()
+        val lateDetailGate = CompletableDeferred<Unit>()
+        var delayResume = false
+        var delayDetail = false
+        val transport = CountingTransport(object : MailInboxTransport by fixture {
+            override suspend fun mailInboxStatus(spaceId: String): MailInboxStatus {
+                if (spaceId == aSpace && delayResume) resumeGate.await()
+                return fixture.mailInboxStatus(spaceId)
+            }
+
+            override suspend fun mailInboxListThreads(spaceId: String, mailboxId: String, cursor: String?): MailInboxListThreadsResponse {
+                if (spaceId != bSpace) return fixture.mailInboxListThreads(spaceId, mailboxId, cursor)
+                val summary = fixture.mailInboxListThreads(aSpace, ForkMailInboxFixtureTransport.MAILBOX_MAIN, null).threads.first()
+                return MailInboxListThreadsResponse(listOf(summary.copy(threadId = bThread, subject = "Conversa B")), null)
+            }
+
+            override suspend fun mailInboxOpenThread(spaceId: String, mailboxId: String, threadId: String): MailInboxOpenThreadResponse {
+                check(spaceId == bSpace && mailboxId == bMailbox && threadId == bThread)
+                if (delayDetail) lateDetailGate.await()
+                return MailInboxOpenThreadResponse(bThread, "Conversa B", emptyList(), truncated = false)
+            }
+        })
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        val a = ForkMailInboxPresentation(store, aSpace)
+        val b = ForkMailInboxPresentation(store, bSpace)
+        a.setBackground(false)
+        a.start()
+        a.selectMailbox(ForkMailInboxFixtureTransport.MAILBOX_EMPTY)
+        a.setBackground(true)
+        assertTrue(a.uiState.value.showPrivacyMask)
+
+        b.setBackground(false)
+        b.start()
+        b.openThread(bThread)
+        assertEquals(bThread, (b.uiState.value.screenState as ForkMailInboxScreenState.ThreadDetail).threadId)
+
+        val emissions = mutableListOf<ForkMailInboxUiState>()
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) { a.uiState.collect { emissions += it } }
+        a.setBackground(false)
+        val waiting = a.uiState.value
+        assertEquals(ForkMailInboxScreenState.Loading, waiting.screenState)
+        assertTrue(waiting.mailboxes.isEmpty())
+        assertNull(waiting.selectedMailboxId)
+        val calls = transport.calls
+        a.selectMailbox(bMailbox)
+        a.openThread(bThread)
+        a.loadMore()
+        assertEquals(calls, transport.calls)
+
+        b.backToList()
+        delayDetail = true
+        val lateDetail = launch(start = CoroutineStart.UNDISPATCHED) { b.openThread(bThread) }
+        assertTrue(store.isLoadingThreadDetail)
+        delayResume = true
+        val resume = launch(start = CoroutineStart.UNDISPATCHED) { a.start() }
+        assertTrue(store.isLoadingStatus)
+        assertEquals(waiting, a.uiState.value)
+
+        lateDetailGate.complete(Unit)
+        lateDetail.join()
+        assertNull(store.openThread)
+        assertEquals(waiting, a.uiState.value)
+        resumeGate.complete(Unit)
+        resume.join()
+        assertEquals(aSpace, store.activeSpaceId)
+        assertEquals(ForkMailInboxFixtureTransport.MAILBOX_MAIN, a.uiState.value.selectedMailboxId)
+        collector.cancelAndJoin()
+        assertTrue(emissions.any { it == waiting })
+        assertTrue(emissions.none { ui ->
+            ui.mailboxes.any { it.mailboxId == bMailbox } || ui.selectedMailboxId == bMailbox ||
+                (ui.screenState as? ForkMailInboxScreenState.ThreadDetail)?.threadId == bThread ||
+                (ui.screenState as? ForkMailInboxScreenState.ThreadList)?.threads?.any { it.threadId == bThread } == true
+        })
     }
 
     @Test
@@ -304,15 +388,15 @@ class ForkMailInboxScreenTest {
             ForkMailInboxFixtureTransport.MAILBOX_MAIN,
         )
 
-        val page1 = toForkMailInboxUiState(store).screenState as ForkMailInboxScreenState.ThreadList
-        assertEquals(2, toForkMailInboxUiState(store).mailboxes.size)
+        val page1 = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState as ForkMailInboxScreenState.ThreadList
+        assertEquals(2, toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA).mailboxes.size)
         assertEquals(2, page1.threads.size)
         assertTrue(page1.hasNextPage)
         assertEquals("Resumo semanal de operação", page1.threads[0].subject)
         assertEquals("Sem assunto", page1.threads[1].subject)
 
         store.loadNextPage()
-        val page2 = toForkMailInboxUiState(store).screenState as ForkMailInboxScreenState.ThreadList
+        val page2 = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState as ForkMailInboxScreenState.ThreadList
         assertEquals(3, page2.threads.size)
         assertFalse(page2.hasNextPage)
 
@@ -321,7 +405,7 @@ class ForkMailInboxScreenTest {
             ForkMailInboxFixtureTransport.MAILBOX_MAIN,
             ForkMailInboxFixtureTransport.THREAD_WELCOME,
         )
-        val detail = toForkMailInboxUiState(store).screenState as ForkMailInboxScreenState.ThreadDetail
+        val detail = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState as ForkMailInboxScreenState.ThreadDetail
         assertFalse(detail.truncated)
         assertEquals(2, detail.messages.size)
         assertEquals("Equipe Norte", detail.messages[0].senderDisplayName)
@@ -331,7 +415,7 @@ class ForkMailInboxScreenTest {
         assertEquals("sul.example.invalid", detail.messages[1].declaredDomain)
         assertFalse(detail.messages[1].isVerifiedIdentity)
 
-        val backToList = toForkMailInboxUiState(store, preferListOverDetail = true).screenState
+        val backToList = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA, preferListOverDetail = true).screenState
         assertTrue(backToList is ForkMailInboxScreenState.ThreadList)
 
         store.openThread(
@@ -339,7 +423,7 @@ class ForkMailInboxScreenTest {
             ForkMailInboxFixtureTransport.MAILBOX_MAIN,
             ForkMailInboxFixtureTransport.THREAD_TRUNCATED,
         )
-        val truncatedDetail = toForkMailInboxUiState(store).screenState as ForkMailInboxScreenState.ThreadDetail
+        val truncatedDetail = toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA).screenState as ForkMailInboxScreenState.ThreadDetail
         assertTrue(truncatedDetail.truncated)
         assertEquals("Sem assunto", truncatedDetail.subject)
         assertEquals("Remetente não identificado", truncatedDetail.messages[0].senderDisplayName)
@@ -354,7 +438,7 @@ class ForkMailInboxScreenTest {
             featureEnabled = true,
         )
         assertFalse(shouldShowPrivacyMask(store.shouldMaskInAppSwitcher, isAppInBackground = true))
-        assertFalse(toForkMailInboxUiState(store, isAppInBackground = true).showPrivacyMask)
+        assertFalse(toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA, isAppInBackground = true).showPrivacyMask)
 
         store.loadStatus(ForkMailInboxFixtureTransport.SPACE_ALPHA)
         store.loadFirstPage(
@@ -363,8 +447,8 @@ class ForkMailInboxScreenTest {
         )
 
         assertTrue(store.shouldMaskInAppSwitcher)
-        assertFalse(toForkMailInboxUiState(store, isAppInBackground = false).showPrivacyMask)
-        assertTrue(toForkMailInboxUiState(store, isAppInBackground = true).showPrivacyMask)
+        assertFalse(toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA, isAppInBackground = false).showPrivacyMask)
+        assertTrue(toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA, isAppInBackground = true).showPrivacyMask)
     }
 
     @Test
@@ -420,9 +504,9 @@ class ForkMailInboxScreenTest {
         assertFalse(store.shouldMaskInAppSwitcher)
         assertEquals(
             ForkMailInboxScreenState.ReconnectRequired,
-            toForkMailInboxUiState(store, isAppInBackground = true).screenState,
+            toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA, isAppInBackground = true).screenState,
         )
-        assertFalse(toForkMailInboxUiState(store, isAppInBackground = true).showPrivacyMask)
+        assertFalse(toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_ALPHA, isAppInBackground = true).showPrivacyMask)
 
         failWithReconnect = false
         store.loadStatus(ForkMailInboxFixtureTransport.SPACE_BETA)
@@ -432,7 +516,7 @@ class ForkMailInboxScreenTest {
         )
         assertEquals(
             ForkMailInboxScreenState.AccessDenied,
-            toForkMailInboxUiState(store).screenState,
+            toForkMailInboxUiState(store, ForkMailInboxFixtureTransport.SPACE_BETA).screenState,
         )
     }
 }
