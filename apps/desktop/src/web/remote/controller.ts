@@ -7,6 +7,7 @@ export interface RemoteHub {
     signal: AbortSignal
     offline(): void
     accessLost(status: number, code: unknown): void
+    acceptContext: WorkspaceLease['acceptContext']
     acceptEvent: WorkspaceLease['acceptEvent']
     acceptsResponse: WorkspaceLease['acceptsResponse']
     onDispose(cleanup: () => void): void
@@ -29,20 +30,21 @@ export function createRemoteController(
     render({ status, workspaces, activeId: selected, signedIn: userId !== null })
   }
 
-  const select = async (id: string) => {
-    if (selected === id && (status === 'active' || status === 'switching')) return
+  const select = async (id: string, recovering = false) => {
+    if (!recovering && selected === id && (status === 'active' || status === 'switching')) return
     const workspace = workspaces.find((candidate) => candidate.id === id)
     if (!userId || !workspace || !hub) return
     const run = ++attempt
     selected = id
-    show('switching')
     try {
-      const lease = await session.open(workspace, userId, () => {
+      const opening = session.open(workspace, userId, () => {
         if (run !== attempt) return
         workspaces = workspaces.filter((entry) => entry.id !== id)
         selected = null
         show('revoked')
       })
+      show('switching')
+      const lease = await opening
       if (!lease || run !== attempt) return
       const offline = () => {
         if (lease.signal.aborted || run !== attempt) return
@@ -58,14 +60,18 @@ export function createRemoteController(
         signal: lease.signal,
         offline,
         accessLost: (status, code) => {
-          if (isWorkspaceAccessLost(status, code)) void lease.revoke().catch(() => {})
+          if (lease.signal.aborted || run !== attempt) return
+          if (status === 409 && code === 'workspace_epoch_mismatch') {
+            if (lease.acceptsResponse()) void select(id, true)
+          } else if (isWorkspaceAccessLost(status, code)) void lease.revoke().catch(() => {})
         },
+        acceptContext: lease.acceptContext,
         acceptEvent: lease.acceptEvent,
         acceptsResponse: lease.acceptsResponse,
         onDispose: lease.onDispose,
       })
       if (run !== attempt || lease.signal.aborted) return
-      if (lease.acceptContext(context)) show('active')
+      if (lease.acceptsResponse() || lease.acceptContext(context)) show('active')
       else await lease.revoke()
     } catch {
       if (run === attempt && status !== 'revoked') {
@@ -82,9 +88,10 @@ export function createRemoteController(
       userId = id
       workspaces = []
       selected = null
-      show('loading')
       try {
-        await session.close()
+        const closing = session.close()
+        show('loading')
+        await closing
         if (run !== attempt) return
         if (!id) return show('signed_out')
         if (!hub) return show('unavailable')
@@ -95,7 +102,7 @@ export function createRemoteController(
         if (run === attempt) show('unavailable')
       }
     },
-    select,
+    select: (id: string) => select(id),
     retry() {
       if (selected && status === 'hub_offline') return select(selected)
     },
