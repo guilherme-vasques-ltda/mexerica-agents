@@ -5,7 +5,7 @@ use crate::{
     fork::{
         projetos::{
             delegacao_meta::{self, BlockerKind},
-            model::TaskState,
+            model::{ProjectState, TaskState},
         },
         tarefas::db::reports_to,
     },
@@ -20,6 +20,7 @@ use serde::Deserialize;
 struct Project {
     id: String,
     name: String,
+    state: ProjectState,
     coordinator_bot_id: Option<String>,
     created_at: Option<i64>,
     updated_at: Option<i64>,
@@ -48,6 +49,9 @@ pub(super) fn snapshot(db: &Connection, hub: &str, read: Read) -> Result<Snapsho
         let project_id = row.get::<_, String>(0)?;
         let project: Project = serde_json::from_str(row.get_ref(1)?.as_str()?)?;
         ensure!(project.id == project_id, "tower_view_unavailable: referência de projeto inválida.");
+        if project.state == ProjectState::Archived {
+            continue;
+        }
         let tasks: Vec<Task> = serde_json::from_str(row.get_ref(2)?.as_str()?)?;
         for task in tasks {
             let meta = metadata.remove(&(project_id.clone(), task.id.clone())).unwrap_or_default();

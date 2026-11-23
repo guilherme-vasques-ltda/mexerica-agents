@@ -131,7 +131,7 @@ export function parseTowerViewSnapshot(v: unknown, expected?: ExpectedTowerView)
   const counts = { needsYou: 0, observedWorking: 0, waitingOrBlocked: 0, totalVisible: v.cards.length }
   for (const raw of v.cards) {
     const card = parseWorkCard(raw, spaceId)
-    if (!card) return null
+    if (!card || (perspective === 'bot' && card.assigneeBotId !== botId)) return null
     const key = JSON.stringify([card.projectId, card.taskId])
     if (seen.has(key)) return null
     seen.add(key)

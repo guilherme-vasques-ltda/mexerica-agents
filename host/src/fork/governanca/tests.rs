@@ -224,6 +224,7 @@ fn archive_requires_known_idle_state_and_never_overrides_protections() {
         ArchiveState { pinned: true, ..state() },
         ArchiveState { status: BotStatus::Working, ..state() },
         ArchiveState { status: BotStatus::NeedsInput, ..state() },
+        ArchiveState { status: BotStatus::Waiting, ..state() },
         ArchiveState { has_open_work: true, ..state() },
         ArchiveState { in_review: true, ..state() },
     ] {

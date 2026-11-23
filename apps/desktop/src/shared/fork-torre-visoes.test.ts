@@ -41,9 +41,12 @@ test('recusa outra origem ou perspectiva e seletores inesperados', () => {
   assert.equal(parseTowerViewSnapshot({ ...snapshot, ...bot, botId: null }), null)
 })
 
-test('a projeção autorizada não exige que um participante seja o executor atribuído', () => {
-  const visible = { ...snapshot, ...bot, cards: [{ ...card, assigneeBotId: 'bot-2' }] }
-  assert.deepEqual(parseTowerViewSnapshot(visible, bot), visible)
+test('a perspectiva do bot recusa fichas não atribuídas ao bot selecionado', () => {
+  for (const assigneeBotId of ['bot-2', null]) {
+    const cards = [{ ...card, assigneeBotId }]
+    assert.equal(parseTowerViewSnapshot({ ...snapshot, ...bot, cards }, bot), null)
+    assert.equal(parseTowerViewSnapshot({ ...snapshot, ...director, cards }, director)?.cards[0]?.assigneeBotId, assigneeBotId)
+  }
 })
 
 test('recusa a ficha inteira quando falta sinal ou ela declara origem, ação ou execução incompatível', () => {

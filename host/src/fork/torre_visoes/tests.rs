@@ -136,6 +136,17 @@ async fn visoes_filtram_space_mandato_executor_e_contadores() {
         ],
     );
     f.project(hub, PERSONAL, "coordenado", Some("diretor"), &[task("por-projeto", None, "blocked")]);
+    f.project(hub, PERSONAL, "arquivado", Some("diretor"), &[task("tarefa-arquivada", Some("executor"), "review")]);
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute(
+            "UPDATE donna_projects SET project=json_set(project,'$.state','archived')
+             WHERE hub_id=?1 AND space_id=?2 AND id='arquivado'",
+            params![hub, PERSONAL],
+        )
+        .unwrap();
     f.project(hub, &other_space, "projeto-reservado", None, &[task("tarefa-privada", None, "review")]);
     f.project("outro-hub", PERSONAL, "projeto-outro-hub", None, &[task("tarefa-outro-hub", None, "review")]);
     f.hub
@@ -187,6 +198,7 @@ async fn visoes_filtram_space_mandato_executor_e_contadores() {
     for reply in [&owner, &director, &bot] {
         let wire = reply.to_string();
         for secret in [
+            "tarefa-arquivada",
             "projeto-reservado",
             "outro-hub",
             "arquivo-privado",

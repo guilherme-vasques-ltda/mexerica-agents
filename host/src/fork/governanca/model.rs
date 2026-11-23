@@ -47,7 +47,7 @@ impl GovernancePolicy {
         self.validate().is_ok()
             && self.auto_archive_idle_days != 0
             && !state.pinned
-            && !matches!(state.status, BotStatus::Working | BotStatus::NeedsInput)
+            && !matches!(state.status, BotStatus::Working | BotStatus::NeedsInput | BotStatus::Waiting)
             && !state.has_open_work
             && !state.in_review
             && state.idle_days >= self.auto_archive_idle_days
