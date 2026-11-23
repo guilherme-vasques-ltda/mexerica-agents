@@ -177,7 +177,7 @@ jobs:
           private_home="$work/profile"
           mkdir -- "$private_home" "$private_home/.opencodereview" "$work/tmp"
           printf '{"language":"%s","telemetry":{"enabled":false}}\n' "$OCR_LANGUAGE" > "$private_home/.opencodereview/config.json"
-          if ! (
+          { if (
             ulimit -f 4096 || exit 1
             exec timeout --kill-after=5s 240s /usr/bin/bwrap --unshare-all --share-net --die-with-parent --cap-drop ALL \
               --clearenv --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin \
@@ -191,9 +191,24 @@ jobs:
               /ocr review --from "$(<"$work/merge-base")" --to "$HEAD_SHA" \
               --audience agent --format json --effort "$OCR_EFFORT" --concurrency 1 --timeout 2 --max-tokens-budget "$OCR_MAX_TOKENS_BUDGET"
           ) > "$work/result.json" 2> "$work/stderr.log"; then
+            :
+          else
+            status=$?
+            if [ "$status" -eq 124 ]; then
+              category='Prazo'
+            elif [ "$status" -ge 129 ] && [ "$status" -le 192 ]; then
+              category='Sinal'
+            else
+              category='Saida'
+            fi
+            echo "Open Code Review: $category."
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              { printf '%s\n' "Open Code Review: $category." >> "$GITHUB_STEP_SUMMARY"; } 2>/dev/null || true
+            fi
             echo 'Open Code Review: review unavailable.'
             exit 1
           fi
+          } 2>/dev/null
       - name: Validate review output
         if: steps.trusted.outputs.ready == 'true'
         env:
