@@ -21,7 +21,7 @@ pub fn validar(estado: &Diretorio, publicacao: &Diretorio, trava: &File, agora: 
     estado.exigir_sem_bloqueio()?;
     publicacao.exigir_sem_emergencia()?;
     let mut journal: Journal = estado.ler("journal")?;
-    if estado.expirar_journal(trava, &mut journal, agora)? {
+    if estado.expirar_journal(publicacao, trava, &mut journal, agora)? {
         publicacao.publicar_status(estado, trava)?;
         anyhow::bail!("janela expirada; recuperação administrativa necessária");
     }
@@ -46,16 +46,12 @@ pub fn validar(estado: &Diretorio, publicacao: &Diretorio, trava: &File, agora: 
     let manifesto = match acao {
         Recuperacao::Pendente | Recuperacao::TerminarReversao => estado.manifesto_transacao(trava, &journal, agora)?,
         _ => {
-            ensure!(
-                !matches!(journal.estado.fase, Fase::Pendente { .. } | Fase::Expirada)
-                    && journal.estado.marca < journal.sequencia_nova,
-                "estado anterior à publicação inconsistente"
-            );
+            exigir_pre_publicacao(&journal)?;
             estado.manifesto_assinado(trava, &journal)?
         }
     };
     estado.snapshot_transacao(trava, &journal)?;
-    if matches!(acao, Recuperacao::RestabelecerAnterior | Recuperacao::TerminarReversao)
+    if matches!(acao, Recuperacao::TerminarReversao)
         && let Some(anterior) = journal.sequencia_anterior
     {
         ensure!(
@@ -64,4 +60,49 @@ pub fn validar(estado: &Diretorio, publicacao: &Diretorio, trava: &File, agora: 
         );
     }
     Ok(Plano { journal, acao })
+}
+
+pub(super) fn exigir_pre_publicacao(journal: &Journal) -> Result<()> {
+    ensure!(
+        !matches!(journal.estado.fase, Fase::Pendente { .. } | Fase::Expirada)
+            && journal.publicado_em.is_none()
+            && journal.estado.marca < journal.sequencia_nova
+            && journal.estado.piso <= journal.estado.marca,
+        "estado anterior à publicação inconsistente"
+    );
+    ensure!(
+        journal.sequencia_anterior.is_none_or(|anterior| anterior >= journal.estado.piso),
+        "piso impede reativar o par anterior"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn cancelamento_preserva_piso_anterior_sem_autorizar_reversao() -> Result<()> {
+    use super::estado::Estado;
+
+    let mut journal = Journal {
+        estado: Estado { marca: 7, piso: 6, fase: Fase::Aceita },
+        etapa: Etapa::CancelamentoIniciado,
+        transacao: "a".repeat(64),
+        sequencia_nova: 8,
+        publicado_em: None,
+        sequencia_anterior: Some(7),
+        slot_anterior: Some(Slot::A),
+        slot_novo: Slot::B,
+        manifesto_sha256: "b".repeat(64),
+        snapshot_sha256: "c".repeat(64),
+    };
+    assert_eq!(journal::planejar_recuperacao(&journal, Some(Slot::A))?, Recuperacao::RestabelecerAnterior);
+    exigir_pre_publicacao(&journal)?;
+    journal.sequencia_anterior = Some(5);
+    assert!(exigir_pre_publicacao(&journal).is_err());
+    journal.sequencia_anterior = Some(7);
+    journal.publicado_em = Some(100);
+    assert!(exigir_pre_publicacao(&journal).is_err());
+    journal.estado.iniciar(8, 8, Some(7), 200, 100)?;
+    assert!(journal.estado.reverter(101).is_err());
+    assert!(exigir_pre_publicacao(&journal).is_err());
+    Ok(())
 }
