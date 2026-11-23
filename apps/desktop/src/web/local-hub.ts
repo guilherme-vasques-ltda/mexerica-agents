@@ -4,7 +4,6 @@
 // navegador (fail-closed): `call` e `stream` recusam antes de fazer qualquer requisição.
 
 import type { CallError, CodyncBridge, HostSnapshot } from '../shared/ipc.ts'
-import { hostCallError } from '../shared/host-call-error.ts'
 
 /** O que o Hub devolve em `/web/auth/session` e `/web/auth/login` quando há sessão. */
 export interface SessaoWeb {
@@ -24,6 +23,7 @@ export interface OpcoesSessaoLocal {
 
 export class LocalWebSession {
   private sessao: SessaoWeb | null = null
+  private geracao = new AbortController()
   private ouvintes = new Set<(autenticado: boolean) => void>()
   private expiracoes = new Set<() => void>()
   private readonly meuFetch: typeof fetch
@@ -41,6 +41,7 @@ export class LocalWebSession {
   get csrfToken(): string | null { return this.sessao?.csrfToken ?? null }
   get computerId(): string | null { return this.sessao?.computerId ?? null }
   get hostName(): string | null { return this.sessao?.hostName ?? null }
+  get signal(): AbortSignal { return this.geracao.signal }
 
   /** Mudanças de sessão (login, saída, expiração); devolve a função de cancelar. */
   subscribe(cb: (autenticado: boolean) => void): () => void {
@@ -59,7 +60,13 @@ export class LocalWebSession {
   }
 
   private guardar(sessao: SessaoWeb | null) {
+    const anterior = this.sessao
     this.sessao = sessao
+    if (!sessao || !anterior || anterior.csrfToken !== sessao.csrfToken || anterior.hostId !== sessao.hostId || anterior.computerId !== sessao.computerId) {
+      const geracao = this.geracao
+      this.geracao = new AbortController()
+      geracao.abort()
+    }
     this.notificar()
   }
 
@@ -74,21 +81,27 @@ export class LocalWebSession {
 
   /** Sessão do cookie HttpOnly do Hub, se ainda vale. Rede caída não desautentica: segue o que havia. */
   async checkSession(): Promise<boolean> {
+    const signal = this.signal
     let res: Response
     try {
       res = await this.meuFetch(`${this.origin}/web/auth/session`, {
         headers: { 'X-Mexerica-Web': '1' },
         credentials: 'same-origin',
         cache: 'no-store',
+        signal,
       })
     } catch { return this.isAuthenticated }
-    if (res.status === 401) { this.guardar(null); return false }
+    if (signal.aborted) return this.isAuthenticated
+    if (res.status === 401) { this.handleUnauthorized(); return false }
     if (!res.ok) return this.isAuthenticated
     // Corpo inválido é tratado como sem sessão (fail-closed), nunca como "segue como estava".
+    let sessao: SessaoWeb | null = null
     try {
-      this.guardar(this.lerSessao(await res.json()))
-    } catch {
-      this.guardar(null)
+      sessao = this.lerSessao(await res.json())
+    } catch { /* sessão inválida */ }
+    if (!signal.aborted) {
+      if (sessao) this.guardar(sessao)
+      else this.handleUnauthorized()
     }
     return this.isAuthenticated
   }
@@ -96,6 +109,7 @@ export class LocalWebSession {
   /** Envia o token local do Hub; o cookie HttpOnly nasce aqui, na resposta do Hub. */
   async login(token: string): Promise<ErroLogin | null> {
     if (typeof token !== 'string' || !token.trim()) return 'invalid'
+    const signal = this.signal
     let res: Response
     try {
       res = await this.meuFetch(`${this.origin}/web/auth/login`, {
@@ -103,6 +117,7 @@ export class LocalWebSession {
         headers: { 'Content-Type': 'application/json', 'X-Mexerica-Web': '1' },
         credentials: 'same-origin',
         cache: 'no-store',
+        signal,
         body: JSON.stringify({ token }),
       })
     } catch { return 'offline' }
@@ -111,7 +126,7 @@ export class LocalWebSession {
     if (!res.ok) return 'error'
     try {
       const sessao = this.lerSessao(await res.json())
-      if (!sessao) return 'error'
+      if (!sessao || signal.aborted) return 'error'
       this.guardar(sessao)
       return null
     } catch { return 'error' }
@@ -153,6 +168,22 @@ function erroLocal(status: number, codigo: string): CallError {
 }
 
 const SEM_SESSAO = erroLocal(401, 'no web session')
+const INDISPONIVEL = erroLocal(0, 'local hub unreachable')
+const CODIGOS_RPC = new Set([
+  'invalid_request', 'access_denied', 'not_connected', 'reconnect_required', 'unavailable', 'cursor_invalid',
+  'name_invalid', 'name_taken', 'group_missing', 'bot_missing', 'migrating',
+  'skill_installation_unsupported', 'skill_installation_stale', 'skill_installation_changed',
+  'skill_installation_unavailable', 'skill_mutation_outcome_unknown',
+  'skill_selection_unsupported', 'skill_selection_conflict',
+])
+
+function pedidoDaSessao(geracao: AbortSignal) {
+  const controller = new AbortController()
+  const abortar = () => controller.abort()
+  if (geracao.aborted) abortar()
+  else geracao.addEventListener('abort', abortar, { once: true })
+  return { signal: controller.signal, abortar, liberar: () => geracao.removeEventListener('abort', abortar) }
+}
 
 /** O `CodyncBridge['host']` da web local: só a origem da página, só com sessão viva. */
 export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLocal = {}): CodyncBridge['host'] {
@@ -176,27 +207,46 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
       if (baseURL !== session.origin) throw erroLocal(0, 'same-origin host only')
       if (!/^[A-Za-z0-9_-]+$/.test(method)) throw erroLocal(0, 'invalid method')
       const csrf = session.csrfToken
-      if (!csrf) { session.handleUnauthorized(); throw SEM_SESSAO }
-      let res: Response
+      if (!csrf) throw SEM_SESSAO
+      const geracao = session.signal
+      const { signal, abortar, liberar } = pedidoDaSessao(geracao)
+      const timeout = setTimeout(abortar, timeoutMs)
       try {
-        res = await fetchImpl(`${session.origin}/api/${method}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Mexerica-Csrf': csrf },
-          credentials: 'same-origin',
-          cache: 'no-store',
-          body: JSON.stringify(body ?? {}),
-          signal: AbortSignal.timeout(timeoutMs),
-        })
-      } catch { throw erroLocal(0, 'local hub unreachable') }
-      // 401 invalida a sessão antes de ler o corpo: corpo ilegível não deixa a sessão viva (fail-closed).
-      if (res.status === 401) session.handleUnauthorized()
-      let texto: string
-      try {
-        texto = await res.text()
-      } catch { throw erroLocal(0, 'local hub unreachable') }
-      if (res.status === 401) throw hostCallError(401, texto)
-      if (!res.ok) throw hostCallError(res.status, texto)
-      return texto ? JSON.parse(texto) : {}
+        let res: Response
+        try {
+          res = await fetchImpl(`${session.origin}/api/${method}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Mexerica-Csrf': csrf },
+            credentials: 'same-origin',
+            cache: 'no-store',
+            body: JSON.stringify(body ?? {}),
+            signal,
+          })
+        } catch { throw geracao.aborted ? SEM_SESSAO : INDISPONIVEL }
+        if (geracao.aborted || res.status === 401) {
+          if (!geracao.aborted) session.handleUnauthorized()
+          if (res.body) void res.body.cancel().catch(() => {})
+          throw SEM_SESSAO
+        }
+        const texto = await res.text().catch(() => { throw geracao.aborted ? SEM_SESSAO : INDISPONIVEL })
+        if (geracao.aborted) throw SEM_SESSAO
+        if (signal.aborted) throw INDISPONIVEL
+        let valor: unknown
+        try { valor = texto ? JSON.parse(texto) : {} }
+        catch { if (res.ok) throw INDISPONIVEL }
+        if (res.ok) return valor
+        const envelope = valor as { code?: unknown; error?: unknown } | null
+        const legado = envelope?.error
+        const codigoLegado = typeof legado === 'string' && /^skill_/.test(legado) && CODIGOS_RPC.has(legado) ? legado : undefined
+        const code = envelope?.code
+        const codigo = typeof code === 'string' && CODIGOS_RPC.has(code) ? code : codigoLegado
+        const erro = erroLocal(res.status, codigoLegado ?? `Host error ${res.status}`)
+        if (codigo) erro.code = codigo
+        throw erro
+      } finally {
+        clearTimeout(timeout)
+        liberar()
+      }
     },
 
     stream(url, _token, onData, onEnd) {
@@ -208,40 +258,51 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
       }
       const csrf = session.csrfToken
       if (!csrf) {
-        queueMicrotask(() => { session.handleUnauthorized(); onEnd(SEM_SESSAO) })
+        queueMicrotask(() => onEnd(SEM_SESSAO))
         return () => {}
       }
-      const controller = new AbortController()
+      const geracao = session.signal
+      const { signal, abortar, liberar } = pedidoDaSessao(geracao)
       // Timeout ocioso, não total: o Hub pinge a cada 15 s, então silêncio desse tamanho é Hub caído.
       let ocioso: ReturnType<typeof setTimeout> | null = null
       const armar = () => {
         if (ocioso) clearTimeout(ocioso)
-        ocioso = setTimeout(() => controller.abort(), timeoutOcioso)
+        ocioso = setTimeout(abortar, timeoutOcioso)
       }
       const encerrar = (erro: CallError | null) => {
         if (ocioso) { clearTimeout(ocioso); ocioso = null }
         onEnd(erro)
       }
       void (async () => {
+        let res: Response | undefined
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+        const cancelarLeitura = () => { if (reader) void reader.cancel().catch(() => {}) }
+        let fim: CallError | null = null
         try {
           armar()
-          const res = await fetchImpl(destino, {
+          res = await fetchImpl(destino, {
             headers: { Accept: 'text/event-stream', 'X-Mexerica-Csrf': csrf },
             credentials: 'same-origin',
             cache: 'no-store',
-            signal: controller.signal,
+            signal,
           })
+          if (signal.aborted) throw INDISPONIVEL
           if (res.status === 401) {
             session.handleUnauthorized()
-            encerrar(hostCallError(401, await res.text()))
+            fim = SEM_SESSAO
             return
           }
-          if (!res.ok || !res.body) throw hostCallError(res.status, res.ok ? '' : await res.text())
-          const reader = res.body.getReader()
+          if (!res.ok || !res.body) {
+            fim = erroLocal(res.status, `Host error ${res.status}`)
+            return
+          }
+          reader = res.body.getReader()
+          signal.addEventListener('abort', cancelarLeitura, { once: true })
           const decoder = new TextDecoder()
           let buffer = ''
           for (;;) {
             const { value, done } = await reader.read()
+            if (signal.aborted) throw INDISPONIVEL
             if (done) break
             armar()
             buffer += decoder.decode(value, { stream: true })
@@ -249,21 +310,26 @@ export function createLocalWebHost(session: LocalWebSession, opts: OpcoesHostLoc
             while ((nl = buffer.indexOf('\n')) >= 0) {
               const line = buffer.slice(0, nl).replace(/\r$/, '')
               buffer = buffer.slice(nl + 1)
-              if (line.startsWith('data:')) onData(line.slice(5).trimStart())
+              if (line.startsWith('data:')) {
+                if (signal.aborted) throw INDISPONIVEL
+                onData(line.slice(5).trimStart())
+              }
             }
           }
-          encerrar(null)
-        } catch (error) {
-          const e = error as Partial<CallError>
-          const mensagem = typeof e.message === 'string' && e.message ? e.message : 'local hub unreachable'
-          encerrar(controller.signal.aborted ? erroLocal(0, 'local hub unreachable') : erroLocal(e.status ?? 0, mensagem))
+        } catch {
+          fim = geracao.aborted ? SEM_SESSAO : INDISPONIVEL
         } finally {
-          if (ocioso) { clearTimeout(ocioso); ocioso = null }
+          liberar()
+          signal.removeEventListener('abort', cancelarLeitura)
+          if (fim && reader) cancelarLeitura()
+          else if (fim && res?.body) void res.body.cancel().catch(() => {})
+          reader?.releaseLock()
+          encerrar(fim)
         }
       })()
       return () => {
         if (ocioso) { clearTimeout(ocioso); ocioso = null }
-        controller.abort()
+        abortar()
       }
     },
   }
