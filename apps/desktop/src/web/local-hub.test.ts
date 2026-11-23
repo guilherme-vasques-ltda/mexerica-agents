@@ -359,19 +359,25 @@ const VAZIA = { spaceId: 'workspace-vazio', mailboxId: 'caixa-vazia' }
 const COM_FIO = { spaceId: 'workspace-com-fio', mailboxId: 'caixa-com-fio', threadId: FIO.threadId }
 const SEM_SESSAO = { status: 401, message: 'no web session' }
 
+function pendente<T>() {
+  let resolve!: (valor: T) => void
+  const promise = new Promise<T>((resolver) => { resolve = resolver })
+  return { promise, resolve }
+}
+
 for (const origem401 of ['RPC', 'SSE', 'checkSession']) {
   test(`401 em ${origem401} aborta RPC e SSE em voo e descarta respostas atrasadas`, { timeout: 2000 }, async () => {
     const { session, fetch } = await sessaoAutenticada()
     const host = createLocalWebHost(session)
-    const headersPendentes = Promise.withResolvers<Response>()
-    const corpoPendente = Promise.withResolvers<string>()
-    const lendoCorpo = Promise.withResolvers<void>()
-    const sseAberto = Promise.withResolvers<ReadableStreamDefaultController<Uint8Array>>()
-    const lendoSse = Promise.withResolvers<void>()
-    const fimSse = Promise.withResolvers<unknown>()
+    const headersPendentes = pendente<Response>()
+    const corpoPendente = pendente<string>()
+    const lendoCorpo = pendente<void>()
+    const sseAberto = pendente<ReadableStreamDefaultController<Uint8Array>>()
+    const lendoSse = pendente<void>()
+    const fimSse = pendente<unknown>()
     const linhas: string[] = []
     const encoder = new TextEncoder()
-    const cancelarCorpo = Promise.withResolvers<void>()
+    const cancelarCorpo = pendente<void>()
     fetch.fila.push(
       () => headersPendentes.promise,
       Object.assign(resposta(200), { text: () => { lendoCorpo.resolve(); return corpoPendente.promise } }),
@@ -418,9 +424,9 @@ for (const origem401 of ['RPC', 'SSE', 'checkSession']) {
 test('401 e SSE atrasados da geração antiga não afetam a sessão restabelecida', async () => {
   const { session, fetch } = await sessaoAutenticada()
   const host = createLocalWebHost(session)
-  const rpc = Promise.withResolvers<Response>()
-  const sse = Promise.withResolvers<Response>()
-  const fim = Promise.withResolvers<unknown>()
+  const rpc = pendente<Response>()
+  const sse = pendente<Response>()
+  const fim = pendente<unknown>()
   fetch.fila.push(() => rpc.promise, () => sse.promise, resposta(401))
   const erro = assert.rejects(host.call(ORIGIN, '', 'mailInboxOpenThread', COM_FIO, 1000), SEM_SESSAO)
   host.stream(`${ORIGIN}/events`, '', assert.fail, fim.resolve)
