@@ -557,6 +557,7 @@ fn envio_real_progride_no_corte_de_attach_e_detach_sem_adotar_sucessor() {
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn d511_desligado_pede_uma_vez_sem_captura_ax_cua_type_login_ou_claim() {
     use crate::store::{Device, DeviceSource, Scope, now_ms};

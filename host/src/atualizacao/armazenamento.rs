@@ -721,7 +721,7 @@ mod tests {
                 snapshot_sha256: "b".repeat(64),
             };
             armazenamento.gravar("journal", &journal)?;
-            assert!(armazenamento.expirar_journal(&trava, &mut journal, 110)?);
+            assert!(armazenamento.expirar_com(&trava, &mut journal, 110, |_| Ok(()))?);
         }
         {
             let armazenamento = abrir()?;
@@ -801,7 +801,7 @@ mod tests {
             manifesto_sha256: "a".repeat(64),
             snapshot_sha256: "b".repeat(64),
         };
-        assert!(armazenamento.expirar_journal(&trava, &mut journal, 110)?);
+        assert!(armazenamento.expirar_com(&trava, &mut journal, 110, |_| Ok(()))?);
         let gravado: Journal = armazenamento.ler("journal")?;
         assert_eq!(gravado.estado.fase, Fase::Expirada);
         assert!(path.join("bloqueio").is_file());

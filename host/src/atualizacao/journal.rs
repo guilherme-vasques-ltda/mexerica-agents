@@ -116,12 +116,43 @@ impl Diretorio {
 
     /// Marca de bloqueio é gravada antes do journal expirado. Um crash entre as
     /// duas escritas deixa o bloqueio ativo, nunca uma transação aceitável.
-    pub fn expirar_journal(&self, trava: &File, journal: &mut Journal, agora: i64) -> Result<bool> {
+    pub fn expirar_journal(
+        &self,
+        publicacao: &Diretorio,
+        trava: &File,
+        journal: &mut Journal,
+        agora: i64,
+    ) -> Result<bool> {
+        self.expirar_com(trava, journal, agora, |journal| {
+            let anterior = journal
+                .slot_anterior
+                .filter(|_| matches!(journal.etapa, Etapa::ReversaoIniciada | Etapa::SeletorRestaurado));
+            super::slots::em_todos(std::iter::once(journal.slot_novo).chain(anterior), |slot| {
+                publicacao.desarmar_slot(slot).map(drop)
+            })?;
+            Ok(())
+        })
+    }
+
+    pub(super) fn expirar_com(
+        &self,
+        trava: &File,
+        journal: &mut Journal,
+        agora: i64,
+        desarmar: impl FnOnce(&Journal) -> Result<()>,
+    ) -> Result<bool> {
         self.validar_trava(trava)?;
+        if matches!(journal.estado.fase, Fase::Expirada) {
+            desarmar(journal)?;
+            return Ok(true);
+        }
         if !matches!(journal.estado.fase, Fase::Pendente { prazo, .. } if agora >= prazo) {
             return Ok(false);
         }
-        self.gravar("bloqueio", &Bloqueio { motivo: "expiracao_sem_aceite".into() })?;
+        let bloqueio = self.gravar("bloqueio", &Bloqueio { motivo: "expiracao_sem_aceite".into() });
+        let desarme = desarmar(journal);
+        bloqueio?;
+        desarme?;
         journal.estado.fase = Fase::Expirada;
         self.gravar("journal", journal)?;
         Ok(true)
@@ -158,7 +189,7 @@ impl Diretorio {
             self.exigir_sem_bloqueio()?;
             publicacao.exigir_sem_emergencia()?;
             let mut journal = journal_lido?;
-            if self.expirar_journal(trava, &mut journal, agora)? {
+            if self.expirar_journal(publicacao, trava, &mut journal, agora)? {
                 motivo = Motivo::Expiracao;
                 publicacao.publicar_status(self, trava)?;
                 anyhow::bail!("janela expirada; recuperação administrativa necessária");
@@ -275,6 +306,45 @@ pub fn planejar_recuperacao(journal: &Journal, seletor: Option<Slot>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expiracao_desarma_sob_trava_e_tenta_de_novo_apos_falha() -> Result<()> {
+        use std::{
+            fs::{DirBuilder, OpenOptions},
+            os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+        };
+
+        let dir = tempfile::tempdir()?;
+        let caminho = dir.path().join("estado");
+        DirBuilder::new().mode(0o700).create(&caminho)?;
+        let estado = Diretorio::abrir_teste(&caminho)?;
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(caminho.join("lock"))?;
+        let trava = estado.travar()?;
+        let mut journal = Journal {
+            estado: Estado { marca: 2, piso: 1, fase: Fase::Pendente { anterior: Some(1), prazo: 200 } },
+            etapa: Etapa::ReversaoIniciada,
+            transacao: "a".repeat(64),
+            sequencia_nova: 2,
+            publicado_em: Some(100),
+            sequencia_anterior: Some(1),
+            slot_anterior: Some(Slot::A),
+            slot_novo: Slot::B,
+            manifesto_sha256: "b".repeat(64),
+            snapshot_sha256: "c".repeat(64),
+        };
+        estado.gravar("journal", &journal)?;
+        assert!(!estado.expirar_com(&trava, &mut journal, 199, |_| panic!("desarme antes do prazo"))?);
+        assert!(estado.expirar_com(&trava, &mut journal, 200, |_| anyhow::bail!("falha de desarme simulada")).is_err());
+        assert!(estado.exigir_sem_bloqueio().is_err());
+        assert!(matches!(estado.ler::<Journal>("journal")?.estado.fase, Fase::Pendente { .. }));
+        assert!(estado.expirar_com(&trava, &mut journal, 201, |observado| {
+            assert!(estado.tentar_travar()?.is_none());
+            assert_eq!(observado.slot_novo, Slot::B);
+            Ok(())
+        })?);
+        assert_eq!(estado.ler::<Journal>("journal")?.estado.fase, Fase::Expirada);
+        Ok(())
+    }
     #[test]
     fn recuperacao_cobre_todas_as_fases_e_estados_finais() {
         let mut journal = Journal {

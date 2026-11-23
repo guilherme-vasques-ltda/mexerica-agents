@@ -116,6 +116,14 @@ impl Actor {
         }
     }
 
+    /// Conversa pausada por efeito incerto: o trabalho dela fica na fila. Leitura que falha também segura.
+    pub(super) fn conversation_held(&self, chat: &str) -> bool {
+        admission::conversation_paused(&self.hub.store, &self.cfg.id, chat).unwrap_or_else(|error| {
+            tracing::error!(%error, "pausa da conversa ilegível; o trabalho dela segue na fila");
+            true
+        })
+    }
+
     pub(super) fn reserve_dispatch(&mut self) -> Result<()> {
         let origin = self.turn_origin();
         let token = self
@@ -402,6 +410,18 @@ impl Actor {
     ) -> Result<()> {
         crate::agent::backends::require_supported_execution(&self.cfg.backend)?;
         let hub = self.hub.clone();
+        let personal_lane =
+            self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none();
+        if let Err(error) = crate::fork::assinatura_pessoal::turn(
+            &self.cfg,
+            personal_lane
+                && self.input.as_ref().is_some_and(|input| input.direct_chat(&self.cfg))
+                && crate::fork::assinatura_pessoal::human_entries(&hub.store, &self.lane, &entries),
+            personal_lane && self.owner_compaction(&self.lane),
+        ) {
+            self.stop_subscription_retry(&entries, &error);
+            return Err(error);
+        }
         let account_guard =
             if self.cfg.context.is_some() { Some(crate::fork::engine_accounts::MUTATION.lock().await) } else { None };
         if let Some(ticket) = &self.dispatch
@@ -552,6 +572,13 @@ impl Actor {
             Err(error) if error.chain().any(<dyn std::error::Error>::is::<crate::chat::handoff::CardChanged>) => {
                 self.recompose_after_card_change(&session, &entries);
                 return Ok(());
+            }
+            // Conversa pausada: a reserva saiu na Tx do permit; o turno termina sem envio e o ator fica livre para as
+            // outras conversas.
+            Err(error) if error.is::<admission::ConversationPaused>() => {
+                self.clear_profile_skills(&ticket);
+                self.dispatch = None;
+                return Err(error);
             }
             // O pedido foi decidido (cancelado/interrompido) entre a leitura e a Tx: não envia.
             Err(_) if request_decided => {
@@ -781,6 +808,7 @@ impl Actor {
                     return;
                 }
                 if let Err(error) = self.start_prepared_turn(lane, &entries, &text, hidden, done_tx, token).await {
+                    self.stop_subscription_retry(&entries, &error);
                     self.start_failed(&error);
                     self.requeue_unreserved_humans(&entries);
                 }
@@ -929,24 +957,34 @@ impl Actor {
                 self.restart_admission = false;
                 return Ok(());
             }
-            let completed_routine =
-                matches!(&record.origin, Origin::Routine { id } if self.hub.routines.admission_finished(id));
-            if !completed_routine {
-                // O aviso vai para a sessão do turno interrompido (extra ou principal), nunca para outra.
-                let first = match record.entry_ids.first() {
-                    Some(id) => crate::store::Store::entry_on(&self.hub.store.db.locked(), id)?,
-                    None => None,
-                };
-                let lane = Lane {
-                    chat: record.conversation_id.clone(),
-                    session: first.filter(|e| e.session_id != record.conversation_id).map(|e| e.session_id),
-                };
-                self.hub.add_entry_once(
-                    &format!("dispatch-interrupted-{}", record.attempt), &lane,
-                    crate::store::EntryKind::Notice, 0,
-                    &json!({"text":"O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico antes de reenviar. Nenhuma ação foi repetida automaticamente.","style":"info","author":self.cfg.id}),
-                )?;
-            }
+            // Nenhum estado terminal gravado pela rotina prova a conclusão enquanto a cerca segue permitida (um
+            // timeout ou uma parada podem vir depois do envio): a pausa vale para toda origem.
+            // O aviso vai para a sessão do turno interrompido (extra ou principal), nunca para outra.
+            let first = match record.entry_ids.first() {
+                Some(id) => crate::store::Store::entry_on(&self.hub.store.db.locked(), id)?,
+                None => None,
+            };
+            let lane = Lane {
+                chat: record.conversation_id.clone(),
+                session: first.filter(|e| e.session_id != record.conversation_id).map(|e| e.session_id),
+            };
+            // A pausa é gravada antes do aviso e antes de soltar a cerca: uma nova queda aqui repete só a pausa
+            // (idempotente) e o aviso único, nunca o turno.
+            admission::pause_conversation(&self.hub.store, &self.cfg.id, &record.conversation_id, &record.attempt)?;
+            // A rotina publica o próprio aviso de efeito incerto; este diz só que a conversa ficou pausada, para o aviso de
+            // efeito continuar único.
+            let text = if matches!(record.origin, Origin::Routine { .. }) {
+                "O Hub reiniciou durante uma rotina com efeito incerto e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la. Nenhuma ação foi repetida automaticamente."
+            } else {
+                "O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico. Nenhuma ação foi repetida automaticamente e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la."
+            };
+            self.hub.add_entry_once(
+                &format!("dispatch-interrupted-{}", record.attempt),
+                &lane,
+                crate::store::EntryKind::Notice,
+                0,
+                &json!({"text":text,"style":"info","author":self.cfg.id}),
+            )?;
         }
         admission::finish(&self.hub.store, &self.cfg.id, &record.ticket())?;
         self.clear_profile_skills(&record.ticket());

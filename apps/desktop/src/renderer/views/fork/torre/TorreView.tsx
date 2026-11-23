@@ -31,6 +31,7 @@ import { PedidosEntreBots } from './PedidosEntreBots'
 import { TrocasDeConta } from './TrocasDeConta'
 import { PermissoesDelegadas } from './PermissoesDelegadas'
 import { RotinasCriadas, RoutineCard } from './RotinasCriadas'
+import { DoctorSession, SaudeHubCard, type SaudeHubState } from './SaudeHubCard'
 import { torreScreen } from './navigation'
 import { answerView, pendingView, questionView, responderOf, type PendingView, type QuestionView, type Responder } from './responder'
 import { TowerSession, type TowerError, type TowerSource } from './torre-session'
@@ -40,7 +41,7 @@ import { activityText } from '../../../lib/fork-atividade'
 import { EsperandoVoceList, type AttentionQueueItem } from './EsperandoVoceList'
 import './torre.css'
 
-export { torreScreen }
+export { SaudeHubCard, torreScreen }
 
 const hm = hora
 
@@ -98,11 +99,17 @@ export function TorreScreenView() {
 
 function TorreLive(props: { store: BotStore; source: TowerSource; spaceId: string; spaceName: string; personalSpaceId: string | null; onNavigate: (t: OpenTarget) => void; onRetry: () => void; onProjects: (() => void) | null }) {
   const session = useMemo(() => sessionFor(props.store.computer.id, props.spaceId), [props.store, props.spaceId])
+  const doctor = useMemo(() => new DoctorSession(), [props.store, props.spaceId])
   useModel(session)
+  useModel(doctor)
   useEffect(() => {
     session.open(props.source, props.spaceId)
-    return () => session.close()
-  }, [session, props.source, props.spaceId])
+    doctor.open(props.source, props.spaceId)
+    return () => {
+      session.close()
+      doctor.close()
+    }
+  }, [session, doctor, props.source, props.spaceId])
   // Captura a origem da fotografia; uma RPC atrasada não confirma decisões em outro Hub/Space/link.
   const snapshot = session.snapshot
   const client = props.source.connectedClient
@@ -126,6 +133,7 @@ function TorreLive(props: { store: BotStore; source: TowerSource; spaceId: strin
     <TorrePage
       key={JSON.stringify([snapshot?.hubId ?? null, props.spaceId])}
       session={session}
+      doctor={doctor.state}
       spaceName={props.spaceName}
       computerName={props.store.computer.name}
       personalSpaceId={props.personalSpaceId}
@@ -183,6 +191,8 @@ export interface TorrePageProps {
   onProjects?: (() => void) | null
   /** D544: decisão posterior à criação; ausente, somente leitura. */
   onReviewRoutine?: ReviewRoutine | null
+  /** Diagnóstico somente leitura do Hub (`donnaHubDoctor`); ausente em prévias sintéticas sem sessão. */
+  doctor?: SaudeHubState | null
 }
 
 
@@ -238,7 +248,12 @@ export function TorrePage(p: TorrePageProps) {
 
   let body: ReactNode
   if (session.phase.kind === 'moved') body = <p className="torre-state" role="alert">{t('torre.movido', { nome: isolado(t('torre.nome')) })}</p>
-  else if (!snapshot && session.phase.kind === 'error') body = <p className="torre-state" role="status">{erroTorre(t, session.phase.codigo)}</p>
+  else if (!snapshot && session.phase.kind === 'error') body = (
+    <>
+      {p.doctor ? <SaudeHubCard state={p.doctor} onRetry={p.onRetry} /> : null}
+      <p className="torre-state" role="status">{erroTorre(t, session.phase.codigo)}</p>
+    </>
+  )
   else if (!snapshot) body = <p className="torre-state" role="status">{t('torre.abrindo', { nome: isolado(t('torre.nome')) })}</p>
   else {
     body = (
@@ -259,6 +274,7 @@ export function TorrePage(p: TorrePageProps) {
         )}
         {session.notice ? <p className="torre-notice" role="status">{t('torre.aviso.reler')}</p> : null}
         {uninformed ? <p className="torre-notice" role="status">{t.plural('torre.semEstado', uninformed)}</p> : null}
+        {p.doctor ? <SaudeHubCard state={p.doctor} onRetry={p.onRetry} /> : null}
         <Counts bots={listed} at={stale ? at : null} />
         <div className="torre-main">
           <div className="torre-list">

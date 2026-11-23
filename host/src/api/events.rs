@@ -144,6 +144,9 @@ pub fn scoped_events_stream(
             Ok(v) if v["type"] == crate::fork::projetos::EVENT => {
                 crate::fork::projetos::event(&event_hub, &tower_caller, &space, &v)
             }
+            Ok(v) if v["type"] == crate::fork::governanca::EVENT => {
+                crate::fork::governanca::event(&event_hub, &tower_caller, &space, &v)
+            }
             Ok(v) if v["type"] == crate::fork::control_tower::EVENT => {
                 crate::fork::control_tower::event(&event_hub, &tower_caller, &space, &v)
             }

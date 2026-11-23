@@ -8,7 +8,7 @@ use crate::chat::memory;
 use crate::fork::activity_code::ActivityKind;
 use crate::hub::BotStatus;
 use crate::market::requests;
-use crate::store::Lane;
+use crate::store::{EntryKind, Lane};
 use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::time::Instant;
@@ -133,9 +133,12 @@ impl Actor {
                 }
             }
             Cmd::Send { lane, entry_id, text } => {
-                if self.hub.store.entry(&entry_id).is_none_or(|entry| {
-                    entry.kind == crate::store::EntryKind::User.as_str() && entry.data["status"] != "queued"
-                }) {
+                if self
+                    .hub
+                    .store
+                    .entry(&entry_id)
+                    .is_none_or(|entry| entry.kind == EntryKind::User.as_str() && entry.data["status"] != "queued")
+                {
                     return true;
                 }
                 // O startup pode ter recuperado o SQLite enquanto este comando aguardava no canal.
@@ -151,12 +154,7 @@ impl Actor {
                     entry.data["subscriptionQueued"] = json!(true);
                     self.hub.set_entry(&entry_id, &entry.data);
                 }
-                if self
-                    .hub
-                    .store
-                    .entry(&entry_id)
-                    .is_some_and(|entry| entry.kind == crate::store::EntryKind::User.as_str())
-                {
+                if self.hub.store.entry(&entry_id).is_some_and(|entry| entry.kind == EntryKind::User.as_str()) {
                     self.compaction_reset(&lane);
                 }
                 self.queue.push_back(Queued::User { lane, entry_id, text });
@@ -507,6 +505,7 @@ impl Actor {
     pub(super) fn restore_waiting_queue(&mut self) -> Result<()> {
         // Armar antes do I/O: erro não deixa o boot depender de fila já preenchida.
         self.queue_restore_retry_at = Some(Instant::now() + std::time::Duration::from_secs(5));
+        self.persist_subscription_refusals()?;
         let entries = self.hub.store.queued_user_entries_for_identity(&self.cfg.id)?;
         let ids = entries
             .iter()
@@ -548,7 +547,15 @@ impl Actor {
         {
             // Só origem ainda inválida fica estacionada; elegíveis conservam a
             // ordem original. A posição não muda durante o retry por entrada.
-            let Some(next) = self.queue.iter().position(|q| !matches!(q, Queued::RestoreUser { .. })) else { return };
+            // Conversa pausada por efeito incerto também fica: as outras passam à frente.
+            let Some(next) = self.queue.iter().position(|q| match q {
+                Queued::RestoreUser { .. } => false,
+                Queued::User { lane, .. } => !self.conversation_held(&lane.chat),
+                Queued::Routine(_) | Queued::BotRequest(_) => !self.conversation_held(&main.chat),
+                Queued::Group(_) | Queued::Compact { .. } => true,
+            }) else {
+                return;
+            };
             match self.queue.get(next) {
                 Some(Queued::Routine(_)) => {
                     let Some(Queued::Routine(id)) = self.queue.remove(next) else { unreachable!("item é uma rotina") };
@@ -613,6 +620,11 @@ impl Actor {
                     };
                     // A newer message in the room (or Stop) ended the room turn that queued this.
                     if turn.reply.is_closed() || !self.hub.groups.current(&turn.lane, turn.epoch) {
+                        continue;
+                    }
+                    // Sala pausada para este membro: a rodada conta como passe, sem prompt.
+                    if self.conversation_held(&turn.lane.chat) {
+                        let _ = turn.reply.send(Err(anyhow!("conversation_paused")));
                         continue;
                     }
                     let (lane, prompt) = (turn.lane.clone(), turn.prompt.clone());
@@ -681,6 +693,7 @@ impl Actor {
                 self.handoff_chat = Some(lane.clone());
             }
             if let Err(e) = self.start_turn(lane, &ids, &text, false, done_tx).await {
+                self.stop_subscription_retry(&ids, &e);
                 self.start_failed(&e);
                 self.requeue_unreserved_humans(&ids);
             }
@@ -732,6 +745,14 @@ impl Actor {
 
     pub(super) fn start_failed(&mut self, e: &anyhow::Error) {
         if self.defer_chain_preparation(e) {
+            return;
+        }
+        // Retenção deliberada da conversa pausada: o aviso da pausa já está nela. O turno termina sem aviso de erro e o
+        // bot volta a ficar ocioso. Rotina segue o caminho de falha, para não ser registrada como concluída.
+        if self.active_routine.is_none()
+            && e.chain().any(<dyn std::error::Error>::is::<crate::fork::bot_admission::ConversationPaused>)
+        {
+            self.finish_turn(&Err(crate::fork::bot_admission::ConversationPaused.into()));
             return;
         }
         // Conservar RpcError tipado: hint de uso não transforma uma falha comum em limite.
@@ -801,20 +822,35 @@ impl Actor {
         } else {
             crate::fork::rotina_resultado::Reason::StartFailed
         };
-        self.finish_routine(
-            crate::fork::rotina_resultado::Observed::failed(reason),
-            Some(format!("Could not start routine: {e:#}")),
-            None,
-        );
+        let subscription_refused = e.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_some();
+        let mut observed = crate::fork::rotina_resultado::Observed::failed(reason);
+        observed.terminal = subscription_refused;
+        self.finish_routine(observed, Some(format!("Could not start routine: {e:#}")), None);
         self.complete_request(
             Err(anyhow!("couldn't start recipient: {e:#}")),
             false,
             crate::fork::retornos::Fim::FalhaInicio,
         );
+        let room_refusal = self.active_group.is_some() && subscription_refused;
+        if room_refusal
+            && self
+                .hub
+                .add_entry(
+                    &self.lane,
+                    EntryKind::Notice,
+                    self.hub.store.max_turn(&self.lane.chat),
+                    &json!({"text":e.to_string(),"style":"error","author":self.cfg.id}),
+                )
+                .is_none()
+        {
+            tracing::warn!("não foi possível publicar a recusa no canal");
+        }
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
-        if !invited {
-            // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
-            self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);
+        if !invited && !room_refusal {
+            let text = e
+                .downcast_ref::<crate::fork::assinatura_pessoal::Refusal>()
+                .map_or_else(|| format!("Couldn't start the agent: {e:#}"), ToString::to_string);
+            self.notice(&text, NoticeStyle::Error);
         }
         self.turn = None;
         self.input = None;
@@ -990,7 +1026,7 @@ impl Actor {
             r.message = None;
             r.session = None;
         });
-        if self.hub.add_entry(&lane, crate::store::EntryKind::Notice, self.hub.store.max_turn(&lane.chat),
+        if self.hub.add_entry(&lane, EntryKind::Notice, self.hub.store.max_turn(&lane.chat),
             &json!({"text":"O Hub reiniciou durante uma execução sem checkpoint de retomada comprovado. Confira o histórico antes de reenviar; nenhuma ação foi repetida automaticamente.","style":"info","author":self.cfg.id})).is_none()
         {
             tracing::error!("não foi possível salvar o aviso da execução legada");

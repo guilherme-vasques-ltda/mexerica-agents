@@ -250,6 +250,7 @@ async fn integrity_directory_symlinks_never_publish_into_another_bot() {
 // Mantém o organizador real pausado do #154: a projeção injetada nunca entra no journal/plano.
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn integrity_dreaming_never_promotes_disk_content() {
     let host = Host::start_with_background("marker").await;
     let marker = host.home.join("dream-boundary");
@@ -476,6 +477,7 @@ async fn nota_humana_recusa_segredo_antes_de_efeito_e_restore_nao_reintroduz_his
 
 #[tokio::test]
 #[cfg(unix)]
+#[ignore = "A prova positiva requer um executor de fundo com credencial de API."]
 async fn consolidacao_nao_aplica_se_a_selecao_muda_durante_o_trabalho() {
     let host = Host::start_with_background("marker").await;
     let marker = host.home.join("dream-boundary");

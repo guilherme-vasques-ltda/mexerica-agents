@@ -44,7 +44,7 @@ fn interpretar(valor: Option<&OsStr>, uid_pai: u32, pai_sudo: bool) -> Result<Id
 /// Resolve `/usr/bin/sudo` mesmo quando é link (ex.: alternatives), exigindo que o
 /// link, cada ancestral do alvo e o próprio executável sejam root e não graváveis
 /// por grupo/outros. Sem isso, um sudo empacotado como link recusaria toda chamada.
-fn sudo_confiavel() -> Result<std::fs::Metadata> {
+pub(super) fn sudo_confiavel() -> Result<std::fs::Metadata> {
     use std::{fs, os::unix::fs::MetadataExt};
     let link = fs::symlink_metadata("/usr/bin/sudo")?;
     ensure!(link.uid() == 0 && (link.file_type().is_symlink() || link.mode() & 0o022 == 0), "sudo inseguro");

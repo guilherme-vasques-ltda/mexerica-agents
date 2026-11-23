@@ -191,6 +191,29 @@ impl Host {
         assert_eq!(notices[0]["id"], id);
     }
 
+    /// Contrato da pausa: depois de um reinício com efeito incerto, nada novo sai desta conversa (a mensagem
+    /// `held`, quando existe, fica `queued`) até o dono liberá-la; liberar não repete nada.
+    async fn assert_paused_then_release(&self, bot: &str, name: &str, held: &str, message: bool) {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(
+            !self.agent_events(name).iter().any(|e| e["text"].as_str().unwrap().contains(held)),
+            "{held} saiu da conversa pausada"
+        );
+        if message {
+            let history = self.call("history", json!({"botId":bot})).await;
+            let entry = history["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["kind"] == "user" && e["data"]["text"] == held)
+                .cloned()
+                .unwrap();
+            assert_eq!(entry["data"]["status"], "queued", "a mensagem nova espera a liberação");
+        }
+        let released = self.call("releaseConversation", json!({"botId":bot})).await;
+        assert_eq!(released["released"], json!([bot]));
+    }
+
     async fn send(&self, bot: &str, text: &str) {
         // Como o app: toda mensagem traz a origem digitada; sem ela o Hub trata o texto como desconhecido.
         let body = json!({"botId":bot,"text":text,"contentOrigin":message_origin(text, false),"clientNonce":uuid::Uuid::new_v4().to_string()});
@@ -351,6 +374,7 @@ async fn crash_apos_permissao_interrompe_sem_replay_e_publica_um_aviso() {
     assert!(!history["entries"].as_array().unwrap().iter().any(|e| e["kind"] == "agent" && e["data"]["final"] == true));
     // Não soltar o BLOCK: replay indevido bloquearia a próxima entrada.
     host.send(&bot, "BARRIER").await;
+    host.assert_paused_then_release(&bot, "resume", "BARRIER", true).await;
     let barrier = host.wait_event("resume", "finished", "BARRIER").await;
     assert_ne!(started["session"], barrier["session"], "a rotina não vira sessão principal");
     let entries = host
@@ -493,6 +517,8 @@ async fn busy_bot_keeps_work_pending_and_honors_pause_delete_and_edit_across_res
     .await;
     let dispatch = host.permitted_dispatch(&bot);
     host.restart().await;
+    host.wait_status(&bot, &kept, "pending").await;
+    host.assert_paused_then_release(&bot, "queue", "NEW_INSTRUCTION", false).await;
     host.wait_status(&bot, &kept, "succeeded").await;
     host.wait_event("queue", "finished", "NEW_INSTRUCTION").await;
     host.assert_no_replay("queue", "BLOCK[user]");
@@ -549,6 +575,8 @@ async fn unavailable_resume_never_replays_work_in_a_fresh_session() {
     host.wait_status(&bot, &id, "interrupted").await;
     let next = host.save(&bot, "next", "AFTER_INTERRUPTION", json!([{"type":"webhook"}]), 30).await;
     host.call("runRoutine", json!({"botId":bot,"id":next})).await;
+    host.wait_status(&bot, &next, "pending").await;
+    host.assert_paused_then_release(&bot, "no-resume", "AFTER_INTERRUPTION", false).await;
     host.wait_status(&bot, &next, "succeeded").await;
     assert_eq!(
         host.agent_events("no-resume")
@@ -807,6 +835,7 @@ async fn pausa_global_persiste_e_nao_reexecuta_trabalho_aceito() {
     host.restart().await;
     assert_eq!(host.call("routinesPause", json!({})).await["paused"], true);
     host.send(&bot, "BARREIRA_PAUSADA").await;
+    host.assert_paused_then_release(&bot, "global-pause", "BARREIRA_PAUSADA", true).await;
     host.wait_event("global-pause", "finished", "BARREIRA_PAUSADA").await;
     let entries = host
         .wait_history_until(&bot, |entries| entries.iter().any(|e| e["kind"] == "agent" && e["data"]["final"] == true))

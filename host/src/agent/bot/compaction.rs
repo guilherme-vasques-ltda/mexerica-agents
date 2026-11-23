@@ -299,7 +299,14 @@ impl Actor {
     ) {
         let manual = lane.is_some();
         let lane = lane.unwrap_or_else(|| Lane::main(&self.cfg.id));
+        if !manual {
+            self.context_compaction = None;
+        }
         if !manual && !self.automatic_compaction_allowed(&lane) {
+            return;
+        }
+        if self.conversation_held(&lane.chat) {
+            tracing::info!(bot = %self.cfg.id, "compactação adiada: conversa pausada por efeito incerto");
             return;
         }
         let slot = lane

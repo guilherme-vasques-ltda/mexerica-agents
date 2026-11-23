@@ -461,6 +461,17 @@ fn visible_bot(hub: &Hub, id: &str) -> Result<BotConfig> {
         .ok_or_else(|| anyhow!("unknown or hidden bot"))
 }
 
+fn check_subscription_delegation(hub: &Hub, source: &BotConfig, target: &BotConfig, lane: &Lane) -> Result<()> {
+    let mut source = source.clone();
+    let mut target = target.clone();
+    let db = hub.store.db.locked();
+    crate::fork::sessoes::admissao::apply_choice(&db, lane, &mut source)?;
+    let target_lane = Lane::main(&target.id);
+    crate::fork::sessoes::admissao::apply_choice(&db, &target_lane, &mut target)?;
+    crate::fork::assinatura_pessoal::automation(&source)?;
+    crate::fork::assinatura_pessoal::automation(&target)
+}
+
 #[cfg(test)]
 pub async fn call(hub: &Arc<Hub>, from: &str, name: &str, args: &Value) -> Result<Value> {
     call_in_execution(hub, from, name, args, None).await
@@ -616,6 +627,7 @@ fn message_bot(
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "team_commit");
     let _boundary = context.is_none().then(|| hub.store.memory_boundary.locked());
     let lane = source_lane(hub, source, context, execution)?;
+    check_subscription_delegation(hub, source, &target, &lane)?;
     let (hops, chain) = hub.team.reserve_message_in(&source.id)?;
     let pedido = contrato::com_mensagem(message, contrato);
     let estruturado = contrato.map(Contrato::json);
@@ -788,6 +800,7 @@ fn begin_ask(
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "team_commit");
     let _boundary = context.is_none().then(|| hub.store.memory_boundary.locked());
     let lane = source_lane(hub, source, context, execution)?;
+    check_subscription_delegation(hub, source, &target, &lane)?;
     if !matches!(hub.runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
         bail!("the requesting bot is no longer working");
     }

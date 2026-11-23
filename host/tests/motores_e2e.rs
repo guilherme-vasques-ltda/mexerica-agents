@@ -559,16 +559,21 @@ fn impressao(sal: &str, motor: &str, espaco: &str, identidade: &str) -> String {
     id
 }
 
-fn conta_gerenciada(host: &Host, falsos: &Falsos, sal: &str, letra: char, billing: &str) -> Conta {
-    let identidade = format!("{letra}@example.invalid\0org");
-    let id = impressao(sal, "claude", "account", &identidade);
-    let quota = impressao(sal, "claude", "quota", &identidade);
+fn conta_gerenciada(host: &Host, falsos: &Falsos, sal: &str, letra: char, billing: &str, backend: &str) -> Conta {
+    let sufixo = if backend == "codex" { "plan:pro" } else { "org" };
+    let identidade = format!("{letra}@example.invalid\0{sufixo}");
+    let id = impressao(sal, backend, "account", &identidade);
+    let quota = impressao(sal, backend, "quota", &identidade);
     let dir = host.home.join("engine-setup").join("accounts").join(&id).join(letra.to_string());
     std::fs::create_dir_all(&dir).unwrap();
-    let executavel = falsos.pasta.join("claude").display().to_string();
+    let executavel = falsos.pasta.join(backend).display().to_string();
     let launch = json!({"kind":"cli_profile", "executable": executavel, "directory": dir});
-    let proof = json!({"method":"claude_auth_status", "plan":"max"});
-    let json = json!({"id":id,"backend":"claude","billing":billing,"state":"connected","launch":launch,"scope":"owner",
+    let proof = if backend == "codex" {
+        json!({"method":"codex_account_read", "plan":"pro"})
+    } else {
+        json!({"method":"claude_auth_status", "plan":"max"})
+    };
+    let json = json!({"id":id,"backend":backend,"billing":billing,"state":"connected","launch":launch,"scope":"owner",
         "quotaIdentity":quota,"verifiedAt":1,"subscriptionProof":proof,"models":[{"id":"haiku","options":[]}],
         "managed":{"label":format!("Conta {letra}"),"revision":1,"generation":0,"enabled":true,
             "requestId":"fixture","principal":"fixture","profile":null,"setupRequest":null,
@@ -595,17 +600,18 @@ async fn ambiente() -> Ambiente {
     let falsos = Falsos::nova();
     falsos.instalar_todos();
     falsos.instalar("claude-agent-acp");
+    falsos.instalar("codex-acp");
     let host = falsos.hub().await;
     Ambiente { falsos, host, sal: uuid::Uuid::new_v4().to_string() }
 }
 
 impl Ambiente {
     fn conta(&self, letra: char) -> Conta {
-        conta_gerenciada(&self.host, &self.falsos, &self.sal, letra, "subscription")
+        conta_gerenciada(&self.host, &self.falsos, &self.sal, letra, "subscription", "codex")
     }
 
     async fn bot_na(&self, conta: &Conta) -> String {
-        let criar = json!({"name":"claude","backend":"claude","connectors":[],"notify":false,
+        let criar = json!({"name":"Fixture","backend":conta.json["backend"],"connectors":[],"notify":false,
             "model":"haiku","forkEditor":{"engineAccountId":conta.id}});
         self.host.call("createBot", criar).await["bot"]["id"].as_str().unwrap().to_owned()
     }
@@ -617,7 +623,7 @@ impl Ambiente {
             self.bot_na(conta).await;
         }
         let ids: Vec<&str> = reservas.iter().map(|c| c.id.as_str()).collect();
-        self.host.call("donnaEngineFallbackSave", json!({"backend":"claude","botId":bot,"accounts":ids})).await
+        self.host.call("donnaEngineFallbackSave", json!({"backend":"codex","botId":bot,"accounts":ids})).await
     }
 
     async fn enviar(&self, bot: &str) {
@@ -802,21 +808,21 @@ async fn erro_comum_nao_troca_de_conta() {
 async fn chave_de_api_e_conta_nao_comprovada_nunca_entram_na_troca() {
     let amb = ambiente().await;
     let (m, n) = (amb.conta('m'), amb.conta('n'));
-    let api = conta_gerenciada(&amb.host, &amb.falsos, &amb.sal, 'p', "paid_api");
+    let api = conta_gerenciada(&amb.host, &amb.falsos, &amb.sal, 'p', "paid_api", "codex");
     std::fs::write(m.dir.join("cota-esgotada"), "").unwrap();
     registrar_contas(&amb.host, &amb.sal, &[&m, &n, &api]);
     let bot = amb.bot_na(&m).await;
     // Chave de API nem entra na lista.
     let recusa =
-        amb.host.refused("donnaEngineFallbackSave", json!({"backend":"claude","botId":bot,"accounts":[api.id]})).await;
+        amb.host.refused("donnaEngineFallbackSave", json!({"backend":"codex","botId":bot,"accounts":[api.id]})).await;
     assert!(recusa.contains("fallback_not_subscription"), "{recusa}");
     // Constar da lista não basta: sem um bot do Space usando a conta, ela não é reserva (vínculo independente da lista).
     let sem_vinculo =
-        amb.host.refused("donnaEngineFallbackSave", json!({"backend":"claude","botId":bot,"accounts":[n.id]})).await;
+        amb.host.refused("donnaEngineFallbackSave", json!({"backend":"codex","botId":bot,"accounts":[n.id]})).await;
     assert!(sem_vinculo.contains("account_wrong_space"), "{sem_vinculo}");
     // Uma reserva válida que deixa de ser comprovada depois da lista não é escolhida.
     amb.reserva_do_bot(&bot, &[&n]).await;
-    let nao_comprovada = conta_gerenciada(&amb.host, &amb.falsos, &amb.sal, 'n', "unverified");
+    let nao_comprovada = conta_gerenciada(&amb.host, &amb.falsos, &amb.sal, 'n', "unverified", "codex");
     registrar_contas(&amb.host, &amb.sal, &[&m, &nao_comprovada]);
     amb.enviar(&bot).await;
     esperar_aviso(&amb.host, &bot, "Limite da assinatura atingido").await;
@@ -938,7 +944,7 @@ async fn outro_space_segue_como_antes_sem_reenvio_em_laco() {
         .host
         .call(
             "createBot",
-            json!({"hubId":hub,"spaceId":work,"name":"claude","backend":"claude","connectors":[],"notify":false,
+            json!({"hubId":hub,"spaceId":work,"name":"Fixture","backend":"codex","connectors":[],"notify":false,
                 "model":"haiku","forkEditor":{"engineAccountId":a.id}}),
         )
         .await["bot"]["id"]
@@ -958,13 +964,13 @@ async fn outro_space_segue_como_antes_sem_reenvio_em_laco() {
             "donnaConversationUpdate",
             json!({"hubId":hub,"spaceId":work,"conversationId":conversa["id"],"expectedRevision":conversa["revision"],
                 "engineAccountId":a.id,"expectedAccountRevision":rev_conta,
-                "engineSelection":{"backend":"claude","model":"haiku","modelOptions":{}}}),
+                "engineSelection":{"backend":"codex","model":"haiku","modelOptions":{}}}),
         )
         .await["conversation"]
         .clone();
     // A API recusa a ordem fora do Pessoal; o estado é gravado direto para provar que o portão do limite basta.
     alterar_estado_do_fallback(&amb.host, |e| {
-        e["ordensBot"] = json!({format!("{bot}|claude"): [b.id.clone()]});
+        e["ordensBot"] = json!({format!("{bot}|codex"): [b.id.clone()]});
     });
     amb.host
         .call(
@@ -990,7 +996,7 @@ async fn outro_space_segue_como_antes_sem_reenvio_em_laco() {
     let estado = amb.estado().await;
     assert!(estado["sessions"].as_array().unwrap().is_empty(), "nenhuma troca em outro Space: {estado}");
     let recusa =
-        amb.host.refused("donnaEngineFallbackSave", json!({"spaceId":work,"backend":"claude","accounts":[b.id]})).await;
+        amb.host.refused("donnaEngineFallbackSave", json!({"spaceId":work,"backend":"codex","accounts":[b.id]})).await;
     assert!(recusa.contains("fallback_space_unsupported"), "{recusa}");
 }
 
@@ -1053,10 +1059,14 @@ async fn cota_esgotada_para_o_turno_sem_trocar_de_executor() {
     // ou de outro modelo ACP subiria e deixaria registro em `launches.jsonl`.
     let amb = ambiente().await;
     let (falsos, host) = (&amb.falsos, &amb.host);
-    let conta_a = amb.conta('a');
+    let conta_a = conta_gerenciada(host, falsos, &amb.sal, 'a', "subscription", "claude");
+    let reserva = conta_gerenciada(host, falsos, &amb.sal, 'b', "subscription", "claude");
     std::fs::write(conta_a.dir.join("cota-esgotada"), "").unwrap();
-    registrar_contas(host, &amb.sal, &[&conta_a]);
+    registrar_contas(host, &amb.sal, &[&conta_a, &reserva]);
     let bot = amb.bot_na(&conta_a).await;
+    let recusa =
+        host.refused("donnaEngineFallbackSave", json!({"backend":"claude","botId":bot,"accounts":[reserva.id]})).await;
+    assert!(recusa.contains("personal_subscription_no_fallback"), "{recusa}");
     host.call(
         "send",
         json!({"botId":bot,"text":"Responda ok","clientNonce":uuid::Uuid::new_v4().to_string(),

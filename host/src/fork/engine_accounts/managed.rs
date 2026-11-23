@@ -487,6 +487,14 @@ pub(crate) fn resolve_for_bot(store: &Store, bot: &BotConfig) -> Result<Option<A
                     .ok_or_else(|| anyhow!("account_unavailable: credencial indisponível."))?,
             );
             let vars: BTreeMap<String, String> = serde_json::from_str(&raw)?;
+            ensure!(
+                !vars.iter().any(|(name, value)| crate::fork::assinatura_pessoal::known_meta_credential(name, value)),
+                crate::fork::assinatura_pessoal::Refusal::Meta
+            );
+            ensure!(
+                !vars.keys().any(|key| key.eq_ignore_ascii_case("CLAUDE_CODE_OAUTH_TOKEN")),
+                crate::fork::assinatura_pessoal::Refusal::Automation
+            );
             let mut env: Vec<(String, String)> = vars.into_iter().collect();
             let executable = crate::agent::backends::which(account.backend.id());
             if let Some(profile) = account.managed.as_ref().and_then(|m| m.profile.as_ref()) {

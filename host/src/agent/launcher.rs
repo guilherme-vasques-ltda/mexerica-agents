@@ -13,9 +13,28 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
     // motor, antes das demais regras. Só os binários desses motores; um executável arbitrário não
     // é bloqueado aqui.
     if let Some(command) = cfg.command.as_deref().map(str::trim).filter(|c| !c.is_empty())
-        && let Some(executavel) = shlex::split(command).and_then(|palavras| palavras.into_iter().next())
+        && let Some(palavras) = shlex::split(command)
+        && let Some(executavel) = palavras.first()
     {
-        let nome = name(&executavel);
+        let nome = name(executavel);
+        let package = (nome == "npx")
+            .then(|| {
+                let mut args = palavras[1..].iter().skip_while(|arg| matches!(arg.as_str(), "-y" | "--yes"));
+                match args.next() {
+                    Some(arg) if arg == "--" => args.next(),
+                    Some(arg) if !arg.starts_with('-') => Some(arg),
+                    _ => None,
+                }
+            })
+            .flatten();
+        for word in std::iter::once(executavel).chain(package) {
+            let bin = name(word.rsplit_once('@').filter(|(base, _)| !base.is_empty()).map_or(word, |(base, _)| base));
+            ensure!(!crate::fork::assinatura_pessoal::muse(&bin), crate::fork::assinatura_pessoal::Refusal::Meta);
+            ensure!(
+                cfg.backend == "claude" || !crate::fork::assinatura_pessoal::claude(&bin),
+                crate::fork::assinatura_pessoal::Refusal::Automation
+            );
+        }
         crate::agent::backends::require_supported_execution(&nome)?;
         let abre_retirado = crate::agent::backends::HARNESSES
             .iter()
@@ -136,6 +155,9 @@ mod tests {
 
     #[test]
     fn custom_aceita_argumentos_literais_e_flags_de_interpretador() {
+        assert!(check(&cfg("meu-adaptador --state-dir /srv/claude")).is_ok());
+        assert!(check(&cfg("npx -y @anthropic-ai/claude-code@1")).is_err());
+        assert!(check(&cfg("npx -y --yes @anthropic-ai/claude-code@1")).is_err());
         for command in [
             "python3 -X utf8 -u '/fixtures/com espaço.py'",
             "copilot --acp --stdio",

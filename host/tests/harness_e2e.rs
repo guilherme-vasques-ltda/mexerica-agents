@@ -64,9 +64,25 @@ async fn motores_negam_agendamento_nativo_em_chat_grupo_rotina_e_tarefa() {
         assert_launch(&host.requests(&chat, "session/load")[0]);
 
         let member = host.fixture_bot_as("Membro Claude", "instructions_agent.py", engine, engine).await;
+        let never_started = |bot: &str| !host.home.join("bots").join(bot).join("workspace/requests.jsonl").exists();
         let group = host.call("createBot", json!({"name":"Grupo", "kind":"group", "members":[member]})).await;
-        host.reply(group["bot"]["id"].as_str().unwrap(), "Lembre o grupo amanhã").await;
-        assert_launch(&host.requests(&member, "session/new")[0]);
+        let group_id = group["bot"]["id"].as_str().unwrap();
+        if engine == "claude" {
+            host.call("send", json!({"botId":group_id,"text":"Lembre o grupo amanhã"})).await;
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let history = host.call("history", json!({"botId":group_id})).await;
+                if history.to_string().contains("personal_subscription_chat_only") {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "recusa ausente no grupo: {history}");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(never_started(&member));
+        } else {
+            host.reply(group_id, "Lembre o grupo amanhã").await;
+            assert_launch(&host.requests(&member, "session/new")[0]);
+        }
 
         let routine_bot = host.fixture_bot_as("Rotina Claude", "instructions_agent.py", engine, engine).await;
         host.call("updateBot", json!({"id":routine_bot, "permission":"auto", "permissionChosenByUser":true})).await;
@@ -83,7 +99,8 @@ async fn motores_negam_agendamento_nativo_em_chat_grupo_rotina_e_tarefa() {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let state = host.call("routines", json!({"botId":routine_bot})).await;
-                if state["runs"].as_array().unwrap().iter().any(|r| r["status"] == "succeeded") {
+                let expected = if engine == "claude" { "failed" } else { "succeeded" };
+                if state["runs"].as_array().unwrap().iter().any(|r| r["status"] == expected) {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -91,21 +108,34 @@ async fn motores_negam_agendamento_nativo_em_chat_grupo_rotina_e_tarefa() {
         })
         .await
         .expect("rotina não terminou");
-        assert_launch(&host.requests(&routine_bot, "session/new")[0]);
+        if engine == "claude" {
+            let history = host.call("history", json!({"botId":routine_bot})).await;
+            assert!(history.to_string().contains("personal_subscription_chat_only"));
+            assert!(never_started(&routine_bot));
+        } else {
+            assert_launch(&host.requests(&routine_bot, "session/new")[0]);
+        }
 
         let task_bot = host.fixture_bot_as("Tarefa Claude", "instructions_agent.py", engine, engine).await;
         let sender = host.fixture_bot("Solicitante", "hub_approval_agent.py", "").await;
         let card = pending_card(&host, &sender, "EXTERNAL").await;
-        host.call(
-            "teamCall",
-            json!({"botId":sender, "name":"ask_bot", "arguments":{
-                "botId":task_bot, "message":"Verifique este lembrete"
-            }}),
-        )
-        .await;
-        assert_launch(&host.requests(&task_bot, "session/new")[0]);
+        let request = json!({"botId":sender, "name":"ask_bot", "arguments":{
+            "botId":task_bot, "message":"Verifique este lembrete"
+        }});
+        if engine == "claude" {
+            let error = host.refused("teamCall", request).await;
+            assert!(error.contains("personal_subscription_chat_only"));
+            assert!(never_started(&task_bot));
+        } else {
+            host.call("teamCall", request).await;
+            assert_launch(&host.requests(&task_bot, "session/new")[0]);
+        }
         answer(&host, &sender, &card, "deny").await;
         for bot in [&chat, &member, &routine_bot, &task_bot] {
+            if engine == "claude" && bot != &chat {
+                assert!(never_started(bot));
+                continue;
+            }
             for request in host.requests(bot, "initialize") {
                 assert_eq!(request["nativeCronDisabled"], "1");
             }

@@ -1,0 +1,173 @@
+/* Cartão Saúde do Hub na Torre: usa apenas tokens do tema (claro/escuro, com/sem fundo). */
+
+.saude-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.saude-card.is-hub-offline,
+.saude-card.is-error {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+}
+
+.saude-card.is-waiting-user {
+  border-color: color-mix(in srgb, var(--attention) 42%, var(--line));
+}
+
+.saude-card.is-degraded {
+  border-color: color-mix(in srgb, var(--attention) 35%, var(--line));
+}
+
+.saude-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.saude-title {
+  margin: 0;
+  font-size: var(--text-callout);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.saude-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--group);
+  color: var(--ink-2);
+}
+
+.saude-badge i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.saude-badge.is-healthy {
+  color: var(--text-success, var(--success));
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.saude-badge.is-waiting_user {
+  color: var(--text-attention, var(--attention));
+  background: var(--attention-soft, color-mix(in srgb, var(--attention) 14%, transparent));
+}
+
+.saude-badge.is-degraded {
+  color: var(--text-attention, var(--attention));
+  background: var(--attention-soft, color-mix(in srgb, var(--attention) 14%, transparent));
+}
+
+.saude-badge.is-error,
+.saude-badge.is-hub_offline {
+  color: var(--text-danger, var(--danger));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.saude-badge.is-unavailable,
+.saude-badge.is-loading {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.saude-badge.is-unavailable i,
+.saude-badge.is-loading i {
+  display: none;
+}
+
+.saude-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--ink-2);
+}
+
+.saude-summary {
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.saude-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.saude-check {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--group);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.saude-check-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.saude-check-area {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.saude-check-status {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.saude-check-status.is-ok {
+  color: var(--text-success, var(--success));
+}
+
+.saude-check-status.is-warning {
+  color: var(--text-attention, var(--attention));
+}
+
+.saude-check-status.is-error {
+  color: var(--text-danger, var(--danger));
+}
+
+.saude-check-status.is-unavailable {
+  color: var(--ink-2);
+}
+
+.saude-check-desc {
+  margin: 0;
+  font-size: var(--text-callout);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.saude-check-action {
+  margin: 2px 0 0;
+  font-size: var(--text-caption);
+  color: var(--text-accent, var(--accent));
+  font-weight: 600;
+}

@@ -426,6 +426,10 @@ pub(super) async fn servir(p: Arc<Procedimento>, bind: &str, port: u16, mut stop
     }
     let (aviso, parada) = watch::channel(false);
     let listener = tokio::net::TcpListener::bind((bind, port)).await?;
+    // Sem log configurado neste caminho: o aviso fixo, sem o endereço, vai para o stderr do serviço.
+    if crate::service::mac_local::listens_beyond_loopback([listener.local_addr()?]) {
+        eprintln!("warning: {}", crate::service::mac_local::EXTERNAL_LISTEN_WARNING);
+    }
     let connections = Arc::new(Semaphore::new(CONEXOES));
     let handshakes = Arc::new(Semaphore::new(HANDSHAKES));
     let sessions = Arc::new(Semaphore::new(SESSOES));

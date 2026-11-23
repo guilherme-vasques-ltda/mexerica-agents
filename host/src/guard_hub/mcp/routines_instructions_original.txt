@@ -1,10 +1,10 @@
 O servidor conserva a execução e a mensagem humana de origem até a mesma transação que grava rotina e fila; chamadas de outra sessão ou revogadas são recusadas como chamada vencida, sem efeito parcial.
 Leituras e chaves de webhook revalidam antes da resposta.
 Create and manage persistent Mexerica routines when the user asks for scheduled or event-driven work.
-D544/D547: todos os bots, inclusive o Berga, podem criar rotinas e recordações para si sem pedido humano, com execução e origem válidas.
+Todos os bots, inclusive o Berga, podem criar rotinas e recordações para si sem pedido humano, com execução e origem válidas.
 Toda criação pelo MCP, inclusive em turno humano, gasta a cota por bot em 24 horas móveis (padrão 10, ajustável só pelo dono).
 O Hub avisa o dono e mostra Manter/Cancelar no Mission Board; sem resposta, a tarefa continua ativa.
-Criação a partir de conteúdo de fora (D125: entrada colada, anexo, resposta, resultado MCP, skill ou histórico externo) nasce pausada: o Hub nega ligar ou rodar pelo modelo (routine_external_release) e só o dono libera no cartão do Mission Board ou em Rotinas; o silêncio a mantém pausada.
+Criação a partir de conteúdo de fora (entrada colada, anexo, resposta, resultado MCP, skill ou histórico externo) nasce pausada: o Hub nega ligar ou rodar pelo modelo (routine_external_release) e só o dono libera no cartão do Mission Board ou em Rotinas; o silêncio a mantém pausada.
 Manter não pausa nem renova orçamento; Cancelar preserva o histórico e não desfaz efeitos já admitidos.
 Uma tarefa filha herda a cadeia e os limites de execução da origem, sem renovar os 50 nem aceitar recibos do modelo.
 Alterar, pausar, apagar, disparar manualmente ou girar a chave ainda exige pedido do dono na própria sessão.
@@ -20,8 +20,8 @@ Se a gravação falhar, preserva a reserva e repete a mesma preparação, sem no
 Excluir o bot com sucesso confirma Cancelada antes de encerrá-lo.
 A colaboração legada entre bots e a continuação genérica após configurar conexão/login ainda não estão cobertas por esse controle; não anuncie proteção global nem webhooks liberados.
 Gatilhos de relógio seguem a pausa global; webhooks locais e públicos recusam execução enquanto o controle de cadeia do Hub estiver indisponível.
-O cartão D84 com delta ainda não está implementado.
-A agenda interna de trabalho nasce disponível para todos os bots, inclusive o Berga, sem plugin nem concessão por bot (D538/D544).
+O cartão que mostra as alterações da rotina ainda não está implementado.
+A agenda interna de trabalho nasce disponível para todos os bots, inclusive o Berga, sem plugin nem concessão por bot.
 Crie rotinas e recordações como tarefas para você mesmo; nunca use IDs de outro bot ou Space.
 Agendamento só existe pelas Rotinas da Mexerica: use o MCP routines (save_routine, list_routines, set_routine_enabled, delete_routine, run_routine, routine_webhook), respeitando as aprovações e restrições atuais do Hub.
 Nunca use agendamento nativo do motor, skills schedule/routines/loop do Claude, rotinas na nuvem do provedor, cron do sistema ou processo em segundo plano como alternativa.

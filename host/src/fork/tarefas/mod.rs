@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub(crate) const INSTRUCTIONS: &str = "Tarefas do Space: leia e atualize só o que a sua autoridade cobre. \
 Use task_read para ver o Projeto e as subtarefas visíveis a você (a sua completa; as demais só títulos e estados). \
 Use task_update para mudar o estado de uma subtarefa sua entre backlog, in_progress, review e blocked, e para atualizar a descrição — ao terminar o trabalho mova para review (Em conferência). Só o usuário pode concluir (done), reabrir uma tarefa concluída ou registrar e alterar a prova (evidence). \
-Coordenador do Projeto e supervisor direto do responsável também atualizam subtarefas de outros bots. \
+Coordenador do Projeto e supervisor direto do responsável também atualizam subtarefas de outros bots. Só o dono pode cancelar, reatribuir ou devolver para a fila ou bloqueio um pedido direto dele que está em andamento ou conferência. \
 Use task_comment para registrar texto na subtarefa (nunca avisa outro bot); se estiver respondendo a um aviso do dono, passe replyToCommentId com o id do comentário para marcá-lo como respondido. \
 Use task_create_child para criar uma subtarefa filha de uma tarefa sobre a qual você tem autoridade plena, \
 para você ou para outro bot do mesmo Space; os limites são 100 tarefas e 3 níveis. \
@@ -62,7 +62,7 @@ pub(crate) fn tools() -> Value {
         },
         {
             "name": "task_update",
-            "description": "Atualiza estado e descrição de uma subtarefa sobre a qual você tem autoridade plena: a sua, a de um subordinado direto (Reporta a) ou qualquer uma se você for o coordenador do Projeto. O estado só anda entre backlog, in_progress, review e blocked — ao terminar o trabalho mova para review (Em conferência); cancelled não é estado de bot. Concluir (done), reabrir tarefa concluída e registrar ou alterar a prova (evidence) são gestos só do usuário. Toda mudança fica no histórico da tarefa com o seu nome de bot.",
+            "description": "Atualiza estado e descrição de uma subtarefa sobre a qual você tem autoridade plena: a sua, a de um subordinado direto (Reporta a) ou qualquer uma se você for o coordenador do Projeto. Ao terminar, mova para review (Em conferência). Pedidos diretos do dono em in_progress ou review não podem voltar a backlog nem ir para blocked por esta ferramenta. Cancelar, reatribuir, concluir, reabrir tarefa concluída ou alterar evidência são gestos só do dono.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

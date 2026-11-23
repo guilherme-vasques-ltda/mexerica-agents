@@ -91,7 +91,7 @@ import com.kyant.shapes.Capsule
     val density = LocalDensity.current
     // The message the composer quotes, until it sends or this chat closes.
     var replyId by rememberSaveable(bot.id) { mutableStateOf<String?>(null) }
-    val replyTo = state.entries.firstOrNull { it.id == replyId && it.botId == bot.id }
+    val replyTo = state.entries.firstOrNull { it.id == replyId && it.botId == bot.id && it.isMainSession }
     val reply = { entry: Entry -> replyId = entry.id }
     // The chat ignores Full conversation over it: it stays put underneath.
     val chatState = state.copy(trace = false)
@@ -222,19 +222,22 @@ import com.kyant.shapes.Capsule
 @Composable private fun Transcript(bot: Bot, state: AppState, store: AppStore, connect: ConnectionRequestActions, padding: PaddingValues,
     indicatorTop: Dp, openRoutine: (String) -> Unit, reply: (Entry) -> Unit, openPeer: (String) -> Unit) {
     val entries = state.entries.mainChat(bot.id).filter { it.isChat }
-    val pending = state.pending.filter { it.botId == bot.id }
+    val pending = state.pending.filter { it.botId == bot.id && (it.sessionId == null || it.sessionId == bot.id) }
     val items = chatItems(entries, pending)
     val working = bot.isWorking(bot.id) && state.connection is LinkState.Ready
     val more = bot.id !in state.historyComplete
     // Pull to refresh reconnects, like Reconnect in the title menu, until the link is back.
     ConversationList(items.lastOrNull()?.id, entries.lastOrNull()?.rev, working, padding, store::refreshConnection, indicatorTop) {
-        if (more) item("earlier") {
+        if (state.remoteHub == com.codync.android.core.fork.RemoteHubState.Offline) item("hub-offline") {
+            IconLabel("Hub indisponível", "wifi.slash", Palette.warning)
+        }
+        if (more && state.actualConnection is LinkState.Ready) item("earlier") {
             Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).clearAndSetSemantics { contentDescription = "Loading earlier messages" },
                 contentAlignment = Alignment.Center) { Spinner(14.dp) }
             // A chat shorter than the screen never scrolls, so showing the row is the trigger.
             LaunchedEffect(Unit) { if ("history" !in state.busy) store.loadHistory() }
         }
-        if (items.isEmpty() && !more) item("intro") { IntroCard(bot, state) }
+        if (items.isEmpty() && !more && state.remoteHub.canConfirmEmpty) item("intro") { IntroCard(bot, state) }
         items(items, key = { it.id }) { item ->
             when (item) {
                 is ChatItem.Separator -> TimeSeparator(item.at)
