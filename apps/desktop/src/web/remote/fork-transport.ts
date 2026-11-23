@@ -68,7 +68,7 @@ function readContext(event: Record<string, unknown>): WorkspaceContext {
   return c as WorkspaceContext
 }
 
-async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: (data: string) => void) {
+async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: (data: string) => boolean) {
   const timer = new AbortController()
   const scoped = AbortSignal.any([signal, timer.signal])
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -88,21 +88,29 @@ async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: 
     const decoder = new TextDecoder()
     let buffer = ''
     let data = ''
+    let skipLF = false
     for (;;) {
       const { value, done } = await abortable(scoped, () => input.read()).catch(() => { throw offline })
       if (done) return
       if (!awaitingHello) reset()
-      buffer += decoder.decode(value, { stream: true })
+      let chunk = decoder.decode(value, { stream: true })
+      if (skipLF && chunk) {
+        if (chunk.startsWith('\n')) chunk = chunk.slice(1)
+        skipLF = false
+      }
+      buffer += chunk
       let end: number
-      while ((end = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, end).replace(/\r$/, '')
-        buffer = buffer.slice(end + 1)
+      while ((end = buffer.search(/[\r\n]/)) >= 0) {
+        const line = buffer.slice(0, end)
+        const cr = buffer[end] === '\r'
+        skipLF = cr && end === buffer.length - 1
+        buffer = buffer.slice(end + (cr && buffer[end + 1] === '\n' ? 2 : 1))
         if (line.startsWith('data:')) data += line.slice(5).replace(/^ /, '') + '\n'
         if (data.length > maxFrameLength) throw invalid
         if (!line && data) {
           scoped.throwIfAborted()
-          onData(data.slice(0, -1))
-          if (awaitingHello) { awaitingHello = false; reset() }
+          const helloAccepted = onData(data.slice(0, -1))
+          if (awaitingHello && helloAccepted) { awaitingHello = false; reset() }
           data = ''
         }
       }
@@ -139,7 +147,8 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
     else if (error === invalid) c.callbacks.accessLost(403, 'workspace_forbidden')
     else if (typeof (error as CallError | undefined)?.status === 'number') {
       const { status, code } = error as CallError
-      c.callbacks.accessLost(status, code)
+      if (status === 409 && code === 'workspace_epoch_mismatch') c.callbacks.recoverContext()
+      else c.callbacks.accessLost(status, code)
     }
   }
   const inspect = (c: Connection, event: Record<string, unknown>) => {
@@ -148,22 +157,25 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
     if (typeof type === 'string' && terminalTypes.has(type)) {
       if (workspaceId !== context.workspaceId || typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch)
         || workspaceEpoch < 0) throw invalid
-      c.callbacks.acceptEvent({ type, workspaceId, workspaceEpoch })
+      if (type === 'device_revoked') {
+        if (workspaceEpoch >= context.workspaceEpoch) c.callbacks.accessLost(401, type)
+      } else if (workspaceEpoch > context.workspaceEpoch) c.callbacks.recoverContext()
       return false
     }
     if (workspaceId !== undefined && workspaceId !== context.workspaceId) throw invalid
     if (type === 'hello') {
       const hello = readContext(event)
       if (hello.hubId !== context.hubId || hello.workspaceId !== context.workspaceId || hello.userId !== context.userId
-        || hello.kind !== context.kind || hello.role !== context.role || event.hostId !== context.hubId) throw invalid
+        || hello.kind !== context.kind || event.hostId !== context.hubId) throw invalid
       if (hello.workspaceEpoch !== context.workspaceEpoch) {
-        c.callbacks.accessLost(409, 'workspace_epoch_mismatch')
+        c.callbacks.recoverContext()
         return false
       }
+      if (hello.role !== context.role) throw invalid
       return true
     }
     if (typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch) || workspaceEpoch < 0) return false
-    if (workspaceEpoch > context.workspaceEpoch) c.callbacks.accessLost(409, 'workspace_epoch_mismatch')
+    if (workspaceEpoch > context.workspaceEpoch) c.callbacks.recoverContext()
     return workspaceEpoch === context.workspaceEpoch
   }
   const parseEvent = (data: string): Record<string, unknown> => {
@@ -187,10 +199,12 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
       return new Promise<WorkspaceContext>((resolve, reject) => {
         void readEvents(c, new URL('/events', url), callbacks.signal, (data) => {
           const event = parseEvent(data)
-          if (c.context) { inspect(c, event); return }
+          if (c.context) { inspect(c, event); return false }
           if (typeof event.type === 'string' && terminalTypes.has(event.type) && event.workspaceId === workspace.id) {
-            callbacks.accessLost(401, 'device_revoked')
-            return
+            if (typeof event.workspaceEpoch !== 'number' || !Number.isSafeInteger(event.workspaceEpoch) || event.workspaceEpoch < 0) throw invalid
+            if (event.type === 'device_revoked') callbacks.accessLost(401, 'device_revoked')
+            else callbacks.recoverContext()
+            return false
           }
           if (event.type !== 'hello' || typeof event.computerId !== 'string' || !event.computerId.trim()) throw invalid
           const context = readContext(event)
@@ -199,6 +213,7 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
           c.computerId = event.computerId
           publish()
           resolve(context)
+          return true
         }).then(() => { throw offline }).catch((error: unknown) => {
           reject(error)
           fail(c, error)
@@ -255,6 +270,7 @@ export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | 
                 needsHello = false
               }
               if (allowed && !signal.aborted && c.callbacks.acceptsResponse()) onData(data)
+              return allowed && event.type === 'hello'
             })
             if (!signal.aborted) {
               if (url.pathname === '/events') throw offline

@@ -23,15 +23,14 @@ Não use o token local do host nem acesso por loopback como alternativa. Se a au
 - Nos RPCs seguintes, `workspaceEpoch` vai no corpo. Nas assinaturas SSE do renderer, vai na query.
 - Os eventos de dados também precisam trazer o `workspaceEpoch` atual. Antes de ativar, a rota remota deve emitir esse campo nos eventos que serão repassados ao renderer.
 
-### Divergência de época em HTTP
+### Divergência de época ou fim de contexto
 
-- O cliente limpa o workspace e inicia um novo handshake uma única vez. Se a divergência se repetir, volta ao seletor e espera uma nova escolha.
+- `409 workspace_epoch_mismatch`, `workspace_revoked` e `role_changed` cancelam a sessão anterior e limpam o cache antes de buscar um novo `hello` no mesmo workspace. Se a divergência se repetir, o cliente mostra erro e espera uma nova escolha.
 - A ação que causou a divergência **nunca é reenviada**.
 
-### Revogação terminal ou mudança de papel
+### Aparelho revogado
 
-- A sessão para.
-- O cliente volta ao seletor de workspace.
+- `device_revoked` encerra a sessão, limpa o cache e indica que o acesso deste aparelho acabou. Não há reconexão automática.
 
 ### Offline
 

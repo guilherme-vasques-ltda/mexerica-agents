@@ -7,6 +7,7 @@ export interface RemoteHub {
     signal: AbortSignal
     offline(): void
     accessLost(status: number, code: unknown): void
+    recoverContext(): void
     acceptContext: WorkspaceLease['acceptContext']
     acceptEvent: WorkspaceLease['acceptEvent']
     acceptsResponse: WorkspaceLease['acceptsResponse']
@@ -36,12 +37,13 @@ export function createRemoteController(
     if (!userId || !workspace || !hub) return
     const run = ++attempt
     selected = id
+    let deviceRevoked = false
     try {
       const opening = session.open(workspace, userId, () => {
         if (run !== attempt) return
         workspaces = workspaces.filter((entry) => entry.id !== id)
         selected = null
-        show('revoked')
+        show(deviceRevoked ? 'device_revoked' : 'revoked')
       })
       show('switching')
       const lease = await opening
@@ -59,19 +61,22 @@ export function createRemoteController(
       const context = await hub.confirm(workspace, {
         signal: lease.signal,
         offline,
+        recoverContext: () => {
+          if (lease.signal.aborted || run !== attempt) return
+          if (!recovering) {
+            void select(id, true)
+            return
+          }
+          ++attempt
+          void session.close().catch(() => {})
+          selected = null
+          show('unavailable')
+        },
         accessLost: (status, code) => {
           if (lease.signal.aborted || run !== attempt) return
-          if (status === 409 && code === 'workspace_epoch_mismatch') {
-            if (!lease.acceptsResponse()) return
-            if (!recovering) {
-              void select(id, true)
-              return
-            }
-            ++attempt
-            void session.close().catch(() => {})
-            selected = null
-            show('unavailable')
-          } else if (isWorkspaceAccessLost(status, code)) void lease.revoke().catch(() => {})
+          if (!isWorkspaceAccessLost(status, code)) return
+          deviceRevoked = status === 401 && code === 'device_revoked'
+          void lease.revoke().catch(() => {})
         },
         acceptContext: lease.acceptContext,
         acceptEvent: lease.acceptEvent,
@@ -82,7 +87,7 @@ export function createRemoteController(
       if (lease.acceptsResponse() || lease.acceptContext(context)) show('active')
       else await lease.revoke()
     } catch {
-      if (run === attempt && status !== 'revoked') {
+      if (run === attempt && status !== 'revoked' && status !== 'device_revoked') {
         void session.close().catch(() => {})
         selected = null
         show('unavailable')

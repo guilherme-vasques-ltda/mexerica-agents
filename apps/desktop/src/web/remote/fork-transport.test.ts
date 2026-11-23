@@ -75,6 +75,7 @@ test('host transport passes RPC results through the generic web bridge unchanged
   assert.equal(new URL(rpc.url).pathname, '/api/donnaAttention')
   assert.equal(rpc.headers.get('Content-Type'), 'application/vnd.fixture+json')
   assert.equal(rpc.headers.get('X-Fixture-Proof'), 'validated')
+  assert.equal(rpc.headers.has('workspaceEpoch'), false)
   assert.deepEqual(await rpc.json(), { prompt: 'fixture', workspaceEpoch: 2 })
   const events: unknown[] = []
   bridge.host.stream(`${origin}/events?since=12&spaceId=personal&workspaceEpoch=999`, snapshot.local!.token,
@@ -104,8 +105,8 @@ test('missing binding and unavailable authorization fail without sending a reque
   assert.equal(fetchCount, 0)
 })
 
-for (const type of ['workspace_revoked', 'role_changed'] as const) {
-  test(`terminal ${type} event revokes lease and resets workspace selector`, async () => {
+for (const type of ['workspace_revoked', 'role_changed', 'device_revoked'] as const) {
+  test(`terminal ${type} cuts the old lease with no action replay`, async () => {
     const streams: ReadableStreamDefaultController<Uint8Array>[] = []
     const requests: Request[] = []
     const cleared: string[] = []
@@ -113,31 +114,47 @@ for (const type of ['workspace_revoked', 'role_changed'] as const) {
     const frame = (event: unknown) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
     const fetcher: FixtureFetch = async (request) => {
       requests.push(request)
-      if (request.method === 'POST') return new Promise(() => {})
+      if (request.method === 'POST') return streams.length > 2 ? Response.json({}) : new Promise(() => {})
       return new Response(new ReadableStream<Uint8Array>({
-        start(stream) { streams.push(stream); stream.enqueue(frame(hello())) },
+        start(stream) { streams.push(stream); stream.enqueue(frame(hello(streams.length > 2 ? 3 : 2))) },
       }), { headers: { 'content-type': 'text/event-stream' } })
     }
-    const { remote, states } = await activeFixture(fetcher, cleared)
+    const { remote, states, controller } = await activeFixture(fetcher, cleared)
     const token = (await remote.host.snapshot()).local!.token
     const delivered: unknown[] = []
     remote.host.stream(`${origin}/events`, token, (line) => delivered.push(JSON.parse(line)), () => {})
     const pending = assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { code: 'workspace_inactive' })
     await until(() => delivered.length === 1 && requests.some((r) => r.method === 'POST'))
-    streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 2 }))
+    streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 1 }))
     streams[1].enqueue(frame({ type: 'fixtureMarker', workspaceEpoch: 2 }))
     await until(() => delivered.length === 2)
     assert.equal(states.at(-1)?.status, 'active')
     streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 3 }))
     streams[1].enqueue(frame({ type: 'entry' }))
     await pending
-    await until(() => cleared.length === 1)
-    assert.equal(states.at(-1)?.status, 'revoked')
-    assert.equal(states.at(-1)?.activeId, null)
-    assert.equal((await remote.host.snapshot()).local, null)
-    assert.ok(requests.every((r) => r.signal.aborted))
+    await until(() => cleared.length === 1 && (states.at(-1)?.status === 'active' || states.at(-1)?.status === 'device_revoked'))
+    if (type === 'device_revoked') {
+      assert.equal(states.at(-1)?.status, 'device_revoked')
+      assert.equal(states.at(-1)?.activeId, null)
+      assert.equal((await remote.host.snapshot()).local, null)
+      await controller.retry()
+      assert.equal(streams.length, 2)
+    } else {
+      assert.equal(states.at(-1)?.activeId, personal.id)
+      assert.equal(streams.length, 3)
+      assert.notEqual((await remote.host.snapshot()).local?.token, token)
+      assert.equal(new URL(requests[3].url).searchParams.has('workspaceEpoch'), false)
+    }
+    assert.ok(requests.slice(0, 3).every((r) => r.signal.aborted))
+    assert.equal(requests.filter((r) => r.method === 'POST').length, 1)
     assert.deepEqual(delivered, [hello(), { type: 'fixtureMarker', workspaceEpoch: 2 }])
     assert.deepEqual(cleared, [personal.id])
+    if (type !== 'device_revoked') {
+      const current = (await remote.host.snapshot()).local!.token
+      await remote.host.call(origin, current, 'donnaAttention', {}, 1000)
+      assert.deepEqual(await requests.at(-1)!.json(), { workspaceEpoch: 3 })
+    }
+    await controller.setIdentity(null, [], [])
   })
 }
 
@@ -220,4 +237,17 @@ test('a renderer stream that ends unexpectedly reports the offline error once', 
   await until(() => ended.length === 1)
   assert.deepEqual(ended, [{ status: 0, code: 'hub_offline', message: 'hub_offline' }])
   assert.equal(states.at(-1)?.status, 'hub_offline')
+})
+
+test('SSE accepts CR and a CRLF split between chunks', async () => {
+  const encoder = new TextEncoder()
+  const { remote, controller, states } = await activeFixture(async () => new Response(new ReadableStream({
+    start(stream) {
+      stream.enqueue(encoder.encode(`: fixture\r`))
+      stream.enqueue(encoder.encode(`\ndata: ${JSON.stringify(hello())}\r\r`))
+    },
+  }), { headers: { 'content-type': 'text/event-stream' } }))
+  assert.equal(states.at(-1)?.status, 'active')
+  assert.ok((await remote.host.snapshot()).local)
+  await controller.setIdentity(null, [], [])
 })
