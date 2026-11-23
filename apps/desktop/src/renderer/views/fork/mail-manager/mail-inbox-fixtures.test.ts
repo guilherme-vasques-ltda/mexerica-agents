@@ -95,6 +95,64 @@ test('negação durante abertura limpa fio e lista', async () => {
   assert.deepEqual(state.threads, [])
 })
 
+test('última abertura de fio vence e somente a abertura vigente conclui o loading', async () => {
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((r) => { resolve = r })
+    return { promise, resolve }
+  }
+  const first = deferred<typeof fixtures.detail>()
+  const second = deferred<typeof fixtures.detail>()
+  const gateway: MailInboxGateway = {
+    status: async () => fixtures.ready,
+    listThreads: async () => ({ threads: [
+      ...fixtures.threads.threads,
+      { ...fixtures.threads.threads[0]!, threadId: 'thread-second', subject: 'Segundo' },
+    ], nextCursor: null }),
+    openThread: async (_space, _mailbox, threadId) => threadId === 'thread-demo' ? first.promise : second.promise,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  const openingFirst = state.openThread('thread-demo')
+  const openingSecond = state.openThread('thread-second')
+  second.resolve({ ...fixtures.detail, threadId: 'thread-second' })
+  await openingSecond
+  assert.equal(state.thread?.threadId, 'thread-second')
+  assert.equal(state.loadingThread, false)
+  first.resolve(fixtures.detail)
+  await openingFirst
+  assert.equal(state.thread?.threadId, 'thread-second')
+  assert.equal(state.loadingThread, false)
+})
+
+test('troca de lista invalida uma abertura pendente', async () => {
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((r) => { resolve = r })
+    return { promise, resolve }
+  }
+  const opening = deferred<typeof fixtures.detail>()
+  const gateway: MailInboxGateway = {
+    status: async () => ({ state: 'ready', mailboxes: [
+      { mailboxId: 'mailbox-a', label: 'Caixa A' }, { mailboxId: 'mailbox-b', label: 'Caixa B' },
+    ] }),
+    listThreads: async (_space, mailbox) => ({
+      threads: [{ ...fixtures.threads.threads[0]!, threadId: `thread-${mailbox}` }],
+      nextCursor: null,
+    }),
+    openThread: async () => opening.promise,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  const pending = state.openThread('thread-mailbox-a')
+  await state.selectMailbox('mailbox-b')
+  opening.resolve(fixtures.detail)
+  await pending
+  assert.equal(state.mailboxId, 'mailbox-b')
+  assert.equal(state.thread, null)
+  assert.equal(state.loadingThread, false)
+})
+
 test('troca de Space e perda de contexto invalidam leituras em voo e limpam seleção/dados', async () => {
   const deferred = <T,>() => {
     let resolve!: (value: T) => void
@@ -213,4 +271,78 @@ test('paginação elimina fios duplicados pelo id estável', async () => {
   await state.refresh()
   await state.loadNextPage()
   assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo', 'thread-second'])
+})
+
+test('página deduplica também IDs repetidos dentro dela', async () => {
+  const gateway: MailInboxGateway = {
+    status: async () => fixtures.ready,
+    listThreads: async (_space, _mailbox, cursor) => cursor
+      ? { threads: [
+        { ...fixtures.threads.threads[0]!, threadId: 'thread-new' },
+        { ...fixtures.threads.threads[0]!, threadId: 'thread-new' },
+      ], nextCursor: null }
+      : { ...fixtures.threads, nextCursor: 'next' },
+    openThread: async () => fixtures.detail,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  await state.loadNextPage()
+  assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo', 'thread-new'])
+})
+
+test('selecionar outra caixa preserva a lista de caixas e a mailbox selecionada', async () => {
+  const gateway: MailInboxGateway = {
+    status: async () => ({ state: 'ready', mailboxes: [
+      { mailboxId: 'mailbox-a', label: 'Caixa A' }, { mailboxId: 'mailbox-b', label: 'Caixa B' },
+    ] }),
+    listThreads: async (_space, mailbox) => ({
+      threads: [{ ...fixtures.threads.threads[0]!, threadId: `thread-${mailbox}` }],
+      nextCursor: null,
+    }),
+    openThread: async () => fixtures.detail,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  await state.refresh()
+  await state.selectMailbox('mailbox-b')
+  assert.equal(state.mailboxId, 'mailbox-b')
+  assert.deepEqual(state.mailboxes.map((mailbox) => mailbox.mailboxId), ['mailbox-a', 'mailbox-b'])
+  assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-mailbox-b'])
+})
+
+test('status mapeia not_connected e reconnect_required com controle positivo de pronto', async () => {
+  for (const code of ['not_connected', 'reconnect_required']) {
+    const state = new MailInboxReadState({
+      status: async () => { throw { code } },
+      listThreads: async () => fixtures.threads,
+      openThread: async () => fixtures.detail,
+    }, 'space-a')
+    await state.refresh()
+    assert.equal(state.status, code)
+    assert.deepEqual(state.mailboxes, [])
+  }
+  const ready = new MailInboxReadState(new FixtureMailInboxGateway(fixtureText), 'space-a')
+  await ready.refresh()
+  assert.equal(ready.status, 'ready')
+  assert.equal(ready.threads.length, 1)
+})
+
+test('primeira página sinaliza conclusão para observadores, inclusive recuperação do cursor', async () => {
+  const gateway: MailInboxGateway = {
+    status: async () => fixtures.ready,
+    listThreads: async (_space, _mailbox, cursor) => cursor
+      ? Promise.reject({ code: 'cursor_invalid' })
+      : { ...fixtures.threads, nextCursor: 'next' },
+    openThread: async () => fixtures.detail,
+  }
+  const state = new MailInboxReadState(gateway, 'space-a')
+  let changes = 0
+  state.subscribe(() => { changes++ })
+  await state.refresh()
+  assert.ok(changes >= 3)
+  const before = changes
+  await state.loadNextPage()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.ok(changes > before)
+  assert.equal(state.loadingPage, false)
+  assert.deepEqual(state.threads.map((thread) => thread.threadId), ['thread-demo'])
 })
