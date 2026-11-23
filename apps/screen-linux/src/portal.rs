@@ -310,7 +310,7 @@ where
             Mode::from_raw_mode(0o600),
         ) {
             Ok(fd) => break (candidate, std::fs::File::from(fd)),
-            Err(rustix::io::Errno::EXIST) => continue,
+            Err(rustix::io::Errno::EXIST) => (),
             Err(error) => return Err(error.into()),
         }
     };

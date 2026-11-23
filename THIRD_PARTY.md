@@ -592,6 +592,7 @@ DependÃªncias diretas declaradas em `apps/screen-linux/Cargo.toml`, com as versÃ
 | `gstreamer-app` | 0.25.2 | MIT OR Apache-2.0 |
 | `gstreamer-sdp` | 0.25.3 | MIT OR Apache-2.0 |
 | `gstreamer-webrtc` | 0.25.4 | MIT OR Apache-2.0 |
+| `rustix` | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | `serde_json` | 1.0.151 | MIT OR Apache-2.0 |
 | `tokio` | 1.53.3 | MIT |
 | `tracing` | 0.1.44 | MIT |

@@ -264,11 +264,10 @@ pub fn char_keysym(c: char) -> i32 {
 
 /// Opens only a desktop-file ID that resolves in the desktop launcher's trusted search path.
 pub async fn open_app(name: &str) -> Result<()> {
-    let id = name.strip_suffix(".desktop").unwrap_or(name);
-    resolve_desktop_id(id, |_| true)?;
+    let id = desktop_id_for_launcher(name)?;
     let status = tokio::process::Command::new("gtk-launch")
         .arg("--")
-        .arg(id)
+        .arg(&id)
         .status()
         .await?;
     if status.success() {
@@ -278,15 +277,12 @@ pub async fn open_app(name: &str) -> Result<()> {
     }
 }
 
-fn resolve_desktop_id(id: &str, resolved: impl FnOnce(&str) -> bool) -> Result<()> {
+fn desktop_id_for_launcher(name: &str) -> Result<String> {
+    let id = name.strip_suffix(".desktop").unwrap_or(name);
     if !valid_desktop_id(id) {
         return Err(anyhow!("invalid desktop application ID"));
     }
-    if resolved(id) {
-        Ok(())
-    } else {
-        Err(anyhow!("desktop application ID was not resolved"))
-    }
+    Ok(format!("{id}.desktop"))
 }
 
 fn valid_desktop_id(id: &str) -> bool {
@@ -314,19 +310,20 @@ mod tests {
         assert_eq!(char_keysym('中'), 0x0100_4e2d);
     }
 
-    #[tokio::test]
-    async fn open_app_requires_a_resolved_desktop_id() {
-        let resolver_called = std::cell::Cell::new(None);
-        let resolver = |id: &str| {
-            resolver_called.set(Some(id.to_owned()));
-            id == "org.example.Editor"
-        };
-        assert!(resolve_desktop_id("org.example.Editor", resolver).is_ok());
+    #[test]
+    fn open_app_requires_a_resolved_desktop_id() {
         assert_eq!(
-            resolver_called.take().as_deref(),
-            Some("org.example.Editor")
+            desktop_id_for_launcher("org.example.Editor").expect("valid ID"),
+            "org.example.Editor.desktop"
         );
-        assert!(resolve_desktop_id("org.example.Unknown", |_: &str| false).is_err());
+        assert_eq!(
+            desktop_id_for_launcher("org.example.Editor.desktop").expect("valid ID"),
+            "org.example.Editor.desktop"
+        );
+        assert_eq!(
+            desktop_id_for_launcher("org.example.desktop.desktop").expect("valid ID"),
+            "org.example.desktop.desktop"
+        );
         for invalid in [
             "",
             "../editor",
@@ -335,13 +332,7 @@ mod tests {
             "org..Editor",
             "two words",
         ] {
-            let resolver_called = std::cell::Cell::new(false);
-            let resolver = |_: &str| {
-                resolver_called.set(true);
-                true
-            };
-            assert!(resolve_desktop_id(invalid, resolver).is_err());
-            assert!(!resolver_called.get());
+            assert!(desktop_id_for_launcher(invalid).is_err());
         }
     }
 }
