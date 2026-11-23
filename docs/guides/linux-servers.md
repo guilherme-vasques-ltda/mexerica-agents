@@ -74,7 +74,8 @@ explícito, e o Hub registra um aviso no log. O `--bind` aceita um único endere
 ferramentas locais (`pair`, `status`, `info`, `update` e o app neste computador) falam
 com `127.0.0.1`: um `--bind` só no endereço da VPN deixa essas ferramentas sem acesso.
 Se a escuta direta for mesmo necessária, use `--bind 0.0.0.0` e limite a porta à
-interface da VPN no firewall. A API local continua aceitando só chamadas do loopback.
+interface da VPN no firewall, mantendo o loopback liberado para as ferramentas locais.
+A API local continua aceitando só chamadas do loopback.
 
 **Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
 Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde
