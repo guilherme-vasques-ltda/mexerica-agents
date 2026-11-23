@@ -1063,6 +1063,36 @@ fn desativar_unidade(unidade: &str, arquivo: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+fn verificar_parada_hub(parada: Result<()>, prova: Result<()>) -> Result<()> {
+    match (parada, prova) {
+        (Ok(()), prova) => prova,
+        (Err(_), Ok(())) => {
+            eprintln!("revogar: solicitação de parada falhou; parada do Hub confirmada pelo kernel");
+            Ok(())
+        }
+        (Err(_), Err(prova)) => Err(prova.context("solicitação de parada do Hub também falhou")),
+    }
+}
+
+fn conter_revogacao<T>(
+    desarme: Result<T>,
+    parar_wrapper: impl FnOnce() -> Result<()>,
+    parar_hub: impl FnOnce() -> Result<()>,
+) -> Result<T> {
+    let wrapper = parar_wrapper();
+    let hub = parar_hub();
+    let falhas = [
+        ("desarme", desarme.as_ref().err()),
+        ("parada do wrapper", wrapper.as_ref().err()),
+        ("parada do Hub", hub.as_ref().err()),
+    ]
+    .into_iter()
+    .filter_map(|(etapa, erro)| erro.map(|erro| format!("{etapa}: {erro:#}")))
+    .collect::<Vec<_>>();
+    ensure!(falhas.is_empty(), "revogação incompleta: {}", falhas.join("; "));
+    desarme
+}
+
 /// Revogação administrativa (root direto). Ordem do desenho, com cada etapa provada:
 /// identidade conferida contra a política do estado, auditoria de início antes de
 /// qualquer efeito, sudoers removido e negação efetiva comprovada por forma, trava
@@ -1145,14 +1175,19 @@ pub fn revogar(login: &str) -> Result<()> {
             let ajudantes = super::slots::em_todos([super::slots::Slot::A, super::slots::Slot::B], |slot| {
                 publicacao.desarmar_slot(slot)
             });
-            bloqueio?;
-            ajudantes?
+            match (bloqueio, ajudantes) {
+                (Err(bloqueio), Err(desarme)) => bail!("bloqueio da atualização: {bloqueio:#}; desarme: {desarme:#}"),
+                (bloqueio, ajudantes) => bloqueio.and(ajudantes),
+            }
         } else {
-            Vec::new()
+            Ok(Vec::new())
         };
         // Chamada já iniciada e suspensa antes de obter a trava: encerrada e conferida (o
         // inode do wrapper não tem capabilities; a rotina mira quem o executa).
-        if presente(WRAPPER)? {
+        let parar_wrapper = || -> Result<()> {
+            if !presente(WRAPPER)? {
+                return Ok(());
+            }
             let wrapper = OpenOptions::new()
                 .read(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
@@ -1160,19 +1195,21 @@ pub fn revogar(login: &str) -> Result<()> {
             super::processos::encerrar_wrapper(&wrapper)
                 .context("chamada do wrapper em curso não pôde ser encerrada")?;
             println!("revogar: nenhuma chamada do wrapper em curso (suspensas encerradas)");
-        }
+            Ok(())
+        };
         // 3. Hub e filhos parados (provado por cgroup e /proc), depois guard, canal e cgroup.
-        let maquina = format!("--machine={}@.host", hub.login);
-        if let Err(erro) = executar("systemctl", &[os("--user"), os(&maquina), os("stop"), os("donnabot-host.service")])
-        {
-            eprintln!("revogar: systemctl --user stop falhou ({erro:#}); conferindo parada pelo kernel");
-        }
-        if let Some(publicacao) = &publicacao {
-            super::servico_hub::exigir_parado(publicacao, hub.uid, super::chamador::Identidade::AdminRoot)
-        } else {
-            super::servico_hub::exigir_parado_sem_slots(hub.uid)
-        }
-        .context("o Hub continua em execução; pare-o e repita")?;
+        let parar_hub = || -> Result<()> {
+            let maquina = format!("--machine={}@.host", hub.login);
+            let parada =
+                executar("systemctl", &[os("--user"), os(&maquina), os("stop"), os("donnabot-host.service")]).map(drop);
+            let prova = if let Some(publicacao) = &publicacao {
+                super::servico_hub::exigir_parado(publicacao, hub.uid, super::chamador::Identidade::AdminRoot)
+            } else {
+                super::servico_hub::exigir_parado_sem_slots(hub.uid)
+            };
+            verificar_parada_hub(parada, prova)
+        };
+        let ajudantes = conter_revogacao(ajudantes, parar_wrapper, parar_hub)?;
         let guarda = format!("donnabot-guarda-atualizacao@{}.service", hub.uid);
         desativar_unidade(&guarda, Some(UNIDADE_GUARDA))?;
         desativar_unidade("donnabot-motor-copia.socket", Some(SOCKET_COPIA))?;
@@ -1244,6 +1281,44 @@ pub fn revogar(login: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn revogacao_aceita_parada_comprovada_apesar_de_falha_na_solicitacao() {
+        let parada = Err(anyhow::anyhow!("falha simulada"));
+        assert!(verificar_parada_hub(parada, Ok(())).is_ok());
+    }
+
+    #[test]
+    fn revogacao_tenta_as_duas_paradas_e_preserva_publicacao_se_desarme_falhar() {
+        use std::cell::{Cell, RefCell};
+
+        let eventos = RefCell::new(Vec::new());
+        let publicacao = Cell::new(true);
+        let desarme =
+            super::super::slots::em_todos([super::super::slots::Slot::A, super::super::slots::Slot::B], |slot| {
+                eventos.borrow_mut().push(slot.nome());
+                ensure!(slot != super::super::slots::Slot::B, "falha de desarme simulada");
+                Ok(())
+            });
+        let resultado = conter_revogacao(
+            desarme,
+            || {
+                eventos.borrow_mut().push("wrapper");
+                bail!("falha de parada simulada");
+            },
+            || {
+                eventos.borrow_mut().push("Hub");
+                Ok(())
+            },
+        )
+        .map(|_| publicacao.set(false));
+        assert_eq!(*eventos.borrow(), ["slot-a", "slot-b", "wrapper", "Hub"]);
+        assert!(publicacao.get());
+        assert_eq!(
+            resultado.unwrap_err().to_string(),
+            "revogação incompleta: desarme: slot-b: falha de desarme simulada; parada do wrapper: falha de parada simulada"
+        );
+    }
 
     fn pacote_em(dir: &Path, arquivos: &[(&str, &[u8])]) -> Result<(String, String)> {
         use std::fmt::Write as _;
