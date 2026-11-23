@@ -2,6 +2,8 @@
 package com.codync.android
 
 import com.codync.android.core.*
+import com.codync.android.core.fork.RemoteHubState
+import com.codync.android.core.fork.WorkspaceChoice
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -14,6 +16,7 @@ data class AppState(
     val contextId: String = "local",
     val generation: Int = 0,
     val account: AccountState = AccountState(),
+    val workspace: WorkspaceChoice? = null,
     val cloudComputers: List<CloudComputer> = emptyList(),
     val access: AccessTicket? = null,
     /** The account computer an access request is running for: one at a time. */
@@ -37,6 +40,11 @@ data class AppState(
     val hello: JsonObject? = null,
     val connection: LinkState = LinkState.Connecting,
     val actualConnection: LinkState = LinkState.Connecting,
+    val remoteHub: RemoteHubState = when (actualConnection) {
+        is LinkState.Ready -> RemoteHubState.Available
+        is LinkState.ComputerOffline -> RemoteHubState.Offline
+        else -> RemoteHubState.Unpaired
+    },
     val selectedBot: String? = null,
     val navigationRequest: Int = 0,
     val navigationPage: LinkPage = LinkPage.Bots,

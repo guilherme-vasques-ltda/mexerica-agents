@@ -5,6 +5,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codync.android.core.*
+import com.codync.android.core.fork.RemoteHubState
+import com.codync.android.core.fork.WorkspaceChoice
+import com.codync.android.core.fork.WorkspaceGeneration
+import com.codync.android.core.fork.WorkspaceKind
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -25,6 +29,11 @@ class AppStore(application: Application) : AndroidViewModel(application) {
     private var contextJob = SupervisorJob(viewModelScope.coroutineContext[Job])
     internal var contextScope = CoroutineScope(contextJob + Dispatchers.Main.immediate)
     internal val transitions = Mutex()
+    internal val workspaceGeneration = WorkspaceGeneration()
+    internal var preferredWorkspace: String? = null
+    internal val legacyHubAllowed: Boolean get() = state.value.let {
+        !it.account.configured || it.workspace?.kind == WorkspaceKind.Personal && it.account.userId != null && it.account.userId == NativeAccounts.activeUserId()
+    }
     internal val screenTakeovers = Mutex()
     internal var cloud: CloudClient? = null
     private var sessionJob: Job? = null
@@ -57,42 +66,42 @@ class AppStore(application: Application) : AndroidViewModel(application) {
     internal var widgetOwner: WidgetOwner? = null
     /** The host version an undecodable event already made the mirror fetch everything again for. */
     internal var rewoundFor: String? = null
+    private var mirrorRead = 0L
 
     init {
         viewModelScope.launch {
-            transitions.withLock { loadContext(null) }
             NativeAccounts.observe(viewModelScope) { account ->
-                mutableState.update { it.copy(account = account) }
-                if (account.ready) transitions.withLock {
-                    // Read the latest state after a concurrent logout/reset finishes.
-                    val current = state.value.account
-                    val desired = current.userId ?: "local"
-                    if (desired != local.contextId) {
-                        retireContext()
-                        loadContext(current.userId)
-                    } else if (cloud == null && current.userId != null) {
-                        configureCloud(current.userId)
-                        refreshCloud()
+                transitions.withLock {
+                    withContext(NonCancellable) {
+                        try { applyAccount(account) }
+                        catch (error: Exception) { showError(error) }
                     }
                 }
             }
         }
     }
 
-    internal suspend fun loadContext(userId: String?) {
+    internal suspend fun loadContext(account: AccountState, workspace: WorkspaceChoice?) {
         try {
+            val userId = account.userId
+            val scopeId = if (!account.configured) "local"
+                else if (workspace != null && userId != null) workspace.contextScopeId(userId) else "locked"
             WidgetRefreshWorker.stop(getApplication())
-            local = LocalStore(getApplication(), userId ?: "local")
+            local = LocalStore(getApplication(), scopeId)
             widgetOwner = withContext(Dispatchers.IO) { WidgetStore.activate(getApplication(), local.contextId) }
-            PushDelivery.activate(getApplication(), userId)
+            if (!account.configured || workspace?.kind == WorkspaceKind.Personal) {
+                PushDelivery.activate(getApplication(), scopeId.takeUnless { it == "local" })
+            } else PushDelivery.retire(getApplication())
             attachments = AttachmentFiles(getApplication(), local.directory)
-            val computers = withContext(Dispatchers.IO) { local.computers() }
+            val computers = if (!account.configured || workspace?.kind == WorkspaceKind.Personal) withContext(Dispatchers.IO) { local.computers() } else emptyList()
             val complete = withContext(Dispatchers.IO) { local.setupComplete() }
-            mutableState.update { AppState(contextId = local.referenceId, generation = it.generation + 1,
-                account = it.account, computers = computers, setupComplete = complete || computers.isNotEmpty() || userId != null) }
+            mutableState.update { AppState(contextId = local.referenceId, generation = it.generation,
+                account = account, workspace = workspace, computers = computers,
+                remoteHub = if (workspace?.kind == WorkspaceKind.Team) RemoteHubState.Offline else RemoteHubState.Unpaired,
+                setupComplete = complete || computers.isNotEmpty() || userId != null) }
             mutableState.update { it.copy(notifications = PushPreferences.enabled(getApplication()), tasks = PushPreferences.tasks(getApplication())) }
             openMirror()
-            if (userId != null) configureCloud(userId)
+            if (userId != null && workspace?.kind == WorkspaceKind.Personal) configureCloud(userId)
             mutableState.update { it.copy(loading = false) }
             observeWidgets(requireNotNull(widgetOwner))
             if (foreground) connect()
@@ -102,33 +111,41 @@ class AppStore(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun configureCloud(userId: String) {
-        if (BuildConfig.CLOUD_URL.isBlank()) return
+        val config = NativeAccounts.deployment ?: return
         val identity = withContext(Dispatchers.IO) { local.identity() }
-        cloud = CloudClient(BuildConfig.CLOUD_URL, identity) { NativeAccounts.token(userId) }
+        cloud = CloudClient(config.cloudUrl, identity) { NativeAccounts.token(userId) }
     }
 
     /** Join every writer before closing a context's database or replacing its identity. */
-    internal suspend fun retireContext() = withContext(NonCancellable) {
+    internal suspend fun retireContext(clearWorkspaceState: Boolean = true) = withContext(NonCancellable) {
+        workspaceGeneration.retire()
         mutableState.update { it.copy(loading = true) }
+        PushPreferences.retire(getApplication())
+        linkJob?.cancel()
+        val retiringChannel = channel
+        channel = null
+        pairingJob?.cancel()
+        // Editing is disabled during retirement; let its last coalesced write finish.
+        actions.values.toList().forEach { it.cancel() }
+        val feed = TaskFeed(local.directory)
+        if (retiringChannel?.state?.value is LinkState.Ready) withTimeoutOrNull(2_000) {
+            try {
+                retiringChannel.call("unregisterDevice")
+                for (watch in withContext(Dispatchers.IO) { feed.all() }) retiringChannel.call("unregisterActivity", body("botId" to watch.botId))
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { }
+        }
+        retiringChannel?.close()
+        connectionJob?.cancel()
+        draftWriter?.join()
+        retireVoice()
+        mutableState.update { AppState(contextId = "retired", generation = it.generation + 1, account = it.account) }
+        contextJob.cancelAndJoin()
+        PushDelivery.retire(getApplication())
         withContext(Dispatchers.IO) { WidgetStore.retire(getApplication(), widgetOwner) }
         widgetOwner = null
         WidgetRefreshWorker.stop(getApplication())
         try { CodyncWidgets.update(getApplication()) } catch (_: Exception) { }
-        retireVoice()
-        val writers = actions.values.toList()
-        writers.forEach { it.cancel() }; writers.forEach { it.join() }
-        PushDelivery.retire(getApplication())
-        val retiringChannel = channel?.takeIf { it.state.value is LinkState.Ready }
-        val feed = TaskFeed(local.directory)
-        if (retiringChannel != null) withTimeoutOrNull(2_000) {
-            try {
-                retiringChannel.call("unregisterDevice")
-                for (watch in withContext(Dispatchers.IO) { feed.all() }) retiringChannel.call("unregisterActivity", body("botId" to watch.botId))
-            } catch (_: Exception) { }
-        }
-        // Editing is disabled during retirement; let its last coalesced write finish.
-        draftWriter?.join()
-        contextJob.cancelAndJoin()
         setupTerminals.clear()
         appConnections.clear()
         oauthRequestId = null
@@ -139,8 +156,13 @@ class AppStore(application: Application) : AndroidViewModel(application) {
         pluginsRefreshAgain = false
         rewoundFor = null
         draftWriter = null; draftBook = null; savedDrafts = emptyMap()
-        withContext(Dispatchers.IO) { feed.clear(); database?.close(); database = null }
-        withContext(Dispatchers.IO) { ConnectorOAuthBook(local.directory).clear() }
+        withContext(Dispatchers.IO) {
+            database?.close(); database = null
+            if (clearWorkspaceState) {
+                feed.clear()
+                ConnectorOAuthBook(local.directory).clear()
+            }
+        }
         contextJob = SupervisorJob(viewModelScope.coroutineContext[Job])
         contextScope = CoroutineScope(contextJob + Dispatchers.Main.immediate)
     }
@@ -174,11 +196,15 @@ class AppStore(application: Application) : AndroidViewModel(application) {
     }
 
     internal suspend fun refresh() {
+        val generation = workspaceGeneration.capture()
         val mirror = database ?: return
+        val read = ++mirrorRead
         val snapshot = withContext(Dispatchers.IO) { mirror.snapshot() }
+        if (read != mirrorRead || !workspaceGeneration.accepts(generation) || !legacyHubAllowed) return
         val retainedDraftFiles = state.value.drafts.values.flatMap { it.files }.map { it.path }.toSet()
         val retired = state.value.pending.filter { old -> snapshot.pending.none { it.nonce == old.nonce } }.flatMap { it.files }.filter { it.path !in retainedDraftFiles }
         withContext(Dispatchers.IO) { retired.forEach(attachments::discard) }
+        if (read != mirrorRead || !workspaceGeneration.accepts(generation) || !legacyHubAllowed) return
         // Like iOS, a screen state this app can't read is a host without remote screen.
         val screen = snapshot.screen?.let { runCatching { ScreenState.decode(it) }.getOrNull() }
         mutableState.update { current -> current.copy(bots = snapshot.bots, entries = snapshot.entries,
@@ -197,7 +223,9 @@ class AppStore(application: Application) : AndroidViewModel(application) {
 
     /** The ready channel, waiting briefly for a reconnect; a timeout is an error the action shows. */
     internal suspend fun ready(): EncryptedChannel = deadline(20_000, "Can't reach the computer. Check that it's on, then try again.") {
+        val generation = workspaceGeneration.capture()
         while (true) {
+            check(workspaceGeneration.accepts(generation) && !state.value.loading && legacyHubAllowed) { "This workspace is no longer connected." }
             val active = channel
             if (active?.state?.value is LinkState.Ready) return@deadline active
             val link = active?.state?.value
