@@ -156,7 +156,7 @@ async fn rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots() {
     let id = routine["routine"]["id"].as_str().unwrap().to_owned();
     let run = f.enqueue(&id, "test", true).await;
     let run_id = run["run"]["id"].as_str().unwrap().to_owned();
-    f.hub.send_cmd("bot", super::Cmd::Routine(run_id.clone())).unwrap();
+    f.hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id.clone())).unwrap();
     f.until(|| f.prompts().len() == 1).await;
     let record = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     assert_eq!(record.phase, admission::Phase::Permitted);
