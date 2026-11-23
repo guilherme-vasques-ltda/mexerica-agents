@@ -42,7 +42,9 @@ pub(super) fn migrate_na(tx: &Transaction<'_>) -> Result<()> {
          BEGIN SELECT RAISE(ABORT, 'privacy_authority_change_forbidden'); END;
          CREATE TRIGGER IF NOT EXISTS donna_session_privacy_no_unrevoke BEFORE UPDATE ON donna_session_privacy
          WHEN OLD.delivery_state='revoked_purged' AND NEW.revoked_at IS NOT OLD.revoked_at
-         BEGIN SELECT RAISE(ABORT, 'privacy_revocation_final'); END;",
+         BEGIN SELECT RAISE(ABORT, 'privacy_revocation_final'); END;
+         CREATE TRIGGER IF NOT EXISTS donna_session_privacy_no_delete BEFORE DELETE ON donna_session_privacy
+         BEGIN SELECT RAISE(ABORT, 'privacy_row_delete_forbidden'); END;",
     )?;
     Ok(())
 }

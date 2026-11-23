@@ -123,6 +123,10 @@ fn p03_leitura_sem_atestado_eleva_taint_sem_mudar_disposicao() {
 
 #[test]
 fn p04_trigger_e_requalificacao_nao_rebaixam() {
+    const REPLACE: &str = "INSERT OR REPLACE INTO donna_session_privacy(request_id,privacy_class,body_disposition,
+           audience_json,owner_principal_id,owner_epoch,policy_revision,hub_generation,delivery_state,revoked_at)
+         SELECT request_id,?2,body_disposition,audience_json,owner_principal_id,owner_epoch,policy_revision,
+           hub_generation,'retained',0 FROM donna_session_privacy WHERE request_id=?1";
     let f = Fixture::new();
     for (read, class) in
         [(ReadProvenance::PrivateRead, "restricted_private"), (ReadProvenance::UnattestedRead, "unknown_taint")]
@@ -130,7 +134,8 @@ fn p04_trigger_e_requalificacao_nao_rebaixam() {
         let id = f.aceitar().unwrap();
         qualify(&f, &id, owner_only(), read);
         qualify(&f, &id, owner_only(), ReadProvenance::AttestedInSpace);
-        let db = f.hub.store.db.locked();
+        let mut db = f.hub.store.db.locked();
+        assert_eq!(db.pragma_query_value(None, "recursive_triggers", |r| r.get::<_, i64>(0)).unwrap(), 1);
         migrate(&db).unwrap();
         for sql in [
             "UPDATE donna_session_privacy SET privacy_class='public_in_space' WHERE request_id=?1",
@@ -151,6 +156,31 @@ fn p04_trigger_e_requalificacao_nao_rebaixam() {
             .query_row("SELECT privacy_class FROM donna_session_privacy WHERE request_id=?1", [&id], |r| r.get(0))
             .unwrap();
         assert_eq!(actual, class);
+
+        let delete = "DELETE FROM donna_session_privacy WHERE request_id=?1";
+        assert_eq!(db.execute(delete, [&id]).unwrap_err().to_string(), "privacy_row_delete_forbidden");
+        assert_eq!(
+            db.execute(REPLACE, params![id, "public_in_space"]).unwrap_err().to_string(),
+            "privacy_row_delete_forbidden"
+        );
+
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+        assert_eq!(revoke_matching_na(&tx, RevokeScope::Request(&id)).unwrap(), 1);
+        tx.commit().unwrap();
+        let snapshot = || -> (String, String, i64) {
+            db.query_row(
+                "SELECT privacy_class,delivery_state,revoked_at FROM donna_session_privacy WHERE request_id=?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap()
+        };
+        let revoked = snapshot();
+        assert_eq!((revoked.0.as_str(), revoked.1.as_str()), (class, "revoked_purged"));
+        assert!(revoked.2 > 0);
+        assert_eq!(db.execute(delete, [&id]).unwrap_err().to_string(), "privacy_row_delete_forbidden");
+        assert_eq!(db.execute(REPLACE, params![id, class]).unwrap_err().to_string(), "privacy_row_delete_forbidden");
+        assert_eq!(snapshot(), revoked);
     }
 }
 
