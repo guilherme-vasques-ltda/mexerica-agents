@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Fail-closed Observation<T>
+// MARK: - Fail-closed TowerObservation<T>
 
-public enum Observation<Value: Sendable>: Sendable {
+public enum TowerObservation<Value: Sendable>: Sendable {
     case available(value: Value, source: String? = nil, coverage: String? = nil)
     case unavailable
 
@@ -17,10 +17,10 @@ public enum Observation<Value: Sendable>: Sendable {
     }
 }
 
-extension Observation: Equatable where Value: Equatable {}
-extension Observation: Hashable where Value: Hashable {}
+extension TowerObservation: Equatable where Value: Equatable {}
+extension TowerObservation: Hashable where Value: Hashable {}
 
-extension Observation: Codable where Value: Codable {
+extension TowerObservation: Codable where Value: Codable {
     private enum CodingKeys: String, CodingKey {
         case availability
         case source
@@ -43,7 +43,7 @@ extension Observation: Codable where Value: Codable {
                 self = .unavailable
             }
         } catch {
-            // Fail-closed: malformed Observation wrapper or value payload degrades to `.unavailable`.
+            // Fail-closed: malformed TowerObservation wrapper or value payload degrades to `.unavailable`.
             self = .unavailable
         }
     }
@@ -63,26 +63,26 @@ extension Observation: Codable where Value: Codable {
 }
 
 extension KeyedDecodingContainer {
-    /// Decodes an Observation<T> fail-closed: missing or null keys (e.g. older Hub) become `.unavailable`.
+    /// Decodes a TowerObservation<T> fail-closed: missing or null keys (e.g. older Hub) become `.unavailable`.
     public func decodeObservationIfPresent<Value: Codable & Sendable>(
         _ type: Value.Type,
         forKey key: Key
-    ) throws -> Observation<Value> {
+    ) throws -> TowerObservation<Value> {
         guard contains(key) else { return .unavailable }
         if try decodeNil(forKey: key) { return .unavailable }
-        return try decode(Observation<Value>.self, forKey: key)
+        return try decode(TowerObservation<Value>.self, forKey: key)
     }
 }
 
 /// Additive fields introduced on TowerSnapshot in MIRROR_SCHEMA 71+.
 /// Older Hubs omit `attention` and `doctor`, which decode fail-closed as `.unavailable`.
 public struct TowerSnapshotObservations: Codable, Equatable, Sendable {
-    public var attention: Observation<AttentionQueue>
-    public var doctor: Observation<HubDoctorReport>
+    public var attention: TowerObservation<AttentionQueue>
+    public var doctor: TowerObservation<HubDoctorReport>
 
     public init(
-        attention: Observation<AttentionQueue> = .unavailable,
-        doctor: Observation<HubDoctorReport> = .unavailable
+        attention: TowerObservation<AttentionQueue> = .unavailable,
+        doctor: TowerObservation<HubDoctorReport> = .unavailable
     ) {
         self.attention = attention
         self.doctor = doctor
@@ -569,7 +569,7 @@ public enum DoctorTransportDiagnosis: Equatable, Sendable {
     }
 
     public static func diagnose(
-        _ observation: Observation<HubDoctorReport>,
+        _ observation: TowerObservation<HubDoctorReport>,
         hubReachable: Bool
     ) -> DoctorTransportDiagnosis {
         guard hubReachable else {
