@@ -1,5 +1,5 @@
-// Gancho estreito em Ajustes → Computadores. Com a constante em `false`, o `import()` nem existe no
-// bundle: o ternário é dobrado na compilação, e o módulo da demonstração e as fixtures não são emitidos.
+// Gancho estreito em Ajustes → Computadores. Com a constante em `false`, o ternário é dobrado na compilação e
+// o `import()` some do build padrão do renderer, onde o módulo da demonstração e as fixtures não são emitidos.
 import { lazy, Suspense } from 'react'
 
 export const MAPA_COMPUTADORES_DEMO = false
