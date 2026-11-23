@@ -463,6 +463,8 @@ export interface EntryData {
   interrupted?: boolean
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
+  /** Mensagem de grupo que o Hub não conseguiu confirmar como entregue: interrompida, pode ter chegado em parte. */
+  groupReview?: boolean
   clientNonce?: string
   /** Só na bolha local que não foi enviada: o motivo da recusa da Open, como chave de texto. */
   recusa?: string

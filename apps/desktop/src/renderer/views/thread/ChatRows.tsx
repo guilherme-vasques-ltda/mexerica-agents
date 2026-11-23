@@ -215,7 +215,7 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
       )
     }
     case 'cancelled':
-      return <Text size="caption2" tone="tertiary">{t('conversa.mensagens.interrompida')}</Text>
+      return <Text size="caption2" tone="tertiary">{t(entry.data.groupReview === true ? 'conversa.mensagens.interrompidaParcial' : 'conversa.mensagens.interrompida')}</Text>
     default:
       return <Text size="caption" tone="tertiary" className={hovering ? 'user-status-time shown' : 'user-status-time'}>{relativeTime.time(entry.createdAt)}</Text>
   }

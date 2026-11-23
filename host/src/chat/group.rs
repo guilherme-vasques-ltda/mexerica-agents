@@ -43,9 +43,10 @@ pub struct GroupTurn {
     pub reply: oneshot::Sender<Result<Option<String>>>,
 }
 
-/// Room turn epochs per group.
+/// Room turn epochs per group, and the groups the boot couldn't check (`fork::grupo_entrega`), blocked until the
+/// next start.
 #[derive(Default)]
-pub struct Rooms(Mutex<HashMap<String, u64>>);
+pub struct Rooms(Mutex<HashMap<String, u64>>, Mutex<std::collections::HashSet<String>>);
 
 impl Rooms {
     fn next(&self, lane: &Lane) -> u64 {
@@ -58,6 +59,14 @@ impl Rooms {
     #[cfg(test)]
     pub(crate) fn reserve_epoch_for_test(&self, lane: &Lane) -> u64 {
         self.next(lane)
+    }
+
+    pub(crate) fn block(&self, group: &str) {
+        self.1.locked().insert(group.to_owned());
+    }
+
+    pub(crate) fn blocked(&self, group: &str) -> bool {
+        self.1.locked().contains(group)
     }
 
     pub fn current(&self, lane: &Lane, epoch: u64) -> bool {
@@ -110,6 +119,10 @@ pub fn with_members(store: &Store, members: &[String]) -> Result<Option<String>>
 /// The user wrote in a group lane: start a room turn there (ending one still running).
 /// `delivery` tracks the user's message through the first round (`fork::grupo_entrega`).
 pub(crate) fn start(hub: &Arc<Hub>, group: &BotConfig, lane: Lane, delivery: Delivery) {
+    if hub.groups.blocked(&group.id) {
+        tracing::warn!(group = group.id, "sala bloqueada até o próximo reinício; nada é entregue");
+        return;
+    }
     let epoch = hub.groups.next(&lane);
     let (hub, group_id) = (hub.clone(), group.id.clone());
     tokio::spawn(async move {
@@ -123,7 +136,7 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delive
     let mut delivery_open = true;
     let mut replies = 0;
     let mut last_reply: Option<(String, String, String)> = None;
-    // A resumed message gets one round, up to itself: nobody receives it twice.
+    // A resumed message gets one round, alone: nobody receives it, or an earlier one, twice.
     let upto = delivery.upto;
     let rounds = if upto.is_some() { 1 } else { MAX_ROUNDS };
     'rounds: for round in 0..rounds {
@@ -216,11 +229,11 @@ fn members(hub: &Hub, group: &BotConfig) -> Vec<BotConfig> {
 }
 
 /// The room as members see it (`Store::messages_after`, filtered before the limit): messages held for the owner's
-/// review stay out, and a resumed message is the newest.
+/// review stay out, and a resumed message is all the room shows.
 fn visible(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) -> Result<Vec<Entry>> {
     let c = hub.store.db.locked();
     let mut st = c.prepare(&format!(
-        "SELECT {} FROM entries WHERE bot_id = ?1 AND seq > ?2 AND (?4 IS NULL OR seq <= ?4)
+        "SELECT {} FROM entries WHERE bot_id = ?1 AND seq > ?2 AND (?4 IS NULL OR seq = ?4)
            AND (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))
            AND COALESCE(json_extract(data, '$.{}'), 0) != 1
          ORDER BY seq DESC LIMIT ?3",

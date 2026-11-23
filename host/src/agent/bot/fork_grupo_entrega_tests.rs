@@ -206,8 +206,8 @@ async fn incerta_ao_lado_de_pendente_fica_fora_do_prompt() {
     let _ = std::fs::remove_dir_all(&f.dir);
 }
 
-/// Queda logo depois de o Stop ser gravado: mesmo que a sala grave o recibo depois, a mensagem parada nunca roda no
-/// boot.
+/// O Stop interrompe a mensagem na hora, fora dos prompts: mesmo que a sala grave o recibo depois e o Hub caia, ela
+/// nunca roda no boot.
 #[tokio::test]
 async fn queda_no_stop_nao_retoma_a_mensagem_parada() {
     let f = Fixture::new();
@@ -215,14 +215,14 @@ async fn queda_no_stop_nao_retoma_a_mensagem_parada() {
     f.hub.shutdown().await;
     let id = pending(&f.dir, None);
     crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
+    let stopped = f.hub.store.entry(&id).unwrap();
+    assert_eq!(stopped.data["status"], "cancelled", "o Stop grava a interrupção junto");
+    assert_eq!(stopped.data["groupReview"], true);
     let mut late = crate::fork::grupo_entrega::Delivery::new(&id);
     late.hand(&f.hub, ROOM, "outro").unwrap();
-    let saved: Value =
-        serde_json::from_str(&f.hub.store.kv_get(&format!("donna.group.delivery.{id}")).unwrap()).unwrap();
-    assert_eq!(saved["stopped"], true, "a gravação da sala não desfaz o Stop");
     let hub = reopen(&f.dir);
-    f.until(|| hub.store.entry(&id).unwrap().data["status"] == "cancelled").await;
     tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(hub.store.entry(&id).unwrap().data["status"], "cancelled");
     assert_eq!(f.prompts().len(), 0, "a mensagem parada não é entregue");
     assert_eq!(reviews(&hub), 0);
     hub.shutdown().await;
@@ -307,7 +307,8 @@ async fn parada_nao_volta_no_prompt_da_proxima() {
     room(&f);
     f.hub.shutdown().await;
     let local = json!({"caller":"local"});
-    let stopped = pending_from(&f.dir, "Mensagem parada", &local, Some(json!({"handed":[],"done":[],"stopped":true})));
+    let stopped = pending_from(&f.dir, "Mensagem parada", &local, None);
+    crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
     let next = pending_from(&f.dir, "Mensagem seguinte", &local, None);
     let hub = reopen(&f.dir);
     f.until(|| hub.store.entry(&next).unwrap().data["status"] == "sent").await;
@@ -337,9 +338,10 @@ async fn confirmacao_depois_do_stop_nao_vira_enviada() {
     let _ = std::fs::remove_dir_all(&f.dir);
 }
 
-/// Uma citação da mensagem incerta não devolve o texto dela ao prompt.
+/// Uma resposta que cita a mensagem incerta dependeria de uma citação que o prompt omite: as duas vão para
+/// conferência e nada é entregue.
 #[tokio::test]
-async fn citacao_da_incerta_fica_fora_do_prompt() {
+async fn resposta_a_incerta_vai_para_conferencia() {
     let f = Fixture::new();
     room(&f);
     f.hub.shutdown().await;
@@ -352,10 +354,96 @@ async fn citacao_da_incerta_fica_fora_do_prompt() {
         None,
     );
     let hub = reopen(&f.dir);
-    f.until(|| hub.store.entry(&reply).unwrap().data["status"] == "sent").await;
+    f.until(|| hub.store.entry(&reply).unwrap().data["status"] == "cancelled").await;
+    assert_eq!(hub.store.entry(&uncertain).unwrap().data["status"], "cancelled");
+    assert_eq!(reviews(&hub), 2);
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(f.prompts().len(), 0);
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// A retomada mostra só a mensagem identificada: uma anterior já enviada, que o membro passou sem responder, não volta.
+#[tokio::test]
+async fn retomada_mostra_so_a_mensagem_identificada() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    {
+        let store = Store::open(&f.dir.join("test.db")).unwrap();
+        store
+            .insert_entry(&Lane::main(ROOM), EntryKind::User, 1, &json!({"text":"Antiga entregue","status":"sent"}))
+            .unwrap();
+    }
+    let id = pending(&f.dir, None);
+    let hub = reopen(&f.dir);
+    f.until(|| hub.store.entry(&id).unwrap().data["status"] == "sent").await;
     let prompt = f.prompts()[0].to_string();
-    assert!(prompt.contains("Respondendo"));
-    assert!(!prompt.contains("Texto incerto"), "a citação não reinsere a incerta");
+    assert!(prompt.contains("Oi, sala"));
+    assert!(!prompt.contains("Antiga entregue"), "só a identificada é conteúdo da retomada");
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Linha ilegível numa sala: o Hub abre mesmo assim, e só essa sala fica bloqueada até o próximo reinício, sem
+/// decidir nem entregar a pendente.
+#[tokio::test]
+async fn entrada_corrompida_bloqueia_so_a_sala_e_o_hub_abre() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let stuck = pending(&f.dir, None);
+    {
+        let store = Store::open(&f.dir.join("test.db")).unwrap();
+        let broken = store.insert_entry(&Lane::main(ROOM), EntryKind::User, 1, &json!({"text":"x"})).unwrap();
+        store.db.locked().execute("UPDATE entries SET data = '{quebrado' WHERE id = ?1", [&broken.id]).unwrap();
+    }
+    let hub = reopen(&f.dir);
+    assert!(hub.groups.blocked(ROOM));
+    assert_eq!(hub.store.entry(&stuck).unwrap().data["status"], "sending", "a sala bloqueada não decide nem entrega");
+    let refused = crate::api::dispatch(
+        &hub,
+        &crate::api::devices::Caller::Local,
+        "send",
+        json!({"botId":ROOM,"text":"Mais uma"}),
+    )
+    .await;
+    assert!(refused.is_err(), "envio novo à sala bloqueada é recusado");
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(f.prompts().len(), 0);
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Falha persistente ao marcar uma sala: ela fica bloqueada e as outras salas seguem com a própria retomada.
+#[tokio::test]
+async fn falha_ao_marcar_uma_sala_nao_segura_as_outras() {
+    let f = Fixture::new();
+    room(&f);
+    let other: BotConfig =
+        serde_json::from_value(json!({"id":"sala2","name":"Sala 2","kind":"group","members":["bot"]})).unwrap();
+    f.hub.store.save_bot(&other).unwrap();
+    f.hub.shutdown().await;
+    let stuck = pending(&f.dir, Some(json!({"handed":["bot"],"done":[]})));
+    let fine = {
+        let store = Store::open(&f.dir.join("test.db")).unwrap();
+        store
+            .db
+            .locked()
+            .execute_batch(&format!(
+                "CREATE TRIGGER reject_room BEFORE UPDATE ON entries WHEN OLD.bot_id = '{ROOM}'
+                 BEGIN SELECT RAISE(ABORT, 'falha simulada'); END"
+            ))
+            .unwrap();
+        let data = json!({"text":"Na outra sala","status":"sending","contentOrigin":{"ingress":{"caller":"local"}}});
+        store.insert_entry(&Lane::main("sala2"), EntryKind::User, 1, &data).unwrap().id
+    };
+    let hub = reopen(&f.dir);
+    assert!(hub.groups.blocked(ROOM));
+    assert!(!hub.groups.blocked("sala2"));
+    f.until(|| hub.store.entry(&fine).unwrap().data["status"] == "sent").await;
+    assert_eq!(hub.store.entry(&stuck).unwrap().data["status"], "sending");
+    assert!(f.prompts().iter().all(|p| !p.to_string().contains("Oi, sala")));
     hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
