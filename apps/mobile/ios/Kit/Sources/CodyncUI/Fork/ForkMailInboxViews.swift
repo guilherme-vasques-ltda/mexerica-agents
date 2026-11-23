@@ -462,30 +462,28 @@ private enum ForkMailInboxText {
 
 private enum ForkMailInboxCopy {
     case title, mailbox, noSubject, loadMore, emptyInbox, noSender, declaredDomain, truncated, protectedContent, close
-    case unavailableTitle, unavailableMessage, notConnectedTitle, notConnectedMessage
-    case reconnectTitle, reconnectMessage, accessDeniedTitle, accessDeniedMessage
+    case unavailableTitle, unavailableMessage, notConnectedTitle, notConnectedMessage, reconnectTitle, reconnectMessage, accessDeniedTitle, accessDeniedMessage
 
     var text: String {
-        let portuguese = Locale.current.language.languageCode?.identifier == "pt"
         switch self {
-        case .title: return portuguese ? "Caixa de e-mail" : "Mail inbox"
-        case .mailbox: return portuguese ? "Caixa" : "Mailbox"
-        case .noSubject: return portuguese ? "Sem assunto" : "No subject"
-        case .loadMore: return portuguese ? "Carregar mais" : "Load more"
-        case .emptyInbox: return portuguese ? "Caixa vazia" : "Empty inbox"
-        case .noSender: return portuguese ? "Remetente não informado" : "Sender not provided"
-        case .declaredDomain: return portuguese ? "Domínio declarado" : "Declared domain"
-        case .truncated: return portuguese ? "Conteúdo truncado: o limite de leitura foi atingido." : "Content truncated: the read limit was reached."
-        case .protectedContent: return portuguese ? "Conteúdo protegido" : "Protected content"
-        case .close: return portuguese ? "Fechar" : "Close"
-        case .unavailableTitle: return portuguese ? "Recurso indisponível" : "Feature unavailable"
-        case .unavailableMessage: return portuguese ? "Esta área não está disponível agora." : "This area is not available right now."
-        case .notConnectedTitle: return portuguese ? "Caixa não conectada" : "Mailbox not connected"
-        case .notConnectedMessage: return portuguese ? "Não há caixa conectada para mostrar." : "There is no connected mailbox to show."
-        case .reconnectTitle: return portuguese ? "Reconexão necessária" : "Reconnection required"
-        case .reconnectMessage: return portuguese ? "Reconecte a caixa para continuar." : "Reconnect the mailbox to continue."
-        case .accessDeniedTitle: return portuguese ? "Acesso negado" : "Access denied"
-        case .accessDeniedMessage: return portuguese ? "Você não tem acesso a esta caixa." : "You don't have access to this mailbox."
+        case .title: return String(localized: "Caixa de e-mail", bundle: .module)
+        case .mailbox: return String(localized: "Caixa", bundle: .module)
+        case .noSubject: return String(localized: "Sem assunto", bundle: .module)
+        case .loadMore: return String(localized: "Carregar mais", bundle: .module)
+        case .emptyInbox: return String(localized: "Caixa vazia", bundle: .module)
+        case .noSender: return String(localized: "Remetente não informado", bundle: .module)
+        case .declaredDomain: return String(localized: "Domínio declarado", bundle: .module)
+        case .truncated: return String(localized: "Conteúdo truncado: o limite de leitura foi atingido.", bundle: .module)
+        case .protectedContent: return String(localized: "Conteúdo protegido", bundle: .module)
+        case .close: return String(localized: "Fechar", bundle: .module)
+        case .unavailableTitle: return String(localized: "Recurso indisponível", bundle: .module)
+        case .unavailableMessage: return String(localized: "Esta área não está disponível agora.", bundle: .module)
+        case .notConnectedTitle: return String(localized: "Caixa não conectada", bundle: .module)
+        case .notConnectedMessage: return String(localized: "Não há caixa conectada para mostrar.", bundle: .module)
+        case .reconnectTitle: return String(localized: "Reconexão necessária", bundle: .module)
+        case .reconnectMessage: return String(localized: "Reconecte a caixa para continuar.", bundle: .module)
+        case .accessDeniedTitle: return String(localized: "Acesso negado", bundle: .module)
+        case .accessDeniedMessage: return String(localized: "Você não tem acesso a esta caixa.", bundle: .module)
         }
     }
 }
