@@ -166,6 +166,7 @@ impl Terms {
         cols: u16,
         rows: u16,
     ) -> Result<String> {
+        backends::require_supported_execution(backend)?;
         anyhow::ensure!(step != Step::Login || matches!(caller, Caller::Local), "Use o terminal de login autorizado.");
         crate::fork::engine_setup::require_legacy_setup(caller, backend)?;
         let owner = match caller {

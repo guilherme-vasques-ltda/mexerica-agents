@@ -139,6 +139,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "إضافة Node.js",
   "extensoes.motor.conferindoPrimeira": "جارٍ التحقق مع {motor}… قد يؤدي أول تحقق إلى تنزيله.",
   "extensoes.terminal.dicaAntigravity": "اختر Google OAuth وافتح الرابط وسجّل الدخول ثم الصق الرمز. دخول agy لا يؤكد ACP.",
+  "extensoes.motor.antigravityInterativo": "غير متاح في هذا التطبيق. استخدم أداة سطر الأوامر الرسمية بحسابك في عميل ACP تفاعلي.",
   "extensoes.terminal.dicaOpenCode": "اختر المزوّد بالأسهم واضغط Enter. يُفضّل مفتاح الخزنة لـ OpenCode Go.",
   "extensoes.terminal.dicaGrok": "افتح الرابط في المتصفح وأكد رمز الجهاز.",
   "extensoes.terminal.dicaCursor": "افتح الرابط في المتصفح. يُتحقق من الدخول تلقائيًا.",

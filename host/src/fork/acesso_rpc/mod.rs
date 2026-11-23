@@ -308,6 +308,7 @@ pub(crate) const CONTROLE: &[&str] = &[
     "donnaCeilingRelease",
     "donnaCeilingSave",
     "donnaContext",
+    "donnaAttention",
     "donnaContextCompact",
     "donnaContextSettings",
     "donnaContextSettingsSave",
