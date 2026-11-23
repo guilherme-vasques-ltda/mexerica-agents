@@ -274,6 +274,31 @@ class ForkMailInboxTest {
         assertNull(store.nextCursor)
     }
 
+    @Test fun `openThread discards stale response from older request or previous mailbox`() = runBlocking {
+        val transport = makeFixtureTransport()
+        transport.openResponses["space-alpha:mbox-inbox:thr-other"] = {
+            MailInboxOpenThreadResponse(
+                threadId = "thr-other",
+                subject = "Segundo fio",
+                messages = emptyList(),
+                truncated = false,
+            )
+        }
+
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        store.loadStatus("space-alpha")
+        store.loadFirstPage("space-alpha", "mbox-inbox")
+
+        transport.delayMs = 60L
+        val firstOpen = launch { store.openThread("space-alpha", "mbox-inbox", "thr-100") }
+        delay(10L)
+        transport.delayMs = 0L
+        store.openThread("space-alpha", "mbox-inbox", "thr-other")
+        firstOpen.join()
+
+        assertEquals("thr-other", store.openThread?.threadId)
+    }
+
     @Test fun `context change discards in-flight response and clears sensitive state`() = runBlocking {
         val transport = makeFixtureTransport().apply { delayMs = 60L }
         val store = ForkMailInboxStore(transport, featureEnabled = true)

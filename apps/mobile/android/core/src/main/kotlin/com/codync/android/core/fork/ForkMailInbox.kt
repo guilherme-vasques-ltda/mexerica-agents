@@ -220,6 +220,9 @@ class ForkMailInboxStore(
 ) {
     var generation: Long = 0L
         private set
+    private var pageRequestId: Long = 0L
+    private var detailRequestId: Long = 0L
+    private val threadBuffer = mutableListOf<MailInboxThreadSummary>()
     var activeSpaceId: String? = null
         private set
     var selectedMailboxId: String? = null
@@ -262,6 +265,9 @@ class ForkMailInboxStore(
 
     fun resetForContextChange() {
         generation += 1L
+        pageRequestId += 1L
+        detailRequestId += 1L
+        threadBuffer.clear()
         activeSpaceId = null
         selectedMailboxId = null
         status = null
@@ -325,7 +331,12 @@ class ForkMailInboxStore(
                 }
             }
         } catch (t: Throwable) {
-            if (t is CancellationException) throw t
+            if (t is CancellationException) {
+                if (generation == requestGeneration && activeSpaceId == cleanSpaceId) {
+                    isLoadingStatus = false
+                }
+                throw t
+            }
             if (generation != requestGeneration || activeSpaceId != cleanSpaceId) return
             isLoadingStatus = false
             val mapped = mapError(t)
@@ -357,9 +368,12 @@ class ForkMailInboxStore(
             activeSpaceId = cleanSpaceId
         } else {
             generation += 1L
+            pageRequestId += 1L
+            detailRequestId += 1L
         }
 
         selectedMailboxId = cleanMailboxId
+        threadBuffer.clear()
         threads = emptyList()
         nextCursor = null
         hasLoadedFirstPage = false
@@ -414,13 +428,16 @@ class ForkMailInboxStore(
             selectedMailboxId = cleanMailboxId
         }
 
+        detailRequestId += 1L
+        val capturedDetailRequestId = detailRequestId
         val requestGeneration = generation
         isLoadingThreadDetail = true
         lastError = null
 
         try {
             val response = transport.mailInboxOpenThread(cleanSpaceId, cleanMailboxId, cleanThreadId)
-            if (generation != requestGeneration ||
+            if (capturedDetailRequestId != detailRequestId ||
+                generation != requestGeneration ||
                 activeSpaceId != cleanSpaceId ||
                 selectedMailboxId != cleanMailboxId
             ) {
@@ -430,8 +447,18 @@ class ForkMailInboxStore(
             openThread = MailInboxSanitizer.sanitizeOpenThread(response)
             lastError = null
         } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            if (generation != requestGeneration ||
+            if (t is CancellationException) {
+                if (capturedDetailRequestId == detailRequestId &&
+                    generation == requestGeneration &&
+                    activeSpaceId == cleanSpaceId &&
+                    selectedMailboxId == cleanMailboxId
+                ) {
+                    isLoadingThreadDetail = false
+                }
+                throw t
+            }
+            if (capturedDetailRequestId != detailRequestId ||
+                generation != requestGeneration ||
                 activeSpaceId != cleanSpaceId ||
                 selectedMailboxId != cleanMailboxId
             ) {
@@ -448,13 +475,16 @@ class ForkMailInboxStore(
         cursor: String?,
         isRestartFromCursorInvalid: Boolean,
     ) {
+        pageRequestId += 1L
+        val capturedPageRequestId = pageRequestId
         val requestGeneration = generation
         isLoadingThreads = true
         lastError = null
 
         try {
             val page = transport.mailInboxListThreads(spaceId, mailboxId, cursor)
-            if (generation != requestGeneration ||
+            if (capturedPageRequestId != pageRequestId ||
+                generation != requestGeneration ||
                 activeSpaceId != spaceId ||
                 selectedMailboxId != mailboxId
             ) {
@@ -463,16 +493,28 @@ class ForkMailInboxStore(
             isLoadingThreads = false
             val sanitizedThreads = page.threads.map(MailInboxSanitizer::sanitizeThreadSummary)
             if (cursor == null) {
-                threads = sanitizedThreads
+                threadBuffer.clear()
+            }
+            threadBuffer.addAll(sanitizedThreads)
+            threads = threadBuffer.toList()
+            if (cursor == null) {
                 hasLoadedFirstPage = true
-            } else {
-                threads = threads + sanitizedThreads
             }
             nextCursor = page.nextCursor
             lastError = null
         } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            if (generation != requestGeneration ||
+            if (t is CancellationException) {
+                if (capturedPageRequestId == pageRequestId &&
+                    generation == requestGeneration &&
+                    activeSpaceId == spaceId &&
+                    selectedMailboxId == mailboxId
+                ) {
+                    isLoadingThreads = false
+                }
+                throw t
+            }
+            if (capturedPageRequestId != pageRequestId ||
+                generation != requestGeneration ||
                 activeSpaceId != spaceId ||
                 selectedMailboxId != mailboxId
             ) {
@@ -481,6 +523,7 @@ class ForkMailInboxStore(
             isLoadingThreads = false
             val mapped = mapError(t)
             if (mapped == MailInboxError.CURSOR_INVALID && cursor != null && !isRestartFromCursorInvalid) {
+                threadBuffer.clear()
                 threads = emptyList()
                 nextCursor = null
                 hasLoadedFirstPage = false

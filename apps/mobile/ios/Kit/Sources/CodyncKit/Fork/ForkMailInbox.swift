@@ -396,6 +396,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
     public let featureEnabled: Bool
 
     public private(set) var generation: UInt64 = 0
+    private var pageRequestId: UInt64 = 0
+    private var detailRequestId: UInt64 = 0
     public private(set) var activeSpaceId: String?
     public private(set) var selectedMailboxId: String?
     public private(set) var status: MailInboxStatus?
@@ -427,14 +429,16 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
         !threads.isEmpty || openThread != nil || (status?.hasMailboxes == true)
     }
 
-    public var description: String {
-        "ForkMailInboxStore(generation: \(generation), featureEnabled: \(featureEnabled), threadCount: \(threads.count), hasOpenThread: \(openThread != nil), masked: \(shouldMaskInAppSwitcher))"
+    nonisolated public var description: String {
+        "ForkMailInboxStore(redacted)"
     }
 
-    public var debugDescription: String { description }
+    nonisolated public var debugDescription: String { description }
 
     public func resetForContextChange() {
         generation &+= 1
+        pageRequestId &+= 1
+        detailRequestId &+= 1
         activeSpaceId = nil
         selectedMailboxId = nil
         status = nil
@@ -493,7 +497,12 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 lastError = .unavailable
             }
         } catch {
-            if error is CancellationError { return }
+            if error is CancellationError {
+                if generation == requestGeneration && activeSpaceId == cleanSpaceId {
+                    isLoadingStatus = false
+                }
+                return
+            }
             guard generation == requestGeneration, activeSpaceId == cleanSpaceId else { return }
             isLoadingStatus = false
             let mapped = Self.mapError(error)
@@ -521,6 +530,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             activeSpaceId = cleanSpaceId
         } else {
             generation &+= 1
+            pageRequestId &+= 1
+            detailRequestId &+= 1
         }
 
         selectedMailboxId = cleanMailboxId
@@ -569,6 +580,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             selectedMailboxId = cleanMailboxId
         }
 
+        detailRequestId &+= 1
+        let capturedDetailRequestId = detailRequestId
         let requestGeneration = generation
         isLoadingThreadDetail = true
         lastError = nil
@@ -579,15 +592,25 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 mailboxId: cleanMailboxId,
                 threadId: cleanThreadId
             )
-            guard generation == requestGeneration,
+            guard capturedDetailRequestId == detailRequestId,
+                  generation == requestGeneration,
                   activeSpaceId == cleanSpaceId,
                   selectedMailboxId == cleanMailboxId else { return }
             isLoadingThreadDetail = false
             openThread = MailInboxSanitizer.sanitizeOpenThread(response)
             lastError = nil
         } catch {
-            if error is CancellationError { return }
-            guard generation == requestGeneration,
+            if error is CancellationError {
+                if capturedDetailRequestId == detailRequestId &&
+                    generation == requestGeneration &&
+                    activeSpaceId == cleanSpaceId &&
+                    selectedMailboxId == cleanMailboxId {
+                    isLoadingThreadDetail = false
+                }
+                return
+            }
+            guard capturedDetailRequestId == detailRequestId,
+                  generation == requestGeneration,
                   activeSpaceId == cleanSpaceId,
                   selectedMailboxId == cleanMailboxId else { return }
             isLoadingThreadDetail = false
@@ -601,6 +624,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
         cursor: String?,
         isRestartFromCursorInvalid: Bool
     ) async {
+        pageRequestId &+= 1
+        let capturedPageRequestId = pageRequestId
         let requestGeneration = generation
         isLoadingThreads = true
         lastError = nil
@@ -611,7 +636,8 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
                 mailboxId: mailboxId,
                 cursor: cursor
             )
-            guard generation == requestGeneration,
+            guard capturedPageRequestId == pageRequestId,
+                  generation == requestGeneration,
                   activeSpaceId == spaceId,
                   selectedMailboxId == mailboxId else { return }
             isLoadingThreads = false
@@ -625,8 +651,17 @@ public final class ForkMailInboxStore: CustomStringConvertible, CustomDebugStrin
             nextCursor = page.nextCursor
             lastError = nil
         } catch {
-            if error is CancellationError { return }
-            guard generation == requestGeneration,
+            if error is CancellationError {
+                if capturedPageRequestId == pageRequestId &&
+                    generation == requestGeneration &&
+                    activeSpaceId == spaceId &&
+                    selectedMailboxId == mailboxId {
+                    isLoadingThreads = false
+                }
+                return
+            }
+            guard capturedPageRequestId == pageRequestId,
+                  generation == requestGeneration,
                   activeSpaceId == spaceId,
                   selectedMailboxId == mailboxId else { return }
             isLoadingThreads = false

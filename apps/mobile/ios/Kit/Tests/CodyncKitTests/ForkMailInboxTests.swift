@@ -8,9 +8,14 @@ private final class FixtureMailInboxTransport: MailInboxTransport, @unchecked Se
     var openResponses: [String: Result<MailInboxOpenThreadResponse, Error>] = [:]
     var recordedCalls: [String] = []
     var delayNanoseconds: UInt64 = 0
+    var onCallEntered: (@Sendable () -> Void)?
 
     func mailInboxStatus(spaceId: String) async throws -> MailInboxStatus {
         recordedCalls.append("status:\(spaceId)")
+        if let callback = onCallEntered {
+            onCallEntered = nil
+            callback()
+        }
         if delayNanoseconds > 0 { try await Task.sleep(nanoseconds: delayNanoseconds) }
         guard let result = statusResponses[spaceId] else {
             throw MailInboxError.accessDenied
@@ -24,6 +29,10 @@ private final class FixtureMailInboxTransport: MailInboxTransport, @unchecked Se
         cursor: String?
     ) async throws -> MailInboxListThreadsResponse {
         recordedCalls.append("list:\(spaceId):\(mailboxId):\(cursor ?? "nil")")
+        if let callback = onCallEntered {
+            onCallEntered = nil
+            callback()
+        }
         if delayNanoseconds > 0 { try await Task.sleep(nanoseconds: delayNanoseconds) }
         let key = "\(spaceId):\(mailboxId):\(cursor ?? "page1")"
         guard let result = listResponses[key] else {
@@ -38,6 +47,10 @@ private final class FixtureMailInboxTransport: MailInboxTransport, @unchecked Se
         threadId: String
     ) async throws -> MailInboxOpenThreadResponse {
         recordedCalls.append("open:\(spaceId):\(mailboxId):\(threadId)")
+        if let callback = onCallEntered {
+            onCallEntered = nil
+            callback()
+        }
         if delayNanoseconds > 0 { try await Task.sleep(nanoseconds: delayNanoseconds) }
         let key = "\(spaceId):\(mailboxId):\(threadId)"
         guard let result = openResponses[key] else {
@@ -277,11 +290,15 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     #expect(store.threads.map(\.threadId) == ["thr-100"])
 
     transport.delayNanoseconds = 60_000_000
-    let nextPageTask = Task {
-        await store.loadNextPage()
+    var nextPageTask: Task<Void, Never>?
+    await withCheckedContinuation { (enteredCont: CheckedContinuation<Void, Never>) in
+        transport.onCallEntered = {
+            enteredCont.resume()
+        }
+        nextPageTask = Task {
+            await store.loadNextPage()
+        }
     }
-
-    try? await Task.sleep(nanoseconds: 10_000_000)
     transport.delayNanoseconds = 0
     transport.listResponses["space-alpha:mbox-inbox:page1"] = .success(
         MailInboxListThreadsResponse(
@@ -297,27 +314,61 @@ private func makeFixtureTransport() -> FixtureMailInboxTransport {
     )
 
     await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
-    await nextPageTask.value
+    await nextPageTask?.value
 
     #expect(store.threads.map(\.threadId) == ["thr-fresh"])
     #expect(store.nextCursor == nil)
 }
 
+@Test @MainActor func openThreadDiscardsStaleResponseFromPreviousMailboxOrOlderRequest() async {
+    let transport = makeFixtureTransport()
+    transport.openResponses["space-alpha:mbox-inbox:thr-other"] = .success(
+        MailInboxOpenThreadResponse(
+            threadId: "thr-other",
+            subject: "Segundo fio",
+            messages: [],
+            truncated: false
+        )
+    )
+
+    let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
+    await store.loadStatus(spaceId: "space-alpha")
+    await store.loadFirstPage(spaceId: "space-alpha", mailboxId: "mbox-inbox")
+
+    transport.delayNanoseconds = 60_000_000
+    let firstOpen = Task {
+        await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-100")
+    }
+    await Task.yield()
+    transport.delayNanoseconds = 0
+    await store.openThread(spaceId: "space-alpha", mailboxId: "mbox-inbox", threadId: "thr-other")
+    await firstOpen.value
+
+    #expect(store.openThread?.threadId == "thr-other")
+}
+
 @Test @MainActor func contextChangeDiscardsInFlightResponseAndClearsSensitiveState() async {
     let transport = makeFixtureTransport()
-    transport.delayNanoseconds = 60_000_000 // 60ms
+    transport.delayNanoseconds = 60_000_000
 
     let store = ForkMailInboxStore(transport: transport, featureEnabled: true)
     let initialGeneration = store.generation
-    let task = Task {
-        await store.loadStatus(spaceId: "space-alpha")
-    }
+    var taskRef: Task<Void, Never>?
 
-    try? await Task.sleep(nanoseconds: 10_000_000)
+    await withCheckedContinuation { (enteredCont: CheckedContinuation<Void, Never>) in
+        transport.onCallEntered = {
+            enteredCont.resume()
+        }
+        taskRef = Task {
+            await store.loadStatus(spaceId: "space-alpha")
+        }
+    }
+    transport.onCallEntered = nil
+
     let beforeReset = store.generation
     store.resetForContextChange()
 
-    await task.value
+    await taskRef?.value
     #expect(store.generation > initialGeneration)
     #expect(store.generation == beforeReset + 1)
     #expect(store.activeSpaceId == nil)
