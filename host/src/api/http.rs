@@ -348,27 +348,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// Pedido cru: o `Content-Length` declarado pode ser maior que o corpo enviado, para provar que o handler não o lê.
-    async fn status_cru(addr: SocketAddr, method: &str, token: &str, corpo: &[u8], tamanho: usize) -> String {
-        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-        let mut conexao = tokio::net::TcpStream::connect(addr).await.expect("conexão");
-        let cabecalho = format!(
-            "POST /api/{method} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {tamanho}\r\nConnection: close\r\n\r\n"
-        );
-        conexao.write_all(cabecalho.as_bytes()).await.expect("envio");
-        conexao.write_all(corpo).await.expect("envio");
-        let mut resposta = vec![0; 64];
-        let lidos = tokio::time::timeout(Duration::from_secs(10), conexao.read(&mut resposta))
-            .await
-            .expect("resposta sem esperar o corpo")
-            .expect("leitura");
-        String::from_utf8_lossy(&resposta[..lidos]).split(' ').nth(1).unwrap_or_default().to_owned()
-    }
-
-    /// O nome é classificado antes de o corpo ser lido: nome sem classe dá 404 sem esperar o corpo declarado, mesmo
-    /// acima do limite (antes, 413), com JSON inválido (antes do 400) e com qualquer prefixo; a autenticação vem antes.
+    /// O nome é classificado antes de o corpo ser lido: nome sem classe dá 404 sem tocar no corpo (antes, um corpo
+    /// grande dava 413 e um JSON inválido, 400), com qualquer prefixo; a autenticação vem antes; método com classe lê
+    /// o corpo.
     #[tokio::test]
     async fn unknown_method_is_refused_before_the_body_is_read() {
+        use std::sync::atomic::{AtomicBool, Ordering};
         let dir = std::env::temp_dir().join(format!("codync-http-unknown-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let hub = Hub::new(
@@ -378,20 +363,29 @@ mod tests {
             "local-test".into(),
             0,
         );
-        hub.start().expect("hub");
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
-        let addr = listener.local_addr().expect("addr");
-        let app = router(hub.clone()).into_make_service_with_connect_info::<SocketAddr>();
-        let server = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
-        let acima = 3 * 1024 * 1024;
+        let peer: SocketAddr = "127.0.0.1:9".parse().expect("endereço");
+        let cabecalhos = |token: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("authorization", format!("Bearer {token}").parse().expect("cabeçalho"));
+            headers
+        };
+        let chamar = |method: &str, token: &str| {
+            let lido = Arc::new(AtomicBool::new(false));
+            let marca = lido.clone();
+            let corpo = stream::once(async move {
+                marca.store(true, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Bytes::from_static(b"{"))
+            });
+            let request = Request::new(axum::body::Body::from_stream(corpo));
+            let resposta =
+                command(State(hub.clone()), Path(method.to_owned()), ConnectInfo(peer), cabecalhos(token), request);
+            async move { (resposta.await.err().map(|e| e.0), lido.load(Ordering::SeqCst)) }
+        };
         for method in ["metodoInexistente", "donnaWorkplaceInexistente"] {
-            assert_eq!(status_cru(addr, method, "local-test", b"", acima).await, "404", "{method}");
-            assert_eq!(status_cru(addr, method, "local-test", b"{", 1).await, "404", "{method}");
-            assert_eq!(status_cru(addr, method, "invalido", b"{}", 2).await, "401", "{method}");
+            assert_eq!(chamar(method, "local-test").await, (Some(StatusCode::NOT_FOUND), false), "{method}");
+            assert_eq!(chamar(method, "invalido").await, (Some(StatusCode::UNAUTHORIZED), false), "{method}");
         }
-        assert_eq!(status_cru(addr, "hello", "local-test", b"{", 1).await, "400");
-        assert_eq!(status_cru(addr, "hello", "local-test", b"", acima).await, "413");
-        server.abort();
+        assert_eq!(chamar("hello", "local-test").await, (Some(StatusCode::BAD_REQUEST), true));
         let _ = std::fs::remove_dir_all(dir);
     }
 
