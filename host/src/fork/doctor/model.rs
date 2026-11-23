@@ -71,3 +71,28 @@ pub(crate) struct HubDoctorReport {
     pub overall: DoctorOverallStatus,
     pub checks: Vec<DoctorCheck>,
 }
+
+pub(crate) fn validate_report(raw: &serde_json::Value, space: &str) -> Option<serde_json::Value> {
+    let report: HubDoctorReport = serde_json::from_value(raw.clone()).ok()?;
+    if report.version != 1
+        || report.hub_id.trim().is_empty()
+        || report.space_id.trim().is_empty()
+        || report.space_id != space
+        || !(0..=8_640_000_000_000_000).contains(&report.collected_at)
+        || report.checks.is_empty()
+    {
+        return None;
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for (check, wire) in report.checks.iter().zip(raw.get("checks")?.as_array()?) {
+        if check.id.trim().is_empty()
+            || check.code.trim().is_empty()
+            || !ids.insert(&check.id)
+            || wire.get("count").is_none()
+            || check.count.is_some_and(|n| n > 9_007_199_254_740_991)
+        {
+            return None;
+        }
+    }
+    serde_json::to_value(report).ok()
+}

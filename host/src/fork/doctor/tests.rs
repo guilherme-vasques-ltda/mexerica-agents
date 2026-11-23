@@ -342,6 +342,33 @@ async fn pendencias_geram_waiting_user_com_dedupe_e_isolamento_de_space() {
 }
 
 #[tokio::test]
+async fn conta_sem_slot_e_mcp_sem_header_nao_parecem_prontos() {
+    let f = Fixture::new();
+    f.seed_connected_ai(false);
+    let store = &f.hub.store;
+    let key = crate::fork::engine_accounts::SLOT;
+    let mut registry: Value = serde_json::from_str(&store.kv_read(key).unwrap().unwrap()).unwrap();
+    registry["accounts"][0]["launch"] = json!({"kind":"vault_profile","slot":"fixture-slot"});
+    store.kv_set(key, &registry.to_string()).unwrap();
+    let connector = |header: &str| {
+        json!([{"id":"fixture","name":"Fixture","servico":"fixture","space":PERSONAL,
+            "url":"https://mcp.example.invalid","headers":{"Authorization":header}}])
+    };
+    store.kv_set("connectors", &connector("").to_string()).unwrap();
+    let before = store.db.locked().total_changes();
+    let report = f.read(&Caller::Local, PERSONAL).await.unwrap();
+    assert_eq!(check_of(&report, "ai_engine")["count"], 0);
+    assert_eq!(check_of(&report, "mcps")["code"], "mcps_attention_needed");
+    assert_eq!(store.db.locked().total_changes(), before);
+
+    store.kv_set("fixture-slot", "{}").unwrap();
+    store.kv_set("connectors", &connector("fixture").to_string()).unwrap();
+    let report = f.read(&Caller::Local, PERSONAL).await.unwrap();
+    assert_eq!(check_of(&report, "ai_engine")["code"], "ai_ok");
+    assert_eq!(check_of(&report, "mcps")["code"], "mcps_ok");
+}
+
+#[tokio::test]
 async fn space_vazio_nao_conta_credenciais_de_outros_spaces() {
     let f = Fixture::new();
     f.seed_connected_ai(false);
@@ -353,6 +380,8 @@ async fn space_vazio_nao_conta_credenciais_de_outros_spaces() {
 
 #[tokio::test]
 async fn canais_rotinas_e_pedidos_entre_bots_sinalizam_degradacao() {
+    use crate::fork::{cadeias::modelo::Recibo, retornos, sessoes::bindings};
+
     let f = Fixture::new();
     f.seed_connected_ai(false);
     f.bot("bot_a", PERSONAL);
@@ -371,20 +400,35 @@ async fn canais_rotinas_e_pedidos_entre_bots_sinalizam_degradacao() {
             [],
         )
         .unwrap();
-        db.execute(
-            "INSERT INTO donna_session_requests(
-                id,schema_version,kind,mode,requester_bot_id,requester_chat_id,requester_session_id,
-                requester_execution_ref,target_bot_id,target_chat_id,target_session_id,chain_id,
-                admission_id,origin_entry_id,target_entry_id,attempt,fence,state,end_reason,created_at,updated_at
-             ) VALUES(
-                'req_1',1,'inter_bot','async','bot_a','bot_a','bot_a',
-                'exec_1','bot_b','bot_b','bot_b','chain_1',
-                'adm_1','entry_o','entry_t',1,1,'cancelled','timeout',?1,?1
-             )",
-            [now_ms()],
-        )
-        .unwrap();
     }
+    let execucao = bindings::fixture_execution(&f.hub, "bot_a");
+    let notice = |bot| f.hub.store.insert_entry(&Lane::main(bot), EntryKind::Notice, 1, &json!({})).unwrap().id;
+    let (origem, destino) = (notice("bot_a"), notice("bot_b"));
+    let recibo = Recibo {
+        chain_id: "chain_1".into(),
+        admission_id: "adm_1".into(),
+        run_id: "req_1".into(),
+        bot_id: "bot_b".into(),
+        level: 2,
+        ordinal: 2,
+    };
+    let pedido = retornos::NovoPedido {
+        id: "req_1",
+        modo: retornos::Modo::Assincrono,
+        de: "bot_a",
+        para: "bot_b",
+        execucao: &execucao,
+        recibo: &recibo,
+        aviso_origem: &origem,
+        aviso_destino: &destino,
+    };
+    {
+        let mut db = f.hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        retornos::aceitar_na(&tx, &pedido).unwrap();
+        tx.commit().unwrap();
+    }
+    assert!(retornos::encerrar(&f.hub.store, pedido.id, retornos::Decisao::Prazo).unwrap());
     f.hub
         .store
         .kv_set(

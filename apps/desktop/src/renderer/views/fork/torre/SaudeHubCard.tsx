@@ -92,6 +92,8 @@ export class DoctorSession extends Observable {
   }
 
   private connect(source: TowerSource) {
+    if (this.rereadTimer) clearTimeout(this.rereadTimer)
+    this.rereadTimer = null
     this.stopEvents?.()
     this.stopEvents = null
     const gen = ++this.gen
@@ -153,7 +155,7 @@ export class DoctorSession extends Observable {
   }
 
   private scheduleRead(origin: DoctorOrigin) {
-    if (this.rereadTimer) clearTimeout(this.rereadTimer)
+    if (this.rereadTimer) return
     this.rereadTimer = setTimeout(() => {
       this.rereadTimer = null
       if (this.current(origin)) void this.read(origin)

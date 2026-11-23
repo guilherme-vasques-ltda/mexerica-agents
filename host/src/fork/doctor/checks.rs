@@ -5,7 +5,7 @@ use super::model::{
 use crate::{
     LockExt,
     fork::{
-        engine_accounts::{Billing, Registry, State as AccountState, managed},
+        engine_accounts::{Billing, LaunchReference, Registry, State as AccountState, managed},
         fallback_contas::estado::Estado as FallbackState,
         projetos::model::{Project, ProjectState, TaskState},
         retornos::pendentes::{Filtro, JANELA_MS, Pedido, ler_na},
@@ -132,6 +132,12 @@ fn eval_ai_engine(c: &Connection, space: &str, now: i64) -> Result<DoctorCheck> 
         let connected = enabled
             && account.state == AccountState::Connected
             && (account.billing != Billing::Subscription || account.subscription_verified());
+        if connected && let LaunchReference::VaultProfile { slot } = &account.launch {
+            let present: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM kv WHERE k=?1)", [slot], |r| r.get(0))?;
+            if !present {
+                continue;
+            }
+        }
         let rate_limited = fallback.descansando(&account.id, now).is_some();
 
         if connected {
@@ -445,6 +451,7 @@ fn eval_mcps(store: &Store, space: &str) -> Result<DoctorCheck> {
         .iter()
         .filter(|c| {
             !c.configured()
+                || c.missing_catalog_header()
                 || c.oauth.as_ref().is_some_and(|o| {
                     !o.signed_in()
                         || c.oauth_binding

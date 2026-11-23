@@ -1494,63 +1494,115 @@ mod mac_local_cli_tests {
 }
 
 async fn run_doctor(port: u16, space: String, as_json: bool) -> i32 {
-    let emit_offline = |space: &str| -> i32 {
-        let report = fork::doctor::offline_report_json(space, store::now_ms());
-        if as_json {
-            println!("{report}");
-        } else {
-            println!("{}", fork::doctor::format_human(&report));
+    let token = fork::data_home::read_text(&service::data_dir().join("token"));
+    let result = match token.as_deref().map(str::trim) {
+        Ok(token) if !token.is_empty() => {
+            request_doctor(
+                http().post(format!("http://127.0.0.1:{port}/api/{}", fork::doctor::METHOD)),
+                token,
+                &space,
+                Duration::from_secs(5),
+            )
+            .await
         }
-        2
+        _ => Err("hub_doctor_credential_unavailable"),
     };
-    let Ok(token) = fork::data_home::read_text(&service::data_dir().join("token")) else {
-        return emit_offline(&space);
-    };
-    let Ok(res) = http()
-        .post(format!("http://127.0.0.1:{port}/api/{}", fork::doctor::METHOD))
-        .bearer_auth(token.trim())
-        .json(&json!({ "spaceId": space }))
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await
-    else {
-        return emit_offline(&space);
-    };
-    let status = res.status();
-    let body = res.json::<serde_json::Value>().await.ok();
-    if status.is_success()
-        && let Some(report) = body.as_ref().filter(|v| v["overall"].is_string() && v["checks"].is_array())
-    {
-        if as_json {
-            println!("{report}");
-        } else {
-            println!("{}", fork::doctor::format_human(report));
+    let (report, exit) = match result {
+        Ok(report) => {
+            let exit = fork::doctor::exit_code_for_report(&report);
+            (report, exit)
         }
-        return fork::doctor::exit_code_for_report(report);
-    }
-    let error = body.as_ref().and_then(|v| v["error"].as_str()).unwrap_or("hub_doctor_unavailable");
+        Err(error) => (
+            json!({"version":1,"hubId":null,"spaceId":space,"collectedAt":store::now_ms(),
+                   "overall":"error","error":error,"checks":[]}),
+            1,
+        ),
+    };
     if as_json {
-        println!(
-            "{}",
-            json!({
-                "version": 1,
-                "hubId": serde_json::Value::Null,
-                "spaceId": space,
-                "collectedAt": store::now_ms(),
-                "overall": "error",
-                "error": error,
-                "checks": []
-            })
-        );
+        println!("{report}");
+    } else if let Some(error) = report["error"].as_str() {
+        eprintln!("Hub Doctor ({space}): {error}");
     } else {
-        eprintln!("Hub Doctor ({space}): erro ao consultar Hub local ({status}): {error}");
+        println!("{}", fork::doctor::format_human(&report));
     }
-    1
+    exit
+}
+
+async fn request_doctor(
+    request: reqwest::RequestBuilder,
+    token: &str,
+    space: &str,
+    timeout: Duration,
+) -> std::result::Result<serde_json::Value, &'static str> {
+    let res =
+        request.bearer_auth(token).json(&json!({"spaceId":space})).timeout(timeout).send().await.map_err(|error| {
+            if error.is_timeout() {
+                return "hub_doctor_timeout";
+            }
+            "hub_doctor_connection_unconfirmed"
+        })?;
+    match res.status() {
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => return Err("hub_doctor_access_denied"),
+        status if !status.is_success() => return Err("hub_doctor_unavailable"),
+        _ => {}
+    }
+    let body = res
+        .json()
+        .await
+        .map_err(|error| if error.is_timeout() { "hub_doctor_timeout" } else { "hub_doctor_invalid_report" })?;
+    fork::doctor::model::validate_report(&body, space).ok_or("hub_doctor_invalid_report")
 }
 
 #[cfg(test)]
 mod doctor_cli_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn doctor_cli_classifica_respostas_sem_expor_erros() -> Result<()> {
+        use axum::{Router, body::Body, http::StatusCode, response::Response, routing::post};
+
+        let app = Router::new()
+            .route("/headers", post(|| async { std::future::pending::<()>().await }))
+            .route(
+                "/body",
+                post(|| async {
+                    Response::new(Body::from_stream(futures::stream::once(std::future::pending::<
+                        std::result::Result<&'static str, std::io::Error>,
+                    >())))
+                }),
+            )
+            .route("/denied", post(|| async { (StatusCode::UNAUTHORIZED, "detalhe fictício") }))
+            .route("/invalid", post(|| async { axum::Json(json!({"overall":"healthy","checks":[]})) }))
+            .route(
+                "/valid",
+                post(|| async {
+                    axum::Json(json!({"version":1,"hubId":"fixture","spaceId":"personal","collectedAt":1,
+                    "overall":"healthy","checks":[{"id":"hub","area":"hub","status":"ok","code":"hub_ok",
+                    "count":null,"actionKind":"none"}]}))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        let client = reqwest::Client::builder().no_proxy().build()?;
+        for (route, space, expected) in [
+            ("headers", "personal", "hub_doctor_timeout"),
+            ("body", "personal", "hub_doctor_timeout"),
+            ("denied", "personal", "hub_doctor_access_denied"),
+            ("invalid", "personal", "hub_doctor_invalid_report"),
+            ("valid", "outro", "hub_doctor_invalid_report"),
+        ] {
+            let request = client.post(format!("http://{address}/{route}"));
+            assert_eq!(request_doctor(request, "fixture", space, Duration::from_millis(500)).await, Err(expected));
+        }
+        let request = client.post(format!("http://{address}/valid"));
+        let valid = request_doctor(request, "fixture", "personal", Duration::from_secs(2))
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        assert_eq!(fork::doctor::exit_code_for_report(&valid), 0);
+        server.abort();
+        Ok(())
+    }
 
     #[test]
     fn doctor_cli_flags_parse_defaults_and_overrides() {

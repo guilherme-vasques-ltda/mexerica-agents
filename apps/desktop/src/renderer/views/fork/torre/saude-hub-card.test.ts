@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import type { TowerEvent, TowerLink, TowerSource } from './torre-session.ts'
 
 // Carrega SaudeHubCard e DoctorSession reais sem DOM real nem APIs do Electron.
@@ -14,7 +15,7 @@ const bundle = await build({
       export { idiomaPref } from './lib/fork-i18n/estado';
       export { createElement } from 'react';
       export { renderToStaticMarkup } from 'react-dom/server';`,
-    resolveDir: new URL('../../../', import.meta.url).pathname,
+    resolveDir: fileURLToPath(new URL('../../../', import.meta.url)),
     loader: 'ts',
   },
   bundle: true,
@@ -22,7 +23,7 @@ const bundle = await build({
   format: 'cjs',
   write: false,
   jsx: 'automatic',
-  alias: { '@shared': new URL('../../../../shared', import.meta.url).pathname },
+  alias: { '@shared': fileURLToPath(new URL('../../../../shared', import.meta.url)) },
   plugins: [{
     name: 'marcadores',
     setup(b) {
@@ -171,6 +172,13 @@ test('DoctorSession consulta donnaHubDoctor, reconsulta em donnaDoctorChanged e 
   emit!({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' })
   await tick(300)
   assert.equal(calls, 2)
+
+  const beforeBurst = calls
+  for (let i = 0; i < 4; i++) {
+    emit!({ type: 'entry' })
+    await tick(100)
+  }
+  assert.ok(calls > beforeBurst, 'eventos contínuos não adiam a leitura indefinidamente')
 
   // Hub antigo (404) degrada para unavailable ("Não informado").
   mode = '404'

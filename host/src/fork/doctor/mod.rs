@@ -8,7 +8,7 @@ use crate::{
     store::Scope,
 };
 use anyhow::Result;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::sync::Arc;
 
 pub(crate) const METHOD: &str = "donnaHubDoctor";
@@ -45,8 +45,9 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Result
 }
 
 /// Constrói a resposta `hub_offline` explícita para o CLI quando o Hub local não responde.
+#[cfg(test)]
 pub(crate) fn offline_report_json(space_id: &str, collected_at: i64) -> Value {
-    json!({
+    serde_json::json!({
         "version": 1,
         "hubId": Value::Null,
         "spaceId": space_id,
