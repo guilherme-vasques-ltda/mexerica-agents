@@ -382,6 +382,7 @@ impl Fixture {
             queue: VecDeque::new(),
             queue_retry_at: None,
             queue_restore_retry_at: None,
+            subscription_refusals: BTreeMap::new(),
             active_request: None,
             dispatch: None,
             profile_skills: None,
@@ -1901,6 +1902,26 @@ async fn mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72() {
     assert!(saved["retryAt"].as_i64().unwrap() >= now + 290_000);
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn assinatura_pessoal_recusa_nao_reenfileira_quando_sqlite_falha() {
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    let lane = crate::store::Lane::main("bot");
+    let entry = f.hub.store.insert_entry(&lane, EntryKind::User, 1, &json!({"text":"oi","status":"queued"})).unwrap();
+    f.hub.store.db.locked().execute_batch("CREATE TRIGGER reject_subscription_failure BEFORE UPDATE ON entries WHEN json_extract(NEW.data,'$.status')='failed' BEGIN SELECT RAISE(ABORT,'indisponível'); END;").unwrap();
+    let ids = [entry.id.clone()];
+    actor.stop_subscription_retry(&ids, &crate::fork::assinatura_pessoal::Refusal::Automation.into());
+    actor.requeue_unreserved_humans(&ids);
+    assert!(!actor.queue_has_user(&entry.id));
+    assert!(actor.restore_waiting_queue().is_err());
+    f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_subscription_failure").unwrap();
+    actor.restore_waiting_queue().unwrap();
+    assert!(!actor.queue_has_user(&entry.id));
+    assert_eq!(f.hub.store.entry(&entry.id).unwrap().data["status"], "failed");
+    std::fs::remove_dir_all(&f.dir).unwrap();
 }
 
 #[tokio::test]

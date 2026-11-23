@@ -18,10 +18,13 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
     {
         let nome = name(executavel);
         let package = (nome == "npx")
-            .then(|| match &palavras[1..] {
-                [flag, package, ..] if matches!(flag.as_str(), "-y" | "--yes" | "--") => Some(package),
-                [package, ..] if !package.starts_with('-') => Some(package),
-                _ => None,
+            .then(|| {
+                let mut args = palavras[1..].iter().skip_while(|arg| matches!(arg.as_str(), "-y" | "--yes"));
+                match args.next() {
+                    Some(arg) if arg == "--" => args.next(),
+                    Some(arg) if !arg.starts_with('-') => Some(arg),
+                    _ => None,
+                }
             })
             .flatten();
         for word in std::iter::once(executavel).chain(package) {
@@ -154,6 +157,7 @@ mod tests {
     fn custom_aceita_argumentos_literais_e_flags_de_interpretador() {
         assert!(check(&cfg("meu-adaptador --state-dir /srv/claude")).is_ok());
         assert!(check(&cfg("npx -y @anthropic-ai/claude-code@1")).is_err());
+        assert!(check(&cfg("npx -y --yes @anthropic-ai/claude-code@1")).is_err());
         for command in [
             "python3 -X utf8 -u '/fixtures/com espaço.py'",
             "copilot --acp --stdio",

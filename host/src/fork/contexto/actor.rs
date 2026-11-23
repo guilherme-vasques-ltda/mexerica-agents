@@ -84,7 +84,10 @@ impl Actor {
             manual
                 .owner
                 .as_ref()
-                .ok_or(crate::fork::assinatura_pessoal::Refusal::Automation)?
+                .ok_or_else(|| {
+                    tracing::warn!("compactação manual recusada sem autorização do dono");
+                    crate::fork::assinatura_pessoal::Refusal::Automation
+                })?
                 .with_db(&self.hub, |_| Ok(()))?;
         }
         ensure!(manual.read.context_id.as_deref() == Some(target.context_id()?.as_str()), "context_engine_changed");
@@ -170,7 +173,10 @@ impl Actor {
         let Some(compaction) = &self.context_compaction else { return Ok(()) };
         let target = &compaction.target;
         if crate::fork::assinatura_pessoal::claude(&self.cfg.backend) {
-            let owner = compaction.owner.as_ref().ok_or(crate::fork::assinatura_pessoal::Refusal::Automation)?;
+            let owner = compaction.owner.as_ref().ok_or_else(|| {
+                tracing::warn!("envio de compactação recusado sem autorização do dono");
+                crate::fork::assinatura_pessoal::Refusal::Automation
+            })?;
             owner.with_db(&self.hub, |_| Ok(()))?;
         }
         ensure!(

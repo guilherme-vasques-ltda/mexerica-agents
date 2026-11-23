@@ -10,7 +10,8 @@ import os
 import pathlib
 import sys
 
-config_dir = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or os.environ.get("CODEX_HOME") or ".")
+engine = sys.argv[1]
+config_dir = pathlib.Path(os.environ.get("CODEX_HOME" if engine == "codex" else "CLAUDE_CONFIG_DIR") or ".")
 sessions = 0
 
 
@@ -54,7 +55,10 @@ for line in sys.stdin:
                     "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Run", "kind": "execute",
                     "status": "in_progress"}}})
             record("cota_esgotada")
-            send({"id": request["id"], "error": {"code": -32000, "message": "usage limit reached"}})
+            error = {"code": -32000, "message": "usage limit reached"}
+            if engine == "codex":
+                error["data"] = {"codex_error_info": "UsageLimitExceeded"}
+            send({"id": request["id"], "error": error})
             continue
         record("ok")
         send({"method": "session/update", "params": {"sessionId": request["params"]["sessionId"], "update": {

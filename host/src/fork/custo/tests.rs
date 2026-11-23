@@ -702,6 +702,33 @@ fn interrupted_or_failed_finish_does_not_charge_the_next_turn() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[tokio::test]
+async fn envio_de_fundo_sem_resposta_permanece_no_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let store = Store::open(&path).unwrap();
+    let (notify, recorded) = tokio::sync::oneshot::channel();
+    let request = async {
+        let id = begin_background(&store, "bot", "memory", None, None).unwrap();
+        notify.send(id).unwrap();
+        std::future::pending::<()>().await;
+    };
+    let id = {
+        tokio::pin!(request);
+        tokio::select! {
+            id = recorded => id.unwrap(),
+            () = &mut request => panic!("o executor fictício não deve responder"),
+        }
+    };
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    let row = store.db.locked().query_row(
+        "SELECT bot_id, session_id, input_tokens IS NULL AND output_tokens IS NULL FROM donna_turn_usage WHERE id=?1",
+        [&id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)),
+    ).unwrap();
+    assert_eq!(row, ("bot".into(), "background:memory".into(), true));
+}
+
 /// MX-145 P3: a consulta individual da sessão sintética de fundo (`background:<job>`)
 /// é aceita quando o ledger tem a linha daquele bot na principal dele; sessão
 /// sintética sem linha, de outro bot ou fora da principal continua recusada.

@@ -73,7 +73,7 @@ use crate::store::{BotConfig, Entry, EntryKind, Lane};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -333,6 +333,7 @@ fn new_actor(hub: Arc<Hub>, cfg: BotConfig) -> Actor {
         queue: VecDeque::new(),
         queue_retry_at: None,
         queue_restore_retry_at: Some(Instant::now()),
+        subscription_refusals: BTreeMap::new(),
         #[cfg(test)]
         before_permit: None,
         active_request: None,
@@ -611,6 +612,7 @@ struct Actor {
     queue_retry_at: Option<Instant>,
     /// Consumidor da enumeração inicial, mesmo antes de existir item na fila.
     queue_restore_retry_at: Option<Instant>,
+    subscription_refusals: BTreeMap<String, String>,
     active_request: Option<crate::chat::team::BotRequest>,
     profile_skills: Option<crate::fork::bot_skills::Prepared>,
     dispatch: Option<crate::fork::bot_admission::Ticket>,

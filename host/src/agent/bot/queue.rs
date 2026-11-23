@@ -505,6 +505,7 @@ impl Actor {
     pub(super) fn restore_waiting_queue(&mut self) -> Result<()> {
         // Armar antes do I/O: erro não deixa o boot depender de fila já preenchida.
         self.queue_restore_retry_at = Some(Instant::now() + std::time::Duration::from_secs(5));
+        self.persist_subscription_refusals()?;
         let entries = self.hub.store.queued_user_entries_for_identity(&self.cfg.id)?;
         let ids = entries
             .iter()

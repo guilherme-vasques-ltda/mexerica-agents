@@ -105,7 +105,9 @@ pub(super) fn conferir_url(texto: &str, local: bool) -> Result<String> {
     ensure!(url.query().is_none() && url.fragment().is_none(), "endereco_invalido: o endereço não pode ter ? nem #.");
     ensure!(url.host_str().is_some_and(|h| !h.is_empty()), "endereco_invalido: o endereço não tem servidor.");
     ensure!(
-        url.host_str().map(|h| h.trim_end_matches('.')) != Some("api.meta.ai"),
+        !url.host_str()
+            .map(|h| h.trim_end_matches('.'))
+            .is_some_and(|h| h == "api.meta.ai" || h.ends_with(".api.meta.ai")),
         "{}",
         crate::fork::assinatura_pessoal::META
     );

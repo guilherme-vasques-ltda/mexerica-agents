@@ -299,6 +299,9 @@ impl Actor {
     ) {
         let manual = lane.is_some();
         let lane = lane.unwrap_or_else(|| Lane::main(&self.cfg.id));
+        if !manual {
+            self.context_compaction = None;
+        }
         if !manual && !self.automatic_compaction_allowed(&lane) {
             return;
         }
