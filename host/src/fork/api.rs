@@ -78,6 +78,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
             super::contexto::call(hub, caller, method, body).await.map(ControlFlow::Break)
         }
         super::control_tower::METHOD => super::control_tower::call(hub, caller, body).await.map(ControlFlow::Break),
+        "donnaHubDoctor" => super::doctor::call(hub, caller, body).await.map(ControlFlow::Break),
         super::resumo_diario::api::METHOD => {
             super::resumo_diario::api::call(hub, caller, body).await.map(ControlFlow::Break)
         }

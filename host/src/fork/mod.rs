@@ -52,6 +52,7 @@ pub(crate) mod data_home;
 #[allow(dead_code, reason = "MX-387 fatia A: núcleo publicado antes do consumidor (modo Auto); sem runtime novo.")]
 pub(crate) mod decisor;
 pub(crate) mod delegacao;
+pub(crate) mod doctor;
 pub(crate) mod donna_fixa;
 pub mod engine_accounts;
 pub mod engine_setup;

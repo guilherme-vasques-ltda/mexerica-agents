@@ -328,6 +328,15 @@ enum Sub {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
     },
+    /// Read-only Hub and Space health diagnosis.
+    Doctor {
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+        #[arg(long, default_value = fork::spaces::PERSONAL)]
+        space: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Claude Code statusLine command: forwards usage limits to the host, then prints
     /// the wrapped command's status line (`statusline -- <command>`) or a short default.
     Statusline {
@@ -826,6 +835,13 @@ async fn main() -> Result<()> {
                 service::installed(),
                 service::data_dir().display()
             );
+            Ok(())
+        }
+        Sub::Doctor { port, space, json } => {
+            let code = run_doctor(port, space, json).await;
+            if code != 0 {
+                std::process::exit(code);
+            }
             Ok(())
         }
         Sub::MotorInstall => fork::motor_install::run().await,
@@ -1474,5 +1490,88 @@ mod mac_local_cli_tests {
         assert!(!touches_claude_settings(nivel(&["--nivel", "1"])));
         assert!(!touches_claude_settings(nivel(&["--nivel", "2"])));
         assert!(Cli::try_parse_from(["donnabot-host", "uninstall", "--nivel", "3"]).is_err());
+    }
+}
+
+async fn run_doctor(port: u16, space: String, as_json: bool) -> i32 {
+    let emit_offline = |space: &str| -> i32 {
+        let report = fork::doctor::offline_report_json(space, store::now_ms());
+        if as_json {
+            println!("{report}");
+        } else {
+            println!("{}", fork::doctor::format_human(&report));
+        }
+        2
+    };
+    let Ok(token) = fork::data_home::read_text(&service::data_dir().join("token")) else {
+        return emit_offline(&space);
+    };
+    let Ok(res) = http()
+        .post(format!("http://127.0.0.1:{port}/api/{}", fork::doctor::METHOD))
+        .bearer_auth(token.trim())
+        .json(&json!({ "spaceId": space }))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+    else {
+        return emit_offline(&space);
+    };
+    let status = res.status();
+    let body = res.json::<serde_json::Value>().await.ok();
+    if status.is_success()
+        && let Some(report) = body.as_ref().filter(|v| v["overall"].is_string() && v["checks"].is_array())
+    {
+        if as_json {
+            println!("{report}");
+        } else {
+            println!("{}", fork::doctor::format_human(report));
+        }
+        return fork::doctor::exit_code_for_report(report);
+    }
+    let error = body.as_ref().and_then(|v| v["error"].as_str()).unwrap_or("hub_doctor_unavailable");
+    if as_json {
+        println!(
+            "{}",
+            json!({
+                "version": 1,
+                "hubId": serde_json::Value::Null,
+                "spaceId": space,
+                "collectedAt": store::now_ms(),
+                "overall": "error",
+                "error": error,
+                "checks": []
+            })
+        );
+    } else {
+        eprintln!("Hub Doctor ({space}): erro ao consultar Hub local ({status}): {error}");
+    }
+    1
+}
+
+#[cfg(test)]
+mod doctor_cli_tests {
+    use super::*;
+
+    #[test]
+    fn doctor_cli_flags_parse_defaults_and_overrides() {
+        match Cli::try_parse_from(["donnabot-host", "doctor"]).unwrap().cmd {
+            Some(Sub::Doctor { port, space, json }) => {
+                assert_eq!(port, service::DEFAULT_PORT);
+                assert_eq!(space, fork::spaces::PERSONAL);
+                assert!(!json);
+            }
+            _ => panic!("expected doctor"),
+        }
+        match Cli::try_parse_from(["donnabot-host", "doctor", "--port", "19422", "--space", "sp_1", "--json"])
+            .unwrap()
+            .cmd
+        {
+            Some(Sub::Doctor { port, space, json }) => {
+                assert_eq!(port, 19422);
+                assert_eq!(space, "sp_1");
+                assert!(json);
+            }
+            _ => panic!("expected doctor"),
+        }
     }
 }
