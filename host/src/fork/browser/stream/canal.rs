@@ -189,6 +189,14 @@ pub fn oferecer(frame: Frame) -> bool {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn simular_consumidor(sessao: &str) -> bool {
+    let estado = registros().locked().get(sessao).map(|r| r.estado.clone());
+    let Some(estado) = estado else { return false };
+    estado.locked().enable_test_input_consumer();
+    true
+}
+
 /// Retira uma intenção (não comprova execução). Mantém a mesma fila limitada que
 /// alvo, controlador e desconexão invalidam; a autoridade original vale na retirada.
 /// Um futuro consumidor precisa conferir a autoridade também no ponto do efeito.

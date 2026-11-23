@@ -122,9 +122,23 @@ async fn inscrito(hub: &Arc<Hub>, com_capacidade: bool) -> (Phone, String) {
 }
 
 #[tokio::test]
+async fn sem_consumidor_recusa_entrada_e_entrega_o_proximo_quadro() {
+    let hub = hub_com_bot();
+    let (mut phone, sessao) = inscrito(&hub, true).await;
+    assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
+    assert_eq!(phone.esperar_quadro().await.sequence, 1);
+    let resposta = phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await;
+    assert_eq!(resposta["ok"]["accepted"], false, "sem consumidor, a entrada deve ser recusada");
+    assert!(navegador::retirar_entrada(&sessao).is_none());
+    assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 2)));
+    assert_eq!(timeout(Duration::from_secs(2), phone.esperar_quadro()).await.unwrap().sequence, 2);
+}
+
+#[tokio::test]
 async fn round_trip_com_fonte_falsa_e_intencao_de_entrada() {
     let hub = hub_com_bot();
     let (mut phone, sessao) = inscrito(&hub, true).await;
+    assert!(navegador::simular_consumidor(&sessao));
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
     assert_eq!(phone.esperar_quadro().await.sequence, 1);
     let resposta = phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await;
@@ -141,6 +155,7 @@ async fn round_trip_com_fonte_falsa_e_intencao_de_entrada() {
 async fn troca_de_controlador_descarta_entrada_que_ainda_nao_foi_consumida() {
     let hub = hub_com_bot();
     let (mut phone, sessao) = inscrito(&hub, true).await;
+    assert!(navegador::simular_consumidor(&sessao));
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
     assert_eq!(phone.esperar_quadro().await.sequence, 1);
     assert_eq!(phone.chamar(2, "browserStreamInput", entrada(&sessao, 1, 1)).await["ok"]["accepted"], true);
@@ -187,6 +202,7 @@ async fn outro_space_hub_errado_e_segundo_aparelho_sao_recusados() {
 async fn epoca_de_controle_recusa_comando_do_agente() {
     let hub = hub_com_bot();
     let (mut phone, sessao) = inscrito(&hub, true).await;
+    assert!(navegador::simular_consumidor(&sessao));
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
     assert_eq!(phone.esperar_quadro().await.sequence, 1);
     let epoca = phone.chamar(2, "browserStreamControl", json!({"controller": "person"})).await;
