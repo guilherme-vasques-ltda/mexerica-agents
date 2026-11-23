@@ -66,14 +66,13 @@ impl Portal {
     pub async fn start(data: &Path, restore: bool) -> Result<Self> {
         let token_file = data.join("screen-restore-token");
         let token = if restore {
-            match read_token(&token_file) {
-                Ok(token) => Some(token),
-                Err(_) => {
-                    tracing::warn!(
-                        "Automatic restoration unavailable; the portal will request permission again. Restoration requires a private, regular state directory."
-                    );
-                    None
-                }
+            if let Ok(token) = read_token(&token_file) {
+                Some(token)
+            } else {
+                tracing::warn!(
+                    "Automatic restoration unavailable; the portal will request permission again. Restoration requires a private, regular state directory."
+                );
+                None
             }
         } else {
             None
