@@ -936,27 +936,25 @@ impl Actor {
                 self.restart_admission = false;
                 return Ok(());
             }
-            let completed_routine =
-                matches!(&record.origin, Origin::Routine { id } if self.hub.routines.admission_finished(id));
-            if !completed_routine {
-                // O aviso vai para a sessão do turno interrompido (extra ou principal), nunca para outra.
-                let first = match record.entry_ids.first() {
-                    Some(id) => crate::store::Store::entry_on(&self.hub.store.db.locked(), id)?,
-                    None => None,
-                };
-                let lane = Lane {
-                    chat: record.conversation_id.clone(),
-                    session: first.filter(|e| e.session_id != record.conversation_id).map(|e| e.session_id),
-                };
-                // A pausa é gravada antes do aviso e antes de soltar a cerca: uma nova queda aqui repete só a pausa
-                // (idempotente) e o aviso único, nunca o turno.
-                admission::pause_conversation(&self.hub.store, &self.cfg.id, &record.conversation_id, &record.attempt)?;
-                self.hub.add_entry_once(
-                    &format!("dispatch-interrupted-{}", record.attempt), &lane,
-                    crate::store::EntryKind::Notice, 0,
-                    &json!({"text":"O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico. Nenhuma ação foi repetida automaticamente e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la.","style":"info","author":self.cfg.id}),
-                )?;
-            }
+            // Nenhum estado terminal gravado pela rotina prova a conclusão enquanto a cerca segue permitida (um
+            // timeout ou uma parada podem vir depois do envio): a pausa vale para toda origem.
+            // O aviso vai para a sessão do turno interrompido (extra ou principal), nunca para outra.
+            let first = match record.entry_ids.first() {
+                Some(id) => crate::store::Store::entry_on(&self.hub.store.db.locked(), id)?,
+                None => None,
+            };
+            let lane = Lane {
+                chat: record.conversation_id.clone(),
+                session: first.filter(|e| e.session_id != record.conversation_id).map(|e| e.session_id),
+            };
+            // A pausa é gravada antes do aviso e antes de soltar a cerca: uma nova queda aqui repete só a pausa
+            // (idempotente) e o aviso único, nunca o turno.
+            admission::pause_conversation(&self.hub.store, &self.cfg.id, &record.conversation_id, &record.attempt)?;
+            self.hub.add_entry_once(
+                &format!("dispatch-interrupted-{}", record.attempt), &lane,
+                crate::store::EntryKind::Notice, 0,
+                &json!({"text":"O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico. Nenhuma ação foi repetida automaticamente e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la.","style":"info","author":self.cfg.id}),
+            )?;
         }
         admission::finish(&self.hub.store, &self.cfg.id, &record.ticket())?;
         self.clear_profile_skills(&record.ticket());

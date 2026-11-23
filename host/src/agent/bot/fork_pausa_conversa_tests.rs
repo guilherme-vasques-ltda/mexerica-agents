@@ -219,3 +219,44 @@ async fn queda_depois_da_pausa_e_antes_do_aviso_nao_duplica_nada() {
     first.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
+
+/// Estado terminal gravado pela rotina não prova a conclusão enquanto a cerca segue permitida: falha (timeout),
+/// parada e sucesso sem confirmação da cerca também pausam a conversa no boot.
+#[tokio::test]
+async fn rotina_terminal_sem_prova_da_cerca_tambem_pausa() {
+    for status in ["failed", "cancelled", "succeeded"] {
+        let f = Fixture::new();
+        std::fs::write(f.dir.join("blocked"), "").unwrap();
+        std::fs::write(f.dir.join("hold"), "").unwrap();
+        let routine = f
+            .hub
+            .routines
+            .save(&f.hub, "bot", &json!({"name":"Rotina", "instruction":"Faça", "triggers":[{"type":"webhook"}]}))
+            .unwrap();
+        let id = routine["routine"]["id"].as_str().unwrap().to_owned();
+        let run = f.enqueue(&id, "test", true).await;
+        let run_id = run["run"]["id"].as_str().unwrap().to_owned();
+        f.hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id)).unwrap();
+        f.until(|| f.prompts().len() == 1).await;
+        let record = admission::current(&f.hub.store, "bot").unwrap().unwrap();
+        assert_eq!(record.phase, admission::Phase::Permitted);
+        f.hub.shutdown().await;
+        std::fs::remove_file(f.dir.join("hold")).unwrap();
+        {
+            // Queda entre gravar o estado da rotina e soltar a cerca.
+            let store = Store::open(&f.dir.join("test.db")).unwrap();
+            let mut state: Value = serde_json::from_str(&store.kv_get("routines.v1").unwrap()).unwrap();
+            state["runs"][0]["status"] = json!(status);
+            state["runs"][0]["finishedAt"] = json!(crate::store::now_ms());
+            store.kv_set("routines.v1", &state.to_string()).unwrap();
+        }
+        let hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+        f.until(|| admission::current(&hub.store, "bot").unwrap().is_none()).await;
+        assert!(admission::conversation_paused(&hub.store, "bot", &record.conversation_id).unwrap(), "{status}");
+        assert_eq!(notices(&hub.store), 1, "{status}");
+        assert_eq!(hub.routines.list("bot")["runs"][0]["status"], status);
+        assert_eq!(f.prompts().len(), 1, "{status}: nada é repetido");
+        hub.shutdown().await;
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+}
