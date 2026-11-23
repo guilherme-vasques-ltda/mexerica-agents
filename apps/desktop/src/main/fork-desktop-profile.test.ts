@@ -184,3 +184,67 @@ test('synthetic macOS ancestors allow sticky root and refuse writable or linked 
     assert.equal(lstat(shared).mode & 0o7777, 0o1777)
   } finally { cleanup() }
 })
+
+test('a transient cleanup failure reconciles the first publication without rewriting it', { skip: process.platform === 'win32' }, (t) => {
+  const { root, file, cleanup } = fixture()
+  try {
+    const store = new DesktopSSHProfiles(file)
+    assert.equal(store.load(), null)
+    const unlink = fs.unlinkSync
+    let attempts = 0
+    t.mock.method(fs, 'unlinkSync', (path: fs.PathLike) => {
+      if (++attempts === 1) throw new Error('synthetic cleanup failure')
+      unlink(path)
+    })
+    assert.deepEqual(store.save([profile]), { kind: 'uncertain', profiles: [profile] })
+    assert.equal(attempts, 2)
+    assert.deepEqual(fs.readdirSync(root), ['ssh-profiles.json'])
+    assert.equal(fs.statSync(file).nlink, 1)
+    assert.deepEqual(new DesktopSSHProfiles(file).load(), [profile])
+  } finally { cleanup() }
+})
+
+test('load recovers a verified first publication then validates the original contents', { skip: process.platform === 'win32' }, () => {
+  const { root, file, cleanup } = fixture()
+  try {
+    const temp = `${file}.00000000-0000-4000-8000-000000000001.tmp`
+    const bytes = JSON.stringify([profile], null, 2)
+    fs.writeFileSync(temp, bytes, { mode: 0o600 })
+    fs.linkSync(temp, file)
+    const before = fs.lstatSync(file)
+    assert.deepEqual(new DesktopSSHProfiles(file).load(), [profile])
+    assert.deepEqual(fs.readdirSync(root), ['ssh-profiles.json'])
+    const after = fs.lstatSync(file)
+    assert.equal(after.ino, before.ino)
+    assert.equal(after.nlink, 1)
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes)
+  } finally { cleanup() }
+})
+
+test('ambiguous first-publication names and identities stay untouched', { skip: process.platform === 'win32' }, () => {
+  for (const scenario of ['two names', 'unrelated file', 'three links', 'wrong name', 'symlink', 'wrong mode']) {
+    const { root, file, cleanup } = fixture()
+    try {
+      const candidate = `${file}.00000000-0000-4000-8000-000000000001.tmp`
+      const second = `${file}.00000000-0000-4000-8000-000000000002.tmp`
+      const alternate = `${file}.fixture.tmp`
+      fs.writeFileSync(file, '[]', { mode: scenario === 'wrong mode' ? 0o640 : 0o600 })
+      if (scenario === 'wrong mode') fs.chmodSync(file, 0o640)
+      if (['unrelated file', 'wrong name', 'symlink'].includes(scenario)) fs.linkSync(file, alternate)
+      else fs.linkSync(file, candidate)
+      if (scenario === 'two names') fs.writeFileSync(second, '[]', { mode: 0o600 })
+      if (scenario === 'unrelated file') fs.writeFileSync(candidate, '[]', { mode: 0o600 })
+      if (scenario === 'three links') fs.linkSync(file, alternate)
+      if (scenario === 'symlink') fs.symlinkSync(file, candidate)
+      const names = fs.readdirSync(root)
+      const original = fs.lstatSync(file)
+      const store = new DesktopSSHProfiles(file)
+      assert.throws(() => store.load(), scenario)
+      assert.equal(store.save([profile]).kind, 'refused', scenario)
+      assert.deepEqual(fs.readdirSync(root), names, scenario)
+      assert.equal(fs.lstatSync(file).nlink, original.nlink, scenario)
+      assert.equal(fs.lstatSync(file).mode, original.mode, scenario)
+      assert.equal(fs.readFileSync(file, 'utf8'), '[]', scenario)
+    } finally { cleanup() }
+  }
+})

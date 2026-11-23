@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { dirname, isAbsolute, parse, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path'
 import { SSH_STORAGE_STATUS, type SSHProfile } from '../shared/ssh.ts'
 
-const invalid = () => new Error('Unverified Desktop profile storage')
+const invalid = () => Object.assign(new Error(), { code: 'ERR_DESKTOP_PROFILE_UNVERIFIED' })
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 const same = (a: fs.Stats, b: fs.Stats) => a.dev === b.dev && a.ino === b.ino && a.uid === b.uid
 const mode = (meta: fs.Stats) => meta.mode & 0o7777
@@ -63,6 +63,31 @@ function regular(meta: fs.Stats) {
   if (!meta.isFile() || meta.uid !== owner() || meta.nlink !== 1) throw invalid()
 }
 
+function recoverFirstPublication(path: string, root: number, before: fs.Stats, known?: { path: string; meta: fs.Stats }) {
+  const parent = dirname(path)
+  checkRoot(parent, root)
+  const prefix = `${basename(path)}.`
+  const matchesName = (name: string) => name.startsWith(prefix) &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/.test(name.slice(prefix.length))
+  if (!before.isFile() || before.uid !== owner() || mode(before) !== 0o600 || before.nlink !== 2) throw invalid()
+  const samePayload = (meta: fs.Stats) => meta.isFile() && same(before, meta) && mode(meta) === 0o600 &&
+    before.size === meta.size && before.mtimeMs === meta.mtimeMs
+  if (known && (!samePayload(known.meta) || dirname(known.path) !== parent)) throw invalid()
+  const candidates = known ? [basename(known.path)].filter(matchesName) : fs.readdirSync(parent).filter(matchesName)
+  if (candidates.length !== 1) throw invalid()
+  const candidate = join(parent, candidates[0]!)
+  const publication = (meta: fs.Stats) => samePayload(meta) && meta.nlink === 2 && before.ctimeMs === meta.ctimeMs
+  checkRoot(parent, root)
+  if (!publication(fs.lstatSync(path)) || !publication(fs.lstatSync(candidate))) throw invalid()
+  fs.unlinkSync(candidate)
+  fs.fsyncSync(root)
+  checkRoot(parent, root)
+  const after = fs.lstatSync(path)
+  regular(after)
+  if (!samePayload(after)) throw invalid()
+  return after
+}
+
 function parseProfiles(bytes: Buffer): SSHProfile[] {
   const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes))
   if (!Array.isArray(value)) throw invalid()
@@ -83,8 +108,9 @@ function parseProfiles(bytes: Buffer): SSHProfile[] {
 function read(path: string, root: number, tighten: boolean) {
   const parent = dirname(path)
   checkRoot(parent, root)
-  const before = statIfPresent(path)
+  let before = statIfPresent(path)
   if (!before) { checkRoot(parent, root); return null }
+  if (tighten && before.nlink === 2) before = recoverFirstPublication(path, root, before)
   regular(before)
   const fd = fs.openSync(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
   try {
@@ -179,7 +205,10 @@ export class DesktopSSHProfiles {
       if (!published) return { kind: 'refused' }
       this.expected = undefined
       if (root !== undefined) {
-        try { this.expected = read(this.path, root, false) ?? undefined } catch {}
+        try {
+          if (temp) recoverFirstPublication(this.path, root, fs.lstatSync(this.path), { path: tmp, meta: temp })
+          this.expected = read(this.path, root, false) ?? undefined
+        } catch {}
       }
       return { kind: 'uncertain', profiles: this.expected?.profiles }
     } finally {
