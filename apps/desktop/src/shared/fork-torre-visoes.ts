@@ -72,6 +72,14 @@ const nullableText = (v: unknown): v is string | null => v === null || typeof v 
 const timestamp = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 8_640_000_000_000_000
 const oneOf = <T extends string>(v: unknown, values: readonly T[]): v is T => values.some((value) => value === v)
 
+function bucketFor(state: ProjectTaskState, blocker: WorkCard['blocker']['kind']): WorkBucket | null {
+  if (state === 'cancelled') return null
+  if (state === 'done') return 'done'
+  if (state === 'review' || blocker === 'owner_decision') return 'needs_you'
+  if (state === 'blocked' || blocker !== 'none') return 'waiting_or_blocked'
+  return state === 'in_progress' ? 'observed_working' : 'backlog'
+}
+
 export function parseWorkCard(v: unknown, spaceId?: string): WorkCard | null {
   if (!isObject(v) || !nonempty(v.taskId) || !nonempty(v.projectId) || !nonempty(v.projectName)
     || !nonempty(v.spaceId) || (spaceId !== undefined && v.spaceId !== spaceId) || !nullableId(v.parentTaskId) || !nonempty(v.title)
@@ -86,7 +94,7 @@ export function parseWorkCard(v: unknown, spaceId?: string): WorkCard | null {
     || (origin.admittedAt !== null && !timestamp(origin.admittedAt))
     || (origin.kind === 'owner_direct' && (origin.rootBotId !== null || origin.delegatedByBotId !== null))) return null
   if (!isObject(blocker) || !oneOf(blocker.kind, BLOCKERS) || !nullableText(blocker.reason)
-    || !nullableId(blocker.attentionItemId)) return null
+    || !nullableId(blocker.attentionItemId) || v.bucket !== bucketFor(v.state, blocker.kind)) return null
   if (!isObject(delivery) || typeof delivery.hasEvidence !== 'boolean' || !nullableText(delivery.evidenceSummary)
     || typeof delivery.acceptedByOwner !== 'boolean') return null
   if (!isObject(observedExecution) || typeof observedExecution.active !== 'boolean'
@@ -96,6 +104,7 @@ export function parseWorkCard(v: unknown, spaceId?: string): WorkCard | null {
     || (observedExecution.machineLabel !== null && !observedExecution.active)) return null
   if (!isObject(capabilities) || typeof capabilities.canDirectorInterrupt !== 'boolean'
     || typeof capabilities.canOwnerAccept !== 'boolean'
+    || (capabilities.canOwnerAccept && v.state !== 'review')
     || (capabilities.canDirectorInterrupt && origin.kind !== 'delegated' && origin.kind !== 'routine')) return null
 
   return {
@@ -132,6 +141,8 @@ export function parseTowerViewSnapshot(v: unknown, expected?: ExpectedTowerView)
   for (const raw of v.cards) {
     const card = parseWorkCard(raw, spaceId)
     if (!card || (perspective === 'bot' && card.assigneeBotId !== botId)) return null
+    if ((card.capabilities.canOwnerAccept && perspective !== 'overview')
+      || (card.capabilities.canDirectorInterrupt && perspective !== 'director')) return null
     const key = JSON.stringify([card.projectId, card.taskId])
     if (seen.has(key)) return null
     seen.add(key)

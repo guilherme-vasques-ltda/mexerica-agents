@@ -73,6 +73,39 @@ test('o bucket observado não inventa execução ativa nem máquina', () => {
   assert.deepEqual(parseTowerViewSnapshot(wire, overview), wire)
 })
 
+test('agrupamento segue a precedência do estado e do bloqueio', () => {
+  const cases: Array<[WorkCard['state'], WorkCard['blocker']['kind'], WorkCard['bucket']]> = [
+    ['backlog', 'none', 'backlog'], ['in_progress', 'none', 'observed_working'],
+    ['done', 'owner_decision', 'done'], ['review', 'permission_pause', 'needs_you'],
+    ['blocked', 'owner_decision', 'needs_you'], ['blocked', 'none', 'waiting_or_blocked'],
+    ['in_progress', 'dependency', 'waiting_or_blocked'], ['backlog', 'manual', 'waiting_or_blocked'],
+  ]
+  for (const [state, kind, bucket] of cases) {
+    const valid = { ...card, state, bucket, blocker: { ...card.blocker, kind } }
+    assert.deepEqual(parseWorkCard(valid), valid)
+    assert.equal(parseWorkCard({ ...valid, bucket: bucket === 'backlog' ? 'done' : 'backlog' }), null)
+  }
+  assert.equal(parseWorkCard({ ...card, state: 'cancelled' }), null)
+  assert.equal(parseTowerViewSnapshot({ ...snapshot, cards: [{ ...card, state: 'review' }] }), null)
+})
+
+test('capacidades afirmativas exigem perspectiva, estado e origem compatíveis', () => {
+  const review = { ...card, state: 'review', bucket: 'needs_you', capabilities: { ...card.capabilities, canOwnerAccept: true } }
+  const accepting = { ...snapshot, cards: [review], counts: { ...snapshot.counts, needsYou: 1 } }
+  assert.deepEqual(parseTowerViewSnapshot(accepting), accepting)
+  assert.equal(parseTowerViewSnapshot({ ...accepting, ...bot }), null)
+  assert.equal(parseTowerViewSnapshot({ ...accepting, ...director }), null)
+  assert.equal(parseWorkCard({ ...card, capabilities: review.capabilities }), null)
+  for (const kind of ['delegated', 'routine'] as const) {
+    const interrupt = { ...card, origin: { ...card.origin, kind }, capabilities: { ...card.capabilities, canDirectorInterrupt: true } }
+    const visible = { ...snapshot, cards: [interrupt] }
+    assert.deepEqual(parseTowerViewSnapshot({ ...visible, ...director }), { ...visible, ...director })
+    assert.equal(parseTowerViewSnapshot(visible), null)
+    assert.equal(parseTowerViewSnapshot({ ...visible, ...bot }), null)
+  }
+  assert.ok(parseTowerViewSnapshot({ ...accepting, cards: [{ ...review, capabilities: card.capabilities }] }))
+})
+
 test('contagens correspondem somente às fichas visíveis e não aceitam duplicatas', () => {
   const cards: WorkCard[] = [card, { ...card, taskId: 'task-2', state: 'review', bucket: 'needs_you' },
     { ...card, taskId: 'task-3', state: 'in_progress', bucket: 'observed_working',
