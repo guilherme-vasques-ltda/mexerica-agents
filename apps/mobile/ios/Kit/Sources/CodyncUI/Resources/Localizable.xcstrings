@@ -15807,6 +15807,23 @@
         }
       },
       "extractionState": "manual"
+    },
+    "Estado não reconhecido": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado não reconhecido"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecognized state"
+          }
+        }
+      },
+      "extractionState": "manual"
     }
   },
   "version": "1.0"

@@ -231,11 +231,21 @@ struct ForkWorkCardPresentation: Equatable {
             card.delivery.hasEvidence ? String(localized: "com entrega", bundle: .module) : String(localized: "sem entrega", bundle: .module),
             card.delivery.acceptedByOwner ? String(localized: "aceita por você", bundle: .module) : String(localized: "ainda não aceita", bundle: .module),
         ].joined(separator: ", ")
-        declaredState = card.state
+        declaredState = Self.stateLabel(for: card.state)
         observedLabel = card.observedExecution.active ? card.observedExecution.status.rotulo : String(localized: "Sem execução observada", bundle: .module)
         machineLabel = card.observedExecution.active ? card.observedExecution.machineLabel : nil
         canOwnerAccept = card.capabilities.canOwnerAccept
         canDirectorInterrupt = card.capabilities.canDirectorInterrupt
+    }
+
+    static func stateLabel(for state: String) -> String {
+        switch state {
+        case "in_progress": return ForkTowerText.value("Em andamento")
+        case "waiting": return ForkTowerText.value("Esperando")
+        case "done": return ForkTowerText.value("Concluído")
+        case "backlog": return ForkTowerText.value("Backlog")
+        default: return ForkTowerText.value("Estado não reconhecido")
+        }
     }
 }
 

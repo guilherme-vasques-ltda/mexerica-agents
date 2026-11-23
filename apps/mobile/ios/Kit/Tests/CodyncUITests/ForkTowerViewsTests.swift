@@ -182,7 +182,14 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     let inactive = ForkWorkCardPresentation(card: cards[1])
     #expect(["Sem execução observada", "No observed execution"].contains(inactive.observedLabel))
     #expect(inactive.machineLabel == nil)
-    #expect(inactive.declaredState == "in_progress")
+    #expect(["Em andamento", "In progress"].contains(inactive.declaredState))
+}
+
+@MainActor @Test func unknownDeclaredStateUsesNeutralLabel() {
+    let external = "estado-externo-x"
+    let label = ForkWorkCardPresentation.stateLabel(for: external)
+    #expect(label != external)
+    #expect(["Estado não reconhecido", "Unrecognized state"].contains(label))
 }
 
 @MainActor @Test func permissionPauseIsLinkedToAttentionItem() {
