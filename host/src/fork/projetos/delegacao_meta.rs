@@ -71,20 +71,40 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn chain_root(c: &Connection, (hub, space, project): (&str, &str, &str), parent: &str) -> Result<Option<String>> {
+    let parent_meta: Option<(String, Option<String>)> = c
+        .query_row(
+            "SELECT origin_kind,root_bot_id FROM donna_task_delegation_meta WHERE hub_id=?1 AND space_id=?2 AND project_id=?3 AND task_id=?4",
+            params![hub, space, project, parent],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(match parent_meta {
+        Some((origin, root)) if origin == "delegated" => root,
+        _ => None,
+    })
+}
+
 pub(crate) fn admit(
     c: &Connection,
-    (hub, space, project): (&str, &str, &str),
+    scope: (&str, &str, &str),
     task: &str,
     at: i64,
     author_bot: Option<&str>,
+    parent: Option<&str>,
 ) -> Result<()> {
     let (kind, requester) = if author_bot.is_some() { ("delegated", "bot") } else { ("owner_direct", "owner") };
+    let root = match (author_bot, parent) {
+        (Some(bot), Some(parent)) => Some(chain_root(c, scope, parent)?.unwrap_or_else(|| bot.to_owned())),
+        (bot, _) => bot.map(str::to_owned),
+    };
+    let (hub, space, project) = scope;
     c.execute(
         "INSERT INTO donna_task_delegation_meta(
             hub_id,space_id,project_id,task_id,origin_kind,root_bot_id,delegated_by_bot_id,
             admitted_at,requester_kind,requester_bot_id)
-         VALUES(?1,?2,?3,?4,?5,?6,?6,?7,?8,?6) ON CONFLICT(hub_id,space_id,project_id,task_id) DO NOTHING",
-        params![hub, space, project, task, kind, author_bot, at, requester],
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?7) ON CONFLICT(hub_id,space_id,project_id,task_id) DO NOTHING",
+        params![hub, space, project, task, kind, root, author_bot, at, requester],
     )?;
     Ok(())
 }

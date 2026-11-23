@@ -124,7 +124,7 @@ async fn tarefa_nova_do_dono_grava_origem_uma_vez() {
 
     let c = f.hub.store.db.locked();
     let scope = (f.hub.host_id.as_str(), PERSONAL, project_id.as_str());
-    admit(&c, scope, &task_id, 0, Some("bot-a")).unwrap();
+    admit(&c, scope, &task_id, 0, Some("bot-a"), None).unwrap();
     let metadata = load_space(&c, &f.hub.host_id, PERSONAL).unwrap();
     let meta = &metadata[&(project_id, task_id)];
     assert_eq!(meta.origin_kind, OriginKind::OwnerDirect);

@@ -155,6 +155,7 @@ async fn visoes_filtram_space_mandato_executor_e_contadores() {
         "atribuida",
         9,
         None,
+        None,
     )
     .unwrap();
 
@@ -218,8 +219,15 @@ async fn declarado_nao_vira_execucao_e_entrega_nao_vira_conversa() {
     );
     {
         let db = f.hub.store.db.locked();
-        crate::fork::projetos::delegacao_meta::admit(&db, (hub, PERSONAL, "projeto"), "andamento-declarado", 9, None)
-            .unwrap();
+        crate::fork::projetos::delegacao_meta::admit(
+            &db,
+            (hub, PERSONAL, "projeto"),
+            "andamento-declarado",
+            9,
+            None,
+            None,
+        )
+        .unwrap();
         db.execute(
             "INSERT INTO donna_task_delegation_meta(hub_id,space_id,project_id,task_id,origin_kind,requester_kind,blocker_kind,blocker_reason)
          VALUES(?1,?2,'projeto','pausada','unknown','unknown','permission_pause','Autorização pendente')",

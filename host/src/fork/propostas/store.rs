@@ -467,7 +467,7 @@ fn decide(c: &Connection, hub: &str, body: Value) -> Result<(Value, bool)> {
             "title": item.title, "description": item.description, "acceptance": item.acceptance,
             "evidence": "", "state": "backlog",
         }));
-        delegacao_meta::admit(c, scope, &task_id, now, Some(&p.bot_id))?;
+        delegacao_meta::admit(c, scope, &task_id, now, Some(&p.bot_id), None)?;
         crate::fork::projetos::store::history_as(
             c,
             (hub, space, p.project_id.as_str()),

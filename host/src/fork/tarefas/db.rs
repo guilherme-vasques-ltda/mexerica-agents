@@ -685,7 +685,7 @@ pub(crate) fn create_child(hub: &Hub, bot: &str, execution: &ExecutionRef, args:
     };
     history(&tx, &hub.host_id, &actor.space, project_id, now, &author, "task_created", &id, &summary)?;
     write_project(&tx, &hub.host_id, &actor.space, &mut loaded, now)?;
-    delegacao_meta::admit(&tx, scope, &id, now, Some(&actor.id))?;
+    delegacao_meta::admit(&tx, scope, &id, now, Some(&actor.id), Some(parent_id))?;
     if !request_id.is_empty() {
         tx.execute(
             "INSERT INTO donna_task_requests(hub_id,space_id,request_id,payload,project_id,task_id) VALUES(?1,?2,?3,?4,?5,?6)",

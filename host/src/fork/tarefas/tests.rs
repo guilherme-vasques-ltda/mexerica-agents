@@ -402,7 +402,8 @@ async fn ordem_direta_protege_estado_e_responsavel_sem_impedir_conferencia() {
     let mut owned = task("ordem", None, Some("a"), "Ordem direta");
     owned["state"] = json!("in_progress");
     let project = f.project(PERSONAL, Some("boss"), &[owned]);
-    delegacao_meta::admit(&f.hub.store.db.locked(), (&f.hub.host_id, PERSONAL, &project), "ordem", 1, None).unwrap();
+    delegacao_meta::admit(&f.hub.store.db.locked(), (&f.hub.host_id, PERSONAL, &project), "ordem", 1, None, None)
+        .unwrap();
 
     for bot in ["a", "b", "boss"] {
         let exec = f.exec(bot);

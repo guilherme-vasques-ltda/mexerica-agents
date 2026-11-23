@@ -647,7 +647,7 @@ pub(super) fn call(c: &Connection, hub: &str, method: &str, mut body: Value) -> 
                 for task in &r.tasks {
                     let previous = old.iter().find(|t| t.id == task.id);
                     if previous.is_none() {
-                        super::delegacao_meta::admit(c, (hub, space, &p.id), &task.id, now, None)?;
+                        super::delegacao_meta::admit(c, (hub, space, &p.id), &task.id, now, None, None)?;
                     }
                     if previous != Some(task) {
                         let summary = if let Some(before) = previous {
