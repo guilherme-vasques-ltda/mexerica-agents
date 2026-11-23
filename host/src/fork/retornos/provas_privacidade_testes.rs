@@ -97,6 +97,8 @@ fn p02_solicitante_autenticado_recebe_apenas_estado() {
         assert_eq!(ler(Some(&auth)).err().unwrap().to_string(), consulta::INDISPONIVEL);
     }
     assert_eq!(ler(None).err().unwrap().to_string(), consulta::INDISPONIVEL);
+    let unavailable = ReadAuthority { control: ControlAuthority::Unavailable, ..auth };
+    assert_eq!(ler(Some(&unavailable)).err().unwrap().to_string(), consulta::INDISPONIVEL);
 }
 
 #[test]
@@ -156,6 +158,15 @@ fn p04_trigger_e_requalificacao_nao_rebaixam() {
             .query_row("SELECT privacy_class FROM donna_session_privacy WHERE request_id=?1", [&id], |r| r.get(0))
             .unwrap();
         assert_eq!(actual, class);
+        let transition = "UPDATE donna_session_privacy SET privacy_class=?2 WHERE request_id=?1";
+        if class == "unknown_taint" {
+            assert_eq!(
+                db.execute(transition, params![id, "restricted_private"]).unwrap_err().to_string(),
+                "privacy_class_downgrade_forbidden"
+            );
+        } else {
+            assert_eq!(db.execute(transition, params![id, "unknown_taint"]).unwrap(), 1);
+        }
 
         let delete = "DELETE FROM donna_session_privacy WHERE request_id=?1";
         assert_eq!(db.execute(delete, [&id]).unwrap_err().to_string(), "privacy_row_delete_forbidden");
@@ -176,10 +187,13 @@ fn p04_trigger_e_requalificacao_nao_rebaixam() {
             .unwrap()
         };
         let revoked = snapshot();
-        assert_eq!((revoked.0.as_str(), revoked.1.as_str()), (class, "revoked_purged"));
+        assert_eq!((revoked.0.as_str(), revoked.1.as_str()), ("unknown_taint", "revoked_purged"));
         assert!(revoked.2 > 0);
         assert_eq!(db.execute(delete, [&id]).unwrap_err().to_string(), "privacy_row_delete_forbidden");
-        assert_eq!(db.execute(REPLACE, params![id, class]).unwrap_err().to_string(), "privacy_row_delete_forbidden");
+        assert_eq!(
+            db.execute(REPLACE, params![id, "unknown_taint"]).unwrap_err().to_string(),
+            "privacy_row_delete_forbidden"
+        );
         assert_eq!(snapshot(), revoked);
     }
 }
@@ -286,7 +300,8 @@ fn p06_audiencia_filtra_antes_do_limite_e_da_contagem() {
     let roster = ["a", "b"];
     let filtro = pendentes::Filtro { desde: 0, limite: pendentes::LIMITE, manter: &|_| true };
     let outside = ReadAuthority { space_id: "outro-space", ..caller(Some(MEMBER)) };
-    for auth in [None, Some(&caller(None)), Some(&caller(Some(OTHER))), Some(&outside)] {
+    let unavailable = ReadAuthority { control: ControlAuthority::Unavailable, ..caller(Some(MEMBER)) };
+    for auth in [None, Some(&caller(None)), Some(&caller(Some(OTHER))), Some(&outside), Some(&unavailable)] {
         let view = pendentes::ler_autorizado_na(&db, &filtro, auth).unwrap();
         assert!(view.linhas.is_empty());
         assert_eq!(view.total, 0);
@@ -354,16 +369,38 @@ fn p08_tripwire_sql_e_saida_de_eventos() {
     let from = Regex::new(&format!(r"(?i)\b(?:from|join)\s+{target}")).unwrap();
     let body_column =
         Regex::new(r"\b(?:content|final_entry_id|body_\w+|payload_\w+|content_\w+|body|payload)\b").unwrap();
-    let projection = Regex::new(r"(?s)\bselect\b(.*?)\bfrom\b").unwrap();
+    let projection_tokens = Regex::new(r"'(?:''|[^'])*'|\b(?:select|from)\b|[()]").unwrap();
     let body_select = |sql: &str| {
-        projection.captures_iter(sql).any(|m| {
-            let columns = m[1].replace("body_disposition", "disposition");
-            body_column.is_match(&columns)
-                || columns.trim().trim_start_matches("distinct ").split(',').any(|column| {
-                    let column = column.trim();
-                    column == "*" || column.ends_with(".*")
-                })
-        })
+        let mut depth = 0_usize;
+        let mut selects = Vec::new();
+        for token in projection_tokens.find_iter(sql) {
+            match token.as_str() {
+                "(" => depth += 1,
+                ")" => {
+                    depth = depth.saturating_sub(1);
+                    selects.retain(|&(level, _)| level <= depth);
+                }
+                "select" => selects.push((depth, token.end())),
+                "from" => {
+                    if let Some(&(level, start)) = selects.last()
+                        && level == depth
+                    {
+                        selects.pop();
+                        let columns = sql[start..token.start()].replace("body_disposition", "disposition");
+                        if body_column.is_match(&columns)
+                            || columns.trim().trim_start_matches("distinct ").split(',').any(|column| {
+                                let column = column.trim();
+                                column == "*" || column.ends_with(".*")
+                            })
+                        {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     };
     let sql_comments = Regex::new(r"(?s)/\*.*?\*/|--[^\n]*").unwrap();
     let strings = Regex::new(r##"(?s)r#+".*?"#+|"(?:\\.|[^"\\])*""##).unwrap();
@@ -459,9 +496,13 @@ fn p08_tripwire_sql_e_saida_de_eventos() {
         "SELECT s.* FROM donna_session_results s",
         "SELECT r.id, s.final_entry_id FROM donna_session_requests r JOIN donna_session_results s ON s.request_id=r.id",
         "SELECT payload_text FROM donna_session_results",
+        "SELECT (SELECT COUNT(*) FROM donna_session_results), r.final_entry_id FROM donna_session_results r",
     ] {
         assert!(from.is_match(&normalize(sql)) && body_select(&normalize(sql)));
     }
+    assert!(!body_select(&normalize(
+        "SELECT (SELECT COUNT(*) FROM donna_session_results), r.id FROM donna_session_requests r"
+    )));
 
     // O broadcast legado de Hub::set_entry fica para uma integração dedicada.
     let f = Fixture::new();

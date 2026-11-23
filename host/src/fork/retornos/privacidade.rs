@@ -31,8 +31,10 @@ pub(super) fn migrate_na(tx: &Transaction<'_>) -> Result<()> {
                  AND json_extract(audience_json,'$.policy_revision')=policy_revision
                ELSE 0 END,0) ELSE 0 END),
            CHECK((delivery_state='revoked_purged') = (revoked_at>0)));
+         DROP TRIGGER IF EXISTS donna_session_privacy_no_downgrade;
          CREATE TRIGGER IF NOT EXISTS donna_session_privacy_no_downgrade BEFORE UPDATE ON donna_session_privacy
          WHEN (OLD.privacy_class IN ('restricted_private','unknown_taint') AND NEW.privacy_class='public_in_space')
+           OR (OLD.privacy_class='unknown_taint' AND NEW.privacy_class<>'unknown_taint')
            OR NEW.body_disposition IS NOT 'body_retained'
          BEGIN SELECT RAISE(ABORT, 'privacy_class_downgrade_forbidden'); END;
          CREATE TRIGGER IF NOT EXISTS donna_session_privacy_grant_immutable BEFORE UPDATE ON donna_session_privacy
@@ -171,17 +173,15 @@ impl Qualification {
             return Err(Forbidden);
         }
         let caller = caller.ok_or(Forbidden)?;
-        if caller.space_id != self.audience.space()
+        if caller.control != ControlAuthority::Validated
+            || caller.space_id != self.audience.space()
             || caller.owner_epoch != self.epoch
             || caller.policy_revision != self.revision
         {
             return Err(Forbidden);
         }
         if matches!(reader, OwnerDirectView) {
-            return if caller.control == ControlAuthority::Validated
-                && caller.principal_id == Some(self.owner.as_str())
-                && caller.bot_id.is_none()
-            {
+            return if caller.principal_id == Some(self.owner.as_str()) && caller.bot_id.is_none() {
                 Ok(ReadAccess::OwnerBody)
             } else {
                 Err(Forbidden)
