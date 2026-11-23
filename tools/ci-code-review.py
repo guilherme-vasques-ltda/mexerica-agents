@@ -37,10 +37,11 @@ COMMENT_FIELDS = set('path content suggestion_code existing_code start_line end_
 
 
 class Refused(ValueError):
-    def __init__(self, schema=None, warning_type=None):
+    def __init__(self, schema=None, warning_type=None, *, render_class=None):
         super().__init__()
         self.schema = schema
         self.warning_type = warning_type
+        self.render_class = render_class
 
 
 class ProjectPhase(Enum):
@@ -65,6 +66,15 @@ class SchemaClass(Enum):
     WARNINGS_ITEM = 'AvisosItem'
     MANIFEST = 'Manifesto'
     COVERAGE = 'Cobertura'
+
+
+class RenderClass(Enum):
+    PROJECTION = 'Projecao'
+    PATCH_LINES = 'Linha'
+    PATH = 'Caminho'
+    POSITION = 'Posicao'
+    DUPLICATE = 'Duplicata'
+    TEXT = 'Texto'
 
 
 class WarningType(Enum):
@@ -101,9 +111,9 @@ def refused_warning(schema, item):
     return Refused(schema, WARNING_TYPES.get(kind, WarningType.OTHER) if type(kind) is str else WarningType.OTHER)
 
 
-def require(condition, schema=None):
+def require(condition, schema=None, *, render_class=None):
     if not condition:
-        raise Refused(schema)
+        raise Refused(schema, render_class=render_class)
 
 
 def unique_pairs(pairs):
@@ -213,7 +223,7 @@ def review_status(report, findings):
 
 
 def added_lines(patch, additions, deletions):
-    require(isinstance(patch, str) and 0 < len(patch) <= MAX_PATCH)
+    require(isinstance(patch, str) and 0 < len(patch) <= MAX_PATCH, render_class=RenderClass.PATCH_LINES)
     added = set()
     new = left = right = removed = 0
     seen = marker = False
@@ -221,29 +231,31 @@ def added_lines(patch, additions, deletions):
         match = HUNK.fullmatch(row)
         if match:
             target = int(match[3])
-            require(left == right == 0 and (not seen or target >= new))
+            require(left == right == 0 and (not seen or target >= new), render_class=RenderClass.PATCH_LINES)
             left, right = int(match[2] or '1'), int(match[4] or '1')
-            require((int(match[1]) > 0 or left == 0) and (target > 0 or right == 0) and left + right > 0)
+            require((int(match[1]) > 0 or left == 0) and (target > 0 or right == 0) and left + right > 0,
+                    render_class=RenderClass.PATCH_LINES)
             new, seen, marker = target, True, False
             continue
         if row == r'\ No newline at end of file':
-            require(marker)
+            require(marker, render_class=RenderClass.PATCH_LINES)
             marker = False
             continue
         prefix = row[:1]
-        require(seen and prefix in (' ', '+', '-'))
+        require(seen and prefix in (' ', '+', '-'), render_class=RenderClass.PATCH_LINES)
         if prefix != '+':
-            require(left > 0)
+            require(left > 0, render_class=RenderClass.PATCH_LINES)
             left -= 1
             removed += prefix == '-'
         if prefix != '-':
-            require(right > 0)
+            require(right > 0, render_class=RenderClass.PATCH_LINES)
             right -= 1
             if prefix == '+':
                 added.add(new)
             new += 1
         marker = True
-    require(seen and left == right == 0 and len(added) == additions and removed == deletions)
+    require(seen and left == right == 0 and len(added) == additions and removed == deletions,
+            render_class=RenderClass.PATCH_LINES)
     return added
 
 
@@ -300,37 +312,45 @@ def project(raw, files, secrets=(), *, set_phase=lambda _: None):
 
 def check_payload(payload):
     fields = {'diff', 'items', 'partial'}
-    require(type(payload) is dict and set(payload) in (fields, fields | {'partial_reason'}))
+    require(type(payload) is dict and set(payload) in (fields, fields | {'partial_reason'}),
+            render_class=RenderClass.PROJECTION)
     if 'partial_reason' in payload:
         reason = payload['partial_reason']
-        require(payload['partial'] is True and type(reason) is str and reason == PartialReason.ROUND_FAILED.value)
-    require(isinstance(payload['diff'], str) and re.fullmatch(r'[0-9a-f]{64}', payload['diff']))
-    require(type(payload['partial']) is bool and type(payload['items']) is list and len(payload['items']) <= MAX_FINDINGS)
+        require(payload['partial'] is True and type(reason) is str and reason == PartialReason.ROUND_FAILED.value,
+                render_class=RenderClass.PROJECTION)
+    require(isinstance(payload['diff'], str) and re.fullmatch(r'[0-9a-f]{64}', payload['diff']),
+            render_class=RenderClass.PROJECTION)
+    require(type(payload['partial']) is bool and type(payload['items']) is list and len(payload['items']) <= MAX_FINDINGS,
+            render_class=RenderClass.PROJECTION)
     for item in payload['items']:
-        require(type(item) is list and len(item) == 6 and all(type(v) is int for v in item[:5]))
+        require(type(item) is list and len(item) == 6 and all(type(v) is int for v in item[:5]),
+                render_class=RenderClass.PROJECTION)
         index, start, end, category, severity, text = item
-        require(0 <= index < MAX_FILES and 1 <= start <= end <= 10_000_000 and end - start < 30)
-        require(0 <= category < len(CATEGORIES) and 0 <= severity < len(SEVERITIES))
-        require(plain(text))
+        require(0 <= index < MAX_FILES and 1 <= start <= end <= 10_000_000 and end - start < 30,
+                render_class=RenderClass.POSITION)
+        require(0 <= category < len(CATEGORIES) and 0 <= severity < len(SEVERITIES),
+                render_class=RenderClass.PROJECTION)
+        require(plain(text), render_class=RenderClass.TEXT)
 
 
 def render(payload, files, head):
     check_payload(payload)
     entries, digest = indexed(files)
-    require(payload['diff'] == digest and SHA.fullmatch(head))
+    require(payload['diff'] == digest and SHA.fullmatch(head), render_class=RenderClass.PROJECTION)
     comments, seen, positions = [], set(), {}
     for index, start, end, category, severity, text in payload['items']:
-        require(index < len(entries))
+        require(index < len(entries), render_class=RenderClass.POSITION)
         path, patch_data = entries[index]
-        require(len(path) <= 240 and PATH.fullmatch(path) and not {'.', '..'}.intersection(path.split('/')))
+        require(len(path) <= 240 and PATH.fullmatch(path) and not {'.', '..'}.intersection(path.split('/')),
+                render_class=RenderClass.PATH)
         if index not in positions:
             positions[index] = added_lines(*patch_data)
-        require(all(line in positions[index] for line in range(start, end + 1)))
-        require((index, end) not in seen)
+        require(all(line in positions[index] for line in range(start, end + 1)), render_class=RenderClass.POSITION)
+        require((index, end) not in seen, render_class=RenderClass.DUPLICATE)
         seen.add((index, end))
         label, level = list(CATEGORIES.values())[category], list(SEVERITIES.values())[severity]
         body = f'Categoria: {label}. Severidade: {level}. Achado: {text}'
-        require(len(body) <= MAX_BODY)
+        require(len(body) <= MAX_BODY, render_class=RenderClass.TEXT)
         comment = {'path': path, 'line': end, 'side': 'RIGHT', 'body': body}
         if start < end:
             comment.update(start_line=start, start_side='RIGHT')
@@ -463,6 +483,8 @@ def cli():
             message += f' Classe: {exc.schema.value}.'
             if isinstance(exc.warning_type, WarningType):
                 message += f' Tipo: {exc.warning_type.value}.'
+        if phase is ProjectPhase.RENDER and isinstance(exc, Refused) and isinstance(exc.render_class, RenderClass):
+            message += f' Classe: {exc.render_class.value}.'
         print(message, file=sys.stderr)
         sys.exit(1)
 
