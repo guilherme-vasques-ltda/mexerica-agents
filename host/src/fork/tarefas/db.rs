@@ -4,7 +4,7 @@
 //! ou outras frentes adicionarem são preservados. Metadados de tarefa
 //! (`donna_task_meta`) nunca são tocados aqui.
 use crate::LockExt;
-use crate::fork::projetos::delegacao_meta::{self, OriginKind};
+use crate::fork::projetos::delegacao_meta;
 use crate::fork::sessoes::{ExecutionRef, bindings};
 use crate::hub::Hub;
 use anyhow::{Context, Result, anyhow, ensure};
@@ -357,7 +357,7 @@ pub(crate) fn update(hub: &Hub, bot: &str, execution: &ExecutionRef, args: &Valu
     {
         let origin = delegacao_meta::origin(&tx, (&hub.host_id, &actor.space, project_id), task_id)
             .context("direct_owner_order_protected: origem da tarefa indisponível.")?;
-        ensure!(origin != OriginKind::OwnerDirect, "direct_owner_order_protected: só o dono pode alterar esta ordem.");
+        ensure!(origin.allows_bot_interrupt(), "direct_owner_order_protected: só o dono pode alterar esta ordem.");
     }
     ensure!(!changes_assignment, "task_forbidden: apenas o usuário pode reatribuir uma tarefa.");
     ensure!(field(&loaded.tasks[pos], "state") != "cancelled", "task_forbidden: subtarefa cancelada.");

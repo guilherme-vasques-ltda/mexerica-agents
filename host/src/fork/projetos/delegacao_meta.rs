@@ -14,6 +14,12 @@ pub(crate) enum OriginKind {
     Unknown,
 }
 
+impl OriginKind {
+    pub(crate) fn allows_bot_interrupt(self) -> bool {
+        matches!(self, Self::Delegated | Self::Routine)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RequesterKind {

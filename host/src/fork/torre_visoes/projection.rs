@@ -4,7 +4,7 @@ use super::model::{
 use crate::{
     fork::{
         projetos::{
-            delegacao_meta::{self, BlockerKind, OriginKind},
+            delegacao_meta::{self, BlockerKind},
             model::TaskState,
         },
         tarefas::db::reports_to,
@@ -125,7 +125,7 @@ pub(super) fn snapshot(db: &Connection, hub: &str, read: Read) -> Result<Snapsho
                 },
                 capabilities: Capabilities {
                     can_director_interrupt: matches!(read.perspective, Perspective::Director)
-                        && meta.origin_kind != OriginKind::OwnerDirect,
+                        && meta.origin_kind.allows_bot_interrupt(),
                     can_owner_accept: matches!(read.perspective, Perspective::Overview)
                         && task.state == TaskState::Review,
                 },

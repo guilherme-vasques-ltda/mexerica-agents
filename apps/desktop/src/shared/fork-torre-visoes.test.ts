@@ -52,6 +52,8 @@ test('recusa a ficha inteira quando falta sinal ou ela declara origem, ação ou
     { ...card, origin: { ...card.origin, rootBotId: 'bot-2' } }, { ...card, origin: { ...card.origin, kind: 'manual' } },
     { ...card, blocker: { ...card.blocker, kind: 'waiting' } }, { ...card, delivery: { ...card.delivery, hasEvidence: 'false' } },
     { ...card, capabilities: { ...card.capabilities, canDirectorInterrupt: true } },
+    { ...card, origin: { ...card.origin, kind: 'unknown' }, requesterLabel: 'unknown',
+      capabilities: { ...card.capabilities, canDirectorInterrupt: true } },
     { ...card, capabilities: { canDirectorInterrupt: false } }, { ...card, declaredUpdatedAt: -1 },
     { ...card, observedExecution: { ...card.observedExecution, machineLabel: 'machine.example.invalid' } },
     { ...card, observedExecution: { ...card.observedExecution, status: 'active' } },

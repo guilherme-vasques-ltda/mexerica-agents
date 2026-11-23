@@ -96,7 +96,7 @@ export function parseWorkCard(v: unknown, spaceId?: string): WorkCard | null {
     || (observedExecution.machineLabel !== null && !observedExecution.active)) return null
   if (!isObject(capabilities) || typeof capabilities.canDirectorInterrupt !== 'boolean'
     || typeof capabilities.canOwnerAccept !== 'boolean'
-    || (origin.kind === 'owner_direct' && capabilities.canDirectorInterrupt)) return null
+    || (capabilities.canDirectorInterrupt && origin.kind !== 'delegated' && origin.kind !== 'routine')) return null
 
   return {
     taskId: v.taskId, projectId: v.projectId, projectName: v.projectName, spaceId: v.spaceId,

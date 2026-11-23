@@ -170,6 +170,15 @@ async fn concluir_e_prova_sao_gestos_so_do_usuario() {
     owned["state"] = json!("in_progress");
     owned["evidence"] = json!("prova registrada pelo usuário");
     let project = f.project(PERSONAL, Some("boss"), &[owned]);
+    crate::fork::projetos::delegacao_meta::admit(
+        &f.hub.store.db.locked(),
+        (&f.hub.host_id, PERSONAL, &project),
+        "t1",
+        1,
+        Some("boss"),
+        None,
+    )
+    .unwrap();
     for bot in ["a", "b", "boss"] {
         let exec = f.exec(bot);
         for extra in [
@@ -316,6 +325,15 @@ async fn matriz_coordenador_supervisor_e_sem_autoridade() {
     f.org("a", None);
     f.org("b", Some("a"));
     let project = f.project(PERSONAL, Some("boss"), &[task("t1", None, Some("b"), "Sub de b")]);
+    crate::fork::projetos::delegacao_meta::admit(
+        &f.hub.store.db.locked(),
+        (&f.hub.host_id, PERSONAL, &project),
+        "t1",
+        1,
+        Some("boss"),
+        None,
+    )
+    .unwrap();
     // Coordenador do Projeto atualiza a subtarefa de outro bot.
     let exec_boss = f.exec("boss");
     f.call("boss", "task_update", json!({"projectId": project, "taskId": "t1", "state": "review"}), Some(&exec_boss))
@@ -442,6 +460,33 @@ async fn ordem_direta_protege_estado_e_responsavel_sem_impedir_conferencia() {
         .unwrap_err();
     assert!(err.to_string().starts_with("direct_owner_order_protected:"), "{err}");
     assert_eq!(f.stored(&project).1[0]["state"], "review");
+}
+
+#[tokio::test]
+async fn tarefa_sem_metadados_nao_pode_ser_interrompida_por_bot() {
+    let f = Fixture::new();
+    let mut legacy = task("legada", None, Some("a"), "Tarefa legada");
+    legacy["state"] = json!("in_progress");
+    let project = f.project(PERSONAL, Some("boss"), &[legacy]);
+    assert_eq!(
+        f.count(
+            "SELECT COUNT(*) FROM donna_task_delegation_meta WHERE hub_id=?1 AND space_id=?2 AND project_id=?3",
+            Some(&project),
+        ),
+        0
+    );
+    for bot in ["a", "boss"] {
+        let exec = f.exec(bot);
+        for state in ["backlog", "blocked", "cancelled"] {
+            let err = f
+                .call(bot, "task_update", json!({"projectId":project,"taskId":"legada","state":state}), Some(&exec))
+                .await
+                .unwrap_err();
+            assert!(err.to_string().starts_with("direct_owner_order_protected:"), "{err}");
+        }
+    }
+    assert_eq!(f.stored(&project).1[0]["state"], "in_progress");
+    assert_eq!(f.history(&project), [] as [Value; 0]);
 }
 
 #[tokio::test]

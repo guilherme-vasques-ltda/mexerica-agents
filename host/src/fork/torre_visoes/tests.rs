@@ -175,6 +175,9 @@ async fn visoes_filtram_space_mandato_executor_e_contadores() {
     assert_eq!(assigned["taskId"], "atribuida");
     assert!(assigned["directorBotId"].is_null());
     assert_eq!(assigned["capabilities"]["canDirectorInterrupt"], false);
+    let legacy = director["cards"].as_array().unwrap().iter().find(|card| card["taskId"] == "por-projeto").unwrap();
+    assert_eq!(legacy["origin"]["kind"], "unknown");
+    assert_eq!(legacy["capabilities"]["canDirectorInterrupt"], false);
     let mandate = &director["cards"][2];
     assert_eq!(mandate["taskId"], "por-mandato");
     assert_eq!(mandate["nextAction"], "Conferir");
