@@ -203,6 +203,54 @@ test('DoctorSession consulta donnaHubDoctor, reconsulta em donnaDoctorChanged e 
   session.close()
 })
 
+test('DoctorSession recupera o stream na mesma origem e cancela retries antigos', async () => {
+  const streams: { space: string; event: (e: TowerEvent) => void; end: (error: unknown) => void; stopped: boolean }[] = []
+  const requests: string[] = []
+  const client: TowerLink = {
+    async call(_method, body) {
+      const { spaceId } = body as { spaceId: string }
+      requests.push(spaceId)
+      return { version: 1, hubId: 'h1', spaceId, collectedAt: 1, overall: 'healthy', checks: [
+        { id: 'hub', area: 'hub', status: 'ok', code: 'hub_ok', count: null, actionKind: 'none' },
+      ] }
+    },
+    inSpace: (space) => ({ events(_since, _client, event, end) {
+      const stream = { space, event, end, stopped: false }
+      streams.push(stream)
+      return () => { stream.stopped = true }
+    } }),
+  }
+  const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: () => () => {} }
+  const session = new m.DoctorSession()
+  session.open(source, 'personal')
+  try {
+    await tick()
+    streams[0]!.end(null)
+    assert.equal(session.state.kind, 'hub_offline')
+    assert.equal(streams[0]!.stopped, true)
+    await tick(320)
+    assert.equal(streams.length, 2)
+    assert.deepEqual(requests, ['personal', 'personal'])
+    assert.equal(session.state.kind, 'ready')
+
+    streams[0]!.end(null)
+    streams[1]!.event({ type: 'donnaDoctorChanged', hubId: 'h1', spaceId: 'personal' })
+    await tick(320)
+    assert.equal(requests.length, 3)
+    streams[1]!.end(null)
+    session.open(source, 'outro')
+    await tick(600)
+    assert.deepEqual(streams.map((stream) => stream.space), ['personal', 'personal', 'outro'])
+    assert.equal(session.state.report.spaceId, 'outro')
+    streams[2]!.end(null)
+    session.close()
+    await tick(320)
+    assert.equal(streams.length, 3)
+  } finally {
+    session.close()
+  }
+})
+
 test('parseEvent aceita donnaDoctorChanged e donnaControlTowerChanged do JSON cru e reconsulta via HostClient', async () => {
   for (const type of ['donnaDoctorChanged', 'donnaControlTowerChanged'] as const) {
     assert.equal(m.parseEvent(JSON.stringify({ type })), null)

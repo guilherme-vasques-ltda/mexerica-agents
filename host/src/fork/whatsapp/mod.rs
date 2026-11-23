@@ -23,6 +23,7 @@ pub(crate) mod outbox;
 mod pace;
 pub(crate) mod send;
 mod store;
+pub(crate) use store::eligible_in_mode;
 mod voz;
 mod wacli;
 

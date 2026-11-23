@@ -31,6 +31,7 @@ export const DOCTOR_REREAD_EVENTS = new Set([
 ])
 
 const REREAD_DELAY = 250
+const RETRY_MAX_DELAY = 4_000
 
 export type SaudeHubState =
   | { kind: 'loading' }
@@ -61,6 +62,7 @@ export class DoctorSession extends Observable {
   private unwatch: (() => void) | null = null
   private stopEvents: (() => void) | null = null
   private rereadTimer: ReturnType<typeof setTimeout> | null = null
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
   private now: () => number
 
   constructor(now: () => number = Date.now) {
@@ -69,6 +71,7 @@ export class DoctorSession extends Observable {
   }
 
   open(source: TowerSource, spaceId: string) {
+    this.gen++
     this.release()
     if (this.spaceId !== spaceId) {
       this.state = { kind: 'loading' }
@@ -80,9 +83,9 @@ export class DoctorSession extends Observable {
   }
 
   close() {
-    this.release()
     this.gen++
     this.origin = null
+    this.release()
     this.changed()
   }
 
@@ -91,15 +94,14 @@ export class DoctorSession extends Observable {
     if (origin && this.current(origin)) void this.read(origin)
   }
 
-  private connect(source: TowerSource) {
-    if (this.rereadTimer) clearTimeout(this.rereadTimer)
-    this.rereadTimer = null
-    this.stopEvents?.()
-    this.stopEvents = null
+  private connect(source: TowerSource, retryDelay = REREAD_DELAY) {
     const gen = ++this.gen
+    this.stopStream()
+    const previous = this.origin
     const hostId = source.hello?.hostId ?? null
     const client = source.connectedClient
-    if (hostId && this.hostId && this.hostId !== hostId) {
+    if ((hostId && this.hostId && this.hostId !== hostId)
+      || (previous && (previous.client !== client || previous.epoch !== source.principalEpoch))) {
       this.state = { kind: 'loading' }
     }
     if (hostId) this.hostId = hostId
@@ -115,12 +117,12 @@ export class DoctorSession extends Observable {
     this.offlineSince = null
     if (this.state.kind === 'hub_offline') this.state = { kind: 'loading' }
     this.changed()
-    this.listen(origin, this.spaceId)
-    void this.read(origin)
+    this.listen(origin, this.spaceId, retryDelay)
+    if (this.current(origin)) void this.read(origin)
   }
 
-  private listen(origin: DoctorOrigin, spaceId: string) {
-    this.stopEvents = origin.client.inSpace(spaceId).events(
+  private listen(origin: DoctorOrigin, spaceId: string, retryDelay: number) {
+    const stop = origin.client.inSpace(spaceId).events(
       origin.source.hello?.rev ?? 0,
       'desktop',
       (e) => {
@@ -131,11 +133,20 @@ export class DoctorSession extends Observable {
       },
       () => {
         if (!this.current(origin)) return
+        const ended = { ...origin, gen: ++this.gen }
+        this.origin = ended
+        this.stopStream()
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null
+          if (this.current(ended)) this.connect(ended.source, Math.min(retryDelay * 2, RETRY_MAX_DELAY))
+        }, retryDelay)
         if (this.offlineSince === null) this.offlineSince = this.now()
         this.state = { kind: 'hub_offline', spaceId, offlineSince: this.offlineSince }
         this.changed()
       },
     )
+    if (this.current(origin)) this.stopEvents = stop
+    else stop()
   }
 
   private watch(source: TowerSource) {
@@ -172,11 +183,18 @@ export class DoctorSession extends Observable {
     )
   }
 
-  private release() {
+  private stopStream() {
     if (this.rereadTimer) clearTimeout(this.rereadTimer)
     this.rereadTimer = null
-    this.stopEvents?.()
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = null
+    const stop = this.stopEvents
     this.stopEvents = null
+    stop?.()
+  }
+
+  private release() {
+    this.stopStream()
     this.unwatch?.()
     this.unwatch = null
   }
@@ -374,7 +392,7 @@ export function SaudeHubLive({
     session.open(source, spaceId)
     return () => session.close()
   }, [session, source, spaceId])
-  return <SaudeHubCard state={session.state} onRetry={onRetry ?? (() => session.reread())} />
+  return <SaudeHubCard state={session.state} onRetry={onRetry} />
 }
 
 export function SaudeHubCard({

@@ -386,6 +386,7 @@ async fn canais_rotinas_e_pedidos_entre_bots_sinalizam_degradacao() {
     f.seed_connected_ai(false);
     f.bot("bot_a", PERSONAL);
     f.bot("bot_b", PERSONAL);
+    f.hub.store.set_team_settings(&json!({"primaryBotId":"bot_a"})).unwrap();
 
     // WhatsApp habilitado com número desconectado + rotina com falha.
     {
@@ -457,6 +458,53 @@ async fn canais_rotinas_e_pedidos_entre_bots_sinalizam_degradacao() {
     assert_eq!(check_of(&report, "routines")["actionKind"], "check_routines");
     assert_eq!(check_of(&report, "delegation")["code"], "inter_bot_stalled");
     assert_eq!(check_of(&report, "delegation")["actionKind"], "open_torre");
+
+    {
+        let db = f.hub.store.db.locked();
+        db.execute("UPDATE donna_whatsapp_numbers SET state='linked' WHERE bot_id='bot_a'", []).unwrap();
+        db.execute(
+            "INSERT INTO donna_whatsapp_numbers(bot_id,account_id,state,linked_at,phone) VALUES('bot_b','acc_2','logged_out',1,NULL)", [],
+        ).unwrap();
+        db.execute(
+            "INSERT INTO donna_whatsapp_outbox(id,bot_id,account_id,chat_id,is_group,reply_to,body,origin,state,
+             not_before,created_at,updated_at,expires_at)
+             VALUES('fixture','bot_b','acc_2','fixture',0,'fixture','fixture','owner_card','uncertain',0,1,1,2)",
+            [],
+        )
+        .unwrap();
+    }
+    let before = f.hub.store.db.locked().total_changes();
+    let donna_only = f.read(&Caller::Local, PERSONAL).await.unwrap();
+    assert_eq!(check_of(&donna_only, "channels")["code"], "channels_ok");
+    assert_eq!(check_of(&donna_only, "channels")["count"], 1);
+    assert_eq!(f.hub.store.db.locked().total_changes(), before);
+    f.hub.store.db.locked().execute("INSERT INTO donna_whatsapp_hub(id,mode) VALUES(1,'per_bot')", []).unwrap();
+    let per_bot = f.read(&Caller::Local, PERSONAL).await.unwrap();
+    assert_eq!(check_of(&per_bot, "channels")["code"], "channels_whatsapp_logged_out");
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute("UPDATE donna_whatsapp_numbers SET state='linked' WHERE bot_id='bot_b'", [])
+        .unwrap();
+    let per_bot = f.read(&Caller::Local, PERSONAL).await.unwrap();
+    assert_eq!(check_of(&per_bot, "channels")["code"], "channels_whatsapp_outbox_uncertain");
+}
+
+#[tokio::test]
+async fn rotina_interrompida_exige_atencao_mas_cancelamento_nao() {
+    let f = Fixture::new();
+    f.seed_connected_ai(false);
+    f.bot("bot_a", PERSONAL);
+    for (latest, expected) in [("interrupted", "routines_failed"), ("cancelled", "routines_ok")] {
+        let state = json!({"routines":[{"id":"r1","botId":"bot_a","enabled":true}],"runs":[
+            {"routineId":"r1","status":"interrupted","createdAt":1},
+            {"routineId":"r1","status":latest,"createdAt":2}
+        ]});
+        f.hub.store.kv_set("routines.v1", &state.to_string()).unwrap();
+        let report = f.read(&Caller::Local, PERSONAL).await.unwrap();
+        assert_eq!(check_of(&report, "routines")["code"], expected);
+    }
 }
 
 #[test]

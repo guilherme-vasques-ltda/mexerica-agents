@@ -28,7 +28,7 @@ pub(super) fn collect(hub: &Hub, space: &str) -> Result<HubDoctorReport> {
         let roster = roster_ids(&tx, space)?;
         let ai_engine = check_ai_engine(&tx, space, now);
         let approvals = check_approvals(&tx, &hub.host_id, space, &roster);
-        let channels = check_channels(&tx, &hub.host_id, space, &roster);
+        let channels = check_channels(&tx, &hub.host_id, &roster);
         let routines = check_routines(&tx, &roster);
         let delegation = check_delegation(&tx, space, &roster, now);
         tx.commit()?;
@@ -314,8 +314,8 @@ fn eval_approvals(c: &Connection, hub_id: &str, space: &str, roster: &[String]) 
     }
 }
 
-fn check_channels(c: &Connection, hub_id: &str, space: &str, roster: &[String]) -> DoctorCheck {
-    match eval_channels(c, hub_id, space, roster) {
+fn check_channels(c: &Connection, hub_id: &str, roster: &[String]) -> DoctorCheck {
+    match eval_channels(c, hub_id, roster) {
         Ok(check) => check,
         Err(_) => DoctorCheck {
             id: "channels".into(),
@@ -328,7 +328,7 @@ fn check_channels(c: &Connection, hub_id: &str, space: &str, roster: &[String]) 
     }
 }
 
-fn eval_channels(c: &Connection, hub_id: &str, space: &str, roster: &[String]) -> Result<DoctorCheck> {
+fn eval_channels(c: &Connection, hub_id: &str, roster: &[String]) -> Result<DoctorCheck> {
     let plugin_state: Option<String> = c
         .query_row(
             "SELECT state FROM donna_plugin_installations WHERE hub_id=?1 AND builtin='whatsapp'",
@@ -336,7 +336,12 @@ fn eval_channels(c: &Connection, hub_id: &str, space: &str, roster: &[String]) -
             |r| r.get(0),
         )
         .optional()?;
-    if plugin_state.as_deref() != Some("enabled") {
+    let eligible = if plugin_state.as_deref() == Some("enabled") {
+        crate::fork::whatsapp::eligible_in_mode(c, roster)?
+    } else {
+        Vec::new()
+    };
+    if eligible.is_empty() {
         return Ok(DoctorCheck {
             id: "channels".into(),
             area: DoctorArea::Channels,
@@ -347,12 +352,7 @@ fn eval_channels(c: &Connection, hub_id: &str, space: &str, roster: &[String]) -
         });
     }
 
-    let mode: String = c
-        .query_row("SELECT mode FROM donna_whatsapp_hub WHERE id=1", [], |r| r.get(0))
-        .optional()?
-        .unwrap_or_else(|| "donna_only".to_owned());
-
-    let roster_json = serde_json::to_string(roster)?;
+    let roster_json = serde_json::to_string(&eligible)?;
     let mut linked_count: u64 = 0;
     let mut logged_out_count: u64 = 0;
     let mut num_stmt = c.prepare(
@@ -379,16 +379,6 @@ fn eval_channels(c: &Connection, hub_id: &str, space: &str, roster: &[String]) -
     }
 
     if linked_count == 0 {
-        if space != PERSONAL && mode == "donna_only" {
-            return Ok(DoctorCheck {
-                id: "channels".into(),
-                area: DoctorArea::Channels,
-                status: DoctorCheckStatus::Ok,
-                code: "channels_ok".into(),
-                count: Some(0),
-                action_kind: DoctorActionKind::None,
-            });
-        }
         return Ok(DoctorCheck {
             id: "channels".into(),
             area: DoctorArea::Channels,
@@ -509,7 +499,7 @@ struct RoutineRow {
 #[serde(rename_all = "camelCase")]
 struct RunRow {
     routine_id: String,
-    status: String,
+    status: crate::routines::Status,
     #[serde(default)]
     created_at: i64,
 }
@@ -549,8 +539,10 @@ fn eval_routines(c: &Connection, roster: &[String]) -> Result<DoctorCheck> {
     let mut paused_count: u64 = 0;
     for routine in &space_routines {
         let latest_run = state.runs.iter().filter(|run| run.routine_id == routine.id).max_by_key(|run| run.created_at);
-        let run_failed = latest_run.is_some_and(|run| run.status == "failed");
-        if routine.last_error.is_some() || run_failed {
+        let needs_attention = latest_run.is_some_and(|run| {
+            matches!(run.status, crate::routines::Status::Failed | crate::routines::Status::Interrupted)
+        });
+        if routine.last_error.is_some() || needs_attention {
             failed_count += 1;
         }
         if !routine.enabled {
