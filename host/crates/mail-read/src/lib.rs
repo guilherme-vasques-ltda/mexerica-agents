@@ -294,9 +294,10 @@ fn project_thread(thread_id: Uuid, mut thread: ProviderThread) -> Result<Thread,
     let mut truncated = thread.messages.len() > MAX_MESSAGES;
     let mut remaining = MAX_TEXT_BYTES;
     thread.messages.sort_by_key(|m| m.sent_at);
-    let messages = thread
+    let mut messages: Vec<_> = thread
         .messages
         .into_iter()
+        .rev()
         .take(MAX_MESSAGES)
         .map(|m| {
             let (body_text, cut) = text(&m.body_text, remaining, true);
@@ -305,6 +306,7 @@ fn project_thread(thread_id: Uuid, mut thread: ProviderThread) -> Result<Thread,
             Message { message_id: Uuid::new_v4(), sent_at: m.sent_at, body_text }
         })
         .collect();
+    messages.reverse();
     let subject = thread.subject.map(|s| {
         let (subject, cut) = text(&s, 512, false);
         truncated |= cut;

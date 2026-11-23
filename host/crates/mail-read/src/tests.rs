@@ -212,6 +212,65 @@ async fn invalid_evidence_and_crossed_references_never_dispatch() {
     assert_eq!(reader.transport.calls.load(Ordering::Relaxed), 1);
 }
 
+#[test]
+fn projection_keeps_latest_messages_in_chronological_order_with_stable_ties() {
+    let projected = project_thread(
+        Uuid::new_v4(),
+        ProviderThread {
+            subject: None,
+            messages: (0..=MAX_MESSAGES)
+                .rev()
+                .map(|i| ProviderMessage {
+                    sent_at: DateTime::from_timestamp(i.min(MAX_MESSAGES - 1) as i64, 0).unwrap(),
+                    body_text: i.to_string(),
+                })
+                .collect(),
+        },
+    )
+    .unwrap();
+    let expected = (1..MAX_MESSAGES - 1).chain([MAX_MESSAGES, MAX_MESSAGES - 1]).map(|i| i.to_string());
+    assert!(projected.truncated);
+    assert_eq!(projected.messages.len(), MAX_MESSAGES);
+    assert!(projected.messages.iter().map(|m| m.body_text.as_str()).eq(expected));
+}
+
+#[test]
+fn projection_budgets_newest_body_first_and_cuts_at_utf8_boundary() {
+    let newest = "x".repeat(MAX_TEXT_BYTES - 4);
+    let projected = project_thread(
+        Uuid::new_v4(),
+        ProviderThread {
+            subject: None,
+            messages: vec![
+                ProviderMessage { sent_at: DateTime::UNIX_EPOCH, body_text: "éa🙂ท้าย".into() },
+                ProviderMessage { sent_at: DateTime::from_timestamp(1, 0).unwrap(), body_text: newest.clone() },
+            ],
+        },
+    )
+    .unwrap();
+    assert!(projected.truncated);
+    assert!(projected.messages[0].body_text == "éa");
+    assert!(projected.messages[1].body_text == newest);
+    assert_eq!(projected.messages.iter().map(|m| m.body_text.len()).sum::<usize>(), MAX_TEXT_BYTES - 1);
+}
+
+#[test]
+fn projection_rejects_oversized_input_instead_of_returning_partial_data() {
+    let project = |count, body_bytes, subject_bytes| {
+        let mut messages = (0..count)
+            .map(|_| ProviderMessage { sent_at: DateTime::UNIX_EPOCH, body_text: String::new() })
+            .collect::<Vec<_>>();
+        messages[0].body_text = "x".repeat(body_bytes);
+        project_thread(Uuid::new_v4(), ProviderThread { subject: Some("s".repeat(subject_bytes)), messages })
+    };
+    assert!(project(100, 4 * MAX_TEXT_BYTES, MAX_TEXT_BYTES).unwrap().truncated);
+    for (count, body, subject) in
+        [(101, 0, 0), (MAX_MESSAGES + 1, 4 * MAX_TEXT_BYTES + 1, 0), (1, 0, MAX_TEXT_BYTES + 1)]
+    {
+        assert!(matches!(project(count, body, subject), Err(ReadError::Unavailable)));
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn provider_error_and_timeout_are_unavailable() {
     for mode in [Mode::Error, Mode::Timeout] {
