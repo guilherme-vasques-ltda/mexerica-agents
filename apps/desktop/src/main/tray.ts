@@ -115,7 +115,7 @@ export class Tray {
         items.push({ label: tr('marca.barra.recompile'), enabled: false })
         break
       case 'notInstalled':
-        items.push({ label: tr('sistema.barra.instalarHub'), click: () => void host.install() })
+        if (process.platform !== 'linux') items.push({ label: tr('sistema.barra.instalarHub'), click: () => void host.install() })
         break
       case 'starting':
         items.push({ label: tr('sistema.barra.iniciandoHub'), enabled: false })

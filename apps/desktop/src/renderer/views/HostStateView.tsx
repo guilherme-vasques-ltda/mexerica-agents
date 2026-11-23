@@ -16,8 +16,10 @@ export function HostStateView({ compact = false }: { compact?: boolean }) {
     // D76: nada a resolver neste computador; o chat abre nos computadores SSH (showsChat).
     case 'disabled':
       return null
-    case 'notInstalled':
-      return <EmptyState compact={compact} icon="desktopcomputer" title={t(isMac ? 'navegacao.janela.hub.configurarMac' : 'navegacao.janela.hub.configurar')} message={t('marca.hub.configurar')} action={[t('navegacao.janela.hub.instalar'), () => window.codync.host.install()]} />
+    case 'notInstalled': {
+      const unavailable = !window.codync.web && window.codync.platform === 'linux'
+      return <EmptyState compact={compact} icon="desktopcomputer" title={t(isMac ? 'navegacao.janela.hub.configurarMac' : 'navegacao.janela.hub.configurar')} message={t(unavailable ? 'marca.hub.instalacaoAssistidaLinuxIndisponivel' : 'marca.hub.configurar')} action={unavailable ? undefined : [t('navegacao.janela.hub.instalar'), () => window.codync.host.install()]} />
+    }
     case 'missingBinary':
       return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title={t('navegacao.janela.hub.semCopia')} message={window.codync.appScheme === 'donnabot-dev' ? t('marca.hub.devSemHub') : t('marca.hub.semHub')} />
     case 'failed':
@@ -42,4 +44,3 @@ export function EmptyState({ icon, title, message, action, compact = false }: { 
     </div>
   )
 }
-
