@@ -269,9 +269,8 @@ impl Hub {
             return Ok(());
         }
         // Mensagem de grupo que caiu antes de chegar a todos os membros: retomada uma vez ou marcada para conferência.
-        if let Err(error) = crate::fork::grupo_entrega::recover(self) {
-            tracing::error!(error = format!("{error:#}"), "entregas pendentes de grupo não retomadas");
-        }
+        // Sem classificar todas, a API não abre: uma pendente sem decisão poderia voltar no prompt de um envio novo.
+        crate::fork::grupo_entrega::recover(self).context("entregas pendentes de grupo não classificadas")?;
         crate::routines::start(self);
         crate::fork::tarefas_runtime::start(self);
         crate::fork::resumo_diario::start(self);

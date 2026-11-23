@@ -215,11 +215,32 @@ fn members(hub: &Hub, group: &BotConfig) -> Vec<BotConfig> {
         .collect()
 }
 
-/// The room as members see it: messages held for the owner's review stay out, and a resumed message is the newest.
+/// The room as members see it (`Store::messages_after`, filtered before the limit): messages held for the owner's
+/// review stay out, and a resumed message is the newest.
 fn visible(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) -> Result<Vec<Entry>> {
-    let mut rows = hub.store.messages_after(lane, after, limit)?;
-    rows.retain(|e| upto.is_none_or(|upto| e.seq <= upto) && e.data[crate::fork::grupo_entrega::REVIEW] != true);
+    let c = hub.store.db.locked();
+    let mut st = c.prepare(&format!(
+        "SELECT {} FROM entries WHERE bot_id = ?1 AND seq > ?2 AND (?4 IS NULL OR seq <= ?4)
+           AND (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))
+           AND COALESCE(json_extract(data, '$.{}'), 0) != 1
+         ORDER BY seq DESC LIMIT ?3",
+        crate::store::ENTRY_COLS,
+        crate::fork::grupo_entrega::REVIEW
+    ))?;
+    let mut rows: Vec<Entry> = st
+        .query_map(rusqlite::params![lane.chat, after, limit, upto], crate::store::row_entry)?
+        .collect::<rusqlite::Result<_>>()?;
+    rows.reverse();
     Ok(rows)
+}
+
+/// A quote of a message the room can't show (held for review, or still pending) stays out of the prompt too.
+fn quote_note(hub: &Hub, me: &str, reply: &serde_json::Value) -> Option<String> {
+    let quoted = reply["id"].as_str().and_then(|id| hub.store.entry(id))?;
+    if crate::fork::grupo_entrega::unproven(&quoted) {
+        return None;
+    }
+    crate::chat::replies::note(hub, me, reply)
 }
 
 /// The lane's messages since the user last wrote there, that message included.
@@ -332,7 +353,7 @@ fn line(hub: &Hub, group: &BotConfig, e: &Entry, me: &BotConfig) -> String {
         // As in the member's own chat (its skills), with the files the group keeps.
         let root = crate::chat::uploads::root(group);
         let attachments = e.data["attachments"].as_array().map_or(&[][..], Vec::as_slice);
-        let reply = crate::chat::replies::note(hub, &me.id, &e.data["replyTo"]).map(|n| format!("{n} "));
+        let reply = quote_note(hub, &me.id, &e.data["replyTo"]).map(|n| format!("{n} "));
         return format!(
             "User: {}{}{reacted}",
             reply.unwrap_or_default(),

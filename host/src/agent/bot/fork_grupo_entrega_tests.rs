@@ -30,9 +30,12 @@ fn pending(dir: &std::path::Path, delivery: Option<Value>) -> String {
 }
 
 fn pending_from(dir: &std::path::Path, text: &str, ingress: &Value, delivery: Option<Value>) -> String {
+    pending_with(dir, &json!({"text":text,"status":"sending","contentOrigin":{"ingress":ingress}}), delivery)
+}
+
+fn pending_with(dir: &std::path::Path, data: &Value, delivery: Option<Value>) -> String {
     let store = Store::open(&dir.join("test.db")).unwrap();
-    let data = json!({"text":text,"status":"sending","contentOrigin":{"ingress":ingress}});
-    let entry = store.insert_entry(&Lane::main(ROOM), EntryKind::User, 1, &data).unwrap();
+    let entry = store.insert_entry(&Lane::main(ROOM), EntryKind::User, 1, data).unwrap();
     if let Some(delivery) = delivery {
         store.kv_set(&format!("donna.group.delivery.{}", entry.id), &delivery.to_string()).unwrap();
     }
@@ -222,6 +225,137 @@ async fn queda_no_stop_nao_retoma_a_mensagem_parada() {
     tokio::time::sleep(Duration::from_millis(700)).await;
     assert_eq!(f.prompts().len(), 0, "a mensagem parada não é entregue");
     assert_eq!(reviews(&hub), 0);
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Envio real de um aparelho, revogado com o Hub parado: a origem gravada pela API é o aparelho, e o boot não o
+/// retoma.
+#[tokio::test]
+async fn aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada() {
+    use crate::store::{Device, DeviceSource, Scope};
+    let f = Fixture::new();
+    room(&f);
+    std::fs::write(f.dir.join("hold"), "").unwrap();
+    f.hub
+        .store
+        .put_device(&Device {
+            key: "celular-grupo".into(),
+            name: "Celular de teste".into(),
+            platform: "fixture".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: crate::store::now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = crate::fork::autoridade::autenticar(&f.hub, "celular-grupo").unwrap();
+    let sent = crate::api::dispatch(&f.hub, &caller, "send", json!({"botId":ROOM,"text":"Do celular"})).await.unwrap();
+    let id = sent["entry"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(sent["entry"]["data"]["contentOrigin"]["ingress"]["caller"], "device");
+    f.until(|| f.prompts().len() == 1).await;
+    f.hub.shutdown().await;
+    std::fs::remove_file(f.dir.join("hold")).unwrap();
+    {
+        // A queda chega antes de a sala confirmar; a revogação, com o Hub parado.
+        let store = Store::open(&f.dir.join("test.db")).unwrap();
+        let mut entry = store.entry(&id).unwrap();
+        entry.data["status"] = json!("sending");
+        store.update_entry(&id, &entry.data).unwrap();
+        store.kv_delete(&format!("donna.group.delivery.{id}")).unwrap();
+    }
+    assert!(f.hub.revoke_device("celular-grupo").unwrap());
+    let hub = reopen(&f.dir);
+    f.until(|| hub.store.entry(&id).unwrap().data["status"] == "cancelled").await;
+    assert_eq!(reviews(&hub), 1);
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(f.prompts().len(), 1, "nada é entregue de novo");
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Dois membros e duas pendentes: só a mais nova é retomada, só a quem ainda não a recebeu; a anterior vai para
+/// conferência e fica fora do prompt.
+#[tokio::test]
+async fn duas_pendentes_so_a_identificada_e_retomada_sem_lote() {
+    let f = Fixture::new();
+    room_with(&f, &["bot", "bot2"]);
+    f.hub.shutdown().await;
+    let local = json!({"caller":"local"});
+    let older = pending_from(&f.dir, "Pendente anterior", &local, None);
+    let newest =
+        pending_from(&f.dir, "Pendente nova", &local, Some(json!({"handed":["bot"],"done":["bot"],"resumed":false})));
+    let hub = reopen(&f.dir);
+    f.until(|| hub.store.entry(&newest).unwrap().data["status"] == "sent").await;
+    assert_eq!(hub.store.entry(&older).unwrap().data["status"], "cancelled");
+    assert_eq!(reviews(&hub), 1);
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(f.prompts().len(), 1, "só o segundo membro recebe, uma vez");
+    let prompt = f.prompts()[0].to_string();
+    assert!(prompt.contains("Pendente nova"));
+    assert!(!prompt.contains("Pendente anterior"), "sem lote: a anterior não vai junto");
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Parada antes da queda e outra pendente depois: a parada fica interrompida, fora do prompt e sem aviso.
+#[tokio::test]
+async fn parada_nao_volta_no_prompt_da_proxima() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let local = json!({"caller":"local"});
+    let stopped = pending_from(&f.dir, "Mensagem parada", &local, Some(json!({"handed":[],"done":[],"stopped":true})));
+    let next = pending_from(&f.dir, "Mensagem seguinte", &local, None);
+    let hub = reopen(&f.dir);
+    f.until(|| hub.store.entry(&next).unwrap().data["status"] == "sent").await;
+    let saved = hub.store.entry(&stopped).unwrap();
+    assert_eq!(saved.data["status"], "cancelled");
+    assert_eq!(saved.data["groupReview"], true);
+    assert_eq!(reviews(&hub), 0);
+    let prompt = f.prompts()[0].to_string();
+    assert!(prompt.contains("Mensagem seguinte"));
+    assert!(!prompt.contains("Mensagem parada"));
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// A sala termina depois do Stop: a confirmação não sobrescreve a parada.
+#[tokio::test]
+async fn confirmacao_depois_do_stop_nao_vira_enviada() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let id = pending(&f.dir, None);
+    crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
+    crate::fork::grupo_entrega::Delivery::new(&id).confirm(&f.hub);
+    let saved = f.hub.store.entry(&id).unwrap();
+    assert_eq!(saved.data["status"], "cancelled");
+    assert_eq!(saved.data["groupReview"], true);
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Uma citação da mensagem incerta não devolve o texto dela ao prompt.
+#[tokio::test]
+async fn citacao_da_incerta_fica_fora_do_prompt() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let local = json!({"caller":"local"});
+    let uncertain = pending_from(&f.dir, "Texto incerto", &local, Some(json!({"handed":["bot"],"done":[]})));
+    let reply = pending_with(
+        &f.dir,
+        &json!({"text":"Respondendo","status":"sending","contentOrigin":{"ingress":local},
+            "replyTo":{"id":uncertain,"author":"user","text":"Texto incerto"}}),
+        None,
+    );
+    let hub = reopen(&f.dir);
+    f.until(|| hub.store.entry(&reply).unwrap().data["status"] == "sent").await;
+    let prompt = f.prompts()[0].to_string();
+    assert!(prompt.contains("Respondendo"));
+    assert!(!prompt.contains("Texto incerto"), "a citação não reinsere a incerta");
     hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }

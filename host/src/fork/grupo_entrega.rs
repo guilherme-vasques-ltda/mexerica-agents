@@ -1,10 +1,11 @@
 //! Entrega da mensagem do dono num grupo. A linha nasce `sending` e só vira `sent` quando a primeira rodada da sala
 //! terminou de passá-la aos membros. Quem recebeu e quem já respondeu ficam no SQLite, antes e depois de cada
-//! entrega, e o Stop grava a interrupção antes de ser confirmado. No reinício, a mensagem pendente enviada deste
-//! computador é retomada uma única vez, numa rodada só e sem entregar de novo a quem já recebeu. Entrega sem
-//! confirmação, retomada que também caiu, registro ilegível ou remetente cuja autoridade o boot não consegue provar
-//! (aparelho remoto) nunca viram `sent`: a mensagem fica interrompida, fora dos prompts automáticos da sala, com um
-//! aviso para o dono conferir.
+//! entrega, e o Stop grava a interrupção antes de ser confirmado. No reinício, só a mensagem pendente mais nova de
+//! cada conversa, enviada deste computador, é retomada: uma única vez, numa rodada só, sem as outras pendentes e sem
+//! entregar de novo a quem já recebeu. Entrega sem confirmação, retomada que também caiu, registro ilegível, pendente
+//! mais antiga, mensagem parada ou remetente cuja autoridade o boot não consegue provar (aparelho remoto) nunca viram
+//! `sent`: a mensagem fica interrompida e fora dos prompts automáticos da sala (inclusive citada); as não paradas
+//! ganham um aviso para o dono conferir.
 use crate::LockExt;
 use crate::hub::Hub;
 use crate::store::{Entry, EntryKind, Lane, Store};
@@ -26,9 +27,6 @@ const PREFIX: &str = "donna.group.delivery.";
 pub(crate) struct Delivery {
     #[serde(skip)]
     pub entry_id: String,
-    /// Pendentes mais antigas da mesma conversa que esta retomada entrega junto (no mesmo prompt).
-    #[serde(skip)]
-    earlier: Vec<String>,
     /// Só na retomada: a sala vai até esta mensagem, numa rodada.
     #[serde(skip)]
     pub upto: Option<i64>,
@@ -101,11 +99,10 @@ impl Delivery {
         self.handed.contains(member)
     }
 
-    /// A primeira rodada acabou (ou uma mensagem mais nova/Stop a encerrou): a mensagem conta como enviada.
+    /// A primeira rodada acabou (ou uma mensagem mais nova/Stop a encerrou): a mensagem conta como enviada, salvo
+    /// Stop gravado, que prevalece.
     pub(crate) fn confirm(&self, hub: &Hub) {
-        let mut ids = self.earlier.clone();
-        ids.push(self.entry_id.clone());
-        if let Err(error) = settle(hub, &ids, "sent", false) {
+        if let Err(error) = settle(hub, std::slice::from_ref(&self.entry_id), "sent", false) {
             tracing::warn!(
                 entry = self.entry_id,
                 error = format!("{error:#}"),
@@ -115,8 +112,13 @@ impl Delivery {
     }
 }
 
-/// Muda o estado das mensagens ainda pendentes e apaga os recibos numa só transação. Erro de leitura é erro: nada
-/// muda e o recibo fica.
+/// Mensagem que a sala não mostra aos membros, nem citada: sem prova de entrega (ou parada), ou ainda pendente.
+pub(crate) fn unproven(entry: &Entry) -> bool {
+    entry.data[REVIEW] == true || entry.data["status"] == PENDING
+}
+
+/// Muda o estado das mensagens ainda pendentes e apaga os recibos numa só transação. Um Stop gravado no recibo
+/// prevalece: a mensagem fica interrompida e fora dos prompts. Erro de leitura é erro: nada muda e o recibo fica.
 fn settle(hub: &Hub, ids: &[String], status: &str, review: bool) -> Result<()> {
     let _emit = hub.emit_lock.locked();
     let saved = {
@@ -124,11 +126,15 @@ fn settle(hub: &Hub, ids: &[String], status: &str, review: bool) -> Result<()> {
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut saved = Vec::new();
         for id in ids {
+            let raw: Option<String> =
+                tx.query_row("SELECT v FROM kv WHERE k=?1", [key(id)], |r| r.get(0)).optional()?;
+            let stopped =
+                raw.as_deref().and_then(|raw| serde_json::from_str::<Delivery>(raw).ok()).is_some_and(|d| d.stopped);
             if let Some(mut entry) = Store::entry_on(&tx, id)?
                 && entry.data["status"] == PENDING
             {
-                entry.data["status"] = json!(status);
-                if review {
+                entry.data["status"] = json!(if stopped { "cancelled" } else { status });
+                if review || stopped {
                     entry.data[REVIEW] = json!(true);
                 }
                 saved.extend(Store::update_entry_on(&tx, id, &entry.data, None)?);
@@ -207,7 +213,7 @@ pub(crate) fn recover(hub: &Arc<Hub>) -> Result<()> {
             // com o Hub parado, antes de a revogação chegar.
             let local = entry.data["contentOrigin"]["ingress"]["caller"] == "local";
             match Delivery::load(hub, &entry.id) {
-                Ok(delivery) if delivery.stopped => settle(hub, std::slice::from_ref(&entry.id), "cancelled", false)?,
+                Ok(delivery) if delivery.stopped => settle(hub, std::slice::from_ref(&entry.id), "cancelled", true)?,
                 Ok(delivery) if local && !delivery.resumed && delivery.handed.is_subset(&delivery.done) => {
                     resumable.push((entry, delivery));
                 }
@@ -219,11 +225,9 @@ pub(crate) fn recover(hub: &Arc<Hub>) -> Result<()> {
             }
         }
         let Some((entry, mut delivery)) = resumable.pop() else { continue };
-        // As anteriores saem no prompt desta; marcadas antes, uma queda na retomada as leva à conferência.
-        for (older, mut earlier) in resumable {
-            earlier.resumed = true;
-            earlier.save(hub, &group.config.id)?;
-            delivery.earlier.push(older.id);
+        // Só a identificada é retomada: as pendentes anteriores não têm recibo por destinatário neste prompt.
+        for (older, _) in resumable {
+            review(hub, &lane, &older)?;
         }
         delivery.resumed = true;
         delivery.upto = Some(entry.seq);
