@@ -104,6 +104,13 @@ pub(super) fn conferir_url(texto: &str, local: bool) -> Result<String> {
     );
     ensure!(url.query().is_none() && url.fragment().is_none(), "endereco_invalido: o endereço não pode ter ? nem #.");
     ensure!(url.host_str().is_some_and(|h| !h.is_empty()), "endereco_invalido: o endereço não tem servidor.");
+    ensure!(
+        !url.host_str()
+            .map(|h| h.trim_end_matches('.'))
+            .is_some_and(|h| h == "api.meta.ai" || h.ends_with(".api.meta.ai")),
+        "{}",
+        crate::fork::assinatura_pessoal::META
+    );
     Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 
@@ -151,6 +158,12 @@ pub(crate) fn segredo(provider: &str, raw: &str) -> Result<String> {
 /// O que o processo do motor recebe do cofre para um endereço próprio: a chave e o destino.
 pub(crate) fn credencial_do_motor(raw: &str) -> Result<Value> {
     let r = ler(raw)?;
+    conferir_url(&r.base_url, r.local)?;
+    ensure!(
+        !crate::fork::assinatura_pessoal::known_meta_credential("", &r.key),
+        "{}",
+        crate::fork::assinatura_pessoal::META
+    );
     Ok(
         json!({"type": "api_key", "key": r.key, "endpoint": {"baseUrl": r.base_url, "formato": r.formato, "local": r.local}}),
     )

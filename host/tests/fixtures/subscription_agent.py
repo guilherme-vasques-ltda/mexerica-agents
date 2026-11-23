@@ -93,10 +93,10 @@ for line in sys.stdin:
                 }}})
                 send({"id": identifier, "error": {"code": -32603, "message": "Internal error", "data": {"errorKind": "rate_limit"}}})
                 continue
-            send({"id": identifier, "error": {"code": -32603, "message": "Internal error", "data": {
-                "message": "You've hit your usage limit", "codex_error_info": "UsageLimitExceeded",
-                "rate_limits": {"primary": {"used_percent": 100, "resets_at": int(time.time()) + 3600}}
-            }}})
+            data = {"message": "You've hit your usage limit", "codex_error_info": "UsageLimitExceeded"}
+            if not pathlib.Path("no-reset").exists():
+                data["rate_limits"] = {"primary": {"used_percent": 100, "resets_at": int(time.time()) + 3600}}
+            send({"id": identifier, "error": {"code": -32603, "message": "Internal error", "data": data}})
             continue
         if pathlib.Path("hold-queued").exists() and "Pedido seguinte" in json.dumps(request["params"]):
             while pathlib.Path("hold-queued").exists():

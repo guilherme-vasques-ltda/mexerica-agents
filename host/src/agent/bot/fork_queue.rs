@@ -1,10 +1,40 @@
 //! Recuperação por entrada na fila existente; não cria fila/ledger no banco.
 use super::{Actor, Queued};
-use crate::store::{Entry, EntryKind, Lane};
+use crate::LockExt;
+use crate::store::{Entry, EntryKind, Lane, Store};
 use anyhow::{Result, anyhow};
 use std::time::{Duration, Instant};
 
 impl Actor {
+    pub(super) fn stop_subscription_retry(&mut self, ids: &[String], error: &anyhow::Error) {
+        if error.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_none() {
+            return;
+        }
+        for id in ids {
+            self.subscription_refusals.insert(id.clone(), error.to_string());
+        }
+        if let Err(error) = self.persist_subscription_refusals() {
+            self.queue_restore_retry_at = Some(Instant::now() + Duration::from_secs(5));
+            tracing::warn!(%error, "recusa aguardando persistência; fila suspensa");
+        }
+    }
+
+    pub(super) fn persist_subscription_refusals(&mut self) -> Result<()> {
+        while let Some((id, error)) = self.subscription_refusals.first_key_value() {
+            let id = id.clone();
+            let entry = Store::entry_on(&self.hub.store.db.locked(), &id)?;
+            if let Some(mut entry) = entry
+                && entry.kind == EntryKind::User.as_str()
+                && entry.data["status"] == "queued"
+            {
+                entry.data["status"] = serde_json::json!("failed");
+                entry.data["error"] = serde_json::json!(error);
+                self.hub.set_entry(&id, &entry.data).ok_or_else(|| anyhow!("subscription_refusal_not_saved"))?;
+            }
+            self.subscription_refusals.remove(&id);
+        }
+        Ok(())
+    }
     pub(super) fn retry_waiting_queue_restore(&mut self) {
         if self.queue_restore_retry_at.is_some_and(|at| Instant::now() >= at)
             && let Err(error) = self.restore_waiting_queue()
@@ -90,7 +120,7 @@ impl Actor {
     /// Se nem houve reserva, devolver o lote à sua posição na mesma fila.
     /// Entrada sent/terminal nunca volta a disputar envio por esse caminho.
     pub(super) fn requeue_unreserved_humans(&mut self, ids: &[String]) {
-        if self.dispatch.is_some() || self.pending_admission.is_some() {
+        if self.dispatch.is_some() || self.pending_admission.is_some() || !self.subscription_refusals.is_empty() {
             return;
         }
         match self.hub.store.queued_user_entries_for_identity(&self.cfg.id) {

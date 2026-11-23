@@ -122,6 +122,7 @@ impl Login {
         ensure!(cfg!(unix), "Terminal seguro de login ainda indisponível neste Hub.");
         let authority = access::resolve(hub, caller)?;
         hub.store.require_space(space)?;
+        ensure!(!crate::fork::assinatura_pessoal::muse(backend), crate::fork::assinatura_pessoal::Refusal::Meta);
         let h = canonical(backend).ok_or_else(|| anyhow!("Motor desconhecido."))?;
         ensure!(!matches!(h.id, "claude" | "codex"), "Use o login da conta em Contas de IA.");
         let args = fixed_args(h.id)?;
@@ -919,7 +920,10 @@ pub(crate) fn stamp(store: &Store, backend: &str, space: &str) -> Result<String>
         return Ok(String::new());
     }
     let backend = canonical(backend).map_or(backend, |h| h.id);
-    if matches!(backend, "claude" | "codex") {
+    if backend == "codex"
+        || crate::fork::assinatura_pessoal::claude(backend)
+        || crate::fork::assinatura_pessoal::muse(backend)
+    {
         return Ok(String::new());
     }
     let Some(path) = store.kv_read(&slot(backend, space))? else {
@@ -933,7 +937,10 @@ pub(crate) fn runtime_env(store: &Store, backend: &str, space: &str) -> Result<V
         return Ok(Vec::new());
     }
     let backend = canonical(backend).map_or(backend, |h| h.id);
-    if matches!(backend, "claude" | "codex") {
+    if backend == "codex"
+        || crate::fork::assinatura_pessoal::claude(backend)
+        || crate::fork::assinatura_pessoal::muse(backend)
+    {
         return Ok(Vec::new());
     }
     let Some(path) = store.kv_read(&slot(backend, space))? else {

@@ -161,16 +161,7 @@ async fn run_observed(
     function: crate::fork::background_history::Function,
     boundary: Option<MemoryBoundary<'_>>,
 ) -> Result<JobResponse> {
-    run_observed_with(
-        hub,
-        cfg,
-        input,
-        exposed,
-        function,
-        || crate::fork::engine_accounts::discover_background(hub),
-        boundary,
-    )
-    .await
+    run_observed_with(hub, cfg, input, exposed, function, || async { Ok(()) }, boundary).await
 }
 
 async fn run_observed_with<F, Fut>(
@@ -245,6 +236,9 @@ where
                     resolved
                 }
             };
+            if crate::fork::assinatura_pessoal::claude(&resolved.config.backend) {
+                return Err(crate::fork::background_notice::Problem::PersonalSubscription.into());
+            }
             // Não ler/materializar o pedido antes de resolver a conta real. A
             // guarda também captura sua revisão original para os awaits seguintes.
             failure_stage = FailureStage::Revalidation;
@@ -258,16 +252,6 @@ where
                     error
                 } else {
                     crate::fork::background_notice::Problem::AccountChanged.into()
-                }
-            })?;
-            failure_stage = FailureStage::Usage;
-            crate::fork::background_selection::verify_quota(&hub.store, &resolved).await.map_err(|error| {
-                if error.downcast_ref::<crate::fork::background_notice::Problem>().is_some()
-                    || error.downcast_ref::<SubscriptionLimit>().is_some()
-                {
-                    error
-                } else {
-                    crate::fork::background_notice::Problem::Quota.into()
                 }
             })?;
             failure_stage = FailureStage::Revalidation;
@@ -660,6 +644,96 @@ mod history_tests {
         drop((second, third));
         let full_queue = tokio::sync::Semaphore::new(0);
         assert!(wait_for_slot(&full_queue, &slots).await.err().unwrap().is::<Busy>());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn assinatura_pessoal_nao_abre_executor_de_fundo() {
+        use crate::fork::background_notice::Problem;
+        use crate::{remote::identity::Identity, store::Store};
+        let dir = crate::store::private_fixture_dir("assinatura-fundo");
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+        let cfg: BotConfig = serde_json::from_value(json!({"id":"b", "name":"Bot", "backend":"claude"})).unwrap();
+        hub.store.save_bot(&cfg).unwrap();
+        let error = one_shot(&hub, &cfg, "instrução", "conteúdo").await.err().unwrap();
+        assert!(matches!(error.downcast_ref::<Problem>(), Some(Problem::NoClaude)));
+        assert!(hub.store.kv_read(crate::fork::engine_accounts::SLOT).unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn assinatura_pessoal_recusa_cenarios_de_fundo_antes_de_enviar() {
+        use crate::LockExt;
+        use crate::fork::{
+            background_history::{self, Function},
+            background_notice::Problem,
+            engine_accounts,
+        };
+        use crate::{remote::identity::Identity, store::Store};
+        for (scenario, function) in [
+            ("corte_no_ledger", Function::Memory),
+            ("mcp_persistente", Function::Titles),
+            ("revogacao_antes_do_prompt", Function::Memory),
+            ("descoberta_local", Function::Memory),
+            ("gravar_e_desfazer", Function::Memory),
+            ("distinguir_falhas", Function::Memory),
+            ("historico_incompativel", Function::Memory),
+            ("troca_na_extracao", Function::Memory),
+            ("integridade_do_disco", Function::Memory),
+            ("conclusao_ausente", Function::Titles),
+            ("troca_no_nomeador", Function::Titles),
+            ("mudanca_de_login", Function::Titles),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let marker = dir.path().join("invocado");
+            let executable = dir.path().join("claude");
+            crate::fork::test_support::write_executable(
+                &executable,
+                b"#!/bin/sh\nprintf chamado > \"$(dirname \"$0\")/invocado\"\n",
+                0o700,
+            );
+            assert!(std::process::Command::new(&executable).status().unwrap().success());
+            assert!(marker.exists(), "controle positivo: {scenario}");
+            std::fs::remove_file(&marker).unwrap();
+            let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+            let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+            let cfg: BotConfig = serde_json::from_value(json!({"id":"b", "name":"Bot", "backend":"claude"})).unwrap();
+            hub.store.save_bot(&cfg).unwrap();
+            let id = format!("ac_{}", "a".repeat(64));
+            hub.store
+                .kv_set(
+                    engine_accounts::SLOT,
+                    &json!({"salt":uuid::Uuid::new_v4().to_string(), "accounts":[{
+                        "id":id, "backend":"claude", "billing":"subscription", "state":"connected",
+                        "launch":{"kind":"cli_profile", "executable":executable, "directory":dir.path()},
+                        "scope":"owner", "quotaIdentity":id, "verifiedAt":1,
+                        "subscriptionProof":{"method":"claude_auth_status", "plan":"max"},
+                        "models":[{"id":"haiku", "options":[]}]
+                    }]})
+                    .to_string(),
+                )
+                .unwrap();
+            let err =
+                run_observed(&hub, &cfg, ("instrução", "conteúdo"), &mut false, function, None).await.err().unwrap();
+            assert!(
+                err.is::<Problem>() && matches!(err.downcast_ref::<Problem>(), Some(Problem::PersonalSubscription)),
+                "{scenario}: {err:#}"
+            );
+            assert!(!marker.exists(), "processo executado: {scenario}");
+            let history = serde_json::to_value(background_history::read(&hub.store).unwrap()).unwrap();
+            assert_eq!(history.as_array().unwrap().len(), 1, "{scenario}: {history}");
+            assert_eq!(history[0]["status"], "failed", "{scenario}");
+            assert_eq!(history[0]["failureStage"], "selection", "{scenario}");
+            let sends: i64 = hub
+                .store
+                .db
+                .locked()
+                .query_row("SELECT COUNT(*) FROM donna_turn_usage WHERE source='fundo'", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(sends, 0, "{scenario}");
+        }
     }
 
     #[cfg(unix)]

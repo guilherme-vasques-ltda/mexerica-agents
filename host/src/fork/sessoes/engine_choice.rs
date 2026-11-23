@@ -320,6 +320,10 @@ fn overlay(c: &Connection, session: &str, mut engine: SessionEngine) -> Result<S
     if let Some(over) = crate::fork::fallback_contas::estado::sobreposicao(c, session)?
         && engine.account_id.as_deref() == Some(over.origem.as_str())
     {
+        ensure!(
+            !crate::fork::assinatura_pessoal::claude(&engine.backend),
+            crate::fork::assinatura_pessoal::Refusal::Fallback
+        );
         engine.account_id = Some(over.atual);
     }
     Ok(engine)
@@ -346,11 +350,19 @@ pub(crate) fn promote(c: &Connection, session: &str) -> Result<bool> {
         .optional()?
         .ok_or_else(|| anyhow!("unknown_session"))?;
     let Some(raw) = next else { return Ok(false) };
-    parse(&raw)?;
-    let changed = c.execute(
+    let next = parse(&raw)?;
+    let tx = c.is_autocommit().then(|| c.unchecked_transaction()).transpose()?;
+    let db = tx.as_deref().unwrap_or(c);
+    let changed = db.execute(
         "UPDATE donna_bot_sessions SET engine_choice=engine_next, engine_next=NULL WHERE id=?1 AND engine_next=?2",
         params![session, raw],
     )?;
+    if changed == 1 && crate::fork::assinatura_pessoal::claude(&next.backend) {
+        crate::fork::fallback_contas::estado::gravar_sobreposicao(db, session, None)?;
+    }
+    if let Some(tx) = tx {
+        tx.commit()?;
+    }
     Ok(changed == 1)
 }
 
@@ -449,4 +461,42 @@ pub(crate) fn set(
         return Err(crate::remote::cloud::Conflict("session_revision_conflict").into());
     }
     Ok((from, engine))
+}
+
+#[cfg(test)]
+#[test]
+fn assinatura_pessoal_nao_retoma_sobreposicao_antiga() {
+    use crate::LockExt;
+    use crate::fork::fallback_contas::estado::{Motivo, Sobreposicao, gravar_sobreposicao};
+    let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+    let db = store.db.locked();
+    let mut engine = SessionEngine {
+        schema_version: 2,
+        source: EngineSource::Own,
+        account_id: Some("original".into()),
+        backend: "claude".into(),
+        model: None,
+        model_options: BTreeMap::new(),
+        fast_mode: false,
+    };
+    gravar_sobreposicao(
+        &db,
+        "s",
+        Some(&Sobreposicao {
+            space: "personal".into(),
+            bot: "b".into(),
+            origem: "original".into(),
+            atual: "reserve".into(),
+            desde: 1,
+            motivo: Motivo::Esgotada,
+        }),
+    )
+    .unwrap();
+    let error = overlay(&db, "s", engine.clone()).unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>(),
+        Some(crate::fork::assinatura_pessoal::Refusal::Fallback)
+    ));
+    engine.backend = "codex".into();
+    assert_eq!(overlay(&db, "s", engine).unwrap().account_id.as_deref(), Some("reserve"));
 }

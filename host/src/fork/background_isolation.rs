@@ -52,6 +52,7 @@ pub(crate) async fn prepare_job(
     cfg: &crate::store::BotConfig,
     system: &str,
 ) -> Result<PreparedJob> {
+    crate::fork::assinatura_pessoal::automation(cfg)?;
     anyhow::ensure!(
         matches!(cfg.backend.as_str(), "claude" | "codex"),
         "Motor sem isolamento comprovado para tarefa de fundo."

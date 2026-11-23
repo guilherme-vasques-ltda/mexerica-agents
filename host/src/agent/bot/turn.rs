@@ -169,7 +169,19 @@ impl Actor {
         let (promoted, previous) = if new_human {
             let db = self.hub.store.db.locked();
             let mut previous = cfg.clone();
-            crate::fork::sessoes::admissao::apply_choice(&db, lane, &mut previous)?;
+            if let Err(error) = crate::fork::sessoes::admissao::apply_choice(&db, lane, &mut previous) {
+                if !matches!(
+                    error.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>(),
+                    Some(crate::fork::assinatura_pessoal::Refusal::Fallback)
+                ) {
+                    return Err(error);
+                }
+                if let Some(session) = crate::fork::sessoes::admissao::engine_session(&db, lane, &previous)?
+                    && let Some(own) = crate::fork::sessoes::engine_choice::read_own(&db, &session)?
+                {
+                    own.apply(&mut previous);
+                }
+            }
             (crate::fork::sessoes::admissao::start_choice(&db, lane, &mut cfg)?, previous)
         } else {
             if own_domain {
@@ -230,6 +242,16 @@ impl Actor {
         // F6-B: perto do limite ou esgotada, a conversa do dono passa para a próxima conta antes de capturar o turno.
         self.fallback_prepare(&lane, entry_ids, hidden, prepared_token.as_deref()).await;
         let (cfg, promoted) = self.turn_config(&lane, entry_ids, hidden, prepared_token.as_deref())?;
+        let personal_lane =
+            self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
+        crate::fork::assinatura_pessoal::turn(
+            &cfg,
+            personal_lane
+                && !hidden
+                && lane.chat == cfg.id
+                && crate::fork::assinatura_pessoal::human_entries(&self.hub.store, &lane, entry_ids),
+            personal_lane && self.owner_compaction(&lane),
+        )?;
         if cfg.context != self.cfg.context
             || crate::agent::own_memory::kept(&cfg) != crate::agent::own_memory::kept(&self.cfg)
             || cfg.fork_editor != self.cfg.fork_editor

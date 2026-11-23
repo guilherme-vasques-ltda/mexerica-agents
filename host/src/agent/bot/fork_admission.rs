@@ -410,6 +410,18 @@ impl Actor {
     ) -> Result<()> {
         crate::agent::backends::require_supported_execution(&self.cfg.backend)?;
         let hub = self.hub.clone();
+        let personal_lane =
+            self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none();
+        if let Err(error) = crate::fork::assinatura_pessoal::turn(
+            &self.cfg,
+            personal_lane
+                && self.input.as_ref().is_some_and(|input| input.direct_chat(&self.cfg))
+                && crate::fork::assinatura_pessoal::human_entries(&hub.store, &self.lane, &entries),
+            personal_lane && self.owner_compaction(&self.lane),
+        ) {
+            self.stop_subscription_retry(&entries, &error);
+            return Err(error);
+        }
         let account_guard =
             if self.cfg.context.is_some() { Some(crate::fork::engine_accounts::MUTATION.lock().await) } else { None };
         if let Some(ticket) = &self.dispatch
@@ -796,6 +808,7 @@ impl Actor {
                     return;
                 }
                 if let Err(error) = self.start_prepared_turn(lane, &entries, &text, hidden, done_tx, token).await {
+                    self.stop_subscription_retry(&entries, &error);
                     self.start_failed(&error);
                     self.requeue_unreserved_humans(&entries);
                 }
