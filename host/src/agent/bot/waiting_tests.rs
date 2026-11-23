@@ -4536,5 +4536,8 @@ mod mandar_agora {
     }
 }
 
+#[path = "fork_pausa_conversa_tests.rs"]
+mod pausa_conversa;
+
 #[path = "fork_pergunta_restaurada_tests.rs"]
 mod pergunta_restaurada;

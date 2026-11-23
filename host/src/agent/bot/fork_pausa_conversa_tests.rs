@@ -1,0 +1,86 @@
+//! Reinício com efeito incerto: a conversa fica pausada (inclusive depois de outro reinício), nada é repetido e só a
+//! liberação explícita do dono devolve a fila à admissão.
+use super::*;
+use crate::fork::bot_admission as admission;
+
+fn notices(store: &Store) -> usize {
+    store
+        .history("bot", i64::MAX, 200)
+        .unwrap()
+        .iter()
+        .filter(|e| e.data["text"].as_str().is_some_and(|s| s.contains("Pode haver efeito já realizado")))
+        .count()
+}
+
+async fn send(hub: &Arc<Hub>, text: &str) -> String {
+    let sent =
+        crate::api::dispatch(hub, &crate::api::devices::Caller::Local, "send", json!({"botId":"bot","text":text}))
+            .await
+            .unwrap();
+    sent["entry"]["id"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn efeito_incerto_pausa_a_conversa_ate_liberar_e_sobrevive_a_reinicio_duplo() {
+    let f = Fixture::new();
+    std::fs::write(f.dir.join("blocked"), "").unwrap();
+    std::fs::write(f.dir.join("hold"), "").unwrap();
+    send(&f.hub, "Efeito possível").await;
+    f.until(|| f.prompts().len() == 1).await;
+    assert_eq!(admission::current(&f.hub.store, "bot").unwrap().unwrap().phase, admission::Phase::Permitted);
+    f.hub.shutdown().await;
+    std::fs::remove_file(f.dir.join("hold")).unwrap();
+
+    let first = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+    f.until(|| admission::current(&first.store, "bot").unwrap().is_none()).await;
+    assert!(admission::conversation_paused(&first.store, "bot", "bot").unwrap());
+    let later = send(&first, "Depois do reinício").await;
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(f.prompts().len(), 1, "nada sai da conversa pausada");
+    assert_eq!(first.store.entry(&later).unwrap().data["status"], "queued");
+    assert_eq!(notices(&first.store), 1);
+    first.shutdown().await;
+
+    let second = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert!(admission::conversation_paused(&second.store, "bot", "bot").unwrap(), "a pausa sobrevive ao reinício");
+    assert_eq!(f.prompts().len(), 1, "o segundo reinício também não envia nem repete");
+    assert_eq!(second.store.entry(&later).unwrap().data["status"], "queued");
+    assert_eq!(notices(&second.store), 1, "o aviso não se repete");
+
+    let released = crate::api::dispatch(
+        &second,
+        &crate::api::devices::Caller::Local,
+        "releaseConversation",
+        json!({"botId":"bot"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(released["released"], json!(["bot"]));
+    f.until(|| f.prompts().len() == 2 && second.store.entry(&later).unwrap().data["status"] == "sent").await;
+    let prompt = f.prompts()[1].to_string();
+    assert!(prompt.contains("Depois do reinício"));
+    assert!(!prompt.contains("Efeito possível"), "o turno incerto não é reenviado");
+    second.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn pausa_de_uma_conversa_nao_segura_outra_e_permit_recusa_a_pausada() {
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    admission::pause_conversation(&f.hub.store, "bot", "outra-conversa", "t-velho").unwrap();
+    assert!(actor.conversation_held("outra-conversa"));
+    assert!(!actor.conversation_held("bot"), "a principal segue");
+    let ticket =
+        admission::reserve(&f.hub.store, &actor.cfg, "outra-conversa", "hub-A", &admission::Origin::Group).unwrap();
+    assert!(
+        admission::permit(&f.hub.store, &actor.cfg, &ticket, None, &[], None).unwrap().is_none(),
+        "a última fronteira também recusa a conversa pausada"
+    );
+    assert_eq!(admission::current(&f.hub.store, "bot").unwrap().unwrap().phase, admission::Phase::Reserved);
+    admission::finish(&f.hub.store, "bot", &ticket).unwrap();
+    actor.dispatch = None;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}

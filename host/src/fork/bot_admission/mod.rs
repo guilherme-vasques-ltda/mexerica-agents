@@ -8,8 +8,12 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+mod conversation_pause;
 mod human_setup;
 mod memory_policy;
+pub(crate) use conversation_pause::{
+    pause as pause_conversation, paused as conversation_paused, release as release_conversation,
+};
 pub(crate) use human_setup::{begin_human_setup, mark_human_setup_ready, reuse_reserved};
 pub(crate) use memory_policy::MemoryPolicy;
 
@@ -315,7 +319,7 @@ pub(crate) fn permit_with(
     if !crate::fork::usage_limits::allow_on(&tx, checkpoint)? {
         return Ok(None);
     }
-    if pause.paused {
+    if pause.paused || conversation_pause::paused_on(&tx, bot, &record.conversation_id)? {
         return Ok(None);
     }
     // Teto de gasto na mesma Tx: bloqueado grava a espera durável e a Tx morre

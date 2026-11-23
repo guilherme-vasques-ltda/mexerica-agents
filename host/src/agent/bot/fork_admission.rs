@@ -116,6 +116,14 @@ impl Actor {
         }
     }
 
+    /// Conversa pausada por efeito incerto: o trabalho dela fica na fila. Leitura que falha também segura.
+    pub(super) fn conversation_held(&self, chat: &str) -> bool {
+        admission::conversation_paused(&self.hub.store, &self.cfg.id, chat).unwrap_or_else(|error| {
+            tracing::error!(%error, "pausa da conversa ilegível; o trabalho dela segue na fila");
+            true
+        })
+    }
+
     pub(super) fn reserve_dispatch(&mut self) -> Result<()> {
         let origin = self.turn_origin();
         let token = self
@@ -940,10 +948,13 @@ impl Actor {
                     chat: record.conversation_id.clone(),
                     session: first.filter(|e| e.session_id != record.conversation_id).map(|e| e.session_id),
                 };
+                // A pausa é gravada antes do aviso e antes de soltar a cerca: uma nova queda aqui repete só a pausa
+                // (idempotente) e o aviso único, nunca o turno.
+                admission::pause_conversation(&self.hub.store, &self.cfg.id, &record.conversation_id, &record.attempt)?;
                 self.hub.add_entry_once(
                     &format!("dispatch-interrupted-{}", record.attempt), &lane,
                     crate::store::EntryKind::Notice, 0,
-                    &json!({"text":"O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico antes de reenviar. Nenhuma ação foi repetida automaticamente.","style":"info","author":self.cfg.id}),
+                    &json!({"text":"O Hub reiniciou após permitir este turno. Pode haver efeito já realizado; confira o histórico. Nenhuma ação foi repetida automaticamente e esta conversa ficou pausada: as próximas mensagens esperam até você liberá-la.","style":"info","author":self.cfg.id}),
                 )?;
             }
         }

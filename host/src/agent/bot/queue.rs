@@ -548,7 +548,15 @@ impl Actor {
         {
             // Só origem ainda inválida fica estacionada; elegíveis conservam a
             // ordem original. A posição não muda durante o retry por entrada.
-            let Some(next) = self.queue.iter().position(|q| !matches!(q, Queued::RestoreUser { .. })) else { return };
+            // Conversa pausada por efeito incerto também fica: as outras passam à frente.
+            let Some(next) = self.queue.iter().position(|q| match q {
+                Queued::RestoreUser { .. } => false,
+                Queued::User { lane, .. } => !self.conversation_held(&lane.chat),
+                Queued::Routine(_) | Queued::BotRequest(_) => !self.conversation_held(&main.chat),
+                Queued::Group(_) | Queued::Compact { .. } => true,
+            }) else {
+                return;
+            };
             match self.queue.get(next) {
                 Some(Queued::Routine(_)) => {
                     let Some(Queued::Routine(id)) = self.queue.remove(next) else { unreachable!("item é uma rotina") };
@@ -613,6 +621,11 @@ impl Actor {
                     };
                     // A newer message in the room (or Stop) ended the room turn that queued this.
                     if turn.reply.is_closed() || !self.hub.groups.current(&turn.lane, turn.epoch) {
+                        continue;
+                    }
+                    // Sala pausada para este membro: a rodada conta como passe, sem prompt.
+                    if self.conversation_held(&turn.lane.chat) {
+                        let _ = turn.reply.send(Err(anyhow!("conversation_paused")));
                         continue;
                     }
                     let (lane, prompt) = (turn.lane.clone(), turn.prompt.clone());

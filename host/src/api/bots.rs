@@ -417,6 +417,12 @@ pub(super) async fn call(
             }
             json!({})
         }
+        // Liberação explícita do dono depois de um reinício com efeito incerto. Não repete o turno interrompido:
+        // só devolve à admissão o que ficou na fila desta conversa.
+        "releaseConversation" => {
+            let chat = str_arg(&b, "botId")?;
+            json!({"released": crate::fork::bot_admission::release_conversation(&hub.store, chat)?})
+        }
         // DON-907 (D431): ações por mensagem na fila; autoridade ORIGINAL capturada na entrada (`agent::bot::fork_fila`).
         "queuedRemove" | "queuedEdit" | "queuedMove" | "queuedSendNow" => {
             crate::agent::bot::queued_rpc(hub, caller, method, &b).await?
