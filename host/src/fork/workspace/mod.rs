@@ -208,6 +208,10 @@ impl Sinal {
         }
     }
 
+    fn dono_retido(&self) -> bool {
+        self.trava_dono.locked().is_some()
+    }
+
     fn destravar_dono(&self) {
         if let Some(id) = self.trava_dono.locked().take() {
             self.retrato.send_if_modified(|e| soltar(e, id));
@@ -392,7 +396,7 @@ pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) ->
 /// lock do status Cloud, na ordem Cloud → banco: uma observação atrasada nunca sobrescreve o dono
 /// atual. Dono que só ficou conhecido não sobe o epoch; outro `userId` depois de um já visto sobe.
 /// Se a gravação falhar, a saída fica retida (marca pendente) até uma observação gravar: o dono
-/// novo nunca circula com o epoch velho.
+/// novo nunca circula com o epoch velho. Enquanto retida, `start` repete a observação.
 pub(crate) fn observar_dono(hub: &Hub) {
     let resultado = hub.cloud.with_personal_status(|status| {
         let gravado = registrar_dono(hub, status);
@@ -405,6 +409,25 @@ pub(crate) fn observar_dono(hub: &Hub) {
     if let Err(error) = resultado {
         tracing::error!(error = format!("{error:#}"), "não foi possível registrar o dono do workspace");
     }
+}
+
+/// Intervalo em que uma retenção do dono não gravado é tentada de novo, sem esperar outra
+/// mudança de status da nuvem.
+const REPETIR_DONO: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Repete a gravação do dono enquanto a saída estiver retida por uma falha anterior.
+pub(crate) fn start(hub: &std::sync::Arc<Hub>) {
+    let hub = std::sync::Arc::downgrade(hub);
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(REPETIR_DONO);
+        loop {
+            tick.tick().await;
+            let Some(hub) = hub.upgrade() else { return };
+            if hub.workspace.dono_retido() {
+                observar_dono(&hub);
+            }
+        }
+    });
 }
 
 fn registrar_dono(hub: &Hub, status: &crate::remote::cloud::CloudStatus) -> Result<()> {

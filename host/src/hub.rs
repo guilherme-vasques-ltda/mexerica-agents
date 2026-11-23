@@ -269,6 +269,7 @@ impl Hub {
                 self.spawn_bot(row.config);
             }
         }
+        crate::fork::workspace::start(self);
         if crate::environment::Environment::is_open() {
             return Ok(());
         }

@@ -626,3 +626,29 @@ fn dono_novo_que_nao_grava_retem_a_saida_ate_gravar() {
     assert_eq!((gravado.valor, gravado.pendente()), (antes.valor + 1, false), "o dono novo sai com o epoch novo");
     assert_eq!(gravado.dono.as_deref(), Some("user_b.example.invalid"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn retencao_do_dono_se_solta_sozinha_quando_a_gravacao_volta() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    start(&hub);
+    dono(&hub, Some("user_a.example.invalid"));
+    let antes = hub.workspace.atual();
+    hub.store
+        .db
+        .locked()
+        .execute_batch(
+            "CREATE TEMP TRIGGER dono_nao_grava BEFORE UPDATE ON main.kv WHEN NEW.k='fork.workspace.owner_seen'
+             BEGIN SELECT RAISE(ABORT, 'falha de gravação de prova'); END;",
+        )
+        .unwrap();
+    dono(&hub, Some("user_b.example.invalid"));
+    tokio::time::sleep(REPETIR_DONO * 2).await;
+    assert!(hub.workspace.retrato().pendente(), "com a gravação falhando, a repetição mantém a retenção");
+    hub.store.db.locked().execute_batch("DROP TRIGGER dono_nao_grava").unwrap();
+    // Sem outra mudança de status da nuvem: a repetição grava e solta.
+    tokio::time::sleep(REPETIR_DONO * 2).await;
+    let retrato = hub.workspace.retrato();
+    assert_eq!((retrato.valor, retrato.pendente()), (antes + 1, false));
+    assert_eq!(retrato.dono.as_deref(), Some("user_b.example.invalid"));
+}
