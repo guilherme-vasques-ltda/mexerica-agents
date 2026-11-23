@@ -12,7 +12,7 @@ private actor GatedMailInboxTransport: MailInboxTransport {
 
     let base = ForkMailInboxFixtureTransport()
     private var held: Operation?
-    private var waiter: CheckedContinuation<Void, Never>?
+    private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var hasArrived = false
 
     func hold(_ operation: Operation) {
@@ -21,14 +21,16 @@ private actor GatedMailInboxTransport: MailInboxTransport {
 
     func release() {
         held = nil
-        waiter?.resume()
-        waiter = nil
+        let pending = waiters
+        waiters = []
+        pending.forEach { $0.resume() }
     }
 
-    func waitUntilArrived() async {
-        while !hasArrived {
+    func waitUntilArrived() async -> Bool {
+        for _ in 0..<1_000 where !hasArrived {
             await Task.yield()
         }
+        return hasArrived
     }
 
     func mailInboxStatus(spaceId: String) async throws -> MailInboxStatus {
@@ -48,7 +50,7 @@ private actor GatedMailInboxTransport: MailInboxTransport {
     private func gateIfHeld(_ operation: Operation) async {
         guard held == operation else { return }
         hasArrived = true
-        await withCheckedContinuation { waiter = $0 }
+        await withCheckedContinuation { waiters.append($0) }
     }
 }
 
@@ -134,7 +136,7 @@ struct ForkMailInboxViewsTests {
         await transport.hold(.status)
 
         let refresh = Task { await model.refresh() }
-        await transport.waitUntilArrived()
+        #expect(await transport.waitUntilArrived())
         #expect(model.presentation == .loading)
         #expect(model.isBusy)
 
@@ -151,7 +153,7 @@ struct ForkMailInboxViewsTests {
         await transport.hold(.list)
 
         let selection = Task { await staleModel.selectMailbox(threadMailboxId) }
-        await transport.waitUntilArrived()
+        #expect(await transport.waitUntilArrived())
 
         let currentModel = ForkMailInboxScreenModel(store: store, spaceId: spaceA)
         await store.loadStatus(spaceId: spaceA)

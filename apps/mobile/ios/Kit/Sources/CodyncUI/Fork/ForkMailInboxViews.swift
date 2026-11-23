@@ -149,6 +149,7 @@ final class ForkMailInboxScreenModel {
 
     func refresh() async {
         guard await track({ await store.loadStatus(spaceId: spaceId) }) else { return }
+        guard store.activeSpaceId == spaceId else { return }
         guard case .ready(let mailboxes)? = store.status,
               store.selectedMailboxId == nil,
               let first = mailboxes.first else { return }
