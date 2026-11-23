@@ -300,6 +300,7 @@ class ProjectCliTest(unittest.TestCase):
         self.source = work / 'result.json'
         self.artifact = work / 'review.json'
         self.source.write_bytes(result(llm='fixture-model', session_id='fixture-result'))
+        self.publish_artifact = Path(tmp) / 'mexerica-ocr-publish/review.json'
         self.env = self.enterContext(patch.dict(review.os.environ, {
             'RUNNER_TEMP': tmp, 'PR_NUMBER': '7', 'GITHUB_REPOSITORY': 'fixture/repo',
             'BASE_SHA': BASE, 'HEAD_SHA': HEAD, 'GH_TOKEN': 'fixture-github',
@@ -309,7 +310,7 @@ class ProjectCliTest(unittest.TestCase):
         self.enterContext(patch.object(review, 'build_opener'))
         self.snapshot = self.enterContext(patch.object(review, 'snapshot', return_value=('/fixture', FILES)))
 
-    def assert_refused(self, phase=None, args=('project',), *, schema=None, warning_type=None):
+    def assert_refused(self, phase=None, args=('project',), *, schema=None, warning_type=None, render_class=None):
         stdout, stderr = StringIO(), StringIO()
         with (patch.object(review.sys, 'argv', ['ci-code-review.py', *args]),
               redirect_stdout(stdout), redirect_stderr(stderr), self.assertRaises(SystemExit) as raised):
@@ -317,8 +318,9 @@ class ProjectCliTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 1)
         self.assertEqual(stdout.getvalue(), '')
         suffix = '' if phase is None else f' Fase: {phase}.'
-        if schema is not None:
-            suffix += f' Classe: {schema}.'
+        classification = schema if render_class is None else render_class
+        if classification is not None:
+            suffix += f' Classe: {classification}.'
         if warning_type is not None:
             suffix += f' Tipo: {warning_type}.'
         self.assertEqual(stderr.getvalue(), f'Open Code Review: operação recusada ou indisponível.{suffix}\n')
@@ -354,13 +356,60 @@ class ProjectCliTest(unittest.TestCase):
             ('Json', b' ' * (review.MAX_JSON + 1)),
             ('Achado', result({**FINDING, 'path': 'fixture-outside.txt'})),
             ('Achado', result({**FINDING, 'category': 'fixture-category'})),
-            ('Render', result({**FINDING, 'start_line': 'fixture-line'})),
-            ('Render', result({**FINDING, 'end_line': 4, 'thinking': 'fixture-render'})),
         )
         for phase, data in cases:
             with self.subTest(phase=phase):
                 self.source.write_bytes(data)
                 self.assert_refused(phase)
+
+    def test_render_classifies_refusals_without_emitting_fixture_data(self):
+        path = 'src/fixture render.txt'
+        findings = {**FINDING, 'content': 'Relato sintético.', 'thinking': 'fixture-render-private'}
+        cases = (
+            ('Projecao', [FILES[0]], [{'start_line': 'fixture-line'}]),
+            ('Posicao', [FILES[0]], [{'start_line': 912345, 'end_line': 912345}]),
+            ('Posicao', [FILES[0]], [{'end_line': 0}]),
+            ('Caminho', [{**FILES[0], 'filename': path}], [{'path': path}]),
+            ('Linha', [{**FILES[0], 'patch': '@@ -1 +1 @@\n-private-before\n+private-after',
+                        'additions': 17}], [{}]),
+            ('Linha', [{**FILES[0], 'patch': None}], [{}]),
+            ('Duplicata', [FILES[0]], [{}, {}]),
+        )
+        for classification, files, updates in cases:
+            with self.subTest(classification=classification):
+                self.snapshot.return_value = '/fixture', files
+                self.source.write_bytes(result(comments=[{**findings, **update} for update in updates],
+                                               llm='fixture-model', session_id='fixture-result'))
+                self.assert_refused('Render', render_class=classification)
+
+    def test_render_refuses_unsafe_handoff_text_without_emitting_it(self):
+        render = review.render
+
+        def render_bad_text(payload, files, head):
+            payload['items'][0][-1] = 'https://fixture.example.invalid/private-marker'
+            return render(payload, files, head)
+
+        with patch.object(review, 'render', side_effect=render_bad_text):
+            self.assert_refused('Render', render_class='Texto')
+
+    def test_render_unexpected_error_stays_generic(self):
+        with patch.object(review, 'added_lines', side_effect=ValueError('fixture-render-exception')):
+            self.assert_refused('Render')
+
+    def test_publish_refusals_do_not_report_render_class_or_publish_findings(self):
+        payload = review.project(result(), FILES)
+        self.publish_artifact.parent.mkdir()
+        invalid = {**payload, 'items': [[0, 2, 3, 0, 1, '@fixture-private']]}
+        self.publish_artifact.write_text(json.dumps(invalid), encoding='utf-8')
+        self.assert_refused(args=('publish',))
+        self.snapshot.assert_not_called()
+
+        self.publish_artifact.write_text(json.dumps(payload), encoding='utf-8')
+        self.snapshot.return_value = '/fixture', [{**FILES[0], 'patch': None}]
+        with patch.object(review, 'build_opener') as opener:
+            self.assert_refused(args=('publish',))
+            opener.return_value.open.assert_not_called()
+        self.snapshot.assert_called_once()
 
     def test_schema_reports_only_the_first_fixed_class(self):
         manifest = dict(schema_version='ocr.run-manifest/v1', operation='review', terminal_state='complete',
