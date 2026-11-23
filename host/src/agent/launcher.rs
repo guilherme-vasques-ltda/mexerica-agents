@@ -16,6 +16,7 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
         && let Some(executavel) = shlex::split(command).and_then(|palavras| palavras.into_iter().next())
     {
         let nome = name(&executavel);
+        crate::agent::backends::require_supported_execution(&nome)?;
         let abre_retirado = crate::agent::backends::HARNESSES
             .iter()
             .any(|h| crate::fork::motores_retirados::retirado(h.id) && h.bins.contains(&nome.as_str()));

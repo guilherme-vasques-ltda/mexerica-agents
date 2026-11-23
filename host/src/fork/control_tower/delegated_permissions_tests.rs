@@ -12,12 +12,12 @@ use rusqlite::params;
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
 
-struct Fixture {
-    hub: Arc<Hub>,
+pub(super) struct Fixture {
+    pub(super) hub: Arc<Hub>,
     dir: PathBuf,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("mx478-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("db")).unwrap();
@@ -29,12 +29,15 @@ impl Fixture {
         let hub = Hub::new(store, "hub".into(), Identity::load_or_create(&dir).unwrap(), "fixture".into(), 0);
         Self { hub, dir }
     }
-    fn request(&self, id: &str, source: &str, target: &str) {
+    pub(super) fn request(&self, id: &str, source: &str, target: &str) {
         self.hub.store.db.locked().execute(
             "INSERT INTO donna_session_requests(id,schema_version,kind,mode,requester_bot_id,requester_chat_id,requester_session_id,requester_execution_ref,target_bot_id,target_chat_id,target_session_id,chain_id,admission_id,origin_entry_id,target_entry_id,attempt,fence,state,created_at,updated_at)
              VALUES(?1,1,'inter_bot','wait',?2,?2,?2,'privado',?3,?3,?3,'cadeia','admissao','origem','destino',1,2,'running',1,1)", params![id,source,target]).unwrap();
     }
-    fn card(&self, request: &str, target: &str, status: &str) -> String {
+    pub(super) fn card(&self, request: &str, target: &str, status: &str) -> String {
+        self.card_in(PERSONAL, request, target, status)
+    }
+    pub(super) fn card_in(&self, space: &str, request: &str, target: &str, status: &str) -> String {
         let entry = self
             .hub
             .store
@@ -47,7 +50,7 @@ impl Fixture {
             .unwrap();
         self.hub.store.db.locked().execute(
             "INSERT INTO donna_delegated_permission_checkpoints(request_id,attempt,fence,space_id,execution_ref,card_id,card_revision,created_at) VALUES(?1,1,2,?2,'segredo',?3,?4,?5)",
-            params![request,PERSONAL,entry.id,entry.rev,now_ms()]).unwrap();
+            params![request,space,entry.id,entry.rev,now_ms()]).unwrap();
         entry.id
     }
     async fn snapshot(&self, caller: &Caller, space: &str) -> anyhow::Result<Value> {

@@ -7,7 +7,7 @@ import type { SignInFailure, SignInProvider } from '../../shared/analytics'
 import type { AccountState, AccountPendingStep, AccountReconciliationState as ReconciliationState, ResendEmailCodeResult, SecondFactorStrategy } from '../../shared/ipc'
 import { forkFeatures, officialDesktop } from '../../shared/fork-features'
 import { authenticate, AuthenticationEnded } from '../auth'
-import { buildConfig, identity, officialLoginConfig } from '../environment'
+import { buildConfig, identity, isRc, officialLoginConfig } from '../environment'
 import { accountConfig, accountBrowserURL } from './config'
 import { AccountStorage } from './storage'
 import { accountCallback } from './callback'
@@ -26,7 +26,7 @@ import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
  * keychain. An account never grants access to a computer by itself (spec §4.2).
  */
 
-const SCHEME = identity.appId
+const SCHEME = isRc ? identity.scheme : identity.appId
 const SOCIAL_STRATEGIES = { apple: 'oauth_apple', google: 'oauth_google', x: 'oauth_x' } as const
 const REDIRECT = `${SCHEME}://callback`
 function socialStrategy(provider: unknown): string | null {
@@ -209,7 +209,7 @@ export class AccountService extends EventEmitter {
   }) }
   private get passwordStore() { return new PasswordAttemptStore(app.getPath('userData'), this.namespace) }
   private get namespace() {
-    if (officialDesktop && officialLoginConfig) return JSON.stringify(['desktop-account', officialLoginConfig.clerkFrontendOrigin, officialLoginConfig.clerkProxyOrigin, officialLoginConfig.clerkTokenOrigin])
+    if (officialDesktop && officialLoginConfig) return JSON.stringify([isRc ? identity.appId : 'desktop-account', officialLoginConfig.clerkFrontendOrigin, officialLoginConfig.clerkProxyOrigin, officialLoginConfig.clerkTokenOrigin])
     const c = this.config
     return c.kind === 'configured' ? JSON.stringify([c.deploymentId, c.issuer, c.cloudOrigin, c.frontendOrigin, c.proxyOrigin, c.manifestHash]) : 'unavailable'
   }

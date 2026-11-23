@@ -1,6 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { railLabel, waitingYouCount } from './badge.ts'
+import { attentionCount, railLabel, waitingYouCount } from './badge.ts'
+
+test('canonical counter does not substitute a zero for an unavailable queue', () => {
+  assert.equal(attentionCount(null), null)
+  assert.equal(attentionCount({ items: [] }), 0)
+})
 
 // D70: o ponto só acende com dado do Hub da faixa, no Pessoal, contando só quem precisa de você.
 test('badge: conta só Precisa de você do Pessoal; sem dado não acende', () => {
