@@ -16,6 +16,7 @@ use std::sync::atomic::Ordering;
 /// Serializa as provas que leem ou escrevem a tentativa e o endereço injetado.
 static SERIE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[cfg(target_os = "linux")]
 const CHAVE: &str = "chave-ficticia-do-openrouter-123";
 
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +25,7 @@ enum Modo {
     SemChave,
     Gigante,
     Redireciona,
+    #[cfg(target_os = "linux")]
     Chave(&'static str),
 }
 
@@ -57,6 +59,7 @@ async fn servidor_de_troca(
                         Modo::Redireciona => {
                             (StatusCode::FOUND, [("location", format!("{alvo}/seguir"))]).into_response()
                         }
+                        #[cfg(target_os = "linux")]
                         Modo::Chave(chave) => Json(json!({"key": chave})).into_response(),
                     }
                 }
@@ -78,6 +81,7 @@ async fn servidor_de_troca(
 
 /// O Hub da prova do fluxo feliz, num processo à parte com o motor ligado (`test_support::case`
 /// reexecuta o teste pelo nome).
+#[cfg(target_os = "linux")]
 fn hub_de_prova(teste: &str) -> Option<Arc<crate::hub::Hub>> {
     crate::fork::motor_exec::test_support::case(&format!("fork::motor_mexerica::tests_entrar_openrouter::{teste}"))?;
     if !tests::require_motor() {
@@ -273,6 +277,7 @@ async fn troca_recusada_nao_repete_codigo_nem_chave_e_nao_segue_redirecionamento
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn fluxo_feliz_troca_o_codigo_e_salva_a_chave_no_cofre_sem_devolve_la() {
     let Some(hub) = hub_de_prova("fluxo_feliz_troca_o_codigo_e_salva_a_chave_no_cofre_sem_devolve_la") else {
         return;

@@ -4,12 +4,14 @@
 //! falso do motor (`faux`), sem rede; os fornecedores reais são provados no motor com servidores de mentira.
 use super::chaves;
 use super::*;
+#[cfg(target_os = "linux")]
 use crate::LockExt;
 use std::path::Path;
 
 const CHAVE: &str = "chave-ficticia-do-cadastro-123";
 
 /// O Hub da prova, num processo à parte com o motor ligado (`test_support::case` reexecuta o teste pelo nome).
+#[cfg(target_os = "linux")]
 fn hub_de_prova(teste: &str) -> Option<Arc<crate::hub::Hub>> {
     crate::fork::motor_exec::test_support::case(&format!("fork::motor_mexerica::tests_chaves::{teste}"))?;
     if !tests::require_motor() {
@@ -28,6 +30,7 @@ fn hub_de_prova(teste: &str) -> Option<Arc<crate::hub::Hub>> {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn chave_aceita_vai_ao_cofre_e_a_lista_de_modelos_nunca_leva_a_chave() {
     let Some(hub) = hub_de_prova("chave_aceita_vai_ao_cofre_e_a_lista_de_modelos_nunca_leva_a_chave") else { return };
     let acesso = chaves::salvar(&hub, "faux", zeroize::Zeroizing::new(CHAVE.into()), &[(FAUX_ENV, "1")]).await.unwrap();
@@ -55,6 +58,7 @@ async fn chave_aceita_vai_ao_cofre_e_a_lista_de_modelos_nunca_leva_a_chave() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn chave_recusada_pelo_fornecedor_nao_e_salva() {
     let Some(hub) = hub_de_prova("chave_recusada_pelo_fornecedor_nao_e_salva") else { return };
     let recusada = "recusada-pelo-fornecedor-456";
@@ -68,6 +72,7 @@ async fn chave_recusada_pelo_fornecedor_nao_e_salva() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn testar_sem_chave_no_cofre_diz_sem_chave_sem_abrir_conversa() {
     let Some(hub) = hub_de_prova("testar_sem_chave_no_cofre_diz_sem_chave_sem_abrir_conversa") else { return };
     let acesso = chaves::testar(hub_vault(hub.clone()), "faux", &[(FAUX_ENV, "1")]).await.unwrap();
@@ -176,6 +181,7 @@ fn pedido_vindo_de_um_space_aberto_e_aceito_e_campo_estranho_nao() {
 // Endereço próprio: um serviço de mentira em 127.0.0.1, que só vale com a opção «local».
 
 /// Servidor HTTP mínimo: anota cada pedido (linha inicial, cabeçalhos e corpo) e responde com `resposta(pedido)`.
+#[cfg(target_os = "linux")]
 pub(super) async fn servico_local(
     resposta: impl Fn(&str) -> (u16, String, &'static str) + Send + Sync + 'static,
 ) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
@@ -226,6 +232,7 @@ pub(super) async fn servico_local(
     (base, pedidos)
 }
 
+#[cfg(target_os = "linux")]
 fn pedido_endereco(base: &str, local: bool, modelo: Option<&str>) -> chaves::Pedido {
     serde_json::from_value(serde_json::json!({
         "nome": "Serviço de prova", "url": format!("{base}/v1"), "formato": "chat-completions",
@@ -235,6 +242,7 @@ fn pedido_endereco(base: &str, local: bool, modelo: Option<&str>) -> chaves::Ped
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn endereco_proprio_e_salvo_depois_do_teste_e_o_app_nunca_ve_a_chave() {
     let Some(hub) = hub_de_prova("endereco_proprio_e_salvo_depois_do_teste_e_o_app_nunca_ve_a_chave") else { return };
     let (base, pedidos) =
@@ -267,6 +275,7 @@ async fn endereco_proprio_e_salvo_depois_do_teste_e_o_app_nunca_ve_a_chave() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn trocar_o_endereco_sem_informar_a_chave_e_recusado_antes_de_qualquer_pedido() {
     let Some(hub) = hub_de_prova("trocar_o_endereco_sem_informar_a_chave_e_recusado_antes_de_qualquer_pedido") else {
         return;
@@ -297,6 +306,7 @@ async fn trocar_o_endereco_sem_informar_a_chave_e_recusado_antes_de_qualquer_ped
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn servico_sem_lista_so_e_salvo_com_o_modelo_digitado() {
     let Some(hub) = hub_de_prova("servico_sem_lista_so_e_salvo_com_o_modelo_digitado") else { return };
     let (base, _) = servico_local(|_| (404, r#"{"error":"sem lista"}"#.into(), "application/json")).await;
@@ -316,6 +326,7 @@ async fn servico_sem_lista_so_e_salvo_com_o_modelo_digitado() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn endereco_local_sem_a_opcao_local_e_recusado_pelo_motor_e_nao_e_salvo() {
     let Some(hub) = hub_de_prova("endereco_local_sem_a_opcao_local_e_recusado_pelo_motor_e_nao_e_salvo") else {
         return;
