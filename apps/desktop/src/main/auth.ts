@@ -1,6 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { app, ipcMain } from 'electron'
-import { identity } from './environment'
+import { identity, isRc } from './environment'
 import { openExternalURL } from './navigation'
 import { parseNavigationURL } from '../shared/navigation-policy'
 import { recoveryDiagnostic as diag } from './fork-account/recovery-diagnostic'
@@ -8,7 +8,8 @@ import { recoveryDiagnostic as diag } from './fork-account/recovery-diagnostic'
 // Browser sign-ins that come back to this app on a custom scheme (ASWebAuthenticationSession's
 // job on the iPhone): connector OAuth (`codync://oauth`) and the account (`com.pokai.Codync://callback`).
 
-export const SCHEMES = [identity.scheme, identity.appId]
+export const SCHEMES = isRc ? [identity.scheme] : [identity.scheme, identity.appId]
+const rcCallback = (url: string) => url.toLowerCase().startsWith(`${identity.scheme}://`)
 
 interface Pending {
   scheme: string
@@ -40,6 +41,7 @@ export function registerSchemes(keepDockHidden: () => void = () => {}) {
   // macOS delivers the URL here; Linux starts a second instance with it in argv.
   app.on('open-url', (event, url) => {
     event.preventDefault()
+    if (isRc && !rcCallback(url)) return
     handleURL(url)
     try { keepDockHidden() } catch {} // A reação do Dock nunca desfaz nem impede o retorno do login.
   })
@@ -47,6 +49,7 @@ export function registerSchemes(keepDockHidden: () => void = () => {}) {
 
 /** A URL on one of our schemes reached the app (open-url, or a second instance's argv). */
 export function handleURL(url: string) {
+  if (isRc && !rcCallback(url)) return
   diag('callback_route', 'entered')
   const scheme = url.split(':')[0]?.toLowerCase()
   let matchesCallback = true
@@ -70,11 +73,15 @@ export function handleURL(url: string) {
 }
 
 export function urlFromArgv(argv: string[]) {
+  if (isRc) return argv.find(rcCallback)
   return argv.find((a) => SCHEMES.some((s) => a.toLowerCase().startsWith(`${s.toLowerCase()}:`)))
 }
 
 /** Opens `url` in the browser and waits (up to 10 minutes) for the return on `scheme`. */
 export function authenticate(url: string, scheme: string, callback?: string): Promise<string> {
+  if (isRc && (scheme !== identity.scheme || !callback || !rcCallback(callback))) {
+    return Promise.reject(new Error('invalid_rc_callback'))
+  }
   if (parseNavigationURL(url)?.protocol !== 'https:') { diag('browser_wait', 'invalid_url'); return Promise.reject(new Error('Sign-in needs an https address.')) }
   if (pending) {
     diag('browser_wait', 'cancelled')

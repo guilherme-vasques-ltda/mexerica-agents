@@ -290,6 +290,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("computersList", Leitura),
     ("donnaContext", Leitura),
     ("donnaControlTower", Leitura),
+    ("donnaAttention", Leitura),
     ("donnaConversationHistory", Leitura),
     ("donnaConversationRead", Leitura),
     ("donnaConversationReadFile", Leitura),

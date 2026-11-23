@@ -9,24 +9,33 @@ const LIMIT: i64 = 20;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DelegatedPermissions {
-    items: Vec<Item>,
+    pub(super) items: Vec<Item>,
     omitted: usize,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Item {
+pub(super) struct Item {
     key: String,
-    requester_bot_id: String,
-    target_bot_id: String,
-    entry_id: String,
-    conversation: ConversationRef,
+    pub(super) requester_bot_id: String,
+    pub(super) target_bot_id: String,
+    pub(super) entry_id: String,
+    pub(super) conversation: ConversationRef,
     mode: String,
-    requested_at: i64,
+    pub(super) requested_at: i64,
 }
 
 /// Recebe a mesma transação e roster já autorizados da fotografia do Mission Board.
 pub(super) fn project(c: &Connection, space: &str, roster: &[&str]) -> Result<Observation<DelegatedPermissions>> {
+    let value = read(c, space, roster, LIMIT)?;
+    Ok(Observation::Available {
+        source: "retornos.delegatedPermissions",
+        coverage: "pendingCardsInAuthorizedConversations",
+        value,
+    })
+}
+
+pub(super) fn read(c: &Connection, space: &str, roster: &[&str], limit: i64) -> Result<DelegatedPermissions> {
     let roster = serde_json::to_string(roster)?;
     let mut statement = c.prepare(
         "SELECT p.card_id,r.requester_bot_id,r.target_bot_id,c.id,c.revision,r.mode,p.created_at,
@@ -55,7 +64,7 @@ pub(super) fn project(c: &Connection, space: &str, roster: &[&str]) -> Result<Ob
            AND EXISTS(SELECT 1 FROM json_each(?2) WHERE value=r.target_bot_id)
          ORDER BY p.created_at DESC,p.card_id DESC LIMIT ?4",
     )?;
-    let mut rows = statement.query(params![space, roster, crate::fork::spaces::PERSONAL, LIMIT])?;
+    let mut rows = statement.query(params![space, roster, crate::fork::spaces::PERSONAL, limit])?;
     let mut items = Vec::new();
     let mut total = 0_usize;
     while let Some(row) = rows.next()? {
@@ -71,9 +80,5 @@ pub(super) fn project(c: &Connection, space: &str, roster: &[&str]) -> Result<Ob
             requested_at: row.get(6)?,
         });
     }
-    Ok(Observation::Available {
-        source: "retornos.delegatedPermissions",
-        coverage: "pendingCardsInAuthorizedConversations",
-        value: DelegatedPermissions { omitted: total.saturating_sub(items.len()), items },
-    })
+    Ok(DelegatedPermissions { omitted: total.saturating_sub(items.len()), items })
 }

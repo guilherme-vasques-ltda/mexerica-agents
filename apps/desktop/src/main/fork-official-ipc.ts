@@ -15,11 +15,14 @@ export function requireOfficialSession(
   ipc: IpcMain,
   authenticated: () => boolean,
   entryWindow: (event: IpcMainEvent | IpcMainInvokeEvent) => boolean,
+  rc = false,
 ) {
-  const allowed = (channel: string, event: IpcMainEvent | IpcMainInvokeEvent) =>
-    channel.startsWith('account:') && entryChannels.has(channel)
+  const allowed = (channel: string, event: IpcMainEvent | IpcMainInvokeEvent) => {
+    if (rc && channel === 'releaseNotice:state') return entryWindow(event)
+    return channel.startsWith('account:') && entryChannels.has(channel)
       ? entryWindow(event)
       : authenticated() || (entryChannels.has(channel) && entryWindow(event))
+  }
   const handle = ipc.handle.bind(ipc)
   ipc.handle = (channel, listener) => handle(channel, (event, ...args) => {
     if (!allowed(channel, event)) throw new Error('account_required')

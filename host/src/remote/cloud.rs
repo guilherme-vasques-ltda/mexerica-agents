@@ -135,6 +135,8 @@ impl Request {
             "platform": self.platform,
             "email": self.email,
             "code": self.code,
+            "codeReady": self.code.is_some(),
+            "codeCheck": "server",
             "transcript": self.transcript,
             "createdAt": self.created_at,
             "expiresAt": self.expires_at,
@@ -196,6 +198,18 @@ impl Cloud {
 
     pub fn requests_json(&self) -> Vec<Value> {
         self.requests.locked().iter().filter(|r| !r.consuming && now_ms() <= r.expires_at).map(Request::json).collect()
+    }
+
+    /// A lista para quem não é este computador: sem o código que o aparelho mostra. Quem aprova digita o
+    /// código lido no aparelho e o Hub compara em `decide_as`.
+    pub fn requests_json_sem_codigo(&self) -> Vec<Value> {
+        let mut list = self.requests_json();
+        for r in &mut list {
+            if let Some(o) = r.as_object_mut() {
+                o.remove("code");
+            }
+        }
+        list
     }
 }
 
@@ -836,7 +850,7 @@ pub async fn decide_as(
         } else if approve
             && expected.as_ref().is_none_or(|e| {
                 e.device_key != b64(&r.device_key)
-                    || r.code.as_ref() != Some(&e.code)
+                    || !r.code.as_ref().is_some_and(|code| crypto::ct_eq(code.as_bytes(), e.code.as_bytes()))
                     || r.transcript.as_ref() != Some(&e.transcript)
             })
         {
@@ -877,7 +891,10 @@ pub async fn decide_as(
                 && (!approve
                     || expected.as_ref().is_some_and(|e| {
                         e.device_key == b64(&mine[i].device_key)
-                            && mine[i].code.as_ref() == Some(&e.code)
+                            && mine[i]
+                                .code
+                                .as_ref()
+                                .is_some_and(|code| crypto::ct_eq(code.as_bytes(), e.code.as_bytes()))
                             && mine[i].transcript.as_ref() == Some(&e.transcript)
                     }))
         });
@@ -1192,6 +1209,189 @@ mod tests {
         let d = hub.store.device(&b64(&dk)).unwrap();
         assert_eq!((d.source, d.grant_id.as_deref()), (DeviceSource::Account, Some("grt_new")));
         assert_eq!(hub.cloud.requests_json().len(), 0);
+    }
+
+    /// Aprovar exige o código que a pessoa leu no aparelho: sem código ou com código errado não aprova, o
+    /// erro queima o pedido (uma tentativa) e o código certo depois disso não reaproveita o pedido.
+    #[tokio::test]
+    async fn approval_needs_the_typed_code_once() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
+        let (dk, nd): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
+        let request = |host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
+            json!({"owner": null, "grants": [], "requests": [{"requestId": "req_typed", "deviceKey": b64(&dk),
+                "deviceName": "Fixture phone", "platform": "ios", "email": "fixture@example.invalid",
+                "commit": b64(&crypto::sas_commit(&dk, &nd)), "hostNonce": host_nonce,
+                "deviceNonce": device_nonce.map(|n| b64(&n)), "createdAt": now_ms(), "expiresAt": now_ms() + 60_000}]})
+        };
+        *fake.state.lock().unwrap() = request(None, None);
+        pull(&hub, &base).await.unwrap();
+        assert_eq!(hub.cloud.requests_json()[0]["codeReady"], false);
+        let nh = fake.posts.lock().unwrap()[0].1["nonce"].as_str().unwrap().to_owned();
+        *fake.state.lock().unwrap() = request(Some(nh.clone()), Some(nd));
+        pull(&hub, &base).await.unwrap();
+        let nh: [u8; 32] = crypto::unb64_n(&nh).unwrap();
+        let code = crypto::sas_code(&hub.identity.sign_pub(), &dk, &nd, &nh);
+
+        let remote = hub.cloud.requests_json_sem_codigo();
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0]["codeReady"], true);
+        assert_eq!(remote[0]["codeCheck"], "server", "o Hub declara que confere o código digitado");
+        assert_eq!(hub.cloud.requests_json()[0]["codeCheck"], "server", "também para este computador");
+        assert!(remote[0].get("code").is_none() && !serde_json::to_string(&remote).unwrap().contains(&code));
+
+        let transcript = remote[0]["transcript"].as_str().unwrap().to_owned();
+        assert!(decide(&hub, "req_typed", true, None).await.is_err(), "without a typed code nothing is decided");
+        assert_eq!(hub.cloud.requests_json().len(), 1, "and the request is still there");
+
+        let typed = |code: &str| Expected { device_key: b64(&dk), code: code.into(), transcript: transcript.clone() };
+        let wrong = if code == "000000" { "000001" } else { "000000" };
+        assert_eq!(
+            decide(&hub, "req_typed", true, Some(typed(wrong))).await.unwrap(),
+            DecideResult::Refused { reason: "transcriptMismatch" }
+        );
+        assert!(hub.cloud.requests_json().is_empty(), "a wrong code uses the only attempt");
+        assert!(
+            !matches!(
+                decide(&hub, "req_typed", true, Some(typed(&code))).await.unwrap(),
+                DecideResult::Approved { .. }
+            ),
+            "the right code can't reuse a burned request"
+        );
+        assert!(hub.store.device(&b64(&dk)).is_none());
+        assert!(
+            !fake.posts.lock().unwrap().iter().any(|(p, b)| p.ends_with("/decision") && b["decision"] == "approve")
+        );
+    }
+
+    /// Um pedido revelado com código e transcrição conhecidos, sem depender do SAS real.
+    async fn pedido_pronto(hub: &Arc<Hub>, fake: &Arc<FakeCloud>, base: &str, id: &str) -> Expected {
+        let dk = crypto::random::<32>();
+        let expires = now_ms() + 60_000;
+        let row = |host_nonce: Option<String>| {
+            json!({"requestId": id, "deviceKey": b64(&dk), "commit": b64(&[4u8; 32]), "hostNonce": host_nonce,
+                "createdAt": now_ms(), "expiresAt": expires})
+        };
+        *fake.state.lock().unwrap() = json!({"owner": null, "grants": [], "requests": [row(None)]});
+        pull(hub, base).await.unwrap();
+        let nonce = fake.posts.lock().unwrap().last().unwrap().1["nonce"].as_str().unwrap().to_owned();
+        *fake.state.lock().unwrap() = json!({"owner": null, "grants": [], "requests": [row(Some(nonce))]});
+        pull(hub, base).await.unwrap();
+        let mut mine = hub.cloud.requests.locked();
+        let r = mine.iter_mut().find(|r| r.id == id).unwrap();
+        r.code = Some("123456".into());
+        r.transcript = Some(b64(&[9; 32]));
+        Expected { device_key: b64(&dk), code: "123456".into(), transcript: b64(&[9; 32]) }
+    }
+
+    fn decisoes(fake: &FakeCloud) -> Vec<Value> {
+        fake.posts.lock().unwrap().iter().filter(|(p, _)| p.ends_with("/decision")).map(|(_, b)| b.clone()).collect()
+    }
+
+    /// Código vazio ou fora do formato não decide nada, não queima o pedido e recebe a mesma mensagem fixa, que não
+    /// ecoa o que foi enviado.
+    #[tokio::test]
+    async fn empty_or_malformed_code_decides_nothing_and_keeps_the_request() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
+        let certo = pedido_pronto(&hub, &fake, &base, "req_formato").await;
+        let fixa = "valid `expect` is required";
+        for code in ["", "12345", "1234567", "12345a", " 23456", "１２３４５６"] {
+            let typed = Expected { code: code.into(), ..certo.clone() };
+            let e = decide(&hub, "req_formato", true, Some(typed)).await.unwrap_err();
+            assert_eq!(format!("{e:#}"), fixa, "{code:?}");
+            let expect = json!({"deviceKey": certo.device_key, "code": code, "transcript": certo.transcript});
+            let body = json!({"requestId": "req_formato", "approve": true, "expect": expect});
+            let e = crate::api::dispatch(&hub, &Caller::Local, "decideAccessRequest", body).await.unwrap_err();
+            assert_eq!(format!("{e:#}"), fixa, "{code:?}");
+        }
+        for expect in [
+            Value::Null,
+            json!("654321"),
+            json!({"deviceKey": certo.device_key, "code": 654_321, "transcript": certo.transcript}),
+            json!({"deviceKey": certo.device_key, "code": "654321", "transcript": certo.transcript, "extra": "654321"}),
+        ] {
+            let body = json!({"requestId": "req_formato", "approve": true, "expect": expect});
+            let e = crate::api::dispatch(&hub, &Caller::Local, "decideAccessRequest", body).await.unwrap_err();
+            assert_eq!(format!("{e:#}"), fixa, "nada do corpo volta na mensagem");
+        }
+        assert_eq!(hub.cloud.requests_json().len(), 1, "nenhuma dessas tentativas queima o pedido");
+        assert!(decisoes(&fake).is_empty(), "nada vai à nuvem");
+        assert!(matches!(decide(&hub, "req_formato", true, Some(certo)).await.unwrap(), DecideResult::Approved { .. }));
+    }
+
+    /// A lista só leva o código a este computador; o aparelho com `owner.devices` recebe `codeReady` e `codeCheck`
+    /// sem o código, e os demais chamadores não recebem a lista.
+    #[tokio::test]
+    async fn the_request_list_carries_the_code_only_to_this_computer() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
+        pedido_pronto(&hub, &fake, &base, "req_escopo").await;
+        let device = |scopes: Vec<Scope>| Caller::Device { key: "aparelho".into(), scopes, autoridade: None };
+        let lista = |caller: Caller| {
+            let hub = hub.clone();
+            async move { crate::api::dispatch(&hub, &caller, "accessRequests", json!({})).await }
+        };
+
+        let local = lista(Caller::Local).await.unwrap();
+        assert_eq!(local["requests"][0]["code"], "123456");
+        assert_eq!(local["requests"][0]["codeCheck"], "server");
+
+        let dono = lista(device(vec![Scope::OwnerDevices])).await.unwrap();
+        let pedido = &dono["requests"][0];
+        assert_eq!((pedido["codeReady"].as_bool(), pedido["codeCheck"].as_str()), (Some(true), Some("server")));
+        assert!(pedido.get("code").is_none() && !dono.to_string().contains("123456"));
+
+        for scopes in [vec![], vec![Scope::Control], vec![Scope::Screen], vec![Scope::Control, Scope::Screen]] {
+            assert!(lista(device(scopes.clone())).await.is_err(), "{scopes:?}");
+        }
+        assert!(lista(device(vec![Scope::Executor])).await.is_err());
+    }
+
+    /// Aprovar e recusar o mesmo pedido ao mesmo tempo: só uma decisão vai à nuvem e vale; a outra encontra o pedido em
+    /// consumo, nas duas ordens.
+    #[tokio::test]
+    async fn approve_and_deny_race_for_a_single_decision() {
+        for aprova_primeiro in [true, false] {
+            let hub = temp_hub();
+            let fake = Arc::new(FakeCloud::default());
+            let base = fake_cloud(fake.clone()).await;
+            hub.store.kv_set("test_cloud_url", &base).unwrap();
+            let certo = pedido_pronto(&hub, &fake, &base, "req_corrida").await;
+            let started = Arc::new(tokio::sync::Notify::new());
+            let release = Arc::new(tokio::sync::Notify::new());
+            *fake.decision_gate.lock().unwrap() = Some((started.clone(), release.clone()));
+            let primeira = {
+                let hub = hub.clone();
+                let expected = aprova_primeiro.then(|| certo.clone());
+                tokio::spawn(async move { decide(&hub, "req_corrida", aprova_primeiro, expected).await })
+            };
+            started.notified().await;
+            let segunda = decide(&hub, "req_corrida", !aprova_primeiro, (!aprova_primeiro).then(|| certo.clone()));
+            assert_eq!(segunda.await.unwrap(), DecideResult::Refused { reason: "consuming" });
+            release.notify_one();
+            let vencedora = primeira.await.unwrap().unwrap();
+            let gravado = hub.store.device(&certo.device_key).is_some();
+            if aprova_primeiro {
+                assert!(matches!(vencedora, DecideResult::Approved { .. }));
+                assert!(gravado);
+            } else {
+                assert_eq!(vencedora, DecideResult::Denied);
+                assert!(!gravado);
+            }
+            let enviadas = decisoes(&fake);
+            assert_eq!(enviadas.len(), 1, "uma decisão só chega à nuvem");
+            assert_eq!(enviadas[0]["decision"], if aprova_primeiro { "approve" } else { "deny" });
+            let depois = decide(&hub, "req_corrida", !aprova_primeiro, (!aprova_primeiro).then(|| certo.clone()));
+            assert!(!matches!(depois.await.unwrap(), DecideResult::Approved { .. } | DecideResult::Denied));
+            assert_eq!(decisoes(&fake).len(), 1);
+        }
     }
 
     #[tokio::test]
