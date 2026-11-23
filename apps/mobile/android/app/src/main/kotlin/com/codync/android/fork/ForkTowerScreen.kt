@@ -210,14 +210,23 @@ fun ForkHubDoctorSection(diagnosis: DoctorTransportDiagnosis, observation: Obser
 }
 
 @Composable
-fun ForkTowerScreen(snapshot: TowerViewSnapshot, onOwnerAccept: (WorkCard) -> Unit, onDirectorInterrupt: (WorkCard) -> Unit, modifier: Modifier = Modifier) {
+fun ForkTowerScreen(
+    snapshot: TowerViewSnapshot,
+    onPerspectiveSelected: (TowerPerspective) -> Unit,
+    onOwnerAccept: (WorkCard) -> Unit,
+    onDirectorInterrupt: (WorkCard) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var selected by remember(snapshot.spaceId) { mutableStateOf(snapshot.perspective) }
     val projection = snapshot.takeIf { it.perspective == selected }
     Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Torre", style = MaterialTheme.typography.titleLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(TowerPerspective.OVERVIEW to "Dono & Berga", TowerPerspective.DIRECTOR to "Tanga", TowerPerspective.BOT to "Executor").forEach { (perspective, label) ->
-                if (selected == perspective) Text("• $label") else OutlinedButton(onClick = { selected = perspective }) { Text(label) }
+                if (selected == perspective) Text("• $label") else OutlinedButton(onClick = {
+                    selected = perspective
+                    onPerspectiveSelected(perspective)
+                }) { Text(label) }
             }
         }
         if (projection == null) {
