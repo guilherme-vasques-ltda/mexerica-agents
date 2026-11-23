@@ -490,6 +490,7 @@ private enum ForkMailInboxCopy {
     }
 }
 
+#if DEBUG
 actor ForkMailInboxFixtureTransport: MailInboxTransport {
     enum Availability: Sendable {
         case ready
@@ -635,3 +636,4 @@ actor ForkMailInboxFixtureTransport: MailInboxTransport {
         spaceId: ForkMailInboxFixtureTransport.spaceB
     )
 }
+#endif
