@@ -206,7 +206,7 @@ class ForkMailInboxTest {
 
     @Test fun `sanitizes bidi Cf tag separators and IDNA domains`() = runBlocking {
         val transport = makeFixtureTransport()
-        val bidiSubject = "Aviso \u202Egpj.exe\u202C\u200B\uD840\uDC61\u2028importante\u0007"
+        val bidiSubject = "Aviso \u202Egpj.exe\u202C\u200B\uDB40\uDC61\u2028importante\u0007"
         val bidiSender = "Remetente\u2066Falso\u2069\u200E\u200F\u061C\u200C\uFEFF"
         val body = "Linha 1\r\nLinha 2 \u202Einversa\u202C\u2028Linha 3\u2029Tag\uDB40\uDC7F\u200B\nשלום"
 
