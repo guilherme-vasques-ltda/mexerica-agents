@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 //! Provas da fatia 2: ferramenta do Hub por provedor falso local (ida e volta
 //! pelo cliente MCP do Hub), permissão negada respeitada, cancelamento que
 //! mata o processo, `finish()`/`Drop` sem zumbi nem tarefa solta, pasta de
