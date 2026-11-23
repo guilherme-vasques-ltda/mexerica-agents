@@ -8,68 +8,88 @@ fn name(word: &str) -> String {
     name.strip_suffix(".exe").or_else(|| name.strip_suffix(".cmd")).unwrap_or(&name).to_owned()
 }
 
-fn literal_launch(words: &[String]) -> Option<&str> {
-    let (executable, args) = words.split_first()?;
-    let bin = name(executable);
-    let args = match bin.as_str() {
-        "npx" | "bunx" => args,
-        "pnpm" if args.first().is_some_and(|arg| arg == "dlx") => &args[1..],
-        _ => return Some(executable),
-    };
-    let mut args = args.iter().skip_while(|arg| matches!(arg.as_str(), "-y" | "--yes"));
-    match args.next().map(String::as_str) {
-        Some("--") => args.next().map(String::as_str),
-        Some(package) if !package.starts_with('-') => Some(package),
-        _ => None,
-    }
+fn check_target(cfg: &BotConfig, bin: &str) -> Result<()> {
+    ensure!(!crate::fork::assinatura_pessoal::muse(bin), crate::fork::assinatura_pessoal::Refusal::Meta);
+    ensure!(
+        cfg.backend == "claude" || !crate::fork::assinatura_pessoal::claude(bin),
+        crate::fork::assinatura_pessoal::Refusal::Automation
+    );
+    crate::agent::backends::require_supported_execution(bin)?;
+    let removed = crate::agent::backends::HARNESSES
+        .iter()
+        .any(|h| crate::fork::motores_retirados::retirado(h.id) && h.bins.contains(&bin));
+    ensure!(!removed, "Este comando abre um motor que não está disponível nesta versão da Mexerica.");
+    Ok(())
 }
 
-fn check_known_launch(cfg: &BotConfig, palavras: &[String]) -> Result<()> {
-    if let Some(executavel) = palavras.first() {
-        let nome = name(executavel);
-        let mut literal = palavras;
-        if nome == "env" {
-            literal = &literal[1..];
-            while let Some((assignment, rest)) = literal.split_first()
-                && assignment.split_once('=').is_some_and(|(key, _)| {
-                    !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                })
-            {
-                literal = rest;
+fn check_known_launch(cfg: &BotConfig, words: &[String], depth: u8) -> Result<()> {
+    let unknown =
+        || anyhow!("Use um comando literal do adaptador; não foi possível identificar o destino do inicializador.");
+    let Some((executable, args)) = words.split_first() else { return Ok(()) };
+    ensure!(depth < 8, "{}", unknown());
+    let bin = name(executable);
+    check_target(cfg, &bin)?;
+    match bin.as_str() {
+        "env" => {
+            let mut tail = args;
+            while let Some((option, rest)) = tail.split_first() {
+                tail = match option.as_str() {
+                    "--" => {
+                        tail = rest;
+                        break;
+                    }
+                    "-" | "-i" | "--ignore-environment" => rest,
+                    "-u" | "--unset" | "-C" | "--chdir" => rest.get(1..).ok_or_else(unknown)?,
+                    flag if flag.starts_with("--unset=") || flag.starts_with("--chdir=") => rest,
+                    flag if flag.starts_with('-') => return Err(unknown()),
+                    _ => break,
+                };
             }
-            if literal.first().is_some_and(|word| word == "--") {
-                literal = &literal[1..];
-            }
+            let first_target = tail.iter().position(|word| !word.contains('=')).unwrap_or(tail.len());
+            check_known_launch(cfg, &tail[first_target..], depth + 1)
         }
-        let shell = literal.first().is_some_and(|word| matches!(name(word).as_str(), "sh" | "bash" | "zsh"))
-            && literal.get(1).is_some_and(|flag| flag == "-c");
-        let script = shell.then(|| literal.get(2)).flatten().filter(|script| {
-            !script.contains([';', '|', '&', '$', '`', '<', '>', '\n', '\r', '(', ')', '#', '*', '?'])
-        });
-        let inner = script.and_then(|script| shlex::split(script));
-        let target = literal_launch(inner.as_deref().unwrap_or(literal));
-        for word in std::iter::once(executavel.as_str()).chain(target) {
-            let bin = name(word.rsplit_once('@').filter(|(base, _)| !base.is_empty()).map_or(word, |(base, _)| base));
-            ensure!(!crate::fork::assinatura_pessoal::muse(&bin), crate::fork::assinatura_pessoal::Refusal::Meta);
+        "sh" | "bash" | "zsh" if args.first().is_some_and(|flag| flag == "-c") => {
+            let script = args.get(1).ok_or_else(unknown)?;
             ensure!(
-                cfg.backend == "claude" || !crate::fork::assinatura_pessoal::claude(&bin),
-                crate::fork::assinatura_pessoal::Refusal::Automation
+                !script.contains([
+                    ';', '|', '&', '$', '`', '<', '>', '\n', '\r', '(', ')', '#', '*', '?', '[', ']', '{', '}', '~'
+                ]),
+                "{}",
+                unknown()
             );
+            let script_words = shlex::split(script).filter(|parts| !parts.is_empty()).ok_or_else(unknown)?;
+            check_known_launch(cfg, &script_words, depth + 1)
         }
-        crate::agent::backends::require_supported_execution(&nome)?;
-        let abre_retirado = crate::agent::backends::HARNESSES
-            .iter()
-            .any(|h| crate::fork::motores_retirados::retirado(h.id) && h.bins.contains(&nome.as_str()));
-        ensure!(!abre_retirado, "Este comando abre um motor que não está disponível nesta versão da Mexerica.");
+        "sh" | "bash" | "zsh" if args.iter().take_while(|a| a.starts_with('-')).any(|a| a.contains('c')) => {
+            Err(unknown())
+        }
+        "npx" | "bunx" | "pnpm" => {
+            let tail = if bin == "pnpm" {
+                if args.first().is_none_or(|arg| arg != "dlx") {
+                    return Ok(());
+                }
+                &args[1..]
+            } else {
+                args
+            };
+            let mut launch = tail.iter().skip_while(|arg| matches!(arg.as_str(), "-y" | "--yes"));
+            let mut target = launch.next().map(String::as_str);
+            if target == Some("--") {
+                target = launch.next().map(String::as_str);
+            }
+            let package = target.filter(|word| !word.starts_with('-')).ok_or_else(unknown)?;
+            let base = package.rsplit_once('@').filter(|(base, _)| !base.is_empty()).map_or(package, |(base, _)| base);
+            check_target(cfg, &name(base))
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 pub fn check(cfg: &BotConfig) -> Result<()> {
     if let Some(command) = cfg.command.as_deref().filter(|c| !c.trim().is_empty())
         && let Some(words) = shlex::split(command)
     {
-        check_known_launch(cfg, &words)?;
+        check_known_launch(cfg, &words, 0)?;
     }
     if !matches!(cfg.backend.as_str(), "codex" | "custom") {
         return Ok(());
@@ -187,6 +207,14 @@ mod tests {
     fn classifica_pacotes_e_comandos_literais_sem_inspecionar_wrappers_arbitrarios() {
         for (command, blocked) in [
             ("env LANG=C claude-code", true),
+            ("env -- LANG=C claude-code", true),
+            ("env -i -u PATH claude-code", true),
+            ("env env claude-code", true),
+            ("sh -c 'env LANG=C claude-code'", true),
+            ("sh -c 'claude-code && outro'", true),
+            ("npx -p pacote outro", true),
+            ("env LANG=C kilo", true),
+            ("bunx kilo", true),
             ("sh -c 'npx -y @anthropic-ai/claude-code@1'", true),
             ("bunx @anthropic-ai/claude-code@1", true),
             ("pnpm dlx @anthropic-ai/claude-code@1", true),
