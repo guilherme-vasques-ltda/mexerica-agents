@@ -16,7 +16,15 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
         && let Some(palavras) = shlex::split(command)
         && let Some(executavel) = palavras.first()
     {
-        for word in &palavras {
+        let nome = name(executavel);
+        let package = (nome == "npx")
+            .then(|| match &palavras[1..] {
+                [flag, package, ..] if matches!(flag.as_str(), "-y" | "--yes" | "--") => Some(package),
+                [package, ..] if !package.starts_with('-') => Some(package),
+                _ => None,
+            })
+            .flatten();
+        for word in std::iter::once(executavel).chain(package) {
             let bin = name(word.rsplit_once('@').filter(|(base, _)| !base.is_empty()).map_or(word, |(base, _)| base));
             ensure!(!crate::fork::assinatura_pessoal::muse(&bin), crate::fork::assinatura_pessoal::Refusal::Meta);
             ensure!(
@@ -24,7 +32,6 @@ pub fn check(cfg: &BotConfig) -> Result<()> {
                 crate::fork::assinatura_pessoal::Refusal::Automation
             );
         }
-        let nome = name(executavel);
         crate::agent::backends::require_supported_execution(&nome)?;
         let abre_retirado = crate::agent::backends::HARNESSES
             .iter()
@@ -145,6 +152,8 @@ mod tests {
 
     #[test]
     fn custom_aceita_argumentos_literais_e_flags_de_interpretador() {
+        assert!(check(&cfg("meu-adaptador --state-dir /srv/claude")).is_ok());
+        assert!(check(&cfg("npx -y @anthropic-ai/claude-code@1")).is_err());
         for command in [
             "python3 -X utf8 -u '/fixtures/com espaço.py'",
             "copilot --acp --stdio",

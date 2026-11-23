@@ -61,7 +61,11 @@ fn parada_key(session: &str) -> String {
 pub(super) fn aplica_a(cfg: &crate::store::BotConfig, lane: &Lane) -> bool {
     !crate::agent::backends::is_antigravity(&cfg.backend)
         && !crate::fork::assinatura_pessoal::claude(&cfg.backend)
-        && cfg.context.is_none()
+        && conversa_propria(cfg, lane)
+}
+
+fn conversa_propria(cfg: &crate::store::BotConfig, lane: &Lane) -> bool {
+    cfg.context.is_none()
         && cfg.space_id == crate::fork::spaces::PERSONAL
         && cfg.command.is_none()
         && lane.chat == cfg.id
@@ -116,7 +120,7 @@ impl Actor {
     async fn fallback_decidir(&mut self, lane: &Lane) -> Result<()> {
         let original =
             self.hub.store.bot(&self.cfg.id)?.filter(|b| !b.deleted).ok_or_else(|| anyhow!("bot_not_found"))?.config;
-        if !aplica_a(&original, lane) {
+        if !conversa_propria(&original, lane) {
             return Ok(());
         }
         let (session, own, efetiva) = {

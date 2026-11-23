@@ -246,7 +246,10 @@ impl Actor {
             self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
         crate::fork::assinatura_pessoal::turn(
             &cfg,
-            personal_lane && !hidden && !entry_ids.is_empty() && lane.chat == cfg.id,
+            personal_lane
+                && !hidden
+                && lane.chat == cfg.id
+                && crate::fork::assinatura_pessoal::human_entries(&self.hub.store, &lane, entry_ids),
             personal_lane && self.owner_compaction(&lane),
         )?;
         if cfg.context != self.cfg.context

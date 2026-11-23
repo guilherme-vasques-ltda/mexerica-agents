@@ -24,7 +24,10 @@ impl std::fmt::Display for Refusal {
 impl std::error::Error for Refusal {}
 
 pub(crate) fn claude(backend: &str) -> bool {
-    matches!(backend.to_ascii_lowercase().as_str(), "claude" | "claude-acp" | "claude-agent-acp" | "claude-code-acp")
+    matches!(
+        backend.to_ascii_lowercase().as_str(),
+        "claude" | "claude-code" | "claude-acp" | "claude-agent-acp" | "claude-code-acp"
+    )
 }
 
 pub(crate) fn muse(backend: &str) -> bool {
@@ -41,6 +44,18 @@ pub(crate) fn automation(cfg: &BotConfig) -> Result<()> {
     anyhow::ensure!(!claude(&cfg.backend), Refusal::Automation);
     anyhow::ensure!(!muse(&cfg.backend), Refusal::Meta);
     Ok(())
+}
+
+pub(crate) fn human_entries(store: &crate::store::Store, lane: &crate::store::Lane, ids: &[String]) -> bool {
+    !ids.is_empty()
+        && ids.iter().all(|id| {
+            store.entry(id).is_some_and(|entry| {
+                entry.bot_id == lane.chat
+                    && entry.is_user_authored()
+                    && entry.data["sourceBotId"].is_null()
+                    && entry.data["runId"].is_null()
+            })
+        })
 }
 
 pub(crate) fn turn(cfg: &BotConfig, direct_chat: bool, owner_compaction: bool) -> Result<()> {
@@ -76,5 +91,17 @@ mod tests {
         assert!(known_meta_credential("MODEL_API_KEY", "opaque-fixture"));
         assert!(known_meta_credential("GENERIC_TOKEN", " LLM_fixture "));
         assert!(!known_meta_credential("ANTHROPIC_API_KEY", "opaque-fixture"));
+    }
+
+    #[test]
+    fn assinatura_pessoal_recusa_entrada_sintetica() {
+        use crate::store::{EntryKind, Lane, Store};
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let lane = Lane::main("bot");
+        let own = store.insert_entry(&lane, EntryKind::User, 1, &json!({"text":"oi"})).unwrap();
+        let other = store.insert_entry(&lane, EntryKind::User, 2, &json!({"text":"oi","runId":"r"})).unwrap();
+        assert!(human_entries(&store, &lane, &[own.id]));
+        assert!(!human_entries(&store, &lane, &[other.id]));
+        assert!(!human_entries(&store, &lane, &["missing".into()]));
     }
 }

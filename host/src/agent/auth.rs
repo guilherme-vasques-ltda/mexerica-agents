@@ -484,7 +484,7 @@ pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) ->
     exigir_oferecido(backend)?;
     backends::require_supported_execution(backend)?;
     let mutation = crate::fork::engine_accounts::MUTATION.lock().await;
-    let mut saved: BTreeMap<String, String> = stored_env(store, backend)?.into_iter().collect();
+    let mut saved: BTreeMap<String, String> = env(store, backend)?.into_iter().collect();
     for (k, v) in vars {
         if !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || k.is_empty() {
             bail!("`{k}` isn't an environment variable name");
@@ -506,16 +506,6 @@ pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) ->
             None => saved.remove(k),
         };
     }
-    anyhow::ensure!(
-        !saved.iter().any(|(key, value)| crate::fork::assinatura_pessoal::known_meta_credential(key, value)),
-        "{}",
-        crate::fork::assinatura_pessoal::META
-    );
-    anyhow::ensure!(
-        !saved.keys().any(|key| key.eq_ignore_ascii_case("CLAUDE_CODE_OAUTH_TOKEN")),
-        "{}",
-        crate::fork::assinatura_pessoal::CHAT_ONLY
-    );
     crate::market::vault::write(store, &env_slot(backend), &serde_json::to_string(&saved)?)?;
     drop(mutation);
     check(store, backend).await

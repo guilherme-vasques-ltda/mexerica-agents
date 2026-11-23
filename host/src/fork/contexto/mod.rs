@@ -28,7 +28,7 @@ pub struct Read {
 pub struct Request {
     pub read: Read,
     pub compact: bool,
-    pub(super) owner: Option<crate::fork::engine_setup::access::Authority>,
+    pub(crate) owner: Option<crate::fork::engine_setup::access::Authority>,
 }
 
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {

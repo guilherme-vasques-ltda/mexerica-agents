@@ -350,11 +350,19 @@ pub(crate) fn promote(c: &Connection, session: &str) -> Result<bool> {
         .optional()?
         .ok_or_else(|| anyhow!("unknown_session"))?;
     let Some(raw) = next else { return Ok(false) };
-    parse(&raw)?;
-    let changed = c.execute(
+    let next = parse(&raw)?;
+    let tx = c.is_autocommit().then(|| c.unchecked_transaction()).transpose()?;
+    let db = tx.as_deref().unwrap_or(c);
+    let changed = db.execute(
         "UPDATE donna_bot_sessions SET engine_choice=engine_next, engine_next=NULL WHERE id=?1 AND engine_next=?2",
         params![session, raw],
     )?;
+    if changed == 1 && crate::fork::assinatura_pessoal::claude(&next.backend) {
+        crate::fork::fallback_contas::estado::gravar_sobreposicao(db, session, None)?;
+    }
+    if let Some(tx) = tx {
+        tx.commit()?;
+    }
     Ok(changed == 1)
 }
 
@@ -451,9 +459,6 @@ pub(crate) fn set(
     )?;
     if changed != 1 {
         return Err(crate::remote::cloud::Conflict("session_revision_conflict").into());
-    }
-    if crate::fork::assinatura_pessoal::claude(&engine.backend) {
-        crate::fork::fallback_contas::estado::gravar_sobreposicao(c, session, None)?;
     }
     Ok((from, engine))
 }
