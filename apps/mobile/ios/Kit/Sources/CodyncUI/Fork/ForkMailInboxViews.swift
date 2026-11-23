@@ -67,9 +67,13 @@ enum ForkMailInboxPresentationState: Equatable, Sendable {
     case threads(ForkMailInboxThreadsPresentation)
 
     @MainActor
-    init(store: ForkMailInboxStore) {
+    init(store: ForkMailInboxStore, spaceId: String) {
         guard store.featureEnabled else {
             self = .unavailable
+            return
+        }
+        guard store.activeSpaceId == spaceId else {
+            self = .loading
             return
         }
         if store.isLoadingStatus {
@@ -129,8 +133,9 @@ final class ForkMailInboxScreenModel {
     private let store: ForkMailInboxStore
     private let spaceId: String
     private var requestedThreadId: String?
+    private var epoch: UInt = 0
     private(set) var presentation: ForkMailInboxPresentationState
-    private(set) var shouldMaskInAppSwitcher: Bool
+    private(set) var shouldMaskInAppSwitcher = false
     private(set) var thread: ForkMailInboxThreadPresentation?
     private(set) var isBusy = false
     var isThreadPresented = false
@@ -138,12 +143,12 @@ final class ForkMailInboxScreenModel {
     init(store: ForkMailInboxStore, spaceId: String) {
         self.store = store
         self.spaceId = spaceId
-        presentation = ForkMailInboxPresentationState(store: store)
-        shouldMaskInAppSwitcher = store.shouldMaskInAppSwitcher
+        presentation = ForkMailInboxPresentationState(store: store, spaceId: spaceId)
+        shouldMaskInAppSwitcher = store.activeSpaceId == spaceId && store.shouldMaskInAppSwitcher
     }
 
     func refresh() async {
-        await track { await store.loadStatus(spaceId: spaceId) }
+        guard await track({ await store.loadStatus(spaceId: spaceId) }) else { return }
         guard case .ready(let mailboxes)? = store.status,
               store.selectedMailboxId == nil,
               let first = mailboxes.first else { return }
@@ -151,36 +156,46 @@ final class ForkMailInboxScreenModel {
     }
 
     func selectMailbox(_ mailboxId: String) async {
-        await track { await store.loadFirstPage(spaceId: spaceId, mailboxId: mailboxId) }
+        await track({ await store.loadFirstPage(spaceId: spaceId, mailboxId: mailboxId) })
     }
 
     func loadNextPage() async {
-        await track { await store.loadNextPage() }
+        await track({ await store.loadNextPage() })
     }
 
     func open(threadId: String) async {
         guard let mailboxId = store.selectedMailboxId else { return }
         requestedThreadId = threadId
-        await track { await store.openThread(spaceId: spaceId, mailboxId: mailboxId, threadId: threadId) }
+        guard await track({ await store.openThread(spaceId: spaceId, mailboxId: mailboxId, threadId: threadId) }) else { return }
+        if store.lastError != nil {
+            requestedThreadId = nil
+        }
         isThreadPresented = thread != nil
     }
 
     func leave() {
-        store.resetForContextChange()
+        epoch &+= 1
+        isBusy = false
         requestedThreadId = nil
+        if store.activeSpaceId == spaceId {
+            store.resetForContextChange()
+        }
         refreshSnapshot()
     }
 
-    private func track(_ operation: () async -> Void) async {
+    private func track(_ operation: () async -> Void) async -> Bool {
+        let token = epoch
         isBusy = true
         await operation()
+        guard token == epoch else { return false }
         isBusy = false
         refreshSnapshot()
+        return true
     }
 
     private func refreshSnapshot() {
-        presentation = ForkMailInboxPresentationState(store: store)
-        shouldMaskInAppSwitcher = store.shouldMaskInAppSwitcher
+        presentation = ForkMailInboxPresentationState(store: store, spaceId: spaceId)
+        shouldMaskInAppSwitcher = store.activeSpaceId == spaceId && store.shouldMaskInAppSwitcher
         thread = currentThread()
         if thread == nil {
             isThreadPresented = false
@@ -188,12 +203,30 @@ final class ForkMailInboxScreenModel {
     }
 
     private func currentThread() -> ForkMailInboxThreadPresentation? {
-        guard let response = store.openThread, response.threadId == requestedThreadId else { return nil }
+        guard store.activeSpaceId == spaceId,
+              store.lastError == nil,
+              let response = store.openThread,
+              response.threadId == requestedThreadId else { return nil }
         return ForkMailInboxThreadPresentation(response: response)
     }
 }
 
 struct ForkMailInboxScreen: View {
+    let store: ForkMailInboxStore
+    let spaceId: String
+
+    var body: some View {
+        ForkMailInboxSession(store: store, spaceId: spaceId)
+            .id(ForkMailInboxSessionKey(store: ObjectIdentifier(store), spaceId: spaceId))
+    }
+}
+
+private struct ForkMailInboxSessionKey: Hashable {
+    let store: ObjectIdentifier
+    let spaceId: String
+}
+
+private struct ForkMailInboxSession: View {
     @State private var model: ForkMailInboxScreenModel
 
     init(store: ForkMailInboxStore, spaceId: String) {
