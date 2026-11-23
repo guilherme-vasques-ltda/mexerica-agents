@@ -28,8 +28,10 @@ fn hub() -> (std::sync::Arc<Hub>, std::path::PathBuf) {
 }
 
 fn aparelho(hub: &Hub, key: &str) -> Caller {
-    hub.store
-        .put_device(&Device {
+    // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+    crate::fork::workspace::readmitir_pareado(
+        &hub.store,
+        &Device {
             key: key.into(),
             name: key.into(),
             platform: "ios".into(),
@@ -39,8 +41,9 @@ fn aparelho(hub: &Hub, key: &str) -> Caller {
             lease_until: None,
             created_at: crate::store::now_ms(),
             last_seen_at: None,
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     crate::fork::autoridade::autenticar(hub, key).unwrap().1
 }
 

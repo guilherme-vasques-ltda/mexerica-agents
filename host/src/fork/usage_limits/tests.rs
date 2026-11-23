@@ -413,7 +413,8 @@ async fn c4_retomar_revogado_na_fila_do_ator_nao_retoma() {
         last_seen_at: None,
     };
     let origem = |f: &Fixture| {
-        f.hub.store.put_device(&device).unwrap();
+        // Reconcessão de aparelho Local = o passo do pareamento por código (`readmitir_pareado`), que libera o bloqueio e grava o aparelho numa Tx.
+        crate::fork::workspace::readmitir_pareado(&f.hub.store, &device).unwrap();
         let (_, caller) = crate::fork::autoridade::autenticar(&f.hub, &device.key).unwrap();
         Origem::Dono(f.hub.clone(), crate::fork::autoridade::Autoridade::capturar(&f.hub, &caller).unwrap())
     };

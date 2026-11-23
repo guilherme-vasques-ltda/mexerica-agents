@@ -45,7 +45,7 @@ enum Recebido {
 }
 
 impl Phone {
-    async fn hello_caps(&mut self, hub: &Hub) -> Out {
+    pub(super) async fn hello_caps(&mut self, hub: &Hub) -> Out {
         let ek = StaticSecret::from(crypto::random::<32>());
         let ek_pub = crypto::x25519_pub(&ek);
         let n = crypto::random::<32>();

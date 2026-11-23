@@ -64,7 +64,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 && hub.store.bootstrap_is_grant(grant)?
             {
                 let now = now_ms();
-                hub.store.bootstrap_revoke_fenced(&hub.identity.sign, grant, key, now)?;
+                crate::fork::workspace::revogar_cercado(hub, grant, key, now)?;
                 hub.auth_changed();
             }
             hub.revoke_device(key)?;
@@ -104,7 +104,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             crate::remote::cloud::unclaim(hub).await?;
             json!({})
         }
-        "cloudStatus" => serde_json::to_value(hub.cloud.status())?,
+        "cloudStatus" => serde_json::to_value(crate::remote::cloud::status_publicado(hub)?)?,
         "setCloud" => {
             let enabled = b["enabled"].as_bool().ok_or_else(|| anyhow!("`enabled` is required"))?;
             serde_json::to_value(crate::remote::cloud::set_cloud(hub, enabled)?)?

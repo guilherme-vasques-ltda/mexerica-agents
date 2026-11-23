@@ -213,18 +213,40 @@ impl Cloud {
     }
 }
 
-/// Changes the status and tells this computer's apps when it actually changed.
+/// Changes the status and tells this computer's apps when it actually changed. A new owner is held
+/// (workspace output paused) before it becomes visible, and the apps only hear about the status
+/// once that owner is recorded and published together with its workspace epoch.
 pub fn update_status(hub: &Hub, f: impl FnOnce(&mut CloudStatus)) {
-    let changed = {
+    let publicar = {
         let mut s = hub.cloud.status.locked();
-        let before = s.clone();
-        f(&mut s);
-        if s.owner.as_ref().map(|o| &o.user_id) != before.owner.as_ref().map(|o| &o.user_id) {
+        let retido_antes = hub.workspace.dono_retido();
+        let mut novo = s.clone();
+        f(&mut novo);
+        crate::fork::workspace::reter_troca(hub, &s, novo.owner.as_ref().map(|o| o.user_id.as_str()));
+        if novo.owner.as_ref().map(|o| &o.user_id) != s.owner.as_ref().map(|o| &o.user_id) {
             crate::fork::autoridade::epoca_dono::avancar(&hub.cloud.owner_generation);
         }
-        (*s != before).then(|| s.clone())
+        let mudou = *s != novo;
+        *s = novo;
+        let livre = crate::fork::workspace::registrar_sob_status(hub, &s);
+        (livre && (mudou || retido_antes)).then(|| s.clone())
     };
-    if let Some(s) = changed {
+    if let Some(s) = publicar {
+        let _ = hub.events.send(json!({"type": "cloud", "cloud": s}));
+    }
+}
+
+/// The status the apps see. While a received owner is not recorded yet, it is withheld (409).
+pub(crate) fn status_publicado(hub: &Hub) -> Result<CloudStatus> {
+    hub.cloud.with_personal_status(|s| {
+        anyhow::ensure!(!hub.workspace.dono_retido(), Conflict(OWNER_PENDING));
+        Ok(s.clone())
+    })
+}
+
+/// Tells this computer's apps the current status, unless a received owner is still withheld.
+pub(crate) fn avisar_status(hub: &Hub) {
+    if let Ok(s) = status_publicado(hub) {
         let _ = hub.events.send(json!({"type": "cloud", "cloud": s}));
     }
 }
@@ -252,6 +274,8 @@ impl std::error::Error for CloudError {}
 fn cloud_status_of(e: &anyhow::Error) -> Option<u16> {
     e.downcast_ref::<CloudError>().map(|c| c.status)
 }
+
+const OWNER_PENDING: &str = "The account owner is still being recorded on this computer; try again.";
 
 /// Something that has to wait for the other side first (409).
 #[derive(Debug)]
@@ -427,7 +451,7 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
             for f in &list {
                 if hub.store.bootstrap_is_grant(&f.grant_id)? {
                     let now = now_ms();
-                    hub.store.bootstrap_revoke_fenced(&hub.identity.sign, &f.grant_id, &f.device_key, now)?;
+                    crate::fork::workspace::revogar_cercado(hub, &f.grant_id, &f.device_key, now)?;
                     hub.auth_changed();
                 }
             }
@@ -1026,7 +1050,7 @@ pub fn set_cloud(hub: &Hub, enabled: bool) -> Result<CloudStatus> {
         s.url.clone_from(&now);
     });
     hub.cloud.config.send_modify(|g| *g += 1);
-    Ok(hub.cloud.status())
+    status_publicado(hub)
 }
 
 /// `setApproval`: whether account devices need the 6-digit check. Local only.
@@ -1037,7 +1061,7 @@ pub fn set_approval(hub: &Hub, approval: Approval) -> Result<CloudStatus> {
     hub.store.kv_set(APPROVAL, "code")?;
     tracing::info!(?approval, "account approval changed");
     update_status(hub, |s| s.approval = approval);
-    Ok(hub.cloud.status())
+    status_publicado(hub)
 }
 
 #[cfg(test)]

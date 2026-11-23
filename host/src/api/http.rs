@@ -250,19 +250,34 @@ async fn channel(
         .on_upgrade(move |socket| crate::remote::channel::serve_direct(hub, socket, peer.ip()))
 }
 
+#[derive(Deserialize)]
+struct TermQuery {
+    #[serde(rename = "workspaceEpoch")]
+    workspace_epoch: Option<String>,
+}
+
 async fn term_stream(
     State(hub): State<Arc<Hub>>,
     Path(id): Path<String>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    Query(q): Query<TermQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
+    let origem = super::origem(&Caller::Local);
+    let retrato = crate::fork::workspace::epoch_da_query(&hub, origem, q.workspace_epoch.as_deref())
+        .and_then(|epoch| crate::fork::workspace::abrir(&hub, origem, epoch))
+        .map_err(|e| {
+            let (status, message) = error_status(&e);
+            ApiError(status, message, super::error_code(&e))
+        })?;
     let events = term_events(&hub, &id, &Caller::Local)
         .map_err(|e| {
             let (status, message) = error_status(&e);
             ApiError(status, message, super::error_code(&e))
         })?
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "that terminal is gone".into(), None))?;
+    let events = crate::fork::workspace::cortar(&hub, &retrato, events);
     let events = events.map(|v| Ok(Event::default().data(v.to_string())));
     let events = stream_com_guarda(events, guard);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
@@ -274,6 +289,8 @@ struct EventsQuery {
     client: Option<String>,
     #[serde(rename = "spaceId")]
     space_id: Option<String>,
+    #[serde(rename = "workspaceEpoch")]
+    workspace_epoch: Option<String>,
 }
 
 async fn events(
@@ -283,14 +300,25 @@ async fn events(
     Query(q): Query<EventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
-    let events = super::scoped_events_stream(
-        &hub,
-        q.since.unwrap_or(0),
-        q.client.as_deref(),
-        &Caller::Local,
-        q.space_id.as_deref(),
-    )
-    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None))?;
+    let events =
+        crate::fork::workspace::epoch_da_query(&hub, super::origem(&Caller::Local), q.workspace_epoch.as_deref())
+            .and_then(|epoch| {
+                super::scoped_events_stream_at(
+                    &hub,
+                    q.since.unwrap_or(0),
+                    q.client.as_deref(),
+                    &Caller::Local,
+                    q.space_id.as_deref(),
+                    epoch,
+                )
+            })
+            .map_err(|e| {
+                if crate::fork::workspace::is_mismatch(&e) {
+                    ApiError(StatusCode::CONFLICT, e.to_string(), Some(crate::fork::workspace::EPOCH_MISMATCH))
+                } else {
+                    ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None)
+                }
+            })?;
     let events = events.map(|v| Ok(Event::default().data(v.to_string())));
     let events = stream_com_guarda(events, guard);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
