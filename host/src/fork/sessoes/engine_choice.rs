@@ -407,6 +407,7 @@ pub(crate) fn set(
         fast_mode: request.fast_mode,
     };
     engine.check().map_err(|_| anyhow!("engine_not_allowed"))?;
+    crate::agent::backends::require_supported_execution(&engine.backend).map_err(|_| anyhow!("engine_not_allowed"))?;
     // Motor retirado da oferta: a conversa não troca para ele; a que já roda num (bot antigo) segue igual.
     if crate::fork::motores_retirados::retirado(&engine.backend)
         && current.as_ref().ok().and_then(|c| c.as_ref()).is_none_or(|antes| antes.backend != engine.backend)
