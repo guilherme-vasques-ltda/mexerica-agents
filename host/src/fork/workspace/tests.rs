@@ -488,12 +488,12 @@ fn entre_o_commit_e_a_publicacao_o_corte_ja_vale() {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
     let epoch = bump_on(&tx).unwrap();
     assert!(!hub.workspace.retrato().pendente(), "antes do commit nada mudou para quem lê");
-    let marca = hub.workspace.marcar();
-    tx.commit().unwrap();
+    let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, None);
+    marca.commit(tx).unwrap();
     // Já gravado e ainda não publicado: quem confere o epoch antigo espera, não entrega.
     let retrato = hub.workspace.retrato();
     assert_eq!((retrato.valor, retrato.pendente(), retrato.avancou(0)), (0, true, false));
-    anunciar(marca, epoch, Motivo::DeviceRevoked, None);
+    drop(marca);
     let retrato = hub.workspace.retrato();
     assert_eq!((retrato.valor, retrato.pendente(), retrato.avancou(0)), (1, false, true));
 }
@@ -502,24 +502,53 @@ fn entre_o_commit_e_a_publicacao_o_corte_ja_vale() {
 fn a_marca_de_um_commit_nunca_solta_a_de_outro_e_panic_nao_deixa_pendente() {
     let pasta = Pasta::nova();
     let hub = pasta.hub();
-    let primeira = hub.workspace.marcar();
-    let segunda = hub.workspace.marcar();
+    let primeira = hub.workspace.marcar(1, Motivo::DeviceRevoked, None);
+    let segunda = hub.workspace.marcar(1, Motivo::DeviceRevoked, None);
     drop(primeira);
     assert!(hub.workspace.retrato().pendente(), "o rollback de um commit não solta a saída do outro");
-    let terceira = hub.workspace.marcar();
-    segunda.publicar(1, Motivo::DeviceRevoked, None);
+    let terceira = hub.workspace.marcar(2, Motivo::DeviceRevoked, None);
+    segunda.resolver(true);
     let retrato = hub.workspace.retrato();
     assert_eq!((retrato.valor, retrato.pendente()), (1, true), "publicar um não solta outro em curso");
     drop(terceira);
     assert!(!hub.workspace.retrato().pendente());
 
     let queda = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _marca = hub.workspace.marcar();
+        let _marca = hub.workspace.marcar(2, Motivo::DeviceRevoked, None);
         panic!("queda entre a marca e o commit");
     }));
     assert!(queda.is_err());
     let retrato = hub.workspace.retrato();
-    assert_eq!((retrato.valor, retrato.pendente()), (1, false), "o panic desfaz só a própria marca");
+    assert_eq!((retrato.valor, retrato.pendente()), (1, false), "sem commit, o panic desfaz só a própria marca");
+}
+
+#[test]
+fn panic_logo_depois_do_commit_publica_o_numero_gravado() {
+    let pasta = Pasta::nova();
+    let hub = pasta.hub();
+    let queda = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut db = hub.store.db.locked();
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+        let epoch = bump_on(&tx).unwrap();
+        let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, None);
+        marca.commit(tx).unwrap();
+        panic!("queda logo depois do commit");
+    }));
+    assert!(queda.is_err());
+    let retrato = hub.workspace.retrato();
+    assert_eq!((retrato.valor, retrato.pendente()), (1, false), "a RAM segue o número já gravado");
+
+    // Desfecho do commit desconhecido: a saída segue retida.
+    let queda = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut marca = hub.workspace.marcar(2, Motivo::DeviceRevoked, None);
+        marca.em_duvida();
+        panic!("queda durante o commit");
+    }));
+    assert!(queda.is_err());
+    let retrato = hub.workspace.retrato();
+    assert_eq!((retrato.valor, retrato.pendente()), (1, true), "na dúvida, a marca fica pendente");
+    drop(hub);
+    assert_eq!(pasta.hub().workspace.atual(), 1, "o reinício lê o número gravado");
 }
 
 #[test]

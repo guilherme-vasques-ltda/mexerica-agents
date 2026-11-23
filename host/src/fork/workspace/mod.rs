@@ -93,33 +93,68 @@ pub(crate) struct Sinal {
     marcas: AtomicU64,
 }
 
-/// Marca pendente de um commit. Publicar a resolve; erro, rollback ou panic a desfazem ao sair
-/// do escopo, e só ela: a marca de outro commit nunca é apagada.
+/// Marca pendente de um commit. Ao sair do escopo (fim normal, erro ou panic), decide pela
+/// verdade durável: commit feito publica o número gravado; sem commit, desfaz a marca; commit
+/// sem desfecho conhecido deixa a marca pendente. Só mexe na própria marca, nunca na de outro.
 pub(crate) struct Marca<'a> {
     sinal: &'a Sinal,
     id: u64,
+    epoch: u64,
+    motivo: Motivo,
+    dono: Option<String>,
+    fase: Fase,
+}
+
+#[derive(Clone, Copy)]
+enum Fase {
+    SemCommit,
+    Duvida,
+    Commitado,
 }
 
 impl Marca<'_> {
-    fn publicar(self, valor: u64, motivo: Motivo, dono: Option<&str>) {
-        let id = self.id;
-        self.sinal.retrato.send_if_modified(|e| {
-            let propria = soltar(e, id);
-            let subiu = avancar(e, valor, motivo);
-            let trocou = dono.is_some_and(|dono| e.dono.as_deref() != Some(dono));
-            if trocou {
-                e.dono = dono.map(str::to_owned);
-            }
-            propria || subiu || trocou
-        });
-        std::mem::forget(self);
+    /// Commit da Tx que gravou `epoch`. O desfecho fica registrado antes de qualquer outra coisa.
+    fn commit(&mut self, tx: rusqlite::Transaction<'_>) -> Result<()> {
+        self.fase = Fase::Duvida;
+        let feito = tx.commit();
+        self.fase = if feito.is_ok() { Fase::Commitado } else { Fase::SemCommit };
+        Ok(feito?)
+    }
+
+    /// O commit corre fora daqui (a cerca do bootstrap): até `resolver`, o desfecho é incerto.
+    fn em_duvida(&mut self) {
+        self.fase = Fase::Duvida;
+    }
+
+    fn resolver(mut self, commitado: bool) {
+        self.fase = if commitado { Fase::Commitado } else { Fase::SemCommit };
     }
 }
 
 impl Drop for Marca<'_> {
     fn drop(&mut self) {
-        let id = self.id;
-        self.sinal.retrato.send_if_modified(|e| soltar(e, id));
+        let (id, epoch, motivo) = (self.id, self.epoch, self.motivo);
+        match self.fase {
+            Fase::SemCommit => {
+                self.sinal.retrato.send_if_modified(|e| soltar(e, id));
+            }
+            Fase::Duvida => {
+                tracing::error!(epoch, "commit do workspaceEpoch sem desfecho conhecido; a saída segue retida");
+            }
+            Fase::Commitado => {
+                let dono = self.dono.take();
+                self.sinal.retrato.send_if_modified(|e| {
+                    let propria = soltar(e, id);
+                    let subiu = avancar(e, epoch, motivo);
+                    let trocou = dono.is_some() && e.dono != dono;
+                    if trocou {
+                        e.dono = dono;
+                    }
+                    propria || subiu || trocou
+                });
+                tracing::info!(epoch, ?motivo, "workspaceEpoch subiu");
+            }
+        }
     }
 }
 
@@ -147,16 +182,17 @@ impl Sinal {
         self.retrato.subscribe()
     }
 
-    fn marcar(&self) -> Marca<'_> {
+    /// Marca pendente do commit que vai gravar `epoch` (e, se houver, o dono novo).
+    fn marcar(&self, epoch: u64, motivo: Motivo, dono: Option<&str>) -> Marca<'_> {
         let id = self.marcas.fetch_add(1, Ordering::Relaxed);
         self.retrato.send_modify(|e| e.pendentes.push(id));
-        Marca { sinal: self, id }
+        Marca { sinal: self, id, epoch, motivo, dono: dono.map(str::to_owned), fase: Fase::SemCommit }
     }
 
     /// Marca pendente fora de um commit, para provas do transporte.
     #[cfg(test)]
     pub(crate) fn marcar_para_prova(&self) -> Marca<'_> {
-        self.marcar()
+        self.marcar(self.atual(), Motivo::DeviceRevoked, None)
     }
 
     /// Dono sem aumento de epoch (o primeiro dono conhecido, ou o mesmo).
@@ -204,19 +240,11 @@ fn bump_on(c: &Connection) -> Result<u64> {
     Ok(proximo)
 }
 
-fn anunciar(marca: Marca<'_>, epoch: u64, motivo: Motivo, dono: Option<&str>) {
-    marca.publicar(epoch, motivo, dono);
-    tracing::info!(epoch, ?motivo, "workspaceEpoch subiu");
-}
-
 /// Commit de um aumento, com o lock do banco ainda tomado pelo chamador: a marca entra antes, e
-/// o número sai logo depois do commit. Se o commit falhar, a marca sai do escopo e é desfeita
-/// ainda sob o mesmo lock; nada é anunciado.
+/// sai do escopo ainda sob o mesmo lock, publicando o número se o commit foi feito ou desfazendo
+/// a marca se não foi.
 fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, epoch: u64, motivo: Motivo, dono: Option<&str>) -> Result<()> {
-    let marca = hub.workspace.marcar();
-    tx.commit()?;
-    anunciar(marca, epoch, motivo, dono);
-    Ok(())
+    hub.workspace.marcar(epoch, motivo, dono).commit(tx)
 }
 
 /// Gancho para remoção de membro e troca de papel (Hub team).
@@ -244,8 +272,8 @@ pub(crate) fn revogar(hub: &Hub, key: &str) -> Result<bool> {
 }
 
 /// Revogação pela cerca do bootstrap: o bloqueio e o epoch entram na Tx da própria cerca, uma
-/// vez só (na passagem para tombstone). A marca é resolvida sob o mesmo lock: publicada depois
-/// do commit, ou desfeita se a cerca falhar.
+/// vez só (na passagem para tombstone). A marca fica em dúvida até a cerca informar o desfecho
+/// do commit, ainda sob o mesmo lock: publicada se confirmou, desfeita se não.
 pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Result<bool> {
     let marcado = std::cell::RefCell::new(None);
     hub.store.bootstrap_revoke_fenced(
@@ -255,14 +283,14 @@ pub(crate) fn revogar_cercado(hub: &Hub, grant: &str, key: &str, now: i64) -> Re
         now,
         |tx| {
             let epoch = bloquear_on(tx, key, Some(grant))?;
-            *marcado.borrow_mut() = Some((hub.workspace.marcar(), epoch));
+            let mut marca = hub.workspace.marcar(epoch, Motivo::DeviceRevoked, None);
+            marca.em_duvida();
+            *marcado.borrow_mut() = Some(marca);
             Ok(())
         },
         |confirmado| {
-            if let Some((marca, epoch)) = marcado.borrow_mut().take()
-                && confirmado
-            {
-                anunciar(marca, epoch, Motivo::DeviceRevoked, None);
+            if let Some(marca) = marcado.borrow_mut().take() {
+                marca.resolver(confirmado);
             }
         },
     )
