@@ -194,18 +194,44 @@ class ForkMailInboxScreenTest {
             initial.join()
 
             val pagination = launch { presentation.loadMore() }
-            presentation.uiState.first { (it.screenState as? ForkMailInboxScreenState.ThreadList)?.isLoadingMore == true }
+            val paging = presentation.uiState.first { (it.screenState as? ForkMailInboxScreenState.ThreadList)?.isLoadingMore == true }
+            assertFalse(paging.canInteract)
+            presentation.selectMailbox(ForkMailInboxFixtureTransport.MAILBOX_EMPTY)
+            presentation.openThread(ForkMailInboxFixtureTransport.THREAD_WELCOME)
+            assertEquals(ForkMailInboxFixtureTransport.MAILBOX_MAIN, store.selectedMailboxId)
+            assertFalse(store.isLoadingThreadDetail)
             assertFalse(pagination.isCompleted)
             nextPageGate.complete(Unit)
             pagination.join()
+            assertTrue(presentation.uiState.value.canInteract)
 
             val detail = launch { presentation.openThread(ForkMailInboxFixtureTransport.THREAD_WELCOME) }
-            presentation.uiState.first { (it.screenState as? ForkMailInboxScreenState.ThreadList)?.isLoadingDetail == true }
+            val opening = presentation.uiState.first { (it.screenState as? ForkMailInboxScreenState.ThreadList)?.isLoadingDetail == true }
+            assertFalse(opening.canInteract)
             assertFalse(detail.isCompleted)
             detailGate.complete(Unit)
             detail.join()
             assertTrue(presentation.uiState.value.screenState is ForkMailInboxScreenState.ThreadDetail)
         }
+    }
+
+    @Test
+    fun failedRequestDoesNotExposePreviousRowsOrMailboxActions() = runBlocking {
+        val fixture = ForkMailInboxFixtureTransport()
+        val transport = object : MailInboxTransport by fixture {
+            override suspend fun mailInboxOpenThread(spaceId: String, mailboxId: String, threadId: String): MailInboxOpenThreadResponse =
+                throw MailInboxException(MailInboxError.INVALID_REQUEST)
+        }
+        val store = ForkMailInboxStore(transport, featureEnabled = true)
+        val presentation = ForkMailInboxPresentation(store, ForkMailInboxFixtureTransport.SPACE_ALPHA)
+        presentation.setBackground(false)
+        presentation.start()
+        presentation.openThread(ForkMailInboxFixtureTransport.THREAD_WELCOME)
+        assertTrue(store.threads.isNotEmpty())
+        val ui = presentation.uiState.value
+        assertEquals(ForkMailInboxScreenState.Unavailable, ui.screenState)
+        assertTrue(ui.mailboxes.isEmpty())
+        assertFalse(ui.canInteract)
     }
 
     @Test
@@ -225,6 +251,7 @@ class ForkMailInboxScreenTest {
     fun emptyInboxKeepsTheMailboxSelectorAndCanSwitchBackToThreads() = runBlocking {
         val store = ForkMailInboxStore(ForkMailInboxFixtureTransport(), featureEnabled = true)
         val presentation = ForkMailInboxPresentation(store, ForkMailInboxFixtureTransport.SPACE_ALPHA)
+        presentation.setBackground(false)
         presentation.start()
         presentation.selectMailbox(ForkMailInboxFixtureTransport.MAILBOX_EMPTY)
         assertEquals(ForkMailInboxScreenState.EmptyInbox, presentation.uiState.value.screenState)
@@ -252,6 +279,7 @@ class ForkMailInboxScreenTest {
             }
         }
         val presentation = ForkMailInboxPresentation(ForkMailInboxStore(transport, featureEnabled = true), ForkMailInboxFixtureTransport.SPACE_ALPHA)
+        presentation.setBackground(false)
         presentation.start()
         val first = presentation.uiState.value.screenState as ForkMailInboxScreenState.ThreadList
         presentation.loadMore()

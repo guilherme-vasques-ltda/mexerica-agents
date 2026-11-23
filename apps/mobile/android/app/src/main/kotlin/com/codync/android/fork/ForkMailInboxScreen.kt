@@ -129,7 +129,14 @@ data class ForkMailInboxUiState(
     val screenState: ForkMailInboxScreenState,
     val mailboxes: List<ForkMailInboxMailboxItem> = emptyList(),
     val selectedMailboxId: String? = null,
-)
+) {
+    val canInteract: Boolean
+        get() = when (screenState) {
+            ForkMailInboxScreenState.EmptyInbox -> true
+            is ForkMailInboxScreenState.ThreadList -> !screenState.isLoadingMore && !screenState.isLoadingDetail
+            else -> false
+        } && !showPrivacyMask
+}
 
 fun shouldShowPrivacyMask(
     shouldMaskInAppSwitcher: Boolean,
@@ -251,19 +258,24 @@ internal class ForkMailInboxPresentation(private val store: ForkMailInboxStore, 
     }
 
     suspend fun selectMailbox(mailboxId: String) {
-        if (state.value.mailboxes.none { it.mailboxId == mailboxId }) return
+        val ui = state.value
+        if (!ui.canInteract || ui.mailboxes.none { it.mailboxId == mailboxId }) return
         request { store.loadFirstPage(spaceId, mailboxId) }
     }
 
     suspend fun openThread(threadId: String) {
-        val list = state.value.screenState as? ForkMailInboxScreenState.ThreadList ?: return
+        val ui = state.value
+        if (!ui.canInteract) return
+        val list = ui.screenState as? ForkMailInboxScreenState.ThreadList ?: return
         if (list.threads.none { it.threadId == threadId }) return
-        val mailboxId = state.value.selectedMailboxId ?: return
+        val mailboxId = ui.selectedMailboxId ?: return
         request { store.openThread(spaceId, mailboxId, threadId) }
     }
 
     suspend fun loadMore() {
-        val list = state.value.screenState as? ForkMailInboxScreenState.ThreadList ?: return
+        val ui = state.value
+        if (!ui.canInteract) return
+        val list = ui.screenState as? ForkMailInboxScreenState.ThreadList ?: return
         if (list.hasNextPage) request(clearBack = false) { store.loadNextPage() }
     }
 
@@ -406,6 +418,7 @@ private fun MailInboxContent(presentation: ForkMailInboxPresentation, modifier: 
                     )
                     is ForkMailInboxScreenState.ThreadList -> ThreadListContent(
                         state = screen,
+                        enabled = uiState.canInteract,
                         onOpenThread = { threadId -> scope.launch { presentation.openThread(threadId) } },
                         onLoadMore = { scope.launch { presentation.loadMore() } },
                     )
@@ -510,6 +523,7 @@ private fun MailboxSelector(
         for (mailbox in state.mailboxes) {
             FilterChip(
                 selected = mailbox.mailboxId == state.selectedMailboxId,
+                enabled = state.canInteract,
                 onClick = { onSelectMailbox(mailbox.mailboxId) },
                 label = { Text(mailbox.label, style = Type.footnote.medium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 colors = FilterChipDefaults.filterChipColors(
@@ -526,6 +540,7 @@ private fun MailboxSelector(
 @Composable
 private fun ThreadListContent(
     state: ForkMailInboxScreenState.ThreadList,
+    enabled: Boolean,
     onOpenThread: (String) -> Unit,
     onLoadMore: () -> Unit,
 ) {
@@ -553,7 +568,7 @@ private fun ThreadListContent(
                         .clip(RoundedRectangle(16.dp))
                         .background(Palette.surface)
                         .border(1.dp, Palette.border, RoundedRectangle(16.dp))
-                        .clickable { onOpenThread(thread.threadId) }
+                        .clickable(enabled = enabled) { onOpenThread(thread.threadId) }
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -585,7 +600,7 @@ private fun ThreadListContent(
                         if (state.isLoadingMore) {
                             CircularProgressIndicator(color = Palette.accent)
                         } else {
-                            OutlinedButton(onClick = onLoadMore) {
+                            OutlinedButton(onClick = onLoadMore, enabled = enabled) {
                                 Text(
                                     text = "Carregar mais",
                                     style = Type.subheadline.medium,
