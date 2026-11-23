@@ -158,6 +158,7 @@ public final class AccountStore {
 
     /// QR pairing (§4.1); the computer is saved in this context and connected.
     public func pair(_ pairing: Pairing, deviceName: String, platform: String) async throws -> Computer {
+        guard !retired else { throw CancellationError() }
         guard !accountConfigured else {
             throw CloudError(status: 0, code: "accountRequired")
         }
@@ -229,6 +230,7 @@ public final class AccountStore {
             if list != cloudComputers { Motion.animate { cloudComputers = list } }
             return true
         } catch let error as CloudError where !error.isTransient {
+            guard !retired, version == cloudListVersion else { return true }
             lastError = error.localizedDescription
             return false
         } catch {
@@ -245,6 +247,7 @@ public final class AccountStore {
     /// instead of committing a second one.
     /// Approval is then picked up in the background and the computer joins `stores`.
     public func requestAccess(_ id: ComputerID) async throws {
+        guard !retired else { throw CancellationError() }
         if let ask = asks[id], !ask.isCancelled {
             _ = try await ask.value
             return
@@ -351,14 +354,16 @@ public final class AccountStore {
     /// Its row goes at once, so a second tap finds nothing to remove; no list brings it back while the
     /// removal runs, nor one asked for before it finished. A failed removal puts it back.
     public func removeFromAccount(_ id: ComputerID) async {
-        guard let cloud, let index = cloudComputers.firstIndex(where: { $0.computerId == id }) else { return }
+        guard !retired, let cloud, let index = cloudComputers.firstIndex(where: { $0.computerId == id }) else { return }
         let removed = cloudComputers[index]
         removing.insert(id)
         Motion.animate { _ = cloudComputers.remove(at: index) }
         do {
             try await cloud.removeComputer(id)
+            guard !retired else { return }
             setPending(id, nil)
         } catch {
+            guard !retired else { return }
             lastError = error.localizedDescription
             if !cloudComputers.contains(where: { $0.computerId == id }) {
                 Motion.animate { cloudComputers.insert(removed, at: min(index, cloudComputers.count)) }
@@ -642,20 +647,28 @@ public final class AccountStore {
     }
 
     /// Account switched or signed out: nothing from here writes into storage or calls back anymore.
-    public func retire() {
+    public func retire(discardLocalState: Bool = false) {
+        guard !retired else { return }
         retired = true
         computerOrder.retire()
         for store in stores.values { store.retire() }
         for poll in accessPolls.values { poll.cancel() }
         accessPolls = [:]
+        for ask in asks.values { ask.cancel() }
+        asks = [:]
         // Only this store's own requests: a replacement store keeps its own `pendingAccess`.
         pendingAccess = [:]
         // Attempts still open end with the account: grants seen here are revoked, others checked once.
-        for (id, pending) in confirmations {
-            if let grant = pending.grantId {
-                revokeApprovedGrant(id, grantId: grant)
-            } else {
-                reconcileGrant(id, pending.confirmation.approvalCheck)
+        if discardLocalState {
+            for task in grantRevocations.values { task.cancel() }
+            grantRevocations = [:]
+        } else {
+            for (id, pending) in confirmations {
+                if let grant = pending.grantId {
+                    revokeApprovedGrant(id, grantId: grant)
+                } else {
+                    reconcileGrant(id, pending.confirmation.approvalCheck)
+                }
             }
         }
         confirmations = [:]
@@ -665,6 +678,11 @@ public final class AccountStore {
         onSent = nil
         onRosterChanged = nil
         selection = nil
+        saved = []
+        stores = [:]
+        computers = []
+        cloudComputers = []
+        lastError = nil
     }
 
     // MARK: plumbing

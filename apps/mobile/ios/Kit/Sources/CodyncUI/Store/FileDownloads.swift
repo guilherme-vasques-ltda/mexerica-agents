@@ -26,11 +26,17 @@ public final class FileDownloads {
     @ObservationIgnored private var exported: Export?
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private let writer: any FileDownloadWriting
+    @ObservationIgnored private let directory: URL
     @ObservationIgnored private var retired = false
 
-    public init() { writer = FileDownload() }
+    public convenience init() { self.init(scopeID: UUID().uuidString) }
 
-    init(writer: any FileDownloadWriting) { self.writer = writer }
+    init(scopeID: String = UUID().uuidString, writer: any FileDownloadWriting = FileDownload()) {
+        self.writer = writer
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("CodyncDownloads", isDirectory: true)
+            .appendingPathComponent(scopeID, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
 
     public func save(client: HostClient?, entry: Entry, file: SharedFile) {
         guard !retired else { return }
@@ -44,7 +50,6 @@ public final class FileDownloads {
         dismissExport()
         guard let client else { states[file.id] = .failed(String(localized: "Conecte-se a este computador para baixar o arquivo.", bundle: .module)); return }
         states[file.id] = .downloading(0)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CodyncDownloads", isDirectory: true)
         tasks[file.id] = Task {
             defer { tasks[file.id] = nil }
             do {

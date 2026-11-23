@@ -15,7 +15,7 @@ struct AccountSwitcherButton: View {
                     .foregroundStyle(Palette.secondary)
             }
         }
-        .accessibilityLabel("Trocar de conta")
+        .accessibilityLabel(account.usesWorkspaceDirectory ? "Trocar de conta ou workspace" : "Trocar de conta")
         .accessibilityValue(account.email ?? String(localized: "Pareamento local"))
     }
 }
@@ -56,11 +56,19 @@ struct AccountSwitcherView: View {
                 if addingAccount { SignInButtons().transition(.opacity.combined(with: .move(edge: .top))) }
             }
 
-            CardSection {
-                Button { showSettings = true } label: {
-                    RowLabel(String(localized: "Computadores"), systemImage: "desktopcomputer", chevron: true)
+            if app.showsWorkspaceStatus, let selection = app.workspaceSelection {
+                ForkWorkspacePicker(selection: selection, unavailable: app.workspaceDirectoryUnavailable) { id in
+                    Task { await app.switchWorkspace(to: id) }
                 }
-                .buttonStyle(.plain)
+            }
+
+            CardSection {
+                if !app.showsWorkspaceStatus {
+                    Button { showSettings = true } label: {
+                        RowLabel(String(localized: "Computadores"), systemImage: "desktopcomputer", chevron: true)
+                    }
+                    .buttonStyle(.plain)
+                }
                 if account.isSignedIn {
                     Button { confirmSignOut = true } label: {
                         RowLabel(String(localized: "Sair da conta"), systemImage: "rectangle.portrait.and.arrow.right", tint: Palette.danger)

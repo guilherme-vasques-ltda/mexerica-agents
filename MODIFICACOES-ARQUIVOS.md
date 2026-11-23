@@ -392,6 +392,7 @@ alterados nesta cópia, como pede a Apache-2.0 §4(b). Nos arquivos de código o
 - `apps/mobile/ios/Kit/Sources/CodyncUI/Screen/ScreenSession.swift`
 - `apps/mobile/ios/Kit/Sources/CodyncUI/Screen/ScreenView.swift`
 - `apps/mobile/ios/Kit/Sources/CodyncUI/Store/AccountStore.swift`
+- `apps/mobile/ios/Kit/Sources/CodyncUI/Store/AccountTransition.swift`
 - `apps/mobile/ios/Kit/Sources/CodyncUI/Store/BotStore+Actions.swift`
 - `apps/mobile/ios/Kit/Sources/CodyncUI/Store/BotStore+Connection.swift`
 - `apps/mobile/ios/Kit/Sources/CodyncUI/Store/BotStore+Sending.swift`

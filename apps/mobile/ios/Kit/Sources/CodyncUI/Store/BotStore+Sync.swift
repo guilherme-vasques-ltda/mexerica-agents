@@ -75,7 +75,7 @@ extension BotStore {
     /// server key it was loaded for; anything else starts over from scratch (fail-closed).
     func reaproveitarOuRecomecar() {
         // What the Hub just said it is (checked against this computer by `validarIdentidade`).
-        let atual = DonoDoEspelho(conta: storage.accountID, computador: hello?.computerId ?? computer.id,
+        let atual = DonoDoEspelho(conta: storage.mirrorOwnerID, computador: hello?.computerId ?? computer.id,
                                   chave: hello?.signKey ?? computer.signKey)
         guard !DonoDoEspelho.podeReaproveitar(donoDoEspelho, atual) else { return }
         limparTudo()
@@ -286,16 +286,20 @@ extension BotStore {
     }
 
     func upsert(_ e: Entry) {
+        guard !retired else { return }
         var list = entries[e.botId] ?? []
+        if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty {
+            if e.id.hasPrefix("local-") {
+                guard !list.contains(where: { !$0.id.hasPrefix("local-") && $0.kind == "user" && $0.data.clientNonce == nonce }) else { return }
+            } else {
+                list.removeAll { $0.id == "local-\(nonce)" }
+            }
+        }
         if let i = list.firstIndex(where: { $0.id == e.id }) {
             // A late API response mustn't undo a newer SSE update.
             guard e.rev >= list[i].rev else { return }
             list[i] = e
         } else {
-            // Replace the optimistic copy of a message we sent.
-            if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty {
-                list.removeAll { $0.id == "local-\(nonce)" }
-            }
             if let last = list.last, last.seq > e.seq, e.seq > 0 {
                 let i = list.firstIndex { $0.seq > e.seq } ?? list.endIndex
                 list.insert(e, at: i)
