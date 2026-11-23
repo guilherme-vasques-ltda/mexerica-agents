@@ -1,7 +1,7 @@
 //! D368 (rodada 5), tabela única: cada método do `dispatch` (braços `"…" =>` de `api/*.rs` e
 //! `fork/api.rs`) tem uma classe. O teste `todo_metodo_do_dispatch_esta_classificado` falha se um
-//! método novo não estiver aqui. As permissões continuam onde estão (`permit`, `require_local`,
-//! `require_owner`); passar a lê-las daqui é o refactor DON-915.
+//! método novo não estiver aqui. Quem pode chamar cada método fica em `fork::acesso_rpc`, verificado pelo
+//! mesmo coletor; `require_local` e `require_owner` continuam somando nos handlers.
 #![cfg_attr(not(test), allow(dead_code))]
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -599,6 +599,33 @@ pub(crate) mod coletor {
             }
         }
         metodos
+    }
+
+    /// Todo o código de produção do Host (sem arquivos de teste), para o coletor de métodos.
+    pub(crate) fn fontes_do_host() -> Vec<(String, String)> {
+        fn andar(dir: &std::path::Path, raiz: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entrada in std::fs::read_dir(dir).expect("fonte do host") {
+                let caminho = entrada.expect("fonte do host").path();
+                if caminho.is_dir() {
+                    andar(&caminho, raiz, out);
+                } else if caminho.extension().is_some_and(|e| e == "rs") {
+                    let relativo =
+                        caminho.strip_prefix(raiz).expect("fonte do host").to_string_lossy().replace('\\', "/");
+                    let nome = caminho.file_name().expect("fonte do host").to_string_lossy();
+                    if nome.contains("test") || nome.contains("provas") {
+                        continue;
+                    }
+                    if super::FORA_DA_API.iter().any(|(prefixo, _)| relativo.starts_with(prefixo)) {
+                        continue;
+                    }
+                    out.push((relativo, std::fs::read_to_string(&caminho).expect("fonte do host")));
+                }
+            }
+        }
+        let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut out = Vec::new();
+        andar(&raiz, &raiz, &mut out);
+        out
     }
 
     /// Erro com os métodos sem classe e as classes sem método (sobras).

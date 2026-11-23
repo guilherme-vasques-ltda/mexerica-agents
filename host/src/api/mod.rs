@@ -94,11 +94,13 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     crate::fork::autoridade::conferir_caller(hub, caller)?;
     if method.starts_with("donnaWorkplace") {
         crate::fork::onde_roda::autoridade::require(caller, method)?;
+        devices::permit(caller, method)?;
         let mut answer = crate::fork::onde_roda::api::call(hub, caller, method, b).await?;
         answer["hubId"] = hub.host_id.clone().into();
         return Ok(answer);
     }
     if method == "engineGoKeySave" {
+        devices::permit(caller, method)?;
         return crate::fork::conexao_motores::save_go(hub, caller, &b).await;
     }
     if method == "setAgentEnv" || method == "agentAuthenticate" {
@@ -117,10 +119,13 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if matches!(method, "agentSetup" | "agentAuthenticate") && !(method == "agentSetup" && b["step"] == "login") {
         crate::fork::engine_setup::require_legacy_setup(caller, b["backend"].as_str().unwrap_or_default())?;
     }
+    // Fail-closed: método sem classe em `fork::acesso_rpc` não existe para ninguém, nem para este computador.
+    if crate::fork::acesso_rpc::acesso(method).is_none() {
+        return Err(UnknownMethod.into());
+    }
+    devices::permit(caller, method)?;
     if method == "teamSettings" && !matches!(caller, Caller::Local) {
         crate::fork::engine_setup::access::require(hub, caller)?;
-    } else {
-        devices::permit(caller, method)?;
     }
     if method == crate::fork::control_tower::METHOD {
         crate::fork::control_tower::require(hub, caller)?;
