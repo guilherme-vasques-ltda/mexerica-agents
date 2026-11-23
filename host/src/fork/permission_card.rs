@@ -295,14 +295,15 @@ fn answer_restored(
     if refusal {
         return cancel_unavailable(hub, entry, option_id, origem);
     }
-    let option =
-        option_id.ok_or_else(|| anyhow!("Opção inválida: escolha uma das opções disponíveis neste cartão."))?;
-    let offered = entry.data["options"]
-        .as_array()
-        .is_some_and(|options| options.iter().any(|o| o["optionId"] == option && o["kind"] == "allow_once"));
-    if !offered {
+    let offered = option_id.is_some_and(|option| {
+        entry.data["options"]
+            .as_array()
+            .is_some_and(|options| options.iter().any(|o| o["optionId"] == option && o["kind"] == "allow_once"))
+    });
+    let Some(option) = option_id.filter(|_| offered) else {
+        tracing::warn!(entry = entry.id, option = ?option_id, "opção recusada no cartão restaurado");
         bail!("Opção inválida: escolha uma das opções disponíveis neste cartão.");
-    }
+    };
     let mut data = entry.data.clone();
     data["status"] = json!("answered");
     data["selected"] = json!(option);

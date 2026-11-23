@@ -62,14 +62,23 @@ fn restorable_on(c: &Connection, card: &Entry) -> Result<Option<Value>> {
     if delegated || !same_conversation_on(c, author, &card.bot_id)? {
         return Ok(None);
     }
-    // Escopo reduzido: a pergunta restaurada só oferece «uma vez» ou recusa, nunca «sempre».
-    let options: Vec<Value> = card.data["options"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|option| matches!(option["kind"].as_str(), Some("allow_once" | "reject_once" | "reject_always")))
+    // Escopo reduzido: a pergunta restaurada só oferece «uma vez» ou recusar uma vez, nunca «sempre». Sem recusa
+    // única, a primeira «recusar sempre» volta como recusa única: o cartão restaurado só encerra, não grava regra.
+    let offered = card.data["options"].as_array().map_or(&[][..], Vec::as_slice);
+    let mut options: Vec<Value> = offered
+        .iter()
+        .filter(|option| matches!(option["kind"].as_str(), Some("allow_once" | "reject_once")))
         .cloned()
         .collect();
+    if !options.iter().any(|option| option["kind"] == "reject_once")
+        && let Some(mut reject) = offered.iter().find(|option| option["kind"] == "reject_always").cloned()
+    {
+        reject["kind"] = json!("reject_once");
+        if let Some(fields) = reject.as_object_mut() {
+            fields.remove("name");
+        }
+        options.push(reject);
+    }
     if !options.iter().any(|option| option["kind"] == "allow_once") {
         return Ok(None);
     }

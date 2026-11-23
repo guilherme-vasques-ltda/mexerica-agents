@@ -596,9 +596,14 @@ impl Store {
             st.query_map([now_ms()], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
         };
         for id in &ids {
-            // A pergunta volta uma vez, com outro cartão; a resposta ao antigo nunca mais vale.
-            if self.restore_permission_question(id)? {
-                continue;
+            // A pergunta volta uma vez, com outro cartão; a resposta ao antigo nunca mais vale. Falha num cartão só o
+            // expira como antes: não interrompe a varredura nem impede o Hub de abrir.
+            match self.restore_permission_question(id) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(entry = %id, error = format!("{error:#}"), "pergunta de permissão não restaurada; expira");
+                }
             }
             if let Some(mut e) = self.entry(id) {
                 let status = if e.kind == EntryKind::Notice.as_str() {
