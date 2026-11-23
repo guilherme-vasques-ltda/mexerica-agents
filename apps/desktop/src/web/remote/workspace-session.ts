@@ -49,10 +49,12 @@ export function createWorkspaceSession(
     current = undefined
     previous?.dispose()
     const storage = cleanup.catch(() => {}).then(async () => {
-      for (const workspaceId of dirty) {
+      const results = await Promise.allSettled(Array.from(dirty, async (workspaceId) => {
         await clearStorage(workspaceId)
         dirty.delete(workspaceId)
-      }
+      }))
+      const failed = results.find((result) => result.status === 'rejected')
+      if (failed?.status === 'rejected') throw failed.reason
     })
     cleanup = storage
     await storage

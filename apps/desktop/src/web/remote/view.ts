@@ -31,7 +31,7 @@ export interface RemoteViewActions {
 }
 
 const CHAVE_STATUS = {
-  unconfigured: 'fundo.espaco.indisponivel',
+  unconfigured: 'web.login.indisponivel',
   loading: 'fundo.carregando',
   signed_out: null,
   unavailable: 'web.login.local.erro.geral',
@@ -115,7 +115,7 @@ export function mountRemoteView(root: HTMLElement, actions: RemoteViewActions): 
     const selected = status === 'revoked' ? null : workspaces.find((workspace) => workspace.id === state.activeId) ?? null
     selectedId = selected?.id ?? null
     const busy = status === 'loading' || status === 'switching'
-    const showWorkspaces = workspaces.length > 0 && status !== 'unconfigured' && status !== 'loading' && status !== 'signed_out' && status !== 'unavailable'
+    const showWorkspaces = workspaces.length > 0 && status !== 'unconfigured' && status !== 'loading' && status !== 'signed_out'
 
     root.dataset.status = status
     root.setAttribute('aria-busy', String(busy))

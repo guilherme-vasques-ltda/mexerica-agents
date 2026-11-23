@@ -21,6 +21,26 @@ test('o perfil sem transporte não autoriza nem se anuncia conectado', async () 
   assert.deepEqual(states.at(-1), { status: 'unavailable', workspaces: [], activeId: null, signedIn: true })
 })
 
+test('permite selecionar de novo após falha de confirmação sem reaproveitar a sessão', async () => {
+  const states: RemoteViewState[] = []
+  const signals: AbortSignal[] = []
+  const c = createRemoteController((state) => states.push(state), {
+    confirm: async (workspace, { signal }) => {
+      signals.push(signal)
+      if (signals.length === 1) throw new Error('confirmation rejected')
+      return context(workspace)
+    },
+  }, createWorkspaceSession(async () => {}))
+  await c.setIdentity('u1', orgs, [personal, team])
+  assert.equal(states.at(-1)?.status, 'unavailable')
+  assert.equal(states.at(-1)?.activeId, null)
+  assert.deepEqual(states.at(-1)?.workspaces.map(({ id }) => id), [personal.id, team.id])
+  assert.equal(signals[0].aborted, true)
+  await c.select(personal.id)
+  assert.equal(states.at(-1)?.status, 'active')
+  assert.equal(signals[1].aborted, false)
+})
+
 test('estado offline aborta o stream; só abre nova sessão quando a pessoa tenta novamente', async () => {
   type Callbacks = Parameters<RemoteHub['confirm']>[1]
   const attempts: Callbacks[] = []

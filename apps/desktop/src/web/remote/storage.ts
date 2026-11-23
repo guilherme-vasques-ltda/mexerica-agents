@@ -6,7 +6,7 @@ interface WorkspaceStorage {
   localStorage?: Pick<Storage, 'length' | 'key' | 'removeItem'>
   sessionStorage?: Pick<Storage, 'length' | 'key' | 'removeItem'>
   caches?: Pick<CacheStorage, 'keys' | 'delete'>
-  indexedDB?: Pick<IDBFactory, 'databases' | 'deleteDatabase'>
+  indexedDB?: Pick<IDBFactory, 'deleteDatabase'> & Partial<Pick<IDBFactory, 'databases'>>
 }
 
 export async function clearWorkspaceStorage(workspaceId: string, browser: WorkspaceStorage = globalThis): Promise<void> {
@@ -30,6 +30,7 @@ export async function clearWorkspaceStorage(workspaceId: string, browser: Worksp
     (async () => {
       const databases = browser.indexedDB
       if (!databases) return
+      if (typeof databases.databases !== 'function') throw new Error('workspace_storage_unavailable')
       const names = (await databases.databases()).flatMap(({ name }) => name?.startsWith(prefix) ? [name] : [])
       const deletions = await Promise.allSettled(names.map((name) =>
         new Promise<void>((resolve, reject) => {

@@ -1,6 +1,5 @@
 import { createRemoteController } from './controller.ts'
 import { mountRemoteView } from './view.ts'
-import './view.css'
 
 declare const __REMOTE_CLERK_TEST_KEY__: string
 
@@ -23,12 +22,14 @@ if (!__REMOTE_CLERK_TEST_KEY__) {
     const clerk = new Clerk(__REMOTE_CLERK_TEST_KEY__)
     await clerk.load({ telemetry: { disabled: true } })
     let signingOut = false
+    let lastIdentity: string | null | undefined
 
     signIn = () => { void clerk.redirectToSignIn({ signInFallbackRedirectUrl: location.origin }).catch(() => {
       render({ status: 'unavailable', workspaces: [], activeId: null })
     }) }
     signOut = () => {
       signingOut = true
+      lastIdentity = undefined
       void controller.setIdentity(null, [], []).then(() => clerk.signOut()).then(() => {
         signingOut = false
       }).catch(() => {
@@ -39,10 +40,15 @@ if (!__REMOTE_CLERK_TEST_KEY__) {
     clerk.addListener(({ user, session }) => {
       if (signingOut) return
       if (!user || !session) {
+        if (lastIdentity === null) return
+        lastIdentity = null
         void controller.setIdentity(null, [], [])
         return
       }
       const organizations = user.organizationMemberships.map(({ organization: { id, name } }) => ({ id, name }))
+      const identity = JSON.stringify([user.id, session.id, organizations.map(({ id, name }) => JSON.stringify([id, name])).sort()])
+      if (identity === lastIdentity) return
+      lastIdentity = identity
       void controller.setIdentity(user.id, organizations, [])
     })
   } catch {

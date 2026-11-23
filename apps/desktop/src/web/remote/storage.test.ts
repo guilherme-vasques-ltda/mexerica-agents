@@ -50,3 +50,13 @@ test('falha fechada se o navegador bloquear a exclusão de IndexedDB', async () 
     },
   }), /workspace_storage_unavailable/)
 })
+
+test('não libera a troca se o navegador não puder enumerar o IndexedDB', async () => {
+  const keysRemoved: string[] = []
+  const key = `${workspaceStoragePrefix('org:a')}draft`
+  await assert.rejects(clearWorkspaceStorage('org:a', {
+    indexedDB: { deleteDatabase: () => { assert.fail('não tenta adivinhar nomes') } },
+    localStorage: { length: 1, key: () => key, removeItem: (name) => { keysRemoved.push(name) } },
+  }), /workspace_storage_unavailable/)
+  assert.deepEqual(keysRemoved, [key])
+})

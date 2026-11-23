@@ -47,7 +47,11 @@ export function createRemoteController(
       const offline = () => {
         if (lease.signal.aborted || run !== attempt) return
         const disconnect = ++attempt
-        void session.close().catch(() => { if (disconnect === attempt) show('unavailable') })
+        void session.close().catch(() => {
+          if (disconnect !== attempt) return
+          selected = null
+          show('unavailable')
+        })
         show(hubOffline.code)
       }
       const context = await hub.confirm(workspace, {
