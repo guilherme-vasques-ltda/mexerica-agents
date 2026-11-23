@@ -74,7 +74,13 @@ export function useComputerMenu(hidden: string, setHidden: (v: string) => void, 
     }
     if (app.computers.length > 1) app.computers.forEach((c, i) => list.push({ title: t('ajustes.filtro.so', { nome: isolado(c.name) }), divider: i === 0, action: () => setHidden(selection.only(c.id)) }))
     if (stores.length) list.push({ title: t('ajustes.filtro.reconectar'), icon: 'arrow.clockwise', divider: true, action: () => stores.forEach((s) => s.restartStream()) })
-    if (app.host.state.kind === 'notInstalled') list.push({ title: window.codync.platform === 'darwin' ? t('ajustes.filtro.instalarMac') : t('ajustes.filtro.instalar'), icon: 'desktopcomputer', action: () => window.codync.host.install() })
+    if (app.host.state.kind === 'notInstalled') {
+      if (!window.codync.web && window.codync.platform === 'linux') {
+        list.push({ title: t('marca.hub.instalacaoAssistidaLinuxIndisponivel'), icon: 'desktopcomputer', disabled: true, action: () => {} })
+      } else {
+        list.push({ title: t(window.codync.platform === 'darwin' ? 'ajustes.filtro.instalarMac' : 'ajustes.filtro.instalar'), icon: 'desktopcomputer', action: () => window.codync.host.install() })
+      }
+    }
     if (app.host.state.kind === 'failed') list.push({ title: t('ajustes.filtro.tentarDeNovo'), icon: 'arrow.clockwise', action: () => window.codync.host.restart() })
     list.push({ title: t('ajustes.filtro.gerenciar'), icon: 'desktopcomputer', action: manage })
     return list

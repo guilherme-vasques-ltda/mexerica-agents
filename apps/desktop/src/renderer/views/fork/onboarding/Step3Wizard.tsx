@@ -86,6 +86,8 @@ export function Step3Wizard({
     platform,
     consentGiven,
   })
+  const linuxInstallUnavailable = !window.codync.web && platform === 'linux'
+    && (localStage.kind === 'needs_consent' || localStage.kind === 'needs_install')
 
   const hasReadyAi = status?.ai.hasReadyAi ?? false
   const personalSpaceId = status?.spaceContext?.personalSpaceId ?? null
@@ -227,6 +229,8 @@ export function Step3Wizard({
                   <Spinner size={15} />
                   <span>{t('onboarding.passo3.local.instalando')}</span>
                 </div>
+              ) : linuxInstallUnavailable ? (
+                <p className="onboarding-muted" role="status">{t('marca.hub.instalacaoAssistidaLinuxIndisponivel')}</p>
               ) : localStage.kind === 'needs_consent' ? (
                 <div className="onboarding-consent-box">
                   <strong>{t('onboarding.passo3.local.consentimentoTitulo')}</strong>

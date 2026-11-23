@@ -45,6 +45,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.memoriaMotor.ondeVer': 'Mexerica can’t show them; check {motor} itself.',
   'marca.memoriaMotor.separadas': '{motor} keeps notes separate from Mexerica’s memory. This starts off, so the bot has a single memory and you can see and edit everything here.',
   'marca.hub.configurar': 'Mexerica connects to the Hub, the background service that runs your bots.',
+  'marca.hub.instalacaoAssistidaLinuxIndisponivel': 'Assisted Hub installation is not available in the Linux app.',
   'marca.hub.semHub': 'This copy of Mexerica doesn’t include the program that runs the bots. Install Mexerica again.',
   'marca.hub.devSemHub': 'Rebuild Mexerica Dev with the development Hub and open it again.',
   'marca.hub.ambiente': 'This {app} app found a host from {ambiente}. Start the matching host on its own port.',
