@@ -41,6 +41,7 @@ pub use team::{TeamSettings, restrictive};
 pub(crate) use team::{read as read_team_settings, restore_team_profile, same_team_profile};
 pub(crate) use turn_alloc::alloc_on as alloc_turn_on;
 
+pub(crate) use devices::remove_device_on;
 pub use devices::{Device, DeviceSource, Scope};
 pub use model::{
     AVATAR_COLORS, AVATAR_SHAPES, BotConfig, BotKind, BotRow, Entry, EntryKind, Lane, Permission, message_text,

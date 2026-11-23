@@ -267,6 +267,8 @@ struct EventsQuery {
     client: Option<String>,
     #[serde(rename = "spaceId")]
     space_id: Option<String>,
+    #[serde(rename = "workspaceEpoch")]
+    workspace_epoch: Option<u64>,
 }
 
 async fn events(
@@ -276,14 +278,21 @@ async fn events(
     Query(q): Query<EventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let guard = crate::fork::ponte_credencial::autenticar_stream(&hub, &headers, peer).ok_or_else(unauthorized)?;
-    let events = super::scoped_events_stream(
+    let events = super::scoped_events_stream_at(
         &hub,
         q.since.unwrap_or(0),
         q.client.as_deref(),
         &Caller::Local,
         q.space_id.as_deref(),
+        q.workspace_epoch,
     )
-    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None))?;
+    .map_err(|e| {
+        if crate::fork::workspace::is_mismatch(&e) {
+            ApiError(StatusCode::CONFLICT, e.to_string(), Some(crate::fork::workspace::EPOCH_MISMATCH))
+        } else {
+            ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"), None)
+        }
+    })?;
     let events = events.map(|v| Ok(Event::default().data(v.to_string())));
     let events = stream_com_guarda(events, guard);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))

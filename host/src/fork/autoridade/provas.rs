@@ -99,6 +99,8 @@ async fn auth_e_dispatch_recusam_aba_antes_da_captura_do_consumidor() {
         crate::api::dispatch(&hub, &caller, "createBot", json!({"name":"Não criar","backend":"codex"})).await
     });
     assert!(a.hub.revoke_device(&aparelho.key).unwrap());
+    // Reconcessão de aparelho Local = novo pareamento por código, que libera o bloqueio da revogação.
+    crate::fork::workspace::liberar_pareamento_local(&a.hub.store, &aparelho.key).unwrap();
     a.hub.store.put_device(&aparelho).unwrap();
     a.hub.auth_changed();
     assert!(notificacao.has_changed().unwrap());

@@ -112,6 +112,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("checkHostUpdate", LocalOnly),
     ("computerTools", LocalOnly),
     ("hello", Leitura),
+    ("workspaceContext", Leitura),
     ("hostUpdateStatus", LocalOnly),
     ("installHostUpdate", LocalOnly),
     ("listDirs", Leitura),

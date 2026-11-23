@@ -201,15 +201,16 @@ impl Cloud {
 
 /// Changes the status and tells this computer's apps when it actually changed.
 pub fn update_status(hub: &Hub, f: impl FnOnce(&mut CloudStatus)) {
-    let changed = {
+    let (changed, owner) = {
         let mut s = hub.cloud.status.locked();
         let before = s.clone();
         f(&mut s);
         if s.owner.as_ref().map(|o| &o.user_id) != before.owner.as_ref().map(|o| &o.user_id) {
             crate::fork::autoridade::epoca_dono::avancar(&hub.cloud.owner_generation);
         }
-        (*s != before).then(|| s.clone())
+        ((*s != before).then(|| s.clone()), s.owner.as_ref().map(|o| o.user_id.clone()))
     };
+    crate::fork::workspace::observar_dono(hub, owner.as_deref());
     if let Some(s) = changed {
         let _ = hub.events.send(json!({"type": "cloud", "cloud": s}));
     }

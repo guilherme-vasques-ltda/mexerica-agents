@@ -112,15 +112,14 @@ impl Store {
     }
 
     /// Removes a device with its push and Live Activity tickets; false when it wasn't there.
+    /// The Hub revokes through `Hub::revoke_device`, which also blocks the key.
+    #[cfg(test)]
     pub fn remove_device(&self, key: &str) -> Result<bool> {
         let mut c = self.db.locked();
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let n = tx.execute("DELETE FROM devices WHERE key = ?1", [key])?;
-        tx.execute("DELETE FROM push_tickets WHERE device_key = ?1", [key])?;
-        tx.execute("DELETE FROM activity_tickets WHERE device_key = ?1", [key])?;
-        tx.execute("DELETE FROM kv WHERE k = ?1", [format!("{}{key}", crate::fork::idioma_app::APARELHO)])?;
+        let removed = remove_device_on(&tx, key)?;
         tx.commit()?;
-        Ok(n > 0)
+        Ok(removed)
     }
 
     /// Extends an account device's lease (the cloud still lists its grant).
@@ -225,6 +224,15 @@ impl Store {
         }
         tickets
     }
+}
+
+/// `remove_device` inside the caller's transaction.
+pub(crate) fn remove_device_on(c: &rusqlite::Connection, key: &str) -> Result<bool> {
+    let n = c.execute("DELETE FROM devices WHERE key = ?1", [key])?;
+    c.execute("DELETE FROM push_tickets WHERE device_key = ?1", [key])?;
+    c.execute("DELETE FROM activity_tickets WHERE device_key = ?1", [key])?;
+    c.execute("DELETE FROM kv WHERE k = ?1", [format!("{}{key}", crate::fork::idioma_app::APARELHO)])?;
+    Ok(n > 0)
 }
 
 #[cfg(test)]

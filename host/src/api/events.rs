@@ -83,6 +83,7 @@ pub fn events_stream(
     scoped_events_stream(hub, since, client, caller, None)
 }
 
+#[cfg(test)]
 pub fn scoped_events_stream(
     hub: &Arc<Hub>,
     since: i64,
@@ -90,7 +91,22 @@ pub fn scoped_events_stream(
     caller: &Caller,
     space: Option<&str>,
 ) -> Result<impl Stream<Item = Value> + Send + use<>> {
+    scoped_events_stream_at(hub, since, client, caller, space, None)
+}
+
+/// `workspace_epoch`: o que o cliente conhece; ausente é aceito por compatibilidade.
+pub fn scoped_events_stream_at(
+    hub: &Arc<Hub>,
+    since: i64,
+    client: Option<&str>,
+    caller: &Caller,
+    space: Option<&str>,
+    workspace_epoch: Option<u64>,
+) -> Result<impl Stream<Item = Value> + Send + use<>> {
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
+    let epoch = hub.workspace.atual();
+    crate::fork::workspace::conferir(epoch, workspace_epoch)?;
+    let workspace = crate::fork::workspace::contexto(hub, caller, epoch)?;
     let space = space.unwrap_or(crate::fork::spaces::PERSONAL).to_owned();
     hub.store.require_space(&space)?;
     let live = BroadcastStream::new(hub.events.subscribe());
@@ -122,6 +138,7 @@ pub fn scoped_events_stream(
     hello["spaceLifecycleContract"] = json!(1);
     hello["spaces"] = serde_json::to_value(hub.store.spaces()?)?;
     hello["conversations"] = serde_json::to_value(hub.store.space_conversations(&space)?)?;
+    hello["workspace"] = serde_json::to_value(&workspace)?;
     catch_up.insert(0, hello);
     let snapshot_hub = hub.clone();
     let snapshot_space = space.clone();
@@ -157,5 +174,5 @@ pub fn scoped_events_stream(
             }
         }
     });
-    Ok(head.chain(tail))
+    Ok(crate::fork::workspace::cortar(hub, epoch, workspace.workspace_id, head.chain(tail)))
 }

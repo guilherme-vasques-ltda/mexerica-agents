@@ -14,7 +14,9 @@ mod remote;
 
 #[cfg(test)]
 pub use events::events_stream;
-pub use events::{scoped_events_stream, term_events};
+#[cfg(test)]
+pub use events::scoped_events_stream;
+pub use events::{scoped_events_stream_at, term_events};
 #[cfg(unix)]
 pub(crate) use http::open_socket_router;
 pub use http::router;
@@ -68,7 +70,7 @@ pub fn error_status(e: &anyhow::Error) -> (StatusCode, String) {
         (StatusCode::NOT_FOUND, e.to_string())
     } else if e.is::<Forbidden>() {
         (StatusCode::FORBIDDEN, e.to_string())
-    } else if e.is::<crate::remote::cloud::Conflict>() {
+    } else if e.is::<crate::remote::cloud::Conflict>() || crate::fork::workspace::is_mismatch(e) {
         (StatusCode::CONFLICT, e.to_string())
     } else {
         // `{:#}` keeps the context chain ("starting `npx …`: No such file or directory").
@@ -85,6 +87,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
     crate::open_hub::check_request(method, &b)?;
     // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368.
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
+    let b = crate::fork::workspace::conferir_pedido(hub, b)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).
     crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b))).await
 }

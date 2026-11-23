@@ -121,7 +121,9 @@ pub(super) fn restore(hub: &Hub) -> Result<()> {
             f.applied = Some(Applied { record, lease, accepted });
             Ok(())
         })
-    })
+    })?;
+    crate::fork::workspace::observar_dono(hub, hub.cloud.status().owner.as_ref().map(|o| o.user_id.as_str()));
+    Ok(())
 }
 async fn receipt(hub: &Hub, id: &str, reconcile_same: bool) -> Result<()> {
     let body = ceremony::step(hub, id, |cfg, clock, s| {
@@ -342,6 +344,7 @@ pub(super) fn promote(
             Ok(())
         })
     })?;
+    crate::fork::workspace::observar_dono(hub, hub.cloud.status().owner.as_ref().map(|o| o.user_id.as_str()));
     hub.auth_changed();
     notify(hub);
     Ok(())

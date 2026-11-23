@@ -474,6 +474,8 @@ async fn revogacao_durante_a_espera_nao_grava() {
     };
     let before = profile(&hub.store);
     for revoke in [true, false] {
+        // Reconcessão de aparelho Local = novo pareamento por código, que libera o bloqueio da revogação.
+        crate::fork::workspace::liberar_pareamento_local(&hub.store, &device.key).unwrap();
         hub.store.put_device(&device).unwrap();
         let (_, caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
         let guard = hub.store.team_lock.clone().lock_owned().await;
@@ -718,6 +720,8 @@ async fn remocao_de_conector_revogada_na_espera_do_cofre_nao_grava() {
         last_seen_at: None,
     };
     for revoke in [true, false] {
+        // Reconcessão de aparelho Local = novo pareamento por código, que libera o bloqueio da revogação.
+        crate::fork::workspace::liberar_pareamento_local(&hub.store, &device.key).unwrap();
         hub.store.put_device(&device).unwrap();
         let (_, mac) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
         // Cofre trancado e desbloqueio em andamento por outra tarefa: o pedido espera.

@@ -311,7 +311,7 @@ struct Handshake {
 }
 
 async fn send_reject(out: &mpsc::Sender<Out>, code: RejectCode) {
-    let _ = out.send(Out::Msg(json!({"t": "reject", "code": code, "message": code.message()}))).await;
+    let _ = out.send(Out::Msg(reject(code))).await;
     let _ = out.send(Out::Close(code.close_code(), "rejected")).await;
 }
 
@@ -517,6 +517,21 @@ fn err(id: u64, status: u16, message: &str) -> Value {
     json!({"id": id, "err": {"status": status, "message": message}})
 }
 
+fn epoch_mismatch(id: u64) -> Value {
+    let mut response = err(id, 409, "workspace epoch changed; reload the workspace context");
+    response["err"]["code"] = crate::fork::workspace::EPOCH_MISMATCH.into();
+    response
+}
+
+/// `reject` with the legacy `code` and, when there is one, the stable code.
+fn reject(code: RejectCode) -> Value {
+    let mut reject = json!({"t": "reject", "code": code, "message": code.message()});
+    if let Some(stable) = crate::fork::workspace::codigo_estavel(code) {
+        reject["stableCode"] = stable.into();
+    }
+    reject
+}
+
 impl Channel {
     fn set_device(&mut self, d: &Device) {
         self.lease = match (d.source, d.lease_until) {
@@ -544,8 +559,7 @@ impl Channel {
                 // Gone from the table while connected: it was revoked.
                 let code = if code == RejectCode::Unauthorized { RejectCode::Revoked } else { code };
                 tracing::info!(device = self.key, ?code, "closing channel: device no longer authorized");
-                let reject = json!({"t": "reject", "code": code, "message": code.message()});
-                let _ = self.tx.send(ToDevice::Plain(reject)).await;
+                let _ = self.tx.send(ToDevice::Plain(reject(code))).await;
                 Err((code.close_code(), "rejected"))
             }
         }
@@ -558,6 +572,8 @@ impl Channel {
         writer: &mut tokio::task::JoinHandle<()>,
     ) -> CloseWith {
         let mut auth = self.hub.auth.subscribe();
+        let mut workspace = self.hub.workspace.assinar();
+        workspace.mark_unchanged();
         let rekey_at = Instant::now() + MAX_AGE;
         let mut vazao = tokio::time::interval(Duration::from_millis(50));
         loop {
@@ -588,6 +604,19 @@ impl Channel {
                     if let Err(close) = self.recheck().await {
                         return close;
                     }
+                }
+                changed = workspace.changed() => {
+                    if changed.is_err() {
+                        return (close::NORMAL, "");
+                    }
+                    // Revogação do próprio aparelho: o `reject` dele (device_revoked) vem primeiro.
+                    if let Err(close) = self.recheck().await {
+                        return close;
+                    }
+                    let epoca = *workspace.borrow_and_update();
+                    tracing::info!(device = self.key, epoch = epoca.valor, "closing channel: workspace epoch changed");
+                    let _ = self.tx.send(ToDevice::Plain(crate::fork::workspace::reject_canal(&epoca))).await;
+                    return (RejectCode::Revoked.close_code(), "rejected");
                 }
                 () = sleep_until(lease.unwrap_or(rekey_at)), if lease.is_some() => {
                     if let Err(close) = self.recheck().await {
@@ -763,18 +792,29 @@ impl Channel {
             None
         };
         let stream = match kind {
-            "events" => match api::scoped_events_stream(
-                &self.hub,
-                b["since"].as_i64().unwrap_or(0),
-                b["client"].as_str(),
-                &self.caller,
-                b["spaceId"].as_str(),
-            ) {
-                Ok(s) => s.boxed(),
-                Err(e) => {
-                    self.send(err(id, 500, &format!("{e:#}"))).await;
+            "events" => match b.get(crate::fork::workspace::EPOCH_FIELD).map(Value::as_u64) {
+                Some(None) => {
+                    self.send(epoch_mismatch(id)).await;
                     return;
                 }
+                epoch => match api::scoped_events_stream_at(
+                    &self.hub,
+                    b["since"].as_i64().unwrap_or(0),
+                    b["client"].as_str(),
+                    &self.caller,
+                    b["spaceId"].as_str(),
+                    epoch.flatten(),
+                ) {
+                    Ok(s) => crate::fork::workspace::sem_terminal(s).boxed(),
+                    Err(e) if crate::fork::workspace::is_mismatch(&e) => {
+                        self.send(epoch_mismatch(id)).await;
+                        return;
+                    }
+                    Err(e) => {
+                        self.send(err(id, 500, &format!("{e:#}"))).await;
+                        return;
+                    }
+                },
             },
             "term" => match api::term_events(&self.hub, b["term"].as_str().unwrap_or_default(), &self.caller) {
                 Ok(Some(stream)) => stream.boxed(),
@@ -940,8 +980,7 @@ impl Channel {
         };
         if !self.hub.pairing.locked().attempt(source) {
             let code = RejectCode::RateLimited;
-            let _ =
-                self.tx.send(ToDevice::Plain(json!({"t": "reject", "code": code, "message": code.message()}))).await;
+            let _ = self.tx.send(ToDevice::Plain(reject(code))).await;
             return (code.close_code(), "rateLimited");
         }
         if !self.hub.pairing.locked().redeem(b["code"].as_str().unwrap_or_default()) {
@@ -959,7 +998,10 @@ impl Channel {
             created_at: now_ms(),
             last_seen_at: None,
         };
-        if let Err(e) = self.hub.store.put_device(&device) {
+        // Código mostrado no próprio computador: a pessoa repareou esta chave.
+        if let Err(e) = crate::fork::workspace::liberar_pareamento_local(&self.hub.store, &self.key)
+            .and_then(|()| self.hub.store.put_device(&device))
+        {
             tracing::error!(error = format!("{e:#}"), "couldn't save a paired device");
             self.send(err(id, 500, "couldn't save this device")).await;
             return (close::NORMAL, "");
@@ -986,6 +1028,7 @@ mod tests {
     mod provas_navegador;
     mod provas_requisicao_expirada;
     mod provas_requisicoes;
+    mod provas_workspace;
 
     use observador_concessao::geracao_persistida;
 
