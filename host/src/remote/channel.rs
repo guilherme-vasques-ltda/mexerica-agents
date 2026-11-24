@@ -180,7 +180,7 @@ enum ToDevice {
 
 /// Owns the host → device counter: seals inner messages in order, stops at the first close.
 /// With a workspace barrier, each frame is checked against the epoch only after its transport
-/// slot is reserved: once the epoch moves, only the terminal `reject` and 4003 go out.
+/// slot is reserved: once the epoch moves, only the terminal goes out.
 async fn write_frames(
     mut sealer: Sealer,
     mut rx: mpsc::Receiver<ToDevice>,
@@ -234,9 +234,12 @@ fn sealed(sealer: &mut Sealer, bytes: &[u8]) -> (Vec<Out>, bool) {
 }
 
 async fn send_terminal(out: &mpsc::Sender<Out>, t: Terminal) {
-    if out.send(Out::Msg(t.reject)).await.is_ok() {
-        let _ = out.send(Out::Close(t.close, "rejected")).await;
+    if let Some(reject) = t.reject
+        && out.send(Out::Msg(reject)).await.is_err()
+    {
+        return;
     }
+    let _ = out.send(Out::Close(t.close, t.reason)).await;
 }
 
 // A slot has at most one live channel in this host process. Durable challenge CAS
@@ -285,6 +288,10 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         return;
     }
     let Transport { mut incoming, outgoing, porta } = t;
+    if hub.workspace.reconexao_limitada() {
+        send_reject(&outgoing, RejectCode::RateLimited).await;
+        return;
+    }
     let aviso = hub.workspace.assinar();
     let epoch = aviso.borrow().valor;
     let Some(hs) = handshake(&hub, &mut incoming, &outgoing, &kind).await else { return };
@@ -299,7 +306,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
             Caller::Device { autoridade: Some(a), .. } => a.geracao_capturada(),
             _ => None,
         };
-        Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch, prazo_rx, geracao)
+        Barreira::nova(hub.clone(), caller.clone(), aviso, epoch, prazo_rx, geracao)
     });
     let admissao = barreira.as_ref().and_then(Barreira::admissao);
     if let Some(barreira) = &barreira {
@@ -315,6 +322,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         Caller::Pairing { key: hs.key.clone() }
     };
     let mut ch = Channel {
+        porta,
         hub,
         tx,
         jobs: Arc::default(),
@@ -612,6 +620,7 @@ struct BrowserConn {
 }
 
 struct Channel {
+    porta: Porta,
     hub: Arc<Hub>,
     tx: mpsc::Sender<ToDevice>,
     jobs: Arc<Mutex<HashMap<u64, Job>>>,
@@ -771,6 +780,9 @@ impl Channel {
         }
         // Every request re-checks the device (revocation, lease) before it runs.
         self.recheck().await?;
+        if v["m"] == "hello" && v.get("sub").is_none() && v["b"]["corte"].as_u64() == Some(1) {
+            self.porta.anunciar_corte();
+        }
         let Some(caller) = self.sessao_do_pedido(id, &v).await? else { return Ok(()) };
         let browser = v["m"].as_str().filter(|m| browser_canal::METODOS.contains(m));
         // A classe da tabela vem antes das guardas próprias do navegador (escopo, Hub/Space/bot e sessão).

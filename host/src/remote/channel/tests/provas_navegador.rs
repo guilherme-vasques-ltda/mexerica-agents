@@ -164,7 +164,7 @@ async fn corte_antes_da_entrada_do_navegador_nao_entrega_intencao() {
         crate::fork::workspace::bump(&bump_hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
     });
     phone.send(json!({"id":2,"m":"browserStreamInput","b":entrada(&sessao, 1, 1)})).await;
-    assert_eq!(phone.recv().await.unwrap_err().0, 4003);
+    assert_eq!(phone.recv().await.unwrap_err(), (close::REKEY, Value::Null));
     assert!(reached.load(std::sync::atomic::Ordering::Acquire));
     timeout(Duration::from_secs(5), phone.run).await.unwrap().unwrap();
     assert!(!applied.load(std::sync::atomic::Ordering::Acquire));

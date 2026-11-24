@@ -29,6 +29,7 @@ async fn request_account_propria_expirada_fecha_sem_dados_apos_renovacao() {
     let admissao = barreira_workspace::Admissao::do_caller(&hub, &caller).unwrap();
     let (tx, mut rx) = mpsc::channel(1);
     let mut canal = Channel {
+        porta: Porta::default(),
         hub: hub.clone(),
         tx,
         jobs: Arc::default(),

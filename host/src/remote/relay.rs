@@ -365,8 +365,10 @@ impl Session {
         self.links.remove(link);
         self.outs.remove(link);
         if let Some(t) = self.portas.remove(link).and_then(|porta| porta.terminal()) {
-            self.send(&json!({"t": "data", "link": link, "m": t.reject})).await?;
-            return self.send(&json!({"t": "close", "link": link, "code": t.close, "reason": "rejected"})).await;
+            if let Some(reject) = t.reject {
+                self.send(&json!({"t": "data", "link": link, "m": reject})).await?;
+            }
+            return self.send(&json!({"t": "close", "link": link, "code": t.close, "reason": t.reason})).await;
         }
         self.send(&json!({"t": "close", "link": link, "code": code, "reason": reason})).await
     }
@@ -982,12 +984,10 @@ mod tests {
         }
         wait_for(&fake, |messages| messages.iter().any(|v| v["t"] == "close" && v["link"] == "full")).await;
         let sent: Vec<Value> = fake.from_host.lock().unwrap().iter().filter(|v| v["link"] == "full").cloned().collect();
-        assert_eq!(sent.len(), 2, "only the terminal leaves: {sent:?}");
-        assert_eq!(
-            (sent[0]["t"].as_str(), sent[0]["m"]["stableCode"].as_str()),
-            (Some("data"), Some("workspace_revoked"))
-        );
-        assert_eq!((sent[1]["t"].as_str(), sent[1]["code"].as_u64()), (Some("close"), Some(4003)));
+        assert_eq!(sent.len(), 1, "only the terminal leaves: {sent:?}");
+        assert_eq!(sent[0]["t"], "close");
+        assert_eq!(sent[0]["code"], 4011);
+        assert_eq!(sent[0]["reason"], "rekey");
     }
 
     #[tokio::test]
@@ -1036,12 +1036,10 @@ mod tests {
         assert_eq!(calm.len(), 1, "{calm:?}");
         assert_eq!((calm[0]["t"].as_str(), calm[0]["code"].as_u64()), (Some("close"), Some(u64::from(RATE_LIMITED))));
         let bumped = sent("bumped");
-        assert_eq!(bumped.len(), 2, "{bumped:?}");
-        assert_eq!(
-            (bumped[0]["t"].as_str(), bumped[0]["m"]["stableCode"].as_str()),
-            (Some("data"), Some("workspace_revoked"))
-        );
-        assert_eq!((bumped[1]["t"].as_str(), bumped[1]["code"].as_u64()), (Some("close"), Some(4003)));
+        assert_eq!(bumped.len(), 1, "{bumped:?}");
+        assert_eq!(bumped[0]["t"], "close");
+        assert_eq!(bumped[0]["code"], 4011);
+        assert_eq!(bumped[0]["reason"], "rekey");
         assert!(s.portas.is_empty());
     }
 

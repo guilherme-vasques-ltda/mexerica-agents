@@ -16,7 +16,9 @@ use futures::{Stream, StreamExt, stream};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 pub(crate) const METHOD: &str = "workspaceContext";
@@ -24,6 +26,7 @@ pub(crate) const METHOD: &str = "workspaceContext";
 pub(crate) const EPOCH_FIELD: &str = "workspaceEpoch";
 pub(crate) const EPOCH_MISMATCH: &str = "workspace_epoch_mismatch";
 const EPOCH_KEY: &str = "fork.workspace.epoch";
+pub(crate) const LIMITE_BUMPS_POR_MINUTO: usize = 8;
 /// Último dono observado: só detecta troca real de dono, não é vínculo.
 const OWNER_SEEN_KEY: &str = "fork.workspace.owner_seen";
 const UNBOUND: &str = "personal:unbound";
@@ -93,6 +96,7 @@ impl Epoca {
 pub(crate) struct Sinal {
     retrato: watch::Sender<Epoca>,
     marcas: AtomicU64,
+    bumps: std::sync::Mutex<VecDeque<Instant>>,
     /// Retenção do dono recebido e ainda não gravado: armada sob o lock do status Cloud antes de a
     /// troca ficar visível, e solta só depois de gravar.
     trava_dono: std::sync::Mutex<Option<TravaDono>>,
@@ -163,6 +167,13 @@ impl Drop for Marca<'_> {
                 self.sinal.retrato.send_if_modified(|e| {
                     let propria = soltar(e, id);
                     let subiu = avancar(e, epoch, motivo);
+                    if subiu {
+                        let mut bumps = self.sinal.bumps.locked();
+                        if bumps.len() == LIMITE_BUMPS_POR_MINUTO {
+                            bumps.pop_front();
+                        }
+                        bumps.push_back(Instant::now());
+                    }
                     let trocou = match dono {
                         Dono::Passa(novo) if e.dono != novo => {
                             e.dono = novo;
@@ -187,12 +198,18 @@ impl Sinal {
         Self {
             retrato: watch::Sender::new(Epoca { valor, motivo: None, dono: None, pendentes: vec![] }),
             marcas: AtomicU64::new(0),
+            bumps: std::sync::Mutex::default(),
             trava_dono: std::sync::Mutex::new(None),
         }
     }
 
     pub(crate) fn atual(&self) -> u64 {
         self.retrato.borrow().valor
+    }
+
+    pub(crate) fn reconexao_limitada(&self) -> bool {
+        let bumps = self.bumps.locked();
+        bumps.len() == LIMITE_BUMPS_POR_MINUTO && bumps.front().is_some_and(|t| t.elapsed() < Duration::from_secs(60))
     }
 
     pub(crate) fn retrato(&self) -> Epoca {
@@ -462,7 +479,7 @@ pub(crate) fn observar_dono(hub: &Hub) -> bool {
 
 /// Intervalo em que uma retenção do dono não gravado é tentada de novo, sem esperar outra
 /// mudança de status da nuvem.
-const REPETIR_DONO: std::time::Duration = std::time::Duration::from_secs(5);
+const REPETIR_DONO: Duration = Duration::from_secs(5);
 
 /// Repete a gravação do dono enquanto a saída estiver retida; ao soltar, os apps recebem o status.
 pub(crate) fn start(hub: &std::sync::Arc<Hub>) {
@@ -704,6 +721,7 @@ pub(crate) fn codigo_estavel(code: crate::api::devices::RejectCode) -> Option<&'
 }
 
 /// `reject` do `/channel` quando o epoch subiu com o canal aberto.
+#[cfg(test)]
 pub(crate) fn reject_canal(e: &Epoca) -> Value {
     use crate::api::devices::RejectCode;
     json!({
