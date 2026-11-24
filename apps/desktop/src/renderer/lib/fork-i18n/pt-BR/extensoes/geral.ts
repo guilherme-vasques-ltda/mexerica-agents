@@ -1,5 +1,12 @@
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "extensoes.motor.antigravityComputador": "Antigravity em {computador}",
+  "extensoes.motor.antigravityInstalacao": "Instale ou atualize o CLI oficial no computador acima. Use a versão compatível indicada abaixo.",
+  "extensoes.motor.antigravityVersao": "Baixar versão 1.5.15",
+  "extensoes.motor.antigravityGuia": "Instruções do Google",
+  "extensoes.motor.antigravityLoginLocal": "No terminal do computador acima, rode agy acp --login e siga as instruções do Google. A sessão fica no CLI; o app não recebe suas credenciais.",
+  "extensoes.motor.antigravityGemini": "Alternativa: chave de API do Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "Para automações, adicione uma chave do Google em Contas de IA → Chaves de API no computador que executará a rotina. Escolha Gemini no Motor Mexerica. Esse caminho não usa o login do Antigravity.",
   "extensoes.titulo": "Extensões",
   "extensoes.paginas": "Páginas de Extensões",
   "extensoes.voltar": "Voltar",
@@ -136,7 +143,8 @@ export const textos = {
   "extensoes.motor.adicionarNode": "Adicionar Node.js",
   "extensoes.motor.conferindoPrimeira": "Conferindo com {motor}… A primeira conferência pode baixá-lo.",
   "extensoes.terminal.dicaAntigravity": "Escolha Google OAuth, abra o link, entre e cole aqui o código. O login do agy não confirma o ACP.",
-  "extensoes.motor.antigravityInterativo": "Indisponível no app. Use o CLI oficial com sua conta em um cliente ACP interativo.",
+  "extensoes.motor.antigravityInterativo": "Uso pessoal: instale o CLI oficial e entre com agy acp --login. Escreva no chat por um aparelho autenticado do dono. Para automações, use uma chave Gemini/Vertex em um motor compatível ou escolha outro motor.",
+  "extensoes.motor.antigravityPermissoes": "O Antigravity pode agir sem mostrar um cartão de aprovação. O app só pode pedir sua aprovação quando o CLI envia o pedido pelo ACP.",
   "extensoes.terminal.dicaOpenCode": "Escolha o provedor com as setas e toque em Enter. Para OpenCode Go, prefira a chave no cofre.",
   "extensoes.terminal.dicaGrok": "Abra o link em seu navegador e confirme o código de aparelho.",
   "extensoes.terminal.dicaCursor": "Abra o link em seu navegador. A conferência do login é automática.",

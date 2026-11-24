@@ -45,6 +45,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.memoriaMotor.ondeVer': 'Mexerica no puede mostrarlas; míralas en el propio {motor}.',
   'marca.memoriaMotor.separadas': '{motor} guarda notas separadas de la memoria de Mexerica. Viene desactivado, para que el bot tenga una sola memoria y puedas ver y editar todo aquí.',
   'marca.hub.configurar': 'Mexerica se conecta al Hub, el servicio en segundo plano que ejecuta tus bots.',
+  'marca.hub.instalacaoAssistidaLinuxIndisponivel': 'La instalación asistida del Hub no está disponible en la aplicación para Linux.',
   'marca.hub.semHub': 'Esta copia de Mexerica no incluye el programa que ejecuta los bots. Instala Mexerica de nuevo.',
   'marca.hub.devSemHub': 'Vuelve a compilar Mexerica Dev con el Hub de desarrollo y ábrela otra vez.',
   'marca.hub.ambiente': 'Esta app {app} encontró un Hub de {ambiente}. Inicia el Hub correspondiente en su propio puerto.',

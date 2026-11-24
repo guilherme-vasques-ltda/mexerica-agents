@@ -175,7 +175,7 @@ pub(crate) async fn respond(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     {
         return Ok(json!({}));
     }
-    if entry.kind != "permission" || entry.data["status"] != "pending" {
+    if entry.kind != "permission" || entry.data["status"] != "pending" || hub.store.expiration_failed(entry_id) {
         bail!("Este cartão não está mais pendente. Confira a conversa antes de responder.");
     }
     if revision != entry.rev {

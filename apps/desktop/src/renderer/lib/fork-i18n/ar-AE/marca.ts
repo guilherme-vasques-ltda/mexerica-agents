@@ -45,6 +45,7 @@ export const textos: Traducao<typeof fonte> = {
   'marca.memoriaMotor.ondeVer': 'لا تستطيع Mexerica عرضها؛ اطّلع عليها في {motor} نفسه.',
   'marca.memoriaMotor.separadas': 'يحتفظ {motor} بملاحظات منفصلة عن ذاكرة Mexerica. يبدأ هذا متوقفًا، ليكون للروبوت ذاكرة واحدة وتستطيع رؤية كل شيء وتعديله هنا.',
   'marca.hub.configurar': 'تتصل Mexerica بالـ Hub، الخدمة التي تعمل في الخلفية وتشغّل روبوتاتك.',
+  'marca.hub.instalacaoAssistidaLinuxIndisponivel': 'التثبيت المساعد لـ Hub غير متاح في تطبيق Linux.',
   'marca.hub.semHub': 'لا تتضمن هذه النسخة من Mexerica البرنامج الذي يشغّل البوتات. أعد تثبيت Mexerica.',
   'marca.hub.devSemHub': 'أعد بناء Mexerica Dev مع Hub التطوير وافتحها مرة أخرى.',
   'marca.hub.ambiente': 'وجد تطبيق {app} هذا Hub من {ambiente}. شغّل الـ Hub المطابق على منفذه الخاص.',

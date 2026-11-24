@@ -1,0 +1,98 @@
+name: Mobile
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'apps/mobile/**'
+      - 'docs/reference/fixtures/remote-relay-vectors.json'
+      - '.github/workflows/mobile.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  android:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Conferir origem da execução
+        shell: bash
+        env:
+          REPO_PRIVATE: ${{ toJSON(github.event.repository.private) }}
+        run: |
+          test "$REPO_PRIVATE" = false || { echo '::error::A CI mobile exige um repositório público.'; exit 1; }
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo '::error::O disparo manual só roda a partir da main.'
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Testes unitários e build de debug do Android
+        working-directory: apps/mobile/android
+        shell: bash
+        run: |
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 ausente na imagem}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          ./gradlew :core:test :design:test :app:testDebugUnitTest :app:assembleDebug --no-daemon
+
+  ios:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Conferir origem da execução
+        shell: bash
+        env:
+          REPO_PRIVATE: ${{ toJSON(github.event.repository.private) }}
+        run: |
+          test "$REPO_PRIVATE" = false || { echo '::error::A CI mobile exige um repositório público.'; exit 1; }
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo '::error::O disparo manual só roda a partir da main.'
+            exit 1
+          fi
+      - name: Conferir o Xcode 26
+        shell: bash
+        run: |
+          version=$(xcodebuild -version)
+          printf '%s\n' "$version"
+          [[ "$version" == 'Xcode 26.'* ]] || { echo '::error::A CI de iOS exige Xcode 26.'; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Gerar o projeto com XcodeGen 2.48.0
+        shell: bash
+        working-directory: apps/mobile
+        run: |
+          archive="$RUNNER_TEMP/xcodegen.zip"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.48.0/xcodegen.zip -o "$archive"
+          printf '620c9f0dc10849f94728ab5df52d225ebab8187439dd6fee1925e59e80dff892  %s\n' "$archive" | shasum -a 256 --check
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" generate --spec project.yml
+      - name: Compilar o app para o simulador sem assinatura
+        working-directory: apps/mobile
+        run: |
+          xcodebuild -project MexericaMobile.xcodeproj -scheme 'iOS Dev' \
+            -configuration DevDebug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Rodar os testes unitários do Kit no simulador
+        working-directory: apps/mobile/ios/Kit
+        run: |
+          xcodebuild -list
+          xcodebuild test -scheme CodyncKit-Package -only-testing:CodyncKitTests \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
+            -parallel-testing-enabled NO

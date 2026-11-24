@@ -9,8 +9,9 @@ use ashpd::desktop::remote_desktop::{DeviceType, RemoteDesktop, SelectDevicesOpt
 use ashpd::desktop::screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType};
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -65,7 +66,14 @@ impl Portal {
     pub async fn start(data: &Path, restore: bool) -> Result<Self> {
         let token_file = data.join("screen-restore-token");
         let token = if restore {
-            std::fs::read_to_string(&token_file).ok()
+            if let Ok(token) = read_token(&token_file) {
+                Some(token)
+            } else {
+                tracing::warn!(
+                    "Automatic restoration unavailable; the portal will request permission again. Restoration requires a private, regular state directory."
+                );
+                None
+            }
         } else {
             None
         };
@@ -199,11 +207,344 @@ impl Portal {
     }
 }
 
-fn save_token(path: &PathBuf, token: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    if let Err(error) = std::fs::write(path, token) {
-        tracing::warn!(%error, "couldn't save the portal restore token");
-        return;
+fn save_token(path: &Path, token: &str) {
+    let result = save_token_atomically(path, |file| file.write_all(token.as_bytes()));
+    if let Err(error) = result {
+        tracing::warn!(error = %error, "couldn't save the portal restore token");
     }
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
+fn read_token(path: &Path) -> Result<String> {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags, fstat, openat, statat};
+    use std::io::Read;
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("token path has no parent"))?;
+    let parent_fd = openat(
+        rustix::fs::CWD,
+        parent,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )?;
+    let parent_metadata = fstat(&parent_fd)?;
+    if FileType::from_raw_mode(parent_metadata.st_mode) != FileType::Directory
+        || parent_metadata.st_uid != rustix::process::geteuid().as_raw()
+        || parent_metadata.st_mode & 0o022 != 0
+        || parent_metadata.st_mode & 0o700 != 0o700
+    {
+        return Err(anyhow!("token directory is not privately controlled"));
+    }
+    let filename = path
+        .file_name()
+        .ok_or_else(|| anyhow!("invalid token file name"))?;
+    let metadata = statat(&parent_fd, filename, AtFlags::SYMLINK_NOFOLLOW)?;
+    if FileType::from_raw_mode(metadata.st_mode) != FileType::RegularFile
+        || metadata.st_uid != rustix::process::geteuid().as_raw()
+        || metadata.st_nlink != 1
+    {
+        return Err(anyhow!("token path is not a private regular owned file"));
+    }
+    let fd = openat(
+        &parent_fd,
+        filename,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        Mode::empty(),
+    )?;
+    let opened = fstat(&fd)?;
+    if opened.st_dev != metadata.st_dev
+        || opened.st_ino != metadata.st_ino
+        || opened.st_uid != metadata.st_uid
+        || opened.st_nlink != 1
+        || FileType::from_raw_mode(opened.st_mode) != FileType::RegularFile
+        || opened.st_mode & 0o077 != 0
+    {
+        return Err(anyhow!("token path changed during validation"));
+    }
+    let mut token = String::new();
+    std::fs::File::from(fd).read_to_string(&mut token)?;
+    Ok(token)
+}
+
+fn save_token_atomically<F>(path: &Path, write: F) -> Result<()>
+where
+    F: FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+{
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags, fstat, openat, renameat, unlinkat};
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("token path has no parent"))?;
+    let owner = rustix::process::geteuid().as_raw();
+    let parent_file = openat(
+        rustix::fs::CWD,
+        parent,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )?;
+    let parent_metadata = fstat(&parent_file)?;
+    if FileType::from_raw_mode(parent_metadata.st_mode) != FileType::Directory
+        || parent_metadata.st_uid != owner
+        || parent_metadata.st_mode & 0o022 != 0
+        || parent_metadata.st_mode & 0o700 != 0o700
+    {
+        return Err(anyhow!("token directory is not privately controlled"));
+    }
+    let filename = path
+        .file_name()
+        .ok_or_else(|| anyhow!("invalid token file name"))?;
+    validate_existing_token(&parent_file, filename, owner)?;
+
+    let (temp_name, mut file) = loop {
+        let candidate = format!(
+            ".screen-restore-{}-{}.tmp",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        );
+        match openat(
+            &parent_file,
+            candidate.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW,
+            Mode::from_raw_mode(0o600),
+        ) {
+            Ok(fd) => break (candidate, std::fs::File::from(fd)),
+            Err(rustix::io::Errno::EXIST) => (),
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let result = (|| -> Result<()> {
+        write(&mut file)?;
+        file.flush()?;
+        file.sync_all()?;
+        validate_existing_token(&parent_file, filename, owner)?;
+        // Publish in the validated directory, not whatever the path names now.
+        // This does not detect a change to the path's directory entry.
+        renameat(&parent_file, temp_name.as_str(), &parent_file, filename)?;
+        rustix::fs::fsync(&parent_file)?;
+        Ok(())
+    })();
+    drop(file);
+    if result.is_err() {
+        let _ = unlinkat(&parent_file, temp_name.as_str(), AtFlags::empty());
+    }
+    result
+}
+
+fn validate_existing_token<Fd: std::os::fd::AsFd>(
+    parent: &Fd,
+    filename: &std::ffi::OsStr,
+    owner: u32,
+) -> Result<()> {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags, fstat, openat, statat};
+
+    match statat(parent, filename, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(metadata)
+            if FileType::from_raw_mode(metadata.st_mode) == FileType::RegularFile
+                && metadata.st_uid == owner
+                && metadata.st_nlink == 1 =>
+        {
+            let fd = openat(
+                parent,
+                filename,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+                Mode::empty(),
+            )?;
+            let opened = fstat(&fd)?;
+            if opened.st_dev != metadata.st_dev
+                || opened.st_ino != metadata.st_ino
+                || opened.st_uid != owner
+                || opened.st_nlink != 1
+                || FileType::from_raw_mode(opened.st_mode) != FileType::RegularFile
+            {
+                return Err(anyhow!("token path changed during validation"));
+            }
+            Ok(())
+        }
+        Ok(_) => Err(anyhow!("token path is not a private regular owned file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::{read_token, save_token, save_token_atomically};
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+
+    #[test]
+    fn publication_preserves_private_file_and_cleans_temporary_file() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("fixture timestamp")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "screen-publication-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&dir)
+            .expect("create private fixture directory");
+        let destination = dir.join("fixture");
+        let assert_published_file = |expected: &str| {
+            assert_eq!(read_token(&destination).expect("read fixture"), expected);
+            let metadata = std::fs::metadata(&destination).expect("read fixture metadata");
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+            let entries: Vec<_> = std::fs::read_dir(&dir)
+                .expect("read fixture directory")
+                .map(|entry| entry.expect("read fixture entry").path())
+                .collect();
+            assert_eq!(entries.as_slice(), std::slice::from_ref(&destination));
+        };
+
+        save_token_atomically(&destination, |file| file.write_all(b"published"))
+            .expect("publish fixture");
+        assert_published_file("published");
+        save_token_atomically(&destination, |file| file.write_all(b"renewed"))
+            .expect("renew fixture");
+        assert_published_file("renewed");
+
+        let failure = save_token_atomically(&destination, |file| {
+            file.write_all(b"partial")?;
+            Err(std::io::Error::other("fixture writer failed"))
+        })
+        .expect_err("reject failed writer");
+        assert_eq!(failure.to_string(), "fixture writer failed");
+        assert_published_file("renewed");
+
+        let non_private = dir.join("writable");
+        std::fs::create_dir(&non_private).expect("create separate fixture directory");
+        std::fs::set_permissions(&non_private, std::fs::Permissions::from_mode(0o770))
+            .expect("make fixture directory group-writable");
+        let refused_destination = non_private.join("fixture");
+        let failure = save_token_atomically(&refused_destination, |_| {
+            panic!("writer must not run for a non-private directory");
+        })
+        .expect_err("reject non-private directory");
+        assert_eq!(
+            failure.to_string(),
+            "token directory is not privately controlled"
+        );
+        let failure = read_token(&refused_destination).expect_err("reject non-private directory");
+        assert_eq!(
+            failure.to_string(),
+            "token directory is not privately controlled"
+        );
+        assert!(
+            std::fs::read_dir(&non_private)
+                .expect("read non-private fixture directory")
+                .next()
+                .is_none()
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove private fixture directory");
+    }
+
+    #[test]
+    fn restore_token_is_private_and_never_follows_links() {
+        let dir = std::env::temp_dir().join(format!("screen-token-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&dir)
+            .expect("create synthetic token fixture");
+        let path = dir.join("token");
+        save_token_atomically(&path, |file| file.write_all(b"synthetic-token"))
+            .expect("create private token");
+        let metadata = std::fs::symlink_metadata(&path).expect("read token fixture metadata");
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read token fixture"),
+            "synthetic-token"
+        );
+
+        let updated = dir.join("updated");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&updated)
+            .expect("create previous token fixture")
+            .write_all(b"previous-token")
+            .expect("write previous token fixture");
+        save_token(&updated, "replacement-token");
+        assert_eq!(
+            std::fs::metadata(&updated)
+                .expect("read updated token metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::read_to_string(&updated).expect("read updated token fixture"),
+            "replacement-token"
+        );
+
+        let target = dir.join("target");
+        std::fs::write(&target, "unchanged").expect("create synthetic target");
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&target, &link).expect("create synthetic symlink");
+        save_token_atomically(&link, |file| file.write_all(b"must-not-follow"))
+            .expect_err("refuse symlink");
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("read synthetic target"),
+            "unchanged"
+        );
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .expect("inspect synthetic link")
+                .file_type()
+                .is_symlink()
+        );
+
+        let existing = dir.join("existing");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&existing)
+            .expect("create existing fixture")
+            .write_all(b"preserve")
+            .expect("write existing fixture");
+        save_token_atomically(&existing, |file| file.write_all(b"must-not-truncate"))
+            .expect("replace owned regular token");
+        assert_eq!(
+            std::fs::read_to_string(&existing).expect("read existing fixture"),
+            "must-not-truncate"
+        );
+
+        let hardlink = dir.join("hardlink");
+        std::fs::hard_link(&existing, &hardlink).expect("create synthetic hardlink");
+        save_token_atomically(&hardlink, |file| {
+            file.write_all(b"must-not-replace-linked-file")
+        })
+        .expect_err("refuse a multiply linked token target");
+        assert_eq!(
+            std::fs::read_to_string(&existing).expect("read linked token fixture"),
+            "must-not-truncate"
+        );
+
+        let failed = dir.join("failed");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&failed)
+            .expect("create prior token")
+            .write_all(b"old-token")
+            .expect("write prior token");
+        save_token_atomically(&failed, |_| Err(std::io::Error::other("synthetic failure")))
+            .expect_err("preserve old token on write failure");
+        assert_eq!(
+            std::fs::read_to_string(&failed).expect("read prior token"),
+            "old-token"
+        );
+
+        std::fs::remove_dir_all(&dir).expect("remove synthetic token fixture");
+    }
 }

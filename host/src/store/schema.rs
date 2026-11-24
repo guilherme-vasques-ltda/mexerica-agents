@@ -281,6 +281,7 @@ impl Store {
                 path.parent().unwrap_or_else(|| Path::new(".")).join("mexeriquinhas").join("gerados")
             },
             db: super::mutex_observado::ObservedMutex::new(c),
+            unexpired_entries: Mutex::default(),
             team_lock: Arc::new(tokio::sync::Mutex::new(())),
             connector_lock: Mutex::new(()),
             memory_boundary: Mutex::new(()),

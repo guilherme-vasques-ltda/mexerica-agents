@@ -11,12 +11,17 @@ use super::link::Link;
 use super::mcp_host::McpHost;
 use super::tools::ToolRunner;
 use super::*;
-use crate::agent::acp::{Acp, Answer, Incoming};
+#[cfg(target_os = "linux")]
+use crate::agent::acp::Answer;
+use crate::agent::acp::{Acp, Incoming};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(target_os = "linux")]
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 macro_rules! caso {
@@ -33,11 +38,14 @@ macro_rules! caso {
     }};
 }
 
+#[cfg(target_os = "linux")]
 const SEGREDO: &str = "mexerica-teste-chave-do-adaptador";
+#[cfg(target_os = "linux")]
 const SERVIDOR_MCP: &str = tests_tools::SERVIDOR_MCP;
 
 /// O mesmo servidor, mas anotando cada `tools/call` num arquivo: prova de que
 /// o cartão negado nunca deixa a chamada chegar ao servidor.
+#[cfg(target_os = "linux")]
 fn servidor_marcado(marca: &Path) -> String {
     format!(
         r"
@@ -73,6 +81,7 @@ fn acp_motor_de(store: Arc<Store>, bot: &str) -> (Arc<Acp>, mpsc::UnboundedRecei
 
 /// Trata um item da fila `Incoming` como o bot faz: responde a permissão com
 /// `allow`/`deny` e acumula os `session/update`.
+#[cfg(target_os = "linux")]
 async fn tratar(acp: &Arc<Acp>, inc: Incoming, allow: bool, updates: &mut Vec<Value>, permissions: &mut usize) {
     match inc {
         Incoming::Request { id, method, params } if method == "session/request_permission" => {
@@ -98,6 +107,7 @@ async fn tratar(acp: &Arc<Acp>, inc: Incoming, allow: bool, updates: &mut Vec<Va
 /// responder ao `session/prompt`, mas o `select!` pode ver a resposta pronta
 /// antes de ver a fila. Por isso, depois da resposta, a fila é drenada até
 /// esvaziar — o mesmo que o bot faz antes de fechar o turno (`bot/mod.rs`).
+#[cfg(target_os = "linux")]
 async fn dirigir(
     acp: &Arc<Acp>,
     answer: Answer,
@@ -124,10 +134,12 @@ async fn dirigir(
     (result.unwrap(), updates, permissions)
 }
 
+#[cfg(target_os = "linux")]
 async fn sessao(acp: &Arc<Acp>, case: &crate::fork::motor_exec::test_support::Case) -> String {
     sessao_com(acp, case, SERVIDOR_MCP).await
 }
 
+#[cfg(target_os = "linux")]
 async fn sessao_com(acp: &Arc<Acp>, case: &crate::fork::motor_exec::test_support::Case, servidor: &str) -> String {
     let script = case.dir.join("servidor.mjs");
     std::fs::write(&script, servidor).unwrap();
@@ -148,6 +160,7 @@ async fn sessao_com(acp: &Arc<Acp>, case: &crate::fork::motor_exec::test_support
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn turno_com_ferramenta_do_hub_ida_e_volta_pelo_cartao() {
     let case = caso!("turno_com_ferramenta_do_hub_ida_e_volta_pelo_cartao");
     let store = novo_store();
@@ -208,6 +221,7 @@ async fn turno_com_ferramenta_do_hub_ida_e_volta_pelo_cartao() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn permissao_negada_volta_como_erro_da_ferramenta() {
     let case = caso!("permissao_negada_volta_como_erro_da_ferramenta");
     let marca = case.dir.join("tools-call");
@@ -242,6 +256,7 @@ async fn permissao_negada_volta_como_erro_da_ferramenta() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn cancelar_o_turno_mata_o_processo_do_motor() {
     let case = caso!("cancelar_o_turno_mata_o_processo_do_motor");
     let (acp, mut rx) = acp_motor(novo_store());
@@ -293,6 +308,7 @@ async fn cancelar_o_turno_mata_o_processo_do_motor() {
 // ---------------------------------------------------------------------------
 
 /// Espera o processo morrer de fato (some de `/proc` ou vira zumbi).
+#[cfg(target_os = "linux")]
 async fn esperar_morto(pid: u32) {
     let prazo = Instant::now() + Duration::from_secs(10);
     loop {
@@ -307,12 +323,14 @@ async fn esperar_morto(pid: u32) {
 }
 
 /// SIGKILL no motor (OOM, falha do SDK) e espera ele morrer.
+#[cfg(target_os = "linux")]
 async fn matar_o_motor(pid: u32) {
     // SAFETY: `kill` com pid de um filho nosso e um sinal válido.
     assert_eq!(unsafe { libc::kill(i32::try_from(pid).unwrap(), libc::SIGKILL) }, 0);
     esperar_morto(pid).await;
 }
 
+#[cfg(target_os = "linux")]
 fn texto_do_turno(updates: &[Value]) -> String {
     updates
         .iter()
@@ -321,6 +339,7 @@ fn texto_do_turno(updates: &[Value]) -> String {
         .collect()
 }
 
+#[cfg(target_os = "linux")]
 async fn turno_de_texto(
     acp: &Arc<Acp>,
     rx: &mut mpsc::UnboundedReceiver<Incoming>,
@@ -336,6 +355,7 @@ async fn turno_de_texto(
 }
 
 /// Espera o pedido de permissão do turno (o turno fica pendurado nele).
+#[cfg(target_os = "linux")]
 async fn esperar_pedido(rx: &mut mpsc::UnboundedReceiver<Incoming>) -> Value {
     let prazo = Duration::from_secs(30);
     tokio::time::timeout(prazo, async {
@@ -352,6 +372,7 @@ async fn esperar_pedido(rx: &mut mpsc::UnboundedReceiver<Incoming>) -> Value {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn motor_que_cai_e_reaberto_no_proximo_turno() {
     let case = caso!("motor_que_cai_e_reaberto_no_proximo_turno");
     let store = novo_store();
@@ -400,6 +421,7 @@ async fn motor_que_cai_e_reaberto_no_proximo_turno() {
 
 /// Pergunta ao provedor falso o que ele recebeu: o texto de cada mensagem de
 /// usuário da conversa, na ordem (`/historico`).
+#[cfg(target_os = "linux")]
 async fn historico_visto(acp: &Arc<Acp>, rx: &mut mpsc::UnboundedReceiver<Incoming>, sid: &str) -> String {
     let (result, updates) = turno_de_texto(acp, rx, sid, "/historico").await;
     assert_eq!(result["stopReason"], "end_turn", "{result}");
@@ -409,6 +431,7 @@ async fn historico_visto(acp: &Arc<Acp>, rx: &mut mpsc::UnboundedReceiver<Incomi
 /// A conversa é do Hub, não do processo do motor. Cancelar o turno
 /// mata o processo, e o próximo turno tem de seguir a mesma conversa.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn conversa_sobrevive_ao_cancelamento_do_turno() {
     let case = caso!("conversa_sobrevive_ao_cancelamento_do_turno");
     let (acp, mut rx) = acp_motor(novo_store());
@@ -437,6 +460,7 @@ async fn conversa_sobrevive_ao_cancelamento_do_turno() {
 
 /// Trocar de provedor sobe outro processo, e a conversa vai junto.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn conversa_sobrevive_a_troca_de_provedor() {
     let case = caso!("conversa_sobrevive_a_troca_de_provedor");
     let store = novo_store();
@@ -457,6 +481,7 @@ async fn conversa_sobrevive_a_troca_de_provedor() {
 /// `session/set_model` recusado pelo motor derruba o processo em vez de
 /// deixar no slot um processo com a conversa de comandos dessincronizada.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro() {
     let case = caso!("set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outro");
     let store = novo_store();
@@ -484,6 +509,7 @@ async fn set_model_que_falha_descarta_o_processo_e_a_proxima_tentativa_abre_outr
 
 /// O processo cai (OOM, SIGKILL) entre dois turnos e no meio de um.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn conversa_sobrevive_a_queda_do_motor() {
     let case = caso!("conversa_sobrevive_a_queda_do_motor");
     let (acp, mut rx) = acp_motor(novo_store());
@@ -513,6 +539,7 @@ async fn conversa_sobrevive_a_queda_do_motor() {
 /// Trocar de modelo no app FECHA a conexão e o bot abre outra, com o
 /// mesmo id de sessão (session/load). A conversa tem de estar lá, no motor novo, mesmo em outro provedor.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn conversa_volta_por_session_load_quando_a_conexao_fecha() {
     let case = caso!("conversa_volta_por_session_load_quando_a_conexao_fecha");
     let store = novo_store();
@@ -542,6 +569,7 @@ async fn conversa_volta_por_session_load_quando_a_conexao_fecha() {
 /// cópia (não dá para provar que a chave nova é da mesma conta); a outra conversa do mesmo bot, que só passou por
 /// outro provedor, segue intacta.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn credencial_trocada_no_cofre_recomeca_so_a_conversa_do_provedor_afetado() {
     let case = caso!("credencial_trocada_no_cofre_recomeca_so_a_conversa_do_provedor_afetado");
     let store = novo_store();
@@ -575,6 +603,7 @@ async fn credencial_trocada_no_cofre_recomeca_so_a_conversa_do_provedor_afetado(
 
 /// Sem como proteger a conversa (chave curta demais para achar no texto), ela não é guardada.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn chave_curta_demais_para_proteger_nao_guarda_a_conversa() {
     let case = caso!("chave_curta_demais_para_proteger_nao_guarda_a_conversa");
     let store = novo_store();
@@ -591,6 +620,7 @@ async fn chave_curta_demais_para_proteger_nao_guarda_a_conversa() {
 
 /// O cofre falhou ao ler uma chave que a proteção precisa; a conversa não é guardada (o erro não vira "sem chaves").
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn cofre_ilegivel_para_proteger_nao_guarda_a_conversa() {
     let case = caso!("cofre_ilegivel_para_proteger_nao_guarda_a_conversa");
     let store = novo_store();
@@ -611,6 +641,7 @@ async fn cofre_ilegivel_para_proteger_nao_guarda_a_conversa() {
 /// A chave de um endereço próprio REGISTRADO que não é o provedor desta conversa também sai do texto antes de a
 /// conversa ser guardada: a leitura de proteção cobre todos os endereços do cofre, não só o desta sessão.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn chave_de_outro_endereco_proprio_sai_do_texto_guardado() {
     let case = caso!("chave_de_outro_endereco_proprio_sai_do_texto_guardado");
     let store = novo_store();
@@ -637,6 +668,7 @@ async fn chave_de_outro_endereco_proprio_sai_do_texto_guardado() {
 /// ESCOLHER um endereço próprio com a conversa vazia não o marca como recebedor: a conversa que nascer depois
 /// em outro provedor não segue para ele — só um turno lá entrega a conversa.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn escolher_endereco_proprio_com_conversa_vazia_nao_o_marca_recebedor() {
     let case = caso!("escolher_endereco_proprio_com_conversa_vazia_nao_o_marca_recebedor");
     let pedaco = |delta: Value, fim: Value| {
@@ -698,6 +730,7 @@ async fn escolher_endereco_proprio_com_conversa_vazia_nao_o_marca_recebedor() {
 /// Se a troca para um endereço próprio falhar no `set_model`, a conversa que já existia no provedor anterior
 /// continua intacta — o recomeço só é efetivado quando o candidato é aceito.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn trocar_para_endereco_proprio_que_falha_no_set_model_preserva_a_conversa_anterior() {
     let case = caso!("trocar_para_endereco_proprio_que_falha_no_set_model_preserva_a_conversa_anterior");
     let pedaco = |delta: Value, fim: Value| {
@@ -752,6 +785,7 @@ async fn trocar_para_endereco_proprio_que_falha_no_set_model_preserva_a_conversa
 
 /// Turno cancelado antes de entregar qualquer evento no endereço próprio não o marca como recebedor.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn turno_cancelado_antes_de_entregar_nao_marca_endereco_proprio_recebedor() {
     let case = caso!("turno_cancelado_antes_de_entregar_nao_marca_endereco_proprio_recebedor");
     let pedaco = |delta: Value, fim: Value| {
@@ -816,6 +850,7 @@ async fn turno_cancelado_antes_de_entregar_nao_marca_endereco_proprio_recebedor(
 /// O índice dos endereços está CORROMPIDO no cofre: índice ausente é lista vazia, mas índice ilegível é erro —
 /// a conversa não é guardada sem saber quais chaves a proteção precisa mascarar.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn indice_de_enderecos_corrompido_nao_guarda_a_conversa() {
     let case = caso!("indice_de_enderecos_corrompido_nao_guarda_a_conversa");
     let store = novo_store();
@@ -837,6 +872,7 @@ async fn indice_de_enderecos_corrompido_nao_guarda_a_conversa() {
 /// Sem conseguir listar os endereços próprios, a proteção não presume "sem chaves": a conversa não é guardada,
 /// como em qualquer leitura do cofre que falha.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn falha_ao_listar_os_enderecos_proprios_nao_guarda_a_conversa() {
     let case = caso!("falha_ao_listar_os_enderecos_proprios_nao_guarda_a_conversa");
     let store = novo_store();
@@ -873,6 +909,7 @@ fn credencial_servida_e_presa_a_geracao_autorizada() {
 /// A proteção falha DEPOIS de já haver conversa guardada e processo vivo: a decisão vem antes de restaurar, então nem a
 /// cópia antiga nem o contexto do processo vivo chegam ao turno, e nada do turno sem proteção é guardado.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn cofre_que_falha_depois_de_guardar_descarta_a_copia_e_o_motor_vivo() {
     let case = caso!("cofre_que_falha_depois_de_guardar_descarta_a_copia_e_o_motor_vivo");
     let ok = store_vault(novo_store());
@@ -904,6 +941,7 @@ async fn cofre_que_falha_depois_de_guardar_descarta_a_copia_e_o_motor_vivo() {
 
 /// O cancelamento que chega enquanto o processo novo recebe a conversa também para o turno.
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn cancelar_durante_a_retomada_da_conversa_para_o_turno() {
     let case = caso!("cancelar_durante_a_retomada_da_conversa_para_o_turno");
     let (acp, mut rx) = acp_motor(novo_store());
@@ -950,6 +988,7 @@ async fn cancelar_durante_a_retomada_da_conversa_para_o_turno() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn kill_and_wait_cancela_o_turno_em_andamento() {
     let case = caso!("kill_and_wait_cancela_o_turno_em_andamento");
     let (acp, mut rx) = acp_motor(novo_store());
@@ -1007,6 +1046,7 @@ async fn flag_desligada_nao_abre_servidor_mcp_na_sessao() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn falha_ao_abrir_o_mcp_recusa_a_sessao_em_vez_de_calar() {
     let case = caso!("falha_ao_abrir_o_mcp_recusa_a_sessao_em_vez_de_calar");
     let (acp, _rx) = acp_motor(novo_store());
@@ -1186,6 +1226,7 @@ async fn definicao_curada_ou_com_outro_executavel_sai_como_conector() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu() {
     let case = caso!("conversa_nao_segue_para_um_endereco_proprio_que_nao_a_recebeu");
     let pedaco = |delta: Value, fim: Value| {
@@ -1299,6 +1340,7 @@ async fn servidor_de_terceiro_chamado_memory_nunca_e_negociado_nem_relistado() {
 }
 
 /// Servidor `memory` de mentira cujo `browser_status` nunca responde (a negociação v3 fica pendurada).
+#[cfg(target_os = "linux")]
 const SERVIDOR_MEMORY_PENDURADO: &str = r"
 import readline from 'node:readline';
 const rl = readline.createInterface({ input: process.stdin });
@@ -1313,6 +1355,7 @@ rl.on('line', (line) => {
 ";
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno() {
     let case = caso!("cancelar_durante_a_negociacao_do_navegador_nao_inicia_o_turno");
     let script = case.dir.join("memory-pendurado.mjs");
@@ -1486,6 +1529,7 @@ async fn pagina_malformada_e_erro_e_preserva_o_catalogo_anterior() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn parada_que_chega_durante_o_preparo_do_motor_nao_envia_o_prompt() {
     let case = caso!("parada_que_chega_durante_o_preparo_do_motor_nao_envia_o_prompt");
     let (acp, mut rx) = acp_motor(novo_store());
@@ -1537,10 +1581,13 @@ async fn falha_da_consulta_v3_nao_publica_as_ferramentas_de_pagina() {
     assert_eq!(depois, antes, "a listagem de uma ponte sem negociação confirmada foi publicada");
     assert!(mcp.classify("mcp__memory__browser_open").is_none());
 }
+#[cfg(target_os = "linux")]
 const MARCA_SISTEMA: &str = "MARCA-DO-SISTEMA-7Q";
+#[cfg(target_os = "linux")]
 const MARCA_USUARIO: &str = "MARCA-DO-USUARIO-3K";
 
 /// O que o provedor falso recebeu no pedido (`/pedido`): textos de sistema e de usuário.
+#[cfg(target_os = "linux")]
 fn pedido_recebido(texto: &str) -> (String, Vec<String>) {
     let pedido: Value =
         serde_json::from_str(texto.strip_prefix("pedido: ").unwrap_or_else(|| panic!("{texto}"))).unwrap();
@@ -1571,6 +1618,7 @@ fn texto_de_sistema_vale_como_texto_ou_objeto_do_hub_e_recusa_o_resto() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez() {
     let case = caso!("instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez");
     let store = novo_store();
@@ -1600,6 +1648,7 @@ async fn instrucoes_no_formato_do_hub_chegam_ao_primeiro_pedido_uma_vez() {
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")]
 async fn systemprompt_invalido_recusa_a_sessao() {
     let case = caso!("systemprompt_invalido_recusa_a_sessao");
     let (acp, _rx) = acp_motor(novo_store());

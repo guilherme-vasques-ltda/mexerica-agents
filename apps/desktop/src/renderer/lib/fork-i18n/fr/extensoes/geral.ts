@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "Antigravity sur {computador}",
+  "extensoes.motor.antigravityInstalacao": "Installez ou mettez à jour le CLI officiel sur l’ordinateur indiqué. Utilisez la version compatible ci-dessous.",
+  "extensoes.motor.antigravityVersao": "Télécharger la version 1.5.15",
+  "extensoes.motor.antigravityGuia": "Instructions de Google",
+  "extensoes.motor.antigravityLoginLocal": "Dans le terminal de l’ordinateur indiqué, exécutez agy acp --login et suivez les instructions de Google. La session reste dans le CLI ; l’application ne reçoit pas vos identifiants.",
+  "extensoes.motor.antigravityGemini": "Alternative : clé API Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "Pour les automatisations, ajoutez une clé Google dans Comptes IA → Clés API sur l’ordinateur qui exécutera la routine. Choisissez Gemini dans le moteur Mexerica. Cette méthode n’utilise pas la connexion Antigravity.",
   "extensoes.titulo": "Extensions",
   "extensoes.paginas": "Pages des extensions",
   "extensoes.voltar": "Retour",
@@ -139,7 +146,8 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "Ajouter Node.js",
   "extensoes.motor.conferindoPrimeira": "Vérification auprès de {motor}… La première vérification peut le télécharger.",
   "extensoes.terminal.dicaAntigravity": "Choisissez Google OAuth, ouvrez le lien, connectez-vous et collez le code ici. La connexion agy ne confirme pas ACP.",
-  "extensoes.motor.antigravityInterativo": "Indisponible dans cette application. Utilisez la CLI officielle avec votre compte dans un client ACP interactif.",
+  "extensoes.motor.antigravityInterativo": "Pour un usage personnel, installez la CLI officielle et connectez-vous avec agy acp --login. Écrivez dans le chat depuis un appareil authentifié du propriétaire. Pour automatiser, utilisez une clé Gemini/Vertex avec un moteur compatible ou choisissez un autre moteur.",
+  "extensoes.motor.antigravityPermissoes": "Antigravity peut agir sans afficher de carte d’approbation. L’application ne peut demander votre accord que si la CLI envoie une demande via ACP.",
   "extensoes.terminal.dicaOpenCode": "Choisissez le fournisseur avec les flèches et Entrée. Pour OpenCode Go, préférez la clé du coffre.",
   "extensoes.terminal.dicaGrok": "Ouvrez le lien et confirmez le code de l’appareil.",
   "extensoes.terminal.dicaCursor": "Ouvrez le lien dans le navigateur. La connexion est vérifiée automatiquement.",

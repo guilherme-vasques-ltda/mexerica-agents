@@ -10,6 +10,7 @@ export function erroDoEnvio(e: unknown): ErroDoEnvio {
 }
 
 const AVISOS_OPEN = {
+  antigravity_default_mode_unconfirmed: 'conversa.avisos.antigravity.modoNaoConfirmado',
   open_setup: 'conversa.avisos.open.inicio',
   open_chat_cancelled: 'conversa.avisos.open.interrompida',
   open_chat_tool_refused: 'conversa.avisos.open.ferramenta',

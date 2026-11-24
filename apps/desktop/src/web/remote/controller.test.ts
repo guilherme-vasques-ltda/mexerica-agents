@@ -68,7 +68,7 @@ test('estado offline aborta o stream; só abre nova sessão quando a pessoa tent
   assert.equal(attempts[1].acceptsResponse(), true)
   attempts[1].accessLost(401, 'device_revoked')
   assert.equal(attempts[1].signal.aborted, true)
-  assert.equal(states.at(-1)?.status, 'revoked')
+  assert.equal(states.at(-1)?.status, 'device_revoked')
   assert.deepEqual(states.at(-1)?.workspaces.map(({ id }) => id), [team.id])
   await c.setIdentity(null, [], [])
 })

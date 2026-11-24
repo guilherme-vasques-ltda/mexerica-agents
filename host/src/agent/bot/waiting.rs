@@ -144,9 +144,16 @@ struct Completion {
 
 impl Completion {
     fn done(&self) -> Done {
-        self.error
-            .as_ref()
-            .map_or_else(|| Ok(self.answer.clone().unwrap_or(Value::Null)), |e| Err(anyhow::anyhow!("{e}")))
+        self.error.as_ref().map_or_else(
+            || Ok(self.answer.clone().unwrap_or(Value::Null)),
+            |e| {
+                if e == crate::fork::antigravity::MODE_UNCONFIRMED {
+                    Err(crate::fork::antigravity::ModeUnconfirmed.into())
+                } else {
+                    Err(anyhow::anyhow!("{e}"))
+                }
+            },
+        )
     }
 }
 
@@ -680,6 +687,9 @@ impl Actor {
         self.mudo_desarmar();
         self.finishing = Some(match done {
             Ok(value) => Ok(value.clone()),
+            Err(error) if error.is::<crate::fork::antigravity::ModeUnconfirmed>() => {
+                Err(crate::fork::antigravity::ModeUnconfirmed.into())
+            }
             Err(error) => Err(anyhow::anyhow!("{error:#}")),
         });
     }

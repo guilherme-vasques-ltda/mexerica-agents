@@ -107,6 +107,50 @@ async fn d502_agora_original_valido_hold_antes_claim_sem_renovar_grant() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn pedido_de_tela_com_falha_na_expiracao_e_recusado_sem_espera() {
+    let f = Fixture::new();
+    let original = f.original();
+    let card = f
+        .hub
+        .store
+        .insert_entry(
+            &crate::store::Lane::main("bot"),
+            crate::store::EntryKind::Permission,
+            1,
+            &json!({"status":"pending","author":"bot","toolKind":"screen_access",
+                "screenAccess":{"target":access::host_target(&f.hub),"generation":original.generation,
+                    "expiresAt":now_ms()+1_200_000}}),
+        )
+        .unwrap();
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute_batch(
+            "CREATE TRIGGER reject_screen_expiration BEFORE UPDATE OF data ON entries
+             WHEN json_extract(OLD.data,'$.toolKind') = 'screen_access'
+              AND json_extract(NEW.data,'$.status') = 'expired'
+             BEGIN SELECT RAISE(ABORT, 'falha simulada'); END",
+        )
+        .unwrap();
+    f.hub.store.expire_pending().unwrap();
+    assert!(f.hub.store.expiration_failed(&card.id));
+    assert_eq!(f.hub.store.entry(&card.id).unwrap().data["status"], "pending");
+
+    let error = request(&f.hub, &original, None).err().expect("pedido não pode reaproveitar o cartão bloqueado");
+    assert_eq!(error.to_string(), "O pedido de tela anterior não pôde ser encerrado.");
+    let error = tokio::time::timeout(Duration::from_secs(1), authorize(original, None))
+        .await
+        .expect("autorização não pode aguardar resposta ao cartão bloqueado")
+        .err()
+        .expect("autorização não pode liberar acesso");
+    assert_eq!(error.to_string(), "O pedido de tela anterior não pôde ser encerrado.");
+    assert!(f.hub.screen.control.locked().permissions.pending.is_empty());
+    assert!(!f.permanent());
+    assert_eq!(f.audit(), 0);
+}
+
+#[tokio::test(start_paused = true)]
 async fn d511_cartao_fronteiras_e_tempos() {
     // O pedido reaproveita o mesmo cartão, sem claim/captura, com textos fixos e três kinds ACP.
     {

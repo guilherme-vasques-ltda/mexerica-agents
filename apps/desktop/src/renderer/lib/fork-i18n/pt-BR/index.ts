@@ -83,6 +83,7 @@ import { textos as mailInbox } from './mailInbox.ts'
 import { textos as sistemaBarra } from './sistema/barra.ts'
 import { textos as sistemaConversa } from './sistema/conversa.ts'
 import { textos as webLogin } from './web/login.ts'
+import { textos as computadoresMapa } from './computadores/mapa.ts'
 
 // DON-903: catálogo fonte (pt-BR). Chaves por domínio, estáveis; `{nome}` é parâmetro e precisa existir
 // com o mesmo nome em todos os idiomas (tools/textos-gate.ts confere). Glossário: docs/guides/idiomas.md.
@@ -174,4 +175,5 @@ export const ptBR = {
   ...sistemaBarra,
   ...sistemaConversa,
   ...webLogin,
+  ...computadoresMapa,
 }

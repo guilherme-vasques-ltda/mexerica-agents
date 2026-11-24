@@ -95,8 +95,18 @@ fn mark_delivery_error(hub: &crate::hub::Hub, entry_id: &str, error: &anyhow::Er
 
 impl Actor {
     pub(super) async fn on_incoming(&mut self, inc: Option<Incoming>) {
+        self.check_antigravity_turn().await;
         let progresso = match &inc {
             Some(Incoming::Notification { method, params }) => {
+                let update = &params["update"];
+                if self.antigravity_active.is_some()
+                    && method == "session/update"
+                    && params["sessionId"].as_str() == self.turn_session.as_deref()
+                    && crate::fork::antigravity::mode_diverged(update)
+                {
+                    self.stop_antigravity().await;
+                    return;
+                }
                 method == "session/update" && params["sessionId"].as_str() == self.turn_session.as_deref()
             }
             Some(Incoming::Request { method, params, .. }) => {
@@ -329,15 +339,27 @@ impl Actor {
             }
         };
         let codex = self.conn.as_ref().is_some_and(|c| c.adapter == super::Adapter::Codex);
+        let antigravity = self.cfg.backend == crate::fork::antigravity::ID;
         let options = params["options"].as_array().cloned().unwrap_or_default();
         // O Grok persiste `allow_always` no próprio perfil, fora do Hub: a opção não chega ao cartão.
-        let options = if codex {
+        let options = if antigravity {
+            options
+                .into_iter()
+                .filter(|option| matches!(option["kind"].as_str(), Some("allow_once" | "reject_once")))
+                .collect()
+        } else if codex {
             crate::agent::engine_permissions::codex_options(options)
         } else if self.cfg.backend == "grok" {
             crate::agent::engine_permissions::grok_options(options)
         } else {
             options
         };
+        if antigravity && options.is_empty() {
+            if let Some(conn) = &self.conn {
+                let _ = conn.acp.respond(rpc_id, json!({"outcome":{"outcome":"cancelled"}})).await;
+            }
+            return;
+        }
         let tool = &params["toolCall"];
         let recorded =
             tool["toolCallId"].as_str().and_then(|id| self.tools.get(id)).and_then(|id| self.hub.store.entry(id));
@@ -362,7 +384,7 @@ impl Actor {
         // cartão ao dono; Deny continua deny. Ferramentas sem pedido de
         // permissão já foram removidas pelo recorte de servidores (decide).
         let catchup = self.active_routine.as_deref().is_some_and(|id| self.hub.routines.run_is_catchup(id));
-        let outcome = if catchup && matches!(outcome, crate::fork::rules::gate::GateOutcome::Allow) {
+        let outcome = if (catchup || antigravity) && matches!(outcome, crate::fork::rules::gate::GateOutcome::Allow) {
             crate::fork::rules::gate::GateOutcome::Ask
         } else {
             outcome
@@ -422,10 +444,10 @@ impl Actor {
         let command = raw["command"].as_str().map(str::to_owned).or_else(|| {
             raw["command"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
         });
-        let data = json!({
+        let mut data = json!({
             "title": title,
             "toolKind": if memory_server { "mcp_memory" } else { tool["kind"].as_str().unwrap_or("other") },
-            "voiceApproval": super::voice_approval::policy(self.conn.as_ref().map(|c| c.adapter), tool),
+            "voiceApproval": if antigravity { super::voice_approval::VoiceApproval::AppOnly } else { super::voice_approval::policy(self.conn.as_ref().map(|c| c.adapter), tool) },
             "command": command,
             "detail": detail["output"],
             "diffs": detail["diffs"],
@@ -434,6 +456,9 @@ impl Actor {
             "status": "pending",
             "selected": Value::Null,
         });
+        if antigravity {
+            data["ownerDeviceOnly"] = json!(true);
+        }
         if let Err(error) = self.show_card(
             &title,
             data,

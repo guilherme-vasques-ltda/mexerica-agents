@@ -87,4 +87,5 @@ export const textos = {
   "conversa.avisos.motorMudo.minutos.other": "{n} minutos",
   "conversa.avisos.motorMudo.texto": "O bot está há {tempo} sem dar sinal. Se parecer travado, use Parar; se não, é só esperar.",
   "conversa.avisos.motorMudo.voltou": "O bot voltou a dar sinal ou o turno terminou; este aviso não vale mais.",
+  "conversa.avisos.antigravity.modoNaoConfirmado": "O chat não abriu porque o Antigravity CLI não confirmou o modo padrão. Verifique o CLI no computador do Hub ou escolha outro motor.",
 } as const

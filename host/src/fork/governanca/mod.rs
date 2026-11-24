@@ -23,6 +23,16 @@ const SAVE: &str = METHODS[1];
 pub(crate) const EVENT: &str = "donnaGovernanceChanged";
 
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
+    call_with_commit_boundary(hub, caller, method, body, || {}).await
+}
+
+async fn call_with_commit_boundary(
+    hub: &Arc<Hub>,
+    caller: &Caller,
+    method: &str,
+    body: Value,
+    after_commit: impl FnOnce() + Send + 'static,
+) -> Result<Value> {
     devices::permit(caller, method)?;
     ensure!(METHODS.contains(&method), "invalid_field: método de governança inválido.");
     let authority = Autoridade::capturar(hub, caller)?;
@@ -45,16 +55,15 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
             model::Request::Read(_) => Ok((serde_json::to_value(store::snapshot(db, hub_id, space)?)?, false)),
             model::Request::Save(save) => store::save(db, hub_id, space, save),
         })?;
+        if changed {
+            after_commit();
+            let _ = hub.events.send(invalidation(&hub, space));
+        }
         com_saida_validada(
             &hub,
             OrigemSaida::Controle(&authority, None),
             |db, _, _, _, _| spaces::require_space(db, space),
-            || {
-                if changed {
-                    let _ = hub.events.send(invalidation(&hub, space));
-                }
-                answer
-            },
+            || answer,
         )
     })
     .await?

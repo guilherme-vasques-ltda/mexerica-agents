@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "Antigravity على {computador}",
+  "extensoes.motor.antigravityInstalacao": "ثبّت أداة سطر الأوامر الرسمية أو حدّثها على الكمبيوتر الموضّح أعلاه. استخدم الإصدار المتوافق أدناه.",
+  "extensoes.motor.antigravityVersao": "تنزيل الإصدار 1.5.15",
+  "extensoes.motor.antigravityGuia": "إرشادات Google",
+  "extensoes.motor.antigravityLoginLocal": "في الطرفية على الكمبيوتر الموضّح أعلاه، شغّل agy acp --login واتبع إرشادات Google. تبقى الجلسة في أداة سطر الأوامر ولا يتلقى التطبيق بيانات اعتمادك.",
+  "extensoes.motor.antigravityGemini": "البديل: مفتاح API لـ Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "للأتمتة، أضف مفتاح Google في حسابات الذكاء الاصطناعي ← مفاتيح API على الكمبيوتر الذي سيشغّل الروتين. اختر Gemini في محرك Mexerica. لا يستخدم هذا المسار تسجيل الدخول إلى Antigravity.",
   "extensoes.titulo": "الإضافات",
   "extensoes.paginas": "صفحات الإضافات",
   "extensoes.voltar": "رجوع",
@@ -139,7 +146,8 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "إضافة Node.js",
   "extensoes.motor.conferindoPrimeira": "جارٍ التحقق مع {motor}… قد يؤدي أول تحقق إلى تنزيله.",
   "extensoes.terminal.dicaAntigravity": "اختر Google OAuth وافتح الرابط وسجّل الدخول ثم الصق الرمز. دخول agy لا يؤكد ACP.",
-  "extensoes.motor.antigravityInterativo": "غير متاح في هذا التطبيق. استخدم أداة سطر الأوامر الرسمية بحسابك في عميل ACP تفاعلي.",
+  "extensoes.motor.antigravityInterativo": "للاستخدام الشخصي، ثبّت أداة سطر الأوامر الرسمية وسجّل الدخول باستخدام agy acp --login. اكتب في المحادثة من جهاز مصادق عليه للمالك. للأتمتة، استخدم مفتاح Gemini/Vertex مع محرك متوافق أو اختر محركاً آخر.",
+  "extensoes.motor.antigravityPermissoes": "قد يتصرف Antigravity من دون إظهار بطاقة موافقة. لا يمكن للتطبيق طلب موافقتك إلا إذا أرسلت أداة سطر الأوامر طلباً عبر ACP.",
   "extensoes.terminal.dicaOpenCode": "اختر المزوّد بالأسهم واضغط Enter. يُفضّل مفتاح الخزنة لـ OpenCode Go.",
   "extensoes.terminal.dicaGrok": "افتح الرابط في المتصفح وأكد رمز الجهاز.",
   "extensoes.terminal.dicaCursor": "افتح الرابط في المتصفح. يُتحقق من الدخول تلقائيًا.",

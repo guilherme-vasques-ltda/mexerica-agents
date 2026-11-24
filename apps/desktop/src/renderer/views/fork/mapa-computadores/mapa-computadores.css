@@ -1,0 +1,112 @@
+.mapa-computadores {
+  display: grid;
+  gap: 12px;
+}
+
+.mapa-computadores-titulo {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mapa-computadores-aviso {
+  margin: 0;
+  color: var(--ink-2, inherit);
+  font-size: 13px;
+}
+
+.mapa-computadores button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mapa-computadores button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.mapa-computadores-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mapa-computadores-filtros button[aria-pressed='true'],
+.mapa-computadores-lista button[aria-pressed='true'],
+.mapa-computadores-ponto[aria-pressed='true'] {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.mapa-computadores-mapa {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  min-height: 180px;
+  border: 1px dashed var(--ink-2, currentColor);
+  border-radius: 8px;
+}
+
+.mapa-computadores-ponto {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 9em;
+  padding: 4px 8px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mapa-computadores-lista {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapa-computadores-lista button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: start;
+}
+
+.mapa-computadores-lista button > span:not([data-tom]) {
+  font-weight: 600;
+}
+
+.mapa-computadores [data-tom='atencao'] strong {
+  text-decoration: underline wavy;
+}
+
+.mapa-computadores-detalhes dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.mapa-computadores-detalhes dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mapa-computadores-detalhes dt,
+.mapa-computadores-detalhes dd {
+  margin: 0;
+}
+
+.mapa-computadores-detalhes h4,
+.mapa-computadores-detalhes h5 {
+  margin: 8px 0 4px;
+}

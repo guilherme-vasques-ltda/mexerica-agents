@@ -1,3 +1,4 @@
+// Modified by Mexerica: evaluate throwing calls before Testing macro assertions.
 import Foundation
 import Testing
 @testable import CodyncKit
@@ -110,10 +111,12 @@ private let team = ForkWorkspaceID.team(orgId: "org_fixture")
 }
 
 @Test func stableRejectOverridesLegacyAndExpiredLeaseIsNotTerminal() throws {
-    let terminal = try #require(ForkWorkspaceFailure.channelReject(
-        Data(#"{"t":"reject","code":"revoked","stableCode":"role_changed"}"#.utf8), closeCode: 4003))
-    let lease = try #require(ForkWorkspaceFailure.channelReject(
-        Data(#"{"t":"reject","code":"unauthorized","stableCode":"lease_expired"}"#.utf8), closeCode: 4001))
+    let terminalResult = try ForkWorkspaceFailure.channelReject(
+        Data(#"{"t":"reject","code":"revoked","stableCode":"role_changed"}"#.utf8), closeCode: 4003)
+    let terminal = try #require(terminalResult)
+    let leaseResult = try ForkWorkspaceFailure.channelReject(
+        Data(#"{"t":"reject","code":"unauthorized","stableCode":"lease_expired"}"#.utf8), closeCode: 4001)
+    let lease = try #require(leaseResult)
     let oldLease = try ForkWorkspaceFailure.channelReject(Data(#"{"t":"reject","code":"leaseExpired"}"#.utf8), closeCode: 4001)
     let oldRevocation = try ForkWorkspaceFailure.channelReject(Data(#"{"t":"reject","code":"revoked"}"#.utf8), closeCode: 4003)
     #expect(terminal.issue == .roleChanged && terminal.closesChannel)
@@ -124,7 +127,8 @@ private let team = ForkWorkspaceID.team(orgId: "org_fixture")
 
 @Test func epochMismatchInvalidatesWithoutClosingTheChannel() throws {
     let reply = Data(#"{"id":1,"err":{"status":409,"code":"workspace_epoch_mismatch"}}"#.utf8)
-    let failure = try #require(ForkWorkspaceFailure.channelReply(reply))
+    let failureResult = try ForkWorkspaceFailure.channelReply(reply)
+    let failure = try #require(failureResult)
     #expect(failure.issue == .workspaceEpochMismatch && !failure.closesChannel)
     #expect(ForkWorkspaceFailure.http(status: 409, code: "workspace_epoch_mismatch") == failure)
     #expect(ForkWorkspaceFailure.http(status: 403, code: "workspace_epoch_mismatch") == nil)

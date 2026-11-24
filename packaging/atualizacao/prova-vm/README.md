@@ -24,7 +24,7 @@ recusa um legado que conheça `coordenar-atualizacao`.
 
 ```sh
 sudo CARGO_TARGET_DIR=/data/target LEGADO_ANTERIOR=/data/legado-anterior/donnabot-host bash preparar.sh
-sudo bash cenarios.sh      # imprime OK/FALHA e "RESULTADO: N falha(s)" e falha se houver falhas
+sudo PROVA_VM=1 bash cenarios.sh      # imprime OK/FALHA e "RESULTADO: N falha(s)" e falha se houver falhas
 ```
 
 Antes da primeira migração, `cenarios.sh` e `reboot.sh instalar` (`preparatoria.sh`)
@@ -82,13 +82,13 @@ Na fase 3, os cenários também cobrem:
   - o perfil injetado usa o layout real (home `<uuid>` com `.donnabot-profile`), a
     única raiz de home que o canal aceita;
   - o registro de raízes tem só as raízes copiadas;
-- a revogação administrativa:
-  - login de outro serviço, regra `ALL` e alias com curinga são recusados (com
-    auditoria de falha);
-  - a revogação espera a trava do wrapper em uso e encerra uma chamada do wrapper
-    suspensa antes da trava (parada no exec por ptrace, `pausado.py`);
-  - sudoers, capabilities, unidades e estado arquivado são conferidos; conta e
-    dados do motor são preservados; a reexecução é idempotente.
+- a revogação administrativa: login de outro serviço, espera da trava do wrapper,
+  encerramento de chamada suspensa, conferência de capabilities/unidades/estado,
+  preservação de conta e dados do motor, e reexecução idempotente.
+
+Os cenários que criavam uma regra temporária de sudo para testar recusas de
+revogação foram removidos. A verificação dessas duas recusas fica para uma prova
+futura; não acrescente uma regra privilegiada temporária a este roteiro.
 
 `reboot.sh` prova, nesta ordem:
 - R4: queda de energia (sysrq) no meio da cópia F3 da primeira migração. No boot, o
