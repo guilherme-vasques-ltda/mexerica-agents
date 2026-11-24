@@ -3,7 +3,7 @@ export type RoutineStep = { id: string; title: string; state: 'done' | 'waiting'
 export const savedRun: RoutineStep[] = [
   { id: 'read', title: 'Ler mensagem de exemplo', state: 'done' },
   { id: 'draft', title: 'Preparar rascunho', state: 'done' },
-  { id: 'approve', title: 'Revisar antes de enviar', state: 'waiting' },
+  { id: 'review', title: 'Revisar antes de enviar', state: 'waiting' },
   { id: 'send', title: 'Enviar mensagem', state: 'pending' },
 ]
 
