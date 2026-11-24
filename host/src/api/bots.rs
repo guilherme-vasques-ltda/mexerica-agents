@@ -40,7 +40,7 @@ pub(super) async fn call(
             | "routineCall"
             | "setRoutinesPaused"
     ) {
-        let guard = hub.store.team_lock.lock().await;
+        let guard = hub.store.travar_equipe().await;
         crate::chat::manage::recover_live(hub);
         Some(guard)
     } else {
@@ -259,7 +259,7 @@ pub(super) async fn call(
         "deleteBot" => {
             let bot = str_arg(&b, "botId")?;
             {
-                let _guard = hub.store.team_lock.lock().await;
+                let _guard = hub.store.travar_equipe().await;
                 crate::chat::manage::recover_live(hub);
                 hub.delete_bot(bot)?;
             }
@@ -309,7 +309,7 @@ pub(super) async fn call(
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
             // A rodada do grupo e os turnos dos membros correm sem a guarda da sessão: negado com vínculo.
             if row.config.is_group() {
-                crate::fork::sessao_clerk::negar_sem_corte(hub, caller)?;
+                crate::fork::sessao_clerk::negar_sem_corte(hub, caller, "send")?;
             }
             let mut attachments = Vec::new();
             if !uploads.is_empty() {

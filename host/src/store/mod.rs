@@ -63,6 +63,9 @@ pub struct Store {
     unexpired_entries: Mutex<std::collections::HashSet<String>>,
     /// Serializa intenções do usuário e mudanças do MCP manage, sem segurar locks SQLite durante aprovação.
     pub(crate) team_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Provas: avisa quando um pedido chega à espera do `team_lock` ([`Store::travar_equipe`]).
+    #[cfg(test)]
+    pub(crate) espera_equipe: tokio::sync::Notify,
     pub(crate) connector_lock: Mutex<()>,
     /// Barreira de autoridade do turno: exposição/memória, Stop, revogação do perfil,
     /// admissão contextual de team e commit no pipe de permissões. Nunca atravessa await.
@@ -109,6 +112,24 @@ pub(crate) fn next_rev(c: &Connection) -> Result<i64> {
 }
 
 impl Store {
+    /// O `team_lock` de um pedido admitido; nas provas, avisa quando o pedido já está na fila do
+    /// mutex (ou já o tomou). Sem o orçamento cooperativo do Tokio, o primeiro poll sempre entra na
+    /// fila.
+    pub(crate) async fn travar_equipe(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        let pedido = self.team_lock.lock();
+        #[cfg(test)]
+        let pedido = {
+            let mut pedido = Box::pin(tokio::task::unconstrained(pedido));
+            let pronto = futures::poll!(pedido.as_mut());
+            self.espera_equipe.notify_one();
+            if let std::task::Poll::Ready(guarda) = pronto {
+                return guarda;
+            }
+            pedido
+        };
+        pedido.await
+    }
+
     /// Durable control state must distinguish a missing key from a failed read.
     pub fn kv_read(&self, k: &str) -> Result<Option<String>> {
         Ok(self.db.locked().query_row("SELECT v FROM kv WHERE k = ?", [k], |r| r.get(0)).optional()?)

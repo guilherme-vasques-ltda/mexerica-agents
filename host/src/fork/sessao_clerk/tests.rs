@@ -365,6 +365,7 @@ async fn quatro_casos_de_frescor_pelo_http() {
         .route("/sem", com(None))
         .route("/no-cache", com(Some("no-cache")))
         .route("/no-store", com(Some("no-store")))
+        .route("/vencido", com(Some("max-age=0")))
         .route("/falha", get(|| async { StatusCode::SERVICE_UNAVAILABLE }));
     let ouvinte = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let porta = ouvinte.local_addr().unwrap().port();
@@ -378,6 +379,7 @@ async fn quatro_casos_de_frescor_pelo_http() {
     assert_eq!(validade("/sem").await.unwrap(), jwks::SEM_FRESCOR, "sem cabeçalho");
     assert_eq!(validade("/no-cache").await.unwrap(), jwks::SEM_FRESCOR, "no-cache");
     assert_eq!(validade("/no-store").await.unwrap(), jwks::SEM_FRESCOR, "no-store: só em memória");
+    assert_eq!(validade("/vencido").await.unwrap(), Duration::ZERO, "max-age explícito e vencido");
     assert!(validade("/falha").await.is_err(), "falha não dá validade");
 }
 
@@ -396,9 +398,13 @@ fn frescor_respeita_max_age_age_e_sem_frescor_vale_uma_hora() {
     };
     assert_eq!(com(Some("public, max-age=600"), None), Duration::from_secs(600));
     assert_eq!(com(Some("max-age=600"), Some("100")), Duration::from_secs(500));
-    assert_eq!(com(Some("max-age=600"), Some("900")), jwks::SEM_FRESCOR, "vencido pelo Age");
+    assert_eq!(com(Some("max-age=600"), Some("900")), Duration::ZERO, "vencido pelo Age");
+    assert_eq!(com(Some("max-age=600"), Some("600")), Duration::ZERO, "Age igual ao max-age");
+    assert_eq!(com(Some("public, max-age=0"), None), Duration::ZERO, "max-age=0");
     assert_eq!(com(Some("max-age=999999"), None), jwks::TETO, "teto de 24 h");
-    for sem in ["no-cache", "no-store, max-age=600", "max-age=0", "public", "max-age=abc", "max-age=1, max-age=2"] {
+    for sem in
+        ["no-cache", "no-store, max-age=600", "no-cache, max-age=0", "public", "max-age=abc", "max-age=1, max-age=2"]
+    {
         assert_eq!(com(Some(sem), None), jwks::SEM_FRESCOR, "{sem}");
     }
     assert_eq!(com(None, None), jwks::SEM_FRESCOR, "sem Cache-Control");
@@ -661,12 +667,12 @@ fn limite_vence_no_primeiro_relogio_e_recuo_do_civil_nao_estende() {
     assert!(limite.resta() <= Duration::from_secs(60));
     assert!(limite.expira_em_ms() <= now_ms() + 60_000);
     // Relógio civil recuado: o `exp` parece longe, mas o prazo monotônico já passou.
-    let monotonico = Limite { exp_ms: now_ms() + 3_600_000, ate: Instant::now() };
+    let monotonico = Limite { exp_ms: now_ms() + 3_600_000, ate: tokio::time::Instant::now() };
     assert!(monotonico.vencido(), "o monotônico vence");
     assert_eq!(monotonico.resta(), Duration::ZERO);
     assert!(monotonico.expira_em_ms() <= now_ms(), "o cliente vê o menor prazo");
     // Relógio civil adiantado: o `exp` passou, mesmo com folga no monotônico.
-    let civil = Limite { exp_ms: now_ms() - 1, ate: Instant::now() + Duration::from_secs(3600) };
+    let civil = Limite { exp_ms: now_ms() - 1, ate: tokio::time::Instant::now() + Duration::from_secs(3600) };
     assert!(civil.vencido(), "o civil vence");
     assert_eq!(civil.resta(), Duration::ZERO);
 }
@@ -679,7 +685,7 @@ fn pareamento_relê_vinculo_prazo_e_papel_na_tx() {
     let par = |iat, papel, limite| Pareamento { sub: DONO.into(), iat, papel, limite, workspace_id: v.workspace_id() };
     let gravou = |hub: &Hub, key: &str| hub.store.device(key).is_some();
     // Prazo vencido entre a verificação e a Tx: nada é gravado.
-    let vencido = Limite { exp_ms: now_ms() + 60_000, ate: Instant::now() };
+    let vencido = Limite { exp_ms: now_ms() + 60_000, ate: tokio::time::Instant::now() };
     assert_eq!(
         readmitir_vinculado(&hub, &aparelho("a"), &par(100, Papel::Dono, vencido)).unwrap(),
         Err(Recusa::AuthInvalid)
@@ -723,7 +729,8 @@ async fn delete_bot_admitido_nao_roda_depois_que_o_papel_muda() {
             let hub = hub.clone();
             tokio::spawn(async move { crate::api::dispatch(&hub, &caller, "deleteBot", json!({"botId": id})).await })
         };
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Barreira: o pedido passou da admissão e está na fila do `team_lock`.
+        tokio::time::timeout(Duration::from_secs(10), hub.store.espera_equipe.notified()).await.expect("na espera");
         if trocar {
             let iat = papel_on(&hub.store.db.locked(), sub).unwrap().unwrap().0 + 1;
             trocar_papel(&hub, sub, iat, Some(Papel::Admin));
@@ -810,7 +817,7 @@ fn prova_e_papel_na_mesma_tx_reconferem_prazo_vinculo_epoch_e_aparelho() {
     let registrar = |canal: &Canal<'_>, sub: &str, iat, limite| {
         registrar_na_prova(&hub, canal, &v.workspace_id(), &afirmacoes(sub, iat), Some(Papel::Admin), limite)
     };
-    let vencido = Limite { exp_ms: now_ms() + 60_000, ate: Instant::now() };
+    let vencido = Limite { exp_ms: now_ms() + 60_000, ate: tokio::time::Instant::now() };
     assert_eq!(registrar(&canal(e), DONO, 200, vencido), Err(Recusa::AuthInvalid), "prazo vencido na Tx");
     assert_eq!(registrar(&canal(e + 1), DONO, 200, Limite::em(60_000)), Err(Recusa::AuthInvalid), "epoch do canal");
     assert_eq!(registrar(&canal(e), OUTRO, 200, Limite::em(60_000)), Err(Recusa::DeviceUnpaired), "sub ≠ userId");
@@ -1064,7 +1071,134 @@ async fn send_de_grupo_e_negado_com_vinculo_e_titulo_e_leitura_conferem_a_guarda
     assert_eq!(titulo(&viva), "Primeira ideia");
     assert!(com_origem(origem.clone(), || hub.store.mark_read("b")).is_ok());
     trocar_papel(&hub, DONO, now_ms() / 1000 + 1, Some(Papel::Admin));
+    let leitura = || hub.store.bot("b").unwrap().unwrap().read_rev;
+    let (rev, lido) = (hub.store.current_rev(), leitura());
     com_origem(origem.clone(), || crate::fork::sessoes::api::title_first_message(&hub, &lane(&morta), "Outra ideia"));
     assert_eq!(titulo(&morta), "", "título fora da guarda não é gravado");
     assert!(com_origem(origem, || hub.store.mark_read("b")).is_err(), "leitura fora da guarda não é gravada");
+    assert_eq!((hub.store.current_rev(), leitura()), (rev, lido), "as duas Tx voltam atrás: nenhuma revisão nova");
+}
+
+#[tokio::test]
+async fn validade_conta_do_envio_e_resposta_que_chega_vencida_conta_como_falha() {
+    let j = jwks::Jwks::default();
+    let frescor = Arc::new(Mutex::new(Duration::from_secs(2)));
+    let f = frescor.clone();
+    j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
+    // Relógio controlado: o GET leva 5 s, mais que a validade de 2 s.
+    j.demorar(Duration::from_secs(5));
+    let t0 = Instant::now();
+    assert_eq!(j.chave(&url(), KID, t0).await.err(), Some(Recusa::AuthInvalid), "chegou vencida: recusa");
+    assert_eq!(j.buscas(), 1);
+    // Conta como falha: nada de nova busca antes do intervalo.
+    let quase = t0 + jwks::INTERVALO.saturating_sub(ms(1));
+    assert_eq!(j.chave(&url(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 1, "resposta vencida respeita o intervalo");
+    // Com validade maior que o atraso, vale a partir do envio: o atraso é descontado.
+    *frescor.lock().unwrap() = Duration::from_secs(60);
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(60));
+    assert_eq!(j.buscas(), 2);
+}
+
+#[tokio::test]
+async fn resposta_que_vence_durante_a_leitura_do_corpo_nao_troca_o_conjunto() {
+    let j = Arc::new(jwks::Jwks::default());
+    j.servir_com_frescor(|| Ok((jwks_padrao(), Duration::from_secs(600))));
+    let t0 = Instant::now();
+    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
+    // Cabeçalhos com 2 s de validade, e o corpo leva 3 s para terminar de chegar.
+    let fraca = Arc::downgrade(&j);
+    j.servir_com_frescor(move || {
+        if let Some(j) = fraca.upgrade() {
+            j.avancar(Duration::from_secs(3));
+        }
+        Ok((jwks_padrao(), Duration::from_secs(2)))
+    });
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2);
+    let anterior = j.chave(&url(), KID, depois + ms(1)).await.unwrap();
+    assert_eq!(anterior.ate, t0 + Duration::from_secs(600), "vencida no fim do corpo: o conjunto anterior segue");
+    // E conta como falha: o intervalo vale para a próxima busca.
+    assert_eq!(j.chave(&url(), "kid-novo", depois + ms(2)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2);
+}
+
+#[tokio::test]
+async fn busca_cancelada_em_voo_conta_como_tentativa_falha() {
+    let j = jwks::Jwks::default();
+    j.servir(|| Ok(jwks_padrao()));
+    let t0 = Instant::now();
+    let rede = j.segurar_envio().await;
+    {
+        let endereco = url();
+        let pedido = j.chave(&endereco, KID, t0);
+        tokio::pin!(pedido);
+        // Barreira: o GET está em voo, com a tentativa já anotada.
+        tokio::select! {
+            biased;
+            r = &mut pedido => panic!("não esperou o GET: {:?}", r.is_ok()),
+            () = std::future::ready(()) => {}
+        }
+        assert_eq!(j.buscas(), 1);
+    }
+    // O pedido foi cancelado no meio: a tentativa conta e o intervalo vale.
+    drop(rede);
+    let quase = t0 + jwks::INTERVALO.saturating_sub(ms(1));
+    assert_eq!(j.chave(&url(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 1, "cancelamento não é tentativa grátis");
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + jwks::TETO);
+    assert_eq!(j.buscas(), 2);
+}
+
+#[tokio::test]
+async fn max_age_vencido_nao_vira_uma_hora_nem_estende_o_conjunto_anterior() {
+    let j = jwks::Jwks::default();
+    let frescor = Arc::new(Mutex::new(Duration::from_secs(600)));
+    let f = frescor.clone();
+    j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
+    let t0 = Instant::now();
+    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
+    // O emissor passa a mandar `max-age=0` (ou `Age` >= `max-age`): a busca conta como falha.
+    *frescor.lock().unwrap() = Duration::ZERO;
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2);
+    let anterior = j.chave(&url(), KID, depois + ms(1)).await.unwrap();
+    assert_eq!(anterior.ate, t0 + Duration::from_secs(600), "o conjunto anterior segue, sem crescer");
+    // Vencido o anterior, a busca é refeita e, vindo vencida de novo, recusa: nada de 1 h.
+    let vencido = t0 + Duration::from_secs(600);
+    assert_eq!(j.chave(&url(), KID, vencido).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 3, "refez a busca");
+}
+
+#[tokio::test]
+async fn tentativa_conta_do_inicio_do_get_depois_da_espera() {
+    let j = jwks::Jwks::default();
+    j.servir(|| Ok(jwks_padrao()));
+    let t0 = Instant::now();
+    let espera = Duration::from_secs(20);
+    let ocupada = j.segurar_busca().await;
+    let endereco = url();
+    let pedido = j.chave(&endereco, KID, t0);
+    tokio::pin!(pedido);
+    // Barreira: o pedido está na fila da busca de outro.
+    tokio::select! {
+        biased;
+        r = &mut pedido => panic!("não esperou a busca em curso: {:?}", r.is_ok()),
+        () = std::future::ready(()) => {}
+    }
+    j.avancar(espera);
+    drop(ocupada);
+    assert_eq!(pedido.await.unwrap().ate, t0 + espera + jwks::TETO, "validade a partir do GET de fato");
+    // A tentativa é a do início do GET (t0 + 20 s), não a da chegada do pedido: um `kid`
+    // desconhecido só busca de novo 30 s depois dela.
+    let antes = j.buscas();
+    let quase = t0 + espera + jwks::INTERVALO.saturating_sub(ms(1));
+    assert_eq!(j.chave(&url(), "kid-novo", quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), antes, "intervalo contado do início do GET");
+    assert_eq!(j.chave(&url(), "kid-novo", quase + ms(1)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), antes + 1);
 }
