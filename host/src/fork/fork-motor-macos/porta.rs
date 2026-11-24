@@ -83,6 +83,7 @@ pub(super) struct Instancia {
     pub(super) inicio: NonZeroU64,
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum Evidencia {
     SemCenso,
     Viva(Instancia),
@@ -191,13 +192,13 @@ impl Porta {
         let criada_ms = solicitacao.criada_ms;
         self.solicitacao = None;
         if !auditar(pedido, acao, EventoAuditoria::Intencao) {
-            self.parar(antes_ms);
+            self.parar(agora_ms().max(antes_ms));
             return Err(Recusa::Auditoria);
         }
         let depois_ms = agora_ms();
         if depois_ms < antes_ms || depois_ms - criada_ms >= PRAZO_PEDIDO_MS {
             if !auditar(pedido, acao, EventoAuditoria::ExpiradaNaoExecutada) {
-                self.parar(depois_ms.max(antes_ms));
+                self.parar(agora_ms().max(depois_ms).max(antes_ms));
                 return Err(Recusa::Auditoria);
             }
             return Err(Recusa::Expirada);
@@ -258,7 +259,7 @@ impl Porta {
         let venceu = self
             .solicitacao
             .as_ref()
-            .is_some_and(|s| !agora_ms.checked_sub(s.criada_ms).is_some_and(|idade| idade < PRAZO_PEDIDO_MS));
+            .is_some_and(|s| agora_ms.checked_sub(s.criada_ms).is_none_or(|idade| idade >= PRAZO_PEDIDO_MS));
         if venceu {
             self.solicitacao = None;
         }

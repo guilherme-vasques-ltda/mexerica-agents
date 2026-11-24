@@ -6,7 +6,7 @@ use std::{cell::Cell, num::NonZeroU64};
 use porta::{Acao, Alvo, Decisao, Escopo, Evidencia, Instancia, Parada, Porta, Recusa};
 
 fn id(valor: u64) -> NonZeroU64 {
-    NonZeroU64::new(valor).unwrap()
+    NonZeroU64::new(valor).expect("ID da fixture deve ser diferente de zero")
 }
 
 fn escopo() -> Escopo {
@@ -40,6 +40,7 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
     let alterada = Acao::Gravar { alvo: Alvo::Autorizavel(id(6)), conteudo: id(8) };
     assert_eq!(porta.efetuar(pedido, alterada, || 2, |_, _, _| true, |_| panic!()), Err(Recusa::AcaoDiferente));
     let audita = Cell::new(false);
+    let efeitos = Cell::new(0);
     assert_eq!(
         porta.efetuar(
             pedido,
@@ -55,16 +56,34 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
             |efetivada| {
                 assert_eq!(efetivada, a);
                 assert!(audita.get());
+                efeitos.set(efeitos.get() + 1);
             },
         ),
         Ok(())
     );
+    assert_eq!(efeitos.get(), 1);
     assert_eq!(porta.efetuar(pedido, a, || 3, |_, _, _| true, |_| panic!()), Err(Recusa::PedidoInvalido));
+    assert_eq!(efeitos.get(), 1);
 
     let pedido = porta.pedir(a, 4).unwrap();
     porta.resolver(pedido, escopo(), Decisao::UmaVez, 5).unwrap();
-    assert_eq!(porta.efetuar(pedido, a, || 6, |_, _, _| false, |_| panic!()), Err(Recusa::Auditoria));
-    assert_eq!(porta.efetuar(pedido, a, || 7, |_, _, _| true, |_| panic!()), Err(Recusa::Fechada));
+    let relogio = Cell::new(6);
+    assert_eq!(
+        porta.efetuar(
+            pedido,
+            a,
+            || relogio.get(),
+            |_, _, _| {
+                relogio.set(3_006);
+                false
+            },
+            |_| panic!(),
+        ),
+        Err(Recusa::Auditoria)
+    );
+    assert_eq!(porta.efetuar(pedido, a, || 3_007, |_, _, _| true, |_| panic!()), Err(Recusa::Fechada));
+    assert_eq!(porta.estado(5_005, Evidencia::SemCenso), Parada::EmCurso);
+    assert_eq!(porta.estado(5_006, Evidencia::SemCenso), Parada::NaoConfirmada);
 }
 
 #[test]
@@ -176,14 +195,21 @@ fn falha_no_registro_terminal_fecha_a_porta_sem_efeito() {
             acao(),
             || relogio.get(),
             |_, _, evento| {
-                relogio.set(300_000);
-                evento == porta::EventoAuditoria::Intencao
+                if evento == porta::EventoAuditoria::Intencao {
+                    relogio.set(300_000);
+                    true
+                } else {
+                    relogio.set(303_000);
+                    false
+                }
             },
             |_| panic!(),
         ),
         Err(Recusa::Auditoria)
     );
-    assert_eq!(porta.pedir(acao(), 300_000), Err(Recusa::Fechada));
+    assert_eq!(porta.pedir(acao(), 303_000), Err(Recusa::Fechada));
+    assert_eq!(porta.estado(304_999, Evidencia::SemCenso), Parada::EmCurso);
+    assert_eq!(porta.estado(305_000, Evidencia::SemCenso), Parada::NaoConfirmada);
 }
 
 #[test]

@@ -20,6 +20,7 @@ pub(super) struct ParValidado<'a> {
     pub(super) geracao: NonZeroU64,
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum Observacao<T> {
     Ausente,
     Invalida,
