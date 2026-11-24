@@ -274,7 +274,7 @@ fn avancar(e: &mut Epoca, valor: u64, motivo: Motivo) -> bool {
     true
 }
 
-fn epoch_on(c: &Connection) -> Result<u64> {
+pub(crate) fn epoch_on(c: &Connection) -> Result<u64> {
     let raw: Option<String> = c.query_row("SELECT v FROM kv WHERE k=?1", [EPOCH_KEY], |r| r.get(0)).optional()?;
     Ok(raw.map(|v| v.parse()).transpose()?.unwrap_or(0))
 }

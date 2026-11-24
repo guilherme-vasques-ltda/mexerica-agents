@@ -3,6 +3,8 @@
 
 pub(crate) mod canal;
 mod codec;
+#[cfg(test)]
+mod recibo;
 
 use std::collections::VecDeque;
 
@@ -48,6 +50,10 @@ pub struct Input {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AcceptedInput {
     pub sequence: u64,
+    epoch: u64,
+    target_generation: u64,
+    #[cfg(test)]
+    recibo: uuid::Uuid,
     pub x: f64,
     pub y: f64,
 }
@@ -174,7 +180,7 @@ impl Stream {
             || input.target_generation != self.target_generation
             || input.epoch != self.epoch
             || input.controller != self.controller
-            || input.sequence != self.last_input.saturating_add(1)
+            || self.last_input.checked_add(1) != Some(input.sequence)
             || self.inputs.len() >= 64
         {
             return false;
@@ -185,7 +191,15 @@ impl Stream {
             return false;
         };
         self.last_input = input.sequence;
-        self.inputs.push_back(AcceptedInput { sequence: input.sequence, x, y });
+        self.inputs.push_back(AcceptedInput {
+            sequence: input.sequence,
+            epoch: self.epoch,
+            target_generation: self.target_generation,
+            #[cfg(test)]
+            recibo: uuid::Uuid::new_v4(),
+            x,
+            y,
+        });
         true
     }
 
@@ -196,6 +210,14 @@ impl Stream {
             return None;
         }
         self.inputs.pop_front()
+    }
+
+    fn input_still_current(&self, input: &AcceptedInput) -> bool {
+        self.connected
+            && self.capable
+            && self.input_consumer_ready
+            && self.epoch == input.epoch
+            && self.target_generation == input.target_generation
     }
 
     pub fn rates(&self) -> (u8, u8) {
