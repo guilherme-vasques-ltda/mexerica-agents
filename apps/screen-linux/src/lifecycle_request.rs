@@ -242,7 +242,7 @@ mod correlation_tests {
         assert!(original.with_pipeline(&pipeline, || Ok(())).is_ok());
         let params = json!({"session":"same","answerId":7});
         let prepared = prepare_rpc(&h, "close", &params, Some(9));
-        let reply = respond(&h, "close", &params, json!(9), prepared).await;
+        let reply = respond(&h, "close", &params, json!(9), prepared, 0).await;
         assert_eq!(
             reply,
             json!({"jsonrpc":"2.0","id":9,"result":{"nativeStop":{"answerId":7,"state":"null"}}})
@@ -258,7 +258,8 @@ mod correlation_tests {
                 "close",
                 &params,
                 json!(11),
-                prepare_rpc(&h, "close", &params, Some(11))
+                prepare_rpc(&h, "close", &params, Some(11)),
+                0,
             )
             .await["result"],
             json!({}),
@@ -316,6 +317,7 @@ mod correlation_tests {
                 &p,
                 json!(9),
                 prepare_rpc(&h, "close", &p, Some(9)),
+                0,
             )
             .await;
             assert_eq!(reply["error"]["message"], "native_stop_lifecycle");

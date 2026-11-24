@@ -42,24 +42,21 @@ pub(super) struct Link {
 impl Link {
     #[cfg(unix)]
     pub(super) fn accept_status(&self, screen: &Screen, params: &Value) {
-        match serde_json::from_value::<HelperStatus>(params.clone()) {
-            Ok(st) => {
-                #[cfg(target_os = "linux")]
-                {
-                    let mut notice = self.restore_notice.locked();
-                    notice.observe(params);
-                    if !notice.new_public_status(&st) {
-                        return;
-                    }
+        if let Ok(st) = serde_json::from_value::<HelperStatus>(params.clone()) {
+            #[cfg(target_os = "linux")]
+            {
+                let mut notice = self.restore_notice.locked();
+                notice.observe(params);
+                if !notice.new_public_status(&st) {
+                    return;
                 }
-                *screen.status.locked() = st;
-                screen.emit();
             }
-            Err(_) => {
-                #[cfg(target_os = "linux")]
-                self.restore_notice.locked().observe(&Value::Null);
-                tracing::warn!("bad status from the screen helper");
-            }
+            *screen.status.locked() = st;
+            screen.emit();
+        } else {
+            #[cfg(target_os = "linux")]
+            self.restore_notice.locked().observe(&Value::Null);
+            tracing::warn!("bad status from the screen helper");
         }
     }
 

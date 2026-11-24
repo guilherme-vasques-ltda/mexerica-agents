@@ -317,7 +317,7 @@ async fn input_received_before_close_must_not_call_portal_after_original_null() 
         reached.await?;
         let params = json!({"session":"original","answerId":7});
         let prepared = prepare_rpc(&h, "close", &params, Some(9));
-        let reply = respond(&h, "close", &params, json!(9), prepared).await;
+        let reply = respond(&h, "close", &params, json!(9), prepared, 0).await;
         assert_eq!(
             reply["result"],
             json!({"nativeStop":{"answerId":7,"state":"null"}})
@@ -412,7 +412,7 @@ async fn drag_cut_inside_perform_releases_button_and_stops_after_close() -> Resu
         // Close a meio do arrasto: o pipeline vai a Null com o botão seguro.
         let params = json!({"session":"dragging","answerId":7});
         let prepared = prepare_rpc(&h, "close", &params, Some(9));
-        let reply = respond(&h, "close", &params, json!(9), prepared).await;
+        let reply = respond(&h, "close", &params, json!(9), prepared, 0).await;
         assert_eq!(
             reply["result"],
             json!({"nativeStop":{"answerId":7,"state":"null"}})
@@ -485,7 +485,7 @@ async fn clipboard_is_denied_after_close_and_without_active_portal() -> Result<(
         // descarta a mensagem, como nos eventos de entrada.
         let params = json!({"session":"clipping","answerId":7});
         let prepared = prepare_rpc(&h, "close", &params, Some(9));
-        respond(&h, "close", &params, json!(9), prepared).await;
+        respond(&h, "close", &params, json!(9), prepared, 0).await;
         assert!(operation.session().is_err());
         consume_event(
             h.clone(),

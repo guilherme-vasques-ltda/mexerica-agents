@@ -11,7 +11,7 @@ use axum::http::HeaderMap;
 use serde_json::json;
 use std::{
     path::Path,
-    sync::{Arc, atomic::AtomicI64},
+    sync::{Arc, Mutex, atomic::AtomicI64},
     time::Duration,
 };
 use tokio::sync::mpsc;
@@ -22,9 +22,9 @@ fn link(id: u64) -> (Arc<Link>, mpsc::UnboundedReceiver<Outgoing>) {
         Arc::new(Link {
             id,
             tx,
-            pending: Default::default(),
+            pending: Mutex::default(),
             next_id: AtomicI64::new(1),
-            restore_notice: Default::default(),
+            restore_notice: Mutex::default(),
         }),
         rx,
     )
@@ -117,7 +117,7 @@ async fn aviso_portal_so_na_leitura_local_sem_mudar_permissao_ou_stream() {
         with_notice["portalRestoreNotice"] = unknown;
         current.accept_status(&hub.screen, &with_notice);
         assert!(hub.screen.portal_restore_notice().is_none());
-        assert!(hub.screen.state()["capture"] == true);
+        assert_eq!(hub.screen.state()["capture"], true);
     }
     with_notice["portalRestoreNotice"] = json!("stateDirectoryNotPrivate");
     current.accept_status(&hub.screen, &with_notice);
@@ -142,13 +142,13 @@ fn aviso_portal_nao_altera_cadencia_ou_bytes_dos_eventos_de_tela() {
             .cloned()
             .enumerate()
             .map(|(index, mut frame)| {
-                if with_notice && matches!(index, 1 | 2 | 3) {
+                if with_notice && matches!(index, 1..=3) {
                     frame["portalRestoreNotice"] = json!("stateDirectoryNotPrivate");
                 } else if with_notice && index == 4 {
                     frame["portalRestoreNotice"] = json!("unknown-fixture");
                 }
                 link.accept_status(&screen, &frame);
-                assert_eq!(screen.portal_restore_notice().is_some(), with_notice && matches!(index, 1 | 2 | 3));
+                assert_eq!(screen.portal_restore_notice().is_some(), with_notice && matches!(index, 1..=3));
                 match events.try_recv() {
                     Ok(event) => {
                         assert!(event["screen"].get("portalRestoreNotice").is_none());

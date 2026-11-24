@@ -59,7 +59,7 @@ impl LinkNotice {
         }
         self.observed = None;
         self.gate = if reply.get("error").is_none()
-            && reply.get("result").and_then(Value::as_object).is_some_and(|result| result.is_empty())
+            && reply.get("result").and_then(Value::as_object).is_some_and(serde_json::Map::is_empty)
         {
             Gate::Current
         } else {
