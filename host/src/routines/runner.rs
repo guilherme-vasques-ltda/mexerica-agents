@@ -505,6 +505,16 @@ fn tick(hub: &Arc<Hub>, retry: &mut OrphanRetry) -> Result<()> {
     tick_with_clock(hub, retry, now_ms)
 }
 
+enum DispatchDisposition {
+    DeferBot,
+    Continue,
+}
+
+struct QueueRefusal {
+    same_projection: bool,
+    disposition: DispatchDisposition,
+}
+
 fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> i64) -> Result<()> {
     hub.update_keep_awake();
     if let Err(error) = hub.routines.publish(hub) {
@@ -559,15 +569,13 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
                 continue;
             }
             let now = sampled_now.min(clock());
-            if predecessor_deadline.is_some_and(|deadline| now < deadline) {
+            let Some(run) =
+                state.runs.get(index).filter(|r| r.id == id && r.bot_id == bot && r.status == Status::Pending)
+            else {
                 continue;
-            }
-            if !state.runs.get(index).is_some_and(|r| {
-                r.id == id
-                    && r.bot_id == bot
-                    && r.status == Status::Pending
-                    && r.retry_not_before_ms.is_none_or(|deadline| now >= deadline)
-            }) {
+            };
+            if predecessor_deadline.max(run.retry_not_before_ms).is_some_and(|deadline| now < deadline) {
+                deferred.insert(bot.clone());
                 continue;
             }
             if !active.insert(bot.clone()) {
@@ -575,7 +583,7 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
             }
         }
         if let Err(error) = hub.send_cmd(&bot, crate::agent::bot::Cmd::Routine(id.clone())) {
-            let ((same_projection, delayed), committed_epoch) =
+            let (refusal, committed_epoch) =
                 hub.routines.change_in_origin_with_epoch(&hub.store, None, None, |state| {
                     let same_projection = epoch == Some(hub.routines.state.epoca.load(Ordering::SeqCst));
                     if !state.paused
@@ -588,7 +596,7 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
                     {
                         if run.catchup && run.attempts < CATCHUP_MAX_RETRIES {
                             defer_catchup_retry(run, clock());
-                            return Ok((same_projection, true));
+                            return Ok(QueueRefusal { same_projection, disposition: DispatchDisposition::DeferBot });
                         }
                         run.status = Status::Failed;
                         run.retry_not_before_ms = None;
@@ -607,11 +615,11 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
                         run.report_pending = true;
                         run.event = Value::Null;
                     }
-                    Ok((same_projection, false))
+                    Ok(QueueRefusal { same_projection, disposition: DispatchDisposition::Continue })
                 })?;
             hub.routines.release(&bot);
-            epoch = if same_projection { committed_epoch } else { None };
-            if delayed {
+            epoch = if refusal.same_projection { committed_epoch } else { None };
+            if matches!(refusal.disposition, DispatchDisposition::DeferBot) {
                 deferred.insert(bot);
             }
         }
@@ -1115,6 +1123,49 @@ mod dispatch_recovery_tests {
         assert!(own.try_recv().is_err());
         let state = hub.routines.state.locked();
         assert!(state.runs[..2].iter().all(|r| r.status == Status::Cancelled && r.retry_not_before_ms.is_none()));
+    }
+
+    #[tokio::test]
+    async fn catchup_clock_recovers_within_tick_without_overtaking_a_deferred_run() {
+        use std::cell::Cell;
+
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let first = queue_catchup(&hub, &routine_id, due_at);
+        let mut retry = OrphanRetry::default();
+        tick_with_clock(&hub, &mut retry, || due_at + 1).unwrap();
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        let mut other = config();
+        other.id = "other".into();
+        hub.store.save_bot(&other).unwrap();
+        let other_id = hub
+            .routines
+            .change(&hub.store, |state| {
+                let successor = super::super::new_run(&state.routines[0], Value::Null, None);
+                let mut other = super::super::new_run(&state.routines[0], Value::Null, None);
+                other.bot_id = "other".into();
+                let id = other.id.clone();
+                state.runs.extend([successor, other]);
+                Ok(id)
+            })
+            .unwrap();
+        let mut own = hub.test_bot_commands("bot");
+        let mut other = hub.test_bot_commands("other");
+        let samples = Cell::new(0);
+        tick_with_clock(&hub, &mut retry, || {
+            let n = samples.get();
+            samples.set(n + 1);
+            if n == 3 { deadline - 1 } else { deadline }
+        })
+        .unwrap();
+        assert!(samples.get() > 4);
+        assert!(own.try_recv().is_err());
+        assert!(!hub.routines.active.locked().contains("bot"));
+        assert!(matches!(other.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == other_id));
+
+        tick_with_clock(&hub, &mut retry, || deadline).unwrap();
+        assert!(matches!(own.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == first));
+        assert!(own.try_recv().is_err());
+        assert!(other.try_recv().is_err());
     }
 
     #[tokio::test]
