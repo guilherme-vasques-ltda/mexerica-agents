@@ -231,8 +231,7 @@ test('DoctorSession recupera o stream na mesma origem e cancela retries antigos'
       return () => { stream.stopped = true }
     } }),
   }
-  const listeners = new Set<() => void>()
-  const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn) } }
+  const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: () => () => {} }
   const session = new m.DoctorSession()
   session.open(source, 'personal')
   try {
@@ -264,33 +263,36 @@ test('DoctorSession recupera o stream na mesma origem e cancela retries antigos'
 })
 
 test('DoctorSession reread mantém origem, serializa leituras e descarta resposta após troca de origem', async () => {
-  let finish!: (answer: unknown) => void
+  const pending: ((answer: unknown) => void)[] = []
   let calls = 0
-  const client: TowerLink = {
+  const makeClient = (): TowerLink => ({
     call() {
       calls++
-      return new Promise((resolve) => { finish = resolve })
+      return new Promise((resolve) => { pending.push(resolve) })
     },
     inSpace: () => ({ events: () => () => {} }),
-  }
+  })
+  const client = makeClient()
   const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: () => () => {} }
   const session = new m.DoctorSession()
   session.open(source, 'personal')
   session.reread()
   assert.equal(calls, 1)
-  finish({ version: 1, hubId: 'h1', spaceId: 'personal', collectedAt: 1, overall: 'healthy', checks: [
+  const nextSource: TowerSource = { hello: { hostId: 'h2', rev: 2 }, principalEpoch: 2, connectedClient: makeClient(), subscribe: () => () => {} }
+  session.open(nextSource, 'personal')
+  assert.equal(calls, 1)
+  pending.shift()!({ version: 1, hubId: 'h1', spaceId: 'personal', collectedAt: 1, overall: 'healthy', checks: [
+    { id: 'hub', area: 'hub', status: 'ok', code: 'hub_ok', count: null, actionKind: 'none' },
+  ] })
+  await tick()
+  assert.equal(session.state.kind, 'loading')
+  await tick(300)
+  assert.equal(calls, 2)
+  pending.shift()!({ version: 1, hubId: 'h2', spaceId: 'personal', collectedAt: 2, overall: 'healthy', checks: [
     { id: 'hub', area: 'hub', status: 'ok', code: 'hub_ok', count: null, actionKind: 'none' },
   ] })
   await tick()
   assert.equal(session.state.kind, 'ready')
-  session.reread()
-  source.hello = { hostId: 'h2', rev: 2 }
-  source.connectedClient = { ...client }
-  source.principalEpoch++
-  for (const listener of listeners) listener()
-  finish({ version: 1, hubId: 'h1', spaceId: 'personal', collectedAt: 2, overall: 'healthy', checks: [] })
-  await tick()
-  assert.notEqual(session.state.kind, 'ready')
   session.close()
 })
 
