@@ -731,6 +731,9 @@ impl Actor {
         let notice = match (&done, stop_reason.as_str()) {
             _ if held => Ok(()),
             _ if limited && !stopped => self.try_notice(&limit_notice, NoticeStyle::Info),
+            (Err(e), _) if !self.stop_requested && e.is::<crate::fork::antigravity::ModeUnconfirmed>() => {
+                self.try_notice(crate::fork::antigravity::MODE_UNCONFIRMED, NoticeStyle::Error)
+            }
             (Err(e), _) if !self.stop_requested => {
                 let tail = self.exit_tail.take().filter(|t| !t.is_empty());
                 if self.invite_sign_in(e) {

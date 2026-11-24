@@ -13,6 +13,7 @@ import { errorText, market, type AgentAuth, type AuthMethod } from './market-mod
 import { ErrorText, Field, ScreenHeader, SlideStack, WebLink, filled } from './pieces'
 import { SetupTerminalView } from '../fork/sob-demanda/telas'
 import { RemoteEngineSheet } from '../fork/contas-ia/RemoteEngineSheet'
+import { AntigravitySetup } from '../fork/contas-ia/AntigravitySetup'
 import { superficieIdioma, useIdioma, useT } from '../../lib/fork-i18n/estado'
 import { isolado } from '@shared/bidi'
 
@@ -162,7 +163,7 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
   // Back from a terminal or key form: see what changed.
   const hadRoute = useRef(false)
   useEffect(() => {
-    if (route === null && hadRoute.current) void check()
+    if (!antigravity && route === null && hadRoute.current) void check()
     hadRoute.current = route !== null
   }, [route])
 
@@ -223,7 +224,7 @@ function LegacyAgentSheet({ initial, recheck = false }: { initial: Backend; rech
         subtitle={antigravity ? t('extensoes.motor.antigravityInterativo') : backend.description ? <bdi dir="auto">{backend.description}</bdi> : undefined}
         closeTitle={t('extensoes.fechar')}
       />
-      {antigravity ? <CardForm><CardSection><Text size="subheadline" tone="secondary">{t('extensoes.motor.antigravityPermissoes')}</Text></CardSection></CardForm> : <CardForm>
+      {antigravity ? <CardForm><AntigravitySetup computador={host} /></CardForm> : <CardForm>
         {/* D164: contas do Codex e do Claude Code ficam em Configurações → Contas de IA. */}
         {backend.id === 'codex' || backend.id === 'claude' ? <CardSection><Text size="subheadline" tone="secondary">{t('contas.avisoCatalogo')}</Text></CardSection> : null}
         {curated ? (

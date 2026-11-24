@@ -1,5 +1,12 @@
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "extensoes.motor.antigravityComputador": "Antigravity em {computador}",
+  "extensoes.motor.antigravityInstalacao": "Instale ou atualize o CLI oficial no computador acima. Use a versão compatível indicada abaixo.",
+  "extensoes.motor.antigravityVersao": "Baixar versão 1.5.15",
+  "extensoes.motor.antigravityGuia": "Instruções do Google",
+  "extensoes.motor.antigravityLoginLocal": "No terminal do computador acima, rode agy acp --login e siga as instruções do Google. A sessão fica no CLI; o app não recebe suas credenciais.",
+  "extensoes.motor.antigravityGemini": "Alternativa: chave de API do Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "Para automações, adicione uma chave do Google em Contas de IA → Chaves de API no computador que executará a rotina. Escolha Gemini no Motor Mexerica. Esse caminho não usa o login do Antigravity.",
   "extensoes.titulo": "Extensões",
   "extensoes.paginas": "Páginas de Extensões",
   "extensoes.voltar": "Voltar",
