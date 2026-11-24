@@ -54,6 +54,8 @@ pub(crate) fn call(hub: &Hub, caller: &Caller, body: &Value) -> Result<Value> {
     let campos = body.as_object().ok_or_else(|| anyhow!("invalid_app_language"))?;
     ensure!(campos.keys().all(|k| k == "language" || k == "spaceId"), "invalid_app_language");
     let idioma = body["language"].as_str().and_then(valido).ok_or_else(|| anyhow!("invalid_app_language"))?;
+    #[cfg(test)]
+    crate::fork::sessoes::call_tests::before_effect(&hub.store, "app_language_write");
     crate::fork::autoridade::Autoridade::proprio_with_db(hub, caller, |tx, geracao| {
         let valor = json!({"language": idioma, "generation": geracao}).to_string();
         tx.execute(

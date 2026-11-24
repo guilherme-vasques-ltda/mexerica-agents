@@ -2607,6 +2607,7 @@ async fn resumo_privado_nao_vai_para_o_turno_de_grupo_depois_de_falha_na_abertur
         prompt: prompt.into(),
         shown: vec![],
         epoch: f.hub.groups.reserve_epoch_for_test(&group_lane),
+        authority: None,
         reply,
     });
     actor.start_turn(group_lane, &[], prompt, false, &done).await.unwrap();
@@ -3799,6 +3800,168 @@ async fn contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_or
     assert_eq!(f.prompts().len(), 2);
     reopened.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn prova_remota_nao_e_renovada_no_retry_do_prompt_pendente() {
+    use crate::fork::bot_admission as admission;
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let entry = entrada_com_prova_remota(&f);
+    let mut actor = f.actor();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    actor.before_permit = Some(Box::new(|hub| admission::set_paused_for_test(&hub.store, "bot", true).unwrap()));
+    actor
+        .start_turn(crate::store::Lane::main("bot"), std::slice::from_ref(&entry), "Fixture remota", false, &tx)
+        .await
+        .unwrap();
+    assert!(matches!(actor.pending_admission, Some(super::fork_admission::Pending::Prompt { .. })));
+    admission::set_paused_for_test(&f.hub.store, "bot", false).unwrap();
+    actor.queue_retry_at = None;
+    actor.before_permit = Some(Box::new(|hub| {
+        crate::fork::workspace::bump(hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+    }));
+    actor.retry_admission(&tx).await;
+    assert!(actor.before_permit.is_none());
+    assert_eq!(f.hub.store.entry(&entry).unwrap().data["status"], "failed");
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    if let Some(conn) = actor.conn.take() {
+        conn.acp.kill().await;
+    }
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn prova_remota_original_e_exigida_na_retomada_de_sent() {
+    for reboot in [false, true] {
+        let f = Fixture::new();
+        f.hub.shutdown().await;
+        std::fs::write(f.dir.join("limit-hold"), "").unwrap();
+        let entry = entrada_com_prova_remota(&f);
+        let mut actor = f.actor();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        actor
+            .start_turn(crate::store::Lane::main("bot"), std::slice::from_ref(&entry), "Fixture remota", false, &tx)
+            .await
+            .unwrap();
+        f.until("prompt original", &f.hub, || f.prompts().len() == 1).await;
+        assert_eq!(f.hub.store.entry(&entry).unwrap().data["status"], "sent");
+        std::fs::remove_file(f.dir.join("limit-hold")).unwrap();
+        let done = tokio::time::timeout(Duration::from_secs(20), rx.recv()).await.unwrap().unwrap();
+        actor.finish_turn(&done.result);
+        assert!(f.waiting_checkpoint_published());
+        if let Some(conn) = actor.conn.take() {
+            conn.acp.kill().await;
+        }
+        assert_eq!(f.hub.remote_prompt_proofs(std::slice::from_ref(&entry)).unwrap().len(), 1);
+        f.make_retry_due();
+        if reboot {
+            drop(actor);
+            let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+            f.until("recusa depois de reabrir", &reopened, || {
+                reopened.store.kv_read("turn.waiting.bot").unwrap().is_none()
+            })
+            .await;
+            reopened.shutdown().await;
+        } else {
+            let saved = f.hub.store.kv_get("turn.waiting.bot").unwrap();
+            actor.waiting = Some(serde_json::from_str(&saved).unwrap());
+            actor.before_permit = Some(Box::new(|hub| {
+                crate::fork::workspace::bump(hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+            }));
+            actor.retry_waiting(&tx).await;
+            assert!(actor.before_permit.is_none());
+            assert!(actor.waiting.is_none());
+            if let Some(conn) = actor.conn.take() {
+                conn.acp.kill().await;
+            }
+        }
+        assert_eq!(f.prompts().len(), 1);
+        assert_ne!(f.hub.store.entry(&entry).unwrap().data["status"], "queued");
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+}
+
+#[tokio::test]
+async fn corte_no_preparo_do_membro_recusa_prompt_e_libera_reserva() {
+    use crate::fork::{autoridade, bot_admission, workspace};
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    let lane = crate::store::Lane::main("grupo");
+    let cfg = serde_json::from_value(json!({"id":"grupo","name":"Grupo","kind":"group","members":["bot"]})).unwrap();
+    f.hub.store.save_bot(&cfg).unwrap();
+    let (reply, answer) = tokio::sync::oneshot::channel();
+    actor.before_permit = Some(Box::new(|hub| {
+        assert!(bot_admission::current(&hub.store, "bot").unwrap().is_some());
+        workspace::bump(hub, workspace::Motivo::RoleChanged).unwrap();
+    }));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    actor
+        .on_cmd(
+            super::Cmd::Group(crate::chat::group::GroupTurn {
+                lane: lane.clone(),
+                prompt: "Fixture de grupo".into(),
+                shown: vec![],
+                epoch: f.hub.groups.reserve_epoch_for_test(&lane),
+                authority: Some(prova_remota_da_fixture(&f)),
+                reply,
+            }),
+            &tx,
+        )
+        .await;
+    let error = answer.await.unwrap().unwrap_err();
+    assert!(actor.before_permit.is_none(), "{error:#}");
+    assert!(error.to_string().contains(&autoridade::EpochDaRequisicaoEncerrado.to_string()));
+    assert!(actor.dispatch.is_none() && actor.turn.is_none());
+    assert!(bot_admission::current(&f.hub.store, "bot").unwrap().is_none());
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    if let Some(conn) = actor.conn.take() {
+        conn.acp.kill().await;
+    }
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+fn prova_remota_da_fixture(f: &Fixture) -> crate::fork::autoridade::Autoridade {
+    use crate::{
+        api::devices::Caller,
+        fork::autoridade,
+        store::{Device, DeviceSource, Scope},
+    };
+    let key = "fixture-remote-prompt";
+    f.hub
+        .store
+        .put_device(&Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: crate::store::now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = autoridade::autenticar(&f.hub, key).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
+    original.para_requisicao(f.hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap()
+}
+
+fn entrada_com_prova_remota(f: &Fixture) -> String {
+    let proof = prova_remota_da_fixture(f);
+    let entry = f
+        .hub
+        .store
+        .insert_entry(
+            &crate::store::Lane::main("bot"),
+            EntryKind::User,
+            1,
+            &json!({"text":"Fixture remota","status":"queued","remoteAdmissionRequired":true}),
+        )
+        .unwrap();
+    f.hub.remote_send_authorities.locked().insert(entry.id.clone(), proof);
+    entry.id
 }
 
 #[tokio::test]
@@ -5059,6 +5222,8 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
         "a retenção não publica aviso de erro"
     );
     assert_eq!(f.prompts().len(), 1, "a continuação da conversa pausada não sai");
+    let hold = f.dir.join("hold");
+    std::fs::write(&hold, "").unwrap();
     crate::api::dispatch(
         &f.hub,
         &crate::api::devices::Caller::Local,
@@ -5072,6 +5237,7 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
     assert!(prompt.contains("Oi, sala"), "a sala é admitida");
     assert!(!prompt.contains("Continue a tarefa pendente"), "a continuação da conversa pausada não sai");
     assert!(admission::conversation_paused(&f.hub.store, "bot", "bot").unwrap(), "a pausa continua");
+    std::fs::remove_file(hold).unwrap();
     f.until("bot saiu do estado Waiting após prompt da sala", &f.hub, || {
         f.hub.runtime("bot").status != BotStatus::Waiting
     })

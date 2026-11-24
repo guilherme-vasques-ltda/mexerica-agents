@@ -492,6 +492,40 @@ impl Acp {
         Ok(Answer { rx })
     }
 
+    pub(crate) async fn send_guarded_prompt(
+        &self,
+        params: Value,
+        scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
+    ) -> Result<Answer> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut line = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"method":"session/prompt","params":params}))?;
+        line.push(b'\n');
+        let mut input = self.stdin.lock().await;
+        let writer = input.as_mut().ok_or_else(|| Failure::error(FailureKind::Exited, "agent stopped"))?;
+        let (tx, rx) = oneshot::channel();
+        self.pending.locked().insert(id, tx);
+        let mut started = false;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let result = loop {
+            let result =
+                crate::fork::spaces::tool_effects::write_scoped_progress(writer, &line, &scope, &mut started).await;
+            if started
+                || Instant::now() >= deadline
+                || !result.as_ref().is_err_and(crate::fork::autoridade::sqlite_temporariamente_ocupado)
+            {
+                break result;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        if result.is_err() {
+            self.pending.locked().remove(&id);
+            if started {
+                input.take();
+            }
+        }
+        result.map(|()| Answer { rx })
+    }
+
     pub(crate) async fn send_antigravity_prompt(
         &self,
         params: Value,
@@ -725,6 +759,46 @@ pub fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn guarded_prompt_rechecks_after_sqlite_contention_before_any_bytes() {
+        use std::{cell::Cell, task::Poll};
+        for cut in [false, true] {
+            let script = r#"if IFS= read -r line; then printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'; fi"#;
+            let mut process = Command::new("/bin/sh");
+            process.args(["-c", script]);
+            let (acp, _updates) = Acp::spawn_process(process, "fixture", "/tmp", true, false, false).unwrap();
+            let calls = Cell::new(0);
+            let result = acp
+                .send_guarded_prompt(json!({"sessionId":"fixture","prompt":[]}), |effect| {
+                    let attempt = calls.get();
+                    calls.set(attempt + 1);
+                    if attempt == 0 {
+                        return Poll::Ready(Err(rusqlite::Error::SqliteFailure(
+                            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                            None,
+                        )
+                        .into()));
+                    }
+                    if cut {
+                        return Poll::Ready(Err(crate::fork::autoridade::EpochDaRequisicaoEncerrado.into()));
+                    }
+                    effect()
+                })
+                .await;
+            if cut {
+                assert!(result.err().unwrap().is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>());
+                assert_eq!(calls.get(), 2);
+            } else {
+                let answer =
+                    tokio::time::timeout(Duration::from_secs(3), result.unwrap().response()).await.unwrap().unwrap();
+                assert_eq!(answer["stopReason"], "end_turn");
+                assert!(calls.get() > 1);
+            }
+            acp.kill().await;
+        }
+    }
 
     #[cfg(unix)]
     #[tokio::test]

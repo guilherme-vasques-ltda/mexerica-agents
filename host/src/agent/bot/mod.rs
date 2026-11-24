@@ -111,6 +111,7 @@ pub enum Cmd {
         entry_id: String,
         text: String,
     },
+    RestoreUserQueue,
     BotRequest(crate::chat::team::BotRequest),
     /// `send_message` from the bot's `chat` MCP server: a message for the user, now.
     SendToUser {

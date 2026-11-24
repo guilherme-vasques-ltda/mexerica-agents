@@ -41,15 +41,18 @@ fn actions(c: &rusqlite::Connection, chat: &str) -> Result<Vec<&'static str>> {
 pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
     let chat = body["botId"].as_str().ok_or_else(|| anyhow!("`botId` is required"))?;
     ensure!(hub.store.bot(chat)?.is_some_and(|b| !b.deleted), "unknown bot");
+    if method == "sessions" {
+        #[cfg(test)]
+        crate::fork::sessoes::call_tests::before_effect(&hub.store, "sessions_write");
+        return crate::fork::donna_fixa::pedido::gravar(&hub.store, |tx| {
+            store::ensure_principal(tx, chat)?;
+            let sessions = store::list(tx, chat)?;
+            let actions = actions(tx, chat)?;
+            Ok(json!({"sessions": sessions, "sessionActions": actions}))
+        });
+    }
     let db = hub.store.db.locked();
     let tx = db.unchecked_transaction()?;
-    if method == "sessions" {
-        store::ensure_principal(&tx, chat)?;
-        let sessions = store::list(&tx, chat)?;
-        let actions = actions(&tx, chat)?;
-        tx.commit()?;
-        return Ok(json!({"sessions": sessions, "sessionActions": actions}));
-    }
     if method == "sessionCreate" {
         let title = match body.get("title").filter(|v| !v.is_null()) {
             Some(title) => title.as_str().ok_or_else(|| anyhow!("invalid_title"))?,
@@ -193,18 +196,19 @@ const EXTRA_UNAVAILABLE: &str = "session_selection_unavailable: esta sessão pre
 /// recusar cedo; não é captura nem prova. A admissão e todas as validações do permit continuam obrigatórias e
 /// valem contra troca ou revogação depois do envio. `NotRouted` ou erro recusam antes de gravar a entrada.
 pub(crate) fn extra_admissible(c: &rusqlite::Connection, lane: &crate::store::Lane) -> Result<()> {
+    let snapshot = c.is_autocommit().then(|| c.unchecked_transaction()).transpose()?;
+    let c = snapshot.as_deref().unwrap_or(c);
     let check = || -> Result<bool> {
-        let tx = c.unchecked_transaction()?;
-        let mut cfg = crate::store::Store::bot_on(&tx, &lane.chat)?
+        let mut cfg = crate::store::Store::bot_on(c, &lane.chat)?
             .filter(|b| !b.deleted)
             .ok_or_else(|| anyhow!("unknown bot"))?
             .config;
         // A seleção do próximo turno (a próxima do dono, se houver), que é a que este envio vai executar.
-        super::admissao::apply_configured(&tx, lane, &mut cfg)?;
+        super::admissao::apply_configured(c, lane, &mut cfg)?;
         let account = match cfg.fork_editor.engine_account_id.as_deref() {
             None => None,
             Some(id) => {
-                let registry = crate::fork::engine_accounts::Registry::load_db(&tx)?;
+                let registry = crate::fork::engine_accounts::Registry::load_db(c)?;
                 Some((id, registry.account(id)?.managed.as_ref().map_or(1, |m| m.revision)))
             }
         };
@@ -213,8 +217,7 @@ pub(crate) fn extra_admissible(c: &rusqlite::Connection, lane: &crate::store::La
             model: cfg.model.clone(),
             model_options: cfg.model_options.clone(),
         };
-        let class = crate::fork::roteamento::receipt::admission_class(&tx, &cfg, true, false, account, &selection)?;
-        // Sem commit: a transação é descartada ao sair.
+        let class = crate::fork::roteamento::receipt::admission_class(c, &cfg, true, false, account, &selection)?;
         Ok(matches!(class, crate::fork::roteamento::receipt::RoutingClass::Routed {}))
     };
     ensure!(check().context(EXTRA_UNAVAILABLE)?, EXTRA_UNAVAILABLE);
@@ -222,16 +225,30 @@ pub(crate) fn extra_admissible(c: &rusqlite::Connection, lane: &crate::store::La
 }
 
 /// Título da 1ª mensagem do dono numa extra, publicado com o evento `session`. Falha não desfaz o envio já gravado.
+#[cfg(test)]
 pub(crate) fn title_first_message(hub: &Hub, lane: &crate::store::Lane, text: &str) {
+    title_first_message_authorized(hub, lane, text, None);
+}
+
+pub(crate) fn title_first_message_authorized(
+    hub: &Hub,
+    lane: &crate::store::Lane,
+    text: &str,
+    autoridade: Option<&crate::fork::autoridade::Autoridade>,
+) {
     let Some(session) = lane.session.as_deref() else { return };
-    let titled = (|| -> Result<Option<store::SessionRow>> {
-        let db = hub.store.db.locked();
-        let tx = db.unchecked_transaction()?;
-        let row = super::titulo::first_message(&tx, session, text)?;
-        crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
-        tx.commit()?;
-        Ok(row)
-    })();
+    let titled = if let Some(autoridade) = autoridade {
+        autoridade.with_db(hub, None, |tx| super::titulo::first_message(tx, session, text))
+    } else {
+        (|| -> Result<Option<store::SessionRow>> {
+            let db = hub.store.db.locked();
+            let tx = db.unchecked_transaction()?;
+            let row = super::titulo::first_message(&tx, session, text)?;
+            crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
+            tx.commit()?;
+            Ok(row)
+        })()
+    };
     match titled {
         Ok(Some(session)) => {
             let _ = hub.events.send(json!({"type": "session", "session": session}));

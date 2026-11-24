@@ -65,6 +65,46 @@ use crate::hub::BotStatus;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[tokio::test]
+async fn grupo_admitido_entrega_e_epoch_antigo_nao_abre_outra_rodada() {
+    use crate::fork::{
+        autoridade,
+        workspace::{self, Motivo},
+    };
+    use crate::store::{Device, DeviceSource, Scope, now_ms};
+    let room = Room::new();
+    let key = "fixture-room-device";
+    room.hub
+        .store
+        .put_device(&Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, mut caller) = autoridade::autenticar(&room.hub, key).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = &mut caller else { panic!("aparelho autenticado") };
+    *original =
+        Arc::new(original.para_requisicao(room.hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap());
+    let body = |nonce| json!({"botId":room.group,"text":"@a mensagem de fixture","clientNonce":nonce});
+    assert!(crate::api::dispatch(&room.hub, &caller, "send", body("current")).await.is_ok());
+    let lane = Lane::main(&room.group);
+    room.settle().await;
+    let replies = room.replies(&lane);
+    assert_eq!(replies.first().map(|reply| reply.0.as_str()), Some("a"));
+    workspace::bump(&room.hub, Motivo::RoleChanged).unwrap();
+    assert!(crate::api::dispatch(&room.hub, &caller, "send", body("stale")).await.is_err());
+    assert!(room.hub.store.find_by_nonce(&room.group, "stale").is_none());
+    assert_eq!(room.replies(&lane), replies);
+    room.hub.shutdown().await;
+}
+
 /// A host with agent bots `a` and `b` (the scripted fixture agent) and a group of both.
 struct Room {
     hub: Arc<Hub>,

@@ -140,11 +140,16 @@ impl Store {
     pub fn mark_read(&self, id: &str) -> Result<i64> {
         let mut c = self.db.locked();
         let tx = c.transaction()?;
-        let rev = next_rev(&tx)?;
-        tx.execute("UPDATE bots SET read_rev = ?2, rev = ?2 WHERE id = ?1", params![id, rev])?;
-        tx.execute("UPDATE donna_space_conversations SET read_revision=?2 WHERE id=?1", params![id, rev])?;
+        let rev = Self::mark_read_on(&tx, id)?;
         crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
         tx.commit()?;
+        Ok(rev)
+    }
+
+    pub(crate) fn mark_read_on(tx: &Connection, id: &str) -> Result<i64> {
+        let rev = next_rev(tx)?;
+        tx.execute("UPDATE bots SET read_rev = ?2, rev = ?2 WHERE id = ?1", params![id, rev])?;
+        tx.execute("UPDATE donna_space_conversations SET read_revision=?2 WHERE id=?1", params![id, rev])?;
         Ok(rev)
     }
 

@@ -41,7 +41,9 @@ pub(super) async fn call(
             | "setRoutinesPaused"
     ) {
         let guard = hub.store.travar_equipe().await;
-        crate::chat::manage::recover_live(hub);
+        if crate::fork::autoridade::Autoridade::de_requisicao(caller).is_none() {
+            crate::chat::manage::recover_live(hub);
+        }
         Some(guard)
     } else {
         None
@@ -266,7 +268,10 @@ pub(super) async fn call(
             json!({})
         }
         "markRead" => {
-            hub.mark_read(str_arg(&b, "botId")?)?;
+            hub.mark_read_authorized(
+                str_arg(&b, "botId")?,
+                crate::fork::autoridade::Autoridade::de_requisicao(caller),
+            )?;
             json!({})
         }
         // One chunk of a file for a later `send` (`attachments`); base64 `data` at `offset`.
@@ -278,7 +283,12 @@ pub(super) async fn call(
             let data =
                 base64::engine::general_purpose::STANDARD.decode(str_arg(&b, "data")?).context("invalid data")?;
             let (offset, done) = (b["offset"].as_u64().unwrap_or(0), b["done"] == true);
+            let authority = crate::fork::autoridade::Autoridade::de_requisicao(caller).cloned();
+            let hub = hub.clone();
             let attachment = tokio::task::spawn_blocking(move || {
+                #[cfg(test)]
+                crate::fork::sessoes::call_tests::before_effect(&hub.store, "upload_write");
+                crate::fork::autoridade::Autoridade::no_efeito(&hub, authority.as_ref(), || Ok(()))?;
                 crate::chat::uploads::append(&root, &id, &name, offset, &data, done)
             })
             .await??;
@@ -298,6 +308,9 @@ pub(super) async fn call(
         }
         "send" => {
             let mailbox = crate::fork::mailbox::current();
+            let mailbox_authority = mailbox.as_ref().map(|delivery| delivery.effect_authority()).transpose()?;
+            let request_authority = crate::fork::autoridade::Autoridade::de_requisicao(caller);
+            let effect_authority = mailbox_authority.as_ref().or(request_authority);
             let bot = str_arg(&b, "botId")?;
             let text = b["text"].as_str().unwrap_or_default().trim();
             let uploads: Vec<&str> =
@@ -354,6 +367,9 @@ pub(super) async fn call(
                 (false, _) => "queued",
             };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
+            if effect_authority.is_some() && status == "queued" && open_turn.is_none() {
+                data["remoteAdmissionRequired"] = json!(true);
+            }
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
             // A fila D72 precisa sobreviver até ao crash entre salvar a entrada e entregá-la ao ator.
             if !row.config.is_group()
@@ -391,18 +407,31 @@ pub(super) async fn call(
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;
                 data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
-                Some(crate::fork::antigravity::owner(hub, caller, &data["contentOrigin"])?)
+                let mut owner = crate::fork::antigravity::owner(hub, caller, &data["contentOrigin"])?;
+                if let Some(delivery) = &mailbox {
+                    owner = delivery.bind_effect_authority(&owner)?;
+                }
+                Some(owner)
             } else {
                 None
             };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let e = if let Some(delivery) = mailbox {
-                let Some(new) = crate::fork::owner_question::add_mailbox_message(hub, &delivery, &lane, &b, &data)?
+            let e = if let (Some(delivery), Some(authority)) = (&mailbox, &mailbox_authority) {
+                let Some(new) =
+                    crate::fork::owner_question::add_mailbox_message(hub, delivery, authority, &lane, &b, &data)?
                 else {
                     return Ok(ControlFlow::Break(json!({})));
                 };
                 new
+            } else if let Some(autoridade) = request_authority {
+                let result = crate::fork::owner_question::add_channel_message(hub, autoridade, &lane, &b, &data)?;
+                match result {
+                    crate::fork::owner_question::Human::New(e) => e,
+                    crate::fork::owner_question::Human::Replayed(e) => {
+                        return Ok(ControlFlow::Break(json!({"entry": e})));
+                    }
+                }
             } else {
                 match crate::fork::owner_question::add_human_message_no_turno(hub, &lane, &data)? {
                     crate::fork::owner_question::Human::New(e) => e,
@@ -411,23 +440,83 @@ pub(super) async fn call(
                     }
                 }
             };
-            crate::fork::sessoes::api::title_first_message(hub, &lane, text);
+            #[cfg(test)]
+            crate::fork::sessoes::call_tests::before_effect(&hub.store, "send_after_commit");
+            crate::fork::sessoes::api::title_first_message_authorized(hub, &lane, text, effect_authority);
             // Before the turn starts, so its reply lands unread.
-            if let Err(error) = hub.mark_read(bot) {
+            if let Err(error) = hub.mark_read_authorized(bot, effect_authority) {
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             if let Some(ticket) = open_turn {
-                crate::fork::open_chat::run(hub, ticket, &row.config, lane, e.turn, e.id.clone(), text.to_owned());
+                crate::fork::open_chat::run(
+                    hub,
+                    ticket,
+                    &row.config,
+                    lane,
+                    e.turn,
+                    (e.id.clone(), effect_authority.cloned()),
+                    text.to_owned(),
+                );
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
-                crate::chat::group::start(hub, &row.config, lane, crate::fork::grupo_entrega::Delivery::new(&e.id));
+                crate::chat::group::start_authorized(
+                    hub,
+                    &row.config,
+                    lane,
+                    crate::fork::grupo_entrega::Delivery::new(&e.id),
+                    effect_authority.cloned(),
+                )?;
             } else {
                 // `/skill …` reaches the agent as "read this skill first"; the chat keeps what was typed.
                 let prompt = crate::chat::prompt::of_entry(hub, &row.config, &e.data);
-                if let Some(owner) = antigravity_owner {
-                    hub.antigravity_grants.insert(owner, lane.clone(), &e);
+                let result = match hub.login_command_sender(bot) {
+                    Ok(sender) => {
+                        let enqueue = || {
+                            if let Some(owner) = antigravity_owner {
+                                hub.antigravity_grants.insert(owner, lane.clone(), &e);
+                            }
+                            sender
+                                .send(Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })
+                                .map_err(|_| anyhow!("bot stopped"))
+                        };
+                        match effect_authority {
+                            Some(authority) => {
+                                let result = authority.com_saida(hub, None, enqueue);
+                                if result.as_ref().is_err_and(|error| {
+                                    !error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                                        && !error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                                }) {
+                                    let _ = sender.send(Cmd::RestoreUserQueue);
+                                }
+                                result
+                            }
+                            None => Ok(enqueue()),
+                        }
+                    }
+                    Err(error) => Ok(Err(error)),
+                };
+                let result = match result {
+                    Ok(result) => result,
+                    Err(error)
+                        if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                            || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>() =>
+                    {
+                        Err(error)
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "remote send admission check unavailable");
+                        return Err(error);
+                    }
+                };
+                if let Err(error) = result {
+                    if effect_authority.is_some() {
+                        hub.fail_remote_turn(&e.id, "queued");
+                        if mailbox.is_some() {
+                            return Ok(ControlFlow::Break(json!({"entry": e})));
+                        }
+                    }
+                    return Err(error);
                 }
-                hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })?;
             }
             json!({"entry": e})
         }

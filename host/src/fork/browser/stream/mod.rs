@@ -168,12 +168,16 @@ impl Stream {
         Some(frame)
     }
 
+    #[cfg(test)]
     pub fn accept_input(&mut self, authority: &impl Authority, recipient: &str, input: &Input) -> bool {
+        authority.is_owner(&self.session, recipient) && self.accept_authorized_input(input)
+    }
+
+    pub(crate) fn accept_authorized_input(&mut self, input: &Input) -> bool {
         let Some(frame) = self.displayed.as_ref() else { return false };
         if !self.connected
             || !self.capable
             || !self.input_consumer_ready
-            || !authority.is_owner(&self.session, recipient)
             || input.session != self.session
             || input.target != self.target
             || input.frame_sequence != frame.sequence

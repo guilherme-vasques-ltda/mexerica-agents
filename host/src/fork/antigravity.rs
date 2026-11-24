@@ -338,7 +338,11 @@ mod tests {
         assert!(owner(&hub, &caller, &report).is_err());
         device.scopes.push(Scope::OwnerDevices);
         hub.store.put_device(&device).unwrap();
-        let (_, caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
+        let (_, mut caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
+        let Caller::Device { autoridade: Some(original), .. } = &mut caller else { panic!("aparelho autenticado") };
+        *original = std::sync::Arc::new(
+            original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap(),
+        );
         let authority = owner(&hub, &caller, &report).unwrap();
         let lane = Lane::main("bot");
         let entry = Entry {
@@ -357,6 +361,13 @@ mod tests {
         grants.insert(authority, lane, &entry);
         let grant = grants.take(&entry.id).unwrap();
         assert!(grants.take(&entry.id).is_none());
+        assert!(matches!(grant.write(&hub, &mut || std::task::Poll::Ready(Ok(()))), std::task::Poll::Ready(Ok(()))));
+        crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+        assert!(matches!(grant.write(&hub, &mut || panic!("saída com epoch antigo")), std::task::Poll::Ready(Err(_))));
+        let (_, caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
+        let renewed = owner(&hub, &caller, &report).unwrap();
+        grants.insert(renewed, Lane::main("bot"), &entry);
+        let grant = grants.take(&entry.id).unwrap();
         assert!(matches!(grant.write(&hub, &mut || std::task::Poll::Ready(Ok(()))), std::task::Poll::Ready(Ok(()))));
         hub.revoke_device(&device.key).unwrap();
         assert!(matches!(grant.write(&hub, &mut || panic!("saída após revogação")), std::task::Poll::Ready(Err(_))));

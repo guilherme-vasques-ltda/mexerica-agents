@@ -28,6 +28,24 @@ impl std::fmt::Display for AutorizacaoEncerrada {
 }
 impl std::error::Error for AutorizacaoEncerrada {}
 
+#[derive(Debug)]
+pub(crate) struct EpochDaRequisicaoEncerrado;
+
+impl std::fmt::Display for EpochDaRequisicaoEncerrado {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("not_allowed: workspace epoch changed")
+    }
+}
+
+impl std::error::Error for EpochDaRequisicaoEncerrado {}
+
+pub(crate) fn sqlite_temporariamente_ocupado(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<rusqlite::Error>()
+        .and_then(rusqlite::Error::sqlite_error_code)
+        .is_some_and(|code| matches!(code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
+
 type LinhaDispositivo = (String, String, String, Option<String>, String, Option<i64>, i64, Option<i64>);
 
 /// RAM privada, não serializável. Só a autenticação confiável produz Dispositivo.
@@ -52,6 +70,7 @@ enum Original {
         geracao_dono: u64,
         epoca_sincronizacao: u64,
         geracao: i64,
+        epoch_da_requisicao: Option<u64>,
     },
     /// D430 PR-A: procedimento administrativo inicial, intenção fechada. Nunca vira Caller.
     Inicial(Arc<personal_link::CapturaInicial>),
@@ -95,6 +114,7 @@ pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device,
                         geracao_dono,
                         epoca_sincronizacao: sincronizacao.epoca(),
                         geracao: concessao::geracao(&tx, chave).map_err(|_| RejectCode::Unauthorized)?,
+                        epoch_da_requisicao: None,
                     },
                 };
                 let caller = Caller::Device {
@@ -140,10 +160,53 @@ fn dispositivo(db: &Connection, chave: &str) -> Result<Device> {
 }
 
 impl Autoridade {
+    pub(crate) fn para_requisicao(&self, epoch: u64, geracao_admitida: i64) -> Result<Self> {
+        let mut autoridade = self.clone();
+        let Original::Dispositivo { geracao, epoch_da_requisicao, .. } = &mut autoridade.original else {
+            return Err(AutorizacaoEncerrada.into());
+        };
+        if *geracao != geracao_admitida {
+            return Err(AutorizacaoEncerrada.into());
+        }
+        *epoch_da_requisicao = Some(epoch);
+        Ok(autoridade)
+    }
+
     pub(crate) fn geracao_capturada(&self) -> Option<i64> {
         match &self.original {
             Original::Dispositivo { geracao, .. } => Some(*geracao),
             _ => None,
+        }
+    }
+
+    pub(crate) fn de_requisicao(caller: &Caller) -> Option<&Self> {
+        let Caller::Device { autoridade: Some(autoridade), .. } = caller else { return None };
+        autoridade.tem_admissao_de_requisicao().then_some(autoridade.as_ref())
+    }
+
+    pub(crate) fn tem_admissao_de_requisicao(&self) -> bool {
+        matches!(&self.original, Original::Dispositivo { epoch_da_requisicao: Some(_), .. })
+    }
+
+    pub(crate) fn com_provas<T>(hub: &Hub, proofs: &[Self], effect: impl FnOnce() -> T) -> Result<T> {
+        let Some((first, rest)) = proofs.split_first() else { return Ok(effect()) };
+        com_saida_validada(
+            hub,
+            OrigemSaida::Controle(first, None),
+            |db, owner, generation, sync_epoch, synced| {
+                for proof in rest {
+                    proof.conferir_guardas(db, owner, generation, sync_epoch, synced, None)?;
+                }
+                Ok(())
+            },
+            effect,
+        )
+    }
+
+    pub(crate) fn no_efeito<T>(hub: &Hub, authority: Option<&Self>, effect: impl FnOnce() -> Result<T>) -> Result<T> {
+        match authority {
+            Some(authority) => authority.com_saida(hub, None, effect)?,
+            None => effect(),
         }
     }
 
@@ -227,6 +290,9 @@ impl Autoridade {
         epoca_sincronizacao_atual: u64,
         sincronizado: bool,
     ) -> Result<()> {
+        if let Original::Dispositivo { epoch_da_requisicao: Some(epoch), .. } = &self.original {
+            ensure!(crate::fork::workspace::epoch_on(db)? == *epoch, EpochDaRequisicaoEncerrado);
+        }
         if let Some(sessao) = &self.sessao {
             sessao.conferir(db)?;
         }
@@ -246,6 +312,7 @@ impl Autoridade {
             geracao_dono,
             epoca_sincronizacao,
             geracao,
+            epoch_da_requisicao,
         } = &self.original
         {
             let atual = dispositivo(db, chave)?;
@@ -270,6 +337,16 @@ impl Autoridade {
                 );
             } else {
                 ensure!(atual.lease_until == *prazo, "not_allowed: prazo original alterado");
+            }
+            if epoch_da_requisicao.is_some() {
+                ensure!(
+                    self.sessao.is_some()
+                        || matches!(
+                            crate::fork::sessao_clerk::vinculo::ler_on(db),
+                            crate::fork::sessao_clerk::vinculo::Estado::SemVinculo
+                        ),
+                    AutorizacaoEncerrada
+                );
             }
         }
         Ok(())
@@ -321,7 +398,15 @@ impl Autoridade {
     ) -> Result<()> {
         self.conferir(db, dono, geracao_dono, epoca_sincronizacao, sincronizado)
             .and_then(|()| self.conferir_contas(contas, db, dono, sincronizado))
-            .map_err(|_| AutorizacaoEncerrada.into())
+            .map_err(|e| {
+                if e.is::<EpochDaRequisicaoEncerrado>()
+                    || (self.tem_admissao_de_requisicao() && sqlite_temporariamente_ocupado(&e))
+                {
+                    e
+                } else {
+                    AutorizacaoEncerrada.into()
+                }
+            })
     }
 
     pub(crate) fn with_db<T>(

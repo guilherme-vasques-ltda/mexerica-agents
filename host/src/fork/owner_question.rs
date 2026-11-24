@@ -365,6 +365,7 @@ fn add_human(hub: &Hub, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<
 pub(crate) fn add_mailbox_message(
     hub: &Hub,
     delivery: &crate::fork::mailbox::Delivery,
+    authority: &crate::fork::autoridade::Autoridade,
     lane: &Lane,
     body: &Value,
     data: &Value,
@@ -372,15 +373,63 @@ pub(crate) fn add_mailbox_message(
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "mailbox_commit");
     publish_commit(hub, || {
-        Ok(delivery
-            .with_db(hub, &lane.chat, |tx, owner| {
+        admit_remote_before_commit(hub, authority, data, |remember| {
+            Ok(delivery
+                .with_db(hub, &lane.chat, |tx, owner| {
+                    ensure!(crate::fork::sessoes::api::send_lane(tx, &lane.chat, body)? == *lane, "session_changed");
+                    let (entry, entries) = insert_human_on(tx, lane, None, data)?;
+                    delivery.record(tx, hub, owner)?;
+                    remember(&entry);
+                    Ok((Some(entry), entries))
+                })?
+                .unwrap_or_default())
+        })
+    })
+}
+
+pub(crate) fn add_channel_message(
+    hub: &Hub,
+    autoridade: &crate::fork::autoridade::Autoridade,
+    lane: &Lane,
+    body: &Value,
+    data: &Value,
+) -> Result<Human> {
+    #[cfg(test)]
+    crate::fork::sessoes::call_tests::before_effect(&hub.store, "channel_send_commit");
+    publish_commit(hub, || {
+        admit_remote_before_commit(hub, autoridade, data, |remember| {
+            autoridade.with_db(hub, None, |tx| {
+                if let Some(original) = crate::store::Store::replay_on(tx, &lane.chat, data)? {
+                    return Ok((Human::Replayed(original), Vec::new()));
+                }
                 ensure!(crate::fork::sessoes::api::send_lane(tx, &lane.chat, body)? == *lane, "session_changed");
                 let (entry, entries) = insert_human_on(tx, lane, None, data)?;
-                delivery.record(tx, hub, owner)?;
-                Ok((Some(entry), entries))
-            })?
-            .unwrap_or_default())
+                remember(&entry);
+                Ok((Human::New(entry), entries))
+            })
+        })
     })
+}
+
+fn admit_remote_before_commit<T>(
+    hub: &Hub,
+    authority: &crate::fork::autoridade::Autoridade,
+    data: &Value,
+    commit: impl FnOnce(&mut dyn FnMut(&Entry)) -> Result<T>,
+) -> Result<T> {
+    let mut id = None;
+    let result = commit(&mut |entry| {
+        if data["remoteAdmissionRequired"] == true {
+            hub.remote_send_authorities.locked().insert(entry.id.clone(), authority.clone());
+            id = Some(entry.id.clone());
+        }
+    });
+    if result.is_err()
+        && let Some(id) = id
+    {
+        hub.remote_send_authorities.locked().remove(&id);
+    }
+    result
 }
 
 fn insert_human_on(c: &Connection, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<(Entry, Vec<Entry>)> {

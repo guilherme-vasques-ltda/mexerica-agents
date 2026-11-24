@@ -5,7 +5,7 @@ use crate::fork::terminal_login::entrega;
 impl Terms {
     pub(crate) async fn start_login(
         self: &Arc<Self>,
-        hub: &Arc<crate::hub::Hub>,
+        hub: &Arc<Hub>,
         caller: &Caller,
         backend: &str,
         space: &str,
@@ -40,7 +40,7 @@ impl Terms {
     #[cfg(test)]
     pub(crate) fn fixture_login(
         self: &Arc<Self>,
-        hub: &Arc<crate::hub::Hub>,
+        hub: &Arc<Hub>,
         caller: &Caller,
         backend: &str,
         executable: std::path::PathBuf,
@@ -58,7 +58,7 @@ impl Terms {
     #[cfg(test)]
     pub(crate) fn fixture_login_timeout(
         self: &Arc<Self>,
-        hub: &Arc<crate::hub::Hub>,
+        hub: &Arc<Hub>,
         caller: &Caller,
         executable: std::path::PathBuf,
         ttl: Duration,
@@ -68,7 +68,7 @@ impl Terms {
     #[cfg(test)]
     pub(crate) fn fixture_login_backend_timeout(
         self: &Arc<Self>,
-        hub: &Arc<crate::hub::Hub>,
+        hub: &Arc<Hub>,
         caller: &Caller,
         backend: &str,
         executable: std::path::PathBuf,
@@ -158,7 +158,7 @@ pub(super) async fn run(
                 () = login.ended() => break false,
                 input = rx.recv() => match input {
                     Some(Input::Resize(cols, rows)) => { let _ = login.deliver(|| master.resize(size(cols, rows))); }
-                    Some(Input::Data(_)) => {},
+                    Some(Input::Data(_) | Input::Scoped(..)) => {},
                     Some(Input::Kill) | None => break false,
                 }
             }
@@ -313,6 +313,7 @@ pub(super) async fn run(
                         let _ = master.resize(size(cols, rows));
                     }
                 }
+                Some(Input::Scoped(..)) => {},
                 Some(Input::Kill) | None => {
                     if let Some(login) = &term.login {
                         login.stop();
