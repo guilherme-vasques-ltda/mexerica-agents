@@ -19,7 +19,10 @@ impl Store {
         let mut db = self.db.locked();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let Some(card) = entry_on(&tx, id)? else { return Ok(false) };
-        let Some(question) = restorable_on(&tx, &card)? else { return Ok(false) };
+        let Some(question) = restorable_on(&tx, &card)? else {
+            tracing::warn!(entry = %id, "cartão não elegível para restauração; expira");
+            return Ok(false);
+        };
         let lane = Lane {
             chat: card.bot_id.clone(),
             session: (card.session_id != card.bot_id).then(|| card.session_id.clone()),
