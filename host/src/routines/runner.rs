@@ -10,7 +10,7 @@ use super::{
 use crate::fork::push_textos::{Corpo, Titulo};
 use std::{
     collections::{HashMap, HashSet},
-    sync::atomic::Ordering,
+    sync::{Mutex, PoisonError, atomic::Ordering},
     time::{Duration, Instant},
 };
 
@@ -423,10 +423,23 @@ fn routine_name(state: &State, run: &str) -> String {
     state.routines.iter().find(|r| Some(r.id.as_str()) == routine).map_or_else(|| "sem nome".into(), |r| r.name.clone())
 }
 
+async fn run_scheduler_tick<T: Send + 'static>(
+    recovery: &Arc<Mutex<ClockRecovery>>,
+    tick: impl FnOnce(&mut ClockRecovery) -> T + Send + 'static,
+) -> std::result::Result<T, tokio::task::JoinError> {
+    let recovery = Arc::clone(recovery);
+    tokio::task::spawn_blocking(move || {
+        let mut recovery = recovery.lock().unwrap_or_else(PoisonError::into_inner);
+        tick(&mut recovery)
+    })
+    .await
+}
+
 pub fn start(hub: &Arc<Hub>) {
     let weak = Arc::downgrade(hub);
     let task = tokio::spawn(async move {
         let mut retry = OrphanRetry::default();
+        let recovery = Arc::new(Mutex::new(ClockRecovery::default()));
         let mut clock = tokio::time::interval(Duration::from_secs(1));
         clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -435,8 +448,8 @@ pub fn start(hub: &Arc<Hub>) {
             if hub.routines.stopping() {
                 break;
             }
-            match tokio::task::spawn_blocking(move || {
-                let result = tick(&hub, &mut retry);
+            match run_scheduler_tick(&recovery, move |recovery| {
+                let result = tick_with_clocks(&hub, &mut retry, recovery, now_ms, Instant::now);
                 (result, retry)
             })
             .await
@@ -482,6 +495,7 @@ impl OrphanRetry {
 
 /// MX-110: retentativas de catch-up após falha (além da 1ª execução).
 const CATCHUP_MAX_RETRIES: u64 = 2;
+const CATCHUP_MAX_DELAY_MS: i64 = 5_000;
 
 fn catchup_retry_delay_ms(id: &str, ordinal: u64) -> i64 {
     use sha2::{Digest, Sha256};
@@ -501,8 +515,45 @@ fn defer_catchup_retry(run: &mut Run, now: i64) {
     run.retry_not_before_ms = Some(now.saturating_add(catchup_retry_delay_ms(&run.id, run.attempts)));
 }
 
-fn tick(hub: &Arc<Hub>, retry: &mut OrphanRetry) -> Result<()> {
-    tick_with_clock(hub, retry, now_ms)
+#[derive(Default)]
+struct ClockRecovery(HashMap<String, ((u64, i64), Instant)>);
+
+impl ClockRecovery {
+    fn anchor(&mut self, id: &str, retry: (u64, i64), wall_now: i64, monotonic_now: Instant) -> Option<Instant> {
+        if let Some(&(saved, anchor)) = self.0.get(id)
+            && saved == retry
+        {
+            return Some(anchor);
+        }
+        if retry.1.saturating_sub(wall_now) > CATCHUP_MAX_DELAY_MS {
+            self.0.insert(id.to_owned(), (retry, monotonic_now));
+            return Some(monotonic_now);
+        }
+        None
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct DispatchBarrier {
+    utc: Option<i64>,
+    recovery: Option<Instant>,
+}
+
+impl DispatchBarrier {
+    fn add(&mut self, deadline: i64, anchor: Option<Instant>) {
+        if let Some(anchor) = anchor {
+            self.recovery = self.recovery.max(Some(anchor));
+        } else {
+            self.utc = self.utc.max(Some(deadline));
+        }
+    }
+
+    fn holds(self, wall_now: i64, monotonic_now: Instant) -> bool {
+        self.utc.is_some_and(|deadline| wall_now < deadline)
+            || self.recovery.is_some_and(|anchor| {
+                monotonic_now.saturating_duration_since(anchor).as_millis() < CATCHUP_MAX_DELAY_MS as u128
+            })
+    }
 }
 
 enum DispatchDisposition {
@@ -515,7 +566,13 @@ struct QueueRefusal {
     disposition: DispatchDisposition,
 }
 
-fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> i64) -> Result<()> {
+fn tick_with_clocks(
+    hub: &Arc<Hub>,
+    retry: &mut OrphanRetry,
+    recovery: &mut ClockRecovery,
+    clock: impl Fn() -> i64,
+    monotonic: impl Fn() -> Instant,
+) -> Result<()> {
     hub.update_keep_awake();
     if let Err(error) = hub.routines.publish(hub) {
         tracing::error!(%error, "routine result publication will retry");
@@ -528,9 +585,8 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
     let dispatch_now = clock();
     let (epoch, pending) = {
         let state = hub.routines.state.locked();
-        if state.paused {
-            return Ok(());
-        }
+        let detection_now = monotonic();
+        let mut pending_retries = HashMap::new();
         let mut barriers = HashMap::new();
         let pending: Vec<_> = state
             .runs
@@ -540,17 +596,22 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
                 if run.status != Status::Pending {
                     return None;
                 }
-                let previous = barriers.entry(run.bot_id.as_str()).or_insert(None);
-                let deadline = *previous;
-                *previous = deadline.max(run.retry_not_before_ms);
-                Some((index, run.id.clone(), run.bot_id.clone(), deadline))
+                let own_retry = run.retry_not_before_ms.map(|deadline| (run.attempts, deadline));
+                let previous = barriers.entry(run.bot_id.as_str()).or_insert_with(DispatchBarrier::default);
+                let predecessor = *previous;
+                if let Some(retry) = own_retry {
+                    pending_retries.insert(run.id.as_str(), retry);
+                    previous.add(retry.1, recovery.anchor(&run.id, retry, dispatch_now, detection_now));
+                }
+                (!state.paused).then(|| (index, run.id.clone(), run.bot_id.clone(), own_retry, predecessor))
             })
             .collect();
+        recovery.0.retain(|id, (retry, _)| pending_retries.get(id.as_str()) == Some(retry));
         (hub.routines.state.epoca.load(Ordering::SeqCst), pending)
     };
     let mut epoch = Some(epoch);
     let mut deferred = HashSet::new();
-    for (index, id, bot, predecessor_deadline) in pending {
+    for (index, id, bot, own_retry, mut barrier) in pending {
         if hub.routines.stopping() {
             break;
         }
@@ -562,20 +623,27 @@ fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> 
             continue;
         }
         let sampled_now = dispatch_now.min(clock());
+        let now = sampled_now.min(clock());
+        let monotonic_now = monotonic();
+        if let Some(retry) = own_retry {
+            barrier.add(retry.1, recovery.anchor(&id, retry, now, monotonic_now));
+        }
+        if barrier.holds(now, monotonic_now) {
+            deferred.insert(bot);
+            continue;
+        }
         {
             let mut active = hub.routines.active.locked();
             let state = hub.routines.state.locked();
             if state.paused || epoch != Some(hub.routines.state.epoca.load(Ordering::SeqCst)) {
                 continue;
             }
-            let now = sampled_now.min(clock());
-            let Some(run) =
-                state.runs.get(index).filter(|r| r.id == id && r.bot_id == bot && r.status == Status::Pending)
-            else {
-                continue;
-            };
-            if predecessor_deadline.max(run.retry_not_before_ms).is_some_and(|deadline| now < deadline) {
-                deferred.insert(bot.clone());
+            if !state.runs.get(index).is_some_and(|r| {
+                r.id == id
+                    && r.bot_id == bot
+                    && r.status == Status::Pending
+                    && r.retry_not_before_ms.map(|deadline| (r.attempts, deadline)) == own_retry
+            }) {
                 continue;
             }
             if !active.insert(bot.clone()) {
@@ -951,6 +1019,14 @@ mod dispatch_recovery_tests {
     };
     use std::sync::Arc;
 
+    fn tick(hub: &Arc<Hub>, retry: &mut OrphanRetry) -> Result<()> {
+        tick_with_clock(hub, retry, now_ms)
+    }
+
+    fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> i64) -> Result<()> {
+        tick_with_clocks(hub, retry, &mut ClockRecovery::default(), clock, Instant::now)
+    }
+
     fn config() -> BotConfig {
         serde_json::from_value(serde_json::json!({"id":"bot","name":"Bot"})).unwrap()
     }
@@ -1127,6 +1203,15 @@ mod dispatch_recovery_tests {
 
     #[tokio::test]
     async fn catchup_clock_recovers_within_tick_without_overtaking_a_deferred_run() {
+        assert_clock_recovers_without_overtaking(1);
+    }
+
+    #[tokio::test]
+    async fn catchup_clock_recovery_detects_anomaly_at_claim_and_ignores_utc_until_expiry() {
+        assert_clock_recovers_without_overtaking(60_000);
+    }
+
+    fn assert_clock_recovers_without_overtaking(rewind: i64) {
         use std::cell::Cell;
 
         let (hub, _dir, routine_id, due_at) = catchup_hub();
@@ -1150,19 +1235,35 @@ mod dispatch_recovery_tests {
             .unwrap();
         let mut own = hub.test_bot_commands("bot");
         let mut other = hub.test_bot_commands("other");
+        let mut recovery = ClockRecovery::default();
+        let start = Instant::now();
         let samples = Cell::new(0);
-        tick_with_clock(&hub, &mut retry, || {
-            let n = samples.get();
-            samples.set(n + 1);
-            if n == 3 { deadline - 1 } else { deadline }
-        })
+        tick_with_clocks(
+            &hub,
+            &mut retry,
+            &mut recovery,
+            || {
+                let n = samples.get();
+                samples.set(n + 1);
+                if n == 3 { deadline - rewind } else { deadline }
+            },
+            || start,
+        )
         .unwrap();
         assert!(samples.get() > 4);
         assert!(own.try_recv().is_err());
         assert!(!hub.routines.active.locked().contains("bot"));
         assert!(matches!(other.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == other_id));
 
-        tick_with_clock(&hub, &mut retry, || deadline).unwrap();
+        if rewind > CATCHUP_MAX_DELAY_MS {
+            tick_with_clocks(&hub, &mut retry, &mut recovery, || deadline, || start + Duration::from_millis(4_999))
+                .unwrap();
+            assert!(own.try_recv().is_err());
+            tick_with_clocks(&hub, &mut retry, &mut recovery, || deadline - rewind, || start + Duration::from_secs(5))
+                .unwrap();
+        } else {
+            tick_with_clocks(&hub, &mut retry, &mut recovery, || deadline, || start).unwrap();
+        }
         assert!(matches!(own.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == first));
         assert!(own.try_recv().is_err());
         assert!(other.try_recv().is_err());
@@ -1248,6 +1349,53 @@ mod dispatch_recovery_tests {
     }
 
     #[tokio::test]
+    async fn catchup_clock_recovery_is_conservative_after_reopen_and_for_a_new_attempt() {
+        let (hub, dir, routine_id, due_at) = catchup_hub();
+        let id = queue_catchup(&hub, &routine_id, due_at);
+        let mut retry = OrphanRetry::default();
+        let mut recovery = ClockRecovery::default();
+        let start = Instant::now();
+        tick_with_clocks(&hub, &mut retry, &mut recovery, || due_at + 1, || start).unwrap();
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        let before = hub.store.kv_read("routines.v1").unwrap();
+        let mut rx = hub.test_bot_commands("bot");
+        tick_with_clocks(&hub, &mut retry, &mut recovery, || deadline - 5_000, || start + Duration::from_secs(6))
+            .unwrap();
+        assert!(rx.try_recv().is_err());
+        assert!(recovery.0.is_empty());
+        let wall = || deadline - 60_000;
+        tick_with_clocks(&hub, &mut retry, &mut recovery, wall, || start + Duration::from_secs(7)).unwrap();
+        assert!(rx.try_recv().is_err());
+        assert_eq!(hub.store.kv_read("routines.v1").unwrap(), before);
+        drop(hub);
+
+        let store = Store::open(&dir.path().join("routines.db")).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+        hub.routines.restore(&hub.store).unwrap();
+        let mut recovery = ClockRecovery::default();
+        for (offset, count) in [(10_000, 1), (14_999, 1)] {
+            tick_with_clocks(&hub, &mut retry, &mut recovery, wall, || start + Duration::from_millis(offset)).unwrap();
+            assert_eq!(hub.routines.state.locked().runs[0].attempts, count);
+            assert!(!hub.routines.active.locked().contains("bot"));
+        }
+        tick_with_clocks(&hub, &mut retry, &mut recovery, wall, || start + Duration::from_secs(15)).unwrap();
+        let run = hub.routines.state.locked().runs[0].clone();
+        assert_eq!(run.attempts, 2);
+        let next = run.retry_not_before_ms.unwrap();
+        let mut rx = hub.test_bot_commands("bot");
+        tick_with_clocks(&hub, &mut retry, &mut recovery, || next - 60_000, || start + Duration::from_secs(16))
+            .unwrap();
+        assert!(rx.try_recv().is_err());
+        assert_eq!(recovery.0[&id], ((2, next), start + Duration::from_secs(16)));
+        tick_with_clocks(&hub, &mut retry, &mut recovery, || next - 60_000, || start + Duration::from_secs(21))
+            .unwrap();
+        assert!(matches!(rx.try_recv(), Ok(crate::agent::bot::Cmd::Routine(run)) if run == id));
+        hub.routines.cancel_queued(&hub.store, "bot").unwrap();
+        tick_with_clocks(&hub, &mut retry, &mut recovery, wall, || start + Duration::from_secs(22)).unwrap();
+        assert!(recovery.0.is_empty());
+    }
+
+    #[tokio::test]
     async fn catchup_observed_failure_saves_retry_atomically_and_terminal_failure_does_not_rearm() {
         use crate::fork::rotina_resultado::{Observed, Reason};
 
@@ -1304,6 +1452,58 @@ mod dispatch_recovery_tests {
     }
 
     #[tokio::test]
+    async fn catchup_clock_recovery_survives_worker_panic() {
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let id = queue_catchup(&hub, &routine_id, due_at);
+        let recovery = Arc::new(Mutex::new(ClockRecovery::default()));
+        tick_with_clock(&hub, &mut OrphanRetry::default(), || due_at + 1).unwrap();
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        let start = Instant::now();
+        let mut own = hub.test_bot_commands("bot");
+        let crashed = run_scheduler_tick(&recovery, {
+            let hub = hub.clone();
+            let id = id.clone();
+            move |recovery| -> () {
+                tick_with_clocks(&hub, &mut OrphanRetry::default(), recovery, || deadline - 60_000, || start).unwrap();
+                assert_eq!(recovery.0[&id], ((1, deadline), start));
+                panic!("after recording the anchor");
+            }
+        })
+        .await
+        .unwrap_err();
+        assert!(crashed.is_panic());
+        assert!(recovery.is_poisoned());
+        assert!(own.try_recv().is_err());
+
+        let mut other = config();
+        other.id = "other".into();
+        hub.store.save_bot(&other).unwrap();
+        let other_id = hub
+            .routines
+            .change(&hub.store, |state| {
+                let mut other = super::super::new_run(&state.routines[0], Value::Null, None);
+                other.bot_id = "other".into();
+                let id = other.id.clone();
+                state.runs.push(other);
+                Ok(id)
+            })
+            .unwrap();
+        let mut other = hub.test_bot_commands("other");
+        let next_tick = |elapsed| {
+            let hub = hub.clone();
+            run_scheduler_tick(&recovery, move |recovery| {
+                tick_with_clocks(&hub, &mut OrphanRetry::default(), recovery, || deadline, || start + elapsed)
+            })
+        };
+        next_tick(Duration::from_millis(4_999)).await.unwrap().unwrap();
+        assert!(own.try_recv().is_err());
+        assert!(!hub.routines.active.locked().contains("bot"));
+        assert!(matches!(other.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == other_id));
+        next_tick(Duration::from_secs(5)).await.unwrap().unwrap();
+        assert!(matches!(own.try_recv(), Ok(crate::agent::bot::Cmd::Routine(run)) if run == id));
+    }
+
+    #[tokio::test]
     async fn catchup_retry_deadline_does_not_rearm_an_uncertain_dispatch_on_restore() {
         use crate::fork::rotina_resultado::{Observed, Reason};
 
@@ -1333,7 +1533,20 @@ mod dispatch_recovery_tests {
         let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
         hub.routines.restore(&hub.store).unwrap();
         let mut rx = hub.test_bot_commands("bot");
-        tick_with_clock(&hub, &mut OrphanRetry::default(), || deadline + 1).unwrap();
+        let mut retry = OrphanRetry::default();
+        let mut recovery = ClockRecovery::default();
+        let start = Instant::now();
+        for offset in [0, 5] {
+            tick_with_clocks(
+                &hub,
+                &mut retry,
+                &mut recovery,
+                || deadline - 60_000,
+                || start + Duration::from_secs(offset),
+            )
+            .unwrap();
+        }
+        assert!(recovery.0.is_empty());
         assert!(rx.try_recv().is_err());
         let run = hub.routines.state.locked().runs[0].clone();
         assert!(run.status == Status::Interrupted);
