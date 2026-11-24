@@ -2,6 +2,7 @@
 //! recebeu, ou interrompida para conferência (fora dos prompts da sala) quando não há prova; reinícios seguintes não
 //! repetem nada.
 use super::*;
+use crate::agent::bot::Cmd;
 use crate::store::Lane;
 
 const ROOM: &str = "sala";
@@ -719,8 +720,8 @@ async fn stop_que_falha_bloqueia_a_sala_e_deixa_a_classificacao_para_o_boot() {
     let mut bot = f.hub.test_bot_commands("bot");
     let mut bot2 = f.hub.test_bot_commands("bot2");
     let local = crate::api::devices::Caller::Local;
-    let send = json!({"botId": ROOM, "text": "Oi, sala"});
-    let sent = crate::api::dispatch(&f.hub, &local, "send", send.clone()).await.unwrap();
+    let body = json!({"botId": ROOM, "text": "Oi, sala"});
+    let sent = crate::api::dispatch(&f.hub, &local, "send", body.clone()).await.unwrap();
     let id = sent["entry"]["id"].as_str().unwrap();
     let Some(Cmd::Group(turn)) = tokio::time::timeout(Duration::from_secs(5), bot.recv()).await.unwrap() else {
         panic!("o primeiro membro recebeu a mensagem");
@@ -750,7 +751,7 @@ async fn stop_que_falha_bloqueia_a_sala_e_deixa_a_classificacao_para_o_boot() {
     assert_eq!(f.hub.store.entry(id).unwrap().data["status"], "sending");
 
     f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_stop").unwrap();
-    let refused = crate::api::dispatch(&f.hub, &local, "send", send).await.expect_err("a sala continua bloqueada");
+    let refused = crate::api::dispatch(&f.hub, &local, "send", body).await.expect_err("a sala continua bloqueada");
     assert_eq!(crate::api::error_code(&refused), Some("group_blocked"));
     assert!(bot2.try_recv().is_err(), "o próximo membro não recebe a mensagem");
     f.hub.shutdown().await;
