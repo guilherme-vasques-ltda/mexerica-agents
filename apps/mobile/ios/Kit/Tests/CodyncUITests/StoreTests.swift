@@ -110,6 +110,12 @@ actor FakeRemote: RemoteTransport {
         for s in eventSinks { s.yield(Data(json.utf8)) }
     }
 
+    private var linkAvailable = true
+    func loseLinkWithoutStateUpdate() {
+        linkAvailable = false
+        for s in eventSinks { s.finish() }
+    }
+
     func emit(_ event: MailboxEvent) {
         for s in mailboxSinks { s.yield(event) }
     }
@@ -173,7 +179,7 @@ actor FakeRemote: RemoteTransport {
     }
 
     func currentLink() async -> Int? {
-        guard !isShutdown, case .ready = state else { return nil }
+        guard !isShutdown, linkAvailable, case .ready = state else { return nil }
         return generation
     }
 
@@ -1439,6 +1445,19 @@ func refusalFromHelloLetsGoAtOnce(_ status: Int) async throws {
     store.newSession("b1")
     #expect(await until { store.connection == .unauthorized(message) })
     #expect(!store.temAutoridade)
+}
+
+@MainActor @Test func eventsRetryWithoutALinkWithdrawsAuthority() async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    try #require(store.temAutoridade)
+    await fake.loseLinkWithoutStateUpdate()
+    #expect(await until { store.client == nil && store.refusalListener == nil })
+    #expect(!store.temAutoridade)
+    #expect(store.connection == .online)
 }
 
 @MainActor @Test(arguments: [401, 403]) func lateActionRefusalCannotAffectReopenedLink(_ status: Int) async throws {

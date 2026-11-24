@@ -15,7 +15,13 @@ extension BotStore {
             do {
                 // Authority belongs to the channel the Hub identifies itself on now; every action after
                 // this goes out on that channel or fails.
-                guard let link = await base.currentLink() else { throw HostError.unreachable }
+                let previousListener = refusalListener
+                let currentLink = await base.currentLink()
+                guard !Task.isCancelled, !retired, refusalListener == previousListener else { return }
+                guard let link = currentLink else {
+                    if previousListener != nil { encerrarAutoridade() }
+                    throw HostError.unreachable
+                }
                 guard !Task.isCancelled, !retired else { return }
                 let listener = UUID()
                 reverificacao?.cancel()

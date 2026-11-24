@@ -215,7 +215,7 @@ extension BotStore {
     }
 
     /// The link ended: nothing keeps the authority it had, and no action started on it may continue.
-    private func encerrarAutoridade() {
+    func encerrarAutoridade() {
         clienteAutorizado = nil
         refusalListener = nil
         linkId += 1
