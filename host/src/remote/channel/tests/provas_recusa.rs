@@ -12,7 +12,7 @@ async fn fato_mudou_entre_a_admissao_e_a_assinatura() {
         dk,
         ek_d: [5; 32],
         n: [6; 32],
-        estavel: fork_recusa_hello::fato(&hub.store.db.locked(), &chave).unwrap().unwrap(),
+        estavel: fork_recusa_hello::fato(&hub.store.db.locked(), &chave).unwrap(),
     };
     let prova = || fork_recusa_hello::prova(&hub.store.db.locked(), &recusa, &hub.identity);
     assert!(prova().is_some());
@@ -84,8 +84,8 @@ async fn recusa_sem_prova_para_chave_desconhecida_hs1_invalido_ou_leitura_incert
     assert!(hub.store.remove_device(&crypto::b64(despareada.verifying_key().as_bytes())).unwrap());
     let desconhecida = SigningKey::from_bytes(&crypto::random());
     for (key, pair, code) in [
-        (&revogada, false, "badSignature"),
-        (&despareada, false, "badSignature"),
+        (&revogada, false, "unauthorized"),
+        (&despareada, false, "unauthorized"),
         (&desconhecida, false, "unauthorized"),
         (&desconhecida, true, "pairingClosed"),
     ] {
@@ -103,10 +103,15 @@ async fn recusa_sem_prova_para_chave_desconhecida_hs1_invalido_ou_leitura_incert
 }
 
 #[tokio::test(start_paused = true)]
-async fn teto_antes_da_autenticacao_nao_assina_nem_readmite() {
+async fn teto_por_chave_exige_posse_e_nao_assina_nem_readmite_quando_saturado() {
     let hub = temp_hub();
     let chave = paired_phone(&hub).await;
     assert!(hub.revoke_device(&crypto::b64(chave.verifying_key().as_bytes())).unwrap());
+    for _ in 0..fork_limite_hello::POR_CHAVE {
+        let (rejeicao, fechamento, _, _) = recusa(&hub, &chave, false, false).await;
+        assert_eq!((rejeicao["code"].as_str(), fechamento), (Some("unauthorized"), 4001));
+        assert!(rejeicao.get("prova").is_none());
+    }
     for _ in 1..fork_limite_hello::POR_CHAVE {
         assert!(recusa(&hub, &chave, true, false).await.0.get("prova").is_some());
     }

@@ -3,7 +3,7 @@ use crate::api::devices::RejectCode;
 use crate::remote::{crypto, identity::Identity};
 use rusqlite::Connection;
 
-pub(super) fn fato(db: &Connection, dk: &str) -> anyhow::Result<Option<RecusaEstavel>> {
+fn ler_fato(db: &Connection, dk: &str) -> anyhow::Result<Option<RecusaEstavel>> {
     if crate::store::personal_bootstrap::personal_origin_on(db, dk)?.is_some() {
         return Ok(None);
     }
@@ -25,6 +25,14 @@ pub(super) fn fato(db: &Connection, dk: &str) -> anyhow::Result<Option<RecusaEst
     Ok(None)
 }
 
+pub(super) fn fato(db: &Connection, dk: &str) -> Option<RecusaEstavel> {
+    let Ok(fato) = ler_fato(db, dk) else {
+        tracing::warn!("não foi possível ler o fato persistido da recusa do canal");
+        return None;
+    };
+    fato
+}
+
 impl RecusaEstavel {
     pub(super) fn codigo(self) -> RejectCode {
         match self {
@@ -35,5 +43,5 @@ impl RecusaEstavel {
 }
 
 pub(super) fn prova(db: &Connection, recusa: &Recusa, identidade: &Identity) -> Option<[u8; 64]> {
-    (fato(db, &crypto::b64(&recusa.dk)).ok().flatten() == Some(recusa.estavel)).then(|| recusa.assinar(identidade))
+    (fato(db, &crypto::b64(&recusa.dk)) == Some(recusa.estavel)).then(|| recusa.assinar(identidade))
 }

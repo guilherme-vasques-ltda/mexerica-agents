@@ -426,7 +426,7 @@ async fn handshake(
         protocol_error().await;
         return None;
     }
-    if hub.limite_hello.locked().permitir(dk_raw).is_err() {
+    if hub.limite_hello.locked().permitir().is_err() {
         send_reject(out, RejectCode::RateLimited).await;
         return None;
     }
@@ -492,7 +492,7 @@ async fn handshake(
         match autoridade::autenticar_hello(hub, &dk) {
             Ok(d) => Some(d),
             Err(erro @ (SemLinha | Codigo(RejectCode::Revoked))) => {
-                let fato = fork_recusa_hello::fato(&hub.store.db.locked(), &dk).ok().flatten();
+                let fato = fork_recusa_hello::fato(&hub.store.db.locked(), &dk);
                 let codigo = match erro {
                     Codigo(codigo) => codigo,
                     SemLinha => RejectCode::Unauthorized,
@@ -514,12 +514,21 @@ async fn handshake(
     let (Ok(ek_d), Ok(n), Ok(sig)) =
         (crypto::unb64_n::<32>(field("ek")), crypto::unb64_n::<32>(field("n")), crypto::unb64_n::<64>(field("sig")))
     else {
-        protocol_error().await;
+        if fato_recusa.is_some() {
+            send_reject(out, RejectCode::Unauthorized).await;
+        } else {
+            protocol_error().await;
+        }
         return None;
     };
     let cid = hub.identity.cid_raw();
     if crypto::verify(&dk_raw, &crypto::hs1_input(&cid, &dk_raw, &ek_d, &n), &sig).is_err() {
-        send_reject(out, RejectCode::BadSignature).await;
+        let code = if fato_recusa.is_some() { RejectCode::Unauthorized } else { RejectCode::BadSignature };
+        send_reject(out, code).await;
+        return None;
+    }
+    if hub.limite_hello.locked().permitir_verificada(dk_raw).is_err() {
+        send_reject(out, RejectCode::RateLimited).await;
         return None;
     }
     if let Some(estavel) = fato_recusa {
