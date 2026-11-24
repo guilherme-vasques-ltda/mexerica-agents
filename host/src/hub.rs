@@ -411,11 +411,28 @@ impl Hub {
         let result = authority
             .ok_or_else(|| anyhow::Error::from(AutorizacaoEncerrada))
             .and_then(|authority| authority.com_saida(self, None, || ()));
-        if result.is_err() {
-            tracing::debug!(reason = "request_admission_ended", "remote turn denied");
+        if result.as_ref().is_err_and(|error| {
+            error.is::<AutorizacaoEncerrada>() || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+        }) {
+            tracing::warn!(entry = id, reason = "request_admission_ended", "remote turn denied");
             self.fail_remote_turn(&entry.id, "queued");
         }
         result
+    }
+
+    pub(crate) fn remote_prompt_proofs(&self, ids: &[String]) -> Result<Vec<crate::fork::autoridade::Autoridade>> {
+        let db = self.store.db.locked();
+        let proofs = self.remote_send_authorities.locked();
+        ids.iter().try_fold(Vec::new(), |mut result, id| {
+            match Store::entry_on(&db, id)? {
+                Some(entry) if entry.data["remoteAdmissionRequired"] == true => {
+                    result.push(proofs.get(id).cloned().ok_or(crate::fork::autoridade::AutorizacaoEncerrada)?);
+                }
+                None if proofs.contains_key(id) => return Err(crate::fork::autoridade::AutorizacaoEncerrada.into()),
+                _ => {}
+            }
+            Ok(result)
+        })
     }
 
     /// D543: ausência de ator é distinta de ator parado/canal quebrado.

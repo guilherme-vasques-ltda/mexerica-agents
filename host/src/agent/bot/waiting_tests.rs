@@ -3803,6 +3803,124 @@ async fn contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_or
 }
 
 #[tokio::test]
+async fn prova_remota_nao_e_renovada_no_retry_do_prompt_pendente() {
+    use crate::fork::bot_admission as admission;
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let entry = entrada_com_prova_remota(&f);
+    let mut actor = f.actor();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    actor.before_permit = Some(Box::new(|hub| admission::set_paused_for_test(&hub.store, "bot", true).unwrap()));
+    actor
+        .start_turn(crate::store::Lane::main("bot"), std::slice::from_ref(&entry), "Fixture remota", false, &tx)
+        .await
+        .unwrap();
+    assert!(matches!(actor.pending_admission, Some(super::fork_admission::Pending::Prompt { .. })));
+    admission::set_paused_for_test(&f.hub.store, "bot", false).unwrap();
+    actor.queue_retry_at = None;
+    actor.before_permit = Some(Box::new(|hub| {
+        crate::fork::workspace::bump(hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+    }));
+    actor.retry_admission(&tx).await;
+    assert!(actor.before_permit.is_none());
+    assert_eq!(f.hub.store.entry(&entry).unwrap().data["status"], "failed");
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    if let Some(conn) = actor.conn.take() {
+        conn.acp.kill().await;
+    }
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn prova_remota_original_e_exigida_na_retomada_de_sent() {
+    for reboot in [false, true] {
+        let f = Fixture::new();
+        f.hub.shutdown().await;
+        std::fs::write(f.dir.join("limit-hold"), "").unwrap();
+        let entry = entrada_com_prova_remota(&f);
+        let mut actor = f.actor();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        actor
+            .start_turn(crate::store::Lane::main("bot"), std::slice::from_ref(&entry), "Fixture remota", false, &tx)
+            .await
+            .unwrap();
+        f.until("prompt original", &f.hub, || f.prompts().len() == 1).await;
+        assert_eq!(f.hub.store.entry(&entry).unwrap().data["status"], "sent");
+        std::fs::remove_file(f.dir.join("limit-hold")).unwrap();
+        let done = tokio::time::timeout(Duration::from_secs(20), rx.recv()).await.unwrap().unwrap();
+        actor.finish_turn(&done.result);
+        assert!(f.waiting_checkpoint_published());
+        if let Some(conn) = actor.conn.take() {
+            conn.acp.kill().await;
+        }
+        assert_eq!(f.hub.remote_prompt_proofs(std::slice::from_ref(&entry)).unwrap().len(), 1);
+        f.make_retry_due();
+        if reboot {
+            drop(actor);
+            let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
+            f.until("recusa depois de reabrir", &reopened, || {
+                reopened.store.kv_read("turn.waiting.bot").unwrap().is_none()
+            })
+            .await;
+            reopened.shutdown().await;
+        } else {
+            let saved = f.hub.store.kv_get("turn.waiting.bot").unwrap();
+            actor.waiting = Some(serde_json::from_str(&saved).unwrap());
+            actor.before_permit = Some(Box::new(|hub| {
+                crate::fork::workspace::bump(hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+            }));
+            actor.retry_waiting(&tx).await;
+            assert!(actor.before_permit.is_none());
+            assert!(actor.waiting.is_none());
+            if let Some(conn) = actor.conn.take() {
+                conn.acp.kill().await;
+            }
+        }
+        assert_eq!(f.prompts().len(), 1);
+        assert_ne!(f.hub.store.entry(&entry).unwrap().data["status"], "queued");
+        let _ = std::fs::remove_dir_all(&f.dir);
+    }
+}
+
+fn entrada_com_prova_remota(f: &Fixture) -> String {
+    use crate::{
+        api::devices::Caller,
+        fork::autoridade,
+        store::{Device, DeviceSource, Scope},
+    };
+    let key = "fixture-remote-prompt";
+    f.hub
+        .store
+        .put_device(&Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: crate::store::now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = autoridade::autenticar(&f.hub, key).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
+    let proof = original.para_requisicao(f.hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap();
+    let entry = f
+        .hub
+        .store
+        .insert_entry(
+            &crate::store::Lane::main("bot"),
+            EntryKind::User,
+            1,
+            &json!({"text":"Fixture remota","status":"queued","remoteAdmissionRequired":true}),
+        )
+        .unwrap();
+    f.hub.remote_send_authorities.locked().insert(entry.id.clone(), proof);
+    entry.id
+}
+
+#[tokio::test]
 async fn legado_sent_sem_token_preserva_checkpoint_e_nao_fabrica_retomada() {
     let f = Fixture::new();
     f.send().await;

@@ -407,7 +407,11 @@ pub(super) async fn call(
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;
                 data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
-                Some(crate::fork::antigravity::owner(hub, caller, &data["contentOrigin"])?)
+                let mut owner = crate::fork::antigravity::owner(hub, caller, &data["contentOrigin"])?;
+                if let Some(delivery) = &mailbox {
+                    owner = delivery.bind_effect_authority(&owner)?;
+                }
+                Some(owner)
             } else {
                 None
             };
@@ -465,16 +469,45 @@ pub(super) async fn call(
             } else {
                 // `/skill …` reaches the agent as "read this skill first"; the chat keeps what was typed.
                 let prompt = crate::chat::prompt::of_entry(hub, &row.config, &e.data);
-                let result = hub.login_command_sender(bot).and_then(|sender| {
-                    crate::fork::autoridade::Autoridade::no_efeito(hub, effect_authority, || {
-                        if let Some(owner) = antigravity_owner {
-                            hub.antigravity_grants.insert(owner, lane.clone(), &e);
+                let result = match hub.login_command_sender(bot) {
+                    Ok(sender) => {
+                        let enqueue = || {
+                            if let Some(owner) = antigravity_owner {
+                                hub.antigravity_grants.insert(owner, lane.clone(), &e);
+                            }
+                            sender
+                                .send(Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })
+                                .map_err(|_| anyhow!("bot stopped"))
+                        };
+                        match effect_authority {
+                            Some(authority) => {
+                                let result = authority.com_saida(hub, None, enqueue);
+                                if result.as_ref().is_err_and(|error| {
+                                    !error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                                        && !error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                                }) {
+                                    let _ = sender.send(Cmd::RestoreUserQueue);
+                                }
+                                result
+                            }
+                            None => Ok(enqueue()),
                         }
-                        sender
-                            .send(Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })
-                            .map_err(|_| anyhow!("bot stopped"))
-                    })
-                });
+                    }
+                    Err(error) => Ok(Err(error)),
+                };
+                let result = match result {
+                    Ok(result) => result,
+                    Err(error)
+                        if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                            || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>() =>
+                    {
+                        Err(error)
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "remote send admission check unavailable");
+                        return Err(error);
+                    }
+                };
                 if let Err(error) = result {
                     if effect_authority.is_some() {
                         hub.fail_remote_turn(&e.id, "queued");

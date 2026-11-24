@@ -492,6 +492,29 @@ impl Acp {
         Ok(Answer { rx })
     }
 
+    pub(crate) async fn send_guarded_prompt(
+        &self,
+        params: Value,
+        scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
+    ) -> Result<Answer> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut line = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"method":"session/prompt","params":params}))?;
+        line.push(b'\n');
+        let mut input = self.stdin.lock().await;
+        let writer = input.as_mut().ok_or_else(|| Failure::error(FailureKind::Exited, "agent stopped"))?;
+        let (tx, rx) = oneshot::channel();
+        self.pending.locked().insert(id, tx);
+        let mut started = false;
+        let result = crate::fork::spaces::tool_effects::write_scoped_progress(writer, &line, scope, &mut started).await;
+        if result.is_err() {
+            self.pending.locked().remove(&id);
+            if started {
+                input.take();
+            }
+        }
+        result.map(|()| Answer { rx })
+    }
+
     pub(crate) async fn send_antigravity_prompt(
         &self,
         params: Value,

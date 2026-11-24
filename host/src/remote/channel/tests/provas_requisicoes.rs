@@ -171,6 +171,17 @@ async fn send_legado_no_epoch_atual_entra_na_fila_e_passa_pelo_inicio_do_turno()
 #[cfg(unix)]
 #[tokio::test]
 async fn send_legado_atual_chega_ao_prompt_do_ator() {
+    provar_prompt_do_ator(false).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn send_legado_cortado_durante_preparo_nao_chega_ao_prompt() {
+    provar_prompt_do_ator(true).await;
+}
+
+#[cfg(unix)]
+async fn provar_prompt_do_ator(cut: bool) {
     let hub = temp_hub();
     std::fs::create_dir_all(crate::service::data_dir()).unwrap();
     let cwd = tempfile::tempdir().unwrap();
@@ -184,10 +195,34 @@ async fn send_legado_atual_chega_ao_prompt_do_ator() {
     let key = paired_phone(&hub).await;
     let mut phone = Phone::direct(&hub, key);
     assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
-    let response =
-        phone.call(1, "send", json!({"botId":"bot-fio","text":"marcador-legado","clientNonce":"turno"})).await;
-    assert!(response["ok"]["entry"].is_object(), "{response}");
+    let reached = cut.then(|| {
+        let bump_hub = hub.clone();
+        crate::fork::sessoes::call_tests::interleave(&hub.store, "remote_before_prompt_permit", move || {
+            crate::fork::workspace::bump(&bump_hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+        })
+    });
+    let body = json!({"botId":"bot-fio","text":"marcador-legado","clientNonce":"turno"});
+    if cut {
+        phone.send(json!({"id":1,"m":"send","b":body})).await;
+    } else {
+        let response = phone.call(1, "send", body).await;
+        assert!(response["ok"]["entry"].is_object(), "{response}");
+    }
     let prompts = cwd.path().join("prompts.jsonl");
+    if let Some(reached) = reached {
+        let result = timeout(Duration::from_secs(20), async {
+            while !reached.load(std::sync::atomic::Ordering::Acquire)
+                || hub.runtime("bot-fio").status == crate::hub::BotStatus::Working
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        hub.shutdown().await;
+        assert!(result.is_ok());
+        assert!(!prompts.exists());
+        return;
+    }
     let result = timeout(Duration::from_secs(20), async {
         while !std::fs::read_to_string(&prompts).is_ok_and(|text| text.contains("marcador-legado")) {
             tokio::time::sleep(Duration::from_millis(20)).await;

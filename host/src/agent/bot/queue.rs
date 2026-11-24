@@ -155,6 +155,11 @@ impl Actor {
                     self.next_in_queue(done_tx).await;
                 }
             }
+            Cmd::RestoreUserQueue => {
+                if self.queue_restore_retry_at.is_none() {
+                    self.queue_restore_retry_at = Some(Instant::now() + Duration::from_secs(5));
+                }
+            }
             Cmd::Send { lane, entry_id, text } => {
                 let entry = crate::store::Store::entry_on(&self.hub.store.db.locked(), &entry_id);
                 match entry {
@@ -726,9 +731,12 @@ impl Actor {
                         Err(error) => self.retry_failed_queue_read(&error.into()),
                     }
                 }
-                if solo {
+                if solo || self.queue_restore_retry_at.is_some() {
                     break;
                 }
+            }
+            if self.queue_restore_retry_at.is_some() {
+                return;
             }
             if batch.is_empty() {
                 continue;

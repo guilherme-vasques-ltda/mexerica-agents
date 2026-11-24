@@ -89,7 +89,11 @@ pub(crate) async fn deliver(hub: &Arc<Hub>, caller: &Caller, mut body: Value, pl
 
 impl Delivery {
     pub(crate) fn effect_authority(&self) -> Result<Autoridade> {
-        self.authority.para_requisicao(self.epoch, self.generation)
+        self.bind_effect_authority(&self.authority)
+    }
+
+    pub(crate) fn bind_effect_authority(&self, authority: &Autoridade) -> Result<Autoridade> {
+        authority.para_requisicao(self.epoch, self.generation)
     }
 
     pub(crate) fn with_db<T>(

@@ -181,6 +181,21 @@ impl Autoridade {
         matches!(&self.original, Original::Dispositivo { epoch_da_requisicao: Some(_), .. })
     }
 
+    pub(crate) fn com_provas<T>(hub: &Hub, proofs: &[Self], effect: impl FnOnce() -> T) -> Result<T> {
+        let Some((first, rest)) = proofs.split_first() else { return Ok(effect()) };
+        com_saida_validada(
+            hub,
+            OrigemSaida::Controle(first, None),
+            |db, owner, generation, sync_epoch, synced| {
+                for proof in rest {
+                    proof.conferir_guardas(db, owner, generation, sync_epoch, synced, None)?;
+                }
+                Ok(())
+            },
+            effect,
+        )
+    }
+
     pub(crate) fn no_efeito<T>(hub: &Hub, authority: Option<&Self>, effect: impl FnOnce() -> Result<T>) -> Result<T> {
         match authority {
             Some(authority) => authority.com_saida(hub, None, effect)?,
@@ -376,7 +391,20 @@ impl Autoridade {
     ) -> Result<()> {
         self.conferir(db, dono, geracao_dono, epoca_sincronizacao, sincronizado)
             .and_then(|()| self.conferir_contas(contas, db, dono, sincronizado))
-            .map_err(|e| if e.is::<EpochDaRequisicaoEncerrado>() { e } else { AutorizacaoEncerrada.into() })
+            .map_err(|e| {
+                if e.is::<EpochDaRequisicaoEncerrado>()
+                    || (self.tem_admissao_de_requisicao()
+                        && e.downcast_ref::<rusqlite::Error>()
+                            .and_then(rusqlite::Error::sqlite_error_code)
+                            .is_some_and(|code| {
+                                matches!(code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+                            }))
+                {
+                    e
+                } else {
+                    AutorizacaoEncerrada.into()
+                }
+            })
     }
 
     pub(crate) fn with_db<T>(
