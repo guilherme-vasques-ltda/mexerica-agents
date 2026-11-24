@@ -8,11 +8,10 @@ const desktop = resolve(dirname(fileURLToPath(import.meta.url)))
 export default defineConfig({
   plugins: [react()],
   root: resolve(desktop, 'src/renderer/demo'),
-  server: { open: '/rotina-etapas.html' },
   build: {
-    outDir: resolve(desktop, 'dist/demo/rotina-etapas'),
+    outDir: resolve(desktop, 'dist/demo/desktop'),
     emptyOutDir: true,
-    rollupOptions: { input: resolve(desktop, 'src/renderer/demo/rotina-etapas.html') },
+    rollupOptions: { input: resolve(desktop, 'src/renderer/demo/index.html') },
   },
-  resolve: { alias: { '@shared': resolve(__dirname, 'src/shared') } },
+  resolve: { alias: { '@shared': resolve(desktop, 'src/shared') } },
 })
