@@ -136,6 +136,13 @@ fn dispositivo(db: &Connection, chave: &str) -> Result<Device> {
 }
 
 impl Autoridade {
+    pub(crate) fn geracao_capturada(&self) -> Option<i64> {
+        match &self.original {
+            Original::Dispositivo { geracao, .. } => Some(*geracao),
+            _ => None,
+        }
+    }
+
     /// Fixture de testes: o próprio computador do Hub.
     #[cfg(test)]
     pub(crate) fn local() -> Self {
