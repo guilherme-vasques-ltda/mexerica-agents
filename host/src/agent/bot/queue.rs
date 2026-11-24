@@ -752,6 +752,9 @@ impl Actor {
                 if e.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                     || e.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
                 {
+                    if self.dispatch.is_some() || self.turn.is_some() {
+                        self.start_failed(&e);
+                    }
                     self.requeue_unreserved_humans(&ids);
                     continue;
                 }

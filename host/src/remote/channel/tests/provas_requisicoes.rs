@@ -193,7 +193,7 @@ async fn provar_prompt_do_ator(cut: bool) {
     hub.store.save_bot(&cfg).unwrap();
     hub.start_created_bot(&cfg);
     let key = paired_phone(&hub).await;
-    let mut phone = Phone::direct(&hub, key);
+    let mut phone = Phone::direct(&hub, key.clone());
     assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
     let reached = cut.then(|| {
         let bump_hub = hub.clone();
@@ -210,21 +210,26 @@ async fn provar_prompt_do_ator(cut: bool) {
     }
     let prompts = cwd.path().join("prompts.jsonl");
     if let Some(reached) = reached {
-        let result = timeout(Duration::from_secs(20), async {
+        timeout(Duration::from_secs(20), async {
             while !reached.load(std::sync::atomic::Ordering::Acquire)
-                || hub.runtime("bot-fio").status == crate::hub::BotStatus::Working
+                || crate::fork::bot_admission::current(&hub.store, "bot-fio").unwrap().is_some()
+                || !hub.store.find_by_nonce("bot-fio", "turno").is_some_and(|e| e.data["status"] == "failed")
             {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
-        .await;
-        hub.shutdown().await;
-        assert!(result.is_ok());
+        .await
+        .unwrap();
         assert!(!prompts.exists());
-        return;
+        let mut current = Phone::direct(&hub, key);
+        assert!(matches!(current.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+        let response =
+            current.call(1, "send", json!({"botId":"bot-fio","text":"marcador-atual","clientNonce":"seguinte"})).await;
+        assert!(response["ok"]["entry"].is_object(), "{response}");
     }
+    let marker = if cut { "marcador-atual" } else { "marcador-legado" };
     let result = timeout(Duration::from_secs(20), async {
-        while !std::fs::read_to_string(&prompts).is_ok_and(|text| text.contains("marcador-legado")) {
+        while !std::fs::read_to_string(&prompts).is_ok_and(|text| text.contains(marker)) {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
@@ -235,6 +240,9 @@ async fn provar_prompt_do_ator(cut: bool) {
         "o ator deve entregar o prompt ao motor de teste; estado da entrada: {:?}",
         hub.store.find_by_nonce("bot-fio", "turno").map(|entry| entry.data["status"].clone())
     );
+    if cut {
+        assert!(!std::fs::read_to_string(prompts).unwrap().contains("marcador-legado"));
+    }
 }
 
 #[tokio::test]

@@ -3882,7 +3882,47 @@ async fn prova_remota_original_e_exigida_na_retomada_de_sent() {
     }
 }
 
-fn entrada_com_prova_remota(f: &Fixture) -> String {
+#[tokio::test]
+async fn corte_no_preparo_do_membro_recusa_prompt_e_libera_reserva() {
+    use crate::fork::{autoridade, bot_admission, workspace};
+    let f = Fixture::new();
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    let lane = crate::store::Lane::main("grupo");
+    let cfg = serde_json::from_value(json!({"id":"grupo","name":"Grupo","kind":"group","members":["bot"]})).unwrap();
+    f.hub.store.save_bot(&cfg).unwrap();
+    let (reply, answer) = tokio::sync::oneshot::channel();
+    actor.before_permit = Some(Box::new(|hub| {
+        assert!(bot_admission::current(&hub.store, "bot").unwrap().is_some());
+        workspace::bump(hub, workspace::Motivo::RoleChanged).unwrap();
+    }));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    actor
+        .on_cmd(
+            super::Cmd::Group(crate::chat::group::GroupTurn {
+                lane: lane.clone(),
+                prompt: "Fixture de grupo".into(),
+                shown: vec![],
+                epoch: f.hub.groups.reserve_epoch_for_test(&lane),
+                authority: Some(prova_remota_da_fixture(&f)),
+                reply,
+            }),
+            &tx,
+        )
+        .await;
+    let error = answer.await.unwrap().unwrap_err();
+    assert!(actor.before_permit.is_none(), "{error:#}");
+    assert!(error.to_string().contains(&autoridade::EpochDaRequisicaoEncerrado.to_string()));
+    assert!(actor.dispatch.is_none() && actor.turn.is_none());
+    assert!(bot_admission::current(&f.hub.store, "bot").unwrap().is_none());
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    if let Some(conn) = actor.conn.take() {
+        conn.acp.kill().await;
+    }
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+fn prova_remota_da_fixture(f: &Fixture) -> crate::fork::autoridade::Autoridade {
     use crate::{
         api::devices::Caller,
         fork::autoridade,
@@ -3905,7 +3945,11 @@ fn entrada_com_prova_remota(f: &Fixture) -> String {
         .unwrap();
     let (_, caller) = autoridade::autenticar(&f.hub, key).unwrap();
     let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
-    let proof = original.para_requisicao(f.hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap();
+    original.para_requisicao(f.hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap()
+}
+
+fn entrada_com_prova_remota(f: &Fixture) -> String {
+    let proof = prova_remota_da_fixture(f);
     let entry = f
         .hub
         .store
