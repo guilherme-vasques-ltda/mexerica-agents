@@ -143,7 +143,7 @@ impl Delivery {
     pub(crate) fn interrupt(&self, hub: &Hub, group: &str) -> Result<()> {
         hub.groups
             .while_unblocked(group, || settle(hub, std::slice::from_ref(&self.entry_id), "interrupted", true))
-            .unwrap_or(Ok(()))
+            .ok_or_else(|| anyhow::anyhow!("sala bloqueada: interrupção da entrega não registrada"))?
     }
 }
 

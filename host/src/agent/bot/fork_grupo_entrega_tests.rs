@@ -714,6 +714,31 @@ async fn stop_gravado_cancela_antes_da_proxima_rodada_sem_bloquear_a_sala() {
 }
 
 #[tokio::test]
+async fn stop_cancela_membro_ja_enfileirado_mesmo_sem_ler_o_grupo() {
+    let f = Fixture::new();
+    room(&f);
+    let mut bot = f.hub.test_bot_commands("bot");
+    crate::api::dispatch(
+        &f.hub,
+        &crate::api::devices::Caller::Local,
+        "send",
+        json!({"botId": ROOM, "text": "Oi, sala"}),
+    )
+    .await
+    .unwrap();
+    let Some(Cmd::Group(turn)) = tokio::time::timeout(Duration::from_secs(5), bot.recv()).await.unwrap() else {
+        panic!("a rodada chegou ao membro");
+    };
+    f.hub.store.db.locked().execute("UPDATE bots SET config = x'00' WHERE id = ?1", [ROOM]).unwrap();
+    assert!(f.hub.store.bot(ROOM).is_err());
+    crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
+    assert!(matches!(bot.try_recv(), Ok(Cmd::CancelGroup { chat }) if chat == ROOM));
+    drop(turn.reply);
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
 async fn stop_que_falha_bloqueia_a_sala_e_deixa_a_classificacao_para_o_boot() {
     let f = Fixture::new();
     room_with(&f, &["bot", "bot2"]);
@@ -747,7 +772,9 @@ async fn stop_que_falha_bloqueia_a_sala_e_deixa_a_classificacao_para_o_boot() {
     assert!(matches!(bot2.try_recv(), Ok(Cmd::CancelGroup { chat }) if chat == ROOM));
 
     turn.reply.send(Ok(None)).unwrap();
-    crate::fork::grupo_entrega::Delivery::new(id).confirm(&f.hub, ROOM);
+    let delivery = crate::fork::grupo_entrega::Delivery::new(id);
+    delivery.confirm(&f.hub, ROOM);
+    assert!(delivery.interrupt(&f.hub, ROOM).is_err());
     assert_eq!(f.hub.store.entry(id).unwrap().data["status"], "sending");
 
     f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_stop").unwrap();
