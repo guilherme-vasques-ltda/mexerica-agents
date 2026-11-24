@@ -502,7 +502,7 @@ enum ForkTowerFixtureCatalog {
             projectName: "Projeto Exemplo C",
             spaceId: spaceId,
             title: "Resumo semanal",
-            state: "waiting",
+            state: "blocked",
             bucket: .waitingOrBlocked,
             origin: WorkOrigin(kind: .routine, routineId: "rotina-exemplo"),
             requesterLabel: .routine,
