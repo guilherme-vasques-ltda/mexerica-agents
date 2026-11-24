@@ -6,6 +6,7 @@ pub(crate) mod cadeias;
 pub(crate) mod open_chat;
 #[cfg(unix)]
 pub(crate) mod open_codex;
+pub(crate) mod voz_gpt_live;
 pub(crate) mod web_local;
 pub(crate) mod webhook;
 pub(crate) mod webhook_chain;
