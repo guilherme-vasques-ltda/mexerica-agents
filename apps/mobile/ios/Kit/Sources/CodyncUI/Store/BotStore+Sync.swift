@@ -85,16 +85,21 @@ extension BotStore {
                 guard !Task.isCancelled, !retired else { return }
                 log.info("stream ended: \(error.localizedDescription)")
                 // 401/403 from `hello` or the events stream end this device's access, like `.unauthorized`.
-                if let attempt, refusalListener == attempt.listener, await base.currentLink() == attempt.link,
-                   !Task.isCancelled, !retired, refusalListener == attempt.listener {
-                    if let motivo = (error as? HostError)?.recusaDefinitiva(identificando: true) {
+                if let attempt, refusalListener == attempt.listener, let lifetime = refusalLink?.lifetime {
+                    let currentLink = await base.currentLink()
+                    guard !Task.isCancelled, !retired, refusalListener == attempt.listener,
+                          refusalLink?.lifetime == lifetime else { return }
+                    if currentLink != attempt.link {
+                        encerrarAutoridade()
+                    } else if let motivo = (error as? HostError)?.recusaDefinitiva(identificando: true) {
                         soltarPorRecusa(motivo)
                         return
+                    } else {
+                        clienteAutorizado = nil
+                        refusalListener = nil
+                        reverificacao?.cancel()
+                        reverificacao = nil
                     }
-                    clienteAutorizado = nil
-                    refusalListener = nil
-                    reverificacao?.cancel()
-                    reverificacao = nil
                 }
             }
             try? await Task.sleep(for: .seconds(backoff))

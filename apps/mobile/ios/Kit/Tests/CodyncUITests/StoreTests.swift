@@ -111,9 +111,23 @@ actor FakeRemote: RemoteTransport {
     }
 
     private var linkAvailable = true
-    func loseLinkWithoutStateUpdate() {
+    func loseLinkWithoutStateUpdate(error: HostError? = nil) {
         linkAvailable = false
-        for s in eventSinks { s.finish() }
+        for s in eventSinks { s.finish(throwing: error) }
+    }
+
+    private var holdLinkLookup = false
+    private var linkLookupWaiter: CheckedContinuation<Void, Never>?
+    var linkLookupWaiting: Bool { linkLookupWaiter != nil }
+    func holdNextLinkLookup() { holdLinkLookup = true }
+    func releaseLinkLookup() {
+        holdLinkLookup = false
+        linkLookupWaiter?.resume()
+        linkLookupWaiter = nil
+    }
+
+    func failEvents(_ error: HostError) {
+        for s in eventSinks { s.finish(throwing: error) }
     }
 
     func emit(_ event: MailboxEvent) {
@@ -179,8 +193,12 @@ actor FakeRemote: RemoteTransport {
     }
 
     func currentLink() async -> Int? {
-        guard !isShutdown, linkAvailable, case .ready = state else { return nil }
-        return generation
+        let snapshot: Int? = if !isShutdown, linkAvailable, case .ready = state { generation } else { nil }
+        if holdLinkLookup {
+            holdLinkLookup = false
+            await withCheckedContinuation { linkLookupWaiter = $0 }
+        }
+        return snapshot
     }
 
     private func addEvents(_ c: AsyncThrowingStream<Data, Error>.Continuation) {
@@ -1447,17 +1465,50 @@ func refusalFromHelloLetsGoAtOnce(_ status: Int) async throws {
     #expect(!store.temAutoridade)
 }
 
-@MainActor @Test func eventsRetryWithoutALinkWithdrawsAuthority() async throws {
+@MainActor @Test(arguments: [false, true]) func eventsRetryWithoutALinkWithdrawsAuthority(streamThrows: Bool) async throws {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
     let store = await lojaConectada(storage, fake)
     defer { store.retire() }
     try #require(store.temAutoridade)
-    await fake.loseLinkWithoutStateUpdate()
+    await fake.loseLinkWithoutStateUpdate(error: streamThrows ? .unreachable : nil)
     #expect(await until { store.client == nil && store.refusalListener == nil })
     #expect(!store.temAutoridade)
     #expect(store.connection == .online)
+}
+
+@MainActor @Test func oldEventsCatchCannotWithdrawAuthorityAfterNewLinkIsOnline() async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let oldTask = try #require(store.eventsTask)
+    await fake.holdNextLinkLookup()
+    await fake.failEvents(.unreachable)
+    let newListener: UUID
+    let newLifetime: UUID
+    do {
+        try #require(await until { await fake.linkLookupWaiting })
+        await fake.set(.connecting)
+        try #require(await until { oldTask.isCancelled && !store.temAutoridade })
+        await fake.replaceLink()
+        await fake.set(.ready(.direct))
+        try #require(await until { await fake.eventSubscriptionCount == 2 })
+        await fake.emit(botEvent("b1", name: "Bot", rev: 2))
+        try #require(await until { store.temAutoridade })
+        newListener = try #require(store.refusalListener)
+        newLifetime = try #require(store.refusalLink?.lifetime)
+    } catch {
+        await fake.releaseLinkLookup()
+        throw error
+    }
+    await fake.releaseLinkLookup()
+    await oldTask.value
+    #expect(store.temAutoridade)
+    #expect(store.refusalListener == newListener)
+    #expect(store.refusalLink?.lifetime == newLifetime)
 }
 
 @MainActor @Test(arguments: [401, 403]) func lateActionRefusalCannotAffectReopenedLink(_ status: Int) async throws {
