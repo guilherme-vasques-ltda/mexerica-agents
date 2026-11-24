@@ -133,10 +133,41 @@ test('pin e chave do aparelho são os da tentativa que iniciou a assinatura', as
   let committed = false
   assert.equal(attempt.receiveWelcome(welcome, () => { committed = true }), true)
   assert.equal(committed, true)
-  const differentKey = slot.begin(signer, bytes(keys.hostSignPub), 10)
-  let sent = false
-  assert.equal(await differentKey.sendHello(() => { sent = true }), false)
-  assert.equal(sent, false)
+})
+
+test('o hello só sai se a assinatura corresponder à chave anunciada', async () => {
+  const { protocol, slot, pin } = fixture()
+  const device = protocol.signerFromSeed(bytes(keys.deviceSignSeed))
+  const other = protocol.signerFromSeed(bytes(keys.hostSignSeed))
+  let signatures = 0
+  let sends = 0
+  const signer = {
+    publicKey: other.publicKey,
+    async sign(input: Uint8Array) {
+      const signature = device.sign(input)
+      signatures++
+      return signature
+    },
+  }
+  const send = (): undefined => { sends++ }
+  assert.equal(await slot.begin(signer, pin, 10).sendHello(send), false)
+  assert.equal(signatures, 1)
+  assert.equal(sends, 0)
+  assert.equal(await slot.begin({ ...signer, publicKey: device.publicKey }, pin, 10).sendHello(send), true)
+  assert.equal(signatures, 2)
+  assert.equal(sends, 1)
+})
+
+test('welcome válido recebido no limite do prazo não instala chaves nem entrega contexto', async () => {
+  const { slot, signer, pin, expire } = fixture()
+  const attempt = slot.begin(signer, pin, 10)
+  let sends = 0
+  assert.equal(await attempt.sendHello(() => { sends++ }), true)
+  assert.equal(sends, 1)
+  expire()
+  let commits = 0
+  assert.equal(attempt.receiveWelcome(welcome, () => { commits++ }), false)
+  assert.equal(commits, 0)
 })
 
 test('substituir a tentativa invalida o welcome pendente e o contexto anterior', async () => {
