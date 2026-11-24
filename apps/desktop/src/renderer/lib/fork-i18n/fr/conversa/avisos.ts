@@ -84,6 +84,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.indisponivel": "Impossible d’ouvrir Codex dans le profil Open. Vérifiez le compte dans Comptes d’IA.",
   "conversa.avisos.open.falhou": "Codex n’a pas pu répondre pour le moment. Réessayez.",
   "conversa.avisos.grupo.bloqueado": "Le Hub n’a pas pu vérifier les messages en attente de ce groupe au redémarrage. Le groupe reste bloqué et rien n’a été renvoyé. Redémarrez le Hub après avoir corrigé le problème.",
+  "conversa.avisos.grupo.emConferencia": "Le Hub a redémarré avant de confirmer la livraison de ce message au groupe. Il a peut-être déjà atteint une partie des membres et n’a pas été repris ; vérifiez avant de le renvoyer.",
   "conversa.avisos.falha.cabecalho.naoSei": "Compte : non confirmé",
   "conversa.avisos.falha.cabecalho.dica": "Ouvrir Comptes d’IA",
   "conversa.avisos.motorMudo.minutos.one": "{n} minute",

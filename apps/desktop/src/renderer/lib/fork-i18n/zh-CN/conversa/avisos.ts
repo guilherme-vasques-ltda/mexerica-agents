@@ -84,6 +84,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.indisponivel": "无法在 Open 配置中打开 Codex。请在 AI 账号中检查账号。",
   "conversa.avisos.open.falhou": "Codex 暂时无法回复。请重试。",
   "conversa.avisos.grupo.bloqueado": "Hub 重启时无法核对此群组的待发消息。该群组保持锁定，没有重新发送任何内容。请在修复问题后重启 Hub。",
+  "conversa.avisos.grupo.emConferencia": "Hub 在确认此消息送达群组之前重启了。消息可能已送达部分成员，且未继续发送；请先确认再重新发送。",
   "conversa.avisos.falha.cabecalho.naoSei": "账户：无法确认",
   "conversa.avisos.falha.cabecalho.dica": "打开 AI 账户",
   "conversa.avisos.motorMudo.minutos.other": "{n} 分钟",
