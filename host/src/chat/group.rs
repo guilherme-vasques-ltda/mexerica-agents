@@ -19,7 +19,7 @@ use crate::hub::Hub;
 use crate::remote::push::{self, AlertKind};
 use crate::store::{BotConfig, BotKind, Entry, EntryKind, Lane, Store};
 use anyhow::{Result, anyhow, bail};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
@@ -45,15 +45,24 @@ pub struct GroupTurn {
     pub reply: oneshot::Sender<Result<Option<String>>>,
 }
 
-/// Room turn epochs per lane, and the groups the boot couldn't check (`fork::grupo_entrega`), blocked until the
-/// next start.
+/// Room turn epochs per lane and groups blocked until restart, behind the same fence as delivery.
 #[derive(Default)]
-pub struct Rooms(Mutex<HashMap<Lane, u64>>, Mutex<std::collections::HashSet<String>>);
+pub struct Rooms(Mutex<RoomState>);
+
+#[derive(Default)]
+struct RoomState {
+    epochs: HashMap<Lane, u64>,
+    blocked: HashSet<String>,
+    recipients: HashMap<String, HashSet<String>>,
+}
 
 impl Rooms {
-    fn next(&self, hub: &Hub, lane: &Lane, authority: Option<&Autoridade>) -> Result<u64> {
-        let mut map = self.0.locked();
-        Autoridade::no_efeito(hub, authority, || Ok(Self::advance(&mut map, lane)))
+    fn next(&self, hub: &Hub, lane: &Lane, authority: Option<&Autoridade>) -> Result<Option<u64>> {
+        let mut state = self.0.locked();
+        if state.blocked.contains(&lane.chat) {
+            return Ok(None);
+        }
+        Autoridade::no_efeito(hub, authority, || Ok(Some(Self::advance(&mut state.epochs, lane))))
     }
 
     fn advance(map: &mut HashMap<Lane, u64>, lane: &Lane) -> u64 {
@@ -64,19 +73,37 @@ impl Rooms {
 
     #[cfg(test)]
     pub(crate) fn reserve_epoch_for_test(&self, lane: &Lane) -> u64 {
-        Self::advance(&mut self.0.locked(), lane)
+        Self::advance(&mut self.0.locked().epochs, lane)
     }
 
     pub(crate) fn block(&self, group: &str) {
-        self.1.locked().insert(group.to_owned());
+        self.0.locked().blocked.insert(group.to_owned());
     }
 
     pub(crate) fn blocked(&self, group: &str) -> bool {
-        self.1.locked().contains(group)
+        self.0.locked().blocked.contains(group)
     }
 
     pub fn current(&self, lane: &Lane, epoch: u64) -> bool {
-        self.0.locked().get(lane).copied() == Some(epoch)
+        let state = self.0.locked();
+        !state.blocked.contains(&lane.chat) && state.epochs.get(lane).copied() == Some(epoch)
+    }
+
+    pub(crate) fn while_unblocked<T>(&self, group: &str, effect: impl FnOnce() -> T) -> Option<T> {
+        let state = self.0.locked();
+        (!state.blocked.contains(group)).then(effect)
+    }
+
+    fn queue_member(&self, group: &str, member: &str, send: impl FnOnce() -> Result<bool>) -> Result<Option<bool>> {
+        let mut state = self.0.locked();
+        if state.blocked.contains(group) {
+            return Ok(None);
+        }
+        let queued = send()?;
+        if queued {
+            state.recipients.entry(group.to_owned()).or_default().insert(member.to_owned());
+        }
+        Ok(Some(queued))
     }
 
     /// Stop: ends the room turn in every lane of `group` and the member turns in it.
@@ -84,23 +111,32 @@ impl Rooms {
         let _ = self.stop_after(hub, group, || Ok(()));
     }
 
-    /// Stop that first runs `cancel` under the epochs' lock: a room turn already running sees the stop only after
-    /// `cancel` is saved, and a message that starts later gets a newer epoch, queued on each member after the
-    /// cancellation. When `cancel` fails nothing stops, so no running turn is confirmed by a stop that didn't happen.
+    /// Stop under the epochs' lock: either the cancellation is saved and the epochs advance, or the room is
+    /// blocked until restart. In both cases member cancellations are queued before any new turn can start.
     pub(crate) fn stop_after(&self, hub: &Hub, group: &str, cancel: impl FnOnce() -> Result<()>) -> Result<()> {
-        let mut map = self.0.locked();
-        cancel()?;
-        let mut running = false;
-        for epoch in map.iter_mut().filter(|(lane, _)| lane.chat == group).map(|(_, epoch)| epoch) {
-            *epoch += 1;
-            running = true;
+        let mut state = self.0.locked();
+        let result = cancel();
+        if result.is_ok() {
+            for (lane, epoch) in &mut state.epochs {
+                if lane.chat == group {
+                    *epoch += 1;
+                }
+            }
+        } else {
+            state.blocked.insert(group.to_owned());
         }
-        if running && let Ok(Some(row)) = hub.store.bot(group) {
-            for member in &row.config.members {
-                let _ = hub.send_cmd(member, Cmd::CancelGroup { chat: group.to_owned() });
+        if state.epochs.keys().any(|lane| lane.chat == group) {
+            let mut members = state.recipients.remove(group).unwrap_or_default();
+            match hub.store.bot(group) {
+                Ok(Some(row)) => members.extend(row.config.members),
+                Ok(None) => (),
+                Err(error) => tracing::warn!(group, %error, "não foi possível ler os membros da sala ao parar"),
+            }
+            for member in members {
+                let _ = hub.send_cmd(&member, Cmd::CancelGroup { chat: group.to_owned() });
             }
         }
-        Ok(())
+        result
     }
 }
 
@@ -147,14 +183,14 @@ pub(crate) fn start_authorized(
     delivery: Delivery,
     authority: Option<Autoridade>,
 ) -> Result<()> {
-    if hub.groups.blocked(&group.id) {
-        tracing::warn!(group = group.id, "sala bloqueada até o próximo reinício; nada é entregue");
-        return Ok(());
-    }
     let epoch = match hub.groups.next(hub, &lane, authority.as_ref()) {
-        Ok(epoch) => epoch,
+        Ok(Some(epoch)) => epoch,
+        Ok(None) => {
+            tracing::warn!(group = group.id, "sala bloqueada até o próximo reinício; nada é entregue");
+            return Ok(());
+        }
         Err(error) => {
-            delivery.interrupt(hub)?;
+            delivery.interrupt(hub, &group.id)?;
             return Err(error);
         }
     };
@@ -164,7 +200,7 @@ pub(crate) fn start_authorized(
             if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                 || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
             {
-                let _ = delivery.interrupt(&hub);
+                let _ = delivery.interrupt(&hub, &group_id);
             }
             tracing::warn!(group = group_id, error = format!("{error:#}"), "room turn failed");
         }
@@ -203,7 +239,7 @@ async fn run(
             if !hub.groups.current(lane, epoch) {
                 // A newer message (which shows this one) or Stop ended the room turn.
                 if delivery_open {
-                    delivery.confirm(hub);
+                    delivery.confirm(hub, group_id);
                 }
                 return Ok(());
             }
@@ -218,23 +254,37 @@ async fn run(
             let (prompt, shown) = member_prompt(hub, &group, &members, member, lane, upto)?;
             let (reply, answer) = oneshot::channel();
             let turn = GroupTurn { lane: lane.clone(), prompt, shown, epoch, authority: authority.cloned(), reply };
-            if first {
-                delivery.hand_authorized(hub, group_id, &member.id, authority)?;
-            }
-            let sender = hub.login_command_sender(&member.id);
-            let queued = Autoridade::no_efeito(hub, authority, || {
-                Ok(sender.is_ok_and(|sender| sender.send(Cmd::Group(turn)).is_ok()))
-            })?;
-            if !queued {
+            let Some(queued) = hub.groups.queue_member(group_id, &member.id, || {
                 if first {
+                    delivery.hand_authorized(hub, group_id, &member.id, authority)?;
+                }
+                let sender = hub.login_command_sender(&member.id);
+                let queued = Autoridade::no_efeito(hub, authority, || {
+                    Ok(sender.is_ok_and(|sender| sender.send(Cmd::Group(turn)).is_ok()))
+                })?;
+                if !queued && first {
                     delivery.missed(hub, group_id, &member.id);
                 }
+                Ok(queued)
+            })?
+            else {
+                return Ok(());
+            };
+            if !queued {
                 continue;
             }
             // A failed, cancelled or overdue member turn counts as a pass; its error shows in the room.
             let answered = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await;
-            if first {
-                delivery.finish_member(hub, group_id, &member.id);
+            if hub
+                .groups
+                .while_unblocked(group_id, || {
+                    if first {
+                        delivery.finish_member(hub, group_id, &member.id);
+                    }
+                })
+                .is_none()
+            {
+                return Ok(());
             }
             if let Ok(Ok(Ok(Some(text)))) = answered {
                 spoke += 1;
@@ -243,7 +293,7 @@ async fn run(
             }
         }
         if first {
-            delivery.confirm(hub);
+            delivery.confirm(hub, group_id);
             delivery_open = false;
         }
         if spoke == 0 {
@@ -251,7 +301,7 @@ async fn run(
         }
     }
     if delivery_open {
-        delivery.confirm(hub);
+        delivery.confirm(hub, group_id);
     }
     if let Some((from, name, text)) = last_reply
         && let Some(group) = hub.store.bot(group_id)?.map(|r| r.config)
