@@ -566,6 +566,13 @@ struct QueueRefusal {
     disposition: DispatchDisposition,
 }
 
+enum DispatchClaim {
+    Claimed,
+    Deferred { anomaly: Option<((u64, i64), Instant)> },
+    InvalidSnapshot,
+    Busy,
+}
+
 fn tick_with_clocks(
     hub: &Arc<Hub>,
     retry: &mut OrphanRetry,
@@ -623,30 +630,46 @@ fn tick_with_clocks(
             continue;
         }
         let sampled_now = dispatch_now.min(clock());
-        let now = sampled_now.min(clock());
-        let monotonic_now = monotonic();
-        if let Some(retry) = own_retry {
-            barrier.add(retry.1, recovery.anchor(&id, retry, now, monotonic_now));
-        }
-        if barrier.holds(now, monotonic_now) {
-            deferred.insert(bot);
-            continue;
-        }
-        {
+        let own_anchor = recovery.0.get(&id).filter(|(retry, _)| Some(*retry) == own_retry).map(|(_, anchor)| *anchor);
+        let claim = {
             let mut active = hub.routines.active.locked();
             let state = hub.routines.state.locked();
-            if state.paused || epoch != Some(hub.routines.state.epoca.load(Ordering::SeqCst)) {
-                continue;
+            if state.paused
+                || epoch != Some(hub.routines.state.epoca.load(Ordering::SeqCst))
+                || !state.runs.get(index).is_some_and(|r| {
+                    r.id == id
+                        && r.bot_id == bot
+                        && r.status == Status::Pending
+                        && r.retry_not_before_ms.map(|deadline| (r.attempts, deadline)) == own_retry
+                })
+            {
+                DispatchClaim::InvalidSnapshot
+            } else {
+                let now = sampled_now.min(clock());
+                let monotonic_now = monotonic();
+                let anomaly = own_retry.filter(|(_, deadline)| {
+                    own_anchor.is_none() && deadline.saturating_sub(now) > CATCHUP_MAX_DELAY_MS
+                });
+                if let Some(retry) = own_retry {
+                    barrier.add(retry.1, own_anchor);
+                }
+                if barrier.holds(now, monotonic_now) {
+                    DispatchClaim::Deferred { anomaly: anomaly.map(|retry| (retry, monotonic_now)) }
+                } else if active.insert(bot.clone()) {
+                    DispatchClaim::Claimed
+                } else {
+                    DispatchClaim::Busy
+                }
             }
-            if !state.runs.get(index).is_some_and(|r| {
-                r.id == id
-                    && r.bot_id == bot
-                    && r.status == Status::Pending
-                    && r.retry_not_before_ms.map(|deadline| (r.attempts, deadline)) == own_retry
-            }) {
-                continue;
-            }
-            if !active.insert(bot.clone()) {
+        };
+        match claim {
+            DispatchClaim::Claimed => {}
+            DispatchClaim::InvalidSnapshot | DispatchClaim::Busy => continue,
+            DispatchClaim::Deferred { anomaly } => {
+                if let Some((retry, anchor)) = anomaly {
+                    recovery.0.insert(id, (retry, anchor));
+                }
+                deferred.insert(bot);
                 continue;
             }
         }
@@ -1245,7 +1268,13 @@ mod dispatch_recovery_tests {
             || {
                 let n = samples.get();
                 samples.set(n + 1);
-                if n == 3 { deadline - rewind } else { deadline }
+                if n == 3 {
+                    assert!(matches!(hub.routines.active.try_lock(), Err(std::sync::TryLockError::WouldBlock)));
+                    assert!(matches!(hub.routines.state.try_lock(), Err(std::sync::TryLockError::WouldBlock)));
+                    deadline - rewind
+                } else {
+                    deadline
+                }
             },
             || start,
         )
@@ -1259,6 +1288,7 @@ mod dispatch_recovery_tests {
             tick_with_clocks(&hub, &mut retry, &mut recovery, || deadline, || start + Duration::from_millis(4_999))
                 .unwrap();
             assert!(own.try_recv().is_err());
+            assert!(!hub.routines.active.locked().contains("bot"));
             tick_with_clocks(&hub, &mut retry, &mut recovery, || deadline - rewind, || start + Duration::from_secs(5))
                 .unwrap();
         } else {
