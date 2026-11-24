@@ -251,22 +251,7 @@ impl Store {
     /// com `nonce_intent_conflict` quando mudou. Mensagem gravada antes da intenção existir tem a sua reconstruída.
     pub(crate) fn replay_on(c: &rusqlite::Connection, chat: &str, data: &Value) -> Result<Option<Entry>> {
         let nonce = data["clientNonce"].as_str().unwrap_or_default();
-        if nonce.is_empty() {
-            return Ok(None);
-        }
-        let Some(existing) = c
-            .query_row(
-                &format!(
-                    "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user'
-                       AND COALESCE({NONCE}, '') <> '' AND {NONCE} = ?2"
-                ),
-                params![chat, nonce],
-                row_entry,
-            )
-            .optional()?
-        else {
-            return Ok(None);
-        };
+        let Some(existing) = Self::entry_by_nonce_on(c, chat, nonce)? else { return Ok(None) };
         let stored = existing.data.get("intent").cloned().unwrap_or_else(|| {
             let attachments = existing.data["attachments"].as_array().cloned().unwrap_or_default();
             let session = (existing.session_id != existing.bot_id).then_some(existing.session_id.as_str());
@@ -279,6 +264,21 @@ impl Store {
         });
         ensure!(stored == data["intent"], "nonce_intent_conflict");
         Ok(Some(existing))
+    }
+
+    pub(crate) fn entry_by_nonce_on(c: &rusqlite::Connection, chat: &str, nonce: &str) -> Result<Option<Entry>> {
+        if nonce.is_empty() {
+            return Ok(None);
+        }
+        Ok(c.query_row(
+            &format!(
+                "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND kind = 'user'
+                       AND COALESCE({NONCE}, '') <> '' AND {NONCE} = ?2"
+            ),
+            params![chat, nonce],
+            row_entry,
+        )
+        .optional()?)
     }
 
     pub fn find_by_nonce(&self, bot_id: &str, nonce: &str) -> Option<Entry> {

@@ -586,7 +586,11 @@ fn workspace_id(hub: &Hub, retrato: &Epoca) -> String {
     if let crate::fork::sessao_clerk::vinculo::Estado::Vinculado(v) = crate::fork::sessao_clerk::vinculo::ler(hub) {
         return v.workspace_id();
     }
-    retrato.dono.as_deref().map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}"))
+    workspace_id_legado(retrato.dono.as_deref())
+}
+
+pub(super) fn workspace_id_legado(dono: Option<&str>) -> String {
+    dono.map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}"))
 }
 
 pub(crate) fn call(hub: &Hub, caller: &Caller) -> Result<Value> {

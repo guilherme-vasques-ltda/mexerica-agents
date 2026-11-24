@@ -292,16 +292,20 @@ pub(crate) fn refresh<'a>(hub: &Hub, bots: impl IntoIterator<Item = &'a String>)
 
 /// Transação IMMEDIATE sob a trava do stream; publica na ordem de rev e depois atualiza os runtimes.
 fn commit<T>(hub: &Hub, change: impl FnOnce(&Connection) -> Result<(T, Vec<Entry>)>) -> Result<T> {
+    publish_commit(hub, || {
+        let mut db = hub.store.db.locked();
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
+        let out = change(&tx)?;
+        tx.commit()?;
+        Ok(out)
+    })
+}
+
+fn publish_commit<T>(hub: &Hub, change: impl FnOnce() -> Result<(T, Vec<Entry>)>) -> Result<T> {
     let (value, entries) = {
         let _emit = hub.emit_lock.locked();
-        let (value, mut entries) = {
-            let mut db = hub.store.db.locked();
-            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
-            let out = change(&tx)?;
-            tx.commit()?;
-            out
-        };
+        let (value, mut entries) = change()?;
         entries.sort_by_key(|e| e.rev);
         for entry in &entries {
             let _ = hub.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry}));
@@ -353,29 +357,54 @@ fn add_human(hub: &Hub, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<
         if let Some(original) = crate::store::Store::replay_on(c, &lane.chat, data)? {
             return Ok((Human::Replayed(original), Vec::new()));
         }
-        if data["status"] == "queued" {
-            let waiting: i64 = c.query_row(
-                "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
+        let (entry, entries) = insert_human_on(c, lane, turn, data)?;
+        Ok((Human::New(entry), entries))
+    })
+}
+
+pub(crate) fn add_mailbox_message(
+    hub: &Hub,
+    delivery: &crate::fork::mailbox::Delivery,
+    lane: &Lane,
+    body: &Value,
+    data: &Value,
+) -> Result<Option<Entry>> {
+    #[cfg(test)]
+    crate::fork::sessoes::call_tests::before_effect(&hub.store, "mailbox_commit");
+    publish_commit(hub, || {
+        Ok(delivery
+            .with_db(hub, &lane.chat, |tx, owner| {
+                ensure!(crate::fork::sessoes::api::send_lane(tx, &lane.chat, body)? == *lane, "session_changed");
+                let (entry, entries) = insert_human_on(tx, lane, None, data)?;
+                delivery.record(tx, hub, owner)?;
+                Ok((Some(entry), entries))
+            })?
+            .unwrap_or_default())
+    })
+}
+
+fn insert_human_on(c: &Connection, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<(Entry, Vec<Entry>)> {
+    if data["status"] == "queued" {
+        let waiting: i64 = c.query_row(
+            "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
                     AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'
                     AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.choice_response') END) IS NULL
                     AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.from') END, '') <> 'host'",
-                [&lane.chat],
-                |r| r.get(0),
-            )?;
-            ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
-        }
-        let turn = match turn {
-            Some(turn) => turn,
-            None => crate::store::alloc_turn_on(c, &lane.chat)?,
-        };
-        let (marker, entry) =
-            insert_visible_on(c, &uuid::Uuid::new_v4().to_string(), lane, EntryKind::User, turn, data)?;
-        let answered = answer_on(c, lane, &entry.id)?;
-        let mut entries: Vec<Entry> = marker.into_iter().collect();
-        entries.push(entry.clone());
-        entries.extend(answered);
-        Ok((Human::New(entry), entries))
-    })
+            [&lane.chat],
+            |r| r.get(0),
+        )?;
+        ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
+    }
+    let turn = match turn {
+        Some(turn) => turn,
+        None => crate::store::alloc_turn_on(c, &lane.chat)?,
+    };
+    let (marker, entry) = insert_visible_on(c, &uuid::Uuid::new_v4().to_string(), lane, EntryKind::User, turn, data)?;
+    let answered = answer_on(c, lane, &entry.id)?;
+    let mut entries: Vec<Entry> = marker.into_iter().collect();
+    entries.push(entry.clone());
+    entries.extend(answered);
+    Ok((entry, entries))
 }
 
 /// Recusa por fila cheia: quem envia sozinho (tarefas) espera a vez sem contar como falha.

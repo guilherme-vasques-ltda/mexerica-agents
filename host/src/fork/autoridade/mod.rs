@@ -324,13 +324,22 @@ impl Autoridade {
             .map_err(|_| AutorizacaoEncerrada.into())
     }
 
-    /// Valida antes do efeito e do commit na mesma `TxImmediate`/Connection.
-    /// O callback é síncrono, sem await/rede/Store/Cloud ou saída irreversível.
     pub(crate) fn with_db<T>(
         &self,
         hub: &Hub,
         contas: Option<&Authority>,
         escrever: impl FnOnce(&Connection) -> Result<T>,
+    ) -> Result<T> {
+        self.with_db_owner(hub, contas, |tx, _| escrever(tx))
+    }
+
+    /// Valida antes do efeito e do commit na mesma `TxImmediate`/Connection.
+    /// O callback é síncrono, sem await/rede/Store/Cloud ou saída irreversível.
+    pub(crate) fn with_db_owner<T>(
+        &self,
+        hub: &Hub,
+        contas: Option<&Authority>,
+        escrever: impl FnOnce(&Connection, Option<&str>) -> Result<T>,
     ) -> Result<T> {
         hub.cloud.with_transport_owner(|dono, geracao_dono| {
             let mut db = hub.store.db.locked();
@@ -341,7 +350,7 @@ impl Autoridade {
                 self.conferir_guardas(&tx, dono, geracao_dono, sincronizacao.epoca(), sincronizado, contas)
             };
             conferir()?;
-            let resposta = escrever(&tx)?;
+            let resposta = escrever(&tx, dono)?;
             conferir()?;
             tx.commit()?;
             Ok(resposta)
