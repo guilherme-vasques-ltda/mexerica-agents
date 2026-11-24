@@ -107,13 +107,13 @@ async fn teto_antes_da_autenticacao_nao_assina_nem_readmite() {
     let hub = temp_hub();
     let chave = paired_phone(&hub).await;
     assert!(hub.revoke_device(&crypto::b64(chave.verifying_key().as_bytes())).unwrap());
-    for _ in 0..7 {
+    for _ in 1..fork_limite_hello::POR_CHAVE {
         assert!(recusa(&hub, &chave, true, false).await.0.get("prova").is_some());
     }
     let (rejeicao, fechamento, _, _) = recusa(&hub, &chave, true, false).await;
     assert_eq!((rejeicao["code"].as_str(), fechamento), (Some("rateLimited"), 4008));
     assert!(rejeicao.get("prova").is_none());
-    tokio::time::advance(Duration::from_secs(10)).await;
+    tokio::time::advance(fork_limite_hello::JANELA).await;
     let (rejeicao, fechamento, _, _) = recusa(&hub, &chave, true, false).await;
     assert_eq!((rejeicao["code"].as_str(), fechamento), (Some("revoked"), 4003));
     assert!(rejeicao.get("prova").is_some());

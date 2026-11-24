@@ -1,8 +1,8 @@
 use std::{collections::VecDeque, time::Duration};
 use tokio::time::Instant;
 
-const JANELA: Duration = Duration::from_secs(10);
-const POR_CHAVE: usize = 8;
+pub(super) const JANELA: Duration = Duration::from_secs(10);
+pub(super) const POR_CHAVE: usize = 20;
 const TOTAL: usize = 64;
 
 pub(super) struct Excedido;
