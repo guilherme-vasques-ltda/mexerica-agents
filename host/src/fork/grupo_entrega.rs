@@ -82,6 +82,26 @@ impl Delivery {
         self.save(hub, group)
     }
 
+    pub(crate) fn hand_authorized(
+        &mut self,
+        hub: &Hub,
+        group: &str,
+        member: &str,
+        authority: Option<&crate::fork::autoridade::Autoridade>,
+    ) -> Result<()> {
+        let Some(authority) = authority else { return self.hand(hub, group, member) };
+        self.handed.insert(member.to_owned());
+        let data = serde_json::to_string(self)?;
+        authority.with_db(hub, None, |db| {
+            anyhow::ensure!(Store::bot_on(db, group)?.is_some_and(|bot| !bot.deleted), "group deleted");
+            db.execute(
+                "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=?2",
+                rusqlite::params![key(&self.entry_id), data],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Falha ao gravar deixa o membro como «recebeu sem terminar»: no boot, isso vira conferência.
     pub(crate) fn finish_member(&mut self, hub: &Hub, group: &str, member: &str) {
         self.done.insert(member.to_owned());
@@ -118,6 +138,10 @@ impl Delivery {
                 "confirmação da entrega ao grupo não gravada"
             );
         }
+    }
+
+    pub(crate) fn interrupt(&self, hub: &Hub) -> Result<()> {
+        settle(hub, std::slice::from_ref(&self.entry_id), "interrupted", true)
     }
 }
 

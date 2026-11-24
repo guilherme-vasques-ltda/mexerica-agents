@@ -1,5 +1,6 @@
 //! Conversa só de texto da Open com o Codex isolado: um turno por mensagem, sem ferramentas.
 use crate::LockExt;
+use crate::fork::autoridade::Autoridade;
 use crate::fork::engine_accounts::{LaunchReference, Registry, State};
 use crate::fork::engine_setup::process::Rpc;
 use crate::hub::{BotStatus, Hub};
@@ -204,13 +205,25 @@ pub(crate) fn run(
     cfg: &BotConfig,
     lane: Lane,
     turn: i64,
-    entry_id: String,
+    entry: (String, Option<Autoridade>),
     text: String,
 ) {
     let hub = hub.clone();
     let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     tokio::spawn(async move {
+        let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, mut cancel, done } = ticket;
+        if let Err(error) = Autoridade::no_efeito(&hub, authority.as_ref(), || Ok(())) {
+            if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+            {
+                hub.fail_remote_turn(&entry_id, "queued");
+            } else {
+                tracing::warn!(%error, "open turn admission check unavailable");
+                mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
+            }
+            return;
+        }
         let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if !alive() {
             if let Some(running) = RUNNING.locked().as_mut() {
@@ -233,7 +246,7 @@ pub(crate) fn run(
             &lane,
             &instructions,
             &text,
-            &entry_id,
+            (&entry_id, authority.as_ref()),
             &mut cancel,
             &mut reply,
         )
@@ -241,9 +254,15 @@ pub(crate) fn run(
         reply.close();
         if alive() {
             if let Err(error) = &outcome {
-                let (code, text) = notice(&error.to_string());
-                hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
-                mark_unsent(&hub, &entry_id, code, &account);
+                if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                    || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                {
+                    hub.fail_remote_turn(&entry_id, "queued");
+                } else {
+                    let (code, text) = notice(&error.to_string());
+                    hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
+                    mark_unsent(&hub, &entry_id, code, &account);
+                }
             }
             hub.set_runtime(&bot, |r| {
                 r.status = BotStatus::Idle;
@@ -269,7 +288,7 @@ async fn turn_in_profile(
     lane: &Lane,
     instructions: &str,
     text: &str,
-    entry_id: &str,
+    (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
 ) -> Result<()> {
@@ -282,19 +301,17 @@ async fn turn_in_profile(
     // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)
     // ou por o bot já não existir. A conferência de `deleted` sob a trava do banco cobre a janela entre a reserva
     // e este processo nascer.
-    let child = {
-        let db = hub.store.db.locked();
-        ensure!(
-            !*cancel.borrow() && matches!(crate::store::Store::bot_on(&db, &bot), Ok(Some(row)) if !row.deleted),
-            "open_chat_cancelled"
-        );
-        crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?
-    };
+    let child = spawn_guarded(hub, authority, &bot, cancel, || {
+        crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))
+    })?;
     let mut rpc = Rpc::from_child(child)?;
     let stopped = cancel.clone();
     // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
+        #[cfg(test)]
+        crate::fork::sessoes::call_tests::before_effect(&hub.store, "open_before_text");
+        Autoridade::no_efeito(hub, authority, || Ok(()))?;
         if saved.as_deref() != Some(thread)
             && let Err(error) = hub.store.kv_set_if_bot(&bot, &thread_key(lane, account), thread)
         {
@@ -314,9 +331,18 @@ async fn turn_in_profile(
             hub.set_entry(entry_id, &data);
         }
     };
-    let outcome =
-        drive(&mut rpc, saved.as_deref(), instructions, text, cancel, before_text, on_sent, |delta| reply.push(delta))
-            .await;
+    let outcome = drive(
+        &mut rpc,
+        saved.as_deref(),
+        instructions,
+        text,
+        cancel,
+        before_text,
+        on_sent,
+        |delta| reply.push(delta),
+        authority.map(|proof| (hub, proof)),
+    )
+    .await;
     match outcome {
         Ok(_) => {
             // O encerramento limpo confirma só o líder: o reap a seguir varre descendentes que tenham ficado no grupo.
@@ -333,6 +359,37 @@ async fn turn_in_profile(
     }
 }
 
+#[cfg(unix)]
+fn spawn_guarded<T>(
+    hub: &Hub,
+    authority: Option<&Autoridade>,
+    bot: &str,
+    cancel: &watch::Receiver<bool>,
+    spawn: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let check_bot = |db: &rusqlite::Connection| -> Result<()> {
+        ensure!(
+            !*cancel.borrow() && crate::store::Store::bot_on(db, bot)?.is_some_and(|row| !row.deleted),
+            "open_chat_cancelled"
+        );
+        Ok(())
+    };
+    #[cfg(test)]
+    crate::fork::sessoes::call_tests::before_effect(&hub.store, "open_before_spawn");
+    if let Some(original) = authority {
+        crate::fork::autoridade::com_saida_validada(
+            hub,
+            crate::fork::autoridade::OrigemSaida::Controle(original, None),
+            |db, _, _, _, _| check_bot(db),
+            spawn,
+        )?
+    } else {
+        let db = hub.store.db.locked();
+        check_bot(&db)?;
+        spawn()
+    }
+}
+
 #[cfg(not(unix))]
 async fn turn_in_profile(
     _: &Hub,
@@ -341,7 +398,7 @@ async fn turn_in_profile(
     _: &Lane,
     _: &str,
     _: &str,
-    _: &str,
+    _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
     _: &mut Stream,
 ) -> Result<()> {
@@ -448,6 +505,7 @@ pub(crate) async fn drive(
     before_text: impl FnOnce(&str) -> Result<()>,
     on_sent: impl FnOnce(),
     mut on_delta: impl FnMut(&str) -> bool,
+    authority: Option<(&Hub, &Autoridade)>,
 ) -> Result<String> {
     rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
@@ -480,13 +538,16 @@ pub(crate) async fn drive(
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
         before_text(&thread)?;
-        let turn = rpc
-            .call(
-                4,
-                "turn/start",
-                json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]}),
-            )
-            .await?;
+        let params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
+        let turn = match authority {
+            Some((hub, proof)) => {
+                rpc.call_guarded(4, "turn/start", params, |effect| {
+                    proof.com_saida(hub, None, effect).unwrap_or_else(|error| std::task::Poll::Ready(Err(error)))
+                })
+                .await?
+            }
+            None => rpc.call(4, "turn/start", params).await?,
+        };
         let turn_id = turn["turn"]["id"].as_str().unwrap_or_default().to_owned();
         on_sent();
         // Itens que já entregaram texto por deltas: o `item/completed` deles não repete o que já chegou.

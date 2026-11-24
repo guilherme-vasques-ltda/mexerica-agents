@@ -16,7 +16,7 @@ use icu_properties::{
     CodePointSetData,
     props::{DefaultIgnorableCodePoint, Emoji, EmojiModifier, EmojiModifierBase, ExtendedPictographic},
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use unicode_general_category::{GeneralCategory, get_general_category};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
@@ -234,70 +234,73 @@ impl Store {
         snapshot(&self.db.locked(), space)
     }
     pub(crate) fn edit_bot_groups(&self, space: &str, edit: Edit) -> Result<(Snapshot, Option<String>, Vec<String>)> {
-        let mut db = self.db.locked();
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        crate::fork::spaces::require_space(&tx, space)?;
-        if !migrated(&tx)? {
-            return Err(failure("migrating", "Os grupos estão sendo atualizados."));
-        }
-        tx.execute("DELETE FROM bot_group_members WHERE group_id IN (SELECT id FROM bot_groups WHERE space_id=?1) AND NOT EXISTS (SELECT 1 FROM bots b WHERE b.id=bot_id AND b.deleted=0 AND json_valid(b.config) AND COALESCE(json_extract(b.config,'$.spaceId'),?1)=?1)", [space])?;
-        let mut affected = Vec::new();
-        let mut created = None;
-        match edit {
-            Edit::Add { name, bot_id } => {
-                let name = valid_name(&name)?;
-                check_name(&tx, space, None, &name)?;
-                if let Some(bot) = &bot_id {
-                    check_bot(&tx, space, bot)?;
-                }
-                let id = uuid::Uuid::new_v4().to_string();
-                tx.execute("INSERT INTO bot_groups(id,space_id,name,ord) VALUES(?1,?2,?3,(SELECT COUNT(*) FROM bot_groups WHERE space_id=?2))", params![id,space,name])?;
-                if let Some(bot) = bot_id {
-                    tx.execute("INSERT INTO bot_group_members(bot_id,group_id) VALUES(?1,?2) ON CONFLICT(bot_id) DO UPDATE SET group_id=excluded.group_id", params![bot,id])?;
-                    affected.push(bot);
-                }
-                created = Some(id);
-                renumber(&tx, space)?;
-            }
-            Edit::Rename { id, name } => {
-                check_group(&tx, space, &id)?;
-                let name = valid_name(&name)?;
-                check_name(&tx, space, Some(&id), &name)?;
-                tx.execute("UPDATE bot_groups SET name=?1 WHERE id=?2", params![name, id])?;
-            }
-            Edit::Remove { id } => {
-                check_group(&tx, space, &id)?;
-                let mut s = tx.prepare("SELECT bot_id FROM bot_group_members WHERE group_id=?1 ORDER BY bot_id")?;
-                affected = s.query_map([&id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-                drop(s);
-                tx.execute("DELETE FROM bot_group_members WHERE group_id IN (SELECT id FROM bot_groups WHERE id=?1 AND space_id=?2)",params![id,space])?;
-                tx.execute("DELETE FROM bot_groups WHERE id=?1 AND space_id=?2", params![id, space])?;
-                renumber(&tx, space)?;
-            }
-            Edit::Place { bot_id, group_id } => {
-                check_bot(&tx, space, &bot_id)?;
-                if let Some(id) = group_id {
-                    check_group(&tx, space, &id)?;
-                    tx.execute("INSERT INTO bot_group_members(bot_id,group_id) VALUES(?1,?2) ON CONFLICT(bot_id) DO UPDATE SET group_id=excluded.group_id",params![bot_id,id])?;
-                } else {
-                    tx.execute("DELETE FROM bot_group_members WHERE bot_id=?1", [&bot_id])?;
-                }
-                affected.push(bot_id);
-            }
-        }
-        for bot in &affected {
-            let rev = super::next_rev(&tx)?;
-            tx.execute("UPDATE bots SET rev=?1 WHERE id=?2", params![rev, bot])?;
-        }
-        let rev = super::next_rev(&tx)?;
-        tx.execute(
-            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-            params![format!("bot_groups.rev.{space}"), rev.to_string()],
-        )?;
-        let state = snapshot(&tx, space)?;
-        tx.commit()?;
-        Ok((state, created, affected))
+        #[cfg(test)]
+        crate::fork::sessoes::call_tests::before_effect(self, "bot_groups_write");
+        crate::fork::donna_fixa::pedido::gravar(self, |tx| edit_bot_groups_on(tx, space, edit))
     }
+}
+
+fn edit_bot_groups_on(tx: &Connection, space: &str, edit: Edit) -> Result<(Snapshot, Option<String>, Vec<String>)> {
+    crate::fork::spaces::require_space(tx, space)?;
+    if !migrated(tx)? {
+        return Err(failure("migrating", "Os grupos estão sendo atualizados."));
+    }
+    tx.execute("DELETE FROM bot_group_members WHERE group_id IN (SELECT id FROM bot_groups WHERE space_id=?1) AND NOT EXISTS (SELECT 1 FROM bots b WHERE b.id=bot_id AND b.deleted=0 AND json_valid(b.config) AND COALESCE(json_extract(b.config,'$.spaceId'),?1)=?1)", [space])?;
+    let mut affected = Vec::new();
+    let mut created = None;
+    match edit {
+        Edit::Add { name, bot_id } => {
+            let name = valid_name(&name)?;
+            check_name(tx, space, None, &name)?;
+            if let Some(bot) = &bot_id {
+                check_bot(tx, space, bot)?;
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            tx.execute("INSERT INTO bot_groups(id,space_id,name,ord) VALUES(?1,?2,?3,(SELECT COUNT(*) FROM bot_groups WHERE space_id=?2))", params![id,space,name])?;
+            if let Some(bot) = bot_id {
+                tx.execute("INSERT INTO bot_group_members(bot_id,group_id) VALUES(?1,?2) ON CONFLICT(bot_id) DO UPDATE SET group_id=excluded.group_id", params![bot,id])?;
+                affected.push(bot);
+            }
+            created = Some(id);
+            renumber(tx, space)?;
+        }
+        Edit::Rename { id, name } => {
+            check_group(tx, space, &id)?;
+            let name = valid_name(&name)?;
+            check_name(tx, space, Some(&id), &name)?;
+            tx.execute("UPDATE bot_groups SET name=?1 WHERE id=?2", params![name, id])?;
+        }
+        Edit::Remove { id } => {
+            check_group(tx, space, &id)?;
+            let mut s = tx.prepare("SELECT bot_id FROM bot_group_members WHERE group_id=?1 ORDER BY bot_id")?;
+            affected = s.query_map([&id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            drop(s);
+            tx.execute("DELETE FROM bot_group_members WHERE group_id IN (SELECT id FROM bot_groups WHERE id=?1 AND space_id=?2)",params![id,space])?;
+            tx.execute("DELETE FROM bot_groups WHERE id=?1 AND space_id=?2", params![id, space])?;
+            renumber(tx, space)?;
+        }
+        Edit::Place { bot_id, group_id } => {
+            check_bot(tx, space, &bot_id)?;
+            if let Some(id) = group_id {
+                check_group(tx, space, &id)?;
+                tx.execute("INSERT INTO bot_group_members(bot_id,group_id) VALUES(?1,?2) ON CONFLICT(bot_id) DO UPDATE SET group_id=excluded.group_id",params![bot_id,id])?;
+            } else {
+                tx.execute("DELETE FROM bot_group_members WHERE bot_id=?1", [&bot_id])?;
+            }
+            affected.push(bot_id);
+        }
+    }
+    for bot in &affected {
+        let rev = super::next_rev(tx)?;
+        tx.execute("UPDATE bots SET rev=?1 WHERE id=?2", params![rev, bot])?;
+    }
+    let rev = super::next_rev(tx)?;
+    tx.execute(
+        "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+        params![format!("bot_groups.rev.{space}"), rev.to_string()],
+    )?;
+    let state = snapshot(tx, space)?;
+    Ok((state, created, affected))
 }
 pub(crate) fn forget_bot(c: &Connection, id: &str, _bot_rev: i64) -> Result<()> {
     let space: Option<String> = c

@@ -570,6 +570,31 @@ impl Actor {
             }
             Ok(decision.verdict)
         };
+        #[cfg(test)]
+        crate::fork::sessoes::call_tests::before_effect(&hub.store, "remote_before_prompt_permit");
+        let proofs = match hub.remote_prompt_proofs(&entries).and_then(|mut proofs| {
+            proofs.extend(self.active_group.as_ref().and_then(|group| group.authority.clone()));
+            crate::fork::autoridade::Autoridade::com_provas(&hub, &proofs, || ())?;
+            Ok(proofs)
+        }) {
+            Ok(proofs) => proofs,
+            Err(error)
+                if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                    || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>() =>
+            {
+                for id in &entries {
+                    let _ = hub.admit_remote_turn(id);
+                }
+                return Err(error);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "autoridade do prompt indisponível; nenhum envio efetuado");
+                self.pending_admission = Some(Pending::Prompt { params, entries, session });
+                self.queue_retry_at = Some(Instant::now() + Duration::from_secs(5));
+                self.publish_pending_admission();
+                return Ok(());
+            }
+        };
         let permitted = match hub.permit_bot_dispatch(
             &self.cfg,
             &ticket,
@@ -725,8 +750,14 @@ impl Actor {
             };
             self.antigravity_active = Some(grant);
             answer
-        } else {
+        } else if proofs.is_empty() {
             acp.send("session/prompt", params).await?
+        } else {
+            acp.send_guarded_prompt(params, |effect| {
+                crate::fork::autoridade::Autoridade::com_provas(&hub, &proofs, effect)
+                    .unwrap_or_else(|error| std::task::Poll::Ready(Err(error)))
+            })
+            .await?
         };
         self.mudo_armar();
         drop(account_guard);
@@ -885,6 +916,25 @@ impl Actor {
             return Ok(());
         }
         if record.phase == Phase::Reserved && matches!(&record.origin, Origin::Human) && !record.entry_ids.is_empty() {
+            let mut refused = false;
+            for id in &record.entry_ids {
+                if let Err(error) = self.hub.admit_remote_turn(id) {
+                    if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                        || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                    {
+                        refused = true;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+            if refused {
+                admission::finish(&self.hub.store, &self.cfg.id, &record.ticket())?;
+                self.dispatch = None;
+                self.restart_admission = false;
+                self.requeue_unreserved_humans(&record.entry_ids);
+                return Ok(());
+            }
             let entries = self.hub.store.queued_user_entries_for_identity(&self.cfg.id)?;
             let original = self
                 .hub

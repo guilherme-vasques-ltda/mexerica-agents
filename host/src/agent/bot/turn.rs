@@ -223,6 +223,12 @@ impl Actor {
         done_tx: &mpsc::UnboundedSender<super::PromptDone>,
         prepared_token: Option<String>,
     ) -> Result<()> {
+        if let Some(group) = &self.active_group {
+            crate::fork::autoridade::Autoridade::no_efeito(&self.hub, group.authority.as_ref(), || Ok(()))?;
+        }
+        for id in entry_ids {
+            self.hub.admit_remote_turn(id)?;
+        }
         self.clear_finished_before_turn()?;
         self.lane = lane.clone();
         // Sessões PR5: ponto canônico da captura do cartão da lane (recomeço da principal, continuação de uma extra) no
@@ -832,6 +838,12 @@ impl Actor {
         if !self.clear_waiting() {
             self.defer_completion(done);
             return;
+        }
+        {
+            let mut proofs = self.hub.remote_send_authorities.locked();
+            for id in &self.turn_entries {
+                proofs.remove(id);
+            }
         }
         self.active_routine = routine_id;
         self.report_turn(stopped, failure, &stop_reason);

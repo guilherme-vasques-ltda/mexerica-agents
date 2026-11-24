@@ -846,6 +846,55 @@ mod tests {
         assert!(nonces.contains(&"committed") && nonces.contains(&"previous-scope"));
     }
 
+    #[tokio::test]
+    async fn mailbox_ack_confirma_mensagem_mas_nao_dispara_efeitos_apos_corte() {
+        use crate::fork::{
+            sessoes::call_tests::interleave,
+            workspace::{self, Motivo},
+        };
+        use crate::store::{EntryKind, Lane};
+        let (hub, _dir) = temp_hub();
+        let bot = "bot-recado";
+        hub.store.save_bot(&serde_json::from_value(json!({"id":bot,"name":"Bot"})).unwrap()).unwrap();
+        let mut comandos = hub.test_bot_commands(bot);
+        hub.store.insert_entry(&Lane::main(bot), EntryKind::Agent, 0, &json!({"final":true})).unwrap();
+        let read_rev = hub.store.bot(bot).unwrap().unwrap().read_rev;
+        assert_eq!(hub.store.unread(bot, read_rev), 1);
+        let phone = SigningKey::from_bytes(&crypto::random());
+        let key = b64(phone.verifying_key().as_bytes());
+        hub.store
+            .put_device(&Device {
+                key: key.clone(),
+                name: "Phone".into(),
+                platform: "ios".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control],
+                lease_until: None,
+                created_at: now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+        let nonce = "recado-cortado";
+        let body = json!({"m":"send","b":{"botId":bot,"text":"Recado","clientNonce":nonce,
+            "workspaceEpoch":hub.workspace.atual(),"grantGeneration":generation(&hub,&key)},"ts":now_ms()});
+        let item =
+            json!({"seq":1,"from":key,"nonce":nonce,"d":seal_mailbox(&hub,&phone,nonce,body.to_string().as_bytes())});
+        let bump_hub = hub.clone();
+        let reached = interleave(&hub.store, "send_after_commit", move || {
+            workspace::bump(&bump_hub, Motivo::RoleChanged).unwrap();
+        });
+        for _ in 0..2 {
+            assert_eq!(mailbox_item(&hub, &item).await["ok"], true);
+        }
+        assert!(reached.load(Ordering::Acquire));
+        let entry = hub.store.find_by_nonce(bot, nonce).unwrap();
+        assert_eq!(entry.data["status"], "failed");
+        assert_eq!(hub.store.bot(bot).unwrap().unwrap().read_rev, read_rev);
+        assert!(hub.store.queued_user_entries_for_identity(bot).unwrap().is_empty());
+        assert!(matches!(comandos.try_recv(), Err(mpsc::error::TryRecvError::Empty)));
+    }
+
     async fn wait_for(f: &Fake, pred: impl Fn(&[Value]) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(60);
         while !pred(&f.from_host.lock().unwrap()) {

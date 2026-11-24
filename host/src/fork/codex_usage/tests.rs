@@ -55,6 +55,54 @@ fn rates(percent: i64) -> Value {
 }
 
 #[tokio::test]
+async fn refresh_admitido_publica_e_epoch_antigo_nao_substitui_consumo() {
+    use crate::{
+        api::devices::Caller,
+        fork::{
+            autoridade,
+            workspace::{self, Motivo},
+        },
+        store::{Device, DeviceSource, Scope, now_ms},
+    };
+    let f = Fixture::new();
+    let key = "fixture-usage-device";
+    f.hub
+        .store
+        .put_device(&Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = autoridade::autenticar(&f.hub, key).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
+    let authority = original.para_requisicao(f.hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap();
+    for (changed, percent) in [(false, 23), (true, 71)] {
+        if changed {
+            workspace::bump(&f.hub, Motivo::RoleChanged).unwrap();
+        }
+        f.rates(&rates(percent));
+        let result = refresh_at_authorized(
+            &f.hub,
+            Some(&f.executable),
+            &f.hub.store.engine_setup_root,
+            f.env(),
+            FIXTURE_TIMEOUT,
+            Some(&authority),
+        )
+        .await;
+        assert_eq!(result.is_ok(), !changed);
+        assert_eq!(f.codex().unwrap().windows[0].percent, 23.0);
+    }
+}
+
+#[tokio::test]
 async fn rpc_atual_substitui_rollout_e_remove_janelas_ausentes_sem_apagar_claude() {
     let f = Fixture::new();
     let sessions = f.directory.join("sessions/2026/11/06");

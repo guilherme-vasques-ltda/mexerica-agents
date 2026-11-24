@@ -26,13 +26,16 @@ async fn request_account_propria_expirada_fecha_sem_dados_apos_renovacao() {
     hub.cloud_synced.store(true, std::sync::atomic::Ordering::Release);
     let geracao = geracao_persistida(&hub.store.db.locked(), &chave);
     let (_, caller) = autoridade::autenticar(&hub, &chave).unwrap();
+    let admissao = barreira_workspace::Admissao::do_caller(&hub, &caller).unwrap();
     let (tx, mut rx) = mpsc::channel(1);
     let mut canal = Channel {
         hub: hub.clone(),
         tx,
         jobs: Arc::default(),
+        request_slots: Arc::new(tokio::sync::Semaphore::new(MAX_REQUESTS)),
         key: chave.clone(),
         caller: Arc::new(caller),
+        admissao: Some(admissao),
         lease: None,
         online: None,
         quadros: false,
@@ -52,7 +55,7 @@ async fn request_account_propria_expirada_fecha_sem_dados_apos_renovacao() {
         .unwrap();
     let request = {
         let lista = canal.jobs.locked();
-        let Some(Job::Request(request)) = lista.get(&7) else { panic!("request própria ausente") };
+        let Some(Job::Request(request, _)) = lista.get(&7) else { panic!("request própria ausente") };
         request.clone()
     };
     assert!(!request.is_finished());

@@ -108,6 +108,29 @@ impl Executor {
 fn hello() -> Value {
     json!({"proto":1,"bootId":"boot-1","version":"test","platform":"macos","capabilities":{"terminal":true,"arquivos":true,"spark":true,"op":true},"presence":{"appConnected":true,"locked":false,"idleSeconds":0,"stopped":false,"sparkRunning":true,"opReady":true},"journal":[],"routines":[]})
 }
+
+#[tokio::test]
+async fn executor_com_admissao_antiga_nao_atualiza_presenca() {
+    use crate::fork::{
+        autoridade,
+        workspace::{self, Motivo},
+    };
+    let hub = hub();
+    let executor = Executor::enroll(&hub).await;
+    let (_, mut caller) = autoridade::autenticar(&hub, &executor.dk()).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = &mut caller else { panic!("executor autenticado") };
+    *original =
+        Arc::new(original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap());
+    let mut request = hello();
+    request["version"] = json!("current");
+    let result = executor_api::call(&hub, &caller, "executorHello", request.clone(), None).await;
+    assert!(result.is_ok());
+    workspace::bump(&hub, Motivo::RoleChanged).unwrap();
+    request["version"] = json!("stale");
+    let result = executor_api::call(&hub, &caller, "executorHello", request, None).await;
+    assert!(result.unwrap_err().is::<autoridade::EpochDaRequisicaoEncerrado>());
+    assert_eq!(hub.store.computers().unwrap()[0].app_version.as_deref(), Some("current"));
+}
 fn hub() -> Arc<Hub> {
     let dir = std::env::temp_dir().join(format!("donna-computers-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

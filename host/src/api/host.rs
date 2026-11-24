@@ -8,7 +8,6 @@ use crate::LockExt;
 use crate::agent::backends;
 use crate::fork::runtime_audiencia::screen as screen_projection;
 use crate::hub::Hub;
-use crate::usage;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
@@ -104,8 +103,12 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             json!({"backends": backends::list()})
         }
         "usage" => {
-            if b["refresh"].as_bool().unwrap_or(false) {
-                usage::refresh(hub).await;
+            if b["refresh"].as_bool().unwrap_or(false) && !crate::environment::Environment::is_open() {
+                crate::fork::codex_usage::refresh_authorized(
+                    hub,
+                    crate::fork::autoridade::Autoridade::de_requisicao(caller),
+                )
+                .await?;
             }
             serde_json::to_value(&*hub.usage.locked())?
         }
@@ -215,14 +218,12 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             status
         }
         "termInput" => {
-            hub.terms.authorized(str_arg(&b, "term")?, caller)?;
-            hub.terms.write(str_arg(&b, "term")?, str_arg(&b, "data")?)?;
+            hub.terms.remote_input(hub, caller, str_arg(&b, "term")?, str_arg(&b, "data")?)?;
             json!({})
         }
         "termResize" => {
-            hub.terms.authorized(str_arg(&b, "term")?, caller)?;
             let (cols, rows) = term_size(&b);
-            hub.terms.resize(str_arg(&b, "term")?, cols, rows)?;
+            hub.terms.remote_resize(hub, caller, str_arg(&b, "term")?, cols, rows)?;
             json!({})
         }
         "termClose" => {

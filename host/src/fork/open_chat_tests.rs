@@ -102,6 +102,7 @@ async fn turn_keeping(
             text.push_str(delta);
             true
         },
+        None,
     )
     .await;
     // Fecha a entrada e espera o fictício gravar o último pedido antes de ler o registro.
@@ -249,6 +250,7 @@ async fn a_completed_only_reply_past_the_limit_stops_the_turn() {
             total += delta.len();
             total <= MAX_REPLY
         },
+        None,
     )
     .await;
     let _ = rpc.finish().await;
@@ -277,9 +279,18 @@ async fn the_message_is_marked_sent_only_after_the_codex_accepts_the_turn() {
         let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
         let (_cancel_tx, mut cancel) = watch::channel(false);
         let mut marked = 0;
-        let result =
-            drive(&mut rpc, None, "Fixture instructions", "Oi", &mut cancel, |_| Ok(()), || marked += 1, |_| true)
-                .await;
+        let result = drive(
+            &mut rpc,
+            None,
+            "Fixture instructions",
+            "Oi",
+            &mut cancel,
+            |_| Ok(()),
+            || marked += 1,
+            |_| true,
+            None,
+        )
+        .await;
         let _ = rpc.finish().await;
         let _ = std::fs::remove_dir_all(&dir);
         if mode == "ok" {
@@ -350,6 +361,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
             pieces += 1;
             pieces < 2
         },
+        None,
     )
     .await;
     let _ = rpc.finish().await;
@@ -362,7 +374,30 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
 }
 
 #[tokio::test]
-async fn text_is_not_delivered_once_the_check_before_it_refuses() {
+async fn text_is_not_delivered_when_authority_ends_after_thread_start() {
+    use crate::{
+        api::devices::Caller,
+        fork::{autoridade, workspace},
+        store::{Device, DeviceSource, Scope, now_ms},
+    };
+    let (hub, root) = hub_de_teste("open-fixture-text");
+    let key = "fixture-open-text";
+    hub.store
+        .put_device(&Device {
+            key: key.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = autoridade::autenticar(&hub, key).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
+    let proof = original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap();
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("log");
@@ -383,18 +418,87 @@ async fn text_is_not_delivered_once_the_check_before_it_refuses() {
         "Fixture instructions",
         "texto que não pode chegar",
         &mut cancel,
-        |_| Err(anyhow::anyhow!("open_chat_cancelled")),
+        |_| workspace::bump(&hub, workspace::Motivo::RoleChanged).map(|_| ()),
         || panic!("a mensagem não pode virar sent sem o Codex aceitar o turno"),
         |_| true,
+        Some((&hub, &proof)),
     )
     .await;
     assert!(rpc.terminate().await);
     let sent: Vec<Value> =
         std::fs::read_to_string(&log).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(result.unwrap_err().to_string(), "open_chat_cancelled");
+    assert!(result.unwrap_err().is::<autoridade::EpochDaRequisicaoEncerrado>());
     assert!(find(&sent, "thread/start").is_some(), "a thread já existia quando a conferência recusou");
     assert!(find(&sent, "turn/start").is_none(), "o texto nunca chega ao Codex");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn open_cortada_antes_do_inicio_marca_falha_sem_iniciar_motor() {
+    use crate::{
+        api::devices::Caller,
+        fork::{
+            autoridade,
+            workspace::{self, Motivo},
+        },
+        store::{Device, DeviceSource, EntryKind, Lane, Scope, now_ms},
+    };
+    use serde_json::json;
+    use std::sync::Arc;
+    let bot = "open-fixture-corte";
+    let (hub, root) = hub_de_teste(bot);
+    let cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    let lane = Lane::main(bot);
+    let device = "fixture-open-device";
+    hub.store
+        .put_device(&Device {
+            key: device.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = autoridade::autenticar(&hub, device).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
+    let authority = original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap();
+    for cut in [true, false] {
+        let proof = if cut {
+            authority.clone()
+        } else {
+            original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap()
+        };
+        let e =
+            hub.store.insert_entry(&lane, EntryKind::User, 0, &json!({"text":"Fixture","status":"queued"})).unwrap();
+        let ticket = super::admit_for_test(&hub, bot, "fixture").unwrap();
+        if cut {
+            workspace::bump(&hub, Motivo::RoleChanged).unwrap();
+        }
+        let done = ticket.done.subscribe();
+        let (_stop, cancel) = watch::channel(false);
+        let started = super::spawn_guarded(&hub, Some(&proof), bot, &cancel, || Ok("spawned"));
+        if cut {
+            assert!(started.unwrap_err().is::<autoridade::EpochDaRequisicaoEncerrado>());
+        } else {
+            assert_eq!(started.unwrap(), "spawned");
+        }
+        if cut {
+            super::run(&hub, ticket, &cfg, lane.clone(), e.turn, (e.id.clone(), Some(proof)), "Fixture".into());
+            let mut done = done;
+            assert!(tokio::time::timeout(Duration::from_secs(5), done.changed()).await.unwrap().is_err());
+            assert_eq!(hub.store.entry(&e.id).unwrap().data["status"], "failed");
+        } else {
+            assert!(proof.com_saida(&hub, None, || ()).is_ok());
+            drop(ticket);
+        }
+    }
+    assert_eq!(Arc::strong_count(&hub), 1);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

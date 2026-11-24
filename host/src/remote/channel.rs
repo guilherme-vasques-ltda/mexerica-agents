@@ -290,7 +290,14 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         _ => Some(crate::fork::sessao_clerk::Limite::em(crate::fork::sessao_clerk::ESPERA_SESSAO_MS)),
     };
     let (prazo, prazo_rx) = tokio::sync::watch::channel(hs.device.as_ref().and(espera));
-    let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch, prazo_rx));
+    let barreira = hs.device.as_ref().map(|(_, caller)| {
+        let geracao = match caller {
+            Caller::Device { autoridade: Some(a), .. } => a.geracao_capturada(),
+            _ => None,
+        };
+        Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch, prazo_rx, geracao)
+    });
+    let admissao = barreira.as_ref().and_then(Barreira::admissao);
     if let Some(barreira) = &barreira {
         porta.armar(barreira.clone());
     }
@@ -307,8 +314,10 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         hub,
         tx,
         jobs: Arc::default(),
+        request_slots: Arc::new(tokio::sync::Semaphore::new(MAX_REQUESTS)),
         key: hs.key,
         caller: Arc::new(caller),
+        admissao,
         lease: None,
         online: None,
         quadros: hs.quadros,
@@ -524,7 +533,7 @@ async fn handshake(
 }
 
 enum Job {
-    Request(AbortHandle),
+    Request(AbortHandle, barreira_workspace::Admissao),
     Sub(AbortHandle),
 }
 
@@ -565,8 +574,10 @@ struct Channel {
     hub: Arc<Hub>,
     tx: mpsc::Sender<ToDevice>,
     jobs: Arc<Mutex<HashMap<u64, Job>>>,
+    request_slots: Arc<tokio::sync::Semaphore>,
     key: String,
     caller: Arc<Caller>,
+    admissao: Option<barreira_workspace::Admissao>,
     lease: Option<Instant>,
     online: Option<Online>,
     quadros: bool,
@@ -746,6 +757,10 @@ impl Channel {
             v["b"].clone()
         };
         if let Some(method) = browser {
+            let Some((caller, _)) = self.admit_request(&caller) else {
+                self.send(err(id, 403, "request authorization ended")).await;
+                return Ok(());
+            };
             self.handle_browser(id, method, &b, &caller).await;
             return Ok(());
         }
@@ -869,15 +884,26 @@ impl Channel {
                     self.send(err(id, 400, "browser_stream_unavailable")).await;
                     return;
                 };
-                let aceita = browser_canal::analisar_entrada(b)
-                    .is_some_and(|entrada| conn.estado.locked().accept_input(&*conn.autoridade, &self.key, &entrada));
+                let aceita = browser_canal::analisar_entrada(b).is_some_and(|entrada| {
+                    #[cfg(test)]
+                    crate::fork::sessoes::call_tests::before_effect(&self.hub.store, "browser_input");
+                    let mut estado = conn.estado.locked();
+                    conn.autoridade
+                        .com_efeito(caller, || {
+                            #[cfg(test)]
+                            crate::fork::sessoes::call_tests::before_effect(&self.hub.store, "browser_input_effect");
+                            estado.accept_authorized_input(&entrada)
+                        })
+                        .unwrap_or(false)
+                });
                 self.send(json!({"id": id, "ok": {"accepted": aceita, "sequence": b["sequence"]}})).await;
             }
             "browserStreamAck" => {
-                if let Some(conn) = &self.browser {
-                    conn.estado.locked().acknowledge_frame();
-                }
-                self.send(json!({"id": id, "ok": {"acknowledged": true}})).await;
+                let acknowledged = self.browser.as_ref().is_none_or(|conn| {
+                    let mut estado = conn.estado.locked();
+                    conn.autoridade.com_efeito(caller, || estado.acknowledge_frame()).is_ok()
+                });
+                self.send(json!({"id": id, "ok": {"acknowledged": acknowledged}})).await;
             }
             "browserStreamControl" | "browserStreamTarget"
                 if !self.browser.as_ref().is_some_and(|conn| conn.autoridade.autorizada()) =>
@@ -893,7 +919,10 @@ impl Channel {
                         return;
                     }
                 };
-                let epoca = self.browser.as_ref().and_then(|conn| conn.estado.locked().set_controller(controlador));
+                let epoca = self.browser.as_ref().and_then(|conn| {
+                    let mut estado = conn.estado.locked();
+                    conn.autoridade.com_efeito(caller, || estado.set_controller(controlador)).ok().flatten()
+                });
                 match epoca {
                     Some(epoca) => self.send(json!({"id": id, "ok": {"epoch": epoca}})).await,
                     None => self.send(err(id, 400, "browser_stream_unavailable")).await,
@@ -904,7 +933,10 @@ impl Channel {
                     self.send(err(id, 400, "browser_stream_unavailable")).await;
                     return;
                 };
-                let geracao = self.browser.as_ref().and_then(|conn| conn.estado.locked().set_target(target.to_owned()));
+                let geracao = self.browser.as_ref().and_then(|conn| {
+                    let mut estado = conn.estado.locked();
+                    conn.autoridade.com_efeito(caller, || estado.set_target(target.to_owned())).ok().flatten()
+                });
                 match geracao {
                     Some(geracao) => self.send(json!({"id": id, "ok": {"targetGeneration": geracao}})).await,
                     None => self.send(err(id, 400, "browser_stream_unavailable")).await,
@@ -914,23 +946,39 @@ impl Channel {
         }
     }
 
-    fn count(&self, subs: bool) -> usize {
-        self.jobs.locked().values().filter(|j| matches!(j, Job::Sub(_)) == subs).count()
+    fn count_subscriptions(&self) -> usize {
+        self.jobs.locked().values().filter(|j| matches!(j, Job::Sub(_))).count()
+    }
+
+    fn admit_request(&self, caller: &Caller) -> Option<(Arc<Caller>, barreira_workspace::Admissao)> {
+        let admissao = self.admissao?;
+        let Caller::Device { key, scopes, autoridade: Some(autoridade) } = caller else { return None };
+        let autoridade = autoridade.para_requisicao(admissao.epoch, admissao.geracao).ok()?;
+        let caller =
+            Caller::Device { key: key.clone(), scopes: scopes.clone(), autoridade: Some(Arc::new(autoridade)) };
+        Some((Arc::new(caller), admissao))
     }
 
     async fn request(&self, id: u64, method: String, b: Value, caller: Arc<Caller>) {
-        if self.count(false) >= MAX_REQUESTS {
+        let Ok(slot) = self.request_slots.clone().try_acquire_owned() else {
             self.send(err(id, 429, "too many requests in flight")).await;
             return;
-        }
+        };
+        let Some((caller, admissao)) = self.admit_request(&caller) else {
+            self.send(err(id, 403, "request authorization ended")).await;
+            return;
+        };
         let (hub, jobs, tx) = (self.hub.clone(), self.jobs.clone(), self.tx.clone());
         let mut list = self.jobs.locked();
-        let task = tokio::spawn(requisicao_autorizada::executar(id, method, b, hub, caller, jobs, tx));
-        list.insert(id, Job::Request(task.abort_handle()));
+        let task = tokio::spawn(async move {
+            let _slot = slot;
+            requisicao_autorizada::executar(id, method, b, hub, caller, jobs, (tx, admissao)).await;
+        });
+        list.insert(id, Job::Request(task.abort_handle(), admissao));
     }
 
     async fn subscribe(&self, id: u64, kind: &str, b: &Value, epoch: Option<u64>, caller: Arc<Caller>) {
-        if self.count(true) >= MAX_SUBS {
+        if self.count_subscriptions() >= MAX_SUBS {
             self.send(err(id, 429, "too many subscriptions")).await;
             return;
         }

@@ -166,6 +166,23 @@ impl Rpc {
     /// A resposta da chamada, ou o objeto de erro JSON-RPC que o servidor devolveu.
     pub(crate) async fn request(&mut self, id: u64, method: &str, params: Value) -> Result<Result<Value, Value>> {
         self.write(json!({"id":id,"method":method,"params":params})).await?;
+        self.answer(id).await
+    }
+
+    pub(crate) async fn call_guarded(
+        &mut self,
+        id: u64,
+        method: &str,
+        params: Value,
+        scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
+    ) -> Result<Value> {
+        let input = self.input.as_mut().ok_or_else(|| anyhow!("auth_shutdown_failed"))?;
+        let line = format!("{}\n", json!({"id":id,"method":method,"params":params}));
+        crate::fork::spaces::tool_effects::write_scoped(input, line.as_bytes(), scope).await?;
+        self.answer(id).await?.map_err(|_| anyhow!("auth_capability_unavailable"))
+    }
+
+    async fn answer(&mut self, id: u64) -> Result<Result<Value, Value>> {
         loop {
             let value = self.line().await?;
             if value.get("method").is_some() && value.get("id").is_some() {

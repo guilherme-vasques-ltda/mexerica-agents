@@ -6,7 +6,7 @@ use super::str_arg;
 use crate::LockExt;
 use crate::hub::Hub;
 use crate::remote::crypto;
-use crate::store::{DeviceSource, now_ms};
+use crate::store::{DeviceSource, Store, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
@@ -16,30 +16,39 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     Ok(ControlFlow::Break(match method {
         "registerDevice" => {
             let ticket = str_arg(&b, "ticket")?;
-            if let Some(relay) = b["relay"].as_str().filter(|r| r.starts_with("https://")) {
-                hub.store.kv_set("relay_url", relay.trim_end_matches('/'))?;
-            }
             let push_key = b["pushKey"].as_str();
             if let Some(k) = push_key {
                 crypto::unb64_n::<32>(k).context("`pushKey` must be a 32-byte X25519 key")?;
             }
             let name = b["name"].as_str().unwrap_or("iPhone");
-            hub.store.add_push_ticket(ticket, caller.device_key(), push_key, b["ctx"].as_str(), name)?;
+            registration_write(hub, caller, |tx| {
+                if let Some(relay) = b["relay"].as_str().filter(|r| r.starts_with("https://")) {
+                    tx.execute(
+                        "INSERT INTO kv(k,v) VALUES('relay_url',?1) ON CONFLICT(k) DO UPDATE SET v = ?1",
+                        [relay.trim_end_matches('/')],
+                    )?;
+                }
+                Store::add_push_ticket_on(tx, ticket, caller.device_key(), push_key, b["ctx"].as_str(), name)
+            })?;
             json!({})
         }
         "unregisterDevice" => {
-            hub.store.remove_push_tickets(caller.device_key())?;
+            registration_write(hub, caller, |tx| Store::remove_push_tickets_on(tx, caller.device_key()))?;
             json!({})
         }
         "registerActivity" => {
             let bot_id = str_arg(&b, "botId")?;
-            hub.store.bot(bot_id)?.filter(|row| !row.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
-            hub.store.add_activity_ticket(str_arg(&b, "ticket")?, bot_id, caller.device_key())?;
+            registration_write(hub, caller, |tx| {
+                Store::bot_on(tx, bot_id)?.filter(|row| !row.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+                Store::add_activity_ticket_on(tx, str_arg(&b, "ticket")?, bot_id, caller.device_key())
+            })?;
             crate::remote::push::live_activity_update(hub, bot_id);
             json!({})
         }
         "unregisterActivity" => {
-            hub.store.remove_activity_ticket(str_arg(&b, "botId")?, caller.device_key())?;
+            registration_write(hub, caller, |tx| {
+                Store::remove_activity_ticket_on(tx, str_arg(&b, "botId")?, caller.device_key())
+            })?;
             json!({})
         }
         "pairing" => pairing(hub).await?,
@@ -144,6 +153,24 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         "claimSign" => claim_sign(hub, &b).await?,
         _ => return Ok(ControlFlow::Continue(b)),
     }))
+}
+
+fn registration_write(
+    hub: &Hub,
+    caller: &Caller,
+    write: impl FnOnce(&rusqlite::Connection) -> Result<()>,
+) -> Result<()> {
+    if let Some(authority) = crate::fork::autoridade::Autoridade::de_requisicao(caller) {
+        #[cfg(test)]
+        crate::fork::sessoes::call_tests::before_effect(&hub.store, "registration_write");
+        return authority.with_db(hub, None, write);
+    }
+    let mut db = hub.store.db.locked();
+    let tx = db.transaction()?;
+    write(&tx)?;
+    crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// A new one-time pairing code and the QR that carries it (§4.1).

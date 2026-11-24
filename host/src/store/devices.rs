@@ -120,6 +120,7 @@ impl Store {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn add_push_ticket(
         &self,
         ticket: &str,
@@ -130,20 +131,31 @@ impl Store {
     ) -> Result<()> {
         let mut c = self.db.locked();
         let tx = c.transaction()?;
-        // Relay tickets use a random nonce; registering again must replace this device's old ticket.
-        tx.execute("DELETE FROM push_tickets WHERE device_key = ?1", [device_key])?;
-        tx.execute(
-            "INSERT INTO push_tickets(ticket, device_key, push_key, ctx, name, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(ticket) DO UPDATE SET device_key = ?2, push_key = ?3, ctx = ?4, name = ?5",
-            params![ticket, device_key, push_key, ctx, name, now_ms()],
-        )?;
+        Self::add_push_ticket_on(&tx, ticket, device_key, push_key, ctx, name)?;
         tx.commit()?;
         Ok(())
     }
 
+    pub(crate) fn add_push_ticket_on(
+        c: &rusqlite::Connection,
+        ticket: &str,
+        device_key: &str,
+        push_key: Option<&str>,
+        ctx: Option<&str>,
+        name: &str,
+    ) -> Result<()> {
+        // Relay tickets use a random nonce; registering again must replace this device's old ticket.
+        Self::remove_push_tickets_on(c, device_key)?;
+        c.execute(
+            "INSERT INTO push_tickets(ticket, device_key, push_key, ctx, name, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(ticket) DO UPDATE SET device_key = ?2, push_key = ?3, ctx = ?4, name = ?5",
+            params![ticket, device_key, push_key, ctx, name, now_ms()],
+        )?;
+        Ok(())
+    }
+
     /// Stops alerts to a device (its notification switch is off); Live Activity tickets stay.
-    pub fn remove_push_tickets(&self, device_key: &str) -> Result<()> {
-        let c = self.db.locked();
+    pub(crate) fn remove_push_tickets_on(c: &rusqlite::Connection, device_key: &str) -> Result<()> {
         c.execute("DELETE FROM push_tickets WHERE device_key = ?1", [device_key])?;
         Ok(())
     }
@@ -172,16 +184,27 @@ impl Store {
         logged("push tickets", rows).unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub fn add_activity_ticket(&self, ticket: &str, bot_id: &str, device_key: &str) -> Result<()> {
         let mut c = self.db.locked();
         let tx = c.transaction()?;
-        tx.execute("DELETE FROM activity_tickets WHERE device_key = ?1 AND bot_id = ?2", params![device_key, bot_id])?;
-        tx.execute(
+        Self::add_activity_ticket_on(&tx, ticket, bot_id, device_key)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn add_activity_ticket_on(
+        c: &rusqlite::Connection,
+        ticket: &str,
+        bot_id: &str,
+        device_key: &str,
+    ) -> Result<()> {
+        Self::remove_activity_ticket_on(c, bot_id, device_key)?;
+        c.execute(
             "INSERT INTO activity_tickets(ticket, bot_id, device_key, created_at) VALUES(?1, ?2, ?3, ?4)
              ON CONFLICT(ticket) DO UPDATE SET bot_id = ?2, device_key = ?3",
             params![ticket, bot_id, device_key, now_ms()],
         )?;
-        tx.commit()?;
         Ok(())
     }
 
@@ -193,11 +216,13 @@ impl Store {
         logged("activity tickets", rows).unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub fn remove_activity_ticket(&self, bot_id: &str, device_key: &str) -> Result<()> {
-        self.db.locked().execute(
-            "DELETE FROM activity_tickets WHERE bot_id = ?1 AND device_key = ?2",
-            params![bot_id, device_key],
-        )?;
+        Self::remove_activity_ticket_on(&self.db.locked(), bot_id, device_key)
+    }
+
+    pub(crate) fn remove_activity_ticket_on(c: &rusqlite::Connection, bot_id: &str, device_key: &str) -> Result<()> {
+        c.execute("DELETE FROM activity_tickets WHERE bot_id = ?1 AND device_key = ?2", params![bot_id, device_key])?;
         Ok(())
     }
 
