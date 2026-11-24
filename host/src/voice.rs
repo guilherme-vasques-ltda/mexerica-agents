@@ -275,7 +275,7 @@ fn gemini_async_tools(model: &str) -> bool {
 
 fn realtime_model(p: Provider, model: &str) -> Result<&str> {
     let model = checked(model)?;
-    if p == Provider::OpenAi && crate::fork::voz_gpt_live::modelo_suportado(model) {
+    if p == Provider::OpenAi && crate::fork::voz_gpt_live::familia_live(model) {
         bail!("GPT-Live não usa uma credencial do Realtime.");
     }
     if p == Provider::Gemini && !gemini_async_tools(model) {
@@ -678,8 +678,9 @@ mod tests {
 
     #[test]
     fn gpt_live_cannot_use_realtime_credentials() {
-        assert!(realtime_model(Provider::OpenAi, "gpt-live-1").is_err());
-        assert!(realtime_model(Provider::OpenAi, "gpt-live-1.1").is_err());
+        for id in ["gpt-live", "gpt-live-1", "gpt-live-1.1", "gpt-live-1.1-preview", "gpt-live-1.1-2026-11-01"] {
+            assert!(realtime_model(Provider::OpenAi, id).is_err(), "{id}");
+        }
         assert_eq!(realtime_model(Provider::OpenAi, "gpt-realtime-2.1").unwrap(), "gpt-realtime-2.1");
     }
 

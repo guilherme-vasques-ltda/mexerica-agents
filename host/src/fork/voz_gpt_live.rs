@@ -1,7 +1,11 @@
 pub(crate) const CATALOGO_HABILITADO: bool = false;
 
-pub(crate) fn modelo_suportado(id: &str) -> bool {
+fn modelo_suportado(id: &str) -> bool {
     matches!(id, "gpt-live-1" | "gpt-live-1.1")
+}
+
+pub(crate) fn familia_live(id: &str) -> bool {
+    id == "gpt-live" || id.starts_with("gpt-live-")
 }
 
 pub(crate) fn catalogo<'a>(habilitado: bool, ids: impl Iterator<Item = &'a str>) -> Option<Vec<&'a str>> {
