@@ -452,6 +452,231 @@ mod tests {
         worker::ExtractionPlan { operations: vec![op] }
     }
 
+    #[tokio::test]
+    async fn api_aplica_memoria_com_origem_sem_sobrescrever_historico_desconhecido() {
+        api_extrai_memoria("remember").await;
+    }
+
+    #[tokio::test]
+    async fn api_distingue_plano_vazio_falha_e_selecao_revogada() {
+        for mode in ["empty", "invalid", "revoked", "before_send"] {
+            api_extrai_memoria(mode).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn api_nao_promove_projecao_adulterada_para_a_memoria() {
+        api_extrai_memoria("note").await;
+    }
+
+    async fn api_extrai_memoria(mode: &'static str) {
+        use crate::fork::{background_anthropic::test_transport::ENDPOINT, engine_accounts};
+        struct RemoveProjection(std::path::PathBuf);
+        impl Drop for RemoveProjection {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        let f = fixture();
+        let store = &f.hub.store;
+        *store.secret_key.locked() = Some(zeroize::Zeroizing::new(vec![8; 32]));
+        let id = format!("ac_{}", "c".repeat(64));
+        let slot = format!("agent-account:{id}");
+        let model = "claude-fixture";
+        let mut registry = engine_accounts::Registry::load(store).unwrap();
+        let mut api = serde_json::from_value::<engine_accounts::Account>(json!({
+            "id":id,"backend":"claude","billing":"paid_api","state":"connected","scope":"owner",
+            "launch":{"kind":"vault_profile","slot":slot},"models":[{"id":model,"options":[]}],
+            "managed":{"label":"API de teste","revision":1,"generation":0,"enabled":true,
+                "requestId":"fixture","principal":id,"profile":null,"setupRequest":null}
+        }))
+        .unwrap();
+        api.bind_catalog();
+        registry.accounts.push(api);
+        registry.persist(store).unwrap();
+        let key = ["sk-ant-api", "-fixture-for-memory-tests"].concat();
+        crate::market::vault::write(store, &slot, &json!({"ANTHROPIC_API_KEY":key}).to_string()).unwrap();
+        let doc = config::load(store).unwrap();
+        config::save(
+            store,
+            doc.revision,
+            Some(FunctionId::MemoryConsolidation),
+            Some(config::SelectionInput::Custom {
+                binding: config::Binding {
+                    account_id: id.clone(),
+                    model_id: model.into(),
+                    model_options: BTreeMap::new(),
+                },
+            }),
+        )
+        .unwrap();
+        let future_history = r#"[{"futureSchema":true}]"#;
+        if mode == "remember" {
+            store.kv_set("fork.background-history.v1", future_history).unwrap();
+        }
+
+        let evidence = f.message.clone();
+        let name = format!("style-{}.md", uuid::Uuid::new_v4().simple());
+        let original = "---\ndescription: Preferências\n---\n- Nota aprovada pelo dono\n";
+        let alternative = "---\ndescription: Preferências\n---\n- Prefere café sem açúcar\n";
+        let projection = crate::chat::memory::files::folder(Some("bot")).join(&name);
+        let _cleanup = (mode == "note").then(|| RemoveProjection(projection.clone()));
+        let base = if mode == "note" {
+            std::fs::create_dir_all(crate::service::data_dir()).unwrap();
+            crate::api::dispatch(
+                &f.hub,
+                &crate::api::devices::Caller::Local,
+                "saveMemoryFile",
+                json!({"botId":"bot","file":name,"content":original}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(std::fs::read_to_string(&projection).unwrap(), original);
+            store.memory_read(|db| codync_mem::files::get(db, Some("bot"), &name)).unwrap().map(|file| file.hash)
+        } else {
+            None
+        };
+        let text = match mode {
+            "empty" => json!({"operations":[]}).to_string(),
+            "invalid" => "não é um plano".into(),
+            "note" => json!({"operations":[{"action":"note","file":name,"content":alternative,
+                "shared":false,"expectedHash":base,"evidence":[evidence],"nature":"conflict"}]})
+            .to_string(),
+            _ => json!({"operations":[{"action":"remember","text":"Prefere café sem açúcar",
+                "shared":false,"evidence":[evidence],"nature":"inferred"}]})
+            .to_string(),
+        };
+        let response = json!({"type":"message", "role":"assistant", "stop_reason":"end_turn", "model":model,
+            "content":[{"type":"text","text":text}],
+            "usage":{"input_tokens":17,"output_tokens":5}});
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("http://{}/v1/messages", listener.local_addr().unwrap());
+        let test_hub = f.hub.clone();
+        let disk = projection.clone();
+        let server = tokio::spawn(async move {
+            let routes = axum::Router::new().route(
+                "/v1/messages",
+                axum::routing::post(
+                    move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<serde_json::Value>| {
+                        let response = response.clone();
+                        let evidence = evidence.clone();
+                        let key = key.clone();
+                        let test_hub = test_hub.clone();
+                        let disk = disk.clone();
+                        async move {
+                            assert!(headers.get("x-api-key").is_some_and(|header| header.as_bytes() == key.as_bytes()));
+                            assert_eq!(body["model"], model);
+                            assert!(body.get("tools").is_none());
+                            let sent: serde_json::Value =
+                                serde_json::from_str(body["messages"][0]["content"].as_str().unwrap()).unwrap();
+                            assert!(sent["messages"].as_array().unwrap().iter().any(|item| item["id"] == evidence));
+                            if mode == "revoked" {
+                                let revision = config::load(&test_hub.store).unwrap().revision;
+                                config::save(&test_hub.store, revision, Some(FunctionId::MemoryConsolidation), None)
+                                    .unwrap();
+                            }
+                            if mode == "note" {
+                                std::fs::write(&disk, "INJECTED EXTERNAL FACT").unwrap();
+                            }
+                            axum::Json(response)
+                        }
+                    },
+                ),
+            );
+            axum::serve(listener, routes).await.unwrap();
+        });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        if mode == "before_send" {
+            let prepare = |_: &Resolved| -> Result<String> {
+                let revision = config::load(store)?.revision;
+                config::save(store, revision, Some(FunctionId::MemoryConsolidation), None)?;
+                Ok("texto que não pode sair".into())
+            };
+            let verify = |_: &Resolved| Ok(());
+            let mut exposed = false;
+            let boundary = MemoryBoundary { prepare: &prepare, verify: &verify };
+            let result = ENDPOINT
+                .scope(
+                    (client, endpoint),
+                    oneshot::one_shot_observed(
+                        &f.hub,
+                        &store.bot("bot").unwrap().unwrap().config,
+                        SYSTEM,
+                        &mut exposed,
+                        boundary,
+                    ),
+                )
+                .await;
+            assert!(matches!(result.err().and_then(|e| e.downcast::<Problem>().ok()), Some(Problem::AccountChanged)));
+            assert!(!exposed);
+            server.abort();
+            let sent: i64 =
+                store.db.locked().query_row("SELECT COUNT(*) FROM donna_turn_usage", [], |row| row.get(0)).unwrap();
+            assert_eq!(sent, 0);
+            return;
+        }
+        let result = ENDPOINT.scope((client, endpoint), run_reserved(&f.hub, &f.reservation)).await;
+        assert_eq!(result.is_ok(), matches!(mode, "remember" | "empty" | "note"), "{result:?}");
+        server.abort();
+        if mode == "remember" {
+            assert_eq!(store.kv_read("fork.background-history.v1").unwrap().as_deref(), Some(future_history));
+        } else {
+            let history = atividade(&f);
+            assert_eq!(
+                history[0]["status"],
+                match mode {
+                    "empty" => "unchanged",
+                    "note" => "applied",
+                    _ => "failed",
+                }
+            );
+            if mode == "revoked" {
+                assert_eq!(history[0]["failureStage"], "revalidation");
+            }
+        }
+        assert_eq!(engine_accounts::Registry::load(store).unwrap().accounts.len(), 2);
+        let db = store.db.locked();
+        let usage: (String, i64, i64) = db.query_row(
+            "SELECT account_id,input_tokens,output_tokens FROM donna_turn_usage WHERE session_id='background:memory'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(usage, (id, 17, 5));
+        let receipts: i64 = db
+            .query_row("SELECT COUNT(*) FROM donna_memory_auto_receipts WHERE job=?1", [&f.reservation.id], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(receipts, i64::from(matches!(mode, "remember" | "note")));
+        if matches!(mode, "remember" | "note") {
+            let receipt: String = db
+                .query_row("SELECT id FROM donna_memory_auto_receipts WHERE job=?1", [&f.reservation.id], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            drop(db);
+            let saved = store.entry(&receipt).unwrap();
+            assert_eq!(saved.data["memory"]["messageIds"], json!([f.message]));
+            if mode == "note" {
+                let detail = store.memory_read(|db| codync_mem::files::versions(db, Some("bot"), &name, 10)).unwrap();
+                let detail = serde_json::to_value(detail).unwrap();
+                assert_eq!(detail.as_array().unwrap().len(), 2);
+                assert_eq!(detail[0]["nature"], "conflict");
+                assert_eq!(detail[0]["conflictText"], alternative);
+                assert_eq!(saved.data["memory"]["origin"], detail[0]["origin"]);
+                assert_eq!(saved.data["memory"]["previousOrigin"], detail[1]["origin"]);
+                assert_eq!(std::fs::read_to_string(&projection).unwrap(), original);
+            }
+            let authority = crate::fork::autoridade::Autoridade::local();
+            let undone = apply::undo(&f.hub, &receipt, &authority).unwrap();
+            assert_eq!(undone["entry"]["data"]["memory"]["status"], "undone");
+            assert_eq!(apply::undo(&f.hub, &receipt, &authority).unwrap(), undone);
+            if mode == "note" {
+                assert_eq!(std::fs::read_to_string(&projection).unwrap(), original);
+            }
+        }
+    }
+
     /// Altera a conta do cadastro da fixture (sem rede, credencial ou processo).
     fn conta(f: &Fixture, change: impl FnOnce(&mut serde_json::Value)) {
         let slot = crate::fork::engine_accounts::SLOT;

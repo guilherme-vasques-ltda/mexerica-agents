@@ -186,6 +186,9 @@ fn choose_background<'a>(accounts: &'a [Account], requested: Option<&str>, space
         None => None,
         Some(id) => {
             let account = accounts.iter().find(|a| a.id == id && a.backend == "claude").ok_or(Reason::AccountMissing);
+            if account.as_ref().is_ok_and(|a| matches!(a.billing.as_str(), "paid_api" | "api")) {
+                return Err(Reason::ApiNotEnabled);
+            }
             match account.and_then(|a| usable(a).and_then(|()| recipe(a, false)).map(|_| a)) {
                 Ok(account) => return Ok(account),
                 Err(reason) => Some(reason),
@@ -353,6 +356,13 @@ pub fn save(store: &Store, expected: u64, id: Option<FunctionId>, input: Option<
                     bail!("invalid_field: vínculo automático inválido.");
                 }
                 let accounts = accounts(store)?;
+                if matches!(id, FunctionId::MemoryConsolidation | FunctionId::BotNaming)
+                    && account_id.as_ref().is_some_and(|requested| {
+                        accounts.iter().any(|a| &a.id == requested && matches!(a.billing.as_str(), "paid_api" | "api"))
+                    })
+                {
+                    bail!("invalid_field: escolha um modelo explicitamente para usar a chave de API.");
+                }
                 // Só a existência no cadastro: escolher uma conta hoje desconectada é
                 // permitido e aparece como `account_disconnected` na resolução.
                 for (requested, backend) in [

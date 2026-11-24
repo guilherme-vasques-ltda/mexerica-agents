@@ -97,7 +97,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 73: o hello do `/events` traz `workspace` (contexto do workspace com `workspaceEpoch`) e o stream termina com `workspace_revoked`/`role_changed`.
 // Schema 74: o aviso de modo não confirmado do Antigravity usa `Entry.data.code` para tradução.
 // Schema 75: a mensagem de grupo interrompida sem confirmação de entrega traz `groupReview` (rótulo de entrega parcial).
-export const MIRROR_SCHEMA = 75
+// Schema 76: `functionModels` inclui a origem da conta de motor.
+export const MIRROR_SCHEMA = 76
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

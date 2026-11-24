@@ -115,8 +115,13 @@ fn current_reference(db: &Connection, space: &str) -> Result<(Reference, Binding
     ensure!(account.state == engine_accounts::State::Connected, "background_account_unavailable");
     ensure!(
         account.backend == engine_accounts::Backend::Claude
-            && account.billing == engine_accounts::Billing::Subscription
-            && account.subscription_verified(),
+            && (account.subscription_verified()
+                || (space == crate::fork::spaces::PERSONAL
+                    && matches!(
+                        document.functions.get(&FunctionId::MemoryConsolidation),
+                        Some(Selection::Custom { .. })
+                    )
+                    && super::background_anthropic::slot(account).is_some())),
         "background_account_incompatible"
     );
     let model =

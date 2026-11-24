@@ -50,22 +50,20 @@ export interface AccountWords { legacy: string; subscription: string; refused: s
 export function codexRefused(functionId: string, account: Pick<Account, 'backend'>): boolean {
   return FUNCOES_DE_FUNDO.includes(functionId) && account.backend === 'codex'
 }
-/** As duas funções que `background_selection::resolve` atende hoje: só Claude por assinatura confirmada (Codex = `Problem::Codex`,
- * chave de API = `Problem::Api`). */
+/** Funções que aceitam a escolha explícita da API Anthropic. */
 export const FUNCOES_DE_FUNDO: readonly string[] = ['memory_consolidation', 'bot_naming']
 /** Por que uma conta não serve à função agora. */
 export type Motivo = 'desconectada' | 'indisponivel' | 'naoConfirmada' | 'motorRecusado' | 'apiEmBreve' | 'semAssinatura' | 'semModelo'
 
-/** `null` = serve. Fail-closed, espelho de `host/src/fork/modelos_funcao/resolver.rs::binding_capabilities` (todas as funções):
- * `connected` (ou `unverified`, que pede confirmar o login; qualquer outro estado, o Hub trata como `AccountDisconnected`);
- * cobrança `paid_api`/`api` = `ApiNotEnabled`; só `subscription` passa (qualquer outra, inclusive desconhecida, é `BillingUnknown`).
- * Memória e títulos ainda recusam Codex (`background_selection::resolve`). Sem modelo informado o Hub falha. */
-export function motivoDaConta(account: Pick<Account, 'backend' | 'state' | 'billing' | 'models'>, functionId: string): Motivo | null {
+export function motivoDaConta(account: Pick<Account, 'backend' | 'state' | 'billing' | 'models' | 'origin'>, functionId: string): Motivo | null {
   if (account.state === 'disconnected') return 'desconectada'
   if (account.state === 'unverified') return 'naoConfirmada'
   if (account.state !== 'connected') return 'indisponivel'
   if (codexRefused(functionId, account)) return 'motorRecusado'
-  if (account.billing === 'paid_api' || account.billing === 'api') return 'apiEmBreve'
+  if (account.billing === 'paid_api' || account.billing === 'api') {
+    const api = account.billing === 'paid_api' && account.backend === 'claude' && account.origin === 'managed' && FUNCOES_DE_FUNDO.includes(functionId)
+    return api ? (account.models.length ? null : 'semModelo') : 'apiEmBreve'
+  }
   if (account.billing !== 'subscription') return 'semAssinatura'
   return account.models.length ? null : 'semModelo'
 }
@@ -73,8 +71,8 @@ export function motivoDaConta(account: Pick<Account, 'backend' | 'state' | 'bill
 /** O Automático (modelo vazio) tem receita que o Hub resolve nesta conta? Espelho de `config.rs::recipe`: o padrão Codex ainda
  * não é anunciado (`DefaultModelUnknown`, "AC ainda não anuncia isDefault"), e o do Claude é o `haiku` anunciado pela conta.
  * O motor também precisa ser o do Automático da função (`automaticBackend`). Sem prova, não resolve: nunca presume um modelo. */
-export function automaticoResolvivel(account: Pick<Account, 'backend' | 'models'>, functionId: string): boolean {
-  return account.backend === automaticBackend(functionId) && account.backend === 'claude' && account.models.some((m) => m.id === 'haiku')
+export function automaticoResolvivel(account: Pick<Account, 'backend' | 'models' | 'billing'>, functionId: string): boolean {
+  return account.billing === 'subscription' && account.backend === automaticBackend(functionId) && account.backend === 'claude' && account.models.some((m) => m.id === 'haiku')
 }
 
 /** Minutos parado antes da rodada da memória: `IDLE_MS` (30 min) em `host/src/fork/memory_auto/sleep.rs`; uma rodada por bot por dia de calendário. */
@@ -194,7 +192,7 @@ export function readSpaces(value: unknown): SpaceSnapshot {
 export const automaticBackend = (id: string) => ['vision', 'context_compression', 'bot_draft'].includes(id) ? 'codex' : 'claude'
 /** Por que o rascunho não vale na conta: Automático sem receita que o Hub resolve, modelo que a conta não tem, ou opção que o
  * modelo não tem mais. `null` = cabe. Não olha o estado da conta (`motivoDaConta`). */
-export function falhaDoRascunho(account: Pick<Account, 'backend' | 'models'> | undefined, draft: Draft): 'conta' | 'automatico' | 'modelo' | 'opcao' | null {
+export function falhaDoRascunho(account: Pick<Account, 'backend' | 'billing' | 'models'> | undefined, draft: Draft): 'conta' | 'automatico' | 'modelo' | 'opcao' | null {
   if (!account) return 'conta'
   if (draft.mode === 'automatic') return automaticoResolvivel(account, draft.functionId) ? null : 'automatico'
   const model = account.models.find((m) => m.id === draft.modelId)
