@@ -48,7 +48,7 @@ impl Actor {
                 if let Some(conn) = self.conn.take() {
                     conn.kill().await;
                 }
-                anyhow::bail!(crate::fork::antigravity::MODE_UNCONFIRMED);
+                anyhow::bail!(crate::fork::antigravity::ModeUnconfirmed);
             }
             return result;
         }

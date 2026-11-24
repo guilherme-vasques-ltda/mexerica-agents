@@ -3,7 +3,7 @@ import type { textos as fonte } from '../../pt-BR/conversa/avisos.ts'
 
 // Fatia 2 (D454): conversa/avisos (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
-  "conversa.avisos.antigravity.modoNaoConfirmado": "لم تُفتح المحادثة لأن Antigravity CLI لم يؤكد الوضع الافتراضي. تحقق من أداة سطر الأوامر على هذا الكمبيوتر أو اختر محركًا آخر.",
+  "conversa.avisos.antigravity.modoNaoConfirmado": "لم تُفتح المحادثة لأن Antigravity CLI لم يؤكد الوضع الافتراضي. تحقق من أداة سطر الأوامر على الكمبيوتر الذي يشغّل Hub أو اختر محركًا آخر.",
   "conversa.avisos.rotina": "روتين",
   "conversa.avisos.rotinaNome": "روتين · {nome}",
   "conversa.avisos.passagem.leva": "ما تحمله",

@@ -17,7 +17,17 @@ use std::{
 
 pub(crate) const ID: &str = "antigravity";
 pub(crate) const MODE_UNCONFIRMED: &str = "antigravity_default_mode_unconfirmed";
-pub(crate) const MODE_UNCONFIRMED_MESSAGE: &str = "O chat não abriu porque o Antigravity CLI não confirmou o modo padrão. Verifique o CLI neste computador ou escolha outro motor.";
+pub(crate) const MODE_UNCONFIRMED_MESSAGE: &str = "O chat não abriu porque o Antigravity CLI não confirmou o modo padrão. Verifique o CLI no computador do Hub ou escolha outro motor.";
+#[derive(Debug)]
+pub(crate) struct ModeUnconfirmed;
+
+impl std::fmt::Display for ModeUnconfirmed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(MODE_UNCONFIRMED)
+    }
+}
+
+impl std::error::Error for ModeUnconfirmed {}
 pub(crate) const ENTRY_MARKER: &str = "interactiveAntigravity";
 pub(crate) const INTERACTIVE: &str = "O login pessoal do Antigravity só funciona no chat, com uma mensagem digitada pelo dono em um aparelho autenticado. Para automações, use uma chave de API do Gemini/Vertex em um motor compatível ou escolha outro motor.";
 const INSTALL: &str =
