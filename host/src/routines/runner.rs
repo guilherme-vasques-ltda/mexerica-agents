@@ -912,7 +912,7 @@ mod dispatch_recovery_tests {
         let run_id = queue_catchup(&hub, &routine_id, due_at);
         let mut retry = OrphanRetry::default();
         for attempt in 1..=CATCHUP_MAX_RETRIES {
-            let mut closed = hub.test_bot_commands("bot");
+            let closed = hub.test_bot_commands("bot");
             drop(closed);
             tick(&hub, &mut retry).unwrap();
             let run = hub.routines.state.locked().runs[0].clone();
@@ -936,7 +936,7 @@ mod dispatch_recovery_tests {
         let run_id = queue_catchup(&hub, &routine_id, due_at);
         let mut retry = OrphanRetry::default();
         for attempt in 0..=CATCHUP_MAX_RETRIES {
-            let mut closed = hub.test_bot_commands("bot");
+            let closed = hub.test_bot_commands("bot");
             drop(closed);
             tick(&hub, &mut retry).unwrap();
             hub.routines.active.locked().remove("bot");
