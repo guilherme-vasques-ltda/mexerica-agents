@@ -9,6 +9,7 @@ use super::{
 };
 use crate::fork::push_textos::{Corpo, Titulo};
 use std::{
+    collections::{HashMap, HashSet},
     sync::atomic::Ordering,
     time::{Duration, Instant},
 };
@@ -110,6 +111,18 @@ impl Routines {
         detail: Option<String>,
         text: Option<String>,
     ) -> Result<()> {
+        self.complete_with_clock(hub, id, observed, detail, text, now_ms)
+    }
+
+    fn complete_with_clock(
+        &self,
+        hub: &Hub,
+        id: &str,
+        observed: &crate::fork::rotina_resultado::Observed,
+        detail: Option<String>,
+        text: Option<String>,
+        clock: impl FnOnce() -> i64,
+    ) -> Result<()> {
         let bot = self.change(&hub.store, |s| {
             let name = routine_name(s, id);
             let r = s.runs.iter_mut().find(|r| r.id == id).context("routine run not found")?;
@@ -120,8 +133,7 @@ impl Routines {
                 // cadeia NÃO conclui — o próximo prepare abre Continuação.
                 // Término administrativo (observed.terminal) NÃO reenfileira.
                 if r.catchup && status == Status::Failed && !observed.terminal && r.attempts < CATCHUP_MAX_RETRIES {
-                    r.status = Status::Pending;
-                    r.attempts += 1;
+                    defer_catchup_retry(r, clock());
                     r.finished_at = None;
                     r.detail = detail;
                     r.report_pending = false;
@@ -135,6 +147,7 @@ impl Routines {
                         crate::fork::cadeias::admissao::concluir(&hub.store, receipt)?;
                     }
                     r.status = status;
+                    r.retry_not_before_ms = None;
                     r.finished_at = Some(now_ms());
                     r.detail = detail;
                     r.result = text.filter(|t| status == Status::Succeeded && !crate::chat::group::is_pass(t));
@@ -470,62 +483,137 @@ impl OrphanRetry {
 /// MX-110: retentativas de catch-up após falha (além da 1ª execução).
 const CATCHUP_MAX_RETRIES: u64 = 2;
 
+fn catchup_retry_delay_ms(id: &str, ordinal: u64) -> i64 {
+    use sha2::{Digest, Sha256};
+
+    let base = if ordinal <= 1 { 2_000 } else { 4_000 };
+    let mut hash = Sha256::new();
+    hash.update(id.as_bytes());
+    hash.update(ordinal.to_be_bytes());
+    let digest = hash.finalize();
+    let sample = i64::from(u16::from_be_bytes([digest[0], digest[1]]));
+    base + sample % (base / 4 + 1)
+}
+
+fn defer_catchup_retry(run: &mut Run, now: i64) {
+    run.status = Status::Pending;
+    run.attempts += 1;
+    run.retry_not_before_ms = Some(now.saturating_add(catchup_retry_delay_ms(&run.id, run.attempts)));
+}
+
 fn tick(hub: &Arc<Hub>, retry: &mut OrphanRetry) -> Result<()> {
+    tick_with_clock(hub, retry, now_ms)
+}
+
+fn tick_with_clock(hub: &Arc<Hub>, retry: &mut OrphanRetry, clock: impl Fn() -> i64) -> Result<()> {
     hub.update_keep_awake();
     if let Err(error) = hub.routines.publish(hub) {
         tracing::error!(%error, "routine result publication will retry");
     }
-    let scheduled = hub.routines.schedule_due(&hub.store, now_ms());
+    let scheduled = hub.routines.schedule_due(&hub.store, clock());
     if let Err(error) = retry.run(Instant::now(), || Routines::publish_chain_orphans(hub)) {
         tracing::warn!(%error, "aviso de rotina não iniciada será salvo novamente");
     }
     scheduled?;
-    let pending: Vec<_> = {
+    let dispatch_now = clock();
+    let (epoch, pending) = {
         let state = hub.routines.state.locked();
         if state.paused {
             return Ok(());
         }
-        state.runs.iter().filter(|r| r.status == Status::Pending).cloned().collect()
+        let mut barriers = HashMap::new();
+        let pending: Vec<_> = state
+            .runs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, run)| {
+                if run.status != Status::Pending {
+                    return None;
+                }
+                let previous = barriers.entry(run.bot_id.as_str()).or_insert(None);
+                let deadline = *previous;
+                *previous = deadline.max(run.retry_not_before_ms);
+                Some((index, run.id.clone(), run.bot_id.clone(), deadline))
+            })
+            .collect();
+        (hub.routines.state.epoca.load(Ordering::SeqCst), pending)
     };
-    for run in pending {
+    let mut epoch = Some(epoch);
+    let mut deferred = HashSet::new();
+    for (index, id, bot, predecessor_deadline) in pending {
         if hub.routines.stopping() {
             break;
         }
-        if hub.store.bot(&run.bot_id)?.is_none_or(|r| r.deleted) {
-            hub.routines.disable_bot(&hub.store, &run.bot_id)?;
+        if hub.store.bot(&bot)?.is_none_or(|r| r.deleted) {
+            hub.routines.disable_bot(&hub.store, &bot)?;
             continue;
         }
-        if !hub.routines.active.locked().insert(run.bot_id.clone()) {
+        if deferred.contains(&bot) {
             continue;
         }
-        if let Err(error) = hub.send_cmd(&run.bot_id, crate::agent::bot::Cmd::Routine(run.id.clone())) {
-            hub.routines.change(&hub.store, |state| {
-                if !state.paused
-                    && let Some(run) = state.runs.iter_mut().find(|r| r.id == run.id && r.status == Status::Pending)
-                {
-                    if run.catchup && run.attempts < CATCHUP_MAX_RETRIES {
-                        run.attempts += 1;
-                        return Ok(());
+        let sampled_now = dispatch_now.min(clock());
+        {
+            let mut active = hub.routines.active.locked();
+            let state = hub.routines.state.locked();
+            if state.paused || epoch != Some(hub.routines.state.epoca.load(Ordering::SeqCst)) {
+                continue;
+            }
+            let now = sampled_now.min(clock());
+            if predecessor_deadline.is_some_and(|deadline| now < deadline) {
+                continue;
+            }
+            if !state.runs.get(index).is_some_and(|r| {
+                r.id == id
+                    && r.bot_id == bot
+                    && r.status == Status::Pending
+                    && r.retry_not_before_ms.is_none_or(|deadline| now >= deadline)
+            }) {
+                continue;
+            }
+            if !active.insert(bot.clone()) {
+                continue;
+            }
+        }
+        if let Err(error) = hub.send_cmd(&bot, crate::agent::bot::Cmd::Routine(id.clone())) {
+            let ((same_projection, delayed), committed_epoch) =
+                hub.routines.change_in_origin_with_epoch(&hub.store, None, None, |state| {
+                    let same_projection = epoch == Some(hub.routines.state.epoca.load(Ordering::SeqCst));
+                    if !state.paused
+                        && let Some(run) = if same_projection {
+                            state.runs.get_mut(index)
+                        } else {
+                            state.runs.iter_mut().find(|r| r.id == id)
+                        }
+                        .filter(|r| r.id == id && r.status == Status::Pending)
+                    {
+                        if run.catchup && run.attempts < CATCHUP_MAX_RETRIES {
+                            defer_catchup_retry(run, clock());
+                            return Ok((same_projection, true));
+                        }
+                        run.status = Status::Failed;
+                        run.retry_not_before_ms = None;
+                        run.finished_at = Some(now_ms());
+                        run.detail = Some(format!("Could not queue routine: {error:#}"));
+                        run.outcome = Some(crate::fork::rotina_resultado::Lenient::Ok(
+                            crate::fork::rotina_resultado::resolve(
+                                &crate::fork::rotina_resultado::Observed::failed(
+                                    crate::fork::rotina_resultado::Reason::QueueFailed,
+                                ),
+                                None,
+                                false,
+                            )
+                            .1,
+                        ));
+                        run.report_pending = true;
+                        run.event = Value::Null;
                     }
-                    run.status = Status::Failed;
-                    run.finished_at = Some(now_ms());
-                    run.detail = Some(format!("Could not queue routine: {error:#}"));
-                    run.outcome = Some(crate::fork::rotina_resultado::Lenient::Ok(
-                        crate::fork::rotina_resultado::resolve(
-                            &crate::fork::rotina_resultado::Observed::failed(
-                                crate::fork::rotina_resultado::Reason::QueueFailed,
-                            ),
-                            None,
-                            false,
-                        )
-                        .1,
-                    ));
-                    run.report_pending = true;
-                    run.event = Value::Null;
-                }
-                Ok(())
-            })?;
-            hub.routines.release(&run.bot_id);
+                    Ok((same_projection, false))
+                })?;
+            hub.routines.release(&bot);
+            epoch = if same_projection { committed_epoch } else { None };
+            if delayed {
+                deferred.insert(bot);
+            }
         }
     }
     Ok(())
@@ -853,7 +941,7 @@ mod dispatch_recovery_tests {
     use crate::{
         LockExt, fork::bot_admission as admission, remote::identity::Identity, routines::Status, store::BotConfig,
     };
-    use std::{path::Path, sync::Arc};
+    use std::sync::Arc;
 
     fn config() -> BotConfig {
         serde_json::from_value(serde_json::json!({"id":"bot","name":"Bot"})).unwrap()
@@ -861,7 +949,7 @@ mod dispatch_recovery_tests {
 
     fn catchup_hub() -> (Arc<Hub>, tempfile::TempDir, String, i64) {
         let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(Path::new(":memory:")).unwrap();
+        let store = Store::open(&dir.path().join("routines.db")).unwrap();
         store.save_bot(&config()).unwrap();
         let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
         let due_at = now_ms() + 60_000;
@@ -911,22 +999,32 @@ mod dispatch_recovery_tests {
         let (hub, _dir, routine_id, due_at) = catchup_hub();
         let run_id = queue_catchup(&hub, &routine_id, due_at);
         let mut retry = OrphanRetry::default();
+        let mut now = due_at + 1;
         for attempt in 1..=CATCHUP_MAX_RETRIES {
             let closed = hub.test_bot_commands("bot");
             drop(closed);
-            tick(&hub, &mut retry).unwrap();
+            tick_with_clock(&hub, &mut retry, || now).unwrap();
             let run = hub.routines.state.locked().runs[0].clone();
             assert!(run.status == Status::Pending);
             assert_eq!(run.attempts, attempt);
             assert!(run.detail.is_none(), "a known send_cmd failure is retriable, not terminal");
+            let deadline = run.retry_not_before_ms.unwrap();
+            assert_eq!(deadline - now, catchup_retry_delay_ms(&run_id, attempt));
+            let mut before = hub.test_bot_commands("bot");
+            tick_with_clock(&hub, &mut retry, || deadline - 1).unwrap();
+            assert!(before.try_recv().is_err());
+            assert!(!hub.routines.active.locked().contains("bot"));
+            let unchanged = hub.routines.state.locked().runs[0].clone();
+            assert_eq!(unchanged.attempts, attempt);
+            assert_eq!(unchanged.retry_not_before_ms, Some(deadline));
+            now = deadline;
         }
 
         let mut positive = hub.test_bot_commands("bot");
-        hub.routines.active.locked().remove("bot");
-        tick(&hub, &mut retry).unwrap();
+        tick_with_clock(&hub, &mut retry, || now).unwrap();
         assert!(matches!(positive.try_recv(), Ok(crate::agent::bot::Cmd::Routine(ref id)) if id == &run_id));
         assert!(positive.try_recv().is_err());
-        tick(&hub, &mut retry).unwrap();
+        tick_with_clock(&hub, &mut retry, || now).unwrap();
         assert!(positive.try_recv().is_err());
     }
 
@@ -935,26 +1033,264 @@ mod dispatch_recovery_tests {
         let (hub, _dir, routine_id, due_at) = catchup_hub();
         let run_id = queue_catchup(&hub, &routine_id, due_at);
         let mut retry = OrphanRetry::default();
+        let mut now = due_at + 1;
         for attempt in 0..=CATCHUP_MAX_RETRIES {
             let closed = hub.test_bot_commands("bot");
             drop(closed);
-            tick(&hub, &mut retry).unwrap();
+            tick_with_clock(&hub, &mut retry, || now).unwrap();
             hub.routines.active.locked().remove("bot");
             if attempt < CATCHUP_MAX_RETRIES {
                 let run = hub.routines.state.locked().runs[0].clone();
                 assert!(run.status == Status::Pending);
                 assert_eq!(run.attempts, attempt + 1);
+                now = run.retry_not_before_ms.unwrap();
             }
         }
         let failed = hub.routines.state.locked().runs[0].clone();
         assert!(failed.status == Status::Failed);
         assert_eq!(failed.attempts, CATCHUP_MAX_RETRIES);
+        assert_eq!(failed.retry_not_before_ms, None);
         assert!(failed.detail.as_deref().is_some_and(|detail| detail.contains("Could not queue routine")));
         let positive = hub.test_bot_commands("bot");
         hub.routines.active.locked().remove("bot");
-        tick(&hub, &mut retry).unwrap();
+        tick_with_clock(&hub, &mut retry, || now + 5_000).unwrap();
         assert!(hub.routines.state.locked().runs.iter().any(|run| run.id == run_id && run.status == Status::Failed));
         assert!(positive.is_empty());
+    }
+
+    #[test]
+    fn catchup_retry_jitter_is_stable_and_capped() {
+        let delays: Vec<_> = (0..32)
+            .map(|n| {
+                let id = format!("run-{n}");
+                let first = catchup_retry_delay_ms(&id, 1);
+                assert_eq!(first, catchup_retry_delay_ms(&id, 1));
+                assert!((2_000..=2_500).contains(&first));
+                assert!((4_000..=5_000).contains(&catchup_retry_delay_ms(&id, 2)));
+                assert!((4_000..=5_000).contains(&catchup_retry_delay_ms(&id, u64::MAX)));
+                first
+            })
+            .collect();
+        assert!(delays.iter().any(|&delay| delay != delays[0]));
+    }
+
+    #[tokio::test]
+    async fn catchup_retry_keeps_queue_order_and_respects_pause_and_removal() {
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let first_id = queue_catchup(&hub, &routine_id, due_at);
+        let mut retry = OrphanRetry::default();
+        let mut other = config();
+        other.id = "other".into();
+        hub.store.save_bot(&other).unwrap();
+        let (same_id, other_id) = hub
+            .routines
+            .change(&hub.store, |state| {
+                let same = super::super::new_run(&state.routines[0], Value::Null, None);
+                let mut other = super::super::new_run(&state.routines[0], Value::Null, None);
+                other.bot_id = "other".into();
+                let ids = (same.id.clone(), other.id.clone());
+                state.runs.extend([same, other]);
+                Ok(ids)
+            })
+            .unwrap();
+        assert_ne!(first_id, same_id);
+        assert_ne!(same_id, other_id);
+        let mut other = hub.test_bot_commands("other");
+        tick_with_clock(&hub, &mut retry, || due_at + 1).unwrap();
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        assert!(hub.routines.state.locked().runs[1].status == Status::Pending);
+        assert!(matches!(other.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == other_id));
+        let mut own = hub.test_bot_commands("bot");
+        tick_with_clock(&hub, &mut retry, || deadline - 1).unwrap();
+        assert!(own.try_recv().is_err());
+        assert!(!hub.routines.active.locked().contains("bot"));
+
+        hub.routines.set_paused(&hub.store, true).unwrap();
+        tick_with_clock(&hub, &mut retry, || deadline).unwrap();
+        assert!(own.try_recv().is_err());
+        hub.routines.set_paused(&hub.store, false).unwrap();
+        hub.routines.release("other");
+        hub.store.delete_bot("bot").unwrap();
+        tick_with_clock(&hub, &mut retry, || deadline - 1).unwrap();
+        assert!(own.try_recv().is_err());
+        let state = hub.routines.state.locked();
+        assert!(state.runs[..2].iter().all(|r| r.status == Status::Cancelled && r.retry_not_before_ms.is_none()));
+    }
+
+    #[tokio::test]
+    async fn catchup_completion_invalidates_projected_successor_before_claim() {
+        use crate::fork::rotina_resultado::{Observed, Reason};
+        use std::cell::Cell;
+
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let first = queue_catchup(&hub, &routine_id, due_at);
+        assert!(hub.routines.begin(&hub, "bot", &first).unwrap().is_some());
+        let receipt = hub.routines.prepare_attempt(&hub.store, "bot", &first).unwrap();
+        hub.routines.mark_started(&hub.store, "bot", &first, &receipt).unwrap();
+        hub.routines.active.locked().insert("bot".into());
+        hub.routines
+            .change(&hub.store, |state| {
+                state.runs.push(super::super::new_run(&state.routines[0], Value::Null, None));
+                Ok(())
+            })
+            .unwrap();
+
+        let now = due_at + 1;
+        let samples = Cell::new(0);
+        let mut rx = hub.test_bot_commands("bot");
+        let mut retry = OrphanRetry::default();
+        tick_with_clock(&hub, &mut retry, || {
+            let n = samples.get();
+            samples.set(n + 1);
+            if n == 2 {
+                hub.routines
+                    .complete_with_clock(&hub, &first, &Observed::failed(Reason::AgentError), None, None, || now)
+                    .unwrap();
+            }
+            now
+        })
+        .unwrap();
+        assert!(samples.get() >= 3);
+        assert!(rx.try_recv().is_err());
+        assert!(!hub.routines.active.locked().contains("bot"));
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        tick_with_clock(&hub, &mut retry, || deadline).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == first));
+    }
+
+    #[tokio::test]
+    async fn catchup_retry_deadline_survives_sqlite_reopen_and_loads_without_field() {
+        let (hub, dir, routine_id, due_at) = catchup_hub();
+        let run_id = queue_catchup(&hub, &routine_id, due_at);
+        let db_path = dir.path().join("routines.db");
+        let reopen = || {
+            let store = Store::open(&db_path).unwrap();
+            let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+            hub.routines.restore(&hub.store).unwrap();
+            hub
+        };
+        let raw = hub.store.kv_read("routines.v1").unwrap().unwrap();
+        assert!(serde_json::from_str::<Value>(&raw).unwrap()["runs"][0].get("retryNotBeforeMs").is_none());
+        drop(hub);
+        let hub = reopen();
+        let initial = hub.routines.state.locked().runs[0].clone();
+        assert_eq!(initial.retry_not_before_ms, None);
+        assert_eq!(initial.attempts, 0);
+        let mut retry = OrphanRetry::default();
+        tick_with_clock(&hub, &mut retry, || due_at + 1).unwrap();
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        drop(hub);
+
+        let hub = reopen();
+        let restored = hub.routines.state.locked().runs[0].clone();
+        assert!(restored.status == Status::Pending);
+        assert_eq!(restored.id, run_id);
+        assert_eq!(restored.attempts, 1);
+        assert_eq!(restored.retry_not_before_ms, Some(deadline));
+        assert!(hub.routines.list("bot")["runs"][0].get("retryNotBeforeMs").is_none());
+        let mut rx = hub.test_bot_commands("bot");
+        tick_with_clock(&hub, &mut retry, || deadline - 1).unwrap();
+        assert!(rx.try_recv().is_err());
+        assert!(!hub.routines.active.locked().contains("bot"));
+        tick_with_clock(&hub, &mut retry, || deadline).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == run_id));
+    }
+
+    #[tokio::test]
+    async fn catchup_observed_failure_saves_retry_atomically_and_terminal_failure_does_not_rearm() {
+        use crate::fork::rotina_resultado::{Observed, Reason};
+
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let run_id = queue_catchup(&hub, &routine_id, due_at);
+        let mut rx = hub.test_bot_commands("bot");
+        let mut retry = OrphanRetry::default();
+        let finish = due_at + 10_000;
+        tick_with_clock(&hub, &mut retry, || due_at + 1).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == run_id));
+        assert!(hub.routines.begin(&hub, "bot", &run_id).unwrap().is_some());
+        let receipt = hub.routines.prepare_attempt(&hub.store, "bot", &run_id).unwrap();
+        hub.routines.mark_started(&hub.store, "bot", &run_id, &receipt).unwrap();
+        let raw = hub.store.kv_read("routines.v1").unwrap();
+        hub.store.db.locked().execute_batch("CREATE TRIGGER reject_retry BEFORE INSERT ON kv WHEN NEW.k = 'routines.v1' BEGIN SELECT RAISE(ABORT, 'commit refused'); END;").unwrap();
+        let failure = Observed::failed(Reason::AgentError);
+        assert!(hub.routines.complete_with_clock(&hub, &run_id, &failure, None, None, || finish - 500).is_err());
+        assert_eq!(hub.store.kv_read("routines.v1").unwrap(), raw);
+        let unchanged = hub.routines.state.locked().runs[0].clone();
+        assert!(unchanged.status == Status::Running);
+        assert_eq!(unchanged.attempts, 0);
+        assert_eq!(unchanged.retry_not_before_ms, None);
+        assert!(hub.routines.active.locked().contains("bot"));
+        hub.store.db.locked().execute_batch("DROP TRIGGER reject_retry").unwrap();
+
+        hub.routines.complete_with_clock(&hub, &run_id, &failure, None, None, || finish).unwrap();
+        let scheduled = hub.routines.state.locked().runs[0].clone();
+        assert!(scheduled.status == Status::Pending);
+        assert_eq!(scheduled.attempts, 1);
+        let deadline = finish + catchup_retry_delay_ms(&run_id, 1);
+        assert_eq!(scheduled.retry_not_before_ms, Some(deadline));
+        let raw = hub.store.kv_read("routines.v1").unwrap().unwrap();
+        let stored = &serde_json::from_str::<Value>(&raw).unwrap()["runs"][0];
+        assert_eq!(stored["status"], "pending");
+        assert_eq!(stored["attempts"], 1);
+        assert_eq!(stored["retryNotBeforeMs"], deadline);
+        tick_with_clock(&hub, &mut retry, || deadline - 1).unwrap();
+        assert!(rx.try_recv().is_err());
+        assert!(!hub.routines.active.locked().contains("bot"));
+        tick_with_clock(&hub, &mut retry, || deadline).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(crate::agent::bot::Cmd::Routine(id)) if id == run_id));
+        assert!(hub.routines.begin(&hub, "bot", &run_id).unwrap().is_some());
+        let continuation = hub.routines.prepare_attempt(&hub.store, "bot", &run_id).unwrap();
+        assert_ne!(receipt.admission_id, continuation.admission_id);
+        hub.routines.mark_started(&hub.store, "bot", &run_id, &continuation).unwrap();
+        let terminal = Observed { terminal: true, ..failure };
+        hub.routines.complete_with_clock(&hub, &run_id, &terminal, None, None, || panic!("terminal retry")).unwrap();
+        tick_with_clock(&hub, &mut retry, || deadline + 5_000).unwrap();
+        assert!(rx.try_recv().is_err());
+        let failed = hub.routines.state.locked().runs[0].clone();
+        assert!(failed.status == Status::Failed);
+        assert_eq!(failed.attempts, 1);
+        assert_eq!(failed.retry_not_before_ms, None);
+    }
+
+    #[tokio::test]
+    async fn catchup_retry_deadline_does_not_rearm_an_uncertain_dispatch_on_restore() {
+        use crate::fork::rotina_resultado::{Observed, Reason};
+
+        let (hub, dir, routine_id, due_at) = catchup_hub();
+        let run_id = queue_catchup(&hub, &routine_id, due_at);
+        assert!(hub.routines.begin(&hub, "bot", &run_id).unwrap().is_some());
+        let receipt = hub.routines.prepare_attempt(&hub.store, "bot", &run_id).unwrap();
+        let ticket = admission::reserve(
+            &hub.store,
+            &config(),
+            "bot",
+            &run_id,
+            &admission::Origin::Routine { id: run_id.clone() },
+        )
+        .unwrap();
+        admission::permit_with(&hub.store, &config(), &ticket, None, &[], None, admission::ClaimHooks::default())
+            .unwrap()
+            .unwrap();
+        hub.routines.mark_started(&hub.store, "bot", &run_id, &receipt).unwrap();
+        hub.routines
+            .complete_with_clock(&hub, &run_id, &Observed::failed(Reason::AgentError), None, None, || due_at + 1)
+            .unwrap();
+        let deadline = hub.routines.state.locked().runs[0].retry_not_before_ms.unwrap();
+        drop(hub);
+
+        let store = Store::open(&dir.path().join("routines.db")).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+        hub.routines.restore(&hub.store).unwrap();
+        let mut rx = hub.test_bot_commands("bot");
+        tick_with_clock(&hub, &mut OrphanRetry::default(), || deadline + 1).unwrap();
+        assert!(rx.try_recv().is_err());
+        let run = hub.routines.state.locked().runs[0].clone();
+        assert!(run.status == Status::Interrupted);
+        assert_eq!(run.attempts, 1);
+        assert_eq!(run.retry_not_before_ms, None);
+        let dispatch = admission::current(&hub.store, "bot").unwrap().unwrap();
+        assert_eq!(dispatch.phase, admission::Phase::Permitted);
+        assert_eq!(dispatch.origin, admission::Origin::Routine { id: run_id });
     }
 
     #[tokio::test]

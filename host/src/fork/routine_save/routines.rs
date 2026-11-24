@@ -89,6 +89,16 @@ impl Routines {
         origin: Option<&super::tool_origin::ToolOrigin>,
         update: impl FnOnce(&mut State) -> Result<T>,
     ) -> Result<T> {
+        self.change_in_origin_with_epoch(store, bot, origin, update).map(|(result, _)| result)
+    }
+
+    pub(super) fn change_in_origin_with_epoch<T>(
+        &self,
+        store: &Store,
+        bot: Option<&str>,
+        origin: Option<&super::tool_origin::ToolOrigin>,
+        update: impl FnOnce(&mut State) -> Result<T>,
+    ) -> Result<(T, Option<u64>)> {
         let mut guard = self.state.locked();
         let mut next = guard.clone();
         let result = update(&mut next)?;
@@ -96,7 +106,9 @@ impl Routines {
             ensure_no_model_release(&guard, &next)?;
             ensure_no_model_heartbeat(&guard, &next)?;
         }
+        let prior_len = next.runs.len();
         retain_history(&mut next);
+        let retained_layout = prior_len == next.runs.len();
         let raw = serde_json::to_string(&next)?;
         // A época avança antes do commit: uma checagem admitida antes não segura a decisão durante a gravação, e a
         // próxima admissão só acontece com o estado já trocado (ela espera este mesmo lock).
@@ -113,11 +125,11 @@ impl Routines {
         }
         let hooks_changed = hook_set(&guard) != hook_set(&next);
         *guard = next;
-        drop(guard);
+        let epoch = guard.unlock_with_epoch();
         if hooks_changed {
             self.hooks_rev.send_modify(|v| *v += 1);
         }
-        Ok(result)
+        Ok((result, retained_layout.then_some(epoch)))
     }
 
     /// MCP: nenhuma raiz é confirmada antes da guarda original e do JSON da fila.
