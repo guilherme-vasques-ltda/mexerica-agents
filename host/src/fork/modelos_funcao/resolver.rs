@@ -47,7 +47,7 @@ pub struct Model {
 pub struct Account {
     pub id: String,
     pub label: String,
-    #[serde(default, skip_serializing)]
+    #[serde(default)]
     pub origin: String,
     pub backend: String,
     pub billing: String,

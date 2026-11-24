@@ -23,6 +23,7 @@ pub(crate) struct Resolved {
     launch: LaunchReference,
     proof: Option<crate::fork::engine_accounts::SubscriptionProof>,
     pub(super) api: Option<(String, String)>,
+    pub(super) catalog: Vec<String>,
 }
 
 impl Resolved {
@@ -100,6 +101,7 @@ pub(crate) fn resolve(store: &Store, original: &BotConfig, function: FunctionId)
         identity: account.quota_identity.clone(),
         launch: account.launch.clone(),
         proof: account.subscription_proof.clone(),
+        catalog: if api.is_some() { account.models.iter().map(|model| model.id.clone()).collect() } else { Vec::new() },
         api,
     })
 }
@@ -154,6 +156,7 @@ pub(crate) fn resolve_own(store: &Store, original: &BotConfig) -> Result<Resolve
         launch: account.launch.clone(),
         proof: account.subscription_proof.clone(),
         api: None,
+        catalog: Vec::new(),
     })
 }
 

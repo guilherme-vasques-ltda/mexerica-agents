@@ -1060,7 +1060,15 @@ pub(crate) fn background_boundary<T>(
         let tx = db.unchecked_transaction()?;
         let eval = evaluate_on(&tx, settings_on(&tx)?)?;
         let outcome = match eval.gate.blocked.as_ref() {
-            None => (eval.changed, Ok(authorize(&tx)?)),
+            None => {
+                tx.execute_batch("SAVEPOINT background_authorization")?;
+                let result = authorize(&tx);
+                if result.is_err() {
+                    tx.execute_batch("ROLLBACK TO background_authorization")?;
+                }
+                tx.execute_batch("RELEASE background_authorization")?;
+                (eval.changed, result)
+            }
             Some(blocked) => {
                 let hold = json!({"job":job,"reason":blocked.reason,"metrics":blocked.metrics,
                     "signature":eval.gate.signature,"at":crate::store::now_ms()});

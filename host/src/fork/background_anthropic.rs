@@ -128,21 +128,34 @@ pub(super) mod test_transport {
 pub(super) async fn complete(
     response_result: reqwest::Result<reqwest::Response>,
     key: &HeaderValue,
-    model: &str,
-) -> Result<(String, super::background_history::Usage)> {
+    expected: &str,
+    catalog: &[String],
+    models: &mut Vec<String>,
+    observed: &mut Option<super::background_history::Usage>,
+) -> Result<String> {
     let res = response_result.map_err(|_| anyhow!("Não foi possível enviar a tarefa para a API Anthropic."))?;
-    parse(&response(res).await?, key, model)
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&response(res).await?).map_err(|_| anyhow!("Resposta Anthropic inválida."))?;
+    ensure!(parsed["type"] == "message" && parsed["role"] == "assistant", "Resposta Anthropic inválida.");
+    *observed = usage(&parsed["usage"]).ok();
+    let reported = parsed["model"].as_str().ok_or_else(|| anyhow!("Modelo Anthropic não confirmado."))?;
+    ensure!(matches_model(expected, reported, catalog), "Modelo Anthropic não confirmado.");
+    models.push(reported.to_owned());
+    ensure!(observed.is_some(), "Uso Anthropic não confirmado.");
+    parse_text(&parsed, key)
 }
 
-fn parse(raw: &[u8], key: &HeaderValue, model: &str) -> Result<(String, super::background_history::Usage)> {
-    let parsed: serde_json::Value = serde_json::from_slice(raw).map_err(|_| anyhow!("Resposta Anthropic inválida."))?;
-    ensure!(
-        parsed["type"] == "message"
-            && parsed["role"] == "assistant"
-            && parsed["stop_reason"] == "end_turn"
-            && parsed["model"] == model,
-        "A tarefa Anthropic não terminou normalmente."
-    );
+fn matches_model(expected: &str, reported: &str, catalog: &[String]) -> bool {
+    expected == reported
+        || (catalog.iter().any(|id| id == reported)
+            && reported
+                .strip_prefix(expected)
+                .and_then(|suffix| suffix.strip_prefix('-'))
+                .is_some_and(|date| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit())))
+}
+
+fn parse_text(parsed: &serde_json::Value, key: &HeaderValue) -> Result<String> {
+    ensure!(parsed["stop_reason"] == "end_turn", "A tarefa Anthropic não terminou normalmente.");
     let content = parsed["content"].as_array().ok_or_else(|| anyhow!("Resposta Anthropic sem conteúdo."))?;
     let mut text = String::new();
     for block in content {
@@ -151,7 +164,10 @@ fn parse(raw: &[u8], key: &HeaderValue, model: &str) -> Result<(String, super::b
     }
     ensure!(text.len() <= super::background_executor::MAX_OUTPUT_BYTES, super::background_notice::Problem::OutputLimit);
     ensure!(key.to_str().is_ok_and(|secret| !text.contains(secret)), "A resposta Anthropic repetiu a credencial.");
-    let usage = &parsed["usage"];
+    Ok(text)
+}
+
+fn usage(usage: &serde_json::Value) -> Result<super::background_history::Usage> {
     let count =
         |field: &str| -> Result<u64> { usage[field].as_u64().ok_or_else(|| anyhow!("Uso Anthropic não confirmado.")) };
     let cache = |field: &str| -> Result<u64> { if usage.get(field).is_none() { Ok(0) } else { count(field) } };
@@ -161,22 +177,19 @@ fn parse(raw: &[u8], key: &HeaderValue, model: &str) -> Result<(String, super::b
         .checked_add(read)
         .and_then(|n| n.checked_add(write))
         .ok_or_else(|| anyhow!("Uso Anthropic inválido."))?;
-    Ok((
-        text,
-        super::background_history::Usage {
-            input,
-            output: count("output_tokens")?,
-            cached_input: Some(read),
-            cached_write: Some(write),
-            cache_invalid: false,
-        },
-    ))
+    Ok(super::background_history::Usage {
+        input,
+        output: count("output_tokens")?,
+        cached_input: Some(read),
+        cached_write: Some(write),
+        cache_invalid: false,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
-    use super::{api_key, parse};
+    use super::{api_key, matches_model, parse_text, usage};
     use serde_json::{Value, json};
 
     const FIXTURE: &str = concat!("sk-ant-api", "-fixture-not-a-real-key");
@@ -191,21 +204,28 @@ mod tests {
     fn contabiliza_uso_sem_aceitar_ferramentas_conclusao_ausente_ou_credencial_no_texto() {
         let key = api_key(FIXTURE).unwrap();
         let valid = message();
-        let (text, usage) = parse(&serde_json::to_vec(&valid).unwrap(), &key, "claude-fixture").unwrap();
+        let text = parse_text(&valid, &key).unwrap();
+        let usage = usage(&valid["usage"]).unwrap();
         assert_eq!(text, "Resposta de teste");
         assert_eq!((usage.input, usage.output, usage.cached_input, usage.cached_write), (11, 3, Some(4), Some(5)));
         for (field, invalid) in [
             ("stop_reason", Value::Null),
-            ("model", json!("claude-other")),
             ("content", json!([{"type":"tool_use"}])),
             ("content", json!([{"type":"text", "text":FIXTURE}])),
-            ("usage", json!({"input_tokens":2})),
         ] {
             let mut candidate = valid.clone();
             candidate[field] = invalid;
-            assert!(parse(&serde_json::to_vec(&candidate).unwrap(), &key, "claude-fixture").is_err(), "{field}");
+            assert!(parse_text(&candidate, &key).is_err(), "{field}");
         }
         assert!(api_key("sk-ant-oat-fixture").is_err());
         assert!(api_key("LLM_0_fixture").is_err());
+    }
+
+    #[test]
+    fn alias_so_aceita_revisao_datada_do_catalogo_da_conta() {
+        let catalog = ["claude-fixture-20251001".into(), "claude-other-20251001".into()];
+        assert!(matches_model("claude-fixture", "claude-fixture-20251001", &catalog));
+        assert!(!matches_model("claude-fixture", "claude-other-20251001", &catalog));
+        assert!(!matches_model("claude-fixture", "claude-fixture-20251002", &catalog));
     }
 }

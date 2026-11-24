@@ -471,6 +471,12 @@ mod tests {
 
     async fn api_extrai_memoria(mode: &'static str) {
         use crate::fork::{background_anthropic::test_transport::ENDPOINT, engine_accounts};
+        struct RemoveProjection(std::path::PathBuf);
+        impl Drop for RemoveProjection {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
 
         let f = fixture();
         let store = &f.hub.store;
@@ -515,6 +521,7 @@ mod tests {
         let original = "---\ndescription: Preferências\n---\n- Nota aprovada pelo dono\n";
         let alternative = "---\ndescription: Preferências\n---\n- Prefere café sem açúcar\n";
         let projection = crate::chat::memory::files::folder(Some("bot")).join(&name);
+        let _cleanup = (mode == "note").then(|| RemoveProjection(projection.clone()));
         let base = if mode == "note" {
             std::fs::create_dir_all(crate::service::data_dir()).unwrap();
             crate::api::dispatch(
@@ -666,7 +673,6 @@ mod tests {
             assert_eq!(apply::undo(&f.hub, &receipt, &authority).unwrap(), undone);
             if mode == "note" {
                 assert_eq!(std::fs::read_to_string(&projection).unwrap(), original);
-                std::fs::remove_file(projection).unwrap();
             }
         }
     }

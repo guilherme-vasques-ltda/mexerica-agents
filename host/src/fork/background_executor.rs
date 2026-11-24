@@ -411,11 +411,16 @@ async fn execute(
                 }
             })
         };
-        let (text, usage) = super::background_anthropic::complete(send.await, &key, model).await?;
         observed.backend = Some("anthropic".into());
-        observed.models = vec![model.to_owned()];
-        observed.usage = Some(usage);
-        return Ok(text);
+        return super::background_anthropic::complete(
+            send.await,
+            &key,
+            model,
+            &selected.catalog,
+            &mut observed.models,
+            &mut observed.usage,
+        )
+        .await;
     }
     check_send_boundary(hub, selected, boundary)?;
     anyhow::ensure!(system.len().saturating_add(user.len()) <= 128_000, "A tarefa de fundo é grande demais.");
@@ -745,6 +750,18 @@ mod history_tests {
         )
         .unwrap();
         let hub = Hub::new(store, "teste".into(), Identity::load_or_create(dir.path()).unwrap(), "teste".into(), 0);
+        let snapshot =
+            crate::api::dispatch(&hub, &crate::api::devices::Caller::Local, "functionModels", json!({})).await.unwrap();
+        let projected = snapshot["accounts"].as_array().unwrap().iter().find(|account| account["id"] == id).unwrap();
+        assert_eq!(projected["origin"], "managed");
+        assert_eq!(projected["billing"], "paid_api");
+        let titles = snapshot["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["definition"]["id"] == "bot_naming")
+            .unwrap();
+        assert_eq!(titles["resolution"]["status"], "available");
         hub.start().unwrap();
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let endpoint = format!("http://{}/v1/messages", listener.local_addr().unwrap());
@@ -846,7 +863,7 @@ mod history_tests {
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)),
             )
             .unwrap();
-        assert_eq!(entry, (id, "background:titles".into(), matches!(case, TitleCase::Cut | TitleCase::MissingStop)));
+        assert_eq!(entry, (id, "background:titles".into(), matches!(case, TitleCase::Cut)));
     }
 
     #[tokio::test]

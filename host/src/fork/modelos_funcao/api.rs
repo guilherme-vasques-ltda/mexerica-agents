@@ -84,8 +84,13 @@ fn resolution(hub: &Hub, id: &str, caller: &Caller, revision: Option<u64>) -> Va
                 "id":"background-worker", "name":"Bot de fundo", "backend":"claude"
             }))
             && let Ok(resolved) = crate::fork::background_selection::resolve(&hub.store, &bot, function)
-            && resolved.paid_api()
         {
+            if !resolved.paid_api() {
+                return json!({"status":"unavailable", "unavailable":{
+                    "functionId":id, "reason":"personal_subscription_chat_only", "revision":document.revision,
+                    "message":crate::fork::assinatura_pessoal::CHAT_ONLY
+                }});
+            }
             return json!({"status":"available", "resolved":{
                 "functionId":id, "requested":selection, "owner":"owner", "billing":"paid_api",
                 "revision":document.revision, "defaultsRevision":document.defaults_revision,
