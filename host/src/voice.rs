@@ -275,6 +275,9 @@ fn gemini_async_tools(model: &str) -> bool {
 
 fn realtime_model(p: Provider, model: &str) -> Result<&str> {
     let model = checked(model)?;
+    if p == Provider::OpenAi && crate::fork::voz_gpt_live::modelo_suportado(model) {
+        bail!("GPT-Live não usa uma credencial do Realtime.");
+    }
     if p == Provider::Gemini && !gemini_async_tools(model) {
         bail!(
             "O modelo Gemini `{model}` não tem suporte confirmado a chamadas de função assíncronas, necessárias nesta chamada. Escolha um modelo compatível nas configurações de voz."
@@ -335,7 +338,16 @@ pub async fn models(store: &Store, p: Provider) -> Result<Value> {
         speech: newest(p, &entries, &speech).unwrap_or(fallback.speech),
     };
     store.kv_set(&defaults_key(p), &serde_json::to_string(&defaults)?)?;
-    Ok(json!({"models": realtime, "transcribe": transcribe, "speech": speech, "defaults": defaults}))
+    let mut catalogo = json!({"models": realtime, "transcribe": transcribe, "speech": speech, "defaults": defaults});
+    if p == Provider::OpenAi
+        && let Some(modelos) = crate::fork::voz_gpt_live::catalogo(
+            crate::fork::voz_gpt_live::CATALOGO_HABILITADO,
+            entries.iter().map(|m| m.id.as_str()),
+        )
+    {
+        catalogo["gptLive"] = json!(modelos);
+    }
+    Ok(catalogo)
 }
 
 /// The provider's current model among `ids`, skipping dated snapshots and previews.
@@ -652,6 +664,8 @@ mod tests {
                 "gpt-4o-transcribe",
                 "gpt-4o-transcribe-diarize",
                 "gpt-live-transcribe",
+                "gpt-live-1",
+                "gpt-live-1.1",
                 "whisper-1",
                 "gpt-4o-mini-tts",
                 "gpt-5",
@@ -660,6 +674,13 @@ mod tests {
         assert_eq!(realtime, ["gpt-realtime", "gpt-realtime-2.1"]);
         assert_eq!(transcribe, ["gpt-4o-transcribe", "whisper-1"]);
         assert_eq!(speech, ["gpt-4o-mini-tts"]);
+    }
+
+    #[test]
+    fn gpt_live_cannot_use_realtime_credentials() {
+        assert!(realtime_model(Provider::OpenAi, "gpt-live-1").is_err());
+        assert!(realtime_model(Provider::OpenAi, "gpt-live-1.1").is_err());
+        assert_eq!(realtime_model(Provider::OpenAi, "gpt-realtime-2.1").unwrap(), "gpt-realtime-2.1");
     }
 
     fn dated(id: &str, created: i64) -> Model {
