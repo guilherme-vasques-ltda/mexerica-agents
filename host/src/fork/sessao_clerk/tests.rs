@@ -245,6 +245,10 @@ fn url() -> reqwest::Url {
     reqwest::Url::parse(JWKS_URL).unwrap()
 }
 
+fn alvo() -> jwks::Alvo {
+    jwks::Alvo { url: url(), versao: "versao-de-prova".into() }
+}
+
 #[tokio::test]
 async fn kid_desconhecido_busca_de_novo_com_limite_e_chave_removida_sai() {
     let j = jwks::Jwks::default();
@@ -253,24 +257,27 @@ async fn kid_desconhecido_busca_de_novo_com_limite_e_chave_removida_sai() {
     let s = servido.clone();
     j.servir(move || Ok(s.lock().unwrap().clone()));
     let t0 = Instant::now();
-    assert!(j.chave(&url(), KID, t0).await.is_ok());
+    assert!(j.chave(&alvo(), KID, t0).await.is_ok());
     assert_eq!(j.buscas(), 1);
-    assert!(j.chave(&url(), KID, t0 + ms(1)).await.is_ok());
+    assert!(j.chave(&alvo(), KID, t0 + ms(1)).await.is_ok());
     assert_eq!(j.buscas(), 1, "chave conhecida e JWKS nova: sem rede");
     // kid desconhecido: busca de novo, mas no máximo uma vez a cada 30 s.
     *servido.lock().unwrap() = jwks(&[jwk(KID, a), jwk(KID_2, b)]);
-    assert_eq!(j.chave(&url(), "kid-inexistente", t0 + jwks::INTERVALO).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), "kid-inexistente", t0 + jwks::INTERVALO).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 2);
-    assert_eq!(j.chave(&url(), "kid-inexistente", t0 + jwks::INTERVALO + ms(1)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(
+        j.chave(&alvo(), "kid-inexistente", t0 + jwks::INTERVALO + ms(1)).await.err(),
+        Some(Recusa::AuthInvalid)
+    );
     assert_eq!(j.buscas(), 2, "limite de frequência");
-    assert!(j.chave(&url(), KID_2, t0 + jwks::INTERVALO + ms(2)).await.is_ok(), "veio na última busca");
+    assert!(j.chave(&alvo(), KID_2, t0 + jwks::INTERVALO + ms(2)).await.is_ok(), "veio na última busca");
     // Rotação: a chave removida da JWKS some na renovação seguinte.
     *servido.lock().unwrap() = jwks(&[jwk(KID_2, b)]);
     let depois = t0 + jwks::INTERVALO + jwks::TETO / 2;
-    assert!(j.chave(&url(), KID_2, depois).await.unwrap().renovar, "passou da meia-vida");
-    j.renovar(&url(), depois).await;
+    assert!(j.chave(&alvo(), KID_2, depois).await.unwrap().renovar, "passou da meia-vida");
+    j.renovar(&alvo(), depois).await;
     assert_eq!(j.buscas(), 3, "renovação antes de vencer");
-    assert_eq!(j.chave(&url(), KID, depois + ms(1)).await.err(), Some(Recusa::AuthInvalid), "chave removida");
+    assert_eq!(j.chave(&alvo(), KID, depois + ms(1)).await.err(), Some(Recusa::AuthInvalid), "chave removida");
 }
 
 #[tokio::test]
@@ -283,20 +290,20 @@ async fn jwks_vencida_nega_e_busca_que_falha_nao_estende_a_validade() {
         Ok(jwks_padrao())
     });
     let t0 = Instant::now();
-    let ate = j.chave(&url(), KID, t0).await.unwrap().ate;
+    let ate = j.chave(&alvo(), KID, t0).await.unwrap().ate;
     assert_eq!(ate, t0 + jwks::TETO);
     falhar.store(true, std::sync::atomic::Ordering::SeqCst);
     // Renovação falha: segue o conjunto anterior até a validade, nunca além.
     let quase = t0 + jwks::TETO.saturating_sub(ms(1));
-    assert!(j.chave(&url(), KID, quase).await.unwrap().renovar);
-    j.renovar(&url(), quase).await;
+    assert!(j.chave(&alvo(), KID, quase).await.unwrap().renovar);
+    j.renovar(&alvo(), quase).await;
     assert_eq!(j.buscas(), 2, "a renovação tentou e falhou");
-    let ate = j.chave(&url(), KID, quase).await.unwrap().ate;
+    let ate = j.chave(&alvo(), KID, quase).await.unwrap().ate;
     assert_eq!(ate, t0 + jwks::TETO, "busca que falha não renova");
-    assert_eq!(j.chave(&url(), KID, t0 + jwks::TETO).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, t0 + jwks::TETO).await.err(), Some(Recusa::AuthInvalid));
     falhar.store(false, std::sync::atomic::Ordering::SeqCst);
     let mais_tarde = t0 + jwks::TETO + jwks::INTERVALO;
-    let ate = j.chave(&url(), KID, mais_tarde).await.unwrap().ate;
+    let ate = j.chave(&alvo(), KID, mais_tarde).await.unwrap().ate;
     assert_eq!(ate, mais_tarde + jwks::TETO, "só a busca bem-sucedida conta");
 }
 
@@ -307,11 +314,11 @@ async fn validade_da_jwks_vem_do_http_e_sem_frescor_vale_uma_hora() {
     let f = frescor.clone();
     j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
     let t0 = Instant::now();
-    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(300), "max-age abaixo do teto");
+    assert_eq!(j.chave(&alvo(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(300), "max-age abaixo do teto");
     // Vencida a validade, a verificação espera uma busca nova; sem frescor, vale 1 h.
     *frescor.lock().unwrap() = jwks::SEM_FRESCOR;
     let depois = t0 + Duration::from_secs(300);
-    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + jwks::SEM_FRESCOR);
+    assert_eq!(j.chave(&alvo(), KID, depois).await.unwrap().ate, depois + jwks::SEM_FRESCOR);
     assert_eq!(j.buscas(), 2);
 }
 
@@ -325,22 +332,22 @@ async fn renovacao_em_segundo_plano_passada_a_meia_vida_e_falha_nao_estende() {
         Ok((jwks_padrao(), Duration::from_secs(600)))
     });
     let t0 = Instant::now();
-    assert!(!j.chave(&url(), KID, t0).await.unwrap().renovar);
-    assert!(!j.chave(&url(), KID, t0 + Duration::from_secs(299)).await.unwrap().renovar, "antes da meia-vida");
+    assert!(!j.chave(&alvo(), KID, t0).await.unwrap().renovar);
+    assert!(!j.chave(&alvo(), KID, t0 + Duration::from_secs(299)).await.unwrap().renovar, "antes da meia-vida");
     let meia = t0 + Duration::from_secs(300);
-    let r = j.chave(&url(), KID, meia).await.unwrap();
+    let r = j.chave(&alvo(), KID, meia).await.unwrap();
     assert!(r.renovar && r.ate == t0 + Duration::from_secs(600), "a verificação não espera a renovação");
     assert_eq!(j.buscas(), 1);
     // Falha em segundo plano: nada muda e a validade não cresce.
     falhar.store(true, std::sync::atomic::Ordering::SeqCst);
-    j.renovar(&url(), meia).await;
+    j.renovar(&alvo(), meia).await;
     assert_eq!(j.buscas(), 2);
-    assert_eq!(j.chave(&url(), KID, meia + ms(1)).await.unwrap().ate, t0 + Duration::from_secs(600));
+    assert_eq!(j.chave(&alvo(), KID, meia + ms(1)).await.unwrap().ate, t0 + Duration::from_secs(600));
     // Sucesso depois do intervalo: conjunto e validade novos.
     falhar.store(false, std::sync::atomic::Ordering::SeqCst);
     let depois = meia + jwks::INTERVALO;
-    j.renovar(&url(), depois).await;
-    assert_eq!(j.chave(&url(), KID, depois + ms(1)).await.unwrap().ate, depois + Duration::from_secs(600));
+    j.renovar(&alvo(), depois).await;
+    assert_eq!(j.chave(&alvo(), KID, depois + ms(1)).await.unwrap().ate, depois + Duration::from_secs(600));
 }
 
 #[tokio::test]
@@ -370,7 +377,7 @@ async fn quatro_casos_de_frescor_pelo_http() {
     let ouvinte = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let porta = ouvinte.local_addr().unwrap().port();
     tokio::spawn(async move { axum::serve(ouvinte, app).await.unwrap() });
-    let cliente = jwks::cliente(false).unwrap();
+    let cliente = jwks::cliente_local();
     let validade = async |p: &str| {
         let em = reqwest::Url::parse(&format!("http://127.0.0.1:{porta}{p}")).unwrap();
         jwks::buscar_com(&cliente, &em).await.map(|(_, v)| v)
@@ -421,11 +428,11 @@ async fn chave_que_vence_durante_a_espera_e_recusada() {
     let j = jwks::Jwks::default();
     j.servir(|| Ok(jwks_padrao()));
     let t0 = Instant::now();
-    assert!(j.chave(&url(), KID, t0).await.is_ok());
+    assert!(j.chave(&alvo(), KID, t0).await.is_ok());
     j.vence_em(ms(50));
     tokio::time::sleep(ms(100)).await;
     // `agora` lido antes da espera: o conjunto parece válido, mas vale o relógio monotônico atual.
-    assert_eq!(j.chave(&url(), KID, t0).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, t0).await.err(), Some(Recusa::AuthInvalid));
 }
 
 #[tokio::test]
@@ -445,16 +452,16 @@ async fn jwks_so_aceita_rsa_de_assinatura_sem_kid_repetido_e_com_teto_de_entrada
     let c = corpo.clone();
     j.servir(move || Ok(c.lock().unwrap().clone()));
     let t0 = Instant::now();
-    assert!(j.chave(&url(), KID, t0).await.is_ok());
+    assert!(j.chave(&alvo(), KID, t0).await.is_ok());
     for kid in ["kid-repetido", "kid-rs384", "kid-enc"] {
-        assert_eq!(j.chave(&url(), kid, t0 + jwks::INTERVALO * 2).await.err(), Some(Recusa::AuthInvalid), "{kid}");
+        assert_eq!(j.chave(&alvo(), kid, t0 + jwks::INTERVALO * 2).await.err(), Some(Recusa::AuthInvalid), "{kid}");
     }
     // Mais de 16 entradas: o documento inteiro é recusado e o conjunto anterior segue.
     lista.push(jwk(KID_2, b));
     *corpo.lock().unwrap() = jwks(&lista);
     let depois = t0 + jwks::INTERVALO * 4;
-    assert_eq!(j.chave(&url(), KID_2, depois).await.err(), Some(Recusa::AuthInvalid));
-    assert!(j.chave(&url(), KID, depois + ms(1)).await.is_ok());
+    assert_eq!(j.chave(&alvo(), KID_2, depois).await.err(), Some(Recusa::AuthInvalid));
+    assert!(j.chave(&alvo(), KID, depois + ms(1)).await.is_ok());
 }
 
 #[tokio::test]
@@ -469,13 +476,13 @@ async fn cliente_da_jwks_nao_segue_redirect_e_tem_teto_de_corpo() {
     let ouvinte = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let porta = ouvinte.local_addr().unwrap().port();
     tokio::spawn(async move { axum::serve(ouvinte, app).await.unwrap() });
-    let cliente = jwks::cliente(false).unwrap();
+    let cliente = jwks::cliente_local();
     let em = |p: &str| reqwest::Url::parse(&format!("http://127.0.0.1:{porta}{p}")).unwrap();
     assert!(jwks::buscar_com(&cliente, &em("/jwks")).await.is_ok());
     assert!(jwks::buscar_com(&cliente, &em("/desvio")).await.is_err(), "redirect não é seguido");
     assert!(jwks::buscar_com(&cliente, &em("/grande")).await.is_err(), "corpo acima do teto");
     // O cliente de produção recusa qualquer coisa que não seja HTTPS.
-    assert!(jwks::buscar_com(&jwks::cliente(true).unwrap(), &em("/jwks")).await.is_err());
+    assert!(jwks::buscar_publico(&jwks::cliente().unwrap(), &em("/jwks")).await.is_err(), "IP literal e http");
 }
 
 #[test]
@@ -682,7 +689,15 @@ fn pareamento_relê_vinculo_prazo_e_papel_na_tx() {
     let hub = hub();
     vincular(&hub, &vinculo_pessoal());
     let v = vinculo(&vinculo_pessoal());
-    let par = |iat, papel, limite| Pareamento { sub: DONO.into(), iat, papel, limite, workspace_id: v.workspace_id() };
+    let par = |iat, papel, limite| Pareamento {
+        sub: DONO.into(),
+        iat,
+        papel,
+        limite,
+        versao: v.versao.clone(),
+        epoch: epoch_gravado(&hub),
+        geracao: None,
+    };
     let gravou = |hub: &Hub, key: &str| hub.store.device(key).is_some();
     // Prazo vencido entre a verificação e a Tx: nada é gravado.
     let vencido = Limite { exp_ms: now_ms() + 60_000, ate: tokio::time::Instant::now() };
@@ -698,7 +713,26 @@ fn pareamento_relê_vinculo_prazo_e_papel_na_tx() {
         Err(Recusa::AuthInvalid)
     );
     assert!(!gravou(&hub, "b"));
+    // O mesmo workspace regravado (outra versão) entre a verificação e a Tx.
+    let mut regravado: Value = serde_json::from_str(&vinculo_pessoal()).unwrap();
+    regravado["authorizedParties"] = json!([AZP, "https://outro-app.example.invalid"]);
+    vincular(&hub, &regravado.to_string());
+    assert_eq!(
+        readmitir_vinculado(&hub, &aparelho("b"), &par(100, Papel::Dono, Limite::em(60_000))).unwrap(),
+        Err(Recusa::AuthInvalid)
+    );
+    assert!(!gravou(&hub, "b"));
     vincular(&hub, &vinculo_pessoal());
+    // Epoch que subiu, ou geração da concessão que mudou, entre a verificação e a Tx.
+    let antes = par(100, Papel::Dono, Limite::em(60_000));
+    crate::fork::workspace::bump_on(&hub.store.db.locked()).unwrap();
+    assert_eq!(readmitir_vinculado(&hub, &aparelho("b"), &antes).unwrap(), Err(Recusa::AuthInvalid));
+    let outra_geracao = Pareamento { geracao: Some(7), ..par(100, Papel::Dono, Limite::em(60_000)) };
+    assert_eq!(readmitir_vinculado(&hub, &aparelho("b"), &outra_geracao).unwrap(), Err(Recusa::AuthInvalid));
+    assert!(!gravou(&hub, "b"));
+    // O pareamento sem vínculo relê na Tx que o Hub ainda não tem vínculo.
+    assert!(crate::fork::workspace::readmitir_pareado(&hub.store, &aparelho("z")).is_err());
+    assert!(!gravou(&hub, "z"));
     // Papel registrado com `iat` mais novo e outro papel: o pareamento com o token velho não grava.
     assert_eq!(registrar_papel(&hub, DONO, 200, Some(Papel::Admin)), Ok(()));
     assert_eq!(
@@ -801,13 +835,7 @@ fn prova_e_papel_na_mesma_tx_reconferem_prazo_vinculo_epoch_e_aparelho() {
     let hub = hub();
     vincular(&hub, &vinculo_pessoal());
     let v = vinculo(&vinculo_pessoal());
-    let par = Pareamento {
-        sub: DONO.into(),
-        iat: 100,
-        papel: Papel::Dono,
-        limite: Limite::em(60_000),
-        workspace_id: v.workspace_id(),
-    };
+    let par = Pareamento::de_prova(&hub, &v, "fone", DONO, 100, Papel::Dono, Limite::em(60_000));
     readmitir_vinculado(&hub, &aparelho("fone"), &par).unwrap().unwrap();
     let (_, caller) = crate::fork::autoridade::autenticar(&hub, "fone").unwrap();
     let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("sem autoridade") };
@@ -830,8 +858,9 @@ fn prova_e_papel_na_mesma_tx_reconferem_prazo_vinculo_epoch_e_aparelho() {
     hub.store.put_device(&trocado).unwrap();
     assert_eq!(registrar(&canal(e), DONO, 200, Limite::em(60_000)), Err(Recusa::DeviceUnpaired), "concessão");
     assert_eq!((papel_de(&hub, DONO), epoch_gravado(&hub)), (Some(Papel::Dono), e), "nada foi gravado");
-    // Tudo igual: papel e epoch no mesmo commit.
-    readmitir_vinculado(&hub, &aparelho("fone"), &Pareamento { iat: 150, ..par }).unwrap().unwrap();
+    // Um pareamento novo, verificado depois da troca de concessão: papel e epoch no mesmo commit.
+    let par = Pareamento::de_prova(&hub, &v, "fone", DONO, 150, Papel::Dono, Limite::em(60_000));
+    readmitir_vinculado(&hub, &aparelho("fone"), &par).unwrap().unwrap();
     let (_, caller) = crate::fork::autoridade::autenticar(&hub, "fone").unwrap();
     let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("sem autoridade") };
     let canal = Canal { chave: "fone", original: &original, epoch: epoch_gravado(&hub) };
@@ -891,16 +920,16 @@ async fn jwks_com_validade_menor_que_o_intervalo_busca_de_novo_com_o_endpoint_sa
     let j = jwks::Jwks::default();
     j.servir_com_frescor(|| Ok((jwks_padrao(), Duration::from_secs(10))));
     let t0 = Instant::now();
-    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(10));
+    assert_eq!(j.chave(&alvo(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(10));
     let depois = t0 + Duration::from_secs(11);
     assert!(depois < t0 + jwks::INTERVALO);
-    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(10), "sem ampliar o TTL");
+    assert_eq!(j.chave(&alvo(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(10), "sem ampliar o TTL");
     assert_eq!(j.buscas(), 2);
     // Com falha, o intervalo volta a valer: nada de martelar o endpoint.
     j.servir(|| anyhow::bail!("fora do ar"));
     let vencido = depois + Duration::from_secs(10);
-    assert_eq!(j.chave(&url(), KID, vencido).await.err(), Some(Recusa::AuthInvalid));
-    assert_eq!(j.chave(&url(), KID, vencido + ms(1)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, vencido).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, vencido + ms(1)).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 3, "uma busca por intervalo depois de falhar");
 }
 
@@ -909,7 +938,7 @@ async fn busca_da_jwks_nao_segura_o_conjunto_e_e_uma_so_para_quem_espera() {
     let j = Arc::new(jwks::Jwks::default());
     j.servir(|| Ok(jwks_padrao()));
     let t0 = Instant::now();
-    assert!(j.chave(&url(), KID, t0).await.is_ok());
+    assert!(j.chave(&alvo(), KID, t0).await.is_ok());
     j.servir(|| {
         std::thread::sleep(ms(400));
         Ok(jwks_padrao())
@@ -918,11 +947,11 @@ async fn busca_da_jwks_nao_segura_o_conjunto_e_e_uma_so_para_quem_espera() {
     let depois = t0 + jwks::INTERVALO;
     let lenta = {
         let j = j.clone();
-        tokio::spawn(async move { j.chave(&url(), "kid-desconhecido", depois).await })
+        tokio::spawn(async move { j.chave(&alvo(), "kid-desconhecido", depois).await })
     };
     tokio::time::sleep(ms(50)).await;
     let inicio = Instant::now();
-    assert!(j.chave(&url(), KID, depois).await.is_ok());
+    assert!(j.chave(&alvo(), KID, depois).await.is_ok());
     assert!(inicio.elapsed() < ms(200), "o GET não segura o conjunto");
     assert_eq!(lenta.await.unwrap().err(), Some(Recusa::AuthInvalid));
     // Conjunto vencido: quem chega durante a busca usa o resultado dela.
@@ -931,7 +960,7 @@ async fn busca_da_jwks_nao_segura_o_conjunto_e_e_uma_so_para_quem_espera() {
     let tarefas: Vec<_> = (0..4)
         .map(|_| {
             let j = j.clone();
-            tokio::spawn(async move { j.chave(&url(), KID, Instant::now()).await })
+            tokio::spawn(async move { j.chave(&alvo(), KID, Instant::now()).await })
         })
         .collect();
     for t in tarefas {
@@ -946,7 +975,7 @@ async fn kid_novo_durante_a_busca_espera_o_resultado_dela() {
     let [a, b] = chaves();
     j.servir(move || Ok(jwks(&[jwk(KID, a)])));
     let t0 = Instant::now();
-    assert!(j.chave(&url(), KID, t0).await.is_ok());
+    assert!(j.chave(&alvo(), KID, t0).await.is_ok());
     // Rotação: a busca pelo `kid` novo demora; um segundo pedido pelo mesmo `kid` chega durante ela.
     j.servir(move || {
         std::thread::sleep(ms(400));
@@ -955,10 +984,10 @@ async fn kid_novo_durante_a_busca_espera_o_resultado_dela() {
     let depois = t0 + jwks::INTERVALO;
     let primeira = {
         let j = j.clone();
-        tokio::spawn(async move { j.chave(&url(), KID_2, depois).await })
+        tokio::spawn(async move { j.chave(&alvo(), KID_2, depois).await })
     };
     tokio::time::sleep(ms(50)).await;
-    assert!(j.chave(&url(), KID_2, depois + ms(1)).await.is_ok(), "esperou a busca em curso");
+    assert!(j.chave(&alvo(), KID_2, depois + ms(1)).await.is_ok(), "esperou a busca em curso");
     assert!(primeira.await.unwrap().is_ok());
     assert_eq!(j.buscas(), 2, "uma busca só para os dois");
 }
@@ -1088,16 +1117,16 @@ async fn validade_conta_do_envio_e_resposta_que_chega_vencida_conta_como_falha()
     // Relógio controlado: o GET leva 5 s, mais que a validade de 2 s.
     j.demorar(Duration::from_secs(5));
     let t0 = Instant::now();
-    assert_eq!(j.chave(&url(), KID, t0).await.err(), Some(Recusa::AuthInvalid), "chegou vencida: recusa");
+    assert_eq!(j.chave(&alvo(), KID, t0).await.err(), Some(Recusa::AuthInvalid), "chegou vencida: recusa");
     assert_eq!(j.buscas(), 1);
     // Conta como falha: nada de nova busca antes do intervalo.
     let quase = t0 + jwks::INTERVALO.saturating_sub(ms(1));
-    assert_eq!(j.chave(&url(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 1, "resposta vencida respeita o intervalo");
     // Com validade maior que o atraso, vale a partir do envio: o atraso é descontado.
     *frescor.lock().unwrap() = Duration::from_secs(60);
     let depois = t0 + jwks::INTERVALO;
-    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(60));
+    assert_eq!(j.chave(&alvo(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(60));
     assert_eq!(j.buscas(), 2);
 }
 
@@ -1106,7 +1135,7 @@ async fn resposta_que_vence_durante_a_leitura_do_corpo_nao_troca_o_conjunto() {
     let j = Arc::new(jwks::Jwks::default());
     j.servir_com_frescor(|| Ok((jwks_padrao(), Duration::from_secs(600))));
     let t0 = Instant::now();
-    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
+    assert_eq!(j.chave(&alvo(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
     // Cabeçalhos com 2 s de validade, e o corpo leva 3 s para terminar de chegar.
     let fraca = Arc::downgrade(&j);
     j.servir_com_frescor(move || {
@@ -1116,12 +1145,12 @@ async fn resposta_que_vence_durante_a_leitura_do_corpo_nao_troca_o_conjunto() {
         Ok((jwks_padrao(), Duration::from_secs(2)))
     });
     let depois = t0 + jwks::INTERVALO;
-    assert_eq!(j.chave(&url(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 2);
-    let anterior = j.chave(&url(), KID, depois + ms(1)).await.unwrap();
+    let anterior = j.chave(&alvo(), KID, depois + ms(1)).await.unwrap();
     assert_eq!(anterior.ate, t0 + Duration::from_secs(600), "vencida no fim do corpo: o conjunto anterior segue");
     // E conta como falha: o intervalo vale para a próxima busca.
-    assert_eq!(j.chave(&url(), "kid-novo", depois + ms(2)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), "kid-novo", depois + ms(2)).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 2);
 }
 
@@ -1132,7 +1161,7 @@ async fn busca_cancelada_em_voo_conta_como_tentativa_falha() {
     let t0 = Instant::now();
     let rede = j.segurar_envio().await;
     {
-        let endereco = url();
+        let endereco = alvo();
         let pedido = j.chave(&endereco, KID, t0);
         tokio::pin!(pedido);
         // Barreira: o GET está em voo, com a tentativa já anotada.
@@ -1146,10 +1175,10 @@ async fn busca_cancelada_em_voo_conta_como_tentativa_falha() {
     // O pedido foi cancelado no meio: a tentativa conta e o intervalo vale.
     drop(rede);
     let quase = t0 + jwks::INTERVALO.saturating_sub(ms(1));
-    assert_eq!(j.chave(&url(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 1, "cancelamento não é tentativa grátis");
     let depois = t0 + jwks::INTERVALO;
-    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + jwks::TETO);
+    assert_eq!(j.chave(&alvo(), KID, depois).await.unwrap().ate, depois + jwks::TETO);
     assert_eq!(j.buscas(), 2);
 }
 
@@ -1160,17 +1189,17 @@ async fn max_age_vencido_nao_vira_uma_hora_nem_estende_o_conjunto_anterior() {
     let f = frescor.clone();
     j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
     let t0 = Instant::now();
-    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
+    assert_eq!(j.chave(&alvo(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
     // O emissor passa a mandar `max-age=0` (ou `Age` >= `max-age`): a busca conta como falha.
     *frescor.lock().unwrap() = Duration::ZERO;
     let depois = t0 + jwks::INTERVALO;
-    assert_eq!(j.chave(&url(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 2);
-    let anterior = j.chave(&url(), KID, depois + ms(1)).await.unwrap();
+    let anterior = j.chave(&alvo(), KID, depois + ms(1)).await.unwrap();
     assert_eq!(anterior.ate, t0 + Duration::from_secs(600), "o conjunto anterior segue, sem crescer");
     // Vencido o anterior, a busca é refeita e, vindo vencida de novo, recusa: nada de 1 h.
     let vencido = t0 + Duration::from_secs(600);
-    assert_eq!(j.chave(&url(), KID, vencido).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), KID, vencido).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), 3, "refez a busca");
 }
 
@@ -1181,7 +1210,7 @@ async fn tentativa_conta_do_inicio_do_get_depois_da_espera() {
     let t0 = Instant::now();
     let espera = Duration::from_secs(20);
     let ocupada = j.segurar_busca().await;
-    let endereco = url();
+    let endereco = alvo();
     let pedido = j.chave(&endereco, KID, t0);
     tokio::pin!(pedido);
     // Barreira: o pedido está na fila da busca de outro.
@@ -1197,137 +1226,182 @@ async fn tentativa_conta_do_inicio_do_get_depois_da_espera() {
     // desconhecido só busca de novo 30 s depois dela.
     let antes = j.buscas();
     let quase = t0 + espera + jwks::INTERVALO.saturating_sub(ms(1));
-    assert_eq!(j.chave(&url(), "kid-novo", quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), "kid-novo", quase).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), antes, "intervalo contado do início do GET");
-    assert_eq!(j.chave(&url(), "kid-novo", quase + ms(1)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.chave(&alvo(), "kid-novo", quase + ms(1)).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), antes + 1);
 }
 
-fn proposta(token: &str) -> Value {
-    json!({"kind": "personal", "ownerUserId": DONO, "issuer": EMISSOR, "jwksUrl": JWKS_URL,
-        "authorizedParties": [AZP], "sessionToken": token})
+fn ancora() -> gravacao::Ancora {
+    gravacao::Ancora { emissor: EMISSOR.into(), jwks: JWKS_URL.into(), azp: vec![AZP.into()] }
 }
 
-async fn gravar(hub: &Arc<Hub>, b: Value) -> Result<Value> {
-    crate::api::dispatch(hub, &Caller::Local, gravacao::METHOD, b).await
+async fn provar_com(ancora: &gravacao::Ancora, token: &str) -> Result<gravacao::Provado> {
+    let j = jwks::Jwks::default();
+    j.servir(|| Ok(jwks_padrao()));
+    gravacao::provar_dono(ancora, &j, token).await
 }
 
-fn codigo(r: Result<Value>) -> &'static str {
-    r.unwrap_err().downcast_ref::<crate::api::GroupError>().map_or("outro", |g| g.code)
+async fn provar(sub: &str) -> gravacao::Provado {
+    provar_com(&ancora(), &token(&afirmacoes(sub))).await.unwrap()
 }
 
-fn hub_para_gravar() -> Arc<Hub> {
-    let hub = hub();
-    hub.sessao_clerk.jwks.servir(|| Ok(jwks_padrao()));
-    hub.sessao_clerk.liberar_gravacao_para_prova();
-    hub
+fn codigo<T>(r: Result<T>) -> &'static str {
+    r.err().and_then(|e| e.downcast_ref::<gravacao::Falha>().map(|f| f.0)).unwrap_or("outro")
+}
+
+/// O que `workspace estado` mostraria agora.
+fn esperado_atual(hub: &Hub) -> gravacao::Esperado {
+    let versao = match vinculo::ler(hub) {
+        vinculo::Estado::Vinculado(v) => Some(v.versao),
+        _ => None,
+    };
+    gravacao::Esperado { versao, epoch: epoch_gravado(hub) }
 }
 
 #[tokio::test]
-async fn gravacao_do_vinculo_fica_desligada_e_so_no_computador() {
+async fn gravacao_do_vinculo_fica_desligada_e_fora_do_rpc() {
     let hub = hub();
-    hub.sessao_clerk.jwks.servir(|| Ok(jwks_padrao()));
-    assert_eq!(codigo(gravar(&hub, proposta(&token(&afirmacoes(DONO)))).await), "workspace_bind_disabled");
-    hub.sessao_clerk.liberar_gravacao_para_prova();
-    hub.store.put_device(&aparelho("fone")).unwrap();
-    let (_, fone) = crate::fork::autoridade::autenticar(&hub, "fone").unwrap();
-    let remoto = crate::api::dispatch(&hub, &fone, gravacao::METHOD, proposta(&token(&afirmacoes(DONO)))).await;
-    assert!(remoto.is_err(), "aparelho não grava vínculo");
+    let acao = gravacao::Acao::Vincular { esperado_versao: "nenhum".into(), esperado_epoch: 0, confirmado: true };
+    assert_eq!(codigo(gravacao::executar(acao).await), "workspace_bind_disabled");
+    // Nenhum RPC grava o vínculo, nem do computador do Hub.
+    let b = json!({"sessionToken": token(&afirmacoes(DONO))});
+    assert!(crate::api::dispatch(&hub, &Caller::Local, "workspaceBind", b).await.is_err());
+    assert!(!crate::fork::acesso_rpc::SO_LOCAL.contains(&"workspaceBind"));
     assert!(matches!(vinculo::ler(&hub), vinculo::Estado::SemVinculo));
 }
 
 #[tokio::test]
-async fn gravacao_recusa_prova_fraca_e_jwks_fora_da_origem_do_emissor() {
-    let hub = hub_para_gravar();
+async fn gravacao_recusa_prova_fraca_e_ancora_invalida() {
     let agora = now_ms() / 1000;
     let mut velho = afirmacoes(DONO);
     velho["iat"] = json!(agora - 61);
     velho["nbf"] = json!(agora - 62);
-    velho["exp"] = json!(agora - 1);
-    assert_eq!(codigo(gravar(&hub, proposta(&token(&velho))).await), "auth_invalid", "token velho");
-    assert_eq!(codigo(gravar(&hub, proposta(&token(&afirmacoes(OUTRO)))).await), "workspace_forbidden", "outro sub");
+    assert_eq!(codigo(provar_com(&ancora(), &token(&velho)).await), "auth_invalid", "token com mais de 60 s");
     let mut azp = afirmacoes(DONO);
     azp["azp"] = json!("https://outro-app.example.invalid");
-    assert_eq!(codigo(gravar(&hub, proposta(&token(&azp))).await), "auth_invalid", "azp fora da lista");
+    assert_eq!(codigo(provar_com(&ancora(), &token(&azp)).await), "auth_invalid", "azp fora da âncora");
+    let mut iss = afirmacoes(DONO);
+    iss["iss"] = json!("https://outro.example.invalid");
+    assert_eq!(codigo(provar_com(&ancora(), &token(&iss)).await), "auth_invalid", "emissor fora da âncora");
+    assert_eq!(codigo(provar_com(&ancora(), "nao.e.token").await), "auth_invalid");
     let valido = token(&afirmacoes(DONO));
-    let mudar = |campo: &str, valor: Value| {
-        let mut b = proposta(&valido);
-        b[campo] = valor;
-        b
+    let com = |emissor: &str, jwks: &str, azp: &[&str]| gravacao::Ancora {
+        emissor: emissor.into(),
+        jwks: jwks.into(),
+        azp: azp.iter().map(|a| (*a).to_owned()).collect(),
     };
-    for (campo, valor, esperado) in [
-        ("jwksUrl", json!("https://outro.example.invalid/.well-known/jwks.json"), "invalid_field"),
-        ("jwksUrl", json!("http://clerk.example.invalid/.well-known/jwks.json"), "invalid_field"),
-        ("authorizedParties", json!([]), "invalid_field"),
-        ("kind", json!("team"), "workspace_kind_unsupported"),
+    for (ruim, nome) in [
+        (com(EMISSOR, "https://outro.example.invalid/.well-known/jwks.json", &[AZP]), "JWKS fora da origem"),
+        (com(EMISSOR, "http://clerk.example.invalid/.well-known/jwks.json", &[AZP]), "JWKS sem TLS"),
+        (com("https://192.0.2.1", "https://192.0.2.1/.well-known/jwks.json", &[AZP]), "IP literal"),
+        (com(EMISSOR, JWKS_URL, &[]), "sem azp"),
     ] {
-        assert_eq!(codigo(gravar(&hub, mudar(campo, valor.clone())).await), esperado, "{campo} = {valor}");
+        assert_eq!(codigo(provar_com(&ruim, &valido).await), "workspace_anchor_invalid", "{nome}");
     }
-    let mut ip = mudar("issuer", json!("https://192.0.2.1"));
-    ip["jwksUrl"] = json!("https://192.0.2.1/.well-known/jwks.json");
-    assert_eq!(codigo(gravar(&hub, ip).await), "invalid_field", "IP literal");
-    let mut sem_token = proposta(&valido);
-    sem_token.as_object_mut().unwrap().remove(CAMPO_TOKEN);
-    assert_eq!(codigo(gravar(&hub, sem_token).await), "auth_invalid");
-    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::SemVinculo), "nada gravado");
 }
 
 #[test]
-fn jwks_proposta_so_conecta_a_endereco_publico() {
+fn jwks_so_conecta_a_unicast_global() {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     let v4 = |a, b, c, d| IpAddr::V4(Ipv4Addr::new(a, b, c, d));
     let v6 = |s: [u16; 8]| IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]));
-    let fora = [
-        v4(127, 0, 0, 1),
-        v4(10, 1, 2, 3),
-        v4(172, 16, 0, 1),
-        v4(192, 168, 1, 1),
-        v4(169, 254, 169, 254),
-        v4(100, 64, 0, 1),
-        v4(0, 0, 0, 0),
-        v4(224, 0, 0, 1),
-        v6([0, 0, 0, 0, 0, 0, 0, 1]),
-        v6([0; 8]),
-        v6([0xfe80, 0, 0, 0, 0, 0, 0, 1]),
-        v6([0xfc00, 0, 0, 0, 0, 0, 0, 1]),
-        v6([0xfd12, 0, 0, 0, 0, 0, 0, 1]),
-        v6([0, 0, 0, 0, 0, 0xffff, 0x0a00, 1]),
-        v6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]),
-        v6([0xfec0, 0, 0, 0, 0, 0, 0, 1]),
-        v6([0x2002, 0x0a00, 1, 0, 0, 0, 0, 1]),
-        v6([0x2001, 0, 0, 0, 0, 0, 0, 1]),
-        v6([0x64, 0xff9b, 0, 0, 0, 0, 0x0a00, 1]),
-        v6([0x64, 0xff9b, 1, 0, 0, 0, 0, 1]),
+    let familias: &[(&str, &[IpAddr])] = &[
+        ("IPv4 rede própria e não especificado", &[v4(0, 0, 0, 0), v4(0, 1, 2, 3)]),
+        ("IPv4 privado", &[v4(10, 1, 2, 3), v4(172, 16, 0, 1), v4(172, 31, 255, 254), v4(192, 168, 1, 1)]),
+        ("IPv4 loopback", &[v4(127, 0, 0, 1), v4(127, 9, 9, 9)]),
+        ("IPv4 link-local", &[v4(169, 254, 169, 254)]),
+        ("IPv4 CGNAT", &[v4(100, 64, 0, 1), v4(100, 127, 255, 254)]),
+        ("IPv4 atribuições IETF", &[v4(192, 0, 0, 1), v4(192, 0, 0, 9)]),
+        ("IPv4 documentação", &[v4(192, 0, 2, 1), v4(198, 51, 100, 1), v4(203, 0, 113, 1)]),
+        ("IPv4 relay 6to4", &[v4(192, 88, 99, 1)]),
+        ("IPv4 benchmark", &[v4(198, 18, 0, 1), v4(198, 19, 255, 254)]),
+        ("IPv4 multicast", &[v4(224, 0, 0, 1), v4(239, 1, 2, 3)]),
+        ("IPv4 reservado e broadcast", &[v4(240, 0, 0, 1), v4(255, 255, 255, 255)]),
+        ("IPv6 loopback e não especificado", &[v6([0, 0, 0, 0, 0, 0, 0, 1]), v6([0; 8])]),
+        ("IPv6 com IPv4 mapeado", &[v6([0, 0, 0, 0, 0, 0xffff, 0x0b16, 0x212c])]),
+        ("IPv6 com IPv4 compatível", &[v6([0, 0, 0, 0, 0, 0, 0x0b16, 0x212c])]),
+        ("IPv6 NAT64", &[v6([0x64, 0xff9b, 0, 0, 0, 0, 0x0b16, 0x212c]), v6([0x64, 0xff9b, 1, 0, 0, 0, 0, 1])]),
+        ("IPv6 6to4", &[v6([0x2002, 0x0b16, 0x212c, 0, 0, 0, 0, 1])]),
+        ("IPv6 Teredo", &[v6([0x2001, 0, 0x0b16, 0x212c, 0, 0, 0, 1])]),
+        ("IPv6 atribuições IETF", &[v6([0x2001, 2, 0, 0, 0, 0, 0, 1]), v6([0x2001, 0x20, 0, 0, 0, 0, 0, 1])]),
+        ("IPv6 documentação", &[v6([0x2001, 0x0db8, 0, 0, 0, 0, 0, 1]), v6([0x3fff, 0, 0, 0, 0, 0, 0, 1])]),
+        ("IPv6 descarte", &[v6([0x100, 0, 0, 0, 0, 0, 0, 1])]),
+        ("IPv6 local único", &[v6([0xfc00, 0, 0, 0, 0, 0, 0, 1]), v6([0xfd12, 0, 0, 0, 0, 0, 0, 1])]),
+        ("IPv6 link-local e site-local", &[v6([0xfe80, 0, 0, 0, 0, 0, 0, 1]), v6([0xfec0, 0, 0, 0, 0, 0, 0, 1])]),
+        ("IPv6 multicast", &[v6([0xff02, 0, 0, 0, 0, 0, 0, 1])]),
+        ("IPv6 fora de 2000::/3", &[v6([0x5f00, 0, 0, 0, 0, 0, 0, 1]), v6([0x4000, 0, 0, 0, 0, 0, 0, 1])]),
     ];
-    for ip in fora {
-        assert!(!jwks::publico(ip), "{ip}");
+    for (familia, ips) in familias {
+        for ip in *ips {
+            assert!(!jwks::publico(*ip), "{familia}: {ip}");
+        }
     }
-    for ip in [v4(11, 22, 33, 44), v6([0x2a00, 1, 0, 0, 0, 0, 0, 1])] {
+    for ip in [v4(11, 22, 33, 44), v6([0x2a00, 1, 0, 0, 0, 0, 0, 1]), v6([0x2600, 0, 0, 0, 0, 0, 0, 1])] {
         assert!(jwks::publico(ip), "{ip}");
     }
 }
 
 #[tokio::test]
-async fn primeiro_vinculo_por_compare_and_swap_e_troca_de_dono_recusada() {
-    let hub = hub_para_gravar();
-    let com = |esperado: Option<&str>, afirmacoes: &Value| {
-        let mut b = proposta(&token(afirmacoes));
-        b["ownerUserId"] = afirmacoes["sub"].clone();
-        if let Some(id) = esperado {
-            b["expectedWorkspaceId"] = json!(id);
-        }
-        b
-    };
-    let dono = format!("personal:{DONO}");
-    assert_eq!(codigo(gravar(&hub, com(Some(&dono), &afirmacoes(DONO))).await), "workspace_bind_conflict");
+async fn resolvedor_da_jwks_recusa_nome_que_resolve_fora_da_rede_publica() {
+    use reqwest::dns::Resolve as _;
+    let nome: reqwest::dns::Name = "localhost".parse().unwrap();
+    assert!(jwks::SoPublico.resolve(nome).await.is_err());
+}
+
+#[tokio::test]
+async fn cache_da_jwks_e_da_versao_do_vinculo_e_busca_antiga_nao_repovoa() {
+    let j = jwks::Jwks::default();
+    j.servir(|| Ok(jwks_padrao()));
+    let versao = |v: &str| jwks::Alvo { url: url(), versao: v.into() };
+    let t0 = Instant::now();
+    assert!(j.chave(&versao("a"), KID, t0).await.is_ok());
+    // Regravado na mesma URL: o conjunto começa vazio e nenhuma chave da versão anterior passa.
+    j.servir(|| Ok(jwks(&[jwk(KID_2, &chaves()[1])])));
+    assert_eq!(j.chave(&versao("b"), KID, t0).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2, "a versão nova busca de novo");
+    // Uma busca começada com a versão anterior termina depois da troca e não repovoa o conjunto.
+    let j = jwks::Jwks::default();
+    j.servir(|| Ok(jwks_padrao()));
+    let rede = j.segurar_envio().await;
+    let (a, b) = (versao("a"), versao("b"));
+    let antigo = j.chave(&a, KID, t0);
+    let novo = j.chave(&b, KID, t0);
+    tokio::pin!(antigo, novo);
+    tokio::select! {
+        biased;
+        r = &mut antigo => panic!("não esperou o GET: {:?}", r.is_ok()),
+        () = std::future::ready(()) => {}
+    }
+    tokio::select! {
+        biased;
+        r = &mut novo => panic!("não esperou a busca em curso: {:?}", r.is_ok()),
+        () = std::future::ready(()) => {}
+    }
+    drop(rede);
+    assert_eq!(antigo.await.err(), Some(Recusa::AuthInvalid), "a busca da versão anterior não serve");
+    assert!(novo.await.is_ok());
+    assert_eq!(j.buscas(), 2, "a versão nova fez a sua busca");
+}
+
+#[tokio::test]
+async fn primeiro_vinculo_por_compare_and_swap_da_versao_e_do_epoch_e_troca_de_dono_recusada() {
+    let hub = hub();
     let e = epoch_gravado(&hub);
-    let feito = gravar(&hub, com(None, &afirmacoes(DONO))).await.unwrap();
-    assert_eq!(feito["workspaceId"], dono.as_str());
-    assert_eq!(epoch_gravado(&hub), e + 1);
-    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::Vinculado(v) if v.workspace_id() == dono));
-    assert_eq!(codigo(gravar(&hub, com(None, &afirmacoes(DONO))).await), "workspace_bind_conflict", "já há vínculo");
+    let dono = provar(DONO).await;
+    let errado = gravacao::Esperado { versao: Some("outra".into()), epoch: e };
+    assert_eq!(codigo(gravacao::gravar(&hub.store, &dono, &errado)), "workspace_bind_conflict", "versão");
+    let errado = gravacao::Esperado { versao: None, epoch: e + 1 };
+    assert_eq!(codigo(gravacao::gravar(&hub.store, &dono, &errado)), "workspace_bind_conflict", "epoch");
+    let feito = gravacao::gravar(&hub.store, &dono, &esperado_atual(&hub)).unwrap();
+    assert_eq!(feito.workspace_id, format!("personal:{DONO}"));
+    assert_eq!(feito.epoch, e + 1);
+    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::Vinculado(v) if v.versao == feito.versao));
+    let sem_vinculo = gravacao::Esperado { versao: None, epoch: e + 1 };
+    assert_eq!(codigo(gravacao::gravar(&hub.store, &dono, &sem_vinculo)), "workspace_bind_conflict", "já há vínculo");
+    let outro = provar(OUTRO).await;
     assert_eq!(
-        codigo(gravar(&hub, com(Some(&dono), &afirmacoes(OUTRO))).await),
+        codigo(gravacao::gravar(&hub.store, &outro, &esperado_atual(&hub))),
         "workspace_swap_unsupported",
         "troca de dono"
     );
@@ -1335,24 +1409,27 @@ async fn primeiro_vinculo_por_compare_and_swap_e_troca_de_dono_recusada() {
 }
 
 #[tokio::test]
-async fn regravacao_do_mesmo_workspace_limpa_sessoes_e_papeis_e_sobe_o_epoch() {
-    let hub = hub_para_gravar();
+async fn regravacao_pela_versao_limpa_sessoes_e_papeis_sobe_o_epoch_e_duas_rotacoes_nao_passam() {
+    let hub = hub();
     vincular(&hub, &vinculo_pessoal());
-    hub.sessao_clerk.liberar_gravacao_para_prova();
     let _ = aparelho_com_sessao(&hub, &aparelho("fone"), DONO, Papel::Dono);
     let contar = |tabela: &str| -> i64 {
         hub.store.db.locked().query_row(&format!("SELECT COUNT(*) FROM {tabela}"), [], |r| r.get(0)).unwrap()
     };
     assert_eq!((contar("fork_sessao_aparelho_usuario"), contar("fork_sessao_papel")), (1, 1));
     let e = epoch_gravado(&hub);
-    // Só a JWKS muda: o mesmo workspace, regravado.
+    let visto = esperado_atual(&hub);
+    // A âncora de uma build nova troca a JWKS: o mesmo workspace, regravado.
     let nova = "https://clerk.example.invalid/outra/jwks.json";
-    let mut b = proposta(&token(&afirmacoes(DONO)));
-    b["jwksUrl"] = json!(nova);
-    b["expectedWorkspaceId"] = json!(format!("personal:{DONO}"));
-    gravar(&hub, b).await.unwrap();
+    let rotacao = gravacao::Ancora { jwks: nova.into(), ..ancora() };
+    let dono = provar_com(&rotacao, &token(&afirmacoes(DONO))).await.unwrap();
+    gravacao::gravar(&hub.store, &dono, &visto).unwrap();
     assert_eq!((contar("fork_sessao_aparelho_usuario"), contar("fork_sessao_papel")), (0, 0));
     assert_eq!(epoch_gravado(&hub), e + 1);
-    assert_eq!(crate::fork::workspace::reject_canal(&hub.workspace.retrato())["stableCode"], "workspace_revoked");
     assert!(matches!(vinculo::ler(&hub), vinculo::Estado::Vinculado(v) if v.jwks.as_str() == nova));
+    // Uma segunda rotação com a mesma expectativa não sobrescreve a mais nova.
+    let de_novo = provar(DONO).await;
+    assert_eq!(codigo(gravacao::gravar(&hub.store, &de_novo, &visto)), "workspace_bind_conflict");
+    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::Vinculado(v) if v.jwks.as_str() == nova));
+    assert_eq!(epoch_gravado(&hub), e + 1);
 }

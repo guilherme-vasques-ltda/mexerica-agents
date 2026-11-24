@@ -290,10 +290,16 @@ async fn ligacao_do_usuario_cai_com_a_concessao_a_revogacao_e_o_repareamento_sem
     hub.store.put_device(&aparelho).unwrap();
     let r = tentar(&hub, &key).await;
     assert_eq!((r["err"]["status"].clone(), r["err"]["code"].clone()), unpaired, "geração nova");
-    // Repareamento por código sem vínculo apaga a ligação.
+    // Com vínculo, o caminho do pareamento sem vínculo é recusado na própria Tx.
     let key = parear(&hub, &afirmacoes(DONO)).await.unwrap();
     let dk = crypto::b64(key.verifying_key().as_bytes());
-    crate::fork::workspace::readmitir_pareado(&hub.store, &hub.store.device(&dk).unwrap()).unwrap();
+    let aparelho = hub.store.device(&dk).unwrap();
+    assert!(crate::fork::workspace::readmitir_pareado(&hub.store, &aparelho).is_err());
+    // Repareamento por código sem vínculo (o vínculo sai e volta) apaga a ligação.
+    let chave = crate::fork::sessao_clerk::vinculo::CHAVE;
+    hub.store.db.locked().execute("DELETE FROM kv WHERE k=?1", [chave]).unwrap();
+    crate::fork::workspace::readmitir_pareado(&hub.store, &aparelho).unwrap();
+    vincular(&hub, &vinculo_pessoal());
     let r = tentar(&hub, &key).await;
     assert_eq!((r["err"]["status"].clone(), r["err"]["code"].clone()), unpaired, "repareado sem vínculo");
     // Revogação apaga a ligação.

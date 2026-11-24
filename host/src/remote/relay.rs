@@ -1211,8 +1211,7 @@ mod tests {
 
     #[tokio::test]
     async fn recado_guardado_antes_da_gravacao_do_vinculo_e_recusado() {
-        use crate::api::dispatch;
-        use crate::fork::sessao_clerk::prova;
+        use crate::fork::sessao_clerk::{gravacao, jwks, prova};
         let (hub, _dir) = temp_hub();
         let phone = SigningKey::from_bytes(&crypto::random());
         let dk = b64(phone.verifying_key().as_bytes());
@@ -1235,20 +1234,37 @@ mod tests {
         )
         .unwrap();
         let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
-        // O recado é selado e guardado antes do vínculo existir.
-        let nonce = uuid::Uuid::new_v4().to_string().to_uppercase();
-        let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "oi", "clientNonce": nonce}, "ts": now_ms()});
-        let blob = seal_mailbox(&hub, &phone, &nonce, inner.to_string().as_bytes());
-        let item = json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 60_000});
-        hub.sessao_clerk.jwks.servir(|| Ok(prova::jwks_padrao()));
-        hub.sessao_clerk.liberar_gravacao_para_prova();
-        let b = json!({"kind": "personal", "ownerUserId": prova::DONO, "issuer": prova::EMISSOR,
-            "jwksUrl": prova::JWKS_URL, "authorizedParties": [prova::AZP],
-            "sessionToken": prova::token(&prova::afirmacoes(prova::DONO))});
-        dispatch(&hub, &devices::Caller::Local, "workspaceBind", b).await.unwrap();
-        let ack = mailbox_item(&hub, &item).await;
+        // Dois recados selados antes do vínculo, com o epoch e a geração de então: entregáveis.
+        let epoch = crate::fork::workspace::epoch_on(&hub.store.db.locked()).unwrap();
+        let item = |seq: u64| {
+            let nonce = uuid::Uuid::new_v4().to_string().to_uppercase();
+            let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "oi", "clientNonce": nonce,
+                "workspaceEpoch": epoch, "grantGeneration": generation(&hub, &dk)}, "ts": now_ms()});
+            let blob = seal_mailbox(&hub, &phone, &nonce, inner.to_string().as_bytes());
+            let item = json!({"t": "mbox.item", "seq": seq, "from": dk, "nonce": nonce, "d": blob,
+                "exp": now_ms() + 60_000});
+            (nonce, item)
+        };
+        let ((antes, controle), (depois, guardado)) = (item(1), item(2));
+        let entregue = |nonce: &str| {
+            hub.store.history(&bot_id, i64::MAX, 50).unwrap().iter().any(|e| e.data["clientNonce"] == nonce)
+        };
+        assert_eq!(mailbox_item(&hub, &controle).await["ok"], true, "antes do vínculo, entregável");
+        assert!(entregue(&antes));
+        // O vínculo é gravado pelo caminho do subcomando.
+        let fonte = jwks::Jwks::default();
+        fonte.servir(|| Ok(prova::jwks_padrao()));
+        let ancora = gravacao::Ancora {
+            emissor: prova::EMISSOR.into(),
+            jwks: prova::JWKS_URL.into(),
+            azp: vec![prova::AZP.into()],
+        };
+        let dono =
+            gravacao::provar_dono(&ancora, &fonte, &prova::token(&prova::afirmacoes(prova::DONO))).await.unwrap();
+        gravacao::gravar(&hub.store, &dono, &gravacao::Esperado { versao: None, epoch }).unwrap();
+        let ack = mailbox_item(&hub, &guardado).await;
         assert_eq!((ack["ok"].as_bool(), ack["code"].as_str()), (Some(false), Some("unauthorized")));
-        assert!(!hub.store.history(&bot_id, i64::MAX, 50).unwrap().iter().any(|e| e.data["clientNonce"] == nonce));
+        assert!(!entregue(&depois));
     }
 
     #[tokio::test]

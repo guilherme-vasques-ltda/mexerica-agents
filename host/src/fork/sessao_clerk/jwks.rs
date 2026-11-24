@@ -15,7 +15,11 @@
 //! que termina de chegar já vencida conta como busca falha: não troca nem estende o conjunto, e a
 //! próxima espera o intervalo. Só uma busca bem-sucedida renova a validade; cada uma substitui o
 //! conjunto inteiro (chave removida sai).
-//! Cliente HTTP sem proxy do ambiente, sem redirect e só HTTPS. Corpo e chaves nunca vão a log.
+//! O conjunto pertence a um [`Alvo`] (URL e versão do vínculo): outro vínculo, mesmo na mesma URL,
+//! começa vazio, e uma busca de um vínculo anterior não repovoa o conjunto atual.
+//! Toda busca usa o mesmo cliente: sem proxy do ambiente, sem redirect, só HTTPS, host por nome
+//! (nunca IP literal) e só endereço unicast global na resolução ([`publico`]). Corpo e chaves nunca
+//! vão a log.
 use super::Recusa;
 use crate::remote::crypto;
 use anyhow::{Result, anyhow, bail, ensure};
@@ -39,9 +43,16 @@ struct Chave {
     e: Vec<u8>,
 }
 
+/// De quem é o conjunto: a URL da JWKS e a versão do vínculo que a fixou.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Alvo {
+    pub(crate) url: reqwest::Url,
+    pub(crate) versao: String,
+}
+
 #[derive(Default)]
 struct Cache {
-    url: Option<reqwest::Url>,
+    alvo: Option<Alvo>,
     chaves: Vec<Chave>,
     buscado_em: Option<Instant>,
     valido_ate: Option<Instant>,
@@ -124,12 +135,19 @@ pub(crate) struct Jwks {
 }
 
 impl Jwks {
-    fn cache(&self, url: &reqwest::Url) -> std::sync::MutexGuard<'_, Cache> {
+    /// O conjunto de `alvo`; o de outro alvo é descartado.
+    fn cache(&self, alvo: &Alvo) -> std::sync::MutexGuard<'_, Cache> {
         let mut cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if cache.url.as_ref() != Some(url) {
-            *cache = Cache { url: Some(url.clone()), ..Cache::default() };
+        if cache.alvo.as_ref() != Some(alvo) {
+            *cache = Cache { alvo: Some(alvo.clone()), ..Cache::default() };
         }
         cache
+    }
+
+    /// O conjunto só se ainda for o de `alvo`: quem começou com um vínculo anterior não o repovoa.
+    fn cache_se_atual(&self, alvo: &Alvo) -> Option<std::sync::MutexGuard<'_, Cache>> {
+        let cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (cache.alvo.as_ref() == Some(alvo)).then_some(cache)
     }
 
     /// O relógio da busca: o monotônico; nas provas, o controlado.
@@ -148,35 +166,42 @@ impl Jwks {
     /// A busca, com o cliente criado e a tentativa anotada antes do envio: tentativa e validade
     /// contam do envio do GET, que é o instante `agora` do pedido somado ao que já passou no relógio
     /// da busca desde `entrada`.
-    async fn buscar_e_concluir(&self, url: &reqwest::Url, agora: Instant, entrada: Instant) {
-        let cliente = cliente(true);
+    async fn buscar_e_concluir(&self, alvo: &Alvo, agora: Instant, entrada: Instant) {
+        let cliente = cliente();
         let inicio = agora + self.relogio().saturating_duration_since(entrada);
-        self.cache(url).anotar(inicio);
+        if self.cache_se_atual(alvo).map(|mut cache| cache.anotar(inicio)).is_none() {
+            return;
+        }
         let busca = match cliente {
-            Ok(cliente) => self.buscar_chaves(&cliente, url).await,
+            Ok(cliente) => self.buscar_chaves(&cliente, &alvo.url).await,
             Err(erro) => Err(erro),
         };
         let fim = agora + self.relogio().saturating_duration_since(entrada);
-        self.cache(url).concluir(busca, inicio, fim);
+        if let Some(mut cache) = self.cache_se_atual(alvo) {
+            cache.concluir(busca, inicio, fim);
+        }
     }
 
     /// A chave `kid`. Sem conjunto válido ou com `kid` desconhecido, espera a busca em curso e,
     /// com o estado de depois da espera, faz a sua se o intervalo deixar.
-    pub(crate) async fn chave(&self, url: &reqwest::Url, kid: &str, agora: Instant) -> Result<Resolvida, Recusa> {
+    pub(crate) async fn chave(&self, alvo: &Alvo, kid: &str, agora: Instant) -> Result<Resolvida, Recusa> {
         let entrada = self.relogio();
         let depois = |relogio: Instant| agora + relogio.saturating_duration_since(entrada);
         let falta = {
-            let cache = self.cache(url);
+            let cache = self.cache(alvo);
             cache.valido_ate.is_none_or(|ate| agora >= ate) || !cache.chaves.iter().any(|c| c.kid == kid)
         };
         if falta {
             let _busca = self.busca.lock().await;
-            if self.cache(url).precisa(kid, depois(self.relogio()).max(Instant::now())) {
-                self.buscar_e_concluir(url, agora, entrada).await;
+            let precisa = self
+                .cache_se_atual(alvo)
+                .is_some_and(|cache| cache.precisa(kid, depois(self.relogio()).max(Instant::now())));
+            if precisa {
+                self.buscar_e_concluir(alvo, agora, entrada).await;
             }
         }
         let agora = depois(self.relogio()).max(Instant::now());
-        let cache = self.cache(url);
+        let Some(cache) = self.cache_se_atual(alvo) else { return Err(Recusa::AuthInvalid) };
         let Some(ate) = cache.valido_ate.filter(|ate| agora < *ate) else { return Err(Recusa::AuthInvalid) };
         let chave = cache.chaves.iter().find(|c| c.kid == kid).ok_or(Recusa::AuthInvalid)?;
         let meia_vida = cache.buscado_em.is_some_and(|em| agora >= em + ate.saturating_duration_since(em) / 2);
@@ -189,11 +214,14 @@ impl Jwks {
 
     /// Renovação em segundo plano: só se nenhuma busca estiver em curso; o GET corre sem o lock do
     /// conjunto, e só uma busca bem-sucedida troca o conjunto. Falha não estende nada.
-    pub(crate) async fn renovar(&self, url: &reqwest::Url, agora: Instant) {
+    pub(crate) async fn renovar(&self, alvo: &Alvo, agora: Instant) {
         let entrada = self.relogio();
         let Ok(_busca) = self.busca.try_lock() else { return };
-        if self.cache(url).liberada(agora + self.relogio().saturating_duration_since(entrada)) {
-            self.buscar_e_concluir(url, agora, entrada).await;
+        let liberada = self
+            .cache_se_atual(alvo)
+            .is_some_and(|cache| cache.liberada(agora + self.relogio().saturating_duration_since(entrada)));
+        if liberada {
+            self.buscar_e_concluir(alvo, agora, entrada).await;
         }
     }
 
@@ -214,12 +242,12 @@ impl Jwks {
                 return fonte();
             }
         }
-        buscar_com(cliente, url).await
+        buscar_publico(cliente, url).await
     }
 
-    /// Chave `kid` de um vínculo proposto: busca avulsa, sem cache e sem tocar no conjunto do
-    /// vínculo gravado, pelo cliente que só conecta a endereço público. Falha é recusa.
-    pub(crate) async fn chave_proposta(
+    /// Chave `kid` da âncora, para gravar o vínculo: busca avulsa, sem cache e sem tocar no
+    /// conjunto do vínculo gravado, pelo mesmo cliente filtrado. Falha é recusa.
+    pub(crate) async fn chave_avulsa(
         &self,
         url: &reqwest::Url,
         kid: &str,
@@ -242,7 +270,7 @@ impl Jwks {
                 return fonte().map(|(corpo, _)| corpo);
             }
         }
-        let (corpo, _) = buscar_com(&cliente_publico()?, url).await?;
+        let (corpo, _) = buscar_publico(&cliente()?, url).await?;
         Ok(corpo)
     }
 
@@ -329,21 +357,9 @@ pub(crate) fn frescor(cabecalhos: &HeaderMap) -> Duration {
     }
 }
 
-/// `https_only` só é falso nas provas com servidor local sem TLS.
-pub(crate) fn cliente(https_only: bool) -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .https_only(https_only)
-        .timeout(PRAZO)
-        .connect_timeout(PRAZO)
-        .build()
-        .map_err(|_| anyhow!("cliente da JWKS indisponível"))
-}
-
-/// Cliente da JWKS proposta: os limites de [`cliente`] e só endereços públicos na resolução (o
-/// próprio cliente conecta ao endereço conferido).
-fn cliente_publico() -> Result<reqwest::Client> {
+/// O cliente de toda busca de JWKS: sem proxy, sem redirect, só HTTPS, com prazo, e só endereços
+/// públicos na resolução (o próprio cliente conecta ao endereço conferido, sem resolver de novo).
+pub(crate) fn cliente() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -355,7 +371,28 @@ fn cliente_publico() -> Result<reqwest::Client> {
         .map_err(|_| anyhow!("cliente da JWKS indisponível"))
 }
 
-struct SoPublico;
+/// Provas: o mesmo cliente sem TLS nem filtro, para o servidor HTTP local.
+#[cfg(test)]
+pub(crate) fn cliente_local() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(PRAZO)
+        .connect_timeout(PRAZO)
+        .build()
+        .expect("cliente local")
+}
+
+/// GET pela rede pública: o resolvedor do cliente não vê IP literal, então ele é recusado aqui.
+pub(crate) async fn buscar_publico(cliente: &reqwest::Client, url: &reqwest::Url) -> Result<(Vec<u8>, Duration)> {
+    ensure!(
+        url.host_str().is_some_and(|h| !h.starts_with('[') && h.parse::<std::net::IpAddr>().is_err()),
+        "JWKS fora da rede pública"
+    );
+    buscar_com(cliente, url).await
+}
+
+pub(crate) struct SoPublico;
 
 impl reqwest::dns::Resolve for SoPublico {
     fn resolve(&self, nome: reqwest::dns::Name) -> reqwest::dns::Resolving {
@@ -370,40 +407,37 @@ impl reqwest::dns::Resolve for SoPublico {
     }
 }
 
-/// Endereço roteável na internet: nada de loopback, rede privada, link-local, CGNAT, multicast,
-/// documentação ou não especificado, nem IPv4 embutido ou traduzido num IPv6 (mapeado, 6to4,
-/// Teredo, NAT64).
+/// Só unicast global, por lista de permitidos. IPv4 fora das faixas especiais da IANA (rede
+/// própria, privadas, loopback, link-local, CGNAT, `192.0.0.0/24`, documentação, 6to4 relay,
+/// benchmark, multicast e reservadas). IPv6 só em `2000::/3`, menos `2001::/23` (Teredo e
+/// atribuições de protocolo), `2001:db8::/32` e `3fff::/20` (documentação) e `2002::/16` (6to4).
+/// Todo IPv4 embutido num IPv6 (mapeado, compatível, NAT64, 6to4, Teredo) é recusado.
 pub(crate) fn publico(ip: std::net::IpAddr) -> bool {
     use std::net::IpAddr;
     match ip {
         IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            !(v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_documentation()
-                || v4.is_unspecified()
-                || v4.is_multicast()
-                || a == 0
+            let [a, b, c, _] = v4.octets();
+            !(a == 0
+                || a == 10
+                || a == 127
+                || a >= 224
                 || (a == 100 && (64..128).contains(&b))
+                || (a == 169 && b == 254)
+                || (a == 172 && (16..32).contains(&b))
+                || (a == 192 && b == 168)
+                || (a == 192 && b == 0 && (c == 0 || c == 2))
+                || (a == 192 && b == 88 && c == 99)
                 || (a == 198 && (b == 18 || b == 19))
-                || a >= 240)
+                || (a == 198 && b == 51 && c == 100)
+                || (a == 203 && b == 0 && c == 113))
         }
         IpAddr::V6(v6) => {
-            if let Some(v4) = v6.to_ipv4_mapped().or_else(|| v6.to_ipv4()) {
-                return publico(IpAddr::V4(v4));
-            }
             let [primeiro, segundo, ..] = v6.segments();
-            !(v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || (primeiro & 0xfe00) == 0xfc00
-                || (primeiro & 0xffc0) == 0xfe80
-                || (primeiro & 0xffc0) == 0xfec0
-                || primeiro == 0x2001 && (segundo == 0x0db8 || segundo == 0)
-                || primeiro == 0x2002
-                || primeiro == 0x0064 && segundo == 0xff9b)
+            (primeiro & 0xe000) == 0x2000
+                && !(primeiro == 0x2001 && segundo < 0x0200)
+                && !(primeiro == 0x2001 && segundo == 0x0db8)
+                && primeiro != 0x2002
+                && !(primeiro == 0x3fff && segundo < 0x1000)
         }
     }
 }

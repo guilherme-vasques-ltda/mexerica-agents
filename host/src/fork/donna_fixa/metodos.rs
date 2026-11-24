@@ -348,7 +348,6 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaConectorRascunho", LocalOnly),
     // PR3 PL1: status do vínculo pessoal (`personal_bootstrap::status`, LOCAL_ONLY em devices.rs).
     ("donnaPersonalBootstrapStatus", LocalOnly),
-    ("workspaceBind", LocalOnly),
     ("donnaOnboardingDetect", LocalOnly),
     ("donnaOnboardingSave", LocalOnly),
     ("donnaOnboardingStatus", LocalOnly),
